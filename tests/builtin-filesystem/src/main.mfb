@@ -1,0 +1,6 @@
+IMPORT fs
+
+SUB main()
+  USING file = fs.open("tests/builtin-filesystem/src/main.mfb", "read")
+  END USING
+END SUB

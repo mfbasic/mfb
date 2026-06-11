@@ -67,6 +67,7 @@ pub enum Keyword {
     Private,
     Type,
     Union,
+    Using,
 }
 
 #[derive(Clone, Debug)]
@@ -445,6 +446,8 @@ fn keyword(value: &str) -> Option<Keyword> {
         Some(Keyword::Type)
     } else if value.eq_ignore_ascii_case("UNION") {
         Some(Keyword::Union)
+    } else if value.eq_ignore_ascii_case("USING") {
+        Some(Keyword::Using)
     } else {
         None
     }

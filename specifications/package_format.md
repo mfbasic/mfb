@@ -420,6 +420,8 @@ These IDs are reserved and do not need table entries:
 6  = String
 7  = Byte
 8  = Error
+9  = TerminalSize
+0xFFFFFF00 = File
 ```
 
 All user, package, and instantiated built-in generic types appear in the `TYPE_TABLE`.
@@ -800,6 +802,22 @@ STORE_GLOBAL    globalId, src
 
 `STORE_GLOBAL` is valid only for top-level `MUT` globals.
 
+## Built-in IO and filesystem
+
+```text
+IO_WRITE          dst, stringReg, fdConst, appendNewlineConst
+IO_FLUSH          dst, fdConst
+IO_READ_LINE      dst, promptRegOrU32Max
+IO_READ_CHAR      dst
+IO_READ_BYTE      dst
+IO_IS_TERMINAL    dst, fdConst
+IO_TERMINAL_SIZE  dst
+IO_OPEN           dst, pathReg, modeReg
+IO_CLOSE          dst, fileHandleReg
+```
+
+`IO_OPEN` and `IO_CLOSE` are portable bytecode operations. `pathReg` and `modeReg` are `String` registers, `modeReg` contains a source-level portable mode string, and `dst` for `IO_OPEN` has built-in type `File`. Bytecode must not encode host constants such as POSIX `O_RDONLY`, Darwin syscall numbers, Windows access masks, or libc symbol names. Native backends lower these operations to the target runtime helper contract below.
+
 ## Records
 
 ```text
@@ -1119,6 +1137,38 @@ Rules:
 * `CPtr` must not appear in ordinary exported MFBASIC function signatures.
 * `OUT` and `REF` storage lives only for the duration of the call unless explicitly converted into an owned MFBASIC value or resource.
 * Native symbols are whitelisted by this table. MFBASIC bytecode cannot perform dynamic native symbol lookup.
+
+## Built-in native runtime helpers
+
+Executable native backends provide stable helper symbols for compiler-owned built-ins. These helpers are not user-callable `LINK` symbols and do not appear in source packages as dependencies. The arch emitter requests symbolic runtime imports; the OS layer supplies or links the implementation.
+
+```text
+mfb_io_open(path_ptr, path_len, mode_id) -> err_code, handle
+mfb_io_close(handle) -> err_code
+```
+
+Runtime helper ABI:
+
+```text
+mfb_io_open
+  input:
+    x0 = UTF-8 path pointer
+    x1 = path byte length
+    x2 = portable MFB open mode id
+  output:
+    x0 = MFB error code, 0 on success
+    x1 = opaque signed handle on success, unspecified on error
+
+mfb_io_close
+  input:
+    x0 = opaque signed handle
+  output:
+    x0 = MFB error code, 0 on success
+```
+
+The calling convention is the target platform ABI. Caller-saved and callee-saved registers follow that ABI. Helpers must not unwind or throw exceptions across the MFB frame. `path_ptr` remains owned by the MFB caller/runtime and no heap ownership transfers to the helper. Embedded NUL bytes are rejected before calling OS APIs. Portable open mode IDs are compiler-defined and map to source modes such as read, write, readWrite, and append; OS backends translate them to platform-specific flags.
+
+On macOS AArch64, the OS layer may implement these helpers by linking `/usr/lib/libSystem.B.dylib` and importing `_open`, `_close`, and `___error`, or by emitting equivalent OS-specific helper code. Linux and Windows backends must implement the same helper names and return convention while mapping to libc/syscalls or Win32 handles internally.
 
 ## `RESOURCE_TABLE`
 

@@ -253,6 +253,8 @@ Projects that expose `LINK` bindings should set `kind` to `binding` and may incl
 
 `native` metadata is informational to source tools and package managers until a matching `LINK` declaration is compiled. The compiled `.mfl` native-link metadata is authoritative for importers.
 
+Built-in standard packages may require platform baseline libraries without user manifest entries. For example, macOS executable builds can satisfy built-in file I/O through the OS baseline `libSystem`; applications do not declare that dependency manually unless they expose their own `LINK` binding.
+
 ---
 
 ## 9. Targets And Build Metadata

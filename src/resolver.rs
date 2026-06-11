@@ -19,6 +19,7 @@ const BUILTIN_TYPES: &[&str] = &[
     "Nothing",
     "Result",
     "String",
+    builtins::fs::FILE_TYPE,
     builtins::io::TERMINAL_SIZE_TYPE,
 ];
 
@@ -386,6 +387,33 @@ impl<'a> Resolver<'a> {
                     }
                     self.resolve_nested_block(file, &case.body, imports, locals);
                 }
+            }
+            Statement::Using {
+                name,
+                value,
+                body,
+                line,
+            } => {
+                self.resolve_expression(file, value, *line, imports, locals);
+                let mut nested = locals.clone();
+                if nested
+                    .insert(
+                        name.clone(),
+                        Symbol {
+                            file_path: file.path.clone(),
+                            line: *line,
+                        },
+                    )
+                    .is_some()
+                {
+                    self.report(
+                        "SYMBOL_DUPLICATE_LOCAL",
+                        &format!("Local binding `{name}` is already declared in this function."),
+                        file,
+                        *line,
+                    );
+                }
+                self.resolve_block(file, body, imports, &mut nested);
             }
         }
     }

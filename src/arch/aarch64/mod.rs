@@ -20,9 +20,10 @@ use crate::bytecode::{
     NATIVE_OPCODE_GENERAL_MID, NATIVE_OPCODE_GENERAL_REPLACE, NATIVE_OPCODE_GENERAL_TO_BYTE,
     NATIVE_OPCODE_GENERAL_TO_FIXED, NATIVE_OPCODE_GENERAL_TO_FLOAT, NATIVE_OPCODE_GENERAL_TO_INT,
     NATIVE_OPCODE_GENERAL_TO_STRING, NATIVE_OPCODE_GREATER, NATIVE_OPCODE_GREATER_EQUAL,
-    NATIVE_OPCODE_IO_FLUSH, NATIVE_OPCODE_IO_IS_TERMINAL, NATIVE_OPCODE_IO_READ_BYTE,
-    NATIVE_OPCODE_IO_READ_CHAR, NATIVE_OPCODE_IO_READ_LINE, NATIVE_OPCODE_IO_TERMINAL_SIZE,
-    NATIVE_OPCODE_IO_WRITE, NATIVE_OPCODE_LESS, NATIVE_OPCODE_LESS_EQUAL, NATIVE_OPCODE_LOAD_CONST,
+    NATIVE_OPCODE_IO_CLOSE, NATIVE_OPCODE_IO_FLUSH, NATIVE_OPCODE_IO_IS_TERMINAL,
+    NATIVE_OPCODE_IO_OPEN, NATIVE_OPCODE_IO_READ_BYTE, NATIVE_OPCODE_IO_READ_CHAR,
+    NATIVE_OPCODE_IO_READ_LINE, NATIVE_OPCODE_IO_TERMINAL_SIZE, NATIVE_OPCODE_IO_WRITE,
+    NATIVE_OPCODE_LESS, NATIVE_OPCODE_LESS_EQUAL, NATIVE_OPCODE_LOAD_CONST,
     NATIVE_OPCODE_LOAD_DEFAULT, NATIVE_OPCODE_LOAD_ENUM_MEMBER, NATIVE_OPCODE_LOAD_FIELD,
     NATIVE_OPCODE_LOAD_FUNCTION, NATIVE_OPCODE_MOD, NATIVE_OPCODE_MOVE, NATIVE_OPCODE_MUL,
     NATIVE_OPCODE_NEG, NATIVE_OPCODE_NOT, NATIVE_OPCODE_NOT_EQUAL, NATIVE_OPCODE_POW,
@@ -57,9 +58,12 @@ const ERR_OUTPUT_FAILURE: u64 = 10015;
 const ERR_EOF: u64 = 10016;
 const ERR_INVALID_UTF8: u64 = 10019;
 const ERR_INPUT_FAILURE: u64 = 10020;
+const ERR_RESOURCE_CLOSED: u64 = 10021;
 const DARWIN_PROT_READ_WRITE: u64 = 0x3;
 const DARWIN_MAP_PRIVATE_ANON: u64 = 0x1002;
 const DARWIN_SYSCALL_EXIT: u64 = 0x0200_0001;
+const DARWIN_SYSCALL_OPEN: u64 = 0x0200_0005;
+const DARWIN_SYSCALL_CLOSE: u64 = 0x0200_0006;
 const DARWIN_SYSCALL_READ: u64 = 0x0200_0003;
 const DARWIN_SYSCALL_WRITE: u64 = 0x0200_0004;
 const DARWIN_SYSCALL_IOCTL: u64 = 0x0200_0036;
@@ -67,6 +71,12 @@ const DARWIN_SYSCALL_MUNMAP: u64 = 0x0200_0049;
 const DARWIN_SYSCALL_MMAP: u64 = 0x0200_00c5;
 const DARWIN_TIOCGETA: u64 = 0x4048_7413;
 const DARWIN_TIOCGWINSZ: u64 = 0x4008_7468;
+const DARWIN_O_WRONLY: u64 = 0x0001;
+const DARWIN_O_RDWR: u64 = 0x0002;
+const DARWIN_O_APPEND: u64 = 0x0008;
+const DARWIN_O_CREAT: u64 = 0x0200;
+const DARWIN_O_TRUNC: u64 = 0x0400;
+const DARWIN_OPEN_PERMISSIONS: u64 = 0o666;
 const HEAP_KIND_STRING: u64 = 1;
 const HEAP_KIND_LIST: u64 = 2;
 const HEAP_KIND_RECORD: u64 = 3;
@@ -310,6 +320,12 @@ impl<'a> NativeEmitter<'a> {
                 }
                 NATIVE_OPCODE_IO_TERMINAL_SIZE => {
                     self.emit_io_terminal_size(function, instruction, epilogue)?;
+                }
+                NATIVE_OPCODE_IO_OPEN => {
+                    self.emit_io_open(function, instruction, epilogue)?;
+                }
+                NATIVE_OPCODE_IO_CLOSE => {
+                    self.emit_io_close(function, instruction, epilogue)?;
                 }
                 NATIVE_OPCODE_CALL_RESULT => {
                     self.emit_call_result(instruction)?;
@@ -3824,6 +3840,154 @@ impl<'a> NativeEmitter<'a> {
         self.code.str_imm(31, 31, slot_offset(dst) + 16)
     }
 
+    fn emit_io_open(
+        &mut self,
+        function: &bytecode::NativeFunction,
+        instruction: &bytecode::NativeInstruction,
+        epilogue: Label,
+    ) -> Result<(), String> {
+        let dst = operand(instruction, 0)?;
+        let path = operand(instruction, 1)?;
+        let mode = operand(instruction, 2)?;
+        self.expect_register_type(function, dst, NativeType::FileHandle, "IO_OPEN")?;
+        self.expect_register_type(function, path, NativeType::String, "IO_OPEN path")?;
+        self.expect_register_type(function, mode, NativeType::String, "IO_OPEN mode")?;
+
+        self.emit_open_mode_flags(mode, epilogue)?;
+        self.code.str_imm(22, 31, self.current_scratch + 56)?;
+
+        self.code.ldr_imm(20, 31, slot_offset(path))?;
+        self.code.ldr_imm(21, 31, slot_offset(path) + 8)?;
+        self.code.str_imm(20, 31, self.current_scratch + 64)?;
+        self.code.str_imm(21, 31, self.current_scratch + 72)?;
+        let invalid_path = self.code.new_label();
+        self.code.cbz(21, invalid_path);
+        self.code.add_imm(0, 21, 1)?;
+        self.code.mov_imm(1, 1);
+        self.code.bl(self.arena_alloc);
+        let allocated = self.code.new_label();
+        self.code.cbz(0, allocated);
+        self.code.mov_imm(1, 0);
+        self.code.mov_imm(2, 0);
+        self.code.b(epilogue);
+
+        self.code.bind(allocated);
+        self.code.ldr_imm(20, 31, self.current_scratch + 64)?;
+        self.code.ldr_imm(21, 31, self.current_scratch + 72)?;
+        self.code.mov_reg(22, 1);
+        self.code.add_imm(23, 20, HEAP_HEADER_SIZE)?;
+        self.code.mov_imm(24, 0);
+        let copy_loop = self.code.new_label();
+        let copy_done = self.code.new_label();
+        self.code.bind(copy_loop);
+        self.code.cmp_reg(24, 21);
+        self.code.b_hs(copy_done);
+        self.code.add_reg(25, 23, 24);
+        self.code.ldrb_imm(26, 25, 0);
+        self.code.cbz(26, invalid_path);
+        self.code.add_reg(27, 22, 24);
+        self.code.strb_imm(26, 27, 0);
+        self.code.add_imm(24, 24, 1)?;
+        self.code.b(copy_loop);
+        self.code.bind(copy_done);
+        self.code.add_reg(27, 22, 21);
+        self.code.strb_imm(31, 27, 0);
+
+        self.code.mov_reg(0, 22);
+        self.code.ldr_imm(1, 31, self.current_scratch + 56)?;
+        self.code.mov_imm(2, DARWIN_OPEN_PERMISSIONS);
+        self.code.mov_imm(16, DARWIN_SYSCALL_OPEN);
+        self.code.svc();
+        let opened = self.code.new_label();
+        self.code.cmp_zero(0);
+        self.code.b_ge(opened);
+        self.fail_current_function(ERR_NOT_FOUND, epilogue);
+        self.code.bind(opened);
+        self.code.str_imm(0, 31, slot_offset(dst))?;
+        self.code.str_imm(31, 31, slot_offset(dst) + 8)?;
+        self.code.str_imm(31, 31, slot_offset(dst) + 16)?;
+        let done = self.code.new_label();
+        self.code.b(done);
+        self.code.bind(invalid_path);
+        self.fail_current_function(ERR_INVALID_ARGUMENT, epilogue);
+        self.code.bind(done);
+        Ok(())
+    }
+
+    fn emit_open_mode_flags(&mut self, mode: u32, epilogue: Label) -> Result<(), String> {
+        self.code.ldr_imm(20, 31, slot_offset(mode))?;
+        self.code.ldr_imm(21, 31, slot_offset(mode) + 8)?;
+
+        let read = self.code.new_label();
+        let write = self.code.new_label();
+        let read_write = self.code.new_label();
+        let append = self.code.new_label();
+        let invalid = self.code.new_label();
+        self.branch_if_ascii_literal(20, 21, b"r", read);
+        self.branch_if_ascii_literal(20, 21, b"read", read);
+        self.branch_if_ascii_literal(20, 21, b"w", write);
+        self.branch_if_ascii_literal(20, 21, b"write", write);
+        self.branch_if_ascii_literal(20, 21, b"rw", read_write);
+        self.branch_if_ascii_literal(20, 21, b"readWrite", read_write);
+        self.branch_if_ascii_literal(20, 21, b"a", append);
+        self.branch_if_ascii_literal(20, 21, b"append", append);
+        self.code.b(invalid);
+
+        let done = self.code.new_label();
+        self.code.bind(read);
+        self.code.mov_imm(22, 0);
+        self.code.b(done);
+        self.code.bind(write);
+        self.code
+            .mov_imm(22, DARWIN_O_WRONLY | DARWIN_O_CREAT | DARWIN_O_TRUNC);
+        self.code.b(done);
+        self.code.bind(read_write);
+        self.code.mov_imm(22, DARWIN_O_RDWR | DARWIN_O_CREAT);
+        self.code.b(done);
+        self.code.bind(append);
+        self.code
+            .mov_imm(22, DARWIN_O_WRONLY | DARWIN_O_CREAT | DARWIN_O_APPEND);
+        self.code.b(done);
+        self.code.bind(invalid);
+        self.fail_current_function(ERR_INVALID_ARGUMENT, epilogue);
+        self.code.bind(done);
+        Ok(())
+    }
+
+    fn branch_if_ascii_literal(&mut self, ptr: u8, len: u8, literal: &[u8], target: Label) {
+        let next = self.code.new_label();
+        self.code.cmp_reg_imm(len, literal.len() as u64);
+        self.code.b_ne(next);
+        for (index, byte) in literal.iter().enumerate() {
+            self.code.ldrb_imm(18, ptr, HEAP_HEADER_SIZE + index);
+            self.code.cmp_reg_imm(18, u64::from(*byte));
+            self.code.b_ne(next);
+        }
+        self.code.b(target);
+        self.code.bind(next);
+    }
+
+    fn emit_io_close(
+        &mut self,
+        function: &bytecode::NativeFunction,
+        instruction: &bytecode::NativeInstruction,
+        epilogue: Label,
+    ) -> Result<(), String> {
+        let dst = operand(instruction, 0)?;
+        let handle = operand(instruction, 1)?;
+        self.expect_register_type(function, dst, NativeType::Nothing, "IO_CLOSE")?;
+        self.expect_register_type(function, handle, NativeType::FileHandle, "IO_CLOSE")?;
+        self.code.ldr_imm(0, 31, slot_offset(handle))?;
+        self.code.mov_imm(16, DARWIN_SYSCALL_CLOSE);
+        self.code.svc();
+        let closed = self.code.new_label();
+        self.code.cmp_zero(0);
+        self.code.b_ge(closed);
+        self.fail_current_function(ERR_RESOURCE_CLOSED, epilogue);
+        self.code.bind(closed);
+        self.store_zero_slot(dst)
+    }
+
     fn emit_unwrap_result(
         &mut self,
         function: &bytecode::NativeFunction,
@@ -4080,6 +4244,7 @@ fn native_type_name(type_: NativeType) -> &'static str {
         NativeType::Float => "Float",
         NativeType::Fixed => "Fixed",
         NativeType::String => "String",
+        NativeType::FileHandle => "FileHandle",
         NativeType::Result => "Result",
         NativeType::Other => "Other",
     }

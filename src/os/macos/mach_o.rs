@@ -1,5 +1,5 @@
 use crate::arch::aarch64;
-use crate::bytecode;
+use crate::bytecode::{self, NativeImportKind};
 use crate::ir::IrProject;
 use crate::target::BuildTarget;
 use sha2::{Digest, Sha256};
@@ -24,9 +24,19 @@ pub fn write_executable(
     }
 
     let program = bytecode::native_program(ir)?;
-    let code_offset = code_offset();
+    let imports_libsystem = program.imports.iter().any(|import| {
+        import.kind == NativeImportKind::LibSystem
+            && matches!(import.symbol, "_open" | "_close" | "___error")
+    });
+    let code_offset = code_offset(imports_libsystem);
     let image = aarch64::encode(&program, VM_BASE + code_offset as u64)?;
-    let bytes = encode_mach_o(&ir.name, code_offset, &image.code, &image.data);
+    let bytes = encode_mach_o(
+        &ir.name,
+        code_offset,
+        &image.code,
+        &image.data,
+        imports_libsystem,
+    );
     let path = project_dir.join(format!("{}.out", ir.name));
 
     fs::write(&path, bytes)
@@ -40,10 +50,17 @@ pub fn write_executable(
     Ok(path)
 }
 
-fn encode_mach_o(name: &str, code_offset: usize, code: &[u8], data: &[u8]) -> Vec<u8> {
-    let unsigned = encode_unsigned_mach_o(code_offset, code, data, 0);
+fn encode_mach_o(
+    name: &str,
+    code_offset: usize,
+    code: &[u8],
+    data: &[u8],
+    imports_libsystem: bool,
+) -> Vec<u8> {
+    let unsigned = encode_unsigned_mach_o(code_offset, code, data, 0, imports_libsystem);
     let signature = code_signature(&unsigned, name);
-    let unsigned = encode_unsigned_mach_o(code_offset, code, data, signature.len());
+    let unsigned =
+        encode_unsigned_mach_o(code_offset, code, data, signature.len(), imports_libsystem);
     let signature = code_signature(&unsigned, name);
     let mut bytes = unsigned;
     bytes.extend_from_slice(&signature);
@@ -55,18 +72,19 @@ fn encode_unsigned_mach_o(
     code: &[u8],
     data: &[u8],
     signature_size: usize,
+    imports_libsystem: bool,
 ) -> Vec<u8> {
     let linkedit = linkedit_layout();
     let signature_offset = align(linkedit.data_in_code_offset, 16);
     let linkedit_file_size = signature_offset + signature_size - LINKEDIT_FILE_OFFSET;
-    let load_commands_size = load_commands_size();
+    let load_commands_size = load_commands_size(imports_libsystem);
     let mut bytes = Vec::new();
 
     put_u32(&mut bytes, 0xfeed_facf);
     put_u32(&mut bytes, 0x0100_000c);
     put_u32(&mut bytes, 0);
     put_u32(&mut bytes, 2);
-    put_u32(&mut bytes, 15);
+    put_u32(&mut bytes, load_command_count(imports_libsystem));
     put_u32(&mut bytes, load_commands_size as u32);
     put_u32(&mut bytes, 0x0020_0085);
     put_u32(&mut bytes, 0);
@@ -95,6 +113,9 @@ fn encode_unsigned_mach_o(
     symtab(&mut bytes, linkedit.symtab_offset, linkedit.string_offset);
     dysymtab(&mut bytes);
     load_dylinker(&mut bytes);
+    if imports_libsystem {
+        load_dylib(&mut bytes, "/usr/lib/libSystem.B.dylib");
+    }
     uuid_command(&mut bytes);
     build_version(&mut bytes);
     source_version(&mut bytes);
@@ -113,12 +134,39 @@ fn encode_unsigned_mach_o(
     bytes
 }
 
-fn code_offset() -> usize {
-    align(32 + load_commands_size(), 4)
+fn code_offset(imports_libsystem: bool) -> usize {
+    align(32 + load_commands_size(imports_libsystem), 4)
 }
 
-fn load_commands_size() -> usize {
-    72 + 232 + 72 + 16 + 16 + 24 + 80 + dylinker_command_size() + 24 + 32 + 16 + 24 + 16 + 16 + 16
+fn load_commands_size(imports_libsystem: bool) -> usize {
+    let base = 72
+        + 232
+        + 72
+        + 16
+        + 16
+        + 24
+        + 80
+        + dylinker_command_size()
+        + 24
+        + 32
+        + 16
+        + 24
+        + 16
+        + 16
+        + 16;
+    if imports_libsystem {
+        base + dylib_command_size("/usr/lib/libSystem.B.dylib")
+    } else {
+        base
+    }
+}
+
+fn load_command_count(imports_libsystem: bool) -> u32 {
+    if imports_libsystem {
+        16
+    } else {
+        15
+    }
 }
 
 fn text_segment(bytes: &mut Vec<u8>, code_offset: usize, code_len: usize, text_len: usize) {
@@ -225,6 +273,23 @@ fn load_dylinker(bytes: &mut Vec<u8>) {
 
 fn dylinker_command_size() -> usize {
     align(12 + b"/usr/lib/dyld\0".len(), 8)
+}
+
+fn load_dylib(bytes: &mut Vec<u8>, path: &str) {
+    let size = dylib_command_size(path);
+    put_u32(bytes, 0xc);
+    put_u32(bytes, size as u32);
+    put_u32(bytes, 24);
+    put_u32(bytes, 0);
+    put_u32(bytes, 0);
+    put_u32(bytes, 0);
+    bytes.extend_from_slice(path.as_bytes());
+    bytes.push(0);
+    bytes.resize(align(bytes.len(), 8), 0);
+}
+
+fn dylib_command_size(path: &str) -> usize {
+    align(24 + path.len() + 1, 8)
 }
 
 fn uuid_command(bytes: &mut Vec<u8>) {

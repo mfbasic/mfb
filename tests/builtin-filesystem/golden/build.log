@@ -1,0 +1,12 @@
+$ mfb build -ast tests/builtin-filesystem
+Wrote AST to tests/builtin-filesystem/builtin_filesystem.ast
+[exit 0]
+$ mfb build -ir tests/builtin-filesystem
+Wrote IR to tests/builtin-filesystem/builtin_filesystem.ir
+[exit 0]
+$ mfb build -bc tests/builtin-filesystem
+Wrote bytecode hex to tests/builtin-filesystem/builtin_filesystem.hex
+[exit 0]
+$ mfb build -bin tests/builtin-filesystem
+Wrote binary to tests/builtin-filesystem/builtin_filesystem.aarch64.bin
+[exit 0]

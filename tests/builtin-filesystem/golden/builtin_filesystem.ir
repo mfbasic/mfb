@@ -1,0 +1,32 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "builtin_filesystem",
+  "entry": {
+    "name": "main",
+    "returns": "Nothing",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "visibility": "private",
+    "kind": "sub",
+    "params": [
+    ],
+    "returns": "Nothing",
+    "body": [
+    {
+      "op": "using",
+      "name": "file",
+      "type": "File",
+      "value": { "kind": "call", "target": "fs.open", "args": [{ "kind": "const", "type": "String", "value": "tests/builtin-filesystem/src/main.mfb" }, { "kind": "const", "type": "String", "value": "read" }] },
+      "body": [
+      ]
+    }
+    ]
+  }
+  ]
+}

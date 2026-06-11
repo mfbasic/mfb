@@ -664,6 +664,34 @@ impl<'a> TypeChecker<'a> {
                     Flow::FallsThrough
                 }
             }
+            Statement::Using {
+                name,
+                value,
+                body,
+                line,
+            } => {
+                let resource_type = self.infer_expression(file, value, locals, *line);
+                if !matches!(&resource_type, Type::User(name) if name == "File") {
+                    self.report(
+                        "TYPE_USING_REQUIRES_RESOURCE",
+                        &format!(
+                            "USING binding `{name}` has type {}, expected File.",
+                            self.type_name(&resource_type)
+                        ),
+                        file,
+                        *line,
+                    );
+                }
+                let mut nested = locals.clone();
+                nested.insert(
+                    name.clone(),
+                    LocalInfo {
+                        type_: resource_type,
+                        mutable: false,
+                    },
+                );
+                self.check_block(file, body, expected_return, &mut nested)
+            }
         }
     }
 
@@ -1542,6 +1570,9 @@ impl<'a> TypeChecker<'a> {
         if builtins::strings::is_strings_call(callee) {
             return self.check_strings_builtin_call(file, callee, arguments, locals, line);
         }
+        if builtins::fs::is_fs_call(callee) {
+            return self.check_fs_builtin_call(file, callee, arguments, locals, line);
+        }
         if builtins::io::is_io_call(callee) {
             return self.check_io_builtin_call(file, callee, arguments, locals, line);
         }
@@ -1550,6 +1581,59 @@ impl<'a> TypeChecker<'a> {
             self.infer_expression(file, argument, locals, line);
         }
         Type::Unknown
+    }
+
+    fn check_fs_builtin_call(
+        &mut self,
+        file: &AstFile,
+        callee: &str,
+        arguments: &[Expression],
+        locals: &HashMap<String, LocalInfo>,
+        line: usize,
+    ) -> Type {
+        let arg_types = arguments
+            .iter()
+            .map(|argument| {
+                let type_ = self.infer_expression(file, argument, locals, line);
+                self.type_name(&type_)
+            })
+            .collect::<Vec<_>>();
+
+        if let Some((min, max)) = builtins::fs::arity(callee) {
+            if arguments.len() < min || arguments.len() > max {
+                let expected = if min == max {
+                    min.to_string()
+                } else {
+                    format!("{min} to {max}")
+                };
+                self.report(
+                    "TYPE_CALL_ARITY_MISMATCH",
+                    &format!(
+                        "Call to `{callee}` has {} argument(s), expected {expected}.",
+                        arguments.len()
+                    ),
+                    file,
+                    line,
+                );
+                return Type::Unknown;
+            }
+        }
+
+        let Some(resolved) = builtins::fs::resolve_call(callee, &arg_types) else {
+            let expected = builtins::fs::expected_arguments(callee).unwrap_or("supported overload");
+            self.report(
+                "TYPE_CALL_ARGUMENT_MISMATCH",
+                &format!(
+                    "Call to `{callee}` has argument type(s) ({}), expected {expected}.",
+                    arg_types.join(", ")
+                ),
+                file,
+                line,
+            );
+            return Type::Unknown;
+        };
+
+        self.parse_type(&resolved.return_type)
     }
 
     fn check_io_builtin_call(

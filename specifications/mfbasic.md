@@ -1149,7 +1149,7 @@ Rules:
 ## 17. Built-in Functions
 
 Terminal and standard-stream I/O: `io.print`, `io.write`, `io.printError`, `io.writeError`, `io.flush`, `io.flushError`, `io.input`, `io.readLine`, `io.readChar`, `io.readByte`, `io.isInputTerminal`, `io.isOutputTerminal`, `io.isErrorTerminal`, `io.terminalSize`.
-Filesystem and file I/O: `fs.fileExists`, `fs.directoryExists`, `fs.exists`, `fs.readText`, `fs.writeText`, `fs.writeTextAtomic`, `fs.appendText`, `fs.openFile`, `fs.openFileNoFollow`, `fs.createTempFile`, `fs.readLine`, `fs.readAll`, `fs.writeAll`, `fs.close`, `fs.eof`, `fs.canonicalPath`, `fs.isWithin`, `fs.pathJoin`, `fs.pathDirName`, `fs.pathBaseName`, `fs.pathExtension`, `fs.pathNormalize`, `fs.deleteFile`, `fs.createDirectory`, `fs.createDirectories`, `fs.deleteDirectory`, `fs.listDirectory`, `fs.currentDirectory`, `fs.setCurrentDirectory`.
+Filesystem and file I/O: `fs.fileExists`, `fs.directoryExists`, `fs.exists`, `fs.readText`, `fs.writeText`, `fs.writeTextAtomic`, `fs.appendText`, `fs.open`, `fs.openFile`, `fs.openFileNoFollow`, `fs.createTempFile`, `fs.readLine`, `fs.readAll`, `fs.writeAll`, `fs.close`, `fs.eof`, `fs.canonicalPath`, `fs.isWithin`, `fs.pathJoin`, `fs.pathDirName`, `fs.pathBaseName`, `fs.pathExtension`, `fs.pathNormalize`, `fs.deleteFile`, `fs.createDirectory`, `fs.createDirectories`, `fs.deleteDirectory`, `fs.listDirectory`, `fs.currentDirectory`, `fs.setCurrentDirectory`.
 Network: `net.lookup`, `net.connectTcp`, `net.listenTcp`, `net.accept`, `net.bindUdp`, `net.receiveFrom`, `net.receiveTextFrom`, `net.sendTo`, `net.sendTextTo`, `net.poll`, `net.read`, `net.readText`, `net.write`, `net.writeText`, `net.close`, `net.localAddress`, `net.remoteAddress`, `net.setReadTimeout`, `net.setWriteTimeout`, `tls.connect`, `tls.wrap`, `tls.close`.
 Strings: `len`, `find`, `mid`, `replace`, `strings.trim`, `strings.trimStart`, `strings.trimEnd`, `strings.upper`, `strings.lower`, `strings.caseFold`, `strings.normalizeNfc`, `strings.graphemes`, `strings.startsWith`, `strings.endsWith`, `strings.contains`, `strings.split`, `strings.join`, `strings.byteLen`, `strings.regexMatch`, `strings.regexFind`, `strings.regexReplace`, `toString`, `toInt`, `toFloat`, `toFixed`, `toByte`, `isNumeric`, `&`.
 Collections: `forEach`, `transform`, `filter`, `reduce`, `sum`, `get`, `getOr`, `find`, `mid`, `replace`, `set`, `append`, `prepend`, `insert`, `removeAt`, `removeKey`, `keys`, `values`, `hasKey`, `contains`, `len`.
@@ -1739,7 +1739,13 @@ Use `toString` explicitly before calling `io.print`, `io.write`, `io.printError`
 
 Filesystem and file-handle functions live in the `fs` package. Paths are `String` values.
 
-One-shot path operations read, write, inspect, or modify filesystem entries without exposing resource handles. Scoped file-handle I/O uses `fs.openFile`, `fs.openFileNoFollow`, or `fs.createTempFile` with `USING`; the resulting `File` is closed automatically at `END USING`.
+One-shot path operations read, write, inspect, or modify filesystem entries without exposing resource handles. Scoped file-handle I/O uses `fs.open`, `fs.openFile`, `fs.openFileNoFollow`, or `fs.createTempFile` with `USING`; the resulting `File` is closed automatically at `END USING`.
+
+```basic
+USING file = fs.open("data.txt", "read")
+  ' file is in scope here
+END USING
+```
 
 Symlink behavior is explicit:
 
@@ -1758,6 +1764,7 @@ Symlink behavior is explicit:
 | `fs.writeText` | `FUNC writeText(path AS String, value AS String) AS Nothing` | Writes a UTF-8 text file, replacing any existing file. Fails with `10012`, `10013`, or `10015`. |
 | `fs.writeTextAtomic` | `FUNC writeTextAtomic(path AS String, value AS String) AS Nothing` | Writes UTF-8 text to a temporary file in the same directory, flushes it, then atomically replaces `path` when the host filesystem supports atomic rename. Fails rather than falling back to a non-atomic replace. |
 | `fs.appendText` | `FUNC appendText(path AS String, value AS String) AS Nothing` | Appends UTF-8 text to a file, creating it when needed. Fails with `10012`, `10013`, or `10015`. |
+| `fs.open` | `FUNC open(path AS String, mode AS String) AS File` | Opens a file handle for use with `USING`. Portable modes are `"read"`/`"r"`, `"write"`/`"w"`, `"readWrite"`/`"rw"`, and `"append"`/`"a"`. Invalid modes, empty paths, and embedded NUL bytes fail with `ErrInvalidArgument` (`10002`). Missing files fail with `ErrNotFound` (`10004`) for read-style opens. |
 | `fs.openFile` | `FUNC openFile(path AS String, mode AS String = "read") AS File` | Opens a file handle. `mode` is `"read"`, `"write"`, or `"append"`. Fails with `10011`, `10012`, or `10013`. |
 | `fs.openFileNoFollow` | `FUNC openFileNoFollow(path AS String, mode AS String = "read") AS File` | Opens a file handle like `fs.openFile` but fails with `ErrAccessDenied` when the final path component is a symlink. |
 | `fs.createTempFile` | `FUNC createTempFile(directory AS String, prefix AS String = "mfb-", suffix AS String = ".tmp") AS File` | Securely creates and opens a new unique file in `directory` without following a final symlink. The caller owns the returned `File`. |

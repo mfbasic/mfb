@@ -23,6 +23,7 @@ pub(crate) const TYPE_STRING: u32 = 6;
 pub(crate) const TYPE_BYTE: u32 = 7;
 pub(crate) const TYPE_ERROR: u32 = 8;
 pub(crate) const TYPE_TERMINAL_SIZE: u32 = 9;
+pub(crate) const TYPE_FILE_HANDLE: u32 = 0xffff_ff00;
 
 const FUNCTION_BYTECODE: u16 = 1;
 
@@ -59,6 +60,8 @@ pub(crate) const OPCODE_IO_READ_CHAR: u16 = 53;
 pub(crate) const OPCODE_IO_READ_BYTE: u16 = 54;
 pub(crate) const OPCODE_IO_IS_TERMINAL: u16 = 55;
 pub(crate) const OPCODE_IO_TERMINAL_SIZE: u16 = 56;
+pub(crate) const OPCODE_IO_OPEN: u16 = 57;
+pub(crate) const OPCODE_IO_CLOSE: u16 = 58;
 const OPCODE_CALL_RESULT: u16 = 60;
 const OPCODE_UNWRAP_RESULT: u16 = 61;
 const OPCODE_LOAD_FUNCTION: u16 = 62;
@@ -154,8 +157,20 @@ pub enum NativeType {
     Float,
     Fixed,
     String,
+    FileHandle,
     Result,
     Other,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum NativeImportKind {
+    RuntimeHelper,
+    LibSystem,
+}
+
+pub struct NativeImport {
+    pub symbol: &'static str,
+    pub kind: NativeImportKind,
 }
 
 pub struct NativeProgram {
@@ -164,6 +179,7 @@ pub struct NativeProgram {
     pub types: NativeTypeLayouts,
     pub functions: Vec<NativeFunction>,
     pub constants: Vec<NativeConst>,
+    pub imports: Vec<NativeImport>,
 }
 
 pub struct NativeFunction {
@@ -245,6 +261,8 @@ pub const NATIVE_OPCODE_IO_READ_CHAR: u16 = OPCODE_IO_READ_CHAR;
 pub const NATIVE_OPCODE_IO_READ_BYTE: u16 = OPCODE_IO_READ_BYTE;
 pub const NATIVE_OPCODE_IO_IS_TERMINAL: u16 = OPCODE_IO_IS_TERMINAL;
 pub const NATIVE_OPCODE_IO_TERMINAL_SIZE: u16 = OPCODE_IO_TERMINAL_SIZE;
+pub const NATIVE_OPCODE_IO_OPEN: u16 = OPCODE_IO_OPEN;
+pub const NATIVE_OPCODE_IO_CLOSE: u16 = OPCODE_IO_CLOSE;
 pub const NATIVE_OPCODE_CALL_RESULT: u16 = OPCODE_CALL_RESULT;
 pub const NATIVE_OPCODE_UNWRAP_RESULT: u16 = OPCODE_UNWRAP_RESULT;
 pub const NATIVE_OPCODE_LOAD_FUNCTION: u16 = OPCODE_LOAD_FUNCTION;
@@ -352,7 +370,48 @@ pub fn native_program(ir: &IrProject) -> Result<NativeProgram, String> {
         types: native_type_layouts(ir, &project.types.ids, &project.strings),
         functions,
         constants,
+        imports: native_imports(&project.functions),
     })
+}
+
+fn native_imports(functions: &[Function]) -> Vec<NativeImport> {
+    let mut needs_open = false;
+    let mut needs_close = false;
+    for function in functions {
+        for instruction in &function.code {
+            needs_open |= instruction.opcode == OPCODE_IO_OPEN;
+            needs_close |= instruction.opcode == OPCODE_IO_CLOSE;
+        }
+    }
+
+    let mut imports = Vec::new();
+    if needs_open {
+        imports.push(NativeImport {
+            symbol: "mfb_io_open",
+            kind: NativeImportKind::RuntimeHelper,
+        });
+        imports.push(NativeImport {
+            symbol: "_open",
+            kind: NativeImportKind::LibSystem,
+        });
+    }
+    if needs_close {
+        imports.push(NativeImport {
+            symbol: "mfb_io_close",
+            kind: NativeImportKind::RuntimeHelper,
+        });
+        imports.push(NativeImport {
+            symbol: "_close",
+            kind: NativeImportKind::LibSystem,
+        });
+    }
+    if needs_open || needs_close {
+        imports.push(NativeImport {
+            symbol: "___error",
+            kind: NativeImportKind::LibSystem,
+        });
+    }
+    imports
 }
 
 fn native_function(
@@ -396,6 +455,7 @@ fn native_type(type_id: u32, result_success_types: &HashMap<u32, u32>) -> Native
         TYPE_FLOAT => NativeType::Float,
         TYPE_FIXED => NativeType::Fixed,
         TYPE_STRING => NativeType::String,
+        TYPE_FILE_HANDLE => NativeType::FileHandle,
         id if result_success_types.contains_key(&id) => NativeType::Result,
         _ => NativeType::Other,
     }
@@ -573,6 +633,7 @@ fn native_type_id(type_ids: &HashMap<String, u32>, name: &str) -> Option<u32> {
         "Byte" => Some(TYPE_BYTE),
         "Error" => Some(TYPE_ERROR),
         "TerminalSize" => Some(TYPE_TERMINAL_SIZE),
+        "File" => Some(TYPE_FILE_HANDLE),
         _ => type_ids.get(name).copied(),
     }
 }
@@ -1053,6 +1114,32 @@ impl<'a> FunctionBuilder<'a> {
                 }
                 Ok(())
             }
+            IrOp::Using {
+                name,
+                type_,
+                value,
+                body,
+            } => {
+                let type_id = self.type_id(type_);
+                let value = self.lower_value(value, locals)?;
+                let register = self.add_register(type_id, 0);
+                self.push_move_like(type_id, register, value.register);
+                let mut nested = locals.clone();
+                nested.insert(
+                    name.clone(),
+                    ValueSlot {
+                        register,
+                        type_name: type_.clone(),
+                    },
+                );
+                self.lower_ops(body, &mut nested)?;
+                let close = IrValue::Call {
+                    target: "fs.close".to_string(),
+                    args: vec![IrValue::Local(name.clone())],
+                };
+                self.lower_value(&close, &nested)?;
+                Ok(())
+            }
         }
     }
 
@@ -1162,6 +1249,9 @@ impl<'a> FunctionBuilder<'a> {
                 }
                 if builtins::strings::is_strings_call(target) {
                     return builtins::strings::lower_bytecode_call(self, target, args, locals);
+                }
+                if builtins::fs::is_fs_call(target) {
+                    return builtins::fs::lower_bytecode_call(self, target, args, locals);
                 }
                 if builtins::io::is_io_call(target) {
                     return builtins::io::lower_bytecode_call(self, target, args, locals);
@@ -1461,6 +1551,7 @@ impl<'a> FunctionBuilder<'a> {
                 | TYPE_FLOAT
                 | TYPE_FIXED
                 | TYPE_STRING
+                | TYPE_FILE_HANDLE
         ) {
             self.push(OPCODE_COPY, vec![dst, src]);
         } else {
@@ -1478,6 +1569,7 @@ impl<'a> FunctionBuilder<'a> {
                 "Fixed" => TYPE_FIXED,
                 "String" => TYPE_STRING,
                 "Byte" => TYPE_BYTE,
+                "File" => TYPE_FILE_HANDLE,
                 _ => return Err(format!("unsupported built-in return type `{return_type}`")),
             });
         }
@@ -1727,6 +1819,7 @@ impl TypeTable {
             "Float" => TYPE_FLOAT,
             "Fixed" => TYPE_FIXED,
             "String" => TYPE_STRING,
+            "File" => TYPE_FILE_HANDLE,
             name if name.starts_with("List OF ") => {
                 let element = self.type_id(strings, name.trim_start_matches("List OF "));
                 self.list_type(strings, element)

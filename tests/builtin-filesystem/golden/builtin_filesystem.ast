@@ -1,0 +1,32 @@
+{
+  "project": "builtin_filesystem",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "fs", "line": 1 }
+    ],
+    "items": [
+    {
+      "kind": "sub",
+      "visibility": "private",
+      "name": "main",
+      "line": 3,
+      "params": [
+      ],
+      "returnType": null,
+      "body": [
+      {
+        "kind": "using",
+        "name": "file",
+        "value": { "kind": "call", "callee": "fs.open", "arguments": [{ "kind": "string", "value": "tests/builtin-filesystem/src/main.mfb" }, { "kind": "string", "value": "read" }] },
+        "line": 4,
+        "body": [
+        ]
+      }
+      ]
+    }
+    ]
+  }
+  ]
+}

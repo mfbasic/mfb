@@ -136,6 +136,12 @@ pub enum Statement {
         cases: Vec<MatchCase>,
         line: usize,
     },
+    Using {
+        name: String,
+        value: Expression,
+        body: Vec<Statement>,
+        line: usize,
+    },
 }
 
 #[derive(Debug)]
@@ -337,6 +343,7 @@ enum BlockTerminator {
     ElseIf,
     EndIf,
     EndMatch,
+    EndUsing,
 }
 
 impl<'a> FileParser<'a> {
@@ -719,6 +726,10 @@ impl<'a> FileParser<'a> {
             return self.parse_match_statement();
         }
 
+        if self.check_keyword(Keyword::Using) {
+            return self.parse_using_statement();
+        }
+
         if self.check_keyword(Keyword::Let) || self.check_keyword(Keyword::Mut) {
             let keyword = self.advance().clone();
             let mutable = matches!(keyword.kind, TokenKind::Keyword(Keyword::Mut));
@@ -908,6 +919,27 @@ impl<'a> FileParser<'a> {
         Some(Statement::Match {
             expression,
             cases,
+            line: token.line,
+        })
+    }
+
+    fn parse_using_statement(&mut self) -> Option<Statement> {
+        let token = self.advance().clone();
+        let name = self.consume_identifier("USING binding name must be an identifier.")?;
+        if !self.consume_kind(TokenKind::Equal, "USING must bind a resource with `=`.") {
+            return None;
+        }
+        let value = self.parse_expression()?;
+        self.consume_statement_end("Expected end of statement after USING binding.");
+        self.skip_separators();
+        let body = self.parse_statement_block(&[BlockTerminator::EndUsing]);
+        if !self.consume_end_block(Keyword::Using, "USING block must end with END USING.") {
+            return None;
+        }
+        Some(Statement::Using {
+            name,
+            value,
+            body,
             line: token.line,
         })
     }
@@ -1435,6 +1467,7 @@ impl<'a> FileParser<'a> {
             BlockTerminator::ElseIf => self.check_keyword(Keyword::ElseIf),
             BlockTerminator::EndIf => self.is_end_block(Keyword::If),
             BlockTerminator::EndMatch => self.is_end_block(Keyword::Match),
+            BlockTerminator::EndUsing => self.is_end_block(Keyword::Using),
         })
     }
 
@@ -1971,6 +2004,36 @@ impl ToAstJson for Statement {
                     line,
                     pad,
                     join_indented(cases, indent + 2),
+                    pad,
+                    pad
+                )
+            }
+            Statement::Using {
+                name,
+                value,
+                body,
+                line,
+            } => {
+                format!(
+                    concat!(
+                        "\n{}{{\n",
+                        "{}  \"kind\": \"using\",\n",
+                        "{}  \"name\": {},\n",
+                        "{}  \"value\": {},\n",
+                        "{}  \"line\": {},\n",
+                        "{}  \"body\": [{}\n{}  ]\n",
+                        "{}}}"
+                    ),
+                    pad,
+                    pad,
+                    pad,
+                    json_string(name),
+                    pad,
+                    value.to_json(0),
+                    pad,
+                    line,
+                    pad,
+                    join_indented(body, indent + 2),
                     pad,
                     pad
                 )

@@ -136,11 +136,19 @@ pub(crate) fn lower_bytecode_call(
     let dst = lowerer.add_register(dst_type_id, 0);
     let operands = match name {
         PRINT | WRITE | PRINT_ERROR | WRITE_ERROR => {
-            vec![dst, lowered[0].register, fd_for(name), u32::from(appends_newline(name))]
+            vec![
+                dst,
+                lowered[0].register,
+                fd_for(name),
+                u32::from(appends_newline(name)),
+            ]
         }
         FLUSH | FLUSH_ERROR => vec![dst, fd_for(name)],
         INPUT => {
-            let prompt = lowered.first().map(|slot| slot.register).unwrap_or(u32::MAX);
+            let prompt = lowered
+                .first()
+                .map(|slot| slot.register)
+                .unwrap_or(u32::MAX);
             vec![dst, prompt]
         }
         READ_LINE | READ_CHAR | READ_BYTE | TERMINAL_SIZE => vec![dst],
