@@ -1,0 +1,14 @@
+ENUM Color
+  Red, Blue
+END ENUM
+
+FUNC value(color AS Color) AS Integer
+  MATCH color
+    CASE Color::Red
+      RETURN 1
+  END MATCH
+END FUNC
+
+FUNC main() AS Integer
+  RETURN value(Color::Blue)
+END FUNC

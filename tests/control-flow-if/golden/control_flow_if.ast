@@ -1,0 +1,138 @@
+{
+  "project": "control_flow_if",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "ifOnly",
+      "line": 1,
+      "params": [
+      { "name": "flag", "type": "Boolean", "default": null }
+      ],
+      "returnType": "Integer",
+      "body": [
+      {
+        "kind": "if",
+        "condition": { "kind": "identifier", "value": "flag" },
+        "line": 2,
+        "then": [
+        { "kind": "return", "value": { "kind": "number", "value": "1" }, "line": 3 }
+        ],
+        "else": [
+        ]
+      },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 5 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "ifElse",
+      "line": 8,
+      "params": [
+      { "name": "flag", "type": "Boolean", "default": null }
+      ],
+      "returnType": "Integer",
+      "body": [
+      {
+        "kind": "if",
+        "condition": { "kind": "identifier", "value": "flag" },
+        "line": 9,
+        "then": [
+        { "kind": "return", "value": { "kind": "number", "value": "1" }, "line": 10 }
+        ],
+        "else": [
+        { "kind": "return", "value": { "kind": "number", "value": "2" }, "line": 12 }
+        ]
+      }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "ifElseIf",
+      "line": 16,
+      "params": [
+      { "name": "first", "type": "Boolean", "default": null },
+      { "name": "second", "type": "Boolean", "default": null }
+      ],
+      "returnType": "Integer",
+      "body": [
+      {
+        "kind": "if",
+        "condition": { "kind": "identifier", "value": "first" },
+        "line": 17,
+        "then": [
+        { "kind": "return", "value": { "kind": "number", "value": "1" }, "line": 18 }
+        ],
+        "else": [
+        {
+          "kind": "if",
+          "condition": { "kind": "identifier", "value": "second" },
+          "line": 19,
+          "then": [
+          { "kind": "return", "value": { "kind": "number", "value": "2" }, "line": 20 }
+          ],
+          "else": [
+          ]
+        }
+        ]
+      },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 22 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "ifElseIfElse",
+      "line": 25,
+      "params": [
+      { "name": "first", "type": "Boolean", "default": null },
+      { "name": "second", "type": "Boolean", "default": null }
+      ],
+      "returnType": "Integer",
+      "body": [
+      {
+        "kind": "if",
+        "condition": { "kind": "identifier", "value": "first" },
+        "line": 26,
+        "then": [
+        { "kind": "return", "value": { "kind": "number", "value": "1" }, "line": 27 }
+        ],
+        "else": [
+        {
+          "kind": "if",
+          "condition": { "kind": "identifier", "value": "second" },
+          "line": 28,
+          "then": [
+          { "kind": "return", "value": { "kind": "number", "value": "2" }, "line": 29 }
+          ],
+          "else": [
+          { "kind": "return", "value": { "kind": "number", "value": "3" }, "line": 31 }
+          ]
+        }
+        ]
+      }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "main",
+      "line": 35,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "return", "value": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "call", "callee": "ifOnly", "arguments": [{ "kind": "boolean", "value": false }] }, "right": { "kind": "call", "callee": "ifElse", "arguments": [{ "kind": "boolean", "value": true }] } }, "right": { "kind": "call", "callee": "ifElseIf", "arguments": [{ "kind": "boolean", "value": false }, { "kind": "boolean", "value": true }] } }, "right": { "kind": "call", "callee": "ifElseIfElse", "arguments": [{ "kind": "boolean", "value": false }, { "kind": "boolean", "value": false }] } }, "line": 36 }
+      ]
+    }
+    ]
+  }
+  ]
+}

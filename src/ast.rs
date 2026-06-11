@@ -125,6 +125,30 @@ pub enum Statement {
         expression: Expression,
         line: usize,
     },
+    If {
+        condition: Expression,
+        then_body: Vec<Statement>,
+        else_body: Vec<Statement>,
+        line: usize,
+    },
+    Match {
+        expression: Expression,
+        cases: Vec<MatchCase>,
+        line: usize,
+    },
+}
+
+#[derive(Debug)]
+pub struct MatchCase {
+    pub pattern: MatchPattern,
+    pub body: Vec<Statement>,
+    pub line: usize,
+}
+
+#[derive(Debug)]
+pub enum MatchPattern {
+    Else,
+    Expression(Expression),
 }
 
 #[derive(Debug)]
@@ -298,6 +322,15 @@ struct FileParser<'a> {
     had_error: bool,
 }
 
+#[derive(Clone, Copy)]
+enum BlockTerminator {
+    Case,
+    Else,
+    ElseIf,
+    EndIf,
+    EndMatch,
+}
+
 impl<'a> FileParser<'a> {
     fn new(path: &'a Path, tokens: Vec<Token>) -> Self {
         Self {
@@ -410,7 +443,8 @@ impl<'a> FileParser<'a> {
 
         let mut body = Vec::new();
         while !self.is_at_end() {
-            if self.match_keyword(Keyword::End) {
+            if self.check_keyword(Keyword::End) {
+                self.advance();
                 let expected = match kind {
                     FunctionKind::Func => Keyword::Func,
                     FunctionKind::Sub => Keyword::Sub,
@@ -669,6 +703,14 @@ impl<'a> FileParser<'a> {
     }
 
     fn parse_statement(&mut self) -> Option<Statement> {
+        if self.check_keyword(Keyword::If) {
+            return self.parse_if_statement();
+        }
+
+        if self.check_keyword(Keyword::Match) {
+            return self.parse_match_statement();
+        }
+
         if self.check_keyword(Keyword::Let) || self.check_keyword(Keyword::Mut) {
             let keyword = self.advance().clone();
             let mutable = matches!(keyword.kind, TokenKind::Keyword(Keyword::Mut));
@@ -742,8 +784,154 @@ impl<'a> FileParser<'a> {
         })
     }
 
+    fn parse_if_statement(&mut self) -> Option<Statement> {
+        let token = self.advance().clone();
+        let condition = self.parse_expression()?;
+        if !self.consume_keyword(Keyword::Then, "IF statements must include THEN.") {
+            return None;
+        }
+
+        if !self.is_statement_end() {
+            let then_body = vec![self.parse_statement()?];
+            return Some(Statement::If {
+                condition,
+                then_body,
+                else_body: Vec::new(),
+                line: token.line,
+            });
+        }
+
+        self.consume_statement_end("Expected end of statement after IF header.");
+        self.skip_separators();
+        let then_body = self.parse_statement_block(&[
+            BlockTerminator::Else,
+            BlockTerminator::ElseIf,
+            BlockTerminator::EndIf,
+        ]);
+        let else_body = self.parse_if_tail();
+
+        if !self.consume_end_block(Keyword::If, "IF block must end with END IF.") {
+            return None;
+        }
+
+        Some(Statement::If {
+            condition,
+            then_body,
+            else_body,
+            line: token.line,
+        })
+    }
+
+    fn parse_if_tail(&mut self) -> Vec<Statement> {
+        if self.match_keyword(Keyword::Else) {
+            self.consume_statement_end("Expected end of statement after ELSE.");
+            self.skip_separators();
+            return self.parse_statement_block(&[BlockTerminator::EndIf]);
+        }
+
+        if self.match_keyword(Keyword::ElseIf) {
+            let token = self.previous().clone();
+            let Some(condition) = self.parse_expression() else {
+                return Vec::new();
+            };
+            if !self.consume_keyword(Keyword::Then, "ELSEIF clauses must include THEN.") {
+                return Vec::new();
+            }
+            self.consume_statement_end("Expected end of statement after ELSEIF header.");
+            self.skip_separators();
+            let then_body = self.parse_statement_block(&[
+                BlockTerminator::Else,
+                BlockTerminator::ElseIf,
+                BlockTerminator::EndIf,
+            ]);
+            let else_body = self.parse_if_tail();
+            return vec![Statement::If {
+                condition,
+                then_body,
+                else_body,
+                line: token.line,
+            }];
+        }
+
+        Vec::new()
+    }
+
+    fn parse_match_statement(&mut self) -> Option<Statement> {
+        let token = self.advance().clone();
+        let expression = self.parse_expression()?;
+        self.consume_statement_end("Expected end of statement after MATCH expression.");
+        self.skip_separators();
+
+        let mut cases = Vec::new();
+        while !self.is_at_end() && !self.is_end_block(Keyword::Match) {
+            if !self.match_keyword(Keyword::Case) {
+                let token = self.peek().clone();
+                self.report(
+                    "MFB_PARSE_UNEXPECTED_STATEMENT",
+                    "MATCH blocks contain CASE clauses.",
+                    &token,
+                );
+                self.synchronize();
+                self.skip_separators();
+                continue;
+            }
+
+            let case_token = self.previous().clone();
+            let pattern = if self.match_keyword(Keyword::Else) {
+                MatchPattern::Else
+            } else {
+                MatchPattern::Expression(self.parse_expression()?)
+            };
+            self.consume_statement_end("Expected end of statement after CASE pattern.");
+            self.skip_separators();
+            let body =
+                self.parse_statement_block(&[BlockTerminator::Case, BlockTerminator::EndMatch]);
+            cases.push(MatchCase {
+                pattern,
+                body,
+                line: case_token.line,
+            });
+        }
+
+        if !self.consume_end_block(Keyword::Match, "MATCH block must end with END MATCH.") {
+            return None;
+        }
+
+        Some(Statement::Match {
+            expression,
+            cases,
+            line: token.line,
+        })
+    }
+
+    fn parse_statement_block(&mut self, terminators: &[BlockTerminator]) -> Vec<Statement> {
+        let mut body = Vec::new();
+        while !self.is_at_end() && !self.check_block_terminator(terminators) {
+            if let Some(statement) = self.parse_statement() {
+                body.push(statement);
+            } else {
+                self.synchronize();
+            }
+            self.skip_separators();
+        }
+        body
+    }
+
     fn parse_expression(&mut self) -> Option<Expression> {
-        self.parse_concat()
+        self.parse_equality()
+    }
+
+    fn parse_equality(&mut self) -> Option<Expression> {
+        let mut expression = self.parse_concat()?;
+        while self.match_kind(TokenKind::Equal) {
+            let right = self.parse_concat()?;
+            expression = Expression::Binary {
+                left: Box::new(expression),
+                operator: "=".to_string(),
+                right: Box::new(right),
+            };
+        }
+        Some(expression)
     }
 
     fn parse_concat(&mut self) -> Option<Expression> {
@@ -1087,6 +1275,33 @@ impl<'a> FileParser<'a> {
         self.check_keyword(Keyword::Private)
             || self.check_keyword(Keyword::Package)
             || self.check_keyword(Keyword::Export)
+    }
+
+    fn check_block_terminator(&self, terminators: &[BlockTerminator]) -> bool {
+        terminators.iter().any(|terminator| match terminator {
+            BlockTerminator::Case => self.check_keyword(Keyword::Case),
+            BlockTerminator::Else => self.check_keyword(Keyword::Else),
+            BlockTerminator::ElseIf => self.check_keyword(Keyword::ElseIf),
+            BlockTerminator::EndIf => self.is_end_block(Keyword::If),
+            BlockTerminator::EndMatch => self.is_end_block(Keyword::Match),
+        })
+    }
+
+    fn is_end_block(&self, keyword: Keyword) -> bool {
+        self.check_keyword(Keyword::End)
+            && self.tokens.get(self.current + 1).is_some_and(
+                |token| matches!(token.kind, TokenKind::Keyword(current) if current == keyword),
+            )
+    }
+
+    fn consume_end_block(&mut self, keyword: Keyword, detail: &str) -> bool {
+        if !self.consume_keyword(Keyword::End, detail) {
+            return false;
+        }
+        if !self.consume_keyword(keyword, "END must name the block kind it closes.") {
+            return false;
+        }
+        self.consume_statement_end("Expected end of statement after END.")
     }
 
     fn consume_identifier(&mut self, detail: &str) -> Option<String> {
@@ -1541,6 +1756,101 @@ impl ToAstJson for Statement {
                     pad,
                     expression.to_json(indent),
                     line
+                )
+            }
+            Statement::If {
+                condition,
+                then_body,
+                else_body,
+                line,
+            } => {
+                format!(
+                    concat!(
+                        "\n{}{{\n",
+                        "{}  \"kind\": \"if\",\n",
+                        "{}  \"condition\": {},\n",
+                        "{}  \"line\": {},\n",
+                        "{}  \"then\": [{}\n{}  ],\n",
+                        "{}  \"else\": [{}\n{}  ]\n",
+                        "{}}}"
+                    ),
+                    pad,
+                    pad,
+                    pad,
+                    condition.to_json(0),
+                    pad,
+                    line,
+                    pad,
+                    join_indented(then_body, indent + 2),
+                    pad,
+                    pad,
+                    join_indented(else_body, indent + 2),
+                    pad,
+                    pad
+                )
+            }
+            Statement::Match {
+                expression,
+                cases,
+                line,
+            } => {
+                format!(
+                    concat!(
+                        "\n{}{{\n",
+                        "{}  \"kind\": \"match\",\n",
+                        "{}  \"expression\": {},\n",
+                        "{}  \"line\": {},\n",
+                        "{}  \"cases\": [{}\n{}  ]\n",
+                        "{}}}"
+                    ),
+                    pad,
+                    pad,
+                    pad,
+                    expression.to_json(0),
+                    pad,
+                    line,
+                    pad,
+                    join_indented(cases, indent + 2),
+                    pad,
+                    pad
+                )
+            }
+        }
+    }
+}
+
+impl ToAstJson for MatchCase {
+    fn to_json(&self, indent: usize) -> String {
+        let pad = " ".repeat(indent);
+        format!(
+            concat!(
+                "\n{}{{\n",
+                "{}  \"pattern\": {},\n",
+                "{}  \"line\": {},\n",
+                "{}  \"body\": [{}\n{}  ]\n",
+                "{}}}"
+            ),
+            pad,
+            pad,
+            self.pattern.to_json(indent),
+            pad,
+            self.line,
+            pad,
+            join_indented(&self.body, indent + 2),
+            pad,
+            pad
+        )
+    }
+}
+
+impl ToAstJson for MatchPattern {
+    fn to_json(&self, indent: usize) -> String {
+        match self {
+            MatchPattern::Else => "{ \"kind\": \"else\" }".to_string(),
+            MatchPattern::Expression(expression) => {
+                format!(
+                    "{{ \"kind\": \"expression\", \"expression\": {} }}",
+                    expression.to_json(indent)
                 )
             }
         }

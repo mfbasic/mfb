@@ -1,0 +1,9 @@
+FUNC pick(flag AS Boolean) AS Integer
+  IF flag THEN
+    RETURN 1
+  END IF
+END FUNC
+
+FUNC main() AS Integer
+  RETURN pick(TRUE)
+END FUNC

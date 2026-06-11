@@ -32,14 +32,20 @@ pub enum TokenKind {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Keyword {
     As,
+    Case,
+    Else,
+    ElseIf,
     False,
     Func,
+    If,
     Import,
     Let,
+    Match,
     Mut,
     Nothing,
     Return,
     Sub,
+    Then,
     True,
     End,
     Enum,
@@ -324,14 +330,24 @@ impl Lexer<'_> {
 fn keyword(value: &str) -> Option<Keyword> {
     if value.eq_ignore_ascii_case("AS") {
         Some(Keyword::As)
+    } else if value.eq_ignore_ascii_case("CASE") {
+        Some(Keyword::Case)
+    } else if value.eq_ignore_ascii_case("ELSE") {
+        Some(Keyword::Else)
+    } else if value.eq_ignore_ascii_case("ELSEIF") {
+        Some(Keyword::ElseIf)
     } else if value.eq_ignore_ascii_case("FALSE") {
         Some(Keyword::False)
     } else if value.eq_ignore_ascii_case("FUNC") {
         Some(Keyword::Func)
+    } else if value.eq_ignore_ascii_case("IF") {
+        Some(Keyword::If)
     } else if value.eq_ignore_ascii_case("IMPORT") {
         Some(Keyword::Import)
     } else if value.eq_ignore_ascii_case("LET") {
         Some(Keyword::Let)
+    } else if value.eq_ignore_ascii_case("MATCH") {
+        Some(Keyword::Match)
     } else if value.eq_ignore_ascii_case("MUT") {
         Some(Keyword::Mut)
     } else if value.eq_ignore_ascii_case("NOTHING") {
@@ -340,6 +356,8 @@ fn keyword(value: &str) -> Option<Keyword> {
         Some(Keyword::Return)
     } else if value.eq_ignore_ascii_case("SUB") {
         Some(Keyword::Sub)
+    } else if value.eq_ignore_ascii_case("THEN") {
+        Some(Keyword::Then)
     } else if value.eq_ignore_ascii_case("TRUE") {
         Some(Keyword::True)
     } else if value.eq_ignore_ascii_case("END") {

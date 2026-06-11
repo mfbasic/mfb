@@ -1,0 +1,12 @@
+$ mfb build -ast tests/control-flow-if
+Wrote AST to tests/control-flow-if/control_flow_if.ast
+[exit 0]
+$ mfb build -ir tests/control-flow-if
+Wrote IR to tests/control-flow-if/control_flow_if.ir
+[exit 0]
+$ mfb build -bc tests/control-flow-if
+Wrote bytecode hex to tests/control-flow-if/control_flow_if.hex
+[exit 0]
+$ mfb build -arm64 tests/control-flow-if
+Wrote ARM64 binary to tests/control-flow-if/control_flow_if.arm64.bin
+[exit 0]

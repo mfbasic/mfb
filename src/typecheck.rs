@@ -1,6 +1,6 @@
 use crate::ast::{
-    AstFile, AstProject, Expression, Function, FunctionKind, Item, Statement, TypeDecl,
-    TypeDeclKind, TypeField, Visibility,
+    AstFile, AstProject, Expression, Function, FunctionKind, Item, MatchPattern, Statement,
+    TypeDecl, TypeDeclKind, TypeField, Visibility,
 };
 use crate::builtins;
 use crate::rules;
@@ -41,6 +41,12 @@ struct FunctionSig {
 struct ParamSig {
     type_: Type,
     has_default: bool,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum Flow {
+    FallsThrough,
+    AlwaysReturns,
 }
 
 pub fn check_project(project_dir: &Path, ast: &AstProject) -> Result<(), ()> {
@@ -386,18 +392,9 @@ impl<'a> TypeChecker<'a> {
             );
         }
 
-        let mut saw_return = false;
-        for statement in &function.body {
-            self.check_statement(
-                file,
-                statement,
-                &expected_return,
-                &mut locals,
-                &mut saw_return,
-            );
-        }
+        let flow = self.check_block(file, &function.body, &expected_return, &mut locals);
 
-        if matches!(function.kind, FunctionKind::Func) && !saw_return {
+        if matches!(function.kind, FunctionKind::Func) && flow != Flow::AlwaysReturns {
             self.report(
                 "TYPE_FUNC_MISSING_RETURN",
                 &format!(
@@ -411,14 +408,29 @@ impl<'a> TypeChecker<'a> {
         }
     }
 
+    fn check_block(
+        &mut self,
+        file: &AstFile,
+        body: &[Statement],
+        expected_return: &Type,
+        locals: &mut HashMap<String, LocalInfo>,
+    ) -> Flow {
+        for statement in body {
+            let flow = self.check_statement(file, statement, expected_return, locals);
+            if flow == Flow::AlwaysReturns {
+                return Flow::AlwaysReturns;
+            }
+        }
+        Flow::FallsThrough
+    }
+
     fn check_statement(
         &mut self,
         file: &AstFile,
         statement: &Statement,
         expected_return: &Type,
         locals: &mut HashMap<String, LocalInfo>,
-        saw_return: &mut bool,
-    ) {
+    ) -> Flow {
         match statement {
             Statement::Let {
                 name,
@@ -487,9 +499,9 @@ impl<'a> TypeChecker<'a> {
                         mutable: *mutable,
                     },
                 );
+                Flow::FallsThrough
             }
             Statement::Return { value, line } => {
-                *saw_return = true;
                 let actual = value
                     .as_ref()
                     .map(|value| self.infer_expression(file, value, locals, *line))
@@ -512,7 +524,7 @@ impl<'a> TypeChecker<'a> {
                         file,
                         *line,
                     );
-                    return;
+                    return Flow::AlwaysReturns;
                 }
                 if !self.expression_compatible(expected_return, &actual, value.as_ref()) {
                     self.report(
@@ -526,6 +538,7 @@ impl<'a> TypeChecker<'a> {
                         *line,
                     );
                 }
+                Flow::AlwaysReturns
             }
             Statement::Assign { name, value, line } => {
                 let Some(local) = locals.get(name).cloned() else {
@@ -535,7 +548,7 @@ impl<'a> TypeChecker<'a> {
                         file,
                         *line,
                     );
-                    return;
+                    return Flow::FallsThrough;
                 };
                 if !local.mutable {
                     self.report(
@@ -558,9 +571,93 @@ impl<'a> TypeChecker<'a> {
                         *line,
                     );
                 }
+                Flow::FallsThrough
             }
             Statement::Expression { expression, line } => {
                 self.infer_expression(file, expression, locals, *line);
+                Flow::FallsThrough
+            }
+            Statement::If {
+                condition,
+                then_body,
+                else_body,
+                line,
+            } => {
+                let condition_type = self.infer_expression(file, condition, locals, *line);
+                if !self.expression_compatible(&Type::Boolean, &condition_type, Some(condition)) {
+                    self.report(
+                        "TYPE_CONDITION_REQUIRES_BOOLEAN",
+                        &format!(
+                            "IF condition has type {}, expected Boolean.",
+                            self.type_name(&condition_type)
+                        ),
+                        file,
+                        *line,
+                    );
+                }
+                let mut then_locals = locals.clone();
+                let then_flow =
+                    self.check_block(file, then_body, expected_return, &mut then_locals);
+                let mut else_locals = locals.clone();
+                let else_flow =
+                    self.check_block(file, else_body, expected_return, &mut else_locals);
+                if then_flow == Flow::AlwaysReturns
+                    && else_flow == Flow::AlwaysReturns
+                    && !else_body.is_empty()
+                {
+                    Flow::AlwaysReturns
+                } else {
+                    Flow::FallsThrough
+                }
+            }
+            Statement::Match {
+                expression,
+                cases,
+                line,
+            } => {
+                let matched_type = self.infer_expression(file, expression, locals, *line);
+                let mut has_else = false;
+                let mut all_return = !cases.is_empty();
+                let mut covered_cases = HashSet::new();
+                for case in cases {
+                    match &case.pattern {
+                        MatchPattern::Else => has_else = true,
+                        MatchPattern::Expression(pattern) => {
+                            if let Some(name) = self.match_case_name(pattern) {
+                                covered_cases.insert(name);
+                            }
+                            let pattern_type =
+                                self.infer_match_pattern(file, pattern, locals, case.line);
+                            if !self.expression_compatible(
+                                &matched_type,
+                                &pattern_type,
+                                Some(pattern),
+                            ) {
+                                self.report(
+                                    "TYPE_MATCH_PATTERN_MISMATCH",
+                                    &format!(
+                                        "CASE pattern has type {}, expected {}.",
+                                        self.type_name(&pattern_type),
+                                        self.type_name(&matched_type)
+                                    ),
+                                    file,
+                                    case.line,
+                                );
+                            }
+                        }
+                    }
+                    let mut case_locals = locals.clone();
+                    let case_flow =
+                        self.check_block(file, &case.body, expected_return, &mut case_locals);
+                    all_return &= case_flow == Flow::AlwaysReturns;
+                }
+                if all_return
+                    && (has_else || self.match_is_exhaustive(&matched_type, &covered_cases))
+                {
+                    Flow::AlwaysReturns
+                } else {
+                    Flow::FallsThrough
+                }
             }
         }
     }
@@ -629,6 +726,56 @@ impl<'a> TypeChecker<'a> {
                 value_type,
                 entries,
             } => self.infer_map_literal(file, key_type, value_type, entries, locals, line),
+        }
+    }
+
+    fn infer_match_pattern(
+        &mut self,
+        file: &AstFile,
+        pattern: &Expression,
+        locals: &HashMap<String, LocalInfo>,
+        line: usize,
+    ) -> Type {
+        if let Expression::Identifier(name) = pattern {
+            if let Some(variants) = self.variant_constructors.get(name).cloned() {
+                if variants.len() == 1 {
+                    return Type::User(variants[0].union_name.clone());
+                }
+            }
+        }
+        self.infer_expression(file, pattern, locals, line)
+    }
+
+    fn match_case_name(&self, pattern: &Expression) -> Option<String> {
+        match pattern {
+            Expression::Identifier(name) => Some(name.clone()),
+            Expression::MemberAccess { target, member } => {
+                if let Expression::Identifier(type_name) = target.as_ref() {
+                    return Some(format!("{type_name}::{member}"));
+                }
+                None
+            }
+            _ => None,
+        }
+    }
+
+    fn match_is_exhaustive(&self, matched_type: &Type, covered_cases: &HashSet<String>) -> bool {
+        let Type::User(type_name) = matched_type else {
+            return false;
+        };
+        let Some(info) = self.type_infos.get(type_name) else {
+            return false;
+        };
+        match info.kind {
+            TypeDeclKind::Enum => info
+                .members
+                .iter()
+                .all(|member| covered_cases.contains(&format!("{type_name}::{member}"))),
+            TypeDeclKind::Union => info
+                .variants
+                .iter()
+                .all(|variant| covered_cases.contains(&variant.name)),
+            TypeDeclKind::Type => false,
         }
     }
 
@@ -1005,6 +1152,23 @@ impl<'a> TypeChecker<'a> {
         right: &Type,
         line: usize,
     ) -> Type {
+        if operator == "=" {
+            if self.compatible(left, right) || self.compatible(right, left) {
+                return Type::Boolean;
+            }
+            self.report(
+                "TYPE_BINARY_OPERATOR_MISMATCH",
+                &format!(
+                    "Operator `=` requires compatible operands, got {} and {}.",
+                    self.type_name(left),
+                    self.type_name(right)
+                ),
+                file,
+                line,
+            );
+            return Type::Unknown;
+        }
+
         if operator == "&" {
             if self.compatible(&Type::String, left) && self.compatible(&Type::String, right) {
                 return Type::String;

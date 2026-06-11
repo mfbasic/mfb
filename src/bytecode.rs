@@ -1,5 +1,5 @@
 use crate::builtins;
-use crate::ir::{IrFunction, IrOp, IrProject, IrType, IrValue};
+use crate::ir::{IrFunction, IrMatchPattern, IrOp, IrProject, IrType, IrValue};
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -37,6 +37,7 @@ const OPCODE_ADD: u16 = 20;
 const OPCODE_SUB: u16 = 21;
 const OPCODE_MUL: u16 = 22;
 const OPCODE_DIV: u16 = 23;
+const OPCODE_EQUAL: u16 = 24;
 const OPCODE_CONCAT: u16 = 40;
 pub(crate) const OPCODE_WRITE_STDOUT: u16 = 50;
 const OPCODE_CALL_RESULT: u16 = 60;
@@ -46,6 +47,9 @@ const OPCODE_CONSTRUCT_RECORD: u16 = 80;
 const OPCODE_CONSTRUCT_VARIANT: u16 = 81;
 const OPCODE_LOAD_FIELD: u16 = 82;
 const OPCODE_LOAD_ENUM_MEMBER: u16 = 83;
+const OPCODE_BRANCH: u16 = 90;
+const OPCODE_BRANCH_IF_FALSE: u16 = 91;
+const OPCODE_VARIANT_MATCH: u16 = 92;
 
 pub fn write_bytecode_hex(
     project_dir: &Path,
@@ -143,6 +147,7 @@ pub const NATIVE_OPCODE_ADD: u16 = OPCODE_ADD;
 pub const NATIVE_OPCODE_SUB: u16 = OPCODE_SUB;
 pub const NATIVE_OPCODE_MUL: u16 = OPCODE_MUL;
 pub const NATIVE_OPCODE_DIV: u16 = OPCODE_DIV;
+pub const NATIVE_OPCODE_EQUAL: u16 = OPCODE_EQUAL;
 pub const NATIVE_OPCODE_CONCAT: u16 = OPCODE_CONCAT;
 pub const NATIVE_OPCODE_WRITE_STDOUT: u16 = OPCODE_WRITE_STDOUT;
 pub const NATIVE_OPCODE_CALL_RESULT: u16 = OPCODE_CALL_RESULT;
@@ -152,6 +157,9 @@ pub const NATIVE_OPCODE_CONSTRUCT_RECORD: u16 = OPCODE_CONSTRUCT_RECORD;
 pub const NATIVE_OPCODE_CONSTRUCT_VARIANT: u16 = OPCODE_CONSTRUCT_VARIANT;
 pub const NATIVE_OPCODE_LOAD_FIELD: u16 = OPCODE_LOAD_FIELD;
 pub const NATIVE_OPCODE_LOAD_ENUM_MEMBER: u16 = OPCODE_LOAD_ENUM_MEMBER;
+pub const NATIVE_OPCODE_BRANCH: u16 = OPCODE_BRANCH;
+pub const NATIVE_OPCODE_BRANCH_IF_FALSE: u16 = OPCODE_BRANCH_IF_FALSE;
+pub const NATIVE_OPCODE_VARIANT_MATCH: u16 = OPCODE_VARIANT_MATCH;
 
 pub fn native_program(ir: &IrProject) -> Result<NativeProgram, String> {
     let project = lower_project(ir, "native")?;
@@ -826,7 +834,92 @@ impl<'a> FunctionBuilder<'a> {
                 self.lower_value(value, locals)?;
                 Ok(())
             }
+            IrOp::If {
+                condition,
+                then_body,
+                else_body,
+            } => {
+                let condition = self.lower_value(condition, locals)?;
+                let else_jump = self.push_jump(OPCODE_BRANCH_IF_FALSE, vec![condition.register]);
+                let mut then_locals = locals.clone();
+                self.lower_ops(then_body, &mut then_locals)?;
+                let end_jump = self.push_jump(OPCODE_BRANCH, Vec::new());
+                self.patch_jump(else_jump);
+                let mut else_locals = locals.clone();
+                self.lower_ops(else_body, &mut else_locals)?;
+                self.patch_jump(end_jump);
+                Ok(())
+            }
+            IrOp::Match { value, cases } => {
+                let matched = self.lower_value(value, locals)?;
+                let end_jumps = self.lower_match_cases(&matched, cases, locals)?;
+                for jump in end_jumps {
+                    self.patch_jump(jump);
+                }
+                Ok(())
+            }
         }
+    }
+
+    fn lower_ops(
+        &mut self,
+        ops: &[IrOp],
+        locals: &mut HashMap<String, ValueSlot>,
+    ) -> Result<(), String> {
+        for op in ops {
+            self.lower_op(op, locals)?;
+        }
+        Ok(())
+    }
+
+    fn lower_match_cases(
+        &mut self,
+        matched: &ValueSlot,
+        cases: &[crate::ir::IrMatchCase],
+        locals: &HashMap<String, ValueSlot>,
+    ) -> Result<Vec<usize>, String> {
+        let mut end_jumps = Vec::new();
+        for case in cases {
+            let next_jump = match &case.pattern {
+                IrMatchPattern::Else => None,
+                IrMatchPattern::Value(pattern) => {
+                    let matched_case = self.lower_match_pattern(matched, pattern, locals)?;
+                    Some(self.push_jump(OPCODE_BRANCH_IF_FALSE, vec![matched_case.register]))
+                }
+            };
+            let mut case_locals = locals.clone();
+            self.lower_ops(&case.body, &mut case_locals)?;
+            end_jumps.push(self.push_jump(OPCODE_BRANCH, Vec::new()));
+            if let Some(jump) = next_jump {
+                self.patch_jump(jump);
+            }
+        }
+        Ok(end_jumps)
+    }
+
+    fn lower_match_pattern(
+        &mut self,
+        matched: &ValueSlot,
+        pattern: &IrValue,
+        locals: &HashMap<String, ValueSlot>,
+    ) -> Result<ValueSlot, String> {
+        if let IrValue::Local(name) = pattern {
+            if self.type_model.variants.contains_key(name) {
+                let dst = self.add_register(TYPE_BOOLEAN, 0);
+                let variant_name = self.strings.intern(name);
+                self.push(
+                    OPCODE_VARIANT_MATCH,
+                    vec![dst, matched.register, variant_name],
+                );
+                return Ok(ValueSlot {
+                    register: dst,
+                    type_name: "Boolean".to_string(),
+                });
+            }
+        }
+
+        let pattern = self.lower_value(pattern, locals)?;
+        Ok(self.push_equal(matched.register, pattern.register))
     }
 
     fn lower_value(
@@ -882,6 +975,9 @@ impl<'a> FunctionBuilder<'a> {
             IrValue::Binary { op, left, right } => {
                 let left_register = self.lower_value(left, locals)?;
                 let right_register = self.lower_value(right, locals)?;
+                if op == "=" {
+                    return Ok(self.push_equal(left_register.register, right_register.register));
+                }
                 let type_id = if op == "&" {
                     TYPE_STRING
                 } else if self.registers[left_register.register as usize].type_id == TYPE_FLOAT
@@ -1125,6 +1221,31 @@ impl<'a> FunctionBuilder<'a> {
 
     fn push(&mut self, opcode: u16, operands: Vec<u32>) {
         self.code.push(Instruction { opcode, operands });
+    }
+
+    fn push_jump(&mut self, opcode: u16, mut operands: Vec<u32>) -> usize {
+        operands.push(u32::MAX);
+        let index = self.code.len();
+        self.push(opcode, operands);
+        index
+    }
+
+    fn patch_jump(&mut self, instruction_index: usize) {
+        let target = self.code.len() as u32;
+        let operands = &mut self.code[instruction_index].operands;
+        let last = operands
+            .last_mut()
+            .expect("branch instructions reserve a target operand");
+        *last = target;
+    }
+
+    fn push_equal(&mut self, left: u32, right: u32) -> ValueSlot {
+        let dst = self.add_register(TYPE_BOOLEAN, 0);
+        self.push(OPCODE_EQUAL, vec![dst, left, right]);
+        ValueSlot {
+            register: dst,
+            type_name: "Boolean".to_string(),
+        }
     }
 
     fn ends_with_return(&self) -> bool {

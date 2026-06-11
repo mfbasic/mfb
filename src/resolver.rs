@@ -1,5 +1,6 @@
 use crate::ast::{
-    AstFile, AstProject, Expression, Item, Statement, TypeDecl, TypeDeclKind, TypeField,
+    AstFile, AstProject, Expression, Item, MatchPattern, Statement, TypeDecl, TypeDeclKind,
+    TypeField,
 };
 use crate::builtins;
 use crate::rules;
@@ -288,54 +289,120 @@ impl<'a> Resolver<'a> {
             self.resolve_type_name(file, return_type, function.line, imports);
         }
 
-        for statement in &function.body {
-            match statement {
-                Statement::Let {
-                    name,
-                    type_name,
-                    value,
-                    line,
-                    ..
-                } => {
-                    if let Some(type_name) = type_name {
-                        self.resolve_type_name(file, type_name, *line, imports);
-                    }
-                    if let Some(value) = value {
-                        self.resolve_expression(file, value, *line, imports, &locals);
-                    }
-                    if locals
-                        .insert(
-                            name.clone(),
-                            Symbol {
-                                file_path: file.path.clone(),
-                                line: *line,
-                            },
-                        )
-                        .is_some()
-                    {
-                        self.report(
-                            "SYMBOL_DUPLICATE_LOCAL",
-                            &format!(
-                                "Local binding `{name}` is already declared in this function."
-                            ),
-                            file,
-                            *line,
-                        );
-                    }
+        self.resolve_block(file, &function.body, imports, &mut locals);
+    }
+
+    fn resolve_block(
+        &mut self,
+        file: &AstFile,
+        body: &[Statement],
+        imports: &HashSet<String>,
+        locals: &mut HashMap<String, Symbol>,
+    ) {
+        for statement in body {
+            self.resolve_statement(file, statement, imports, locals);
+        }
+    }
+
+    fn resolve_statement(
+        &mut self,
+        file: &AstFile,
+        statement: &Statement,
+        imports: &HashSet<String>,
+        locals: &mut HashMap<String, Symbol>,
+    ) {
+        match statement {
+            Statement::Let {
+                name,
+                type_name,
+                value,
+                line,
+                ..
+            } => {
+                if let Some(type_name) = type_name {
+                    self.resolve_type_name(file, type_name, *line, imports);
                 }
-                Statement::Return { value, line } => {
-                    if let Some(value) = value {
-                        self.resolve_expression(file, value, *line, imports, &locals);
-                    }
+                if let Some(value) = value {
+                    self.resolve_expression(file, value, *line, imports, locals);
                 }
-                Statement::Assign { name, value, line } => {
-                    self.resolve_identifier(file, name, *line, imports, &locals);
-                    self.resolve_expression(file, value, *line, imports, &locals);
-                }
-                Statement::Expression { expression, line } => {
-                    self.resolve_expression(file, expression, *line, imports, &locals);
+                if locals
+                    .insert(
+                        name.clone(),
+                        Symbol {
+                            file_path: file.path.clone(),
+                            line: *line,
+                        },
+                    )
+                    .is_some()
+                {
+                    self.report(
+                        "SYMBOL_DUPLICATE_LOCAL",
+                        &format!("Local binding `{name}` is already declared in this function."),
+                        file,
+                        *line,
+                    );
                 }
             }
+            Statement::Return { value, line } => {
+                if let Some(value) = value {
+                    self.resolve_expression(file, value, *line, imports, locals);
+                }
+            }
+            Statement::Assign { name, value, line } => {
+                self.resolve_identifier(file, name, *line, imports, locals);
+                self.resolve_expression(file, value, *line, imports, locals);
+            }
+            Statement::Expression { expression, line } => {
+                self.resolve_expression(file, expression, *line, imports, locals);
+            }
+            Statement::If {
+                condition,
+                then_body,
+                else_body,
+                line,
+            } => {
+                self.resolve_expression(file, condition, *line, imports, locals);
+                self.resolve_nested_block(file, then_body, imports, locals);
+                self.resolve_nested_block(file, else_body, imports, locals);
+            }
+            Statement::Match {
+                expression,
+                cases,
+                line,
+            } => {
+                self.resolve_expression(file, expression, *line, imports, locals);
+                for case in cases {
+                    if let MatchPattern::Expression(pattern) = &case.pattern {
+                        self.resolve_match_pattern(file, pattern, case.line, imports, locals);
+                    }
+                    self.resolve_nested_block(file, &case.body, imports, locals);
+                }
+            }
+        }
+    }
+
+    fn resolve_nested_block(
+        &mut self,
+        file: &AstFile,
+        body: &[Statement],
+        imports: &HashSet<String>,
+        locals: &HashMap<String, Symbol>,
+    ) {
+        let mut nested = locals.clone();
+        self.resolve_block(file, body, imports, &mut nested);
+    }
+
+    fn resolve_match_pattern(
+        &mut self,
+        file: &AstFile,
+        pattern: &Expression,
+        line: usize,
+        imports: &HashSet<String>,
+        locals: &HashMap<String, Symbol>,
+    ) {
+        match pattern {
+            Expression::Identifier(name) if self.variant_constructors.contains(name) => {}
+            _ => self.resolve_expression(file, pattern, line, imports, locals),
         }
     }
 

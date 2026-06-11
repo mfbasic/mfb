@@ -1,10 +1,11 @@
 use crate::bytecode::{
-    self, NativeConst, NativeProgram, NativeType, NATIVE_OPCODE_ADD, NATIVE_OPCODE_CALL_RESULT,
-    NATIVE_OPCODE_CONCAT, NATIVE_OPCODE_CONSTRUCT_RECORD, NATIVE_OPCODE_CONSTRUCT_VARIANT,
-    NATIVE_OPCODE_COPY, NATIVE_OPCODE_DIV, NATIVE_OPCODE_LOAD_CONST, NATIVE_OPCODE_LOAD_DEFAULT,
+    self, NativeConst, NativeProgram, NativeType, NATIVE_OPCODE_ADD, NATIVE_OPCODE_BRANCH,
+    NATIVE_OPCODE_BRANCH_IF_FALSE, NATIVE_OPCODE_CALL_RESULT, NATIVE_OPCODE_CONCAT,
+    NATIVE_OPCODE_CONSTRUCT_RECORD, NATIVE_OPCODE_CONSTRUCT_VARIANT, NATIVE_OPCODE_COPY,
+    NATIVE_OPCODE_DIV, NATIVE_OPCODE_EQUAL, NATIVE_OPCODE_LOAD_CONST, NATIVE_OPCODE_LOAD_DEFAULT,
     NATIVE_OPCODE_LOAD_ENUM_MEMBER, NATIVE_OPCODE_LOAD_FIELD, NATIVE_OPCODE_MOVE,
     NATIVE_OPCODE_MUL, NATIVE_OPCODE_RETURN_OK, NATIVE_OPCODE_SUB, NATIVE_OPCODE_UNWRAP_RESULT,
-    NATIVE_OPCODE_WRITE_STDOUT,
+    NATIVE_OPCODE_VARIANT_MATCH, NATIVE_OPCODE_WRITE_STDOUT,
 };
 use crate::ir::IrProject;
 use std::collections::HashMap;
@@ -139,6 +140,9 @@ impl<'a> NativeEmitter<'a> {
         self.code.stp_fp_lr_pre();
         self.code.mov_fp_sp();
         self.code.sub_sp(frame)?;
+        let instruction_labels = (0..=function.code.len())
+            .map(|_| self.code.new_label())
+            .collect::<Vec<_>>();
 
         for index in 0..function.param_count {
             let slot = slot_offset(index as u32);
@@ -159,7 +163,8 @@ impl<'a> NativeEmitter<'a> {
             )?;
         }
 
-        for instruction in &function.code {
+        for (instruction_index, instruction) in function.code.iter().enumerate() {
+            self.code.bind(instruction_labels[instruction_index]);
             match instruction.opcode {
                 NATIVE_OPCODE_LOAD_CONST => {
                     let dst = operand(instruction, 0)?;
@@ -189,6 +194,9 @@ impl<'a> NativeEmitter<'a> {
                 }
                 NATIVE_OPCODE_ADD | NATIVE_OPCODE_SUB | NATIVE_OPCODE_MUL | NATIVE_OPCODE_DIV => {
                     self.emit_integer_arithmetic(instruction.opcode, instruction, epilogue)?;
+                }
+                NATIVE_OPCODE_EQUAL => {
+                    self.emit_equal(instruction)?;
                 }
                 NATIVE_OPCODE_CONCAT => {
                     return Err(
@@ -224,6 +232,20 @@ impl<'a> NativeEmitter<'a> {
                     self.code.mov_imm(9, ordinal as u64);
                     self.code.str_imm(9, 31, slot_offset(dst))?;
                 }
+                NATIVE_OPCODE_BRANCH => {
+                    let target = operand(instruction, 0)?;
+                    self.code.b(instruction_label(&instruction_labels, target)?);
+                }
+                NATIVE_OPCODE_BRANCH_IF_FALSE => {
+                    let condition = operand(instruction, 0)?;
+                    let target = operand(instruction, 1)?;
+                    self.code.ldr_imm(9, 31, slot_offset(condition))?;
+                    self.code
+                        .cbz(9, instruction_label(&instruction_labels, target)?);
+                }
+                NATIVE_OPCODE_VARIANT_MATCH => {
+                    self.emit_variant_match(instruction)?;
+                }
                 NATIVE_OPCODE_RETURN_OK => {
                     let src = operand(instruction, 0)?;
                     self.code.mov_imm(0, 0);
@@ -238,6 +260,7 @@ impl<'a> NativeEmitter<'a> {
             }
         }
 
+        self.code.bind(instruction_labels[function.code.len()]);
         self.code.bind(epilogue);
         self.code.add_sp(frame)?;
         self.code.ldp_fp_lr_post();
@@ -428,6 +451,46 @@ impl<'a> NativeEmitter<'a> {
         }
         self.code.str_imm(11, 31, slot_offset(dst))?;
         Ok(())
+    }
+
+    fn emit_equal(&mut self, instruction: &bytecode::NativeInstruction) -> Result<(), String> {
+        let dst = operand(instruction, 0)?;
+        let left = operand(instruction, 1)?;
+        let right = operand(instruction, 2)?;
+        let unequal = self.code.new_label();
+        let done = self.code.new_label();
+        self.code.ldr_imm(9, 31, slot_offset(left))?;
+        self.code.ldr_imm(10, 31, slot_offset(right))?;
+        self.code.cmp_reg(9, 10);
+        self.code.b_ne(unequal);
+        self.code.mov_imm(11, 1);
+        self.code.b(done);
+        self.code.bind(unequal);
+        self.code.mov_imm(11, 0);
+        self.code.bind(done);
+        self.code.str_imm(11, 31, slot_offset(dst))
+    }
+
+    fn emit_variant_match(
+        &mut self,
+        instruction: &bytecode::NativeInstruction,
+    ) -> Result<(), String> {
+        let dst = operand(instruction, 0)?;
+        let value = operand(instruction, 1)?;
+        let variant_name = operand(instruction, 2)?;
+        let unequal = self.code.new_label();
+        let done = self.code.new_label();
+        self.code.ldr_imm(9, 31, slot_offset(value))?;
+        self.code.ldr_imm(10, 9, 0)?;
+        self.code.mov_imm(11, variant_name as u64);
+        self.code.cmp_reg(10, 11);
+        self.code.b_ne(unequal);
+        self.code.mov_imm(12, 1);
+        self.code.b(done);
+        self.code.bind(unequal);
+        self.code.mov_imm(12, 0);
+        self.code.bind(done);
+        self.code.str_imm(12, 31, slot_offset(dst))
     }
 
     fn emit_call_result(
@@ -649,6 +712,13 @@ fn operand(instruction: &bytecode::NativeInstruction, index: usize) -> Result<u3
         .ok_or_else(|| format!("opcode {} is missing operand {}", instruction.opcode, index))
 }
 
+fn instruction_label(labels: &[Label], target: u32) -> Result<Label, String> {
+    labels
+        .get(target as usize)
+        .copied()
+        .ok_or_else(|| format!("branch target {target} is outside the function"))
+}
+
 fn slot_offset(register: u32) -> usize {
     register as usize * SLOT_SIZE
 }
@@ -688,6 +758,7 @@ struct Patch {
 enum PatchKind {
     B,
     Bl,
+    BCond { cond: u8 },
     Cbz { rt: u8, nonzero: bool },
 }
 
@@ -726,6 +797,14 @@ impl Code {
                 PatchKind::Bl => {
                     let imm = branch_imm26(source, target);
                     write_u32(&mut self.bytes, source, 0x9400_0000 | imm);
+                }
+                PatchKind::BCond { cond } => {
+                    let imm = branch_imm19(source, target);
+                    write_u32(
+                        &mut self.bytes,
+                        source,
+                        0x5400_0000 | (imm << 5) | cond as u32,
+                    );
                 }
                 PatchKind::Cbz { rt, nonzero } => {
                     let imm = branch_imm19(source, target);
@@ -781,6 +860,16 @@ impl Code {
             at,
             label,
             kind: PatchKind::Cbz { rt, nonzero: true },
+        });
+    }
+
+    fn b_ne(&mut self, label: Label) {
+        let at = self.bytes.len();
+        self.emit(0);
+        self.patches.push(Patch {
+            at,
+            label,
+            kind: PatchKind::BCond { cond: 1 },
         });
     }
 
@@ -852,6 +941,10 @@ impl Code {
 
     fn sub_reg(&mut self, rd: u8, rn: u8, rm: u8) {
         self.emit(0xcb00_0000 | ((rm as u32) << 16) | ((rn as u32) << 5) | rd as u32);
+    }
+
+    fn cmp_reg(&mut self, rn: u8, rm: u8) {
+        self.emit(0xeb00_001f | ((rm as u32) << 16) | ((rn as u32) << 5));
     }
 
     fn mul(&mut self, rd: u8, rn: u8, rm: u8) {

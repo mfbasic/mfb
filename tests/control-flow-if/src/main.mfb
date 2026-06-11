@@ -1,0 +1,37 @@
+FUNC ifOnly(flag AS Boolean) AS Integer
+  IF flag THEN
+    RETURN 1
+  END IF
+  RETURN 0
+END FUNC
+
+FUNC ifElse(flag AS Boolean) AS Integer
+  IF flag THEN
+    RETURN 1
+  ELSE
+    RETURN 2
+  END IF
+END FUNC
+
+FUNC ifElseIf(first AS Boolean, second AS Boolean) AS Integer
+  IF first THEN
+    RETURN 1
+  ELSEIF second THEN
+    RETURN 2
+  END IF
+  RETURN 0
+END FUNC
+
+FUNC ifElseIfElse(first AS Boolean, second AS Boolean) AS Integer
+  IF first THEN
+    RETURN 1
+  ELSEIF second THEN
+    RETURN 2
+  ELSE
+    RETURN 3
+  END IF
+END FUNC
+
+FUNC main() AS Integer
+  RETURN ifOnly(FALSE) + ifElse(TRUE) + ifElseIf(FALSE, TRUE) + ifElseIfElse(FALSE, FALSE)
+END FUNC

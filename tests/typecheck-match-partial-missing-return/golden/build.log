@@ -1,0 +1,16 @@
+$ mfb build -ast tests/typecheck-match-partial-missing-return
+   3 | END ENUM
+   4 | 
+   5 | FUNC value(color AS Color) AS Integer
+     | ^
+tests/typecheck-match-partial-missing-return/src/main.mfb:5 error[TYPE_FUNC_MISSING_RETURN]: function is missing a return value
+               FUNC `value` must return a Integer value.
+[exit 1]
+$ mfb build -ir tests/typecheck-match-partial-missing-return
+   3 | END ENUM
+   4 | 
+   5 | FUNC value(color AS Color) AS Integer
+     | ^
+tests/typecheck-match-partial-missing-return/src/main.mfb:5 error[TYPE_FUNC_MISSING_RETURN]: function is missing a return value
+               FUNC `value` must return a Integer value.
+[exit 1]

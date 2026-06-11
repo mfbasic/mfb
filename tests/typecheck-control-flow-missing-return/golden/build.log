@@ -1,0 +1,12 @@
+$ mfb build -ast tests/typecheck-control-flow-missing-return
+   1 | FUNC pick(flag AS Boolean) AS Integer
+     | ^
+tests/typecheck-control-flow-missing-return/src/main.mfb:1 error[TYPE_FUNC_MISSING_RETURN]: function is missing a return value
+               FUNC `pick` must return a Integer value.
+[exit 1]
+$ mfb build -ir tests/typecheck-control-flow-missing-return
+   1 | FUNC pick(flag AS Boolean) AS Integer
+     | ^
+tests/typecheck-control-flow-missing-return/src/main.mfb:1 error[TYPE_FUNC_MISSING_RETURN]: function is missing a return value
+               FUNC `pick` must return a Integer value.
+[exit 1]

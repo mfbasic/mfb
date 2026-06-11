@@ -1,0 +1,48 @@
+ENUM Color
+  Red, Blue
+END ENUM
+
+UNION Shape
+  Circle(radius AS Integer)
+  Point
+END UNION
+
+FUNC enumAll(color AS Color) AS Integer
+  MATCH color
+    CASE Color::Red
+      RETURN 1
+    CASE Color::Blue
+      RETURN 2
+  END MATCH
+END FUNC
+
+FUNC enumPartialWithElse(color AS Color) AS Integer
+  MATCH color
+    CASE Color::Red
+      RETURN 1
+    CASE ELSE
+      RETURN 2
+  END MATCH
+END FUNC
+
+FUNC unionAll(shape AS Shape) AS Integer
+  MATCH shape
+    CASE Circle
+      RETURN 10
+    CASE Point
+      RETURN 20
+  END MATCH
+END FUNC
+
+FUNC unionPartialWithElse(shape AS Shape) AS Integer
+  MATCH shape
+    CASE Circle
+      RETURN 10
+    CASE ELSE
+      RETURN 20
+  END MATCH
+END FUNC
+
+FUNC main() AS Integer
+  RETURN enumAll(Color::Blue) + enumPartialWithElse(Color::Blue) + unionAll(Point[]) + unionPartialWithElse(Circle[1])
+END FUNC

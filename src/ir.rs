@@ -1,6 +1,6 @@
 use crate::ast::{
-    AstProject, EnumMember, Expression, Function, FunctionKind, Item, Param, Statement, TypeDecl,
-    TypeDeclKind, TypeField, UnionVariant, Visibility,
+    AstProject, EnumMember, Expression, Function, FunctionKind, Item, MatchCase, MatchPattern,
+    Param, Statement, TypeDecl, TypeDeclKind, TypeField, UnionVariant, Visibility,
 };
 use crate::builtins;
 use crate::json_string;
@@ -79,6 +79,25 @@ pub(crate) enum IrOp {
     Eval {
         value: IrValue,
     },
+    If {
+        condition: IrValue,
+        then_body: Vec<IrOp>,
+        else_body: Vec<IrOp>,
+    },
+    Match {
+        value: IrValue,
+        cases: Vec<IrMatchCase>,
+    },
+}
+
+pub(crate) struct IrMatchCase {
+    pub(crate) pattern: IrMatchPattern,
+    pub(crate) body: Vec<IrOp>,
+}
+
+pub(crate) enum IrMatchPattern {
+    Else,
+    Value(IrValue),
 }
 
 pub(crate) enum IrValue {
@@ -274,6 +293,53 @@ fn lower_statement(
         Statement::Expression { expression, .. } => IrOp::Eval {
             value: lower_expression(expression),
         },
+        Statement::If {
+            condition,
+            then_body,
+            else_body,
+            ..
+        } => IrOp::If {
+            condition: lower_expression(condition),
+            then_body: lower_statement_block(then_body, locals, function_returns, type_index),
+            else_body: lower_statement_block(else_body, locals, function_returns, type_index),
+        },
+        Statement::Match {
+            expression, cases, ..
+        } => IrOp::Match {
+            value: lower_expression(expression),
+            cases: cases
+                .iter()
+                .map(|case| lower_match_case(case, locals, function_returns, type_index))
+                .collect(),
+        },
+    }
+}
+
+fn lower_statement_block(
+    body: &[Statement],
+    locals: &HashMap<String, String>,
+    function_returns: &HashMap<String, String>,
+    type_index: &TypeIndex,
+) -> Vec<IrOp> {
+    let mut nested = locals.clone();
+    body.iter()
+        .map(|statement| lower_statement(statement, &mut nested, function_returns, type_index))
+        .collect()
+}
+
+fn lower_match_case(
+    case: &MatchCase,
+    locals: &HashMap<String, String>,
+    function_returns: &HashMap<String, String>,
+    type_index: &TypeIndex,
+) -> IrMatchCase {
+    let pattern = match &case.pattern {
+        MatchPattern::Else => IrMatchPattern::Else,
+        MatchPattern::Expression(expression) => IrMatchPattern::Value(lower_expression(expression)),
+    };
+    IrMatchCase {
+        pattern,
+        body: lower_statement_block(&case.body, locals, function_returns, type_index),
     }
 }
 
@@ -348,6 +414,9 @@ fn expression_type(
             operator,
             right,
         } => {
+            if operator == "=" {
+                return Some("Boolean".to_string());
+            }
             if operator == "&" {
                 return Some("String".to_string());
             }
@@ -788,6 +857,87 @@ impl ToIrJson for IrOp {
                 format!(
                     "\n{}{{ \"op\": \"eval\", \"value\": {} }}",
                     pad,
+                    value.to_json(indent)
+                )
+            }
+            IrOp::If {
+                condition,
+                then_body,
+                else_body,
+            } => {
+                format!(
+                    concat!(
+                        "\n{}{{\n",
+                        "{}  \"op\": \"if\",\n",
+                        "{}  \"condition\": {},\n",
+                        "{}  \"then\": [{}\n{}  ],\n",
+                        "{}  \"else\": [{}\n{}  ]\n",
+                        "{}}}"
+                    ),
+                    pad,
+                    pad,
+                    pad,
+                    condition.to_json(indent),
+                    pad,
+                    join_json(then_body, indent + 2),
+                    pad,
+                    pad,
+                    join_json(else_body, indent + 2),
+                    pad,
+                    pad
+                )
+            }
+            IrOp::Match { value, cases } => {
+                format!(
+                    concat!(
+                        "\n{}{{\n",
+                        "{}  \"op\": \"match\",\n",
+                        "{}  \"value\": {},\n",
+                        "{}  \"cases\": [{}\n{}  ]\n",
+                        "{}}}"
+                    ),
+                    pad,
+                    pad,
+                    pad,
+                    value.to_json(indent),
+                    pad,
+                    join_json(cases, indent + 2),
+                    pad,
+                    pad
+                )
+            }
+        }
+    }
+}
+
+impl ToIrJson for IrMatchCase {
+    fn to_json(&self, indent: usize) -> String {
+        let pad = " ".repeat(indent);
+        format!(
+            concat!(
+                "\n{}{{\n",
+                "{}  \"pattern\": {},\n",
+                "{}  \"body\": [{}\n{}  ]\n",
+                "{}}}"
+            ),
+            pad,
+            pad,
+            self.pattern.to_json(indent),
+            pad,
+            join_json(&self.body, indent + 2),
+            pad,
+            pad
+        )
+    }
+}
+
+impl ToIrJson for IrMatchPattern {
+    fn to_json(&self, indent: usize) -> String {
+        match self {
+            IrMatchPattern::Else => "{ \"kind\": \"else\" }".to_string(),
+            IrMatchPattern::Value(value) => {
+                format!(
+                    "{{ \"kind\": \"value\", \"value\": {} }}",
                     value.to_json(indent)
                 )
             }

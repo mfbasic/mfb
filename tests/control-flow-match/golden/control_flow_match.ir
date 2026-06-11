@@ -1,0 +1,169 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "control_flow_match",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  {
+    "kind": "enum",
+    "visibility": "private",
+    "name": "Color",
+    "members": [
+    { "name": "Red" },
+    { "name": "Blue" }
+    ]
+  },
+  {
+    "kind": "union",
+    "visibility": "private",
+    "name": "Shape",
+    "includes": [],
+    "variants": [
+    {
+      "name": "Circle",
+      "fields": [
+      { "visibility": null, "name": "radius", "type": "Integer" }
+      ]
+    },
+    {
+      "name": "Point",
+      "fields": [
+      ]
+    }
+    ]
+  }
+  ],
+  "functions": [
+  {
+    "name": "enumAll",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    { "name": "color", "type": "Color", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    {
+      "op": "match",
+      "value": { "kind": "local", "name": "color" },
+      "cases": [
+      {
+        "pattern": { "kind": "value", "value": { "kind": "memberAccess", "target": { "kind": "local", "name": "Color" }, "member": "Red" } },
+        "body": [
+        { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "1" } }
+        ]
+      },
+      {
+        "pattern": { "kind": "value", "value": { "kind": "memberAccess", "target": { "kind": "local", "name": "Color" }, "member": "Blue" } },
+        "body": [
+        { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "2" } }
+        ]
+      }
+      ]
+    }
+    ]
+  },
+  {
+    "name": "enumPartialWithElse",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    { "name": "color", "type": "Color", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    {
+      "op": "match",
+      "value": { "kind": "local", "name": "color" },
+      "cases": [
+      {
+        "pattern": { "kind": "value", "value": { "kind": "memberAccess", "target": { "kind": "local", "name": "Color" }, "member": "Red" } },
+        "body": [
+        { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "1" } }
+        ]
+      },
+      {
+        "pattern": { "kind": "else" },
+        "body": [
+        { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "2" } }
+        ]
+      }
+      ]
+    }
+    ]
+  },
+  {
+    "name": "unionAll",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    { "name": "shape", "type": "Shape", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    {
+      "op": "match",
+      "value": { "kind": "local", "name": "shape" },
+      "cases": [
+      {
+        "pattern": { "kind": "value", "value": { "kind": "local", "name": "Circle" } },
+        "body": [
+        { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "10" } }
+        ]
+      },
+      {
+        "pattern": { "kind": "value", "value": { "kind": "local", "name": "Point" } },
+        "body": [
+        { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "20" } }
+        ]
+      }
+      ]
+    }
+    ]
+  },
+  {
+    "name": "unionPartialWithElse",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    { "name": "shape", "type": "Shape", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    {
+      "op": "match",
+      "value": { "kind": "local", "name": "shape" },
+      "cases": [
+      {
+        "pattern": { "kind": "value", "value": { "kind": "local", "name": "Circle" } },
+        "body": [
+        { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "10" } }
+        ]
+      },
+      {
+        "pattern": { "kind": "else" },
+        "body": [
+        { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "20" } }
+        ]
+      }
+      ]
+    }
+    ]
+  },
+  {
+    "name": "main",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "return", "value": { "kind": "binary", "op": "+", "left": { "kind": "binary", "op": "+", "left": { "kind": "binary", "op": "+", "left": { "kind": "call", "target": "enumAll", "args": [{ "kind": "memberAccess", "target": { "kind": "local", "name": "Color" }, "member": "Blue" }] }, "right": { "kind": "call", "target": "enumPartialWithElse", "args": [{ "kind": "memberAccess", "target": { "kind": "local", "name": "Color" }, "member": "Blue" }] } }, "right": { "kind": "call", "target": "unionAll", "args": [{ "kind": "constructor", "type": "Point", "args": [] }] } }, "right": { "kind": "call", "target": "unionPartialWithElse", "args": [{ "kind": "constructor", "type": "Circle", "args": [{ "kind": "const", "type": "Integer", "value": "1" }] }] } } }
+    ]
+  }
+  ]
+}
