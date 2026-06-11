@@ -1,6 +1,6 @@
 use crate::ast::{
     AstProject, EnumMember, Expression, Function, FunctionKind, Item, Param, Statement, TypeDecl,
-    TypeDeclKind, TypeField, UnionVariant,
+    TypeDeclKind, TypeField, UnionVariant, Visibility,
 };
 use crate::json_string;
 use std::collections::HashMap;
@@ -23,6 +23,7 @@ pub(crate) struct EntryPoint {
 
 pub(crate) struct IrType {
     pub(crate) kind: String,
+    pub(crate) visibility: String,
     pub(crate) name: String,
     pub(crate) fields: Vec<IrField>,
     pub(crate) includes: Vec<String>,
@@ -31,6 +32,7 @@ pub(crate) struct IrType {
 }
 
 pub(crate) struct IrField {
+    pub(crate) visibility: Option<String>,
     pub(crate) name: String,
     pub(crate) type_: String,
 }
@@ -46,6 +48,7 @@ pub(crate) struct IrEnumMember {
 
 pub(crate) struct IrFunction {
     pub(crate) name: String,
+    pub(crate) visibility: String,
     pub(crate) kind: String,
     pub(crate) params: Vec<IrParam>,
     pub(crate) returns: String,
@@ -83,6 +86,14 @@ pub(crate) enum IrValue {
         target: String,
         args: Vec<IrValue>,
     },
+    Constructor {
+        type_: String,
+        args: Vec<IrValue>,
+    },
+    MemberAccess {
+        target: Box<IrValue>,
+        member: String,
+    },
     Binary {
         op: String,
         left: Box<IrValue>,
@@ -94,12 +105,13 @@ pub fn lower_project(ast: &AstProject, entry: Option<EntryPoint>) -> IrProject {
     let mut types = Vec::new();
     let mut functions = Vec::new();
     let function_returns = function_returns(ast);
+    let type_index = TypeIndex::new(ast);
 
     for file in &ast.files {
         for item in &file.items {
             match item {
                 Item::Function(function) => {
-                    functions.push(lower_function(function, &function_returns))
+                    functions.push(lower_function(function, &function_returns, &type_index))
                 }
                 Item::Type(type_decl) => types.push(lower_type(type_decl)),
             }
@@ -129,6 +141,7 @@ fn lower_type(type_decl: &TypeDecl) -> IrType {
     };
     IrType {
         kind: kind.to_string(),
+        visibility: visibility_name(type_decl.visibility).to_string(),
         name: type_decl.name.clone(),
         fields: type_decl.fields.iter().map(lower_field).collect(),
         includes: type_decl.includes.clone(),
@@ -139,6 +152,7 @@ fn lower_type(type_decl: &TypeDecl) -> IrType {
 
 fn lower_field(field: &TypeField) -> IrField {
     IrField {
+        visibility: field.visibility.map(visibility_name).map(str::to_string),
         name: field.name.clone(),
         type_: field.type_name.clone(),
     }
@@ -157,7 +171,11 @@ fn lower_enum_member(member: &EnumMember) -> IrEnumMember {
     }
 }
 
-fn lower_function(function: &Function, function_returns: &HashMap<String, String>) -> IrFunction {
+fn lower_function(
+    function: &Function,
+    function_returns: &HashMap<String, String>,
+    type_index: &TypeIndex,
+) -> IrFunction {
     let kind = match function.kind {
         FunctionKind::Func => "func",
         FunctionKind::Sub => "sub",
@@ -181,13 +199,14 @@ fn lower_function(function: &Function, function_returns: &HashMap<String, String
     }
     IrFunction {
         name: function.name.clone(),
+        visibility: visibility_name(function.visibility).to_string(),
         kind: kind.to_string(),
         params: function.params.iter().map(lower_param).collect(),
         returns,
         body: function
             .body
             .iter()
-            .map(|statement| lower_statement(statement, &mut locals, function_returns))
+            .map(|statement| lower_statement(statement, &mut locals, function_returns, type_index))
             .collect(),
     }
 }
@@ -207,6 +226,7 @@ fn lower_statement(
     statement: &Statement,
     locals: &mut HashMap<String, String>,
     function_returns: &HashMap<String, String>,
+    type_index: &TypeIndex,
 ) -> IrOp {
     match statement {
         Statement::Let {
@@ -220,7 +240,7 @@ fn lower_statement(
             let lowered_type = type_name.clone().unwrap_or_else(|| {
                 value
                     .as_ref()
-                    .and_then(|value| expression_type(value, locals, function_returns))
+                    .and_then(|value| expression_type(value, locals, function_returns, type_index))
                     .expect("typecheck requires inferred binding type before IR lowering")
             });
             locals.insert(name.clone(), lowered_type.clone());
@@ -263,6 +283,7 @@ fn expression_type(
     expression: &Expression,
     locals: &HashMap<String, String>,
     function_returns: &HashMap<String, String>,
+    type_index: &TypeIndex,
 ) -> Option<String> {
     match expression {
         Expression::String(_) => Some("String".to_string()),
@@ -275,6 +296,20 @@ fn expression_type(
         }
         Expression::Boolean(_) => Some("Boolean".to_string()),
         Expression::Identifier(value) => locals.get(value).cloned(),
+        Expression::Constructor { type_name, .. } => type_index.constructor_result(type_name),
+        Expression::MemberAccess { target, member } => {
+            if let Expression::Identifier(type_name) = target.as_ref() {
+                if type_index
+                    .enums
+                    .get(type_name)
+                    .is_some_and(|members| members.iter().any(|name| name == member))
+                {
+                    return Some(type_name.clone());
+                }
+            }
+            let target_type = expression_type(target, locals, function_returns, type_index)?;
+            type_index.record_field_type(&target_type, member)
+        }
         Expression::Call { callee, .. } => {
             if callee == "io.print" {
                 Some("Nothing".to_string())
@@ -290,8 +325,8 @@ fn expression_type(
             if operator == "&" {
                 return Some("String".to_string());
             }
-            let left = expression_type(left, locals, function_returns)?;
-            let right = expression_type(right, locals, function_returns)?;
+            let left = expression_type(left, locals, function_returns, type_index)?;
+            let right = expression_type(right, locals, function_returns, type_index)?;
             if left == "Float" || left == "Fixed" || right == "Float" || right == "Fixed" {
                 Some("Float".to_string())
             } else {
@@ -324,6 +359,17 @@ fn lower_expression(expression: &Expression) -> IrValue {
             target: callee.clone(),
             args: arguments.iter().map(lower_expression).collect(),
         },
+        Expression::Constructor {
+            type_name,
+            arguments,
+        } => IrValue::Constructor {
+            type_: type_name.clone(),
+            args: arguments.iter().map(lower_expression).collect(),
+        },
+        Expression::MemberAccess { target, member } => IrValue::MemberAccess {
+            target: Box::new(lower_expression(target)),
+            member: member.clone(),
+        },
         Expression::Binary {
             left,
             operator,
@@ -333,6 +379,71 @@ fn lower_expression(expression: &Expression) -> IrValue {
             left: Box::new(lower_expression(left)),
             right: Box::new(lower_expression(right)),
         },
+    }
+}
+
+struct TypeIndex {
+    records: HashMap<String, Vec<IrField>>,
+    enums: HashMap<String, Vec<String>>,
+    variants: HashMap<String, String>,
+}
+
+impl TypeIndex {
+    fn new(ast: &AstProject) -> Self {
+        let mut records = HashMap::new();
+        let mut enums = HashMap::new();
+        let mut variants = HashMap::new();
+        for file in &ast.files {
+            for item in &file.items {
+                let Item::Type(type_decl) = item else {
+                    continue;
+                };
+                match type_decl.kind {
+                    TypeDeclKind::Type => {
+                        records.insert(
+                            type_decl.name.clone(),
+                            type_decl.fields.iter().map(lower_field).collect(),
+                        );
+                    }
+                    TypeDeclKind::Union => {
+                        for variant in &type_decl.variants {
+                            variants.insert(variant.name.clone(), type_decl.name.clone());
+                        }
+                    }
+                    TypeDeclKind::Enum => {
+                        enums.insert(
+                            type_decl.name.clone(),
+                            type_decl
+                                .members
+                                .iter()
+                                .map(|member| member.name.clone())
+                                .collect(),
+                        );
+                    }
+                }
+            }
+        }
+        Self {
+            records,
+            enums,
+            variants,
+        }
+    }
+
+    fn constructor_result(&self, name: &str) -> Option<String> {
+        if self.records.contains_key(name) {
+            Some(name.to_string())
+        } else {
+            self.variants.get(name).cloned()
+        }
+    }
+
+    fn record_field_type(&self, type_name: &str, member: &str) -> Option<String> {
+        self.records
+            .get(type_name)?
+            .iter()
+            .find(|field| field.name == member)
+            .map(|field| field.type_.clone())
     }
 }
 
@@ -394,6 +505,7 @@ impl ToIrJson for IrType {
                 concat!(
                     "\n{}{{\n",
                     "{}  \"kind\": {},\n",
+                    "{}  \"visibility\": {},\n",
                     "{}  \"name\": {},\n",
                     "{}  \"fields\": [{}\n{}  ]\n",
                     "{}}}"
@@ -401,6 +513,8 @@ impl ToIrJson for IrType {
                 pad,
                 pad,
                 json_string(&self.kind),
+                pad,
+                json_string(&self.visibility),
                 pad,
                 json_string(&self.name),
                 pad,
@@ -412,6 +526,7 @@ impl ToIrJson for IrType {
                 concat!(
                     "\n{}{{\n",
                     "{}  \"kind\": {},\n",
+                    "{}  \"visibility\": {},\n",
                     "{}  \"name\": {},\n",
                     "{}  \"includes\": [{}],\n",
                     "{}  \"variants\": [{}\n{}  ]\n",
@@ -420,6 +535,8 @@ impl ToIrJson for IrType {
                 pad,
                 pad,
                 json_string(&self.kind),
+                pad,
+                json_string(&self.visibility),
                 pad,
                 json_string(&self.name),
                 pad,
@@ -437,6 +554,7 @@ impl ToIrJson for IrType {
                 concat!(
                     "\n{}{{\n",
                     "{}  \"kind\": {},\n",
+                    "{}  \"visibility\": {},\n",
                     "{}  \"name\": {},\n",
                     "{}  \"members\": [{}\n{}  ]\n",
                     "{}}}"
@@ -444,6 +562,8 @@ impl ToIrJson for IrType {
                 pad,
                 pad,
                 json_string(&self.kind),
+                pad,
+                json_string(&self.visibility),
                 pad,
                 json_string(&self.name),
                 pad,
@@ -459,9 +579,15 @@ impl ToIrJson for IrType {
 impl ToIrJson for IrField {
     fn to_json(&self, indent: usize) -> String {
         let pad = " ".repeat(indent);
+        let visibility = self
+            .visibility
+            .as_ref()
+            .map(|value| json_string(value))
+            .unwrap_or_else(|| "null".to_string());
         format!(
-            "\n{}{{ \"name\": {}, \"type\": {} }}",
+            "\n{}{{ \"visibility\": {}, \"name\": {}, \"type\": {} }}",
             pad,
+            visibility,
             json_string(&self.name),
             json_string(&self.type_)
         )
@@ -503,6 +629,7 @@ impl ToIrJson for IrFunction {
             concat!(
                 "\n{}{{\n",
                 "{}  \"name\": {},\n",
+                "{}  \"visibility\": {},\n",
                 "{}  \"kind\": {},\n",
                 "{}  \"params\": [{}\n{}  ],\n",
                 "{}  \"returns\": {},\n",
@@ -512,6 +639,8 @@ impl ToIrJson for IrFunction {
             pad,
             pad,
             json_string(&self.name),
+            pad,
+            json_string(&self.visibility),
             pad,
             json_string(&self.kind),
             pad,
@@ -611,6 +740,25 @@ impl ToIrJson for IrValue {
                     args
                 )
             }
+            IrValue::Constructor { type_, args } => {
+                let args = args
+                    .iter()
+                    .map(|arg| arg.to_json(0))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                format!(
+                    "{{ \"kind\": \"constructor\", \"type\": {}, \"args\": [{}] }}",
+                    json_string(type_),
+                    args
+                )
+            }
+            IrValue::MemberAccess { target, member } => {
+                format!(
+                    "{{ \"kind\": \"memberAccess\", \"target\": {}, \"member\": {} }}",
+                    target.to_json(0),
+                    json_string(member)
+                )
+            }
             IrValue::Binary { op, left, right } => {
                 format!(
                     "{{ \"kind\": \"binary\", \"op\": {}, \"left\": {}, \"right\": {} }}",
@@ -629,4 +777,12 @@ fn join_json<T: ToIrJson>(items: &[T], indent: usize) -> String {
         .map(|item| item.to_json(indent))
         .collect::<Vec<_>>()
         .join(",")
+}
+
+fn visibility_name(visibility: Visibility) -> &'static str {
+    match visibility {
+        Visibility::Private => "private",
+        Visibility::Package => "package",
+        Visibility::Export => "export",
+    }
 }

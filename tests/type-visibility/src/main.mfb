@@ -1,0 +1,4 @@
+SUB main()
+  LET s = Secret["abc"]
+  LET token AS String = s::token
+END SUB

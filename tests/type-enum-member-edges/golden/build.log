@@ -1,0 +1,76 @@
+$ mfb build -ast tests/type-enum-member-edges
+   9 | SUB main()
+  10 |   LET red AS Color = Color::Red
+  11 |   LET missing AS Color = Color::Blue
+     | ^
+tests/type-enum-member-edges/src/main.mfb:11 error[TYPE_UNKNOWN_ENUM_MEMBER]: enum member does not exist
+               ENUM `Color` has no member `Blue`.
+   9 | SUB main()
+  10 |   LET red AS Color = Color::Red
+  11 |   LET missing AS Color = Color::Blue
+     | ^
+tests/type-enum-member-edges/src/main.mfb:11 error[TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `missing` does not have a known type.
+  10 |   LET red AS Color = Color::Red
+  11 |   LET missing AS Color = Color::Blue
+  12 |   LET notEnum = Box::value
+     | ^
+tests/type-enum-member-edges/src/main.mfb:12 error[TYPE_FIELD_ACCESS_REQUIRES_RECORD]: field access requires a record value
+               Field access `value` requires a record value, got Unknown.
+  10 |   LET red AS Color = Color::Red
+  11 |   LET missing AS Color = Color::Blue
+  12 |   LET notEnum = Box::value
+     | ^
+tests/type-enum-member-edges/src/main.mfb:12 error[TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `notEnum` does not have a known type.
+  11 |   LET missing AS Color = Color::Blue
+  12 |   LET notEnum = Box::value
+  13 |   LET enumField = red::value
+     | ^
+tests/type-enum-member-edges/src/main.mfb:13 error[TYPE_FIELD_ACCESS_REQUIRES_RECORD]: field access requires a record value
+               Field access `value` requires a record value, got ENUM `Color`.
+  11 |   LET missing AS Color = Color::Blue
+  12 |   LET notEnum = Box::value
+  13 |   LET enumField = red::value
+     | ^
+tests/type-enum-member-edges/src/main.mfb:13 error[TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `enumField` does not have a known type.
+[exit 1]
+$ mfb build -ir tests/type-enum-member-edges
+   9 | SUB main()
+  10 |   LET red AS Color = Color::Red
+  11 |   LET missing AS Color = Color::Blue
+     | ^
+tests/type-enum-member-edges/src/main.mfb:11 error[TYPE_UNKNOWN_ENUM_MEMBER]: enum member does not exist
+               ENUM `Color` has no member `Blue`.
+   9 | SUB main()
+  10 |   LET red AS Color = Color::Red
+  11 |   LET missing AS Color = Color::Blue
+     | ^
+tests/type-enum-member-edges/src/main.mfb:11 error[TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `missing` does not have a known type.
+  10 |   LET red AS Color = Color::Red
+  11 |   LET missing AS Color = Color::Blue
+  12 |   LET notEnum = Box::value
+     | ^
+tests/type-enum-member-edges/src/main.mfb:12 error[TYPE_FIELD_ACCESS_REQUIRES_RECORD]: field access requires a record value
+               Field access `value` requires a record value, got Unknown.
+  10 |   LET red AS Color = Color::Red
+  11 |   LET missing AS Color = Color::Blue
+  12 |   LET notEnum = Box::value
+     | ^
+tests/type-enum-member-edges/src/main.mfb:12 error[TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `notEnum` does not have a known type.
+  11 |   LET missing AS Color = Color::Blue
+  12 |   LET notEnum = Box::value
+  13 |   LET enumField = red::value
+     | ^
+tests/type-enum-member-edges/src/main.mfb:13 error[TYPE_FIELD_ACCESS_REQUIRES_RECORD]: field access requires a record value
+               Field access `value` requires a record value, got ENUM `Color`.
+  11 |   LET missing AS Color = Color::Blue
+  12 |   LET notEnum = Box::value
+  13 |   LET enumField = red::value
+     | ^
+tests/type-enum-member-edges/src/main.mfb:13 error[TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `enumField` does not have a known type.
+[exit 1]

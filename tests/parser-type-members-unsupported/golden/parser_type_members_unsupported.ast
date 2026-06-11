@@ -8,10 +8,11 @@
     "items": [
     {
       "kind": "type",
+      "visibility": "private",
       "name": "Person",
       "line": 1,
       "fields": [
-      { "name": "name", "type": "String", "line": 2 }
+      { "visibility": null, "name": "name", "type": "String", "line": 2 }
       ]
     }
     ]

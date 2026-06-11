@@ -1,0 +1,52 @@
+$ mfb build -ast tests/type-variant-constructor-edges
+  15 |   LET point AS Shape = Point[]
+  16 |   LET circle AS Shape = Circle[2.5]
+  17 |   LET badArity AS Shape = Point[1]
+     | ^
+tests/type-variant-constructor-edges/src/main.mfb:17 error[TYPE_CONSTRUCTOR_ARITY_MISMATCH]: constructor has the wrong number of arguments
+               Constructor `Point` has 1 argument(s), expected 0.
+  16 |   LET circle AS Shape = Circle[2.5]
+  17 |   LET badArity AS Shape = Point[1]
+  18 |   LET badType AS Shape = Circle["wide"]
+     | ^
+tests/type-variant-constructor-edges/src/main.mfb:18 error[TYPE_CONSTRUCTOR_ARGUMENT_MISMATCH]: constructor argument type does not match field type
+               Argument 1 for `Circle` has type String, expected Float for field `radius`.
+  17 |   LET badArity AS Shape = Point[1]
+  18 |   LET badType AS Shape = Circle["wide"]
+  19 |   LET ambiguous = Duplicate[]
+     | ^
+tests/type-variant-constructor-edges/src/main.mfb:19 error[TYPE_VARIANT_CONSTRUCTOR_AMBIGUOUS]: variant constructor name is ambiguous
+               Variant constructor `Duplicate` is declared by more than one UNION.
+  17 |   LET badArity AS Shape = Point[1]
+  18 |   LET badType AS Shape = Circle["wide"]
+  19 |   LET ambiguous = Duplicate[]
+     | ^
+tests/type-variant-constructor-edges/src/main.mfb:19 error[TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `ambiguous` does not have a known type.
+[exit 1]
+$ mfb build -ir tests/type-variant-constructor-edges
+  15 |   LET point AS Shape = Point[]
+  16 |   LET circle AS Shape = Circle[2.5]
+  17 |   LET badArity AS Shape = Point[1]
+     | ^
+tests/type-variant-constructor-edges/src/main.mfb:17 error[TYPE_CONSTRUCTOR_ARITY_MISMATCH]: constructor has the wrong number of arguments
+               Constructor `Point` has 1 argument(s), expected 0.
+  16 |   LET circle AS Shape = Circle[2.5]
+  17 |   LET badArity AS Shape = Point[1]
+  18 |   LET badType AS Shape = Circle["wide"]
+     | ^
+tests/type-variant-constructor-edges/src/main.mfb:18 error[TYPE_CONSTRUCTOR_ARGUMENT_MISMATCH]: constructor argument type does not match field type
+               Argument 1 for `Circle` has type String, expected Float for field `radius`.
+  17 |   LET badArity AS Shape = Point[1]
+  18 |   LET badType AS Shape = Circle["wide"]
+  19 |   LET ambiguous = Duplicate[]
+     | ^
+tests/type-variant-constructor-edges/src/main.mfb:19 error[TYPE_VARIANT_CONSTRUCTOR_AMBIGUOUS]: variant constructor name is ambiguous
+               Variant constructor `Duplicate` is declared by more than one UNION.
+  17 |   LET badArity AS Shape = Point[1]
+  18 |   LET badType AS Shape = Circle["wide"]
+  19 |   LET ambiguous = Duplicate[]
+     | ^
+tests/type-variant-constructor-edges/src/main.mfb:19 error[TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `ambiguous` does not have a known type.
+[exit 1]

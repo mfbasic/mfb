@@ -1,0 +1,70 @@
+{
+  "project": "type_values",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    ],
+    "items": [
+    {
+      "kind": "type",
+      "visibility": "private",
+      "name": "Vec3",
+      "line": 1,
+      "fields": [
+      { "visibility": null, "name": "x", "type": "Float", "line": 2 },
+      { "visibility": null, "name": "y", "type": "Float", "line": 3 },
+      { "visibility": null, "name": "z", "type": "Float", "line": 4 }
+      ]
+    },
+    {
+      "kind": "union",
+      "visibility": "private",
+      "name": "Shape",
+      "line": 7,
+      "includes": [],
+      "variants": [
+      {
+        "name": "Circle",
+        "line": 8,
+        "fields": [
+        { "visibility": null, "name": "radius", "type": "Float", "line": 8 }
+        ]
+      },
+      {
+        "name": "Point",
+        "line": 9,
+        "fields": [
+        ]
+      }
+      ]
+    },
+    {
+      "kind": "enum",
+      "visibility": "private",
+      "name": "Color",
+      "line": 12,
+      "members": [
+      { "name": "Red", "line": 13 },
+      { "name": "Green", "line": 13 }
+      ]
+    },
+    {
+      "kind": "sub",
+      "visibility": "private",
+      "name": "main",
+      "line": 16,
+      "params": [
+      ],
+      "returnType": null,
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "p", "type": null, "value": { "kind": "constructor", "type": "Vec3", "arguments": [{ "kind": "number", "value": "1.0" }, { "kind": "number", "value": "2.0" }, { "kind": "number", "value": "3.0" }] }, "line": 17 },
+      { "kind": "binding", "mutable": false, "name": "x", "type": "Float", "value": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "p" }, "member": "x" }, "line": 18 },
+      { "kind": "binding", "mutable": false, "name": "c", "type": "Color", "value": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "Color" }, "member": "Red" }, "line": 19 },
+      { "kind": "binding", "mutable": false, "name": "s", "type": "Shape", "value": { "kind": "constructor", "type": "Circle", "arguments": [{ "kind": "number", "value": "2.5" }] }, "line": 20 }
+      ]
+    }
+    ]
+  }
+  ]
+}

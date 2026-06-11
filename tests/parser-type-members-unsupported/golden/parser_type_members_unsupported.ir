@@ -6,9 +6,10 @@
   "types": [
   {
     "kind": "type",
+    "visibility": "private",
     "name": "Person",
     "fields": [
-    { "name": "name", "type": "String" }
+    { "visibility": null, "name": "name", "type": "String" }
     ]
   }
   ],

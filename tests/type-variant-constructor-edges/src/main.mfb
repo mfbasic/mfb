@@ -1,0 +1,20 @@
+UNION Shape
+  Point
+  Circle(radius AS Float)
+END UNION
+
+UNION Marker
+  Duplicate
+END UNION
+
+UNION Other
+  Duplicate
+END UNION
+
+SUB main()
+  LET point AS Shape = Point[]
+  LET circle AS Shape = Circle[2.5]
+  LET badArity AS Shape = Point[1]
+  LET badType AS Shape = Circle["wide"]
+  LET ambiguous = Duplicate[]
+END SUB

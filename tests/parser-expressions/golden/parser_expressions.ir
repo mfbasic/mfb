@@ -12,6 +12,7 @@
   "functions": [
   {
     "name": "total",
+    "visibility": "private",
     "kind": "func",
     "params": [
     ],
@@ -22,6 +23,7 @@
   },
   {
     "name": "main",
+    "visibility": "private",
     "kind": "sub",
     "params": [
     ],

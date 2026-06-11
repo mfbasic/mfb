@@ -8,16 +8,18 @@
     "items": [
     {
       "kind": "type",
+      "visibility": "private",
       "name": "Vec3",
       "line": 1,
       "fields": [
-      { "name": "x", "type": "Float", "line": 2 },
-      { "name": "y", "type": "Float", "line": 3 },
-      { "name": "z", "type": "Float", "line": 4 }
+      { "visibility": null, "name": "x", "type": "Float", "line": 2 },
+      { "visibility": null, "name": "y", "type": "Float", "line": 3 },
+      { "visibility": null, "name": "z", "type": "Float", "line": 4 }
       ]
     },
     {
       "kind": "union",
+      "visibility": "private",
       "name": "Shape",
       "line": 7,
       "includes": [],
@@ -26,15 +28,15 @@
         "name": "Circle",
         "line": 8,
         "fields": [
-        { "name": "radius", "type": "Float", "line": 8 }
+        { "visibility": null, "name": "radius", "type": "Float", "line": 8 }
         ]
       },
       {
         "name": "Rect",
         "line": 9,
         "fields": [
-        { "name": "w", "type": "Float", "line": 9 },
-        { "name": "h", "type": "Float", "line": 9 }
+        { "visibility": null, "name": "w", "type": "Float", "line": 9 },
+        { "visibility": null, "name": "h", "type": "Float", "line": 9 }
         ]
       },
       {
@@ -47,6 +49,7 @@
     },
     {
       "kind": "union",
+      "visibility": "private",
       "name": "ExtraShape",
       "line": 13,
       "includes": ["Shape"],
@@ -55,15 +58,16 @@
         "name": "Triangle",
         "line": 14,
         "fields": [
-        { "name": "a", "type": "Float", "line": 14 },
-        { "name": "b", "type": "Float", "line": 14 },
-        { "name": "c", "type": "Float", "line": 14 }
+        { "visibility": null, "name": "a", "type": "Float", "line": 14 },
+        { "visibility": null, "name": "b", "type": "Float", "line": 14 },
+        { "visibility": null, "name": "c", "type": "Float", "line": 14 }
         ]
       }
       ]
     },
     {
       "kind": "enum",
+      "visibility": "private",
       "name": "Color",
       "line": 17,
       "members": [
@@ -74,6 +78,7 @@
     },
     {
       "kind": "sub",
+      "visibility": "private",
       "name": "main",
       "line": 22,
       "params": [

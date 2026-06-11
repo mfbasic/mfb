@@ -10,6 +10,7 @@
   "types": [
   {
     "kind": "type",
+    "visibility": "private",
     "name": "Person",
     "fields": [
     ]
@@ -18,6 +19,7 @@
   "functions": [
   {
     "name": "makeName",
+    "visibility": "private",
     "kind": "func",
     "params": [
     { "name": "person", "type": "Person", "default": null }
@@ -29,6 +31,7 @@
   },
   {
     "name": "main",
+    "visibility": "private",
     "kind": "sub",
     "params": [
     ],

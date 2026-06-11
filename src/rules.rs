@@ -232,6 +232,21 @@ pub const RULES: &[Rule] = &[
         message: "function call has the wrong number of arguments",
     },
     Rule {
+        name: "TYPE_CONSTRUCTOR_ARGUMENT_MISMATCH",
+        severity: Severity::Error,
+        message: "constructor argument type does not match field type",
+    },
+    Rule {
+        name: "TYPE_CONSTRUCTOR_ARITY_MISMATCH",
+        severity: Severity::Error,
+        message: "constructor has the wrong number of arguments",
+    },
+    Rule {
+        name: "TYPE_CONSTRUCTOR_REQUIRES_RECORD",
+        severity: Severity::Error,
+        message: "record constructor syntax requires a TYPE",
+    },
+    Rule {
         name: "TYPE_DEFAULT_ARG_ORDER",
         severity: Severity::Error,
         message: "default parameters must be trailing",
@@ -272,9 +287,19 @@ pub const RULES: &[Rule] = &[
         message: "FUNC must declare a return type",
     },
     Rule {
+        name: "TYPE_FIELD_ACCESS_REQUIRES_RECORD",
+        severity: Severity::Error,
+        message: "field access requires a record value",
+    },
+    Rule {
         name: "TYPE_LET_REQUIRES_VALUE",
         severity: Severity::Error,
         message: "immutable binding must have an initializer",
+    },
+    Rule {
+        name: "TYPE_MEMBER_NOT_VISIBLE",
+        severity: Severity::Error,
+        message: "type member is not visible from this scope",
     },
     Rule {
         name: "TYPE_PARAM_REQUIRES_TYPE",
@@ -302,9 +327,24 @@ pub const RULES: &[Rule] = &[
         message: "value type could not be determined",
     },
     Rule {
+        name: "TYPE_UNKNOWN_ENUM_MEMBER",
+        severity: Severity::Error,
+        message: "enum member does not exist",
+    },
+    Rule {
+        name: "TYPE_UNKNOWN_FIELD",
+        severity: Severity::Error,
+        message: "record field does not exist",
+    },
+    Rule {
         name: "TYPE_UNION_INCLUDE_REQUIRES_UNION",
         severity: Severity::Error,
         message: "union includes must name union types",
+    },
+    Rule {
+        name: "TYPE_VARIANT_CONSTRUCTOR_AMBIGUOUS",
+        severity: Severity::Error,
+        message: "variant constructor name is ambiguous",
     },
     Rule {
         name: "PROJECT_ENTRY_INVALID",

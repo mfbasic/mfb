@@ -1,0 +1,6 @@
+$ mfb build -ast tests/type-values
+Wrote AST to tests/type-values/type_values.ast
+[exit 0]
+$ mfb build -ir tests/type-values
+Wrote IR to tests/type-values/type_values.ir
+[exit 0]

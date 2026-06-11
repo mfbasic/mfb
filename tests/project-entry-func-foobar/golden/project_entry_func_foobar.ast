@@ -8,6 +8,7 @@
     "items": [
     {
       "kind": "func",
+      "visibility": "private",
       "name": "foobar",
       "line": 1,
       "params": [

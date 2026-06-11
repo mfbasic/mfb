@@ -9,6 +9,7 @@
     "items": [
     {
       "kind": "func",
+      "visibility": "private",
       "name": "greet",
       "line": 3,
       "params": [
@@ -22,6 +23,7 @@
     },
     {
       "kind": "func",
+      "visibility": "private",
       "name": "count",
       "line": 7,
       "params": [
@@ -33,6 +35,7 @@
     },
     {
       "kind": "sub",
+      "visibility": "private",
       "name": "main",
       "line": 11,
       "params": [

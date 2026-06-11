@@ -1,0 +1,16 @@
+TYPE Vec
+  x AS Integer
+END TYPE
+
+ENUM Color
+  Red
+END ENUM
+
+SUB main()
+  LET p = Vec[1]
+  LET x AS Integer = p::x
+  LET direct AS Integer = Vec[2]::x
+  LET missing = p::y
+  LET literalField = 1::x
+  LET enumField = Color::Red::name
+END SUB

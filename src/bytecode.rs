@@ -176,7 +176,11 @@ impl<'a> NativePlanEvaluator<'a> {
                 self.eval_string(value, locals)?;
                 Ok(())
             }
-            IrValue::Local(_) | IrValue::Const { .. } | IrValue::Binary { .. } => {
+            IrValue::Local(_)
+            | IrValue::Const { .. }
+            | IrValue::Binary { .. }
+            | IrValue::Constructor { .. }
+            | IrValue::MemberAccess { .. } => {
                 self.eval_string(value, locals)?;
                 Ok(())
             }
@@ -217,6 +221,12 @@ impl<'a> NativePlanEvaluator<'a> {
             )),
             IrValue::Binary { op, .. } => Err(format!(
                 "native build does not support binary operator `{op}` outside built-in lowering yet"
+            )),
+            IrValue::Constructor { type_, .. } => Err(format!(
+                "native build does not support constructing `{type_}` values yet"
+            )),
+            IrValue::MemberAccess { member, .. } => Err(format!(
+                "native build does not support member access `{member}` yet"
             )),
         }
     }
@@ -379,6 +389,8 @@ fn value_uses_call(value: &IrValue, name: &str) -> bool {
         IrValue::Binary { left, right, .. } => {
             value_uses_call(left, name) || value_uses_call(right, name)
         }
+        IrValue::Constructor { args, .. } => args.iter().any(|arg| value_uses_call(arg, name)),
+        IrValue::MemberAccess { target, .. } => value_uses_call(target, name),
         IrValue::Const { .. } | IrValue::Local(_) => false,
     }
 }
@@ -601,6 +613,12 @@ impl<'a> FunctionBuilder<'a> {
                 self.push(opcode, vec![dst, left_register, right_register]);
                 Ok(dst)
             }
+            IrValue::Constructor { type_, .. } => Err(format!(
+                "bytecode lowering does not support constructing `{type_}` yet"
+            )),
+            IrValue::MemberAccess { member, .. } => Err(format!(
+                "bytecode lowering does not support member access `{member}` yet"
+            )),
         }
     }
 

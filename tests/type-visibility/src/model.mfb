@@ -1,0 +1,3 @@
+EXPORT TYPE Secret
+  PRIVATE token AS String
+END TYPE

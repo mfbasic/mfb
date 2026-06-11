@@ -1,6 +1,6 @@
 use crate::ast::{
     AstFile, AstProject, Expression, Function, FunctionKind, Item, Statement, TypeDecl,
-    TypeDeclKind,
+    TypeDeclKind, TypeField, Visibility,
 };
 use crate::rules;
 use std::collections::{HashMap, HashSet};
@@ -50,7 +50,35 @@ struct TypeChecker<'a> {
     functions: HashMap<String, FunctionSig>,
     user_types: HashSet<String>,
     user_type_kinds: HashMap<String, TypeDeclKind>,
+    type_infos: HashMap<String, TypeInfo>,
+    variant_constructors: HashMap<String, Vec<VariantConstructor>>,
     had_error: bool,
+}
+
+#[derive(Clone)]
+struct TypeInfo {
+    kind: TypeDeclKind,
+    visibility: Visibility,
+    file_path: String,
+    fields: Vec<FieldInfo>,
+    variants: Vec<VariantConstructor>,
+    members: HashSet<String>,
+}
+
+#[derive(Clone)]
+struct FieldInfo {
+    name: String,
+    type_: Type,
+    visibility: Visibility,
+}
+
+#[derive(Clone)]
+struct VariantConstructor {
+    name: String,
+    union_name: String,
+    visibility: Visibility,
+    file_path: String,
+    fields: Vec<FieldInfo>,
 }
 
 impl<'a> TypeChecker<'a> {
@@ -61,6 +89,8 @@ impl<'a> TypeChecker<'a> {
             functions: HashMap::new(),
             user_types: HashSet::new(),
             user_type_kinds: HashMap::new(),
+            type_infos: HashMap::new(),
+            variant_constructors: HashMap::new(),
             had_error: false,
         };
         checker.collect_types();
@@ -77,6 +107,65 @@ impl<'a> TypeChecker<'a> {
                         .insert(type_decl.name.clone(), type_decl.kind);
                 }
             }
+        }
+
+        for file in &self.ast.files {
+            for item in &file.items {
+                if let Item::Type(type_decl) = item {
+                    let info = self.type_info(file, type_decl);
+                    for variant in &info.variants {
+                        self.variant_constructors
+                            .entry(variant_name_key(variant))
+                            .or_default()
+                            .push(variant.clone());
+                    }
+                    self.type_infos.insert(type_decl.name.clone(), info);
+                }
+            }
+        }
+    }
+
+    fn type_info(&self, file: &AstFile, type_decl: &TypeDecl) -> TypeInfo {
+        let fields = type_decl
+            .fields
+            .iter()
+            .map(|field| self.field_info(field, type_decl.visibility))
+            .collect();
+        let variants = type_decl
+            .variants
+            .iter()
+            .map(|variant| VariantConstructor {
+                name: variant.name.clone(),
+                union_name: type_decl.name.clone(),
+                visibility: type_decl.visibility,
+                file_path: file.path.clone(),
+                fields: variant
+                    .fields
+                    .iter()
+                    .map(|field| self.field_info(field, Visibility::Export))
+                    .collect(),
+            })
+            .collect();
+        let members = type_decl
+            .members
+            .iter()
+            .map(|member| member.name.clone())
+            .collect();
+        TypeInfo {
+            kind: type_decl.kind,
+            visibility: type_decl.visibility,
+            file_path: file.path.clone(),
+            fields,
+            variants,
+            members,
+        }
+    }
+
+    fn field_info(&self, field: &TypeField, containing_visibility: Visibility) -> FieldInfo {
+        FieldInfo {
+            name: field.name.clone(),
+            type_: self.parse_type(&field.type_name),
+            visibility: effective_field_visibility(field.visibility, containing_visibility),
         }
     }
 
@@ -132,11 +221,14 @@ impl<'a> TypeChecker<'a> {
         match type_decl.kind {
             TypeDeclKind::Type => {
                 for field in &type_decl.fields {
-                    self.parse_type(&field.type_name);
+                    let type_ = self.parse_type(&field.type_name);
+                    self.check_type_reference(file, &type_, field.line);
                 }
             }
             TypeDeclKind::Union => {
                 for include in &type_decl.includes {
+                    let type_ = self.parse_type(include);
+                    self.check_type_reference(file, &type_, type_decl.line);
                     if let Some(kind) = self.user_type_kinds.get(include) {
                         if !matches!(kind, TypeDeclKind::Union) {
                             self.report(
@@ -154,7 +246,8 @@ impl<'a> TypeChecker<'a> {
 
                 for variant in &type_decl.variants {
                     for field in &variant.fields {
-                        self.parse_type(&field.type_name);
+                        let type_ = self.parse_type(&field.type_name);
+                        self.check_type_reference(file, &type_, field.line);
                     }
                 }
             }
@@ -187,6 +280,7 @@ impl<'a> TypeChecker<'a> {
                     Type::Unknown
                 } else {
                     let return_type = self.parse_type(function.return_type.as_deref().unwrap());
+                    self.check_type_reference(file, &return_type, function.line);
                     if matches!(return_type, Type::Result) {
                         self.report(
                             "TYPE_RESULT_IS_IMPLICIT",
@@ -221,6 +315,7 @@ impl<'a> TypeChecker<'a> {
                 .as_deref()
                 .map(|name| self.parse_type(name))
                 .unwrap_or(Type::Unknown);
+            self.check_type_reference(file, &param_type, param.line);
 
             if param.type_name.is_none() {
                 self.report(
@@ -319,6 +414,9 @@ impl<'a> TypeChecker<'a> {
                 ..
             } => {
                 let declared = type_name.as_deref().map(|name| self.parse_type(name));
+                if let Some(declared) = &declared {
+                    self.check_type_reference(file, declared, *line);
+                }
                 let inferred = value
                     .as_ref()
                     .map(|value| self.infer_expression(file, value, locals, *line));
@@ -430,6 +528,13 @@ impl<'a> TypeChecker<'a> {
                 }
             }
             Expression::Identifier(name) => locals.get(name).cloned().unwrap_or(Type::Unknown),
+            Expression::Constructor {
+                type_name,
+                arguments,
+            } => self.infer_constructor(file, type_name, arguments, locals, line),
+            Expression::MemberAccess { target, member } => {
+                self.infer_member_access(file, target, member, locals, line)
+            }
             Expression::Binary {
                 left,
                 operator,
@@ -460,6 +565,234 @@ impl<'a> TypeChecker<'a> {
 
                 self.check_call(file, callee, &sig, arguments, locals, line);
                 sig.return_type
+            }
+        }
+    }
+
+    fn infer_constructor(
+        &mut self,
+        file: &AstFile,
+        type_name: &str,
+        arguments: &[Expression],
+        locals: &HashMap<String, Type>,
+        line: usize,
+    ) -> Type {
+        if let Some(info) = self.type_infos.get(type_name).cloned() {
+            if !self.visible_from(file, info.visibility, &info.file_path) {
+                self.report(
+                    "TYPE_MEMBER_NOT_VISIBLE",
+                    &format!("Constructor `{type_name}` is not visible from this file."),
+                    file,
+                    line,
+                );
+                return Type::Unknown;
+            }
+            if !matches!(info.kind, TypeDeclKind::Type) {
+                self.report(
+                    "TYPE_CONSTRUCTOR_REQUIRES_RECORD",
+                    &format!(
+                        "`{type_name}` is a {}, not a record TYPE.",
+                        type_kind_name(info.kind)
+                    ),
+                    file,
+                    line,
+                );
+                return Type::Unknown;
+            }
+            self.check_constructor_arguments(
+                file,
+                type_name,
+                &info.fields,
+                &info.file_path,
+                arguments,
+                locals,
+                line,
+            );
+            return Type::User(type_name.to_string());
+        }
+
+        if let Some(variants) = self.variant_constructors.get(type_name).cloned() {
+            if variants.len() > 1 {
+                self.report(
+                    "TYPE_VARIANT_CONSTRUCTOR_AMBIGUOUS",
+                    &format!(
+                        "Variant constructor `{type_name}` is declared by more than one UNION."
+                    ),
+                    file,
+                    line,
+                );
+                return Type::Unknown;
+            }
+            let variant = &variants[0];
+            if !self.visible_from(file, variant.visibility, &variant.file_path) {
+                self.report(
+                    "TYPE_MEMBER_NOT_VISIBLE",
+                    &format!("Variant constructor `{type_name}` is not visible from this file."),
+                    file,
+                    line,
+                );
+                return Type::Unknown;
+            }
+            self.check_constructor_arguments(
+                file,
+                type_name,
+                &variant.fields,
+                &variant.file_path,
+                arguments,
+                locals,
+                line,
+            );
+            return Type::User(variant.union_name.clone());
+        }
+
+        for argument in arguments {
+            self.infer_expression(file, argument, locals, line);
+        }
+        Type::Unknown
+    }
+
+    fn infer_member_access(
+        &mut self,
+        file: &AstFile,
+        target: &Expression,
+        member: &str,
+        locals: &HashMap<String, Type>,
+        line: usize,
+    ) -> Type {
+        if let Expression::Identifier(type_name) = target {
+            if let Some(info) = self.type_infos.get(type_name).cloned() {
+                if matches!(info.kind, TypeDeclKind::Enum) {
+                    if !self.visible_from(file, info.visibility, &info.file_path) {
+                        self.report(
+                            "TYPE_MEMBER_NOT_VISIBLE",
+                            &format!("ENUM `{type_name}` is not visible from this file."),
+                            file,
+                            line,
+                        );
+                        return Type::Unknown;
+                    }
+                    if !info.members.contains(member) {
+                        self.report(
+                            "TYPE_UNKNOWN_ENUM_MEMBER",
+                            &format!("ENUM `{type_name}` has no member `{member}`."),
+                            file,
+                            line,
+                        );
+                        return Type::Unknown;
+                    }
+                    return Type::User(type_name.clone());
+                }
+            }
+        }
+
+        let target_type = self.infer_expression(file, target, locals, line);
+        let Type::User(type_name) = target_type else {
+            self.report(
+                "TYPE_FIELD_ACCESS_REQUIRES_RECORD",
+                &format!(
+                    "Field access `{member}` requires a record value, got {}.",
+                    self.type_name(&target_type)
+                ),
+                file,
+                line,
+            );
+            return Type::Unknown;
+        };
+        let Some(info) = self.type_infos.get(&type_name).cloned() else {
+            return Type::Unknown;
+        };
+        if !matches!(info.kind, TypeDeclKind::Type) {
+            self.report(
+                "TYPE_FIELD_ACCESS_REQUIRES_RECORD",
+                &format!(
+                    "Field access `{member}` requires a record value, got {} `{type_name}`.",
+                    type_kind_name(info.kind)
+                ),
+                file,
+                line,
+            );
+            return Type::Unknown;
+        }
+        let Some(field) = info
+            .fields
+            .iter()
+            .find(|field| field.name == member)
+            .cloned()
+        else {
+            self.report(
+                "TYPE_UNKNOWN_FIELD",
+                &format!("TYPE `{type_name}` has no field `{member}`."),
+                file,
+                line,
+            );
+            return Type::Unknown;
+        };
+        if !self.visible_from(file, field.visibility, &info.file_path) {
+            self.report(
+                "TYPE_MEMBER_NOT_VISIBLE",
+                &format!("Field `{type_name}::{member}` is not visible from this file."),
+                file,
+                line,
+            );
+        }
+        field.type_
+    }
+
+    fn check_constructor_arguments(
+        &mut self,
+        file: &AstFile,
+        constructor: &str,
+        fields: &[FieldInfo],
+        owner_file_path: &str,
+        arguments: &[Expression],
+        locals: &HashMap<String, Type>,
+        line: usize,
+    ) {
+        if arguments.len() != fields.len() {
+            self.report(
+                "TYPE_CONSTRUCTOR_ARITY_MISMATCH",
+                &format!(
+                    "Constructor `{constructor}` has {} argument(s), expected {}.",
+                    arguments.len(),
+                    fields.len()
+                ),
+                file,
+                line,
+            );
+        }
+
+        for field in fields {
+            if !self.visible_from(file, field.visibility, owner_file_path) {
+                self.report(
+                    "TYPE_MEMBER_NOT_VISIBLE",
+                    &format!(
+                        "Constructor `{constructor}` cannot set hidden field `{}` from this file.",
+                        field.name
+                    ),
+                    file,
+                    line,
+                );
+            }
+        }
+
+        for (index, argument) in arguments.iter().enumerate() {
+            let actual = self.infer_expression(file, argument, locals, line);
+            let Some(field) = fields.get(index) else {
+                continue;
+            };
+            if !self.compatible(&field.type_, &actual) {
+                self.report(
+                    "TYPE_CONSTRUCTOR_ARGUMENT_MISMATCH",
+                    &format!(
+                        "Argument {} for `{constructor}` has type {}, expected {} for field `{}`.",
+                        index + 1,
+                        self.type_name(&actual),
+                        self.type_name(&field.type_),
+                        field.name
+                    ),
+                    file,
+                    line,
+                );
             }
         }
     }
@@ -591,6 +924,41 @@ impl<'a> TypeChecker<'a> {
         )
     }
 
+    fn visible_from(&self, file: &AstFile, visibility: Visibility, owner_file_path: &str) -> bool {
+        match visibility {
+            Visibility::Export | Visibility::Package => true,
+            Visibility::Private => file.path == owner_file_path,
+        }
+    }
+
+    fn check_type_reference(&mut self, file: &AstFile, type_: &Type, line: usize) {
+        match type_ {
+            Type::List(element) => self.check_type_reference(file, element, line),
+            Type::User(name) => {
+                let Some(info) = self.type_infos.get(name) else {
+                    return;
+                };
+                if !self.visible_from(file, info.visibility, &info.file_path) {
+                    self.report(
+                        "TYPE_MEMBER_NOT_VISIBLE",
+                        &format!("Type `{name}` is not visible from this file."),
+                        file,
+                        line,
+                    );
+                }
+            }
+            Type::Boolean
+            | Type::Byte
+            | Type::Fixed
+            | Type::Float
+            | Type::Integer
+            | Type::Nothing
+            | Type::Result
+            | Type::String
+            | Type::Unknown => {}
+        }
+    }
+
     fn type_name(&self, type_: &Type) -> String {
         match type_ {
             Type::Boolean => "Boolean".to_string(),
@@ -611,4 +979,26 @@ impl<'a> TypeChecker<'a> {
         self.had_error = true;
         rules::show_diagnostic(rule, detail, &self.project_dir.join(&file.path), line, 1, 1);
     }
+}
+
+fn effective_field_visibility(
+    declared: Option<Visibility>,
+    containing_visibility: Visibility,
+) -> Visibility {
+    declared.unwrap_or(match containing_visibility {
+        Visibility::Export => Visibility::Export,
+        Visibility::Package | Visibility::Private => Visibility::Package,
+    })
+}
+
+fn type_kind_name(kind: TypeDeclKind) -> &'static str {
+    match kind {
+        TypeDeclKind::Type => "TYPE",
+        TypeDeclKind::Union => "UNION",
+        TypeDeclKind::Enum => "ENUM",
+    }
+}
+
+fn variant_name_key(variant: &VariantConstructor) -> String {
+    variant.name.clone()
 }

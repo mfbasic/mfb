@@ -12,6 +12,7 @@
   "functions": [
   {
     "name": "main",
+    "visibility": "private",
     "kind": "func",
     "params": [
     ],

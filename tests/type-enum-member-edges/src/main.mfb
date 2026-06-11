@@ -1,0 +1,14 @@
+ENUM Color
+  Red
+END ENUM
+
+TYPE Box
+  value AS Integer
+END TYPE
+
+SUB main()
+  LET red AS Color = Color::Red
+  LET missing AS Color = Color::Blue
+  LET notEnum = Box::value
+  LET enumField = red::value
+END SUB

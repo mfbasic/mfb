@@ -1,0 +1,21 @@
+TYPE Vec3
+  x AS Float
+  y AS Float
+  z AS Float
+END TYPE
+
+UNION Shape
+  Circle(radius AS Float)
+  Point
+END UNION
+
+ENUM Color
+  Red, Green
+END ENUM
+
+SUB main()
+  LET p = Vec3[1.0, 2.0, 3.0]
+  LET x AS Float = p::x
+  LET c AS Color = Color::Red
+  LET s AS Shape = Circle[2.5]
+END SUB

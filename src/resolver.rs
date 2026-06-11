@@ -33,6 +33,7 @@ struct Resolver<'a> {
     top_levels: HashMap<String, Symbol>,
     functions: HashMap<String, Symbol>,
     types: HashSet<String>,
+    variant_constructors: HashSet<String>,
     had_error: bool,
 }
 
@@ -58,6 +59,7 @@ impl<'a> Resolver<'a> {
                 .iter()
                 .map(|name| (*name).to_string())
                 .collect(),
+            variant_constructors: HashSet::new(),
             had_error: false,
         };
         resolver.collect_top_level_symbols(ast);
@@ -82,6 +84,9 @@ impl<'a> Resolver<'a> {
                     Item::Type(type_decl) => {
                         if self.insert_top_level(file, &type_decl.name, type_decl.line) {
                             self.types.insert(type_decl.name.clone());
+                            for variant in &type_decl.variants {
+                                self.variant_constructors.insert(variant.name.clone());
+                            }
                         }
                     }
                 }
@@ -349,6 +354,25 @@ impl<'a> Resolver<'a> {
                 for argument in arguments {
                     self.resolve_expression(file, argument, line, imports, locals);
                 }
+            }
+            Expression::Constructor {
+                type_name,
+                arguments,
+            } => {
+                if !self.variant_constructors.contains(type_name) {
+                    self.resolve_type_name(file, type_name, line, imports);
+                }
+                for argument in arguments {
+                    self.resolve_expression(file, argument, line, imports, locals);
+                }
+            }
+            Expression::MemberAccess { target, .. } => {
+                if let Expression::Identifier(name) = target.as_ref() {
+                    if self.types.contains(name) {
+                        return;
+                    }
+                }
+                self.resolve_expression(file, target, line, imports, locals);
             }
             Expression::Identifier(name) => {
                 self.resolve_identifier(file, name, line, imports, locals);

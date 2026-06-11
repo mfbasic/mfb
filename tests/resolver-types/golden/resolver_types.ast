@@ -8,6 +8,7 @@
     "items": [
     {
       "kind": "type",
+      "visibility": "private",
       "name": "Person",
       "line": 1,
       "fields": [
@@ -15,6 +16,7 @@
     },
     {
       "kind": "func",
+      "visibility": "private",
       "name": "makeName",
       "line": 4,
       "params": [
@@ -27,6 +29,7 @@
     },
     {
       "kind": "sub",
+      "visibility": "private",
       "name": "main",
       "line": 8,
       "params": [

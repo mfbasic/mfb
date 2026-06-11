@@ -9,6 +9,7 @@
     "items": [
     {
       "kind": "sub",
+      "visibility": "private",
       "name": "main",
       "line": 3,
       "params": [

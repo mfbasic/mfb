@@ -1,0 +1,18 @@
+PRIVATE TYPE Hidden
+  value AS Integer
+END TYPE
+
+PACKAGE TYPE Shared
+  value AS Integer
+END TYPE
+
+EXPORT TYPE Secret
+  PRIVATE token AS String
+  PACKAGE label AS String
+  EXPORT id AS Integer
+END TYPE
+
+SUB modelUse()
+  LET s = Secret["tok", "label", 1]
+  LET token AS String = s::token
+END SUB

@@ -34,6 +34,7 @@ pub enum Item {
 #[derive(Debug)]
 pub struct TypeDecl {
     pub kind: TypeDeclKind,
+    pub visibility: Visibility,
     pub name: String,
     pub fields: Vec<TypeField>,
     pub includes: Vec<String>,
@@ -51,6 +52,7 @@ pub enum TypeDeclKind {
 
 #[derive(Debug)]
 pub struct TypeField {
+    pub visibility: Option<Visibility>,
     pub name: String,
     pub type_name: String,
     pub line: usize,
@@ -72,6 +74,7 @@ pub struct EnumMember {
 #[derive(Debug)]
 pub struct Function {
     pub kind: FunctionKind,
+    pub visibility: Visibility,
     pub name: String,
     pub params: Vec<Param>,
     pub return_type: Option<String>,
@@ -83,6 +86,13 @@ pub struct Function {
 pub enum FunctionKind {
     Func,
     Sub,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Visibility {
+    Private,
+    Package,
+    Export,
 }
 
 #[derive(Debug)]
@@ -125,6 +135,14 @@ pub enum Expression {
     Call {
         callee: String,
         arguments: Vec<Expression>,
+    },
+    Constructor {
+        type_name: String,
+        arguments: Vec<Expression>,
+    },
+    MemberAccess {
+        target: Box<Expression>,
+        member: String,
     },
     Identifier(String),
 }
@@ -302,20 +320,25 @@ impl<'a> FileParser<'a> {
                 continue;
             }
 
-            if self.check_keyword(Keyword::Sub) || self.check_keyword(Keyword::Func) {
+            if self.check_top_level_item_start() {
+                let visibility = self.parse_visibility().unwrap_or(Visibility::Private);
                 if let Some(function) = self.parse_function() {
-                    items.push(Item::Function(function));
+                    items.push(Item::Function(Function {
+                        visibility,
+                        ..function
+                    }));
                 }
                 self.skip_separators();
                 continue;
             }
 
-            if self.check_keyword(Keyword::Type)
-                || self.check_keyword(Keyword::Union)
-                || self.check_keyword(Keyword::Enum)
-            {
+            if self.check_top_level_type_start() {
+                let visibility = self.parse_visibility().unwrap_or(Visibility::Private);
                 if let Some(type_decl) = self.parse_type_decl() {
-                    items.push(Item::Type(type_decl));
+                    items.push(Item::Type(TypeDecl {
+                        visibility,
+                        ..type_decl
+                    }));
                 }
                 self.skip_separators();
                 continue;
@@ -388,6 +411,7 @@ impl<'a> FileParser<'a> {
                 self.consume_statement_end("Expected end of statement after END.");
                 return Some(Function {
                     kind,
+                    visibility: Visibility::Private,
                     name,
                     params,
                     return_type,
@@ -451,6 +475,7 @@ impl<'a> FileParser<'a> {
                 self.consume_statement_end("Expected end of statement after END.");
                 return Some(TypeDecl {
                     kind,
+                    visibility: Visibility::Private,
                     name,
                     fields,
                     includes,
@@ -509,6 +534,7 @@ impl<'a> FileParser<'a> {
 
     fn parse_type_field(&mut self) -> Option<TypeField> {
         let line = self.peek().line;
+        let visibility = self.parse_visibility();
         let name = self.consume_identifier("Field name must be an identifier.")?;
         if !self.consume_keyword(Keyword::As, "Field declarations must include an `AS` type.") {
             return None;
@@ -516,6 +542,7 @@ impl<'a> FileParser<'a> {
         let type_name = self.parse_type_name()?;
         self.consume_statement_end("Expected end of statement after field declaration.");
         Some(TypeField {
+            visibility,
             name,
             type_name,
             line,
@@ -563,6 +590,7 @@ impl<'a> FileParser<'a> {
                 return fields;
             };
             fields.push(TypeField {
+                visibility: None,
                 name,
                 type_name,
                 line,
@@ -739,9 +767,9 @@ impl<'a> FileParser<'a> {
     }
 
     fn parse_power(&mut self) -> Option<Expression> {
-        let mut expression = self.parse_call()?;
+        let mut expression = self.parse_member_access()?;
         while self.match_kind(TokenKind::Caret) {
-            let right = self.parse_call()?;
+            let right = self.parse_member_access()?;
             expression = Expression::Binary {
                 left: Box::new(expression),
                 operator: "^".to_string(),
@@ -751,7 +779,19 @@ impl<'a> FileParser<'a> {
         Some(expression)
     }
 
-    fn parse_call(&mut self) -> Option<Expression> {
+    fn parse_member_access(&mut self) -> Option<Expression> {
+        let mut expression = self.parse_call_or_constructor()?;
+        while self.match_kind(TokenKind::DoubleColon) {
+            let member = self.consume_identifier("Expected identifier after `::`.")?;
+            expression = Expression::MemberAccess {
+                target: Box::new(expression),
+                member,
+            };
+        }
+        Some(expression)
+    }
+
+    fn parse_call_or_constructor(&mut self) -> Option<Expression> {
         let mut expression = self.parse_primary()?;
         loop {
             if self.match_kind(TokenKind::LParen) {
@@ -767,24 +807,52 @@ impl<'a> FileParser<'a> {
                         return None;
                     }
                 };
-                let mut arguments = Vec::new();
-                if !self.check_kind(&TokenKind::RParen) {
-                    loop {
-                        arguments.push(self.parse_expression()?);
-                        if !self.match_kind(TokenKind::Comma) {
-                            break;
-                        }
-                    }
-                }
-                if !self.consume_kind(TokenKind::RParen, "Expected `)` after call arguments.") {
-                    return None;
-                }
+                let arguments = self.parse_argument_list(TokenKind::RParen)?;
                 expression = Expression::Call { callee, arguments };
+            } else if self.match_kind(TokenKind::LBracket) {
+                let type_name = match expression {
+                    Expression::Identifier(value) => value,
+                    _ => {
+                        let token = self.previous().clone();
+                        self.report(
+                            "MFB_PARSE_EXPECTED_EXPRESSION",
+                            "Only identifiers can be used as constructors.",
+                            &token,
+                        );
+                        return None;
+                    }
+                };
+                let arguments = self.parse_argument_list(TokenKind::RBracket)?;
+                expression = Expression::Constructor {
+                    type_name,
+                    arguments,
+                };
             } else {
                 break;
             }
         }
         Some(expression)
+    }
+
+    fn parse_argument_list(&mut self, closing: TokenKind) -> Option<Vec<Expression>> {
+        let mut arguments = Vec::new();
+        if !self.check_kind(&closing) {
+            loop {
+                arguments.push(self.parse_expression()?);
+                if !self.match_kind(TokenKind::Comma) {
+                    break;
+                }
+            }
+        }
+        let detail = match closing {
+            TokenKind::RParen => "Expected `)` after call arguments.",
+            TokenKind::RBracket => "Expected `]` after constructor arguments.",
+            _ => "Expected closing delimiter after arguments.",
+        };
+        if !self.consume_kind(closing, detail) {
+            return None;
+        }
+        Some(arguments)
     }
 
     fn parse_primary(&mut self) -> Option<Expression> {
@@ -838,6 +906,51 @@ impl<'a> FileParser<'a> {
             name.push_str(&element);
         }
         Some(name)
+    }
+
+    fn parse_visibility(&mut self) -> Option<Visibility> {
+        if self.match_keyword(Keyword::Private) {
+            Some(Visibility::Private)
+        } else if self.match_keyword(Keyword::Package) {
+            Some(Visibility::Package)
+        } else if self.match_keyword(Keyword::Export) {
+            Some(Visibility::Export)
+        } else {
+            None
+        }
+    }
+
+    fn check_top_level_item_start(&self) -> bool {
+        self.check_keyword(Keyword::Sub)
+            || self.check_keyword(Keyword::Func)
+            || (self.check_visibility()
+                && self.tokens.get(self.current + 1).is_some_and(|token| {
+                    matches!(
+                        token.kind,
+                        TokenKind::Keyword(Keyword::Sub) | TokenKind::Keyword(Keyword::Func)
+                    )
+                }))
+    }
+
+    fn check_top_level_type_start(&self) -> bool {
+        self.check_keyword(Keyword::Type)
+            || self.check_keyword(Keyword::Union)
+            || self.check_keyword(Keyword::Enum)
+            || (self.check_visibility()
+                && self.tokens.get(self.current + 1).is_some_and(|token| {
+                    matches!(
+                        token.kind,
+                        TokenKind::Keyword(Keyword::Type)
+                            | TokenKind::Keyword(Keyword::Union)
+                            | TokenKind::Keyword(Keyword::Enum)
+                    )
+                }))
+    }
+
+    fn check_visibility(&self) -> bool {
+        self.check_keyword(Keyword::Private)
+            || self.check_keyword(Keyword::Package)
+            || self.check_keyword(Keyword::Export)
     }
 
     fn consume_identifier(&mut self, detail: &str) -> Option<String> {
@@ -1036,6 +1149,7 @@ impl ToAstJson for TypeDecl {
                 concat!(
                     "\n{}{{\n",
                     "{}  \"kind\": {},\n",
+                    "{}  \"visibility\": {},\n",
                     "{}  \"name\": {},\n",
                     "{}  \"line\": {},\n",
                     "{}  \"fields\": [{}\n{}  ]\n",
@@ -1044,6 +1158,8 @@ impl ToAstJson for TypeDecl {
                 pad,
                 pad,
                 json_string(kind),
+                pad,
+                json_string(visibility_name(self.visibility)),
                 pad,
                 json_string(&self.name),
                 pad,
@@ -1057,6 +1173,7 @@ impl ToAstJson for TypeDecl {
                 concat!(
                     "\n{}{{\n",
                     "{}  \"kind\": {},\n",
+                    "{}  \"visibility\": {},\n",
                     "{}  \"name\": {},\n",
                     "{}  \"line\": {},\n",
                     "{}  \"includes\": [{}],\n",
@@ -1066,6 +1183,8 @@ impl ToAstJson for TypeDecl {
                 pad,
                 pad,
                 json_string(kind),
+                pad,
+                json_string(visibility_name(self.visibility)),
                 pad,
                 json_string(&self.name),
                 pad,
@@ -1085,6 +1204,7 @@ impl ToAstJson for TypeDecl {
                 concat!(
                     "\n{}{{\n",
                     "{}  \"kind\": {},\n",
+                    "{}  \"visibility\": {},\n",
                     "{}  \"name\": {},\n",
                     "{}  \"line\": {},\n",
                     "{}  \"members\": [{}\n{}  ]\n",
@@ -1093,6 +1213,8 @@ impl ToAstJson for TypeDecl {
                 pad,
                 pad,
                 json_string(kind),
+                pad,
+                json_string(visibility_name(self.visibility)),
                 pad,
                 json_string(&self.name),
                 pad,
@@ -1109,9 +1231,15 @@ impl ToAstJson for TypeDecl {
 impl ToAstJson for TypeField {
     fn to_json(&self, indent: usize) -> String {
         let pad = " ".repeat(indent);
+        let visibility = self
+            .visibility
+            .map(visibility_name)
+            .map(json_string)
+            .unwrap_or_else(|| "null".to_string());
         format!(
-            "\n{}{{ \"name\": {}, \"type\": {}, \"line\": {} }}",
+            "\n{}{{ \"visibility\": {}, \"name\": {}, \"type\": {}, \"line\": {} }}",
             pad,
+            visibility,
             json_string(&self.name),
             json_string(&self.type_name),
             self.line
@@ -1167,6 +1295,7 @@ impl ToAstJson for Function {
             concat!(
                 "\n{}{{\n",
                 "{}  \"kind\": {},\n",
+                "{}  \"visibility\": {},\n",
                 "{}  \"name\": {},\n",
                 "{}  \"line\": {},\n",
                 "{}  \"params\": [{}\n{}  ],\n",
@@ -1180,6 +1309,8 @@ impl ToAstJson for Function {
                 FunctionKind::Func => "func",
                 FunctionKind::Sub => "sub",
             }),
+            pad,
+            json_string(visibility_name(self.visibility)),
             pad,
             json_string(&self.name),
             pad,
@@ -1313,6 +1444,28 @@ impl ToAstJson for Expression {
                     args
                 )
             }
+            Expression::Constructor {
+                type_name,
+                arguments,
+            } => {
+                let args = arguments
+                    .iter()
+                    .map(|arg| arg.to_json(0))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                format!(
+                    "{{ \"kind\": \"constructor\", \"type\": {}, \"arguments\": [{}] }}",
+                    json_string(type_name),
+                    args
+                )
+            }
+            Expression::MemberAccess { target, member } => {
+                format!(
+                    "{{ \"kind\": \"memberAccess\", \"target\": {}, \"member\": {} }}",
+                    target.to_json(0),
+                    json_string(member)
+                )
+            }
             Expression::Identifier(value) => {
                 format!(
                     "{{ \"kind\": \"identifier\", \"value\": {} }}",
@@ -1320,6 +1473,14 @@ impl ToAstJson for Expression {
                 )
             }
         }
+    }
+}
+
+fn visibility_name(visibility: Visibility) -> &'static str {
+    match visibility {
+        Visibility::Private => "private",
+        Visibility::Package => "package",
+        Visibility::Export => "export",
     }
 }
 

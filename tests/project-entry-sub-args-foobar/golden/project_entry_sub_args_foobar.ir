@@ -12,6 +12,7 @@
   "functions": [
   {
     "name": "foobar",
+    "visibility": "private",
     "kind": "sub",
     "params": [
     { "name": "args", "type": "List OF String", "default": null }

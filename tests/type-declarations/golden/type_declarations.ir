@@ -10,29 +10,31 @@
   "types": [
   {
     "kind": "type",
+    "visibility": "private",
     "name": "Vec3",
     "fields": [
-    { "name": "x", "type": "Float" },
-    { "name": "y", "type": "Float" },
-    { "name": "z", "type": "Float" }
+    { "visibility": null, "name": "x", "type": "Float" },
+    { "visibility": null, "name": "y", "type": "Float" },
+    { "visibility": null, "name": "z", "type": "Float" }
     ]
   },
   {
     "kind": "union",
+    "visibility": "private",
     "name": "Shape",
     "includes": [],
     "variants": [
     {
       "name": "Circle",
       "fields": [
-      { "name": "radius", "type": "Float" }
+      { "visibility": null, "name": "radius", "type": "Float" }
       ]
     },
     {
       "name": "Rect",
       "fields": [
-      { "name": "w", "type": "Float" },
-      { "name": "h", "type": "Float" }
+      { "visibility": null, "name": "w", "type": "Float" },
+      { "visibility": null, "name": "h", "type": "Float" }
       ]
     },
     {
@@ -44,21 +46,23 @@
   },
   {
     "kind": "union",
+    "visibility": "private",
     "name": "ExtraShape",
     "includes": ["Shape"],
     "variants": [
     {
       "name": "Triangle",
       "fields": [
-      { "name": "a", "type": "Float" },
-      { "name": "b", "type": "Float" },
-      { "name": "c", "type": "Float" }
+      { "visibility": null, "name": "a", "type": "Float" },
+      { "visibility": null, "name": "b", "type": "Float" },
+      { "visibility": null, "name": "c", "type": "Float" }
       ]
     }
     ]
   },
   {
     "kind": "enum",
+    "visibility": "private",
     "name": "Color",
     "members": [
     { "name": "Red" },
@@ -70,6 +74,7 @@
   "functions": [
   {
     "name": "main",
+    "visibility": "private",
     "kind": "sub",
     "params": [
     ],

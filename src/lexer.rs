@@ -10,6 +10,9 @@ pub enum TokenKind {
     Dot,
     Comma,
     Colon,
+    DoubleColon,
+    LBracket,
+    RBracket,
     LParen,
     RParen,
     Equal,
@@ -36,6 +39,9 @@ pub enum Keyword {
     True,
     End,
     Enum,
+    Export,
+    Package,
+    Private,
     Type,
     Union,
 }
@@ -95,7 +101,17 @@ impl Lexer<'_> {
                 'A'..='Z' | 'a'..='z' | '_' => self.lex_identifier_or_keyword(),
                 '.' => self.push_and_advance(TokenKind::Dot),
                 ',' => self.push_and_advance(TokenKind::Comma),
-                ':' => self.push_and_advance(TokenKind::Colon),
+                ':' => {
+                    if self.peek_next() == Some(':') {
+                        self.push_simple(TokenKind::DoubleColon, 2);
+                        self.advance();
+                        self.advance();
+                    } else {
+                        self.push_and_advance(TokenKind::Colon);
+                    }
+                }
+                '[' => self.push_and_advance(TokenKind::LBracket),
+                ']' => self.push_and_advance(TokenKind::RBracket),
                 '(' => self.push_and_advance(TokenKind::LParen),
                 ')' => self.push_and_advance(TokenKind::RParen),
                 '=' => self.push_and_advance(TokenKind::Equal),
@@ -318,6 +334,12 @@ fn keyword(value: &str) -> Option<Keyword> {
         Some(Keyword::End)
     } else if value.eq_ignore_ascii_case("ENUM") {
         Some(Keyword::Enum)
+    } else if value.eq_ignore_ascii_case("EXPORT") {
+        Some(Keyword::Export)
+    } else if value.eq_ignore_ascii_case("PACKAGE") {
+        Some(Keyword::Package)
+    } else if value.eq_ignore_ascii_case("PRIVATE") {
+        Some(Keyword::Private)
     } else if value.eq_ignore_ascii_case("TYPE") {
         Some(Keyword::Type)
     } else if value.eq_ignore_ascii_case("UNION") {
