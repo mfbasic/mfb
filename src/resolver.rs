@@ -1,4 +1,6 @@
-use crate::ast::{AstFile, AstProject, Expression, Item, Statement};
+use crate::ast::{
+    AstFile, AstProject, Expression, Item, Statement, TypeDecl, TypeDeclKind, TypeField,
+};
 use crate::rules;
 use std::collections::{HashMap, HashSet};
 use std::fs;
@@ -143,10 +145,99 @@ impl<'a> Resolver<'a> {
         }
 
         for item in &file.items {
-            if let Item::Function(function) = item {
-                self.resolve_function(file, function, &imports);
+            match item {
+                Item::Function(function) => self.resolve_function(file, function, &imports),
+                Item::Type(type_decl) => self.resolve_type_decl(file, type_decl, &imports),
             }
         }
+    }
+
+    fn resolve_type_decl(
+        &mut self,
+        file: &AstFile,
+        type_decl: &TypeDecl,
+        imports: &HashSet<String>,
+    ) {
+        match type_decl.kind {
+            TypeDeclKind::Type => {
+                let mut names = HashMap::new();
+                for field in &type_decl.fields {
+                    self.resolve_member_field(file, field, imports);
+                    if let Some(previous) = names.insert(field.name.clone(), field.line) {
+                        self.report(
+                            "TYPE_DUPLICATE_FIELD",
+                            &format!(
+                                "Field `{}` in TYPE `{}` was already declared on line {}.",
+                                field.name, type_decl.name, previous
+                            ),
+                            file,
+                            field.line,
+                        );
+                    }
+                }
+            }
+            TypeDeclKind::Union => {
+                for include in &type_decl.includes {
+                    self.resolve_type_name(file, include, type_decl.line, imports);
+                }
+
+                let mut variants = HashMap::new();
+                for variant in &type_decl.variants {
+                    if let Some(previous) = variants.insert(variant.name.clone(), variant.line) {
+                        self.report(
+                            "TYPE_DUPLICATE_VARIANT",
+                            &format!(
+                                "Variant `{}` in UNION `{}` was already declared on line {}.",
+                                variant.name, type_decl.name, previous
+                            ),
+                            file,
+                            variant.line,
+                        );
+                    }
+
+                    let mut fields = HashMap::new();
+                    for field in &variant.fields {
+                        self.resolve_member_field(file, field, imports);
+                        if let Some(previous) = fields.insert(field.name.clone(), field.line) {
+                            self.report(
+                                "TYPE_DUPLICATE_FIELD",
+                                &format!(
+                                    "Field `{}` in variant `{}` was already declared on line {}.",
+                                    field.name, variant.name, previous
+                                ),
+                                file,
+                                field.line,
+                            );
+                        }
+                    }
+                }
+            }
+            TypeDeclKind::Enum => {
+                let mut members = HashMap::new();
+                for member in &type_decl.members {
+                    if let Some(previous) = members.insert(member.name.clone(), member.line) {
+                        self.report(
+                            "TYPE_DUPLICATE_ENUM_MEMBER",
+                            &format!(
+                                "Member `{}` in ENUM `{}` was already declared on line {}.",
+                                member.name, type_decl.name, previous
+                            ),
+                            file,
+                            member.line,
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    fn resolve_member_field(
+        &mut self,
+        file: &AstFile,
+        field: &TypeField,
+        imports: &HashSet<String>,
+    ) {
+        self.resolve_type_name(file, &field.type_name, field.line, imports);
     }
 
     fn resolve_function(

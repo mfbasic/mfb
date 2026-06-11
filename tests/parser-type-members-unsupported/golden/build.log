@@ -1,14 +1,6 @@
 $ mfb build -ast tests/parser-type-members-unsupported
-   1 | TYPE Person
-   2 |   name AS String
-     |   ^^^^
-tests/parser-type-members-unsupported/src/main.mfb:2 error[MFB_PARSE_UNSUPPORTED_TYPE_MEMBER]: type member syntax is not supported yet
-               Type, union, and enum member declarations are not implemented yet.
-[exit 1]
+Wrote AST to tests/parser-type-members-unsupported/parser_type_members_unsupported.ast
+[exit 0]
 $ mfb build -ir tests/parser-type-members-unsupported
-   1 | TYPE Person
-   2 |   name AS String
-     |   ^^^^
-tests/parser-type-members-unsupported/src/main.mfb:2 error[MFB_PARSE_UNSUPPORTED_TYPE_MEMBER]: type member syntax is not supported yet
-               Type, union, and enum member declarations are not implemented yet.
-[exit 1]
+Wrote IR to tests/parser-type-members-unsupported/parser_type_members_unsupported.ir
+[exit 0]

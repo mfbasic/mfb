@@ -1,0 +1,17 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "parser_type_members_unsupported",
+  "entry": null,
+  "types": [
+  {
+    "kind": "type",
+    "name": "Person",
+    "fields": [
+    { "name": "name", "type": "String" }
+    ]
+  }
+  ],
+  "functions": [
+  ]
+}

@@ -1,5 +1,6 @@
 use crate::ast::{
-    AstProject, Expression, Function, FunctionKind, Item, Param, Statement, TypeDecl, TypeDeclKind,
+    AstProject, EnumMember, Expression, Function, FunctionKind, Item, Param, Statement, TypeDecl,
+    TypeDeclKind, TypeField, UnionVariant,
 };
 use crate::json_string;
 use std::collections::HashMap;
@@ -22,6 +23,24 @@ pub(crate) struct EntryPoint {
 
 pub(crate) struct IrType {
     pub(crate) kind: String,
+    pub(crate) name: String,
+    pub(crate) fields: Vec<IrField>,
+    pub(crate) includes: Vec<String>,
+    pub(crate) variants: Vec<IrVariant>,
+    pub(crate) members: Vec<IrEnumMember>,
+}
+
+pub(crate) struct IrField {
+    pub(crate) name: String,
+    pub(crate) type_: String,
+}
+
+pub(crate) struct IrVariant {
+    pub(crate) name: String,
+    pub(crate) fields: Vec<IrField>,
+}
+
+pub(crate) struct IrEnumMember {
     pub(crate) name: String,
 }
 
@@ -111,6 +130,30 @@ fn lower_type(type_decl: &TypeDecl) -> IrType {
     IrType {
         kind: kind.to_string(),
         name: type_decl.name.clone(),
+        fields: type_decl.fields.iter().map(lower_field).collect(),
+        includes: type_decl.includes.clone(),
+        variants: type_decl.variants.iter().map(lower_variant).collect(),
+        members: type_decl.members.iter().map(lower_enum_member).collect(),
+    }
+}
+
+fn lower_field(field: &TypeField) -> IrField {
+    IrField {
+        name: field.name.clone(),
+        type_: field.type_name.clone(),
+    }
+}
+
+fn lower_variant(variant: &UnionVariant) -> IrVariant {
+    IrVariant {
+        name: variant.name.clone(),
+        fields: variant.fields.iter().map(lower_field).collect(),
+    }
+}
+
+fn lower_enum_member(member: &EnumMember) -> IrEnumMember {
+    IrEnumMember {
+        name: member.name.clone(),
     }
 }
 
@@ -346,12 +389,110 @@ trait ToIrJson {
 impl ToIrJson for IrType {
     fn to_json(&self, indent: usize) -> String {
         let pad = " ".repeat(indent);
+        match self.kind.as_str() {
+            "type" => format!(
+                concat!(
+                    "\n{}{{\n",
+                    "{}  \"kind\": {},\n",
+                    "{}  \"name\": {},\n",
+                    "{}  \"fields\": [{}\n{}  ]\n",
+                    "{}}}"
+                ),
+                pad,
+                pad,
+                json_string(&self.kind),
+                pad,
+                json_string(&self.name),
+                pad,
+                join_json(&self.fields, indent + 2),
+                pad,
+                pad
+            ),
+            "union" => format!(
+                concat!(
+                    "\n{}{{\n",
+                    "{}  \"kind\": {},\n",
+                    "{}  \"name\": {},\n",
+                    "{}  \"includes\": [{}],\n",
+                    "{}  \"variants\": [{}\n{}  ]\n",
+                    "{}}}"
+                ),
+                pad,
+                pad,
+                json_string(&self.kind),
+                pad,
+                json_string(&self.name),
+                pad,
+                self.includes
+                    .iter()
+                    .map(|value| json_string(value))
+                    .collect::<Vec<_>>()
+                    .join(", "),
+                pad,
+                join_json(&self.variants, indent + 2),
+                pad,
+                pad
+            ),
+            "enum" => format!(
+                concat!(
+                    "\n{}{{\n",
+                    "{}  \"kind\": {},\n",
+                    "{}  \"name\": {},\n",
+                    "{}  \"members\": [{}\n{}  ]\n",
+                    "{}}}"
+                ),
+                pad,
+                pad,
+                json_string(&self.kind),
+                pad,
+                json_string(&self.name),
+                pad,
+                join_json(&self.members, indent + 2),
+                pad,
+                pad
+            ),
+            _ => unreachable!("known IR type kind"),
+        }
+    }
+}
+
+impl ToIrJson for IrField {
+    fn to_json(&self, indent: usize) -> String {
+        let pad = " ".repeat(indent);
         format!(
-            "\n{}{{ \"kind\": {}, \"name\": {} }}",
+            "\n{}{{ \"name\": {}, \"type\": {} }}",
             pad,
-            json_string(&self.kind),
-            json_string(&self.name)
+            json_string(&self.name),
+            json_string(&self.type_)
         )
+    }
+}
+
+impl ToIrJson for IrVariant {
+    fn to_json(&self, indent: usize) -> String {
+        let pad = " ".repeat(indent);
+        format!(
+            concat!(
+                "\n{}{{\n",
+                "{}  \"name\": {},\n",
+                "{}  \"fields\": [{}\n{}  ]\n",
+                "{}}}"
+            ),
+            pad,
+            pad,
+            json_string(&self.name),
+            pad,
+            join_json(&self.fields, indent + 2),
+            pad,
+            pad
+        )
+    }
+}
+
+impl ToIrJson for IrEnumMember {
+    fn to_json(&self, indent: usize) -> String {
+        let pad = " ".repeat(indent);
+        format!("\n{}{{ \"name\": {} }}", pad, json_string(&self.name))
     }
 }
 

@@ -8,7 +8,12 @@
     "accepts_args": false
   },
   "types": [
-  { "kind": "type", "name": "Person" }
+  {
+    "kind": "type",
+    "name": "Person",
+    "fields": [
+    ]
+  }
   ],
   "functions": [
   {

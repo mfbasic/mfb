@@ -35,14 +35,38 @@ pub enum Item {
 pub struct TypeDecl {
     pub kind: TypeDeclKind,
     pub name: String,
+    pub fields: Vec<TypeField>,
+    pub includes: Vec<String>,
+    pub variants: Vec<UnionVariant>,
+    pub members: Vec<EnumMember>,
     pub line: usize,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Copy, Debug)]
 pub enum TypeDeclKind {
     Type,
     Union,
     Enum,
+}
+
+#[derive(Debug)]
+pub struct TypeField {
+    pub name: String,
+    pub type_name: String,
+    pub line: usize,
+}
+
+#[derive(Debug)]
+pub struct UnionVariant {
+    pub name: String,
+    pub fields: Vec<TypeField>,
+    pub line: usize,
+}
+
+#[derive(Debug)]
+pub struct EnumMember {
+    pub name: String,
+    pub line: usize,
 }
 
 #[derive(Debug)]
@@ -402,9 +426,20 @@ impl<'a> FileParser<'a> {
             return None;
         };
 
+        let includes =
+            if matches!(kind, TypeDeclKind::Union) && self.check_identifier_ci("INCLUDES") {
+                self.advance();
+                self.parse_union_includes()
+            } else {
+                Vec::new()
+            };
+
         self.consume_statement_end("Expected end of type declaration header.");
         self.skip_separators();
 
+        let mut fields = Vec::new();
+        let mut variants = Vec::new();
+        let mut members = Vec::new();
         while !self.is_at_end() {
             if self.match_keyword(Keyword::End) {
                 if !self
@@ -417,16 +452,37 @@ impl<'a> FileParser<'a> {
                 return Some(TypeDecl {
                     kind,
                     name,
+                    fields,
+                    includes,
+                    variants,
+                    members,
                     line: kind_token.line,
                 });
             }
-            let token = self.peek().clone();
-            self.report(
-                "MFB_PARSE_UNSUPPORTED_TYPE_MEMBER",
-                "Type, union, and enum member declarations are not implemented yet.",
-                &token,
-            );
-            self.synchronize();
+
+            match kind {
+                TypeDeclKind::Type => {
+                    if let Some(field) = self.parse_type_field() {
+                        fields.push(field);
+                    } else {
+                        self.synchronize();
+                    }
+                }
+                TypeDeclKind::Union => {
+                    if let Some(variant) = self.parse_union_variant() {
+                        variants.push(variant);
+                    } else {
+                        self.synchronize();
+                    }
+                }
+                TypeDeclKind::Enum => {
+                    let parsed = self.parse_enum_members();
+                    if parsed.is_empty() {
+                        self.synchronize();
+                    }
+                    members.extend(parsed);
+                }
+            }
             self.skip_separators();
         }
 
@@ -436,6 +492,104 @@ impl<'a> FileParser<'a> {
             &kind_token,
         );
         None
+    }
+
+    fn parse_union_includes(&mut self) -> Vec<String> {
+        let mut includes = Vec::new();
+        loop {
+            if let Some(name) = self.parse_qualified_name("Expected a union name after INCLUDES.") {
+                includes.push(name);
+            }
+            if !self.match_kind(TokenKind::Comma) {
+                break;
+            }
+        }
+        includes
+    }
+
+    fn parse_type_field(&mut self) -> Option<TypeField> {
+        let line = self.peek().line;
+        let name = self.consume_identifier("Field name must be an identifier.")?;
+        if !self.consume_keyword(Keyword::As, "Field declarations must include an `AS` type.") {
+            return None;
+        }
+        let type_name = self.parse_type_name()?;
+        self.consume_statement_end("Expected end of statement after field declaration.");
+        Some(TypeField {
+            name,
+            type_name,
+            line,
+        })
+    }
+
+    fn parse_union_variant(&mut self) -> Option<UnionVariant> {
+        let line = self.peek().line;
+        let name = self.consume_identifier("Union variant name must be an identifier.")?;
+        let fields = if self.match_kind(TokenKind::LParen) {
+            let fields = self.parse_variant_fields();
+            if !self.consume_kind(
+                TokenKind::RParen,
+                "Union variant payload must close with `)`.",
+            ) {
+                return None;
+            }
+            fields
+        } else {
+            Vec::new()
+        };
+        self.consume_statement_end("Expected end of statement after union variant.");
+        Some(UnionVariant { name, fields, line })
+    }
+
+    fn parse_variant_fields(&mut self) -> Vec<TypeField> {
+        let mut fields = Vec::new();
+        if self.check_kind(&TokenKind::RParen) {
+            return fields;
+        }
+
+        loop {
+            let line = self.peek().line;
+            let Some(name) = self.consume_identifier("Variant field name must be an identifier.")
+            else {
+                self.synchronize();
+                return fields;
+            };
+            if !self.consume_keyword(Keyword::As, "Variant fields must include an `AS` type.") {
+                self.synchronize();
+                return fields;
+            }
+            let Some(type_name) = self.parse_type_name() else {
+                self.synchronize();
+                return fields;
+            };
+            fields.push(TypeField {
+                name,
+                type_name,
+                line,
+            });
+            if !self.match_kind(TokenKind::Comma) {
+                break;
+            }
+        }
+
+        fields
+    }
+
+    fn parse_enum_members(&mut self) -> Vec<EnumMember> {
+        let mut members = Vec::new();
+        loop {
+            let line = self.peek().line;
+            let Some(name) = self.consume_identifier("Enum member name must be an identifier.")
+            else {
+                break;
+            };
+            members.push(EnumMember { name, line });
+            if !self.match_kind(TokenKind::Comma) {
+                break;
+            }
+        }
+        self.consume_statement_end("Expected end of statement after enum member declaration.");
+        members
     }
 
     fn parse_params(&mut self) -> Vec<Param> {
@@ -877,10 +1031,124 @@ impl ToAstJson for TypeDecl {
             TypeDeclKind::Union => "union",
             TypeDeclKind::Enum => "enum",
         };
+        match self.kind {
+            TypeDeclKind::Type => format!(
+                concat!(
+                    "\n{}{{\n",
+                    "{}  \"kind\": {},\n",
+                    "{}  \"name\": {},\n",
+                    "{}  \"line\": {},\n",
+                    "{}  \"fields\": [{}\n{}  ]\n",
+                    "{}}}"
+                ),
+                pad,
+                pad,
+                json_string(kind),
+                pad,
+                json_string(&self.name),
+                pad,
+                self.line,
+                pad,
+                join_indented(&self.fields, indent + 2),
+                pad,
+                pad
+            ),
+            TypeDeclKind::Union => format!(
+                concat!(
+                    "\n{}{{\n",
+                    "{}  \"kind\": {},\n",
+                    "{}  \"name\": {},\n",
+                    "{}  \"line\": {},\n",
+                    "{}  \"includes\": [{}],\n",
+                    "{}  \"variants\": [{}\n{}  ]\n",
+                    "{}}}"
+                ),
+                pad,
+                pad,
+                json_string(kind),
+                pad,
+                json_string(&self.name),
+                pad,
+                self.line,
+                pad,
+                self.includes
+                    .iter()
+                    .map(|value| json_string(value))
+                    .collect::<Vec<_>>()
+                    .join(", "),
+                pad,
+                join_indented(&self.variants, indent + 2),
+                pad,
+                pad
+            ),
+            TypeDeclKind::Enum => format!(
+                concat!(
+                    "\n{}{{\n",
+                    "{}  \"kind\": {},\n",
+                    "{}  \"name\": {},\n",
+                    "{}  \"line\": {},\n",
+                    "{}  \"members\": [{}\n{}  ]\n",
+                    "{}}}"
+                ),
+                pad,
+                pad,
+                json_string(kind),
+                pad,
+                json_string(&self.name),
+                pad,
+                self.line,
+                pad,
+                join_indented(&self.members, indent + 2),
+                pad,
+                pad
+            ),
+        }
+    }
+}
+
+impl ToAstJson for TypeField {
+    fn to_json(&self, indent: usize) -> String {
+        let pad = " ".repeat(indent);
         format!(
-            "\n{}{{ \"kind\": {}, \"name\": {}, \"line\": {} }}",
+            "\n{}{{ \"name\": {}, \"type\": {}, \"line\": {} }}",
             pad,
-            json_string(kind),
+            json_string(&self.name),
+            json_string(&self.type_name),
+            self.line
+        )
+    }
+}
+
+impl ToAstJson for UnionVariant {
+    fn to_json(&self, indent: usize) -> String {
+        let pad = " ".repeat(indent);
+        format!(
+            concat!(
+                "\n{}{{\n",
+                "{}  \"name\": {},\n",
+                "{}  \"line\": {},\n",
+                "{}  \"fields\": [{}\n{}  ]\n",
+                "{}}}"
+            ),
+            pad,
+            pad,
+            json_string(&self.name),
+            pad,
+            self.line,
+            pad,
+            join_indented(&self.fields, indent + 2),
+            pad,
+            pad
+        )
+    }
+}
+
+impl ToAstJson for EnumMember {
+    fn to_json(&self, indent: usize) -> String {
+        let pad = " ".repeat(indent);
+        format!(
+            "\n{}{{ \"name\": {}, \"line\": {} }}",
+            pad,
             json_string(&self.name),
             self.line
         )

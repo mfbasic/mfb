@@ -132,11 +132,6 @@ pub const RULES: &[Rule] = &[
         message: "parser reached end-of-file inside a block",
     },
     Rule {
-        name: "MFB_PARSE_UNSUPPORTED_TYPE_MEMBER",
-        severity: Severity::Error,
-        message: "type member syntax is not supported yet",
-    },
-    Rule {
         name: "IMPORT_MISSING_PACKAGE",
         severity: Severity::Error,
         message: "imported package could not be resolved",
@@ -247,6 +242,26 @@ pub const RULES: &[Rule] = &[
         message: "default parameter value has the wrong type",
     },
     Rule {
+        name: "TYPE_DUPLICATE_ENUM_MEMBER",
+        severity: Severity::Error,
+        message: "enum member is declared more than once",
+    },
+    Rule {
+        name: "TYPE_DUPLICATE_FIELD",
+        severity: Severity::Error,
+        message: "type field is declared more than once",
+    },
+    Rule {
+        name: "TYPE_DUPLICATE_VARIANT",
+        severity: Severity::Error,
+        message: "union variant is declared more than once",
+    },
+    Rule {
+        name: "TYPE_ENUM_REQUIRES_MEMBER",
+        severity: Severity::Error,
+        message: "enum must declare at least one member",
+    },
+    Rule {
         name: "TYPE_FUNC_MISSING_RETURN",
         severity: Severity::Error,
         message: "function is missing a return value",
@@ -285,6 +300,11 @@ pub const RULES: &[Rule] = &[
         name: "TYPE_UNKNOWN_VALUE",
         severity: Severity::Error,
         message: "value type could not be determined",
+    },
+    Rule {
+        name: "TYPE_UNION_INCLUDE_REQUIRES_UNION",
+        severity: Severity::Error,
+        message: "union includes must name union types",
     },
     Rule {
         name: "PROJECT_ENTRY_INVALID",

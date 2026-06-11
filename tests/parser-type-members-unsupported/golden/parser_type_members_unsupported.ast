@@ -1,0 +1,20 @@
+{
+  "project": "parser_type_members_unsupported",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    ],
+    "items": [
+    {
+      "kind": "type",
+      "name": "Person",
+      "line": 1,
+      "fields": [
+      { "name": "name", "type": "String", "line": 2 }
+      ]
+    }
+    ]
+  }
+  ]
+}

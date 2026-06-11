@@ -1,0 +1,89 @@
+{
+  "project": "type_declarations",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    ],
+    "items": [
+    {
+      "kind": "type",
+      "name": "Vec3",
+      "line": 1,
+      "fields": [
+      { "name": "x", "type": "Float", "line": 2 },
+      { "name": "y", "type": "Float", "line": 3 },
+      { "name": "z", "type": "Float", "line": 4 }
+      ]
+    },
+    {
+      "kind": "union",
+      "name": "Shape",
+      "line": 7,
+      "includes": [],
+      "variants": [
+      {
+        "name": "Circle",
+        "line": 8,
+        "fields": [
+        { "name": "radius", "type": "Float", "line": 8 }
+        ]
+      },
+      {
+        "name": "Rect",
+        "line": 9,
+        "fields": [
+        { "name": "w", "type": "Float", "line": 9 },
+        { "name": "h", "type": "Float", "line": 9 }
+        ]
+      },
+      {
+        "name": "Point",
+        "line": 10,
+        "fields": [
+        ]
+      }
+      ]
+    },
+    {
+      "kind": "union",
+      "name": "ExtraShape",
+      "line": 13,
+      "includes": ["Shape"],
+      "variants": [
+      {
+        "name": "Triangle",
+        "line": 14,
+        "fields": [
+        { "name": "a", "type": "Float", "line": 14 },
+        { "name": "b", "type": "Float", "line": 14 },
+        { "name": "c", "type": "Float", "line": 14 }
+        ]
+      }
+      ]
+    },
+    {
+      "kind": "enum",
+      "name": "Color",
+      "line": 17,
+      "members": [
+      { "name": "Red", "line": 18 },
+      { "name": "Green", "line": 18 },
+      { "name": "Blue", "line": 19 }
+      ]
+    },
+    {
+      "kind": "sub",
+      "name": "main",
+      "line": 22,
+      "params": [
+      ],
+      "returnType": null,
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "name", "type": "String", "value": { "kind": "string", "value": "Ada" }, "line": 23 }
+      ]
+    }
+    ]
+  }
+  ]
+}

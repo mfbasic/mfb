@@ -1,0 +1,16 @@
+TYPE Vec3
+  x AS Float
+  x AS Float
+END TYPE
+
+UNION Shape
+  Circle(radius AS Float)
+  Circle(diameter AS Float)
+END UNION
+
+ENUM Color
+  Red, Red
+END ENUM
+
+SUB main()
+END SUB

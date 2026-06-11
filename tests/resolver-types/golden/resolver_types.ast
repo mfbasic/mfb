@@ -6,7 +6,13 @@
     "imports": [
     ],
     "items": [
-    { "kind": "type", "name": "Person", "line": 1 },
+    {
+      "kind": "type",
+      "name": "Person",
+      "line": 1,
+      "fields": [
+      ]
+    },
     {
       "kind": "func",
       "name": "makeName",

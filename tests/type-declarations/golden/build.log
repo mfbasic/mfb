@@ -1,0 +1,6 @@
+$ mfb build -ast tests/type-declarations
+Wrote AST to tests/type-declarations/type_declarations.ast
+[exit 0]
+$ mfb build -ir tests/type-declarations
+Wrote IR to tests/type-declarations/type_declarations.ir
+[exit 0]

@@ -1,0 +1,5 @@
+ENUM Empty
+END ENUM
+
+SUB main()
+END SUB

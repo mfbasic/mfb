@@ -1,0 +1,40 @@
+$ mfb build -ast tests/type-declaration-duplicates
+   1 | TYPE Vec3
+   2 |   x AS Float
+   3 |   x AS Float
+     | ^
+tests/type-declaration-duplicates/src/main.mfb:3 error[TYPE_DUPLICATE_FIELD]: type field is declared more than once
+               Field `x` in TYPE `Vec3` was already declared on line 2.
+   6 | UNION Shape
+   7 |   Circle(radius AS Float)
+   8 |   Circle(diameter AS Float)
+     | ^
+tests/type-declaration-duplicates/src/main.mfb:8 error[TYPE_DUPLICATE_VARIANT]: union variant is declared more than once
+               Variant `Circle` in UNION `Shape` was already declared on line 7.
+  10 | 
+  11 | ENUM Color
+  12 |   Red, Red
+     | ^
+tests/type-declaration-duplicates/src/main.mfb:12 error[TYPE_DUPLICATE_ENUM_MEMBER]: enum member is declared more than once
+               Member `Red` in ENUM `Color` was already declared on line 12.
+[exit 1]
+$ mfb build -ir tests/type-declaration-duplicates
+   1 | TYPE Vec3
+   2 |   x AS Float
+   3 |   x AS Float
+     | ^
+tests/type-declaration-duplicates/src/main.mfb:3 error[TYPE_DUPLICATE_FIELD]: type field is declared more than once
+               Field `x` in TYPE `Vec3` was already declared on line 2.
+   6 | UNION Shape
+   7 |   Circle(radius AS Float)
+   8 |   Circle(diameter AS Float)
+     | ^
+tests/type-declaration-duplicates/src/main.mfb:8 error[TYPE_DUPLICATE_VARIANT]: union variant is declared more than once
+               Variant `Circle` in UNION `Shape` was already declared on line 7.
+  10 | 
+  11 | ENUM Color
+  12 |   Red, Red
+     | ^
+tests/type-declaration-duplicates/src/main.mfb:12 error[TYPE_DUPLICATE_ENUM_MEMBER]: enum member is declared more than once
+               Member `Red` in ENUM `Color` was already declared on line 12.
+[exit 1]

@@ -1,0 +1,10 @@
+TYPE Person
+  name AS MissingName
+END TYPE
+
+UNION Shape
+  Circle(radius AS MissingRadius)
+END UNION
+
+SUB main()
+END SUB

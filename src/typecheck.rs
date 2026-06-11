@@ -1,4 +1,7 @@
-use crate::ast::{AstFile, AstProject, Expression, Function, FunctionKind, Item, Statement};
+use crate::ast::{
+    AstFile, AstProject, Expression, Function, FunctionKind, Item, Statement, TypeDecl,
+    TypeDeclKind,
+};
 use crate::rules;
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
@@ -46,6 +49,7 @@ struct TypeChecker<'a> {
     ast: &'a AstProject,
     functions: HashMap<String, FunctionSig>,
     user_types: HashSet<String>,
+    user_type_kinds: HashMap<String, TypeDeclKind>,
     had_error: bool,
 }
 
@@ -56,6 +60,7 @@ impl<'a> TypeChecker<'a> {
             ast,
             functions: HashMap::new(),
             user_types: HashSet::new(),
+            user_type_kinds: HashMap::new(),
             had_error: false,
         };
         checker.collect_types();
@@ -68,6 +73,8 @@ impl<'a> TypeChecker<'a> {
             for item in &file.items {
                 if let Item::Type(type_decl) = item {
                     self.user_types.insert(type_decl.name.clone());
+                    self.user_type_kinds
+                        .insert(type_decl.name.clone(), type_decl.kind);
                 }
             }
         }
@@ -113,8 +120,55 @@ impl<'a> TypeChecker<'a> {
     fn check(&mut self) {
         for file in &self.ast.files {
             for item in &file.items {
-                if let Item::Function(function) = item {
-                    self.check_function(file, function);
+                match item {
+                    Item::Function(function) => self.check_function(file, function),
+                    Item::Type(type_decl) => self.check_type_decl(file, type_decl),
+                }
+            }
+        }
+    }
+
+    fn check_type_decl(&mut self, file: &AstFile, type_decl: &TypeDecl) {
+        match type_decl.kind {
+            TypeDeclKind::Type => {
+                for field in &type_decl.fields {
+                    self.parse_type(&field.type_name);
+                }
+            }
+            TypeDeclKind::Union => {
+                for include in &type_decl.includes {
+                    if let Some(kind) = self.user_type_kinds.get(include) {
+                        if !matches!(kind, TypeDeclKind::Union) {
+                            self.report(
+                                "TYPE_UNION_INCLUDE_REQUIRES_UNION",
+                                &format!(
+                                    "UNION `{}` includes `{include}`, but `{include}` is not a UNION.",
+                                    type_decl.name
+                                ),
+                                file,
+                                type_decl.line,
+                            );
+                        }
+                    }
+                }
+
+                for variant in &type_decl.variants {
+                    for field in &variant.fields {
+                        self.parse_type(&field.type_name);
+                    }
+                }
+            }
+            TypeDeclKind::Enum => {
+                if type_decl.members.is_empty() {
+                    self.report(
+                        "TYPE_ENUM_REQUIRES_MEMBER",
+                        &format!(
+                            "ENUM `{}` must declare at least one member.",
+                            type_decl.name
+                        ),
+                        file,
+                        type_decl.line,
+                    );
                 }
             }
         }
