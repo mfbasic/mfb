@@ -28,6 +28,7 @@ pub(crate) const TYPE_FILE_HANDLE: u32 = 0xffff_ff00;
 
 const FUNCTION_BYTECODE: u16 = 1;
 
+const FUNCTION_FLAG_ISOLATED: u16 = 1 << 2;
 const FUNCTION_FLAG_PRIVATE: u16 = 1 << 1;
 const FUNCTION_FLAG_SUB: u16 = 1 << 3;
 const FUNCTION_FLAG_RETURNS_NOTHING: u16 = 1 << 5;
@@ -93,6 +94,16 @@ pub(crate) const OPCODE_FS_DELETE_DIRECTORY: u16 = 205;
 pub(crate) const OPCODE_FS_LIST_DIRECTORY: u16 = 206;
 pub(crate) const OPCODE_FS_CURRENT_DIRECTORY: u16 = 207;
 pub(crate) const OPCODE_FS_SET_CURRENT_DIRECTORY: u16 = 208;
+pub(crate) const OPCODE_THREAD_START: u16 = 220;
+pub(crate) const OPCODE_THREAD_IS_RUNNING: u16 = 221;
+pub(crate) const OPCODE_THREAD_WAIT_FOR: u16 = 222;
+pub(crate) const OPCODE_THREAD_CANCEL: u16 = 223;
+pub(crate) const OPCODE_THREAD_SEND: u16 = 224;
+pub(crate) const OPCODE_THREAD_POLL: u16 = 225;
+pub(crate) const OPCODE_THREAD_READ: u16 = 226;
+pub(crate) const OPCODE_THREAD_RECEIVE: u16 = 227;
+pub(crate) const OPCODE_THREAD_EMIT: u16 = 228;
+pub(crate) const OPCODE_THREAD_IS_CANCELLED: u16 = 229;
 const OPCODE_CALL_RESULT: u16 = 60;
 const OPCODE_UNWRAP_RESULT: u16 = 61;
 const OPCODE_LOAD_FUNCTION: u16 = 62;
@@ -326,6 +337,16 @@ pub const NATIVE_OPCODE_FS_DELETE_DIRECTORY: u16 = OPCODE_FS_DELETE_DIRECTORY;
 pub const NATIVE_OPCODE_FS_LIST_DIRECTORY: u16 = OPCODE_FS_LIST_DIRECTORY;
 pub const NATIVE_OPCODE_FS_CURRENT_DIRECTORY: u16 = OPCODE_FS_CURRENT_DIRECTORY;
 pub const NATIVE_OPCODE_FS_SET_CURRENT_DIRECTORY: u16 = OPCODE_FS_SET_CURRENT_DIRECTORY;
+pub const NATIVE_OPCODE_THREAD_START: u16 = OPCODE_THREAD_START;
+pub const NATIVE_OPCODE_THREAD_IS_RUNNING: u16 = OPCODE_THREAD_IS_RUNNING;
+pub const NATIVE_OPCODE_THREAD_WAIT_FOR: u16 = OPCODE_THREAD_WAIT_FOR;
+pub const NATIVE_OPCODE_THREAD_CANCEL: u16 = OPCODE_THREAD_CANCEL;
+pub const NATIVE_OPCODE_THREAD_SEND: u16 = OPCODE_THREAD_SEND;
+pub const NATIVE_OPCODE_THREAD_POLL: u16 = OPCODE_THREAD_POLL;
+pub const NATIVE_OPCODE_THREAD_READ: u16 = OPCODE_THREAD_READ;
+pub const NATIVE_OPCODE_THREAD_RECEIVE: u16 = OPCODE_THREAD_RECEIVE;
+pub const NATIVE_OPCODE_THREAD_EMIT: u16 = OPCODE_THREAD_EMIT;
+pub const NATIVE_OPCODE_THREAD_IS_CANCELLED: u16 = OPCODE_THREAD_IS_CANCELLED;
 pub const NATIVE_OPCODE_CALL_RESULT: u16 = OPCODE_CALL_RESULT;
 pub const NATIVE_OPCODE_UNWRAP_RESULT: u16 = OPCODE_UNWRAP_RESULT;
 pub const NATIVE_OPCODE_LOAD_FUNCTION: u16 = OPCODE_LOAD_FUNCTION;
@@ -1127,6 +1148,9 @@ fn lower_function(
     if function.returns == "Nothing" {
         flags |= FUNCTION_FLAG_RETURNS_NOTHING;
     }
+    if function.isolated {
+        flags |= FUNCTION_FLAG_ISOLATED;
+    }
 
     Ok(Function {
         name: builder.strings.intern(&function.name),
@@ -1170,6 +1194,7 @@ pub(crate) trait BuiltinCallLowerer {
     fn add_register(&mut self, type_id: u32, flags: u32) -> u32;
     fn push(&mut self, opcode: u16, operands: Vec<u32>);
     fn push_string_const(&mut self, value: &str) -> Result<ValueSlot, String>;
+    fn push_integer_const(&mut self, value: i64) -> Result<ValueSlot, String>;
 }
 
 impl<'a> FunctionBuilder<'a> {
@@ -1438,6 +1463,9 @@ impl<'a> FunctionBuilder<'a> {
                 }
                 if builtins::io::is_io_call(target) {
                     return builtins::io::lower_bytecode_call(self, target, args, locals);
+                }
+                if builtins::thread::is_thread_call(target) {
+                    return builtins::thread::lower_bytecode_call(self, target, args, locals);
                 }
 
                 if let Some(callee) = locals.get(target) {
@@ -1897,6 +1925,7 @@ fn comparison_opcode(op: &str) -> Option<u16> {
 fn function_return_from_type(type_name: &str) -> Option<String> {
     type_name
         .strip_prefix("FUNC(")
+        .or_else(|| type_name.strip_prefix("ISOLATED FUNC("))
         .and_then(|rest| rest.split_once(") AS "))
         .map(|(_, return_type)| return_type.to_string())
 }
@@ -1940,6 +1969,20 @@ impl BuiltinCallLowerer for FunctionBuilder<'_> {
         Ok(ValueSlot {
             register,
             type_name: "String".to_string(),
+        })
+    }
+
+    fn push_integer_const(&mut self, value: i64) -> Result<ValueSlot, String> {
+        let register = self.add_register(TYPE_INTEGER, 0);
+        let constant = IrValue::Const {
+            type_: "Integer".to_string(),
+            value: value.to_string(),
+        };
+        let constant_id = self.const_id(&constant)?;
+        self.push(OPCODE_LOAD_CONST, vec![register, constant_id]);
+        Ok(ValueSlot {
+            register,
+            type_name: "Integer".to_string(),
         })
     }
 }
@@ -2012,7 +2055,17 @@ impl TypeTable {
                 let success = self.type_id(strings, name.trim_start_matches("Result OF "));
                 self.result_type(strings, success)
             }
+            name if name.starts_with("Thread OF ") => {
+                if let Some((message, output)) = builtins::thread::thread_parts(name) {
+                    let message = self.type_id(strings, message);
+                    let output = self.type_id(strings, output);
+                    self.thread_type(strings, message, output)
+                } else {
+                    self.add_entry(strings, "", name, 9, Vec::new())
+                }
+            }
             name if name.starts_with("FUNC(") => self.function_type(strings, name),
+            name if name.starts_with("ISOLATED FUNC(") => self.function_type(strings, name),
             name if name.starts_with("Map OF ") => {
                 let rest = name.trim_start_matches("Map OF ");
                 if let Some((key, value)) = rest.split_once(" TO ") {
@@ -2083,6 +2136,23 @@ impl TypeTable {
             return *id;
         }
         self.add_entry(strings, "", name, 8, Vec::new())
+    }
+
+    fn thread_type(
+        &mut self,
+        strings: &mut StringPool,
+        message_type: u32,
+        output_type: u32,
+    ) -> u32 {
+        let name = format!("Thread#{message_type}#{output_type}");
+        if let Some(id) = self.ids.get(&name) {
+            return *id;
+        }
+
+        let mut payload = Vec::new();
+        put_u32(&mut payload, message_type);
+        put_u32(&mut payload, output_type);
+        self.add_entry(strings, "thread", &name, 9, payload)
     }
 
     fn add_entry(

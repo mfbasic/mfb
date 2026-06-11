@@ -1,0 +1,12 @@
+$ mfb build -ast tests/builtin-thread
+Wrote AST to tests/builtin-thread/builtin_thread.ast
+[exit 0]
+$ mfb build -ir tests/builtin-thread
+Wrote IR to tests/builtin-thread/builtin_thread.ir
+[exit 0]
+$ mfb build -bc tests/builtin-thread
+Wrote bytecode hex to tests/builtin-thread/builtin_thread.hex
+[exit 0]
+$ mfb build -bin tests/builtin-thread
+Wrote binary to tests/builtin-thread/builtin_thread.aarch64.bin
+[exit 0]

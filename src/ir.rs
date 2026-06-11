@@ -51,6 +51,7 @@ pub(crate) struct IrFunction {
     pub(crate) name: String,
     pub(crate) visibility: String,
     pub(crate) kind: String,
+    pub(crate) isolated: bool,
     pub(crate) params: Vec<IrParam>,
     pub(crate) returns: String,
     pub(crate) body: Vec<IrOp>,
@@ -251,6 +252,7 @@ fn lower_function(function: &Function, context: &mut LowerContext<'_>) -> IrFunc
         name: function.name.clone(),
         visibility: visibility_name(function.visibility).to_string(),
         kind: kind.to_string(),
+        isolated: function.isolated,
         params: function
             .params
             .iter()
@@ -446,7 +448,10 @@ fn function_types(ast: &AstProject) -> HashMap<String, String> {
                 };
                 types.insert(
                     function.name.clone(),
-                    format!("FUNC({params}) AS {returns}"),
+                    format!(
+                        "{}FUNC({params}) AS {returns}",
+                        if function.isolated { "ISOLATED " } else { "" }
+                    ),
                 );
             }
         }
@@ -500,6 +505,11 @@ fn expression_type(
                 }
             }
             let target_type = expression_type(target, locals, context)?;
+            if member == "result" {
+                if let Some(output) = builtins::thread::thread_output(&target_type) {
+                    return Some(format!("Result OF {output}"));
+                }
+            }
             context.type_index.record_field_type(&target_type, member)
         }
         Expression::Call { callee, arguments } => {
@@ -551,6 +561,14 @@ fn expression_type(
                     .map(|argument| expression_type(argument, locals, context))
                     .collect::<Option<Vec<_>>>()?;
                 return builtins::io::resolve_call(callee, &arg_types)
+                    .map(|resolved| resolved.return_type.to_string());
+            }
+            if builtins::thread::is_thread_call(callee) {
+                let arg_types = arguments
+                    .iter()
+                    .map(|argument| expression_type(argument, locals, context))
+                    .collect::<Option<Vec<_>>>()?;
+                return builtins::thread::resolve_call(callee, &arg_types)
                     .map(|resolved| resolved.return_type.to_string());
             }
             builtins::call_return_type_name(callee)
@@ -613,6 +631,7 @@ fn expression_type(
 fn function_return_from_type(type_: &str) -> Option<String> {
     type_
         .strip_prefix("FUNC(")
+        .or_else(|| type_.strip_prefix("ISOLATED FUNC("))
         .and_then(|rest| rest.split_once(") AS "))
         .map(|(_, return_type)| return_type.to_string())
 }
@@ -722,6 +741,7 @@ fn lower_expression(
                 name: name.clone(),
                 visibility: "private".to_string(),
                 kind: "func".to_string(),
+                isolated: false,
                 params: ir_params,
                 returns: returns.clone(),
                 body: vec![IrOp::Return { value: Some(value) }],

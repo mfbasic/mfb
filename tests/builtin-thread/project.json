@@ -1,0 +1,13 @@
+{
+  "name": "builtin_thread",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "executable",
+  "sources": [
+    {
+      "root": "src"
+    }
+  ],
+  "entry": "main",
+  "targets": ["native"]
+}

@@ -1,0 +1,20 @@
+IMPORT thread
+
+EXPORT ISOLATED FUNC worker(seed AS String) AS Integer
+  LET cancelled AS Boolean = thread.isCancelled()
+  LET inbound AS String = thread.receive()
+  thread.emit(seed)
+  thread.emit(inbound, 0)
+  RETURN len(seed) + len(inbound)
+END FUNC
+
+FUNC main AS Integer
+  LET t AS Thread OF String TO Integer = thread.start(worker, "abc", 2, 2)
+  LET running AS Boolean = thread.isRunning(t)
+  thread.send(t, "def")
+  LET hasMessage AS Boolean = thread.poll(t, 0)
+  LET message AS String = thread.read(t)
+  thread.cancel(t)
+  LET value AS Integer = thread.waitFor(t)
+  RETURN value + len(message)
+END FUNC

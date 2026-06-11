@@ -1,0 +1,48 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "builtin_thread",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "worker",
+    "visibility": "export",
+    "kind": "func",
+    "params": [
+    { "name": "seed", "type": "String", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "mutable": false, "name": "cancelled", "type": "Boolean", "value": { "kind": "call", "target": "thread.isCancelled", "args": [] } },
+    { "op": "bind", "mutable": false, "name": "inbound", "type": "String", "value": { "kind": "call", "target": "thread.receive", "args": [] } },
+    { "op": "eval", "value": { "kind": "call", "target": "thread.emit", "args": [{ "kind": "local", "name": "seed" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "thread.emit", "args": [{ "kind": "local", "name": "inbound" }, { "kind": "const", "type": "Integer", "value": "0" }] } },
+    { "op": "return", "value": { "kind": "binary", "op": "+", "left": { "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "seed" }] }, "right": { "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "inbound" }] } } }
+    ]
+  },
+  {
+    "name": "main",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "mutable": false, "name": "t", "type": "Thread OF String TO Integer", "value": { "kind": "call", "target": "thread.start", "args": [{ "kind": "functionRef", "name": "worker", "type": "ISOLATED FUNC(String) AS Integer" }, { "kind": "const", "type": "String", "value": "abc" }, { "kind": "const", "type": "Integer", "value": "2" }, { "kind": "const", "type": "Integer", "value": "2" }] } },
+    { "op": "bind", "mutable": false, "name": "running", "type": "Boolean", "value": { "kind": "call", "target": "thread.isRunning", "args": [{ "kind": "local", "name": "t" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "thread.send", "args": [{ "kind": "local", "name": "t" }, { "kind": "const", "type": "String", "value": "def" }] } },
+    { "op": "bind", "mutable": false, "name": "hasMessage", "type": "Boolean", "value": { "kind": "call", "target": "thread.poll", "args": [{ "kind": "local", "name": "t" }, { "kind": "const", "type": "Integer", "value": "0" }] } },
+    { "op": "bind", "mutable": false, "name": "message", "type": "String", "value": { "kind": "call", "target": "thread.read", "args": [{ "kind": "local", "name": "t" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "thread.cancel", "args": [{ "kind": "local", "name": "t" }] } },
+    { "op": "bind", "mutable": false, "name": "value", "type": "Integer", "value": { "kind": "call", "target": "thread.waitFor", "args": [{ "kind": "local", "name": "t" }] } },
+    { "op": "return", "value": { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "value" }, "right": { "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "message" }] } } }
+    ]
+  }
+  ]
+}

@@ -46,6 +46,7 @@ pub enum Keyword {
     Func,
     If,
     Import,
+    Isolated,
     Let,
     Lambda,
     Mod,
@@ -404,6 +405,8 @@ fn keyword(value: &str) -> Option<Keyword> {
         Some(Keyword::If)
     } else if value.eq_ignore_ascii_case("IMPORT") {
         Some(Keyword::Import)
+    } else if value.eq_ignore_ascii_case("ISOLATED") {
+        Some(Keyword::Isolated)
     } else if value.eq_ignore_ascii_case("LET") {
         Some(Keyword::Let)
     } else if value.eq_ignore_ascii_case("LAMBDA") {

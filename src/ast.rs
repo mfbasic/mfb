@@ -75,6 +75,7 @@ pub struct EnumMember {
 pub struct Function {
     pub kind: FunctionKind,
     pub visibility: Visibility,
+    pub isolated: bool,
     pub name: String,
     pub params: Vec<Param>,
     pub return_type: Option<String>,
@@ -421,12 +422,20 @@ impl<'a> FileParser<'a> {
     }
 
     fn parse_function(&mut self) -> Option<Function> {
+        let isolated = self.match_keyword(Keyword::Isolated);
         let kind_token = self.advance().clone();
         let kind = if matches!(kind_token.kind, TokenKind::Keyword(Keyword::Sub)) {
             FunctionKind::Sub
         } else {
             FunctionKind::Func
         };
+        if isolated && !matches!(kind, FunctionKind::Func) {
+            self.report(
+                "MFB_PARSE_UNEXPECTED_TOKEN",
+                "ISOLATED is valid only on FUNC declarations.",
+                &kind_token,
+            );
+        }
 
         let Some(name) = self.consume_identifier("Function name must be an identifier.") else {
             self.synchronize();
@@ -472,6 +481,7 @@ impl<'a> FileParser<'a> {
                 return Some(Function {
                     kind,
                     visibility: Visibility::Private,
+                    isolated,
                     name,
                     params,
                     return_type,
@@ -1269,6 +1279,12 @@ impl<'a> FileParser<'a> {
         if self.match_keyword(Keyword::Func) {
             return self.parse_function_type_name(false);
         }
+        if self.match_keyword(Keyword::Isolated) {
+            if self.consume_keyword(Keyword::Func, "ISOLATED type must be followed by FUNC.") {
+                return self.parse_function_type_name(true);
+            }
+            return None;
+        }
         let mut name = self.parse_type_base_name("Expected a type name.")?;
         if (name.eq_ignore_ascii_case("List") || name.eq_ignore_ascii_case("Result"))
             && self.check_identifier_ci("OF")
@@ -1295,6 +1311,24 @@ impl<'a> FileParser<'a> {
             name.push_str(&key);
             name.push_str(" TO ");
             name.push_str(&value);
+        } else if name.eq_ignore_ascii_case("Thread") && self.check_identifier_ci("OF") {
+            self.advance();
+            let message = self.parse_type_name()?;
+            if !self.check_identifier_ci("TO") {
+                let token = self.peek().clone();
+                self.report(
+                    "MFB_PARSE_UNEXPECTED_TOKEN",
+                    "Expected `TO` in thread type.",
+                    &token,
+                );
+                return None;
+            }
+            self.advance();
+            let output = self.parse_type_name()?;
+            name.push_str(" OF ");
+            name.push_str(&message);
+            name.push_str(" TO ");
+            name.push_str(&output);
         }
         Some(name)
     }
@@ -1430,11 +1464,18 @@ impl<'a> FileParser<'a> {
     fn check_top_level_item_start(&self) -> bool {
         self.check_keyword(Keyword::Sub)
             || self.check_keyword(Keyword::Func)
+            || (self.check_keyword(Keyword::Isolated)
+                && self
+                    .tokens
+                    .get(self.current + 1)
+                    .is_some_and(|token| matches!(token.kind, TokenKind::Keyword(Keyword::Func))))
             || (self.check_visibility()
                 && self.tokens.get(self.current + 1).is_some_and(|token| {
                     matches!(
                         token.kind,
-                        TokenKind::Keyword(Keyword::Sub) | TokenKind::Keyword(Keyword::Func)
+                        TokenKind::Keyword(Keyword::Sub)
+                            | TokenKind::Keyword(Keyword::Func)
+                            | TokenKind::Keyword(Keyword::Isolated)
                     )
                 }))
     }

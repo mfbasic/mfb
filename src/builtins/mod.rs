@@ -2,13 +2,14 @@ pub(crate) mod fs;
 pub(crate) mod general;
 pub(crate) mod io;
 pub(crate) mod strings;
+pub(crate) mod thread;
 
 pub(crate) fn is_builtin_import(name: &str) -> bool {
-    matches!(name, "fs" | "io" | "strings")
+    matches!(name, "fs" | "io" | "strings" | "thread")
 }
 
 pub(crate) fn is_builtin_type(name: &str) -> bool {
-    fs::is_builtin_type(name) || io::is_builtin_type(name)
+    fs::is_builtin_type(name) || io::is_builtin_type(name) || thread::is_builtin_type(name)
 }
 
 pub(crate) fn resource_close_function(type_name: &str) -> Option<&'static str> {
@@ -30,5 +31,6 @@ pub(crate) fn is_builtin_call(name: &str) -> bool {
         || strings::is_strings_call(name)
         || fs::is_fs_call(name)
         || io::is_io_call(name)
+        || thread::is_thread_call(name)
         || call_return_type_name(name).is_some()
 }

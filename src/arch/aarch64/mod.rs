@@ -13,13 +13,6 @@ use crate::bytecode::{
     NATIVE_OPCODE_COLLECTION_TRANSFORM, NATIVE_OPCODE_COLLECTION_VALUES, NATIVE_OPCODE_CONCAT,
     NATIVE_OPCODE_CONSTRUCT_LIST, NATIVE_OPCODE_CONSTRUCT_MAP, NATIVE_OPCODE_CONSTRUCT_RECORD,
     NATIVE_OPCODE_CONSTRUCT_VARIANT, NATIVE_OPCODE_COPY, NATIVE_OPCODE_DIV, NATIVE_OPCODE_EQUAL,
-    NATIVE_OPCODE_GENERAL_FIND, NATIVE_OPCODE_GENERAL_IS_EMPTY, NATIVE_OPCODE_GENERAL_IS_EVEN,
-    NATIVE_OPCODE_GENERAL_IS_NEGATIVE, NATIVE_OPCODE_GENERAL_IS_NOT_EMPTY,
-    NATIVE_OPCODE_GENERAL_IS_NUMERIC, NATIVE_OPCODE_GENERAL_IS_ODD,
-    NATIVE_OPCODE_GENERAL_IS_POSITIVE, NATIVE_OPCODE_GENERAL_IS_ZERO, NATIVE_OPCODE_GENERAL_LEN,
-    NATIVE_OPCODE_GENERAL_MID, NATIVE_OPCODE_GENERAL_REPLACE, NATIVE_OPCODE_GENERAL_TO_BYTE,
-    NATIVE_OPCODE_GENERAL_TO_FIXED, NATIVE_OPCODE_GENERAL_TO_FLOAT, NATIVE_OPCODE_GENERAL_TO_INT,
-    NATIVE_OPCODE_GENERAL_TO_STRING, NATIVE_OPCODE_GREATER, NATIVE_OPCODE_GREATER_EQUAL,
     NATIVE_OPCODE_FS_APPEND_TEXT, NATIVE_OPCODE_FS_CANONICAL_PATH, NATIVE_OPCODE_FS_CLOSE,
     NATIVE_OPCODE_FS_CREATE_DIRECTORIES, NATIVE_OPCODE_FS_CREATE_DIRECTORY,
     NATIVE_OPCODE_FS_CREATE_TEMP_FILE, NATIVE_OPCODE_FS_CURRENT_DIRECTORY,
@@ -30,8 +23,15 @@ use crate::bytecode::{
     NATIVE_OPCODE_FS_PATH_DIR_NAME, NATIVE_OPCODE_FS_PATH_EXTENSION, NATIVE_OPCODE_FS_PATH_JOIN,
     NATIVE_OPCODE_FS_PATH_NORMALIZE, NATIVE_OPCODE_FS_READ_ALL, NATIVE_OPCODE_FS_READ_LINE,
     NATIVE_OPCODE_FS_READ_TEXT, NATIVE_OPCODE_FS_SET_CURRENT_DIRECTORY, NATIVE_OPCODE_FS_WRITE_ALL,
-    NATIVE_OPCODE_FS_WRITE_TEXT, NATIVE_OPCODE_FS_WRITE_TEXT_ATOMIC, NATIVE_OPCODE_IO_CLOSE,
-    NATIVE_OPCODE_IO_FLUSH, NATIVE_OPCODE_IO_IS_TERMINAL,
+    NATIVE_OPCODE_FS_WRITE_TEXT, NATIVE_OPCODE_FS_WRITE_TEXT_ATOMIC, NATIVE_OPCODE_GENERAL_FIND,
+    NATIVE_OPCODE_GENERAL_IS_EMPTY, NATIVE_OPCODE_GENERAL_IS_EVEN,
+    NATIVE_OPCODE_GENERAL_IS_NEGATIVE, NATIVE_OPCODE_GENERAL_IS_NOT_EMPTY,
+    NATIVE_OPCODE_GENERAL_IS_NUMERIC, NATIVE_OPCODE_GENERAL_IS_ODD,
+    NATIVE_OPCODE_GENERAL_IS_POSITIVE, NATIVE_OPCODE_GENERAL_IS_ZERO, NATIVE_OPCODE_GENERAL_LEN,
+    NATIVE_OPCODE_GENERAL_MID, NATIVE_OPCODE_GENERAL_REPLACE, NATIVE_OPCODE_GENERAL_TO_BYTE,
+    NATIVE_OPCODE_GENERAL_TO_FIXED, NATIVE_OPCODE_GENERAL_TO_FLOAT, NATIVE_OPCODE_GENERAL_TO_INT,
+    NATIVE_OPCODE_GENERAL_TO_STRING, NATIVE_OPCODE_GREATER, NATIVE_OPCODE_GREATER_EQUAL,
+    NATIVE_OPCODE_IO_CLOSE, NATIVE_OPCODE_IO_FLUSH, NATIVE_OPCODE_IO_IS_TERMINAL,
     NATIVE_OPCODE_IO_OPEN, NATIVE_OPCODE_IO_READ_BYTE, NATIVE_OPCODE_IO_READ_CHAR,
     NATIVE_OPCODE_IO_READ_LINE, NATIVE_OPCODE_IO_TERMINAL_SIZE, NATIVE_OPCODE_IO_WRITE,
     NATIVE_OPCODE_LESS, NATIVE_OPCODE_LESS_EQUAL, NATIVE_OPCODE_LOAD_CONST,
@@ -45,8 +45,11 @@ use crate::bytecode::{
     NATIVE_OPCODE_STRING_REGEX_REPLACE, NATIVE_OPCODE_STRING_SPLIT,
     NATIVE_OPCODE_STRING_STARTS_WITH, NATIVE_OPCODE_STRING_TRIM, NATIVE_OPCODE_STRING_TRIM_END,
     NATIVE_OPCODE_STRING_TRIM_START, NATIVE_OPCODE_STRING_UPPER, NATIVE_OPCODE_SUB,
-    NATIVE_OPCODE_UNWRAP_RESULT, NATIVE_OPCODE_USING_ENTER, NATIVE_OPCODE_USING_LEAVE,
-    NATIVE_OPCODE_VARIANT_MATCH, NATIVE_OPCODE_XOR,
+    NATIVE_OPCODE_THREAD_CANCEL, NATIVE_OPCODE_THREAD_EMIT, NATIVE_OPCODE_THREAD_IS_CANCELLED,
+    NATIVE_OPCODE_THREAD_IS_RUNNING, NATIVE_OPCODE_THREAD_POLL, NATIVE_OPCODE_THREAD_READ,
+    NATIVE_OPCODE_THREAD_RECEIVE, NATIVE_OPCODE_THREAD_SEND, NATIVE_OPCODE_THREAD_START,
+    NATIVE_OPCODE_THREAD_WAIT_FOR, NATIVE_OPCODE_UNWRAP_RESULT, NATIVE_OPCODE_USING_ENTER,
+    NATIVE_OPCODE_USING_LEAVE, NATIVE_OPCODE_VARIANT_MATCH, NATIVE_OPCODE_XOR,
 };
 use crate::ir::IrProject;
 use crate::target::BuildTarget;
@@ -374,6 +377,18 @@ impl<'a> NativeEmitter<'a> {
                 | NATIVE_OPCODE_FS_CURRENT_DIRECTORY
                 | NATIVE_OPCODE_FS_SET_CURRENT_DIRECTORY => {
                     self.emit_fs_default_result(function, instruction)?;
+                }
+                NATIVE_OPCODE_THREAD_START
+                | NATIVE_OPCODE_THREAD_IS_RUNNING
+                | NATIVE_OPCODE_THREAD_WAIT_FOR
+                | NATIVE_OPCODE_THREAD_CANCEL
+                | NATIVE_OPCODE_THREAD_SEND
+                | NATIVE_OPCODE_THREAD_POLL
+                | NATIVE_OPCODE_THREAD_READ
+                | NATIVE_OPCODE_THREAD_RECEIVE
+                | NATIVE_OPCODE_THREAD_EMIT
+                | NATIVE_OPCODE_THREAD_IS_CANCELLED => {
+                    self.emit_thread_default_result(function, instruction)?;
                 }
                 NATIVE_OPCODE_USING_ENTER | NATIVE_OPCODE_USING_LEAVE => {}
                 NATIVE_OPCODE_CLOSE_RESOURCE => {
@@ -4050,7 +4065,12 @@ impl<'a> NativeEmitter<'a> {
         let handle = operand(instruction, 1)?;
         let value = operand(instruction, 2)?;
         self.expect_register_type(function, dst, NativeType::Nothing, "FS_WRITE_ALL")?;
-        self.expect_register_type(function, handle, NativeType::FileHandle, "FS_WRITE_ALL file")?;
+        self.expect_register_type(
+            function,
+            handle,
+            NativeType::FileHandle,
+            "FS_WRITE_ALL file",
+        )?;
         self.expect_register_type(function, value, NativeType::String, "FS_WRITE_ALL value")?;
         self.code.ldr_imm(0, 31, slot_offset(handle))?;
         self.code.ldr_imm(1, 31, slot_offset(value))?;
@@ -4084,6 +4104,30 @@ impl<'a> NativeEmitter<'a> {
             | NativeType::Other => self.store_zero_slot(dst),
             type_ => Err(format!(
                 "filesystem opcode cannot default {} result",
+                native_type_name(type_)
+            )),
+        }
+    }
+
+    fn emit_thread_default_result(
+        &mut self,
+        function: &bytecode::NativeFunction,
+        instruction: &bytecode::NativeInstruction,
+    ) -> Result<(), String> {
+        let dst = operand(instruction, 0)?;
+        let register = function
+            .registers
+            .get(dst as usize)
+            .ok_or_else(|| format!("thread opcode references missing register {dst}"))?;
+        match register.type_ {
+            NativeType::Nothing
+            | NativeType::Boolean
+            | NativeType::Integer
+            | NativeType::String
+            | NativeType::Other
+            | NativeType::Result => self.store_zero_slot(dst),
+            type_ => Err(format!(
+                "thread opcode cannot default {} result",
                 native_type_name(type_)
             )),
         }

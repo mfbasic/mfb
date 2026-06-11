@@ -18,6 +18,7 @@ static PACKAGES: LazyLock<Vec<PackageDoc>> = LazyLock::new(|| {
     vec![
         parse_package(include_str!("builtins/general.txt")),
         parse_package(include_str!("builtins/io.txt")),
+        parse_package(include_str!("builtins/thread.txt")),
     ]
 });
 

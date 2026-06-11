@@ -25,6 +25,7 @@ enum Type {
     Nothing,
     Result(Box<Type>),
     String,
+    Thread(Box<Type>, Box<Type>),
     User(String),
     Unknown,
 }
@@ -40,6 +41,7 @@ struct FunctionSig {
     kind: FunctionKind,
     params: Vec<ParamSig>,
     return_type: Type,
+    isolated: bool,
 }
 
 #[derive(Clone)]
@@ -219,6 +221,7 @@ impl<'a> TypeChecker<'a> {
                             kind: function.kind.clone(),
                             params,
                             return_type,
+                            isolated: function.isolated,
                         },
                     );
                 }
@@ -288,6 +291,21 @@ impl<'a> TypeChecker<'a> {
     }
 
     fn check_function(&mut self, file: &AstFile, function: &Function) {
+        if function.isolated
+            && (!matches!(function.kind, FunctionKind::Func)
+                || !matches!(function.visibility, Visibility::Export))
+        {
+            self.report(
+                "TYPE_CALL_ARGUMENT_MISMATCH",
+                &format!(
+                    "ISOLATED function `{}` must be an exported FUNC declaration.",
+                    function.name
+                ),
+                file,
+                function.line,
+            );
+        }
+
         let expected_return = match function.kind {
             FunctionKind::Func => {
                 if function.return_type.is_none() {
@@ -453,7 +471,12 @@ impl<'a> TypeChecker<'a> {
                     .as_ref()
                     .map(|value| self.infer_expression(file, value, locals, *line));
 
-                if matches!(inferred, Some(Type::Unknown)) {
+                if matches!(inferred, Some(Type::Unknown))
+                    && !(declared.is_some()
+                        && value
+                            .as_ref()
+                            .is_some_and(is_contextual_thread_unknown_call))
+                {
                     self.report(
                         "TYPE_UNKNOWN_VALUE",
                         &format!("Initializer for binding `{name}` does not have a known type."),
@@ -1085,6 +1108,18 @@ impl<'a> TypeChecker<'a> {
         }
 
         let target_type = self.infer_expression(file, target, locals, line);
+        if let Type::Thread(_, output) = &target_type {
+            if member == "result" {
+                return Type::Result(output.clone());
+            }
+            self.report(
+                "TYPE_UNKNOWN_FIELD",
+                &format!("Thread value has no field `{member}`."),
+                file,
+                line,
+            );
+            return Type::Unknown;
+        }
         let Type::User(type_name) = target_type else {
             self.report(
                 "TYPE_FIELD_ACCESS_REQUIRES_RECORD",
@@ -1577,6 +1612,9 @@ impl<'a> TypeChecker<'a> {
         if builtins::io::is_io_call(callee) {
             return self.check_io_builtin_call(file, callee, arguments, locals, line);
         }
+        if builtins::thread::is_thread_call(callee) {
+            return self.check_thread_builtin_call(file, callee, arguments, locals, line);
+        }
 
         for argument in arguments {
             self.infer_expression(file, argument, locals, line);
@@ -1679,6 +1717,60 @@ impl<'a> TypeChecker<'a> {
 
         let Some(resolved) = builtins::io::resolve_call(callee, &arg_types) else {
             let expected = builtins::io::expected_arguments(callee).unwrap_or("supported overload");
+            self.report(
+                "TYPE_CALL_ARGUMENT_MISMATCH",
+                &format!(
+                    "Call to `{callee}` has argument type(s) ({}), expected {expected}.",
+                    arg_types.join(", ")
+                ),
+                file,
+                line,
+            );
+            return Type::Unknown;
+        };
+
+        self.parse_type(&resolved.return_type)
+    }
+
+    fn check_thread_builtin_call(
+        &mut self,
+        file: &AstFile,
+        callee: &str,
+        arguments: &[Expression],
+        locals: &HashMap<String, LocalInfo>,
+        line: usize,
+    ) -> Type {
+        let arg_types = arguments
+            .iter()
+            .map(|argument| {
+                let type_ = self.infer_expression(file, argument, locals, line);
+                self.type_name(&type_)
+            })
+            .collect::<Vec<_>>();
+
+        if let Some((min, max)) = builtins::thread::arity(callee) {
+            if arguments.len() < min || arguments.len() > max {
+                let expected = if min == max {
+                    min.to_string()
+                } else {
+                    format!("{min} to {max}")
+                };
+                self.report(
+                    "TYPE_CALL_ARITY_MISMATCH",
+                    &format!(
+                        "Call to `{callee}` has {} argument(s), expected {expected}.",
+                        arguments.len()
+                    ),
+                    file,
+                    line,
+                );
+                return Type::Unknown;
+            }
+        }
+
+        let Some(resolved) = builtins::thread::resolve_call(callee, &arg_types) else {
+            let expected =
+                builtins::thread::expected_arguments(callee).unwrap_or("supported overload");
             self.report(
                 "TYPE_CALL_ARGUMENT_MISMATCH",
                 &format!(
@@ -1862,6 +1954,14 @@ impl<'a> TypeChecker<'a> {
         if let Some(success) = name.strip_prefix("Result OF ") {
             return Type::Result(Box::new(self.parse_type(success)));
         }
+        if let Some(rest) = name.strip_prefix("Thread OF ") {
+            if let Some((message, output)) = rest.split_once(" TO ") {
+                return Type::Thread(
+                    Box::new(self.parse_type(message)),
+                    Box::new(self.parse_type(output)),
+                );
+            }
+        }
         if let Some(rest) = name.strip_prefix("Map OF ") {
             if let Some((key, value)) = rest.split_once(" TO ") {
                 return Type::Map(
@@ -1880,6 +1980,7 @@ impl<'a> TypeChecker<'a> {
             "Integer" => Type::Integer,
             "Nothing" => Type::Nothing,
             "String" => Type::String,
+            "Unknown" => Type::Unknown,
             "Result" => Type::Result(Box::new(Type::Unknown)),
             other if builtins::is_builtin_type(other) => Type::User(other.to_string()),
             other if self.user_types.contains(other) => Type::User(other.to_string()),
@@ -1917,6 +2018,13 @@ impl<'a> TypeChecker<'a> {
                     && self.compatible(expected_value, actual_value)
             }
             (Type::Result(expected), Type::Result(actual)) => self.compatible(expected, actual),
+            (
+                Type::Thread(expected_message, expected_output),
+                Type::Thread(actual_message, actual_output),
+            ) => {
+                self.compatible(expected_message, actual_message)
+                    && self.compatible(expected_output, actual_output)
+            }
             (
                 Type::Function {
                     params: expected_params,
@@ -1991,6 +2099,10 @@ impl<'a> TypeChecker<'a> {
                 self.check_type_reference(file, return_type, line);
             }
             Type::Result(success) => self.check_type_reference(file, success, line),
+            Type::Thread(message, output) => {
+                self.check_type_reference(file, message, line);
+                self.check_type_reference(file, output, line);
+            }
             Type::User(name) => {
                 let Some(info) = self.type_infos.get(name) else {
                     return;
@@ -2052,6 +2164,13 @@ impl<'a> TypeChecker<'a> {
             Type::Nothing => "Nothing".to_string(),
             Type::Result(success) => format!("Result OF {}", self.type_name(success)),
             Type::String => "String".to_string(),
+            Type::Thread(message, output) => {
+                format!(
+                    "Thread OF {} TO {}",
+                    self.type_name(message),
+                    self.type_name(output)
+                )
+            }
             Type::User(name) => name.clone(),
             Type::Unknown => "Unknown".to_string(),
         }
@@ -2077,8 +2196,15 @@ fn function_type(sig: &FunctionSig) -> Type {
     Type::Function {
         params: sig.params.iter().map(|param| param.type_.clone()).collect(),
         return_type: Box::new(sig.return_type.clone()),
-        isolated: false,
+        isolated: sig.isolated,
     }
+}
+
+fn is_contextual_thread_unknown_call(expression: &Expression) -> bool {
+    matches!(
+        expression,
+        Expression::Call { callee, .. } if callee == "thread.receive"
+    )
 }
 
 fn captured_locals(
