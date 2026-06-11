@@ -25,6 +25,13 @@ pub(crate) fn is_builtin_type(name: &str) -> bool {
     name == FILE_TYPE
 }
 
+pub(crate) fn resource_close_function(type_name: &str) -> Option<&'static str> {
+    match type_name {
+        FILE_TYPE => Some(CLOSE),
+        _ => None,
+    }
+}
+
 pub(crate) fn call_return_type_name(name: &str) -> Option<&'static str> {
     match name {
         OPEN => Some(FILE_TYPE),

@@ -13,6 +13,7 @@ const SECTION_EXPORT_TABLE: u16 = 6;
 const SECTION_GLOBAL_TABLE: u16 = 7;
 const SECTION_FUNCTION_TABLE: u16 = 8;
 const SECTION_CODE: u16 = 9;
+const SECTION_RESOURCE_TABLE: u16 = 11;
 
 pub(crate) const TYPE_NOTHING: u32 = 1;
 pub(crate) const TYPE_BOOLEAN: u32 = 2;
@@ -33,6 +34,7 @@ const FUNCTION_FLAG_RETURNS_NOTHING: u16 = 1 << 5;
 
 const REGISTER_FLAG_PARAMETER: u32 = 1 << 0;
 const REGISTER_FLAG_MUTABLE_LOCAL_CELL: u32 = 1 << 1;
+const REGISTER_FLAG_RESOURCE: u32 = 1 << 2;
 const REGISTER_FLAG_INITIALIZED_AT_ENTRY: u32 = 1 << 3;
 
 const OPCODE_LOAD_CONST: u16 = 1;
@@ -131,6 +133,9 @@ pub(crate) const OPCODE_STRING_BYTE_LEN: u16 = 153;
 pub(crate) const OPCODE_STRING_REGEX_MATCH: u16 = 154;
 pub(crate) const OPCODE_STRING_REGEX_FIND: u16 = 155;
 pub(crate) const OPCODE_STRING_REGEX_REPLACE: u16 = 156;
+pub(crate) const OPCODE_USING_ENTER: u16 = 170;
+pub(crate) const OPCODE_USING_LEAVE: u16 = 171;
+pub(crate) const OPCODE_CLOSE_RESOURCE: u16 = 172;
 
 pub fn write_bytecode_hex(
     project_dir: &Path,
@@ -332,6 +337,14 @@ pub const NATIVE_OPCODE_STRING_BYTE_LEN: u16 = OPCODE_STRING_BYTE_LEN;
 pub const NATIVE_OPCODE_STRING_REGEX_MATCH: u16 = OPCODE_STRING_REGEX_MATCH;
 pub const NATIVE_OPCODE_STRING_REGEX_FIND: u16 = OPCODE_STRING_REGEX_FIND;
 pub const NATIVE_OPCODE_STRING_REGEX_REPLACE: u16 = OPCODE_STRING_REGEX_REPLACE;
+pub const NATIVE_OPCODE_USING_ENTER: u16 = OPCODE_USING_ENTER;
+pub const NATIVE_OPCODE_USING_LEAVE: u16 = OPCODE_USING_LEAVE;
+pub const NATIVE_OPCODE_CLOSE_RESOURCE: u16 = OPCODE_CLOSE_RESOURCE;
+
+const RESOURCE_FLAG_NATIVE: u32 = 1 << 0;
+const RESOURCE_FLAG_STANDARD: u32 = 1 << 1;
+const RESOURCE_FLAG_CLOSE_MAY_FAIL: u32 = 1 << 3;
+const BUILTIN_FS_CLOSE_FUNCTION_ID: u32 = 0xffff_ff00;
 
 pub fn native_program(ir: &IrProject) -> Result<NativeProgram, String> {
     let project = lower_project(ir, "native")?;
@@ -380,7 +393,7 @@ fn native_imports(functions: &[Function]) -> Vec<NativeImport> {
     for function in functions {
         for instruction in &function.code {
             needs_open |= instruction.opcode == OPCODE_IO_OPEN;
-            needs_close |= instruction.opcode == OPCODE_IO_CLOSE;
+            needs_close |= matches!(instruction.opcode, OPCODE_IO_CLOSE | OPCODE_CLOSE_RESOURCE);
         }
     }
 
@@ -660,6 +673,7 @@ struct BytecodeProject {
     strings: StringPool,
     types: TypeTable,
     constants: ConstPool,
+    resources: ResourceTable,
     entry_function: u32,
     entry_flags: u32,
     functions: Vec<Function>,
@@ -688,6 +702,16 @@ struct ConstPool {
 struct ConstEntry {
     kind: u16,
     payload: Vec<u8>,
+}
+
+struct ResourceTable {
+    entries: Vec<ResourceEntry>,
+}
+
+struct ResourceEntry {
+    type_id: u32,
+    close_function_id: u32,
+    flags: u32,
 }
 
 struct TypeModel {
@@ -815,6 +839,7 @@ struct Function {
     params: Vec<Param>,
     registers: Vec<Register>,
     code: Vec<Instruction>,
+    cleanups: Vec<Cleanup>,
 }
 
 struct Param {
@@ -834,6 +859,14 @@ struct Instruction {
     operands: Vec<u32>,
 }
 
+struct Cleanup {
+    id: u32,
+    start_pc: u32,
+    end_pc: u32,
+    resource_register: u32,
+    close_function_id: u32,
+}
+
 fn lower_project(ir: &IrProject, version: &str) -> Result<BytecodeProject, String> {
     let mut strings = StringPool::new();
     strings.intern(&ir.name);
@@ -843,6 +876,10 @@ fn lower_project(ir: &IrProject, version: &str) -> Result<BytecodeProject, Strin
     let mut types = TypeTable::new();
     for ir_type in &ir.types {
         types.add_source_type(&mut strings, &ir.name, ir_type);
+    }
+    let mut resources = ResourceTable::new();
+    if ir_uses_resource_type(ir) {
+        resources.add_standard_file(&mut types, &mut strings);
     }
     let type_model = TypeModel::new(ir);
 
@@ -894,10 +931,76 @@ fn lower_project(ir: &IrProject, version: &str) -> Result<BytecodeProject, Strin
         strings,
         types,
         constants,
+        resources,
         entry_function,
         entry_flags,
         functions,
     })
+}
+
+fn ir_uses_resource_type(ir: &IrProject) -> bool {
+    ir.functions.iter().any(|function| {
+        function
+            .params
+            .iter()
+            .any(|param| is_resource_type_name(&param.type_))
+            || is_resource_type_name(&function.returns)
+            || ops_use_resource_type(&function.body)
+    })
+}
+
+fn ops_use_resource_type(ops: &[IrOp]) -> bool {
+    ops.iter().any(|op| match op {
+        IrOp::Bind { type_, value, .. } => {
+            is_resource_type_name(type_) || value.as_ref().is_some_and(value_uses_resource_type)
+        }
+        IrOp::Assign { value, .. } | IrOp::Eval { value } => value_uses_resource_type(value),
+        IrOp::Return { value } => value.as_ref().is_some_and(value_uses_resource_type),
+        IrOp::If {
+            condition,
+            then_body,
+            else_body,
+        } => {
+            value_uses_resource_type(condition)
+                || ops_use_resource_type(then_body)
+                || ops_use_resource_type(else_body)
+        }
+        IrOp::Match { value, cases } => {
+            value_uses_resource_type(value)
+                || cases.iter().any(|case| ops_use_resource_type(&case.body))
+        }
+        IrOp::Using {
+            type_, value, body, ..
+        } => {
+            is_resource_type_name(type_)
+                || value_uses_resource_type(value)
+                || ops_use_resource_type(body)
+        }
+    })
+}
+
+fn value_uses_resource_type(value: &IrValue) -> bool {
+    match value {
+        IrValue::Const { type_, .. }
+        | IrValue::FunctionRef { type_, .. }
+        | IrValue::Constructor { type_, .. }
+        | IrValue::ListLiteral { type_, .. }
+        | IrValue::MapLiteral { type_, .. } => is_resource_type_name(type_),
+        IrValue::Call { target, args } => {
+            builtins::call_return_type_name(target).is_some_and(is_resource_type_name)
+                || args.iter().any(value_uses_resource_type)
+        }
+        IrValue::MemberAccess { target, .. } => value_uses_resource_type(target),
+        IrValue::Binary { left, right, .. } => {
+            value_uses_resource_type(left) || value_uses_resource_type(right)
+        }
+        IrValue::Unary { operand, .. } => value_uses_resource_type(operand),
+        IrValue::Local(_) => false,
+    }
+}
+
+fn is_resource_type_name(type_name: &str) -> bool {
+    builtins::is_resource_type(type_name)
 }
 
 fn lower_function(
@@ -972,6 +1075,7 @@ fn lower_function(
         params,
         registers: builder.registers,
         code: builder.code,
+        cleanups: builder.cleanups,
     })
 }
 
@@ -985,6 +1089,8 @@ struct FunctionBuilder<'a> {
     type_model: &'a TypeModel,
     registers: Vec<Register>,
     code: Vec<Instruction>,
+    cleanups: Vec<Cleanup>,
+    next_cleanup_id: u32,
 }
 
 #[derive(Clone)]
@@ -1025,6 +1131,8 @@ impl<'a> FunctionBuilder<'a> {
             type_model,
             registers: Vec::new(),
             code: Vec::new(),
+            cleanups: Vec::new(),
+            next_cleanup_id: 0,
         }
     }
 
@@ -1117,13 +1225,22 @@ impl<'a> FunctionBuilder<'a> {
             IrOp::Using {
                 name,
                 type_,
+                close,
                 value,
                 body,
             } => {
                 let type_id = self.type_id(type_);
                 let value = self.lower_value(value, locals)?;
-                let register = self.add_register(type_id, 0);
+                let register = self.add_register(type_id, REGISTER_FLAG_RESOURCE);
                 self.push_move_like(type_id, register, value.register);
+                let close_function_id = close_function_id(close)?;
+                let cleanup_id = self.next_cleanup_id;
+                self.next_cleanup_id += 1;
+                let enter_pc = self.code.len() as u32;
+                self.push(
+                    OPCODE_USING_ENTER,
+                    vec![register, close_function_id, cleanup_id],
+                );
                 let mut nested = locals.clone();
                 nested.insert(
                     name.clone(),
@@ -1133,11 +1250,16 @@ impl<'a> FunctionBuilder<'a> {
                     },
                 );
                 self.lower_ops(body, &mut nested)?;
-                let close = IrValue::Call {
-                    target: "fs.close".to_string(),
-                    args: vec![IrValue::Local(name.clone())],
-                };
-                self.lower_value(&close, &nested)?;
+                self.push(OPCODE_CLOSE_RESOURCE, vec![register, close_function_id]);
+                let leave_pc = self.code.len() as u32;
+                self.push(OPCODE_USING_LEAVE, vec![cleanup_id]);
+                self.cleanups.push(Cleanup {
+                    id: cleanup_id,
+                    start_pc: enter_pc,
+                    end_pc: leave_pc,
+                    resource_register: register,
+                    close_function_id,
+                });
                 Ok(())
             }
         }
@@ -1545,13 +1667,7 @@ impl<'a> FunctionBuilder<'a> {
         }
         if matches!(
             type_id,
-            TYPE_NOTHING
-                | TYPE_BOOLEAN
-                | TYPE_INTEGER
-                | TYPE_FLOAT
-                | TYPE_FIXED
-                | TYPE_STRING
-                | TYPE_FILE_HANDLE
+            TYPE_NOTHING | TYPE_BOOLEAN | TYPE_INTEGER | TYPE_FLOAT | TYPE_FIXED | TYPE_STRING
         ) {
             self.push(OPCODE_COPY, vec![dst, src]);
         } else {
@@ -1722,6 +1838,13 @@ fn function_return_from_type(type_name: &str) -> Option<String> {
         .strip_prefix("FUNC(")
         .and_then(|rest| rest.split_once(") AS "))
         .map(|(_, return_type)| return_type.to_string())
+}
+
+fn close_function_id(name: &str) -> Result<u32, String> {
+    match name {
+        "fs.close" => Ok(BUILTIN_FS_CLOSE_FUNCTION_ID),
+        _ => Err(format!("unsupported resource close function `{name}`")),
+    }
 }
 
 impl BuiltinCallLowerer for FunctionBuilder<'_> {
@@ -2055,6 +2178,34 @@ impl ConstPool {
     }
 }
 
+impl ResourceTable {
+    fn new() -> Self {
+        Self {
+            entries: Vec::new(),
+        }
+    }
+
+    fn add_standard_file(&mut self, types: &mut TypeTable, strings: &mut StringPool) {
+        let type_id = types.type_id(strings, builtins::fs::FILE_TYPE);
+        self.entries.push(ResourceEntry {
+            type_id,
+            close_function_id: BUILTIN_FS_CLOSE_FUNCTION_ID,
+            flags: RESOURCE_FLAG_NATIVE | RESOURCE_FLAG_STANDARD | RESOURCE_FLAG_CLOSE_MAY_FAIL,
+        });
+    }
+
+    fn encode(&self) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        put_u32(&mut bytes, self.entries.len() as u32);
+        for entry in &self.entries {
+            put_u32(&mut bytes, entry.type_id);
+            put_u32(&mut bytes, entry.close_function_id);
+            put_u32(&mut bytes, entry.flags);
+        }
+        bytes
+    }
+}
+
 impl BytecodeProject {
     fn encode(&self) -> Vec<u8> {
         let mut code_section = Vec::new();
@@ -2067,7 +2218,7 @@ impl BytecodeProject {
             encode_function_code(&mut code_section, function);
         }
 
-        let sections = vec![
+        let mut sections = vec![
             Section::new(SECTION_MANIFEST, self.encode_manifest()),
             Section::new(SECTION_STRING_POOL, self.strings.encode()),
             Section::new(SECTION_TYPE_TABLE, self.types.encode()),
@@ -2078,6 +2229,12 @@ impl BytecodeProject {
             Section::new(SECTION_FUNCTION_TABLE, self.encode_functions(&code_offsets)),
             Section::new(SECTION_CODE, code_section),
         ];
+        if !self.resources.entries.is_empty() {
+            sections.push(Section::new(
+                SECTION_RESOURCE_TABLE,
+                self.resources.encode(),
+            ));
+        }
 
         encode_sections(&sections)
     }
@@ -2145,8 +2302,17 @@ impl BytecodeProject {
             put_u64(&mut bytes, code_offset);
             put_u64(&mut bytes, code_length);
             put_u32(&mut bytes, u32::MAX);
-            put_u32(&mut bytes, 0);
-            put_u64(&mut bytes, 0);
+            put_u32(&mut bytes, function.cleanups.len() as u32);
+            let cleanup_offset =
+                bytes.len() + 8 + function.params.len() * 16 + function.registers.len() * 8;
+            put_u64(
+                &mut bytes,
+                if function.cleanups.is_empty() {
+                    0
+                } else {
+                    cleanup_offset as u64
+                },
+            );
 
             for param in &function.params {
                 put_u32(&mut bytes, param.name);
@@ -2158,6 +2324,14 @@ impl BytecodeProject {
             for register in &function.registers {
                 put_u32(&mut bytes, register.type_id);
                 put_u32(&mut bytes, register.flags);
+            }
+
+            for cleanup in &function.cleanups {
+                put_u32(&mut bytes, cleanup.id);
+                put_u32(&mut bytes, cleanup.start_pc);
+                put_u32(&mut bytes, cleanup.end_pc);
+                put_u32(&mut bytes, cleanup.resource_register);
+                put_u32(&mut bytes, cleanup.close_function_id);
             }
         }
         bytes

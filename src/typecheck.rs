@@ -671,12 +671,13 @@ impl<'a> TypeChecker<'a> {
                 line,
             } => {
                 let resource_type = self.infer_expression(file, value, locals, *line);
-                if !matches!(&resource_type, Type::User(name) if name == "File") {
+                let resource_type_name = self.type_name(&resource_type);
+                if !builtins::is_resource_type(&resource_type_name) {
                     self.report(
                         "TYPE_USING_REQUIRES_RESOURCE",
                         &format!(
-                            "USING binding `{name}` has type {}, expected File.",
-                            self.type_name(&resource_type)
+                            "USING binding `{name}` has type {}, expected resource.",
+                            resource_type_name
                         ),
                         file,
                         *line,

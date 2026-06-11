@@ -2,7 +2,7 @@ use crate::builtins;
 use crate::bytecode::{
     self, NativeConst, NativeProgram, NativeType, NATIVE_OPCODE_ADD, NATIVE_OPCODE_BRANCH,
     NATIVE_OPCODE_BRANCH_IF_FALSE, NATIVE_OPCODE_BRANCH_IF_TRUE, NATIVE_OPCODE_CALL_RESULT,
-    NATIVE_OPCODE_CALL_VALUE_RESULT, NATIVE_OPCODE_COLLECTION_APPEND,
+    NATIVE_OPCODE_CALL_VALUE_RESULT, NATIVE_OPCODE_CLOSE_RESOURCE, NATIVE_OPCODE_COLLECTION_APPEND,
     NATIVE_OPCODE_COLLECTION_CONTAINS, NATIVE_OPCODE_COLLECTION_FILTER,
     NATIVE_OPCODE_COLLECTION_FIND, NATIVE_OPCODE_COLLECTION_FOR_EACH, NATIVE_OPCODE_COLLECTION_GET,
     NATIVE_OPCODE_COLLECTION_GET_OR, NATIVE_OPCODE_COLLECTION_HAS_KEY,
@@ -34,7 +34,8 @@ use crate::bytecode::{
     NATIVE_OPCODE_STRING_REGEX_REPLACE, NATIVE_OPCODE_STRING_SPLIT,
     NATIVE_OPCODE_STRING_STARTS_WITH, NATIVE_OPCODE_STRING_TRIM, NATIVE_OPCODE_STRING_TRIM_END,
     NATIVE_OPCODE_STRING_TRIM_START, NATIVE_OPCODE_STRING_UPPER, NATIVE_OPCODE_SUB,
-    NATIVE_OPCODE_UNWRAP_RESULT, NATIVE_OPCODE_VARIANT_MATCH, NATIVE_OPCODE_XOR,
+    NATIVE_OPCODE_UNWRAP_RESULT, NATIVE_OPCODE_USING_ENTER, NATIVE_OPCODE_USING_LEAVE,
+    NATIVE_OPCODE_VARIANT_MATCH, NATIVE_OPCODE_XOR,
 };
 use crate::ir::IrProject;
 use crate::target::BuildTarget;
@@ -58,7 +59,7 @@ const ERR_OUTPUT_FAILURE: u64 = 10015;
 const ERR_EOF: u64 = 10016;
 const ERR_INVALID_UTF8: u64 = 10019;
 const ERR_INPUT_FAILURE: u64 = 10020;
-const ERR_RESOURCE_CLOSED: u64 = 10021;
+const ERR_RESOURCE_CLOSED: u64 = 10017;
 const DARWIN_PROT_READ_WRITE: u64 = 0x3;
 const DARWIN_MAP_PRIVATE_ANON: u64 = 0x1002;
 const DARWIN_SYSCALL_EXIT: u64 = 0x0200_0001;
@@ -326,6 +327,10 @@ impl<'a> NativeEmitter<'a> {
                 }
                 NATIVE_OPCODE_IO_CLOSE => {
                     self.emit_io_close(function, instruction, epilogue)?;
+                }
+                NATIVE_OPCODE_USING_ENTER | NATIVE_OPCODE_USING_LEAVE => {}
+                NATIVE_OPCODE_CLOSE_RESOURCE => {
+                    self.emit_close_resource(function, instruction, epilogue)?;
                 }
                 NATIVE_OPCODE_CALL_RESULT => {
                     self.emit_call_result(instruction)?;
@@ -3986,6 +3991,31 @@ impl<'a> NativeEmitter<'a> {
         self.fail_current_function(ERR_RESOURCE_CLOSED, epilogue);
         self.code.bind(closed);
         self.store_zero_slot(dst)
+    }
+
+    fn emit_close_resource(
+        &mut self,
+        function: &bytecode::NativeFunction,
+        instruction: &bytecode::NativeInstruction,
+        epilogue: Label,
+    ) -> Result<(), String> {
+        let handle = operand(instruction, 0)?;
+        let close_function_id = operand(instruction, 1)?;
+        if close_function_id != 0xffff_ff00 {
+            return Err(format!(
+                "unsupported resource close function id {close_function_id}"
+            ));
+        }
+        self.expect_register_type(function, handle, NativeType::FileHandle, "CLOSE_RESOURCE")?;
+        self.code.ldr_imm(0, 31, slot_offset(handle))?;
+        self.code.mov_imm(16, DARWIN_SYSCALL_CLOSE);
+        self.code.svc();
+        let closed = self.code.new_label();
+        self.code.cmp_zero(0);
+        self.code.b_ge(closed);
+        self.fail_current_function(ERR_RESOURCE_CLOSED, epilogue);
+        self.code.bind(closed);
+        Ok(())
     }
 
     fn emit_unwrap_result(
