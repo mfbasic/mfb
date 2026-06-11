@@ -1,6 +1,8 @@
 /build/
 /target/
 /cmake-build-*/
+/tmp/
+/temp/
 
 # Local editor and OS files
 .DS_Store
