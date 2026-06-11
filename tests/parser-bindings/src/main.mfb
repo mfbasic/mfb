@@ -1,0 +1,8 @@
+IMPORT io
+
+SUB main()
+  LET message AS String = "Hello World"
+  MUT count AS Integer = 1
+  io.print(message)
+  RETURN
+END SUB

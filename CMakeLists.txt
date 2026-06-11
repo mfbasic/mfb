@@ -29,6 +29,7 @@ add_custom_command(
           ${CARGO_BUILD_FLAGS}
   DEPENDS
           "${CMAKE_SOURCE_DIR}/Cargo.toml"
+          "${CMAKE_SOURCE_DIR}/src/ast.rs"
           "${CMAKE_SOURCE_DIR}/src/main.rs"
           "${CMAKE_SOURCE_DIR}/src/rules.rs"
   WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"

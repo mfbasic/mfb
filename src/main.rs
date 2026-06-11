@@ -1,13 +1,14 @@
+mod ast;
 mod rules;
 
 use std::collections::HashMap;
 use std::env;
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process;
 use tinyjson::JsonValue;
 
-const USAGE: &str = "Usage: mfb <command> <arguments>\n\nCommands:\n  help                 Show this message\n  init <location>      Create a new MFBASIC project\n  build [location]     Validate and build an MFBASIC project";
+const USAGE: &str = "Usage: mfb <command> <arguments>\n\nCommands:\n  help                       Show this message\n  init <location>            Create a new MFBASIC project\n  build [-ast] [location]    Validate and build an MFBASIC project";
 
 fn main() {
     let mut args = env::args().skip(1);
@@ -33,14 +34,15 @@ fn main() {
             }
         }
         Some("build") => {
-            let location = args.next().unwrap_or_else(|| ".".to_string());
+            let build_options = match parse_build_options(args.collect()) {
+                Ok(options) => options,
+                Err(err) => {
+                    eprintln!("error: {err}\n\n{USAGE}");
+                    process::exit(2);
+                }
+            };
 
-            if args.next().is_some() {
-                eprintln!("error: mfb build accepts at most one [location]\n\n{USAGE}");
-                process::exit(2);
-            }
-
-            if let Err(()) = build_project(Path::new(&location)) {
+            if let Err(()) = build_project(&build_options) {
                 process::exit(1);
             }
         }
@@ -49,6 +51,31 @@ fn main() {
             process::exit(2);
         }
     }
+}
+
+struct BuildOptions {
+    location: PathBuf,
+    emit_ast: bool,
+}
+
+fn parse_build_options(args: Vec<String>) -> Result<BuildOptions, String> {
+    let mut location = None;
+    let mut emit_ast = false;
+
+    for arg in args {
+        if arg == "-ast" {
+            emit_ast = true;
+        } else if arg.starts_with('-') {
+            return Err(format!("unknown build option `{arg}`"));
+        } else if location.replace(PathBuf::from(&arg)).is_some() {
+            return Err("mfb build accepts at most one [location]".to_string());
+        }
+    }
+
+    Ok(BuildOptions {
+        location: location.unwrap_or_else(|| PathBuf::from(".")),
+        emit_ast,
+    })
 }
 
 fn init_project(location: &Path) -> Result<(), String> {
@@ -70,14 +97,31 @@ fn init_project(location: &Path) -> Result<(), String> {
     Ok(())
 }
 
-fn build_project(location: &Path) -> Result<(), ()> {
-    let project_path = location.join("project.json");
-    validate_project_manifest(&project_path)?;
-    println!("Validated MFBASIC project at {}", location.display());
+fn build_project(options: &BuildOptions) -> Result<(), ()> {
+    let project_path = options.location.join("project.json");
+    let manifest = validate_project_manifest(&project_path)?;
+
+    if options.emit_ast {
+        let project_name = manifest
+            .get("name")
+            .and_then(|value| value.get::<String>())
+            .expect("validated project name");
+        let ast = ast::parse_project(project_name, &options.location, &manifest)?;
+        let ast_path = ast::write_ast(&options.location, &ast).map_err(|err| {
+            eprintln!("error: {err}");
+        })?;
+        println!("Wrote AST to {}", ast_path.display());
+    } else {
+        println!(
+            "Validated MFBASIC project at {}",
+            options.location.display()
+        );
+    }
+
     Ok(())
 }
 
-fn validate_project_manifest(project_path: &Path) -> Result<(), ()> {
+fn validate_project_manifest(project_path: &Path) -> Result<HashMap<String, JsonValue>, ()> {
     if !project_path.exists() {
         rules::show_diagnostic(
             "PROJECT_JSON_MISSING",
@@ -146,7 +190,7 @@ fn validate_project_manifest(project_path: &Path) -> Result<(), ()> {
     }
 
     if valid {
-        Ok(())
+        Ok(manifest.clone())
     } else {
         Err(())
     }
@@ -379,7 +423,7 @@ fn project_manifest(location: &Path) -> String {
     )
 }
 
-fn json_string(value: &str) -> String {
+pub(crate) fn json_string(value: &str) -> String {
     JsonValue::String(value.to_string())
         .stringify()
         .unwrap_or_else(|_| "\"mfb_project\"".to_string())

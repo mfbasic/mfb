@@ -1,0 +1,9 @@
+IMPORT io
+
+FUNC greet(name AS String, greeting AS String = "Hello") AS String
+  RETURN greeting
+END FUNC
+
+SUB main()
+  io.print(greet("Ada"))
+END SUB

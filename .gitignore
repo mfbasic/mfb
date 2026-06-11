@@ -3,6 +3,7 @@
 /cmake-build-*/
 /tmp/
 /temp/
+*.ast
 
 # Local editor and OS files
 .DS_Store

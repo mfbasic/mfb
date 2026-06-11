@@ -76,6 +76,31 @@ pub const RULES: &[Rule] = &[
         severity: Severity::Info,
         message: "project.json passed validation",
     },
+    Rule {
+        name: "MFB_SOURCE_READ_FAILED",
+        severity: Severity::Error,
+        message: "MFBASIC source could not be read",
+    },
+    Rule {
+        name: "MFB_PARSE_INVALID_FUNCTION_HEADER",
+        severity: Severity::Error,
+        message: "function header is invalid",
+    },
+    Rule {
+        name: "MFB_PARSE_INVALID_IDENTIFIER",
+        severity: Severity::Error,
+        message: "identifier is invalid",
+    },
+    Rule {
+        name: "MFB_PARSE_UNEXPECTED_STATEMENT",
+        severity: Severity::Error,
+        message: "parser found an unexpected statement",
+    },
+    Rule {
+        name: "MFB_PARSE_UNTERMINATED_BLOCK",
+        severity: Severity::Error,
+        message: "parser reached end-of-file inside a block",
+    },
 ];
 
 pub fn show_diagnostic(
