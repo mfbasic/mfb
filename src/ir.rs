@@ -8,8 +8,16 @@ use std::path::{Path, PathBuf};
 
 pub struct IrProject {
     pub(crate) name: String,
+    pub(crate) entry: Option<EntryPoint>,
     pub(crate) types: Vec<IrType>,
     pub(crate) functions: Vec<IrFunction>,
+}
+
+#[derive(Clone)]
+pub(crate) struct EntryPoint {
+    pub(crate) name: String,
+    pub(crate) returns: String,
+    pub(crate) accepts_args: bool,
 }
 
 pub(crate) struct IrType {
@@ -63,7 +71,7 @@ pub(crate) enum IrValue {
     },
 }
 
-pub fn lower_project(ast: &AstProject) -> IrProject {
+pub fn lower_project(ast: &AstProject, entry: Option<EntryPoint>) -> IrProject {
     let mut types = Vec::new();
     let mut functions = Vec::new();
     let function_returns = function_returns(ast);
@@ -81,6 +89,7 @@ pub fn lower_project(ast: &AstProject) -> IrProject {
 
     IrProject {
         name: ast.name.clone(),
+        entry,
         types,
         functions,
     }
@@ -292,13 +301,40 @@ impl IrProject {
                 "  \"format\": \"mfb-ir\",\n",
                 "  \"version\": 1,\n",
                 "  \"project\": {},\n",
+                "  \"entry\": {},\n",
                 "  \"types\": [{}\n  ],\n",
                 "  \"functions\": [{}\n  ]\n",
                 "}}\n"
             ),
             json_string(&self.name),
+            self.entry
+                .as_ref()
+                .map(|entry| entry.to_json(2))
+                .unwrap_or_else(|| "null".to_string()),
             join_json(&self.types, 2),
             join_json(&self.functions, 2)
+        )
+    }
+}
+
+impl EntryPoint {
+    fn to_json(&self, indent: usize) -> String {
+        let pad = " ".repeat(indent);
+        format!(
+            concat!(
+                "{{\n",
+                "{}  \"name\": {},\n",
+                "{}  \"returns\": {},\n",
+                "{}  \"accepts_args\": {}\n",
+                "{}}}"
+            ),
+            pad,
+            json_string(&self.name),
+            pad,
+            json_string(&self.returns),
+            pad,
+            self.accepts_args,
+            pad
         )
     }
 }

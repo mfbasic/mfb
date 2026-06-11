@@ -1,0 +1,6 @@
+$ mfb build -ast tests/project-entry-func-args-foobar
+Wrote AST to tests/project-entry-func-args-foobar/project_entry_func_args_foobar.ast
+[exit 0]
+$ mfb build -ir tests/project-entry-func-args-foobar
+Wrote IR to tests/project-entry-func-args-foobar/project_entry_func_args_foobar.ir
+[exit 0]

@@ -1,0 +1,23 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "project_entry_sub_main",
+  "entry": {
+    "name": "main",
+    "returns": "Nothing",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "kind": "sub",
+    "params": [
+    ],
+    "returns": "Nothing",
+    "body": [
+    ]
+  }
+  ]
+}

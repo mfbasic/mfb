@@ -1,0 +1,6 @@
+$ mfb build -ast tests/project-entry-sub-main
+Wrote AST to tests/project-entry-sub-main/project_entry_sub_main.ast
+[exit 0]
+$ mfb build -ir tests/project-entry-sub-main
+Wrote IR to tests/project-entry-sub-main/project_entry_sub_main.ir
+[exit 0]

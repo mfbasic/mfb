@@ -1,0 +1,6 @@
+$ mfb build -ast tests/project-entry-func-foobar
+Wrote AST to tests/project-entry-func-foobar/project_entry_func_foobar.ast
+[exit 0]
+$ mfb build -ir tests/project-entry-func-foobar
+Wrote IR to tests/project-entry-func-foobar/project_entry_func_foobar.ir
+[exit 0]

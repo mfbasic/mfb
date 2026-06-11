@@ -2,6 +2,11 @@
   "format": "mfb-ir",
   "version": 1,
   "project": "resolver_types",
+  "entry": {
+    "name": "main",
+    "returns": "Nothing",
+    "accepts_args": false
+  },
   "types": [
   { "kind": "type", "name": "Person" }
   ],

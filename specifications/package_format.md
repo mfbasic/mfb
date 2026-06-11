@@ -321,9 +321,21 @@ minimumRuntimeMinor  u16
 dependencyCount   u32
 nativeLinkCount   u32
 exportCount       u32
+entryFunction     functionId or 0xFFFFFFFF
+entryFlags        u32
 ```
 
 The manifest identity must match the `.mfl` header identity.
+
+`entryFunction` identifies the executable entry point when the bytecode payload is linked as an executable. Library packages set it to `0xFFFFFFFF`. Entry flags:
+
+```text
+bit 0 = package has executable entry
+bit 1 = entry accepts command-line args as List OF String
+bit 2 = entry is FUNC returning Integer
+```
+
+The linked executable runtime maps `SUB` entry success to process exit code `0`, `FUNC ... AS Integer` entry success to the returned integer value, and uncaught entry `Err(error)` to stderr output of `error.message` plus process exit code `error.code`. When args are accepted, argument element zero is the program name as invoked by the host.
 
 The manifest is the signed source of truth. The container header duplicates identity fields only so package managers can scan files without parsing every table.
 

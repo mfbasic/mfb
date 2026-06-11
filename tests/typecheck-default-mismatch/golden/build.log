@@ -2,11 +2,11 @@ $ mfb build -ast tests/typecheck-default-mismatch
    1 | {"name":"typecheck_default-mismatch","version":"0.1.0","mfb":"1.0","sources":[{"root":"src"}]}
      | ^
 tests/typecheck-default-mismatch/project.json:1 error[PROJECT_ENTRY_INVALID]: project entry point is invalid
-               Executable project must declare `SUB main()` in the root package.
+               Executable project must declare an entry point named `main`.
 [exit 1]
 $ mfb build -ir tests/typecheck-default-mismatch
    1 | {"name":"typecheck_default-mismatch","version":"0.1.0","mfb":"1.0","sources":[{"root":"src"}]}
      | ^
 tests/typecheck-default-mismatch/project.json:1 error[PROJECT_ENTRY_INVALID]: project entry point is invalid
-               Executable project must declare `SUB main()` in the root package.
+               Executable project must declare an entry point named `main`.
 [exit 1]

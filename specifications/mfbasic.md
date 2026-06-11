@@ -516,13 +516,39 @@ END MATCH
 8. Every `FUNC` path must end in `RETURN value` or `FAIL error`. Function fall-through is a compile error.
 9. A `SUB` with no `TRAP` may fall through to `END SUB`, implicitly returning `Ok(NOTHING)`.
 10. A `SUB` with a `TRAP` must end every normal path before the `TRAP` with `RETURN`, `RETURN NOTHING`, or `FAIL error`. Falling through from the normal body into the `TRAP` is a compile error.
-11. `main`'s uncaught `Err` terminates the process: `err::code` becomes the exit code, `err::message` is written to stderr. Give `main` a `TRAP` for graceful handling.
+11. An executable entry point's uncaught `Err` terminates the process: `err::code` becomes the exit code, `err::message` is written to stderr. Give the entry point a `TRAP` for graceful handling.
 
 ### 7.7 Program entry point
 
-An executable program starts at `SUB main()` in the root package. `main` takes no parameters and returns `Result OF Nothing` like any other `SUB`. `FUNC main`, `SUB main(...)` with parameters, multiple `main` declarations, or no `main` declaration in an executable are compile-time errors.
+An executable program starts at the root-package function named by `project.json` `entry`, defaulting to `main`. The entry point may be any one of these source shapes; empty parentheses are optional for zero-argument entries:
 
-Command-line arguments and environment access are outside the core language specification and may be provided by a future standard package.
+```basic
+SUB main
+END SUB
+
+SUB main(args AS List OF String)
+END SUB
+
+FUNC main AS Integer
+END FUNC
+
+FUNC main(args AS List OF String) AS Integer
+END FUNC
+```
+
+The actual name is the manifest entry value, so `main` above is illustrative. The accepted entry signatures are closed: a `SUB` entry has success type `Nothing`, a `FUNC` entry must have success type `Integer`, and the only allowed parameter is one `List OF String` argument. Multiple matching entry declarations, a missing entry declaration in an executable, any other parameter list, or any non-`Integer` `FUNC` entry return type are compile-time errors.
+
+When an entry declares `args AS List OF String`, the runtime passes the command-line argument vector as an owned immutable list. `get(args, 0)` is the program name as invoked by the host. Subsequent elements are user arguments in order.
+
+Process result mapping:
+
+| Entry outcome | Process behavior |
+|---------------|------------------|
+| `SUB` returns `Ok(NOTHING)` | Exit code `0`. |
+| `FUNC ... AS Integer` returns `Ok(n)` | Exit code `n`. Implementations must reject or fail values outside the host process exit-code range. |
+| Entry returns uncaught `Err(err)` | Write `err::message` to stderr and exit with `err::code`. |
+
+Environment access outside command-line arguments is outside the core language specification and may be provided by a future standard package.
 
 ### 7.8 Desugaring
 

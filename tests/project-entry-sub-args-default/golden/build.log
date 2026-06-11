@@ -1,0 +1,6 @@
+$ mfb build -ast tests/project-entry-sub-args-default
+Wrote AST to tests/project-entry-sub-args-default/project_entry_sub_args_default.ast
+[exit 0]
+$ mfb build -ir tests/project-entry-sub-args-default
+Wrote IR to tests/project-entry-sub-args-default/project_entry_sub_args_default.ir
+[exit 0]

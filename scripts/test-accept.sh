@@ -81,8 +81,9 @@ for test_dir in "$TEST_ROOT"/*; do
   ast_path="$test_dir/$package_name.ast"
   ir_path="$test_dir/$package_name.ir"
   hex_path="$test_dir/$package_name.hex"
+  arm64_path="$test_dir/$package_name.arm64.bin"
 
-  rm -f "$ast_path" "$ir_path" "$hex_path"
+  rm -f "$ast_path" "$ir_path" "$hex_path" "$arm64_path" "$test_dir/$package_name.out"
 
   {
     echo "$ mfb build -ast tests/$test_name"
@@ -96,6 +97,11 @@ for test_dir in "$TEST_ROOT"/*; do
       "$MFB_EXE" build -bc "tests/$test_name"
       echo "[exit $?]"
     fi
+    if [ -f "$golden_dir/$package_name.arm64.bin" ]; then
+      echo "$ mfb build -arm64 tests/$test_name"
+      "$MFB_EXE" build -arm64 "tests/$test_name"
+      echo "[exit $?]"
+    fi
   } >"$log_path" 2>&1
 
   if [ -f "$ast_path" ]; then
@@ -106,6 +112,9 @@ for test_dir in "$TEST_ROOT"/*; do
   fi
   if [ -f "$hex_path" ]; then
     mv "$hex_path" "$actual_dir/$package_name.hex"
+  fi
+  if [ -f "$arm64_path" ]; then
+    mv "$arm64_path" "$actual_dir/$package_name.arm64.bin"
   fi
 
   compare_file "$test_name/build.log" "$golden_dir/build.log" "$log_path"
@@ -118,6 +127,9 @@ for test_dir in "$TEST_ROOT"/*; do
   compare_optional_output "$test_name/$package_name.hex" \
     "$golden_dir/$package_name.hex" \
     "$actual_dir/$package_name.hex"
+  compare_optional_output "$test_name/$package_name.arm64.bin" \
+    "$golden_dir/$package_name.arm64.bin" \
+    "$actual_dir/$package_name.arm64.bin"
 done
 
 if [ "$failures" -ne 0 ]; then

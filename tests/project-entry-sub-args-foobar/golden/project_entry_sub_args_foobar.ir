@@ -1,0 +1,24 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "project_entry_sub_args_foobar",
+  "entry": {
+    "name": "foobar",
+    "returns": "Nothing",
+    "accepts_args": true
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "foobar",
+    "kind": "sub",
+    "params": [
+    { "name": "args", "type": "List OF String", "default": null }
+    ],
+    "returns": "Nothing",
+    "body": [
+    ]
+  }
+  ]
+}

@@ -1,0 +1,23 @@
+{
+  "project": "project_entry_func_foobar",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "name": "foobar",
+      "line": 1,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 2 }
+      ]
+    }
+    ]
+  }
+  ]
+}

@@ -47,17 +47,187 @@ pub fn write_bytecode_hex(
     ir: &IrProject,
     version: &str,
 ) -> Result<PathBuf, String> {
-    let bytes = lower_project(ir, version)?.encode();
+    let bytes = build_bytecode_bytes(ir, version)?;
     let hex_path = project_dir.join(format!("{}.hex", ir.name));
     fs::write(&hex_path, hex_dump(&bytes))
         .map_err(|err| format!("failed to write '{}': {err}", hex_path.display()))?;
     Ok(hex_path)
 }
 
+pub fn build_bytecode_bytes(ir: &IrProject, version: &str) -> Result<Vec<u8>, String> {
+    Ok(lower_project(ir, version)?.encode())
+}
+
+pub struct NativePlan {
+    pub prints: Vec<Vec<u8>>,
+    pub exit_code: u8,
+}
+
+pub fn native_plan(ir: &IrProject) -> Result<NativePlan, String> {
+    let entry = ir
+        .entry
+        .as_ref()
+        .ok_or_else(|| "native executable output requires an executable entry point".to_string())?;
+    let functions = ir
+        .functions
+        .iter()
+        .map(|function| (function.name.as_str(), function))
+        .collect::<HashMap<_, _>>();
+    let entry_function = functions
+        .get(entry.name.as_str())
+        .ok_or_else(|| format!("entry function `{}` was not lowered to IR", entry.name))?;
+    let mut evaluator = NativePlanEvaluator {
+        functions: &functions,
+        prints: Vec::new(),
+    };
+    let args = if entry.accepts_args {
+        vec!["".to_string()]
+    } else {
+        Vec::new()
+    };
+    let returned = evaluator.eval_function(entry_function, args)?;
+    let exit_code = if entry.returns == "Integer" {
+        returned
+            .ok_or_else(|| format!("FUNC entry `{}` did not return an Integer", entry.name))?
+            .parse::<u8>()
+            .map_err(|_| {
+                format!(
+                    "native build requires FUNC entry `{}` to return an Integer in the process exit-code range 0..255",
+                    entry.name
+                )
+            })?
+    } else {
+        0
+    };
+    Ok(NativePlan {
+        prints: evaluator.prints,
+        exit_code,
+    })
+}
+
+struct NativePlanEvaluator<'a> {
+    functions: &'a HashMap<&'a str, &'a IrFunction>,
+    prints: Vec<Vec<u8>>,
+}
+
+impl<'a> NativePlanEvaluator<'a> {
+    fn eval_function(
+        &mut self,
+        function: &'a IrFunction,
+        args: Vec<String>,
+    ) -> Result<Option<String>, String> {
+        let mut locals = HashMap::new();
+        for (index, param) in function.params.iter().enumerate() {
+            let value = if let Some(value) = args.get(index) {
+                value.clone()
+            } else if let Some(default) = &param.default {
+                self.eval_string(default, &locals)?
+            } else {
+                return Err(format!(
+                    "native build cannot call `{}` without argument `{}`",
+                    function.name, param.name
+                ));
+            };
+            locals.insert(param.name.clone(), value);
+        }
+
+        for op in &function.body {
+            match op {
+                IrOp::Bind { name, value, .. } => {
+                    let value = match value {
+                        Some(value) => self.eval_string(value, &locals)?,
+                        None => String::new(),
+                    };
+                    locals.insert(name.clone(), value);
+                }
+                IrOp::Return { value } => {
+                    return match value {
+                        Some(value) => Ok(Some(self.eval_string(value, &locals)?)),
+                        None => Ok(None),
+                    };
+                }
+                IrOp::Eval { value } => {
+                    self.eval_effect(value, &locals)?;
+                }
+            }
+        }
+
+        Ok(None)
+    }
+
+    fn eval_effect(
+        &mut self,
+        value: &'a IrValue,
+        locals: &HashMap<String, String>,
+    ) -> Result<(), String> {
+        match value {
+            IrValue::Call { target, args } if target == "io.print" => {
+                let Some(arg) = args.first() else {
+                    return Err(
+                        "native build requires io.print to receive one argument".to_string()
+                    );
+                };
+                let mut value = self.eval_string(arg, locals)?.into_bytes();
+                value.push(b'\n');
+                self.prints.push(value);
+                Ok(())
+            }
+            IrValue::Call { .. } => {
+                self.eval_string(value, locals)?;
+                Ok(())
+            }
+            IrValue::Local(_) | IrValue::Const { .. } | IrValue::Binary { .. } => {
+                self.eval_string(value, locals)?;
+                Ok(())
+            }
+        }
+    }
+
+    fn eval_string(
+        &mut self,
+        value: &'a IrValue,
+        locals: &HashMap<String, String>,
+    ) -> Result<String, String> {
+        match value {
+            IrValue::Const { type_, value } if type_ == "String" => Ok(value.clone()),
+            IrValue::Const { type_, value } if type_ == "Integer" => Ok(value.clone()),
+            IrValue::Local(name) => locals
+                .get(name)
+                .cloned()
+                .ok_or_else(|| format!("native build references unknown local `{name}`")),
+            IrValue::Binary { op, left, right } if op == "&" => {
+                let mut value = self.eval_string(left, locals)?;
+                value.push_str(&self.eval_string(right, locals)?);
+                Ok(value)
+            }
+            IrValue::Call { target, args } => {
+                let function = self.functions.get(target.as_str()).ok_or_else(|| {
+                    format!("native build cannot call unknown function `{target}`")
+                })?;
+                let args = args
+                    .iter()
+                    .map(|arg| self.eval_string(arg, locals))
+                    .collect::<Result<Vec<_>, _>>()?;
+                self.eval_function(function, args)?.ok_or_else(|| {
+                    format!("native build requires `{target}` to return a String value")
+                })
+            }
+            IrValue::Const { type_, .. } => Err(format!(
+                "native build does not support {type_} values outside built-in lowering yet"
+            )),
+            IrValue::Binary { op, .. } => Err(format!(
+                "native build does not support binary operator `{op}` outside built-in lowering yet"
+            )),
+        }
+    }
+}
+
 struct BytecodeProject {
     strings: StringPool,
     types: TypeTable,
     constants: ConstPool,
+    entry_function: u32,
+    entry_flags: u32,
     functions: Vec<Function>,
 }
 
@@ -157,10 +327,31 @@ fn lower_project(ir: &IrProject, version: &str) -> Result<BytecodeProject, Strin
         functions.push(lower_builtin(builtin_name, &mut strings)?);
     }
 
+    let (entry_function, entry_flags) = if let Some(entry) = &ir.entry {
+        let function_id = *function_ids.get(&entry.name).ok_or_else(|| {
+            format!(
+                "entry function `{}` was not lowered to bytecode",
+                entry.name
+            )
+        })?;
+        let mut flags = 1;
+        if entry.accepts_args {
+            flags |= 1 << 1;
+        }
+        if entry.returns == "Integer" {
+            flags |= 1 << 2;
+        }
+        (function_id, flags)
+    } else {
+        (u32::MAX, 0)
+    };
+
     Ok(BytecodeProject {
         strings,
         types,
         constants,
+        entry_function,
+        entry_flags,
         functions,
     })
 }
@@ -517,6 +708,10 @@ impl TypeTable {
             "Float" => TYPE_FLOAT,
             "Fixed" => TYPE_FIXED,
             "String" => TYPE_STRING,
+            name if name.starts_with("List OF ") => {
+                let element = self.type_id(strings, name.trim_start_matches("List OF "));
+                self.list_type(strings, element)
+            }
             "Byte" => 7,
             "Error" => 8,
             _ => {
@@ -538,6 +733,17 @@ impl TypeTable {
         let mut payload = Vec::new();
         put_u32(&mut payload, success_type);
         self.add_entry(strings, "", &name, 6, payload)
+    }
+
+    fn list_type(&mut self, strings: &mut StringPool, element_type: u32) -> u32 {
+        let name = format!("List#{element_type}");
+        if let Some(id) = self.ids.get(&name) {
+            return *id;
+        }
+
+        let mut payload = Vec::new();
+        put_u32(&mut payload, element_type);
+        self.add_entry(strings, "", &name, 4, payload)
     }
 
     fn add_entry(
@@ -683,6 +889,8 @@ impl BytecodeProject {
         put_u32(&mut bytes, 0);
         put_u32(&mut bytes, 0);
         put_u32(&mut bytes, self.export_count());
+        put_u32(&mut bytes, self.entry_function);
+        put_u32(&mut bytes, self.entry_flags);
         bytes
     }
 

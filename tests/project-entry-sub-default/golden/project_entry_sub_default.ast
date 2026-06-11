@@ -1,0 +1,22 @@
+{
+  "project": "project_entry_sub_default",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    ],
+    "items": [
+    {
+      "kind": "sub",
+      "name": "main",
+      "line": 1,
+      "params": [
+      ],
+      "returnType": null,
+      "body": [
+      ]
+    }
+    ]
+  }
+  ]
+}

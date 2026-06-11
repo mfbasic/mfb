@@ -1,0 +1,3 @@
+FUNC foobar AS Integer
+  RETURN 0
+END FUNC

@@ -2,6 +2,11 @@
   "format": "mfb-ir",
   "version": 1,
   "project": "parser_hello_world",
+  "entry": {
+    "name": "main",
+    "returns": "Nothing",
+    "accepts_args": false
+  },
   "types": [
   ],
   "functions": [

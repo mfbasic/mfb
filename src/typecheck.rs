@@ -10,6 +10,7 @@ enum Type {
     Fixed,
     Float,
     Integer,
+    List(Box<Type>),
     Nothing,
     Result,
     String,
@@ -507,6 +508,10 @@ impl<'a> TypeChecker<'a> {
     }
 
     fn parse_type(&self, name: &str) -> Type {
+        if let Some(element) = name.strip_prefix("List OF ") {
+            return Type::List(Box::new(self.parse_type(element)));
+        }
+
         match name {
             "Boolean" => Type::Boolean,
             "Byte" => Type::Byte,
@@ -539,6 +544,7 @@ impl<'a> TypeChecker<'a> {
             Type::Fixed => "Fixed".to_string(),
             Type::Float => "Float".to_string(),
             Type::Integer => "Integer".to_string(),
+            Type::List(element) => format!("List OF {}", self.type_name(element)),
             Type::Nothing => "Nothing".to_string(),
             Type::Result => "Result".to_string(),
             Type::String => "String".to_string(),

@@ -1,0 +1,24 @@
+{
+  "project": "project_entry_func_args_main",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "name": "main",
+      "line": 1,
+      "params": [
+      { "name": "args", "type": "List OF String", "default": null }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 2 }
+      ]
+    }
+    ]
+  }
+  ]
+}

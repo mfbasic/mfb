@@ -326,6 +326,11 @@ impl<'a> Resolver<'a> {
         line: usize,
         imports: &HashSet<String>,
     ) {
+        if let Some(element) = type_name.strip_prefix("List OF ") {
+            self.resolve_type_name(file, element, line, imports);
+            return;
+        }
+
         if type_name.contains('.') {
             self.resolve_package_qualified_name(file, type_name, line, imports);
         } else if !self.types.contains(type_name) {

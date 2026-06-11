@@ -29,11 +29,16 @@ add_custom_command(
           ${CARGO_BUILD_FLAGS}
   DEPENDS
           "${CMAKE_SOURCE_DIR}/Cargo.toml"
+          "${CMAKE_SOURCE_DIR}/src/arch/mod.rs"
+          "${CMAKE_SOURCE_DIR}/src/arch/arm64/mod.rs"
           "${CMAKE_SOURCE_DIR}/src/ast.rs"
           "${CMAKE_SOURCE_DIR}/src/bytecode.rs"
           "${CMAKE_SOURCE_DIR}/src/ir.rs"
           "${CMAKE_SOURCE_DIR}/src/lexer.rs"
           "${CMAKE_SOURCE_DIR}/src/main.rs"
+          "${CMAKE_SOURCE_DIR}/src/os/darwin/mod.rs"
+          "${CMAKE_SOURCE_DIR}/src/os/darwin/mach_o.rs"
+          "${CMAKE_SOURCE_DIR}/src/os/mod.rs"
           "${CMAKE_SOURCE_DIR}/src/resolver.rs"
           "${CMAKE_SOURCE_DIR}/src/rules.rs"
           "${CMAKE_SOURCE_DIR}/src/typecheck.rs"

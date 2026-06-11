@@ -1,7 +1,9 @@
+mod arch;
 mod ast;
 mod bytecode;
 mod ir;
 mod lexer;
+mod os;
 mod resolver;
 mod rules;
 mod typecheck;
@@ -13,7 +15,7 @@ use std::path::{Path, PathBuf};
 use std::process;
 use tinyjson::JsonValue;
 
-const USAGE: &str = "Usage: mfb <command> <arguments>\n\nCommands:\n  help                        Show this message\n  init <location>             Create a new MFBASIC project\n  build [-ast|-ir|-bc] [location] Validate and build an MFBASIC project";
+const USAGE: &str = "Usage: mfb <command> <arguments>\n\nCommands:\n  help                        Show this message\n  init <location>             Create a new MFBASIC project\n  build [-ast|-ir|-bc|-arm64] [location] Validate and build an MFBASIC project";
 
 fn main() {
     let mut args = env::args().skip(1);
@@ -68,6 +70,7 @@ enum BuildOutput {
     Ast,
     Ir,
     Bytecode,
+    Arm64,
 }
 
 fn parse_build_options(args: Vec<String>) -> Result<BuildOptions, String> {
@@ -90,6 +93,11 @@ fn parse_build_options(args: Vec<String>) -> Result<BuildOptions, String> {
                 return Err("mfb build accepts only one output mode".to_string());
             }
             output = BuildOutput::Bytecode;
+        } else if arg == "-arm64" {
+            if !matches!(output, BuildOutput::Validate) {
+                return Err("mfb build accepts only one output mode".to_string());
+            }
+            output = BuildOutput::Arm64;
         } else if arg.starts_with('-') {
             return Err(format!("unknown build option `{arg}`"));
         } else if location.replace(PathBuf::from(&arg)).is_some() {
@@ -125,21 +133,43 @@ fn init_project(location: &Path) -> Result<(), String> {
 fn build_project(options: &BuildOptions) -> Result<(), ()> {
     let project_path = options.location.join("project.json");
     let manifest = validate_project_manifest(&project_path)?;
+    let project_kind = project_kind(&manifest);
+    if project_kind == "package" {
+        eprintln!("error: package builds are not supported yet");
+        return Err(());
+    }
+
     let project_name = manifest
         .get("name")
         .and_then(|value| value.get::<String>())
         .expect("validated project name");
     let ast = ast::parse_project(project_name, &options.location, &manifest)?;
     resolver::resolve_project(&options.location, &manifest, &ast)?;
-    validate_entry_point(&options.location, &manifest, &ast)?;
+    let entry = validate_entry_point(&options.location, &manifest, &ast)?;
     typecheck::check_project(&options.location, &ast)?;
 
     match options.output {
         BuildOutput::Validate => {
-            println!(
-                "Validated MFBASIC project at {}",
-                options.location.display()
-            );
+            if project_kind == "executable" {
+                if has_external_packages(&manifest) {
+                    eprintln!(
+                        "error: executable binary output does not support external packages yet"
+                    );
+                    return Err(());
+                }
+
+                let ir = ir::lower_project(&ast, entry.clone());
+                let executable_path = os::darwin::write_executable(&options.location, &ir)
+                    .map_err(|err| {
+                        eprintln!("error: {err}");
+                    })?;
+                println!("Wrote executable to {}", executable_path.display());
+            } else {
+                println!(
+                    "Validated MFBASIC project at {}",
+                    options.location.display()
+                );
+            }
         }
         BuildOutput::Ast => {
             let ast_path = ast::write_ast(&options.location, &ast).map_err(|err| {
@@ -148,14 +178,14 @@ fn build_project(options: &BuildOptions) -> Result<(), ()> {
             println!("Wrote AST to {}", ast_path.display());
         }
         BuildOutput::Ir => {
-            let ir = ir::lower_project(&ast);
+            let ir = ir::lower_project(&ast, entry.clone());
             let ir_path = ir::write_ir(&options.location, &ir).map_err(|err| {
                 eprintln!("error: {err}");
             })?;
             println!("Wrote IR to {}", ir_path.display());
         }
         BuildOutput::Bytecode => {
-            let ir = ir::lower_project(&ast);
+            let ir = ir::lower_project(&ast, entry.clone());
             let version = manifest
                 .get("version")
                 .and_then(|value| value.get::<String>())
@@ -166,6 +196,19 @@ fn build_project(options: &BuildOptions) -> Result<(), ()> {
                 })?;
             println!("Wrote bytecode hex to {}", bytecode_path.display());
         }
+        BuildOutput::Arm64 => {
+            if has_external_packages(&manifest) {
+                eprintln!("error: ARM64 output does not support external packages yet");
+                return Err(());
+            }
+
+            let ir = ir::lower_project(&ast, entry);
+            let arm64_path =
+                arch::arm64::write_arm64_dump(&options.location, &ir).map_err(|err| {
+                    eprintln!("error: {err}");
+                })?;
+            println!("Wrote ARM64 binary to {}", arm64_path.display());
+        }
     }
 
     Ok(())
@@ -175,20 +218,13 @@ fn validate_entry_point(
     project_dir: &Path,
     manifest: &HashMap<String, JsonValue>,
     ast: &ast::AstProject,
-) -> Result<(), ()> {
-    let kind = manifest
-        .get("kind")
-        .and_then(|value| value.get::<String>())
-        .map(String::as_str);
-    if kind == Some("library") {
-        return Ok(());
+) -> Result<Option<ir::EntryPoint>, ()> {
+    let kind = project_kind(manifest);
+    if kind == "library" || kind == "package" {
+        return Ok(None);
     }
 
-    let entry = manifest
-        .get("entry")
-        .and_then(|value| value.get::<String>())
-        .map(String::as_str)
-        .unwrap_or("main");
+    let entry = entry_point(manifest);
 
     for file in &ast.files {
         for item in &file.items {
@@ -199,10 +235,15 @@ fn validate_entry_point(
                 continue;
             }
 
-            if !matches!(function.kind, ast::FunctionKind::Sub) {
+            let returns = match function.kind {
+                ast::FunctionKind::Sub => "Nothing",
+                ast::FunctionKind::Func => function.return_type.as_deref().unwrap_or(""),
+            };
+
+            if matches!(function.kind, ast::FunctionKind::Func) && returns != "Integer" {
                 rules::show_diagnostic(
                     "PROJECT_ENTRY_INVALID",
-                    &format!("Executable entry `{entry}` must be a SUB, not a FUNC."),
+                    &format!("Executable FUNC entry `{entry}` must return Integer."),
                     &project_dir.join(&file.path),
                     function.line,
                     1,
@@ -211,25 +252,61 @@ fn validate_entry_point(
                 return Err(());
             }
 
-            if !function.params.is_empty() {
+            let accepts_args = match function.params.as_slice() {
+                [] => false,
+                [param] if param.type_name.as_deref() == Some("List OF String") => true,
+                [param] => {
+                    rules::show_diagnostic(
+                        "PROJECT_ENTRY_INVALID",
+                        &format!(
+                            "Executable entry `{entry}` parameter `{}` must have type List OF String.",
+                            param.name
+                        ),
+                        &project_dir.join(&file.path),
+                        param.line,
+                        1,
+                        1,
+                    );
+                    return Err(());
+                }
+                _ => {
+                    rules::show_diagnostic(
+                        "PROJECT_ENTRY_INVALID",
+                        &format!(
+                            "Executable entry `{entry}` must declare zero parameters or one `args AS List OF String` parameter."
+                        ),
+                        &project_dir.join(&file.path),
+                        function.line,
+                        1,
+                        1,
+                    );
+                    return Err(());
+                }
+            };
+
+            if function.params.len() == 1 && function.params[0].default.is_some() {
                 rules::show_diagnostic(
                     "PROJECT_ENTRY_INVALID",
-                    &format!("Executable entry `{entry}` must not declare parameters."),
+                    &format!("Executable entry `{entry}` args parameter must not declare a default value."),
                     &project_dir.join(&file.path),
-                    function.line,
+                    function.params[0].line,
                     1,
                     1,
                 );
                 return Err(());
             }
 
-            return Ok(());
+            return Ok(Some(ir::EntryPoint {
+                name: entry.to_string(),
+                returns: returns.to_string(),
+                accepts_args,
+            }));
         }
     }
 
     rules::show_diagnostic(
         "PROJECT_ENTRY_INVALID",
-        &format!("Executable project must declare `SUB {entry}()` in the root package."),
+        &format!("Executable project must declare an entry point named `{entry}`."),
         &project_dir.join("project.json"),
         1,
         1,
@@ -474,10 +551,10 @@ fn validate_kind(
         return false;
     };
 
-    if !matches!(kind.as_str(), "library" | "executable") {
+    if !matches!(kind.as_str(), "library" | "executable" | "package") {
         rules::show_diagnostic(
             "PROJECT_JSON_UNKNOWN_KIND",
-            "Expected `library` or `executable`; continuing validation.",
+            "Expected `library`, `executable`, or `package`; continuing validation.",
             project_path,
             line,
             column,
@@ -486,6 +563,29 @@ fn validate_kind(
     }
 
     true
+}
+
+fn project_kind(manifest: &HashMap<String, JsonValue>) -> &str {
+    manifest
+        .get("kind")
+        .and_then(|value| value.get::<String>())
+        .map(String::as_str)
+        .unwrap_or("executable")
+}
+
+fn entry_point(manifest: &HashMap<String, JsonValue>) -> &str {
+    manifest
+        .get("entry")
+        .and_then(|value| value.get::<String>())
+        .map(String::as_str)
+        .unwrap_or("main")
+}
+
+fn has_external_packages(manifest: &HashMap<String, JsonValue>) -> bool {
+    manifest
+        .get("packages")
+        .and_then(|value| value.get::<Vec<JsonValue>>())
+        .is_some_and(|packages| !packages.is_empty())
 }
 
 fn field_position(contents: &str, field: &str) -> (usize, usize) {

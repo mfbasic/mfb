@@ -34,7 +34,7 @@ The project manifest is an authoring file. It is not embedded verbatim in `.mfl`
   "license": "MIT",
 
   "mfb": "1.0",
-  "kind": "library",
+  "kind": "package",
 
   "sources": [
     {
@@ -85,7 +85,7 @@ The project manifest is an authoring file. It is not embedded verbatim in `.mfl`
 
 The `name` field must use the same identifier restrictions as MFBASIC package names unless a future registry specification defines a wider naming scheme. It must be the name used by `IMPORT name` in source code and by compiled `.mfl` package manifests.
 
-The `version` field is required for both library and executable projects so lockfiles, build metadata, and generated packages can identify the exact project revision. Pre-release and build metadata follow semantic versioning when used, such as `1.2.0-beta.1` or `1.2.0+build.5`.
+The `version` field is required for both package and executable projects so lockfiles, build metadata, and generated packages can identify the exact project revision. Pre-release and build metadata follow semantic versioning when used, such as `1.2.0-beta.1` or `1.2.0+build.5`.
 
 The `mfb` field names the minimum language version required to parse and type-check the source. A compiler may reject the project if it does not support that language version.
 
@@ -133,12 +133,28 @@ The optional `kind` field declares the primary build intent:
 
 | Value | Meaning |
 | ----- | ------- |
-| `library` | Build a reusable `.mfl` package. |
-| `executable` | Build a native executable with `SUB main()`. |
+| `package` | Build a reusable `.mfl` package. |
+| `executable` | Build a native executable with an entry point named by `entry`, defaulting to `main`. |
 
-If omitted, `kind` defaults to `executable` when a selected source package contains `SUB main()` and to `library` otherwise. Build tools should warn when inference is ambiguous.
+If omitted, `kind` defaults to `executable` when a selected source package contains a valid entry point named by `entry` or by the default name `main`, and to `package` otherwise. Build tools should warn when inference is ambiguous.
 
-For `executable` projects, `entry` defaults to `"main"`. The entry point names a zero-argument `SUB` in the root package. `FUNC main`, parameterized `main`, multiple matching entry points, or no matching entry point are compile-time errors.
+For `executable` projects, `entry` defaults to `"main"`. The entry point names a root-package declaration with one of the accepted executable signatures:
+
+```basic
+SUB entry
+END SUB
+
+SUB entry(args AS List OF String)
+END SUB
+
+FUNC entry AS Integer
+END FUNC
+
+FUNC entry(args AS List OF String) AS Integer
+END FUNC
+```
+
+Empty parentheses are also valid for zero-argument entries. The single optional argument receives the command-line argument vector, where `get(args, 0)` is the program name as invoked by the host. Multiple matching entry points, no matching entry point, any other parameter list, or a `FUNC` entry whose success type is not `Integer` are compile-time errors.
 
 ---
 
@@ -244,7 +260,7 @@ Projects that expose `LINK` bindings should set `kind` to `binding` and may incl
 | Field | Type | Meaning |
 | ----- | ---- | ------- |
 | `targets` | array of strings | Requested build targets such as `native`, `bytecode`, or platform triples. |
-| `entry` | string | Executable entry point, defaulting to `main`. |
+| `entry` | string | Executable entry point symbol, defaulting to `main`. |
 | `build` | object | Toolchain-specific build settings. |
 
 The `build` object is reserved for toolchain configuration that affects generated artifacts, such as optimization level, debug metadata, source maps, audit metadata, output directory, and target platform. Unknown build keys must be ignored by tools that do not own them unless they are under a required namespace defined by that tool.

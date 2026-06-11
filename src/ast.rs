@@ -327,22 +327,19 @@ impl<'a> FileParser<'a> {
             return None;
         };
 
-        if !self.consume_kind(
-            TokenKind::LParen,
-            "Function declarations must include a parameter list.",
-        ) {
-            self.synchronize();
-            return None;
-        }
-
-        let params = self.parse_params();
-        if !self.consume_kind(
-            TokenKind::RParen,
-            "Function declarations must close the parameter list.",
-        ) {
-            self.synchronize();
-            return None;
-        }
+        let params = if self.match_kind(TokenKind::LParen) {
+            let params = self.parse_params();
+            if !self.consume_kind(
+                TokenKind::RParen,
+                "Function declarations must close the parameter list.",
+            ) {
+                self.synchronize();
+                return None;
+            }
+            params
+        } else {
+            Vec::new()
+        };
 
         let return_type = if matches!(kind, FunctionKind::Func) && self.match_keyword(Keyword::As) {
             self.parse_type_name()
@@ -679,7 +676,14 @@ impl<'a> FileParser<'a> {
     }
 
     fn parse_type_name(&mut self) -> Option<String> {
-        self.parse_qualified_name("Expected a type name.")
+        let mut name = self.parse_qualified_name("Expected a type name.")?;
+        if name.eq_ignore_ascii_case("List") && self.check_identifier_ci("OF") {
+            self.advance();
+            let element = self.parse_type_name()?;
+            name.push_str(" OF ");
+            name.push_str(&element);
+        }
+        Some(name)
     }
 
     fn consume_identifier(&mut self, detail: &str) -> Option<String> {
@@ -752,6 +756,10 @@ impl<'a> FileParser<'a> {
 
     fn check_keyword(&self, keyword: Keyword) -> bool {
         matches!(self.peek().kind, TokenKind::Keyword(current) if current == keyword)
+    }
+
+    fn check_identifier_ci(&self, expected: &str) -> bool {
+        matches!(&self.peek().kind, TokenKind::Identifier(value) if value.eq_ignore_ascii_case(expected))
     }
 
     fn match_kind(&mut self, kind: TokenKind) -> bool {

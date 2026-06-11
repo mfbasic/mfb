@@ -1,0 +1,22 @@
+{
+  "project": "project_entry_sub_foobar",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    ],
+    "items": [
+    {
+      "kind": "sub",
+      "name": "foobar",
+      "line": 1,
+      "params": [
+      ],
+      "returnType": null,
+      "body": [
+      ]
+    }
+    ]
+  }
+  ]
+}
