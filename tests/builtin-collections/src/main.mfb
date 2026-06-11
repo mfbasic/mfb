@@ -1,3 +1,19 @@
+SUB observe(value AS Integer)
+  RETURN
+END SUB
+
+FUNC square(value AS Integer) AS Integer
+  RETURN value * value
+END FUNC
+
+FUNC overTwo(value AS Integer) AS Boolean
+  RETURN value > 2
+END FUNC
+
+FUNC add(total AS Integer, value AS Integer) AS Integer
+  RETURN total + value
+END FUNC
+
 FUNC main AS Integer
   LET numbers AS List OF Integer = [1, 2, 3]
   LET more AS List OF Integer = [4, 5]
@@ -23,6 +39,14 @@ FUNC main AS Integer
   LET hasAda AS Boolean = hasKey(names, "ada")
   LET hasTwo AS Boolean = contains(numbers, 2)
   LET total AS Integer = sum(numbers)
+  LET visited AS Nothing = forEach(numbers, observe)
+  LET squares AS List OF Integer = transform(numbers, square)
+  LET inlineVisited AS Nothing = forEach(numbers, LAMBDA(value AS Integer) -> NOTHING)
+  LET inlineSquares AS List OF Integer = transform(numbers, LAMBDA(value AS Integer) -> value * value)
+  LET filtered AS List OF Integer = filter(numbers, overTwo)
+  LET inlineFiltered AS List OF Integer = filter(numbers, LAMBDA(value AS Integer) -> value > 1)
+  LET folded AS Integer = reduce(numbers, 0, add)
+  LET inlineFolded AS Integer = reduce(numbers, 0, LAMBDA(total AS Integer, value AS Integer) -> total + value)
 
-  RETURN first + missingDefault + age + fallbackAge + found + len(middle) + len(replaced) + len(setList) + len(appendedItem) + len(appendedItems) + len(prepended) + len(inserted) + len(removed) + len(setMap) + len(removedMap) + len(mapKeys) + len(mapValues) + total
+  RETURN first + missingDefault + age + fallbackAge + found + len(middle) + len(replaced) + len(setList) + len(appendedItem) + len(appendedItems) + len(prepended) + len(inserted) + len(removed) + len(setMap) + len(removedMap) + len(mapKeys) + len(mapValues) + total + len(squares) + len(inlineSquares) + len(filtered) + len(inlineFiltered) + folded + inlineFolded
 END FUNC

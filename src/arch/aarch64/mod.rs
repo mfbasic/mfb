@@ -2,25 +2,26 @@ use crate::bytecode::{
     self, NativeConst, NativeProgram, NativeType, NATIVE_OPCODE_ADD, NATIVE_OPCODE_BRANCH,
     NATIVE_OPCODE_BRANCH_IF_FALSE, NATIVE_OPCODE_BRANCH_IF_TRUE, NATIVE_OPCODE_CALL_RESULT,
     NATIVE_OPCODE_CALL_VALUE_RESULT, NATIVE_OPCODE_COLLECTION_APPEND,
-    NATIVE_OPCODE_COLLECTION_CONTAINS, NATIVE_OPCODE_COLLECTION_FIND, NATIVE_OPCODE_COLLECTION_GET,
+    NATIVE_OPCODE_COLLECTION_CONTAINS, NATIVE_OPCODE_COLLECTION_FILTER,
+    NATIVE_OPCODE_COLLECTION_FIND, NATIVE_OPCODE_COLLECTION_FOR_EACH, NATIVE_OPCODE_COLLECTION_GET,
     NATIVE_OPCODE_COLLECTION_GET_OR, NATIVE_OPCODE_COLLECTION_HAS_KEY,
     NATIVE_OPCODE_COLLECTION_INSERT, NATIVE_OPCODE_COLLECTION_KEYS, NATIVE_OPCODE_COLLECTION_MID,
-    NATIVE_OPCODE_COLLECTION_PREPEND, NATIVE_OPCODE_COLLECTION_REMOVE_AT,
-    NATIVE_OPCODE_COLLECTION_REMOVE_KEY, NATIVE_OPCODE_COLLECTION_REPLACE,
-    NATIVE_OPCODE_COLLECTION_SET, NATIVE_OPCODE_COLLECTION_SUM, NATIVE_OPCODE_COLLECTION_VALUES,
-    NATIVE_OPCODE_CONCAT, NATIVE_OPCODE_CONSTRUCT_LIST, NATIVE_OPCODE_CONSTRUCT_MAP,
-    NATIVE_OPCODE_CONSTRUCT_RECORD, NATIVE_OPCODE_CONSTRUCT_VARIANT, NATIVE_OPCODE_COPY,
-    NATIVE_OPCODE_DIV, NATIVE_OPCODE_EQUAL, NATIVE_OPCODE_GENERAL_FIND,
-    NATIVE_OPCODE_GENERAL_IS_NUMERIC, NATIVE_OPCODE_GENERAL_LEN, NATIVE_OPCODE_GENERAL_MID,
-    NATIVE_OPCODE_GENERAL_REPLACE, NATIVE_OPCODE_GENERAL_TO_BYTE, NATIVE_OPCODE_GENERAL_TO_FIXED,
-    NATIVE_OPCODE_GENERAL_TO_FLOAT, NATIVE_OPCODE_GENERAL_TO_INT, NATIVE_OPCODE_GENERAL_TO_STRING,
-    NATIVE_OPCODE_GREATER, NATIVE_OPCODE_GREATER_EQUAL, NATIVE_OPCODE_LESS,
-    NATIVE_OPCODE_LESS_EQUAL, NATIVE_OPCODE_LOAD_CONST, NATIVE_OPCODE_LOAD_DEFAULT,
-    NATIVE_OPCODE_LOAD_ENUM_MEMBER, NATIVE_OPCODE_LOAD_FIELD, NATIVE_OPCODE_LOAD_FUNCTION,
-    NATIVE_OPCODE_MOD, NATIVE_OPCODE_MOVE, NATIVE_OPCODE_MUL, NATIVE_OPCODE_NEG, NATIVE_OPCODE_NOT,
-    NATIVE_OPCODE_NOT_EQUAL, NATIVE_OPCODE_POW, NATIVE_OPCODE_RETURN_OK, NATIVE_OPCODE_SUB,
-    NATIVE_OPCODE_UNWRAP_RESULT, NATIVE_OPCODE_VARIANT_MATCH, NATIVE_OPCODE_WRITE_STDOUT,
-    NATIVE_OPCODE_XOR,
+    NATIVE_OPCODE_COLLECTION_PREPEND, NATIVE_OPCODE_COLLECTION_REDUCE,
+    NATIVE_OPCODE_COLLECTION_REMOVE_AT, NATIVE_OPCODE_COLLECTION_REMOVE_KEY,
+    NATIVE_OPCODE_COLLECTION_REPLACE, NATIVE_OPCODE_COLLECTION_SET, NATIVE_OPCODE_COLLECTION_SUM,
+    NATIVE_OPCODE_COLLECTION_TRANSFORM, NATIVE_OPCODE_COLLECTION_VALUES, NATIVE_OPCODE_CONCAT,
+    NATIVE_OPCODE_CONSTRUCT_LIST, NATIVE_OPCODE_CONSTRUCT_MAP, NATIVE_OPCODE_CONSTRUCT_RECORD,
+    NATIVE_OPCODE_CONSTRUCT_VARIANT, NATIVE_OPCODE_COPY, NATIVE_OPCODE_DIV, NATIVE_OPCODE_EQUAL,
+    NATIVE_OPCODE_GENERAL_FIND, NATIVE_OPCODE_GENERAL_IS_NUMERIC, NATIVE_OPCODE_GENERAL_LEN,
+    NATIVE_OPCODE_GENERAL_MID, NATIVE_OPCODE_GENERAL_REPLACE, NATIVE_OPCODE_GENERAL_TO_BYTE,
+    NATIVE_OPCODE_GENERAL_TO_FIXED, NATIVE_OPCODE_GENERAL_TO_FLOAT, NATIVE_OPCODE_GENERAL_TO_INT,
+    NATIVE_OPCODE_GENERAL_TO_STRING, NATIVE_OPCODE_GREATER, NATIVE_OPCODE_GREATER_EQUAL,
+    NATIVE_OPCODE_LESS, NATIVE_OPCODE_LESS_EQUAL, NATIVE_OPCODE_LOAD_CONST,
+    NATIVE_OPCODE_LOAD_DEFAULT, NATIVE_OPCODE_LOAD_ENUM_MEMBER, NATIVE_OPCODE_LOAD_FIELD,
+    NATIVE_OPCODE_LOAD_FUNCTION, NATIVE_OPCODE_MOD, NATIVE_OPCODE_MOVE, NATIVE_OPCODE_MUL,
+    NATIVE_OPCODE_NEG, NATIVE_OPCODE_NOT, NATIVE_OPCODE_NOT_EQUAL, NATIVE_OPCODE_POW,
+    NATIVE_OPCODE_RETURN_OK, NATIVE_OPCODE_SUB, NATIVE_OPCODE_UNWRAP_RESULT,
+    NATIVE_OPCODE_VARIANT_MATCH, NATIVE_OPCODE_WRITE_STDOUT, NATIVE_OPCODE_XOR,
 };
 use crate::ir::IrProject;
 use crate::target::BuildTarget;
@@ -390,6 +391,18 @@ impl<'a> NativeEmitter<'a> {
                 }
                 NATIVE_OPCODE_COLLECTION_SUM => {
                     self.emit_collection_sum(instruction)?;
+                }
+                NATIVE_OPCODE_COLLECTION_FOR_EACH => {
+                    self.emit_collection_for_each(instruction, epilogue)?;
+                }
+                NATIVE_OPCODE_COLLECTION_TRANSFORM => {
+                    self.emit_collection_transform(instruction, epilogue)?;
+                }
+                NATIVE_OPCODE_COLLECTION_FILTER => {
+                    self.emit_collection_filter(instruction, epilogue)?;
+                }
+                NATIVE_OPCODE_COLLECTION_REDUCE => {
+                    self.emit_collection_reduce(instruction, epilogue)?;
                 }
                 NATIVE_OPCODE_RETURN_OK => {
                     let src = operand(instruction, 0)?;
@@ -1271,6 +1284,193 @@ impl<'a> NativeEmitter<'a> {
         self.code.str_imm(11, 31, slot_offset(dst))
     }
 
+    fn emit_collection_for_each(
+        &mut self,
+        instruction: &bytecode::NativeInstruction,
+        epilogue: Label,
+    ) -> Result<(), String> {
+        let dst = operand(instruction, 0)?;
+        let value = operand(instruction, 1)?;
+        let action = operand(instruction, 2)?;
+        let scratch = self.current_scratch;
+        let loop_start = self.code.new_label();
+        let done = self.code.new_label();
+
+        self.code.ldr_imm(9, 31, slot_offset(value))?;
+        self.code.ldr_imm(10, 31, slot_offset(value) + 8)?;
+        self.code.str_imm(9, 31, scratch)?;
+        self.code.str_imm(10, 31, scratch + 8)?;
+        self.code.str_imm(31, 31, scratch + 16)?;
+
+        self.code.bind(loop_start);
+        self.code.ldr_imm(9, 31, scratch)?;
+        self.code.ldr_imm(10, 31, scratch + 8)?;
+        self.code.ldr_imm(11, 31, scratch + 16)?;
+        self.code.cmp_reg(11, 10);
+        self.code.b_ge(done);
+        self.list_element_ptr(12, 9, 11)?;
+        self.code.ldr_imm(0, 12, 0)?;
+        self.code.ldr_imm(1, 12, 8)?;
+        self.emit_call_function_value_slot(action, epilogue)?;
+        self.code.cbnz(0, epilogue);
+        self.code.ldr_imm(11, 31, scratch + 16)?;
+        self.code.add_imm(11, 11, 1)?;
+        self.code.str_imm(11, 31, scratch + 16)?;
+        self.code.b(loop_start);
+
+        self.code.bind(done);
+        self.store_zero_slot(dst)
+    }
+
+    fn emit_collection_transform(
+        &mut self,
+        instruction: &bytecode::NativeInstruction,
+        epilogue: Label,
+    ) -> Result<(), String> {
+        let dst = operand(instruction, 0)?;
+        let value = operand(instruction, 1)?;
+        let mapper = operand(instruction, 2)?;
+        let scratch = self.current_scratch;
+        let loop_start = self.code.new_label();
+        let done = self.code.new_label();
+
+        self.code.ldr_imm(9, 31, slot_offset(value))?;
+        self.code.ldr_imm(10, 31, slot_offset(value) + 8)?;
+        self.code.str_imm(9, 31, scratch)?;
+        self.code.str_imm(10, 31, scratch + 8)?;
+        self.emit_allocate_collection_from_len_reg(HEAP_KIND_LIST, 10, 10, epilogue)?;
+        self.store_collection_slot(dst, 1, 10)?;
+        self.code.str_imm(1, 31, scratch + 24)?;
+        self.code.str_imm(31, 31, scratch + 16)?;
+
+        self.code.bind(loop_start);
+        self.code.ldr_imm(9, 31, scratch)?;
+        self.code.ldr_imm(10, 31, scratch + 8)?;
+        self.code.ldr_imm(11, 31, scratch + 16)?;
+        self.code.cmp_reg(11, 10);
+        self.code.b_ge(done);
+        self.list_element_ptr(12, 9, 11)?;
+        self.code.ldr_imm(0, 12, 0)?;
+        self.code.ldr_imm(1, 12, 8)?;
+        self.emit_call_function_value_slot(mapper, epilogue)?;
+        self.code.cbnz(0, epilogue);
+        self.code.ldr_imm(13, 31, scratch + 24)?;
+        self.code.ldr_imm(11, 31, scratch + 16)?;
+        self.list_element_ptr(14, 13, 11)?;
+        self.code.str_imm(1, 14, 0)?;
+        self.code.str_imm(2, 14, 8)?;
+        self.code.str_imm(31, 14, 16)?;
+        self.code.add_imm(11, 11, 1)?;
+        self.code.str_imm(11, 31, scratch + 16)?;
+        self.code.b(loop_start);
+
+        self.code.bind(done);
+        Ok(())
+    }
+
+    fn emit_collection_filter(
+        &mut self,
+        instruction: &bytecode::NativeInstruction,
+        epilogue: Label,
+    ) -> Result<(), String> {
+        let dst = operand(instruction, 0)?;
+        let value = operand(instruction, 1)?;
+        let predicate = operand(instruction, 2)?;
+        let scratch = self.current_scratch;
+        let loop_start = self.code.new_label();
+        let skip = self.code.new_label();
+        let done = self.code.new_label();
+
+        self.code.ldr_imm(9, 31, slot_offset(value))?;
+        self.code.ldr_imm(10, 31, slot_offset(value) + 8)?;
+        self.code.str_imm(9, 31, scratch)?;
+        self.code.str_imm(10, 31, scratch + 8)?;
+        self.emit_allocate_collection_from_len_reg(HEAP_KIND_LIST, 10, 10, epilogue)?;
+        self.store_collection_slot(dst, 1, 10)?;
+        self.code.str_imm(1, 31, scratch + 24)?;
+        self.code.str_imm(31, 31, scratch + 16)?;
+        self.code.str_imm(31, 31, scratch + 32)?;
+
+        self.code.bind(loop_start);
+        self.code.ldr_imm(9, 31, scratch)?;
+        self.code.ldr_imm(10, 31, scratch + 8)?;
+        self.code.ldr_imm(11, 31, scratch + 16)?;
+        self.code.cmp_reg(11, 10);
+        self.code.b_ge(done);
+        self.list_element_ptr(12, 9, 11)?;
+        self.code.str_imm(12, 31, scratch + 40)?;
+        self.code.ldr_imm(0, 12, 0)?;
+        self.code.ldr_imm(1, 12, 8)?;
+        self.emit_call_function_value_slot(predicate, epilogue)?;
+        self.code.cbnz(0, epilogue);
+        self.code.cbz(1, skip);
+        self.code.ldr_imm(12, 31, scratch + 40)?;
+        self.code.ldr_imm(13, 31, scratch + 24)?;
+        self.code.ldr_imm(14, 31, scratch + 32)?;
+        self.list_element_ptr(15, 13, 14)?;
+        self.copy_dynamic_slot(12, 15)?;
+        self.code.add_imm(14, 14, 1)?;
+        self.code.str_imm(14, 31, scratch + 32)?;
+
+        self.code.bind(skip);
+        self.code.ldr_imm(11, 31, scratch + 16)?;
+        self.code.add_imm(11, 11, 1)?;
+        self.code.str_imm(11, 31, scratch + 16)?;
+        self.code.b(loop_start);
+
+        self.code.bind(done);
+        self.code.ldr_imm(13, 31, scratch + 24)?;
+        self.code.ldr_imm(14, 31, scratch + 32)?;
+        self.code.str_imm(14, 13, 8)?;
+        self.code.str_imm(14, 31, slot_offset(dst) + 8)?;
+        Ok(())
+    }
+
+    fn emit_collection_reduce(
+        &mut self,
+        instruction: &bytecode::NativeInstruction,
+        epilogue: Label,
+    ) -> Result<(), String> {
+        let dst = operand(instruction, 0)?;
+        let value = operand(instruction, 1)?;
+        let initial = operand(instruction, 2)?;
+        let reducer = operand(instruction, 3)?;
+        let scratch = self.current_scratch;
+        let loop_start = self.code.new_label();
+        let done = self.code.new_label();
+
+        self.code.ldr_imm(9, 31, slot_offset(value))?;
+        self.code.ldr_imm(10, 31, slot_offset(value) + 8)?;
+        self.code.str_imm(9, 31, scratch)?;
+        self.code.str_imm(10, 31, scratch + 8)?;
+        self.code.str_imm(31, 31, scratch + 16)?;
+        self.copy_slot_to_address(initial, 31, scratch + 24)?;
+
+        self.code.bind(loop_start);
+        self.code.ldr_imm(9, 31, scratch)?;
+        self.code.ldr_imm(10, 31, scratch + 8)?;
+        self.code.ldr_imm(11, 31, scratch + 16)?;
+        self.code.cmp_reg(11, 10);
+        self.code.b_ge(done);
+        self.code.ldr_imm(0, 31, scratch + 24)?;
+        self.code.ldr_imm(1, 31, scratch + 32)?;
+        self.list_element_ptr(12, 9, 11)?;
+        self.code.ldr_imm(2, 12, 0)?;
+        self.code.ldr_imm(3, 12, 8)?;
+        self.emit_call_function_value_slot(reducer, epilogue)?;
+        self.code.cbnz(0, epilogue);
+        self.code.str_imm(1, 31, scratch + 24)?;
+        self.code.str_imm(2, 31, scratch + 32)?;
+        self.code.str_imm(31, 31, scratch + 40)?;
+        self.code.ldr_imm(11, 31, scratch + 16)?;
+        self.code.add_imm(11, 11, 1)?;
+        self.code.str_imm(11, 31, scratch + 16)?;
+        self.code.b(loop_start);
+
+        self.code.bind(done);
+        self.copy_address_to_slot(31, scratch + 24, dst)
+    }
+
     fn validate_list_range(
         &mut self,
         start_reg: u8,
@@ -1393,6 +1593,46 @@ impl<'a> NativeEmitter<'a> {
         self.code.add_imm(dst_ptr_reg, dst_ptr_reg, SLOT_SIZE)?;
         self.code.sub_imm(count_reg, count_reg, 1)?;
         self.code.b(loop_start);
+        self.code.bind(done);
+        Ok(())
+    }
+
+    fn list_element_ptr(
+        &mut self,
+        dst_reg: u8,
+        list_ptr_reg: u8,
+        index_reg: u8,
+    ) -> Result<(), String> {
+        self.code.mov_imm(17, SLOT_SIZE as u64);
+        self.code.mul(dst_reg, index_reg, 17);
+        self.code.add_imm(dst_reg, dst_reg, HEAP_HEADER_SIZE)?;
+        self.code.add_reg(dst_reg, list_ptr_reg, dst_reg);
+        Ok(())
+    }
+
+    fn emit_call_function_value_slot(
+        &mut self,
+        function_value: u32,
+        epilogue: Label,
+    ) -> Result<(), String> {
+        self.code.ldr_imm(20, 31, slot_offset(function_value))?;
+        let done = self.code.new_label();
+        let mut labels = Vec::new();
+        for index in 0..self.program.functions.len() {
+            labels.push(self.code.new_label());
+            self.code.mov_imm(21, index as u64);
+            self.code.cmp_reg(20, 21);
+            self.code.b_eq(labels[index]);
+        }
+        self.code.mov_imm(0, ERR_INVALID_ARGUMENT);
+        self.code.mov_imm(1, 0);
+        self.code.mov_imm(2, 0);
+        self.code.b(epilogue);
+        for (index, label) in labels.into_iter().enumerate() {
+            self.code.bind(label);
+            self.code.bl(self.function_label(index as u32)?);
+            self.code.b(done);
+        }
         self.code.bind(done);
         Ok(())
     }

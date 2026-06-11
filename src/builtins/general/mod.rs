@@ -1,14 +1,15 @@
 use crate::bytecode::{
     BuiltinCallLowerer, ValueSlot, OPCODE_COLLECTION_APPEND, OPCODE_COLLECTION_CONTAINS,
-    OPCODE_COLLECTION_FIND, OPCODE_COLLECTION_GET, OPCODE_COLLECTION_GET_OR,
-    OPCODE_COLLECTION_HAS_KEY, OPCODE_COLLECTION_INSERT, OPCODE_COLLECTION_KEYS,
-    OPCODE_COLLECTION_MID, OPCODE_COLLECTION_PREPEND, OPCODE_COLLECTION_REMOVE_AT,
+    OPCODE_COLLECTION_FILTER, OPCODE_COLLECTION_FIND, OPCODE_COLLECTION_FOR_EACH,
+    OPCODE_COLLECTION_GET, OPCODE_COLLECTION_GET_OR, OPCODE_COLLECTION_HAS_KEY,
+    OPCODE_COLLECTION_INSERT, OPCODE_COLLECTION_KEYS, OPCODE_COLLECTION_MID,
+    OPCODE_COLLECTION_PREPEND, OPCODE_COLLECTION_REDUCE, OPCODE_COLLECTION_REMOVE_AT,
     OPCODE_COLLECTION_REMOVE_KEY, OPCODE_COLLECTION_REPLACE, OPCODE_COLLECTION_SET,
-    OPCODE_COLLECTION_SUM, OPCODE_COLLECTION_VALUES, OPCODE_GENERAL_FIND,
-    OPCODE_GENERAL_IS_NUMERIC, OPCODE_GENERAL_LEN, OPCODE_GENERAL_MID, OPCODE_GENERAL_REPLACE,
-    OPCODE_GENERAL_TO_BYTE, OPCODE_GENERAL_TO_FIXED, OPCODE_GENERAL_TO_FLOAT,
-    OPCODE_GENERAL_TO_INT, OPCODE_GENERAL_TO_STRING, TYPE_BOOLEAN, TYPE_BYTE, TYPE_FIXED,
-    TYPE_FLOAT, TYPE_INTEGER, TYPE_STRING,
+    OPCODE_COLLECTION_SUM, OPCODE_COLLECTION_TRANSFORM, OPCODE_COLLECTION_VALUES,
+    OPCODE_GENERAL_FIND, OPCODE_GENERAL_IS_NUMERIC, OPCODE_GENERAL_LEN, OPCODE_GENERAL_MID,
+    OPCODE_GENERAL_REPLACE, OPCODE_GENERAL_TO_BYTE, OPCODE_GENERAL_TO_FIXED,
+    OPCODE_GENERAL_TO_FLOAT, OPCODE_GENERAL_TO_INT, OPCODE_GENERAL_TO_STRING, TYPE_BOOLEAN,
+    TYPE_BYTE, TYPE_FIXED, TYPE_FLOAT, TYPE_INTEGER, TYPE_STRING,
 };
 use crate::ir::IrValue;
 use std::borrow::Cow;
@@ -240,7 +241,10 @@ pub(crate) fn resolve_call<'a>(name: &str, arg_types: &'a [String]) -> Option<Re
         HAS_KEY => resolve_has_key(arg_types)?,
         CONTAINS => resolve_contains(arg_types)?,
         SUM => resolve_sum(arg_types)?,
-        FOR_EACH | TRANSFORM | FILTER | REDUCE => return None,
+        FOR_EACH => resolve_for_each(arg_types)?,
+        TRANSFORM => resolve_transform(arg_types)?,
+        FILTER => resolve_filter(arg_types)?,
+        REDUCE => resolve_reduce(arg_types)?,
         _ => return None,
     };
     Some(resolved)
@@ -490,6 +494,54 @@ fn resolve_sum<'a>(arg_types: &'a [String]) -> Option<ResolvedCall<'a>> {
     }
 }
 
+fn resolve_for_each<'a>(arg_types: &'a [String]) -> Option<ResolvedCall<'a>> {
+    if arg_types.len() != 2 {
+        return None;
+    }
+    let element = list_element(&arg_types[0])?;
+    let (params, returns) = function_parts(&arg_types[1])?;
+    (params.len() == 1 && params[0] == element && returns == "Nothing").then_some(ResolvedCall {
+        return_type: Cow::Borrowed("Nothing"),
+    })
+}
+
+fn resolve_transform<'a>(arg_types: &'a [String]) -> Option<ResolvedCall<'a>> {
+    if arg_types.len() != 2 {
+        return None;
+    }
+    let element = list_element(&arg_types[0])?;
+    let (params, returns) = function_parts(&arg_types[1])?;
+    (params.len() == 1 && params[0] == element).then_some(ResolvedCall {
+        return_type: Cow::Owned(format!("List OF {returns}")),
+    })
+}
+
+fn resolve_filter<'a>(arg_types: &'a [String]) -> Option<ResolvedCall<'a>> {
+    if arg_types.len() != 2 {
+        return None;
+    }
+    let element = list_element(&arg_types[0])?;
+    let (params, returns) = function_parts(&arg_types[1])?;
+    (params.len() == 1 && params[0] == element && returns == "Boolean").then_some(ResolvedCall {
+        return_type: Cow::Borrowed(&arg_types[0]),
+    })
+}
+
+fn resolve_reduce<'a>(arg_types: &'a [String]) -> Option<ResolvedCall<'a>> {
+    if arg_types.len() != 3 {
+        return None;
+    }
+    let element = list_element(&arg_types[0])?;
+    let (params, returns) = function_parts(&arg_types[2])?;
+    (params.len() == 2
+        && params[0] == arg_types[1]
+        && params[1] == element
+        && returns == arg_types[1])
+        .then_some(ResolvedCall {
+            return_type: Cow::Borrowed(&arg_types[1]),
+        })
+}
+
 fn exact(arg_types: &[String], expected: &[&str]) -> bool {
     arg_types.len() == expected.len()
         && arg_types
@@ -558,6 +610,10 @@ fn opcode_for(name: &str, arg_types: &[String]) -> Result<u16, String> {
         HAS_KEY => Ok(OPCODE_COLLECTION_HAS_KEY),
         CONTAINS => Ok(OPCODE_COLLECTION_CONTAINS),
         SUM => Ok(OPCODE_COLLECTION_SUM),
+        FOR_EACH => Ok(OPCODE_COLLECTION_FOR_EACH),
+        TRANSFORM => Ok(OPCODE_COLLECTION_TRANSFORM),
+        FILTER => Ok(OPCODE_COLLECTION_FILTER),
+        REDUCE => Ok(OPCODE_COLLECTION_REDUCE),
         _ => Err(format!("unsupported General built-in `{name}`")),
     }
 }
@@ -568,4 +624,15 @@ fn list_element(type_name: &str) -> Option<&str> {
 
 fn map_parts(type_name: &str) -> Option<(&str, &str)> {
     type_name.strip_prefix("Map OF ")?.split_once(" TO ")
+}
+
+fn function_parts(type_name: &str) -> Option<(Vec<&str>, &str)> {
+    let rest = type_name.strip_prefix("FUNC(")?;
+    let (params, returns) = rest.split_once(") AS ")?;
+    let params = if params.trim().is_empty() {
+        Vec::new()
+    } else {
+        params.split(", ").collect()
+    };
+    Some((params, returns))
 }

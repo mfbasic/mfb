@@ -11,6 +11,55 @@
   ],
   "functions": [
   {
+    "name": "observe",
+    "visibility": "private",
+    "kind": "sub",
+    "params": [
+    { "name": "value", "type": "Integer", "default": null }
+    ],
+    "returns": "Nothing",
+    "body": [
+    { "op": "return", "value": null }
+    ]
+  },
+  {
+    "name": "square",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    { "name": "value", "type": "Integer", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "return", "value": { "kind": "binary", "op": "*", "left": { "kind": "local", "name": "value" }, "right": { "kind": "local", "name": "value" } } }
+    ]
+  },
+  {
+    "name": "overTwo",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    { "name": "value", "type": "Integer", "default": null }
+    ],
+    "returns": "Boolean",
+    "body": [
+    { "op": "return", "value": { "kind": "binary", "op": ">", "left": { "kind": "local", "name": "value" }, "right": { "kind": "const", "type": "Integer", "value": "2" } } }
+    ]
+  },
+  {
+    "name": "add",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    { "name": "total", "type": "Integer", "default": null },
+    { "name": "value", "type": "Integer", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "return", "value": { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "total" }, "right": { "kind": "local", "name": "value" } } }
+    ]
+  },
+  {
     "name": "main",
     "visibility": "private",
     "kind": "func",
@@ -41,7 +90,64 @@
     { "op": "bind", "mutable": false, "name": "hasAda", "type": "Boolean", "value": { "kind": "call", "target": "hasKey", "args": [{ "kind": "local", "name": "names" }, { "kind": "const", "type": "String", "value": "ada" }] } },
     { "op": "bind", "mutable": false, "name": "hasTwo", "type": "Boolean", "value": { "kind": "call", "target": "contains", "args": [{ "kind": "local", "name": "numbers" }, { "kind": "const", "type": "Integer", "value": "2" }] } },
     { "op": "bind", "mutable": false, "name": "total", "type": "Integer", "value": { "kind": "call", "target": "sum", "args": [{ "kind": "local", "name": "numbers" }] } },
-    { "op": "return", "value": { "kind": "binary", "op": "+", "left": { "kind": "binary", "op": "+", "left": { "kind": "binary", "op": "+", "left": { "kind": "binary", "op": "+", "left": { "kind": "binary", "op": "+", "left": { "kind": "binary", "op": "+", "left": { "kind": "binary", "op": "+", "left": { "kind": "binary", "op": "+", "left": { "kind": "binary", "op": "+", "left": { "kind": "binary", "op": "+", "left": { "kind": "binary", "op": "+", "left": { "kind": "binary", "op": "+", "left": { "kind": "binary", "op": "+", "left": { "kind": "binary", "op": "+", "left": { "kind": "binary", "op": "+", "left": { "kind": "binary", "op": "+", "left": { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "first" }, "right": { "kind": "local", "name": "missingDefault" } }, "right": { "kind": "local", "name": "age" } }, "right": { "kind": "local", "name": "fallbackAge" } }, "right": { "kind": "local", "name": "found" } }, "right": { "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "middle" }] } }, "right": { "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "replaced" }] } }, "right": { "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "setList" }] } }, "right": { "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "appendedItem" }] } }, "right": { "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "appendedItems" }] } }, "right": { "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "prepended" }] } }, "right": { "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "inserted" }] } }, "right": { "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "removed" }] } }, "right": { "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "setMap" }] } }, "right": { "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "removedMap" }] } }, "right": { "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "mapKeys" }] } }, "right": { "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "mapValues" }] } }, "right": { "kind": "local", "name": "total" } } }
+    { "op": "bind", "mutable": false, "name": "visited", "type": "Nothing", "value": { "kind": "call", "target": "forEach", "args": [{ "kind": "local", "name": "numbers" }, { "kind": "functionRef", "name": "observe", "type": "FUNC(Integer) AS Nothing" }] } },
+    { "op": "bind", "mutable": false, "name": "squares", "type": "List OF Integer", "value": { "kind": "call", "target": "transform", "args": [{ "kind": "local", "name": "numbers" }, { "kind": "functionRef", "name": "square", "type": "FUNC(Integer) AS Integer" }] } },
+    { "op": "bind", "mutable": false, "name": "inlineVisited", "type": "Nothing", "value": { "kind": "call", "target": "forEach", "args": [{ "kind": "local", "name": "numbers" }, { "kind": "functionRef", "name": "$lambda0", "type": "FUNC(Integer) AS Nothing" }] } },
+    { "op": "bind", "mutable": false, "name": "inlineSquares", "type": "List OF Integer", "value": { "kind": "call", "target": "transform", "args": [{ "kind": "local", "name": "numbers" }, { "kind": "functionRef", "name": "$lambda1", "type": "FUNC(Integer) AS Integer" }] } },
+    { "op": "bind", "mutable": false, "name": "filtered", "type": "List OF Integer", "value": { "kind": "call", "target": "filter", "args": [{ "kind": "local", "name": "numbers" }, { "kind": "functionRef", "name": "overTwo", "type": "FUNC(Integer) AS Boolean" }] } },
+    { "op": "bind", "mutable": false, "name": "inlineFiltered", "type": "List OF Integer", "value": { "kind": "call", "target": "filter", "args": [{ "kind": "local", "name": "numbers" }, { "kind": "functionRef", "name": "$lambda2", "type": "FUNC(Integer) AS Boolean" }] } },
+    { "op": "bind", "mutable": false, "name": "folded", "type": "Integer", "value": { "kind": "call", "target": "reduce", "args": [{ "kind": "local", "name": "numbers" }, { "kind": "const", "type": "Integer", "value": "0" }, { "kind": "functionRef", "name": "add", "type": "FUNC(Integer, Integer) AS Integer" }] } },
+    { "op": "bind", "mutable": false, "name": "inlineFolded", "type": "Integer", "value": { "kind": "call", "target": "reduce", "args": [{ "kind": "local", "name": "numbers" }, { "kind": "const", "type": "Integer", "value": "0" }, { "kind": "functionRef", "name": "$lambda3", "type": "FUNC(Integer, Integer) AS Integer" }] } },
+    { "op": "return", "value": { "kind": "binary", "op": "+", "left": { "kind": "binary", "op": "+", "left": { "kind": "binary", "op": "+", "left": { "kind": "binary", "op": "+", "left": { "kind": "binary", "op": "+", "left": { "kind": "binary", "op": "+", "left": { "kind": "binary", "op": "+", "left": { "kind": "binary", "op": "+", "left": { "kind": "binary", "op": "+", "left": { "kind": "binary", "op": "+", "left": { "kind": "binary", "op": "+", "left": { "kind": "binary", "op": "+", "left": { "kind": "binary", "op": "+", "left": { "kind": "binary", "op": "+", "left": { "kind": "binary", "op": "+", "left": { "kind": "binary", "op": "+", "left": { "kind": "binary", "op": "+", "left": { "kind": "binary", "op": "+", "left": { "kind": "binary", "op": "+", "left": { "kind": "binary", "op": "+", "left": { "kind": "binary", "op": "+", "left": { "kind": "binary", "op": "+", "left": { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "first" }, "right": { "kind": "local", "name": "missingDefault" } }, "right": { "kind": "local", "name": "age" } }, "right": { "kind": "local", "name": "fallbackAge" } }, "right": { "kind": "local", "name": "found" } }, "right": { "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "middle" }] } }, "right": { "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "replaced" }] } }, "right": { "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "setList" }] } }, "right": { "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "appendedItem" }] } }, "right": { "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "appendedItems" }] } }, "right": { "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "prepended" }] } }, "right": { "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "inserted" }] } }, "right": { "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "removed" }] } }, "right": { "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "setMap" }] } }, "right": { "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "removedMap" }] } }, "right": { "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "mapKeys" }] } }, "right": { "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "mapValues" }] } }, "right": { "kind": "local", "name": "total" } }, "right": { "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "squares" }] } }, "right": { "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "inlineSquares" }] } }, "right": { "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "filtered" }] } }, "right": { "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "inlineFiltered" }] } }, "right": { "kind": "local", "name": "folded" } }, "right": { "kind": "local", "name": "inlineFolded" } } }
+    ]
+  },
+  {
+    "name": "$lambda0",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    { "name": "value", "type": "Integer", "default": null }
+    ],
+    "returns": "Nothing",
+    "body": [
+    { "op": "return", "value": { "kind": "const", "type": "Nothing", "value": "NOTHING" } }
+    ]
+  },
+  {
+    "name": "$lambda1",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    { "name": "value", "type": "Integer", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "return", "value": { "kind": "binary", "op": "*", "left": { "kind": "local", "name": "value" }, "right": { "kind": "local", "name": "value" } } }
+    ]
+  },
+  {
+    "name": "$lambda2",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    { "name": "value", "type": "Integer", "default": null }
+    ],
+    "returns": "Boolean",
+    "body": [
+    { "op": "return", "value": { "kind": "binary", "op": ">", "left": { "kind": "local", "name": "value" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+    ]
+  },
+  {
+    "name": "$lambda3",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    { "name": "total", "type": "Integer", "default": null },
+    { "name": "value", "type": "Integer", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "return", "value": { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "total" }, "right": { "kind": "local", "name": "value" } } }
     ]
   }
   ]
