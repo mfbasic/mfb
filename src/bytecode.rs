@@ -41,6 +41,10 @@ const OPCODE_CONCAT: u16 = 40;
 const OPCODE_CALL_RESULT: u16 = 60;
 const OPCODE_UNWRAP_RESULT: u16 = 61;
 const OPCODE_RETURN_OK: u16 = 70;
+const OPCODE_CONSTRUCT_RECORD: u16 = 80;
+const OPCODE_CONSTRUCT_VARIANT: u16 = 81;
+const OPCODE_LOAD_FIELD: u16 = 82;
+const OPCODE_LOAD_ENUM_MEMBER: u16 = 83;
 
 pub fn write_bytecode_hex(
     project_dir: &Path,
@@ -73,6 +77,7 @@ pub enum NativeType {
 pub struct NativeProgram {
     pub entry_function: u32,
     pub entry_returns_integer: bool,
+    pub types: NativeTypeLayouts,
     pub functions: Vec<NativeFunction>,
     pub constants: Vec<NativeConst>,
 }
@@ -92,7 +97,34 @@ pub enum NativeFunctionKind {
 }
 
 pub struct NativeRegister {
+    pub type_id: u32,
     pub type_: NativeType,
+}
+
+pub struct NativeTypeLayouts {
+    pub records: HashMap<u32, NativeRecordLayout>,
+    pub unions: HashMap<u32, NativeUnionLayout>,
+}
+
+pub struct NativeRecordLayout {
+    pub fields: HashMap<u32, NativeFieldLayout>,
+    pub ordered_fields: Vec<NativeFieldLayout>,
+    pub size_slots: usize,
+}
+
+pub struct NativeUnionLayout {
+    pub variants: HashMap<u32, NativeVariantLayout>,
+    pub size_slots: usize,
+}
+
+pub struct NativeVariantLayout {
+    pub fields: Vec<NativeFieldLayout>,
+}
+
+#[derive(Clone)]
+pub struct NativeFieldLayout {
+    pub name: u32,
+    pub offset_slots: usize,
 }
 
 pub struct NativeInstruction {
@@ -104,7 +136,7 @@ pub enum NativeConst {
     Nothing,
     Boolean(bool),
     Integer(i64),
-    Float,
+    Float(f64),
     Fixed,
     String(String),
     Other,
@@ -122,6 +154,10 @@ pub const NATIVE_OPCODE_CONCAT: u16 = OPCODE_CONCAT;
 pub const NATIVE_OPCODE_CALL_RESULT: u16 = OPCODE_CALL_RESULT;
 pub const NATIVE_OPCODE_UNWRAP_RESULT: u16 = OPCODE_UNWRAP_RESULT;
 pub const NATIVE_OPCODE_RETURN_OK: u16 = OPCODE_RETURN_OK;
+pub const NATIVE_OPCODE_CONSTRUCT_RECORD: u16 = OPCODE_CONSTRUCT_RECORD;
+pub const NATIVE_OPCODE_CONSTRUCT_VARIANT: u16 = OPCODE_CONSTRUCT_VARIANT;
+pub const NATIVE_OPCODE_LOAD_FIELD: u16 = OPCODE_LOAD_FIELD;
+pub const NATIVE_OPCODE_LOAD_ENUM_MEMBER: u16 = OPCODE_LOAD_ENUM_MEMBER;
 
 pub fn native_program(ir: &IrProject) -> Result<NativeProgram, String> {
     let project = lower_project(ir, "native")?;
@@ -157,6 +193,7 @@ pub fn native_program(ir: &IrProject) -> Result<NativeProgram, String> {
     Ok(NativeProgram {
         entry_function: project.entry_function,
         entry_returns_integer: project.entry_flags & (1 << 2) != 0,
+        types: native_type_layouts(ir, &project.types.ids, &project.strings),
         functions,
         constants,
     })
@@ -167,14 +204,21 @@ fn native_function(
     strings: &HashMap<u32, String>,
     result_success_types: &HashMap<u32, u32>,
 ) -> Result<NativeFunction, String> {
-    let name = strings
-        .get(&function.name)
-        .cloned()
-        .ok_or_else(|| format!("bytecode function references missing name {}", function.name))?;
+    let name = strings.get(&function.name).cloned().ok_or_else(|| {
+        format!(
+            "bytecode function references missing name {}",
+            function.name
+        )
+    })?;
     let kind = match function.kind {
         FUNCTION_BYTECODE => NativeFunctionKind::Bytecode,
         FUNCTION_BUILTIN => NativeFunctionKind::Builtin,
-        _ => return Err(format!("native output does not support function kind {}", function.kind)),
+        _ => {
+            return Err(format!(
+                "native output does not support function kind {}",
+                function.kind
+            ))
+        }
     };
 
     Ok(NativeFunction {
@@ -185,6 +229,7 @@ fn native_function(
             .registers
             .iter()
             .map(|register| NativeRegister {
+                type_id: register.type_id,
                 type_: native_type(register.type_id, result_success_types),
             })
             .collect(),
@@ -218,12 +263,14 @@ fn native_const(
 ) -> Result<NativeConst, String> {
     match constant.kind {
         1 => Ok(NativeConst::Nothing),
-        2 => Ok(NativeConst::Boolean(constant.payload.first().copied().unwrap_or(0) != 0)),
+        2 => Ok(NativeConst::Boolean(
+            constant.payload.first().copied().unwrap_or(0) != 0,
+        )),
         3 => Ok(NativeConst::Integer(read_i64(&constant.payload, 0))),
-        4 => {
-            let _ = read_u64(&constant.payload, 0);
-            Ok(NativeConst::Float)
-        }
+        4 => Ok(NativeConst::Float(f64::from_bits(read_u64(
+            &constant.payload,
+            0,
+        )))),
         5 => Ok(NativeConst::Fixed),
         6 => {
             let string_id = read_u32(&constant.payload, 0);
@@ -233,6 +280,102 @@ fn native_const(
             Ok(NativeConst::String(value))
         }
         _ => Ok(NativeConst::Other),
+    }
+}
+
+fn native_type_layouts(
+    ir: &IrProject,
+    type_ids: &HashMap<String, u32>,
+    strings: &StringPool,
+) -> NativeTypeLayouts {
+    let mut records = HashMap::new();
+    let mut unions = HashMap::new();
+
+    for ir_type in &ir.types {
+        let Some(type_id) = native_type_id(type_ids, &ir_type.name) else {
+            continue;
+        };
+
+        match ir_type.kind.as_str() {
+            "type" => {
+                let fields = native_field_layouts(strings, &ir_type.fields, 0);
+                records.insert(
+                    type_id,
+                    NativeRecordLayout {
+                        size_slots: ir_type.fields.len(),
+                        fields: fields
+                            .iter()
+                            .cloned()
+                            .map(|field| (field.name, field))
+                            .collect(),
+                        ordered_fields: fields,
+                    },
+                );
+            }
+            "union" => {
+                let mut variants = HashMap::new();
+                let mut max_payload_slots = 0usize;
+                for variant in &ir_type.variants {
+                    max_payload_slots = max_payload_slots.max(variant.fields.len());
+                    if let Some(name_id) = string_id(strings, &variant.name) {
+                        variants.insert(
+                            name_id,
+                            NativeVariantLayout {
+                                fields: native_field_layouts(strings, &variant.fields, 1),
+                            },
+                        );
+                    }
+                }
+                unions.insert(
+                    type_id,
+                    NativeUnionLayout {
+                        variants,
+                        size_slots: 1 + max_payload_slots,
+                    },
+                );
+            }
+            _ => {}
+        }
+    }
+
+    NativeTypeLayouts { records, unions }
+}
+
+fn native_field_layouts(
+    strings: &StringPool,
+    fields: &[crate::ir::IrField],
+    base_offset_slots: usize,
+) -> Vec<NativeFieldLayout> {
+    fields
+        .iter()
+        .enumerate()
+        .filter_map(|(index, field)| {
+            Some(NativeFieldLayout {
+                name: string_id(strings, &field.name)?,
+                offset_slots: base_offset_slots + index,
+            })
+        })
+        .collect()
+}
+
+fn string_id(strings: &StringPool, value: &str) -> Option<u32> {
+    strings
+        .values
+        .iter()
+        .position(|existing| existing == value)
+        .map(|index| index as u32)
+}
+
+fn native_type_id(type_ids: &HashMap<String, u32>, name: &str) -> Option<u32> {
+    match name {
+        "Nothing" => Some(TYPE_NOTHING),
+        "Boolean" => Some(TYPE_BOOLEAN),
+        "Integer" => Some(TYPE_INTEGER),
+        "Float" => Some(TYPE_FLOAT),
+        "Fixed" => Some(TYPE_FIXED),
+        "String" => Some(TYPE_STRING),
+        "Byte" => Some(7),
+        _ => type_ids.get(name).copied(),
     }
 }
 
@@ -288,6 +431,93 @@ struct ConstEntry {
     payload: Vec<u8>,
 }
 
+struct TypeModel {
+    records: HashMap<String, RecordModel>,
+    variants: HashMap<String, VariantModel>,
+    enums: HashMap<String, EnumModel>,
+}
+
+#[derive(Clone)]
+struct RecordModel {
+    fields: Vec<FieldModel>,
+}
+
+#[derive(Clone)]
+struct VariantModel {
+    union_name: String,
+    fields: Vec<FieldModel>,
+}
+
+struct EnumModel {
+    members: Vec<String>,
+}
+
+#[derive(Clone)]
+struct FieldModel {
+    name: String,
+    type_name: String,
+}
+
+impl TypeModel {
+    fn new(ir: &IrProject) -> Self {
+        let mut records = HashMap::new();
+        let mut variants = HashMap::new();
+        let mut enums = HashMap::new();
+
+        for ir_type in &ir.types {
+            match ir_type.kind.as_str() {
+                "type" => {
+                    records.insert(
+                        ir_type.name.clone(),
+                        RecordModel {
+                            fields: ir_type.fields.iter().map(FieldModel::from_ir).collect(),
+                        },
+                    );
+                }
+                "union" => {
+                    for variant in &ir_type.variants {
+                        variants.insert(
+                            variant.name.clone(),
+                            VariantModel {
+                                union_name: ir_type.name.clone(),
+                                fields: variant.fields.iter().map(FieldModel::from_ir).collect(),
+                            },
+                        );
+                    }
+                }
+                "enum" => {
+                    enums.insert(
+                        ir_type.name.clone(),
+                        EnumModel {
+                            members: ir_type
+                                .members
+                                .iter()
+                                .map(|member| member.name.clone())
+                                .collect(),
+                        },
+                    );
+                }
+                _ => {}
+            }
+        }
+
+        Self {
+            records,
+            variants,
+            enums,
+        }
+    }
+}
+
+impl FieldModel {
+    fn from_ir(field: &crate::ir::IrField) -> Self {
+        Self {
+            name: field.name.clone(),
+            type_name: field.type_.clone(),
+        }
+    }
+}
+
 struct Function {
     name: u32,
     kind: u16,
@@ -325,14 +555,17 @@ fn lower_project(ir: &IrProject, version: &str) -> Result<BytecodeProject, Strin
     for ir_type in &ir.types {
         types.add_source_type(&mut strings, &ir.name, ir_type);
     }
+    let type_model = TypeModel::new(ir);
 
     let mut constants = ConstPool::new();
     let mut function_ids = HashMap::new();
     let mut function_return_types = HashMap::new();
+    let mut function_return_type_names = HashMap::new();
     for (index, function) in ir.functions.iter().enumerate() {
         function_ids.insert(function.name.clone(), index as u32);
         let return_type = types.type_id(&mut strings, &function.returns);
         function_return_types.insert(function.name.clone(), return_type);
+        function_return_type_names.insert(function.name.clone(), function.returns.clone());
     }
 
     let mut builtin_ids = HashMap::new();
@@ -340,6 +573,7 @@ fn lower_project(ir: &IrProject, version: &str) -> Result<BytecodeProject, Strin
         let function_id = ir.functions.len() as u32;
         function_ids.insert("io.print".to_string(), function_id);
         function_return_types.insert("io.print".to_string(), TYPE_NOTHING);
+        function_return_type_names.insert("io.print".to_string(), "Nothing".to_string());
         builtin_ids.insert("io.print".to_string(), function_id);
     }
 
@@ -352,6 +586,8 @@ fn lower_project(ir: &IrProject, version: &str) -> Result<BytecodeProject, Strin
             &mut constants,
             &function_ids,
             &function_return_types,
+            &function_return_type_names,
+            &type_model,
         )?);
     }
 
@@ -424,6 +660,8 @@ fn lower_function(
     constants: &mut ConstPool,
     function_ids: &HashMap<String, u32>,
     function_return_types: &HashMap<String, u32>,
+    function_return_type_names: &HashMap<String, String>,
+    type_model: &TypeModel,
 ) -> Result<Function, String> {
     let mut builder = FunctionBuilder::new(
         strings,
@@ -431,6 +669,8 @@ fn lower_function(
         constants,
         function_ids,
         function_return_types,
+        function_return_type_names,
+        type_model,
     );
     let mut params = Vec::new();
     let mut locals = HashMap::new();
@@ -441,7 +681,13 @@ fn lower_function(
             type_id,
             REGISTER_FLAG_PARAMETER | REGISTER_FLAG_INITIALIZED_AT_ENTRY,
         );
-        locals.insert(param.name.clone(), register);
+        locals.insert(
+            param.name.clone(),
+            ValueSlot {
+                register,
+                type_name: param.type_.clone(),
+            },
+        );
         params.push(Param {
             name: builder.strings.intern(&param.name),
             type_id,
@@ -509,8 +755,16 @@ struct FunctionBuilder<'a> {
     constants: &'a mut ConstPool,
     function_ids: &'a HashMap<String, u32>,
     function_return_types: &'a HashMap<String, u32>,
+    function_return_type_names: &'a HashMap<String, String>,
+    type_model: &'a TypeModel,
     registers: Vec<Register>,
     code: Vec<Instruction>,
+}
+
+#[derive(Clone)]
+struct ValueSlot {
+    register: u32,
+    type_name: String,
 }
 
 impl<'a> FunctionBuilder<'a> {
@@ -520,6 +774,8 @@ impl<'a> FunctionBuilder<'a> {
         constants: &'a mut ConstPool,
         function_ids: &'a HashMap<String, u32>,
         function_return_types: &'a HashMap<String, u32>,
+        function_return_type_names: &'a HashMap<String, String>,
+        type_model: &'a TypeModel,
     ) -> Self {
         Self {
             strings,
@@ -527,12 +783,18 @@ impl<'a> FunctionBuilder<'a> {
             constants,
             function_ids,
             function_return_types,
+            function_return_type_names,
+            type_model,
             registers: Vec::new(),
             code: Vec::new(),
         }
     }
 
-    fn lower_op(&mut self, op: &IrOp, locals: &mut HashMap<String, u32>) -> Result<(), String> {
+    fn lower_op(
+        &mut self,
+        op: &IrOp,
+        locals: &mut HashMap<String, ValueSlot>,
+    ) -> Result<(), String> {
         match op {
             IrOp::Bind {
                 mutable,
@@ -546,10 +808,16 @@ impl<'a> FunctionBuilder<'a> {
                     flags |= REGISTER_FLAG_MUTABLE_LOCAL_CELL;
                 }
                 let register = self.add_register(type_id, flags);
-                locals.insert(name.clone(), register);
+                locals.insert(
+                    name.clone(),
+                    ValueSlot {
+                        register,
+                        type_name: type_.clone(),
+                    },
+                );
                 if let Some(value) = value {
                     let value_register = self.lower_value(value, locals)?;
-                    self.push_move_like(type_id, register, value_register);
+                    self.push_move_like(type_id, register, value_register.register);
                 } else {
                     self.push(OPCODE_LOAD_DEFAULT, vec![register, type_id]);
                 }
@@ -557,7 +825,7 @@ impl<'a> FunctionBuilder<'a> {
             }
             IrOp::Return { value } => {
                 let register = match value {
-                    Some(value) => self.lower_value(value, locals)?,
+                    Some(value) => self.lower_value(value, locals)?.register,
                     None => {
                         let register = self.add_register(TYPE_NOTHING, 0);
                         self.push(OPCODE_LOAD_DEFAULT, vec![register, TYPE_NOTHING]);
@@ -577,19 +845,22 @@ impl<'a> FunctionBuilder<'a> {
     fn lower_value(
         &mut self,
         value: &IrValue,
-        locals: &HashMap<String, u32>,
-    ) -> Result<u32, String> {
+        locals: &HashMap<String, ValueSlot>,
+    ) -> Result<ValueSlot, String> {
         match value {
             IrValue::Const { type_, .. } => {
                 let type_id = self.type_id(type_);
                 let register = self.add_register(type_id, 0);
                 let const_id = self.const_id(value)?;
                 self.push(OPCODE_LOAD_CONST, vec![register, const_id]);
-                Ok(register)
+                Ok(ValueSlot {
+                    register,
+                    type_name: type_.clone(),
+                })
             }
             IrValue::Local(name) => locals
                 .get(name)
-                .copied()
+                .cloned()
                 .ok_or_else(|| format!("IR references unknown local `{name}`")),
             IrValue::Call { target, args } => {
                 let function_id = *self
@@ -597,27 +868,31 @@ impl<'a> FunctionBuilder<'a> {
                     .get(target)
                     .ok_or_else(|| format!("IR references unknown function `{target}`"))?;
                 let return_type = self.call_return_type(target)?;
+                let return_type_name = self.call_return_type_name(target)?.to_string();
                 let result_type = self.types.result_type(self.strings, return_type);
                 let result_register = self.add_register(result_type, 0);
                 let mut operands = vec![result_register, function_id];
                 for arg in args {
-                    operands.push(self.lower_value(arg, locals)?);
+                    operands.push(self.lower_value(arg, locals)?.register);
                 }
                 self.push(OPCODE_CALL_RESULT, operands);
 
                 let value_register = self.add_register(return_type, 0);
                 self.push(OPCODE_UNWRAP_RESULT, vec![value_register, result_register]);
-                Ok(value_register)
+                Ok(ValueSlot {
+                    register: value_register,
+                    type_name: return_type_name,
+                })
             }
             IrValue::Binary { op, left, right } => {
                 let left_register = self.lower_value(left, locals)?;
                 let right_register = self.lower_value(right, locals)?;
                 let type_id = if op == "&" {
                     TYPE_STRING
-                } else if self.registers[left_register as usize].type_id == TYPE_FLOAT
-                    || self.registers[right_register as usize].type_id == TYPE_FLOAT
-                    || self.registers[left_register as usize].type_id == TYPE_FIXED
-                    || self.registers[right_register as usize].type_id == TYPE_FIXED
+                } else if self.registers[left_register.register as usize].type_id == TYPE_FLOAT
+                    || self.registers[right_register.register as usize].type_id == TYPE_FLOAT
+                    || self.registers[left_register.register as usize].type_id == TYPE_FIXED
+                    || self.registers[right_register.register as usize].type_id == TYPE_FIXED
                 {
                     TYPE_FLOAT
                 } else {
@@ -632,15 +907,112 @@ impl<'a> FunctionBuilder<'a> {
                     "&" => OPCODE_CONCAT,
                     _ => return Err(format!("unsupported IR binary operator `{op}`")),
                 };
-                self.push(opcode, vec![dst, left_register, right_register]);
-                Ok(dst)
+                self.push(
+                    opcode,
+                    vec![dst, left_register.register, right_register.register],
+                );
+                Ok(ValueSlot {
+                    register: dst,
+                    type_name: if type_id == TYPE_STRING {
+                        "String".to_string()
+                    } else if type_id == TYPE_FLOAT {
+                        "Float".to_string()
+                    } else {
+                        "Integer".to_string()
+                    },
+                })
             }
-            IrValue::Constructor { type_, .. } => Err(format!(
-                "bytecode lowering does not support constructing `{type_}` yet"
-            )),
-            IrValue::MemberAccess { member, .. } => Err(format!(
-                "bytecode lowering does not support member access `{member}` yet"
-            )),
+            IrValue::Constructor { type_, args } => {
+                if let Some(record) = self.type_model.records.get(type_).cloned() {
+                    let type_id = self.type_id(type_);
+                    let dst = self.add_register(type_id, 0);
+                    let mut operands = vec![dst, type_id];
+                    for arg in args {
+                        operands.push(self.lower_value(arg, locals)?.register);
+                    }
+                    if operands.len() != 2 + record.fields.len() {
+                        return Err(format!(
+                            "IR constructor `{type_}` has {} argument(s), expected {}",
+                            operands.len().saturating_sub(2),
+                            record.fields.len()
+                        ));
+                    }
+                    self.push(OPCODE_CONSTRUCT_RECORD, operands);
+                    return Ok(ValueSlot {
+                        register: dst,
+                        type_name: type_.clone(),
+                    });
+                }
+
+                if let Some(variant) = self.type_model.variants.get(type_).cloned() {
+                    let union_type = self.type_id(&variant.union_name);
+                    let dst = self.add_register(union_type, 0);
+                    let variant_name = self.strings.intern(type_);
+                    let mut operands = vec![dst, union_type, variant_name];
+                    for arg in args {
+                        operands.push(self.lower_value(arg, locals)?.register);
+                    }
+                    if operands.len() != 3 + variant.fields.len() {
+                        return Err(format!(
+                            "IR variant constructor `{type_}` has {} argument(s), expected {}",
+                            operands.len().saturating_sub(3),
+                            variant.fields.len()
+                        ));
+                    }
+                    self.push(OPCODE_CONSTRUCT_VARIANT, operands);
+                    return Ok(ValueSlot {
+                        register: dst,
+                        type_name: variant.union_name,
+                    });
+                }
+
+                Err(format!("IR references unknown constructor `{type_}`"))
+            }
+            IrValue::MemberAccess { target, member } => {
+                if let IrValue::Local(type_name) = target.as_ref() {
+                    if let Some(enum_) = self.type_model.enums.get(type_name) {
+                        let Some(ordinal) = enum_.members.iter().position(|name| name == member)
+                        else {
+                            return Err(format!(
+                                "IR references unknown enum member `{type_name}::{member}`"
+                            ));
+                        };
+                        let type_id = self.type_id(type_name);
+                        let dst = self.add_register(type_id, 0);
+                        let member_name = self.strings.intern(member);
+                        self.push(
+                            OPCODE_LOAD_ENUM_MEMBER,
+                            vec![dst, type_id, member_name, ordinal as u32],
+                        );
+                        return Ok(ValueSlot {
+                            register: dst,
+                            type_name: type_name.clone(),
+                        });
+                    }
+                }
+
+                let target = self.lower_value(target, locals)?;
+                let Some(field) = self
+                    .type_model
+                    .records
+                    .get(&target.type_name)
+                    .and_then(|record| record.fields.iter().find(|field| field.name == *member))
+                    .cloned()
+                else {
+                    return Err(format!(
+                        "IR member access `{}` is not a field of `{}`",
+                        member, target.type_name
+                    ));
+                };
+                let field_type = self.type_id(&field.type_name);
+                let dst = self.add_register(field_type, 0);
+                let field_name = self.strings.intern(member);
+                self.push(OPCODE_LOAD_FIELD, vec![dst, target.register, field_name]);
+                Ok(ValueSlot {
+                    register: dst,
+                    type_name: field.type_name,
+                })
+            }
         }
     }
 
@@ -662,6 +1034,13 @@ impl<'a> FunctionBuilder<'a> {
         self.function_return_types
             .get(target)
             .copied()
+            .ok_or_else(|| format!("unsupported call target `{target}`"))
+    }
+
+    fn call_return_type_name(&self, target: &str) -> Result<&str, String> {
+        self.function_return_type_names
+            .get(target)
+            .map(String::as_str)
             .ok_or_else(|| format!("unsupported call target `{target}`"))
     }
 
@@ -737,7 +1116,8 @@ impl TypeTable {
             "enum" => 3,
             _ => 1,
         };
-        self.add_entry(strings, package, &ir_type.name, kind, Vec::new())
+        let payload = source_type_payload(strings, ir_type);
+        self.add_entry(strings, package, &ir_type.name, kind, payload)
     }
 
     fn type_id(&mut self, strings: &mut StringPool, name: &str) -> u32 {
@@ -827,6 +1207,55 @@ impl TypeTable {
         }
         bytes
     }
+}
+
+fn source_type_payload(strings: &mut StringPool, ir_type: &IrType) -> Vec<u8> {
+    let mut payload = Vec::new();
+    match ir_type.kind.as_str() {
+        "type" => {
+            put_u32(&mut payload, ir_type.fields.len() as u32);
+            for field in &ir_type.fields {
+                put_field_payload(strings, &mut payload, field);
+            }
+        }
+        "union" => {
+            put_u32(&mut payload, ir_type.includes.len() as u32);
+            for include in &ir_type.includes {
+                put_u32(&mut payload, strings.intern(include));
+            }
+            put_u32(&mut payload, ir_type.variants.len() as u32);
+            for variant in &ir_type.variants {
+                put_u32(&mut payload, strings.intern(&variant.name));
+                put_u32(&mut payload, variant.fields.len() as u32);
+                for field in &variant.fields {
+                    put_field_payload(strings, &mut payload, field);
+                }
+            }
+        }
+        "enum" => {
+            put_u32(&mut payload, ir_type.members.len() as u32);
+            for member in &ir_type.members {
+                put_u32(&mut payload, strings.intern(&member.name));
+            }
+        }
+        _ => {}
+    }
+    payload
+}
+
+fn put_field_payload(strings: &mut StringPool, payload: &mut Vec<u8>, field: &crate::ir::IrField) {
+    put_u32(payload, strings.intern(&field.name));
+    put_u32(payload, strings.intern(&field.type_));
+    put_u16(
+        payload,
+        match field.visibility.as_deref() {
+            Some("private") => 1,
+            Some("package") => 2,
+            Some("export") => 3,
+            _ => 0,
+        },
+    );
+    put_u16(payload, 0);
 }
 
 impl ConstPool {

@@ -1,8 +1,10 @@
 use crate::bytecode::{
     self, NativeConst, NativeFunctionKind, NativeProgram, NativeType, NATIVE_OPCODE_ADD,
-    NATIVE_OPCODE_CALL_RESULT, NATIVE_OPCODE_CONCAT, NATIVE_OPCODE_COPY, NATIVE_OPCODE_DIV,
-    NATIVE_OPCODE_LOAD_CONST, NATIVE_OPCODE_LOAD_DEFAULT, NATIVE_OPCODE_MOVE, NATIVE_OPCODE_MUL,
-    NATIVE_OPCODE_RETURN_OK, NATIVE_OPCODE_SUB, NATIVE_OPCODE_UNWRAP_RESULT,
+    NATIVE_OPCODE_CALL_RESULT, NATIVE_OPCODE_CONCAT, NATIVE_OPCODE_CONSTRUCT_RECORD,
+    NATIVE_OPCODE_CONSTRUCT_VARIANT, NATIVE_OPCODE_COPY, NATIVE_OPCODE_DIV,
+    NATIVE_OPCODE_LOAD_CONST, NATIVE_OPCODE_LOAD_DEFAULT, NATIVE_OPCODE_LOAD_ENUM_MEMBER,
+    NATIVE_OPCODE_LOAD_FIELD, NATIVE_OPCODE_MOVE, NATIVE_OPCODE_MUL, NATIVE_OPCODE_RETURN_OK,
+    NATIVE_OPCODE_SUB, NATIVE_OPCODE_UNWRAP_RESULT,
 };
 use crate::ir::IrProject;
 use std::collections::HashMap;
@@ -132,7 +134,8 @@ impl<'a> NativeEmitter<'a> {
         let function = &self.program.functions[index];
         self.code.bind(self.functions[index]);
 
-        self.current_scratch = align(function.registers.len() * SLOT_SIZE, 16);
+        let aggregate_offsets = self.aggregate_offsets(function);
+        self.current_scratch = align(self.aggregate_storage_end(function, &aggregate_offsets), 16);
         let frame = align(self.current_scratch + SCRATCH_SIZE, 16);
         let epilogue = self.code.new_label();
         self.code.stp_fp_lr_pre();
@@ -145,6 +148,19 @@ impl<'a> NativeEmitter<'a> {
             self.code.str_imm((index * 2 + 1) as u8, 31, slot + 8)?;
         }
 
+        for (register, offset) in &aggregate_offsets {
+            if (*register as usize) < function.param_count {
+                continue;
+            }
+            self.code.add_imm(9, 31, *offset)?;
+            self.code.str_imm(9, 31, slot_offset(*register))?;
+            self.zero_aggregate_at_pointer(
+                9,
+                self.aggregate_size_slots(function.registers[*register as usize].type_id)
+                    .unwrap_or(0),
+            )?;
+        }
+
         for instruction in &function.code {
             match instruction.opcode {
                 NATIVE_OPCODE_LOAD_CONST => {
@@ -154,12 +170,24 @@ impl<'a> NativeEmitter<'a> {
                 }
                 NATIVE_OPCODE_LOAD_DEFAULT => {
                     let dst = operand(instruction, 0)?;
-                    self.store_zero_slot(dst)?;
+                    if let Some(slots) =
+                        self.aggregate_size_slots(function.registers[dst as usize].type_id)
+                    {
+                        self.zero_aggregate_register(dst, slots)?;
+                    } else {
+                        self.store_zero_slot(dst)?;
+                    }
                 }
                 NATIVE_OPCODE_MOVE | NATIVE_OPCODE_COPY => {
                     let dst = operand(instruction, 0)?;
                     let src = operand(instruction, 1)?;
-                    self.copy_slot(dst, src)?;
+                    if let Some(slots) =
+                        self.aggregate_size_slots(function.registers[dst as usize].type_id)
+                    {
+                        self.copy_aggregate_register(dst, src, slots)?;
+                    } else {
+                        self.copy_slot(dst, src)?;
+                    }
                 }
                 NATIVE_OPCODE_ADD | NATIVE_OPCODE_SUB | NATIVE_OPCODE_MUL | NATIVE_OPCODE_DIV => {
                     self.emit_integer_arithmetic(instruction.opcode, instruction, epilogue)?;
@@ -176,7 +204,24 @@ impl<'a> NativeEmitter<'a> {
                 NATIVE_OPCODE_UNWRAP_RESULT => {
                     let dst = operand(instruction, 0)?;
                     let result = operand(instruction, 1)?;
-                    self.emit_unwrap_result(dst, result, epilogue)?;
+                    self.emit_unwrap_result(function, dst, result, epilogue)?;
+                }
+                NATIVE_OPCODE_CONSTRUCT_RECORD => {
+                    self.emit_construct_record(instruction)?;
+                }
+                NATIVE_OPCODE_CONSTRUCT_VARIANT => {
+                    self.emit_construct_variant(instruction)?;
+                }
+                NATIVE_OPCODE_LOAD_FIELD => {
+                    let target = operand(instruction, 1)?;
+                    let target_type = function.registers[target as usize].type_id;
+                    self.emit_load_field(instruction, target_type)?;
+                }
+                NATIVE_OPCODE_LOAD_ENUM_MEMBER => {
+                    let dst = operand(instruction, 0)?;
+                    let ordinal = operand(instruction, 3)?;
+                    self.code.mov_imm(9, ordinal as u64);
+                    self.code.str_imm(9, 31, slot_offset(dst))?;
                 }
                 NATIVE_OPCODE_RETURN_OK => {
                     let src = operand(instruction, 0)?;
@@ -185,7 +230,9 @@ impl<'a> NativeEmitter<'a> {
                     self.code.b(epilogue);
                 }
                 opcode => {
-                    return Err(format!("native bytecode execution does not support opcode {opcode}"));
+                    return Err(format!(
+                        "native bytecode execution does not support opcode {opcode}"
+                    ));
                 }
             }
         }
@@ -195,6 +242,52 @@ impl<'a> NativeEmitter<'a> {
         self.code.ldp_fp_lr_post();
         self.code.ret();
         Ok(())
+    }
+
+    fn aggregate_offsets(&self, function: &bytecode::NativeFunction) -> Vec<(u32, usize)> {
+        let mut offsets = Vec::new();
+        let mut next = function.registers.len() * SLOT_SIZE;
+        for (index, register) in function.registers.iter().enumerate() {
+            let Some(slots) = self.aggregate_size_slots(register.type_id) else {
+                continue;
+            };
+            offsets.push((index as u32, next));
+            next += slots * SLOT_SIZE;
+        }
+        offsets
+    }
+
+    fn aggregate_storage_end(
+        &self,
+        function: &bytecode::NativeFunction,
+        offsets: &[(u32, usize)],
+    ) -> usize {
+        offsets
+            .iter()
+            .map(|(register, offset)| {
+                *offset
+                    + self
+                        .aggregate_size_slots(function.registers[*register as usize].type_id)
+                        .unwrap_or(0)
+                        * SLOT_SIZE
+            })
+            .max()
+            .unwrap_or(function.registers.len() * SLOT_SIZE)
+    }
+
+    fn aggregate_size_slots(&self, type_id: u32) -> Option<usize> {
+        self.program
+            .types
+            .records
+            .get(&type_id)
+            .map(|record| record.size_slots)
+            .or_else(|| {
+                self.program
+                    .types
+                    .unions
+                    .get(&type_id)
+                    .map(|union| union.size_slots)
+            })
     }
 
     fn emit_load_const(&mut self, dst: u32, constant_id: u32) -> Result<(), String> {
@@ -214,22 +307,95 @@ impl<'a> NativeEmitter<'a> {
                 self.code.mov_imm(9, *value as u64);
                 self.code.str_imm(9, 31, slot)
             }
+            NativeConst::Float(value) => {
+                self.code.mov_imm(9, value.to_bits());
+                self.code.str_imm(9, 31, slot)
+            }
             NativeConst::String(value) => {
-                let offset = *self
-                    .data
-                    .constants
-                    .get(&constant_id)
-                    .ok_or_else(|| format!("missing native data for string constant {constant_id}"))?;
+                let offset = *self.data.constants.get(&constant_id).ok_or_else(|| {
+                    format!("missing native data for string constant {constant_id}")
+                })?;
                 self.emit_data_addr(9, offset);
                 self.code.mov_imm(10, value.len() as u64);
                 self.code.str_imm(9, 31, slot)?;
                 self.code.str_imm(10, 31, slot + 8)
             }
-            NativeConst::Float | NativeConst::Fixed => Err(
-                "native bytecode execution supports Integer, String, Boolean, and Nothing constants"
-                    .to_string(),
-            ),
+            NativeConst::Fixed => {
+                Err("native bytecode execution does not support Fixed constants yet".to_string())
+            }
         }
+    }
+
+    fn emit_construct_record(
+        &mut self,
+        instruction: &bytecode::NativeInstruction,
+    ) -> Result<(), String> {
+        let dst = operand(instruction, 0)?;
+        let type_id = operand(instruction, 1)?;
+        let fields = self
+            .program
+            .types
+            .records
+            .get(&type_id)
+            .ok_or_else(|| format!("record constructor references unknown type {type_id}"))?
+            .ordered_fields
+            .clone();
+        self.code.ldr_imm(12, 31, slot_offset(dst))?;
+        for (index, field) in fields.iter().enumerate() {
+            let arg = operand(instruction, 2 + index)?;
+            self.copy_slot_to_address(arg, 12, field.offset_slots * SLOT_SIZE)?;
+        }
+        Ok(())
+    }
+
+    fn emit_construct_variant(
+        &mut self,
+        instruction: &bytecode::NativeInstruction,
+    ) -> Result<(), String> {
+        let dst = operand(instruction, 0)?;
+        let union_type_id = operand(instruction, 1)?;
+        let variant_name = operand(instruction, 2)?;
+        let fields = self
+            .program
+            .types
+            .unions
+            .get(&union_type_id)
+            .and_then(|union| union.variants.get(&variant_name))
+            .ok_or_else(|| {
+                format!("variant constructor references unknown variant {variant_name}")
+            })?
+            .fields
+            .clone();
+        self.code.ldr_imm(12, 31, slot_offset(dst))?;
+        self.code.mov_imm(9, variant_name as u64);
+        self.code.str_imm(9, 12, 0)?;
+        for (index, field) in fields.iter().enumerate() {
+            let arg = operand(instruction, 3 + index)?;
+            self.copy_slot_to_address(arg, 12, field.offset_slots * SLOT_SIZE)?;
+        }
+        Ok(())
+    }
+
+    fn emit_load_field(
+        &mut self,
+        instruction: &bytecode::NativeInstruction,
+        target_type: u32,
+    ) -> Result<(), String> {
+        let dst = operand(instruction, 0)?;
+        let target = operand(instruction, 1)?;
+        let field_name = operand(instruction, 2)?;
+        let field = self
+            .program
+            .types
+            .records
+            .get(&target_type)
+            .and_then(|record| record.fields.get(&field_name))
+            .ok_or_else(|| {
+                format!("field access references unknown field {field_name} on type {target_type}")
+            })?
+            .clone();
+        self.code.ldr_imm(12, 31, slot_offset(target))?;
+        self.copy_address_to_slot(12, field.offset_slots * SLOT_SIZE, dst)
     }
 
     fn emit_integer_arithmetic(
@@ -277,7 +443,10 @@ impl<'a> NativeEmitter<'a> {
             .ok_or_else(|| format!("bytecode calls missing function {function_id}"))?;
         if target.kind == NativeFunctionKind::Builtin {
             if target.name != "io.print" {
-                return Err(format!("native bytecode execution does not support built-in `{}`", target.name));
+                return Err(format!(
+                    "native bytecode execution does not support built-in `{}`",
+                    target.name
+                ));
             }
             let arg = operand(instruction, 2)?;
             let arg_type = self
@@ -293,7 +462,9 @@ impl<'a> NativeEmitter<'a> {
 
         for (arg_index, arg) in instruction.operands.iter().skip(2).enumerate() {
             if arg_index >= 4 {
-                return Err("native bytecode execution supports at most four call arguments".to_string());
+                return Err(
+                    "native bytecode execution supports at most four call arguments".to_string(),
+                );
             }
             let slot = slot_offset(*arg);
             self.code.ldr_imm((arg_index * 2) as u8, 31, slot)?;
@@ -321,7 +492,10 @@ impl<'a> NativeEmitter<'a> {
                 self.emit_print_integer()?;
             }
             _ => {
-                return Err("native io.print supports String and Integer values in this backend".to_string());
+                return Err(
+                    "native io.print supports String and Integer values in this backend"
+                        .to_string(),
+                );
             }
         }
         self.emit_newline_write()?;
@@ -395,6 +569,7 @@ impl<'a> NativeEmitter<'a> {
 
     fn emit_unwrap_result(
         &mut self,
+        function: &bytecode::NativeFunction,
         dst: u32,
         result: u32,
         epilogue: Label,
@@ -407,6 +582,11 @@ impl<'a> NativeEmitter<'a> {
         self.code.ldr_imm(2, 31, slot + 16)?;
         self.code.b(epilogue);
         self.code.bind(ok);
+        if let Some(slots) = self.aggregate_size_slots(function.registers[dst as usize].type_id) {
+            self.code.ldr_imm(13, 31, slot + 8)?;
+            self.copy_pointer_to_aggregate_register(13, dst, slots)?;
+            return Ok(());
+        }
         self.code.ldr_imm(9, 31, slot + 8)?;
         self.code.ldr_imm(10, 31, slot + 16)?;
         self.code.str_imm(9, 31, slot_offset(dst))?;
@@ -434,6 +614,75 @@ impl<'a> NativeEmitter<'a> {
         self.code.str_imm(9, 31, slot_offset(dst))?;
         self.code.str_imm(10, 31, slot_offset(dst) + 8)?;
         self.code.str_imm(11, 31, slot_offset(dst) + 16)
+    }
+
+    fn copy_aggregate_register(&mut self, dst: u32, src: u32, slots: usize) -> Result<(), String> {
+        self.code.ldr_imm(12, 31, slot_offset(dst))?;
+        self.code.ldr_imm(13, 31, slot_offset(src))?;
+        self.copy_aggregate_pointer_to_pointer(12, 13, slots)
+    }
+
+    fn copy_pointer_to_aggregate_register(
+        &mut self,
+        src_ptr_reg: u8,
+        dst: u32,
+        slots: usize,
+    ) -> Result<(), String> {
+        self.code.ldr_imm(12, 31, slot_offset(dst))?;
+        self.copy_aggregate_pointer_to_pointer(12, src_ptr_reg, slots)
+    }
+
+    fn copy_aggregate_pointer_to_pointer(
+        &mut self,
+        dst_ptr_reg: u8,
+        src_ptr_reg: u8,
+        slots: usize,
+    ) -> Result<(), String> {
+        for offset in (0..slots * SLOT_SIZE).step_by(8) {
+            self.code.ldr_imm(9, src_ptr_reg, offset)?;
+            self.code.str_imm(9, dst_ptr_reg, offset)?;
+        }
+        Ok(())
+    }
+
+    fn copy_slot_to_address(
+        &mut self,
+        src: u32,
+        dst_ptr_reg: u8,
+        dst_offset: usize,
+    ) -> Result<(), String> {
+        self.code.ldr_imm(9, 31, slot_offset(src))?;
+        self.code.ldr_imm(10, 31, slot_offset(src) + 8)?;
+        self.code.ldr_imm(11, 31, slot_offset(src) + 16)?;
+        self.code.str_imm(9, dst_ptr_reg, dst_offset)?;
+        self.code.str_imm(10, dst_ptr_reg, dst_offset + 8)?;
+        self.code.str_imm(11, dst_ptr_reg, dst_offset + 16)
+    }
+
+    fn copy_address_to_slot(
+        &mut self,
+        src_ptr_reg: u8,
+        src_offset: usize,
+        dst: u32,
+    ) -> Result<(), String> {
+        self.code.ldr_imm(9, src_ptr_reg, src_offset)?;
+        self.code.ldr_imm(10, src_ptr_reg, src_offset + 8)?;
+        self.code.ldr_imm(11, src_ptr_reg, src_offset + 16)?;
+        self.code.str_imm(9, 31, slot_offset(dst))?;
+        self.code.str_imm(10, 31, slot_offset(dst) + 8)?;
+        self.code.str_imm(11, 31, slot_offset(dst) + 16)
+    }
+
+    fn zero_aggregate_register(&mut self, dst: u32, slots: usize) -> Result<(), String> {
+        self.code.ldr_imm(12, 31, slot_offset(dst))?;
+        self.zero_aggregate_at_pointer(12, slots)
+    }
+
+    fn zero_aggregate_at_pointer(&mut self, ptr_reg: u8, slots: usize) -> Result<(), String> {
+        for offset in (0..slots * SLOT_SIZE).step_by(8) {
+            self.code.str_imm(31, ptr_reg, offset)?;
+        }
+        Ok(())
     }
 
     fn store_zero_slot(&mut self, dst: u32) -> Result<(), String> {
@@ -467,12 +716,7 @@ fn operand(instruction: &bytecode::NativeInstruction, index: usize) -> Result<u3
         .operands
         .get(index)
         .copied()
-        .ok_or_else(|| {
-            format!(
-                "opcode {} is missing operand {}",
-                instruction.opcode, index
-            )
-        })
+        .ok_or_else(|| format!("opcode {} is missing operand {}", instruction.opcode, index))
 }
 
 fn slot_offset(register: u32) -> usize {
@@ -559,9 +803,7 @@ impl Code {
                     write_u32(
                         &mut self.bytes,
                         source,
-                        if nonzero { 0xb500_0000 } else { 0xb400_0000 }
-                            | (imm << 5)
-                            | rt as u32,
+                        if nonzero { 0xb500_0000 } else { 0xb400_0000 } | (imm << 5) | rt as u32,
                     );
                 }
             }

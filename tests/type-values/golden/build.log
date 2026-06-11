@@ -4,3 +4,9 @@ Wrote AST to tests/type-values/type_values.ast
 $ mfb build -ir tests/type-values
 Wrote IR to tests/type-values/type_values.ir
 [exit 0]
+$ mfb build -bc tests/type-values
+Wrote bytecode hex to tests/type-values/type_values.hex
+[exit 0]
+$ mfb build -arm64 tests/type-values
+Wrote ARM64 binary to tests/type-values/type_values.arm64.bin
+[exit 0]
