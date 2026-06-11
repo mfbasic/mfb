@@ -1148,7 +1148,7 @@ Rules:
 
 ## 17. Built-in Functions
 
-Console I/O: `io.print`, `io.write`, `io.input`.
+Terminal and standard-stream I/O: `io.print`, `io.write`, `io.printError`, `io.writeError`, `io.flush`, `io.flushError`, `io.input`, `io.readLine`, `io.readChar`, `io.readByte`, `io.isInputTerminal`, `io.isOutputTerminal`, `io.isErrorTerminal`, `io.terminalSize`.
 Filesystem and file I/O: `fs.fileExists`, `fs.directoryExists`, `fs.exists`, `fs.readText`, `fs.writeText`, `fs.writeTextAtomic`, `fs.appendText`, `fs.openFile`, `fs.openFileNoFollow`, `fs.createTempFile`, `fs.readLine`, `fs.readAll`, `fs.writeAll`, `fs.close`, `fs.eof`, `fs.canonicalPath`, `fs.isWithin`, `fs.pathJoin`, `fs.pathDirName`, `fs.pathBaseName`, `fs.pathExtension`, `fs.pathNormalize`, `fs.deleteFile`, `fs.createDirectory`, `fs.createDirectories`, `fs.deleteDirectory`, `fs.listDirectory`, `fs.currentDirectory`, `fs.setCurrentDirectory`.
 Network: `net.lookup`, `net.connectTcp`, `net.listenTcp`, `net.accept`, `net.bindUdp`, `net.receiveFrom`, `net.receiveTextFrom`, `net.sendTo`, `net.sendTextTo`, `net.poll`, `net.read`, `net.readText`, `net.write`, `net.writeText`, `net.close`, `net.localAddress`, `net.remoteAddress`, `net.setReadTimeout`, `net.setWriteTimeout`, `tls.connect`, `tls.wrap`, `tls.close`.
 Strings: `len`, `find`, `mid`, `replace`, `strings.trim`, `strings.trimStart`, `strings.trimEnd`, `strings.upper`, `strings.lower`, `strings.caseFold`, `strings.normalizeNfc`, `strings.graphemes`, `strings.startsWith`, `strings.endsWith`, `strings.contains`, `strings.split`, `strings.join`, `strings.byteLen`, `strings.regexMatch`, `strings.regexFind`, `strings.regexReplace`, `toString`, `toInt`, `toFloat`, `toFixed`, `toByte`, `isNumeric`, `&`.
@@ -1703,16 +1703,37 @@ String helpers are exported by the `strings` package. Package functions are call
 
 ## 6. Built-in IO Package
 
-Console I/O is provided by the `io` package. Package functions are called with their package qualifier.
+Terminal and standard-stream I/O is provided by the `io` package. Package functions are called with their package qualifier.
+
+```basic
+TYPE TerminalSize
+  columns AS Integer
+  rows AS Integer
+END TYPE
+```
 
 | Function | Signature | Behavior |
 |----------|-----------|----------|
 | `io.print` | `FUNC print(value AS String) AS Nothing` | Writes `value` to standard output and appends a newline. Fails with `10015` on output failure. |
 | `io.write` | `FUNC write(value AS String) AS Nothing` | Writes `value` to standard output without appending a newline. Fails with `10015` on output failure. |
-| `io.input` | `FUNC input(prompt AS String = "") AS String` | Writes `prompt` when non-empty, reads one line from standard input, and returns it without the line terminator. Fails with `10020` on input failure. |
-There is no `PRINT` statement and no trailing-semicolon newline suppression. Use `io.print` for newline-terminated standard output, `io.write` for standard output without a newline, and `fs.writeAll` for file-handle output.
+| `io.printError` | `FUNC printError(value AS String) AS Nothing` | Writes `value` to standard error and appends a newline. Fails with `10015` on output failure. |
+| `io.writeError` | `FUNC writeError(value AS String) AS Nothing` | Writes `value` to standard error without appending a newline. Fails with `10015` on output failure. |
+| `io.flush` | `FUNC flush() AS Nothing` | Flushes standard output. Fails with `10015` on output failure. |
+| `io.flushError` | `FUNC flushError() AS Nothing` | Flushes standard error. Fails with `10015` on output failure. |
+| `io.input` | `FUNC input(prompt AS String = "") AS String` | Writes `prompt` to standard output when non-empty, flushes standard output, reads one line from standard input, and returns it without the line terminator. Fails with `10016` at EOF and `10020` on input failure. |
+| `io.readLine` | `FUNC readLine() AS String` | Reads one line from standard input and returns it without the line terminator. Fails with `10016` at EOF and `10020` on input failure. |
+| `io.readChar` | `FUNC readChar() AS String` | Reads one Unicode scalar value from standard input and returns it as a `String`. Fails with `10016` at EOF, `10019` on invalid UTF-8, and `10020` on input failure. |
+| `io.readByte` | `FUNC readByte() AS Byte` | Reads one byte from standard input. Fails with `10016` at EOF and `10020` on input failure. |
+| `io.isInputTerminal` | `FUNC isInputTerminal() AS Boolean` | `TRUE` when standard input is attached to an interactive terminal. |
+| `io.isOutputTerminal` | `FUNC isOutputTerminal() AS Boolean` | `TRUE` when standard output is attached to an interactive terminal. |
+| `io.isErrorTerminal` | `FUNC isErrorTerminal() AS Boolean` | `TRUE` when standard error is attached to an interactive terminal. |
+| `io.terminalSize` | `FUNC terminalSize() AS TerminalSize` | Returns the current interactive terminal size for standard output. Fails with `10007` when standard output is not an interactive terminal or the host cannot report a size. |
 
-Use `toString` explicitly before calling `io.print` or `io.write` when outputting a non-string value. Output functions are intended for user-visible text and diagnostics, not automatic structured logging of arbitrary values.
+Standard input character reads use the host terminal's normal line discipline. On canonical terminals, `io.readChar` may not return until the user submits a line; raw keypress mode, nonblocking input, cursor control, colors, and alternate-screen behavior are outside the core `io` package and may be provided by a future terminal package.
+
+There is no `PRINT` statement and no trailing-semicolon newline suppression. Use `io.print` for newline-terminated standard output, `io.write` for standard output without a newline, `io.printError` or `io.writeError` for standard error, and `fs.writeAll` for file-handle output.
+
+Use `toString` explicitly before calling `io.print`, `io.write`, `io.printError`, or `io.writeError` when outputting a non-string value. Output functions are intended for user-visible text and diagnostics, not automatic structured logging of arbitrary values.
 
 ## 7. Built-in Filesystem Package
 
