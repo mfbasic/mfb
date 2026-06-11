@@ -1,3 +1,4 @@
+use crate::builtins;
 use crate::bytecode::{
     self, NativeConst, NativeProgram, NativeType, NATIVE_OPCODE_ADD, NATIVE_OPCODE_BRANCH,
     NATIVE_OPCODE_BRANCH_IF_FALSE, NATIVE_OPCODE_BRANCH_IF_TRUE, NATIVE_OPCODE_CALL_RESULT,
@@ -12,7 +13,10 @@ use crate::bytecode::{
     NATIVE_OPCODE_COLLECTION_TRANSFORM, NATIVE_OPCODE_COLLECTION_VALUES, NATIVE_OPCODE_CONCAT,
     NATIVE_OPCODE_CONSTRUCT_LIST, NATIVE_OPCODE_CONSTRUCT_MAP, NATIVE_OPCODE_CONSTRUCT_RECORD,
     NATIVE_OPCODE_CONSTRUCT_VARIANT, NATIVE_OPCODE_COPY, NATIVE_OPCODE_DIV, NATIVE_OPCODE_EQUAL,
-    NATIVE_OPCODE_GENERAL_FIND, NATIVE_OPCODE_GENERAL_IS_NUMERIC, NATIVE_OPCODE_GENERAL_LEN,
+    NATIVE_OPCODE_GENERAL_FIND, NATIVE_OPCODE_GENERAL_IS_EMPTY, NATIVE_OPCODE_GENERAL_IS_EVEN,
+    NATIVE_OPCODE_GENERAL_IS_NEGATIVE, NATIVE_OPCODE_GENERAL_IS_NOT_EMPTY,
+    NATIVE_OPCODE_GENERAL_IS_NUMERIC, NATIVE_OPCODE_GENERAL_IS_ODD,
+    NATIVE_OPCODE_GENERAL_IS_POSITIVE, NATIVE_OPCODE_GENERAL_IS_ZERO, NATIVE_OPCODE_GENERAL_LEN,
     NATIVE_OPCODE_GENERAL_MID, NATIVE_OPCODE_GENERAL_REPLACE, NATIVE_OPCODE_GENERAL_TO_BYTE,
     NATIVE_OPCODE_GENERAL_TO_FIXED, NATIVE_OPCODE_GENERAL_TO_FLOAT, NATIVE_OPCODE_GENERAL_TO_INT,
     NATIVE_OPCODE_GENERAL_TO_STRING, NATIVE_OPCODE_GREATER, NATIVE_OPCODE_GREATER_EQUAL,
@@ -346,6 +350,17 @@ impl<'a> NativeEmitter<'a> {
                 }
                 NATIVE_OPCODE_GENERAL_IS_NUMERIC => {
                     self.emit_general_is_numeric(instruction)?;
+                }
+                NATIVE_OPCODE_GENERAL_IS_EVEN | NATIVE_OPCODE_GENERAL_IS_ODD => {
+                    self.emit_general_integer_parity(instruction.opcode, instruction)?;
+                }
+                NATIVE_OPCODE_GENERAL_IS_POSITIVE
+                | NATIVE_OPCODE_GENERAL_IS_NEGATIVE
+                | NATIVE_OPCODE_GENERAL_IS_ZERO => {
+                    self.emit_general_numeric_predicate(function, instruction.opcode, instruction)?;
+                }
+                NATIVE_OPCODE_GENERAL_IS_EMPTY | NATIVE_OPCODE_GENERAL_IS_NOT_EMPTY => {
+                    self.emit_general_length_predicate(instruction.opcode, instruction)?;
                 }
                 NATIVE_OPCODE_COLLECTION_GET => {
                     self.emit_collection_get(instruction, epilogue, false)?;
@@ -1624,6 +1639,29 @@ impl<'a> NativeEmitter<'a> {
             self.code.cmp_reg(20, 21);
             self.code.b_eq(labels[index]);
         }
+        let builtin_predicates = [
+            builtins::general::BUILTIN_FUNCTION_IS_EVEN,
+            builtins::general::BUILTIN_FUNCTION_IS_ODD,
+            builtins::general::BUILTIN_FUNCTION_IS_POSITIVE,
+            builtins::general::BUILTIN_FUNCTION_IS_NEGATIVE,
+            builtins::general::BUILTIN_FUNCTION_IS_ZERO,
+            builtins::general::BUILTIN_FUNCTION_IS_EMPTY,
+            builtins::general::BUILTIN_FUNCTION_IS_NOT_EMPTY,
+            builtins::general::BUILTIN_FUNCTION_IS_POSITIVE_FLOAT,
+            builtins::general::BUILTIN_FUNCTION_IS_POSITIVE_FIXED,
+            builtins::general::BUILTIN_FUNCTION_IS_NEGATIVE_FLOAT,
+            builtins::general::BUILTIN_FUNCTION_IS_NEGATIVE_FIXED,
+            builtins::general::BUILTIN_FUNCTION_IS_ZERO_FLOAT,
+            builtins::general::BUILTIN_FUNCTION_IS_ZERO_FIXED,
+        ];
+        let mut builtin_labels = Vec::new();
+        for function_id in builtin_predicates {
+            let label = self.code.new_label();
+            builtin_labels.push((function_id, label));
+            self.code.mov_imm(21, function_id as u64);
+            self.code.cmp_reg(20, 21);
+            self.code.b_eq(label);
+        }
         self.code.mov_imm(0, ERR_INVALID_ARGUMENT);
         self.code.mov_imm(1, 0);
         self.code.mov_imm(2, 0);
@@ -1633,8 +1671,101 @@ impl<'a> NativeEmitter<'a> {
             self.code.bl(self.function_label(index as u32)?);
             self.code.b(done);
         }
+        for (function_id, label) in builtin_labels {
+            self.code.bind(label);
+            self.emit_builtin_predicate_function(function_id)?;
+            self.code.b(done);
+        }
         self.code.bind(done);
         Ok(())
+    }
+
+    fn emit_builtin_predicate_function(&mut self, function_id: u32) -> Result<(), String> {
+        let false_label = self.code.new_label();
+        let done = self.code.new_label();
+
+        match function_id {
+            builtins::general::BUILTIN_FUNCTION_IS_EVEN
+            | builtins::general::BUILTIN_FUNCTION_IS_ODD => {
+                self.code.mov_imm(10, 2);
+                self.code.sdiv(11, 0, 10);
+                self.code.msub(12, 11, 10, 0);
+                self.code.cmp_zero(12);
+                if function_id == builtins::general::BUILTIN_FUNCTION_IS_EVEN {
+                    self.code.b_ne(false_label);
+                } else {
+                    self.code.b_eq(false_label);
+                }
+            }
+            builtins::general::BUILTIN_FUNCTION_IS_POSITIVE => {
+                self.code.cmp_zero(0);
+                self.code.b_le(false_label);
+            }
+            builtins::general::BUILTIN_FUNCTION_IS_POSITIVE_FLOAT
+            | builtins::general::BUILTIN_FUNCTION_IS_POSITIVE_FIXED => {
+                self.emit_float_bits_positive_check(false_label);
+            }
+            builtins::general::BUILTIN_FUNCTION_IS_NEGATIVE => {
+                self.code.cmp_zero(0);
+                self.code.b_ge(false_label);
+            }
+            builtins::general::BUILTIN_FUNCTION_IS_NEGATIVE_FLOAT
+            | builtins::general::BUILTIN_FUNCTION_IS_NEGATIVE_FIXED => {
+                self.emit_float_bits_negative_check(false_label);
+            }
+            builtins::general::BUILTIN_FUNCTION_IS_ZERO => {
+                self.code.cmp_zero(0);
+                self.code.b_ne(false_label);
+            }
+            builtins::general::BUILTIN_FUNCTION_IS_ZERO_FLOAT
+            | builtins::general::BUILTIN_FUNCTION_IS_ZERO_FIXED => {
+                self.emit_float_bits_zero_check(false_label);
+            }
+            builtins::general::BUILTIN_FUNCTION_IS_EMPTY => {
+                self.code.cmp_zero(1);
+                self.code.b_ne(false_label);
+            }
+            builtins::general::BUILTIN_FUNCTION_IS_NOT_EMPTY => {
+                self.code.cmp_zero(1);
+                self.code.b_eq(false_label);
+            }
+            _ => return Err(format!("unsupported built-in function id {function_id}")),
+        }
+
+        self.code.mov_imm(0, 0);
+        self.code.mov_imm(1, 1);
+        self.code.mov_imm(2, 0);
+        self.code.b(done);
+        self.code.bind(false_label);
+        self.code.mov_imm(0, 0);
+        self.code.mov_imm(1, 0);
+        self.code.mov_imm(2, 0);
+        self.code.bind(done);
+        Ok(())
+    }
+
+    fn emit_float_bits_positive_check(&mut self, false_label: Label) {
+        self.code.mov_imm(10, 0x8000_0000_0000_0000);
+        self.code.and_reg(11, 0, 10);
+        self.code.mov_imm(12, 0x7fff_ffff_ffff_ffff);
+        self.code.and_reg(13, 0, 12);
+        self.code.cbnz(11, false_label);
+        self.code.cbz(13, false_label);
+    }
+
+    fn emit_float_bits_negative_check(&mut self, false_label: Label) {
+        self.code.mov_imm(10, 0x8000_0000_0000_0000);
+        self.code.and_reg(11, 0, 10);
+        self.code.mov_imm(12, 0x7fff_ffff_ffff_ffff);
+        self.code.and_reg(13, 0, 12);
+        self.code.cbz(11, false_label);
+        self.code.cbz(13, false_label);
+    }
+
+    fn emit_float_bits_zero_check(&mut self, false_label: Label) {
+        self.code.mov_imm(12, 0x7fff_ffff_ffff_ffff);
+        self.code.and_reg(13, 0, 12);
+        self.code.cbnz(13, false_label);
     }
 
     fn clone_list_with_replacement(
@@ -2115,6 +2246,112 @@ impl<'a> NativeEmitter<'a> {
         self.code.mov_imm(12, 0);
         self.code.bind(done);
         self.code.str_imm(12, 31, slot_offset(dst))
+    }
+
+    fn emit_general_integer_parity(
+        &mut self,
+        opcode: u16,
+        instruction: &bytecode::NativeInstruction,
+    ) -> Result<(), String> {
+        let dst = operand(instruction, 0)?;
+        let src = operand(instruction, 1)?;
+        let false_label = self.code.new_label();
+        let done = self.code.new_label();
+
+        self.code.ldr_imm(9, 31, slot_offset(src))?;
+        self.code.mov_imm(10, 2);
+        self.code.sdiv(11, 9, 10);
+        self.code.msub(12, 11, 10, 9);
+        self.code.cmp_zero(12);
+        if opcode == NATIVE_OPCODE_GENERAL_IS_EVEN {
+            self.code.b_ne(false_label);
+        } else {
+            self.code.b_eq(false_label);
+        }
+        self.code.mov_imm(13, 1);
+        self.code.b(done);
+        self.code.bind(false_label);
+        self.code.mov_imm(13, 0);
+        self.code.bind(done);
+        self.code.str_imm(13, 31, slot_offset(dst))
+    }
+
+    fn emit_general_numeric_predicate(
+        &mut self,
+        function: &bytecode::NativeFunction,
+        opcode: u16,
+        instruction: &bytecode::NativeInstruction,
+    ) -> Result<(), String> {
+        let dst = operand(instruction, 0)?;
+        let src = operand(instruction, 1)?;
+        let src_type = function
+            .registers
+            .get(src as usize)
+            .map(|register| register.type_)
+            .ok_or_else(|| format!("numeric predicate references missing register {src}"))?;
+        let false_label = self.code.new_label();
+        let done = self.code.new_label();
+
+        self.code.ldr_imm(9, 31, slot_offset(src))?;
+        if matches!(src_type, NativeType::Float | NativeType::Fixed) {
+            self.code.mov_imm(10, 0x8000_0000_0000_0000);
+            self.code.and_reg(11, 9, 10);
+            self.code.mov_imm(12, 0x7fff_ffff_ffff_ffff);
+            self.code.and_reg(13, 9, 12);
+            match opcode {
+                NATIVE_OPCODE_GENERAL_IS_POSITIVE => {
+                    self.code.cbnz(11, false_label);
+                    self.code.cbz(13, false_label);
+                }
+                NATIVE_OPCODE_GENERAL_IS_NEGATIVE => {
+                    self.code.cbz(11, false_label);
+                    self.code.cbz(13, false_label);
+                }
+                NATIVE_OPCODE_GENERAL_IS_ZERO => {
+                    self.code.cbnz(13, false_label);
+                }
+                _ => unreachable!(),
+            }
+        } else {
+            self.code.cmp_zero(9);
+            match opcode {
+                NATIVE_OPCODE_GENERAL_IS_POSITIVE => self.code.b_le(false_label),
+                NATIVE_OPCODE_GENERAL_IS_NEGATIVE => self.code.b_ge(false_label),
+                NATIVE_OPCODE_GENERAL_IS_ZERO => self.code.b_ne(false_label),
+                _ => unreachable!(),
+            }
+        }
+        self.code.mov_imm(10, 1);
+        self.code.b(done);
+        self.code.bind(false_label);
+        self.code.mov_imm(10, 0);
+        self.code.bind(done);
+        self.code.str_imm(10, 31, slot_offset(dst))
+    }
+
+    fn emit_general_length_predicate(
+        &mut self,
+        opcode: u16,
+        instruction: &bytecode::NativeInstruction,
+    ) -> Result<(), String> {
+        let dst = operand(instruction, 0)?;
+        let src = operand(instruction, 1)?;
+        let false_label = self.code.new_label();
+        let done = self.code.new_label();
+
+        self.code.ldr_imm(9, 31, slot_offset(src) + 8)?;
+        self.code.cmp_zero(9);
+        if opcode == NATIVE_OPCODE_GENERAL_IS_EMPTY {
+            self.code.b_ne(false_label);
+        } else {
+            self.code.b_eq(false_label);
+        }
+        self.code.mov_imm(10, 1);
+        self.code.b(done);
+        self.code.bind(false_label);
+        self.code.mov_imm(10, 0);
+        self.code.bind(done);
+        self.code.str_imm(10, 31, slot_offset(dst))
     }
 
     fn emit_allocate_heap_object(

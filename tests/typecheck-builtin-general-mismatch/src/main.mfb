@@ -8,5 +8,11 @@ FUNC main AS Integer
   LET badToFixed AS Fixed = toFixed(TRUE)
   LET badToByte AS Byte = toByte("1")
   LET badIsNumeric AS Boolean = isNumeric(1)
+  LET badIsEven AS Boolean = isEven("2")
+  LET badIsPositive AS Boolean = isPositive(TRUE)
+  LET badIsNegative AS Boolean = isNegative("1")
+  LET badIsZero AS Boolean = isZero(TRUE)
+  LET badIsEmpty AS Boolean = isEmpty(1)
+  LET badIsNotEmpty AS Boolean = isNotEmpty(TRUE)
   RETURN badLen + badFind + badToInt
 END FUNC

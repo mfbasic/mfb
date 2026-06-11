@@ -6,8 +6,10 @@ use crate::bytecode::{
     OPCODE_COLLECTION_PREPEND, OPCODE_COLLECTION_REDUCE, OPCODE_COLLECTION_REMOVE_AT,
     OPCODE_COLLECTION_REMOVE_KEY, OPCODE_COLLECTION_REPLACE, OPCODE_COLLECTION_SET,
     OPCODE_COLLECTION_SUM, OPCODE_COLLECTION_TRANSFORM, OPCODE_COLLECTION_VALUES,
-    OPCODE_GENERAL_FIND, OPCODE_GENERAL_IS_NUMERIC, OPCODE_GENERAL_LEN, OPCODE_GENERAL_MID,
-    OPCODE_GENERAL_REPLACE, OPCODE_GENERAL_TO_BYTE, OPCODE_GENERAL_TO_FIXED,
+    OPCODE_GENERAL_FIND, OPCODE_GENERAL_IS_EMPTY, OPCODE_GENERAL_IS_EVEN,
+    OPCODE_GENERAL_IS_NEGATIVE, OPCODE_GENERAL_IS_NOT_EMPTY, OPCODE_GENERAL_IS_NUMERIC,
+    OPCODE_GENERAL_IS_ODD, OPCODE_GENERAL_IS_POSITIVE, OPCODE_GENERAL_IS_ZERO, OPCODE_GENERAL_LEN,
+    OPCODE_GENERAL_MID, OPCODE_GENERAL_REPLACE, OPCODE_GENERAL_TO_BYTE, OPCODE_GENERAL_TO_FIXED,
     OPCODE_GENERAL_TO_FLOAT, OPCODE_GENERAL_TO_INT, OPCODE_GENERAL_TO_STRING, TYPE_BOOLEAN,
     TYPE_BYTE, TYPE_FIXED, TYPE_FLOAT, TYPE_INTEGER, TYPE_STRING,
 };
@@ -26,6 +28,13 @@ const TO_FLOAT: &str = "toFloat";
 const TO_FIXED: &str = "toFixed";
 const TO_BYTE: &str = "toByte";
 const IS_NUMERIC: &str = "isNumeric";
+const IS_EVEN: &str = "isEven";
+const IS_ODD: &str = "isOdd";
+const IS_POSITIVE: &str = "isPositive";
+const IS_NEGATIVE: &str = "isNegative";
+const IS_ZERO: &str = "isZero";
+const IS_EMPTY: &str = "isEmpty";
+const IS_NOT_EMPTY: &str = "isNotEmpty";
 const GET: &str = "get";
 const GET_OR: &str = "getOr";
 const SET: &str = "set";
@@ -43,6 +52,21 @@ const TRANSFORM: &str = "transform";
 const FILTER: &str = "filter";
 const REDUCE: &str = "reduce";
 const SUM: &str = "sum";
+
+pub(crate) const BUILTIN_FUNCTION_ID_BASE: u32 = 0x8000_0000;
+pub(crate) const BUILTIN_FUNCTION_IS_EVEN: u32 = BUILTIN_FUNCTION_ID_BASE + 1;
+pub(crate) const BUILTIN_FUNCTION_IS_ODD: u32 = BUILTIN_FUNCTION_ID_BASE + 2;
+pub(crate) const BUILTIN_FUNCTION_IS_POSITIVE: u32 = BUILTIN_FUNCTION_ID_BASE + 3;
+pub(crate) const BUILTIN_FUNCTION_IS_NEGATIVE: u32 = BUILTIN_FUNCTION_ID_BASE + 4;
+pub(crate) const BUILTIN_FUNCTION_IS_ZERO: u32 = BUILTIN_FUNCTION_ID_BASE + 5;
+pub(crate) const BUILTIN_FUNCTION_IS_EMPTY: u32 = BUILTIN_FUNCTION_ID_BASE + 6;
+pub(crate) const BUILTIN_FUNCTION_IS_NOT_EMPTY: u32 = BUILTIN_FUNCTION_ID_BASE + 7;
+pub(crate) const BUILTIN_FUNCTION_IS_POSITIVE_FLOAT: u32 = BUILTIN_FUNCTION_ID_BASE + 8;
+pub(crate) const BUILTIN_FUNCTION_IS_POSITIVE_FIXED: u32 = BUILTIN_FUNCTION_ID_BASE + 9;
+pub(crate) const BUILTIN_FUNCTION_IS_NEGATIVE_FLOAT: u32 = BUILTIN_FUNCTION_ID_BASE + 10;
+pub(crate) const BUILTIN_FUNCTION_IS_NEGATIVE_FIXED: u32 = BUILTIN_FUNCTION_ID_BASE + 11;
+pub(crate) const BUILTIN_FUNCTION_IS_ZERO_FLOAT: u32 = BUILTIN_FUNCTION_ID_BASE + 12;
+pub(crate) const BUILTIN_FUNCTION_IS_ZERO_FIXED: u32 = BUILTIN_FUNCTION_ID_BASE + 13;
 
 #[derive(Clone)]
 pub(crate) struct ResolvedCall<'a> {
@@ -62,6 +86,13 @@ pub(crate) fn is_general_call(name: &str) -> bool {
             | TO_FIXED
             | TO_BYTE
             | IS_NUMERIC
+            | IS_EVEN
+            | IS_ODD
+            | IS_POSITIVE
+            | IS_NEGATIVE
+            | IS_ZERO
+            | IS_EMPTY
+            | IS_NOT_EMPTY
             | GET
             | GET_OR
             | SET
@@ -80,6 +111,42 @@ pub(crate) fn is_general_call(name: &str) -> bool {
             | REDUCE
             | SUM
     )
+}
+
+pub(crate) fn builtin_function_id(name: &str) -> Option<u32> {
+    match name {
+        IS_EVEN => Some(BUILTIN_FUNCTION_IS_EVEN),
+        IS_ODD => Some(BUILTIN_FUNCTION_IS_ODD),
+        IS_POSITIVE => Some(BUILTIN_FUNCTION_IS_POSITIVE),
+        IS_NEGATIVE => Some(BUILTIN_FUNCTION_IS_NEGATIVE),
+        IS_ZERO => Some(BUILTIN_FUNCTION_IS_ZERO),
+        IS_EMPTY => Some(BUILTIN_FUNCTION_IS_EMPTY),
+        IS_NOT_EMPTY => Some(BUILTIN_FUNCTION_IS_NOT_EMPTY),
+        _ => None,
+    }
+}
+
+pub(crate) fn builtin_function_id_for_type(name: &str, function_type: &str) -> Option<u32> {
+    let (params, returns) = function_parts(function_type)?;
+    if params.len() != 1 || returns != "Boolean" {
+        return builtin_function_id(name);
+    }
+    match (name, params[0]) {
+        (IS_POSITIVE, "Float") => Some(BUILTIN_FUNCTION_IS_POSITIVE_FLOAT),
+        (IS_POSITIVE, "Fixed") => Some(BUILTIN_FUNCTION_IS_POSITIVE_FIXED),
+        (IS_NEGATIVE, "Float") => Some(BUILTIN_FUNCTION_IS_NEGATIVE_FLOAT),
+        (IS_NEGATIVE, "Fixed") => Some(BUILTIN_FUNCTION_IS_NEGATIVE_FIXED),
+        (IS_ZERO, "Float") => Some(BUILTIN_FUNCTION_IS_ZERO_FLOAT),
+        (IS_ZERO, "Fixed") => Some(BUILTIN_FUNCTION_IS_ZERO_FIXED),
+        _ => builtin_function_id(name),
+    }
+}
+
+pub(crate) fn filter_predicate_type(name: &str, element_type: &str) -> Option<String> {
+    builtin_function_id(name)?;
+    let arg_types = vec![element_type.to_string()];
+    let resolved = resolve_call(name, &arg_types)?;
+    (resolved.return_type == "Boolean").then(|| format!("FUNC({element_type}) AS Boolean"))
 }
 
 pub(crate) fn resolve_call<'a>(name: &str, arg_types: &'a [String]) -> Option<ResolvedCall<'a>> {
@@ -228,6 +295,37 @@ pub(crate) fn resolve_call<'a>(name: &str, arg_types: &'a [String]) -> Option<Re
                 return None;
             }
         }
+        IS_EVEN | IS_ODD => {
+            if exact(arg_types, &["Integer"]) {
+                ResolvedCall {
+                    return_type: Cow::Borrowed("Boolean"),
+                }
+            } else {
+                return None;
+            }
+        }
+        IS_POSITIVE | IS_NEGATIVE | IS_ZERO => {
+            if exact_one_of(arg_types, &["Integer", "Float", "Fixed"]) {
+                ResolvedCall {
+                    return_type: Cow::Borrowed("Boolean"),
+                }
+            } else {
+                return None;
+            }
+        }
+        IS_EMPTY | IS_NOT_EMPTY => {
+            if arg_types.len() == 1
+                && (arg_types[0] == "String"
+                    || arg_types[0].starts_with("List OF ")
+                    || arg_types[0].starts_with("Map OF "))
+            {
+                ResolvedCall {
+                    return_type: Cow::Borrowed("Boolean"),
+                }
+            } else {
+                return None;
+            }
+        }
         GET => resolve_get(arg_types)?,
         GET_OR => resolve_get_or(arg_types)?,
         SET => resolve_set(arg_types)?,
@@ -263,6 +361,10 @@ pub(crate) fn expected_arguments(name: &str) -> Option<&'static str> {
         TO_FIXED => Some("String, Integer, or Float"),
         TO_BYTE => Some("Integer"),
         IS_NUMERIC => Some("String"),
+        IS_EVEN => Some("Integer"),
+        IS_ODD => Some("Integer"),
+        IS_POSITIVE | IS_NEGATIVE | IS_ZERO => Some("Integer, Float, or Fixed"),
+        IS_EMPTY | IS_NOT_EMPTY => Some("String, List OF T, or Map OF K TO V"),
         GET => Some("List OF T, Integer or Map OF K TO V, K"),
         GET_OR => Some("List OF T, Integer, T or Map OF K TO V, K, V"),
         SET => Some("List OF T, Integer, T or Map OF K TO V, K, V"),
@@ -286,7 +388,8 @@ pub(crate) fn expected_arguments(name: &str) -> Option<&'static str> {
 
 pub(crate) fn arity(name: &str) -> Option<(usize, usize)> {
     match name {
-        LEN | TYPE_NAME | TO_STRING | TO_INT | TO_FLOAT | TO_FIXED | TO_BYTE | IS_NUMERIC => {
+        LEN | TYPE_NAME | TO_STRING | TO_INT | TO_FLOAT | TO_FIXED | TO_BYTE | IS_NUMERIC
+        | IS_EVEN | IS_ODD | IS_POSITIVE | IS_NEGATIVE | IS_ZERO | IS_EMPTY | IS_NOT_EMPTY => {
             Some((1, 1))
         }
         FIND => Some((2, 3)),
@@ -597,6 +700,13 @@ fn opcode_for(name: &str, arg_types: &[String]) -> Result<u16, String> {
         TO_FIXED => Ok(OPCODE_GENERAL_TO_FIXED),
         TO_BYTE => Ok(OPCODE_GENERAL_TO_BYTE),
         IS_NUMERIC => Ok(OPCODE_GENERAL_IS_NUMERIC),
+        IS_EVEN => Ok(OPCODE_GENERAL_IS_EVEN),
+        IS_ODD => Ok(OPCODE_GENERAL_IS_ODD),
+        IS_POSITIVE => Ok(OPCODE_GENERAL_IS_POSITIVE),
+        IS_NEGATIVE => Ok(OPCODE_GENERAL_IS_NEGATIVE),
+        IS_ZERO => Ok(OPCODE_GENERAL_IS_ZERO),
+        IS_EMPTY => Ok(OPCODE_GENERAL_IS_EMPTY),
+        IS_NOT_EMPTY => Ok(OPCODE_GENERAL_IS_NOT_EMPTY),
         GET => Ok(OPCODE_COLLECTION_GET),
         GET_OR => Ok(OPCODE_COLLECTION_GET_OR),
         SET => Ok(OPCODE_COLLECTION_SET),

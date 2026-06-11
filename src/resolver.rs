@@ -527,7 +527,10 @@ impl<'a> Resolver<'a> {
     ) {
         if name.contains('.') {
             self.resolve_package_qualified_name(file, name, line, imports);
-        } else if !locals.contains_key(name) && !self.functions.contains_key(name) {
+        } else if !locals.contains_key(name)
+            && !self.functions.contains_key(name)
+            && !builtins::general::is_general_call(name)
+        {
             self.report(
                 "SYMBOL_UNKNOWN_IDENTIFIER",
                 &format!("Identifier `{name}` is not declared in this scope."),

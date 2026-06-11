@@ -1579,6 +1579,53 @@ impl<'a> TypeChecker<'a> {
         locals: &HashMap<String, LocalInfo>,
         line: usize,
     ) -> Type {
+        if callee == "filter" && arguments.len() == 2 {
+            if let Expression::Identifier(predicate) = &arguments[1] {
+                if builtins::general::builtin_function_id(predicate).is_some() {
+                    let collection_type = self.infer_expression(file, &arguments[0], locals, line);
+                    let collection_type_name = self.type_name(&collection_type);
+                    let predicate_type =
+                        collection_type_name
+                            .strip_prefix("List OF ")
+                            .and_then(|element| {
+                                builtins::general::filter_predicate_type(predicate, element)
+                            });
+
+                    let Some(predicate_type) = predicate_type else {
+                        self.report(
+                            "TYPE_CALL_ARGUMENT_MISMATCH",
+                            &format!(
+                                "Call to `filter` has argument type(s) ({collection_type_name}, {predicate}), expected {}.",
+                                builtins::general::expected_arguments(callee)
+                                    .unwrap_or("supported overload")
+                            ),
+                            file,
+                            line,
+                        );
+                        return Type::Unknown;
+                    };
+
+                    let arg_types = vec![collection_type_name, predicate_type];
+                    let Some(resolved) = builtins::general::resolve_call(callee, &arg_types) else {
+                        self.report(
+                            "TYPE_CALL_ARGUMENT_MISMATCH",
+                            &format!(
+                                "Call to `filter` has argument type(s) ({}), expected {}.",
+                                arg_types.join(", "),
+                                builtins::general::expected_arguments(callee)
+                                    .unwrap_or("supported overload")
+                            ),
+                            file,
+                            line,
+                        );
+                        return Type::Unknown;
+                    };
+
+                    return self.parse_type(&resolved.return_type);
+                }
+            }
+        }
+
         let arg_types = arguments
             .iter()
             .map(|argument| {

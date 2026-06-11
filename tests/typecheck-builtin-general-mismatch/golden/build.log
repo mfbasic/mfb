@@ -105,7 +105,78 @@ tests/typecheck-builtin-general-mismatch/src/main.mfb:10 error[TYPE_CALL_ARGUMEN
      | ^
 tests/typecheck-builtin-general-mismatch/src/main.mfb:10 error[TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `badIsNumeric` does not have a known type.
-[exit 1]
+   9 |   LET badToByte AS Byte = toByte("1")
+  10 |   LET badIsNumeric AS Boolean = isNumeric(1)
+  11 |   LET badIsEven AS Boolean = isEven("2")
+     | ^
+tests/typecheck-builtin-general-mismatch/src/main.mfb:11 error[TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `isEven` has argument type(s) (String), expected Integer.
+   9 |   LET badToByte AS Byte = toByte("1")
+  10 |   LET badIsNumeric AS Boolean = isNumeric(1)
+  11 |   LET badIsEven AS Boolean = isEven("2")
+     | ^
+tests/typecheck-builtin-general-mismatch/src/main.mfb:11 error[TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `badIsEven` does not have a known type.
+  10 |   LET badIsNumeric AS Boolean = isNumeric(1)
+  11 |   LET badIsEven AS Boolean = isEven("2")
+  12 |   LET badIsPositive AS Boolean = isPositive(TRUE)
+     | ^
+tests/typecheck-builtin-general-mismatch/src/main.mfb:12 error[TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `isPositive` has argument type(s) (Boolean), expected Integer, Float, or Fixed.
+  10 |   LET badIsNumeric AS Boolean = isNumeric(1)
+  11 |   LET badIsEven AS Boolean = isEven("2")
+  12 |   LET badIsPositive AS Boolean = isPositive(TRUE)
+     | ^
+tests/typecheck-builtin-general-mismatch/src/main.mfb:12 error[TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `badIsPositive` does not have a known type.
+  11 |   LET badIsEven AS Boolean = isEven("2")
+  12 |   LET badIsPositive AS Boolean = isPositive(TRUE)
+  13 |   LET badIsNegative AS Boolean = isNegative("1")
+     | ^
+tests/typecheck-builtin-general-mismatch/src/main.mfb:13 error[TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `isNegative` has argument type(s) (String), expected Integer, Float, or Fixed.
+  11 |   LET badIsEven AS Boolean = isEven("2")
+  12 |   LET badIsPositive AS Boolean = isPositive(TRUE)
+  13 |   LET badIsNegative AS Boolean = isNegative("1")
+     | ^
+tests/typecheck-builtin-general-mismatch/src/main.mfb:13 error[TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `badIsNegative` does not have a known type.
+  12 |   LET badIsPositive AS Boolean = isPositive(TRUE)
+  13 |   LET badIsNegative AS Boolean = isNegative("1")
+  14 |   LET badIsZero AS Boolean = isZero(TRUE)
+     | ^
+tests/typecheck-builtin-general-mismatch/src/main.mfb:14 error[TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `isZero` has argument type(s) (Boolean), expected Integer, Float, or Fixed.
+  12 |   LET badIsPositive AS Boolean = isPositive(TRUE)
+  13 |   LET badIsNegative AS Boolean = isNegative("1")
+  14 |   LET badIsZero AS Boolean = isZero(TRUE)
+     | ^
+tests/typecheck-builtin-general-mismatch/src/main.mfb:14 error[TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `badIsZero` does not have a known type.
+  13 |   LET badIsNegative AS Boolean = isNegative("1")
+  14 |   LET badIsZero AS Boolean = isZero(TRUE)
+  15 |   LET badIsEmpty AS Boolean = isEmpty(1)
+     | ^
+tests/typecheck-builtin-general-mismatch/src/main.mfb:15 error[TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `isEmpty` has argument type(s) (Integer), expected String, List OF T, or Map OF K TO V.
+  13 |   LET badIsNegative AS Boolean = isNegative("1")
+  14 |   LET badIsZero AS Boolean = isZero(TRUE)
+  15 |   LET badIsEmpty AS Boolean = isEmpty(1)
+     | ^
+tests/typecheck-builtin-general-mismatch/src/main.mfb:15 error[TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `badIsEmpty` does not have a known type.
+  14 |   LET badIsZero AS Boolean = isZero(TRUE)
+  15 |   LET badIsEmpty AS Boolean = isEmpty(1)
+  16 |   LET badIsNotEmpty AS Boolean = isNotEmpty(TRUE)
+     | ^
+tests/typecheck-builtin-general-mismatch/src/main.mfb:16 error[TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `isNotEmpty` has argument type(s) (Boolean), expected String, List OF T, or Map OF K TO V.
+  14 |   LET badIsZero AS Boolean = isZero(TRUE)
+  15 |   LET badIsEmpty AS Boolean = isEmpty(1)
+  16 |   LET badIsNotEmpty AS Boolean = isNotEmpty(TRUE)
+     | ^
+tests/typecheck-builtin-general-mismatch/src/main.mfb:16 error[TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `badIsNotEmpty` does not have a known type.
 $ mfb build -ir tests/typecheck-builtin-general-mismatch
    1 | FUNC main AS Integer
    2 |   LET badLen AS Integer = len(TRUE)
@@ -213,4 +284,75 @@ tests/typecheck-builtin-general-mismatch/src/main.mfb:10 error[TYPE_CALL_ARGUMEN
      | ^
 tests/typecheck-builtin-general-mismatch/src/main.mfb:10 error[TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `badIsNumeric` does not have a known type.
-[exit 1]
+   9 |   LET badToByte AS Byte = toByte("1")
+  10 |   LET badIsNumeric AS Boolean = isNumeric(1)
+  11 |   LET badIsEven AS Boolean = isEven("2")
+     | ^
+tests/typecheck-builtin-general-mismatch/src/main.mfb:11 error[TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `isEven` has argument type(s) (String), expected Integer.
+   9 |   LET badToByte AS Byte = toByte("1")
+  10 |   LET badIsNumeric AS Boolean = isNumeric(1)
+  11 |   LET badIsEven AS Boolean = isEven("2")
+     | ^
+tests/typecheck-builtin-general-mismatch/src/main.mfb:11 error[TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `badIsEven` does not have a known type.
+  10 |   LET badIsNumeric AS Boolean = isNumeric(1)
+  11 |   LET badIsEven AS Boolean = isEven("2")
+  12 |   LET badIsPositive AS Boolean = isPositive(TRUE)
+     | ^
+tests/typecheck-builtin-general-mismatch/src/main.mfb:12 error[TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `isPositive` has argument type(s) (Boolean), expected Integer, Float, or Fixed.
+  10 |   LET badIsNumeric AS Boolean = isNumeric(1)
+  11 |   LET badIsEven AS Boolean = isEven("2")
+  12 |   LET badIsPositive AS Boolean = isPositive(TRUE)
+     | ^
+tests/typecheck-builtin-general-mismatch/src/main.mfb:12 error[TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `badIsPositive` does not have a known type.
+  11 |   LET badIsEven AS Boolean = isEven("2")
+  12 |   LET badIsPositive AS Boolean = isPositive(TRUE)
+  13 |   LET badIsNegative AS Boolean = isNegative("1")
+     | ^
+tests/typecheck-builtin-general-mismatch/src/main.mfb:13 error[TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `isNegative` has argument type(s) (String), expected Integer, Float, or Fixed.
+  11 |   LET badIsEven AS Boolean = isEven("2")
+  12 |   LET badIsPositive AS Boolean = isPositive(TRUE)
+  13 |   LET badIsNegative AS Boolean = isNegative("1")
+     | ^
+tests/typecheck-builtin-general-mismatch/src/main.mfb:13 error[TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `badIsNegative` does not have a known type.
+  12 |   LET badIsPositive AS Boolean = isPositive(TRUE)
+  13 |   LET badIsNegative AS Boolean = isNegative("1")
+  14 |   LET badIsZero AS Boolean = isZero(TRUE)
+     | ^
+tests/typecheck-builtin-general-mismatch/src/main.mfb:14 error[TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `isZero` has argument type(s) (Boolean), expected Integer, Float, or Fixed.
+  12 |   LET badIsPositive AS Boolean = isPositive(TRUE)
+  13 |   LET badIsNegative AS Boolean = isNegative("1")
+  14 |   LET badIsZero AS Boolean = isZero(TRUE)
+     | ^
+tests/typecheck-builtin-general-mismatch/src/main.mfb:14 error[TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `badIsZero` does not have a known type.
+  13 |   LET badIsNegative AS Boolean = isNegative("1")
+  14 |   LET badIsZero AS Boolean = isZero(TRUE)
+  15 |   LET badIsEmpty AS Boolean = isEmpty(1)
+     | ^
+tests/typecheck-builtin-general-mismatch/src/main.mfb:15 error[TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `isEmpty` has argument type(s) (Integer), expected String, List OF T, or Map OF K TO V.
+  13 |   LET badIsNegative AS Boolean = isNegative("1")
+  14 |   LET badIsZero AS Boolean = isZero(TRUE)
+  15 |   LET badIsEmpty AS Boolean = isEmpty(1)
+     | ^
+tests/typecheck-builtin-general-mismatch/src/main.mfb:15 error[TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `badIsEmpty` does not have a known type.
+  14 |   LET badIsZero AS Boolean = isZero(TRUE)
+  15 |   LET badIsEmpty AS Boolean = isEmpty(1)
+  16 |   LET badIsNotEmpty AS Boolean = isNotEmpty(TRUE)
+     | ^
+tests/typecheck-builtin-general-mismatch/src/main.mfb:16 error[TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `isNotEmpty` has argument type(s) (Boolean), expected String, List OF T, or Map OF K TO V.
+  14 |   LET badIsZero AS Boolean = isZero(TRUE)
+  15 |   LET badIsEmpty AS Boolean = isEmpty(1)
+  16 |   LET badIsNotEmpty AS Boolean = isNotEmpty(TRUE)
+     | ^
+tests/typecheck-builtin-general-mismatch/src/main.mfb:16 error[TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `badIsNotEmpty` does not have a known type.

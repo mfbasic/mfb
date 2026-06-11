@@ -478,6 +478,24 @@ fn expression_type(
         }
         Expression::Call { callee, arguments } => {
             if builtins::general::is_general_call(callee) {
+                if callee == "filter" && arguments.len() == 2 {
+                    if let Expression::Identifier(predicate) = &arguments[1] {
+                        if let Some(collection_type) =
+                            expression_type(&arguments[0], locals, context)
+                        {
+                            if let Some(predicate_type) = collection_type
+                                .strip_prefix("List OF ")
+                                .and_then(|element| {
+                                    builtins::general::filter_predicate_type(predicate, element)
+                                })
+                            {
+                                let arg_types = vec![collection_type, predicate_type];
+                                return builtins::general::resolve_call(callee, &arg_types)
+                                    .map(|resolved| resolved.return_type.to_string());
+                            }
+                        }
+                    }
+                }
                 let arg_types = arguments
                     .iter()
                     .map(|argument| expression_type(argument, locals, context))
@@ -585,13 +603,49 @@ fn lower_expression(
                 IrValue::Local(value.clone())
             }
         }
-        Expression::Call { callee, arguments } => IrValue::Call {
-            target: callee.clone(),
-            args: arguments
-                .iter()
-                .map(|argument| lower_expression(argument, locals, context))
-                .collect(),
-        },
+        Expression::Call { callee, arguments } => {
+            let args = if callee == "filter" && arguments.len() == 2 {
+                if let Expression::Identifier(predicate) = &arguments[1] {
+                    let predicate_type = expression_type(&arguments[0], locals, context).and_then(
+                        |collection_type| {
+                            collection_type
+                                .strip_prefix("List OF ")
+                                .and_then(|element| {
+                                    builtins::general::filter_predicate_type(predicate, element)
+                                })
+                        },
+                    );
+                    if let Some(predicate_type) = predicate_type {
+                        vec![
+                            lower_expression(&arguments[0], locals, context),
+                            IrValue::FunctionRef {
+                                name: predicate.clone(),
+                                type_: predicate_type,
+                            },
+                        ]
+                    } else {
+                        arguments
+                            .iter()
+                            .map(|argument| lower_expression(argument, locals, context))
+                            .collect()
+                    }
+                } else {
+                    arguments
+                        .iter()
+                        .map(|argument| lower_expression(argument, locals, context))
+                        .collect()
+                }
+            } else {
+                arguments
+                    .iter()
+                    .map(|argument| lower_expression(argument, locals, context))
+                    .collect()
+            };
+            IrValue::Call {
+                target: callee.clone(),
+                args,
+            }
+        }
         Expression::Lambda { params, body } => {
             let name = format!("$lambda{}", context.next_lambda_id);
             context.next_lambda_id += 1;

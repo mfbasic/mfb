@@ -2,6 +2,8 @@ FUNC main AS Integer
   LET text AS String = "hello"
   LET numericText AS String = "42"
   LET bytes AS List OF Byte = []
+  LET numbers AS List OF Integer = [1, 2, 3, 4]
+  LET floats AS List OF Float = [1.5, -2.5, 0.0]
   LET strings AS List OF String = ["a", "b"]
   LET scores AS Map OF String TO Integer = Map OF String TO Integer { "a" := 1 }
   LET integerValue AS Integer = 42
@@ -42,6 +44,26 @@ FUNC main AS Integer
 
   LET convertedByte AS Byte = toByte(integerValue)
   LET numeric AS Boolean = isNumeric(numericText)
+  LET even AS Boolean = isEven(integerValue)
+  LET odd AS Boolean = isOdd(integerValue)
+  LET positiveInteger AS Boolean = isPositive(integerValue)
+  LET positiveFloat AS Boolean = isPositive(floatValue)
+  LET positiveFixed AS Boolean = isPositive(fixedValue)
+  LET negativeInteger AS Boolean = isNegative(integerValue)
+  LET negativeFloat AS Boolean = isNegative(floatValue)
+  LET negativeFixed AS Boolean = isNegative(fixedValue)
+  LET zeroInteger AS Boolean = isZero(integerValue)
+  LET zeroFloat AS Boolean = isZero(floatValue)
+  LET zeroFixed AS Boolean = isZero(fixedValue)
+  LET emptyText AS Boolean = isEmpty(text)
+  LET emptyList AS Boolean = isEmpty(strings)
+  LET emptyMap AS Boolean = isEmpty(scores)
+  LET notEmptyText AS Boolean = isNotEmpty(text)
+  LET notEmptyList AS Boolean = isNotEmpty(strings)
+  LET notEmptyMap AS Boolean = isNotEmpty(scores)
+  LET evenNumbers AS List OF Integer = filter(numbers, isEven)
+  LET positiveFloats AS List OF Float = filter(floats, isPositive)
+  LET nonEmptyStrings AS List OF String = filter(strings, isNotEmpty)
 
   RETURN stringLen + listLen + mapLen + foundDefaultStart + foundExplicitStart
 END FUNC

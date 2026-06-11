@@ -76,6 +76,13 @@ pub(crate) const OPCODE_GENERAL_TO_FLOAT: u16 = 106;
 pub(crate) const OPCODE_GENERAL_TO_FIXED: u16 = 107;
 pub(crate) const OPCODE_GENERAL_TO_BYTE: u16 = 108;
 pub(crate) const OPCODE_GENERAL_IS_NUMERIC: u16 = 109;
+pub(crate) const OPCODE_GENERAL_IS_EVEN: u16 = 110;
+pub(crate) const OPCODE_GENERAL_IS_ODD: u16 = 111;
+pub(crate) const OPCODE_GENERAL_IS_POSITIVE: u16 = 112;
+pub(crate) const OPCODE_GENERAL_IS_NEGATIVE: u16 = 113;
+pub(crate) const OPCODE_GENERAL_IS_ZERO: u16 = 114;
+pub(crate) const OPCODE_GENERAL_IS_EMPTY: u16 = 115;
+pub(crate) const OPCODE_GENERAL_IS_NOT_EMPTY: u16 = 116;
 pub(crate) const OPCODE_COLLECTION_GET: u16 = 120;
 pub(crate) const OPCODE_COLLECTION_GET_OR: u16 = 121;
 pub(crate) const OPCODE_COLLECTION_FIND: u16 = 122;
@@ -232,6 +239,13 @@ pub const NATIVE_OPCODE_GENERAL_TO_FLOAT: u16 = OPCODE_GENERAL_TO_FLOAT;
 pub const NATIVE_OPCODE_GENERAL_TO_FIXED: u16 = OPCODE_GENERAL_TO_FIXED;
 pub const NATIVE_OPCODE_GENERAL_TO_BYTE: u16 = OPCODE_GENERAL_TO_BYTE;
 pub const NATIVE_OPCODE_GENERAL_IS_NUMERIC: u16 = OPCODE_GENERAL_IS_NUMERIC;
+pub const NATIVE_OPCODE_GENERAL_IS_EVEN: u16 = OPCODE_GENERAL_IS_EVEN;
+pub const NATIVE_OPCODE_GENERAL_IS_ODD: u16 = OPCODE_GENERAL_IS_ODD;
+pub const NATIVE_OPCODE_GENERAL_IS_POSITIVE: u16 = OPCODE_GENERAL_IS_POSITIVE;
+pub const NATIVE_OPCODE_GENERAL_IS_NEGATIVE: u16 = OPCODE_GENERAL_IS_NEGATIVE;
+pub const NATIVE_OPCODE_GENERAL_IS_ZERO: u16 = OPCODE_GENERAL_IS_ZERO;
+pub const NATIVE_OPCODE_GENERAL_IS_EMPTY: u16 = OPCODE_GENERAL_IS_EMPTY;
+pub const NATIVE_OPCODE_GENERAL_IS_NOT_EMPTY: u16 = OPCODE_GENERAL_IS_NOT_EMPTY;
 pub const NATIVE_OPCODE_COLLECTION_GET: u16 = OPCODE_COLLECTION_GET;
 pub const NATIVE_OPCODE_COLLECTION_GET_OR: u16 = OPCODE_COLLECTION_GET_OR;
 pub const NATIVE_OPCODE_COLLECTION_FIND: u16 = OPCODE_COLLECTION_FIND;
@@ -1042,9 +1056,11 @@ impl<'a> FunctionBuilder<'a> {
                 .cloned()
                 .ok_or_else(|| format!("IR references unknown local `{name}`")),
             IrValue::FunctionRef { name, type_ } => {
-                let function_id = *self
+                let function_id = self
                     .function_ids
                     .get(name)
+                    .copied()
+                    .or_else(|| builtins::general::builtin_function_id_for_type(name, type_))
                     .ok_or_else(|| format!("IR references unknown function `{name}`"))?;
                 let type_id = self.type_id(type_);
                 let register = self.add_register(type_id, 0);
