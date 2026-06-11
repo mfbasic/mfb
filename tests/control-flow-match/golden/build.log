@@ -7,6 +7,6 @@ Wrote IR to tests/control-flow-match/control_flow_match.ir
 $ mfb build -bc tests/control-flow-match
 Wrote bytecode hex to tests/control-flow-match/control_flow_match.hex
 [exit 0]
-$ mfb build -arm64 tests/control-flow-match
-Wrote ARM64 binary to tests/control-flow-match/control_flow_match.arm64.bin
+$ mfb build -bin tests/control-flow-match
+Wrote binary to tests/control-flow-match/control_flow_match.aarch64.bin
 [exit 0]

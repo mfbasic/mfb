@@ -7,6 +7,6 @@ Wrote IR to tests/operators-full/operators_full.ir
 $ mfb build -bc tests/operators-full
 Wrote bytecode hex to tests/operators-full/operators_full.hex
 [exit 0]
-$ mfb build -arm64 tests/operators-full
-Wrote ARM64 binary to tests/operators-full/operators_full.arm64.bin
+$ mfb build -bin tests/operators-full
+Wrote binary to tests/operators-full/operators_full.aarch64.bin
 [exit 0]

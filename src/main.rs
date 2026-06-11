@@ -7,6 +7,7 @@ mod lexer;
 mod os;
 mod resolver;
 mod rules;
+mod target;
 mod typecheck;
 
 use std::collections::HashMap;
@@ -16,7 +17,7 @@ use std::path::{Path, PathBuf};
 use std::process;
 use tinyjson::JsonValue;
 
-const USAGE: &str = "Usage: mfb <command> <arguments>\n\nCommands:\n  help                        Show this message\n  init <location>             Create a new MFBASIC project\n  build [-ast|-ir|-bc|-arm64] [location] Validate and build an MFBASIC project";
+const USAGE: &str = "Usage: mfb <command> <arguments>\n\nCommands:\n  help                        Show this message\n  init <location>             Create a new MFBASIC project\n  build [-ast|-ir|-bc|-bin] [location] Validate and build an MFBASIC project";
 
 fn main() {
     let mut args = env::args().skip(1);
@@ -71,7 +72,7 @@ enum BuildOutput {
     Ast,
     Ir,
     Bytecode,
-    Arm64,
+    Binary,
 }
 
 fn parse_build_options(args: Vec<String>) -> Result<BuildOptions, String> {
@@ -94,11 +95,11 @@ fn parse_build_options(args: Vec<String>) -> Result<BuildOptions, String> {
                 return Err("mfb build accepts only one output mode".to_string());
             }
             output = BuildOutput::Bytecode;
-        } else if arg == "-arm64" {
+        } else if arg == "-bin" {
             if !matches!(output, BuildOutput::Validate) {
                 return Err("mfb build accepts only one output mode".to_string());
             }
-            output = BuildOutput::Arm64;
+            output = BuildOutput::Binary;
         } else if arg.starts_with('-') {
             return Err(format!("unknown build option `{arg}`"));
         } else if location.replace(PathBuf::from(&arg)).is_some() {
@@ -132,6 +133,7 @@ fn init_project(location: &Path) -> Result<(), String> {
 }
 
 fn build_project(options: &BuildOptions) -> Result<(), ()> {
+    let target = target::BuildTarget::host();
     let project_path = options.location.join("project.json");
     let manifest = validate_project_manifest(&project_path)?;
     let project_kind = project_kind(&manifest);
@@ -160,7 +162,7 @@ fn build_project(options: &BuildOptions) -> Result<(), ()> {
                 }
 
                 let ir = ir::lower_project(&ast, entry.clone());
-                let executable_path = os::darwin::write_executable(&options.location, &ir)
+                let executable_path = os::write_executable(&options.location, &ir, &target)
                     .map_err(|err| {
                         eprintln!("error: {err}");
                     })?;
@@ -197,18 +199,18 @@ fn build_project(options: &BuildOptions) -> Result<(), ()> {
                 })?;
             println!("Wrote bytecode hex to {}", bytecode_path.display());
         }
-        BuildOutput::Arm64 => {
+        BuildOutput::Binary => {
             if has_external_packages(&manifest) {
-                eprintln!("error: ARM64 output does not support external packages yet");
+                eprintln!("error: binary output does not support external packages yet");
                 return Err(());
             }
 
             let ir = ir::lower_project(&ast, entry);
-            let arm64_path =
-                arch::arm64::write_arm64_dump(&options.location, &ir).map_err(|err| {
+            let binary_path =
+                arch::write_binary_dump(&options.location, &ir, &target).map_err(|err| {
                     eprintln!("error: {err}");
                 })?;
-            println!("Wrote ARM64 binary to {}", arm64_path.display());
+            println!("Wrote binary to {}", binary_path.display());
         }
     }
 

@@ -7,6 +7,6 @@ Wrote IR to tests/arena-runtime/arena_runtime.ir
 $ mfb build -bc tests/arena-runtime
 Wrote bytecode hex to tests/arena-runtime/arena_runtime.hex
 [exit 0]
-$ mfb build -arm64 tests/arena-runtime
-Wrote ARM64 binary to tests/arena-runtime/arena_runtime.arm64.bin
+$ mfb build -bin tests/arena-runtime
+Wrote binary to tests/arena-runtime/arena_runtime.aarch64.bin
 [exit 0]

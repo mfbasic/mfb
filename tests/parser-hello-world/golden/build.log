@@ -4,6 +4,6 @@ Wrote AST to tests/parser-hello-world/parser_hello_world.ast
 $ mfb build -ir tests/parser-hello-world
 Wrote IR to tests/parser-hello-world/parser_hello_world.ir
 [exit 0]
-$ mfb build -arm64 tests/parser-hello-world
-Wrote ARM64 binary to tests/parser-hello-world/parser_hello_world.arm64.bin
+$ mfb build -bin tests/parser-hello-world
+Wrote binary to tests/parser-hello-world/parser_hello_world.aarch64.bin
 [exit 0]

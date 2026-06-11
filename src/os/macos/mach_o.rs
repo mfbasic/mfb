@@ -1,8 +1,8 @@
-use crate::arch::arm64;
+use crate::arch::aarch64;
 use crate::bytecode;
 use crate::ir::IrProject;
+use crate::target::BuildTarget;
 use sha2::{Digest, Sha256};
-use std::env;
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
@@ -11,18 +11,21 @@ const VM_BASE: u64 = 0x1_0000_0000;
 const TEXT_FILE_SIZE: usize = 0x4000;
 const LINKEDIT_FILE_OFFSET: usize = 0x4000;
 
-pub fn write_executable(project_dir: &Path, ir: &IrProject) -> Result<PathBuf, String> {
-    if env::consts::OS != "macos" || env::consts::ARCH != "aarch64" {
+pub fn write_executable(
+    project_dir: &Path,
+    ir: &IrProject,
+    target: &BuildTarget,
+) -> Result<PathBuf, String> {
+    if target.os != "macos" || target.arch != "aarch64" {
         return Err(format!(
-            "native executable output only supports macOS arm64 for now, got {} {}",
-            env::consts::OS,
-            env::consts::ARCH
+            "native executable output only supports macOS aarch64 for now, got {} {}",
+            target.os, target.arch
         ));
     }
 
     let program = bytecode::native_program(ir)?;
     let code_offset = code_offset();
-    let image = arm64::encode(&program, VM_BASE + code_offset as u64)?;
+    let image = aarch64::encode(&program, VM_BASE + code_offset as u64)?;
     let bytes = encode_mach_o(&ir.name, code_offset, &image.code, &image.data);
     let path = project_dir.join(format!("{}.out", ir.name));
 

@@ -12,6 +12,7 @@ use crate::bytecode::{
     NATIVE_OPCODE_XOR,
 };
 use crate::ir::IrProject;
+use crate::target::BuildTarget;
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -32,15 +33,26 @@ const HEAP_KIND_RECORD: u64 = 3;
 const HEAP_KIND_VARIANT: u64 = 4;
 const HEAP_KIND_MAP: u64 = 5;
 
-pub struct Arm64Image {
+pub struct Aarch64Image {
     pub code: Vec<u8>,
     pub data: Vec<u8>,
 }
 
-pub fn write_arm64_dump(project_dir: &Path, ir: &IrProject) -> Result<PathBuf, String> {
+pub fn write_binary_dump(
+    project_dir: &Path,
+    ir: &IrProject,
+    target: &BuildTarget,
+) -> Result<PathBuf, String> {
+    if target.arch != "aarch64" {
+        return Err(format!(
+            "AArch64 binary output cannot write {} binaries",
+            target.arch
+        ));
+    }
+
     let program = bytecode::native_program(ir)?;
     let image = encode(&program, 0)?;
-    let path = project_dir.join(format!("{}.arm64.bin", ir.name));
+    let path = project_dir.join(format!("{}.{}.bin", ir.name, target.arch));
     let mut bytes = image.code;
     bytes.extend_from_slice(&image.data);
     fs::write(&path, bytes)
@@ -48,14 +60,14 @@ pub fn write_arm64_dump(project_dir: &Path, ir: &IrProject) -> Result<PathBuf, S
     Ok(path)
 }
 
-pub fn encode(program: &NativeProgram, code_vmaddr: u64) -> Result<Arm64Image, String> {
+pub fn encode(program: &NativeProgram, code_vmaddr: u64) -> Result<Aarch64Image, String> {
     let data = NativeData::new(program);
     let code_len = NativeEmitter::new(program, &data, code_vmaddr, code_vmaddr)
         .emit()?
         .len();
     let data_base = code_vmaddr + code_len as u64;
     let code = NativeEmitter::new(program, &data, code_vmaddr, data_base).emit()?;
-    Ok(Arm64Image {
+    Ok(Aarch64Image {
         code,
         data: data.bytes,
     })
@@ -1160,7 +1172,7 @@ impl Code {
 
     fn finish(mut self) -> Vec<u8> {
         for patch in &self.patches {
-            let target = self.labels[patch.label.0].expect("unbound ARM64 label");
+            let target = self.labels[patch.label.0].expect("unbound AArch64 label");
             let source = patch.at;
             match patch.kind {
                 PatchKind::B => {
@@ -1405,7 +1417,7 @@ impl Code {
 
     fn ldr_imm(&mut self, rt: u8, rn: u8, offset: usize) -> Result<(), String> {
         if offset % 8 != 0 {
-            return Err(format!("unaligned ARM64 load offset {offset}"));
+            return Err(format!("unaligned AArch64 load offset {offset}"));
         }
         let imm = checked_imm12(offset / 8)?;
         self.emit(0xf940_0000 | (imm << 10) | ((rn as u32) << 5) | rt as u32);
@@ -1414,7 +1426,7 @@ impl Code {
 
     fn str_imm(&mut self, rt: u8, rn: u8, offset: usize) -> Result<(), String> {
         if offset % 8 != 0 {
-            return Err(format!("unaligned ARM64 store offset {offset}"));
+            return Err(format!("unaligned AArch64 store offset {offset}"));
         }
         let imm = checked_imm12(offset / 8)?;
         self.emit(0xf900_0000 | (imm << 10) | ((rn as u32) << 5) | rt as u32);
@@ -1435,7 +1447,7 @@ impl Code {
         let offset = target_addr as i64 - instruction_addr as i64;
         assert!(
             (-(1 << 20)..(1 << 20)).contains(&offset),
-            "ARM64 ADR target out of range"
+            "AArch64 ADR target out of range"
         );
         let encoded = if offset < 0 {
             ((1 << 21) + offset) as u32
@@ -1450,7 +1462,7 @@ impl Code {
 
 fn checked_imm12(value: usize) -> Result<u32, String> {
     if value > 4095 {
-        return Err(format!("ARM64 immediate {value} exceeds 12-bit encoding"));
+        return Err(format!("AArch64 immediate {value} exceeds 12-bit encoding"));
     }
     Ok(value as u32)
 }

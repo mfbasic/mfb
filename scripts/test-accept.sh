@@ -11,6 +11,16 @@ ACTUAL_ROOT=$2
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 TEST_ROOT="$ROOT/tests"
 
+host_arch="$(uname -m)"
+case "$host_arch" in
+  arm64)
+    bin_arch="aarch64"
+    ;;
+  *)
+    bin_arch="$host_arch"
+    ;;
+esac
+
 failures=0
 
 project_name() {
@@ -81,9 +91,9 @@ for test_dir in "$TEST_ROOT"/*; do
   ast_path="$test_dir/$package_name.ast"
   ir_path="$test_dir/$package_name.ir"
   hex_path="$test_dir/$package_name.hex"
-  arm64_path="$test_dir/$package_name.arm64.bin"
+  bin_path="$test_dir/$package_name.$bin_arch.bin"
 
-  rm -f "$ast_path" "$ir_path" "$hex_path" "$arm64_path" "$test_dir/$package_name.out"
+  rm -f "$ast_path" "$ir_path" "$hex_path" "$bin_path" "$test_dir/$package_name.out"
 
   {
     echo "$ mfb build -ast tests/$test_name"
@@ -97,9 +107,9 @@ for test_dir in "$TEST_ROOT"/*; do
       "$MFB_EXE" build -bc "tests/$test_name"
       echo "[exit $?]"
     fi
-    if [ -f "$golden_dir/$package_name.arm64.bin" ]; then
-      echo "$ mfb build -arm64 tests/$test_name"
-      "$MFB_EXE" build -arm64 "tests/$test_name"
+    if [ -f "$golden_dir/$package_name.$bin_arch.bin" ]; then
+      echo "$ mfb build -bin tests/$test_name"
+      "$MFB_EXE" build -bin "tests/$test_name"
       echo "[exit $?]"
     fi
   } >"$log_path" 2>&1
@@ -113,8 +123,8 @@ for test_dir in "$TEST_ROOT"/*; do
   if [ -f "$hex_path" ]; then
     mv "$hex_path" "$actual_dir/$package_name.hex"
   fi
-  if [ -f "$arm64_path" ]; then
-    mv "$arm64_path" "$actual_dir/$package_name.arm64.bin"
+  if [ -f "$bin_path" ]; then
+    mv "$bin_path" "$actual_dir/$package_name.$bin_arch.bin"
   fi
 
   compare_file "$test_name/build.log" "$golden_dir/build.log" "$log_path"
@@ -127,9 +137,9 @@ for test_dir in "$TEST_ROOT"/*; do
   compare_optional_output "$test_name/$package_name.hex" \
     "$golden_dir/$package_name.hex" \
     "$actual_dir/$package_name.hex"
-  compare_optional_output "$test_name/$package_name.arm64.bin" \
-    "$golden_dir/$package_name.arm64.bin" \
-    "$actual_dir/$package_name.arm64.bin"
+  compare_optional_output "$test_name/$package_name.$bin_arch.bin" \
+    "$golden_dir/$package_name.$bin_arch.bin" \
+    "$actual_dir/$package_name.$bin_arch.bin"
 done
 
 if [ "$failures" -ne 0 ]; then
