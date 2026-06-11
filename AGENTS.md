@@ -11,6 +11,17 @@ Guidelines:
 - Implement the complete requested behavior, including necessary error handling, integration points, and tests or validation.
 - If a production-ready implementation is blocked by missing requirements, dependencies, or external access, state the blocker clearly and avoid filling the gap with non-functional code.
 
+## Validation
+
+After completing any code or golden-output change, the acceptance suite must pass.
+
+Guidelines:
+
+- Run `scripts/test-accept.sh target/debug/mfb target/accept-actual` after compiler work or any change that can affect generated AST, IR, bytecode, native binaries, or diagnostics.
+- If acceptance fails, verify whether each failure is caused by the compiler update, a stale expected-output fixture, or a real regression before fixing code or updating goldens.
+- Do not assume an acceptance mismatch is a test issue. Prove stale goldens by comparing deterministic regenerated output, and when necessary compare against a clean pre-change checkout.
+- Do not leave acceptance failing at the end of the task unless an external blocker makes the suite impossible to run; report that blocker and the exact command/output.
+
 ## Commits
 
 When creating commits in this repository, use detailed itemized commit messages.
