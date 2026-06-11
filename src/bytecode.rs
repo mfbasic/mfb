@@ -58,178 +58,200 @@ pub fn build_bytecode_bytes(ir: &IrProject, version: &str) -> Result<Vec<u8>, St
     Ok(lower_project(ir, version)?.encode())
 }
 
-pub struct NativePlan {
-    pub prints: Vec<Vec<u8>>,
-    pub exit_code: u8,
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum NativeType {
+    Nothing,
+    Boolean,
+    Integer,
+    Float,
+    Fixed,
+    String,
+    Result,
+    Other,
 }
 
-pub fn native_plan(ir: &IrProject) -> Result<NativePlan, String> {
-    let entry = ir
-        .entry
-        .as_ref()
-        .ok_or_else(|| "native executable output requires an executable entry point".to_string())?;
-    let functions = ir
+pub struct NativeProgram {
+    pub entry_function: u32,
+    pub entry_returns_integer: bool,
+    pub functions: Vec<NativeFunction>,
+    pub constants: Vec<NativeConst>,
+}
+
+pub struct NativeFunction {
+    pub name: String,
+    pub kind: NativeFunctionKind,
+    pub param_count: usize,
+    pub registers: Vec<NativeRegister>,
+    pub code: Vec<NativeInstruction>,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum NativeFunctionKind {
+    Bytecode,
+    Builtin,
+}
+
+pub struct NativeRegister {
+    pub type_: NativeType,
+}
+
+pub struct NativeInstruction {
+    pub opcode: u16,
+    pub operands: Vec<u32>,
+}
+
+pub enum NativeConst {
+    Nothing,
+    Boolean(bool),
+    Integer(i64),
+    Float,
+    Fixed,
+    String(String),
+    Other,
+}
+
+pub const NATIVE_OPCODE_LOAD_CONST: u16 = OPCODE_LOAD_CONST;
+pub const NATIVE_OPCODE_LOAD_DEFAULT: u16 = OPCODE_LOAD_DEFAULT;
+pub const NATIVE_OPCODE_MOVE: u16 = OPCODE_MOVE;
+pub const NATIVE_OPCODE_COPY: u16 = OPCODE_COPY;
+pub const NATIVE_OPCODE_ADD: u16 = OPCODE_ADD;
+pub const NATIVE_OPCODE_SUB: u16 = OPCODE_SUB;
+pub const NATIVE_OPCODE_MUL: u16 = OPCODE_MUL;
+pub const NATIVE_OPCODE_DIV: u16 = OPCODE_DIV;
+pub const NATIVE_OPCODE_CONCAT: u16 = OPCODE_CONCAT;
+pub const NATIVE_OPCODE_CALL_RESULT: u16 = OPCODE_CALL_RESULT;
+pub const NATIVE_OPCODE_UNWRAP_RESULT: u16 = OPCODE_UNWRAP_RESULT;
+pub const NATIVE_OPCODE_RETURN_OK: u16 = OPCODE_RETURN_OK;
+
+pub fn native_program(ir: &IrProject) -> Result<NativeProgram, String> {
+    let project = lower_project(ir, "native")?;
+    if project.entry_function == u32::MAX {
+        return Err("native executable output requires an executable entry point".to_string());
+    }
+
+    let mut strings = HashMap::new();
+    for (index, value) in project.strings.values.iter().enumerate() {
+        strings.insert(index as u32, value.clone());
+    }
+
+    let mut result_success_types = HashMap::new();
+    for (index, entry) in project.types.entries.iter().enumerate() {
+        if entry.kind == 6 && entry.payload.len() >= 4 {
+            result_success_types.insert(index as u32, read_u32(&entry.payload, 0));
+        }
+    }
+
+    let constants = project
+        .constants
+        .entries
+        .iter()
+        .map(|constant| native_const(constant, &strings))
+        .collect::<Result<Vec<_>, _>>()?;
+
+    let functions = project
         .functions
         .iter()
-        .map(|function| (function.name.as_str(), function))
-        .collect::<HashMap<_, _>>();
-    let entry_function = functions
-        .get(entry.name.as_str())
-        .ok_or_else(|| format!("entry function `{}` was not lowered to IR", entry.name))?;
-    let mut evaluator = NativePlanEvaluator {
-        functions: &functions,
-        prints: Vec::new(),
-    };
-    let args = if entry.accepts_args {
-        vec!["".to_string()]
-    } else {
-        Vec::new()
-    };
-    let returned = evaluator.eval_function(entry_function, args)?;
-    let exit_code = if entry.returns == "Integer" {
-        returned
-            .ok_or_else(|| format!("FUNC entry `{}` did not return an Integer", entry.name))?
-            .parse::<u8>()
-            .map_err(|_| {
-                format!(
-                    "native build requires FUNC entry `{}` to return an Integer in the process exit-code range 0..255",
-                    entry.name
-                )
-            })?
-    } else {
-        0
-    };
-    Ok(NativePlan {
-        prints: evaluator.prints,
-        exit_code,
+        .map(|function| native_function(function, &strings, &result_success_types))
+        .collect::<Result<Vec<_>, _>>()?;
+
+    Ok(NativeProgram {
+        entry_function: project.entry_function,
+        entry_returns_integer: project.entry_flags & (1 << 2) != 0,
+        functions,
+        constants,
     })
 }
 
-struct NativePlanEvaluator<'a> {
-    functions: &'a HashMap<&'a str, &'a IrFunction>,
-    prints: Vec<Vec<u8>>,
+fn native_function(
+    function: &Function,
+    strings: &HashMap<u32, String>,
+    result_success_types: &HashMap<u32, u32>,
+) -> Result<NativeFunction, String> {
+    let name = strings
+        .get(&function.name)
+        .cloned()
+        .ok_or_else(|| format!("bytecode function references missing name {}", function.name))?;
+    let kind = match function.kind {
+        FUNCTION_BYTECODE => NativeFunctionKind::Bytecode,
+        FUNCTION_BUILTIN => NativeFunctionKind::Builtin,
+        _ => return Err(format!("native output does not support function kind {}", function.kind)),
+    };
+
+    Ok(NativeFunction {
+        name,
+        kind,
+        param_count: function.params.len(),
+        registers: function
+            .registers
+            .iter()
+            .map(|register| NativeRegister {
+                type_: native_type(register.type_id, result_success_types),
+            })
+            .collect(),
+        code: function
+            .code
+            .iter()
+            .map(|instruction| NativeInstruction {
+                opcode: instruction.opcode,
+                operands: instruction.operands.clone(),
+            })
+            .collect(),
+    })
 }
 
-impl<'a> NativePlanEvaluator<'a> {
-    fn eval_function(
-        &mut self,
-        function: &'a IrFunction,
-        args: Vec<String>,
-    ) -> Result<Option<String>, String> {
-        let mut locals = HashMap::new();
-        for (index, param) in function.params.iter().enumerate() {
-            let value = if let Some(value) = args.get(index) {
-                value.clone()
-            } else if let Some(default) = &param.default {
-                self.eval_string(default, &locals)?
-            } else {
-                return Err(format!(
-                    "native build cannot call `{}` without argument `{}`",
-                    function.name, param.name
-                ));
-            };
-            locals.insert(param.name.clone(), value);
-        }
-
-        for op in &function.body {
-            match op {
-                IrOp::Bind { name, value, .. } => {
-                    let value = match value {
-                        Some(value) => self.eval_string(value, &locals)?,
-                        None => String::new(),
-                    };
-                    locals.insert(name.clone(), value);
-                }
-                IrOp::Return { value } => {
-                    return match value {
-                        Some(value) => Ok(Some(self.eval_string(value, &locals)?)),
-                        None => Ok(None),
-                    };
-                }
-                IrOp::Eval { value } => {
-                    self.eval_effect(value, &locals)?;
-                }
-            }
-        }
-
-        Ok(None)
+fn native_type(type_id: u32, result_success_types: &HashMap<u32, u32>) -> NativeType {
+    match type_id {
+        TYPE_NOTHING => NativeType::Nothing,
+        TYPE_BOOLEAN => NativeType::Boolean,
+        TYPE_INTEGER => NativeType::Integer,
+        TYPE_FLOAT => NativeType::Float,
+        TYPE_FIXED => NativeType::Fixed,
+        TYPE_STRING => NativeType::String,
+        id if result_success_types.contains_key(&id) => NativeType::Result,
+        _ => NativeType::Other,
     }
+}
 
-    fn eval_effect(
-        &mut self,
-        value: &'a IrValue,
-        locals: &HashMap<String, String>,
-    ) -> Result<(), String> {
-        match value {
-            IrValue::Call { target, args } if target == "io.print" => {
-                let Some(arg) = args.first() else {
-                    return Err(
-                        "native build requires io.print to receive one argument".to_string()
-                    );
-                };
-                let mut value = self.eval_string(arg, locals)?.into_bytes();
-                value.push(b'\n');
-                self.prints.push(value);
-                Ok(())
-            }
-            IrValue::Call { .. } => {
-                self.eval_string(value, locals)?;
-                Ok(())
-            }
-            IrValue::Local(_)
-            | IrValue::Const { .. }
-            | IrValue::Binary { .. }
-            | IrValue::Constructor { .. }
-            | IrValue::MemberAccess { .. } => {
-                self.eval_string(value, locals)?;
-                Ok(())
-            }
+fn native_const(
+    constant: &ConstEntry,
+    strings: &HashMap<u32, String>,
+) -> Result<NativeConst, String> {
+    match constant.kind {
+        1 => Ok(NativeConst::Nothing),
+        2 => Ok(NativeConst::Boolean(constant.payload.first().copied().unwrap_or(0) != 0)),
+        3 => Ok(NativeConst::Integer(read_i64(&constant.payload, 0))),
+        4 => {
+            let _ = read_u64(&constant.payload, 0);
+            Ok(NativeConst::Float)
         }
+        5 => Ok(NativeConst::Fixed),
+        6 => {
+            let string_id = read_u32(&constant.payload, 0);
+            let value = strings.get(&string_id).cloned().ok_or_else(|| {
+                format!("String constant references missing string pool entry {string_id}")
+            })?;
+            Ok(NativeConst::String(value))
+        }
+        _ => Ok(NativeConst::Other),
     }
+}
 
-    fn eval_string(
-        &mut self,
-        value: &'a IrValue,
-        locals: &HashMap<String, String>,
-    ) -> Result<String, String> {
-        match value {
-            IrValue::Const { type_, value } if type_ == "String" => Ok(value.clone()),
-            IrValue::Const { type_, value } if type_ == "Integer" => Ok(value.clone()),
-            IrValue::Local(name) => locals
-                .get(name)
-                .cloned()
-                .ok_or_else(|| format!("native build references unknown local `{name}`")),
-            IrValue::Binary { op, left, right } if op == "&" => {
-                let mut value = self.eval_string(left, locals)?;
-                value.push_str(&self.eval_string(right, locals)?);
-                Ok(value)
-            }
-            IrValue::Call { target, args } => {
-                let function = self.functions.get(target.as_str()).ok_or_else(|| {
-                    format!("native build cannot call unknown function `{target}`")
-                })?;
-                let args = args
-                    .iter()
-                    .map(|arg| self.eval_string(arg, locals))
-                    .collect::<Result<Vec<_>, _>>()?;
-                self.eval_function(function, args)?.ok_or_else(|| {
-                    format!("native build requires `{target}` to return a String value")
-                })
-            }
-            IrValue::Const { type_, .. } => Err(format!(
-                "native build does not support {type_} values outside built-in lowering yet"
-            )),
-            IrValue::Binary { op, .. } => Err(format!(
-                "native build does not support binary operator `{op}` outside built-in lowering yet"
-            )),
-            IrValue::Constructor { type_, .. } => Err(format!(
-                "native build does not support constructing `{type_}` values yet"
-            )),
-            IrValue::MemberAccess { member, .. } => Err(format!(
-                "native build does not support member access `{member}` yet"
-            )),
-        }
-    }
+fn read_u32(bytes: &[u8], offset: usize) -> u32 {
+    let mut value = [0; 4];
+    value.copy_from_slice(&bytes[offset..offset + 4]);
+    u32::from_le_bytes(value)
+}
+
+fn read_u64(bytes: &[u8], offset: usize) -> u64 {
+    let mut value = [0; 8];
+    value.copy_from_slice(&bytes[offset..offset + 8]);
+    u64::from_le_bytes(value)
+}
+
+fn read_i64(bytes: &[u8], offset: usize) -> i64 {
+    let mut value = [0; 8];
+    value.copy_from_slice(&bytes[offset..offset + 8]);
+    i64::from_le_bytes(value)
 }
 
 struct BytecodeProject {

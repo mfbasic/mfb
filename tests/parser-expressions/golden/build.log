@@ -4,3 +4,6 @@ Wrote AST to tests/parser-expressions/parser_expressions.ast
 $ mfb build -ir tests/parser-expressions
 Wrote IR to tests/parser-expressions/parser_expressions.ir
 [exit 0]
+$ mfb build -arm64 tests/parser-expressions
+Wrote ARM64 binary to tests/parser-expressions/parser_expressions.arm64.bin
+[exit 0]

@@ -20,9 +20,9 @@ pub fn write_executable(project_dir: &Path, ir: &IrProject) -> Result<PathBuf, S
         ));
     }
 
-    let plan = bytecode::native_plan(ir)?;
+    let program = bytecode::native_program(ir)?;
     let code_offset = code_offset();
-    let image = arm64::encode(&plan, VM_BASE + code_offset as u64);
+    let image = arm64::encode(&program, VM_BASE + code_offset as u64)?;
     let bytes = encode_mach_o(&ir.name, code_offset, &image.code, &image.data);
     let path = project_dir.join(format!("{}.out", ir.name));
 
