@@ -1,0 +1,7 @@
+/build/
+/target/
+/cmake-build-*/
+
+# Local editor and OS files
+.DS_Store
+*.swp
