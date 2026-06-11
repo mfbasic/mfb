@@ -748,17 +748,18 @@ Import graph is resolved at compile time; cycles are an error.
 
 ### 12.1 Package identity, versions, and manifests
 
-A package has a stable identity independent of its local directory name. Source packages declare identity and dependencies in a package manifest file named `mfb.toml` at the package root. Compiled library packages embed the same manifest data in the `.mfl` file.
+A package has a stable identity independent of its local directory name. Source projects declare identity, source inputs, and dependencies in a project manifest file named `project.json` at the project root. Compiled library packages embed the relevant manifest data in the `.mfl` file.
 
 Required manifest fields:
 
 - `name`: the package import name used by source code.
 - `version`: a semantic version `MAJOR.MINOR.PATCH`.
 - `mfb`: the minimum compatible MFBASIC language version.
+- `sources`: source files and roots selected by the project.
 
 Dependency fields:
 
-- `dependencies`: package names mapped to semantic-version constraints.
+- `packages`: package dependency entries with names, semantic-version constraints, and optional source locators.
 - `native`: optional native dependency metadata for packages that expose `LINK` bindings.
 
 Version constraints use semantic-version ranges such as exact `=1.2.3`, compatible `^1.2.0`, patch-compatible `~1.2.0`, inequalities such as `>=1.2.0 <2.0.0`, or wildcard `1.2.*`. A dependency's selected version must satisfy every constraint that reaches it through the import graph.
@@ -767,7 +768,7 @@ The package resolver produces one selected version for each package identity. If
 
 A package may import a source package or an `.mfl` library package. Imported `.mfl` packages must have a compatible bytecode/package format version, compatible public API metadata, and an MFBASIC language version supported by the compiler.
 
-Executable builds use a lockfile named `mfb.lock`. The lockfile records the exact selected package identity, version, source or registry URL, content hash, bytecode/package version, native dependency metadata hash, and transitive dependencies. Locked builds must use the lockfile selections exactly; a hash or version mismatch fails before compilation or linking.
+Executable builds use a lockfile named `project.lock`. The lockfile records the exact selected package identity, version, source or registry URL, content hash, bytecode/package version, native dependency metadata hash, and transitive dependencies. Locked builds must use the lockfile selections exactly; a hash or version mismatch fails before compilation or linking.
 
 An **isolated function** is an exported top-level `FUNC` declared with `ISOLATED`. When an isolated function is used as a thread entry point, the runtime starts it in a fresh instance of its package. Starting isolated functions from the same package multiple times creates multiple independent instances; their top-level `MUT` bindings are not shared with each other or with the importing package.
 
@@ -1436,7 +1437,7 @@ mfb lsp
 
 `mfb fmt` applies the standard formatter. `--check` exits with a toolchain diagnostic when formatting would change files.
 
-`mfb test` discovers exported or private zero-argument `SUB` declarations whose names start with `test` in files included by the package manifest's test target. A test succeeds when it returns `Ok(NOTHING)` and fails when it returns `Err`. Test builds use the same package resolver, verifier, resource rules, and audit metadata as executable builds.
+`mfb test` discovers exported or private zero-argument `SUB` declarations whose names start with `test` in files included by the `project.json` test source entries. A test succeeds when it returns `Ok(NOTHING)` and fails when it returns `Err`. Test builds use the same package resolver, verifier, resource rules, and audit metadata as executable builds.
 
 `mfb lsp` starts the language-server protocol implementation. It must expose diagnostics for fallible calls, auto-propagation paths, `TRAP` recovery, resource moves/use-after-move, unsafe or invalid native links, permissions, package-version conflicts, lockfile mismatches, dense security-sensitive lines, and identifier near-collisions.
 

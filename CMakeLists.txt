@@ -30,6 +30,7 @@ add_custom_command(
   DEPENDS
           "${CMAKE_SOURCE_DIR}/Cargo.toml"
           "${CMAKE_SOURCE_DIR}/src/main.rs"
+          "${CMAKE_SOURCE_DIR}/src/rules.rs"
   WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
   VERBATIM
   USES_TERMINAL
