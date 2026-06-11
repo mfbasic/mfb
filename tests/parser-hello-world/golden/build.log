@@ -1,0 +1,6 @@
+$ mfb build -ast tests/parser-hello-world
+Wrote AST to tests/parser-hello-world/parser_hello_world.ast
+[exit 0]
+$ mfb build -ir tests/parser-hello-world
+Wrote IR to tests/parser-hello-world/parser_hello_world.ir
+[exit 0]

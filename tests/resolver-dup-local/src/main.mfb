@@ -1,0 +1,3 @@
+SUB main(message AS String)
+  LET message = "x"
+END SUB

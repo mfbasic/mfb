@@ -1,0 +1,12 @@
+$ mfb build -ast tests/resolver-local-relative
+   1 | IMPORT shape
+     | ^
+tests/resolver-local-relative/src/main.mfb:1 error[IMPORT_LOCAL_PATH_INVALID]: local package source must be an absolute local URL
+               Local package source for `shape` must use `local:///absolute/path`.
+[exit 1]
+$ mfb build -ir tests/resolver-local-relative
+   1 | IMPORT shape
+     | ^
+tests/resolver-local-relative/src/main.mfb:1 error[IMPORT_LOCAL_PATH_INVALID]: local package source must be an absolute local URL
+               Local package source for `shape` must use `local:///absolute/path`.
+[exit 1]

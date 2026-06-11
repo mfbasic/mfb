@@ -1,0 +1,36 @@
+{
+  "project": "resolver_types",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    ],
+    "items": [
+    { "kind": "type", "name": "Person", "line": 1 },
+    {
+      "kind": "func",
+      "name": "makeName",
+      "line": 4,
+      "params": [
+      { "name": "person", "type": "Person", "default": null }
+      ],
+      "returnType": "String",
+      "body": [
+      { "kind": "return", "value": { "kind": "string", "value": "Ada" }, "line": 5 }
+      ]
+    },
+    {
+      "kind": "sub",
+      "name": "main",
+      "line": 8,
+      "params": [
+      ],
+      "returnType": null,
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "name", "type": "String", "value": { "kind": "string", "value": "Ada" }, "line": 9 }
+      ]
+    }
+    ]
+  }
+  ]
+}

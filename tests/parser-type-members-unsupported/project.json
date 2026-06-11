@@ -1,0 +1,14 @@
+{
+  "name": "parser_type_members_unsupported",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "library",
+  "sources": [
+    {
+      "root": "src",
+      "role": "main",
+      "include": ["**/*.mfb"]
+    }
+  ],
+  "targets": ["native"]
+}

@@ -1,0 +1,14 @@
+$ mfb build -ast tests/typecheck-sub-return
+   1 | SUB main()
+   2 |   RETURN "x"
+     | ^
+tests/typecheck-sub-return/src/main.mfb:2 error[TYPE_SUB_CANNOT_RETURN_VALUE]: SUB cannot return a value
+               SUB return paths must produce Nothing, got String.
+[exit 1]
+$ mfb build -ir tests/typecheck-sub-return
+   1 | SUB main()
+   2 |   RETURN "x"
+     | ^
+tests/typecheck-sub-return/src/main.mfb:2 error[TYPE_SUB_CANNOT_RETURN_VALUE]: SUB cannot return a value
+               SUB return paths must produce Nothing, got String.
+[exit 1]

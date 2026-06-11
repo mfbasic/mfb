@@ -1,0 +1,6 @@
+$ mfb build -ast tests/parser-bindings
+Wrote AST to tests/parser-bindings/parser_bindings.ast
+[exit 0]
+$ mfb build -ir tests/parser-bindings
+Wrote IR to tests/parser-bindings/parser_bindings.ir
+[exit 0]

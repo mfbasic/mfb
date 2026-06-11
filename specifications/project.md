@@ -1,6 +1,6 @@
 # `project.json` Project Manifest
 
-`project.json` is the source-level manifest for an MFBASIC project. It plays the same role that `package.json` plays in Node projects: it gives the project a stable identity, names its source inputs, declares package dependencies, and records build metadata used by compilers, package managers, language servers, and audit tools.
+`project.json` is the source-level manifest for an MFBASIC project. It gives the project a stable identity, names its source inputs, declares package dependencies, and records build metadata used by compilers, package managers, language servers, and audit tools.
 
 The project manifest is an authoring file. It is not embedded verbatim in `.mfl` output. Compilers copy the relevant identity, dependency, native-link, language-version, and audit metadata into the compiled package manifest described by the `.mfl` package format.
 

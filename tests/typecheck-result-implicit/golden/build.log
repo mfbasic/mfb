@@ -1,0 +1,12 @@
+$ mfb build -ast tests/typecheck-result-implicit
+   1 | FUNC main() AS Result
+     | ^
+tests/typecheck-result-implicit/src/main.mfb:1 error[PROJECT_ENTRY_INVALID]: project entry point is invalid
+               Executable entry `main` must be a SUB, not a FUNC.
+[exit 1]
+$ mfb build -ir tests/typecheck-result-implicit
+   1 | FUNC main() AS Result
+     | ^
+tests/typecheck-result-implicit/src/main.mfb:1 error[PROJECT_ENTRY_INVALID]: project entry point is invalid
+               Executable entry `main` must be a SUB, not a FUNC.
+[exit 1]

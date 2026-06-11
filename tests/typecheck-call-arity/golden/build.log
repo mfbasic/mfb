@@ -1,0 +1,16 @@
+$ mfb build -ast tests/typecheck-call-arity
+   4 | 
+   5 | SUB main()
+   6 |   greet()
+     | ^
+tests/typecheck-call-arity/src/main.mfb:6 error[TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+               Call to `greet` has 0 argument(s), expected 1 to 1.
+[exit 1]
+$ mfb build -ir tests/typecheck-call-arity
+   4 | 
+   5 | SUB main()
+   6 |   greet()
+     | ^
+tests/typecheck-call-arity/src/main.mfb:6 error[TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+               Call to `greet` has 0 argument(s), expected 1 to 1.
+[exit 1]

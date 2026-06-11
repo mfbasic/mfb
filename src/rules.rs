@@ -82,6 +82,31 @@ pub const RULES: &[Rule] = &[
         message: "MFBASIC source could not be read",
     },
     Rule {
+        name: "MFB_SOURCE_ROOT_MISSING",
+        severity: Severity::Error,
+        message: "MFBASIC source root does not exist",
+    },
+    Rule {
+        name: "MFB_SOURCE_EMPTY",
+        severity: Severity::Error,
+        message: "MFBASIC source root contains no source files",
+    },
+    Rule {
+        name: "MFB_LEX_UNEXPECTED_CHARACTER",
+        severity: Severity::Error,
+        message: "lexer found an unexpected character",
+    },
+    Rule {
+        name: "MFB_LEX_UNTERMINATED_STRING",
+        severity: Severity::Error,
+        message: "string literal is unterminated",
+    },
+    Rule {
+        name: "MFB_PARSE_EXPECTED_EXPRESSION",
+        severity: Severity::Error,
+        message: "parser expected an expression",
+    },
+    Rule {
         name: "MFB_PARSE_INVALID_FUNCTION_HEADER",
         severity: Severity::Error,
         message: "function header is invalid",
@@ -97,9 +122,174 @@ pub const RULES: &[Rule] = &[
         message: "parser found an unexpected statement",
     },
     Rule {
+        name: "MFB_PARSE_UNEXPECTED_TOKEN",
+        severity: Severity::Error,
+        message: "parser found an unexpected token",
+    },
+    Rule {
         name: "MFB_PARSE_UNTERMINATED_BLOCK",
         severity: Severity::Error,
         message: "parser reached end-of-file inside a block",
+    },
+    Rule {
+        name: "MFB_PARSE_UNSUPPORTED_TYPE_MEMBER",
+        severity: Severity::Error,
+        message: "type member syntax is not supported yet",
+    },
+    Rule {
+        name: "IMPORT_MISSING_PACKAGE",
+        severity: Severity::Error,
+        message: "imported package could not be resolved",
+    },
+    Rule {
+        name: "IMPORT_PACKAGE_NOT_DECLARED",
+        severity: Severity::Error,
+        message: "imported package is not declared",
+    },
+    Rule {
+        name: "IMPORT_PACKAGE_NOT_INSTALLED",
+        severity: Severity::Error,
+        message: "declared package is not installed",
+    },
+    Rule {
+        name: "IMPORT_LOCAL_PATH_INVALID",
+        severity: Severity::Error,
+        message: "local package source must be an absolute local URL",
+    },
+    Rule {
+        name: "IMPORT_PACKAGE_MANIFEST_INVALID",
+        severity: Severity::Error,
+        message: "imported package manifest is invalid",
+    },
+    Rule {
+        name: "IMPORT_PACKAGE_NAME_MISMATCH",
+        severity: Severity::Error,
+        message: "imported package manifest name does not match import",
+    },
+    Rule {
+        name: "IMPORT_PACKAGE_KIND_INVALID",
+        severity: Severity::Error,
+        message: "imported source package must be a library",
+    },
+    Rule {
+        name: "SYMBOL_DUPLICATE_IMPORT",
+        severity: Severity::Error,
+        message: "import is declared more than once",
+    },
+    Rule {
+        name: "SYMBOL_DUPLICATE_LOCAL",
+        severity: Severity::Error,
+        message: "local symbol is declared more than once",
+    },
+    Rule {
+        name: "SYMBOL_DUPLICATE_TOP_LEVEL",
+        severity: Severity::Error,
+        message: "top-level symbol is declared more than once",
+    },
+    Rule {
+        name: "SYMBOL_UNKNOWN_IDENTIFIER",
+        severity: Severity::Error,
+        message: "identifier could not be resolved",
+    },
+    Rule {
+        name: "SYMBOL_NOT_CALLABLE",
+        severity: Severity::Error,
+        message: "symbol cannot be called",
+    },
+    Rule {
+        name: "SYMBOL_NOT_VALUE",
+        severity: Severity::Error,
+        message: "symbol is not a value",
+    },
+    Rule {
+        name: "SYMBOL_UNKNOWN_IMPORT",
+        severity: Severity::Error,
+        message: "package-qualified symbol uses an unknown import",
+    },
+    Rule {
+        name: "SYMBOL_UNKNOWN_TYPE",
+        severity: Severity::Error,
+        message: "type name could not be resolved",
+    },
+    Rule {
+        name: "TYPE_BINARY_OPERATOR_MISMATCH",
+        severity: Severity::Error,
+        message: "binary operator operands have incompatible types",
+    },
+    Rule {
+        name: "TYPE_BINDING_MISMATCH",
+        severity: Severity::Error,
+        message: "binding initializer type does not match declared type",
+    },
+    Rule {
+        name: "TYPE_BINDING_REQUIRES_TYPE_OR_VALUE",
+        severity: Severity::Error,
+        message: "binding requires a type annotation or initializer",
+    },
+    Rule {
+        name: "TYPE_CALL_ARGUMENT_MISMATCH",
+        severity: Severity::Error,
+        message: "function call argument type does not match parameter type",
+    },
+    Rule {
+        name: "TYPE_CALL_ARITY_MISMATCH",
+        severity: Severity::Error,
+        message: "function call has the wrong number of arguments",
+    },
+    Rule {
+        name: "TYPE_DEFAULT_ARG_ORDER",
+        severity: Severity::Error,
+        message: "default parameters must be trailing",
+    },
+    Rule {
+        name: "TYPE_DEFAULT_VALUE_MISMATCH",
+        severity: Severity::Error,
+        message: "default parameter value has the wrong type",
+    },
+    Rule {
+        name: "TYPE_FUNC_MISSING_RETURN",
+        severity: Severity::Error,
+        message: "function is missing a return value",
+    },
+    Rule {
+        name: "TYPE_FUNC_REQUIRES_RETURN_TYPE",
+        severity: Severity::Error,
+        message: "FUNC must declare a return type",
+    },
+    Rule {
+        name: "TYPE_LET_REQUIRES_VALUE",
+        severity: Severity::Error,
+        message: "immutable binding must have an initializer",
+    },
+    Rule {
+        name: "TYPE_PARAM_REQUIRES_TYPE",
+        severity: Severity::Error,
+        message: "parameter must declare a type",
+    },
+    Rule {
+        name: "TYPE_RESULT_IS_IMPLICIT",
+        severity: Severity::Error,
+        message: "Result return wrapping is implicit",
+    },
+    Rule {
+        name: "TYPE_RETURN_MISMATCH",
+        severity: Severity::Error,
+        message: "return value type does not match function success type",
+    },
+    Rule {
+        name: "TYPE_SUB_CANNOT_RETURN_VALUE",
+        severity: Severity::Error,
+        message: "SUB cannot return a value",
+    },
+    Rule {
+        name: "TYPE_UNKNOWN_VALUE",
+        severity: Severity::Error,
+        message: "value type could not be determined",
+    },
+    Rule {
+        name: "PROJECT_ENTRY_INVALID",
+        severity: Severity::Error,
+        message: "project entry point is invalid",
     },
 ];
 

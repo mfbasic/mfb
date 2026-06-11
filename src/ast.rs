@@ -1,4 +1,5 @@
 use crate::json_string;
+use crate::lexer::{self, Keyword, Token, TokenKind};
 use crate::rules;
 use std::collections::HashMap;
 use std::fs;
@@ -27,6 +28,21 @@ pub struct Import {
 #[derive(Debug)]
 pub enum Item {
     Function(Function),
+    Type(TypeDecl),
+}
+
+#[derive(Debug)]
+pub struct TypeDecl {
+    pub kind: TypeDeclKind,
+    pub name: String,
+    pub line: usize,
+}
+
+#[derive(Debug)]
+pub enum TypeDeclKind {
+    Type,
+    Union,
+    Enum,
 }
 
 #[derive(Debug)]
@@ -39,7 +55,7 @@ pub struct Function {
     pub line: usize,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub enum FunctionKind {
     Func,
     Sub,
@@ -50,6 +66,7 @@ pub struct Param {
     pub name: String,
     pub type_name: Option<String>,
     pub default: Option<Expression>,
+    pub line: usize,
 }
 
 #[derive(Debug)]
@@ -76,12 +93,16 @@ pub enum Expression {
     String(String),
     Number(String),
     Boolean(bool),
+    Binary {
+        left: Box<Expression>,
+        operator: String,
+        right: Box<Expression>,
+    },
     Call {
         callee: String,
         arguments: Vec<Expression>,
     },
     Identifier(String),
-    Raw(String),
 }
 
 pub fn parse_project(
@@ -93,6 +114,18 @@ pub fn parse_project(
 
     for source_root in source_roots(manifest) {
         let root = project_dir.join(&source_root);
+        if !root.exists() {
+            rules::show_diagnostic(
+                "MFB_SOURCE_ROOT_MISSING",
+                &format!("Source root `{}` does not exist.", root.display()),
+                &root,
+                1,
+                1,
+                1,
+            );
+            return Err(());
+        }
+
         let source_files = collect_mfb_files(&root).map_err(|err| {
             rules::show_diagnostic(
                 "MFB_SOURCE_READ_FAILED",
@@ -103,6 +136,17 @@ pub fn parse_project(
                 1,
             );
         })?;
+        if source_files.is_empty() {
+            rules::show_diagnostic(
+                "MFB_SOURCE_EMPTY",
+                &format!("Source root `{}` contains no .mfb files.", root.display()),
+                &root,
+                1,
+                1,
+                1,
+            );
+            return Err(());
+        }
 
         for source_file in source_files {
             files.push(parse_file(project_dir, &source_file)?);
@@ -127,11 +171,8 @@ fn parse_file(project_dir: &Path, path: &Path) -> Result<AstFile, ()> {
         rules::show_diagnostic("MFB_SOURCE_READ_FAILED", &err.to_string(), path, 1, 1, 1);
     })?;
 
-    let mut parser = FileParser::new(path, &contents);
-    let ast_file = parser.parse();
-    if parser.had_error {
-        return Err(());
-    }
+    let tokens = lexer::lex(path, &contents)?;
+    let ast_file = FileParser::new(path, tokens).parse()?;
 
     let relative_path = path
         .strip_prefix(project_dir)
@@ -199,423 +240,565 @@ struct ParsedFile {
 
 struct FileParser<'a> {
     path: &'a Path,
-    lines: Vec<&'a str>,
+    tokens: Vec<Token>,
     current: usize,
     had_error: bool,
 }
 
 impl<'a> FileParser<'a> {
-    fn new(path: &'a Path, contents: &'a str) -> Self {
+    fn new(path: &'a Path, tokens: Vec<Token>) -> Self {
         Self {
             path,
-            lines: contents.lines().collect(),
+            tokens,
             current: 0,
             had_error: false,
         }
     }
 
-    fn parse(&mut self) -> ParsedFile {
+    fn parse(&mut self) -> Result<ParsedFile, ()> {
         let mut imports = Vec::new();
         let mut items = Vec::new();
+        self.skip_separators();
 
-        while self.current < self.lines.len() {
-            let line_number = self.current + 1;
-            let line = strip_comment(self.lines[self.current]).trim();
-            if line.is_empty() {
-                self.current += 1;
-                continue;
-            }
-
-            if let Some(module) = parse_import(line) {
+        while !self.is_at_end() {
+            if self.match_keyword(Keyword::Import) {
+                let import_token = self.previous().clone();
+                let Some(module) = self.parse_qualified_name("Expected package name after IMPORT.")
+                else {
+                    self.synchronize();
+                    self.skip_separators();
+                    continue;
+                };
                 imports.push(Import {
                     module,
-                    line: line_number,
+                    line: import_token.line,
                 });
-                self.current += 1;
+                self.consume_statement_end("Expected end of statement after IMPORT.");
+                self.skip_separators();
                 continue;
             }
 
-            if starts_with_keyword(line, "SUB") || starts_with_keyword(line, "FUNC") {
-                if let Some(function) = self.parse_function(line, line_number) {
+            if self.check_keyword(Keyword::Sub) || self.check_keyword(Keyword::Func) {
+                if let Some(function) = self.parse_function() {
                     items.push(Item::Function(function));
                 }
+                self.skip_separators();
                 continue;
             }
 
+            if self.check_keyword(Keyword::Type)
+                || self.check_keyword(Keyword::Union)
+                || self.check_keyword(Keyword::Enum)
+            {
+                if let Some(type_decl) = self.parse_type_decl() {
+                    items.push(Item::Type(type_decl));
+                }
+                self.skip_separators();
+                continue;
+            }
+
+            let token = self.peek().clone();
             self.report(
                 "MFB_PARSE_UNEXPECTED_STATEMENT",
-                "Expected an IMPORT, SUB, or FUNC declaration at the top level.",
-                line_number,
-                1,
-                line.len().max(1),
+                "Expected an IMPORT, SUB, FUNC, TYPE, UNION, or ENUM declaration at the top level.",
+                &token,
             );
-            self.current += 1;
+            self.synchronize();
+            self.skip_separators();
         }
 
-        ParsedFile { imports, items }
+        if self.had_error {
+            Err(())
+        } else {
+            Ok(ParsedFile { imports, items })
+        }
     }
 
-    fn parse_function(&mut self, header: &str, line_number: usize) -> Option<Function> {
-        let kind = if starts_with_keyword(header, "SUB") {
+    fn parse_function(&mut self) -> Option<Function> {
+        let kind_token = self.advance().clone();
+        let kind = if matches!(kind_token.kind, TokenKind::Keyword(Keyword::Sub)) {
             FunctionKind::Sub
         } else {
             FunctionKind::Func
         };
 
-        let header_after_keyword = header
-            .split_once(char::is_whitespace)
-            .map(|(_, rest)| rest.trim())
-            .unwrap_or("");
-
-        let Some(open_paren) = header_after_keyword.find('(') else {
-            self.report(
-                "MFB_PARSE_INVALID_FUNCTION_HEADER",
-                "Function declarations must include a parameter list.",
-                line_number,
-                1,
-                header.len().max(1),
-            );
-            self.current += 1;
+        let Some(name) = self.consume_identifier("Function name must be an identifier.") else {
+            self.synchronize();
             return None;
         };
 
-        let Some(close_paren) = header_after_keyword.rfind(')') else {
-            self.report(
-                "MFB_PARSE_INVALID_FUNCTION_HEADER",
-                "Function declarations must close the parameter list.",
-                line_number,
-                1,
-                header.len().max(1),
-            );
-            self.current += 1;
-            return None;
-        };
-
-        let name = header_after_keyword[..open_paren].trim();
-        if !is_identifier(name) {
-            self.report(
-                "MFB_PARSE_INVALID_IDENTIFIER",
-                "Function name must be an identifier.",
-                line_number,
-                1,
-                header.len().max(1),
-            );
-            self.current += 1;
+        if !self.consume_kind(
+            TokenKind::LParen,
+            "Function declarations must include a parameter list.",
+        ) {
+            self.synchronize();
             return None;
         }
 
-        let params = parse_params(&header_after_keyword[open_paren + 1..close_paren]);
-        let return_type = parse_return_type(&kind, &header_after_keyword[close_paren + 1..]);
-        self.current += 1;
+        let params = self.parse_params();
+        if !self.consume_kind(
+            TokenKind::RParen,
+            "Function declarations must close the parameter list.",
+        ) {
+            self.synchronize();
+            return None;
+        }
+
+        let return_type = if matches!(kind, FunctionKind::Func) && self.match_keyword(Keyword::As) {
+            self.parse_type_name()
+        } else {
+            None
+        };
+
+        self.consume_statement_end("Expected end of function header.");
+        self.skip_separators();
 
         let mut body = Vec::new();
-        while self.current < self.lines.len() {
-            let body_line_number = self.current + 1;
-            let body_line = strip_comment(self.lines[self.current]).trim();
-            if body_line.is_empty() {
-                self.current += 1;
-                continue;
-            }
-
-            let is_end = match kind {
-                FunctionKind::Func => keyword_eq(body_line, "END FUNC"),
-                FunctionKind::Sub => keyword_eq(body_line, "END SUB"),
-            };
-
-            if is_end {
-                self.current += 1;
+        while !self.is_at_end() {
+            if self.match_keyword(Keyword::End) {
+                let expected = match kind {
+                    FunctionKind::Func => Keyword::Func,
+                    FunctionKind::Sub => Keyword::Sub,
+                };
+                if !self.consume_keyword(expected, "END must name the block kind it closes.") {
+                    self.synchronize();
+                    return None;
+                }
+                self.consume_statement_end("Expected end of statement after END.");
                 return Some(Function {
                     kind,
-                    name: name.to_string(),
+                    name,
                     params,
                     return_type,
                     body,
-                    line: line_number,
+                    line: kind_token.line,
                 });
             }
 
-            if let Some(statement) = parse_statement(body_line, body_line_number) {
+            if let Some(statement) = self.parse_statement() {
                 body.push(statement);
             } else {
-                self.report(
-                    "MFB_PARSE_UNEXPECTED_STATEMENT",
-                    "Statement is not recognized by the current parser.",
-                    body_line_number,
-                    1,
-                    body_line.len().max(1),
-                );
+                self.synchronize();
             }
-            self.current += 1;
+            self.skip_separators();
         }
 
         self.report(
             "MFB_PARSE_UNTERMINATED_BLOCK",
             "Function block reached end-of-file before its END statement.",
-            line_number,
-            1,
-            header.len().max(1),
+            &kind_token,
         );
         None
     }
 
-    fn report(&mut self, rule: &str, detail: &str, line: usize, start: usize, end: usize) {
-        self.had_error = true;
-        rules::show_diagnostic(rule, detail, self.path, line, start, end);
-    }
-}
+    fn parse_type_decl(&mut self) -> Option<TypeDecl> {
+        let kind_token = self.advance().clone();
+        let (kind, end_keyword) = match kind_token.kind {
+            TokenKind::Keyword(Keyword::Type) => (TypeDeclKind::Type, Keyword::Type),
+            TokenKind::Keyword(Keyword::Union) => (TypeDeclKind::Union, Keyword::Union),
+            TokenKind::Keyword(Keyword::Enum) => (TypeDeclKind::Enum, Keyword::Enum),
+            _ => unreachable!(),
+        };
+        let Some(name) = self.consume_identifier("Type declaration name must be an identifier.")
+        else {
+            self.synchronize();
+            return None;
+        };
 
-fn parse_import(line: &str) -> Option<String> {
-    if !starts_with_keyword(line, "IMPORT") {
-        return None;
-    }
+        self.consume_statement_end("Expected end of type declaration header.");
+        self.skip_separators();
 
-    let module = line["IMPORT".len()..].trim();
-    if module.is_empty() {
-        None
-    } else {
-        Some(module.to_string())
-    }
-}
-
-fn parse_params(input: &str) -> Vec<Param> {
-    split_top_level(input, ',')
-        .into_iter()
-        .filter_map(|param| {
-            let param = param.trim();
-            if param.is_empty() {
-                return None;
+        while !self.is_at_end() {
+            if self.match_keyword(Keyword::End) {
+                if !self
+                    .consume_keyword(end_keyword, "END must name the type block kind it closes.")
+                {
+                    self.synchronize();
+                    return None;
+                }
+                self.consume_statement_end("Expected end of statement after END.");
+                return Some(TypeDecl {
+                    kind,
+                    name,
+                    line: kind_token.line,
+                });
             }
+            let token = self.peek().clone();
+            self.report(
+                "MFB_PARSE_UNSUPPORTED_TYPE_MEMBER",
+                "Type, union, and enum member declarations are not implemented yet.",
+                &token,
+            );
+            self.synchronize();
+            self.skip_separators();
+        }
 
-            let (before_default, default) = param
-                .split_once('=')
-                .map(|(left, right)| (left.trim(), Some(parse_expression(right.trim()))))
-                .unwrap_or((param, None));
+        self.report(
+            "MFB_PARSE_UNTERMINATED_BLOCK",
+            "Type block reached end-of-file before its END statement.",
+            &kind_token,
+        );
+        None
+    }
 
-            let (name, type_name) = split_keyword(before_default, "AS")
-                .map(|(left, right)| (left.trim().to_string(), Some(right.trim().to_string())))
-                .unwrap_or((before_default.trim().to_string(), None));
+    fn parse_params(&mut self) -> Vec<Param> {
+        let mut params = Vec::new();
+        if self.check_kind(&TokenKind::RParen) {
+            return params;
+        }
 
-            Some(Param {
+        loop {
+            let line = self.peek().line;
+            let Some(name) = self.consume_identifier("Parameter name must be an identifier.")
+            else {
+                self.synchronize();
+                return params;
+            };
+            let type_name = if self.match_keyword(Keyword::As) {
+                self.parse_type_name()
+            } else {
+                None
+            };
+            let default = if self.match_kind(TokenKind::Equal) {
+                self.parse_expression()
+            } else {
+                None
+            };
+            params.push(Param {
                 name,
                 type_name,
                 default,
-            })
+                line,
+            });
+            if !self.match_kind(TokenKind::Comma) {
+                break;
+            }
+        }
+
+        params
+    }
+
+    fn parse_statement(&mut self) -> Option<Statement> {
+        if self.check_keyword(Keyword::Let) || self.check_keyword(Keyword::Mut) {
+            let keyword = self.advance().clone();
+            let mutable = matches!(keyword.kind, TokenKind::Keyword(Keyword::Mut));
+            let name = self.consume_identifier("Binding name must be an identifier.")?;
+            let type_name = if self.match_keyword(Keyword::As) {
+                self.parse_type_name()
+            } else {
+                None
+            };
+            let value = if self.match_kind(TokenKind::Equal) {
+                self.parse_expression()
+            } else {
+                None
+            };
+            self.consume_statement_end("Expected end of statement after binding.");
+            return Some(Statement::Let {
+                mutable,
+                name,
+                type_name,
+                value,
+                line: keyword.line,
+            });
+        }
+
+        if self.match_keyword(Keyword::Return) {
+            let token = self.previous().clone();
+            let value = if self.is_statement_end() {
+                None
+            } else {
+                self.parse_expression()
+            };
+            self.consume_statement_end("Expected end of statement after RETURN.");
+            return Some(Statement::Return {
+                value,
+                line: token.line,
+            });
+        }
+
+        let token = self.peek().clone();
+        let expression = self.parse_expression();
+        if expression.is_none() {
+            self.report(
+                "MFB_PARSE_UNEXPECTED_STATEMENT",
+                "Statement is not recognized by the current parser.",
+                &token,
+            );
+            return None;
+        }
+        self.consume_statement_end("Expected end of statement after expression.");
+        Some(Statement::Expression {
+            expression: expression.expect("checked expression"),
+            line: token.line,
         })
-        .collect()
-}
-
-fn parse_return_type(kind: &FunctionKind, input: &str) -> Option<String> {
-    if matches!(kind, FunctionKind::Sub) {
-        return None;
     }
 
-    split_keyword(input.trim(), "AS").map(|(_, right)| right.trim().to_string())
-}
-
-fn parse_statement(line: &str, line_number: usize) -> Option<Statement> {
-    if starts_with_keyword(line, "LET") || starts_with_keyword(line, "MUT") {
-        let mutable = starts_with_keyword(line, "MUT");
-        let keyword_len = if mutable { "MUT".len() } else { "LET".len() };
-        let rest = line[keyword_len..].trim();
-        let (binding_part, value) = rest
-            .split_once('=')
-            .map(|(left, right)| (left.trim(), Some(parse_expression(right.trim()))))
-            .unwrap_or((rest, None));
-        let (name, type_name) = split_keyword(binding_part, "AS")
-            .map(|(left, right)| (left.trim().to_string(), Some(right.trim().to_string())))
-            .unwrap_or((binding_part.trim().to_string(), None));
-
-        return Some(Statement::Let {
-            mutable,
-            name,
-            type_name,
-            value,
-            line: line_number,
-        });
+    fn parse_expression(&mut self) -> Option<Expression> {
+        self.parse_concat()
     }
 
-    if starts_with_keyword(line, "RETURN") {
-        let rest = line["RETURN".len()..].trim();
-        return Some(Statement::Return {
-            value: (!rest.is_empty()).then(|| parse_expression(rest)),
-            line: line_number,
-        });
-    }
-
-    Some(Statement::Expression {
-        expression: parse_expression(line),
-        line: line_number,
-    })
-}
-
-fn parse_expression(input: &str) -> Expression {
-    let input = input.trim();
-
-    if input.starts_with('"') && input.ends_with('"') && input.len() >= 2 {
-        return Expression::String(unescape_basic_string(&input[1..input.len() - 1]));
-    }
-
-    if input.parse::<i64>().is_ok() || input.parse::<f64>().is_ok() {
-        return Expression::Number(input.to_string());
-    }
-
-    if input.eq_ignore_ascii_case("TRUE") {
-        return Expression::Boolean(true);
-    }
-
-    if input.eq_ignore_ascii_case("FALSE") {
-        return Expression::Boolean(false);
-    }
-
-    if let Some((callee, args)) = parse_call(input) {
-        return Expression::Call {
-            callee,
-            arguments: args.into_iter().map(|arg| parse_expression(&arg)).collect(),
-        };
-    }
-
-    if is_identifier(input) || is_dotted_identifier(input) {
-        return Expression::Identifier(input.to_string());
-    }
-
-    Expression::Raw(input.to_string())
-}
-
-fn parse_call(input: &str) -> Option<(String, Vec<String>)> {
-    let open_paren = input.find('(')?;
-    if !input.ends_with(')') {
-        return None;
-    }
-
-    let callee = input[..open_paren].trim();
-    if !is_identifier(callee) && !is_dotted_identifier(callee) {
-        return None;
-    }
-
-    let args = split_top_level(&input[open_paren + 1..input.len() - 1], ',');
-    Some((callee.to_string(), args))
-}
-
-fn split_top_level(input: &str, separator: char) -> Vec<String> {
-    let mut parts = Vec::new();
-    let mut current = String::new();
-    let mut depth = 0usize;
-    let mut in_string = false;
-    let mut escaped = false;
-
-    for ch in input.chars() {
-        if in_string {
-            current.push(ch);
-            if escaped {
-                escaped = false;
-            } else if ch == '\\' {
-                escaped = true;
-            } else if ch == '"' {
-                in_string = false;
-            }
-            continue;
+    fn parse_concat(&mut self) -> Option<Expression> {
+        let mut expression = self.parse_addition()?;
+        while self.match_kind(TokenKind::Ampersand) {
+            let right = self.parse_addition()?;
+            expression = Expression::Binary {
+                left: Box::new(expression),
+                operator: "&".to_string(),
+                right: Box::new(right),
+            };
         }
-
-        match ch {
-            '"' => {
-                in_string = true;
-                current.push(ch);
-            }
-            '(' | '[' | '{' => {
-                depth += 1;
-                current.push(ch);
-            }
-            ')' | ']' | '}' => {
-                depth = depth.saturating_sub(1);
-                current.push(ch);
-            }
-            ch if ch == separator && depth == 0 => {
-                parts.push(current.trim().to_string());
-                current.clear();
-            }
-            _ => current.push(ch),
-        }
+        Some(expression)
     }
 
-    if !current.trim().is_empty() {
-        parts.push(current.trim().to_string());
+    fn parse_addition(&mut self) -> Option<Expression> {
+        let mut expression = self.parse_multiplication()?;
+        while self.match_any(&[TokenKind::Plus, TokenKind::Minus]) {
+            let operator = match self.previous().kind {
+                TokenKind::Plus => "+",
+                TokenKind::Minus => "-",
+                _ => unreachable!(),
+            };
+            let right = self.parse_multiplication()?;
+            expression = Expression::Binary {
+                left: Box::new(expression),
+                operator: operator.to_string(),
+                right: Box::new(right),
+            };
+        }
+        Some(expression)
     }
 
-    parts
-}
-
-fn strip_comment(line: &str) -> &str {
-    let mut in_string = false;
-    let mut escaped = false;
-    for (index, ch) in line.char_indices() {
-        if in_string {
-            if escaped {
-                escaped = false;
-            } else if ch == '\\' {
-                escaped = true;
-            } else if ch == '"' {
-                in_string = false;
-            }
-            continue;
+    fn parse_multiplication(&mut self) -> Option<Expression> {
+        let mut expression = self.parse_power()?;
+        while self.match_any(&[TokenKind::Star, TokenKind::Slash]) {
+            let operator = match self.previous().kind {
+                TokenKind::Star => "*",
+                TokenKind::Slash => "/",
+                _ => unreachable!(),
+            };
+            let right = self.parse_power()?;
+            expression = Expression::Binary {
+                left: Box::new(expression),
+                operator: operator.to_string(),
+                right: Box::new(right),
+            };
         }
+        Some(expression)
+    }
 
-        if ch == '"' {
-            in_string = true;
-        } else if ch == '\'' {
-            return &line[..index];
+    fn parse_power(&mut self) -> Option<Expression> {
+        let mut expression = self.parse_call()?;
+        while self.match_kind(TokenKind::Caret) {
+            let right = self.parse_call()?;
+            expression = Expression::Binary {
+                left: Box::new(expression),
+                operator: "^".to_string(),
+                right: Box::new(right),
+            };
+        }
+        Some(expression)
+    }
+
+    fn parse_call(&mut self) -> Option<Expression> {
+        let mut expression = self.parse_primary()?;
+        loop {
+            if self.match_kind(TokenKind::LParen) {
+                let callee = match expression {
+                    Expression::Identifier(value) => value,
+                    _ => {
+                        let token = self.previous().clone();
+                        self.report(
+                            "MFB_PARSE_EXPECTED_EXPRESSION",
+                            "Only identifiers can be called by the current parser.",
+                            &token,
+                        );
+                        return None;
+                    }
+                };
+                let mut arguments = Vec::new();
+                if !self.check_kind(&TokenKind::RParen) {
+                    loop {
+                        arguments.push(self.parse_expression()?);
+                        if !self.match_kind(TokenKind::Comma) {
+                            break;
+                        }
+                    }
+                }
+                if !self.consume_kind(TokenKind::RParen, "Expected `)` after call arguments.") {
+                    return None;
+                }
+                expression = Expression::Call { callee, arguments };
+            } else {
+                break;
+            }
+        }
+        Some(expression)
+    }
+
+    fn parse_primary(&mut self) -> Option<Expression> {
+        let token = self.advance().clone();
+        match token.kind {
+            TokenKind::String(value) => Some(Expression::String(value)),
+            TokenKind::Number(value) => Some(Expression::Number(value)),
+            TokenKind::Keyword(Keyword::True) => Some(Expression::Boolean(true)),
+            TokenKind::Keyword(Keyword::False) => Some(Expression::Boolean(false)),
+            TokenKind::Identifier(value) => {
+                let mut name = value;
+                while self.match_kind(TokenKind::Dot) {
+                    let part = self.consume_identifier("Expected identifier after `.`.")?;
+                    name.push('.');
+                    name.push_str(&part);
+                }
+                Some(Expression::Identifier(name))
+            }
+            TokenKind::LParen => {
+                let expression = self.parse_expression();
+                self.consume_kind(TokenKind::RParen, "Expected `)` after expression.");
+                expression
+            }
+            _ => {
+                self.report(
+                    "MFB_PARSE_EXPECTED_EXPRESSION",
+                    "Expected an expression.",
+                    &token,
+                );
+                None
+            }
         }
     }
 
-    line
-}
-
-fn split_keyword<'a>(input: &'a str, keyword: &str) -> Option<(&'a str, &'a str)> {
-    let needle = format!(" {keyword} ");
-    let upper = input.to_ascii_uppercase();
-
-    if upper.starts_with(&format!("{keyword} ")) {
-        return Some(("", &input[keyword.len() + 1..]));
+    fn parse_qualified_name(&mut self, detail: &str) -> Option<String> {
+        let mut name = self.consume_identifier(detail)?;
+        while self.match_kind(TokenKind::Dot) {
+            let part = self.consume_identifier("Expected identifier after `.`.")?;
+            name.push('.');
+            name.push_str(&part);
+        }
+        Some(name)
     }
 
-    upper
-        .find(&needle)
-        .map(|index| (&input[..index], &input[index + needle.len()..]))
-}
+    fn parse_type_name(&mut self) -> Option<String> {
+        self.parse_qualified_name("Expected a type name.")
+    }
 
-fn starts_with_keyword(line: &str, keyword: &str) -> bool {
-    line.len() >= keyword.len()
-        && line[..keyword.len()].eq_ignore_ascii_case(keyword)
-        && line[keyword.len()..]
-            .chars()
-            .next()
-            .map(|ch| ch.is_whitespace())
-            .unwrap_or(true)
-}
+    fn consume_identifier(&mut self, detail: &str) -> Option<String> {
+        if let TokenKind::Identifier(value) = self.peek().kind.clone() {
+            self.advance();
+            Some(value)
+        } else {
+            let token = self.peek().clone();
+            self.report("MFB_PARSE_INVALID_IDENTIFIER", detail, &token);
+            None
+        }
+    }
 
-fn keyword_eq(line: &str, keyword: &str) -> bool {
-    line.eq_ignore_ascii_case(keyword)
-}
+    fn consume_keyword(&mut self, keyword: Keyword, detail: &str) -> bool {
+        if self.match_keyword(keyword) {
+            true
+        } else {
+            let token = self.peek().clone();
+            self.report("MFB_PARSE_UNEXPECTED_TOKEN", detail, &token);
+            false
+        }
+    }
 
-fn is_identifier(input: &str) -> bool {
-    let mut chars = input.chars();
-    let Some(first) = chars.next() else {
-        return false;
-    };
+    fn consume_kind(&mut self, kind: TokenKind, detail: &str) -> bool {
+        if self.match_kind(kind) {
+            true
+        } else {
+            let token = self.peek().clone();
+            self.report("MFB_PARSE_UNEXPECTED_TOKEN", detail, &token);
+            false
+        }
+    }
 
-    (first.is_ascii_alphabetic() || first == '_')
-        && chars.all(|ch| ch.is_ascii_alphanumeric() || ch == '_')
-}
+    fn consume_statement_end(&mut self, detail: &str) -> bool {
+        if self.is_statement_end() {
+            self.skip_separators();
+            true
+        } else {
+            let token = self.peek().clone();
+            self.report("MFB_PARSE_UNEXPECTED_TOKEN", detail, &token);
+            false
+        }
+    }
 
-fn is_dotted_identifier(input: &str) -> bool {
-    input.split('.').all(is_identifier)
-}
+    fn skip_separators(&mut self) {
+        while self.match_any(&[TokenKind::Newline, TokenKind::Colon]) {}
+    }
 
-fn unescape_basic_string(input: &str) -> String {
-    input
-        .replace("\\\"", "\"")
-        .replace("\\n", "\n")
-        .replace("\\t", "\t")
-        .replace("\\\\", "\\")
+    fn synchronize(&mut self) {
+        while !self.is_at_end() && !self.is_statement_end() {
+            self.advance();
+        }
+    }
+
+    fn is_statement_end(&self) -> bool {
+        matches!(
+            self.peek().kind,
+            TokenKind::Newline | TokenKind::Colon | TokenKind::Eof
+        )
+    }
+
+    fn match_keyword(&mut self, keyword: Keyword) -> bool {
+        if self.check_keyword(keyword) {
+            self.advance();
+            true
+        } else {
+            false
+        }
+    }
+
+    fn check_keyword(&self, keyword: Keyword) -> bool {
+        matches!(self.peek().kind, TokenKind::Keyword(current) if current == keyword)
+    }
+
+    fn match_kind(&mut self, kind: TokenKind) -> bool {
+        if self.check_kind(&kind) {
+            self.advance();
+            true
+        } else {
+            false
+        }
+    }
+
+    fn match_any(&mut self, kinds: &[TokenKind]) -> bool {
+        if kinds.iter().any(|kind| self.check_kind(kind)) {
+            self.advance();
+            true
+        } else {
+            false
+        }
+    }
+
+    fn check_kind(&self, kind: &TokenKind) -> bool {
+        std::mem::discriminant(&self.peek().kind) == std::mem::discriminant(kind)
+    }
+
+    fn advance(&mut self) -> &Token {
+        if !self.is_at_end() {
+            self.current += 1;
+        }
+        self.previous()
+    }
+
+    fn peek(&self) -> &Token {
+        &self.tokens[self.current]
+    }
+
+    fn previous(&self) -> &Token {
+        &self.tokens[self.current - 1]
+    }
+
+    fn is_at_end(&self) -> bool {
+        matches!(self.peek().kind, TokenKind::Eof)
+    }
+
+    fn report(&mut self, rule: &str, detail: &str, token: &Token) {
+        self.had_error = true;
+        rules::show_diagnostic(rule, detail, self.path, token.line, token.start, token.end);
+    }
 }
 
 impl AstProject {
@@ -673,7 +856,26 @@ impl ToAstJson for Item {
     fn to_json(&self, indent: usize) -> String {
         match self {
             Item::Function(function) => function.to_json(indent),
+            Item::Type(type_decl) => type_decl.to_json(indent),
         }
+    }
+}
+
+impl ToAstJson for TypeDecl {
+    fn to_json(&self, indent: usize) -> String {
+        let pad = " ".repeat(indent);
+        let kind = match self.kind {
+            TypeDeclKind::Type => "type",
+            TypeDeclKind::Union => "union",
+            TypeDeclKind::Enum => "enum",
+        };
+        format!(
+            "\n{}{{ \"kind\": {}, \"name\": {}, \"line\": {} }}",
+            pad,
+            json_string(kind),
+            json_string(&self.name),
+            self.line
+        )
     }
 }
 
@@ -811,6 +1013,18 @@ impl ToAstJson for Expression {
             Expression::Boolean(value) => {
                 format!("{{ \"kind\": \"boolean\", \"value\": {} }}", value)
             }
+            Expression::Binary {
+                left,
+                operator,
+                right,
+            } => {
+                format!(
+                    "{{ \"kind\": \"binary\", \"operator\": {}, \"left\": {}, \"right\": {} }}",
+                    json_string(operator),
+                    left.to_json(0),
+                    right.to_json(0)
+                )
+            }
             Expression::Call { callee, arguments } => {
                 let args = arguments
                     .iter()
@@ -828,9 +1042,6 @@ impl ToAstJson for Expression {
                     "{{ \"kind\": \"identifier\", \"value\": {} }}",
                     json_string(value)
                 )
-            }
-            Expression::Raw(value) => {
-                format!("{{ \"kind\": \"raw\", \"value\": {} }}", json_string(value))
             }
         }
     }

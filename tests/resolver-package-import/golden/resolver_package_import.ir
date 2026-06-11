@@ -1,0 +1,19 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "resolver_package_import",
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "kind": "sub",
+    "params": [
+    ],
+    "returns": "Nothing",
+    "body": [
+    { "op": "eval", "value": { "kind": "call", "target": "shape.draw", "args": [] } }
+    ]
+  }
+  ]
+}

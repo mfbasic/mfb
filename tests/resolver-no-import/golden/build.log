@@ -1,0 +1,14 @@
+$ mfb build -ast tests/resolver-no-import
+   1 | SUB main()
+   2 |   io.print("x")
+     | ^
+tests/resolver-no-import/src/main.mfb:2 error[SYMBOL_UNKNOWN_IMPORT]: package-qualified symbol uses an unknown import
+               Package `io` is used but not imported in this file.
+[exit 1]
+$ mfb build -ir tests/resolver-no-import
+   1 | SUB main()
+   2 |   io.print("x")
+     | ^
+tests/resolver-no-import/src/main.mfb:2 error[SYMBOL_UNKNOWN_IMPORT]: package-qualified symbol uses an unknown import
+               Package `io` is used but not imported in this file.
+[exit 1]

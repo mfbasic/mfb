@@ -1,0 +1,10 @@
+TYPE Person
+END TYPE
+
+FUNC makeName(person AS Person) AS String
+  RETURN "Ada"
+END FUNC
+
+SUB main()
+  LET name AS String = "Ada"
+END SUB

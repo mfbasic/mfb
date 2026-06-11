@@ -1,0 +1,6 @@
+$ mfb build -ast tests/typecheck-basic
+Wrote AST to tests/typecheck-basic/typecheck_basic.ast
+[exit 0]
+$ mfb build -ir tests/typecheck-basic
+Wrote IR to tests/typecheck-basic/typecheck_basic.ir
+[exit 0]

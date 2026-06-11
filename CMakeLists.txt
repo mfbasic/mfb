@@ -30,13 +30,28 @@ add_custom_command(
   DEPENDS
           "${CMAKE_SOURCE_DIR}/Cargo.toml"
           "${CMAKE_SOURCE_DIR}/src/ast.rs"
+          "${CMAKE_SOURCE_DIR}/src/ir.rs"
+          "${CMAKE_SOURCE_DIR}/src/lexer.rs"
           "${CMAKE_SOURCE_DIR}/src/main.rs"
+          "${CMAKE_SOURCE_DIR}/src/resolver.rs"
           "${CMAKE_SOURCE_DIR}/src/rules.rs"
+          "${CMAKE_SOURCE_DIR}/src/typecheck.rs"
   WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
   VERBATIM
   USES_TERMINAL
 )
 
 add_custom_target(mfb ALL DEPENDS "${MFB_EXE}")
+
+add_custom_target(
+  test-accept
+  COMMAND "${CMAKE_SOURCE_DIR}/scripts/test-accept.sh"
+          "${MFB_EXE}"
+          "${CMAKE_BINARY_DIR}/accept-actual"
+  DEPENDS mfb
+  WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+  VERBATIM
+  USES_TERMINAL
+)
 
 install(PROGRAMS "${MFB_EXE}" DESTINATION bin)

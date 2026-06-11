@@ -1,0 +1,22 @@
+{
+  "name": "resolver_package_mfl",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "executable",
+  "sources": [
+    {
+      "root": "src",
+      "role": "main",
+      "include": ["**/*.mfb"]
+    }
+  ],
+  "packages": [
+    {
+      "name": "shape",
+      "version": "^1.0.0",
+      "source": "registry:mfb"
+    }
+  ],
+  "entry": "main",
+  "targets": ["native"]
+}

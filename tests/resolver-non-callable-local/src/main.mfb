@@ -1,0 +1,4 @@
+SUB main()
+  LET count AS Integer = 1
+  count()
+END SUB

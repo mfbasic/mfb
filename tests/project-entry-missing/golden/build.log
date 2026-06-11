@@ -1,0 +1,12 @@
+$ mfb build -ast tests/project-entry-missing
+   1 | {
+     | ^
+tests/project-entry-missing/project.json:1 error[PROJECT_ENTRY_INVALID]: project entry point is invalid
+               Executable project must declare `SUB main()` in the root package.
+[exit 1]
+$ mfb build -ir tests/project-entry-missing
+   1 | {
+     | ^
+tests/project-entry-missing/project.json:1 error[PROJECT_ENTRY_INVALID]: project entry point is invalid
+               Executable project must declare `SUB main()` in the root package.
+[exit 1]

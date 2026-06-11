@@ -1,0 +1,6 @@
+$ mfb build -ast tests/resolver-local-package
+Wrote AST to tests/resolver-local-package/resolver_local_package.ast
+[exit 0]
+$ mfb build -ir tests/resolver-local-package
+Wrote IR to tests/resolver-local-package/resolver_local_package.ir
+[exit 0]

@@ -1,0 +1,24 @@
+{
+  "project": "parser_hello_world",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 }
+    ],
+    "items": [
+    {
+      "kind": "sub",
+      "name": "main",
+      "line": 3,
+      "params": [
+      ],
+      "returnType": null,
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "Hello World" }] }, "line": 4 }
+      ]
+    }
+    ]
+  }
+  ]
+}

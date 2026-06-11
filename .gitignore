@@ -4,6 +4,9 @@
 /tmp/
 /temp/
 *.ast
+*.ir
+!tests/**/golden/*.ast
+!tests/**/golden/*.ir
 
 # Local editor and OS files
 .DS_Store

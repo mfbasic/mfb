@@ -1,0 +1,2 @@
+SUB main(name AS String)
+END SUB

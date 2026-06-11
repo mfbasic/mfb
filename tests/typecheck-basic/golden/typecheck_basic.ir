@@ -1,0 +1,44 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "typecheck_basic",
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "greet",
+    "kind": "func",
+    "params": [
+    { "name": "name", "type": "String", "default": null },
+    { "name": "greeting", "type": "String", "default": { "kind": "const", "type": "String", "value": "Hello" } }
+    ],
+    "returns": "String",
+    "body": [
+    { "op": "return", "value": { "kind": "binary", "op": "&", "left": { "kind": "binary", "op": "&", "left": { "kind": "local", "name": "greeting" }, "right": { "kind": "const", "type": "String", "value": ", " } }, "right": { "kind": "local", "name": "name" } } }
+    ]
+  },
+  {
+    "name": "count",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "return", "value": { "kind": "binary", "op": "+", "left": { "kind": "const", "type": "Integer", "value": "1" }, "right": { "kind": "binary", "op": "*", "left": { "kind": "const", "type": "Integer", "value": "2" }, "right": { "kind": "const", "type": "Integer", "value": "3" } } } }
+    ]
+  },
+  {
+    "name": "main",
+    "kind": "sub",
+    "params": [
+    ],
+    "returns": "Nothing",
+    "body": [
+    { "op": "bind", "mutable": false, "name": "message", "type": "String", "value": { "kind": "call", "target": "greet", "args": [{ "kind": "const", "type": "String", "value": "Ada" }] } },
+    { "op": "bind", "mutable": true, "name": "total", "type": "Integer", "value": null },
+    { "op": "eval", "value": { "kind": "local", "name": "total" } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "local", "name": "message" }] } }
+    ]
+  }
+  ]
+}

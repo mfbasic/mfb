@@ -1,0 +1,22 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "parser_bindings",
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "kind": "sub",
+    "params": [
+    ],
+    "returns": "Nothing",
+    "body": [
+    { "op": "bind", "mutable": false, "name": "message", "type": "String", "value": { "kind": "const", "type": "String", "value": "Hello World" } },
+    { "op": "bind", "mutable": true, "name": "count", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "1" } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "local", "name": "message" }] } },
+    { "op": "return", "value": null }
+    ]
+  }
+  ]
+}

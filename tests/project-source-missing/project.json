@@ -1,0 +1,14 @@
+{
+  "name": "project_source_missing",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "library",
+  "sources": [
+    {
+      "root": "missing-src",
+      "role": "main",
+      "include": ["**/*.mfb"]
+    }
+  ],
+  "targets": ["native"]
+}

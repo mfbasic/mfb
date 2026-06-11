@@ -1,0 +1,9 @@
+IMPORT io
+
+FUNC total() AS Integer
+  RETURN 1 + 2 * 3
+END FUNC
+
+SUB main()
+  io.print(total())
+END SUB

@@ -1,0 +1,12 @@
+$ mfb build -ast tests/project-entry-func
+   1 | FUNC main() AS Integer
+     | ^
+tests/project-entry-func/src/main.mfb:1 error[PROJECT_ENTRY_INVALID]: project entry point is invalid
+               Executable entry `main` must be a SUB, not a FUNC.
+[exit 1]
+$ mfb build -ir tests/project-entry-func
+   1 | FUNC main() AS Integer
+     | ^
+tests/project-entry-func/src/main.mfb:1 error[PROJECT_ENTRY_INVALID]: project entry point is invalid
+               Executable entry `main` must be a SUB, not a FUNC.
+[exit 1]

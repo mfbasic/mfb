@@ -1,0 +1,27 @@
+{
+  "project": "parser_bindings",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 }
+    ],
+    "items": [
+    {
+      "kind": "sub",
+      "name": "main",
+      "line": 3,
+      "params": [
+      ],
+      "returnType": null,
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "message", "type": "String", "value": { "kind": "string", "value": "Hello World" }, "line": 4 },
+      { "kind": "binding", "mutable": true, "name": "count", "type": "Integer", "value": { "kind": "number", "value": "1" }, "line": 5 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "identifier", "value": "message" }] }, "line": 6 },
+      { "kind": "return", "value": null, "line": 7 }
+      ]
+    }
+    ]
+  }
+  ]
+}

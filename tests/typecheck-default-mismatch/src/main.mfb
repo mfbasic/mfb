@@ -1,0 +1,3 @@
+FUNC greet(a AS String = 1) AS String
+  RETURN a
+END FUNC

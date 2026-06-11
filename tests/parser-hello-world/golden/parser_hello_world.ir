@@ -1,0 +1,19 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "parser_hello_world",
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "kind": "sub",
+    "params": [
+    ],
+    "returns": "Nothing",
+    "body": [
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "Hello World" }] } }
+    ]
+  }
+  ]
+}

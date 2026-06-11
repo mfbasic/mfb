@@ -1,0 +1,12 @@
+$ mfb build -ast tests/resolver-missing-package
+   1 | IMPORT shape
+     | ^
+tests/resolver-missing-package/src/main.mfb:1 error[IMPORT_PACKAGE_NOT_DECLARED]: imported package is not declared
+               Package `shape` is not built in and is not declared in project.json packages.
+[exit 1]
+$ mfb build -ir tests/resolver-missing-package
+   1 | IMPORT shape
+     | ^
+tests/resolver-missing-package/src/main.mfb:1 error[IMPORT_PACKAGE_NOT_DECLARED]: imported package is not declared
+               Package `shape` is not built in and is not declared in project.json packages.
+[exit 1]

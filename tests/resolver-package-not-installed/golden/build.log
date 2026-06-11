@@ -1,0 +1,12 @@
+$ mfb build -ast tests/resolver-package-not-installed
+   1 | IMPORT shape
+     | ^
+tests/resolver-package-not-installed/src/main.mfb:1 error[IMPORT_PACKAGE_NOT_INSTALLED]: declared package is not installed
+               Declared package `shape` was not found at `tests/resolver-package-not-installed/packages/shape.mfl` or `tests/resolver-package-not-installed/packages/shape/project.json`.
+[exit 1]
+$ mfb build -ir tests/resolver-package-not-installed
+   1 | IMPORT shape
+     | ^
+tests/resolver-package-not-installed/src/main.mfb:1 error[IMPORT_PACKAGE_NOT_INSTALLED]: declared package is not installed
+               Declared package `shape` was not found at `tests/resolver-package-not-installed/packages/shape.mfl` or `tests/resolver-package-not-installed/packages/shape/project.json`.
+[exit 1]

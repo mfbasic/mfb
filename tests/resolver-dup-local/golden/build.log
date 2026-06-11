@@ -1,0 +1,14 @@
+$ mfb build -ast tests/resolver-dup-local
+   1 | SUB main(message AS String)
+   2 |   LET message = "x"
+     | ^
+tests/resolver-dup-local/src/main.mfb:2 error[SYMBOL_DUPLICATE_LOCAL]: local symbol is declared more than once
+               Local binding `message` is already declared in this function.
+[exit 1]
+$ mfb build -ir tests/resolver-dup-local
+   1 | SUB main(message AS String)
+   2 |   LET message = "x"
+     | ^
+tests/resolver-dup-local/src/main.mfb:2 error[SYMBOL_DUPLICATE_LOCAL]: local symbol is declared more than once
+               Local binding `message` is already declared in this function.
+[exit 1]

@@ -1,0 +1,16 @@
+$ mfb build -ast tests/resolver-non-callable-local
+   1 | SUB main()
+   2 |   LET count AS Integer = 1
+   3 |   count()
+     | ^
+tests/resolver-non-callable-local/src/main.mfb:3 error[SYMBOL_NOT_CALLABLE]: symbol cannot be called
+               Local binding or parameter `count` is not callable.
+[exit 1]
+$ mfb build -ir tests/resolver-non-callable-local
+   1 | SUB main()
+   2 |   LET count AS Integer = 1
+   3 |   count()
+     | ^
+tests/resolver-non-callable-local/src/main.mfb:3 error[SYMBOL_NOT_CALLABLE]: symbol cannot be called
+               Local binding or parameter `count` is not callable.
+[exit 1]

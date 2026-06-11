@@ -1,0 +1,16 @@
+$ mfb build -ast tests/typecheck-function-value
+   4 | 
+   5 | SUB main()
+   6 |   LET x AS Integer = count
+     | ^
+tests/typecheck-function-value/src/main.mfb:6 error[SYMBOL_NOT_VALUE]: symbol is not a value
+               Function `count` must be called with arguments before it can be used as a value.
+[exit 1]
+$ mfb build -ir tests/typecheck-function-value
+   4 | 
+   5 | SUB main()
+   6 |   LET x AS Integer = count
+     | ^
+tests/typecheck-function-value/src/main.mfb:6 error[SYMBOL_NOT_VALUE]: symbol is not a value
+               Function `count` must be called with arguments before it can be used as a value.
+[exit 1]

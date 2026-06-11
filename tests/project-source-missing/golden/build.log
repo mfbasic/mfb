@@ -1,0 +1,8 @@
+$ mfb build -ast tests/project-source-missing
+tests/project-source-missing/missing-src:1 error[MFB_SOURCE_ROOT_MISSING]: MFBASIC source root does not exist
+               Source root `tests/project-source-missing/missing-src` does not exist.
+[exit 1]
+$ mfb build -ir tests/project-source-missing
+tests/project-source-missing/missing-src:1 error[MFB_SOURCE_ROOT_MISSING]: MFBASIC source root does not exist
+               Source root `tests/project-source-missing/missing-src` does not exist.
+[exit 1]

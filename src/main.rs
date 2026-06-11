@@ -1,5 +1,9 @@
 mod ast;
+mod ir;
+mod lexer;
+mod resolver;
 mod rules;
+mod typecheck;
 
 use std::collections::HashMap;
 use std::env;
@@ -8,7 +12,7 @@ use std::path::{Path, PathBuf};
 use std::process;
 use tinyjson::JsonValue;
 
-const USAGE: &str = "Usage: mfb <command> <arguments>\n\nCommands:\n  help                       Show this message\n  init <location>            Create a new MFBASIC project\n  build [-ast] [location]    Validate and build an MFBASIC project";
+const USAGE: &str = "Usage: mfb <command> <arguments>\n\nCommands:\n  help                        Show this message\n  init <location>             Create a new MFBASIC project\n  build [-ast|-ir] [location] Validate and build an MFBASIC project";
 
 fn main() {
     let mut args = env::args().skip(1);
@@ -55,16 +59,30 @@ fn main() {
 
 struct BuildOptions {
     location: PathBuf,
-    emit_ast: bool,
+    output: BuildOutput,
+}
+
+enum BuildOutput {
+    Validate,
+    Ast,
+    Ir,
 }
 
 fn parse_build_options(args: Vec<String>) -> Result<BuildOptions, String> {
     let mut location = None;
-    let mut emit_ast = false;
+    let mut output = BuildOutput::Validate;
 
     for arg in args {
         if arg == "-ast" {
-            emit_ast = true;
+            if !matches!(output, BuildOutput::Validate) {
+                return Err("mfb build accepts only one output mode".to_string());
+            }
+            output = BuildOutput::Ast;
+        } else if arg == "-ir" {
+            if !matches!(output, BuildOutput::Validate) {
+                return Err("mfb build accepts only one output mode".to_string());
+            }
+            output = BuildOutput::Ir;
         } else if arg.starts_with('-') {
             return Err(format!("unknown build option `{arg}`"));
         } else if location.replace(PathBuf::from(&arg)).is_some() {
@@ -74,7 +92,7 @@ fn parse_build_options(args: Vec<String>) -> Result<BuildOptions, String> {
 
     Ok(BuildOptions {
         location: location.unwrap_or_else(|| PathBuf::from(".")),
-        emit_ast,
+        output,
     })
 }
 
@@ -100,25 +118,105 @@ fn init_project(location: &Path) -> Result<(), String> {
 fn build_project(options: &BuildOptions) -> Result<(), ()> {
     let project_path = options.location.join("project.json");
     let manifest = validate_project_manifest(&project_path)?;
+    let project_name = manifest
+        .get("name")
+        .and_then(|value| value.get::<String>())
+        .expect("validated project name");
+    let ast = ast::parse_project(project_name, &options.location, &manifest)?;
+    resolver::resolve_project(&options.location, &manifest, &ast)?;
+    validate_entry_point(&options.location, &manifest, &ast)?;
+    typecheck::check_project(&options.location, &ast)?;
 
-    if options.emit_ast {
-        let project_name = manifest
-            .get("name")
-            .and_then(|value| value.get::<String>())
-            .expect("validated project name");
-        let ast = ast::parse_project(project_name, &options.location, &manifest)?;
-        let ast_path = ast::write_ast(&options.location, &ast).map_err(|err| {
-            eprintln!("error: {err}");
-        })?;
-        println!("Wrote AST to {}", ast_path.display());
-    } else {
-        println!(
-            "Validated MFBASIC project at {}",
-            options.location.display()
-        );
+    match options.output {
+        BuildOutput::Validate => {
+            println!(
+                "Validated MFBASIC project at {}",
+                options.location.display()
+            );
+        }
+        BuildOutput::Ast => {
+            let ast_path = ast::write_ast(&options.location, &ast).map_err(|err| {
+                eprintln!("error: {err}");
+            })?;
+            println!("Wrote AST to {}", ast_path.display());
+        }
+        BuildOutput::Ir => {
+            let ir = ir::lower_project(&ast);
+            let ir_path = ir::write_ir(&options.location, &ir).map_err(|err| {
+                eprintln!("error: {err}");
+            })?;
+            println!("Wrote IR to {}", ir_path.display());
+        }
     }
 
     Ok(())
+}
+
+fn validate_entry_point(
+    project_dir: &Path,
+    manifest: &HashMap<String, JsonValue>,
+    ast: &ast::AstProject,
+) -> Result<(), ()> {
+    let kind = manifest
+        .get("kind")
+        .and_then(|value| value.get::<String>())
+        .map(String::as_str);
+    if kind == Some("library") {
+        return Ok(());
+    }
+
+    let entry = manifest
+        .get("entry")
+        .and_then(|value| value.get::<String>())
+        .map(String::as_str)
+        .unwrap_or("main");
+
+    for file in &ast.files {
+        for item in &file.items {
+            let ast::Item::Function(function) = item else {
+                continue;
+            };
+            if function.name != entry {
+                continue;
+            }
+
+            if !matches!(function.kind, ast::FunctionKind::Sub) {
+                rules::show_diagnostic(
+                    "PROJECT_ENTRY_INVALID",
+                    &format!("Executable entry `{entry}` must be a SUB, not a FUNC."),
+                    &project_dir.join(&file.path),
+                    function.line,
+                    1,
+                    1,
+                );
+                return Err(());
+            }
+
+            if !function.params.is_empty() {
+                rules::show_diagnostic(
+                    "PROJECT_ENTRY_INVALID",
+                    &format!("Executable entry `{entry}` must not declare parameters."),
+                    &project_dir.join(&file.path),
+                    function.line,
+                    1,
+                    1,
+                );
+                return Err(());
+            }
+
+            return Ok(());
+        }
+    }
+
+    rules::show_diagnostic(
+        "PROJECT_ENTRY_INVALID",
+        &format!("Executable project must declare `SUB {entry}()` in the root package."),
+        &project_dir.join("project.json"),
+        1,
+        1,
+        1,
+    );
+    Err(())
 }
 
 fn validate_project_manifest(project_path: &Path) -> Result<HashMap<String, JsonValue>, ()> {

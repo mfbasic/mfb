@@ -1,0 +1,5 @@
+TYPE Thing
+END TYPE
+
+SUB Thing()
+END SUB

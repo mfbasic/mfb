@@ -1,0 +1,6 @@
+$ mfb build -ast tests/parser-functions
+Wrote AST to tests/parser-functions/parser_functions.ast
+[exit 0]
+$ mfb build -ir tests/parser-functions
+Wrote IR to tests/parser-functions/parser_functions.ir
+[exit 0]

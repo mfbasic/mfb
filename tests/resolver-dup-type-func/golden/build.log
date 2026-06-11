@@ -1,0 +1,16 @@
+$ mfb build -ast tests/resolver-dup-type-func
+   2 | END TYPE
+   3 | 
+   4 | SUB Thing()
+     | ^
+tests/resolver-dup-type-func/src/main.mfb:4 error[SYMBOL_DUPLICATE_TOP_LEVEL]: top-level symbol is declared more than once
+               Top-level symbol `Thing` was already declared in src/main.mfb:1.
+[exit 1]
+$ mfb build -ir tests/resolver-dup-type-func
+   2 | END TYPE
+   3 | 
+   4 | SUB Thing()
+     | ^
+tests/resolver-dup-type-func/src/main.mfb:4 error[SYMBOL_DUPLICATE_TOP_LEVEL]: top-level symbol is declared more than once
+               Top-level symbol `Thing` was already declared in src/main.mfb:1.
+[exit 1]

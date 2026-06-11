@@ -1,0 +1,12 @@
+$ mfb build -ast tests/typecheck-missing-return
+   1 | {"name":"typecheck_missing-return","version":"0.1.0","mfb":"1.0","sources":[{"root":"src"}]}
+     | ^
+tests/typecheck-missing-return/project.json:1 error[PROJECT_ENTRY_INVALID]: project entry point is invalid
+               Executable project must declare `SUB main()` in the root package.
+[exit 1]
+$ mfb build -ir tests/typecheck-missing-return
+   1 | {"name":"typecheck_missing-return","version":"0.1.0","mfb":"1.0","sources":[{"root":"src"}]}
+     | ^
+tests/typecheck-missing-return/project.json:1 error[PROJECT_ENTRY_INVALID]: project entry point is invalid
+               Executable project must declare `SUB main()` in the root package.
+[exit 1]

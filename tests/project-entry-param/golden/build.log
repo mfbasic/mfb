@@ -1,0 +1,12 @@
+$ mfb build -ast tests/project-entry-param
+   1 | SUB main(name AS String)
+     | ^
+tests/project-entry-param/src/main.mfb:1 error[PROJECT_ENTRY_INVALID]: project entry point is invalid
+               Executable entry `main` must not declare parameters.
+[exit 1]
+$ mfb build -ir tests/project-entry-param
+   1 | SUB main(name AS String)
+     | ^
+tests/project-entry-param/src/main.mfb:1 error[PROJECT_ENTRY_INVALID]: project entry point is invalid
+               Executable entry `main` must not declare parameters.
+[exit 1]

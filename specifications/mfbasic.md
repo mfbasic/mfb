@@ -746,6 +746,32 @@ io.print(geometry.area(geometry.Circle[2.0]))
 
 Import graph is resolved at compile time; cycles are an error.
 
+`IMPORT packageName` resolves a package, not an arbitrary source file. The
+compiler resolves the first identifier in the import using this order:
+
+1. A built-in package supplied by the toolchain, such as `io`.
+2. A package with the same `name` in the importing project's own
+   `project.json` `packages` array. If no dependency is declared, resolution
+   fails.
+3. If the declared dependency has a `source` beginning with `local:///`, the
+   rest of the value must be an absolute path. The compiler checks
+   `/absolute/path/project.json`; the manifest `name` must match the import and
+   `kind` must be `library`. `local://relative` and other non-absolute local
+   forms are errors. A package that uses `local:///` cannot be released without
+   replacing that dependency source.
+4. Otherwise, the compiler checks `<project_root>/packages/packageName.mfl`.
+5. If no `.mfl` exists, the compiler checks
+   `<project_root>/packages/packageName/project.json`; the manifest `name` must
+   match the import and `kind` must be `library`.
+6. Otherwise, the declared package is missing from the package store and the
+   import is a compile-time error.
+
+`<project_root>/packages` is the resolved dependency store, similar in role to
+`node_modules` in Node projects. It is managed by the package manager. The
+compiler does not implicitly import undeclared packages from this directory.
+Each package is responsible for declaring its own dependencies; dependency
+declarations are not inherited from importers and imports are not transitive.
+
 ### 12.1 Package identity, versions, and manifests
 
 A package has a stable identity independent of its local directory name. Source projects declare identity, source inputs, and dependencies in a project manifest file named `project.json` at the project root. Compiled library packages embed the relevant manifest data in the `.mfl` file.
