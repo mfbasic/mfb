@@ -4,6 +4,7 @@ mod builtins;
 mod bytecode;
 mod ir;
 mod lexer;
+mod man;
 mod os;
 mod resolver;
 mod rules;
@@ -17,7 +18,7 @@ use std::path::{Path, PathBuf};
 use std::process;
 use tinyjson::JsonValue;
 
-const USAGE: &str = "Usage: mfb <command> <arguments>\n\nCommands:\n  help                        Show this message\n  init <location>             Create a new MFBASIC project\n  build [-ast|-ir|-bc|-bin] [location] Validate and build an MFBASIC project";
+const USAGE: &str = "Usage: mfb <command> <arguments>\n\nCommands:\n  help                        Show this message\n  init <location>             Create a new MFBASIC project\n  build [-ast|-ir|-bc|-bin] [location] Validate and build an MFBASIC project\n  man [package] [function]    Show built-in package and function help";
 
 fn main() {
     let mut args = env::args().skip(1);
@@ -53,6 +54,13 @@ fn main() {
 
             if let Err(()) = build_project(&build_options) {
                 process::exit(1);
+            }
+        }
+        Some("man") => {
+            let man_args = args.collect::<Vec<_>>();
+            if let Err(err) = show_man(&man_args) {
+                eprintln!("error: {err}");
+                process::exit(2);
             }
         }
         Some(command) => {
@@ -215,6 +223,91 @@ fn build_project(options: &BuildOptions) -> Result<(), ()> {
     }
 
     Ok(())
+}
+
+fn show_man(args: &[String]) -> Result<(), String> {
+    match args {
+        [] => {
+            print_man_index();
+            Ok(())
+        }
+        [package_name] => {
+            let package =
+                man::package(package_name).ok_or_else(|| unknown_package_error(package_name))?;
+            print_package_man(package);
+            Ok(())
+        }
+        [package_name, function_name] => {
+            let package =
+                man::package(package_name).ok_or_else(|| unknown_package_error(package_name))?;
+            let function = man::function(package, function_name).ok_or_else(|| {
+                format!(
+                    "unknown function `{function_name}` in package `{package_name}`\n\nRun `mfb man {package_name}` to list available functions."
+                )
+            })?;
+            print_function_man(package, function);
+            Ok(())
+        }
+        _ => Err(format!("mfb man accepts at most two arguments\n\n{USAGE}")),
+    }
+}
+
+fn print_man_index() {
+    println!("Usage: mfb man [package] [function]");
+    println!();
+    println!("Show help for built-in packages and functions.");
+    println!();
+    println!("Examples:");
+    println!("  mfb man");
+    println!("  mfb man general");
+    println!("  mfb man io print");
+    println!();
+    println!("Packages:");
+    for package in man::packages() {
+        println!("  {:<8} {}", package.name, package.summary);
+    }
+}
+
+fn print_package_man(package: &man::PackageDoc) {
+    println!("Package: {}", package.name);
+    println!();
+    println!("{}", package.summary);
+    println!();
+    println!("Usage:");
+    println!("  {}", package.usage);
+    println!();
+    println!("Functions:");
+    for function in package.functions {
+        println!("  {:<18} {}", function.name, function.summary);
+    }
+    println!();
+    println!(
+        "Run `mfb man {} <function>` for function signatures and examples.",
+        package.name
+    );
+}
+
+fn print_function_man(package: &man::PackageDoc, function: &man::FunctionDoc) {
+    println!("{} {}", package.name, function.name);
+    println!();
+    println!("{}", function.summary);
+    println!();
+    println!("Signature:");
+    println!("  {}", function.signature);
+    println!();
+    println!("Example:");
+    for line in function.example.lines() {
+        println!("  {line}");
+    }
+}
+
+fn unknown_package_error(package_name: &str) -> String {
+    let packages = man::packages()
+        .iter()
+        .map(|package| package.name)
+        .collect::<Vec<_>>()
+        .join(", ");
+    format!("unknown package `{package_name}`\n\nAvailable packages: {packages}")
 }
 
 fn validate_entry_point(
