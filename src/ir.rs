@@ -131,6 +131,10 @@ pub(crate) enum IrValue {
         left: Box<IrValue>,
         right: Box<IrValue>,
     },
+    Unary {
+        op: String,
+        operand: Box<IrValue>,
+    },
 }
 
 pub fn lower_project(ast: &AstProject, entry: Option<EntryPoint>) -> IrProject {
@@ -414,7 +418,10 @@ fn expression_type(
             operator,
             right,
         } => {
-            if operator == "=" {
+            if matches!(
+                operator.as_str(),
+                "=" | "<>" | "<" | ">" | "<=" | ">=" | "AND" | "OR" | "XOR"
+            ) {
                 return Some("Boolean".to_string());
             }
             if operator == "&" {
@@ -426,6 +433,13 @@ fn expression_type(
                 Some("Float".to_string())
             } else {
                 Some("Integer".to_string())
+            }
+        }
+        Expression::Unary { operator, operand } => {
+            if operator == "NOT" {
+                Some("Boolean".to_string())
+            } else {
+                expression_type(operand, locals, function_returns, type_index)
             }
         }
     }
@@ -499,6 +513,10 @@ fn lower_expression(expression: &Expression) -> IrValue {
             op: operator.clone(),
             left: Box::new(lower_expression(left)),
             right: Box::new(lower_expression(right)),
+        },
+        Expression::Unary { operator, operand } => IrValue::Unary {
+            op: operator.clone(),
+            operand: Box::new(lower_expression(operand)),
         },
     }
 }
@@ -1025,6 +1043,13 @@ impl ToIrJson for IrValue {
                     json_string(op),
                     left.to_json(0),
                     right.to_json(0)
+                )
+            }
+            IrValue::Unary { op, operand } => {
+                format!(
+                    "{{ \"kind\": \"unary\", \"op\": {}, \"operand\": {} }}",
+                    json_string(op),
+                    operand.to_json(0)
                 )
             }
         }

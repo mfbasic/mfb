@@ -1,0 +1,51 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "operators_full",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "inc",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    { "name": "value", "type": "Integer", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "return", "value": { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "value" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+    ]
+  },
+  {
+    "name": "main",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "mutable": false, "name": "piped", "type": "Integer", "value": { "kind": "call", "target": "inc", "args": [{ "kind": "const", "type": "Integer", "value": "2" }] } },
+    { "op": "bind", "mutable": false, "name": "arithmetic", "type": "Integer", "value": { "kind": "binary", "op": "+", "left": { "kind": "binary", "op": "+", "left": { "kind": "binary", "op": "+", "left": { "kind": "unary", "op": "-", "operand": { "kind": "const", "type": "Integer", "value": "2" } }, "right": { "kind": "binary", "op": "/", "left": { "kind": "binary", "op": "*", "left": { "kind": "const", "type": "Integer", "value": "3" }, "right": { "kind": "const", "type": "Integer", "value": "4" } }, "right": { "kind": "const", "type": "Integer", "value": "2" } } }, "right": { "kind": "binary", "op": "MOD", "left": { "kind": "const", "type": "Integer", "value": "7" }, "right": { "kind": "const", "type": "Integer", "value": "5" } } }, "right": { "kind": "binary", "op": "^", "left": { "kind": "const", "type": "Integer", "value": "2" }, "right": { "kind": "const", "type": "Integer", "value": "3" } } } },
+    { "op": "bind", "mutable": false, "name": "comparisons", "type": "Boolean", "value": { "kind": "binary", "op": "AND", "left": { "kind": "binary", "op": ">=", "left": { "kind": "local", "name": "arithmetic" }, "right": { "kind": "const", "type": "Integer", "value": "9" } }, "right": { "kind": "binary", "op": "<>", "left": { "kind": "local", "name": "arithmetic" }, "right": { "kind": "const", "type": "Integer", "value": "0" } } } },
+    { "op": "bind", "mutable": false, "name": "ordered", "type": "Boolean", "value": { "kind": "binary", "op": "OR", "left": { "kind": "binary", "op": "<", "left": { "kind": "local", "name": "piped" }, "right": { "kind": "local", "name": "arithmetic" } }, "right": { "kind": "binary", "op": "<=", "left": { "kind": "local", "name": "piped" }, "right": { "kind": "const", "type": "Integer", "value": "3" } } } },
+    { "op": "bind", "mutable": false, "name": "flags", "type": "Boolean", "value": { "kind": "binary", "op": "OR", "left": { "kind": "binary", "op": "XOR", "left": { "kind": "unary", "op": "NOT", "operand": { "kind": "const", "type": "Boolean", "value": "false" } }, "right": { "kind": "binary", "op": "=", "left": { "kind": "local", "name": "arithmetic" }, "right": { "kind": "const", "type": "Integer", "value": "10" } } }, "right": { "kind": "binary", "op": ">", "left": { "kind": "local", "name": "arithmetic" }, "right": { "kind": "local", "name": "piped" } } } },
+    {
+      "op": "if",
+      "condition": { "kind": "binary", "op": "AND", "left": { "kind": "binary", "op": "AND", "left": { "kind": "local", "name": "comparisons" }, "right": { "kind": "local", "name": "ordered" } }, "right": { "kind": "local", "name": "flags" } },
+      "then": [
+      { "op": "return", "value": { "kind": "local", "name": "arithmetic" } }
+      ],
+      "else": [
+      ]
+    },
+    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "1" } }
+    ]
+  }
+  ]
+}

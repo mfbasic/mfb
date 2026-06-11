@@ -38,6 +38,16 @@ const OPCODE_SUB: u16 = 21;
 const OPCODE_MUL: u16 = 22;
 const OPCODE_DIV: u16 = 23;
 const OPCODE_EQUAL: u16 = 24;
+const OPCODE_NOT_EQUAL: u16 = 25;
+const OPCODE_LESS: u16 = 26;
+const OPCODE_LESS_EQUAL: u16 = 27;
+const OPCODE_GREATER: u16 = 28;
+const OPCODE_GREATER_EQUAL: u16 = 29;
+const OPCODE_MOD: u16 = 30;
+const OPCODE_POW: u16 = 31;
+const OPCODE_NOT: u16 = 32;
+const OPCODE_XOR: u16 = 33;
+const OPCODE_NEG: u16 = 34;
 const OPCODE_CONCAT: u16 = 40;
 pub(crate) const OPCODE_WRITE_STDOUT: u16 = 50;
 const OPCODE_CALL_RESULT: u16 = 60;
@@ -47,9 +57,12 @@ const OPCODE_CONSTRUCT_RECORD: u16 = 80;
 const OPCODE_CONSTRUCT_VARIANT: u16 = 81;
 const OPCODE_LOAD_FIELD: u16 = 82;
 const OPCODE_LOAD_ENUM_MEMBER: u16 = 83;
+const OPCODE_CONSTRUCT_LIST: u16 = 84;
+const OPCODE_CONSTRUCT_MAP: u16 = 85;
 const OPCODE_BRANCH: u16 = 90;
 const OPCODE_BRANCH_IF_FALSE: u16 = 91;
 const OPCODE_VARIANT_MATCH: u16 = 92;
+const OPCODE_BRANCH_IF_TRUE: u16 = 93;
 
 pub fn write_bytecode_hex(
     project_dir: &Path,
@@ -148,6 +161,16 @@ pub const NATIVE_OPCODE_SUB: u16 = OPCODE_SUB;
 pub const NATIVE_OPCODE_MUL: u16 = OPCODE_MUL;
 pub const NATIVE_OPCODE_DIV: u16 = OPCODE_DIV;
 pub const NATIVE_OPCODE_EQUAL: u16 = OPCODE_EQUAL;
+pub const NATIVE_OPCODE_NOT_EQUAL: u16 = OPCODE_NOT_EQUAL;
+pub const NATIVE_OPCODE_LESS: u16 = OPCODE_LESS;
+pub const NATIVE_OPCODE_LESS_EQUAL: u16 = OPCODE_LESS_EQUAL;
+pub const NATIVE_OPCODE_GREATER: u16 = OPCODE_GREATER;
+pub const NATIVE_OPCODE_GREATER_EQUAL: u16 = OPCODE_GREATER_EQUAL;
+pub const NATIVE_OPCODE_MOD: u16 = OPCODE_MOD;
+pub const NATIVE_OPCODE_POW: u16 = OPCODE_POW;
+pub const NATIVE_OPCODE_NOT: u16 = OPCODE_NOT;
+pub const NATIVE_OPCODE_XOR: u16 = OPCODE_XOR;
+pub const NATIVE_OPCODE_NEG: u16 = OPCODE_NEG;
 pub const NATIVE_OPCODE_CONCAT: u16 = OPCODE_CONCAT;
 pub const NATIVE_OPCODE_WRITE_STDOUT: u16 = OPCODE_WRITE_STDOUT;
 pub const NATIVE_OPCODE_CALL_RESULT: u16 = OPCODE_CALL_RESULT;
@@ -157,9 +180,12 @@ pub const NATIVE_OPCODE_CONSTRUCT_RECORD: u16 = OPCODE_CONSTRUCT_RECORD;
 pub const NATIVE_OPCODE_CONSTRUCT_VARIANT: u16 = OPCODE_CONSTRUCT_VARIANT;
 pub const NATIVE_OPCODE_LOAD_FIELD: u16 = OPCODE_LOAD_FIELD;
 pub const NATIVE_OPCODE_LOAD_ENUM_MEMBER: u16 = OPCODE_LOAD_ENUM_MEMBER;
+pub const NATIVE_OPCODE_CONSTRUCT_LIST: u16 = OPCODE_CONSTRUCT_LIST;
+pub const NATIVE_OPCODE_CONSTRUCT_MAP: u16 = OPCODE_CONSTRUCT_MAP;
 pub const NATIVE_OPCODE_BRANCH: u16 = OPCODE_BRANCH;
 pub const NATIVE_OPCODE_BRANCH_IF_FALSE: u16 = OPCODE_BRANCH_IF_FALSE;
 pub const NATIVE_OPCODE_VARIANT_MATCH: u16 = OPCODE_VARIANT_MATCH;
+pub const NATIVE_OPCODE_BRANCH_IF_TRUE: u16 = OPCODE_BRANCH_IF_TRUE;
 
 pub fn native_program(ir: &IrProject) -> Result<NativeProgram, String> {
     let project = lower_project(ir, "native")?;
@@ -973,10 +999,27 @@ impl<'a> FunctionBuilder<'a> {
                 })
             }
             IrValue::Binary { op, left, right } => {
+                if op == "AND" {
+                    return self.lower_short_circuit_and(left, right, locals);
+                }
+                if op == "OR" {
+                    return self.lower_short_circuit_or(left, right, locals);
+                }
                 let left_register = self.lower_value(left, locals)?;
                 let right_register = self.lower_value(right, locals)?;
-                if op == "=" {
-                    return Ok(self.push_equal(left_register.register, right_register.register));
+                if let Some(opcode) = comparison_opcode(op) {
+                    return Ok(self.push_boolean_binary(
+                        opcode,
+                        left_register.register,
+                        right_register.register,
+                    ));
+                }
+                if op == "XOR" {
+                    return Ok(self.push_boolean_binary(
+                        OPCODE_XOR,
+                        left_register.register,
+                        right_register.register,
+                    ));
                 }
                 let type_id = if op == "&" {
                     TYPE_STRING
@@ -995,6 +1038,8 @@ impl<'a> FunctionBuilder<'a> {
                     "-" => OPCODE_SUB,
                     "*" => OPCODE_MUL,
                     "/" => OPCODE_DIV,
+                    "MOD" => OPCODE_MOD,
+                    "^" => OPCODE_POW,
                     "&" => OPCODE_CONCAT,
                     _ => return Err(format!("unsupported IR binary operator `{op}`")),
                 };
@@ -1012,6 +1057,24 @@ impl<'a> FunctionBuilder<'a> {
                         "Integer".to_string()
                     },
                 })
+            }
+            IrValue::Unary { op, operand } => {
+                let operand = self.lower_value(operand, locals)?;
+                match op.as_str() {
+                    "NOT" => {
+                        Ok(self.push_unary(OPCODE_NOT, TYPE_BOOLEAN, "Boolean", operand.register))
+                    }
+                    "-" => {
+                        let type_id = self.registers[operand.register as usize].type_id;
+                        Ok(self.push_unary(
+                            OPCODE_NEG,
+                            type_id,
+                            &operand.type_name,
+                            operand.register,
+                        ))
+                    }
+                    _ => Err(format!("unsupported IR unary operator `{op}`")),
+                }
             }
             IrValue::Constructor { type_, args } => {
                 if type_ == "Ok" {
@@ -1091,25 +1154,31 @@ impl<'a> FunctionBuilder<'a> {
                 Err(format!("IR references unknown constructor `{type_}`"))
             }
             IrValue::ListLiteral { type_, values } => {
+                let mut value_registers = Vec::new();
                 for value in values {
-                    self.lower_value(value, locals)?;
+                    value_registers.push(self.lower_value(value, locals)?.register);
                 }
                 let type_id = self.type_id(type_);
                 let dst = self.add_register(type_id, 0);
-                self.push(OPCODE_LOAD_DEFAULT, vec![dst, type_id]);
+                let mut operands = vec![dst, type_id, values.len() as u32];
+                operands.extend(value_registers);
+                self.push(OPCODE_CONSTRUCT_LIST, operands);
                 Ok(ValueSlot {
                     register: dst,
                     type_name: type_.clone(),
                 })
             }
             IrValue::MapLiteral { type_, entries } => {
+                let mut entry_registers = Vec::new();
                 for (key, value) in entries {
-                    self.lower_value(key, locals)?;
-                    self.lower_value(value, locals)?;
+                    entry_registers.push(self.lower_value(key, locals)?.register);
+                    entry_registers.push(self.lower_value(value, locals)?.register);
                 }
                 let type_id = self.type_id(type_);
                 let dst = self.add_register(type_id, 0);
-                self.push(OPCODE_LOAD_DEFAULT, vec![dst, type_id]);
+                let mut operands = vec![dst, type_id, entries.len() as u32];
+                operands.extend(entry_registers);
+                self.push(OPCODE_CONSTRUCT_MAP, operands);
                 Ok(ValueSlot {
                     register: dst,
                     type_name: type_.clone(),
@@ -1240,18 +1309,96 @@ impl<'a> FunctionBuilder<'a> {
     }
 
     fn push_equal(&mut self, left: u32, right: u32) -> ValueSlot {
+        self.push_boolean_binary(OPCODE_EQUAL, left, right)
+    }
+
+    fn push_boolean_binary(&mut self, opcode: u16, left: u32, right: u32) -> ValueSlot {
         let dst = self.add_register(TYPE_BOOLEAN, 0);
-        self.push(OPCODE_EQUAL, vec![dst, left, right]);
+        self.push(opcode, vec![dst, left, right]);
         ValueSlot {
             register: dst,
             type_name: "Boolean".to_string(),
         }
     }
 
+    fn push_unary(
+        &mut self,
+        opcode: u16,
+        type_id: u32,
+        type_name: &str,
+        operand: u32,
+    ) -> ValueSlot {
+        let dst = self.add_register(type_id, 0);
+        self.push(opcode, vec![dst, operand]);
+        ValueSlot {
+            register: dst,
+            type_name: type_name.to_string(),
+        }
+    }
+
+    fn push_boolean_const(&mut self, value: bool) -> Result<u32, String> {
+        let register = self.add_register(TYPE_BOOLEAN, 0);
+        let constant = IrValue::Const {
+            type_: "Boolean".to_string(),
+            value: value.to_string(),
+        };
+        let constant_id = self.const_id(&constant)?;
+        self.push(OPCODE_LOAD_CONST, vec![register, constant_id]);
+        Ok(register)
+    }
+
+    fn lower_short_circuit_and(
+        &mut self,
+        left: &IrValue,
+        right: &IrValue,
+        locals: &HashMap<String, ValueSlot>,
+    ) -> Result<ValueSlot, String> {
+        let dst = self.push_boolean_const(false)?;
+        let left = self.lower_value(left, locals)?;
+        let end_jump = self.push_jump(OPCODE_BRANCH_IF_FALSE, vec![left.register]);
+        let right = self.lower_value(right, locals)?;
+        self.push(OPCODE_COPY, vec![dst, right.register]);
+        self.patch_jump(end_jump);
+        Ok(ValueSlot {
+            register: dst,
+            type_name: "Boolean".to_string(),
+        })
+    }
+
+    fn lower_short_circuit_or(
+        &mut self,
+        left: &IrValue,
+        right: &IrValue,
+        locals: &HashMap<String, ValueSlot>,
+    ) -> Result<ValueSlot, String> {
+        let dst = self.push_boolean_const(true)?;
+        let left = self.lower_value(left, locals)?;
+        let end_jump = self.push_jump(OPCODE_BRANCH_IF_TRUE, vec![left.register]);
+        let right = self.lower_value(right, locals)?;
+        self.push(OPCODE_COPY, vec![dst, right.register]);
+        self.patch_jump(end_jump);
+        Ok(ValueSlot {
+            register: dst,
+            type_name: "Boolean".to_string(),
+        })
+    }
+
     fn ends_with_return(&self) -> bool {
         self.code
             .last()
             .is_some_and(|instruction| instruction.opcode == OPCODE_RETURN_OK)
+    }
+}
+
+fn comparison_opcode(op: &str) -> Option<u16> {
+    match op {
+        "=" => Some(OPCODE_EQUAL),
+        "<>" => Some(OPCODE_NOT_EQUAL),
+        "<" => Some(OPCODE_LESS),
+        "<=" => Some(OPCODE_LESS_EQUAL),
+        ">" => Some(OPCODE_GREATER),
+        ">=" => Some(OPCODE_GREATER_EQUAL),
+        _ => None,
     }
 }
 

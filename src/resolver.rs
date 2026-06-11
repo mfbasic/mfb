@@ -420,6 +420,9 @@ impl<'a> Resolver<'a> {
                 self.resolve_expression(file, left, line, imports, locals);
                 self.resolve_expression(file, right, line, imports, locals);
             }
+            Expression::Unary { operand, .. } => {
+                self.resolve_expression(file, operand, line, imports, locals);
+            }
             Expression::Call { callee, arguments } => {
                 self.resolve_callable(file, callee, line, imports, locals);
                 for argument in arguments {

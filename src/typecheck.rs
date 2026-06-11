@@ -700,6 +700,10 @@ impl<'a> TypeChecker<'a> {
                 let right_type = self.infer_expression(file, right, locals, line);
                 self.infer_binary(file, operator, &left_type, &right_type, line)
             }
+            Expression::Unary { operator, operand } => {
+                let operand_type = self.infer_expression(file, operand, locals, line);
+                self.infer_unary(file, operator, &operand_type, line)
+            }
             Expression::Call { callee, arguments } => {
                 if builtins::is_builtin_call(callee) {
                     self.check_builtin_call(file, callee, arguments, locals, line);
@@ -1152,14 +1156,48 @@ impl<'a> TypeChecker<'a> {
         right: &Type,
         line: usize,
     ) -> Type {
-        if operator == "=" {
+        if matches!(operator, "AND" | "OR" | "XOR") {
+            if self.compatible(&Type::Boolean, left) && self.compatible(&Type::Boolean, right) {
+                return Type::Boolean;
+            }
+            self.report(
+                "TYPE_BINARY_OPERATOR_MISMATCH",
+                &format!(
+                    "Operator `{operator}` requires Boolean operands, got {} and {}.",
+                    self.type_name(left),
+                    self.type_name(right)
+                ),
+                file,
+                line,
+            );
+            return Type::Unknown;
+        }
+
+        if matches!(operator, "=" | "<>") {
             if self.compatible(left, right) || self.compatible(right, left) {
                 return Type::Boolean;
             }
             self.report(
                 "TYPE_BINARY_OPERATOR_MISMATCH",
                 &format!(
-                    "Operator `=` requires compatible operands, got {} and {}.",
+                    "Operator `{operator}` requires compatible operands, got {} and {}.",
+                    self.type_name(left),
+                    self.type_name(right)
+                ),
+                file,
+                line,
+            );
+            return Type::Unknown;
+        }
+
+        if matches!(operator, "<" | ">" | "<=" | ">=") {
+            if self.is_numeric(left) && self.is_numeric(right) {
+                return Type::Boolean;
+            }
+            self.report(
+                "TYPE_BINARY_OPERATOR_MISMATCH",
+                &format!(
+                    "Operator `{operator}` requires numeric operands, got {} and {}.",
                     self.type_name(left),
                     self.type_name(right)
                 ),
@@ -1177,6 +1215,23 @@ impl<'a> TypeChecker<'a> {
                 "TYPE_BINARY_OPERATOR_MISMATCH",
                 &format!(
                     "Operator `&` requires String operands, got {} and {}.",
+                    self.type_name(left),
+                    self.type_name(right)
+                ),
+                file,
+                line,
+            );
+            return Type::Unknown;
+        }
+
+        if operator == "MOD" {
+            if self.compatible(&Type::Integer, left) && self.compatible(&Type::Integer, right) {
+                return Type::Integer;
+            }
+            self.report(
+                "TYPE_BINARY_OPERATOR_MISMATCH",
+                &format!(
+                    "Operator `MOD` requires Integer operands, got {} and {}.",
                     self.type_name(left),
                     self.type_name(right)
                 ),
@@ -1206,6 +1261,52 @@ impl<'a> TypeChecker<'a> {
                 line,
             );
             Type::Unknown
+        }
+    }
+
+    fn infer_unary(&mut self, file: &AstFile, operator: &str, operand: &Type, line: usize) -> Type {
+        match operator {
+            "NOT" => {
+                if self.compatible(&Type::Boolean, operand) {
+                    Type::Boolean
+                } else {
+                    self.report(
+                        "TYPE_UNARY_OPERATOR_MISMATCH",
+                        &format!(
+                            "Operator `NOT` requires a Boolean operand, got {}.",
+                            self.type_name(operand)
+                        ),
+                        file,
+                        line,
+                    );
+                    Type::Unknown
+                }
+            }
+            "-" => {
+                if self.is_numeric(operand) {
+                    operand.clone()
+                } else {
+                    self.report(
+                        "TYPE_UNARY_OPERATOR_MISMATCH",
+                        &format!(
+                            "Unary `-` requires a numeric operand, got {}.",
+                            self.type_name(operand)
+                        ),
+                        file,
+                        line,
+                    );
+                    Type::Unknown
+                }
+            }
+            _ => {
+                self.report(
+                    "TYPE_UNARY_OPERATOR_UNKNOWN",
+                    &format!("Unknown unary operator `{operator}`."),
+                    file,
+                    line,
+                );
+                Type::Unknown
+            }
         }
     }
 

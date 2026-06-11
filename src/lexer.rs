@@ -18,6 +18,11 @@ pub enum TokenKind {
     LBrace,
     RBrace,
     Equal,
+    NotEqual,
+    Less,
+    LessEqual,
+    Greater,
+    GreaterEqual,
     ColonEqual,
     Plus,
     Minus,
@@ -25,6 +30,7 @@ pub enum TokenKind {
     Slash,
     Ampersand,
     Caret,
+    PipeGreater,
     Newline,
     Eof,
 }
@@ -40,9 +46,14 @@ pub enum Keyword {
     If,
     Import,
     Let,
+    Mod,
     Match,
     Mut,
     Nothing,
+    And,
+    Or,
+    Not,
+    Xor,
     Return,
     Sub,
     Then,
@@ -131,12 +142,50 @@ impl Lexer<'_> {
                 '{' => self.push_and_advance(TokenKind::LBrace),
                 '}' => self.push_and_advance(TokenKind::RBrace),
                 '=' => self.push_and_advance(TokenKind::Equal),
+                '<' => {
+                    if self.peek_next() == Some('=') {
+                        self.push_simple(TokenKind::LessEqual, 2);
+                        self.advance();
+                        self.advance();
+                    } else if self.peek_next() == Some('>') {
+                        self.push_simple(TokenKind::NotEqual, 2);
+                        self.advance();
+                        self.advance();
+                    } else {
+                        self.push_and_advance(TokenKind::Less);
+                    }
+                }
+                '>' => {
+                    if self.peek_next() == Some('=') {
+                        self.push_simple(TokenKind::GreaterEqual, 2);
+                        self.advance();
+                        self.advance();
+                    } else {
+                        self.push_and_advance(TokenKind::Greater);
+                    }
+                }
                 '+' => self.push_and_advance(TokenKind::Plus),
                 '-' => self.push_and_advance(TokenKind::Minus),
                 '*' => self.push_and_advance(TokenKind::Star),
                 '/' => self.push_and_advance(TokenKind::Slash),
                 '&' => self.push_and_advance(TokenKind::Ampersand),
                 '^' => self.push_and_advance(TokenKind::Caret),
+                '|' => {
+                    if self.peek_next() == Some('>') {
+                        self.push_simple(TokenKind::PipeGreater, 2);
+                        self.advance();
+                        self.advance();
+                    } else {
+                        self.report(
+                            "MFB_LEX_UNEXPECTED_CHARACTER",
+                            "Unexpected character `|`.",
+                            self.line,
+                            self.column,
+                            self.column + 1,
+                        );
+                        self.advance();
+                    }
+                }
                 _ => {
                     self.report(
                         "MFB_LEX_UNEXPECTED_CHARACTER",
@@ -346,12 +395,22 @@ fn keyword(value: &str) -> Option<Keyword> {
         Some(Keyword::Import)
     } else if value.eq_ignore_ascii_case("LET") {
         Some(Keyword::Let)
+    } else if value.eq_ignore_ascii_case("MOD") {
+        Some(Keyword::Mod)
     } else if value.eq_ignore_ascii_case("MATCH") {
         Some(Keyword::Match)
     } else if value.eq_ignore_ascii_case("MUT") {
         Some(Keyword::Mut)
     } else if value.eq_ignore_ascii_case("NOTHING") {
         Some(Keyword::Nothing)
+    } else if value.eq_ignore_ascii_case("AND") {
+        Some(Keyword::And)
+    } else if value.eq_ignore_ascii_case("OR") {
+        Some(Keyword::Or)
+    } else if value.eq_ignore_ascii_case("NOT") {
+        Some(Keyword::Not)
+    } else if value.eq_ignore_ascii_case("XOR") {
+        Some(Keyword::Xor)
     } else if value.eq_ignore_ascii_case("RETURN") {
         Some(Keyword::Return)
     } else if value.eq_ignore_ascii_case("SUB") {

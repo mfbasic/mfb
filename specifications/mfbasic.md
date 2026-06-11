@@ -862,6 +862,26 @@ Returning a value moves it into the caller's return slot. Returning a local coll
 
 Default arguments are evaluated at the call site and then passed under the same rules as explicit arguments.
 
+### 13.3.1 Native heap value contract
+
+Native backends use one allocator-agnostic bytecode contract for heap-backed values. Bytecode names value operations; native lowering chooses whether a value is inline, static, stack-resident, or arena-backed.
+
+Arena-backed values use a 32-byte object header followed by payload bytes:
+
+| Offset | Field |
+|--------|-------|
+| `0` | kind tag (`String`, `List`, `Map`, `Record`, `Variant`, or future runtime object) |
+| `8` | logical length or field count |
+| `16` | capacity or payload byte length |
+| `24` | auxiliary tag, such as a variant member id |
+| `32` | payload start, aligned at least to 8 bytes |
+
+Value slots are three machine words. Heap-backed slots store the object pointer in word 0, logical length or scalar metadata in word 1, and auxiliary metadata in word 2. Strings store UTF-8 bytes in the object payload. Lists and maps store owned value slots in payload order; maps store key/value slot pairs. Records store field slots in declaration order. Variants store the active variant id in the header auxiliary field and payload fields in variant declaration order.
+
+Copy and move of arena-backed values are slot copies in the current native backend because arena objects are immutable after construction. Drop is a no-op for individual arena values; all arena blocks are released at package-instance shutdown. Returning a heap-backed value copies the slot into the caller-visible result, so returned values never point into the callee stack frame.
+
+Each package instance owns one arena. Worker threads or future isolated package instances get distinct arenas. `arena_alloc(size, align)` validates that alignment is a non-zero power of two, treats zero-size allocations as one byte, rounds addresses with checked arithmetic, grows chained blocks when needed, uses a large-allocation block path for oversized requests, and reports `ErrInvalidArgument` or `ErrOutOfMemory` through ordinary language-level `Result` propagation.
+
 ### 13.4 Closures and first-class functions
 
 Closures capture `LET` bindings by value when the closure is created. Capturing a copyable value copies it into the closure environment unless the compiler can move it without changing later validity. Capturing a non-copyable value moves it into the closure environment, making the original binding unavailable after closure creation.

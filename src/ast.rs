@@ -151,7 +151,7 @@ pub enum MatchPattern {
     Expression(Expression),
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub enum Expression {
     String(String),
     Number(String),
@@ -160,6 +160,10 @@ pub enum Expression {
         left: Box<Expression>,
         operator: String,
         right: Box<Expression>,
+    },
+    Unary {
+        operator: String,
+        operand: Box<Expression>,
     },
     Call {
         callee: String,
@@ -918,16 +922,92 @@ impl<'a> FileParser<'a> {
     }
 
     fn parse_expression(&mut self) -> Option<Expression> {
-        self.parse_equality()
+        self.parse_pipeline()
     }
 
-    fn parse_equality(&mut self) -> Option<Expression> {
+    fn parse_pipeline(&mut self) -> Option<Expression> {
+        let mut expression = self.parse_or()?;
+        while self.match_kind(TokenKind::PipeGreater) {
+            let token = self.previous().clone();
+            let right = self.parse_or()?;
+            if !contains_placeholder(&right) {
+                self.report(
+                    "MFB_PARSE_PIPELINE_PLACEHOLDER_MISSING",
+                    "Pipeline right-hand side must contain `_` as the input placeholder.",
+                    &token,
+                );
+                return None;
+            }
+            expression = substitute_placeholder(right, &expression);
+        }
+        Some(expression)
+    }
+
+    fn parse_or(&mut self) -> Option<Expression> {
+        let mut expression = self.parse_and()?;
+        while self.match_any_keywords(&[Keyword::Or, Keyword::Xor]) {
+            let operator = match self.previous().kind {
+                TokenKind::Keyword(Keyword::Or) => "OR",
+                TokenKind::Keyword(Keyword::Xor) => "XOR",
+                _ => unreachable!(),
+            };
+            let right = self.parse_and()?;
+            expression = Expression::Binary {
+                left: Box::new(expression),
+                operator: operator.to_string(),
+                right: Box::new(right),
+            };
+        }
+        Some(expression)
+    }
+
+    fn parse_and(&mut self) -> Option<Expression> {
+        let mut expression = self.parse_not()?;
+        while self.match_keyword(Keyword::And) {
+            let right = self.parse_not()?;
+            expression = Expression::Binary {
+                left: Box::new(expression),
+                operator: "AND".to_string(),
+                right: Box::new(right),
+            };
+        }
+        Some(expression)
+    }
+
+    fn parse_not(&mut self) -> Option<Expression> {
+        if self.match_keyword(Keyword::Not) {
+            let operand = self.parse_not()?;
+            return Some(Expression::Unary {
+                operator: "NOT".to_string(),
+                operand: Box::new(operand),
+            });
+        }
+        self.parse_comparison()
+    }
+
+    fn parse_comparison(&mut self) -> Option<Expression> {
         let mut expression = self.parse_concat()?;
-        while self.match_kind(TokenKind::Equal) {
+        while self.match_any(&[
+            TokenKind::Equal,
+            TokenKind::NotEqual,
+            TokenKind::Less,
+            TokenKind::LessEqual,
+            TokenKind::Greater,
+            TokenKind::GreaterEqual,
+        ]) {
+            let operator = match self.previous().kind {
+                TokenKind::Equal => "=",
+                TokenKind::NotEqual => "<>",
+                TokenKind::Less => "<",
+                TokenKind::LessEqual => "<=",
+                TokenKind::Greater => ">",
+                TokenKind::GreaterEqual => ">=",
+                _ => unreachable!(),
+            };
             let right = self.parse_concat()?;
             expression = Expression::Binary {
                 left: Box::new(expression),
-                operator: "=".to_string(),
+                operator: operator.to_string(),
                 right: Box::new(right),
             };
         }
@@ -967,10 +1047,13 @@ impl<'a> FileParser<'a> {
 
     fn parse_multiplication(&mut self) -> Option<Expression> {
         let mut expression = self.parse_power()?;
-        while self.match_any(&[TokenKind::Star, TokenKind::Slash]) {
+        while self.match_any(&[TokenKind::Star, TokenKind::Slash])
+            || self.match_keyword(Keyword::Mod)
+        {
             let operator = match self.previous().kind {
                 TokenKind::Star => "*",
                 TokenKind::Slash => "/",
+                TokenKind::Keyword(Keyword::Mod) => "MOD",
                 _ => unreachable!(),
             };
             let right = self.parse_power()?;
@@ -984,9 +1067,9 @@ impl<'a> FileParser<'a> {
     }
 
     fn parse_power(&mut self) -> Option<Expression> {
-        let mut expression = self.parse_member_access()?;
-        while self.match_kind(TokenKind::Caret) {
-            let right = self.parse_member_access()?;
+        let mut expression = self.parse_unary()?;
+        if self.match_kind(TokenKind::Caret) {
+            let right = self.parse_power()?;
             expression = Expression::Binary {
                 left: Box::new(expression),
                 operator: "^".to_string(),
@@ -994,6 +1077,17 @@ impl<'a> FileParser<'a> {
             };
         }
         Some(expression)
+    }
+
+    fn parse_unary(&mut self) -> Option<Expression> {
+        if self.match_kind(TokenKind::Minus) {
+            let operand = self.parse_unary()?;
+            return Some(Expression::Unary {
+                operator: "-".to_string(),
+                operand: Box::new(operand),
+            });
+        }
+        self.parse_member_access()
     }
 
     fn parse_member_access(&mut self) -> Option<Expression> {
@@ -1391,6 +1485,15 @@ impl<'a> FileParser<'a> {
 
     fn match_any(&mut self, kinds: &[TokenKind]) -> bool {
         if kinds.iter().any(|kind| self.check_kind(kind)) {
+            self.advance();
+            true
+        } else {
+            false
+        }
+    }
+
+    fn match_any_keywords(&mut self, keywords: &[Keyword]) -> bool {
+        if keywords.iter().any(|keyword| self.check_keyword(*keyword)) {
             self.advance();
             true
         } else {
@@ -1887,6 +1990,13 @@ impl ToAstJson for Expression {
                     right.to_json(0)
                 )
             }
+            Expression::Unary { operator, operand } => {
+                format!(
+                    "{{ \"kind\": \"unary\", \"operator\": {}, \"operand\": {} }}",
+                    json_string(operator),
+                    operand.to_json(0)
+                )
+            }
             Expression::Call { callee, arguments } => {
                 let args = arguments
                     .iter()
@@ -1976,4 +2086,87 @@ fn join_indented<T: ToAstJson>(items: &[T], indent: usize) -> String {
         .map(|item| item.to_json(indent))
         .collect::<Vec<_>>()
         .join(",")
+}
+
+fn contains_placeholder(expression: &Expression) -> bool {
+    match expression {
+        Expression::Identifier(value) => value == "_",
+        Expression::Binary { left, right, .. } => {
+            contains_placeholder(left) || contains_placeholder(right)
+        }
+        Expression::Unary { operand, .. } => contains_placeholder(operand),
+        Expression::Call { arguments, .. } | Expression::Constructor { arguments, .. } => {
+            arguments.iter().any(contains_placeholder)
+        }
+        Expression::ListLiteral(values) => values.iter().any(contains_placeholder),
+        Expression::MapLiteral { entries, .. } => entries
+            .iter()
+            .any(|(key, value)| contains_placeholder(key) || contains_placeholder(value)),
+        Expression::MemberAccess { target, .. } => contains_placeholder(target),
+        Expression::String(_) | Expression::Number(_) | Expression::Boolean(_) => false,
+    }
+}
+
+fn substitute_placeholder(expression: Expression, input: &Expression) -> Expression {
+    match expression {
+        Expression::Identifier(value) if value == "_" => input.clone(),
+        Expression::Binary {
+            left,
+            operator,
+            right,
+        } => Expression::Binary {
+            left: Box::new(substitute_placeholder(*left, input)),
+            operator,
+            right: Box::new(substitute_placeholder(*right, input)),
+        },
+        Expression::Unary { operator, operand } => Expression::Unary {
+            operator,
+            operand: Box::new(substitute_placeholder(*operand, input)),
+        },
+        Expression::Call { callee, arguments } => Expression::Call {
+            callee,
+            arguments: arguments
+                .into_iter()
+                .map(|argument| substitute_placeholder(argument, input))
+                .collect(),
+        },
+        Expression::Constructor {
+            type_name,
+            arguments,
+        } => Expression::Constructor {
+            type_name,
+            arguments: arguments
+                .into_iter()
+                .map(|argument| substitute_placeholder(argument, input))
+                .collect(),
+        },
+        Expression::ListLiteral(values) => Expression::ListLiteral(
+            values
+                .into_iter()
+                .map(|value| substitute_placeholder(value, input))
+                .collect(),
+        ),
+        Expression::MapLiteral {
+            key_type,
+            value_type,
+            entries,
+        } => Expression::MapLiteral {
+            key_type,
+            value_type,
+            entries: entries
+                .into_iter()
+                .map(|(key, value)| {
+                    (
+                        substitute_placeholder(key, input),
+                        substitute_placeholder(value, input),
+                    )
+                })
+                .collect(),
+        },
+        Expression::MemberAccess { target, member } => Expression::MemberAccess {
+            target: Box::new(substitute_placeholder(*target, input)),
+            member,
+        },
+        other => other,
+    }
 }
