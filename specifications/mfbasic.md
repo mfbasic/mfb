@@ -384,7 +384,7 @@ forEach(nums, printItem)
 `Nothing` is a normal concrete unit type, not a bottom type and not a non-returning marker. `Result OF Nothing` participates in auto-unwrapping, propagation, and direct `MATCH` handling exactly like any other `Result OF T`:
 
 ```basic
-MATCH io.writeAll(f, "done")
+MATCH fs.writeAll(f, "done")
   CASE Ok(NOTHING) : io.print("saved")
   CASE Err(e)      : io.print(e::message)
 END MATCH
@@ -480,8 +480,8 @@ END TRAP
 To handle an error at the call site instead of auto-propagating, make the call the **direct scrutinee of a `MATCH`**. A matched call is *not* auto-unwrapped — you receive the `Result`.
 
 ```basic
-MATCH io.openFile(path)
-  CASE Ok(f)  : LET line = io.readLine(f)
+MATCH fs.openFile(path)
+  CASE Ok(f)  : LET line = fs.readLine(f)
   CASE Err(e) : io.print("could not open: " & e::message)
 END MATCH
 ```
@@ -931,10 +931,10 @@ The compiler must diagnose:
 `RESOURCE` values, such as files and sockets, are unique handles. At any point in the program, exactly one live owner is responsible for each open handle. Resource handles are non-copyable owned values with additional close rules. They are scoped via `USING` and closed deterministically on scope exit, including on an error exit (`FAIL`, `PROPAGATE`, or an auto-propagated `Err`).
 
 ```basic
-USING f = io.openFile("data.txt")  ' auto-propagates on Err
-  LET line = io.readLine(f)
+USING f = fs.openFile("data.txt")  ' auto-propagates on Err
+  LET line = fs.readLine(f)
   io.print(line)
-END USING                          ' closeFile(f) runs here, even on error exit
+END USING                          ' fs.close(f) runs here, even on error exit
 ```
 
 `USING` owns the handle for the body and runs the resource's close operation exactly once. Standard resource operations borrow the handle for the duration of the call without transferring ownership. Close operations consume the handle, so the source binding is moved and cannot be used afterward. A resource handle cannot be copied, stored in an ordinary collection, sent to a thread, printed, compared, serialized, or captured by a lambda or ordinary closure.
@@ -1149,8 +1149,7 @@ Rules:
 ## 17. Built-in Functions
 
 Console I/O: `io.print`, `io.write`, `io.input`.
-File I/O: `io.openFile`, `io.readLine`, `io.readAll`, `io.writeAll`, `io.closeFile`, `io.eof`.
-Filesystem: `fs.fileExists`, `fs.directoryExists`, `fs.exists`, `fs.readText`, `fs.writeText`, `fs.writeTextAtomic`, `fs.appendText`, `fs.openFileNoFollow`, `fs.canonicalPath`, `fs.isWithin`, `fs.createTempFile`, `fs.pathJoin`, `fs.pathDirName`, `fs.pathBaseName`, `fs.pathExtension`, `fs.pathNormalize`, `fs.deleteFile`, `fs.createDirectory`, `fs.createDirectories`, `fs.deleteDirectory`, `fs.listDirectory`, `fs.currentDirectory`, `fs.setCurrentDirectory`.
+Filesystem and file I/O: `fs.fileExists`, `fs.directoryExists`, `fs.exists`, `fs.readText`, `fs.writeText`, `fs.writeTextAtomic`, `fs.appendText`, `fs.openFile`, `fs.openFileNoFollow`, `fs.createTempFile`, `fs.readLine`, `fs.readAll`, `fs.writeAll`, `fs.close`, `fs.eof`, `fs.canonicalPath`, `fs.isWithin`, `fs.pathJoin`, `fs.pathDirName`, `fs.pathBaseName`, `fs.pathExtension`, `fs.pathNormalize`, `fs.deleteFile`, `fs.createDirectory`, `fs.createDirectories`, `fs.deleteDirectory`, `fs.listDirectory`, `fs.currentDirectory`, `fs.setCurrentDirectory`.
 Network: `net.lookup`, `net.connectTcp`, `net.listenTcp`, `net.accept`, `net.bindUdp`, `net.receiveFrom`, `net.receiveTextFrom`, `net.sendTo`, `net.sendTextTo`, `net.poll`, `net.read`, `net.readText`, `net.write`, `net.writeText`, `net.close`, `net.localAddress`, `net.remoteAddress`, `net.setReadTimeout`, `net.setWriteTimeout`, `tls.connect`, `tls.wrap`, `tls.close`.
 Strings: `len`, `find`, `mid`, `replace`, `strings.trim`, `strings.trimStart`, `strings.trimEnd`, `strings.upper`, `strings.lower`, `strings.caseFold`, `strings.normalizeNfc`, `strings.graphemes`, `strings.startsWith`, `strings.endsWith`, `strings.contains`, `strings.split`, `strings.join`, `strings.byteLen`, `strings.regexMatch`, `strings.regexFind`, `strings.regexReplace`, `toString`, `toInt`, `toFloat`, `toFixed`, `toByte`, `isNumeric`, `&`.
 Collections: `forEach`, `transform`, `filter`, `reduce`, `sum`, `get`, `getOr`, `find`, `mid`, `replace`, `set`, `append`, `prepend`, `insert`, `removeAt`, `removeKey`, `keys`, `values`, `hasKey`, `contains`, `len`.
@@ -1159,7 +1158,7 @@ Math: `math.piFloat`, `math.piFixed`, `math.eFloat`, `math.eFixed`, `math.abs`, 
 JSON: `json.parse`, `json.stringify`, `json.get`, `json.getOr`.
 Error codes: `errorCode.ErrInvalidArgument`, `errorCode.ErrNotFound`, and the other constants listed in the built-in error-code registry.
 
-Fallible built-ins (`io.openFile`, `toInt`, `get`, …) return `Result` and auto-propagate like any call.
+Fallible built-ins (`fs.openFile`, `toInt`, `get`, …) return `Result` and auto-propagate like any call.
 
 ---
 
@@ -1335,9 +1334,9 @@ END FUNC
 
 FUNC loadPoints(path AS String) AS List OF Vec3
   MUT pts AS List OF Vec3 = []
-  USING f = io.openFile(path)              ' auto-propagates on Err
-    WHILE NOT io.eof(f)
-      LET v = parseLine(io.readLine(f))    ' auto-propagates to TRAP below on bad input
+  USING f = fs.openFile(path)              ' auto-propagates on Err
+    WHILE NOT fs.eof(f)
+      LET v = parseLine(fs.readLine(f))    ' auto-propagates to TRAP below on bad input
       pts = append(pts, v)                 ' optimized in place for MUT
     WEND
   END USING                                ' f closed even on error exit
@@ -1704,31 +1703,22 @@ String helpers are exported by the `strings` package. Package functions are call
 
 ## 6. Built-in IO Package
 
-Console I/O and file-handle I/O are provided by the `io` package. Package functions are called with their package qualifier.
+Console I/O is provided by the `io` package. Package functions are called with their package qualifier.
 
 | Function | Signature | Behavior |
 |----------|-----------|----------|
 | `io.print` | `FUNC print(value AS String) AS Nothing` | Writes `value` to standard output and appends a newline. Fails with `10015` on output failure. |
 | `io.write` | `FUNC write(value AS String) AS Nothing` | Writes `value` to standard output without appending a newline. Fails with `10015` on output failure. |
 | `io.input` | `FUNC input(prompt AS String = "") AS String` | Writes `prompt` when non-empty, reads one line from standard input, and returns it without the line terminator. Fails with `10020` on input failure. |
-| `io.openFile` | `FUNC openFile(path AS String, mode AS String = "read") AS File` | Opens a file handle. `mode` is `"read"`, `"write"`, or `"append"`. Fails with `10011`, `10012`, or `10013`. |
-| `io.readLine` | `FUNC readLine(file AS File) AS String` | Reads one line without the line terminator. Fails with `10016` at EOF and `10014` on read failure. |
-| `io.readAll` | `FUNC readAll(file AS File) AS String` | Reads the rest of the file as UTF-8 text. Fails with `10014` on read failure and `10019` on invalid UTF-8. |
-| `io.writeAll` | `FUNC writeAll(file AS File, value AS String) AS Nothing` | Writes all text to `file`. Fails with `10015` on write failure. |
-| `io.closeFile` | `FUNC closeFile(file AS File) AS Nothing` | Closes a file handle. Calling it more than once is an error. |
-| `io.eof` | `FUNC eof(file AS File) AS Boolean` | `TRUE` when the next read would be at end of file. |
-
-`File` is an opaque standard `RESOURCE` type and unique handle. It can be bound by `USING` and is closed automatically at `END USING`.
-
-There is no `PRINT` statement and no trailing-semicolon newline suppression. Use `io.print` for newline-terminated standard output, `io.write` for standard output without a newline, and `io.writeAll` for file-handle output.
+There is no `PRINT` statement and no trailing-semicolon newline suppression. Use `io.print` for newline-terminated standard output, `io.write` for standard output without a newline, and `fs.writeAll` for file-handle output.
 
 Use `toString` explicitly before calling `io.print` or `io.write` when outputting a non-string value. Output functions are intended for user-visible text and diagnostics, not automatic structured logging of arbitrary values.
 
 ## 7. Built-in Filesystem Package
 
-Filesystem functions live in the `fs` package. Paths are `String` values.
+Filesystem and file-handle functions live in the `fs` package. Paths are `String` values.
 
-Filesystem functions are one-shot path operations and do not create resource handles. For scoped file-handle I/O, use `io.openFile` with `USING`; the resulting `File` is closed automatically at `END USING`.
+One-shot path operations read, write, inspect, or modify filesystem entries without exposing resource handles. Scoped file-handle I/O uses `fs.openFile`, `fs.openFileNoFollow`, or `fs.createTempFile` with `USING`; the resulting `File` is closed automatically at `END USING`.
 
 Symlink behavior is explicit:
 
@@ -1747,10 +1737,16 @@ Symlink behavior is explicit:
 | `fs.writeText` | `FUNC writeText(path AS String, value AS String) AS Nothing` | Writes a UTF-8 text file, replacing any existing file. Fails with `10012`, `10013`, or `10015`. |
 | `fs.writeTextAtomic` | `FUNC writeTextAtomic(path AS String, value AS String) AS Nothing` | Writes UTF-8 text to a temporary file in the same directory, flushes it, then atomically replaces `path` when the host filesystem supports atomic rename. Fails rather than falling back to a non-atomic replace. |
 | `fs.appendText` | `FUNC appendText(path AS String, value AS String) AS Nothing` | Appends UTF-8 text to a file, creating it when needed. Fails with `10012`, `10013`, or `10015`. |
-| `fs.openFileNoFollow` | `FUNC openFileNoFollow(path AS String, mode AS String = "read") AS File` | Opens a file handle like `io.openFile` but fails with `ErrAccessDenied` when the final path component is a symlink. |
+| `fs.openFile` | `FUNC openFile(path AS String, mode AS String = "read") AS File` | Opens a file handle. `mode` is `"read"`, `"write"`, or `"append"`. Fails with `10011`, `10012`, or `10013`. |
+| `fs.openFileNoFollow` | `FUNC openFileNoFollow(path AS String, mode AS String = "read") AS File` | Opens a file handle like `fs.openFile` but fails with `ErrAccessDenied` when the final path component is a symlink. |
+| `fs.createTempFile` | `FUNC createTempFile(directory AS String, prefix AS String = "mfb-", suffix AS String = ".tmp") AS File` | Securely creates and opens a new unique file in `directory` without following a final symlink. The caller owns the returned `File`. |
+| `fs.readLine` | `FUNC readLine(file AS File) AS String` | Reads one line without the line terminator. Fails with `10016` at EOF and `10014` on read failure. |
+| `fs.readAll` | `FUNC readAll(file AS File) AS String` | Reads the rest of the file as UTF-8 text. Fails with `10014` on read failure and `10019` on invalid UTF-8. |
+| `fs.writeAll` | `FUNC writeAll(file AS File, value AS String) AS Nothing` | Writes all text to `file`. Fails with `10015` on write failure. |
+| `fs.close` | `FUNC close(file AS File) AS Nothing` | Closes a file handle. Calling it more than once is an error. |
+| `fs.eof` | `FUNC eof(file AS File) AS Boolean` | `TRUE` when the next read would be at end of file. |
 | `fs.canonicalPath` | `FUNC canonicalPath(path AS String) AS String` | Returns an absolute normalized path after resolving `.`/`..` and symlinks for every existing component. Fails when the path or a required parent does not exist. |
 | `fs.isWithin` | `FUNC isWithin(base AS String, child AS String) AS Boolean` | Canonicalizes both paths and returns `TRUE` only when `child` is equal to `base` or is contained below `base`. |
-| `fs.createTempFile` | `FUNC createTempFile(directory AS String, prefix AS String = "mfb-", suffix AS String = ".tmp") AS File` | Securely creates and opens a new unique file in `directory` without following a final symlink. The caller owns the returned `File`. |
 | `fs.pathJoin` | `FUNC pathJoin(parts AS List OF String) AS String` | Joins path components using the host platform's separator and normal separator rules. |
 | `fs.pathDirName` | `FUNC pathDirName(path AS String) AS String` | Returns the directory portion of `path` without accessing the filesystem. |
 | `fs.pathBaseName` | `FUNC pathBaseName(path AS String) AS String` | Returns the final path component without accessing the filesystem. |
@@ -1763,6 +1759,8 @@ Symlink behavior is explicit:
 | `fs.listDirectory` | `FUNC listDirectory(path AS String) AS List OF String` | Lists direct child names in implementation-defined stable order. |
 | `fs.currentDirectory` | `FUNC currentDirectory() AS String` | Returns the current working directory. |
 | `fs.setCurrentDirectory` | `FUNC setCurrentDirectory(path AS String) AS Nothing` | Changes the current working directory. |
+
+`File` is an opaque standard `RESOURCE` type and unique handle. It can be bound by `USING` and is closed automatically with `fs.close` at `END USING`.
 
 ## 8. Built-in Thread Package
 
