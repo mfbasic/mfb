@@ -92,7 +92,7 @@ END TYPE
 LET v  = Vec3[1.0, 2.0, 3.0]                 ' positional
 LET w  = Vec3[x := 0.0, y := 1.0, z := 0.0]  ' by field
 LET v2 = WITH v { x := 99.0 }                ' functional update, v unchanged
-io.print(v::x)                                ' field read; dot is package-only
+io.print(toString(v::x))                      ' field read; dot is package-only
 ```
 
 Field access uses `::`: `value::fieldName`. It is compile-time checked, and the right side is a field identifier, not a variable or string.
@@ -312,7 +312,7 @@ LET x = 10
 IF cond THEN
   LET y = x + 1           ' OK: inner sees outer x
 END IF
-' io.print(y)                 ' ERROR: y died at END IF
+' io.print(toString(y))       ' ERROR: y died at END IF
 
 MUT total = 0
 FOR i = 1 TO 10
@@ -365,7 +365,7 @@ A `SUB` is the effect-only spelling of a function whose success type is `Nothing
 
 ```basic
 SUB logItem(x AS Integer)
-  io.print(x)
+  io.print(toString(x))
 END SUB
 ```
 
@@ -375,7 +375,7 @@ For first-class function typing, a `SUB(A, B, ...)` is compatible with `FUNC(A, 
 
 ```basic
 SUB printItem(x AS Integer)
-  io.print(x)
+  io.print(toString(x))
 END SUB
 
 forEach(nums, printItem)
@@ -616,8 +616,8 @@ END MATCH
 ## 9. Control Flow
 
 ```basic
-FOR i = 1 TO 10 STEP 2 : io.print(i) : NEXT
-FOR EACH item IN list : io.print(item) : NEXT
+FOR i = 1 TO 10 STEP 2 : io.print(toString(i)) : NEXT
+FOR EACH item IN lines : io.print(item) : NEXT
 WHILE x < 10 : x = x + 1 : WEND
 DO : ... : LOOP UNTIL done
 DO WHILE ready : ... : LOOP
@@ -742,8 +742,8 @@ IMPORT geometry
 IMPORT longPackageName AS shortName
 
 LET s = geometry.Circle[2.0]
-io.print(geometry.area(s))
-io.print(s::radius)
+io.print(toString(geometry.area(s)))
+io.print(toString(s::radius))
 ```
 
 Rules:
@@ -767,7 +767,7 @@ PRIVATE FUNC helper() AS Float
 IMPORT mathstuff                  ' whole package
 IMPORT geometry
 
-io.print(geometry.area(geometry.Circle[2.0]))
+io.print(toString(geometry.area(geometry.Circle[2.0])))
 ```
 
 Import graph is resolved at compile time; cycles are an error.
@@ -1402,8 +1402,8 @@ SUB main()
   LET s = extraShape.Circle[10.0]
   LET t = extraShape.Triangle[3.0, 4.0, 5.0]
 
-  io.print(extraShape.area(s))
-  io.print(extraShape.area(t))
+  io.print(toString(extraShape.area(s)))
+  io.print(toString(extraShape.area(t)))
 END SUB
 ```
 
@@ -1688,8 +1688,8 @@ Console I/O and file-handle I/O are provided by the `io` package. Package functi
 
 | Function | Signature | Behavior |
 |----------|-----------|----------|
-| `io.print` | `FUNC print(value AS T) AS Nothing` | Converts `value` with `toString`, writes it to standard output, and appends a newline. Fails with `10015` on output failure. Calling it with a value that has no `toString` overload is a compile-time `20020` error. |
-| `io.write` | `FUNC write(value AS T) AS Nothing` | Converts `value` with `toString` and writes it to standard output without appending a newline. Fails with `10015` on output failure. Calling it with a value that has no `toString` overload is a compile-time `20020` error. |
+| `io.print` | `FUNC print(value AS String) AS Nothing` | Writes `value` to standard output and appends a newline. Fails with `10015` on output failure. |
+| `io.write` | `FUNC write(value AS String) AS Nothing` | Writes `value` to standard output without appending a newline. Fails with `10015` on output failure. |
 | `io.input` | `FUNC input(prompt AS String = "") AS String` | Writes `prompt` when non-empty, reads one line from standard input, and returns it without the line terminator. Fails with `10020` on input failure. |
 | `io.openFile` | `FUNC openFile(path AS String, mode AS String = "read") AS File` | Opens a file handle. `mode` is `"read"`, `"write"`, or `"append"`. Fails with `10011`, `10012`, or `10013`. |
 | `io.readLine` | `FUNC readLine(file AS File) AS String` | Reads one line without the line terminator. Fails with `10016` at EOF and `10014` on read failure. |
@@ -1702,7 +1702,7 @@ Console I/O and file-handle I/O are provided by the `io` package. Package functi
 
 There is no `PRINT` statement and no trailing-semicolon newline suppression. Use `io.print` for newline-terminated standard output, `io.write` for standard output without a newline, and `io.writeAll` for file-handle output.
 
-Generic output functions use `toString` and inherit its compile-time restrictions. They are intended for user-visible text and diagnostics, not automatic structured logging of arbitrary values.
+Use `toString` explicitly before calling `io.print` or `io.write` when outputting a non-string value. Output functions are intended for user-visible text and diagnostics, not automatic structured logging of arbitrary values.
 
 ## 7. Built-in Filesystem Package
 
