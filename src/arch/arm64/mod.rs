@@ -1,10 +1,10 @@
 use crate::bytecode::{
-    self, NativeConst, NativeFunctionKind, NativeProgram, NativeType, NATIVE_OPCODE_ADD,
-    NATIVE_OPCODE_CALL_RESULT, NATIVE_OPCODE_CONCAT, NATIVE_OPCODE_CONSTRUCT_RECORD,
-    NATIVE_OPCODE_CONSTRUCT_VARIANT, NATIVE_OPCODE_COPY, NATIVE_OPCODE_DIV,
-    NATIVE_OPCODE_LOAD_CONST, NATIVE_OPCODE_LOAD_DEFAULT, NATIVE_OPCODE_LOAD_ENUM_MEMBER,
-    NATIVE_OPCODE_LOAD_FIELD, NATIVE_OPCODE_MOVE, NATIVE_OPCODE_MUL, NATIVE_OPCODE_RETURN_OK,
-    NATIVE_OPCODE_SUB, NATIVE_OPCODE_UNWRAP_RESULT,
+    self, NativeConst, NativeProgram, NativeType, NATIVE_OPCODE_ADD, NATIVE_OPCODE_CALL_RESULT,
+    NATIVE_OPCODE_CONCAT, NATIVE_OPCODE_CONSTRUCT_RECORD, NATIVE_OPCODE_CONSTRUCT_VARIANT,
+    NATIVE_OPCODE_COPY, NATIVE_OPCODE_DIV, NATIVE_OPCODE_LOAD_CONST, NATIVE_OPCODE_LOAD_DEFAULT,
+    NATIVE_OPCODE_LOAD_ENUM_MEMBER, NATIVE_OPCODE_LOAD_FIELD, NATIVE_OPCODE_MOVE,
+    NATIVE_OPCODE_MUL, NATIVE_OPCODE_RETURN_OK, NATIVE_OPCODE_SUB, NATIVE_OPCODE_UNWRAP_RESULT,
+    NATIVE_OPCODE_WRITE_STDOUT,
 };
 use crate::ir::IrProject;
 use std::collections::HashMap;
@@ -104,10 +104,8 @@ impl<'a> NativeEmitter<'a> {
 
     fn emit(mut self) -> Result<Vec<u8>, String> {
         self.emit_entry()?;
-        for (index, function) in self.program.functions.iter().enumerate() {
-            if function.kind == NativeFunctionKind::Bytecode {
-                self.emit_function(index)?;
-            }
+        for index in 0..self.program.functions.len() {
+            self.emit_function(index)?;
         }
         Ok(self.code.finish())
     }
@@ -198,8 +196,11 @@ impl<'a> NativeEmitter<'a> {
                             .to_string(),
                     );
                 }
+                NATIVE_OPCODE_WRITE_STDOUT => {
+                    self.emit_write_stdout(function, instruction)?;
+                }
                 NATIVE_OPCODE_CALL_RESULT => {
-                    self.emit_call_result(index, instruction)?;
+                    self.emit_call_result(instruction)?;
                 }
                 NATIVE_OPCODE_UNWRAP_RESULT => {
                     let dst = operand(instruction, 0)?;
@@ -431,34 +432,14 @@ impl<'a> NativeEmitter<'a> {
 
     fn emit_call_result(
         &mut self,
-        caller_id: usize,
         instruction: &bytecode::NativeInstruction,
     ) -> Result<(), String> {
         let dst = operand(instruction, 0)?;
         let function_id = operand(instruction, 1)?;
-        let target = self
-            .program
+        self.program
             .functions
             .get(function_id as usize)
             .ok_or_else(|| format!("bytecode calls missing function {function_id}"))?;
-        if target.kind == NativeFunctionKind::Builtin {
-            if target.name != "io.print" {
-                return Err(format!(
-                    "native bytecode execution does not support built-in `{}`",
-                    target.name
-                ));
-            }
-            let arg = operand(instruction, 2)?;
-            let arg_type = self
-                .program
-                .functions
-                .get(caller_id)
-                .and_then(|caller| caller.registers.get(arg as usize))
-                .map(|register| register.type_)
-                .ok_or_else(|| format!("built-in argument references missing register {arg}"))?;
-            self.emit_io_print(arg, arg_type, dst)?;
-            return Ok(());
-        }
 
         for (arg_index, arg) in instruction.operands.iter().skip(2).enumerate() {
             if arg_index >= 4 {
@@ -475,83 +456,32 @@ impl<'a> NativeEmitter<'a> {
         self.store_result(dst)
     }
 
-    fn emit_io_print(
+    fn emit_write_stdout(
         &mut self,
-        arg: u32,
-        arg_type: NativeType,
-        dst_result: u32,
+        function: &bytecode::NativeFunction,
+        instruction: &bytecode::NativeInstruction,
     ) -> Result<(), String> {
-        match arg_type {
-            NativeType::String => {
-                self.code.ldr_imm(1, 31, slot_offset(arg))?;
-                self.code.ldr_imm(2, 31, slot_offset(arg) + 8)?;
-                self.emit_write_buffer()?;
-            }
-            NativeType::Integer => {
-                self.code.ldr_imm(9, 31, slot_offset(arg))?;
-                self.emit_print_integer()?;
-            }
-            _ => {
-                return Err(
-                    "native io.print supports String and Integer values in this backend"
-                        .to_string(),
-                );
-            }
+        let src = operand(instruction, 0)?;
+        let append_newline = operand(instruction, 1)? != 0;
+        let src_type = function
+            .registers
+            .get(src as usize)
+            .map(|register| register.type_)
+            .ok_or_else(|| format!("WRITE_STDOUT references missing register {src}"))?;
+        if src_type != NativeType::String {
+            return Err(format!(
+                "WRITE_STDOUT requires a String register, got {}",
+                native_type_name(src_type)
+            ));
         }
-        self.emit_newline_write()?;
-        self.code.mov_imm(0, 0);
-        self.code.mov_imm(1, 0);
-        self.code.mov_imm(2, 0);
-        self.store_result(dst_result)?;
+
+        self.code.ldr_imm(1, 31, slot_offset(src))?;
+        self.code.ldr_imm(2, 31, slot_offset(src) + 8)?;
+        self.emit_write_buffer()?;
+        if append_newline {
+            self.emit_newline_write()?;
+        }
         Ok(())
-    }
-
-    fn emit_print_integer(&mut self) -> Result<(), String> {
-        let scratch = self.current_scratch;
-        self.code.add_imm(12, 31, scratch + 63)?;
-        self.code.mov_imm(13, 10);
-        let positive = self.code.new_label();
-        let convert = self.code.new_label();
-        self.code.cmp_imm(9, 0);
-        self.code.b_cond(Cond::Ge, positive);
-        self.code.neg(9, 9);
-        self.code.mov_imm(14, 1);
-        self.code.b(convert);
-        self.code.bind(positive);
-        self.code.mov_imm(14, 0);
-        self.code.bind(convert);
-
-        let nonzero = self.code.new_label();
-        let digits_done = self.code.new_label();
-        self.code.cbnz(9, nonzero);
-        self.code.mov_imm(15, b'0' as u64);
-        self.code.sub_imm(12, 12, 1)?;
-        self.code.strb_imm(15, 12, 0)?;
-        self.code.b(digits_done);
-
-        self.code.bind(nonzero);
-        let digit_loop = self.code.new_label();
-        self.code.bind(digit_loop);
-        self.code.sdiv(16, 9, 13);
-        self.code.msub(17, 16, 13, 9);
-        self.code.add_imm(17, 17, b'0' as usize)?;
-        self.code.sub_imm(12, 12, 1)?;
-        self.code.strb_imm(17, 12, 0)?;
-        self.code.mov_reg(9, 16);
-        self.code.cbnz(9, digit_loop);
-
-        self.code.bind(digits_done);
-        let no_sign = self.code.new_label();
-        self.code.cbz(14, no_sign);
-        self.code.mov_imm(15, b'-' as u64);
-        self.code.sub_imm(12, 12, 1)?;
-        self.code.strb_imm(15, 12, 0)?;
-        self.code.bind(no_sign);
-
-        self.code.add_imm(13, 31, scratch + 63)?;
-        self.code.sub_reg(2, 13, 12);
-        self.code.mov_reg(1, 12);
-        self.emit_write_buffer()
     }
 
     fn emit_newline_write(&mut self) -> Result<(), String> {
@@ -723,6 +653,19 @@ fn slot_offset(register: u32) -> usize {
     register as usize * SLOT_SIZE
 }
 
+fn native_type_name(type_: NativeType) -> &'static str {
+    match type_ {
+        NativeType::Nothing => "Nothing",
+        NativeType::Boolean => "Boolean",
+        NativeType::Integer => "Integer",
+        NativeType::Float => "Float",
+        NativeType::Fixed => "Fixed",
+        NativeType::String => "String",
+        NativeType::Result => "Result",
+        NativeType::Other => "Other",
+    }
+}
+
 fn align(value: usize, alignment: usize) -> usize {
     (value + alignment - 1) & !(alignment - 1)
 }
@@ -745,13 +688,7 @@ struct Patch {
 enum PatchKind {
     B,
     Bl,
-    BCond(Cond),
     Cbz { rt: u8, nonzero: bool },
-}
-
-#[derive(Clone, Copy)]
-enum Cond {
-    Ge = 10,
 }
 
 impl Code {
@@ -790,14 +727,6 @@ impl Code {
                     let imm = branch_imm26(source, target);
                     write_u32(&mut self.bytes, source, 0x9400_0000 | imm);
                 }
-                PatchKind::BCond(cond) => {
-                    let imm = branch_imm19(source, target);
-                    write_u32(
-                        &mut self.bytes,
-                        source,
-                        0x5400_0000 | (imm << 5) | cond as u32,
-                    );
-                }
                 PatchKind::Cbz { rt, nonzero } => {
                     let imm = branch_imm19(source, target);
                     write_u32(
@@ -832,16 +761,6 @@ impl Code {
             at,
             label,
             kind: PatchKind::Bl,
-        });
-    }
-
-    fn b_cond(&mut self, cond: Cond, label: Label) {
-        let at = self.bytes.len();
-        self.emit(0);
-        self.patches.push(Patch {
-            at,
-            label,
-            kind: PatchKind::BCond(cond),
         });
     }
 
@@ -935,30 +854,12 @@ impl Code {
         self.emit(0xcb00_0000 | ((rm as u32) << 16) | ((rn as u32) << 5) | rd as u32);
     }
 
-    fn neg(&mut self, rd: u8, rm: u8) {
-        self.emit(0xcb00_03e0 | ((rm as u32) << 16) | rd as u32);
-    }
-
     fn mul(&mut self, rd: u8, rn: u8, rm: u8) {
         self.emit(0x9b00_7c00 | ((rm as u32) << 16) | ((rn as u32) << 5) | rd as u32);
     }
 
     fn sdiv(&mut self, rd: u8, rn: u8, rm: u8) {
         self.emit(0x9ac0_0c00 | ((rm as u32) << 16) | ((rn as u32) << 5) | rd as u32);
-    }
-
-    fn msub(&mut self, rd: u8, rn: u8, rm: u8, ra: u8) {
-        self.emit(
-            0x9b00_8000
-                | ((rm as u32) << 16)
-                | ((ra as u32) << 10)
-                | ((rn as u32) << 5)
-                | rd as u32,
-        );
-    }
-
-    fn cmp_imm(&mut self, rn: u8, value: usize) {
-        self.emit(0xf100_001f | ((value as u32) << 10) | ((rn as u32) << 5));
     }
 
     fn ldr_imm(&mut self, rt: u8, rn: u8, offset: usize) -> Result<(), String> {
@@ -976,12 +877,6 @@ impl Code {
         }
         let imm = checked_imm12(offset / 8)?;
         self.emit(0xf900_0000 | (imm << 10) | ((rn as u32) << 5) | rt as u32);
-        Ok(())
-    }
-
-    fn strb_imm(&mut self, rt: u8, rn: u8, offset: usize) -> Result<(), String> {
-        let imm = checked_imm12(offset)?;
-        self.emit(0x3900_0000 | (imm << 10) | ((rn as u32) << 5) | rt as u32);
         Ok(())
     }
 

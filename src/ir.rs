@@ -2,6 +2,7 @@ use crate::ast::{
     AstProject, EnumMember, Expression, Function, FunctionKind, Item, Param, Statement, TypeDecl,
     TypeDeclKind, TypeField, UnionVariant, Visibility,
 };
+use crate::builtins;
 use crate::json_string;
 use std::collections::HashMap;
 use std::fs;
@@ -310,13 +311,9 @@ fn expression_type(
             let target_type = expression_type(target, locals, function_returns, type_index)?;
             type_index.record_field_type(&target_type, member)
         }
-        Expression::Call { callee, .. } => {
-            if callee == "io.print" {
-                Some("Nothing".to_string())
-            } else {
-                function_returns.get(callee).cloned()
-            }
-        }
+        Expression::Call { callee, .. } => builtins::call_return_type_name(callee)
+            .map(str::to_string)
+            .or_else(|| function_returns.get(callee).cloned()),
         Expression::Binary {
             left,
             operator,

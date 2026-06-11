@@ -2,6 +2,7 @@ use crate::ast::{
     AstFile, AstProject, Expression, Function, FunctionKind, Item, Statement, TypeDecl,
     TypeDeclKind, TypeField, Visibility,
 };
+use crate::builtins;
 use crate::rules;
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
@@ -545,10 +546,8 @@ impl<'a> TypeChecker<'a> {
                 self.infer_binary(file, operator, &left_type, &right_type, line)
             }
             Expression::Call { callee, arguments } => {
-                if callee == "io.print" {
-                    for argument in arguments {
-                        self.infer_expression(file, argument, locals, line);
-                    }
+                if builtins::is_builtin_call(callee) {
+                    self.check_builtin_call(file, callee, arguments, locals, line);
                     return Type::Nothing;
                 }
 
@@ -891,6 +890,49 @@ impl<'a> TypeChecker<'a> {
 
         if matches!(sig.kind, FunctionKind::Sub) {
             // SUB calls auto-unwrap to successful Nothing under the implicit Result model.
+        }
+    }
+
+    fn check_builtin_call(
+        &mut self,
+        file: &AstFile,
+        callee: &str,
+        arguments: &[Expression],
+        locals: &HashMap<String, Type>,
+        line: usize,
+    ) {
+        if callee == builtins::io::print::NAME {
+            if arguments.len() != 1 {
+                self.report(
+                    "TYPE_CALL_ARITY_MISMATCH",
+                    &format!(
+                        "Call to `{callee}` has {} argument(s), expected 1.",
+                        arguments.len()
+                    ),
+                    file,
+                    line,
+                );
+            }
+
+            for (index, argument) in arguments.iter().enumerate() {
+                let actual = self.infer_expression(file, argument, locals, line);
+                if index == 0 && !self.compatible(&Type::String, &actual) {
+                    self.report(
+                        "TYPE_CALL_ARGUMENT_MISMATCH",
+                        &format!(
+                            "Argument 1 for `{callee}` has type {}, expected String.",
+                            self.type_name(&actual)
+                        ),
+                        file,
+                        line,
+                    );
+                }
+            }
+            return;
+        }
+
+        for argument in arguments {
+            self.infer_expression(file, argument, locals, line);
         }
     }
 

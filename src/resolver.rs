@@ -1,13 +1,13 @@
 use crate::ast::{
     AstFile, AstProject, Expression, Item, Statement, TypeDecl, TypeDeclKind, TypeField,
 };
+use crate::builtins;
 use crate::rules;
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use tinyjson::JsonValue;
 
-const BUILTIN_IMPORTS: &[&str] = &["io"];
 const BUILTIN_TYPES: &[&str] = &[
     "Boolean", "Byte", "Fixed", "Float", "Integer", "Nothing", "Result", "String",
 ];
@@ -648,5 +648,5 @@ fn read_manifest(path: &Path) -> Option<HashMap<String, JsonValue>> {
 }
 
 fn is_builtin_import(name: &str) -> bool {
-    BUILTIN_IMPORTS.contains(&name)
+    builtins::is_builtin_import(name)
 }

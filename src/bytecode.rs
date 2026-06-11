@@ -1,3 +1,4 @@
+use crate::builtins;
 use crate::ir::{IrFunction, IrOp, IrProject, IrType, IrValue};
 use std::collections::HashMap;
 use std::fs;
@@ -13,7 +14,7 @@ const SECTION_GLOBAL_TABLE: u16 = 7;
 const SECTION_FUNCTION_TABLE: u16 = 8;
 const SECTION_CODE: u16 = 9;
 
-const TYPE_NOTHING: u32 = 1;
+pub(crate) const TYPE_NOTHING: u32 = 1;
 const TYPE_BOOLEAN: u32 = 2;
 const TYPE_INTEGER: u32 = 3;
 const TYPE_FLOAT: u32 = 4;
@@ -21,7 +22,6 @@ const TYPE_FIXED: u32 = 5;
 const TYPE_STRING: u32 = 6;
 
 const FUNCTION_BYTECODE: u16 = 1;
-const FUNCTION_BUILTIN: u16 = 4;
 
 const FUNCTION_FLAG_PRIVATE: u16 = 1 << 1;
 const FUNCTION_FLAG_SUB: u16 = 1 << 3;
@@ -38,6 +38,7 @@ const OPCODE_SUB: u16 = 21;
 const OPCODE_MUL: u16 = 22;
 const OPCODE_DIV: u16 = 23;
 const OPCODE_CONCAT: u16 = 40;
+pub(crate) const OPCODE_WRITE_STDOUT: u16 = 50;
 const OPCODE_CALL_RESULT: u16 = 60;
 const OPCODE_UNWRAP_RESULT: u16 = 61;
 const OPCODE_RETURN_OK: u16 = 70;
@@ -83,17 +84,9 @@ pub struct NativeProgram {
 }
 
 pub struct NativeFunction {
-    pub name: String,
-    pub kind: NativeFunctionKind,
     pub param_count: usize,
     pub registers: Vec<NativeRegister>,
     pub code: Vec<NativeInstruction>,
-}
-
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub enum NativeFunctionKind {
-    Bytecode,
-    Builtin,
 }
 
 pub struct NativeRegister {
@@ -151,6 +144,7 @@ pub const NATIVE_OPCODE_SUB: u16 = OPCODE_SUB;
 pub const NATIVE_OPCODE_MUL: u16 = OPCODE_MUL;
 pub const NATIVE_OPCODE_DIV: u16 = OPCODE_DIV;
 pub const NATIVE_OPCODE_CONCAT: u16 = OPCODE_CONCAT;
+pub const NATIVE_OPCODE_WRITE_STDOUT: u16 = OPCODE_WRITE_STDOUT;
 pub const NATIVE_OPCODE_CALL_RESULT: u16 = OPCODE_CALL_RESULT;
 pub const NATIVE_OPCODE_UNWRAP_RESULT: u16 = OPCODE_UNWRAP_RESULT;
 pub const NATIVE_OPCODE_RETURN_OK: u16 = OPCODE_RETURN_OK;
@@ -187,7 +181,7 @@ pub fn native_program(ir: &IrProject) -> Result<NativeProgram, String> {
     let functions = project
         .functions
         .iter()
-        .map(|function| native_function(function, &strings, &result_success_types))
+        .map(|function| native_function(function, &result_success_types))
         .collect::<Result<Vec<_>, _>>()?;
 
     Ok(NativeProgram {
@@ -201,29 +195,16 @@ pub fn native_program(ir: &IrProject) -> Result<NativeProgram, String> {
 
 fn native_function(
     function: &Function,
-    strings: &HashMap<u32, String>,
     result_success_types: &HashMap<u32, u32>,
 ) -> Result<NativeFunction, String> {
-    let name = strings.get(&function.name).cloned().ok_or_else(|| {
-        format!(
-            "bytecode function references missing name {}",
-            function.name
-        )
-    })?;
-    let kind = match function.kind {
-        FUNCTION_BYTECODE => NativeFunctionKind::Bytecode,
-        FUNCTION_BUILTIN => NativeFunctionKind::Builtin,
-        _ => {
-            return Err(format!(
-                "native output does not support function kind {}",
-                function.kind
-            ))
-        }
-    };
+    if function.kind != FUNCTION_BYTECODE {
+        return Err(format!(
+            "native output does not support function kind {}",
+            function.kind
+        ));
+    }
 
     Ok(NativeFunction {
-        name,
-        kind,
         param_count: function.params.len(),
         registers: function
             .registers
@@ -568,15 +549,6 @@ fn lower_project(ir: &IrProject, version: &str) -> Result<BytecodeProject, Strin
         function_return_type_names.insert(function.name.clone(), function.returns.clone());
     }
 
-    let mut builtin_ids = HashMap::new();
-    if uses_builtin(ir, "io.print") {
-        let function_id = ir.functions.len() as u32;
-        function_ids.insert("io.print".to_string(), function_id);
-        function_return_types.insert("io.print".to_string(), TYPE_NOTHING);
-        function_return_type_names.insert("io.print".to_string(), "Nothing".to_string());
-        builtin_ids.insert("io.print".to_string(), function_id);
-    }
-
     let mut functions = Vec::new();
     for function in &ir.functions {
         functions.push(lower_function(
@@ -589,10 +561,6 @@ fn lower_project(ir: &IrProject, version: &str) -> Result<BytecodeProject, Strin
             &function_return_type_names,
             &type_model,
         )?);
-    }
-
-    for builtin_name in builtin_ids.keys() {
-        functions.push(lower_builtin(builtin_name, &mut strings)?);
     }
 
     let (entry_function, entry_flags) = if let Some(entry) = &ir.entry {
@@ -622,35 +590,6 @@ fn lower_project(ir: &IrProject, version: &str) -> Result<BytecodeProject, Strin
         entry_flags,
         functions,
     })
-}
-
-fn uses_builtin(ir: &IrProject, name: &str) -> bool {
-    ir.functions
-        .iter()
-        .any(|function| function.body.iter().any(|op| op_uses_call(op, name)))
-}
-
-fn op_uses_call(op: &IrOp, name: &str) -> bool {
-    match op {
-        IrOp::Bind { value, .. } | IrOp::Return { value } => value
-            .as_ref()
-            .is_some_and(|value| value_uses_call(value, name)),
-        IrOp::Eval { value } => value_uses_call(value, name),
-    }
-}
-
-fn value_uses_call(value: &IrValue, name: &str) -> bool {
-    match value {
-        IrValue::Call { target, args } => {
-            target == name || args.iter().any(|arg| value_uses_call(arg, name))
-        }
-        IrValue::Binary { left, right, .. } => {
-            value_uses_call(left, name) || value_uses_call(right, name)
-        }
-        IrValue::Constructor { args, .. } => args.iter().any(|arg| value_uses_call(arg, name)),
-        IrValue::MemberAccess { target, .. } => value_uses_call(target, name),
-        IrValue::Const { .. } | IrValue::Local(_) => false,
-    }
 }
 
 fn lower_function(
@@ -728,27 +667,6 @@ fn lower_function(
     })
 }
 
-fn lower_builtin(name: &str, strings: &mut StringPool) -> Result<Function, String> {
-    if name != "io.print" {
-        return Err(format!("unsupported built-in function `{name}`"));
-    }
-
-    Ok(Function {
-        name: strings.intern(name),
-        kind: FUNCTION_BUILTIN,
-        flags: FUNCTION_FLAG_RETURNS_NOTHING,
-        return_type: TYPE_NOTHING,
-        params: vec![Param {
-            name: strings.intern("value"),
-            type_id: TYPE_STRING,
-            flags: 0,
-            default_const: u32::MAX,
-        }],
-        registers: Vec::new(),
-        code: Vec::new(),
-    })
-}
-
 struct FunctionBuilder<'a> {
     strings: &'a mut StringPool,
     types: &'a mut TypeTable,
@@ -762,9 +680,23 @@ struct FunctionBuilder<'a> {
 }
 
 #[derive(Clone)]
-struct ValueSlot {
-    register: u32,
-    type_name: String,
+pub(crate) struct ValueSlot {
+    pub(crate) register: u32,
+    pub(crate) type_name: String,
+}
+
+pub(crate) trait BuiltinCallLowerer {
+    fn lower_value(
+        &mut self,
+        value: &IrValue,
+        locals: &HashMap<String, ValueSlot>,
+    ) -> Result<ValueSlot, String>;
+    fn add_register(&mut self, type_id: u32, flags: u32) -> u32;
+    fn push(&mut self, opcode: u16, operands: Vec<u32>);
+
+    fn push_default(&mut self, register: u32, type_id: u32) {
+        self.push(OPCODE_LOAD_DEFAULT, vec![register, type_id]);
+    }
 }
 
 impl<'a> FunctionBuilder<'a> {
@@ -863,6 +795,10 @@ impl<'a> FunctionBuilder<'a> {
                 .cloned()
                 .ok_or_else(|| format!("IR references unknown local `{name}`")),
             IrValue::Call { target, args } => {
+                if target == builtins::io::print::NAME {
+                    return builtins::io::print::lower_bytecode_call(self, args, locals);
+                }
+
                 let function_id = *self
                     .function_ids
                     .get(target)
@@ -1031,6 +967,17 @@ impl<'a> FunctionBuilder<'a> {
     }
 
     fn call_return_type(&self, target: &str) -> Result<u32, String> {
+        if let Some(return_type) = builtins::call_return_type_name(target) {
+            return Ok(match return_type {
+                "Nothing" => TYPE_NOTHING,
+                "Boolean" => TYPE_BOOLEAN,
+                "Integer" => TYPE_INTEGER,
+                "Float" => TYPE_FLOAT,
+                "Fixed" => TYPE_FIXED,
+                "String" => TYPE_STRING,
+                _ => return Err(format!("unsupported built-in return type `{return_type}`")),
+            });
+        }
         self.function_return_types
             .get(target)
             .copied()
@@ -1038,6 +985,9 @@ impl<'a> FunctionBuilder<'a> {
     }
 
     fn call_return_type_name(&self, target: &str) -> Result<&str, String> {
+        if let Some(return_type) = builtins::call_return_type_name(target) {
+            return Ok(return_type);
+        }
         self.function_return_type_names
             .get(target)
             .map(String::as_str)
@@ -1066,6 +1016,24 @@ impl<'a> FunctionBuilder<'a> {
         self.code
             .last()
             .is_some_and(|instruction| instruction.opcode == OPCODE_RETURN_OK)
+    }
+}
+
+impl BuiltinCallLowerer for FunctionBuilder<'_> {
+    fn lower_value(
+        &mut self,
+        value: &IrValue,
+        locals: &HashMap<String, ValueSlot>,
+    ) -> Result<ValueSlot, String> {
+        FunctionBuilder::lower_value(self, value, locals)
+    }
+
+    fn add_register(&mut self, type_id: u32, flags: u32) -> u32 {
+        FunctionBuilder::add_register(self, type_id, flags)
+    }
+
+    fn push(&mut self, opcode: u16, operands: Vec<u32>) {
+        FunctionBuilder::push(self, opcode, operands);
     }
 }
 

@@ -28,7 +28,7 @@
       ],
       "returnType": null,
       "body": [
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "total", "arguments": [] }] }, "line": 8 }
+      { "kind": "binding", "mutable": false, "name": "answer", "type": "Integer", "value": { "kind": "call", "callee": "total", "arguments": [] }, "line": 8 }
       ]
     }
     ]

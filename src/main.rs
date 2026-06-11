@@ -1,5 +1,6 @@
 mod arch;
 mod ast;
+mod builtins;
 mod bytecode;
 mod ir;
 mod lexer;

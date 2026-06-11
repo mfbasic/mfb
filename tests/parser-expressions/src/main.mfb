@@ -5,5 +5,5 @@ FUNC total() AS Integer
 END FUNC
 
 SUB main()
-  io.print(total())
+  LET answer AS Integer = total()
 END SUB
