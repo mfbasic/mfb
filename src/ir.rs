@@ -503,6 +503,14 @@ fn expression_type(
                 return builtins::general::resolve_call(callee, &arg_types)
                     .map(|resolved| resolved.return_type.to_string());
             }
+            if builtins::strings::is_strings_call(callee) {
+                let arg_types = arguments
+                    .iter()
+                    .map(|argument| expression_type(argument, locals, context))
+                    .collect::<Option<Vec<_>>>()?;
+                return builtins::strings::resolve_call(callee, &arg_types)
+                    .map(|resolved| resolved.return_type.to_string());
+            }
             builtins::call_return_type_name(callee)
                 .map(str::to_string)
                 .or_else(|| context.function_returns.get(callee).cloned())

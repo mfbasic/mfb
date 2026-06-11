@@ -1,0 +1,47 @@
+{
+  "project": "builtin_strings",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "strings", "line": 1 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "main",
+      "line": 3,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "padded", "type": "String", "value": { "kind": "string", "value": "  Hello,World  " }, "line": 4 },
+      { "kind": "binding", "mutable": false, "name": "csv", "type": "String", "value": { "kind": "string", "value": "Ada,Grace,Mary" }, "line": 5 },
+      { "kind": "binding", "mutable": false, "name": "needle", "type": "String", "value": { "kind": "string", "value": "World" }, "line": 6 },
+      { "kind": "binding", "mutable": false, "name": "pieces", "type": "List OF String", "value": { "kind": "list", "values": [{ "kind": "string", "value": "Ada" }, { "kind": "string", "value": "Grace" }, { "kind": "string", "value": "Mary" }] }, "line": 7 },
+      { "kind": "binding", "mutable": false, "name": "trimmed", "type": "String", "value": { "kind": "call", "callee": "strings.trim", "arguments": [{ "kind": "identifier", "value": "padded" }] }, "line": 9 },
+      { "kind": "binding", "mutable": false, "name": "leftTrimmed", "type": "String", "value": { "kind": "call", "callee": "strings.trimStart", "arguments": [{ "kind": "identifier", "value": "padded" }] }, "line": 10 },
+      { "kind": "binding", "mutable": false, "name": "rightTrimmed", "type": "String", "value": { "kind": "call", "callee": "strings.trimEnd", "arguments": [{ "kind": "identifier", "value": "padded" }] }, "line": 11 },
+      { "kind": "binding", "mutable": false, "name": "upper", "type": "String", "value": { "kind": "call", "callee": "strings.upper", "arguments": [{ "kind": "identifier", "value": "trimmed" }] }, "line": 12 },
+      { "kind": "binding", "mutable": false, "name": "lower", "type": "String", "value": { "kind": "call", "callee": "strings.lower", "arguments": [{ "kind": "identifier", "value": "upper" }] }, "line": 13 },
+      { "kind": "binding", "mutable": false, "name": "folded", "type": "String", "value": { "kind": "call", "callee": "strings.caseFold", "arguments": [{ "kind": "identifier", "value": "upper" }] }, "line": 14 },
+      { "kind": "binding", "mutable": false, "name": "normalized", "type": "String", "value": { "kind": "call", "callee": "strings.normalizeNfc", "arguments": [{ "kind": "identifier", "value": "trimmed" }] }, "line": 15 },
+      { "kind": "binding", "mutable": false, "name": "chars", "type": "List OF String", "value": { "kind": "call", "callee": "strings.graphemes", "arguments": [{ "kind": "string", "value": "abc" }] }, "line": 16 },
+      { "kind": "binding", "mutable": false, "name": "starts", "type": "Boolean", "value": { "kind": "call", "callee": "strings.startsWith", "arguments": [{ "kind": "identifier", "value": "trimmed" }, { "kind": "string", "value": "Hello" }] }, "line": 17 },
+      { "kind": "binding", "mutable": false, "name": "ends", "type": "Boolean", "value": { "kind": "call", "callee": "strings.endsWith", "arguments": [{ "kind": "identifier", "value": "trimmed" }, { "kind": "identifier", "value": "needle" }] }, "line": 18 },
+      { "kind": "binding", "mutable": false, "name": "hasNeedle", "type": "Boolean", "value": { "kind": "call", "callee": "strings.contains", "arguments": [{ "kind": "identifier", "value": "trimmed" }, { "kind": "identifier", "value": "needle" }] }, "line": 19 },
+      { "kind": "binding", "mutable": false, "name": "splitParts", "type": "List OF String", "value": { "kind": "call", "callee": "strings.split", "arguments": [{ "kind": "identifier", "value": "csv" }, { "kind": "string", "value": "," }] }, "line": 20 },
+      { "kind": "binding", "mutable": false, "name": "joined", "type": "String", "value": { "kind": "call", "callee": "strings.join", "arguments": [{ "kind": "identifier", "value": "pieces" }, { "kind": "string", "value": "|" }] }, "line": 21 },
+      { "kind": "binding", "mutable": false, "name": "bytes", "type": "Integer", "value": { "kind": "call", "callee": "strings.byteLen", "arguments": [{ "kind": "identifier", "value": "joined" }] }, "line": 22 },
+      { "kind": "binding", "mutable": false, "name": "regexMatches", "type": "Boolean", "value": { "kind": "call", "callee": "strings.regexMatch", "arguments": [{ "kind": "identifier", "value": "trimmed" }, { "kind": "identifier", "value": "needle" }] }, "line": 23 },
+      { "kind": "binding", "mutable": false, "name": "regexFound", "type": "Integer", "value": { "kind": "call", "callee": "strings.regexFind", "arguments": [{ "kind": "identifier", "value": "trimmed" }, { "kind": "identifier", "value": "needle" }] }, "line": 24 },
+      { "kind": "binding", "mutable": false, "name": "regexFoundFromStart", "type": "Integer", "value": { "kind": "call", "callee": "strings.regexFind", "arguments": [{ "kind": "identifier", "value": "trimmed" }, { "kind": "identifier", "value": "needle" }, { "kind": "number", "value": "1" }] }, "line": 25 },
+      { "kind": "binding", "mutable": false, "name": "regexReplaced", "type": "String", "value": { "kind": "call", "callee": "strings.regexReplace", "arguments": [{ "kind": "identifier", "value": "trimmed" }, { "kind": "identifier", "value": "needle" }, { "kind": "string", "value": "MFB" }] }, "line": 26 },
+      { "kind": "return", "value": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "trimmed" }] }, "right": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "leftTrimmed" }] } }, "right": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "rightTrimmed" }] } }, "right": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "upper" }] } }, "right": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "lower" }] } }, "right": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "folded" }] } }, "right": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "normalized" }] } }, "right": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "chars" }] } }, "right": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "splitParts" }] } }, "right": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "regexReplaced" }] } }, "right": { "kind": "identifier", "value": "bytes" } }, "right": { "kind": "identifier", "value": "regexFound" } }, "right": { "kind": "identifier", "value": "regexFoundFromStart" } }, "line": 28 }
+      ]
+    }
+    ]
+  }
+  ]
+}

@@ -177,6 +177,7 @@ tests/typecheck-builtin-general-mismatch/src/main.mfb:16 error[TYPE_CALL_ARGUMEN
      | ^
 tests/typecheck-builtin-general-mismatch/src/main.mfb:16 error[TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `badIsNotEmpty` does not have a known type.
+[exit 1]
 $ mfb build -ir tests/typecheck-builtin-general-mismatch
    1 | FUNC main AS Integer
    2 |   LET badLen AS Integer = len(TRUE)
@@ -356,3 +357,4 @@ tests/typecheck-builtin-general-mismatch/src/main.mfb:16 error[TYPE_CALL_ARGUMEN
      | ^
 tests/typecheck-builtin-general-mismatch/src/main.mfb:16 error[TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `badIsNotEmpty` does not have a known type.
+[exit 1]

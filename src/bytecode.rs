@@ -103,6 +103,23 @@ pub(crate) const OPCODE_COLLECTION_FOR_EACH: u16 = 136;
 pub(crate) const OPCODE_COLLECTION_TRANSFORM: u16 = 137;
 pub(crate) const OPCODE_COLLECTION_FILTER: u16 = 138;
 pub(crate) const OPCODE_COLLECTION_REDUCE: u16 = 139;
+pub(crate) const OPCODE_STRING_TRIM: u16 = 140;
+pub(crate) const OPCODE_STRING_TRIM_START: u16 = 141;
+pub(crate) const OPCODE_STRING_TRIM_END: u16 = 142;
+pub(crate) const OPCODE_STRING_UPPER: u16 = 143;
+pub(crate) const OPCODE_STRING_LOWER: u16 = 144;
+pub(crate) const OPCODE_STRING_CASE_FOLD: u16 = 145;
+pub(crate) const OPCODE_STRING_NORMALIZE_NFC: u16 = 146;
+pub(crate) const OPCODE_STRING_GRAPHEMES: u16 = 147;
+pub(crate) const OPCODE_STRING_STARTS_WITH: u16 = 148;
+pub(crate) const OPCODE_STRING_ENDS_WITH: u16 = 149;
+pub(crate) const OPCODE_STRING_CONTAINS: u16 = 150;
+pub(crate) const OPCODE_STRING_SPLIT: u16 = 151;
+pub(crate) const OPCODE_STRING_JOIN: u16 = 152;
+pub(crate) const OPCODE_STRING_BYTE_LEN: u16 = 153;
+pub(crate) const OPCODE_STRING_REGEX_MATCH: u16 = 154;
+pub(crate) const OPCODE_STRING_REGEX_FIND: u16 = 155;
+pub(crate) const OPCODE_STRING_REGEX_REPLACE: u16 = 156;
 
 pub fn write_bytecode_hex(
     project_dir: &Path,
@@ -266,6 +283,23 @@ pub const NATIVE_OPCODE_COLLECTION_FOR_EACH: u16 = OPCODE_COLLECTION_FOR_EACH;
 pub const NATIVE_OPCODE_COLLECTION_TRANSFORM: u16 = OPCODE_COLLECTION_TRANSFORM;
 pub const NATIVE_OPCODE_COLLECTION_FILTER: u16 = OPCODE_COLLECTION_FILTER;
 pub const NATIVE_OPCODE_COLLECTION_REDUCE: u16 = OPCODE_COLLECTION_REDUCE;
+pub const NATIVE_OPCODE_STRING_TRIM: u16 = OPCODE_STRING_TRIM;
+pub const NATIVE_OPCODE_STRING_TRIM_START: u16 = OPCODE_STRING_TRIM_START;
+pub const NATIVE_OPCODE_STRING_TRIM_END: u16 = OPCODE_STRING_TRIM_END;
+pub const NATIVE_OPCODE_STRING_UPPER: u16 = OPCODE_STRING_UPPER;
+pub const NATIVE_OPCODE_STRING_LOWER: u16 = OPCODE_STRING_LOWER;
+pub const NATIVE_OPCODE_STRING_CASE_FOLD: u16 = OPCODE_STRING_CASE_FOLD;
+pub const NATIVE_OPCODE_STRING_NORMALIZE_NFC: u16 = OPCODE_STRING_NORMALIZE_NFC;
+pub const NATIVE_OPCODE_STRING_GRAPHEMES: u16 = OPCODE_STRING_GRAPHEMES;
+pub const NATIVE_OPCODE_STRING_STARTS_WITH: u16 = OPCODE_STRING_STARTS_WITH;
+pub const NATIVE_OPCODE_STRING_ENDS_WITH: u16 = OPCODE_STRING_ENDS_WITH;
+pub const NATIVE_OPCODE_STRING_CONTAINS: u16 = OPCODE_STRING_CONTAINS;
+pub const NATIVE_OPCODE_STRING_SPLIT: u16 = OPCODE_STRING_SPLIT;
+pub const NATIVE_OPCODE_STRING_JOIN: u16 = OPCODE_STRING_JOIN;
+pub const NATIVE_OPCODE_STRING_BYTE_LEN: u16 = OPCODE_STRING_BYTE_LEN;
+pub const NATIVE_OPCODE_STRING_REGEX_MATCH: u16 = OPCODE_STRING_REGEX_MATCH;
+pub const NATIVE_OPCODE_STRING_REGEX_FIND: u16 = OPCODE_STRING_REGEX_FIND;
+pub const NATIVE_OPCODE_STRING_REGEX_REPLACE: u16 = OPCODE_STRING_REGEX_REPLACE;
 
 pub fn native_program(ir: &IrProject) -> Result<NativeProgram, String> {
     let project = lower_project(ir, "native")?;
@@ -1073,6 +1107,9 @@ impl<'a> FunctionBuilder<'a> {
             IrValue::Call { target, args } => {
                 if builtins::general::is_general_call(target) {
                     return builtins::general::lower_bytecode_call(self, target, args, locals);
+                }
+                if builtins::strings::is_strings_call(target) {
+                    return builtins::strings::lower_bytecode_call(self, target, args, locals);
                 }
                 if target == builtins::io::print::NAME {
                     return builtins::io::print::lower_bytecode_call(self, args, locals);
