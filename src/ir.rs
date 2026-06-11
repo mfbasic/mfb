@@ -410,9 +410,19 @@ fn expression_type(
             let target_type = expression_type(target, locals, function_returns, type_index)?;
             type_index.record_field_type(&target_type, member)
         }
-        Expression::Call { callee, .. } => builtins::call_return_type_name(callee)
-            .map(str::to_string)
-            .or_else(|| function_returns.get(callee).cloned()),
+        Expression::Call { callee, arguments } => {
+            if builtins::general::is_general_call(callee) {
+                let arg_types = arguments
+                    .iter()
+                    .map(|argument| expression_type(argument, locals, function_returns, type_index))
+                    .collect::<Option<Vec<_>>>()?;
+                return builtins::general::resolve_call(callee, &arg_types)
+                    .map(|resolved| resolved.return_type.to_string());
+            }
+            builtins::call_return_type_name(callee)
+                .map(str::to_string)
+                .or_else(|| function_returns.get(callee).cloned())
+        }
         Expression::Binary {
             left,
             operator,

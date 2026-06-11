@@ -15,11 +15,12 @@ const SECTION_FUNCTION_TABLE: u16 = 8;
 const SECTION_CODE: u16 = 9;
 
 pub(crate) const TYPE_NOTHING: u32 = 1;
-const TYPE_BOOLEAN: u32 = 2;
-const TYPE_INTEGER: u32 = 3;
-const TYPE_FLOAT: u32 = 4;
-const TYPE_FIXED: u32 = 5;
-const TYPE_STRING: u32 = 6;
+pub(crate) const TYPE_BOOLEAN: u32 = 2;
+pub(crate) const TYPE_INTEGER: u32 = 3;
+pub(crate) const TYPE_FLOAT: u32 = 4;
+pub(crate) const TYPE_FIXED: u32 = 5;
+pub(crate) const TYPE_STRING: u32 = 6;
+pub(crate) const TYPE_BYTE: u32 = 7;
 
 const FUNCTION_BYTECODE: u16 = 1;
 
@@ -63,6 +64,16 @@ const OPCODE_BRANCH: u16 = 90;
 const OPCODE_BRANCH_IF_FALSE: u16 = 91;
 const OPCODE_VARIANT_MATCH: u16 = 92;
 const OPCODE_BRANCH_IF_TRUE: u16 = 93;
+pub(crate) const OPCODE_GENERAL_LEN: u16 = 100;
+pub(crate) const OPCODE_GENERAL_FIND: u16 = 101;
+pub(crate) const OPCODE_GENERAL_MID: u16 = 102;
+pub(crate) const OPCODE_GENERAL_REPLACE: u16 = 103;
+pub(crate) const OPCODE_GENERAL_TO_STRING: u16 = 104;
+pub(crate) const OPCODE_GENERAL_TO_INT: u16 = 105;
+pub(crate) const OPCODE_GENERAL_TO_FLOAT: u16 = 106;
+pub(crate) const OPCODE_GENERAL_TO_FIXED: u16 = 107;
+pub(crate) const OPCODE_GENERAL_TO_BYTE: u16 = 108;
+pub(crate) const OPCODE_GENERAL_IS_NUMERIC: u16 = 109;
 
 pub fn write_bytecode_hex(
     project_dir: &Path,
@@ -84,6 +95,7 @@ pub fn build_bytecode_bytes(ir: &IrProject, version: &str) -> Result<Vec<u8>, St
 pub enum NativeType {
     Nothing,
     Boolean,
+    Byte,
     Integer,
     Float,
     Fixed,
@@ -186,6 +198,16 @@ pub const NATIVE_OPCODE_BRANCH: u16 = OPCODE_BRANCH;
 pub const NATIVE_OPCODE_BRANCH_IF_FALSE: u16 = OPCODE_BRANCH_IF_FALSE;
 pub const NATIVE_OPCODE_VARIANT_MATCH: u16 = OPCODE_VARIANT_MATCH;
 pub const NATIVE_OPCODE_BRANCH_IF_TRUE: u16 = OPCODE_BRANCH_IF_TRUE;
+pub const NATIVE_OPCODE_GENERAL_LEN: u16 = OPCODE_GENERAL_LEN;
+pub const NATIVE_OPCODE_GENERAL_FIND: u16 = OPCODE_GENERAL_FIND;
+pub const NATIVE_OPCODE_GENERAL_MID: u16 = OPCODE_GENERAL_MID;
+pub const NATIVE_OPCODE_GENERAL_REPLACE: u16 = OPCODE_GENERAL_REPLACE;
+pub const NATIVE_OPCODE_GENERAL_TO_STRING: u16 = OPCODE_GENERAL_TO_STRING;
+pub const NATIVE_OPCODE_GENERAL_TO_INT: u16 = OPCODE_GENERAL_TO_INT;
+pub const NATIVE_OPCODE_GENERAL_TO_FLOAT: u16 = OPCODE_GENERAL_TO_FLOAT;
+pub const NATIVE_OPCODE_GENERAL_TO_FIXED: u16 = OPCODE_GENERAL_TO_FIXED;
+pub const NATIVE_OPCODE_GENERAL_TO_BYTE: u16 = OPCODE_GENERAL_TO_BYTE;
+pub const NATIVE_OPCODE_GENERAL_IS_NUMERIC: u16 = OPCODE_GENERAL_IS_NUMERIC;
 
 pub fn native_program(ir: &IrProject) -> Result<NativeProgram, String> {
     let project = lower_project(ir, "native")?;
@@ -263,6 +285,7 @@ fn native_type(type_id: u32, result_success_types: &HashMap<u32, u32>) -> Native
     match type_id {
         TYPE_NOTHING => NativeType::Nothing,
         TYPE_BOOLEAN => NativeType::Boolean,
+        TYPE_BYTE => NativeType::Byte,
         TYPE_INTEGER => NativeType::Integer,
         TYPE_FLOAT => NativeType::Float,
         TYPE_FIXED => NativeType::Fixed,
@@ -415,7 +438,7 @@ fn native_type_id(type_ids: &HashMap<String, u32>, name: &str) -> Option<u32> {
         "Float" => Some(TYPE_FLOAT),
         "Fixed" => Some(TYPE_FIXED),
         "String" => Some(TYPE_STRING),
-        "Byte" => Some(7),
+        "Byte" => Some(TYPE_BYTE),
         "Error" => Some(8),
         _ => type_ids.get(name).copied(),
     }
@@ -769,6 +792,7 @@ pub(crate) trait BuiltinCallLowerer {
     ) -> Result<ValueSlot, String>;
     fn add_register(&mut self, type_id: u32, flags: u32) -> u32;
     fn push(&mut self, opcode: u16, operands: Vec<u32>);
+    fn push_string_const(&mut self, value: &str) -> Result<ValueSlot, String>;
 
     fn push_default(&mut self, register: u32, type_id: u32) {
         self.push(OPCODE_LOAD_DEFAULT, vec![register, type_id]);
@@ -973,6 +997,9 @@ impl<'a> FunctionBuilder<'a> {
                 .cloned()
                 .ok_or_else(|| format!("IR references unknown local `{name}`")),
             IrValue::Call { target, args } => {
+                if builtins::general::is_general_call(target) {
+                    return builtins::general::lower_bytecode_call(self, target, args, locals);
+                }
                 if target == builtins::io::print::NAME {
                     return builtins::io::print::lower_bytecode_call(self, args, locals);
                 }
@@ -1418,6 +1445,20 @@ impl BuiltinCallLowerer for FunctionBuilder<'_> {
     fn push(&mut self, opcode: u16, operands: Vec<u32>) {
         FunctionBuilder::push(self, opcode, operands);
     }
+
+    fn push_string_const(&mut self, value: &str) -> Result<ValueSlot, String> {
+        let register = self.add_register(TYPE_STRING, 0);
+        let constant = IrValue::Const {
+            type_: "String".to_string(),
+            value: value.to_string(),
+        };
+        let constant_id = self.const_id(&constant)?;
+        self.push(OPCODE_LOAD_CONST, vec![register, constant_id]);
+        Ok(ValueSlot {
+            register,
+            type_name: "String".to_string(),
+        })
+    }
 }
 
 const OPCODE_MOVE: u16 = 10;
@@ -1497,7 +1538,7 @@ impl TypeTable {
                     self.add_entry(strings, "", name, 5, Vec::new())
                 }
             }
-            "Byte" => 7,
+            "Byte" => TYPE_BYTE,
             "Error" => {
                 strings.intern("code");
                 strings.intern("message");

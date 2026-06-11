@@ -1,0 +1,12 @@
+FUNC main AS Integer
+  LET badLen AS Integer = len(TRUE)
+  LET badFind AS Integer = find("abc", 1)
+  LET badMid AS String = mid("abc", 0)
+  LET badToString AS String = toString(Error[10002, "invalid"])
+  LET badToInt AS Integer = toInt(TRUE)
+  LET badToFloat AS Float = toFloat(TRUE)
+  LET badToFixed AS Fixed = toFixed(TRUE)
+  LET badToByte AS Byte = toByte("1")
+  LET badIsNumeric AS Boolean = isNumeric(1)
+  RETURN badLen + badFind + badToInt
+END FUNC

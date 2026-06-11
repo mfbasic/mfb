@@ -1,0 +1,60 @@
+{
+  "project": "builtin_general",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "main",
+      "line": 1,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "text", "type": "String", "value": { "kind": "string", "value": "hello" }, "line": 2 },
+      { "kind": "binding", "mutable": false, "name": "numericText", "type": "String", "value": { "kind": "string", "value": "42" }, "line": 3 },
+      { "kind": "binding", "mutable": false, "name": "bytes", "type": "List OF Byte", "value": { "kind": "list", "values": [] }, "line": 4 },
+      { "kind": "binding", "mutable": false, "name": "strings", "type": "List OF String", "value": { "kind": "list", "values": [{ "kind": "string", "value": "a" }, { "kind": "string", "value": "b" }] }, "line": 5 },
+      { "kind": "binding", "mutable": false, "name": "scores", "type": "Map OF String TO Integer", "value": { "kind": "map", "keyType": "String", "valueType": "Integer", "entries": [{ "key": { "kind": "string", "value": "a" }, "value": { "kind": "number", "value": "1" } }] }, "line": 6 },
+      { "kind": "binding", "mutable": false, "name": "integerValue", "type": "Integer", "value": { "kind": "number", "value": "42" }, "line": 7 },
+      { "kind": "binding", "mutable": false, "name": "floatValue", "type": "Float", "value": { "kind": "number", "value": "1.5" }, "line": 8 },
+      { "kind": "binding", "mutable": false, "name": "fixedValue", "type": "Fixed", "value": { "kind": "number", "value": "2.25" }, "line": 9 },
+      { "kind": "binding", "mutable": false, "name": "booleanValue", "type": "Boolean", "value": { "kind": "boolean", "value": true }, "line": 10 },
+      { "kind": "binding", "mutable": false, "name": "byteValue", "type": "Byte", "value": { "kind": "number", "value": "7" }, "line": 11 },
+      { "kind": "binding", "mutable": false, "name": "stringLen", "type": "Integer", "value": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "text" }] }, "line": 13 },
+      { "kind": "binding", "mutable": false, "name": "listLen", "type": "Integer", "value": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "strings" }] }, "line": 14 },
+      { "kind": "binding", "mutable": false, "name": "mapLen", "type": "Integer", "value": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "scores" }] }, "line": 15 },
+      { "kind": "binding", "mutable": false, "name": "foundDefaultStart", "type": "Integer", "value": { "kind": "call", "callee": "find", "arguments": [{ "kind": "identifier", "value": "text" }, { "kind": "string", "value": "l" }] }, "line": 17 },
+      { "kind": "binding", "mutable": false, "name": "foundExplicitStart", "type": "Integer", "value": { "kind": "call", "callee": "find", "arguments": [{ "kind": "identifier", "value": "text" }, { "kind": "string", "value": "l" }, { "kind": "number", "value": "3" }] }, "line": 18 },
+      { "kind": "binding", "mutable": false, "name": "middle", "type": "String", "value": { "kind": "call", "callee": "mid", "arguments": [{ "kind": "identifier", "value": "text" }, { "kind": "number", "value": "1" }, { "kind": "number", "value": "3" }] }, "line": 19 },
+      { "kind": "binding", "mutable": false, "name": "replaced", "type": "String", "value": { "kind": "call", "callee": "replace", "arguments": [{ "kind": "identifier", "value": "text" }, { "kind": "string", "value": "l" }, { "kind": "string", "value": "x" }] }, "line": 20 },
+      { "kind": "binding", "mutable": false, "name": "staticType", "type": "String", "value": { "kind": "call", "callee": "typeName", "arguments": [{ "kind": "identifier", "value": "scores" }] }, "line": 21 },
+      { "kind": "binding", "mutable": false, "name": "integerString", "type": "String", "value": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "integerValue" }] }, "line": 23 },
+      { "kind": "binding", "mutable": false, "name": "floatString", "type": "String", "value": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "floatValue" }] }, "line": 24 },
+      { "kind": "binding", "mutable": false, "name": "fixedString", "type": "String", "value": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "fixedValue" }] }, "line": 25 },
+      { "kind": "binding", "mutable": false, "name": "booleanString", "type": "String", "value": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "booleanValue" }] }, "line": 26 },
+      { "kind": "binding", "mutable": false, "name": "sameString", "type": "String", "value": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "text" }] }, "line": 27 },
+      { "kind": "binding", "mutable": false, "name": "byteString", "type": "String", "value": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "byteValue" }] }, "line": 28 },
+      { "kind": "binding", "mutable": false, "name": "bytesString", "type": "String", "value": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "bytes" }] }, "line": 29 },
+      { "kind": "binding", "mutable": false, "name": "parsedInt", "type": "Integer", "value": { "kind": "call", "callee": "toInt", "arguments": [{ "kind": "identifier", "value": "numericText" }] }, "line": 31 },
+      { "kind": "binding", "mutable": false, "name": "truncatedIntFromFloat", "type": "Integer", "value": { "kind": "call", "callee": "toInt", "arguments": [{ "kind": "identifier", "value": "floatValue" }] }, "line": 32 },
+      { "kind": "binding", "mutable": false, "name": "truncatedIntFromFixed", "type": "Integer", "value": { "kind": "call", "callee": "toInt", "arguments": [{ "kind": "identifier", "value": "fixedValue" }] }, "line": 33 },
+      { "kind": "binding", "mutable": false, "name": "parsedFloat", "type": "Float", "value": { "kind": "call", "callee": "toFloat", "arguments": [{ "kind": "identifier", "value": "numericText" }] }, "line": 35 },
+      { "kind": "binding", "mutable": false, "name": "floatFromInteger", "type": "Float", "value": { "kind": "call", "callee": "toFloat", "arguments": [{ "kind": "identifier", "value": "integerValue" }] }, "line": 36 },
+      { "kind": "binding", "mutable": false, "name": "floatFromFixed", "type": "Float", "value": { "kind": "call", "callee": "toFloat", "arguments": [{ "kind": "identifier", "value": "fixedValue" }] }, "line": 37 },
+      { "kind": "binding", "mutable": false, "name": "parsedFixed", "type": "Fixed", "value": { "kind": "call", "callee": "toFixed", "arguments": [{ "kind": "identifier", "value": "numericText" }] }, "line": 39 },
+      { "kind": "binding", "mutable": false, "name": "fixedFromInteger", "type": "Fixed", "value": { "kind": "call", "callee": "toFixed", "arguments": [{ "kind": "identifier", "value": "integerValue" }] }, "line": 40 },
+      { "kind": "binding", "mutable": false, "name": "fixedFromFloat", "type": "Fixed", "value": { "kind": "call", "callee": "toFixed", "arguments": [{ "kind": "identifier", "value": "floatValue" }] }, "line": 41 },
+      { "kind": "binding", "mutable": false, "name": "convertedByte", "type": "Byte", "value": { "kind": "call", "callee": "toByte", "arguments": [{ "kind": "identifier", "value": "integerValue" }] }, "line": 43 },
+      { "kind": "binding", "mutable": false, "name": "numeric", "type": "Boolean", "value": { "kind": "call", "callee": "isNumeric", "arguments": [{ "kind": "identifier", "value": "numericText" }] }, "line": 44 },
+      { "kind": "return", "value": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "stringLen" }, "right": { "kind": "identifier", "value": "listLen" } }, "right": { "kind": "identifier", "value": "mapLen" } }, "right": { "kind": "identifier", "value": "foundDefaultStart" } }, "right": { "kind": "identifier", "value": "foundExplicitStart" } }, "line": 46 }
+      ]
+    }
+    ]
+  }
+  ]
+}

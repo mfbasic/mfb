@@ -706,8 +706,7 @@ impl<'a> TypeChecker<'a> {
             }
             Expression::Call { callee, arguments } => {
                 if builtins::is_builtin_call(callee) {
-                    self.check_builtin_call(file, callee, arguments, locals, line);
-                    return Type::Nothing;
+                    return self.check_builtin_call(file, callee, arguments, locals, line);
                 }
 
                 if callee.contains('.') {
@@ -1366,7 +1365,11 @@ impl<'a> TypeChecker<'a> {
         arguments: &[Expression],
         locals: &HashMap<String, LocalInfo>,
         line: usize,
-    ) {
+    ) -> Type {
+        if builtins::general::is_general_call(callee) {
+            return self.check_general_builtin_call(file, callee, arguments, locals, line);
+        }
+
         if callee == builtins::io::print::NAME {
             if arguments.len() != 1 {
                 self.report(
@@ -1395,12 +1398,67 @@ impl<'a> TypeChecker<'a> {
                     );
                 }
             }
-            return;
+            return Type::Nothing;
         }
 
         for argument in arguments {
             self.infer_expression(file, argument, locals, line);
         }
+        Type::Unknown
+    }
+
+    fn check_general_builtin_call(
+        &mut self,
+        file: &AstFile,
+        callee: &str,
+        arguments: &[Expression],
+        locals: &HashMap<String, LocalInfo>,
+        line: usize,
+    ) -> Type {
+        let arg_types = arguments
+            .iter()
+            .map(|argument| {
+                let type_ = self.infer_expression(file, argument, locals, line);
+                self.type_name(&type_)
+            })
+            .collect::<Vec<_>>();
+
+        if let Some((min, max)) = builtins::general::arity(callee) {
+            if arguments.len() < min || arguments.len() > max {
+                let expected = if min == max {
+                    min.to_string()
+                } else {
+                    format!("{min} to {max}")
+                };
+                self.report(
+                    "TYPE_CALL_ARITY_MISMATCH",
+                    &format!(
+                        "Call to `{callee}` has {} argument(s), expected {expected}.",
+                        arguments.len()
+                    ),
+                    file,
+                    line,
+                );
+                return Type::Unknown;
+            }
+        }
+
+        let Some(resolved) = builtins::general::resolve_call(callee, &arg_types) else {
+            let expected =
+                builtins::general::expected_arguments(callee).unwrap_or("supported overload");
+            self.report(
+                "TYPE_CALL_ARGUMENT_MISMATCH",
+                &format!(
+                    "Call to `{callee}` has argument type(s) ({}), expected {expected}.",
+                    arg_types.join(", ")
+                ),
+                file,
+                line,
+            );
+            return Type::Unknown;
+        };
+
+        self.parse_type(resolved.return_type)
     }
 
     fn parse_type(&self, name: &str) -> Type {

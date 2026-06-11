@@ -1,0 +1,216 @@
+$ mfb build -ast tests/typecheck-builtin-general-mismatch
+   1 | FUNC main AS Integer
+   2 |   LET badLen AS Integer = len(TRUE)
+     | ^
+tests/typecheck-builtin-general-mismatch/src/main.mfb:2 error[TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `len` has argument type(s) (Boolean), expected String, List OF T, or Map OF K TO V.
+   1 | FUNC main AS Integer
+   2 |   LET badLen AS Integer = len(TRUE)
+     | ^
+tests/typecheck-builtin-general-mismatch/src/main.mfb:2 error[TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `badLen` does not have a known type.
+   1 | FUNC main AS Integer
+   2 |   LET badLen AS Integer = len(TRUE)
+   3 |   LET badFind AS Integer = find("abc", 1)
+     | ^
+tests/typecheck-builtin-general-mismatch/src/main.mfb:3 error[TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `find` has argument type(s) (String, Integer), expected String, String, Integer.
+   1 | FUNC main AS Integer
+   2 |   LET badLen AS Integer = len(TRUE)
+   3 |   LET badFind AS Integer = find("abc", 1)
+     | ^
+tests/typecheck-builtin-general-mismatch/src/main.mfb:3 error[TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `badFind` does not have a known type.
+   2 |   LET badLen AS Integer = len(TRUE)
+   3 |   LET badFind AS Integer = find("abc", 1)
+   4 |   LET badMid AS String = mid("abc", 0)
+     | ^
+tests/typecheck-builtin-general-mismatch/src/main.mfb:4 error[TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+               Call to `mid` has 2 argument(s), expected 3.
+   2 |   LET badLen AS Integer = len(TRUE)
+   3 |   LET badFind AS Integer = find("abc", 1)
+   4 |   LET badMid AS String = mid("abc", 0)
+     | ^
+tests/typecheck-builtin-general-mismatch/src/main.mfb:4 error[TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `badMid` does not have a known type.
+   3 |   LET badFind AS Integer = find("abc", 1)
+   4 |   LET badMid AS String = mid("abc", 0)
+   5 |   LET badToString AS String = toString(Error[10002, "invalid"])
+     | ^
+tests/typecheck-builtin-general-mismatch/src/main.mfb:5 error[TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `toString` has argument type(s) (Error), expected Integer, Float, Fixed, Boolean, String, Byte, or List OF Byte.
+   3 |   LET badFind AS Integer = find("abc", 1)
+   4 |   LET badMid AS String = mid("abc", 0)
+   5 |   LET badToString AS String = toString(Error[10002, "invalid"])
+     | ^
+tests/typecheck-builtin-general-mismatch/src/main.mfb:5 error[TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `badToString` does not have a known type.
+   4 |   LET badMid AS String = mid("abc", 0)
+   5 |   LET badToString AS String = toString(Error[10002, "invalid"])
+   6 |   LET badToInt AS Integer = toInt(TRUE)
+     | ^
+tests/typecheck-builtin-general-mismatch/src/main.mfb:6 error[TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `toInt` has argument type(s) (Boolean), expected String, Float, or Fixed.
+   4 |   LET badMid AS String = mid("abc", 0)
+   5 |   LET badToString AS String = toString(Error[10002, "invalid"])
+   6 |   LET badToInt AS Integer = toInt(TRUE)
+     | ^
+tests/typecheck-builtin-general-mismatch/src/main.mfb:6 error[TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `badToInt` does not have a known type.
+   5 |   LET badToString AS String = toString(Error[10002, "invalid"])
+   6 |   LET badToInt AS Integer = toInt(TRUE)
+   7 |   LET badToFloat AS Float = toFloat(TRUE)
+     | ^
+tests/typecheck-builtin-general-mismatch/src/main.mfb:7 error[TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `toFloat` has argument type(s) (Boolean), expected String, Integer, or Fixed.
+   5 |   LET badToString AS String = toString(Error[10002, "invalid"])
+   6 |   LET badToInt AS Integer = toInt(TRUE)
+   7 |   LET badToFloat AS Float = toFloat(TRUE)
+     | ^
+tests/typecheck-builtin-general-mismatch/src/main.mfb:7 error[TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `badToFloat` does not have a known type.
+   6 |   LET badToInt AS Integer = toInt(TRUE)
+   7 |   LET badToFloat AS Float = toFloat(TRUE)
+   8 |   LET badToFixed AS Fixed = toFixed(TRUE)
+     | ^
+tests/typecheck-builtin-general-mismatch/src/main.mfb:8 error[TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `toFixed` has argument type(s) (Boolean), expected String, Integer, or Float.
+   6 |   LET badToInt AS Integer = toInt(TRUE)
+   7 |   LET badToFloat AS Float = toFloat(TRUE)
+   8 |   LET badToFixed AS Fixed = toFixed(TRUE)
+     | ^
+tests/typecheck-builtin-general-mismatch/src/main.mfb:8 error[TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `badToFixed` does not have a known type.
+   7 |   LET badToFloat AS Float = toFloat(TRUE)
+   8 |   LET badToFixed AS Fixed = toFixed(TRUE)
+   9 |   LET badToByte AS Byte = toByte("1")
+     | ^
+tests/typecheck-builtin-general-mismatch/src/main.mfb:9 error[TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `toByte` has argument type(s) (String), expected Integer.
+   7 |   LET badToFloat AS Float = toFloat(TRUE)
+   8 |   LET badToFixed AS Fixed = toFixed(TRUE)
+   9 |   LET badToByte AS Byte = toByte("1")
+     | ^
+tests/typecheck-builtin-general-mismatch/src/main.mfb:9 error[TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `badToByte` does not have a known type.
+   8 |   LET badToFixed AS Fixed = toFixed(TRUE)
+   9 |   LET badToByte AS Byte = toByte("1")
+  10 |   LET badIsNumeric AS Boolean = isNumeric(1)
+     | ^
+tests/typecheck-builtin-general-mismatch/src/main.mfb:10 error[TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `isNumeric` has argument type(s) (Integer), expected String.
+   8 |   LET badToFixed AS Fixed = toFixed(TRUE)
+   9 |   LET badToByte AS Byte = toByte("1")
+  10 |   LET badIsNumeric AS Boolean = isNumeric(1)
+     | ^
+tests/typecheck-builtin-general-mismatch/src/main.mfb:10 error[TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `badIsNumeric` does not have a known type.
+[exit 1]
+$ mfb build -ir tests/typecheck-builtin-general-mismatch
+   1 | FUNC main AS Integer
+   2 |   LET badLen AS Integer = len(TRUE)
+     | ^
+tests/typecheck-builtin-general-mismatch/src/main.mfb:2 error[TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `len` has argument type(s) (Boolean), expected String, List OF T, or Map OF K TO V.
+   1 | FUNC main AS Integer
+   2 |   LET badLen AS Integer = len(TRUE)
+     | ^
+tests/typecheck-builtin-general-mismatch/src/main.mfb:2 error[TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `badLen` does not have a known type.
+   1 | FUNC main AS Integer
+   2 |   LET badLen AS Integer = len(TRUE)
+   3 |   LET badFind AS Integer = find("abc", 1)
+     | ^
+tests/typecheck-builtin-general-mismatch/src/main.mfb:3 error[TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `find` has argument type(s) (String, Integer), expected String, String, Integer.
+   1 | FUNC main AS Integer
+   2 |   LET badLen AS Integer = len(TRUE)
+   3 |   LET badFind AS Integer = find("abc", 1)
+     | ^
+tests/typecheck-builtin-general-mismatch/src/main.mfb:3 error[TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `badFind` does not have a known type.
+   2 |   LET badLen AS Integer = len(TRUE)
+   3 |   LET badFind AS Integer = find("abc", 1)
+   4 |   LET badMid AS String = mid("abc", 0)
+     | ^
+tests/typecheck-builtin-general-mismatch/src/main.mfb:4 error[TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+               Call to `mid` has 2 argument(s), expected 3.
+   2 |   LET badLen AS Integer = len(TRUE)
+   3 |   LET badFind AS Integer = find("abc", 1)
+   4 |   LET badMid AS String = mid("abc", 0)
+     | ^
+tests/typecheck-builtin-general-mismatch/src/main.mfb:4 error[TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `badMid` does not have a known type.
+   3 |   LET badFind AS Integer = find("abc", 1)
+   4 |   LET badMid AS String = mid("abc", 0)
+   5 |   LET badToString AS String = toString(Error[10002, "invalid"])
+     | ^
+tests/typecheck-builtin-general-mismatch/src/main.mfb:5 error[TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `toString` has argument type(s) (Error), expected Integer, Float, Fixed, Boolean, String, Byte, or List OF Byte.
+   3 |   LET badFind AS Integer = find("abc", 1)
+   4 |   LET badMid AS String = mid("abc", 0)
+   5 |   LET badToString AS String = toString(Error[10002, "invalid"])
+     | ^
+tests/typecheck-builtin-general-mismatch/src/main.mfb:5 error[TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `badToString` does not have a known type.
+   4 |   LET badMid AS String = mid("abc", 0)
+   5 |   LET badToString AS String = toString(Error[10002, "invalid"])
+   6 |   LET badToInt AS Integer = toInt(TRUE)
+     | ^
+tests/typecheck-builtin-general-mismatch/src/main.mfb:6 error[TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `toInt` has argument type(s) (Boolean), expected String, Float, or Fixed.
+   4 |   LET badMid AS String = mid("abc", 0)
+   5 |   LET badToString AS String = toString(Error[10002, "invalid"])
+   6 |   LET badToInt AS Integer = toInt(TRUE)
+     | ^
+tests/typecheck-builtin-general-mismatch/src/main.mfb:6 error[TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `badToInt` does not have a known type.
+   5 |   LET badToString AS String = toString(Error[10002, "invalid"])
+   6 |   LET badToInt AS Integer = toInt(TRUE)
+   7 |   LET badToFloat AS Float = toFloat(TRUE)
+     | ^
+tests/typecheck-builtin-general-mismatch/src/main.mfb:7 error[TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `toFloat` has argument type(s) (Boolean), expected String, Integer, or Fixed.
+   5 |   LET badToString AS String = toString(Error[10002, "invalid"])
+   6 |   LET badToInt AS Integer = toInt(TRUE)
+   7 |   LET badToFloat AS Float = toFloat(TRUE)
+     | ^
+tests/typecheck-builtin-general-mismatch/src/main.mfb:7 error[TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `badToFloat` does not have a known type.
+   6 |   LET badToInt AS Integer = toInt(TRUE)
+   7 |   LET badToFloat AS Float = toFloat(TRUE)
+   8 |   LET badToFixed AS Fixed = toFixed(TRUE)
+     | ^
+tests/typecheck-builtin-general-mismatch/src/main.mfb:8 error[TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `toFixed` has argument type(s) (Boolean), expected String, Integer, or Float.
+   6 |   LET badToInt AS Integer = toInt(TRUE)
+   7 |   LET badToFloat AS Float = toFloat(TRUE)
+   8 |   LET badToFixed AS Fixed = toFixed(TRUE)
+     | ^
+tests/typecheck-builtin-general-mismatch/src/main.mfb:8 error[TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `badToFixed` does not have a known type.
+   7 |   LET badToFloat AS Float = toFloat(TRUE)
+   8 |   LET badToFixed AS Fixed = toFixed(TRUE)
+   9 |   LET badToByte AS Byte = toByte("1")
+     | ^
+tests/typecheck-builtin-general-mismatch/src/main.mfb:9 error[TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `toByte` has argument type(s) (String), expected Integer.
+   7 |   LET badToFloat AS Float = toFloat(TRUE)
+   8 |   LET badToFixed AS Fixed = toFixed(TRUE)
+   9 |   LET badToByte AS Byte = toByte("1")
+     | ^
+tests/typecheck-builtin-general-mismatch/src/main.mfb:9 error[TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `badToByte` does not have a known type.
+   8 |   LET badToFixed AS Fixed = toFixed(TRUE)
+   9 |   LET badToByte AS Byte = toByte("1")
+  10 |   LET badIsNumeric AS Boolean = isNumeric(1)
+     | ^
+tests/typecheck-builtin-general-mismatch/src/main.mfb:10 error[TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `isNumeric` has argument type(s) (Integer), expected String.
+   8 |   LET badToFixed AS Fixed = toFixed(TRUE)
+   9 |   LET badToByte AS Byte = toByte("1")
+  10 |   LET badIsNumeric AS Boolean = isNumeric(1)
+     | ^
+tests/typecheck-builtin-general-mismatch/src/main.mfb:10 error[TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `badIsNumeric` does not have a known type.
+[exit 1]

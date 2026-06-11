@@ -484,6 +484,8 @@ impl<'a> Resolver<'a> {
     ) {
         if callee.contains('.') {
             self.resolve_package_qualified_name(file, callee, line, imports);
+        } else if builtins::general::is_general_call(callee) {
+            return;
         } else if locals.contains_key(callee) {
             self.report(
                 "SYMBOL_NOT_CALLABLE",

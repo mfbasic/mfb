@@ -3,10 +3,14 @@ use crate::bytecode::{
     NATIVE_OPCODE_BRANCH_IF_FALSE, NATIVE_OPCODE_BRANCH_IF_TRUE, NATIVE_OPCODE_CALL_RESULT,
     NATIVE_OPCODE_CONCAT, NATIVE_OPCODE_CONSTRUCT_LIST, NATIVE_OPCODE_CONSTRUCT_MAP,
     NATIVE_OPCODE_CONSTRUCT_RECORD, NATIVE_OPCODE_CONSTRUCT_VARIANT, NATIVE_OPCODE_COPY,
-    NATIVE_OPCODE_DIV, NATIVE_OPCODE_EQUAL, NATIVE_OPCODE_GREATER, NATIVE_OPCODE_GREATER_EQUAL,
-    NATIVE_OPCODE_LESS, NATIVE_OPCODE_LESS_EQUAL, NATIVE_OPCODE_LOAD_CONST,
-    NATIVE_OPCODE_LOAD_DEFAULT, NATIVE_OPCODE_LOAD_ENUM_MEMBER, NATIVE_OPCODE_LOAD_FIELD,
-    NATIVE_OPCODE_MOD, NATIVE_OPCODE_MOVE, NATIVE_OPCODE_MUL, NATIVE_OPCODE_NEG, NATIVE_OPCODE_NOT,
+    NATIVE_OPCODE_DIV, NATIVE_OPCODE_EQUAL, NATIVE_OPCODE_GENERAL_FIND,
+    NATIVE_OPCODE_GENERAL_IS_NUMERIC, NATIVE_OPCODE_GENERAL_LEN, NATIVE_OPCODE_GENERAL_MID,
+    NATIVE_OPCODE_GENERAL_REPLACE, NATIVE_OPCODE_GENERAL_TO_BYTE, NATIVE_OPCODE_GENERAL_TO_FIXED,
+    NATIVE_OPCODE_GENERAL_TO_FLOAT, NATIVE_OPCODE_GENERAL_TO_INT, NATIVE_OPCODE_GENERAL_TO_STRING,
+    NATIVE_OPCODE_GREATER, NATIVE_OPCODE_GREATER_EQUAL, NATIVE_OPCODE_LESS,
+    NATIVE_OPCODE_LESS_EQUAL, NATIVE_OPCODE_LOAD_CONST, NATIVE_OPCODE_LOAD_DEFAULT,
+    NATIVE_OPCODE_LOAD_ENUM_MEMBER, NATIVE_OPCODE_LOAD_FIELD, NATIVE_OPCODE_MOD,
+    NATIVE_OPCODE_MOVE, NATIVE_OPCODE_MUL, NATIVE_OPCODE_NEG, NATIVE_OPCODE_NOT,
     NATIVE_OPCODE_NOT_EQUAL, NATIVE_OPCODE_POW, NATIVE_OPCODE_RETURN_OK, NATIVE_OPCODE_SUB,
     NATIVE_OPCODE_UNWRAP_RESULT, NATIVE_OPCODE_VARIANT_MATCH, NATIVE_OPCODE_WRITE_STDOUT,
     NATIVE_OPCODE_XOR,
@@ -18,12 +22,15 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 const SLOT_SIZE: usize = 24;
-const SCRATCH_SIZE: usize = 64;
+const SCRATCH_SIZE: usize = 160;
 const HEAP_HEADER_SIZE: usize = 32;
 const ARENA_STATE_SIZE: usize = 64;
 const ARENA_DEFAULT_BLOCK_SIZE: u64 = 4096;
 const ARENA_BLOCK_HEADER_SIZE: u64 = 32;
 const ERR_INVALID_ARGUMENT: u64 = 10002;
+const ERR_PARSE: u64 = 10003;
+const ERR_NOT_FOUND: u64 = 10004;
+const ERR_INDEX_OUT_OF_RANGE: u64 = 10001;
 const ERR_OUT_OF_MEMORY: u64 = 10010;
 const DARWIN_PROT_READ_WRITE: u64 = 0x3;
 const DARWIN_MAP_PRIVATE_ANON: u64 = 0x1002;
@@ -294,6 +301,33 @@ impl<'a> NativeEmitter<'a> {
                 NATIVE_OPCODE_VARIANT_MATCH => {
                     self.emit_variant_match(instruction)?;
                 }
+                NATIVE_OPCODE_GENERAL_LEN => {
+                    self.emit_general_len(instruction)?;
+                }
+                NATIVE_OPCODE_GENERAL_FIND => {
+                    self.emit_general_find(instruction, epilogue)?;
+                }
+                NATIVE_OPCODE_GENERAL_MID => {
+                    self.emit_general_mid(instruction, epilogue)?;
+                }
+                NATIVE_OPCODE_GENERAL_REPLACE => {
+                    self.emit_general_replace(instruction, epilogue)?;
+                }
+                NATIVE_OPCODE_GENERAL_TO_STRING => {
+                    self.emit_general_to_string(function, instruction, epilogue)?;
+                }
+                NATIVE_OPCODE_GENERAL_TO_INT => {
+                    self.emit_general_to_int(function, instruction, epilogue)?;
+                }
+                NATIVE_OPCODE_GENERAL_TO_FLOAT | NATIVE_OPCODE_GENERAL_TO_FIXED => {
+                    self.emit_general_numeric_widen_or_copy(function, instruction, epilogue)?;
+                }
+                NATIVE_OPCODE_GENERAL_TO_BYTE => {
+                    self.emit_general_to_byte(instruction, epilogue)?;
+                }
+                NATIVE_OPCODE_GENERAL_IS_NUMERIC => {
+                    self.emit_general_is_numeric(instruction)?;
+                }
                 NATIVE_OPCODE_RETURN_OK => {
                     let src = operand(instruction, 0)?;
                     self.code.mov_imm(0, 0);
@@ -522,6 +556,431 @@ impl<'a> NativeEmitter<'a> {
         Ok(())
     }
 
+    fn emit_general_len(
+        &mut self,
+        instruction: &bytecode::NativeInstruction,
+    ) -> Result<(), String> {
+        let dst = operand(instruction, 0)?;
+        let value = operand(instruction, 1)?;
+        self.code.ldr_imm(9, 31, slot_offset(value) + 8)?;
+        self.code.str_imm(9, 31, slot_offset(dst))
+    }
+
+    fn emit_general_find(
+        &mut self,
+        instruction: &bytecode::NativeInstruction,
+        epilogue: Label,
+    ) -> Result<(), String> {
+        let dst = operand(instruction, 0)?;
+        let value = operand(instruction, 1)?;
+        let needle = operand(instruction, 2)?;
+        let start = instruction.operands.get(3).copied();
+        let search_loop = self.code.new_label();
+        let compare_loop = self.code.new_label();
+        let found = self.code.new_label();
+        let next = self.code.new_label();
+        let not_found = self.code.new_label();
+        let empty_needle = self.code.new_label();
+        let valid_start = self.code.new_label();
+        let done = self.code.new_label();
+
+        self.code.ldr_imm(9, 31, slot_offset(value))?;
+        self.code.ldr_imm(10, 31, slot_offset(value) + 8)?;
+        self.code.ldr_imm(11, 31, slot_offset(needle))?;
+        self.code.ldr_imm(12, 31, slot_offset(needle) + 8)?;
+        if let Some(start) = start {
+            self.code.ldr_imm(13, 31, slot_offset(start))?;
+        } else {
+            self.code.mov_imm(13, 0);
+        }
+        self.code.cmp_zero(13);
+        self.code.b_ge(valid_start);
+        self.emit_error(ERR_INDEX_OUT_OF_RANGE, epilogue);
+        self.code.bind(valid_start);
+        self.code.cmp_reg(13, 10);
+        self.code.b_gt(not_found);
+        self.code.cbz(12, empty_needle);
+        self.code.sub_reg(14, 10, 12);
+        self.code.cmp_reg(13, 14);
+        self.code.b_gt(not_found);
+        self.code.add_imm(9, 9, HEAP_HEADER_SIZE)?;
+        self.code.add_reg(9, 9, 13);
+        self.code.add_imm(11, 11, HEAP_HEADER_SIZE)?;
+
+        self.code.bind(search_loop);
+        self.code.mov_imm(15, 0);
+        self.code.bind(compare_loop);
+        self.code.cmp_reg(15, 12);
+        self.code.b_eq(found);
+        self.code.add_reg(16, 13, 15);
+        self.code.ldrb_imm(17, 9, 0);
+        self.code.ldrb_imm(18, 11, 0);
+        self.code.cmp_reg(17, 18);
+        self.code.b_ne(next);
+        self.code.add_imm(9, 9, 1)?;
+        self.code.add_imm(11, 11, 1)?;
+        self.code.add_imm(15, 15, 1)?;
+        self.code.b(compare_loop);
+
+        self.code.bind(next);
+        self.code.sub_reg(9, 9, 15);
+        self.code.sub_reg(11, 11, 15);
+        self.code.add_imm(9, 9, 1)?;
+        self.code.add_imm(13, 13, 1)?;
+        self.code.cmp_reg(13, 14);
+        self.code.b_le(search_loop);
+        self.code.b(not_found);
+
+        self.code.bind(empty_needle);
+        self.code.str_imm(13, 31, slot_offset(dst))?;
+        self.code.b(done);
+
+        self.code.bind(found);
+        self.code.str_imm(13, 31, slot_offset(dst))?;
+        self.code.b(done);
+
+        self.code.bind(not_found);
+        self.emit_error(ERR_NOT_FOUND, epilogue);
+        self.code.bind(done);
+        Ok(())
+    }
+
+    fn emit_general_mid(
+        &mut self,
+        instruction: &bytecode::NativeInstruction,
+        epilogue: Label,
+    ) -> Result<(), String> {
+        let dst = operand(instruction, 0)?;
+        let value = operand(instruction, 1)?;
+        let start = operand(instruction, 2)?;
+        let count = operand(instruction, 3)?;
+        let valid_start = self.code.new_label();
+        let valid_count = self.code.new_label();
+        let valid_range = self.code.new_label();
+        let copy_loop = self.code.new_label();
+        let range_ok = self.code.new_label();
+        let copy_done = self.code.new_label();
+        let scratch = self.current_scratch;
+
+        self.code.ldr_imm(9, 31, slot_offset(value))?;
+        self.code.ldr_imm(10, 31, slot_offset(value) + 8)?;
+        self.code.ldr_imm(11, 31, slot_offset(start))?;
+        self.code.ldr_imm(12, 31, slot_offset(count))?;
+        self.code.cmp_zero(11);
+        self.code.b_ge(valid_start);
+        self.emit_error(ERR_INDEX_OUT_OF_RANGE, epilogue);
+        self.code.bind(valid_start);
+        self.code.cmp_zero(12);
+        self.code.b_ge(valid_count);
+        self.emit_error(ERR_INDEX_OUT_OF_RANGE, epilogue);
+        self.code.bind(valid_count);
+        self.code.add_reg(13, 11, 12);
+        self.code.cmp_reg(13, 11);
+        self.code.b_hs(valid_range);
+        self.emit_error(ERR_INDEX_OUT_OF_RANGE, epilogue);
+        self.code.bind(valid_range);
+        self.code.cmp_reg(13, 10);
+        self.code.b_le(range_ok);
+        self.emit_error(ERR_INDEX_OUT_OF_RANGE, epilogue);
+        self.code.bind(range_ok);
+
+        self.code.add_imm(9, 9, HEAP_HEADER_SIZE)?;
+        self.code.add_reg(9, 9, 11);
+        self.code.str_imm(9, 31, scratch)?;
+        self.code.str_imm(12, 31, scratch + 8)?;
+        self.emit_allocate_string_from_len_reg(12, epilogue)?;
+        self.code.ldr_imm(9, 31, scratch)?;
+        self.code.ldr_imm(10, 31, scratch + 8)?;
+        self.code.add_imm(11, 1, HEAP_HEADER_SIZE)?;
+        self.code.bind(copy_loop);
+        self.code.cbz(10, copy_done);
+        self.code.ldrb_imm(12, 9, 0);
+        self.code.strb_imm(12, 11, 0);
+        self.code.add_imm(9, 9, 1)?;
+        self.code.add_imm(11, 11, 1)?;
+        self.code.sub_imm(10, 10, 1)?;
+        self.code.b(copy_loop);
+        self.code.bind(copy_done);
+        self.store_string_slot(dst, 1, scratch + 8)
+    }
+
+    fn emit_general_replace(
+        &mut self,
+        instruction: &bytecode::NativeInstruction,
+        epilogue: Label,
+    ) -> Result<(), String> {
+        let dst = operand(instruction, 0)?;
+        let value = operand(instruction, 1)?;
+        let old = operand(instruction, 2)?;
+        let new = operand(instruction, 3)?;
+        let scratch = self.current_scratch;
+        let copy_original = self.code.new_label();
+        let first_loop = self.code.new_label();
+        let first_compare = self.code.new_label();
+        let first_match = self.code.new_label();
+        let first_next = self.code.new_label();
+        let first_done = self.code.new_label();
+        let second_loop = self.code.new_label();
+        let second_compare = self.code.new_label();
+        let second_match = self.code.new_label();
+        let second_copy_new = self.code.new_label();
+        let second_copy_one = self.code.new_label();
+        let second_done = self.code.new_label();
+        let new_copy_loop = self.code.new_label();
+        let replace_done = self.code.new_label();
+
+        self.code.ldr_imm(9, 31, slot_offset(value))?;
+        self.code.ldr_imm(10, 31, slot_offset(value) + 8)?;
+        self.code.ldr_imm(11, 31, slot_offset(old))?;
+        self.code.ldr_imm(12, 31, slot_offset(old) + 8)?;
+        self.code.ldr_imm(13, 31, slot_offset(new))?;
+        self.code.ldr_imm(14, 31, slot_offset(new) + 8)?;
+        self.code.cbz(12, copy_original);
+        self.code.cmp_reg(12, 10);
+        self.code.b_hi(copy_original);
+        self.code.add_imm(9, 9, HEAP_HEADER_SIZE)?;
+        self.code.add_imm(11, 11, HEAP_HEADER_SIZE)?;
+        self.code.add_imm(13, 13, HEAP_HEADER_SIZE)?;
+        self.code.str_imm(9, 31, scratch)?;
+        self.code.str_imm(10, 31, scratch + 8)?;
+        self.code.str_imm(11, 31, scratch + 16)?;
+        self.code.str_imm(12, 31, scratch + 24)?;
+        self.code.str_imm(13, 31, scratch + 32)?;
+        self.code.str_imm(14, 31, scratch + 40)?;
+
+        self.code.mov_imm(20, 0);
+        self.code.mov_reg(21, 10);
+        self.code.sub_reg(22, 10, 12);
+        self.code.bind(first_loop);
+        self.code.cmp_reg(20, 22);
+        self.code.b_gt(first_done);
+        self.code.mov_imm(23, 0);
+        self.code.add_reg(24, 9, 20);
+        self.code.mov_reg(25, 11);
+        self.code.bind(first_compare);
+        self.code.cmp_reg(23, 12);
+        self.code.b_eq(first_match);
+        self.code.ldrb_imm(26, 24, 0);
+        self.code.ldrb_imm(27, 25, 0);
+        self.code.cmp_reg(26, 27);
+        self.code.b_ne(first_next);
+        self.code.add_imm(24, 24, 1)?;
+        self.code.add_imm(25, 25, 1)?;
+        self.code.add_imm(23, 23, 1)?;
+        self.code.b(first_compare);
+        self.code.bind(first_match);
+        self.code.sub_reg(21, 21, 12);
+        self.code.add_reg(21, 21, 14);
+        self.code.add_reg(20, 20, 12);
+        self.code.b(first_loop);
+        self.code.bind(first_next);
+        self.code.add_imm(20, 20, 1)?;
+        self.code.b(first_loop);
+
+        self.code.bind(first_done);
+        self.code.str_imm(21, 31, scratch + 48)?;
+        self.emit_allocate_string_from_len_reg(21, epilogue)?;
+        self.code.ldr_imm(9, 31, scratch)?;
+        self.code.ldr_imm(10, 31, scratch + 8)?;
+        self.code.ldr_imm(11, 31, scratch + 16)?;
+        self.code.ldr_imm(12, 31, scratch + 24)?;
+        self.code.ldr_imm(13, 31, scratch + 32)?;
+        self.code.ldr_imm(14, 31, scratch + 40)?;
+        self.code.add_imm(15, 1, HEAP_HEADER_SIZE)?;
+        self.code.mov_imm(20, 0);
+        self.code.sub_reg(22, 10, 12);
+
+        self.code.bind(second_loop);
+        self.code.cmp_reg(20, 10);
+        self.code.b_ge(second_done);
+        self.code.cmp_reg(20, 22);
+        self.code.b_gt(second_copy_one);
+        self.code.mov_imm(23, 0);
+        self.code.add_reg(24, 9, 20);
+        self.code.mov_reg(25, 11);
+        self.code.bind(second_compare);
+        self.code.cmp_reg(23, 12);
+        self.code.b_eq(second_match);
+        self.code.ldrb_imm(26, 24, 0);
+        self.code.ldrb_imm(27, 25, 0);
+        self.code.cmp_reg(26, 27);
+        self.code.b_ne(second_copy_one);
+        self.code.add_imm(24, 24, 1)?;
+        self.code.add_imm(25, 25, 1)?;
+        self.code.add_imm(23, 23, 1)?;
+        self.code.b(second_compare);
+
+        self.code.bind(second_match);
+        self.code.mov_imm(23, 0);
+        self.code.mov_reg(24, 13);
+        self.code.bind(new_copy_loop);
+        self.code.cmp_reg(23, 14);
+        self.code.b_eq(second_copy_new);
+        self.code.ldrb_imm(26, 24, 0);
+        self.code.strb_imm(26, 15, 0);
+        self.code.add_imm(24, 24, 1)?;
+        self.code.add_imm(15, 15, 1)?;
+        self.code.add_imm(23, 23, 1)?;
+        self.code.b(new_copy_loop);
+        self.code.bind(second_copy_new);
+        self.code.add_reg(20, 20, 12);
+        self.code.b(second_loop);
+
+        self.code.bind(second_copy_one);
+        self.code.add_reg(24, 9, 20);
+        self.code.ldrb_imm(26, 24, 0);
+        self.code.strb_imm(26, 15, 0);
+        self.code.add_imm(15, 15, 1)?;
+        self.code.add_imm(20, 20, 1)?;
+        self.code.b(second_loop);
+
+        self.code.bind(second_done);
+        self.store_string_slot(dst, 1, scratch + 48)?;
+        self.code.b(replace_done);
+
+        self.code.bind(copy_original);
+        self.copy_slot(dst, value)?;
+        self.code.bind(replace_done);
+        Ok(())
+    }
+
+    fn emit_general_to_string(
+        &mut self,
+        function: &bytecode::NativeFunction,
+        instruction: &bytecode::NativeInstruction,
+        epilogue: Label,
+    ) -> Result<(), String> {
+        let dst = operand(instruction, 0)?;
+        let src = operand(instruction, 1)?;
+        let src_type = function
+            .registers
+            .get(src as usize)
+            .map(|register| register.type_)
+            .ok_or_else(|| format!("toString references missing register {src}"))?;
+        match src_type {
+            NativeType::String => self.copy_slot(dst, src),
+            NativeType::Boolean => self.emit_bool_to_string(dst, src, epilogue),
+            NativeType::Byte | NativeType::Integer => {
+                self.emit_integer_to_string(dst, src, epilogue)
+            }
+            NativeType::Other => self.emit_byte_list_to_string(dst, src, epilogue),
+            NativeType::Float | NativeType::Fixed => {
+                self.emit_integer_to_string(dst, src, epilogue)
+            }
+            _ => Err(format!(
+                "toString native lowering does not support {}",
+                native_type_name(src_type)
+            )),
+        }
+    }
+
+    fn emit_general_to_int(
+        &mut self,
+        function: &bytecode::NativeFunction,
+        instruction: &bytecode::NativeInstruction,
+        epilogue: Label,
+    ) -> Result<(), String> {
+        let dst = operand(instruction, 0)?;
+        let src = operand(instruction, 1)?;
+        let src_type = function
+            .registers
+            .get(src as usize)
+            .map(|register| register.type_)
+            .ok_or_else(|| format!("toInt references missing register {src}"))?;
+        if src_type == NativeType::String {
+            self.emit_parse_integer_to_slot(dst, src, epilogue)
+        } else {
+            self.code.ldr_imm(9, 31, slot_offset(src))?;
+            self.code.str_imm(9, 31, slot_offset(dst))
+        }
+    }
+
+    fn emit_general_numeric_widen_or_copy(
+        &mut self,
+        function: &bytecode::NativeFunction,
+        instruction: &bytecode::NativeInstruction,
+        epilogue: Label,
+    ) -> Result<(), String> {
+        let dst = operand(instruction, 0)?;
+        let src = operand(instruction, 1)?;
+        let src_type = function
+            .registers
+            .get(src as usize)
+            .map(|register| register.type_)
+            .ok_or_else(|| format!("numeric conversion references missing register {src}"))?;
+        if src_type == NativeType::String {
+            return self.emit_parse_integer_to_slot(dst, src, epilogue);
+        }
+        self.code.ldr_imm(9, 31, slot_offset(src))?;
+        self.code.str_imm(9, 31, slot_offset(dst))
+    }
+
+    fn emit_general_to_byte(
+        &mut self,
+        instruction: &bytecode::NativeInstruction,
+        epilogue: Label,
+    ) -> Result<(), String> {
+        let dst = operand(instruction, 0)?;
+        let src = operand(instruction, 1)?;
+        let valid_low = self.code.new_label();
+        let valid_high = self.code.new_label();
+        self.code.ldr_imm(9, 31, slot_offset(src))?;
+        self.code.cmp_zero(9);
+        self.code.b_ge(valid_low);
+        self.emit_error(ERR_INVALID_ARGUMENT, epilogue);
+        self.code.bind(valid_low);
+        self.code.cmp_reg_imm(9, 255);
+        self.code.b_ls(valid_high);
+        self.emit_error(ERR_INVALID_ARGUMENT, epilogue);
+        self.code.bind(valid_high);
+        self.code.str_imm(9, 31, slot_offset(dst))
+    }
+
+    fn emit_general_is_numeric(
+        &mut self,
+        instruction: &bytecode::NativeInstruction,
+    ) -> Result<(), String> {
+        let dst = operand(instruction, 0)?;
+        let src = operand(instruction, 1)?;
+        let loop_start = self.code.new_label();
+        let digit = self.code.new_label();
+        let true_label = self.code.new_label();
+        let false_label = self.code.new_label();
+        let done = self.code.new_label();
+
+        self.code.ldr_imm(9, 31, slot_offset(src))?;
+        self.code.ldr_imm(10, 31, slot_offset(src) + 8)?;
+        self.code.add_imm(9, 9, HEAP_HEADER_SIZE)?;
+        self.code.cbz(10, false_label);
+        self.code.ldrb_imm(11, 9, 0);
+        self.code.cmp_reg_imm(11, b'-' as u64);
+        self.code.b_ne(loop_start);
+        self.code.add_imm(9, 9, 1)?;
+        self.code.sub_imm(10, 10, 1)?;
+        self.code.cbz(10, false_label);
+
+        self.code.bind(loop_start);
+        self.code.cbz(10, true_label);
+        self.code.ldrb_imm(11, 9, 0);
+        self.code.cmp_reg_imm(11, b'0' as u64);
+        self.code.b_hs(digit);
+        self.code.b(false_label);
+        self.code.bind(digit);
+        self.code.cmp_reg_imm(11, b'9' as u64);
+        self.code.b_hi(false_label);
+        self.code.add_imm(9, 9, 1)?;
+        self.code.sub_imm(10, 10, 1)?;
+        self.code.b(loop_start);
+
+        self.code.bind(true_label);
+        self.code.mov_imm(12, 1);
+        self.code.b(done);
+        self.code.bind(false_label);
+        self.code.mov_imm(12, 0);
+        self.code.bind(done);
+        self.code.str_imm(12, 31, slot_offset(dst))
+    }
+
     fn emit_allocate_heap_object(
         &mut self,
         kind: u64,
@@ -543,6 +1002,248 @@ impl<'a> NativeEmitter<'a> {
         self.code.b(epilogue);
         self.code.bind(ok);
         self.write_heap_header(1, kind, length, payload_size as u64, aux)
+    }
+
+    fn emit_allocate_string_from_len_reg(
+        &mut self,
+        len_reg: u8,
+        epilogue: Label,
+    ) -> Result<(), String> {
+        let scratch = self.current_scratch + 56;
+        let alloc_size_ok = self.code.new_label();
+        let alloc_ok = self.code.new_label();
+        self.code.str_imm(len_reg, 31, scratch)?;
+        self.code.add_imm(0, len_reg, HEAP_HEADER_SIZE)?;
+        self.code.cmp_reg(0, len_reg);
+        self.code.b_hs(alloc_size_ok);
+        self.emit_error(ERR_OUT_OF_MEMORY, epilogue);
+        self.code.bind(alloc_size_ok);
+        self.code.mov_imm(1, 8);
+        self.code.bl(self.arena_alloc);
+        self.code.cbz(0, alloc_ok);
+        self.code.mov_imm(1, 0);
+        self.code.mov_imm(2, 0);
+        self.code.b(epilogue);
+        self.code.bind(alloc_ok);
+        self.code.ldr_imm(10, 31, scratch)?;
+        self.write_heap_header_from_regs(1, HEAP_KIND_STRING, 10, 10, 0)
+    }
+
+    fn write_heap_header_from_regs(
+        &mut self,
+        object_reg: u8,
+        kind: u64,
+        length_reg: u8,
+        capacity_reg: u8,
+        aux: u64,
+    ) -> Result<(), String> {
+        self.code.mov_imm(16, kind);
+        self.code.str_imm(16, object_reg, 0)?;
+        self.code.str_imm(length_reg, object_reg, 8)?;
+        self.code.str_imm(capacity_reg, object_reg, 16)?;
+        self.code.mov_imm(16, aux);
+        self.code.str_imm(16, object_reg, 24)
+    }
+
+    fn store_string_slot(
+        &mut self,
+        dst: u32,
+        object_reg: u8,
+        len_scratch_offset: usize,
+    ) -> Result<(), String> {
+        self.code.ldr_imm(9, 31, len_scratch_offset)?;
+        self.code.str_imm(object_reg, 31, slot_offset(dst))?;
+        self.code.str_imm(9, 31, slot_offset(dst) + 8)?;
+        self.code.str_imm(31, 31, slot_offset(dst) + 16)
+    }
+
+    fn emit_bool_to_string(&mut self, dst: u32, src: u32, epilogue: Label) -> Result<(), String> {
+        let false_label = self.code.new_label();
+        let done = self.code.new_label();
+        self.code.ldr_imm(9, 31, slot_offset(src))?;
+        self.code.cbz(9, false_label);
+        self.emit_ascii_string(dst, b"TRUE", epilogue)?;
+        self.code.b(done);
+        self.code.bind(false_label);
+        self.emit_ascii_string(dst, b"FALSE", epilogue)?;
+        self.code.bind(done);
+        Ok(())
+    }
+
+    fn emit_ascii_string(&mut self, dst: u32, bytes: &[u8], epilogue: Label) -> Result<(), String> {
+        let scratch = self.current_scratch + 48;
+        self.code.mov_imm(12, bytes.len() as u64);
+        self.emit_allocate_string_from_len_reg(12, epilogue)?;
+        self.code.mov_imm(12, bytes.len() as u64);
+        self.code.str_imm(12, 31, scratch)?;
+        self.code.add_imm(13, 1, HEAP_HEADER_SIZE)?;
+        for byte in bytes {
+            self.code.mov_imm(14, *byte as u64);
+            self.code.strb_imm(14, 13, 0);
+            self.code.add_imm(13, 13, 1)?;
+        }
+        self.store_string_slot(dst, 1, scratch)
+    }
+
+    fn emit_integer_to_string(
+        &mut self,
+        dst: u32,
+        src: u32,
+        epilogue: Label,
+    ) -> Result<(), String> {
+        let zero = self.code.new_label();
+        let nonnegative = self.code.new_label();
+        let loop_start = self.code.new_label();
+        let digits_done = self.code.new_label();
+        let copy_loop = self.code.new_label();
+        let sign_done = self.code.new_label();
+        let copy_done = self.code.new_label();
+        let scratch = self.current_scratch;
+        let buffer = scratch + 80;
+
+        self.code.ldr_imm(9, 31, slot_offset(src))?;
+        self.code.mov_imm(20, 0);
+        self.code.mov_imm(10, 0);
+        self.code.cbz(9, zero);
+        self.code.cmp_zero(9);
+        self.code.b_ge(nonnegative);
+        self.code.neg(9, 9);
+        self.code.mov_imm(20, 1);
+        self.code.bind(nonnegative);
+        self.code.add_imm(11, 31, buffer + 31)?;
+        self.code.mov_imm(14, 10);
+        self.code.bind(loop_start);
+        self.code.cbz(9, digits_done);
+        self.code.sdiv(12, 9, 14);
+        self.code.msub(13, 12, 14, 9);
+        self.code.add_imm(13, 13, b'0' as usize)?;
+        self.code.strb_imm(13, 11, 0);
+        self.code.sub_imm(11, 11, 1)?;
+        self.code.add_imm(10, 10, 1)?;
+        self.code.mov_reg(9, 12);
+        self.code.b(loop_start);
+
+        self.code.bind(zero);
+        self.code.add_imm(11, 31, buffer + 31)?;
+        self.code.mov_imm(13, b'0' as u64);
+        self.code.strb_imm(13, 11, 0);
+        self.code.sub_imm(11, 11, 1)?;
+        self.code.mov_imm(10, 1);
+
+        self.code.bind(digits_done);
+        self.code.cbz(20, sign_done);
+        self.code.mov_imm(13, b'-' as u64);
+        self.code.strb_imm(13, 11, 0);
+        self.code.sub_imm(11, 11, 1)?;
+        self.code.add_imm(10, 10, 1)?;
+        self.code.bind(sign_done);
+        self.code.add_imm(11, 11, 1)?;
+        self.code.str_imm(10, 31, scratch + 8)?;
+        self.code.str_imm(11, 31, scratch)?;
+
+        self.emit_allocate_string_from_len_reg(10, epilogue)?;
+        self.code.ldr_imm(10, 31, scratch + 8)?;
+        self.code.ldr_imm(11, 31, scratch)?;
+        self.code.add_imm(12, 1, HEAP_HEADER_SIZE)?;
+        self.code.bind(copy_loop);
+        self.code.cbz(10, copy_done);
+        self.code.ldrb_imm(13, 11, 0);
+        self.code.strb_imm(13, 12, 0);
+        self.code.add_imm(11, 11, 1)?;
+        self.code.add_imm(12, 12, 1)?;
+        self.code.sub_imm(10, 10, 1)?;
+        self.code.b(copy_loop);
+        self.code.bind(copy_done);
+        self.store_string_slot(dst, 1, scratch + 8)
+    }
+
+    fn emit_byte_list_to_string(
+        &mut self,
+        dst: u32,
+        src: u32,
+        epilogue: Label,
+    ) -> Result<(), String> {
+        let copy_loop = self.code.new_label();
+        let copy_done = self.code.new_label();
+        let scratch = self.current_scratch;
+        self.code.ldr_imm(9, 31, slot_offset(src))?;
+        self.code.ldr_imm(10, 31, slot_offset(src) + 8)?;
+        self.code.add_imm(9, 9, HEAP_HEADER_SIZE)?;
+        self.code.str_imm(9, 31, scratch)?;
+        self.code.str_imm(10, 31, scratch + 8)?;
+        self.emit_allocate_string_from_len_reg(10, epilogue)?;
+        self.code.ldr_imm(9, 31, scratch)?;
+        self.code.ldr_imm(10, 31, scratch + 8)?;
+        self.code.add_imm(11, 1, HEAP_HEADER_SIZE)?;
+        self.code.bind(copy_loop);
+        self.code.cbz(10, copy_done);
+        self.code.ldr_imm(12, 9, 0)?;
+        self.code.strb_imm(12, 11, 0);
+        self.code.add_imm(9, 9, SLOT_SIZE)?;
+        self.code.add_imm(11, 11, 1)?;
+        self.code.sub_imm(10, 10, 1)?;
+        self.code.b(copy_loop);
+        self.code.bind(copy_done);
+        self.store_string_slot(dst, 1, scratch + 8)
+    }
+
+    fn emit_parse_integer_to_slot(
+        &mut self,
+        dst: u32,
+        src: u32,
+        epilogue: Label,
+    ) -> Result<(), String> {
+        let loop_start = self.code.new_label();
+        let digit = self.code.new_label();
+        let done = self.code.new_label();
+        let parse_error = self.code.new_label();
+        let after_sign = self.code.new_label();
+        let end = self.code.new_label();
+
+        self.code.ldr_imm(9, 31, slot_offset(src))?;
+        self.code.ldr_imm(10, 31, slot_offset(src) + 8)?;
+        self.code.add_imm(9, 9, HEAP_HEADER_SIZE)?;
+        self.code.cbz(10, parse_error);
+        self.code.mov_imm(11, 0);
+        self.code.mov_imm(12, 0);
+        self.code.ldrb_imm(13, 9, 0);
+        self.code.cmp_reg_imm(13, b'-' as u64);
+        self.code.b_ne(after_sign);
+        self.code.mov_imm(12, 1);
+        self.code.add_imm(9, 9, 1)?;
+        self.code.sub_imm(10, 10, 1)?;
+        self.code.cbz(10, parse_error);
+        self.code.bind(after_sign);
+
+        self.code.bind(loop_start);
+        self.code.cbz(10, done);
+        self.code.ldrb_imm(13, 9, 0);
+        self.code.cmp_reg_imm(13, b'0' as u64);
+        self.code.b_hs(digit);
+        self.code.b(parse_error);
+        self.code.bind(digit);
+        self.code.cmp_reg_imm(13, b'9' as u64);
+        self.code.b_hi(parse_error);
+        self.code.sub_imm(13, 13, b'0' as usize)?;
+        self.code.mov_imm(14, 10);
+        self.code.mul(11, 11, 14);
+        self.code.add_reg(11, 11, 13);
+        self.code.add_imm(9, 9, 1)?;
+        self.code.sub_imm(10, 10, 1)?;
+        self.code.b(loop_start);
+
+        self.code.bind(done);
+        let positive = self.code.new_label();
+        self.code.cbz(12, positive);
+        self.code.neg(11, 11);
+        self.code.bind(positive);
+        self.code.str_imm(11, 31, slot_offset(dst))?;
+        self.code.b(end);
+
+        self.code.bind(parse_error);
+        self.emit_error(ERR_PARSE, epilogue);
+        self.code.bind(end);
+        Ok(())
     }
 
     fn write_heap_header(
@@ -1112,6 +1813,7 @@ fn native_type_name(type_: NativeType) -> &'static str {
     match type_ {
         NativeType::Nothing => "Nothing",
         NativeType::Boolean => "Boolean",
+        NativeType::Byte => "Byte",
         NativeType::Integer => "Integer",
         NativeType::Float => "Float",
         NativeType::Fixed => "Fixed",
