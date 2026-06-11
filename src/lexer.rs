@@ -15,7 +15,10 @@ pub enum TokenKind {
     RBracket,
     LParen,
     RParen,
+    LBrace,
+    RBrace,
     Equal,
+    ColonEqual,
     Plus,
     Minus,
     Star,
@@ -34,6 +37,7 @@ pub enum Keyword {
     Import,
     Let,
     Mut,
+    Nothing,
     Return,
     Sub,
     True,
@@ -106,6 +110,10 @@ impl Lexer<'_> {
                         self.push_simple(TokenKind::DoubleColon, 2);
                         self.advance();
                         self.advance();
+                    } else if self.peek_next() == Some('=') {
+                        self.push_simple(TokenKind::ColonEqual, 2);
+                        self.advance();
+                        self.advance();
                     } else {
                         self.push_and_advance(TokenKind::Colon);
                     }
@@ -114,6 +122,8 @@ impl Lexer<'_> {
                 ']' => self.push_and_advance(TokenKind::RBracket),
                 '(' => self.push_and_advance(TokenKind::LParen),
                 ')' => self.push_and_advance(TokenKind::RParen),
+                '{' => self.push_and_advance(TokenKind::LBrace),
+                '}' => self.push_and_advance(TokenKind::RBrace),
                 '=' => self.push_and_advance(TokenKind::Equal),
                 '+' => self.push_and_advance(TokenKind::Plus),
                 '-' => self.push_and_advance(TokenKind::Minus),
@@ -324,6 +334,8 @@ fn keyword(value: &str) -> Option<Keyword> {
         Some(Keyword::Let)
     } else if value.eq_ignore_ascii_case("MUT") {
         Some(Keyword::Mut)
+    } else if value.eq_ignore_ascii_case("NOTHING") {
+        Some(Keyword::Nothing)
     } else if value.eq_ignore_ascii_case("RETURN") {
         Some(Keyword::Return)
     } else if value.eq_ignore_ascii_case("SUB") {

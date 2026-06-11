@@ -69,6 +69,10 @@ pub(crate) enum IrOp {
         type_: String,
         value: Option<IrValue>,
     },
+    Assign {
+        name: String,
+        value: IrValue,
+    },
     Return {
         value: Option<IrValue>,
     },
@@ -90,6 +94,14 @@ pub(crate) enum IrValue {
     Constructor {
         type_: String,
         args: Vec<IrValue>,
+    },
+    ListLiteral {
+        type_: String,
+        values: Vec<IrValue>,
+    },
+    MapLiteral {
+        type_: String,
+        entries: Vec<(IrValue, IrValue)>,
     },
     MemberAccess {
         target: Box<IrValue>,
@@ -255,6 +267,10 @@ fn lower_statement(
         Statement::Return { value, .. } => IrOp::Return {
             value: value.as_ref().map(lower_expression),
         },
+        Statement::Assign { name, value, .. } => IrOp::Assign {
+            name: name.clone(),
+            value: lower_expression(value),
+        },
         Statement::Expression { expression, .. } => IrOp::Eval {
             value: lower_expression(expression),
         },
@@ -296,8 +312,21 @@ fn expression_type(
             }
         }
         Expression::Boolean(_) => Some("Boolean".to_string()),
+        Expression::Identifier(value) if value == "NOTHING" => Some("Nothing".to_string()),
         Expression::Identifier(value) => locals.get(value).cloned(),
         Expression::Constructor { type_name, .. } => type_index.constructor_result(type_name),
+        Expression::ListLiteral(values) => {
+            let Some(first) = values.first() else {
+                return Some("List OF Unknown".to_string());
+            };
+            expression_type(first, locals, function_returns, type_index)
+                .map(|element| format!("List OF {element}"))
+        }
+        Expression::MapLiteral {
+            key_type,
+            value_type,
+            ..
+        } => Some(format!("Map OF {key_type} TO {value_type}")),
         Expression::MemberAccess { target, member } => {
             if let Expression::Identifier(type_name) = target.as_ref() {
                 if type_index
@@ -351,6 +380,10 @@ fn lower_expression(expression: &Expression) -> IrValue {
             type_: "Boolean".to_string(),
             value: value.to_string(),
         },
+        Expression::Identifier(value) if value == "NOTHING" => IrValue::Const {
+            type_: "Nothing".to_string(),
+            value: "NOTHING".to_string(),
+        },
         Expression::Identifier(value) => IrValue::Local(value.clone()),
         Expression::Call { callee, arguments } => IrValue::Call {
             target: callee.clone(),
@@ -362,6 +395,28 @@ fn lower_expression(expression: &Expression) -> IrValue {
         } => IrValue::Constructor {
             type_: type_name.clone(),
             args: arguments.iter().map(lower_expression).collect(),
+        },
+        Expression::ListLiteral(values) => {
+            let lowered = values.iter().map(lower_expression).collect::<Vec<_>>();
+            let element_type = values
+                .first()
+                .and_then(|value| literal_expression_type(value))
+                .unwrap_or_else(|| "Unknown".to_string());
+            IrValue::ListLiteral {
+                type_: format!("List OF {element_type}"),
+                values: lowered,
+            }
+        }
+        Expression::MapLiteral {
+            key_type,
+            value_type,
+            entries,
+        } => IrValue::MapLiteral {
+            type_: format!("Map OF {key_type} TO {value_type}"),
+            entries: entries
+                .iter()
+                .map(|(key, value)| (lower_expression(key), lower_expression(value)))
+                .collect(),
         },
         Expression::MemberAccess { target, member } => IrValue::MemberAccess {
             target: Box::new(lower_expression(target)),
@@ -376,6 +431,22 @@ fn lower_expression(expression: &Expression) -> IrValue {
             left: Box::new(lower_expression(left)),
             right: Box::new(lower_expression(right)),
         },
+    }
+}
+
+fn literal_expression_type(expression: &Expression) -> Option<String> {
+    match expression {
+        Expression::String(_) => Some("String".to_string()),
+        Expression::Number(value) => {
+            if value.contains('.') {
+                Some("Float".to_string())
+            } else {
+                Some("Integer".to_string())
+            }
+        }
+        Expression::Boolean(_) => Some("Boolean".to_string()),
+        Expression::Identifier(value) if value == "NOTHING" => Some("Nothing".to_string()),
+        _ => None,
     }
 }
 
@@ -428,7 +499,11 @@ impl TypeIndex {
     }
 
     fn constructor_result(&self, name: &str) -> Option<String> {
-        if self.records.contains_key(name) {
+        if name == "Error" {
+            Some("Error".to_string())
+        } else if name == "Ok" || name == "Err" {
+            Some("Result OF Unknown".to_string())
+        } else if self.records.contains_key(name) {
             Some(name.to_string())
         } else {
             self.variants.get(name).cloned()
@@ -701,6 +776,14 @@ impl ToIrJson for IrOp {
                     .unwrap_or_else(|| "null".to_string());
                 format!("\n{}{{ \"op\": \"return\", \"value\": {} }}", pad, value)
             }
+            IrOp::Assign { name, value } => {
+                format!(
+                    "\n{}{{ \"op\": \"assign\", \"name\": {}, \"value\": {} }}",
+                    pad,
+                    json_string(name),
+                    value.to_json(indent)
+                )
+            }
             IrOp::Eval { value } => {
                 format!(
                     "\n{}{{ \"op\": \"eval\", \"value\": {} }}",
@@ -747,6 +830,36 @@ impl ToIrJson for IrValue {
                     "{{ \"kind\": \"constructor\", \"type\": {}, \"args\": [{}] }}",
                     json_string(type_),
                     args
+                )
+            }
+            IrValue::ListLiteral { type_, values } => {
+                let values = values
+                    .iter()
+                    .map(|value| value.to_json(0))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                format!(
+                    "{{ \"kind\": \"list\", \"type\": {}, \"values\": [{}] }}",
+                    json_string(type_),
+                    values
+                )
+            }
+            IrValue::MapLiteral { type_, entries } => {
+                let entries = entries
+                    .iter()
+                    .map(|(key, value)| {
+                        format!(
+                            "{{ \"key\": {}, \"value\": {} }}",
+                            key.to_json(0),
+                            value.to_json(0)
+                        )
+                    })
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                format!(
+                    "{{ \"kind\": \"map\", \"type\": {}, \"entries\": [{}] }}",
+                    json_string(type_),
+                    entries
                 )
             }
             IrValue::MemberAccess { target, member } => {

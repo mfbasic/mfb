@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 use tinyjson::JsonValue;
 
 const BUILTIN_TYPES: &[&str] = &[
-    "Boolean", "Byte", "Fixed", "Float", "Integer", "Nothing", "Result", "String",
+    "Boolean", "Byte", "Error", "Fixed", "Float", "Integer", "Nothing", "Result", "String",
 ];
 
 pub fn resolve_project(
@@ -328,6 +328,10 @@ impl<'a> Resolver<'a> {
                         self.resolve_expression(file, value, *line, imports, &locals);
                     }
                 }
+                Statement::Assign { name, value, line } => {
+                    self.resolve_identifier(file, name, *line, imports, &locals);
+                    self.resolve_expression(file, value, *line, imports, &locals);
+                }
                 Statement::Expression { expression, line } => {
                     self.resolve_expression(file, expression, *line, imports, &locals);
                 }
@@ -359,11 +363,30 @@ impl<'a> Resolver<'a> {
                 type_name,
                 arguments,
             } => {
-                if !self.variant_constructors.contains(type_name) {
+                if !matches!(type_name.as_str(), "Error" | "Ok" | "Err")
+                    && !self.variant_constructors.contains(type_name)
+                {
                     self.resolve_type_name(file, type_name, line, imports);
                 }
                 for argument in arguments {
                     self.resolve_expression(file, argument, line, imports, locals);
+                }
+            }
+            Expression::ListLiteral(values) => {
+                for value in values {
+                    self.resolve_expression(file, value, line, imports, locals);
+                }
+            }
+            Expression::MapLiteral {
+                key_type,
+                value_type,
+                entries,
+            } => {
+                self.resolve_type_name(file, key_type, line, imports);
+                self.resolve_type_name(file, value_type, line, imports);
+                for (key, value) in entries {
+                    self.resolve_expression(file, key, line, imports, locals);
+                    self.resolve_expression(file, value, line, imports, locals);
                 }
             }
             Expression::MemberAccess { target, .. } => {
@@ -374,6 +397,7 @@ impl<'a> Resolver<'a> {
                 }
                 self.resolve_expression(file, target, line, imports, locals);
             }
+            Expression::Identifier(name) if name == "NOTHING" => {}
             Expression::Identifier(name) => {
                 self.resolve_identifier(file, name, line, imports, locals);
             }
@@ -444,6 +468,17 @@ impl<'a> Resolver<'a> {
         if let Some(element) = type_name.strip_prefix("List OF ") {
             self.resolve_type_name(file, element, line, imports);
             return;
+        }
+        if let Some(success) = type_name.strip_prefix("Result OF ") {
+            self.resolve_type_name(file, success, line, imports);
+            return;
+        }
+        if let Some(rest) = type_name.strip_prefix("Map OF ") {
+            if let Some((key, value)) = rest.split_once(" TO ") {
+                self.resolve_type_name(file, key, line, imports);
+                self.resolve_type_name(file, value, line, imports);
+                return;
+            }
         }
 
         if type_name.contains('.') {

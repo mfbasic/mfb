@@ -1,0 +1,144 @@
+FUNC passInteger(value AS Integer) AS Integer
+  RETURN value
+END FUNC
+
+SUB takeInteger(value AS Integer)
+  RETURN
+END SUB
+
+FUNC passFloat(value AS Float) AS Float
+  RETURN value
+END FUNC
+
+SUB takeFloat(value AS Float)
+  RETURN
+END SUB
+
+FUNC passFixed(value AS Fixed) AS Fixed
+  RETURN value
+END FUNC
+
+SUB takeFixed(value AS Fixed)
+  RETURN
+END SUB
+
+FUNC passBoolean(value AS Boolean) AS Boolean
+  RETURN value
+END FUNC
+
+SUB takeBoolean(value AS Boolean)
+  RETURN
+END SUB
+
+FUNC passString(value AS String) AS String
+  RETURN value
+END FUNC
+
+SUB takeString(value AS String)
+  RETURN
+END SUB
+
+FUNC passByte(value AS Byte) AS Byte
+  RETURN value
+END FUNC
+
+SUB takeByte(value AS Byte)
+  RETURN
+END SUB
+
+FUNC passNothing(value AS Nothing) AS Nothing
+  RETURN value
+END FUNC
+
+SUB takeNothing(value AS Nothing)
+  RETURN
+END SUB
+
+FUNC passError(value AS Error) AS Error
+  RETURN value
+END FUNC
+
+SUB takeError(value AS Error)
+  RETURN
+END SUB
+
+FUNC inspectResult(value AS Result OF Integer) AS Integer
+  RETURN 1
+END FUNC
+
+SUB takeResult(value AS Result OF Integer)
+  RETURN
+END SUB
+
+FUNC passList(value AS List OF String) AS List OF String
+  RETURN value
+END FUNC
+
+SUB takeList(value AS List OF String)
+  RETURN
+END SUB
+
+FUNC passMap(value AS Map OF String TO Integer) AS Map OF String TO Integer
+  RETURN value
+END FUNC
+
+SUB takeMap(value AS Map OF String TO Integer)
+  RETURN
+END SUB
+
+FUNC main AS Integer
+  MUT integerValue AS Integer = 1
+  integerValue = passInteger(integerValue)
+  takeInteger(integerValue)
+
+  MUT floatValue AS Float = 1.5
+  floatValue = passFloat(floatValue)
+  takeFloat(floatValue)
+
+  MUT fixedValue AS Fixed = 2.25
+  fixedValue = passFixed(fixedValue)
+  takeFixed(fixedValue)
+
+  MUT booleanValue AS Boolean = TRUE
+  booleanValue = passBoolean(booleanValue)
+  takeBoolean(booleanValue)
+
+  MUT stringValue AS String = "hello"
+  stringValue = passString(stringValue)
+  takeString(stringValue)
+
+  MUT byteValue AS Byte = 7
+  byteValue = passByte(byteValue)
+  takeByte(byteValue)
+
+  MUT nothingValue AS Nothing = NOTHING
+  nothingValue = passNothing(nothingValue)
+  takeNothing(nothingValue)
+
+  MUT errorValue AS Error = Error[10002, "invalid"]
+  errorValue = passError(errorValue)
+  takeError(errorValue)
+
+  MUT resultValue AS Result OF Integer = Ok[1]
+  resultValue = Err[Error[10003, "bad"]]
+  LET inspected AS Integer = inspectResult(resultValue)
+  takeResult(resultValue)
+
+  MUT listValue AS List OF String = ["a", "b"]
+  listValue = passList(listValue)
+  takeList(listValue)
+
+  MUT emptyList AS List OF String = []
+  emptyList = passList(emptyList)
+  takeList(emptyList)
+
+  MUT mapValue AS Map OF String TO Integer = Map OF String TO Integer { "a" := 1, "b" := 2 }
+  mapValue = passMap(mapValue)
+  takeMap(mapValue)
+
+  MUT emptyMap AS Map OF String TO Integer = Map OF String TO Integer {}
+  emptyMap = passMap(emptyMap)
+  takeMap(emptyMap)
+
+  RETURN inspected
+END FUNC

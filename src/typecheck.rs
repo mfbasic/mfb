@@ -11,15 +11,23 @@ use std::path::Path;
 enum Type {
     Boolean,
     Byte,
+    Error,
     Fixed,
     Float,
     Integer,
     List(Box<Type>),
+    Map(Box<Type>, Box<Type>),
     Nothing,
-    Result,
+    Result(Box<Type>),
     String,
     User(String),
     Unknown,
+}
+
+#[derive(Clone)]
+struct LocalInfo {
+    type_: Type,
+    mutable: bool,
 }
 
 #[derive(Clone)]
@@ -282,7 +290,7 @@ impl<'a> TypeChecker<'a> {
                 } else {
                     let return_type = self.parse_type(function.return_type.as_deref().unwrap());
                     self.check_type_reference(file, &return_type, function.line);
-                    if matches!(return_type, Type::Result) {
+                    if matches!(return_type, Type::Result(_)) {
                         self.report(
                             "TYPE_RESULT_IS_IMPLICIT",
                             "Functions declare their success type; Result wrapping is implicit.",
@@ -354,7 +362,7 @@ impl<'a> TypeChecker<'a> {
                         param.line,
                     );
                 }
-                if !self.compatible(&param_type, &default_type) {
+                if !self.expression_compatible(&param_type, &default_type, Some(default)) {
                     self.report(
                         "TYPE_DEFAULT_VALUE_MISMATCH",
                         &format!(
@@ -369,7 +377,13 @@ impl<'a> TypeChecker<'a> {
                 }
             }
 
-            locals.insert(param.name.clone(), param_type);
+            locals.insert(
+                param.name.clone(),
+                LocalInfo {
+                    type_: param_type,
+                    mutable: false,
+                },
+            );
         }
 
         let mut saw_return = false;
@@ -402,7 +416,7 @@ impl<'a> TypeChecker<'a> {
         file: &AstFile,
         statement: &Statement,
         expected_return: &Type,
-        locals: &mut HashMap<String, Type>,
+        locals: &mut HashMap<String, LocalInfo>,
         saw_return: &mut bool,
     ) {
         match statement {
@@ -432,7 +446,9 @@ impl<'a> TypeChecker<'a> {
                 }
 
                 match (&declared, &inferred) {
-                    (Some(declared), Some(inferred)) if !self.compatible(declared, inferred) => {
+                    (Some(declared), Some(inferred))
+                        if !self.expression_compatible(declared, inferred, value.as_ref()) =>
+                    {
                         self.report(
                             "TYPE_BINDING_MISMATCH",
                             &format!(
@@ -464,7 +480,13 @@ impl<'a> TypeChecker<'a> {
                 }
 
                 let binding_type = declared.or(inferred).unwrap_or(Type::Unknown);
-                locals.insert(name.clone(), binding_type);
+                locals.insert(
+                    name.clone(),
+                    LocalInfo {
+                        type_: binding_type,
+                        mutable: *mutable,
+                    },
+                );
             }
             Statement::Return { value, line } => {
                 *saw_return = true;
@@ -492,13 +514,45 @@ impl<'a> TypeChecker<'a> {
                     );
                     return;
                 }
-                if !self.compatible(expected_return, &actual) {
+                if !self.expression_compatible(expected_return, &actual, value.as_ref()) {
                     self.report(
                         "TYPE_RETURN_MISMATCH",
                         &format!(
                             "RETURN has type {}, expected {}.",
                             self.type_name(&actual),
                             self.type_name(expected_return)
+                        ),
+                        file,
+                        *line,
+                    );
+                }
+            }
+            Statement::Assign { name, value, line } => {
+                let Some(local) = locals.get(name).cloned() else {
+                    self.report(
+                        "TYPE_UNKNOWN_VALUE",
+                        &format!("Assignment target `{name}` is not a local binding."),
+                        file,
+                        *line,
+                    );
+                    return;
+                };
+                if !local.mutable {
+                    self.report(
+                        "TYPE_ASSIGN_REQUIRES_MUT",
+                        &format!("Binding `{name}` is immutable and cannot be assigned."),
+                        file,
+                        *line,
+                    );
+                }
+                let actual = self.infer_expression(file, value, locals, *line);
+                if !self.expression_compatible(&local.type_, &actual, Some(value)) {
+                    self.report(
+                        "TYPE_ASSIGNMENT_MISMATCH",
+                        &format!(
+                            "Assignment to `{name}` has type {}, expected {}.",
+                            self.type_name(&actual),
+                            self.type_name(&local.type_)
                         ),
                         file,
                         *line,
@@ -515,7 +569,7 @@ impl<'a> TypeChecker<'a> {
         &mut self,
         file: &AstFile,
         expression: &Expression,
-        locals: &HashMap<String, Type>,
+        locals: &HashMap<String, LocalInfo>,
         line: usize,
     ) -> Type {
         match expression {
@@ -528,7 +582,11 @@ impl<'a> TypeChecker<'a> {
                     Type::Integer
                 }
             }
-            Expression::Identifier(name) => locals.get(name).cloned().unwrap_or(Type::Unknown),
+            Expression::Identifier(name) if name == "NOTHING" => Type::Nothing,
+            Expression::Identifier(name) => locals
+                .get(name)
+                .map(|local| local.type_.clone())
+                .unwrap_or(Type::Unknown),
             Expression::Constructor {
                 type_name,
                 arguments,
@@ -565,7 +623,86 @@ impl<'a> TypeChecker<'a> {
                 self.check_call(file, callee, &sig, arguments, locals, line);
                 sig.return_type
             }
+            Expression::ListLiteral(values) => self.infer_list_literal(file, values, locals, line),
+            Expression::MapLiteral {
+                key_type,
+                value_type,
+                entries,
+            } => self.infer_map_literal(file, key_type, value_type, entries, locals, line),
         }
+    }
+
+    fn infer_list_literal(
+        &mut self,
+        file: &AstFile,
+        values: &[Expression],
+        locals: &HashMap<String, LocalInfo>,
+        line: usize,
+    ) -> Type {
+        let Some(first) = values.first() else {
+            return Type::List(Box::new(Type::Unknown));
+        };
+        let element_type = self.infer_expression(file, first, locals, line);
+        for value in values.iter().skip(1) {
+            let actual = self.infer_expression(file, value, locals, line);
+            if !self.expression_compatible(&element_type, &actual, Some(value)) {
+                self.report(
+                    "TYPE_LIST_ELEMENT_MISMATCH",
+                    &format!(
+                        "List element has type {}, expected {}.",
+                        self.type_name(&actual),
+                        self.type_name(&element_type)
+                    ),
+                    file,
+                    line,
+                );
+            }
+        }
+        Type::List(Box::new(element_type))
+    }
+
+    fn infer_map_literal(
+        &mut self,
+        file: &AstFile,
+        key_type: &str,
+        value_type: &str,
+        entries: &[(Expression, Expression)],
+        locals: &HashMap<String, LocalInfo>,
+        line: usize,
+    ) -> Type {
+        let key_type = self.parse_type(key_type);
+        let value_type = self.parse_type(value_type);
+        self.check_type_reference(file, &key_type, line);
+        self.check_type_reference(file, &value_type, line);
+        for (key, value) in entries {
+            let actual_key = self.infer_expression(file, key, locals, line);
+            if !self.expression_compatible(&key_type, &actual_key, Some(key)) {
+                self.report(
+                    "TYPE_MAP_KEY_MISMATCH",
+                    &format!(
+                        "Map key has type {}, expected {}.",
+                        self.type_name(&actual_key),
+                        self.type_name(&key_type)
+                    ),
+                    file,
+                    line,
+                );
+            }
+            let actual_value = self.infer_expression(file, value, locals, line);
+            if !self.expression_compatible(&value_type, &actual_value, Some(value)) {
+                self.report(
+                    "TYPE_MAP_VALUE_MISMATCH",
+                    &format!(
+                        "Map value has type {}, expected {}.",
+                        self.type_name(&actual_value),
+                        self.type_name(&value_type)
+                    ),
+                    file,
+                    line,
+                );
+            }
+        }
+        Type::Map(Box::new(key_type), Box::new(value_type))
     }
 
     fn infer_constructor(
@@ -573,9 +710,73 @@ impl<'a> TypeChecker<'a> {
         file: &AstFile,
         type_name: &str,
         arguments: &[Expression],
-        locals: &HashMap<String, Type>,
+        locals: &HashMap<String, LocalInfo>,
         line: usize,
     ) -> Type {
+        if type_name == "Error" {
+            let fields = vec![
+                FieldInfo {
+                    name: "code".to_string(),
+                    type_: Type::Integer,
+                    visibility: Visibility::Export,
+                },
+                FieldInfo {
+                    name: "message".to_string(),
+                    type_: Type::String,
+                    visibility: Visibility::Export,
+                },
+            ];
+            self.check_constructor_arguments(
+                file, type_name, &fields, &file.path, arguments, locals, line,
+            );
+            return Type::Error;
+        }
+
+        if type_name == "Ok" {
+            if arguments.len() != 1 {
+                self.report(
+                    "TYPE_CONSTRUCTOR_ARITY_MISMATCH",
+                    &format!(
+                        "Constructor `Ok` has {} argument(s), expected 1.",
+                        arguments.len()
+                    ),
+                    file,
+                    line,
+                );
+                return Type::Unknown;
+            }
+            let success = self.infer_expression(file, &arguments[0], locals, line);
+            return Type::Result(Box::new(success));
+        }
+
+        if type_name == "Err" {
+            if arguments.len() != 1 {
+                self.report(
+                    "TYPE_CONSTRUCTOR_ARITY_MISMATCH",
+                    &format!(
+                        "Constructor `Err` has {} argument(s), expected 1.",
+                        arguments.len()
+                    ),
+                    file,
+                    line,
+                );
+                return Type::Unknown;
+            }
+            let actual = self.infer_expression(file, &arguments[0], locals, line);
+            if !self.compatible(&Type::Error, &actual) {
+                self.report(
+                    "TYPE_CONSTRUCTOR_ARGUMENT_MISMATCH",
+                    &format!(
+                        "Argument 1 for `Err` has type {}, expected Error.",
+                        self.type_name(&actual)
+                    ),
+                    file,
+                    line,
+                );
+            }
+            return Type::Result(Box::new(Type::Unknown));
+        }
+
         if let Some(info) = self.type_infos.get(type_name).cloned() {
             if !self.visible_from(file, info.visibility, &info.file_path) {
                 self.report(
@@ -655,7 +856,7 @@ impl<'a> TypeChecker<'a> {
         file: &AstFile,
         target: &Expression,
         member: &str,
-        locals: &HashMap<String, Type>,
+        locals: &HashMap<String, LocalInfo>,
         line: usize,
     ) -> Type {
         if let Expression::Identifier(type_name) = target {
@@ -744,7 +945,7 @@ impl<'a> TypeChecker<'a> {
         fields: &[FieldInfo],
         owner_file_path: &str,
         arguments: &[Expression],
-        locals: &HashMap<String, Type>,
+        locals: &HashMap<String, LocalInfo>,
         line: usize,
     ) {
         if arguments.len() != fields.len() {
@@ -779,7 +980,7 @@ impl<'a> TypeChecker<'a> {
             let Some(field) = fields.get(index) else {
                 continue;
             };
-            if !self.compatible(&field.type_, &actual) {
+            if !self.expression_compatible(&field.type_, &actual, Some(argument)) {
                 self.report(
                     "TYPE_CONSTRUCTOR_ARGUMENT_MISMATCH",
                     &format!(
@@ -850,7 +1051,7 @@ impl<'a> TypeChecker<'a> {
         callee: &str,
         sig: &FunctionSig,
         arguments: &[Expression],
-        locals: &HashMap<String, Type>,
+        locals: &HashMap<String, LocalInfo>,
         line: usize,
     ) {
         let required = sig.params.iter().filter(|param| !param.has_default).count();
@@ -873,7 +1074,7 @@ impl<'a> TypeChecker<'a> {
             let Some(param) = sig.params.get(index) else {
                 continue;
             };
-            if !self.compatible(&param.type_, &actual) {
+            if !self.expression_compatible(&param.type_, &actual, Some(argument)) {
                 self.report(
                     "TYPE_CALL_ARGUMENT_MISMATCH",
                     &format!(
@@ -898,7 +1099,7 @@ impl<'a> TypeChecker<'a> {
         file: &AstFile,
         callee: &str,
         arguments: &[Expression],
-        locals: &HashMap<String, Type>,
+        locals: &HashMap<String, LocalInfo>,
         line: usize,
     ) {
         if callee == builtins::io::print::NAME {
@@ -916,7 +1117,8 @@ impl<'a> TypeChecker<'a> {
 
             for (index, argument) in arguments.iter().enumerate() {
                 let actual = self.infer_expression(file, argument, locals, line);
-                if index == 0 && !self.compatible(&Type::String, &actual) {
+                if index == 0 && !self.expression_compatible(&Type::String, &actual, Some(argument))
+                {
                     self.report(
                         "TYPE_CALL_ARGUMENT_MISMATCH",
                         &format!(
@@ -940,23 +1142,64 @@ impl<'a> TypeChecker<'a> {
         if let Some(element) = name.strip_prefix("List OF ") {
             return Type::List(Box::new(self.parse_type(element)));
         }
+        if let Some(success) = name.strip_prefix("Result OF ") {
+            return Type::Result(Box::new(self.parse_type(success)));
+        }
+        if let Some(rest) = name.strip_prefix("Map OF ") {
+            if let Some((key, value)) = rest.split_once(" TO ") {
+                return Type::Map(
+                    Box::new(self.parse_type(key)),
+                    Box::new(self.parse_type(value)),
+                );
+            }
+        }
 
         match name {
             "Boolean" => Type::Boolean,
             "Byte" => Type::Byte,
+            "Error" => Type::Error,
             "Fixed" => Type::Fixed,
             "Float" => Type::Float,
             "Integer" => Type::Integer,
             "Nothing" => Type::Nothing,
             "String" => Type::String,
-            "Result" => Type::Result,
+            "Result" => Type::Result(Box::new(Type::Unknown)),
             other if self.user_types.contains(other) => Type::User(other.to_string()),
             other => Type::User(other.to_string()),
         }
     }
 
     fn compatible(&self, expected: &Type, actual: &Type) -> bool {
-        expected == actual || matches!(expected, Type::Unknown) || matches!(actual, Type::Unknown)
+        if matches!(expected, Type::Unknown) || matches!(actual, Type::Unknown) {
+            return true;
+        }
+        match (expected, actual) {
+            (Type::List(expected), Type::List(actual)) => self.compatible(expected, actual),
+            (Type::Map(expected_key, expected_value), Type::Map(actual_key, actual_value)) => {
+                self.compatible(expected_key, actual_key)
+                    && self.compatible(expected_value, actual_value)
+            }
+            (Type::Result(expected), Type::Result(actual)) => self.compatible(expected, actual),
+            _ => expected == actual,
+        }
+    }
+
+    fn expression_compatible(
+        &self,
+        expected: &Type,
+        actual: &Type,
+        expression: Option<&Expression>,
+    ) -> bool {
+        if self.compatible(expected, actual) {
+            return true;
+        }
+        match (expected, actual, expression) {
+            (Type::Byte, Type::Integer, Some(Expression::Number(value))) => value
+                .parse::<u16>()
+                .is_ok_and(|number| number <= u8::MAX as u16),
+            (Type::Fixed, Type::Integer | Type::Float, Some(Expression::Number(_))) => true,
+            _ => false,
+        }
     }
 
     fn is_numeric(&self, type_: &Type) -> bool {
@@ -976,6 +1219,11 @@ impl<'a> TypeChecker<'a> {
     fn check_type_reference(&mut self, file: &AstFile, type_: &Type, line: usize) {
         match type_ {
             Type::List(element) => self.check_type_reference(file, element, line),
+            Type::Map(key, value) => {
+                self.check_type_reference(file, key, line);
+                self.check_type_reference(file, value, line);
+            }
+            Type::Result(success) => self.check_type_reference(file, success, line),
             Type::User(name) => {
                 let Some(info) = self.type_infos.get(name) else {
                     return;
@@ -991,11 +1239,11 @@ impl<'a> TypeChecker<'a> {
             }
             Type::Boolean
             | Type::Byte
+            | Type::Error
             | Type::Fixed
             | Type::Float
             | Type::Integer
             | Type::Nothing
-            | Type::Result
             | Type::String
             | Type::Unknown => {}
         }
@@ -1005,12 +1253,20 @@ impl<'a> TypeChecker<'a> {
         match type_ {
             Type::Boolean => "Boolean".to_string(),
             Type::Byte => "Byte".to_string(),
+            Type::Error => "Error".to_string(),
             Type::Fixed => "Fixed".to_string(),
             Type::Float => "Float".to_string(),
             Type::Integer => "Integer".to_string(),
             Type::List(element) => format!("List OF {}", self.type_name(element)),
+            Type::Map(key, value) => {
+                format!(
+                    "Map OF {} TO {}",
+                    self.type_name(key),
+                    self.type_name(value)
+                )
+            }
             Type::Nothing => "Nothing".to_string(),
-            Type::Result => "Result".to_string(),
+            Type::Result(success) => format!("Result OF {}", self.type_name(success)),
             Type::String => "String".to_string(),
             Type::User(name) => name.clone(),
             Type::Unknown => "Unknown".to_string(),

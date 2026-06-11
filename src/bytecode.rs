@@ -272,6 +272,32 @@ fn native_type_layouts(
     let mut records = HashMap::new();
     let mut unions = HashMap::new();
 
+    if let (Some(code), Some(message)) = (string_id(strings, "code"), string_id(strings, "message"))
+    {
+        let fields = vec![
+            NativeFieldLayout {
+                name: code,
+                offset_slots: 0,
+            },
+            NativeFieldLayout {
+                name: message,
+                offset_slots: 1,
+            },
+        ];
+        records.insert(
+            8,
+            NativeRecordLayout {
+                size_slots: 2,
+                fields: fields
+                    .iter()
+                    .cloned()
+                    .map(|field| (field.name, field))
+                    .collect(),
+                ordered_fields: fields,
+            },
+        );
+    }
+
     for ir_type in &ir.types {
         let Some(type_id) = native_type_id(type_ids, &ir_type.name) else {
             continue;
@@ -356,6 +382,7 @@ fn native_type_id(type_ids: &HashMap<String, u32>, name: &str) -> Option<u32> {
         "Fixed" => Some(TYPE_FIXED),
         "String" => Some(TYPE_STRING),
         "Byte" => Some(7),
+        "Error" => Some(8),
         _ => type_ids.get(name).copied(),
     }
 }
@@ -444,6 +471,21 @@ impl TypeModel {
         let mut records = HashMap::new();
         let mut variants = HashMap::new();
         let mut enums = HashMap::new();
+        records.insert(
+            "Error".to_string(),
+            RecordModel {
+                fields: vec![
+                    FieldModel {
+                        name: "code".to_string(),
+                        type_name: "Integer".to_string(),
+                    },
+                    FieldModel {
+                        name: "message".to_string(),
+                        type_name: "String".to_string(),
+                    },
+                ],
+            },
+        );
 
         for ir_type in &ir.types {
             match ir_type.kind.as_str() {
@@ -755,6 +797,19 @@ impl<'a> FunctionBuilder<'a> {
                 }
                 Ok(())
             }
+            IrOp::Assign { name, value } => {
+                let target = locals
+                    .get(name)
+                    .cloned()
+                    .ok_or_else(|| format!("IR assigns unknown local `{name}`"))?;
+                let value = self.lower_value(value, locals)?;
+                self.push_move_like(
+                    self.registers[target.register as usize].type_id,
+                    target.register,
+                    value.register,
+                );
+                Ok(())
+            }
             IrOp::Return { value } => {
                 let register = match value {
                     Some(value) => self.lower_value(value, locals)?.register,
@@ -783,8 +838,12 @@ impl<'a> FunctionBuilder<'a> {
             IrValue::Const { type_, .. } => {
                 let type_id = self.type_id(type_);
                 let register = self.add_register(type_id, 0);
-                let const_id = self.const_id(value)?;
-                self.push(OPCODE_LOAD_CONST, vec![register, const_id]);
+                if type_ == "Nothing" {
+                    self.push(OPCODE_LOAD_DEFAULT, vec![register, type_id]);
+                } else {
+                    let const_id = self.const_id(value)?;
+                    self.push(OPCODE_LOAD_CONST, vec![register, const_id]);
+                }
                 Ok(ValueSlot {
                     register,
                     type_name: type_.clone(),
@@ -859,6 +918,37 @@ impl<'a> FunctionBuilder<'a> {
                 })
             }
             IrValue::Constructor { type_, args } => {
+                if type_ == "Ok" {
+                    let success = args
+                        .first()
+                        .ok_or_else(|| "IR Ok constructor is missing success value".to_string())?;
+                    let success = self.lower_value(success, locals)?;
+                    let result_type = self.types.result_type(
+                        self.strings,
+                        self.registers[success.register as usize].type_id,
+                    );
+                    let dst = self.add_register(result_type, 0);
+                    self.push(OPCODE_LOAD_DEFAULT, vec![dst, result_type]);
+                    return Ok(ValueSlot {
+                        register: dst,
+                        type_name: format!("Result OF {}", success.type_name),
+                    });
+                }
+
+                if type_ == "Err" {
+                    let error = args
+                        .first()
+                        .ok_or_else(|| "IR Err constructor is missing error value".to_string())?;
+                    self.lower_value(error, locals)?;
+                    let result_type = self.type_id("Result OF Unknown");
+                    let dst = self.add_register(result_type, 0);
+                    self.push(OPCODE_LOAD_DEFAULT, vec![dst, result_type]);
+                    return Ok(ValueSlot {
+                        register: dst,
+                        type_name: "Result OF Unknown".to_string(),
+                    });
+                }
+
                 if let Some(record) = self.type_model.records.get(type_).cloned() {
                     let type_id = self.type_id(type_);
                     let dst = self.add_register(type_id, 0);
@@ -903,6 +993,31 @@ impl<'a> FunctionBuilder<'a> {
                 }
 
                 Err(format!("IR references unknown constructor `{type_}`"))
+            }
+            IrValue::ListLiteral { type_, values } => {
+                for value in values {
+                    self.lower_value(value, locals)?;
+                }
+                let type_id = self.type_id(type_);
+                let dst = self.add_register(type_id, 0);
+                self.push(OPCODE_LOAD_DEFAULT, vec![dst, type_id]);
+                Ok(ValueSlot {
+                    register: dst,
+                    type_name: type_.clone(),
+                })
+            }
+            IrValue::MapLiteral { type_, entries } => {
+                for (key, value) in entries {
+                    self.lower_value(key, locals)?;
+                    self.lower_value(value, locals)?;
+                }
+                let type_id = self.type_id(type_);
+                let dst = self.add_register(type_id, 0);
+                self.push(OPCODE_LOAD_DEFAULT, vec![dst, type_id]);
+                Ok(ValueSlot {
+                    register: dst,
+                    type_name: type_.clone(),
+                })
             }
             IrValue::MemberAccess { target, member } => {
                 if let IrValue::Local(type_name) = target.as_ref() {
@@ -1100,8 +1215,26 @@ impl TypeTable {
                 let element = self.type_id(strings, name.trim_start_matches("List OF "));
                 self.list_type(strings, element)
             }
+            name if name.starts_with("Result OF ") => {
+                let success = self.type_id(strings, name.trim_start_matches("Result OF "));
+                self.result_type(strings, success)
+            }
+            name if name.starts_with("Map OF ") => {
+                let rest = name.trim_start_matches("Map OF ");
+                if let Some((key, value)) = rest.split_once(" TO ") {
+                    let key = self.type_id(strings, key);
+                    let value = self.type_id(strings, value);
+                    self.map_type(strings, key, value)
+                } else {
+                    self.add_entry(strings, "", name, 5, Vec::new())
+                }
+            }
             "Byte" => 7,
-            "Error" => 8,
+            "Error" => {
+                strings.intern("code");
+                strings.intern("message");
+                8
+            }
             _ => {
                 if let Some(id) = self.ids.get(name) {
                     *id
@@ -1132,6 +1265,18 @@ impl TypeTable {
         let mut payload = Vec::new();
         put_u32(&mut payload, element_type);
         self.add_entry(strings, "", &name, 4, payload)
+    }
+
+    fn map_type(&mut self, strings: &mut StringPool, key_type: u32, value_type: u32) -> u32 {
+        let name = format!("Map#{key_type}#{value_type}");
+        if let Some(id) = self.ids.get(&name) {
+            return *id;
+        }
+
+        let mut payload = Vec::new();
+        put_u32(&mut payload, key_type);
+        put_u32(&mut payload, value_type);
+        self.add_entry(strings, "", &name, 5, payload)
     }
 
     fn add_entry(
@@ -1236,6 +1381,10 @@ impl ConstPool {
     fn add(&mut self, strings: &mut StringPool, value: &IrValue) -> Result<u32, String> {
         let entry = match value {
             IrValue::Const { type_, value } => match type_.as_str() {
+                "Nothing" => ConstEntry {
+                    kind: 1,
+                    payload: Vec::new(),
+                },
                 "String" => {
                     let mut payload = Vec::new();
                     put_u32(&mut payload, strings.intern(value));

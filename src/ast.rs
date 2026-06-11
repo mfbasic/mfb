@@ -116,6 +116,11 @@ pub enum Statement {
         value: Option<Expression>,
         line: usize,
     },
+    Assign {
+        name: String,
+        value: Expression,
+        line: usize,
+    },
     Expression {
         expression: Expression,
         line: usize,
@@ -139,6 +144,12 @@ pub enum Expression {
     Constructor {
         type_name: String,
         arguments: Vec<Expression>,
+    },
+    ListLiteral(Vec<Expression>),
+    MapLiteral {
+        key_type: String,
+        value_type: String,
+        entries: Vec<(Expression, Expression)>,
     },
     MemberAccess {
         target: Box<Expression>,
@@ -696,6 +707,24 @@ impl<'a> FileParser<'a> {
             });
         }
 
+        if let TokenKind::Identifier(name) = self.peek().kind.clone() {
+            if self
+                .tokens
+                .get(self.current + 1)
+                .is_some_and(|token| matches!(token.kind, TokenKind::Equal))
+            {
+                let token = self.advance().clone();
+                self.advance();
+                let value = self.parse_expression()?;
+                self.consume_statement_end("Expected end of statement after assignment.");
+                return Some(Statement::Assign {
+                    name,
+                    value,
+                    line: token.line,
+                });
+            }
+        }
+
         let token = self.peek().clone();
         let expression = self.parse_expression();
         if expression.is_none() {
@@ -862,7 +891,26 @@ impl<'a> FileParser<'a> {
             TokenKind::Number(value) => Some(Expression::Number(value)),
             TokenKind::Keyword(Keyword::True) => Some(Expression::Boolean(true)),
             TokenKind::Keyword(Keyword::False) => Some(Expression::Boolean(false)),
+            TokenKind::Keyword(Keyword::Nothing) => {
+                Some(Expression::Identifier("NOTHING".to_string()))
+            }
             TokenKind::Identifier(value) => {
+                if value.eq_ignore_ascii_case("Map") && self.check_identifier_ci("OF") {
+                    self.advance();
+                    let key_type = self.parse_type_name()?;
+                    if !self.check_identifier_ci("TO") {
+                        let token = self.peek().clone();
+                        self.report(
+                            "MFB_PARSE_UNEXPECTED_TOKEN",
+                            "Expected `TO` in map literal type.",
+                            &token,
+                        );
+                        return None;
+                    }
+                    self.advance();
+                    let value_type = self.parse_type_name()?;
+                    return self.parse_map_literal(key_type, value_type);
+                }
                 let mut name = value;
                 while self.match_kind(TokenKind::Dot) {
                     let part = self.consume_identifier("Expected identifier after `.`.")?;
@@ -876,6 +924,7 @@ impl<'a> FileParser<'a> {
                 self.consume_kind(TokenKind::RParen, "Expected `)` after expression.");
                 expression
             }
+            TokenKind::LBracket => self.parse_list_literal(),
             _ => {
                 self.report(
                     "MFB_PARSE_EXPECTED_EXPRESSION",
@@ -898,14 +947,101 @@ impl<'a> FileParser<'a> {
     }
 
     fn parse_type_name(&mut self) -> Option<String> {
-        let mut name = self.parse_qualified_name("Expected a type name.")?;
-        if name.eq_ignore_ascii_case("List") && self.check_identifier_ci("OF") {
+        let mut name = self.parse_type_base_name("Expected a type name.")?;
+        if (name.eq_ignore_ascii_case("List") || name.eq_ignore_ascii_case("Result"))
+            && self.check_identifier_ci("OF")
+        {
             self.advance();
             let element = self.parse_type_name()?;
             name.push_str(" OF ");
             name.push_str(&element);
+        } else if name.eq_ignore_ascii_case("Map") && self.check_identifier_ci("OF") {
+            self.advance();
+            let key = self.parse_type_name()?;
+            if !self.check_identifier_ci("TO") {
+                let token = self.peek().clone();
+                self.report(
+                    "MFB_PARSE_UNEXPECTED_TOKEN",
+                    "Expected `TO` in map type.",
+                    &token,
+                );
+                return None;
+            }
+            self.advance();
+            let value = self.parse_type_name()?;
+            name.push_str(" OF ");
+            name.push_str(&key);
+            name.push_str(" TO ");
+            name.push_str(&value);
         }
         Some(name)
+    }
+
+    fn parse_type_base_name(&mut self, detail: &str) -> Option<String> {
+        let mut name = match self.peek().kind.clone() {
+            TokenKind::Identifier(value) => {
+                self.advance();
+                value
+            }
+            TokenKind::Keyword(Keyword::Nothing) => {
+                self.advance();
+                "Nothing".to_string()
+            }
+            _ => {
+                let token = self.peek().clone();
+                self.report("MFB_PARSE_INVALID_IDENTIFIER", detail, &token);
+                return None;
+            }
+        };
+        while self.match_kind(TokenKind::Dot) {
+            let part = self.consume_identifier("Expected identifier after `.`.")?;
+            name.push('.');
+            name.push_str(&part);
+        }
+        Some(name)
+    }
+
+    fn parse_list_literal(&mut self) -> Option<Expression> {
+        let mut values = Vec::new();
+        if !self.check_kind(&TokenKind::RBracket) {
+            loop {
+                values.push(self.parse_expression()?);
+                if !self.match_kind(TokenKind::Comma) {
+                    break;
+                }
+            }
+        }
+        self.consume_kind(TokenKind::RBracket, "Expected `]` after list literal.");
+        Some(Expression::ListLiteral(values))
+    }
+
+    fn parse_map_literal(&mut self, key_type: String, value_type: String) -> Option<Expression> {
+        if !self.consume_kind(TokenKind::LBrace, "Expected `{` after map literal type.") {
+            return None;
+        }
+        let mut entries = Vec::new();
+        if !self.check_kind(&TokenKind::RBrace) {
+            loop {
+                let key = self.parse_expression()?;
+                if !self.consume_kind(
+                    TokenKind::ColonEqual,
+                    "Expected `:=` between map key and value.",
+                ) {
+                    return None;
+                }
+                let value = self.parse_expression()?;
+                entries.push((key, value));
+                if !self.match_kind(TokenKind::Comma) {
+                    break;
+                }
+            }
+        }
+        self.consume_kind(TokenKind::RBrace, "Expected `}` after map literal.");
+        Some(Expression::MapLiteral {
+            key_type,
+            value_type,
+            entries,
+        })
     }
 
     fn parse_visibility(&mut self) -> Option<Visibility> {
@@ -1390,6 +1526,15 @@ impl ToAstJson for Statement {
                     pad, value, line
                 )
             }
+            Statement::Assign { name, value, line } => {
+                format!(
+                    "\n{}{{ \"kind\": \"assignment\", \"name\": {}, \"value\": {}, \"line\": {} }}",
+                    pad,
+                    json_string(name),
+                    value.to_json(indent),
+                    line
+                )
+            }
             Statement::Expression { expression, line } => {
                 format!(
                     "\n{}{{ \"kind\": \"expression\", \"expression\": {}, \"line\": {} }}",
@@ -1457,6 +1602,37 @@ impl ToAstJson for Expression {
                     "{{ \"kind\": \"constructor\", \"type\": {}, \"arguments\": [{}] }}",
                     json_string(type_name),
                     args
+                )
+            }
+            Expression::ListLiteral(values) => {
+                let values = values
+                    .iter()
+                    .map(|value| value.to_json(0))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                format!("{{ \"kind\": \"list\", \"values\": [{}] }}", values)
+            }
+            Expression::MapLiteral {
+                key_type,
+                value_type,
+                entries,
+            } => {
+                let entries = entries
+                    .iter()
+                    .map(|(key, value)| {
+                        format!(
+                            "{{ \"key\": {}, \"value\": {} }}",
+                            key.to_json(0),
+                            value.to_json(0)
+                        )
+                    })
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                format!(
+                    "{{ \"kind\": \"map\", \"keyType\": {}, \"valueType\": {}, \"entries\": [{}] }}",
+                    json_string(key_type),
+                    json_string(value_type),
+                    entries
                 )
             }
             Expression::MemberAccess { target, member } => {
