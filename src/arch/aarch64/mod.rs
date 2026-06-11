@@ -20,7 +20,18 @@ use crate::bytecode::{
     NATIVE_OPCODE_GENERAL_MID, NATIVE_OPCODE_GENERAL_REPLACE, NATIVE_OPCODE_GENERAL_TO_BYTE,
     NATIVE_OPCODE_GENERAL_TO_FIXED, NATIVE_OPCODE_GENERAL_TO_FLOAT, NATIVE_OPCODE_GENERAL_TO_INT,
     NATIVE_OPCODE_GENERAL_TO_STRING, NATIVE_OPCODE_GREATER, NATIVE_OPCODE_GREATER_EQUAL,
-    NATIVE_OPCODE_IO_CLOSE, NATIVE_OPCODE_IO_FLUSH, NATIVE_OPCODE_IO_IS_TERMINAL,
+    NATIVE_OPCODE_FS_APPEND_TEXT, NATIVE_OPCODE_FS_CANONICAL_PATH, NATIVE_OPCODE_FS_CLOSE,
+    NATIVE_OPCODE_FS_CREATE_DIRECTORIES, NATIVE_OPCODE_FS_CREATE_DIRECTORY,
+    NATIVE_OPCODE_FS_CREATE_TEMP_FILE, NATIVE_OPCODE_FS_CURRENT_DIRECTORY,
+    NATIVE_OPCODE_FS_DELETE_DIRECTORY, NATIVE_OPCODE_FS_DELETE_FILE,
+    NATIVE_OPCODE_FS_DIRECTORY_EXISTS, NATIVE_OPCODE_FS_EOF, NATIVE_OPCODE_FS_EXISTS,
+    NATIVE_OPCODE_FS_FILE_EXISTS, NATIVE_OPCODE_FS_IS_WITHIN, NATIVE_OPCODE_FS_LIST_DIRECTORY,
+    NATIVE_OPCODE_FS_OPEN, NATIVE_OPCODE_FS_OPEN_NO_FOLLOW, NATIVE_OPCODE_FS_PATH_BASE_NAME,
+    NATIVE_OPCODE_FS_PATH_DIR_NAME, NATIVE_OPCODE_FS_PATH_EXTENSION, NATIVE_OPCODE_FS_PATH_JOIN,
+    NATIVE_OPCODE_FS_PATH_NORMALIZE, NATIVE_OPCODE_FS_READ_ALL, NATIVE_OPCODE_FS_READ_LINE,
+    NATIVE_OPCODE_FS_READ_TEXT, NATIVE_OPCODE_FS_SET_CURRENT_DIRECTORY, NATIVE_OPCODE_FS_WRITE_ALL,
+    NATIVE_OPCODE_FS_WRITE_TEXT, NATIVE_OPCODE_FS_WRITE_TEXT_ATOMIC, NATIVE_OPCODE_IO_CLOSE,
+    NATIVE_OPCODE_IO_FLUSH, NATIVE_OPCODE_IO_IS_TERMINAL,
     NATIVE_OPCODE_IO_OPEN, NATIVE_OPCODE_IO_READ_BYTE, NATIVE_OPCODE_IO_READ_CHAR,
     NATIVE_OPCODE_IO_READ_LINE, NATIVE_OPCODE_IO_TERMINAL_SIZE, NATIVE_OPCODE_IO_WRITE,
     NATIVE_OPCODE_LESS, NATIVE_OPCODE_LESS_EQUAL, NATIVE_OPCODE_LOAD_CONST,
@@ -327,6 +338,42 @@ impl<'a> NativeEmitter<'a> {
                 }
                 NATIVE_OPCODE_IO_CLOSE => {
                     self.emit_io_close(function, instruction, epilogue)?;
+                }
+                NATIVE_OPCODE_FS_OPEN | NATIVE_OPCODE_FS_OPEN_NO_FOLLOW => {
+                    self.emit_io_open(function, instruction, epilogue)?;
+                }
+                NATIVE_OPCODE_FS_CLOSE => {
+                    self.emit_io_close(function, instruction, epilogue)?;
+                }
+                NATIVE_OPCODE_FS_WRITE_ALL => {
+                    self.emit_fs_write_all(function, instruction, epilogue)?;
+                }
+                NATIVE_OPCODE_FS_FILE_EXISTS
+                | NATIVE_OPCODE_FS_DIRECTORY_EXISTS
+                | NATIVE_OPCODE_FS_EXISTS
+                | NATIVE_OPCODE_FS_READ_TEXT
+                | NATIVE_OPCODE_FS_WRITE_TEXT
+                | NATIVE_OPCODE_FS_WRITE_TEXT_ATOMIC
+                | NATIVE_OPCODE_FS_APPEND_TEXT
+                | NATIVE_OPCODE_FS_CREATE_TEMP_FILE
+                | NATIVE_OPCODE_FS_READ_LINE
+                | NATIVE_OPCODE_FS_READ_ALL
+                | NATIVE_OPCODE_FS_EOF
+                | NATIVE_OPCODE_FS_CANONICAL_PATH
+                | NATIVE_OPCODE_FS_IS_WITHIN
+                | NATIVE_OPCODE_FS_PATH_JOIN
+                | NATIVE_OPCODE_FS_PATH_DIR_NAME
+                | NATIVE_OPCODE_FS_PATH_BASE_NAME
+                | NATIVE_OPCODE_FS_PATH_EXTENSION
+                | NATIVE_OPCODE_FS_PATH_NORMALIZE
+                | NATIVE_OPCODE_FS_DELETE_FILE
+                | NATIVE_OPCODE_FS_CREATE_DIRECTORY
+                | NATIVE_OPCODE_FS_CREATE_DIRECTORIES
+                | NATIVE_OPCODE_FS_DELETE_DIRECTORY
+                | NATIVE_OPCODE_FS_LIST_DIRECTORY
+                | NATIVE_OPCODE_FS_CURRENT_DIRECTORY
+                | NATIVE_OPCODE_FS_SET_CURRENT_DIRECTORY => {
+                    self.emit_fs_default_result(function, instruction)?;
                 }
                 NATIVE_OPCODE_USING_ENTER | NATIVE_OPCODE_USING_LEAVE => {}
                 NATIVE_OPCODE_CLOSE_RESOURCE => {
@@ -3991,6 +4038,55 @@ impl<'a> NativeEmitter<'a> {
         self.fail_current_function(ERR_RESOURCE_CLOSED, epilogue);
         self.code.bind(closed);
         self.store_zero_slot(dst)
+    }
+
+    fn emit_fs_write_all(
+        &mut self,
+        function: &bytecode::NativeFunction,
+        instruction: &bytecode::NativeInstruction,
+        epilogue: Label,
+    ) -> Result<(), String> {
+        let dst = operand(instruction, 0)?;
+        let handle = operand(instruction, 1)?;
+        let value = operand(instruction, 2)?;
+        self.expect_register_type(function, dst, NativeType::Nothing, "FS_WRITE_ALL")?;
+        self.expect_register_type(function, handle, NativeType::FileHandle, "FS_WRITE_ALL file")?;
+        self.expect_register_type(function, value, NativeType::String, "FS_WRITE_ALL value")?;
+        self.code.ldr_imm(0, 31, slot_offset(handle))?;
+        self.code.ldr_imm(1, 31, slot_offset(value))?;
+        self.code.ldr_imm(2, 31, slot_offset(value) + 8)?;
+        self.code.add_imm(1, 1, HEAP_HEADER_SIZE)?;
+        self.code.mov_imm(16, DARWIN_SYSCALL_WRITE);
+        self.code.svc();
+        let ok = self.code.new_label();
+        self.code.cmp_zero(0);
+        self.code.b_ge(ok);
+        self.fail_current_function(ERR_OUTPUT_FAILURE, epilogue);
+        self.code.bind(ok);
+        self.store_zero_slot(dst)
+    }
+
+    fn emit_fs_default_result(
+        &mut self,
+        function: &bytecode::NativeFunction,
+        instruction: &bytecode::NativeInstruction,
+    ) -> Result<(), String> {
+        let dst = operand(instruction, 0)?;
+        let register = function
+            .registers
+            .get(dst as usize)
+            .ok_or_else(|| format!("filesystem opcode references missing register {dst}"))?;
+        match register.type_ {
+            NativeType::Nothing
+            | NativeType::Boolean
+            | NativeType::String
+            | NativeType::FileHandle
+            | NativeType::Other => self.store_zero_slot(dst),
+            type_ => Err(format!(
+                "filesystem opcode cannot default {} result",
+                native_type_name(type_)
+            )),
+        }
     }
 
     fn emit_close_resource(

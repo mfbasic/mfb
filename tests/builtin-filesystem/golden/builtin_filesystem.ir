@@ -4,7 +4,7 @@
   "project": "builtin_filesystem",
   "entry": {
     "name": "main",
-    "returns": "Nothing",
+    "returns": "Integer",
     "accepts_args": false
   },
   "types": [
@@ -13,11 +13,35 @@
   {
     "name": "main",
     "visibility": "private",
-    "kind": "sub",
+    "kind": "func",
     "params": [
     ],
-    "returns": "Nothing",
+    "returns": "Integer",
     "body": [
+    { "op": "bind", "mutable": false, "name": "path", "type": "String", "value": { "kind": "const", "type": "String", "value": "tests/builtin-filesystem/src/main.mfb" } },
+    { "op": "bind", "mutable": false, "name": "directory", "type": "String", "value": { "kind": "const", "type": "String", "value": "tests/builtin-filesystem/src" } },
+    { "op": "bind", "mutable": false, "name": "output", "type": "String", "value": { "kind": "const", "type": "String", "value": "target/accept-fs-output.txt" } },
+    { "op": "bind", "mutable": false, "name": "joined", "type": "String", "value": { "kind": "call", "target": "fs.pathJoin", "args": [{ "kind": "list", "type": "List OF String", "values": [{ "kind": "const", "type": "String", "value": "tests" }, { "kind": "const", "type": "String", "value": "builtin-filesystem" }, { "kind": "const", "type": "String", "value": "src" }, { "kind": "const", "type": "String", "value": "main.mfb" }] }] } },
+    { "op": "bind", "mutable": false, "name": "current", "type": "String", "value": { "kind": "call", "target": "fs.currentDirectory", "args": [] } },
+    { "op": "bind", "mutable": false, "name": "isFile", "type": "Boolean", "value": { "kind": "call", "target": "fs.fileExists", "args": [{ "kind": "local", "name": "path" }] } },
+    { "op": "bind", "mutable": false, "name": "isDirectory", "type": "Boolean", "value": { "kind": "call", "target": "fs.directoryExists", "args": [{ "kind": "local", "name": "directory" }] } },
+    { "op": "bind", "mutable": false, "name": "anyExists", "type": "Boolean", "value": { "kind": "call", "target": "fs.exists", "args": [{ "kind": "local", "name": "path" }] } },
+    { "op": "bind", "mutable": false, "name": "text", "type": "String", "value": { "kind": "call", "target": "fs.readText", "args": [{ "kind": "local", "name": "path" }] } },
+    { "op": "bind", "mutable": false, "name": "canonical", "type": "String", "value": { "kind": "call", "target": "fs.canonicalPath", "args": [{ "kind": "local", "name": "path" }] } },
+    { "op": "bind", "mutable": false, "name": "contained", "type": "Boolean", "value": { "kind": "call", "target": "fs.isWithin", "args": [{ "kind": "local", "name": "directory" }, { "kind": "local", "name": "path" }] } },
+    { "op": "bind", "mutable": false, "name": "dirName", "type": "String", "value": { "kind": "call", "target": "fs.pathDirName", "args": [{ "kind": "local", "name": "path" }] } },
+    { "op": "bind", "mutable": false, "name": "baseName", "type": "String", "value": { "kind": "call", "target": "fs.pathBaseName", "args": [{ "kind": "local", "name": "path" }] } },
+    { "op": "bind", "mutable": false, "name": "extension", "type": "String", "value": { "kind": "call", "target": "fs.pathExtension", "args": [{ "kind": "local", "name": "path" }] } },
+    { "op": "bind", "mutable": false, "name": "normalized", "type": "String", "value": { "kind": "call", "target": "fs.pathNormalize", "args": [{ "kind": "const", "type": "String", "value": "tests/./builtin-filesystem/src/../src/main.mfb" }] } },
+    { "op": "bind", "mutable": false, "name": "entries", "type": "List OF String", "value": { "kind": "call", "target": "fs.listDirectory", "args": [{ "kind": "local", "name": "directory" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "fs.writeText", "args": [{ "kind": "local", "name": "output" }, { "kind": "const", "type": "String", "value": "one" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "fs.appendText", "args": [{ "kind": "local", "name": "output" }, { "kind": "const", "type": "String", "value": "two" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "fs.writeTextAtomic", "args": [{ "kind": "local", "name": "output" }, { "kind": "const", "type": "String", "value": "three" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "fs.createDirectories", "args": [{ "kind": "const", "type": "String", "value": "target/accept-fs-dir/nested" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "fs.createDirectory", "args": [{ "kind": "const", "type": "String", "value": "target/accept-fs-dir/empty" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "fs.deleteFile", "args": [{ "kind": "local", "name": "output" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "fs.deleteDirectory", "args": [{ "kind": "const", "type": "String", "value": "target/accept-fs-dir/empty" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "fs.setCurrentDirectory", "args": [{ "kind": "local", "name": "current" }] } },
     {
       "op": "using",
       "name": "file",
@@ -25,8 +49,49 @@
       "close": "fs.close",
       "value": { "kind": "call", "target": "fs.open", "args": [{ "kind": "const", "type": "String", "value": "tests/builtin-filesystem/src/main.mfb" }, { "kind": "const", "type": "String", "value": "read" }] },
       "body": [
+      { "op": "bind", "mutable": false, "name": "firstLine", "type": "String", "value": { "kind": "call", "target": "fs.readLine", "args": [{ "kind": "local", "name": "file" }] } },
+      { "op": "bind", "mutable": false, "name": "atEnd", "type": "Boolean", "value": { "kind": "call", "target": "fs.eof", "args": [{ "kind": "local", "name": "file" }] } },
+      { "op": "bind", "mutable": false, "name": "rest", "type": "String", "value": { "kind": "call", "target": "fs.readAll", "args": [{ "kind": "local", "name": "file" }] } }
       ]
-    }
+    },
+    {
+      "op": "using",
+      "name": "defaultFile",
+      "type": "File",
+      "close": "fs.close",
+      "value": { "kind": "call", "target": "fs.openFile", "args": [{ "kind": "local", "name": "path" }] },
+      "body": [
+      ]
+    },
+    {
+      "op": "using",
+      "name": "writeFile",
+      "type": "File",
+      "close": "fs.close",
+      "value": { "kind": "call", "target": "fs.openFile", "args": [{ "kind": "local", "name": "output" }, { "kind": "const", "type": "String", "value": "write" }] },
+      "body": [
+      { "op": "eval", "value": { "kind": "call", "target": "fs.writeAll", "args": [{ "kind": "local", "name": "writeFile" }, { "kind": "const", "type": "String", "value": "contents" }] } }
+      ]
+    },
+    {
+      "op": "using",
+      "name": "noFollowFile",
+      "type": "File",
+      "close": "fs.close",
+      "value": { "kind": "call", "target": "fs.openFileNoFollow", "args": [{ "kind": "local", "name": "path" }, { "kind": "const", "type": "String", "value": "read" }] },
+      "body": [
+      ]
+    },
+    {
+      "op": "using",
+      "name": "tempFile",
+      "type": "File",
+      "close": "fs.close",
+      "value": { "kind": "call", "target": "fs.createTempFile", "args": [{ "kind": "const", "type": "String", "value": "target" }, { "kind": "const", "type": "String", "value": "mfb-test-" }, { "kind": "const", "type": "String", "value": ".tmp" }] },
+      "body": [
+      ]
+    },
+    { "op": "return", "value": { "kind": "binary", "op": "+", "left": { "kind": "binary", "op": "+", "left": { "kind": "binary", "op": "+", "left": { "kind": "binary", "op": "+", "left": { "kind": "binary", "op": "+", "left": { "kind": "binary", "op": "+", "left": { "kind": "binary", "op": "+", "left": { "kind": "binary", "op": "+", "left": { "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "joined" }] }, "right": { "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "current" }] } }, "right": { "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "text" }] } }, "right": { "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "canonical" }] } }, "right": { "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "dirName" }] } }, "right": { "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "baseName" }] } }, "right": { "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "extension" }] } }, "right": { "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "normalized" }] } }, "right": { "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "entries" }] } } }
     ]
   }
   ]

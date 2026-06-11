@@ -8,22 +8,83 @@
     ],
     "items": [
     {
-      "kind": "sub",
+      "kind": "func",
       "visibility": "private",
       "name": "main",
       "line": 3,
       "params": [
       ],
-      "returnType": null,
+      "returnType": "Integer",
       "body": [
+      { "kind": "binding", "mutable": false, "name": "path", "type": "String", "value": { "kind": "string", "value": "tests/builtin-filesystem/src/main.mfb" }, "line": 4 },
+      { "kind": "binding", "mutable": false, "name": "directory", "type": "String", "value": { "kind": "string", "value": "tests/builtin-filesystem/src" }, "line": 5 },
+      { "kind": "binding", "mutable": false, "name": "output", "type": "String", "value": { "kind": "string", "value": "target/accept-fs-output.txt" }, "line": 6 },
+      { "kind": "binding", "mutable": false, "name": "joined", "type": "String", "value": { "kind": "call", "callee": "fs.pathJoin", "arguments": [{ "kind": "list", "values": [{ "kind": "string", "value": "tests" }, { "kind": "string", "value": "builtin-filesystem" }, { "kind": "string", "value": "src" }, { "kind": "string", "value": "main.mfb" }] }] }, "line": 7 },
+      { "kind": "binding", "mutable": false, "name": "current", "type": "String", "value": { "kind": "call", "callee": "fs.currentDirectory", "arguments": [] }, "line": 8 },
+      { "kind": "binding", "mutable": false, "name": "isFile", "type": "Boolean", "value": { "kind": "call", "callee": "fs.fileExists", "arguments": [{ "kind": "identifier", "value": "path" }] }, "line": 9 },
+      { "kind": "binding", "mutable": false, "name": "isDirectory", "type": "Boolean", "value": { "kind": "call", "callee": "fs.directoryExists", "arguments": [{ "kind": "identifier", "value": "directory" }] }, "line": 10 },
+      { "kind": "binding", "mutable": false, "name": "anyExists", "type": "Boolean", "value": { "kind": "call", "callee": "fs.exists", "arguments": [{ "kind": "identifier", "value": "path" }] }, "line": 11 },
+      { "kind": "binding", "mutable": false, "name": "text", "type": "String", "value": { "kind": "call", "callee": "fs.readText", "arguments": [{ "kind": "identifier", "value": "path" }] }, "line": 12 },
+      { "kind": "binding", "mutable": false, "name": "canonical", "type": "String", "value": { "kind": "call", "callee": "fs.canonicalPath", "arguments": [{ "kind": "identifier", "value": "path" }] }, "line": 13 },
+      { "kind": "binding", "mutable": false, "name": "contained", "type": "Boolean", "value": { "kind": "call", "callee": "fs.isWithin", "arguments": [{ "kind": "identifier", "value": "directory" }, { "kind": "identifier", "value": "path" }] }, "line": 14 },
+      { "kind": "binding", "mutable": false, "name": "dirName", "type": "String", "value": { "kind": "call", "callee": "fs.pathDirName", "arguments": [{ "kind": "identifier", "value": "path" }] }, "line": 15 },
+      { "kind": "binding", "mutable": false, "name": "baseName", "type": "String", "value": { "kind": "call", "callee": "fs.pathBaseName", "arguments": [{ "kind": "identifier", "value": "path" }] }, "line": 16 },
+      { "kind": "binding", "mutable": false, "name": "extension", "type": "String", "value": { "kind": "call", "callee": "fs.pathExtension", "arguments": [{ "kind": "identifier", "value": "path" }] }, "line": 17 },
+      { "kind": "binding", "mutable": false, "name": "normalized", "type": "String", "value": { "kind": "call", "callee": "fs.pathNormalize", "arguments": [{ "kind": "string", "value": "tests/./builtin-filesystem/src/../src/main.mfb" }] }, "line": 18 },
+      { "kind": "binding", "mutable": false, "name": "entries", "type": "List OF String", "value": { "kind": "call", "callee": "fs.listDirectory", "arguments": [{ "kind": "identifier", "value": "directory" }] }, "line": 19 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "fs.writeText", "arguments": [{ "kind": "identifier", "value": "output" }, { "kind": "string", "value": "one" }] }, "line": 21 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "fs.appendText", "arguments": [{ "kind": "identifier", "value": "output" }, { "kind": "string", "value": "two" }] }, "line": 22 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "fs.writeTextAtomic", "arguments": [{ "kind": "identifier", "value": "output" }, { "kind": "string", "value": "three" }] }, "line": 23 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "fs.createDirectories", "arguments": [{ "kind": "string", "value": "target/accept-fs-dir/nested" }] }, "line": 24 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "fs.createDirectory", "arguments": [{ "kind": "string", "value": "target/accept-fs-dir/empty" }] }, "line": 25 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "fs.deleteFile", "arguments": [{ "kind": "identifier", "value": "output" }] }, "line": 26 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "fs.deleteDirectory", "arguments": [{ "kind": "string", "value": "target/accept-fs-dir/empty" }] }, "line": 27 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "fs.setCurrentDirectory", "arguments": [{ "kind": "identifier", "value": "current" }] }, "line": 28 },
       {
         "kind": "using",
         "name": "file",
         "value": { "kind": "call", "callee": "fs.open", "arguments": [{ "kind": "string", "value": "tests/builtin-filesystem/src/main.mfb" }, { "kind": "string", "value": "read" }] },
-        "line": 4,
+        "line": 30,
+        "body": [
+        { "kind": "binding", "mutable": false, "name": "firstLine", "type": "String", "value": { "kind": "call", "callee": "fs.readLine", "arguments": [{ "kind": "identifier", "value": "file" }] }, "line": 31 },
+        { "kind": "binding", "mutable": false, "name": "atEnd", "type": "Boolean", "value": { "kind": "call", "callee": "fs.eof", "arguments": [{ "kind": "identifier", "value": "file" }] }, "line": 32 },
+        { "kind": "binding", "mutable": false, "name": "rest", "type": "String", "value": { "kind": "call", "callee": "fs.readAll", "arguments": [{ "kind": "identifier", "value": "file" }] }, "line": 33 }
+        ]
+      },
+      {
+        "kind": "using",
+        "name": "defaultFile",
+        "value": { "kind": "call", "callee": "fs.openFile", "arguments": [{ "kind": "identifier", "value": "path" }] },
+        "line": 36,
         "body": [
         ]
-      }
+      },
+      {
+        "kind": "using",
+        "name": "writeFile",
+        "value": { "kind": "call", "callee": "fs.openFile", "arguments": [{ "kind": "identifier", "value": "output" }, { "kind": "string", "value": "write" }] },
+        "line": 39,
+        "body": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "fs.writeAll", "arguments": [{ "kind": "identifier", "value": "writeFile" }, { "kind": "string", "value": "contents" }] }, "line": 40 }
+        ]
+      },
+      {
+        "kind": "using",
+        "name": "noFollowFile",
+        "value": { "kind": "call", "callee": "fs.openFileNoFollow", "arguments": [{ "kind": "identifier", "value": "path" }, { "kind": "string", "value": "read" }] },
+        "line": 43,
+        "body": [
+        ]
+      },
+      {
+        "kind": "using",
+        "name": "tempFile",
+        "value": { "kind": "call", "callee": "fs.createTempFile", "arguments": [{ "kind": "string", "value": "target" }, { "kind": "string", "value": "mfb-test-" }, { "kind": "string", "value": ".tmp" }] },
+        "line": 46,
+        "body": [
+        ]
+      },
+      { "kind": "return", "value": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "joined" }] }, "right": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "current" }] } }, "right": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "text" }] } }, "right": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "canonical" }] } }, "right": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "dirName" }] } }, "right": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "baseName" }] } }, "right": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "extension" }] } }, "right": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "normalized" }] } }, "right": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "entries" }] } }, "line": 49 }
       ]
     }
     ]
