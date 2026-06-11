@@ -1,4 +1,5 @@
 mod ast;
+mod bytecode;
 mod ir;
 mod lexer;
 mod resolver;
@@ -12,7 +13,7 @@ use std::path::{Path, PathBuf};
 use std::process;
 use tinyjson::JsonValue;
 
-const USAGE: &str = "Usage: mfb <command> <arguments>\n\nCommands:\n  help                        Show this message\n  init <location>             Create a new MFBASIC project\n  build [-ast|-ir] [location] Validate and build an MFBASIC project";
+const USAGE: &str = "Usage: mfb <command> <arguments>\n\nCommands:\n  help                        Show this message\n  init <location>             Create a new MFBASIC project\n  build [-ast|-ir|-bc] [location] Validate and build an MFBASIC project";
 
 fn main() {
     let mut args = env::args().skip(1);
@@ -66,6 +67,7 @@ enum BuildOutput {
     Validate,
     Ast,
     Ir,
+    Bytecode,
 }
 
 fn parse_build_options(args: Vec<String>) -> Result<BuildOptions, String> {
@@ -83,6 +85,11 @@ fn parse_build_options(args: Vec<String>) -> Result<BuildOptions, String> {
                 return Err("mfb build accepts only one output mode".to_string());
             }
             output = BuildOutput::Ir;
+        } else if arg == "-bc" {
+            if !matches!(output, BuildOutput::Validate) {
+                return Err("mfb build accepts only one output mode".to_string());
+            }
+            output = BuildOutput::Bytecode;
         } else if arg.starts_with('-') {
             return Err(format!("unknown build option `{arg}`"));
         } else if location.replace(PathBuf::from(&arg)).is_some() {
@@ -146,6 +153,18 @@ fn build_project(options: &BuildOptions) -> Result<(), ()> {
                 eprintln!("error: {err}");
             })?;
             println!("Wrote IR to {}", ir_path.display());
+        }
+        BuildOutput::Bytecode => {
+            let ir = ir::lower_project(&ast);
+            let version = manifest
+                .get("version")
+                .and_then(|value| value.get::<String>())
+                .expect("validated project version");
+            let bytecode_path = bytecode::write_bytecode_hex(&options.location, &ir, version)
+                .map_err(|err| {
+                    eprintln!("error: {err}");
+                })?;
+            println!("Wrote bytecode hex to {}", bytecode_path.display());
         }
     }
 

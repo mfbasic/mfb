@@ -4,3 +4,6 @@ Wrote AST to tests/typecheck-basic/typecheck_basic.ast
 $ mfb build -ir tests/typecheck-basic
 Wrote IR to tests/typecheck-basic/typecheck_basic.ir
 [exit 0]
+$ mfb build -bc tests/typecheck-basic
+Wrote bytecode hex to tests/typecheck-basic/typecheck_basic.hex
+[exit 0]

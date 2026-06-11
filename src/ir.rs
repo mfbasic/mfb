@@ -7,31 +7,31 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 pub struct IrProject {
-    name: String,
-    types: Vec<IrType>,
-    functions: Vec<IrFunction>,
+    pub(crate) name: String,
+    pub(crate) types: Vec<IrType>,
+    pub(crate) functions: Vec<IrFunction>,
 }
 
-struct IrType {
-    kind: String,
-    name: String,
+pub(crate) struct IrType {
+    pub(crate) kind: String,
+    pub(crate) name: String,
 }
 
-struct IrFunction {
-    name: String,
-    kind: String,
-    params: Vec<IrParam>,
-    returns: String,
-    body: Vec<IrOp>,
+pub(crate) struct IrFunction {
+    pub(crate) name: String,
+    pub(crate) kind: String,
+    pub(crate) params: Vec<IrParam>,
+    pub(crate) returns: String,
+    pub(crate) body: Vec<IrOp>,
 }
 
-struct IrParam {
-    name: String,
-    type_: String,
-    default: Option<IrValue>,
+pub(crate) struct IrParam {
+    pub(crate) name: String,
+    pub(crate) type_: String,
+    pub(crate) default: Option<IrValue>,
 }
 
-enum IrOp {
+pub(crate) enum IrOp {
     Bind {
         mutable: bool,
         name: String,
@@ -46,7 +46,7 @@ enum IrOp {
     },
 }
 
-enum IrValue {
+pub(crate) enum IrValue {
     Const {
         type_: String,
         value: String,

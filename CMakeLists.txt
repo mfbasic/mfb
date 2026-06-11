@@ -30,6 +30,7 @@ add_custom_command(
   DEPENDS
           "${CMAKE_SOURCE_DIR}/Cargo.toml"
           "${CMAKE_SOURCE_DIR}/src/ast.rs"
+          "${CMAKE_SOURCE_DIR}/src/bytecode.rs"
           "${CMAKE_SOURCE_DIR}/src/ir.rs"
           "${CMAKE_SOURCE_DIR}/src/lexer.rs"
           "${CMAKE_SOURCE_DIR}/src/main.rs"
