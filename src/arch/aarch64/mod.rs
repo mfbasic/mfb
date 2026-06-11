@@ -1,6 +1,13 @@
 use crate::bytecode::{
     self, NativeConst, NativeProgram, NativeType, NATIVE_OPCODE_ADD, NATIVE_OPCODE_BRANCH,
     NATIVE_OPCODE_BRANCH_IF_FALSE, NATIVE_OPCODE_BRANCH_IF_TRUE, NATIVE_OPCODE_CALL_RESULT,
+    NATIVE_OPCODE_CALL_VALUE_RESULT, NATIVE_OPCODE_COLLECTION_APPEND,
+    NATIVE_OPCODE_COLLECTION_CONTAINS, NATIVE_OPCODE_COLLECTION_FIND, NATIVE_OPCODE_COLLECTION_GET,
+    NATIVE_OPCODE_COLLECTION_GET_OR, NATIVE_OPCODE_COLLECTION_HAS_KEY,
+    NATIVE_OPCODE_COLLECTION_INSERT, NATIVE_OPCODE_COLLECTION_KEYS, NATIVE_OPCODE_COLLECTION_MID,
+    NATIVE_OPCODE_COLLECTION_PREPEND, NATIVE_OPCODE_COLLECTION_REMOVE_AT,
+    NATIVE_OPCODE_COLLECTION_REMOVE_KEY, NATIVE_OPCODE_COLLECTION_REPLACE,
+    NATIVE_OPCODE_COLLECTION_SET, NATIVE_OPCODE_COLLECTION_SUM, NATIVE_OPCODE_COLLECTION_VALUES,
     NATIVE_OPCODE_CONCAT, NATIVE_OPCODE_CONSTRUCT_LIST, NATIVE_OPCODE_CONSTRUCT_MAP,
     NATIVE_OPCODE_CONSTRUCT_RECORD, NATIVE_OPCODE_CONSTRUCT_VARIANT, NATIVE_OPCODE_COPY,
     NATIVE_OPCODE_DIV, NATIVE_OPCODE_EQUAL, NATIVE_OPCODE_GENERAL_FIND,
@@ -9,8 +16,8 @@ use crate::bytecode::{
     NATIVE_OPCODE_GENERAL_TO_FLOAT, NATIVE_OPCODE_GENERAL_TO_INT, NATIVE_OPCODE_GENERAL_TO_STRING,
     NATIVE_OPCODE_GREATER, NATIVE_OPCODE_GREATER_EQUAL, NATIVE_OPCODE_LESS,
     NATIVE_OPCODE_LESS_EQUAL, NATIVE_OPCODE_LOAD_CONST, NATIVE_OPCODE_LOAD_DEFAULT,
-    NATIVE_OPCODE_LOAD_ENUM_MEMBER, NATIVE_OPCODE_LOAD_FIELD, NATIVE_OPCODE_MOD,
-    NATIVE_OPCODE_MOVE, NATIVE_OPCODE_MUL, NATIVE_OPCODE_NEG, NATIVE_OPCODE_NOT,
+    NATIVE_OPCODE_LOAD_ENUM_MEMBER, NATIVE_OPCODE_LOAD_FIELD, NATIVE_OPCODE_LOAD_FUNCTION,
+    NATIVE_OPCODE_MOD, NATIVE_OPCODE_MOVE, NATIVE_OPCODE_MUL, NATIVE_OPCODE_NEG, NATIVE_OPCODE_NOT,
     NATIVE_OPCODE_NOT_EQUAL, NATIVE_OPCODE_POW, NATIVE_OPCODE_RETURN_OK, NATIVE_OPCODE_SUB,
     NATIVE_OPCODE_UNWRAP_RESULT, NATIVE_OPCODE_VARIANT_MATCH, NATIVE_OPCODE_WRITE_STDOUT,
     NATIVE_OPCODE_XOR,
@@ -223,6 +230,14 @@ impl<'a> NativeEmitter<'a> {
                     let dst = operand(instruction, 0)?;
                     self.store_zero_slot(dst)?;
                 }
+                NATIVE_OPCODE_LOAD_FUNCTION => {
+                    let dst = operand(instruction, 0)?;
+                    let function_id = operand(instruction, 1)?;
+                    self.code.mov_imm(9, function_id as u64);
+                    self.code.str_imm(9, 31, slot_offset(dst))?;
+                    self.code.str_imm(31, 31, slot_offset(dst) + 8)?;
+                    self.code.str_imm(31, 31, slot_offset(dst) + 16)?;
+                }
                 NATIVE_OPCODE_MOVE | NATIVE_OPCODE_COPY => {
                     let dst = operand(instruction, 0)?;
                     let src = operand(instruction, 1)?;
@@ -254,6 +269,9 @@ impl<'a> NativeEmitter<'a> {
                 }
                 NATIVE_OPCODE_CALL_RESULT => {
                     self.emit_call_result(instruction)?;
+                }
+                NATIVE_OPCODE_CALL_VALUE_RESULT => {
+                    self.emit_call_value_result(instruction)?;
                 }
                 NATIVE_OPCODE_UNWRAP_RESULT => {
                     let dst = operand(instruction, 0)?;
@@ -327,6 +345,51 @@ impl<'a> NativeEmitter<'a> {
                 }
                 NATIVE_OPCODE_GENERAL_IS_NUMERIC => {
                     self.emit_general_is_numeric(instruction)?;
+                }
+                NATIVE_OPCODE_COLLECTION_GET => {
+                    self.emit_collection_get(instruction, epilogue, false)?;
+                }
+                NATIVE_OPCODE_COLLECTION_GET_OR => {
+                    self.emit_collection_get(instruction, epilogue, true)?;
+                }
+                NATIVE_OPCODE_COLLECTION_FIND => {
+                    self.emit_collection_find(instruction, epilogue)?;
+                }
+                NATIVE_OPCODE_COLLECTION_MID => {
+                    self.emit_collection_mid(instruction, epilogue)?;
+                }
+                NATIVE_OPCODE_COLLECTION_REPLACE => {
+                    self.emit_collection_replace(instruction, epilogue)?;
+                }
+                NATIVE_OPCODE_COLLECTION_SET => {
+                    self.emit_collection_set(instruction, epilogue)?;
+                }
+                NATIVE_OPCODE_COLLECTION_APPEND => {
+                    self.emit_collection_append_prepend(instruction, epilogue, false)?;
+                }
+                NATIVE_OPCODE_COLLECTION_PREPEND => {
+                    self.emit_collection_append_prepend(instruction, epilogue, true)?;
+                }
+                NATIVE_OPCODE_COLLECTION_INSERT => {
+                    self.emit_collection_insert(instruction, epilogue)?;
+                }
+                NATIVE_OPCODE_COLLECTION_REMOVE_AT => {
+                    self.emit_collection_remove_at(instruction, epilogue)?;
+                }
+                NATIVE_OPCODE_COLLECTION_REMOVE_KEY => {
+                    self.emit_collection_remove_key(instruction, epilogue)?;
+                }
+                NATIVE_OPCODE_COLLECTION_KEYS | NATIVE_OPCODE_COLLECTION_VALUES => {
+                    self.emit_collection_keys_values(instruction, epilogue, instruction.opcode)?;
+                }
+                NATIVE_OPCODE_COLLECTION_HAS_KEY => {
+                    self.emit_collection_has_key(instruction)?;
+                }
+                NATIVE_OPCODE_COLLECTION_CONTAINS => {
+                    self.emit_collection_contains(instruction)?;
+                }
+                NATIVE_OPCODE_COLLECTION_SUM => {
+                    self.emit_collection_sum(instruction)?;
                 }
                 NATIVE_OPCODE_RETURN_OK => {
                     let src = operand(instruction, 0)?;
@@ -842,6 +905,839 @@ impl<'a> NativeEmitter<'a> {
         self.copy_slot(dst, value)?;
         self.code.bind(replace_done);
         Ok(())
+    }
+
+    fn emit_collection_get(
+        &mut self,
+        instruction: &bytecode::NativeInstruction,
+        epilogue: Label,
+        has_default: bool,
+    ) -> Result<(), String> {
+        let dst = operand(instruction, 0)?;
+        let value = operand(instruction, 1)?;
+        let key = operand(instruction, 2)?;
+        let default = instruction.operands.get(3).copied();
+        if has_default && default.is_none() {
+            return Err("getOr is missing its default value".to_string());
+        }
+
+        let map = self.code.new_label();
+        let found = self.code.new_label();
+        let missing = self.code.new_label();
+        let done = self.code.new_label();
+        self.code.ldr_imm(9, 31, slot_offset(value))?;
+        self.code.ldr_imm(10, 31, slot_offset(value) + 8)?;
+        self.code.ldr_imm(11, 9, 0)?;
+        self.code.cmp_reg_imm(11, HEAP_KIND_MAP);
+        self.code.b_eq(map);
+
+        self.code.ldr_imm(11, 31, slot_offset(key))?;
+        self.code.cmp_zero(11);
+        self.code.b_lt(missing);
+        self.code.cmp_reg(11, 10);
+        self.code.b_ge(missing);
+        self.code.mov_imm(12, SLOT_SIZE as u64);
+        self.code.mul(12, 11, 12);
+        self.code.add_imm(9, 9, HEAP_HEADER_SIZE)?;
+        self.code.add_reg(9, 9, 12);
+        self.copy_address_to_slot(9, 0, dst)?;
+        self.code.b(done);
+
+        self.code.bind(map);
+        self.code.add_imm(9, 9, HEAP_HEADER_SIZE)?;
+        self.code.ldr_imm(11, 31, slot_offset(key))?;
+        self.code.mov_imm(12, 0);
+        let loop_start = self.code.new_label();
+        self.code.bind(loop_start);
+        self.code.cmp_reg(12, 10);
+        self.code.b_ge(missing);
+        self.code.ldr_imm(13, 9, 0)?;
+        self.code.cmp_reg(13, 11);
+        self.code.b_eq(found);
+        self.code.add_imm(9, 9, SLOT_SIZE * 2)?;
+        self.code.add_imm(12, 12, 1)?;
+        self.code.b(loop_start);
+        self.code.bind(found);
+        self.copy_address_to_slot(9, SLOT_SIZE, dst)?;
+        self.code.b(done);
+
+        self.code.bind(missing);
+        if let Some(default) = default {
+            self.copy_slot(dst, default)?;
+        } else {
+            self.emit_error(ERR_NOT_FOUND, epilogue);
+        }
+        self.code.bind(done);
+        Ok(())
+    }
+
+    fn emit_collection_find(
+        &mut self,
+        instruction: &bytecode::NativeInstruction,
+        epilogue: Label,
+    ) -> Result<(), String> {
+        let dst = operand(instruction, 0)?;
+        let value = operand(instruction, 1)?;
+        let needle = operand(instruction, 2)?;
+        let start = instruction.operands.get(3).copied();
+        let valid_start = self.code.new_label();
+        let loop_start = self.code.new_label();
+        let found = self.code.new_label();
+        let not_found = self.code.new_label();
+        let done = self.code.new_label();
+        self.code.ldr_imm(9, 31, slot_offset(value))?;
+        self.code.ldr_imm(10, 31, slot_offset(value) + 8)?;
+        if let Some(start) = start {
+            self.code.ldr_imm(11, 31, slot_offset(start))?;
+        } else {
+            self.code.mov_imm(11, 0);
+        }
+        self.code.cmp_zero(11);
+        self.code.b_ge(valid_start);
+        self.emit_error(ERR_INDEX_OUT_OF_RANGE, epilogue);
+        self.code.bind(valid_start);
+        self.code.cmp_reg(11, 10);
+        self.code.b_gt(not_found);
+        self.code.add_imm(9, 9, HEAP_HEADER_SIZE)?;
+        self.code.mov_imm(12, SLOT_SIZE as u64);
+        self.code.mul(12, 11, 12);
+        self.code.add_reg(9, 9, 12);
+        self.code.ldr_imm(13, 31, slot_offset(needle))?;
+        self.code.bind(loop_start);
+        self.code.cmp_reg(11, 10);
+        self.code.b_ge(not_found);
+        self.code.ldr_imm(14, 9, 0)?;
+        self.code.cmp_reg(14, 13);
+        self.code.b_eq(found);
+        self.code.add_imm(9, 9, SLOT_SIZE)?;
+        self.code.add_imm(11, 11, 1)?;
+        self.code.b(loop_start);
+        self.code.bind(found);
+        self.code.str_imm(11, 31, slot_offset(dst))?;
+        self.code.b(done);
+        self.code.bind(not_found);
+        self.emit_error(ERR_NOT_FOUND, epilogue);
+        self.code.bind(done);
+        Ok(())
+    }
+
+    fn emit_collection_mid(
+        &mut self,
+        instruction: &bytecode::NativeInstruction,
+        epilogue: Label,
+    ) -> Result<(), String> {
+        let dst = operand(instruction, 0)?;
+        let value = operand(instruction, 1)?;
+        let start = operand(instruction, 2)?;
+        let count = operand(instruction, 3)?;
+        let valid = self.code.new_label();
+        self.code.ldr_imm(9, 31, slot_offset(value))?;
+        self.code.ldr_imm(10, 31, slot_offset(value) + 8)?;
+        self.code.ldr_imm(11, 31, slot_offset(start))?;
+        self.code.ldr_imm(12, 31, slot_offset(count))?;
+        self.validate_list_range(11, 12, 10, valid, epilogue)?;
+        self.code.bind(valid);
+        self.emit_allocate_collection_from_len_reg(HEAP_KIND_LIST, 12, 12, epilogue)?;
+        self.store_collection_slot(dst, 1, 12)?;
+        self.code.mov_imm(13, SLOT_SIZE as u64);
+        self.code.mul(13, 11, 13);
+        self.code.add_imm(9, 9, HEAP_HEADER_SIZE)?;
+        self.code.add_reg(9, 9, 13);
+        self.code.add_imm(14, 1, HEAP_HEADER_SIZE)?;
+        self.copy_slots_dynamic(9, 14, 12)
+    }
+
+    fn emit_collection_replace(
+        &mut self,
+        instruction: &bytecode::NativeInstruction,
+        epilogue: Label,
+    ) -> Result<(), String> {
+        let dst = operand(instruction, 0)?;
+        let value = operand(instruction, 1)?;
+        let old = operand(instruction, 2)?;
+        let new = operand(instruction, 3)?;
+        self.clone_list_with_replacement(dst, value, Some((old, new)), None, epilogue)
+    }
+
+    fn emit_collection_set(
+        &mut self,
+        instruction: &bytecode::NativeInstruction,
+        epilogue: Label,
+    ) -> Result<(), String> {
+        let dst = operand(instruction, 0)?;
+        let value = operand(instruction, 1)?;
+        let key = operand(instruction, 2)?;
+        let item = operand(instruction, 3)?;
+        let map = self.code.new_label();
+        self.code.ldr_imm(9, 31, slot_offset(value))?;
+        self.code.ldr_imm(10, 9, 0)?;
+        self.code.cmp_reg_imm(10, HEAP_KIND_MAP);
+        self.code.b_eq(map);
+        self.clone_list_with_replacement(dst, value, None, Some((key, item)), epilogue)?;
+        let done = self.code.new_label();
+        self.code.b(done);
+        self.code.bind(map);
+        self.emit_collection_map_set(dst, value, key, item, epilogue)?;
+        self.code.bind(done);
+        Ok(())
+    }
+
+    fn emit_collection_append_prepend(
+        &mut self,
+        instruction: &bytecode::NativeInstruction,
+        epilogue: Label,
+        prepend: bool,
+    ) -> Result<(), String> {
+        let dst = operand(instruction, 0)?;
+        let value = operand(instruction, 1)?;
+        let item = operand(instruction, 2)?;
+        let list_items = instruction.operands.get(3).copied().unwrap_or(0) != 0;
+        let list_arg = self.code.new_label();
+        let done = self.code.new_label();
+        if list_items {
+            self.code.b(list_arg);
+        }
+        self.emit_collection_insert_at_end(dst, value, item, epilogue, prepend)?;
+        self.code.b(done);
+        self.code.bind(list_arg);
+        if prepend {
+            self.emit_collection_concat(dst, item, value, epilogue)?;
+        } else {
+            self.emit_collection_concat(dst, value, item, epilogue)?;
+        }
+        self.code.bind(done);
+        Ok(())
+    }
+
+    fn emit_collection_insert(
+        &mut self,
+        instruction: &bytecode::NativeInstruction,
+        epilogue: Label,
+    ) -> Result<(), String> {
+        let dst = operand(instruction, 0)?;
+        let value = operand(instruction, 1)?;
+        let index = operand(instruction, 2)?;
+        let item = operand(instruction, 3)?;
+        self.emit_collection_insert_at_index(dst, value, index, item, epilogue)
+    }
+
+    fn emit_collection_remove_at(
+        &mut self,
+        instruction: &bytecode::NativeInstruction,
+        epilogue: Label,
+    ) -> Result<(), String> {
+        let dst = operand(instruction, 0)?;
+        let value = operand(instruction, 1)?;
+        let index = operand(instruction, 2)?;
+        self.clone_list_with_removed_index(dst, value, index, epilogue)
+    }
+
+    fn emit_collection_remove_key(
+        &mut self,
+        instruction: &bytecode::NativeInstruction,
+        epilogue: Label,
+    ) -> Result<(), String> {
+        let dst = operand(instruction, 0)?;
+        let value = operand(instruction, 1)?;
+        let key = operand(instruction, 2)?;
+        let scratch = self.current_scratch;
+        let count_loop = self.code.new_label();
+        let skip = self.code.new_label();
+        let counted = self.code.new_label();
+        let copy_loop = self.code.new_label();
+        let copy_skip = self.code.new_label();
+        let copy_done = self.code.new_label();
+        self.code.ldr_imm(9, 31, slot_offset(value))?;
+        self.code.ldr_imm(10, 31, slot_offset(value) + 8)?;
+        self.code.ldr_imm(11, 31, slot_offset(key))?;
+        self.code.add_imm(12, 9, HEAP_HEADER_SIZE)?;
+        self.code.mov_imm(13, 0);
+        self.code.mov_imm(14, 0);
+        self.code.bind(count_loop);
+        self.code.cmp_reg(13, 10);
+        self.code.b_ge(counted);
+        self.code.ldr_imm(15, 12, 0)?;
+        self.code.cmp_reg(15, 11);
+        self.code.b_eq(skip);
+        self.code.add_imm(14, 14, 1)?;
+        self.code.bind(skip);
+        self.code.add_imm(12, 12, SLOT_SIZE * 2)?;
+        self.code.add_imm(13, 13, 1)?;
+        self.code.b(count_loop);
+        self.code.bind(counted);
+        self.code.str_imm(9, 31, scratch)?;
+        self.code.str_imm(10, 31, scratch + 8)?;
+        self.emit_allocate_collection_from_len_reg(HEAP_KIND_MAP, 14, 14, epilogue)?;
+        self.store_collection_slot(dst, 1, 14)?;
+        self.code.ldr_imm(9, 31, scratch)?;
+        self.code.ldr_imm(10, 31, scratch + 8)?;
+        self.code.add_imm(12, 9, HEAP_HEADER_SIZE)?;
+        self.code.add_imm(16, 1, HEAP_HEADER_SIZE)?;
+        self.code.mov_imm(13, 0);
+        self.code.bind(copy_loop);
+        self.code.cmp_reg(13, 10);
+        self.code.b_ge(copy_done);
+        self.code.ldr_imm(15, 12, 0)?;
+        self.code.cmp_reg(15, 11);
+        self.code.b_eq(copy_skip);
+        self.copy_dynamic_slot(12, 16)?;
+        self.code.add_imm(12, 12, SLOT_SIZE)?;
+        self.code.add_imm(16, 16, SLOT_SIZE)?;
+        self.copy_dynamic_slot(12, 16)?;
+        self.code.add_imm(12, 12, SLOT_SIZE)?;
+        self.code.add_imm(16, 16, SLOT_SIZE)?;
+        self.code.add_imm(13, 13, 1)?;
+        self.code.b(copy_loop);
+        self.code.bind(copy_skip);
+        self.code.add_imm(12, 12, SLOT_SIZE * 2)?;
+        self.code.add_imm(13, 13, 1)?;
+        self.code.b(copy_loop);
+        self.code.bind(copy_done);
+        Ok(())
+    }
+
+    fn emit_collection_keys_values(
+        &mut self,
+        instruction: &bytecode::NativeInstruction,
+        epilogue: Label,
+        opcode: u16,
+    ) -> Result<(), String> {
+        let dst = operand(instruction, 0)?;
+        let value = operand(instruction, 1)?;
+        self.code.ldr_imm(9, 31, slot_offset(value))?;
+        self.code.ldr_imm(10, 31, slot_offset(value) + 8)?;
+        self.emit_allocate_collection_from_len_reg(HEAP_KIND_LIST, 10, 10, epilogue)?;
+        self.store_collection_slot(dst, 1, 10)?;
+        self.code.ldr_imm(9, 31, slot_offset(value))?;
+        self.code.ldr_imm(10, 31, slot_offset(value) + 8)?;
+        self.code.add_imm(11, 9, HEAP_HEADER_SIZE)?;
+        if opcode == NATIVE_OPCODE_COLLECTION_VALUES {
+            self.code.add_imm(11, 11, SLOT_SIZE)?;
+        }
+        self.code.add_imm(12, 1, HEAP_HEADER_SIZE)?;
+        let loop_start = self.code.new_label();
+        let done = self.code.new_label();
+        self.code.bind(loop_start);
+        self.code.cbz(10, done);
+        self.copy_dynamic_slot(11, 12)?;
+        self.code.add_imm(11, 11, SLOT_SIZE * 2)?;
+        self.code.add_imm(12, 12, SLOT_SIZE)?;
+        self.code.sub_imm(10, 10, 1)?;
+        self.code.b(loop_start);
+        self.code.bind(done);
+        Ok(())
+    }
+
+    fn emit_collection_has_key(
+        &mut self,
+        instruction: &bytecode::NativeInstruction,
+    ) -> Result<(), String> {
+        let dst = operand(instruction, 0)?;
+        let value = operand(instruction, 1)?;
+        let key = operand(instruction, 2)?;
+        self.emit_collection_membership(dst, value, key, true)
+    }
+
+    fn emit_collection_contains(
+        &mut self,
+        instruction: &bytecode::NativeInstruction,
+    ) -> Result<(), String> {
+        let dst = operand(instruction, 0)?;
+        let value = operand(instruction, 1)?;
+        let item = operand(instruction, 2)?;
+        self.emit_collection_membership(dst, value, item, false)
+    }
+
+    fn emit_collection_sum(
+        &mut self,
+        instruction: &bytecode::NativeInstruction,
+    ) -> Result<(), String> {
+        let dst = operand(instruction, 0)?;
+        let value = operand(instruction, 1)?;
+        let loop_start = self.code.new_label();
+        let done = self.code.new_label();
+        self.code.ldr_imm(9, 31, slot_offset(value))?;
+        self.code.ldr_imm(10, 31, slot_offset(value) + 8)?;
+        self.code.add_imm(9, 9, HEAP_HEADER_SIZE)?;
+        self.code.mov_imm(11, 0);
+        self.code.bind(loop_start);
+        self.code.cbz(10, done);
+        self.code.ldr_imm(12, 9, 0)?;
+        self.code.add_reg(11, 11, 12);
+        self.code.add_imm(9, 9, SLOT_SIZE)?;
+        self.code.sub_imm(10, 10, 1)?;
+        self.code.b(loop_start);
+        self.code.bind(done);
+        self.code.str_imm(11, 31, slot_offset(dst))
+    }
+
+    fn validate_list_range(
+        &mut self,
+        start_reg: u8,
+        count_reg: u8,
+        len_reg: u8,
+        valid: Label,
+        epilogue: Label,
+    ) -> Result<(), String> {
+        let valid_start = self.code.new_label();
+        let valid_count = self.code.new_label();
+        let valid_add = self.code.new_label();
+        self.code.cmp_zero(start_reg);
+        self.code.b_ge(valid_start);
+        self.emit_error(ERR_INDEX_OUT_OF_RANGE, epilogue);
+        self.code.bind(valid_start);
+        self.code.cmp_zero(count_reg);
+        self.code.b_ge(valid_count);
+        self.emit_error(ERR_INDEX_OUT_OF_RANGE, epilogue);
+        self.code.bind(valid_count);
+        self.code.add_reg(15, start_reg, count_reg);
+        self.code.cmp_reg(15, start_reg);
+        self.code.b_hs(valid_add);
+        self.emit_error(ERR_INDEX_OUT_OF_RANGE, epilogue);
+        self.code.bind(valid_add);
+        self.code.cmp_reg(15, len_reg);
+        self.code.b_le(valid);
+        self.emit_error(ERR_INDEX_OUT_OF_RANGE, epilogue);
+        Ok(())
+    }
+
+    fn emit_allocate_collection_from_len_reg(
+        &mut self,
+        kind: u64,
+        len_reg: u8,
+        payload_len_reg: u8,
+        epilogue: Label,
+    ) -> Result<(), String> {
+        let scratch = self.current_scratch + 72;
+        let size_ok = self.code.new_label();
+        let total_ok = self.code.new_label();
+        let alloc_ok = self.code.new_label();
+        self.code.str_imm(len_reg, 31, scratch)?;
+        self.code.mov_imm(17, SLOT_SIZE as u64);
+        if kind == HEAP_KIND_MAP {
+            self.code.add_reg(18, payload_len_reg, payload_len_reg);
+            self.code.mul(0, 18, 17);
+        } else {
+            self.code.mul(0, payload_len_reg, 17);
+        }
+        self.code.mov_reg(18, 0);
+        self.code.add_imm(0, 0, HEAP_HEADER_SIZE)?;
+        self.code.cmp_reg(0, 18);
+        self.code.b_hs(size_ok);
+        self.emit_error(ERR_OUT_OF_MEMORY, epilogue);
+        self.code.bind(size_ok);
+        self.code.mov_imm(1, 8);
+        self.code.bl(self.arena_alloc);
+        self.code.cbz(0, alloc_ok);
+        self.code.mov_imm(1, 0);
+        self.code.mov_imm(2, 0);
+        self.code.b(epilogue);
+        self.code.bind(alloc_ok);
+        self.code.ldr_imm(10, 31, scratch)?;
+        self.code.mov_imm(17, SLOT_SIZE as u64);
+        if kind == HEAP_KIND_MAP {
+            self.code.add_reg(18, payload_len_reg, payload_len_reg);
+            self.code.mul(18, 18, 17);
+        } else {
+            self.code.mul(18, payload_len_reg, 17);
+        }
+        self.code.add_imm(0, 18, HEAP_HEADER_SIZE)?;
+        self.code.cmp_reg(0, 18);
+        self.code.b_hs(total_ok);
+        self.emit_error(ERR_OUT_OF_MEMORY, epilogue);
+        self.code.bind(total_ok);
+        self.write_heap_header_from_regs(1, kind, 10, 10, 0)
+    }
+
+    fn store_collection_slot(
+        &mut self,
+        dst: u32,
+        object_reg: u8,
+        len_reg: u8,
+    ) -> Result<(), String> {
+        self.code.str_imm(object_reg, 31, slot_offset(dst))?;
+        self.code.str_imm(len_reg, 31, slot_offset(dst) + 8)?;
+        self.code.str_imm(31, 31, slot_offset(dst) + 16)
+    }
+
+    fn copy_dynamic_slot(&mut self, src_ptr_reg: u8, dst_ptr_reg: u8) -> Result<(), String> {
+        self.code.ldr_imm(20, src_ptr_reg, 0)?;
+        self.code.ldr_imm(21, src_ptr_reg, 8)?;
+        self.code.ldr_imm(22, src_ptr_reg, 16)?;
+        self.code.str_imm(20, dst_ptr_reg, 0)?;
+        self.code.str_imm(21, dst_ptr_reg, 8)?;
+        self.code.str_imm(22, dst_ptr_reg, 16)
+    }
+
+    fn copy_register_slot_to_ptr(&mut self, src: u32, dst_ptr_reg: u8) -> Result<(), String> {
+        self.code.ldr_imm(20, 31, slot_offset(src))?;
+        self.code.ldr_imm(21, 31, slot_offset(src) + 8)?;
+        self.code.ldr_imm(22, 31, slot_offset(src) + 16)?;
+        self.code.str_imm(20, dst_ptr_reg, 0)?;
+        self.code.str_imm(21, dst_ptr_reg, 8)?;
+        self.code.str_imm(22, dst_ptr_reg, 16)
+    }
+
+    fn copy_slots_dynamic(
+        &mut self,
+        src_ptr_reg: u8,
+        dst_ptr_reg: u8,
+        count_reg: u8,
+    ) -> Result<(), String> {
+        let loop_start = self.code.new_label();
+        let done = self.code.new_label();
+        self.code.bind(loop_start);
+        self.code.cbz(count_reg, done);
+        self.copy_dynamic_slot(src_ptr_reg, dst_ptr_reg)?;
+        self.code.add_imm(src_ptr_reg, src_ptr_reg, SLOT_SIZE)?;
+        self.code.add_imm(dst_ptr_reg, dst_ptr_reg, SLOT_SIZE)?;
+        self.code.sub_imm(count_reg, count_reg, 1)?;
+        self.code.b(loop_start);
+        self.code.bind(done);
+        Ok(())
+    }
+
+    fn clone_list_with_replacement(
+        &mut self,
+        dst: u32,
+        value: u32,
+        replace_equal: Option<(u32, u32)>,
+        replace_index: Option<(u32, u32)>,
+        epilogue: Label,
+    ) -> Result<(), String> {
+        let valid_index = self.code.new_label();
+        let copy_loop = self.code.new_label();
+        let use_new = self.code.new_label();
+        let copied = self.code.new_label();
+        let done = self.code.new_label();
+        self.code.ldr_imm(9, 31, slot_offset(value))?;
+        self.code.ldr_imm(10, 31, slot_offset(value) + 8)?;
+        if let Some((index, _)) = replace_index {
+            self.code.ldr_imm(11, 31, slot_offset(index))?;
+            self.code.cmp_zero(11);
+            self.code.b_ge(valid_index);
+            self.emit_error(ERR_INDEX_OUT_OF_RANGE, epilogue);
+            self.code.bind(valid_index);
+            self.code.cmp_reg(11, 10);
+            self.code.b_lt(done);
+            self.emit_error(ERR_INDEX_OUT_OF_RANGE, epilogue);
+        }
+        self.emit_allocate_collection_from_len_reg(HEAP_KIND_LIST, 10, 10, epilogue)?;
+        self.store_collection_slot(dst, 1, 10)?;
+        self.code.ldr_imm(9, 31, slot_offset(value))?;
+        self.code.ldr_imm(10, 31, slot_offset(value) + 8)?;
+        self.code.add_imm(12, 9, HEAP_HEADER_SIZE)?;
+        self.code.add_imm(13, 1, HEAP_HEADER_SIZE)?;
+        self.code.mov_imm(14, 0);
+        self.code.bind(copy_loop);
+        self.code.cmp_reg(14, 10);
+        self.code.b_ge(done);
+        if let Some((old, _)) = replace_equal {
+            self.code.ldr_imm(15, 12, 0)?;
+            self.code.ldr_imm(16, 31, slot_offset(old))?;
+            self.code.cmp_reg(15, 16);
+            self.code.b_eq(use_new);
+        }
+        if let Some((index, _)) = replace_index {
+            self.code.ldr_imm(15, 31, slot_offset(index))?;
+            self.code.cmp_reg(14, 15);
+            self.code.b_eq(use_new);
+        }
+        self.copy_dynamic_slot(12, 13)?;
+        self.code.b(copied);
+        self.code.bind(use_new);
+        let new_value = replace_equal
+            .map(|(_, new)| new)
+            .or_else(|| replace_index.map(|(_, new)| new))
+            .ok_or_else(|| "list replacement is missing replacement value".to_string())?;
+        self.copy_register_slot_to_ptr(new_value, 13)?;
+        self.code.bind(copied);
+        self.code.add_imm(12, 12, SLOT_SIZE)?;
+        self.code.add_imm(13, 13, SLOT_SIZE)?;
+        self.code.add_imm(14, 14, 1)?;
+        self.code.b(copy_loop);
+        self.code.bind(done);
+        Ok(())
+    }
+
+    fn emit_collection_insert_at_end(
+        &mut self,
+        dst: u32,
+        value: u32,
+        item: u32,
+        epilogue: Label,
+        prepend: bool,
+    ) -> Result<(), String> {
+        let scratch = self.current_scratch;
+        self.code.ldr_imm(9, 31, slot_offset(value))?;
+        self.code.ldr_imm(10, 31, slot_offset(value) + 8)?;
+        self.code.add_imm(11, 10, 1)?;
+        self.code.str_imm(9, 31, scratch)?;
+        self.code.str_imm(10, 31, scratch + 8)?;
+        self.emit_allocate_collection_from_len_reg(HEAP_KIND_LIST, 11, 11, epilogue)?;
+        self.store_collection_slot(dst, 1, 11)?;
+        self.code.ldr_imm(9, 31, scratch)?;
+        self.code.ldr_imm(10, 31, scratch + 8)?;
+        self.code.add_imm(12, 9, HEAP_HEADER_SIZE)?;
+        self.code.add_imm(13, 1, HEAP_HEADER_SIZE)?;
+        if prepend {
+            self.copy_register_slot_to_ptr(item, 13)?;
+            self.code.add_imm(13, 13, SLOT_SIZE)?;
+            self.copy_slots_dynamic(12, 13, 10)
+        } else {
+            self.copy_slots_dynamic(12, 13, 10)?;
+            self.copy_register_slot_to_ptr(item, 13)
+        }
+    }
+
+    fn emit_collection_concat(
+        &mut self,
+        dst: u32,
+        left: u32,
+        right: u32,
+        epilogue: Label,
+    ) -> Result<(), String> {
+        let scratch = self.current_scratch;
+        self.code.ldr_imm(9, 31, slot_offset(left))?;
+        self.code.ldr_imm(10, 31, slot_offset(left) + 8)?;
+        self.code.ldr_imm(11, 31, slot_offset(right))?;
+        self.code.ldr_imm(12, 31, slot_offset(right) + 8)?;
+        self.code.add_reg(13, 10, 12);
+        self.code.str_imm(9, 31, scratch)?;
+        self.code.str_imm(10, 31, scratch + 8)?;
+        self.code.str_imm(11, 31, scratch + 16)?;
+        self.code.str_imm(12, 31, scratch + 24)?;
+        self.emit_allocate_collection_from_len_reg(HEAP_KIND_LIST, 13, 13, epilogue)?;
+        self.store_collection_slot(dst, 1, 13)?;
+        self.code.ldr_imm(9, 31, scratch)?;
+        self.code.ldr_imm(10, 31, scratch + 8)?;
+        self.code.ldr_imm(11, 31, scratch + 16)?;
+        self.code.ldr_imm(12, 31, scratch + 24)?;
+        self.code.add_imm(14, 1, HEAP_HEADER_SIZE)?;
+        self.code.add_imm(9, 9, HEAP_HEADER_SIZE)?;
+        self.copy_slots_dynamic(9, 14, 10)?;
+        self.code.add_imm(11, 11, HEAP_HEADER_SIZE)?;
+        self.copy_slots_dynamic(11, 14, 12)
+    }
+
+    fn emit_collection_insert_at_index(
+        &mut self,
+        dst: u32,
+        value: u32,
+        index: u32,
+        item: u32,
+        epilogue: Label,
+    ) -> Result<(), String> {
+        let scratch = self.current_scratch;
+        let valid = self.code.new_label();
+        let copy_loop = self.code.new_label();
+        let insert_item = self.code.new_label();
+        let copied = self.code.new_label();
+        let done = self.code.new_label();
+        self.code.ldr_imm(9, 31, slot_offset(value))?;
+        self.code.ldr_imm(10, 31, slot_offset(value) + 8)?;
+        self.code.ldr_imm(11, 31, slot_offset(index))?;
+        self.code.cmp_zero(11);
+        self.code.b_ge(valid);
+        self.emit_error(ERR_INDEX_OUT_OF_RANGE, epilogue);
+        self.code.bind(valid);
+        self.code.cmp_reg(11, 10);
+        self.code.b_le(insert_item);
+        self.emit_error(ERR_INDEX_OUT_OF_RANGE, epilogue);
+        self.code.bind(insert_item);
+        self.code.add_imm(12, 10, 1)?;
+        self.code.str_imm(9, 31, scratch)?;
+        self.code.str_imm(10, 31, scratch + 8)?;
+        self.code.str_imm(11, 31, scratch + 16)?;
+        self.emit_allocate_collection_from_len_reg(HEAP_KIND_LIST, 12, 12, epilogue)?;
+        self.store_collection_slot(dst, 1, 12)?;
+        self.code.ldr_imm(9, 31, scratch)?;
+        self.code.ldr_imm(10, 31, scratch + 8)?;
+        self.code.ldr_imm(11, 31, scratch + 16)?;
+        self.code.add_imm(13, 9, HEAP_HEADER_SIZE)?;
+        self.code.add_imm(14, 1, HEAP_HEADER_SIZE)?;
+        self.code.mov_imm(15, 0);
+        self.code.bind(copy_loop);
+        self.code.cmp_reg(15, 10);
+        self.code.b_ge(done);
+        self.code.cmp_reg(15, 11);
+        self.code.b_ne(copied);
+        self.copy_register_slot_to_ptr(item, 14)?;
+        self.code.add_imm(14, 14, SLOT_SIZE)?;
+        self.code.bind(copied);
+        self.copy_dynamic_slot(13, 14)?;
+        self.code.add_imm(13, 13, SLOT_SIZE)?;
+        self.code.add_imm(14, 14, SLOT_SIZE)?;
+        self.code.add_imm(15, 15, 1)?;
+        self.code.b(copy_loop);
+        self.code.bind(done);
+        self.code.cmp_reg(10, 11);
+        let after_tail = self.code.new_label();
+        self.code.b_ne(after_tail);
+        self.copy_register_slot_to_ptr(item, 14)?;
+        self.code.bind(after_tail);
+        Ok(())
+    }
+
+    fn clone_list_with_removed_index(
+        &mut self,
+        dst: u32,
+        value: u32,
+        index: u32,
+        epilogue: Label,
+    ) -> Result<(), String> {
+        let scratch = self.current_scratch;
+        let valid = self.code.new_label();
+        let copy_loop = self.code.new_label();
+        let skip = self.code.new_label();
+        let done = self.code.new_label();
+        self.code.ldr_imm(9, 31, slot_offset(value))?;
+        self.code.ldr_imm(10, 31, slot_offset(value) + 8)?;
+        self.code.ldr_imm(11, 31, slot_offset(index))?;
+        self.code.cmp_zero(11);
+        self.code.b_ge(valid);
+        self.emit_error(ERR_INDEX_OUT_OF_RANGE, epilogue);
+        self.code.bind(valid);
+        self.code.cmp_reg(11, 10);
+        let in_range = self.code.new_label();
+        self.code.b_lt(in_range);
+        self.emit_error(ERR_INDEX_OUT_OF_RANGE, epilogue);
+        self.code.bind(in_range);
+        self.code.sub_imm(12, 10, 1)?;
+        self.code.str_imm(9, 31, scratch)?;
+        self.code.str_imm(10, 31, scratch + 8)?;
+        self.code.str_imm(11, 31, scratch + 16)?;
+        self.emit_allocate_collection_from_len_reg(HEAP_KIND_LIST, 12, 12, epilogue)?;
+        self.store_collection_slot(dst, 1, 12)?;
+        self.code.ldr_imm(9, 31, scratch)?;
+        self.code.ldr_imm(10, 31, scratch + 8)?;
+        self.code.ldr_imm(11, 31, scratch + 16)?;
+        self.code.add_imm(13, 9, HEAP_HEADER_SIZE)?;
+        self.code.add_imm(14, 1, HEAP_HEADER_SIZE)?;
+        self.code.mov_imm(15, 0);
+        self.code.bind(copy_loop);
+        self.code.cmp_reg(15, 10);
+        self.code.b_ge(done);
+        self.code.cmp_reg(15, 11);
+        self.code.b_eq(skip);
+        self.copy_dynamic_slot(13, 14)?;
+        self.code.add_imm(14, 14, SLOT_SIZE)?;
+        self.code.bind(skip);
+        self.code.add_imm(13, 13, SLOT_SIZE)?;
+        self.code.add_imm(15, 15, 1)?;
+        self.code.b(copy_loop);
+        self.code.bind(done);
+        Ok(())
+    }
+
+    fn emit_collection_map_set(
+        &mut self,
+        dst: u32,
+        value: u32,
+        key: u32,
+        item: u32,
+        epilogue: Label,
+    ) -> Result<(), String> {
+        let scratch = self.current_scratch;
+        let scan_loop = self.code.new_label();
+        let scan_found = self.code.new_label();
+        let scan_done = self.code.new_label();
+        self.code.ldr_imm(9, 31, slot_offset(value))?;
+        self.code.ldr_imm(10, 31, slot_offset(value) + 8)?;
+        self.code.ldr_imm(13, 31, slot_offset(key))?;
+        self.code.add_imm(11, 9, HEAP_HEADER_SIZE)?;
+        self.code.mov_imm(12, 0);
+        self.code.mov_imm(14, 0);
+        self.code.bind(scan_loop);
+        self.code.cmp_reg(12, 10);
+        self.code.b_ge(scan_done);
+        self.code.ldr_imm(15, 11, 0)?;
+        self.code.cmp_reg(15, 13);
+        self.code.b_eq(scan_found);
+        self.code.add_imm(11, 11, SLOT_SIZE * 2)?;
+        self.code.add_imm(12, 12, 1)?;
+        self.code.b(scan_loop);
+        self.code.bind(scan_found);
+        self.code.mov_imm(14, 1);
+        self.code.bind(scan_done);
+        self.code.str_imm(9, 31, scratch)?;
+        self.code.str_imm(10, 31, scratch + 8)?;
+        self.code.str_imm(14, 31, scratch + 16)?;
+        self.code.mov_reg(15, 10);
+        let length_ready = self.code.new_label();
+        self.code.cbnz(14, length_ready);
+        self.code.add_imm(15, 15, 1)?;
+        self.code.bind(length_ready);
+        self.code.str_imm(15, 31, scratch + 24)?;
+        self.emit_allocate_collection_from_len_reg(HEAP_KIND_MAP, 15, 15, epilogue)?;
+        self.store_collection_slot(dst, 1, 15)?;
+        self.code.ldr_imm(9, 31, scratch)?;
+        self.code.ldr_imm(10, 31, scratch + 8)?;
+        self.code.ldr_imm(14, 31, scratch + 16)?;
+        self.code.add_imm(11, 9, HEAP_HEADER_SIZE)?;
+        self.code.add_imm(12, 1, HEAP_HEADER_SIZE)?;
+        let loop_start = self.code.new_label();
+        let replace = self.code.new_label();
+        let copied = self.code.new_label();
+        let done = self.code.new_label();
+        let append_missing = self.code.new_label();
+        let all_done = self.code.new_label();
+        self.code.ldr_imm(13, 31, slot_offset(key))?;
+        self.code.bind(loop_start);
+        self.code.cbz(10, done);
+        self.copy_dynamic_slot(11, 12)?;
+        self.code.ldr_imm(14, 11, 0)?;
+        self.code.cmp_reg(14, 13);
+        self.code.b_eq(replace);
+        self.code.add_imm(11, 11, SLOT_SIZE)?;
+        self.code.add_imm(12, 12, SLOT_SIZE)?;
+        self.copy_dynamic_slot(11, 12)?;
+        self.code.b(copied);
+        self.code.bind(replace);
+        self.copy_register_slot_to_ptr(item, 12)?;
+        self.code.bind(copied);
+        self.code.add_imm(11, 11, SLOT_SIZE)?;
+        self.code.add_imm(12, 12, SLOT_SIZE)?;
+        self.code.sub_imm(10, 10, 1)?;
+        self.code.b(loop_start);
+        self.code.bind(done);
+        self.code.cbnz(14, all_done);
+        self.code.bind(append_missing);
+        self.copy_register_slot_to_ptr(key, 12)?;
+        self.code.add_imm(12, 12, SLOT_SIZE)?;
+        self.copy_register_slot_to_ptr(item, 12)?;
+        self.code.bind(all_done);
+        Ok(())
+    }
+
+    fn emit_collection_membership(
+        &mut self,
+        dst: u32,
+        value: u32,
+        needle: u32,
+        map_keys: bool,
+    ) -> Result<(), String> {
+        let loop_start = self.code.new_label();
+        let found = self.code.new_label();
+        let done = self.code.new_label();
+        self.code.ldr_imm(9, 31, slot_offset(value))?;
+        self.code.ldr_imm(10, 31, slot_offset(value) + 8)?;
+        self.code.ldr_imm(11, 31, slot_offset(needle))?;
+        self.code.add_imm(9, 9, HEAP_HEADER_SIZE)?;
+        self.code.mov_imm(12, 0);
+        self.code.bind(loop_start);
+        self.code.cbz(10, done);
+        self.code.ldr_imm(13, 9, 0)?;
+        self.code.cmp_reg(13, 11);
+        self.code.b_eq(found);
+        self.code
+            .add_imm(9, 9, if map_keys { SLOT_SIZE * 2 } else { SLOT_SIZE })?;
+        self.code.sub_imm(10, 10, 1)?;
+        self.code.b(loop_start);
+        self.code.bind(found);
+        self.code.mov_imm(12, 1);
+        self.code.bind(done);
+        self.code.str_imm(12, 31, slot_offset(dst))
     }
 
     fn emit_general_to_string(
@@ -1517,6 +2413,45 @@ impl<'a> NativeEmitter<'a> {
         }
 
         self.code.bl(self.function_label(function_id)?);
+        self.store_result(dst)
+    }
+
+    fn emit_call_value_result(
+        &mut self,
+        instruction: &bytecode::NativeInstruction,
+    ) -> Result<(), String> {
+        let dst = operand(instruction, 0)?;
+        let function_value = operand(instruction, 1)?;
+        for (arg_index, arg) in instruction.operands.iter().skip(2).enumerate() {
+            if arg_index >= 4 {
+                return Err(
+                    "native bytecode execution supports at most four call arguments".to_string(),
+                );
+            }
+            let slot = slot_offset(*arg);
+            self.code.ldr_imm((arg_index * 2) as u8, 31, slot)?;
+            self.code.ldr_imm((arg_index * 2 + 1) as u8, 31, slot + 8)?;
+        }
+
+        self.code.ldr_imm(20, 31, slot_offset(function_value))?;
+        let done = self.code.new_label();
+        let mut labels = Vec::new();
+        for index in 0..self.program.functions.len() {
+            labels.push(self.code.new_label());
+            self.code.mov_imm(21, index as u64);
+            self.code.cmp_reg(20, 21);
+            self.code.b_eq(labels[index]);
+        }
+        self.code.mov_imm(0, ERR_INVALID_ARGUMENT);
+        self.code.mov_imm(1, 0);
+        self.code.mov_imm(2, 0);
+        self.code.b(done);
+        for (index, label) in labels.into_iter().enumerate() {
+            self.code.bind(label);
+            self.code.bl(self.function_label(index as u32)?);
+            self.code.b(done);
+        }
+        self.code.bind(done);
         self.store_result(dst)
     }
 

@@ -53,6 +53,8 @@ const OPCODE_CONCAT: u16 = 40;
 pub(crate) const OPCODE_WRITE_STDOUT: u16 = 50;
 const OPCODE_CALL_RESULT: u16 = 60;
 const OPCODE_UNWRAP_RESULT: u16 = 61;
+const OPCODE_LOAD_FUNCTION: u16 = 62;
+const OPCODE_CALL_VALUE_RESULT: u16 = 63;
 const OPCODE_RETURN_OK: u16 = 70;
 const OPCODE_CONSTRUCT_RECORD: u16 = 80;
 const OPCODE_CONSTRUCT_VARIANT: u16 = 81;
@@ -74,6 +76,22 @@ pub(crate) const OPCODE_GENERAL_TO_FLOAT: u16 = 106;
 pub(crate) const OPCODE_GENERAL_TO_FIXED: u16 = 107;
 pub(crate) const OPCODE_GENERAL_TO_BYTE: u16 = 108;
 pub(crate) const OPCODE_GENERAL_IS_NUMERIC: u16 = 109;
+pub(crate) const OPCODE_COLLECTION_GET: u16 = 120;
+pub(crate) const OPCODE_COLLECTION_GET_OR: u16 = 121;
+pub(crate) const OPCODE_COLLECTION_FIND: u16 = 122;
+pub(crate) const OPCODE_COLLECTION_MID: u16 = 123;
+pub(crate) const OPCODE_COLLECTION_REPLACE: u16 = 124;
+pub(crate) const OPCODE_COLLECTION_SET: u16 = 125;
+pub(crate) const OPCODE_COLLECTION_APPEND: u16 = 126;
+pub(crate) const OPCODE_COLLECTION_PREPEND: u16 = 127;
+pub(crate) const OPCODE_COLLECTION_INSERT: u16 = 128;
+pub(crate) const OPCODE_COLLECTION_REMOVE_AT: u16 = 129;
+pub(crate) const OPCODE_COLLECTION_REMOVE_KEY: u16 = 130;
+pub(crate) const OPCODE_COLLECTION_KEYS: u16 = 131;
+pub(crate) const OPCODE_COLLECTION_VALUES: u16 = 132;
+pub(crate) const OPCODE_COLLECTION_HAS_KEY: u16 = 133;
+pub(crate) const OPCODE_COLLECTION_CONTAINS: u16 = 134;
+pub(crate) const OPCODE_COLLECTION_SUM: u16 = 135;
 
 pub fn write_bytecode_hex(
     project_dir: &Path,
@@ -187,6 +205,8 @@ pub const NATIVE_OPCODE_CONCAT: u16 = OPCODE_CONCAT;
 pub const NATIVE_OPCODE_WRITE_STDOUT: u16 = OPCODE_WRITE_STDOUT;
 pub const NATIVE_OPCODE_CALL_RESULT: u16 = OPCODE_CALL_RESULT;
 pub const NATIVE_OPCODE_UNWRAP_RESULT: u16 = OPCODE_UNWRAP_RESULT;
+pub const NATIVE_OPCODE_LOAD_FUNCTION: u16 = OPCODE_LOAD_FUNCTION;
+pub const NATIVE_OPCODE_CALL_VALUE_RESULT: u16 = OPCODE_CALL_VALUE_RESULT;
 pub const NATIVE_OPCODE_RETURN_OK: u16 = OPCODE_RETURN_OK;
 pub const NATIVE_OPCODE_CONSTRUCT_RECORD: u16 = OPCODE_CONSTRUCT_RECORD;
 pub const NATIVE_OPCODE_CONSTRUCT_VARIANT: u16 = OPCODE_CONSTRUCT_VARIANT;
@@ -208,6 +228,22 @@ pub const NATIVE_OPCODE_GENERAL_TO_FLOAT: u16 = OPCODE_GENERAL_TO_FLOAT;
 pub const NATIVE_OPCODE_GENERAL_TO_FIXED: u16 = OPCODE_GENERAL_TO_FIXED;
 pub const NATIVE_OPCODE_GENERAL_TO_BYTE: u16 = OPCODE_GENERAL_TO_BYTE;
 pub const NATIVE_OPCODE_GENERAL_IS_NUMERIC: u16 = OPCODE_GENERAL_IS_NUMERIC;
+pub const NATIVE_OPCODE_COLLECTION_GET: u16 = OPCODE_COLLECTION_GET;
+pub const NATIVE_OPCODE_COLLECTION_GET_OR: u16 = OPCODE_COLLECTION_GET_OR;
+pub const NATIVE_OPCODE_COLLECTION_FIND: u16 = OPCODE_COLLECTION_FIND;
+pub const NATIVE_OPCODE_COLLECTION_MID: u16 = OPCODE_COLLECTION_MID;
+pub const NATIVE_OPCODE_COLLECTION_REPLACE: u16 = OPCODE_COLLECTION_REPLACE;
+pub const NATIVE_OPCODE_COLLECTION_SET: u16 = OPCODE_COLLECTION_SET;
+pub const NATIVE_OPCODE_COLLECTION_APPEND: u16 = OPCODE_COLLECTION_APPEND;
+pub const NATIVE_OPCODE_COLLECTION_PREPEND: u16 = OPCODE_COLLECTION_PREPEND;
+pub const NATIVE_OPCODE_COLLECTION_INSERT: u16 = OPCODE_COLLECTION_INSERT;
+pub const NATIVE_OPCODE_COLLECTION_REMOVE_AT: u16 = OPCODE_COLLECTION_REMOVE_AT;
+pub const NATIVE_OPCODE_COLLECTION_REMOVE_KEY: u16 = OPCODE_COLLECTION_REMOVE_KEY;
+pub const NATIVE_OPCODE_COLLECTION_KEYS: u16 = OPCODE_COLLECTION_KEYS;
+pub const NATIVE_OPCODE_COLLECTION_VALUES: u16 = OPCODE_COLLECTION_VALUES;
+pub const NATIVE_OPCODE_COLLECTION_HAS_KEY: u16 = OPCODE_COLLECTION_HAS_KEY;
+pub const NATIVE_OPCODE_COLLECTION_CONTAINS: u16 = OPCODE_COLLECTION_CONTAINS;
+pub const NATIVE_OPCODE_COLLECTION_SUM: u16 = OPCODE_COLLECTION_SUM;
 
 pub fn native_program(ir: &IrProject) -> Result<NativeProgram, String> {
     let project = lower_project(ir, "native")?;
@@ -790,6 +826,7 @@ pub(crate) trait BuiltinCallLowerer {
         value: &IrValue,
         locals: &HashMap<String, ValueSlot>,
     ) -> Result<ValueSlot, String>;
+    fn type_id(&mut self, type_name: &str) -> u32;
     fn add_register(&mut self, type_id: u32, flags: u32) -> u32;
     fn push(&mut self, opcode: u16, operands: Vec<u32>);
     fn push_string_const(&mut self, value: &str) -> Result<ValueSlot, String>;
@@ -996,12 +1033,52 @@ impl<'a> FunctionBuilder<'a> {
                 .get(name)
                 .cloned()
                 .ok_or_else(|| format!("IR references unknown local `{name}`")),
+            IrValue::FunctionRef { name, type_ } => {
+                let function_id = *self
+                    .function_ids
+                    .get(name)
+                    .ok_or_else(|| format!("IR references unknown function `{name}`"))?;
+                let type_id = self.type_id(type_);
+                let register = self.add_register(type_id, 0);
+                self.push(OPCODE_LOAD_FUNCTION, vec![register, function_id]);
+                Ok(ValueSlot {
+                    register,
+                    type_name: type_.clone(),
+                })
+            }
             IrValue::Call { target, args } => {
                 if builtins::general::is_general_call(target) {
                     return builtins::general::lower_bytecode_call(self, target, args, locals);
                 }
                 if target == builtins::io::print::NAME {
                     return builtins::io::print::lower_bytecode_call(self, args, locals);
+                }
+
+                if let Some(callee) = locals.get(target) {
+                    if callee.type_name.starts_with("FUNC(") {
+                        let callee = callee.clone();
+                        let return_type_name = function_return_from_type(&callee.type_name)
+                            .ok_or_else(|| {
+                                format!(
+                                    "function value `{target}` has invalid type `{}`",
+                                    callee.type_name
+                                )
+                            })?;
+                        let return_type = self.type_id(&return_type_name);
+                        let result_type = self.types.result_type(self.strings, return_type);
+                        let result_register = self.add_register(result_type, 0);
+                        let mut operands = vec![result_register, callee.register];
+                        for arg in args {
+                            operands.push(self.lower_value(arg, locals)?.register);
+                        }
+                        self.push(OPCODE_CALL_VALUE_RESULT, operands);
+                        let value_register = self.add_register(return_type, 0);
+                        self.push(OPCODE_UNWRAP_RESULT, vec![value_register, result_register]);
+                        return Ok(ValueSlot {
+                            register: value_register,
+                            type_name: return_type_name,
+                        });
+                    }
                 }
 
                 let function_id = *self
@@ -1429,6 +1506,13 @@ fn comparison_opcode(op: &str) -> Option<u16> {
     }
 }
 
+fn function_return_from_type(type_name: &str) -> Option<String> {
+    type_name
+        .strip_prefix("FUNC(")
+        .and_then(|rest| rest.split_once(") AS "))
+        .map(|(_, return_type)| return_type.to_string())
+}
+
 impl BuiltinCallLowerer for FunctionBuilder<'_> {
     fn lower_value(
         &mut self,
@@ -1440,6 +1524,10 @@ impl BuiltinCallLowerer for FunctionBuilder<'_> {
 
     fn add_register(&mut self, type_id: u32, flags: u32) -> u32 {
         FunctionBuilder::add_register(self, type_id, flags)
+    }
+
+    fn type_id(&mut self, type_name: &str) -> u32 {
+        FunctionBuilder::type_id(self, type_name)
     }
 
     fn push(&mut self, opcode: u16, operands: Vec<u32>) {
@@ -1528,6 +1616,7 @@ impl TypeTable {
                 let success = self.type_id(strings, name.trim_start_matches("Result OF "));
                 self.result_type(strings, success)
             }
+            name if name.starts_with("FUNC(") => self.function_type(strings, name),
             name if name.starts_with("Map OF ") => {
                 let rest = name.trim_start_matches("Map OF ");
                 if let Some((key, value)) = rest.split_once(" TO ") {
@@ -1586,6 +1675,13 @@ impl TypeTable {
         put_u32(&mut payload, key_type);
         put_u32(&mut payload, value_type);
         self.add_entry(strings, "", &name, 5, payload)
+    }
+
+    fn function_type(&mut self, strings: &mut StringPool, name: &str) -> u32 {
+        if let Some(id) = self.ids.get(name) {
+            return *id;
+        }
+        self.add_entry(strings, "", name, 8, Vec::new())
     }
 
     fn add_entry(

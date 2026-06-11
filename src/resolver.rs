@@ -429,6 +429,25 @@ impl<'a> Resolver<'a> {
                     self.resolve_expression(file, argument, line, imports, locals);
                 }
             }
+            Expression::Lambda { params, body } => {
+                let mut lambda_locals = locals.clone();
+                for param in params {
+                    if let Some(type_name) = &param.type_name {
+                        self.resolve_type_name(file, type_name, param.line, imports);
+                    }
+                    lambda_locals.insert(
+                        param.name.clone(),
+                        Symbol {
+                            file_path: file.path.clone(),
+                            line: param.line,
+                        },
+                    );
+                    if let Some(default) = &param.default {
+                        self.resolve_expression(file, default, param.line, imports, &lambda_locals);
+                    }
+                }
+                self.resolve_expression(file, body, line, imports, &lambda_locals);
+            }
             Expression::Constructor {
                 type_name,
                 arguments,
@@ -487,12 +506,7 @@ impl<'a> Resolver<'a> {
         } else if builtins::general::is_general_call(callee) {
             return;
         } else if locals.contains_key(callee) {
-            self.report(
-                "SYMBOL_NOT_CALLABLE",
-                &format!("Local binding or parameter `{callee}` is not callable."),
-                file,
-                line,
-            );
+            return;
         } else if !self.functions.contains_key(callee) {
             self.report(
                 "SYMBOL_UNKNOWN_IDENTIFIER",
@@ -513,13 +527,6 @@ impl<'a> Resolver<'a> {
     ) {
         if name.contains('.') {
             self.resolve_package_qualified_name(file, name, line, imports);
-        } else if self.functions.contains_key(name) {
-            self.report(
-                "SYMBOL_NOT_VALUE",
-                &format!("Function `{name}` must be called with arguments before it can be used as a value."),
-                file,
-                line,
-            );
         } else if !locals.contains_key(name) && !self.functions.contains_key(name) {
             self.report(
                 "SYMBOL_UNKNOWN_IDENTIFIER",
@@ -537,6 +544,14 @@ impl<'a> Resolver<'a> {
         line: usize,
         imports: &HashSet<String>,
     ) {
+        if let Some(rest) = type_name.strip_prefix("ISOLATED FUNC(") {
+            self.resolve_function_type_name(file, rest, line, imports);
+            return;
+        }
+        if let Some(rest) = type_name.strip_prefix("FUNC(") {
+            self.resolve_function_type_name(file, rest, line, imports);
+            return;
+        }
         if let Some(element) = type_name.strip_prefix("List OF ") {
             self.resolve_type_name(file, element, line, imports);
             return;
@@ -563,6 +578,30 @@ impl<'a> Resolver<'a> {
                 line,
             );
         }
+    }
+
+    fn resolve_function_type_name(
+        &mut self,
+        file: &AstFile,
+        rest: &str,
+        line: usize,
+        imports: &HashSet<String>,
+    ) {
+        let Some((params, return_type)) = rest.split_once(") AS ") else {
+            self.report(
+                "SYMBOL_UNKNOWN_TYPE",
+                &format!("Function type `FUNC({rest}` is malformed."),
+                file,
+                line,
+            );
+            return;
+        };
+        if !params.trim().is_empty() {
+            for param in params.split(", ") {
+                self.resolve_type_name(file, param, line, imports);
+            }
+        }
+        self.resolve_type_name(file, return_type, line, imports);
     }
 
     fn resolve_package_qualified_name(

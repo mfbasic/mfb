@@ -3,14 +3,14 @@ $ mfb build -ast tests/typecheck-function-value
    5 | SUB main()
    6 |   LET x AS Integer = count
      | ^
-tests/typecheck-function-value/src/main.mfb:6 error[SYMBOL_NOT_VALUE]: symbol is not a value
-               Function `count` must be called with arguments before it can be used as a value.
+tests/typecheck-function-value/src/main.mfb:6 error[TYPE_BINDING_MISMATCH]: binding initializer type does not match declared type
+               Binding `x` has initializer type FUNC() AS Integer, expected Integer.
 [exit 1]
 $ mfb build -ir tests/typecheck-function-value
    4 | 
    5 | SUB main()
    6 |   LET x AS Integer = count
      | ^
-tests/typecheck-function-value/src/main.mfb:6 error[SYMBOL_NOT_VALUE]: symbol is not a value
-               Function `count` must be called with arguments before it can be used as a value.
+tests/typecheck-function-value/src/main.mfb:6 error[TYPE_BINDING_MISMATCH]: binding initializer type does not match declared type
+               Binding `x` has initializer type FUNC() AS Integer, expected Integer.
 [exit 1]

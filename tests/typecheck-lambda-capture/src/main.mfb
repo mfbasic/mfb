@@ -1,0 +1,5 @@
+FUNC main AS Integer
+  LET base AS Integer = 10
+  LET addBase = LAMBDA(value AS Integer) -> value + base
+  RETURN addBase(1)
+END FUNC

@@ -1,0 +1,55 @@
+{
+  "project": "function_values",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "increment",
+      "line": 1,
+      "params": [
+      { "name": "value", "type": "Integer", "default": null }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "return", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "value" }, "right": { "kind": "number", "value": "1" } }, "line": 2 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "apply",
+      "line": 5,
+      "params": [
+      { "name": "value", "type": "Integer", "default": null },
+      { "name": "f", "type": "FUNC(Integer) AS Integer", "default": null }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "return", "value": { "kind": "call", "callee": "f", "arguments": [{ "kind": "identifier", "value": "value" }] }, "line": 6 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "main",
+      "line": 9,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "inc", "type": "FUNC(Integer) AS Integer", "value": { "kind": "identifier", "value": "increment" }, "line": 10 },
+      { "kind": "binding", "mutable": false, "name": "square", "type": null, "value": { "kind": "lambda", "params": [
+{ "name": "value", "type": "Integer", "default": null }], "body": { "kind": "binary", "operator": "*", "left": { "kind": "identifier", "value": "value" }, "right": { "kind": "identifier", "value": "value" } } }, "line": 11 },
+      { "kind": "return", "value": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "call", "callee": "apply", "arguments": [{ "kind": "number", "value": "4" }, { "kind": "identifier", "value": "inc" }] }, "right": { "kind": "call", "callee": "apply", "arguments": [{ "kind": "number", "value": "5" }, { "kind": "identifier", "value": "square" }] } }, "right": { "kind": "call", "callee": "apply", "arguments": [{ "kind": "number", "value": "5" }, { "kind": "lambda", "params": [
+{ "name": "value", "type": "Integer", "default": null }], "body": { "kind": "binary", "operator": "*", "left": { "kind": "identifier", "value": "value" }, "right": { "kind": "identifier", "value": "value" } } }] } }, "line": 12 }
+      ]
+    }
+    ]
+  }
+  ]
+}

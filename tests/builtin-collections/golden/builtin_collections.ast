@@ -1,0 +1,47 @@
+{
+  "project": "builtin_collections",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "main",
+      "line": 1,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "numbers", "type": "List OF Integer", "value": { "kind": "list", "values": [{ "kind": "number", "value": "1" }, { "kind": "number", "value": "2" }, { "kind": "number", "value": "3" }] }, "line": 2 },
+      { "kind": "binding", "mutable": false, "name": "more", "type": "List OF Integer", "value": { "kind": "list", "values": [{ "kind": "number", "value": "4" }, { "kind": "number", "value": "5" }] }, "line": 3 },
+      { "kind": "binding", "mutable": false, "name": "names", "type": "Map OF String TO Integer", "value": { "kind": "map", "keyType": "String", "valueType": "Integer", "entries": [{ "key": { "kind": "string", "value": "ada" }, "value": { "kind": "number", "value": "36" } }, { "key": { "kind": "string", "value": "grace" }, "value": { "kind": "number", "value": "85" } }] }, "line": 4 },
+      { "kind": "binding", "mutable": false, "name": "first", "type": "Integer", "value": { "kind": "call", "callee": "get", "arguments": [{ "kind": "identifier", "value": "numbers" }, { "kind": "number", "value": "0" }] }, "line": 6 },
+      { "kind": "binding", "mutable": false, "name": "missingDefault", "type": "Integer", "value": { "kind": "call", "callee": "getOr", "arguments": [{ "kind": "identifier", "value": "numbers" }, { "kind": "number", "value": "99" }, { "kind": "number", "value": "7" }] }, "line": 7 },
+      { "kind": "binding", "mutable": false, "name": "age", "type": "Integer", "value": { "kind": "call", "callee": "get", "arguments": [{ "kind": "identifier", "value": "names" }, { "kind": "string", "value": "ada" }] }, "line": 8 },
+      { "kind": "binding", "mutable": false, "name": "fallbackAge", "type": "Integer", "value": { "kind": "call", "callee": "getOr", "arguments": [{ "kind": "identifier", "value": "names" }, { "kind": "string", "value": "katherine" }, { "kind": "number", "value": "101" }] }, "line": 9 },
+      { "kind": "binding", "mutable": false, "name": "found", "type": "Integer", "value": { "kind": "call", "callee": "find", "arguments": [{ "kind": "identifier", "value": "numbers" }, { "kind": "number", "value": "2" }] }, "line": 10 },
+      { "kind": "binding", "mutable": false, "name": "middle", "type": "List OF Integer", "value": { "kind": "call", "callee": "mid", "arguments": [{ "kind": "identifier", "value": "numbers" }, { "kind": "number", "value": "1" }, { "kind": "number", "value": "2" }] }, "line": 11 },
+      { "kind": "binding", "mutable": false, "name": "replaced", "type": "List OF Integer", "value": { "kind": "call", "callee": "replace", "arguments": [{ "kind": "identifier", "value": "numbers" }, { "kind": "number", "value": "2" }, { "kind": "number", "value": "8" }] }, "line": 12 },
+      { "kind": "binding", "mutable": false, "name": "setList", "type": "List OF Integer", "value": { "kind": "call", "callee": "set", "arguments": [{ "kind": "identifier", "value": "numbers" }, { "kind": "number", "value": "1" }, { "kind": "number", "value": "9" }] }, "line": 13 },
+      { "kind": "binding", "mutable": false, "name": "appendedItem", "type": "List OF Integer", "value": { "kind": "call", "callee": "append", "arguments": [{ "kind": "identifier", "value": "numbers" }, { "kind": "number", "value": "4" }] }, "line": 14 },
+      { "kind": "binding", "mutable": false, "name": "appendedItems", "type": "List OF Integer", "value": { "kind": "call", "callee": "append", "arguments": [{ "kind": "identifier", "value": "numbers" }, { "kind": "identifier", "value": "more" }] }, "line": 15 },
+      { "kind": "binding", "mutable": false, "name": "prepended", "type": "List OF Integer", "value": { "kind": "call", "callee": "prepend", "arguments": [{ "kind": "identifier", "value": "numbers" }, { "kind": "number", "value": "0" }] }, "line": 16 },
+      { "kind": "binding", "mutable": false, "name": "inserted", "type": "List OF Integer", "value": { "kind": "call", "callee": "insert", "arguments": [{ "kind": "identifier", "value": "numbers" }, { "kind": "number", "value": "1" }, { "kind": "number", "value": "6" }] }, "line": 17 },
+      { "kind": "binding", "mutable": false, "name": "removed", "type": "List OF Integer", "value": { "kind": "call", "callee": "removeAt", "arguments": [{ "kind": "identifier", "value": "numbers" }, { "kind": "number", "value": "1" }] }, "line": 18 },
+      { "kind": "binding", "mutable": false, "name": "setMap", "type": "Map OF String TO Integer", "value": { "kind": "call", "callee": "set", "arguments": [{ "kind": "identifier", "value": "names" }, { "kind": "string", "value": "mary" }, { "kind": "number", "value": "44" }] }, "line": 19 },
+      { "kind": "binding", "mutable": false, "name": "removedMap", "type": "Map OF String TO Integer", "value": { "kind": "call", "callee": "removeKey", "arguments": [{ "kind": "identifier", "value": "names" }, { "kind": "string", "value": "ada" }] }, "line": 20 },
+      { "kind": "binding", "mutable": false, "name": "mapKeys", "type": "List OF String", "value": { "kind": "call", "callee": "keys", "arguments": [{ "kind": "identifier", "value": "names" }] }, "line": 21 },
+      { "kind": "binding", "mutable": false, "name": "mapValues", "type": "List OF Integer", "value": { "kind": "call", "callee": "values", "arguments": [{ "kind": "identifier", "value": "names" }] }, "line": 22 },
+      { "kind": "binding", "mutable": false, "name": "hasAda", "type": "Boolean", "value": { "kind": "call", "callee": "hasKey", "arguments": [{ "kind": "identifier", "value": "names" }, { "kind": "string", "value": "ada" }] }, "line": 23 },
+      { "kind": "binding", "mutable": false, "name": "hasTwo", "type": "Boolean", "value": { "kind": "call", "callee": "contains", "arguments": [{ "kind": "identifier", "value": "numbers" }, { "kind": "number", "value": "2" }] }, "line": 24 },
+      { "kind": "binding", "mutable": false, "name": "total", "type": "Integer", "value": { "kind": "call", "callee": "sum", "arguments": [{ "kind": "identifier", "value": "numbers" }] }, "line": 25 },
+      { "kind": "return", "value": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "first" }, "right": { "kind": "identifier", "value": "missingDefault" } }, "right": { "kind": "identifier", "value": "age" } }, "right": { "kind": "identifier", "value": "fallbackAge" } }, "right": { "kind": "identifier", "value": "found" } }, "right": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "middle" }] } }, "right": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "replaced" }] } }, "right": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "setList" }] } }, "right": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "appendedItem" }] } }, "right": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "appendedItems" }] } }, "right": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "prepended" }] } }, "right": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "inserted" }] } }, "right": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "removed" }] } }, "right": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "setMap" }] } }, "right": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "removedMap" }] } }, "right": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "mapKeys" }] } }, "right": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "mapValues" }] } }, "right": { "kind": "identifier", "value": "total" } }, "line": 27 }
+      ]
+    }
+    ]
+  }
+  ]
+}

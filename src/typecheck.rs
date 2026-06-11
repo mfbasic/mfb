@@ -17,6 +17,11 @@ enum Type {
     Integer,
     List(Box<Type>),
     Map(Box<Type>, Box<Type>),
+    Function {
+        params: Vec<Type>,
+        return_type: Box<Type>,
+        isolated: bool,
+    },
     Nothing,
     Result(Box<Type>),
     String,
@@ -683,6 +688,7 @@ impl<'a> TypeChecker<'a> {
             Expression::Identifier(name) => locals
                 .get(name)
                 .map(|local| local.type_.clone())
+                .or_else(|| self.functions.get(name).map(function_type))
                 .unwrap_or(Type::Unknown),
             Expression::Constructor {
                 type_name,
@@ -716,12 +722,26 @@ impl<'a> TypeChecker<'a> {
                     return Type::Unknown;
                 }
 
-                let Some(sig) = self.functions.get(callee).cloned() else {
-                    return Type::Unknown;
-                };
+                if let Some(sig) = self.functions.get(callee).cloned() {
+                    self.check_call(file, callee, &sig, arguments, locals, line);
+                    return sig.return_type;
+                }
 
-                self.check_call(file, callee, &sig, arguments, locals, line);
-                sig.return_type
+                if let Some(local) = locals.get(callee).cloned() {
+                    return self.check_function_value_call(
+                        file,
+                        callee,
+                        &local.type_,
+                        arguments,
+                        locals,
+                        line,
+                    );
+                }
+
+                Type::Unknown
+            }
+            Expression::Lambda { params, body } => {
+                self.infer_lambda(file, params, body, locals, line)
             }
             Expression::ListLiteral(values) => self.infer_list_literal(file, values, locals, line),
             Expression::MapLiteral {
@@ -1358,6 +1378,150 @@ impl<'a> TypeChecker<'a> {
         }
     }
 
+    fn check_function_value_call(
+        &mut self,
+        file: &AstFile,
+        callee: &str,
+        type_: &Type,
+        arguments: &[Expression],
+        locals: &HashMap<String, LocalInfo>,
+        line: usize,
+    ) -> Type {
+        let Type::Function {
+            params,
+            return_type,
+            ..
+        } = type_
+        else {
+            self.report(
+                "SYMBOL_NOT_CALLABLE",
+                &format!("Local binding or parameter `{callee}` is not callable."),
+                file,
+                line,
+            );
+            for argument in arguments {
+                self.infer_expression(file, argument, locals, line);
+            }
+            return Type::Unknown;
+        };
+
+        if arguments.len() != params.len() {
+            self.report(
+                "TYPE_CALL_ARITY_MISMATCH",
+                &format!(
+                    "Call to `{callee}` has {} argument(s), expected {}.",
+                    arguments.len(),
+                    params.len()
+                ),
+                file,
+                line,
+            );
+        }
+
+        for (index, argument) in arguments.iter().enumerate() {
+            let actual = self.infer_expression(file, argument, locals, line);
+            let Some(expected) = params.get(index) else {
+                continue;
+            };
+            if !self.expression_compatible(expected, &actual, Some(argument)) {
+                self.report(
+                    "TYPE_CALL_ARGUMENT_MISMATCH",
+                    &format!(
+                        "Argument {} for `{callee}` has type {}, expected {}.",
+                        index + 1,
+                        self.type_name(&actual),
+                        self.type_name(expected)
+                    ),
+                    file,
+                    line,
+                );
+            }
+        }
+
+        *return_type.clone()
+    }
+
+    fn infer_lambda(
+        &mut self,
+        file: &AstFile,
+        params: &[crate::ast::Param],
+        body: &Expression,
+        outer_locals: &HashMap<String, LocalInfo>,
+        line: usize,
+    ) -> Type {
+        let mut locals = outer_locals.clone();
+        let mut param_types = Vec::new();
+        for param in params {
+            let type_ = param
+                .type_name
+                .as_deref()
+                .map(|name| self.parse_type(name))
+                .unwrap_or(Type::Unknown);
+            if param.type_name.is_none() {
+                self.report(
+                    "TYPE_PARAMETER_MISSING",
+                    &format!(
+                        "Lambda parameter `{}` must declare an `AS` type.",
+                        param.name
+                    ),
+                    file,
+                    param.line,
+                );
+            }
+            if param.default.is_some() {
+                self.report(
+                    "TYPE_DEFAULT_ARGUMENT_ORDER",
+                    "Lambda parameters cannot declare default values.",
+                    file,
+                    param.line,
+                );
+            }
+            locals.insert(
+                param.name.clone(),
+                LocalInfo {
+                    type_: type_.clone(),
+                    mutable: false,
+                },
+            );
+            param_types.push(type_);
+        }
+        let param_names = params
+            .iter()
+            .map(|param| param.name.clone())
+            .collect::<HashSet<_>>();
+        let captures = captured_locals(body, outer_locals, &param_names);
+        for capture in captures {
+            if outer_locals
+                .get(&capture)
+                .is_some_and(|local| local.mutable)
+            {
+                self.report(
+                    "TYPE_LAMBDA_CAPTURE_UNSUPPORTED",
+                    &format!(
+                        "Lambda captures mutable local `{capture}`; mutable captures are invalid."
+                    ),
+                    file,
+                    line,
+                );
+            } else {
+                self.report(
+                    "TYPE_LAMBDA_CAPTURE_UNSUPPORTED",
+                    &format!(
+                        "Lambda captures local `{capture}`, but closure environments are not supported yet."
+                    ),
+                    file,
+                    line,
+                );
+            }
+        }
+        let return_type = self.infer_expression(file, body, &locals, line);
+        Type::Function {
+            params: param_types,
+            return_type: Box::new(return_type),
+            isolated: false,
+        }
+    }
+
     fn check_builtin_call(
         &mut self,
         file: &AstFile,
@@ -1458,10 +1622,16 @@ impl<'a> TypeChecker<'a> {
             return Type::Unknown;
         };
 
-        self.parse_type(resolved.return_type)
+        self.parse_type(&resolved.return_type)
     }
 
     fn parse_type(&self, name: &str) -> Type {
+        if let Some(rest) = name.strip_prefix("ISOLATED FUNC(") {
+            return self.parse_function_type(rest, true);
+        }
+        if let Some(rest) = name.strip_prefix("FUNC(") {
+            return self.parse_function_type(rest, false);
+        }
         if let Some(element) = name.strip_prefix("List OF ") {
             return Type::List(Box::new(self.parse_type(element)));
         }
@@ -1492,6 +1662,25 @@ impl<'a> TypeChecker<'a> {
         }
     }
 
+    fn parse_function_type(&self, rest: &str, isolated: bool) -> Type {
+        let Some((params, return_type)) = rest.split_once(") AS ") else {
+            return Type::Unknown;
+        };
+        let params = if params.trim().is_empty() {
+            Vec::new()
+        } else {
+            params
+                .split(", ")
+                .map(|param| self.parse_type(param))
+                .collect()
+        };
+        Type::Function {
+            params,
+            return_type: Box::new(self.parse_type(return_type)),
+            isolated,
+        }
+    }
+
     fn compatible(&self, expected: &Type, actual: &Type) -> bool {
         if matches!(expected, Type::Unknown) || matches!(actual, Type::Unknown) {
             return true;
@@ -1503,6 +1692,26 @@ impl<'a> TypeChecker<'a> {
                     && self.compatible(expected_value, actual_value)
             }
             (Type::Result(expected), Type::Result(actual)) => self.compatible(expected, actual),
+            (
+                Type::Function {
+                    params: expected_params,
+                    return_type: expected_return,
+                    isolated: expected_isolated,
+                },
+                Type::Function {
+                    params: actual_params,
+                    return_type: actual_return,
+                    isolated: actual_isolated,
+                },
+            ) => {
+                (!expected_isolated || *actual_isolated)
+                    && expected_params.len() == actual_params.len()
+                    && expected_params
+                        .iter()
+                        .zip(actual_params.iter())
+                        .all(|(expected, actual)| self.compatible(expected, actual))
+                    && self.compatible(expected_return, actual_return)
+            }
             _ => expected == actual,
         }
     }
@@ -1546,6 +1755,16 @@ impl<'a> TypeChecker<'a> {
                 self.check_type_reference(file, key, line);
                 self.check_type_reference(file, value, line);
             }
+            Type::Function {
+                params,
+                return_type,
+                ..
+            } => {
+                for param in params {
+                    self.check_type_reference(file, param, line);
+                }
+                self.check_type_reference(file, return_type, line);
+            }
             Type::Result(success) => self.check_type_reference(file, success, line),
             Type::User(name) => {
                 let Some(info) = self.type_infos.get(name) else {
@@ -1588,6 +1807,23 @@ impl<'a> TypeChecker<'a> {
                     self.type_name(value)
                 )
             }
+            Type::Function {
+                params,
+                return_type,
+                isolated,
+            } => {
+                let params = params
+                    .iter()
+                    .map(|param| self.type_name(param))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                format!(
+                    "{}FUNC({}) AS {}",
+                    if *isolated { "ISOLATED " } else { "" },
+                    params,
+                    self.type_name(return_type)
+                )
+            }
             Type::Nothing => "Nothing".to_string(),
             Type::Result(success) => format!("Result OF {}", self.type_name(success)),
             Type::String => "String".to_string(),
@@ -1610,6 +1846,75 @@ fn effective_field_visibility(
         Visibility::Export => Visibility::Export,
         Visibility::Package | Visibility::Private => Visibility::Package,
     })
+}
+
+fn function_type(sig: &FunctionSig) -> Type {
+    Type::Function {
+        params: sig.params.iter().map(|param| param.type_.clone()).collect(),
+        return_type: Box::new(sig.return_type.clone()),
+        isolated: false,
+    }
+}
+
+fn captured_locals(
+    expression: &Expression,
+    outer_locals: &HashMap<String, LocalInfo>,
+    local_names: &HashSet<String>,
+) -> HashSet<String> {
+    let mut captures = HashSet::new();
+    collect_captured_locals(expression, outer_locals, local_names, &mut captures);
+    captures
+}
+
+fn collect_captured_locals(
+    expression: &Expression,
+    outer_locals: &HashMap<String, LocalInfo>,
+    local_names: &HashSet<String>,
+    captures: &mut HashSet<String>,
+) {
+    match expression {
+        Expression::Identifier(name) => {
+            if outer_locals.contains_key(name) && !local_names.contains(name) {
+                captures.insert(name.clone());
+            }
+        }
+        Expression::Call { callee, arguments } => {
+            if outer_locals.contains_key(callee) && !local_names.contains(callee) {
+                captures.insert(callee.clone());
+            }
+            for argument in arguments {
+                collect_captured_locals(argument, outer_locals, local_names, captures);
+            }
+        }
+        Expression::Lambda { .. } => {}
+        Expression::Binary { left, right, .. } => {
+            collect_captured_locals(left, outer_locals, local_names, captures);
+            collect_captured_locals(right, outer_locals, local_names, captures);
+        }
+        Expression::Unary { operand, .. } => {
+            collect_captured_locals(operand, outer_locals, local_names, captures);
+        }
+        Expression::Constructor { arguments, .. } => {
+            for argument in arguments {
+                collect_captured_locals(argument, outer_locals, local_names, captures);
+            }
+        }
+        Expression::ListLiteral(values) => {
+            for value in values {
+                collect_captured_locals(value, outer_locals, local_names, captures);
+            }
+        }
+        Expression::MapLiteral { entries, .. } => {
+            for (key, value) in entries {
+                collect_captured_locals(key, outer_locals, local_names, captures);
+                collect_captured_locals(value, outer_locals, local_names, captures);
+            }
+        }
+        Expression::MemberAccess { target, .. } => {
+            collect_captured_locals(target, outer_locals, local_names, captures);
+        }
+        Expression::String(_) | Expression::Number(_) | Expression::Boolean(_) => {}
+    }
 }
 
 fn type_kind_name(kind: TypeDeclKind) -> &'static str {

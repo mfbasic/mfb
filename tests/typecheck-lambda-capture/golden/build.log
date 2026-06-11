@@ -1,0 +1,16 @@
+$ mfb build -ast tests/typecheck-lambda-capture
+   1 | FUNC main AS Integer
+   2 |   LET base AS Integer = 10
+   3 |   LET addBase = LAMBDA(value AS Integer) -> value + base
+     | ^
+tests/typecheck-lambda-capture/src/main.mfb:3 error[TYPE_LAMBDA_CAPTURE_UNSUPPORTED]: lambda captures are not supported by this compiler target
+               Lambda captures local `base`, but closure environments are not supported yet.
+[exit 1]
+$ mfb build -ir tests/typecheck-lambda-capture
+   1 | FUNC main AS Integer
+   2 |   LET base AS Integer = 10
+   3 |   LET addBase = LAMBDA(value AS Integer) -> value + base
+     | ^
+tests/typecheck-lambda-capture/src/main.mfb:3 error[TYPE_LAMBDA_CAPTURE_UNSUPPORTED]: lambda captures are not supported by this compiler target
+               Lambda captures local `base`, but closure environments are not supported yet.
+[exit 1]

@@ -1,0 +1,76 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "function_values",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "increment",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    { "name": "value", "type": "Integer", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "return", "value": { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "value" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+    ]
+  },
+  {
+    "name": "apply",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    { "name": "value", "type": "Integer", "default": null },
+    { "name": "f", "type": "FUNC(Integer) AS Integer", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "return", "value": { "kind": "call", "target": "f", "args": [{ "kind": "local", "name": "value" }] } }
+    ]
+  },
+  {
+    "name": "main",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "mutable": false, "name": "inc", "type": "FUNC(Integer) AS Integer", "value": { "kind": "functionRef", "name": "increment", "type": "FUNC(Integer) AS Integer" } },
+    { "op": "bind", "mutable": false, "name": "square", "type": "FUNC(Integer) AS Integer", "value": { "kind": "functionRef", "name": "$lambda0", "type": "FUNC(Integer) AS Integer" } },
+    { "op": "return", "value": { "kind": "binary", "op": "+", "left": { "kind": "binary", "op": "+", "left": { "kind": "call", "target": "apply", "args": [{ "kind": "const", "type": "Integer", "value": "4" }, { "kind": "local", "name": "inc" }] }, "right": { "kind": "call", "target": "apply", "args": [{ "kind": "const", "type": "Integer", "value": "5" }, { "kind": "local", "name": "square" }] } }, "right": { "kind": "call", "target": "apply", "args": [{ "kind": "const", "type": "Integer", "value": "5" }, { "kind": "functionRef", "name": "$lambda1", "type": "FUNC(Integer) AS Integer" }] } } }
+    ]
+  },
+  {
+    "name": "$lambda0",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    { "name": "value", "type": "Integer", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "return", "value": { "kind": "binary", "op": "*", "left": { "kind": "local", "name": "value" }, "right": { "kind": "local", "name": "value" } } }
+    ]
+  },
+  {
+    "name": "$lambda1",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    { "name": "value", "type": "Integer", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "return", "value": { "kind": "binary", "op": "*", "left": { "kind": "local", "name": "value" }, "right": { "kind": "local", "name": "value" } } }
+    ]
+  }
+  ]
+}

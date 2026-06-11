@@ -1,11 +1,17 @@
 use crate::bytecode::{
-    BuiltinCallLowerer, ValueSlot, OPCODE_GENERAL_FIND, OPCODE_GENERAL_IS_NUMERIC,
-    OPCODE_GENERAL_LEN, OPCODE_GENERAL_MID, OPCODE_GENERAL_REPLACE, OPCODE_GENERAL_TO_BYTE,
-    OPCODE_GENERAL_TO_FIXED, OPCODE_GENERAL_TO_FLOAT, OPCODE_GENERAL_TO_INT,
-    OPCODE_GENERAL_TO_STRING, TYPE_BOOLEAN, TYPE_BYTE, TYPE_FIXED, TYPE_FLOAT, TYPE_INTEGER,
-    TYPE_STRING,
+    BuiltinCallLowerer, ValueSlot, OPCODE_COLLECTION_APPEND, OPCODE_COLLECTION_CONTAINS,
+    OPCODE_COLLECTION_FIND, OPCODE_COLLECTION_GET, OPCODE_COLLECTION_GET_OR,
+    OPCODE_COLLECTION_HAS_KEY, OPCODE_COLLECTION_INSERT, OPCODE_COLLECTION_KEYS,
+    OPCODE_COLLECTION_MID, OPCODE_COLLECTION_PREPEND, OPCODE_COLLECTION_REMOVE_AT,
+    OPCODE_COLLECTION_REMOVE_KEY, OPCODE_COLLECTION_REPLACE, OPCODE_COLLECTION_SET,
+    OPCODE_COLLECTION_SUM, OPCODE_COLLECTION_VALUES, OPCODE_GENERAL_FIND,
+    OPCODE_GENERAL_IS_NUMERIC, OPCODE_GENERAL_LEN, OPCODE_GENERAL_MID, OPCODE_GENERAL_REPLACE,
+    OPCODE_GENERAL_TO_BYTE, OPCODE_GENERAL_TO_FIXED, OPCODE_GENERAL_TO_FLOAT,
+    OPCODE_GENERAL_TO_INT, OPCODE_GENERAL_TO_STRING, TYPE_BOOLEAN, TYPE_BYTE, TYPE_FIXED,
+    TYPE_FLOAT, TYPE_INTEGER, TYPE_STRING,
 };
 use crate::ir::IrValue;
+use std::borrow::Cow;
 use std::collections::HashMap;
 
 const LEN: &str = "len";
@@ -19,10 +25,27 @@ const TO_FLOAT: &str = "toFloat";
 const TO_FIXED: &str = "toFixed";
 const TO_BYTE: &str = "toByte";
 const IS_NUMERIC: &str = "isNumeric";
+const GET: &str = "get";
+const GET_OR: &str = "getOr";
+const SET: &str = "set";
+const APPEND: &str = "append";
+const PREPEND: &str = "prepend";
+const INSERT: &str = "insert";
+const REMOVE_AT: &str = "removeAt";
+const REMOVE_KEY: &str = "removeKey";
+const KEYS: &str = "keys";
+const VALUES: &str = "values";
+const HAS_KEY: &str = "hasKey";
+const CONTAINS: &str = "contains";
+const FOR_EACH: &str = "forEach";
+const TRANSFORM: &str = "transform";
+const FILTER: &str = "filter";
+const REDUCE: &str = "reduce";
+const SUM: &str = "sum";
 
-#[derive(Clone, Copy)]
-pub(crate) struct ResolvedCall {
-    pub(crate) return_type: &'static str,
+#[derive(Clone)]
+pub(crate) struct ResolvedCall<'a> {
+    pub(crate) return_type: Cow<'a, str>,
 }
 
 pub(crate) fn is_general_call(name: &str) -> bool {
@@ -38,10 +61,27 @@ pub(crate) fn is_general_call(name: &str) -> bool {
             | TO_FIXED
             | TO_BYTE
             | IS_NUMERIC
+            | GET
+            | GET_OR
+            | SET
+            | APPEND
+            | PREPEND
+            | INSERT
+            | REMOVE_AT
+            | REMOVE_KEY
+            | KEYS
+            | VALUES
+            | HAS_KEY
+            | CONTAINS
+            | FOR_EACH
+            | TRANSFORM
+            | FILTER
+            | REDUCE
+            | SUM
     )
 }
 
-pub(crate) fn resolve_call(name: &str, arg_types: &[String]) -> Option<ResolvedCall> {
+pub(crate) fn resolve_call<'a>(name: &str, arg_types: &'a [String]) -> Option<ResolvedCall<'a>> {
     let resolved = match name {
         LEN => {
             if arg_types.len() != 1 {
@@ -52,7 +92,7 @@ pub(crate) fn resolve_call(name: &str, arg_types: &[String]) -> Option<ResolvedC
                 || arg_types[0].starts_with("Map OF ")
             {
                 ResolvedCall {
-                    return_type: "Integer",
+                    return_type: Cow::Borrowed("Integer"),
                 }
             } else {
                 return None;
@@ -67,7 +107,17 @@ pub(crate) fn resolve_call(name: &str, arg_types: &[String]) -> Option<ResolvedC
                 && arg_types.get(2).is_none_or(|type_| type_ == "Integer")
             {
                 ResolvedCall {
-                    return_type: "Integer",
+                    return_type: Cow::Borrowed("Integer"),
+                }
+            } else if let Some(element) = list_element(&arg_types[0]) {
+                if arg_types.get(2).is_none_or(|type_| type_ == "Integer")
+                    && (arg_types[1] == element || arg_types[1] == arg_types[0])
+                {
+                    ResolvedCall {
+                        return_type: Cow::Borrowed("Integer"),
+                    }
+                } else {
+                    return None;
                 }
             } else {
                 return None;
@@ -76,7 +126,15 @@ pub(crate) fn resolve_call(name: &str, arg_types: &[String]) -> Option<ResolvedC
         MID => {
             if exact(arg_types, &["String", "Integer", "Integer"]) {
                 ResolvedCall {
-                    return_type: "String",
+                    return_type: Cow::Borrowed("String"),
+                }
+            } else if arg_types.len() == 3
+                && list_element(&arg_types[0]).is_some()
+                && arg_types[1] == "Integer"
+                && arg_types[2] == "Integer"
+            {
+                ResolvedCall {
+                    return_type: Cow::Borrowed(&arg_types[0]),
                 }
             } else {
                 return None;
@@ -85,7 +143,15 @@ pub(crate) fn resolve_call(name: &str, arg_types: &[String]) -> Option<ResolvedC
         REPLACE => {
             if exact(arg_types, &["String", "String", "String"]) {
                 ResolvedCall {
-                    return_type: "String",
+                    return_type: Cow::Borrowed("String"),
+                }
+            } else if let Some(element) = list_element(&arg_types[0]) {
+                if arg_types.len() == 3 && arg_types[1] == element && arg_types[2] == element {
+                    ResolvedCall {
+                        return_type: Cow::Borrowed(&arg_types[0]),
+                    }
+                } else {
+                    return None;
                 }
             } else {
                 return None;
@@ -94,7 +160,7 @@ pub(crate) fn resolve_call(name: &str, arg_types: &[String]) -> Option<ResolvedC
         TYPE_NAME => {
             if arg_types.len() == 1 {
                 ResolvedCall {
-                    return_type: "String",
+                    return_type: Cow::Borrowed("String"),
                 }
             } else {
                 return None;
@@ -110,7 +176,7 @@ pub(crate) fn resolve_call(name: &str, arg_types: &[String]) -> Option<ResolvedC
             ) || arg_types[0] == "List OF Byte"
             {
                 ResolvedCall {
-                    return_type: "String",
+                    return_type: Cow::Borrowed("String"),
                 }
             } else {
                 return None;
@@ -119,7 +185,7 @@ pub(crate) fn resolve_call(name: &str, arg_types: &[String]) -> Option<ResolvedC
         TO_INT => {
             if exact_one_of(arg_types, &["String", "Float", "Fixed"]) {
                 ResolvedCall {
-                    return_type: "Integer",
+                    return_type: Cow::Borrowed("Integer"),
                 }
             } else {
                 return None;
@@ -128,7 +194,7 @@ pub(crate) fn resolve_call(name: &str, arg_types: &[String]) -> Option<ResolvedC
         TO_FLOAT => {
             if exact_one_of(arg_types, &["String", "Integer", "Fixed"]) {
                 ResolvedCall {
-                    return_type: "Float",
+                    return_type: Cow::Borrowed("Float"),
                 }
             } else {
                 return None;
@@ -137,7 +203,7 @@ pub(crate) fn resolve_call(name: &str, arg_types: &[String]) -> Option<ResolvedC
         TO_FIXED => {
             if exact_one_of(arg_types, &["String", "Integer", "Float"]) {
                 ResolvedCall {
-                    return_type: "Fixed",
+                    return_type: Cow::Borrowed("Fixed"),
                 }
             } else {
                 return None;
@@ -146,7 +212,7 @@ pub(crate) fn resolve_call(name: &str, arg_types: &[String]) -> Option<ResolvedC
         TO_BYTE => {
             if exact(arg_types, &["Integer"]) {
                 ResolvedCall {
-                    return_type: "Byte",
+                    return_type: Cow::Borrowed("Byte"),
                 }
             } else {
                 return None;
@@ -155,12 +221,26 @@ pub(crate) fn resolve_call(name: &str, arg_types: &[String]) -> Option<ResolvedC
         IS_NUMERIC => {
             if exact(arg_types, &["String"]) {
                 ResolvedCall {
-                    return_type: "Boolean",
+                    return_type: Cow::Borrowed("Boolean"),
                 }
             } else {
                 return None;
             }
         }
+        GET => resolve_get(arg_types)?,
+        GET_OR => resolve_get_or(arg_types)?,
+        SET => resolve_set(arg_types)?,
+        APPEND => resolve_append(arg_types)?,
+        PREPEND => resolve_prepend(arg_types)?,
+        INSERT => resolve_insert(arg_types)?,
+        REMOVE_AT => resolve_remove_at(arg_types)?,
+        REMOVE_KEY => resolve_remove_key(arg_types)?,
+        KEYS => resolve_keys(arg_types)?,
+        VALUES => resolve_values(arg_types)?,
+        HAS_KEY => resolve_has_key(arg_types)?,
+        CONTAINS => resolve_contains(arg_types)?,
+        SUM => resolve_sum(arg_types)?,
+        FOR_EACH | TRANSFORM | FILTER | REDUCE => return None,
         _ => return None,
     };
     Some(resolved)
@@ -179,6 +259,23 @@ pub(crate) fn expected_arguments(name: &str) -> Option<&'static str> {
         TO_FIXED => Some("String, Integer, or Float"),
         TO_BYTE => Some("Integer"),
         IS_NUMERIC => Some("String"),
+        GET => Some("List OF T, Integer or Map OF K TO V, K"),
+        GET_OR => Some("List OF T, Integer, T or Map OF K TO V, K, V"),
+        SET => Some("List OF T, Integer, T or Map OF K TO V, K, V"),
+        APPEND => Some("List OF T, T or List OF T, List OF T"),
+        PREPEND => Some("List OF T, T"),
+        INSERT => Some("List OF T, Integer, T"),
+        REMOVE_AT => Some("List OF T, Integer"),
+        REMOVE_KEY => Some("Map OF K TO V, K"),
+        KEYS => Some("Map OF K TO V"),
+        VALUES => Some("Map OF K TO V"),
+        HAS_KEY => Some("Map OF K TO V, K"),
+        CONTAINS => Some("List OF T, T"),
+        FOR_EACH => Some("List OF T, FUNC(T) AS Nothing"),
+        TRANSFORM => Some("List OF T, FUNC(T) AS U"),
+        FILTER => Some("List OF T, FUNC(T) AS Boolean"),
+        REDUCE => Some("List OF T, U, FUNC(U, T) AS U"),
+        SUM => Some("List OF Integer, List OF Float, or List OF Fixed"),
         _ => None,
     }
 }
@@ -190,6 +287,11 @@ pub(crate) fn arity(name: &str) -> Option<(usize, usize)> {
         }
         FIND => Some((2, 3)),
         MID | REPLACE => Some((3, 3)),
+        GET | REMOVE_AT | REMOVE_KEY | HAS_KEY | CONTAINS | APPEND | PREPEND => Some((2, 2)),
+        GET_OR | SET | INSERT => Some((3, 3)),
+        KEYS | VALUES | SUM => Some((1, 1)),
+        FOR_EACH | TRANSFORM | FILTER => Some((2, 2)),
+        REDUCE => Some((3, 3)),
         _ => None,
     }
 }
@@ -222,16 +324,170 @@ pub(crate) fn lower_bytecode_call(
         return Ok(lowered[0].clone());
     }
 
-    let dst_type_id = type_id(resolved.return_type)?;
+    let dst_type_id = primitive_type_id(&resolved.return_type)
+        .unwrap_or_else(|| lowerer.type_id(&resolved.return_type));
     let dst = lowerer.add_register(dst_type_id, 0);
-    let opcode = opcode_for(name)?;
+    let opcode = opcode_for(name, &arg_types)?;
     let mut operands = vec![dst];
     operands.extend(lowered.iter().map(|slot| slot.register));
+    if name == APPEND {
+        operands.push(u32::from(arg_types[1] == arg_types[0]));
+    }
     lowerer.push(opcode, operands);
     Ok(ValueSlot {
         register: dst,
-        type_name: resolved.return_type.to_string(),
+        type_name: resolved.return_type.into_owned(),
     })
+}
+
+fn resolve_get<'a>(arg_types: &'a [String]) -> Option<ResolvedCall<'a>> {
+    if arg_types.len() != 2 {
+        return None;
+    }
+    if let Some(element) = list_element(&arg_types[0]) {
+        return (arg_types[1] == "Integer").then_some(ResolvedCall {
+            return_type: Cow::Borrowed(element),
+        });
+    }
+    let (key, value) = map_parts(&arg_types[0])?;
+    (arg_types[1] == key).then_some(ResolvedCall {
+        return_type: Cow::Borrowed(value),
+    })
+}
+
+fn resolve_get_or<'a>(arg_types: &'a [String]) -> Option<ResolvedCall<'a>> {
+    if arg_types.len() != 3 {
+        return None;
+    }
+    if let Some(element) = list_element(&arg_types[0]) {
+        return (arg_types[1] == "Integer" && arg_types[2] == element).then_some(ResolvedCall {
+            return_type: Cow::Borrowed(element),
+        });
+    }
+    let (key, value) = map_parts(&arg_types[0])?;
+    (arg_types[1] == key && arg_types[2] == value).then_some(ResolvedCall {
+        return_type: Cow::Borrowed(value),
+    })
+}
+
+fn resolve_set<'a>(arg_types: &'a [String]) -> Option<ResolvedCall<'a>> {
+    if arg_types.len() != 3 {
+        return None;
+    }
+    if let Some(element) = list_element(&arg_types[0]) {
+        return (arg_types[1] == "Integer" && arg_types[2] == element).then_some(ResolvedCall {
+            return_type: Cow::Borrowed(&arg_types[0]),
+        });
+    }
+    let (key, value) = map_parts(&arg_types[0])?;
+    (arg_types[1] == key && arg_types[2] == value).then_some(ResolvedCall {
+        return_type: Cow::Borrowed(&arg_types[0]),
+    })
+}
+
+fn resolve_append<'a>(arg_types: &'a [String]) -> Option<ResolvedCall<'a>> {
+    if arg_types.len() != 2 {
+        return None;
+    }
+    let element = list_element(&arg_types[0])?;
+    (arg_types[1] == element || arg_types[1] == arg_types[0]).then_some(ResolvedCall {
+        return_type: Cow::Borrowed(&arg_types[0]),
+    })
+}
+
+fn resolve_prepend<'a>(arg_types: &'a [String]) -> Option<ResolvedCall<'a>> {
+    if arg_types.len() != 2 {
+        return None;
+    }
+    let element = list_element(&arg_types[0])?;
+    (arg_types[1] == element).then_some(ResolvedCall {
+        return_type: Cow::Borrowed(&arg_types[0]),
+    })
+}
+
+fn resolve_insert<'a>(arg_types: &'a [String]) -> Option<ResolvedCall<'a>> {
+    if arg_types.len() != 3 {
+        return None;
+    }
+    let element = list_element(&arg_types[0])?;
+    (arg_types[1] == "Integer" && arg_types[2] == element).then_some(ResolvedCall {
+        return_type: Cow::Borrowed(&arg_types[0]),
+    })
+}
+
+fn resolve_remove_at<'a>(arg_types: &'a [String]) -> Option<ResolvedCall<'a>> {
+    (arg_types.len() == 2 && list_element(&arg_types[0]).is_some() && arg_types[1] == "Integer")
+        .then_some(ResolvedCall {
+            return_type: Cow::Borrowed(&arg_types[0]),
+        })
+}
+
+fn resolve_remove_key<'a>(arg_types: &'a [String]) -> Option<ResolvedCall<'a>> {
+    if arg_types.len() != 2 {
+        return None;
+    }
+    let (key, _) = map_parts(&arg_types[0])?;
+    (arg_types[1] == key).then_some(ResolvedCall {
+        return_type: Cow::Borrowed(&arg_types[0]),
+    })
+}
+
+fn resolve_keys<'a>(arg_types: &'a [String]) -> Option<ResolvedCall<'a>> {
+    if arg_types.len() != 1 {
+        return None;
+    }
+    let (key, _) = map_parts(&arg_types[0])?;
+    Some(ResolvedCall {
+        return_type: Cow::Owned(format!("List OF {key}")),
+    })
+}
+
+fn resolve_values<'a>(arg_types: &'a [String]) -> Option<ResolvedCall<'a>> {
+    if arg_types.len() != 1 {
+        return None;
+    }
+    let (_, value) = map_parts(&arg_types[0])?;
+    Some(ResolvedCall {
+        return_type: Cow::Owned(format!("List OF {value}")),
+    })
+}
+
+fn resolve_has_key<'a>(arg_types: &'a [String]) -> Option<ResolvedCall<'a>> {
+    if arg_types.len() != 2 {
+        return None;
+    }
+    let (key, _) = map_parts(&arg_types[0])?;
+    (arg_types[1] == key).then_some(ResolvedCall {
+        return_type: Cow::Borrowed("Boolean"),
+    })
+}
+
+fn resolve_contains<'a>(arg_types: &'a [String]) -> Option<ResolvedCall<'a>> {
+    if arg_types.len() != 2 {
+        return None;
+    }
+    let element = list_element(&arg_types[0])?;
+    (arg_types[1] == element).then_some(ResolvedCall {
+        return_type: Cow::Borrowed("Boolean"),
+    })
+}
+
+fn resolve_sum<'a>(arg_types: &'a [String]) -> Option<ResolvedCall<'a>> {
+    if arg_types.len() != 1 {
+        return None;
+    }
+    match arg_types[0].as_str() {
+        "List OF Integer" => Some(ResolvedCall {
+            return_type: Cow::Borrowed("Integer"),
+        }),
+        "List OF Float" => Some(ResolvedCall {
+            return_type: Cow::Borrowed("Float"),
+        }),
+        "List OF Fixed" => Some(ResolvedCall {
+            return_type: Cow::Borrowed("Fixed"),
+        }),
+        _ => None,
+    }
 }
 
 fn exact(arg_types: &[String], expected: &[&str]) -> bool {
@@ -246,25 +502,42 @@ fn exact_one_of(arg_types: &[String], expected: &[&str]) -> bool {
     arg_types.len() == 1 && expected.iter().any(|expected| arg_types[0] == *expected)
 }
 
-fn type_id(type_name: &str) -> Result<u32, String> {
+fn primitive_type_id(type_name: &str) -> Option<u32> {
     match type_name {
-        "Boolean" => Ok(TYPE_BOOLEAN),
-        "Byte" => Ok(TYPE_BYTE),
-        "Integer" => Ok(TYPE_INTEGER),
-        "Float" => Ok(TYPE_FLOAT),
-        "Fixed" => Ok(TYPE_FIXED),
-        "String" => Ok(TYPE_STRING),
-        _ => Err(format!(
-            "unsupported General built-in return type `{type_name}`"
-        )),
+        "Boolean" => Some(TYPE_BOOLEAN),
+        "Byte" => Some(TYPE_BYTE),
+        "Integer" => Some(TYPE_INTEGER),
+        "Float" => Some(TYPE_FLOAT),
+        "Fixed" => Some(TYPE_FIXED),
+        "String" => Some(TYPE_STRING),
+        _ => None,
     }
 }
 
-fn opcode_for(name: &str) -> Result<u16, String> {
+fn opcode_for(name: &str, arg_types: &[String]) -> Result<u16, String> {
     match name {
         LEN => Ok(OPCODE_GENERAL_LEN),
+        FIND if arg_types
+            .first()
+            .is_some_and(|type_| type_.starts_with("List OF ")) =>
+        {
+            Ok(OPCODE_COLLECTION_FIND)
+        }
         FIND => Ok(OPCODE_GENERAL_FIND),
+        MID if arg_types
+            .first()
+            .is_some_and(|type_| type_.starts_with("List OF ")) =>
+        {
+            Ok(OPCODE_COLLECTION_MID)
+        }
         MID => Ok(OPCODE_GENERAL_MID),
+        REPLACE
+            if arg_types
+                .first()
+                .is_some_and(|type_| type_.starts_with("List OF ")) =>
+        {
+            Ok(OPCODE_COLLECTION_REPLACE)
+        }
         REPLACE => Ok(OPCODE_GENERAL_REPLACE),
         TO_STRING => Ok(OPCODE_GENERAL_TO_STRING),
         TO_INT => Ok(OPCODE_GENERAL_TO_INT),
@@ -272,6 +545,27 @@ fn opcode_for(name: &str) -> Result<u16, String> {
         TO_FIXED => Ok(OPCODE_GENERAL_TO_FIXED),
         TO_BYTE => Ok(OPCODE_GENERAL_TO_BYTE),
         IS_NUMERIC => Ok(OPCODE_GENERAL_IS_NUMERIC),
+        GET => Ok(OPCODE_COLLECTION_GET),
+        GET_OR => Ok(OPCODE_COLLECTION_GET_OR),
+        SET => Ok(OPCODE_COLLECTION_SET),
+        APPEND => Ok(OPCODE_COLLECTION_APPEND),
+        PREPEND => Ok(OPCODE_COLLECTION_PREPEND),
+        INSERT => Ok(OPCODE_COLLECTION_INSERT),
+        REMOVE_AT => Ok(OPCODE_COLLECTION_REMOVE_AT),
+        REMOVE_KEY => Ok(OPCODE_COLLECTION_REMOVE_KEY),
+        KEYS => Ok(OPCODE_COLLECTION_KEYS),
+        VALUES => Ok(OPCODE_COLLECTION_VALUES),
+        HAS_KEY => Ok(OPCODE_COLLECTION_HAS_KEY),
+        CONTAINS => Ok(OPCODE_COLLECTION_CONTAINS),
+        SUM => Ok(OPCODE_COLLECTION_SUM),
         _ => Err(format!("unsupported General built-in `{name}`")),
     }
+}
+
+fn list_element(type_name: &str) -> Option<&str> {
+    type_name.strip_prefix("List OF ")
+}
+
+fn map_parts(type_name: &str) -> Option<(&str, &str)> {
+    type_name.strip_prefix("Map OF ")?.split_once(" TO ")
 }

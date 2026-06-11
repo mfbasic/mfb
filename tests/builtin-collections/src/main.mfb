@@ -1,0 +1,28 @@
+FUNC main AS Integer
+  LET numbers AS List OF Integer = [1, 2, 3]
+  LET more AS List OF Integer = [4, 5]
+  LET names AS Map OF String TO Integer = Map OF String TO Integer { "ada" := 36, "grace" := 85 }
+
+  LET first AS Integer = get(numbers, 0)
+  LET missingDefault AS Integer = getOr(numbers, 99, 7)
+  LET age AS Integer = get(names, "ada")
+  LET fallbackAge AS Integer = getOr(names, "katherine", 101)
+  LET found AS Integer = find(numbers, 2)
+  LET middle AS List OF Integer = mid(numbers, 1, 2)
+  LET replaced AS List OF Integer = replace(numbers, 2, 8)
+  LET setList AS List OF Integer = set(numbers, 1, 9)
+  LET appendedItem AS List OF Integer = append(numbers, 4)
+  LET appendedItems AS List OF Integer = append(numbers, more)
+  LET prepended AS List OF Integer = prepend(numbers, 0)
+  LET inserted AS List OF Integer = insert(numbers, 1, 6)
+  LET removed AS List OF Integer = removeAt(numbers, 1)
+  LET setMap AS Map OF String TO Integer = set(names, "mary", 44)
+  LET removedMap AS Map OF String TO Integer = removeKey(names, "ada")
+  LET mapKeys AS List OF String = keys(names)
+  LET mapValues AS List OF Integer = values(names)
+  LET hasAda AS Boolean = hasKey(names, "ada")
+  LET hasTwo AS Boolean = contains(numbers, 2)
+  LET total AS Integer = sum(numbers)
+
+  RETURN first + missingDefault + age + fallbackAge + found + len(middle) + len(replaced) + len(setList) + len(appendedItem) + len(appendedItems) + len(prepended) + len(inserted) + len(removed) + len(setMap) + len(removedMap) + len(mapKeys) + len(mapValues) + total
+END FUNC

@@ -31,6 +31,7 @@ pub enum TokenKind {
     Ampersand,
     Caret,
     PipeGreater,
+    Arrow,
     Newline,
     Eof,
 }
@@ -46,6 +47,7 @@ pub enum Keyword {
     If,
     Import,
     Let,
+    Lambda,
     Mod,
     Match,
     Mut,
@@ -165,7 +167,15 @@ impl Lexer<'_> {
                     }
                 }
                 '+' => self.push_and_advance(TokenKind::Plus),
-                '-' => self.push_and_advance(TokenKind::Minus),
+                '-' => {
+                    if self.peek_next() == Some('>') {
+                        self.push_simple(TokenKind::Arrow, 2);
+                        self.advance();
+                        self.advance();
+                    } else {
+                        self.push_and_advance(TokenKind::Minus);
+                    }
+                }
                 '*' => self.push_and_advance(TokenKind::Star),
                 '/' => self.push_and_advance(TokenKind::Slash),
                 '&' => self.push_and_advance(TokenKind::Ampersand),
@@ -395,6 +405,8 @@ fn keyword(value: &str) -> Option<Keyword> {
         Some(Keyword::Import)
     } else if value.eq_ignore_ascii_case("LET") {
         Some(Keyword::Let)
+    } else if value.eq_ignore_ascii_case("LAMBDA") {
+        Some(Keyword::Lambda)
     } else if value.eq_ignore_ascii_case("MOD") {
         Some(Keyword::Mod)
     } else if value.eq_ignore_ascii_case("MATCH") {

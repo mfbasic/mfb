@@ -106,6 +106,10 @@ pub(crate) enum IrValue {
         value: String,
     },
     Local(String),
+    FunctionRef {
+        name: String,
+        type_: String,
+    },
     Call {
         target: String,
         args: Vec<IrValue>,
@@ -141,18 +145,25 @@ pub fn lower_project(ast: &AstProject, entry: Option<EntryPoint>) -> IrProject {
     let mut types = Vec::new();
     let mut functions = Vec::new();
     let function_returns = function_returns(ast);
+    let function_types = function_types(ast);
     let type_index = TypeIndex::new(ast);
+    let mut context = LowerContext {
+        function_returns: &function_returns,
+        function_types: &function_types,
+        type_index: &type_index,
+        lambdas: Vec::new(),
+        next_lambda_id: 0,
+    };
 
     for file in &ast.files {
         for item in &file.items {
             match item {
-                Item::Function(function) => {
-                    functions.push(lower_function(function, &function_returns, &type_index))
-                }
+                Item::Function(function) => functions.push(lower_function(function, &mut context)),
                 Item::Type(type_decl) => types.push(lower_type(type_decl)),
             }
         }
     }
+    functions.extend(context.lambdas);
 
     IrProject {
         name: ast.name.clone(),
@@ -207,11 +218,7 @@ fn lower_enum_member(member: &EnumMember) -> IrEnumMember {
     }
 }
 
-fn lower_function(
-    function: &Function,
-    function_returns: &HashMap<String, String>,
-    type_index: &TypeIndex,
-) -> IrFunction {
+fn lower_function(function: &Function, context: &mut LowerContext<'_>) -> IrFunction {
     let kind = match function.kind {
         FunctionKind::Func => "func",
         FunctionKind::Sub => "sub",
@@ -237,32 +244,50 @@ fn lower_function(
         name: function.name.clone(),
         visibility: visibility_name(function.visibility).to_string(),
         kind: kind.to_string(),
-        params: function.params.iter().map(lower_param).collect(),
+        params: function
+            .params
+            .iter()
+            .map(|param| lower_param(param, &locals, context))
+            .collect(),
         returns,
         body: function
             .body
             .iter()
-            .map(|statement| lower_statement(statement, &mut locals, function_returns, type_index))
+            .map(|statement| lower_statement(statement, &mut locals, context))
             .collect(),
     }
 }
 
-fn lower_param(param: &Param) -> IrParam {
+fn lower_param(
+    param: &Param,
+    locals: &HashMap<String, String>,
+    context: &mut LowerContext<'_>,
+) -> IrParam {
     IrParam {
         name: param.name.clone(),
         type_: param
             .type_name
             .clone()
             .expect("typecheck requires parameter type before IR lowering"),
-        default: param.default.as_ref().map(lower_expression),
+        default: param
+            .default
+            .as_ref()
+            .map(|value| lower_expression(value, locals, context)),
     }
+}
+
+struct LowerContext<'a> {
+    function_returns: &'a HashMap<String, String>,
+    function_types: &'a HashMap<String, String>,
+    type_index: &'a TypeIndex,
+    lambdas: Vec<IrFunction>,
+    next_lambda_id: usize,
 }
 
 fn lower_statement(
     statement: &Statement,
     locals: &mut HashMap<String, String>,
-    function_returns: &HashMap<String, String>,
-    type_index: &TypeIndex,
+    context: &mut LowerContext<'_>,
 ) -> IrOp {
     match statement {
         Statement::Let {
@@ -272,11 +297,13 @@ fn lower_statement(
             value,
             ..
         } => {
-            let lowered_value = value.as_ref().map(lower_expression);
+            let lowered_value = value
+                .as_ref()
+                .map(|value| lower_expression(value, locals, context));
             let lowered_type = type_name.clone().unwrap_or_else(|| {
                 value
                     .as_ref()
-                    .and_then(|value| expression_type(value, locals, function_returns, type_index))
+                    .and_then(|value| expression_type(value, locals, context))
                     .expect("typecheck requires inferred binding type before IR lowering")
             });
             locals.insert(name.clone(), lowered_type.clone());
@@ -288,14 +315,16 @@ fn lower_statement(
             }
         }
         Statement::Return { value, .. } => IrOp::Return {
-            value: value.as_ref().map(lower_expression),
+            value: value
+                .as_ref()
+                .map(|value| lower_expression(value, locals, context)),
         },
         Statement::Assign { name, value, .. } => IrOp::Assign {
             name: name.clone(),
-            value: lower_expression(value),
+            value: lower_expression(value, locals, context),
         },
         Statement::Expression { expression, .. } => IrOp::Eval {
-            value: lower_expression(expression),
+            value: lower_expression(expression, locals, context),
         },
         Statement::If {
             condition,
@@ -303,17 +332,17 @@ fn lower_statement(
             else_body,
             ..
         } => IrOp::If {
-            condition: lower_expression(condition),
-            then_body: lower_statement_block(then_body, locals, function_returns, type_index),
-            else_body: lower_statement_block(else_body, locals, function_returns, type_index),
+            condition: lower_expression(condition, locals, context),
+            then_body: lower_statement_block(then_body, locals, context),
+            else_body: lower_statement_block(else_body, locals, context),
         },
         Statement::Match {
             expression, cases, ..
         } => IrOp::Match {
-            value: lower_expression(expression),
+            value: lower_expression(expression, locals, context),
             cases: cases
                 .iter()
-                .map(|case| lower_match_case(case, locals, function_returns, type_index))
+                .map(|case| lower_match_case(case, locals, context))
                 .collect(),
         },
     }
@@ -322,28 +351,28 @@ fn lower_statement(
 fn lower_statement_block(
     body: &[Statement],
     locals: &HashMap<String, String>,
-    function_returns: &HashMap<String, String>,
-    type_index: &TypeIndex,
+    context: &mut LowerContext<'_>,
 ) -> Vec<IrOp> {
     let mut nested = locals.clone();
     body.iter()
-        .map(|statement| lower_statement(statement, &mut nested, function_returns, type_index))
+        .map(|statement| lower_statement(statement, &mut nested, context))
         .collect()
 }
 
 fn lower_match_case(
     case: &MatchCase,
     locals: &HashMap<String, String>,
-    function_returns: &HashMap<String, String>,
-    type_index: &TypeIndex,
+    context: &mut LowerContext<'_>,
 ) -> IrMatchCase {
     let pattern = match &case.pattern {
         MatchPattern::Else => IrMatchPattern::Else,
-        MatchPattern::Expression(expression) => IrMatchPattern::Value(lower_expression(expression)),
+        MatchPattern::Expression(expression) => {
+            IrMatchPattern::Value(lower_expression(expression, locals, context))
+        }
     };
     IrMatchCase {
         pattern,
-        body: lower_statement_block(&case.body, locals, function_returns, type_index),
+        body: lower_statement_block(&case.body, locals, context),
     }
 }
 
@@ -366,11 +395,43 @@ fn function_returns(ast: &AstProject) -> HashMap<String, String> {
     returns
 }
 
+fn function_types(ast: &AstProject) -> HashMap<String, String> {
+    let mut types = HashMap::new();
+    for file in &ast.files {
+        for item in &file.items {
+            if let Item::Function(function) = item {
+                let params = function
+                    .params
+                    .iter()
+                    .map(|param| {
+                        param
+                            .type_name
+                            .clone()
+                            .expect("typecheck requires parameter type before IR lowering")
+                    })
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                let returns = match function.kind {
+                    FunctionKind::Func => function
+                        .return_type
+                        .clone()
+                        .expect("typecheck requires FUNC return type before IR lowering"),
+                    FunctionKind::Sub => "Nothing".to_string(),
+                };
+                types.insert(
+                    function.name.clone(),
+                    format!("FUNC({params}) AS {returns}"),
+                );
+            }
+        }
+    }
+    types
+}
+
 fn expression_type(
     expression: &Expression,
     locals: &HashMap<String, String>,
-    function_returns: &HashMap<String, String>,
-    type_index: &TypeIndex,
+    context: &LowerContext<'_>,
 ) -> Option<String> {
     match expression {
         Expression::String(_) => Some("String".to_string()),
@@ -383,14 +444,18 @@ fn expression_type(
         }
         Expression::Boolean(_) => Some("Boolean".to_string()),
         Expression::Identifier(value) if value == "NOTHING" => Some("Nothing".to_string()),
-        Expression::Identifier(value) => locals.get(value).cloned(),
-        Expression::Constructor { type_name, .. } => type_index.constructor_result(type_name),
+        Expression::Identifier(value) => locals
+            .get(value)
+            .cloned()
+            .or_else(|| context.function_types.get(value).cloned()),
+        Expression::Constructor { type_name, .. } => {
+            context.type_index.constructor_result(type_name)
+        }
         Expression::ListLiteral(values) => {
             let Some(first) = values.first() else {
                 return Some("List OF Unknown".to_string());
             };
-            expression_type(first, locals, function_returns, type_index)
-                .map(|element| format!("List OF {element}"))
+            expression_type(first, locals, context).map(|element| format!("List OF {element}"))
         }
         Expression::MapLiteral {
             key_type,
@@ -399,7 +464,8 @@ fn expression_type(
         } => Some(format!("Map OF {key_type} TO {value_type}")),
         Expression::MemberAccess { target, member } => {
             if let Expression::Identifier(type_name) = target.as_ref() {
-                if type_index
+                if context
+                    .type_index
                     .enums
                     .get(type_name)
                     .is_some_and(|members| members.iter().any(|name| name == member))
@@ -407,21 +473,42 @@ fn expression_type(
                     return Some(type_name.clone());
                 }
             }
-            let target_type = expression_type(target, locals, function_returns, type_index)?;
-            type_index.record_field_type(&target_type, member)
+            let target_type = expression_type(target, locals, context)?;
+            context.type_index.record_field_type(&target_type, member)
         }
         Expression::Call { callee, arguments } => {
             if builtins::general::is_general_call(callee) {
                 let arg_types = arguments
                     .iter()
-                    .map(|argument| expression_type(argument, locals, function_returns, type_index))
+                    .map(|argument| expression_type(argument, locals, context))
                     .collect::<Option<Vec<_>>>()?;
                 return builtins::general::resolve_call(callee, &arg_types)
                     .map(|resolved| resolved.return_type.to_string());
             }
             builtins::call_return_type_name(callee)
                 .map(str::to_string)
-                .or_else(|| function_returns.get(callee).cloned())
+                .or_else(|| context.function_returns.get(callee).cloned())
+                .or_else(|| {
+                    locals
+                        .get(callee)
+                        .and_then(|type_| function_return_from_type(type_))
+                })
+        }
+        Expression::Lambda { params, body } => {
+            let mut nested = locals.clone();
+            let param_types = params
+                .iter()
+                .map(|param| {
+                    let type_ = param
+                        .type_name
+                        .clone()
+                        .unwrap_or_else(|| "Unknown".to_string());
+                    nested.insert(param.name.clone(), type_.clone());
+                    type_
+                })
+                .collect::<Vec<_>>();
+            let returns = expression_type(body, &nested, context)?;
+            Some(format!("FUNC({}) AS {returns}", param_types.join(", ")))
         }
         Expression::Binary {
             left,
@@ -437,8 +524,8 @@ fn expression_type(
             if operator == "&" {
                 return Some("String".to_string());
             }
-            let left = expression_type(left, locals, function_returns, type_index)?;
-            let right = expression_type(right, locals, function_returns, type_index)?;
+            let left = expression_type(left, locals, context)?;
+            let right = expression_type(right, locals, context)?;
             if left == "Float" || left == "Fixed" || right == "Float" || right == "Fixed" {
                 Some("Float".to_string())
             } else {
@@ -449,13 +536,24 @@ fn expression_type(
             if operator == "NOT" {
                 Some("Boolean".to_string())
             } else {
-                expression_type(operand, locals, function_returns, type_index)
+                expression_type(operand, locals, context)
             }
         }
     }
 }
 
-fn lower_expression(expression: &Expression) -> IrValue {
+fn function_return_from_type(type_: &str) -> Option<String> {
+    type_
+        .strip_prefix("FUNC(")
+        .and_then(|rest| rest.split_once(") AS "))
+        .map(|(_, return_type)| return_type.to_string())
+}
+
+fn lower_expression(
+    expression: &Expression,
+    locals: &HashMap<String, String>,
+    context: &mut LowerContext<'_>,
+) -> IrValue {
     match expression {
         Expression::String(value) => IrValue::Const {
             type_: "String".to_string(),
@@ -477,20 +575,83 @@ fn lower_expression(expression: &Expression) -> IrValue {
             type_: "Nothing".to_string(),
             value: "NOTHING".to_string(),
         },
-        Expression::Identifier(value) => IrValue::Local(value.clone()),
+        Expression::Identifier(value) => {
+            if let Some(type_) = context.function_types.get(value) {
+                IrValue::FunctionRef {
+                    name: value.clone(),
+                    type_: type_.clone(),
+                }
+            } else {
+                IrValue::Local(value.clone())
+            }
+        }
         Expression::Call { callee, arguments } => IrValue::Call {
             target: callee.clone(),
-            args: arguments.iter().map(lower_expression).collect(),
+            args: arguments
+                .iter()
+                .map(|argument| lower_expression(argument, locals, context))
+                .collect(),
         },
+        Expression::Lambda { params, body } => {
+            let name = format!("$lambda{}", context.next_lambda_id);
+            context.next_lambda_id += 1;
+            let mut lambda_locals = HashMap::new();
+            let ir_params = params
+                .iter()
+                .map(|param| {
+                    let type_ = param
+                        .type_name
+                        .clone()
+                        .expect("typecheck requires lambda parameter type before IR lowering");
+                    lambda_locals.insert(param.name.clone(), type_.clone());
+                    IrParam {
+                        name: param.name.clone(),
+                        type_,
+                        default: None,
+                    }
+                })
+                .collect::<Vec<_>>();
+            let returns = expression_type(body, &lambda_locals, context)
+                .expect("typecheck requires lambda return type before IR lowering");
+            let value = lower_expression(body, &lambda_locals, context);
+            context.lambdas.push(IrFunction {
+                name: name.clone(),
+                visibility: "private".to_string(),
+                kind: "func".to_string(),
+                params: ir_params,
+                returns: returns.clone(),
+                body: vec![IrOp::Return { value: Some(value) }],
+            });
+            let params = params
+                .iter()
+                .map(|param| {
+                    param
+                        .type_name
+                        .clone()
+                        .expect("typecheck requires lambda parameter type before IR lowering")
+                })
+                .collect::<Vec<_>>()
+                .join(", ");
+            IrValue::FunctionRef {
+                name,
+                type_: format!("FUNC({params}) AS {returns}"),
+            }
+        }
         Expression::Constructor {
             type_name,
             arguments,
         } => IrValue::Constructor {
             type_: type_name.clone(),
-            args: arguments.iter().map(lower_expression).collect(),
+            args: arguments
+                .iter()
+                .map(|argument| lower_expression(argument, locals, context))
+                .collect(),
         },
         Expression::ListLiteral(values) => {
-            let lowered = values.iter().map(lower_expression).collect::<Vec<_>>();
+            let lowered = values
+                .iter()
+                .map(|value| lower_expression(value, locals, context))
+                .collect::<Vec<_>>();
             let element_type = values
                 .first()
                 .and_then(|value| literal_expression_type(value))
@@ -508,11 +669,16 @@ fn lower_expression(expression: &Expression) -> IrValue {
             type_: format!("Map OF {key_type} TO {value_type}"),
             entries: entries
                 .iter()
-                .map(|(key, value)| (lower_expression(key), lower_expression(value)))
+                .map(|(key, value)| {
+                    (
+                        lower_expression(key, locals, context),
+                        lower_expression(value, locals, context),
+                    )
+                })
                 .collect(),
         },
         Expression::MemberAccess { target, member } => IrValue::MemberAccess {
-            target: Box::new(lower_expression(target)),
+            target: Box::new(lower_expression(target, locals, context)),
             member: member.clone(),
         },
         Expression::Binary {
@@ -521,12 +687,12 @@ fn lower_expression(expression: &Expression) -> IrValue {
             right,
         } => IrValue::Binary {
             op: operator.clone(),
-            left: Box::new(lower_expression(left)),
-            right: Box::new(lower_expression(right)),
+            left: Box::new(lower_expression(left, locals, context)),
+            right: Box::new(lower_expression(right, locals, context)),
         },
         Expression::Unary { operator, operand } => IrValue::Unary {
             op: operator.clone(),
-            operand: Box::new(lower_expression(operand)),
+            operand: Box::new(lower_expression(operand, locals, context)),
         },
     }
 }
@@ -985,6 +1151,13 @@ impl ToIrJson for IrValue {
             }
             IrValue::Local(name) => {
                 format!("{{ \"kind\": \"local\", \"name\": {} }}", json_string(name))
+            }
+            IrValue::FunctionRef { name, type_ } => {
+                format!(
+                    "{{ \"kind\": \"functionRef\", \"name\": {}, \"type\": {} }}",
+                    json_string(name),
+                    json_string(type_)
+                )
             }
             IrValue::Call { target, args } => {
                 let args = args

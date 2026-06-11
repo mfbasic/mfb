@@ -1,0 +1,13 @@
+FUNC increment(value AS Integer) AS Integer
+  RETURN value + 1
+END FUNC
+
+FUNC apply(value AS Integer, f AS FUNC(Integer) AS Integer) AS Integer
+  RETURN f(value)
+END FUNC
+
+FUNC main AS Integer
+  LET inc AS FUNC(Integer) AS Integer = increment
+  LET square = LAMBDA(value AS Integer) -> value * value
+  RETURN apply(4, inc) + apply(5, square) + apply(5, LAMBDA(value AS Integer) -> value * value)
+END FUNC

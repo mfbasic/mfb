@@ -1,0 +1,12 @@
+$ mfb build -ast tests/builtin-collections
+Wrote AST to tests/builtin-collections/builtin_collections.ast
+[exit 0]
+$ mfb build -ir tests/builtin-collections
+Wrote IR to tests/builtin-collections/builtin_collections.ir
+[exit 0]
+$ mfb build -bc tests/builtin-collections
+Wrote bytecode hex to tests/builtin-collections/builtin_collections.hex
+[exit 0]
+$ mfb build -bin tests/builtin-collections
+Wrote binary to tests/builtin-collections/builtin_collections.aarch64.bin
+[exit 0]

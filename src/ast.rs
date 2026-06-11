@@ -95,7 +95,7 @@ pub enum Visibility {
     Export,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Param {
     pub name: String,
     pub type_name: Option<String>,
@@ -168,6 +168,10 @@ pub enum Expression {
     Call {
         callee: String,
         arguments: Vec<Expression>,
+    },
+    Lambda {
+        params: Vec<Param>,
+        body: Box<Expression>,
     },
     Constructor {
         type_name: String,
@@ -1176,6 +1180,7 @@ impl<'a> FileParser<'a> {
             TokenKind::Keyword(Keyword::Nothing) => {
                 Some(Expression::Identifier("NOTHING".to_string()))
             }
+            TokenKind::Keyword(Keyword::Lambda) => self.parse_lambda(),
             TokenKind::Identifier(value) => {
                 if value.eq_ignore_ascii_case("Map") && self.check_identifier_ci("OF") {
                     self.advance();
@@ -1229,6 +1234,9 @@ impl<'a> FileParser<'a> {
     }
 
     fn parse_type_name(&mut self) -> Option<String> {
+        if self.match_keyword(Keyword::Func) {
+            return self.parse_function_type_name(false);
+        }
         let mut name = self.parse_type_base_name("Expected a type name.")?;
         if (name.eq_ignore_ascii_case("List") || name.eq_ignore_ascii_case("Result"))
             && self.check_identifier_ci("OF")
@@ -1257,6 +1265,55 @@ impl<'a> FileParser<'a> {
             name.push_str(&value);
         }
         Some(name)
+    }
+
+    fn parse_function_type_name(&mut self, isolated: bool) -> Option<String> {
+        if !self.consume_kind(TokenKind::LParen, "Function type must include `(`.") {
+            return None;
+        }
+        let mut params = Vec::new();
+        if !self.check_kind(&TokenKind::RParen) {
+            loop {
+                params.push(self.parse_type_name()?);
+                if !self.match_kind(TokenKind::Comma) {
+                    break;
+                }
+            }
+        }
+        if !self.consume_kind(TokenKind::RParen, "Function type must close with `)`.") {
+            return None;
+        }
+        if !self.consume_keyword(Keyword::As, "Function type must include `AS`.") {
+            return None;
+        }
+        let returns = self.parse_type_name()?;
+        Some(format!(
+            "{}FUNC({}) AS {}",
+            if isolated { "ISOLATED " } else { "" },
+            params.join(", "),
+            returns
+        ))
+    }
+
+    fn parse_lambda(&mut self) -> Option<Expression> {
+        if !self.consume_kind(TokenKind::LParen, "Lambda must include `(` after LAMBDA.") {
+            return None;
+        }
+        let params = self.parse_params();
+        if !self.consume_kind(TokenKind::RParen, "Lambda must close the parameter list.") {
+            return None;
+        }
+        if !self.consume_kind(
+            TokenKind::Arrow,
+            "Lambda must include `->` before its body.",
+        ) {
+            return None;
+        }
+        let body = self.parse_expression()?;
+        Some(Expression::Lambda {
+            params,
+            body: Box::new(body),
+        })
     }
 
     fn parse_type_base_name(&mut self, detail: &str) -> Option<String> {
@@ -2009,6 +2066,18 @@ impl ToAstJson for Expression {
                     args
                 )
             }
+            Expression::Lambda { params, body } => {
+                let params = params
+                    .iter()
+                    .map(|param| param.to_json(0))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                format!(
+                    "{{ \"kind\": \"lambda\", \"params\": [{}], \"body\": {} }}",
+                    params,
+                    body.to_json(0)
+                )
+            }
             Expression::Constructor {
                 type_name,
                 arguments,
@@ -2098,6 +2167,7 @@ fn contains_placeholder(expression: &Expression) -> bool {
         Expression::Call { arguments, .. } | Expression::Constructor { arguments, .. } => {
             arguments.iter().any(contains_placeholder)
         }
+        Expression::Lambda { body, .. } => contains_placeholder(body),
         Expression::ListLiteral(values) => values.iter().any(contains_placeholder),
         Expression::MapLiteral { entries, .. } => entries
             .iter()
@@ -2129,6 +2199,10 @@ fn substitute_placeholder(expression: Expression, input: &Expression) -> Express
                 .into_iter()
                 .map(|argument| substitute_placeholder(argument, input))
                 .collect(),
+        },
+        Expression::Lambda { params, body } => Expression::Lambda {
+            params,
+            body: Box::new(substitute_placeholder(*body, input)),
         },
         Expression::Constructor {
             type_name,

@@ -217,6 +217,11 @@ pub const RULES: &[Rule] = &[
         message: "binding initializer type does not match declared type",
     },
     Rule {
+        name: "TYPE_LAMBDA_CAPTURE_UNSUPPORTED",
+        severity: Severity::Error,
+        message: "lambda captures are not supported by this compiler target",
+    },
+    Rule {
         name: "TYPE_BINDING_REQUIRES_TYPE_OR_VALUE",
         severity: Severity::Error,
         message: "binding requires a type annotation or initializer",
