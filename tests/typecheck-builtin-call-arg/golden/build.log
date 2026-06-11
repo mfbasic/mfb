@@ -4,7 +4,7 @@ $ mfb build -ast tests/typecheck-builtin-call-arg
    4 |   io.print(1)
      | ^
 tests/typecheck-builtin-call-arg/src/main.mfb:4 error[TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
-               Argument 1 for `io.print` has type Integer, expected String.
+               Call to `io.print` has argument type(s) (Integer), expected String.
 [exit 1]
 $ mfb build -ir tests/typecheck-builtin-call-arg
    2 | 
@@ -12,5 +12,5 @@ $ mfb build -ir tests/typecheck-builtin-call-arg
    4 |   io.print(1)
      | ^
 tests/typecheck-builtin-call-arg/src/main.mfb:4 error[TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
-               Argument 1 for `io.print` has type Integer, expected String.
+               Call to `io.print` has argument type(s) (Integer), expected String.
 [exit 1]

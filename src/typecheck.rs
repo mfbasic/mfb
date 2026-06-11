@@ -1069,6 +1069,12 @@ impl<'a> TypeChecker<'a> {
             return Type::Unknown;
         };
         let Some(info) = self.type_infos.get(&type_name).cloned() else {
+            if let Some(field_type) = builtins::io::builtin_type_fields(&type_name)
+                .and_then(|fields| fields.iter().find(|(name, _)| *name == member))
+                .map(|(_, type_name)| self.parse_type(type_name))
+            {
+                return field_type;
+            }
             return Type::Unknown;
         };
         if !matches!(info.kind, TypeDeclKind::Type) {
@@ -1536,42 +1542,71 @@ impl<'a> TypeChecker<'a> {
         if builtins::strings::is_strings_call(callee) {
             return self.check_strings_builtin_call(file, callee, arguments, locals, line);
         }
-
-        if callee == builtins::io::print::NAME {
-            if arguments.len() != 1 {
-                self.report(
-                    "TYPE_CALL_ARITY_MISMATCH",
-                    &format!(
-                        "Call to `{callee}` has {} argument(s), expected 1.",
-                        arguments.len()
-                    ),
-                    file,
-                    line,
-                );
-            }
-
-            for (index, argument) in arguments.iter().enumerate() {
-                let actual = self.infer_expression(file, argument, locals, line);
-                if index == 0 && !self.expression_compatible(&Type::String, &actual, Some(argument))
-                {
-                    self.report(
-                        "TYPE_CALL_ARGUMENT_MISMATCH",
-                        &format!(
-                            "Argument 1 for `{callee}` has type {}, expected String.",
-                            self.type_name(&actual)
-                        ),
-                        file,
-                        line,
-                    );
-                }
-            }
-            return Type::Nothing;
+        if builtins::io::is_io_call(callee) {
+            return self.check_io_builtin_call(file, callee, arguments, locals, line);
         }
 
         for argument in arguments {
             self.infer_expression(file, argument, locals, line);
         }
         Type::Unknown
+    }
+
+    fn check_io_builtin_call(
+        &mut self,
+        file: &AstFile,
+        callee: &str,
+        arguments: &[Expression],
+        locals: &HashMap<String, LocalInfo>,
+        line: usize,
+    ) -> Type {
+        let arg_types = arguments
+            .iter()
+            .map(|argument| {
+                let type_ = self.infer_expression(file, argument, locals, line);
+                self.type_name(&type_)
+            })
+            .collect::<Vec<_>>();
+
+        if let Some((min, max)) = builtins::io::arity(callee) {
+            if arguments.len() < min || arguments.len() > max {
+                let expected = if min == max {
+                    if min == 0 {
+                        "0".to_string()
+                    } else {
+                        min.to_string()
+                    }
+                } else {
+                    format!("{min} to {max}")
+                };
+                self.report(
+                    "TYPE_CALL_ARITY_MISMATCH",
+                    &format!(
+                        "Call to `{callee}` has {} argument(s), expected {expected}.",
+                        arguments.len()
+                    ),
+                    file,
+                    line,
+                );
+                return Type::Unknown;
+            }
+        }
+
+        let Some(resolved) = builtins::io::resolve_call(callee, &arg_types) else {
+            let expected = builtins::io::expected_arguments(callee).unwrap_or("supported overload");
+            self.report(
+                "TYPE_CALL_ARGUMENT_MISMATCH",
+                &format!(
+                    "Call to `{callee}` has argument type(s) ({}), expected {expected}.",
+                    arg_types.join(", ")
+                ),
+                file,
+                line,
+            );
+            return Type::Unknown;
+        };
+
+        self.parse_type(&resolved.return_type)
     }
 
     fn check_strings_builtin_call(
@@ -1761,6 +1796,7 @@ impl<'a> TypeChecker<'a> {
             "Nothing" => Type::Nothing,
             "String" => Type::String,
             "Result" => Type::Result(Box::new(Type::Unknown)),
+            other if builtins::is_builtin_type(other) => Type::User(other.to_string()),
             other if self.user_types.contains(other) => Type::User(other.to_string()),
             other => Type::User(other.to_string()),
         }

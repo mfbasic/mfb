@@ -1,0 +1,21 @@
+IMPORT io
+
+SUB main()
+  io.write("out")
+  io.print(" line")
+  io.writeError("err")
+  io.printError(" line")
+  io.flush()
+  io.flushError()
+
+  LET stdinTerminal AS Boolean = io.isInputTerminal()
+  LET stdoutTerminal AS Boolean = io.isOutputTerminal()
+  LET stderrTerminal AS Boolean = io.isErrorTerminal()
+
+  IF stdoutTerminal THEN
+    LET size AS TerminalSize = io.terminalSize()
+    io.print(toString(size::columns) & "x" & toString(size::rows))
+  ELSE
+    io.print(toString(stdinTerminal) & toString(stderrTerminal))
+  END IF
+END SUB

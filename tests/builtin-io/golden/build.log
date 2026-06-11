@@ -1,0 +1,9 @@
+$ mfb build -ast tests/builtin-io
+Wrote AST to tests/builtin-io/builtin_io.ast
+[exit 0]
+$ mfb build -ir tests/builtin-io
+Wrote IR to tests/builtin-io/builtin_io.ir
+[exit 0]
+$ mfb build -bin tests/builtin-io
+Wrote binary to tests/builtin-io/builtin_io.aarch64.bin
+[exit 0]

@@ -21,6 +21,8 @@ pub(crate) const TYPE_FLOAT: u32 = 4;
 pub(crate) const TYPE_FIXED: u32 = 5;
 pub(crate) const TYPE_STRING: u32 = 6;
 pub(crate) const TYPE_BYTE: u32 = 7;
+pub(crate) const TYPE_ERROR: u32 = 8;
+pub(crate) const TYPE_TERMINAL_SIZE: u32 = 9;
 
 const FUNCTION_BYTECODE: u16 = 1;
 
@@ -50,7 +52,13 @@ const OPCODE_NOT: u16 = 32;
 const OPCODE_XOR: u16 = 33;
 const OPCODE_NEG: u16 = 34;
 const OPCODE_CONCAT: u16 = 40;
-pub(crate) const OPCODE_WRITE_STDOUT: u16 = 50;
+pub(crate) const OPCODE_IO_WRITE: u16 = 50;
+pub(crate) const OPCODE_IO_FLUSH: u16 = 51;
+pub(crate) const OPCODE_IO_READ_LINE: u16 = 52;
+pub(crate) const OPCODE_IO_READ_CHAR: u16 = 53;
+pub(crate) const OPCODE_IO_READ_BYTE: u16 = 54;
+pub(crate) const OPCODE_IO_IS_TERMINAL: u16 = 55;
+pub(crate) const OPCODE_IO_TERMINAL_SIZE: u16 = 56;
 const OPCODE_CALL_RESULT: u16 = 60;
 const OPCODE_UNWRAP_RESULT: u16 = 61;
 const OPCODE_LOAD_FUNCTION: u16 = 62;
@@ -230,7 +238,13 @@ pub const NATIVE_OPCODE_NOT: u16 = OPCODE_NOT;
 pub const NATIVE_OPCODE_XOR: u16 = OPCODE_XOR;
 pub const NATIVE_OPCODE_NEG: u16 = OPCODE_NEG;
 pub const NATIVE_OPCODE_CONCAT: u16 = OPCODE_CONCAT;
-pub const NATIVE_OPCODE_WRITE_STDOUT: u16 = OPCODE_WRITE_STDOUT;
+pub const NATIVE_OPCODE_IO_WRITE: u16 = OPCODE_IO_WRITE;
+pub const NATIVE_OPCODE_IO_FLUSH: u16 = OPCODE_IO_FLUSH;
+pub const NATIVE_OPCODE_IO_READ_LINE: u16 = OPCODE_IO_READ_LINE;
+pub const NATIVE_OPCODE_IO_READ_CHAR: u16 = OPCODE_IO_READ_CHAR;
+pub const NATIVE_OPCODE_IO_READ_BYTE: u16 = OPCODE_IO_READ_BYTE;
+pub const NATIVE_OPCODE_IO_IS_TERMINAL: u16 = OPCODE_IO_IS_TERMINAL;
+pub const NATIVE_OPCODE_IO_TERMINAL_SIZE: u16 = OPCODE_IO_TERMINAL_SIZE;
 pub const NATIVE_OPCODE_CALL_RESULT: u16 = OPCODE_CALL_RESULT;
 pub const NATIVE_OPCODE_UNWRAP_RESULT: u16 = OPCODE_UNWRAP_RESULT;
 pub const NATIVE_OPCODE_LOAD_FUNCTION: u16 = OPCODE_LOAD_FUNCTION;
@@ -434,7 +448,33 @@ fn native_type_layouts(
             },
         ];
         records.insert(
-            8,
+            TYPE_ERROR,
+            NativeRecordLayout {
+                size_slots: 2,
+                fields: fields
+                    .iter()
+                    .cloned()
+                    .map(|field| (field.name, field))
+                    .collect(),
+                ordered_fields: fields,
+            },
+        );
+    }
+
+    if let (Some(columns), Some(rows)) = (string_id(strings, "columns"), string_id(strings, "rows"))
+    {
+        let fields = vec![
+            NativeFieldLayout {
+                name: columns,
+                offset_slots: 0,
+            },
+            NativeFieldLayout {
+                name: rows,
+                offset_slots: 1,
+            },
+        ];
+        records.insert(
+            TYPE_TERMINAL_SIZE,
             NativeRecordLayout {
                 size_slots: 2,
                 fields: fields
@@ -531,7 +571,8 @@ fn native_type_id(type_ids: &HashMap<String, u32>, name: &str) -> Option<u32> {
         "Fixed" => Some(TYPE_FIXED),
         "String" => Some(TYPE_STRING),
         "Byte" => Some(TYPE_BYTE),
-        "Error" => Some(8),
+        "Error" => Some(TYPE_ERROR),
+        "TerminalSize" => Some(TYPE_TERMINAL_SIZE),
         _ => type_ids.get(name).copied(),
     }
 }
@@ -631,6 +672,21 @@ impl TypeModel {
                     FieldModel {
                         name: "message".to_string(),
                         type_name: "String".to_string(),
+                    },
+                ],
+            },
+        );
+        records.insert(
+            "TerminalSize".to_string(),
+            RecordModel {
+                fields: vec![
+                    FieldModel {
+                        name: "columns".to_string(),
+                        type_name: "Integer".to_string(),
+                    },
+                    FieldModel {
+                        name: "rows".to_string(),
+                        type_name: "Integer".to_string(),
                     },
                 ],
             },
@@ -886,10 +942,6 @@ pub(crate) trait BuiltinCallLowerer {
     fn add_register(&mut self, type_id: u32, flags: u32) -> u32;
     fn push(&mut self, opcode: u16, operands: Vec<u32>);
     fn push_string_const(&mut self, value: &str) -> Result<ValueSlot, String>;
-
-    fn push_default(&mut self, register: u32, type_id: u32) {
-        self.push(OPCODE_LOAD_DEFAULT, vec![register, type_id]);
-    }
 }
 
 impl<'a> FunctionBuilder<'a> {
@@ -1111,8 +1163,8 @@ impl<'a> FunctionBuilder<'a> {
                 if builtins::strings::is_strings_call(target) {
                     return builtins::strings::lower_bytecode_call(self, target, args, locals);
                 }
-                if target == builtins::io::print::NAME {
-                    return builtins::io::print::lower_bytecode_call(self, args, locals);
+                if builtins::io::is_io_call(target) {
+                    return builtins::io::lower_bytecode_call(self, target, args, locals);
                 }
 
                 if let Some(callee) = locals.get(target) {
@@ -1403,7 +1455,12 @@ impl<'a> FunctionBuilder<'a> {
         }
         if matches!(
             type_id,
-            TYPE_NOTHING | TYPE_BOOLEAN | TYPE_INTEGER | TYPE_FLOAT | TYPE_FIXED | TYPE_STRING
+            TYPE_NOTHING
+                | TYPE_BOOLEAN
+                | TYPE_INTEGER
+                | TYPE_FLOAT
+                | TYPE_FIXED
+                | TYPE_STRING
         ) {
             self.push(OPCODE_COPY, vec![dst, src]);
         } else {
@@ -1420,6 +1477,7 @@ impl<'a> FunctionBuilder<'a> {
                 "Float" => TYPE_FLOAT,
                 "Fixed" => TYPE_FIXED,
                 "String" => TYPE_STRING,
+                "Byte" => TYPE_BYTE,
                 _ => return Err(format!("unsupported built-in return type `{return_type}`")),
             });
         }
@@ -1692,7 +1750,12 @@ impl TypeTable {
             "Error" => {
                 strings.intern("code");
                 strings.intern("message");
-                8
+                TYPE_ERROR
+            }
+            "TerminalSize" => {
+                strings.intern("columns");
+                strings.intern("rows");
+                TYPE_TERMINAL_SIZE
             }
             _ => {
                 if let Some(id) = self.ids.get(name) {

@@ -20,7 +20,9 @@ use crate::bytecode::{
     NATIVE_OPCODE_GENERAL_MID, NATIVE_OPCODE_GENERAL_REPLACE, NATIVE_OPCODE_GENERAL_TO_BYTE,
     NATIVE_OPCODE_GENERAL_TO_FIXED, NATIVE_OPCODE_GENERAL_TO_FLOAT, NATIVE_OPCODE_GENERAL_TO_INT,
     NATIVE_OPCODE_GENERAL_TO_STRING, NATIVE_OPCODE_GREATER, NATIVE_OPCODE_GREATER_EQUAL,
-    NATIVE_OPCODE_LESS, NATIVE_OPCODE_LESS_EQUAL, NATIVE_OPCODE_LOAD_CONST,
+    NATIVE_OPCODE_IO_FLUSH, NATIVE_OPCODE_IO_IS_TERMINAL, NATIVE_OPCODE_IO_READ_BYTE,
+    NATIVE_OPCODE_IO_READ_CHAR, NATIVE_OPCODE_IO_READ_LINE, NATIVE_OPCODE_IO_TERMINAL_SIZE,
+    NATIVE_OPCODE_IO_WRITE, NATIVE_OPCODE_LESS, NATIVE_OPCODE_LESS_EQUAL, NATIVE_OPCODE_LOAD_CONST,
     NATIVE_OPCODE_LOAD_DEFAULT, NATIVE_OPCODE_LOAD_ENUM_MEMBER, NATIVE_OPCODE_LOAD_FIELD,
     NATIVE_OPCODE_LOAD_FUNCTION, NATIVE_OPCODE_MOD, NATIVE_OPCODE_MOVE, NATIVE_OPCODE_MUL,
     NATIVE_OPCODE_NEG, NATIVE_OPCODE_NOT, NATIVE_OPCODE_NOT_EQUAL, NATIVE_OPCODE_POW,
@@ -31,8 +33,7 @@ use crate::bytecode::{
     NATIVE_OPCODE_STRING_REGEX_REPLACE, NATIVE_OPCODE_STRING_SPLIT,
     NATIVE_OPCODE_STRING_STARTS_WITH, NATIVE_OPCODE_STRING_TRIM, NATIVE_OPCODE_STRING_TRIM_END,
     NATIVE_OPCODE_STRING_TRIM_START, NATIVE_OPCODE_STRING_UPPER, NATIVE_OPCODE_SUB,
-    NATIVE_OPCODE_UNWRAP_RESULT, NATIVE_OPCODE_VARIANT_MATCH, NATIVE_OPCODE_WRITE_STDOUT,
-    NATIVE_OPCODE_XOR,
+    NATIVE_OPCODE_UNWRAP_RESULT, NATIVE_OPCODE_VARIANT_MATCH, NATIVE_OPCODE_XOR,
 };
 use crate::ir::IrProject;
 use crate::target::BuildTarget;
@@ -47,12 +48,25 @@ const ARENA_STATE_SIZE: usize = 64;
 const ARENA_DEFAULT_BLOCK_SIZE: u64 = 4096;
 const ARENA_BLOCK_HEADER_SIZE: u64 = 32;
 const ERR_INVALID_ARGUMENT: u64 = 10002;
+const ERR_NOT_TERMINAL: u64 = 10007;
 const ERR_PARSE: u64 = 10003;
 const ERR_NOT_FOUND: u64 = 10004;
 const ERR_INDEX_OUT_OF_RANGE: u64 = 10001;
 const ERR_OUT_OF_MEMORY: u64 = 10010;
+const ERR_OUTPUT_FAILURE: u64 = 10015;
+const ERR_EOF: u64 = 10016;
+const ERR_INVALID_UTF8: u64 = 10019;
+const ERR_INPUT_FAILURE: u64 = 10020;
 const DARWIN_PROT_READ_WRITE: u64 = 0x3;
 const DARWIN_MAP_PRIVATE_ANON: u64 = 0x1002;
+const DARWIN_SYSCALL_EXIT: u64 = 0x0200_0001;
+const DARWIN_SYSCALL_READ: u64 = 0x0200_0003;
+const DARWIN_SYSCALL_WRITE: u64 = 0x0200_0004;
+const DARWIN_SYSCALL_IOCTL: u64 = 0x0200_0036;
+const DARWIN_SYSCALL_MUNMAP: u64 = 0x0200_0049;
+const DARWIN_SYSCALL_MMAP: u64 = 0x0200_00c5;
+const DARWIN_TIOCGETA: u64 = 0x4048_7413;
+const DARWIN_TIOCGWINSZ: u64 = 0x4008_7468;
 const HEAP_KIND_STRING: u64 = 1;
 const HEAP_KIND_LIST: u64 = 2;
 const HEAP_KIND_RECORD: u64 = 3;
@@ -276,8 +290,26 @@ impl<'a> NativeEmitter<'a> {
                 NATIVE_OPCODE_CONCAT => {
                     self.emit_concat(instruction, epilogue)?;
                 }
-                NATIVE_OPCODE_WRITE_STDOUT => {
-                    self.emit_write_stdout(function, instruction)?;
+                NATIVE_OPCODE_IO_WRITE => {
+                    self.emit_io_write(function, instruction, epilogue)?;
+                }
+                NATIVE_OPCODE_IO_FLUSH => {
+                    self.emit_io_flush(instruction)?;
+                }
+                NATIVE_OPCODE_IO_READ_LINE => {
+                    self.emit_io_read_line(function, instruction, epilogue)?;
+                }
+                NATIVE_OPCODE_IO_READ_CHAR => {
+                    self.emit_io_read_char(function, instruction, epilogue)?;
+                }
+                NATIVE_OPCODE_IO_READ_BYTE => {
+                    self.emit_io_read_byte(function, instruction, epilogue)?;
+                }
+                NATIVE_OPCODE_IO_IS_TERMINAL => {
+                    self.emit_io_is_terminal(function, instruction)?;
+                }
+                NATIVE_OPCODE_IO_TERMINAL_SIZE => {
+                    self.emit_io_terminal_size(function, instruction, epilogue)?;
                 }
                 NATIVE_OPCODE_CALL_RESULT => {
                     self.emit_call_result(instruction)?;
@@ -2891,6 +2923,61 @@ impl<'a> NativeEmitter<'a> {
         self.code.str_imm(31, 31, slot_offset(dst) + 16)
     }
 
+    fn emit_allocate_string_buffer(
+        &mut self,
+        capacity: u64,
+        epilogue: Label,
+    ) -> Result<(), String> {
+        self.emit_allocate_heap_object(HEAP_KIND_STRING, 0, 0, capacity as usize, epilogue)
+    }
+
+    fn store_string_slot_from_heap(
+        &mut self,
+        dst: u32,
+        object_reg: u8,
+        len_reg: u8,
+        capacity: u64,
+    ) -> Result<(), String> {
+        self.code.mov_imm(9, HEAP_KIND_STRING);
+        self.code.str_imm(9, object_reg, 0)?;
+        self.code.str_imm(len_reg, object_reg, 8)?;
+        self.code.mov_imm(9, capacity);
+        self.code.str_imm(9, object_reg, 16)?;
+        self.code.str_imm(31, object_reg, 24)?;
+        self.code.str_imm(object_reg, 31, slot_offset(dst))?;
+        self.code.str_imm(len_reg, 31, slot_offset(dst) + 8)?;
+        self.code.str_imm(31, 31, slot_offset(dst) + 16)
+    }
+
+    fn fail_current_function(&mut self, code: u64, epilogue: Label) {
+        self.code.mov_imm(0, code);
+        self.code.mov_imm(1, 0);
+        self.code.mov_imm(2, 0);
+        self.code.b(epilogue);
+    }
+
+    fn expect_register_type(
+        &self,
+        function: &bytecode::NativeFunction,
+        register: u32,
+        expected: NativeType,
+        opcode: &str,
+    ) -> Result<(), String> {
+        let actual = function
+            .registers
+            .get(register as usize)
+            .map(|register| register.type_)
+            .ok_or_else(|| format!("{opcode} references missing register {register}"))?;
+        if actual != expected {
+            return Err(format!(
+                "{opcode} requires a {} register, got {}",
+                native_type_name(expected),
+                native_type_name(actual)
+            ));
+        }
+        Ok(())
+    }
+
     fn emit_bool_to_string(&mut self, dst: u32, src: u32, epilogue: Label) -> Result<(), String> {
         let false_label = self.code.new_label();
         let done = self.code.new_label();
@@ -3416,21 +3503,24 @@ impl<'a> NativeEmitter<'a> {
         self.store_result(dst)
     }
 
-    fn emit_write_stdout(
+    fn emit_io_write(
         &mut self,
         function: &bytecode::NativeFunction,
         instruction: &bytecode::NativeInstruction,
+        epilogue: Label,
     ) -> Result<(), String> {
-        let src = operand(instruction, 0)?;
-        let append_newline = operand(instruction, 1)? != 0;
+        let dst = operand(instruction, 0)?;
+        let src = operand(instruction, 1)?;
+        let fd = operand(instruction, 2)? as u64;
+        let append_newline = operand(instruction, 3)? != 0;
         let src_type = function
             .registers
             .get(src as usize)
             .map(|register| register.type_)
-            .ok_or_else(|| format!("WRITE_STDOUT references missing register {src}"))?;
+            .ok_or_else(|| format!("IO_WRITE references missing register {src}"))?;
         if src_type != NativeType::String {
             return Err(format!(
-                "WRITE_STDOUT requires a String register, got {}",
+                "IO_WRITE requires a String register, got {}",
                 native_type_name(src_type)
             ));
         }
@@ -3438,24 +3528,300 @@ impl<'a> NativeEmitter<'a> {
         self.code.ldr_imm(1, 31, slot_offset(src))?;
         self.code.ldr_imm(2, 31, slot_offset(src) + 8)?;
         self.code.add_imm(1, 1, HEAP_HEADER_SIZE)?;
-        self.emit_write_buffer()?;
+        self.emit_write_buffer(fd, epilogue)?;
         if append_newline {
-            self.emit_newline_write()?;
+            self.emit_newline_write(fd, epilogue)?;
         }
-        Ok(())
+        self.store_zero_slot(dst)
     }
 
-    fn emit_newline_write(&mut self) -> Result<(), String> {
+    fn emit_newline_write(&mut self, fd: u64, epilogue: Label) -> Result<(), String> {
         self.emit_data_addr(1, self.data.newline);
         self.code.mov_imm(2, 1);
-        self.emit_write_buffer()
+        self.emit_write_buffer(fd, epilogue)
     }
 
-    fn emit_write_buffer(&mut self) -> Result<(), String> {
-        self.code.mov_imm(0, 1);
-        self.code.mov_imm(16, 0x0200_0004);
+    fn emit_write_buffer(&mut self, fd: u64, epilogue: Label) -> Result<(), String> {
+        let ok = self.code.new_label();
+        self.code.mov_imm(0, fd);
+        self.code.mov_imm(16, DARWIN_SYSCALL_WRITE);
         self.code.svc();
+        self.code.cmp_zero(0);
+        self.code.b_ge(ok);
+        self.fail_current_function(ERR_OUTPUT_FAILURE, epilogue);
+        self.code.bind(ok);
         Ok(())
+    }
+
+    fn emit_io_flush(&mut self, instruction: &bytecode::NativeInstruction) -> Result<(), String> {
+        let dst = operand(instruction, 0)?;
+        self.store_zero_slot(dst)
+    }
+
+    fn emit_io_read_line(
+        &mut self,
+        function: &bytecode::NativeFunction,
+        instruction: &bytecode::NativeInstruction,
+        epilogue: Label,
+    ) -> Result<(), String> {
+        let dst = operand(instruction, 0)?;
+        let prompt = operand(instruction, 1)?;
+        if prompt != u32::MAX {
+            let prompt_type = function
+                .registers
+                .get(prompt as usize)
+                .map(|register| register.type_)
+                .ok_or_else(|| format!("IO_READ_LINE references missing prompt {prompt}"))?;
+            if prompt_type != NativeType::String {
+                return Err(format!(
+                    "IO_READ_LINE prompt requires a String register, got {}",
+                    native_type_name(prompt_type)
+                ));
+            }
+            let no_prompt = self.code.new_label();
+            self.code.ldr_imm(2, 31, slot_offset(prompt) + 8)?;
+            self.code.cbz(2, no_prompt);
+            self.code.ldr_imm(1, 31, slot_offset(prompt))?;
+            self.code.add_imm(1, 1, HEAP_HEADER_SIZE)?;
+            self.emit_write_buffer(1, epilogue)?;
+            self.code.bind(no_prompt);
+        }
+
+        self.emit_allocate_string_buffer(4096, epilogue)?;
+        self.code.mov_reg(20, 1);
+        self.code.mov_imm(21, 0);
+        let loop_start = self.code.new_label();
+        let done = self.code.new_label();
+        let eof = self.code.new_label();
+        let input_error = self.code.new_label();
+        let too_long = self.code.new_label();
+
+        self.code.bind(loop_start);
+        self.code.cmp_reg_imm(21, 4096);
+        self.code.b_hs(too_long);
+        self.code.mov_imm(0, 0);
+        self.code.add_imm(1, 31, self.current_scratch)?;
+        self.code.mov_imm(2, 1);
+        self.code.mov_imm(16, DARWIN_SYSCALL_READ);
+        self.code.svc();
+        self.code.cmp_zero(0);
+        self.code.b_eq(eof);
+        self.code.b_lt(input_error);
+        self.code.ldrb_imm(9, 31, self.current_scratch);
+        self.code.cmp_reg_imm(9, b'\n' as u64);
+        self.code.b_eq(done);
+        self.code.cmp_reg_imm(9, b'\r' as u64);
+        self.code.b_eq(done);
+        self.code.add_reg(10, 20, 21);
+        self.code.strb_imm(9, 10, HEAP_HEADER_SIZE);
+        self.code.add_imm(21, 21, 1)?;
+        self.code.b(loop_start);
+
+        self.code.bind(done);
+        self.store_string_slot_from_heap(dst, 20, 21, 4096)?;
+        let success_end = self.code.new_label();
+        self.code.b(success_end);
+
+        self.code.bind(eof);
+        self.fail_current_function(ERR_EOF, epilogue);
+        self.code.bind(input_error);
+        self.fail_current_function(ERR_INPUT_FAILURE, epilogue);
+        self.code.bind(too_long);
+        self.fail_current_function(ERR_INPUT_FAILURE, epilogue);
+        self.code.bind(success_end);
+        Ok(())
+    }
+
+    fn emit_io_read_char(
+        &mut self,
+        function: &bytecode::NativeFunction,
+        instruction: &bytecode::NativeInstruction,
+        epilogue: Label,
+    ) -> Result<(), String> {
+        let dst = operand(instruction, 0)?;
+        self.expect_register_type(function, dst, NativeType::String, "IO_READ_CHAR")?;
+        self.emit_allocate_string_buffer(4, epilogue)?;
+        self.code.mov_reg(20, 1);
+        self.code.mov_imm(0, 0);
+        self.code.add_imm(1, 20, HEAP_HEADER_SIZE)?;
+        self.code.mov_imm(2, 1);
+        self.code.mov_imm(16, DARWIN_SYSCALL_READ);
+        self.code.svc();
+        let have_first = self.code.new_label();
+        let eof = self.code.new_label();
+        self.code.cmp_zero(0);
+        self.code.b_gt(have_first);
+        self.code.b_eq(eof);
+        self.fail_current_function(ERR_INPUT_FAILURE, epilogue);
+        self.code.bind(eof);
+        self.fail_current_function(ERR_EOF, epilogue);
+        self.code.bind(have_first);
+        self.code.ldrb_imm(9, 20, HEAP_HEADER_SIZE);
+        self.code.mov_imm(21, 1);
+        self.code.cmp_reg_imm(9, 0x80);
+        let finish = self.code.new_label();
+        self.code.b_lo(finish);
+        self.code.cmp_reg_imm(9, 0xc2);
+        let invalid = self.code.new_label();
+        self.code.b_lo(invalid);
+        self.code.cmp_reg_imm(9, 0xe0);
+        let read_two = self.code.new_label();
+        self.code.b_lo(read_two);
+        self.code.cmp_reg_imm(9, 0xf0);
+        let read_three = self.code.new_label();
+        self.code.b_lo(read_three);
+        self.code.cmp_reg_imm(9, 0xf5);
+        self.code.b_hs(invalid);
+        self.code.mov_imm(21, 4);
+        self.emit_read_remaining_char_bytes(epilogue)?;
+        self.code.b(finish);
+        self.code.bind(read_two);
+        self.code.mov_imm(21, 2);
+        self.emit_read_remaining_char_bytes(epilogue)?;
+        self.code.b(finish);
+        self.code.bind(read_three);
+        self.code.mov_imm(21, 3);
+        self.emit_read_remaining_char_bytes(epilogue)?;
+        self.code.bind(finish);
+        self.store_string_slot_from_heap(dst, 20, 21, 4)?;
+        let done = self.code.new_label();
+        self.code.b(done);
+        self.code.bind(invalid);
+        self.fail_current_function(ERR_INVALID_UTF8, epilogue);
+        self.code.bind(done);
+        Ok(())
+    }
+
+    fn emit_read_remaining_char_bytes(&mut self, epilogue: Label) -> Result<(), String> {
+        let loop_start = self.code.new_label();
+        let done = self.code.new_label();
+        self.code.mov_imm(22, 1);
+        self.code.bind(loop_start);
+        self.code.cmp_reg(22, 21);
+        self.code.b_hs(done);
+        self.code.mov_imm(0, 0);
+        self.code.add_reg(1, 20, 22);
+        self.code.add_imm(1, 1, HEAP_HEADER_SIZE)?;
+        self.code.mov_imm(2, 1);
+        self.code.mov_imm(16, DARWIN_SYSCALL_READ);
+        self.code.svc();
+        self.code.cmp_zero(0);
+        let eof = self.code.new_label();
+        let input_error = self.code.new_label();
+        self.code.b_eq(eof);
+        self.code.b_lt(input_error);
+        self.code.cmp_reg_imm(0, 1);
+        let ok_read = self.code.new_label();
+        self.code.b_eq(ok_read);
+        self.code.bind(eof);
+        self.fail_current_function(ERR_EOF, epilogue);
+        self.code.bind(input_error);
+        self.fail_current_function(ERR_INPUT_FAILURE, epilogue);
+        self.code.bind(ok_read);
+        self.code.ldrb_imm(9, 1, 0);
+        self.code.cmp_reg_imm(9, 0x80);
+        let invalid = self.code.new_label();
+        self.code.b_lo(invalid);
+        self.code.cmp_reg_imm(9, 0xc0);
+        self.code.b_hs(invalid);
+        self.code.add_imm(22, 22, 1)?;
+        self.code.b(loop_start);
+        self.code.bind(invalid);
+        self.fail_current_function(ERR_INVALID_UTF8, epilogue);
+        self.code.bind(done);
+        Ok(())
+    }
+
+    fn emit_io_read_byte(
+        &mut self,
+        function: &bytecode::NativeFunction,
+        instruction: &bytecode::NativeInstruction,
+        epilogue: Label,
+    ) -> Result<(), String> {
+        let dst = operand(instruction, 0)?;
+        self.expect_register_type(function, dst, NativeType::Byte, "IO_READ_BYTE")?;
+        self.code.mov_imm(0, 0);
+        self.code.add_imm(1, 31, self.current_scratch)?;
+        self.code.mov_imm(2, 1);
+        self.code.mov_imm(16, DARWIN_SYSCALL_READ);
+        self.code.svc();
+        let ok = self.code.new_label();
+        let eof = self.code.new_label();
+        self.code.cmp_zero(0);
+        self.code.b_gt(ok);
+        self.code.b_eq(eof);
+        self.fail_current_function(ERR_INPUT_FAILURE, epilogue);
+        self.code.bind(eof);
+        self.fail_current_function(ERR_EOF, epilogue);
+        self.code.bind(ok);
+        self.code.ldrb_imm(9, 31, self.current_scratch);
+        self.code.str_imm(9, 31, slot_offset(dst))?;
+        self.code.str_imm(31, 31, slot_offset(dst) + 8)?;
+        self.code.str_imm(31, 31, slot_offset(dst) + 16)
+    }
+
+    fn emit_io_is_terminal(
+        &mut self,
+        function: &bytecode::NativeFunction,
+        instruction: &bytecode::NativeInstruction,
+    ) -> Result<(), String> {
+        let dst = operand(instruction, 0)?;
+        let fd = operand(instruction, 1)? as u64;
+        self.expect_register_type(function, dst, NativeType::Boolean, "IO_IS_TERMINAL")?;
+        self.code.mov_imm(0, fd);
+        self.code.mov_imm(1, DARWIN_TIOCGETA);
+        self.code.add_imm(2, 31, self.current_scratch)?;
+        self.code.mov_imm(16, DARWIN_SYSCALL_IOCTL);
+        self.code.svc();
+        let yes = self.code.new_label();
+        let done = self.code.new_label();
+        self.code.cmp_zero(0);
+        self.code.b_eq(yes);
+        self.code.str_imm(31, 31, slot_offset(dst))?;
+        self.code.b(done);
+        self.code.bind(yes);
+        self.code.mov_imm(9, 1);
+        self.code.str_imm(9, 31, slot_offset(dst))?;
+        self.code.bind(done);
+        self.code.str_imm(31, 31, slot_offset(dst) + 8)?;
+        self.code.str_imm(31, 31, slot_offset(dst) + 16)
+    }
+
+    fn emit_io_terminal_size(
+        &mut self,
+        function: &bytecode::NativeFunction,
+        instruction: &bytecode::NativeInstruction,
+        epilogue: Label,
+    ) -> Result<(), String> {
+        let dst = operand(instruction, 0)?;
+        self.expect_register_type(function, dst, NativeType::Other, "IO_TERMINAL_SIZE")?;
+        self.code.mov_imm(0, 1);
+        self.code.mov_imm(1, DARWIN_TIOCGWINSZ);
+        self.code.add_imm(2, 31, self.current_scratch)?;
+        self.code.mov_imm(16, DARWIN_SYSCALL_IOCTL);
+        self.code.svc();
+        let ok = self.code.new_label();
+        self.code.cmp_zero(0);
+        self.code.b_eq(ok);
+        self.fail_current_function(ERR_NOT_TERMINAL, epilogue);
+        self.code.bind(ok);
+        self.emit_allocate_heap_object(HEAP_KIND_RECORD, 2, 0, 2 * SLOT_SIZE, epilogue)?;
+        self.code.mov_reg(20, 1);
+        self.code.ldrb_imm(9, 31, self.current_scratch + 2);
+        self.code.ldrb_imm(10, 31, self.current_scratch + 3);
+        self.code.mov_imm(11, 256);
+        self.code.mul(10, 10, 11);
+        self.code.add_reg(9, 9, 10);
+        self.code.str_imm(9, 20, HEAP_HEADER_SIZE)?;
+        self.code.ldrb_imm(9, 31, self.current_scratch);
+        self.code.ldrb_imm(10, 31, self.current_scratch + 1);
+        self.code.mul(10, 10, 11);
+        self.code.add_reg(9, 9, 10);
+        self.code.str_imm(9, 20, HEAP_HEADER_SIZE + SLOT_SIZE)?;
+        self.code.str_imm(20, 31, slot_offset(dst))?;
+        self.code.mov_imm(9, 2);
+        self.code.str_imm(9, 31, slot_offset(dst) + 8)?;
+        self.code.str_imm(31, 31, slot_offset(dst) + 16)
     }
 
     fn emit_unwrap_result(
@@ -3619,7 +3985,7 @@ impl<'a> NativeEmitter<'a> {
         self.code.mov_imm(3, DARWIN_MAP_PRIVATE_ANON);
         self.code.mov_imm(4, u64::MAX);
         self.code.mov_imm(5, 0);
-        self.code.mov_imm(16, 0x0200_00c5);
+        self.code.mov_imm(16, DARWIN_SYSCALL_MMAP);
         self.code.svc();
         self.code.cmp_zero(0);
         self.code.b_ge(mapped);
@@ -3664,7 +4030,7 @@ impl<'a> NativeEmitter<'a> {
         self.code.ldr_imm(21, 20, 0).expect("block next load");
         self.code.ldr_imm(1, 20, 8).expect("block map size load");
         self.code.mov_reg(0, 20);
-        self.code.mov_imm(16, 0x0200_0049);
+        self.code.mov_imm(16, DARWIN_SYSCALL_MUNMAP);
         self.code.svc();
         self.code.mov_reg(20, 21);
         self.code.b(loop_start);
@@ -3680,7 +4046,7 @@ impl<'a> NativeEmitter<'a> {
     }
 
     fn emit_exit_syscall(&mut self) {
-        self.code.mov_imm(16, 0x0200_0001);
+        self.code.mov_imm(16, DARWIN_SYSCALL_EXIT);
         self.code.svc();
         self.code.branch_self();
     }

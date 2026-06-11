@@ -1,0 +1,44 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "builtin_io",
+  "entry": {
+    "name": "main",
+    "returns": "Nothing",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "visibility": "private",
+    "kind": "sub",
+    "params": [
+    ],
+    "returns": "Nothing",
+    "body": [
+    { "op": "eval", "value": { "kind": "call", "target": "io.write", "args": [{ "kind": "const", "type": "String", "value": "out" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": " line" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.writeError", "args": [{ "kind": "const", "type": "String", "value": "err" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.printError", "args": [{ "kind": "const", "type": "String", "value": " line" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.flush", "args": [] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.flushError", "args": [] } },
+    { "op": "bind", "mutable": false, "name": "stdinTerminal", "type": "Boolean", "value": { "kind": "call", "target": "io.isInputTerminal", "args": [] } },
+    { "op": "bind", "mutable": false, "name": "stdoutTerminal", "type": "Boolean", "value": { "kind": "call", "target": "io.isOutputTerminal", "args": [] } },
+    { "op": "bind", "mutable": false, "name": "stderrTerminal", "type": "Boolean", "value": { "kind": "call", "target": "io.isErrorTerminal", "args": [] } },
+    {
+      "op": "if",
+      "condition": { "kind": "local", "name": "stdoutTerminal" },
+      "then": [
+      { "op": "bind", "mutable": false, "name": "size", "type": "TerminalSize", "value": { "kind": "call", "target": "io.terminalSize", "args": [] } },
+      { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "binary", "op": "&", "left": { "kind": "binary", "op": "&", "left": { "kind": "call", "target": "toString", "args": [{ "kind": "memberAccess", "target": { "kind": "local", "name": "size" }, "member": "columns" }] }, "right": { "kind": "const", "type": "String", "value": "x" } }, "right": { "kind": "call", "target": "toString", "args": [{ "kind": "memberAccess", "target": { "kind": "local", "name": "size" }, "member": "rows" }] } }] } }
+      ],
+      "else": [
+      { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "binary", "op": "&", "left": { "kind": "call", "target": "toString", "args": [{ "kind": "local", "name": "stdinTerminal" }] }, "right": { "kind": "call", "target": "toString", "args": [{ "kind": "local", "name": "stderrTerminal" }] } }] } }
+      ]
+    }
+    ]
+  }
+  ]
+}

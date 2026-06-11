@@ -10,7 +10,16 @@ use std::path::{Path, PathBuf};
 use tinyjson::JsonValue;
 
 const BUILTIN_TYPES: &[&str] = &[
-    "Boolean", "Byte", "Error", "Fixed", "Float", "Integer", "Nothing", "Result", "String",
+    "Boolean",
+    "Byte",
+    "Error",
+    "Fixed",
+    "Float",
+    "Integer",
+    "Nothing",
+    "Result",
+    "String",
+    builtins::io::TERMINAL_SIZE_TYPE,
 ];
 
 pub fn resolve_project(
