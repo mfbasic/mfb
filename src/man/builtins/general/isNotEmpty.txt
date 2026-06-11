@@ -1,0 +1,50 @@
+NAME
+  isNotEmpty - test whether a string, list, or map has contents
+
+SYNOPSIS
+  isNotEmpty(value AS String) AS Boolean
+  isNotEmpty(value AS List OF T) AS Boolean
+  isNotEmpty(value AS Map OF K TO V) AS Boolean
+
+PACKAGE
+  general
+
+IMPORTS
+  None. general functions are available without an IMPORT statement.
+
+DESCRIPTION
+  isNotEmpty returns TRUE when len(value) > 0.
+
+  For String values, non-emptiness is based on Unicode scalar length. For List
+  values, it is based on item count. For Map values, it is based on entry count.
+
+OVERLOADS
+  isNotEmpty(value AS String) AS Boolean
+    Returns TRUE when the string has at least one scalar value.
+
+  isNotEmpty(value AS List OF T) AS Boolean
+    Returns TRUE when the list has at least one item.
+
+  isNotEmpty(value AS Map OF K TO V) AS Boolean
+    Returns TRUE when the map has at least one entry.
+
+ERRORS
+  isNotEmpty does not fail for supported evaluated arguments. Errors can still
+  propagate from evaluating value before isNotEmpty is called.
+
+TYPE CHECKING
+  isNotEmpty accepts only String, List OF T, and Map OF K TO V.
+
+EXAMPLES
+  Test text:
+
+    LET ok AS Boolean = isNotEmpty("hello")
+
+  Test a list:
+
+    LET values AS List OF Integer = [1]
+    LET ok AS Boolean = isNotEmpty(values)
+
+SEE ALSO
+  isEmpty
+  len

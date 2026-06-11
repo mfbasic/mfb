@@ -1,0 +1,61 @@
+NAME
+  toFloat - convert text, Integer, or Fixed to Float
+
+SYNOPSIS
+  toFloat(value AS String) AS Float
+  toFloat(value AS Integer) AS Float
+  toFloat(value AS Fixed) AS Float
+
+PACKAGE
+  general
+
+IMPORTS
+  None. general functions are available without an IMPORT statement.
+
+DESCRIPTION
+  toFloat converts supported values to Float.
+
+  The String overload parses Float text. Numeric overloads convert to the
+  nearest representable IEEE 754 binary64 Float.
+
+OVERLOADS
+  toFloat(value AS String) AS Float
+    Parses a finite Float value from text.
+
+  toFloat(value AS Integer) AS Float
+    Converts an Integer to the nearest representable Float.
+
+  toFloat(value AS Fixed) AS Float
+    Converts a Fixed value to the nearest representable Float.
+
+ERRORS
+  ErrInvalidFormat (10003)
+    Returned when String input is malformed or names a non-finite value such as
+    NaN or Infinity.
+
+  ErrOverflow (10028)
+    Returned when parsing text would overflow to infinity.
+
+  Other errors can propagate from evaluating value before toFloat is called.
+
+TYPE CHECKING
+  toFloat accepts only String, Integer, and Fixed values.
+
+EXAMPLES
+  Parse text:
+
+    LET value AS Float = toFloat("1.5")
+
+  Convert an Integer:
+
+    LET value AS Float = toFloat(42)
+
+  Convert Fixed:
+
+    LET fixed AS Fixed = toFixed("2.25")
+    LET value AS Float = toFloat(fixed)
+
+SEE ALSO
+  toInt
+  toFixed
+  isNumeric

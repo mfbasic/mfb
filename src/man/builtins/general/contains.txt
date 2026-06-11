@@ -1,0 +1,37 @@
+NAME
+  contains - test whether a list contains an item
+
+SYNOPSIS
+  contains(value AS List OF T, item AS T) AS Boolean
+
+PACKAGE
+  general
+
+IMPORTS
+  None. general functions are available without an IMPORT statement.
+
+DESCRIPTION
+  contains returns TRUE when item appears in value.
+
+  The element type T must be comparable. Comparable types include primitive
+  values, Nothing, enum types, and records whose fields are all comparable.
+
+OVERLOADS
+  contains(value AS List OF T, item AS T) AS Boolean
+    Tests for item membership.
+
+ERRORS
+  contains does not fail when item is absent. Errors can still propagate from
+  evaluating arguments before contains is called.
+
+TYPE CHECKING
+  item must have the list element type T, and T must be comparable.
+
+EXAMPLES
+  Test list membership:
+
+    LET ok AS Boolean = contains([1, 2, 3], 2)
+
+SEE ALSO
+  find
+  filter

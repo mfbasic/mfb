@@ -1,0 +1,37 @@
+NAME
+  removeKey - remove one map entry by key
+
+SYNOPSIS
+  removeKey(value AS Map OF K TO V, key AS K) AS Map OF K TO V
+
+PACKAGE
+  general
+
+IMPORTS
+  None. general functions are available without an IMPORT statement.
+
+DESCRIPTION
+  removeKey returns a new map without key. The original map is not mutated.
+  Missing keys are ignored, so removing a key that is not present returns a map
+  equivalent to the input map.
+
+OVERLOADS
+  removeKey(value AS Map OF K TO V, key AS K) AS Map OF K TO V
+    Returns a map without key.
+
+ERRORS
+  removeKey does not fail when key is absent. Errors can still propagate from
+  evaluating arguments before removeKey is called.
+
+TYPE CHECKING
+  key must have the map key type K.
+
+EXAMPLES
+  Remove a key:
+
+    LET scores AS Map OF String TO Integer = removeKey(Map OF String TO Integer { "a" := 1 }, "a")
+
+SEE ALSO
+  hasKey
+  keys
+  set

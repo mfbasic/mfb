@@ -1,0 +1,110 @@
+NAME
+  toString - convert supported primitive values and UTF-8 bytes to String
+
+SYNOPSIS
+  toString(value AS Integer) AS String
+  toString(value AS Float) AS String
+  toString(value AS Fixed) AS String
+  toString(value AS Boolean) AS String
+  toString(value AS String) AS String
+  toString(value AS Byte) AS String
+  toString(value AS List OF Byte) AS String
+
+PACKAGE
+  general
+
+IMPORTS
+  None. general functions are available without an IMPORT statement.
+
+DESCRIPTION
+  toString converts a value from one of the supported built-in types to a
+  String. It is intended for explicit text formatting before sending values to
+  text-oriented APIs such as io.print, io.write, io.printError, and
+  io.writeError.
+
+  MFBASIC does not automatically stringify arbitrary values for output. Use
+  toString where the language defines an overload, and write an application
+  formatting function for records, unions, resources, threads, functions,
+  lambdas, or other structured values.
+
+OVERLOADS
+  toString(value AS Integer) AS String
+    Converts an Integer to base-10 text.
+
+  toString(value AS Float) AS String
+    Converts a finite Float to implementation-defined round-trippable text.
+    MFBASIC source cannot construct successful NaN or infinity values; imported
+    non-finite Float values are rejected at the boundary before ordinary source
+    code can convert them.
+
+  toString(value AS Fixed) AS String
+    Converts a Fixed value to decimal text. Fixed is binary fixed-point, so
+    decimal output reflects the representable value, not necessarily the
+    original decimal spelling used to create it.
+
+  toString(value AS Boolean) AS String
+    Returns "TRUE" for TRUE and "FALSE" for FALSE.
+
+  toString(value AS String) AS String
+    Returns value unchanged.
+
+  toString(value AS Byte) AS String
+    Converts a Byte to base-10 text. Byte values are unsigned and are always in
+    the range 0 through 255.
+
+  toString(value AS List OF Byte) AS String
+    Decodes the byte list as UTF-8 and returns the resulting String. Invalid
+    UTF-8 fails with ErrInvalidEncoding (10019).
+
+ERRORS
+  ErrInvalidEncoding (10019)
+    Returned by the List OF Byte overload when the byte sequence is not valid
+    UTF-8.
+
+  Other overloads listed here do not perform numeric parsing and do not fail for
+  format or range reasons. They may still propagate an error from evaluating the
+  argument expression before toString is called.
+
+TYPE CHECKING
+  toString is defined only for the overloads listed in this page. Calling
+  toString on user-defined records, unions, enums, resources, threads,
+  functions, lambdas, List values other than List OF Byte, or Map values is a
+  compile-time type error.
+
+  No implicit conversion is performed for unsupported argument types. Convert to
+  one of the supported types explicitly, or provide a domain-specific formatter.
+
+EXAMPLES
+  Print a number:
+
+    LET count AS Integer = 42
+    io.print(toString(count))
+
+  Format a Boolean:
+
+    LET enabled AS Boolean = TRUE
+    LET label AS String = "enabled=" & toString(enabled)
+
+  Decode UTF-8 bytes:
+
+    LET bytes AS List OF Byte = [104, 101, 108, 108, 111]
+    LET text AS String = toString(bytes)
+
+  Convert a value that is already a String:
+
+    LET message AS String = toString("ready")
+
+NOTES
+  toString and typeName are diagnostic and formatting conveniences, not security
+  boundaries. Do not rely on them to redact secrets or decide whether a value is
+  safe to log. Secret-safe output requires explicit application-level
+  formatting that omits or redacts sensitive fields.
+
+SEE ALSO
+  toInt
+  toFloat
+  toFixed
+  toByte
+  typeName
+  io.print
+  io.write

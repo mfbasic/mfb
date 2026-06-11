@@ -1,0 +1,48 @@
+NAME
+  isPositive - test whether a number is greater than zero
+
+SYNOPSIS
+  isPositive(value AS Integer) AS Boolean
+  isPositive(value AS Float) AS Boolean
+  isPositive(value AS Fixed) AS Boolean
+
+PACKAGE
+  general
+
+IMPORTS
+  None. general functions are available without an IMPORT statement.
+
+DESCRIPTION
+  isPositive returns TRUE when value is greater than zero. It accepts Integer,
+  Float, and Fixed values.
+
+OVERLOADS
+  isPositive(value AS Integer) AS Boolean
+    Returns TRUE when value > 0.
+
+  isPositive(value AS Float) AS Boolean
+    Returns TRUE when value > 0.0.
+
+  isPositive(value AS Fixed) AS Boolean
+    Returns TRUE when value > 0.0.
+
+ERRORS
+  isPositive does not fail for supported evaluated arguments. Errors can still
+  propagate from evaluating value before isPositive is called.
+
+TYPE CHECKING
+  isPositive accepts only Integer, Float, and Fixed values.
+
+EXAMPLES
+  Test one value:
+
+    LET ok AS Boolean = isPositive(1)
+
+  Filter numbers:
+
+    LET values AS List OF Integer = filter([-1, 0, 2], isPositive)
+
+SEE ALSO
+  isNegative
+  isZero
+  filter

@@ -1,0 +1,62 @@
+NAME
+  toFixed - convert text, Integer, or Float to Fixed
+
+SYNOPSIS
+  toFixed(value AS String) AS Fixed
+  toFixed(value AS Integer) AS Fixed
+  toFixed(value AS Float) AS Fixed
+
+PACKAGE
+  general
+
+IMPORTS
+  None. general functions are available without an IMPORT statement.
+
+DESCRIPTION
+  toFixed converts supported values to Fixed, MFBASIC's deterministic binary
+  fixed-point type.
+
+  Fixed stores a signed 32-bit integer part and a 32-bit fractional part.
+  Decimal inputs are rounded to the nearest representable Fixed value.
+
+OVERLOADS
+  toFixed(value AS String) AS Fixed
+    Parses decimal fixed-point text and rounds to the nearest representable
+    Fixed value.
+
+  toFixed(value AS Integer) AS Fixed
+    Converts an Integer to Fixed.
+
+  toFixed(value AS Float) AS Fixed
+    Converts a finite Float to the nearest representable Fixed value.
+
+ERRORS
+  ErrInvalidFormat (10003)
+    Returned when String input is malformed or when Float input is NaN or
+    infinity.
+
+  ErrOverflow (10028)
+    Returned when the value is outside the Fixed range.
+
+  Other errors can propagate from evaluating value before toFixed is called.
+
+TYPE CHECKING
+  toFixed accepts only String, Integer, and Float values.
+
+EXAMPLES
+  Parse decimal text:
+
+    LET amount AS Fixed = toFixed("2.25")
+
+  Convert an Integer:
+
+    LET amount AS Fixed = toFixed(10)
+
+  Convert a Float:
+
+    LET amount AS Fixed = toFixed(1.5)
+
+SEE ALSO
+  toInt
+  toFloat
+  isNumeric

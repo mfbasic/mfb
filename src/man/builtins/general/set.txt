@@ -1,0 +1,51 @@
+NAME
+  set - return a collection with one value changed
+
+SYNOPSIS
+  set(value AS List OF T, index AS Integer, item AS T) AS List OF T
+  set(value AS Map OF K TO V, key AS K, item AS V) AS Map OF K TO V
+
+PACKAGE
+  general
+
+IMPORTS
+  None. general functions are available without an IMPORT statement.
+
+DESCRIPTION
+  set returns a new collection with one value changed. The original collection
+  is not mutated.
+
+  For List values, set replaces the item at zero-based index. For Map values,
+  set returns a map with key associated with item, adding the key when it is not
+  already present.
+
+OVERLOADS
+  set(value AS List OF T, index AS Integer, item AS T) AS List OF T
+    Returns a list with item at index.
+
+  set(value AS Map OF K TO V, key AS K, item AS V) AS Map OF K TO V
+    Returns a map with key set to item.
+
+ERRORS
+  10001
+    Returned by the List overload when index is out of range.
+
+  Other errors can propagate from evaluating arguments before set is called.
+
+TYPE CHECKING
+  List set requires an Integer index and an item of the list element type. Map
+  set requires key and item to match the map key and value types.
+
+EXAMPLES
+  Replace a list item:
+
+    LET numbers AS List OF Integer = set([1, 2, 3], 1, 9)
+
+  Set a map value:
+
+    LET scores AS Map OF String TO Integer = set(Map OF String TO Integer {}, "Ada", 10)
+
+SEE ALSO
+  get
+  append
+  insert

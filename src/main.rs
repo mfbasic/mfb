@@ -245,7 +245,11 @@ fn show_man(args: &[String]) -> Result<(), String> {
                     "unknown function `{function_name}` in package `{package_name}`\n\nRun `mfb man {package_name}` to list available functions."
                 )
             })?;
-            print_function_man(package, function);
+            if let Some(page) = man::function_page(package, function_name) {
+                print_man_page(page);
+            } else {
+                print_function_man(package, function);
+            }
             Ok(())
         }
         _ => Err(format!("mfb man accepts at most two arguments\n\n{USAGE}")),
@@ -285,6 +289,10 @@ fn print_package_man(package: &man::PackageDoc) {
         "Run `mfb man {} <function>` for function signatures and examples.",
         package.name
     );
+}
+
+fn print_man_page(page: &str) {
+    println!("{}", page.trim_end_matches('\n'));
 }
 
 fn print_function_man(package: &man::PackageDoc, function: &man::FunctionDoc) {

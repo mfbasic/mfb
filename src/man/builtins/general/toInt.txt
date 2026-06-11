@@ -1,0 +1,63 @@
+NAME
+  toInt - convert text, Float, or Fixed to Integer
+
+SYNOPSIS
+  toInt(value AS String) AS Integer
+  toInt(value AS Float) AS Integer
+  toInt(value AS Fixed) AS Integer
+
+PACKAGE
+  general
+
+IMPORTS
+  None. general functions are available without an IMPORT statement.
+
+DESCRIPTION
+  toInt converts supported values to Integer.
+
+  The String overload parses base-10 Integer text. The Float and Fixed overloads
+  convert by truncating toward zero.
+
+OVERLOADS
+  toInt(value AS String) AS Integer
+    Parses a base-10 Integer.
+
+  toInt(value AS Float) AS Integer
+    Converts a Float to Integer by truncating toward zero.
+
+  toInt(value AS Fixed) AS Integer
+    Converts a Fixed value to Integer by truncating toward zero.
+
+ERRORS
+  ErrInvalidFormat (10003)
+    Returned when String input is malformed, or when a Float input is NaN or
+    infinity at an import boundary.
+
+  ErrOverflow (10028)
+    Returned when the value is outside the Integer range.
+
+  Other errors can propagate from evaluating value before toInt is called.
+
+TYPE CHECKING
+  toInt accepts only String, Float, and Fixed values. Convert other values
+  explicitly before calling toInt.
+
+EXAMPLES
+  Parse text:
+
+    LET value AS Integer = toInt("42")
+
+  Truncate a Float:
+
+    LET value AS Integer = toInt(3.9)
+
+  Truncate a Fixed value:
+
+    LET amount AS Fixed = toFixed("12.75")
+    LET whole AS Integer = toInt(amount)
+
+SEE ALSO
+  toFloat
+  toFixed
+  toByte
+  isNumeric

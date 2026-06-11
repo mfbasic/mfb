@@ -1,0 +1,53 @@
+NAME
+  get - read a list item or map value
+
+SYNOPSIS
+  get(value AS List OF T, index AS Integer) AS T
+  get(value AS Map OF K TO V, key AS K) AS V
+
+PACKAGE
+  general
+
+IMPORTS
+  None. general functions are available without an IMPORT statement.
+
+DESCRIPTION
+  get reads a value from a collection.
+
+  For List values, get reads the item at zero-based index. For Map values, get
+  reads the value stored for key.
+
+OVERLOADS
+  get(value AS List OF T, index AS Integer) AS T
+    Returns the item at zero-based index.
+
+  get(value AS Map OF K TO V, key AS K) AS V
+    Returns the value associated with key.
+
+ERRORS
+  10001
+    Returned by the List overload when index is out of range.
+
+  ErrNotFound (10004)
+    Returned by the Map overload when key is missing.
+
+  Other errors can propagate from evaluating arguments before get is called.
+
+TYPE CHECKING
+  List access requires an Integer index. Map access requires key to have the map
+  key type K.
+
+EXAMPLES
+  Read a list item:
+
+    LET value AS Integer = get([1, 2, 3], 0)
+
+  Read a map value:
+
+    LET ages AS Map OF String TO Integer = Map OF String TO Integer { "Ada" := 36 }
+    LET age AS Integer = get(ages, "Ada")
+
+SEE ALSO
+  getOr
+  set
+  hasKey

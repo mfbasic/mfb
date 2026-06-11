@@ -1,0 +1,42 @@
+NAME
+  isNumeric - test whether text can be parsed as a number
+
+SYNOPSIS
+  isNumeric(value AS String) AS Boolean
+
+PACKAGE
+  general
+
+IMPORTS
+  None. general functions are available without an IMPORT statement.
+
+DESCRIPTION
+  isNumeric returns TRUE when value can be parsed as an Integer, Float, or Fixed
+  value by the standard conversion functions.
+
+  Non-finite numeric names such as NaN or Infinity are not valid successful
+  numeric values in ordinary MFBASIC source.
+
+OVERLOADS
+  isNumeric(value AS String) AS Boolean
+    Tests whether value is accepted by a numeric parser.
+
+ERRORS
+  isNumeric returns FALSE for invalid numeric text instead of raising a parse
+  error. Errors can still propagate from evaluating value before isNumeric is
+  called.
+
+TYPE CHECKING
+  isNumeric accepts only String values.
+
+EXAMPLES
+  Guard a parse:
+
+    IF isNumeric("42") THEN
+      LET value AS Integer = toInt("42")
+    END IF
+
+SEE ALSO
+  toInt
+  toFloat
+  toFixed

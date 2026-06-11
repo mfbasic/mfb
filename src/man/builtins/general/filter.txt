@@ -1,0 +1,47 @@
+NAME
+  filter - keep list items that pass a predicate
+
+SYNOPSIS
+  filter(value AS List OF T, predicate AS FUNC(T) AS Boolean) AS List OF T
+
+PACKAGE
+  general
+
+IMPORTS
+  None. general functions are available without an IMPORT statement.
+
+DESCRIPTION
+  filter calls predicate once for each item in value, from left to right, and
+  returns a new list containing the items for which predicate returns TRUE. The
+  original list is not mutated.
+
+  Built-in predicate helpers such as isEven, isOdd, isPositive, isNegative,
+  isZero, isEmpty, and isNotEmpty are intended for direct use with filter when
+  their argument type matches the list element type.
+
+OVERLOADS
+  filter(value AS List OF T, predicate AS FUNC(T) AS Boolean) AS List OF T
+    Keeps items where predicate returns TRUE.
+
+ERRORS
+  filter propagates errors raised by predicate. Errors can also propagate from
+  evaluating value or predicate before filter is called.
+
+TYPE CHECKING
+  predicate must accept one argument of the list element type T and return
+  Boolean.
+
+EXAMPLES
+  Keep even numbers:
+
+    LET evens AS List OF Integer = filter([1, 2, 3, 4], isEven)
+
+  Keep non-empty strings:
+
+    LET names AS List OF String = filter(["Ada", "", "Grace"], isNotEmpty)
+
+SEE ALSO
+  forEach
+  transform
+  reduce
+  isEven

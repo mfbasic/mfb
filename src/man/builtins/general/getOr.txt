@@ -1,0 +1,48 @@
+NAME
+  getOr - read a collection value with a default
+
+SYNOPSIS
+  getOr(value AS List OF T, index AS Integer, default AS T) AS T
+  getOr(value AS Map OF K TO V, key AS K, default AS V) AS V
+
+PACKAGE
+  general
+
+IMPORTS
+  None. general functions are available without an IMPORT statement.
+
+DESCRIPTION
+  getOr reads a value from a collection and returns default when the requested
+  list index or map key is absent.
+
+  Use getOr when absence is expected and a fallback value is appropriate. Use get
+  when absence should be treated as an error.
+
+OVERLOADS
+  getOr(value AS List OF T, index AS Integer, default AS T) AS T
+    Returns the indexed item or default.
+
+  getOr(value AS Map OF K TO V, key AS K, default AS V) AS V
+    Returns the mapped value or default.
+
+ERRORS
+  getOr does not fail for missing indexes or missing keys. Errors can still
+  propagate from evaluating arguments before getOr is called.
+
+TYPE CHECKING
+  List access requires an Integer index and a default of the list element type.
+  Map access requires a key of type K and a default of value type V.
+
+EXAMPLES
+  Use a list fallback:
+
+    LET value AS Integer = getOr([1, 2, 3], 9, 0)
+
+  Use a map fallback:
+
+    LET ages AS Map OF String TO Integer = Map OF String TO Integer { "Ada" := 36 }
+    LET age AS Integer = getOr(ages, "Grace", 0)
+
+SEE ALSO
+  get
+  hasKey

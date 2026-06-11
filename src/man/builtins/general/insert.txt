@@ -1,0 +1,40 @@
+NAME
+  insert - insert an item into a list
+
+SYNOPSIS
+  insert(value AS List OF T, index AS Integer, item AS T) AS List OF T
+
+PACKAGE
+  general
+
+IMPORTS
+  None. general functions are available without an IMPORT statement.
+
+DESCRIPTION
+  insert returns a new list with item inserted before index. The original list is
+  not mutated.
+
+  index is zero-based. Inserting before index 0 places the item at the start.
+
+OVERLOADS
+  insert(value AS List OF T, index AS Integer, item AS T) AS List OF T
+    Returns a list with item inserted before index.
+
+ERRORS
+  10001
+    Returned when index is out of range.
+
+  Other errors can propagate from evaluating arguments before insert is called.
+
+TYPE CHECKING
+  index must be Integer and item must have the list element type T.
+
+EXAMPLES
+  Insert in the middle:
+
+    LET numbers AS List OF Integer = insert([1, 3], 1, 2)
+
+SEE ALSO
+  append
+  prepend
+  removeAt

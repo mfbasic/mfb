@@ -1,0 +1,53 @@
+NAME
+  reduce - fold a list into one accumulated value
+
+SYNOPSIS
+  reduce(value AS List OF T, initial AS U, f AS FUNC(U, T) AS U) AS U
+
+PACKAGE
+  general
+
+IMPORTS
+  None. general functions are available without an IMPORT statement.
+
+DESCRIPTION
+  reduce folds value from left to right. The accumulator starts as initial. For
+  each item, reduce calls f(accumulator, item) and uses the returned value as the
+  next accumulator. The final accumulator is returned.
+
+  If value is empty, reduce returns initial without calling f.
+
+OVERLOADS
+  reduce(value AS List OF T, initial AS U, f AS FUNC(U, T) AS U) AS U
+    Folds items left to right.
+
+ERRORS
+  reduce propagates errors raised by f. Errors can also propagate from
+  evaluating value, initial, or f before reduce is called.
+
+TYPE CHECKING
+  f must accept the accumulator type U followed by the list element type T, and
+  must return U.
+
+EXAMPLES
+  Sum with a reducer:
+
+    FUNC add(total AS Integer, value AS Integer) AS Integer
+      RETURN total + value
+    END FUNC
+
+    LET total AS Integer = reduce([1, 2, 3], 0, add)
+
+  Build text:
+
+    FUNC joinWords(text AS String, word AS String) AS String
+      IF text = "" THEN RETURN word
+      RETURN text & " " & word
+    END FUNC
+
+    LET sentence AS String = reduce(["hello", "world"], "", joinWords)
+
+SEE ALSO
+  sum
+  transform
+  filter

@@ -1,0 +1,45 @@
+NAME
+  toByte - convert an Integer to Byte
+
+SYNOPSIS
+  toByte(value AS Integer) AS Byte
+
+PACKAGE
+  general
+
+IMPORTS
+  None. general functions are available without an IMPORT statement.
+
+DESCRIPTION
+  toByte converts an Integer to Byte. Byte is an unsigned 8-bit integer with
+  range 0 through 255.
+
+  Arithmetic on Byte values promotes them to Integer. Use toByte when assigning
+  or storing an Integer result back into a Byte value.
+
+OVERLOADS
+  toByte(value AS Integer) AS Byte
+    Converts value to Byte when it is in range.
+
+ERRORS
+  ErrOverflow (10028)
+    Returned when value is less than 0 or greater than 255.
+
+  Other errors can propagate from evaluating value before toByte is called.
+
+TYPE CHECKING
+  toByte accepts only Integer values.
+
+EXAMPLES
+  Convert a literal:
+
+    LET value AS Byte = toByte(65)
+
+  Convert an arithmetic result:
+
+    LET original AS Byte = 10
+    LET next AS Byte = toByte(original + 1)
+
+SEE ALSO
+  toInt
+  toString

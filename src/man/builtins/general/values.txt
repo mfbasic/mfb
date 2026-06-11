@@ -1,0 +1,35 @@
+NAME
+  values - return the values from a map
+
+SYNOPSIS
+  values(value AS Map OF K TO V) AS List OF V
+
+PACKAGE
+  general
+
+IMPORTS
+  None. general functions are available without an IMPORT statement.
+
+DESCRIPTION
+  values returns the values from value in key iteration order. The result list
+  contains one item for each map entry.
+
+OVERLOADS
+  values(value AS Map OF K TO V) AS List OF V
+    Returns the map values.
+
+ERRORS
+  values does not fail for an evaluated map. Errors can still propagate from
+  evaluating value before values is called.
+
+TYPE CHECKING
+  values accepts only Map OF K TO V values.
+
+EXAMPLES
+  Get map values:
+
+    LET scores AS List OF Integer = values(Map OF String TO Integer { "a" := 1 })
+
+SEE ALSO
+  keys
+  len

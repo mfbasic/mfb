@@ -1,0 +1,50 @@
+NAME
+  isEmpty - test whether a string, list, or map has no contents
+
+SYNOPSIS
+  isEmpty(value AS String) AS Boolean
+  isEmpty(value AS List OF T) AS Boolean
+  isEmpty(value AS Map OF K TO V) AS Boolean
+
+PACKAGE
+  general
+
+IMPORTS
+  None. general functions are available without an IMPORT statement.
+
+DESCRIPTION
+  isEmpty returns TRUE when len(value) = 0.
+
+  For String values, emptiness is based on Unicode scalar length. For List
+  values, it is based on item count. For Map values, it is based on entry count.
+
+OVERLOADS
+  isEmpty(value AS String) AS Boolean
+    Returns TRUE when the string has no scalar values.
+
+  isEmpty(value AS List OF T) AS Boolean
+    Returns TRUE when the list has no items.
+
+  isEmpty(value AS Map OF K TO V) AS Boolean
+    Returns TRUE when the map has no entries.
+
+ERRORS
+  isEmpty does not fail for supported evaluated arguments. Errors can still
+  propagate from evaluating value before isEmpty is called.
+
+TYPE CHECKING
+  isEmpty accepts only String, List OF T, and Map OF K TO V.
+
+EXAMPLES
+  Test text:
+
+    LET ok AS Boolean = isEmpty("")
+
+  Test a list:
+
+    LET values AS List OF Integer = []
+    LET ok AS Boolean = isEmpty(values)
+
+SEE ALSO
+  isNotEmpty
+  len

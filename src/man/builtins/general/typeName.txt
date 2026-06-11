@@ -1,0 +1,48 @@
+NAME
+  typeName - return the static type display name of a value
+
+SYNOPSIS
+  typeName(value AS T) AS String
+
+PACKAGE
+  general
+
+IMPORTS
+  None. general functions are available without an IMPORT statement.
+
+DESCRIPTION
+  typeName returns an implementation-defined display name for the static type of
+  value. It is intended for diagnostics, debugging, and human-readable messages.
+
+  typeName does not inspect runtime secrets and is not a serialization or schema
+  API. Programs must not rely on it for security decisions or redaction.
+
+OVERLOADS
+  typeName(value AS T) AS String
+    Accepts any value type T and returns a String describing that static type.
+
+ERRORS
+  typeName does not fail for a supported evaluated value. Errors can still
+  propagate from evaluating value before typeName is called.
+
+TYPE CHECKING
+  typeName accepts one argument of any type.
+
+EXAMPLES
+  Show a primitive type:
+
+    LET name AS String = typeName(42)
+
+  Use in diagnostics:
+
+    SUB logType(value AS String)
+      io.print("type=" & typeName(value))
+    END SUB
+
+NOTES
+  typeName, toString, and diagnostic messages are not security boundaries.
+  Secret-safe output requires explicit application-level formatting that omits
+  or redacts sensitive fields.
+
+SEE ALSO
+  toString
