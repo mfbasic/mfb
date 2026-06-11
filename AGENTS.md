@@ -1,5 +1,16 @@
 # Agent Instructions
 
+## Implementation Quality
+
+When asked to implement a change, deliver production-ready, valid code.
+
+Guidelines:
+
+- Do not provide stubs, placeholders, mock implementations, or proof-of-concept code unless explicitly requested.
+- Do not take shortcuts that leave behavior incomplete, unvalidated, or unsuitable for production use.
+- Implement the complete requested behavior, including necessary error handling, integration points, and tests or validation.
+- If a production-ready implementation is blocked by missing requirements, dependencies, or external access, state the blocker clearly and avoid filling the gap with non-functional code.
+
 ## Commits
 
 When creating commits in this repository, use detailed itemized commit messages.
