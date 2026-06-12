@@ -51,11 +51,6 @@ The project manifest is an authoring file. It is not embedded verbatim in `.mfp`
 
   "packages": [
     {
-      "name": "math",
-      "version": "^1.0.0",
-      "source": "stdlib"
-    },
-    {
       "name": "shape",
       "version": "^2.1.0",
       "source": "registry:mfb"
@@ -220,7 +215,6 @@ Supported `source` forms:
 
 | Form | Meaning |
 | ---- | ------- |
-| `stdlib` | Built-in standard package distributed with the toolchain. |
 | `registry:name` | Package from a named registry. |
 | `path:relative/path` | Source package or `.mfp` file relative to `project.json`. |
 | `file:relative/path/package.mfp` | Local compiled `.mfp` package. |

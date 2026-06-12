@@ -18,7 +18,9 @@ use std::path::{Path, PathBuf};
 use std::process;
 use tinyjson::JsonValue;
 
-const USAGE: &str = "Usage: mfb <command> <arguments>\n\nCommands:\n  help                        Show this message\n  init <location>             Create a new MFBASIC executable project\n  init-pkg <location>         Create a new MFBASIC package project\n  build [-ast|-ir|-bc|-bin] [location] Validate and build an MFBASIC project\n  man [package] [function]    Show built-in package and function help";
+const USAGE: &str = "Usage: mfb <command> <arguments>\n\nCommands:\n  help                        Show this message\n  init <location>             Create a new MFBASIC executable project\n  init-pkg <location>         Create a new MFBASIC package project\n  pkg add <url>               Add a compiled package to the current project\n  build [-ast|-ir|-bc|-bin] [location] Validate and build an MFBASIC project\n  man [package] [function]    Show built-in package and function help";
+
+const MFP_MAGIC: [u8; 8] = [0x4d, 0x46, 0x50, 0x0d, 0x0a, 0x1a, 0x0a, 0x00];
 
 fn main() {
     let mut args = env::args().skip(1);
@@ -70,6 +72,21 @@ fn main() {
 
             if let Err(()) = build_project(&build_options) {
                 process::exit(1);
+            }
+        }
+        Some("pkg") => {
+            let pkg_args = args.collect::<Vec<_>>();
+            if let Err(err) = run_pkg_command(&pkg_args) {
+                match err {
+                    PkgCommandError::Usage(message) => {
+                        eprintln!("error: {message}");
+                        process::exit(2);
+                    }
+                    PkgCommandError::Failed(message) => {
+                        eprintln!("error: {message}");
+                        process::exit(1);
+                    }
+                }
             }
         }
         Some("man") => {
@@ -269,6 +286,71 @@ fn build_project(options: &BuildOptions) -> Result<(), ()> {
     Ok(())
 }
 
+enum PkgCommandError {
+    Usage(String),
+    Failed(String),
+}
+
+fn run_pkg_command(args: &[String]) -> Result<(), PkgCommandError> {
+    match args {
+        [command, url] if command == "add" => {
+            add_package(Path::new("."), url).map_err(PkgCommandError::Failed)
+        }
+        [command, ..] if command == "add" => Err(PkgCommandError::Usage(format!(
+            "mfb pkg add requires exactly one <url>\n\n{USAGE}"
+        ))),
+        [] => Err(PkgCommandError::Usage(format!(
+            "mfb pkg requires a subcommand\n\n{USAGE}"
+        ))),
+        [command, ..] => Err(PkgCommandError::Usage(format!(
+            "unknown pkg command `{command}`\n\n{USAGE}"
+        ))),
+    }
+}
+
+fn add_package(project_dir: &Path, url: &str) -> Result<(), String> {
+    let source_path = package_file_url_path(url)?;
+    let package = read_mfp_header(&source_path)?;
+
+    let project_path = project_dir.join("project.json");
+    let contents = fs::read_to_string(&project_path)
+        .map_err(|err| format!("failed to read '{}': {err}", project_path.display()))?;
+    let manifest = parse_project_json(&contents, &project_path)?;
+    validate_packages_array(&manifest)?;
+
+    let package_filename = format!("{}.mfp", package.name);
+    let dependency = ProjectPackageDependency {
+        name: package.name.clone(),
+        version: format!("={}", package.version),
+        source: url.to_string(),
+    };
+    let updated = project_json_with_package(&contents, &manifest, &dependency)?;
+
+    let packages_dir = project_dir.join("packages");
+    fs::create_dir_all(&packages_dir)
+        .map_err(|err| format!("failed to create '{}': {err}", packages_dir.display()))?;
+
+    let destination = packages_dir.join(&package_filename);
+    fs::copy(&source_path, &destination).map_err(|err| {
+        format!(
+            "failed to copy '{}' to '{}': {err}",
+            source_path.display(),
+            destination.display()
+        )
+    })?;
+
+    fs::write(&project_path, updated)
+        .map_err(|err| format!("failed to write '{}': {err}", project_path.display()))?;
+
+    println!(
+        "Added package {} {} to {}",
+        package.name,
+        package.version,
+        project_path.display()
+    );
+    Ok(())
+}
+
 fn show_man(args: &[String]) -> Result<(), String> {
     match args {
         [] => {
@@ -461,6 +543,204 @@ fn validate_entry_point(
         1,
     );
     Err(())
+}
+
+fn parse_project_json(
+    contents: &str,
+    project_path: &Path,
+) -> Result<HashMap<String, JsonValue>, String> {
+    let manifest: JsonValue = contents.parse().map_err(|err: tinyjson::JsonParseError| {
+        format!("failed to parse '{}': {err}", project_path.display())
+    })?;
+    manifest
+        .get::<HashMap<String, JsonValue>>()
+        .cloned()
+        .ok_or_else(|| format!("'{}' must contain a JSON object", project_path.display()))
+}
+
+struct MfpHeader {
+    name: String,
+    version: String,
+}
+
+struct ProjectPackageDependency {
+    name: String,
+    version: String,
+    source: String,
+}
+
+fn package_file_url_path(url: &str) -> Result<PathBuf, String> {
+    let Some(path) = url.strip_prefix("file://") else {
+        return Err("mfb pkg add currently supports only file:// URLs ending in .mfp".to_string());
+    };
+
+    if path.is_empty() {
+        return Err("file:// URL must include an absolute package path".to_string());
+    }
+    if path.contains('?') || path.contains('#') {
+        return Err("file:// package URLs must not include query strings or fragments".to_string());
+    }
+
+    let path = PathBuf::from(percent_decode_path(path)?);
+    if !path.is_absolute() {
+        return Err("file:// package URL must resolve to an absolute path".to_string());
+    }
+    if path.extension().and_then(|extension| extension.to_str()) != Some("mfp") {
+        return Err("file:// package URL must point to a .mfp file".to_string());
+    }
+    if !path.is_file() {
+        return Err(format!("package file '{}' does not exist", path.display()));
+    }
+
+    Ok(path)
+}
+
+fn percent_decode_path(path: &str) -> Result<String, String> {
+    let bytes = path.as_bytes();
+    let mut decoded = Vec::with_capacity(bytes.len());
+    let mut index = 0;
+
+    while index < bytes.len() {
+        if bytes[index] == b'%' {
+            if index + 2 >= bytes.len() {
+                return Err("file:// URL contains an incomplete percent escape".to_string());
+            }
+            let high = hex_value(bytes[index + 1])
+                .ok_or_else(|| "file:// URL contains an invalid percent escape".to_string())?;
+            let low = hex_value(bytes[index + 2])
+                .ok_or_else(|| "file:// URL contains an invalid percent escape".to_string())?;
+            decoded.push((high << 4) | low);
+            index += 3;
+        } else {
+            decoded.push(bytes[index]);
+            index += 1;
+        }
+    }
+
+    String::from_utf8(decoded).map_err(|_| "file:// URL path is not valid UTF-8".to_string())
+}
+
+fn hex_value(byte: u8) -> Option<u8> {
+    match byte {
+        b'0'..=b'9' => Some(byte - b'0'),
+        b'a'..=b'f' => Some(byte - b'a' + 10),
+        b'A'..=b'F' => Some(byte - b'A' + 10),
+        _ => None,
+    }
+}
+
+fn read_mfp_header(path: &Path) -> Result<MfpHeader, String> {
+    let bytes =
+        fs::read(path).map_err(|err| format!("failed to read '{}': {err}", path.display()))?;
+    if bytes.len() < 26 {
+        return Err(format!(
+            "'{}' is too small to be a valid .mfp package",
+            path.display()
+        ));
+    }
+    if bytes[0..8] != MFP_MAGIC {
+        return Err(format!(
+            "'{}' does not have the MFP package magic",
+            path.display()
+        ));
+    }
+
+    let container_major = read_u16(&bytes, 8)?;
+    if container_major != 1 {
+        return Err(format!(
+            "'{}' uses unsupported MFP container major version {container_major}",
+            path.display()
+        ));
+    }
+
+    let signature_type = read_u16(&bytes, 20)?;
+    let signature_length = read_u32(&bytes, 22)? as usize;
+    match (signature_type, signature_length) {
+        (0, 0) | (1, 64) => {}
+        (0, _) => return Err("unsigned .mfp package must have zero signature length".to_string()),
+        (1, _) => return Err("Ed25519 .mfp package must have a 64 byte signature".to_string()),
+        _ => return Err(format!("unsupported .mfp signature type {signature_type}")),
+    }
+
+    let mut offset = 26usize
+        .checked_add(signature_length)
+        .ok_or_else(|| "invalid .mfp signature length".to_string())?;
+    if offset > bytes.len() {
+        return Err("truncated .mfp signature".to_string());
+    }
+
+    let name = read_mfp_string(&bytes, &mut offset, "name", 255, true)?;
+    let version = read_mfp_string(&bytes, &mut offset, "version", 64, true)?;
+    let _author = read_mfp_string(&bytes, &mut offset, "author", 512, false)?;
+    let _url = read_mfp_string(&bytes, &mut offset, "url", 2048, false)?;
+    let bytecode_length = read_u64(&bytes, offset)? as usize;
+    offset = offset
+        .checked_add(8)
+        .and_then(|offset| offset.checked_add(bytecode_length))
+        .ok_or_else(|| "invalid .mfp bytecode length".to_string())?;
+    if offset != bytes.len() {
+        return Err("invalid .mfp bytecode length".to_string());
+    }
+
+    Ok(MfpHeader { name, version })
+}
+
+fn read_mfp_string(
+    bytes: &[u8],
+    offset: &mut usize,
+    field: &str,
+    limit: usize,
+    required: bool,
+) -> Result<String, String> {
+    let length = read_u32(bytes, *offset)? as usize;
+    *offset = offset
+        .checked_add(4)
+        .ok_or_else(|| format!("invalid .mfp {field} length"))?;
+
+    if length > limit {
+        return Err(format!(".mfp {field} exceeds the {limit} byte limit"));
+    }
+
+    let end = offset
+        .checked_add(length)
+        .ok_or_else(|| format!("invalid .mfp {field} length"))?;
+    if end > bytes.len() {
+        return Err(format!("truncated .mfp {field}"));
+    }
+
+    let value = std::str::from_utf8(&bytes[*offset..end])
+        .map_err(|_| format!(".mfp {field} is not valid UTF-8"))?
+        .to_string();
+    *offset = end;
+
+    if required && value.is_empty() {
+        return Err(format!(".mfp {field} must not be empty"));
+    }
+
+    Ok(value)
+}
+
+fn read_u16(bytes: &[u8], offset: usize) -> Result<u16, String> {
+    let value = bytes
+        .get(offset..offset + 2)
+        .ok_or_else(|| "truncated .mfp header".to_string())?;
+    Ok(u16::from_le_bytes([value[0], value[1]]))
+}
+
+fn read_u32(bytes: &[u8], offset: usize) -> Result<u32, String> {
+    let value = bytes
+        .get(offset..offset + 4)
+        .ok_or_else(|| "truncated .mfp header".to_string())?;
+    Ok(u32::from_le_bytes([value[0], value[1], value[2], value[3]]))
+}
+
+fn read_u64(bytes: &[u8], offset: usize) -> Result<u64, String> {
+    let value = bytes
+        .get(offset..offset + 8)
+        .ok_or_else(|| "truncated .mfp header".to_string())?;
+    Ok(u64::from_le_bytes([
+        value[0], value[1], value[2], value[3], value[4], value[5], value[6], value[7],
+    ]))
 }
 
 fn validate_project_manifest(project_path: &Path) -> Result<HashMap<String, JsonValue>, ()> {
@@ -810,6 +1090,218 @@ fn dependency_version_range(version: &str) -> (String, String, u32) {
     (version.to_string(), version.to_string(), 1)
 }
 
+fn validate_packages_array(manifest: &HashMap<String, JsonValue>) -> Result<(), String> {
+    if manifest
+        .get("packages")
+        .is_some_and(|value| value.get::<Vec<JsonValue>>().is_none())
+    {
+        return Err("project.json field `packages` must be an array when present".to_string());
+    }
+    Ok(())
+}
+
+fn project_json_with_package(
+    contents: &str,
+    manifest: &HashMap<String, JsonValue>,
+    dependency: &ProjectPackageDependency,
+) -> Result<String, String> {
+    let packages = manifest
+        .get("packages")
+        .and_then(|value| value.get::<Vec<JsonValue>>());
+
+    if packages.is_some_and(|packages| {
+        packages.iter().any(|package| {
+            package
+                .get::<HashMap<String, JsonValue>>()
+                .and_then(|package| package.get("name"))
+                .and_then(|name| name.get::<String>())
+                == Some(&dependency.name)
+        })
+    }) {
+        return Err(format!(
+            "project.json already declares package `{}`",
+            dependency.name
+        ));
+    }
+
+    let entry = package_dependency_json(dependency, 4);
+    if packages.is_some() {
+        insert_package_dependency(contents, &entry)
+    } else {
+        insert_packages_array(contents, &entry)
+    }
+}
+
+fn package_dependency_json(dependency: &ProjectPackageDependency, indent: usize) -> String {
+    let pad = " ".repeat(indent);
+    let field_pad = " ".repeat(indent + 2);
+    format!(
+        "{pad}{{\n{field_pad}\"name\": {},\n{field_pad}\"version\": {},\n{field_pad}\"source\": {}\n{pad}}}",
+        json_string(&dependency.name),
+        json_string(&dependency.version),
+        json_string(&dependency.source),
+        pad = pad,
+        field_pad = field_pad,
+    )
+}
+
+fn insert_package_dependency(contents: &str, entry: &str) -> Result<String, String> {
+    let Some((array_start, array_end)) = json_array_bounds(contents, "packages") else {
+        return Err("could not locate project.json `packages` array".to_string());
+    };
+    let inner = &contents[array_start + 1..array_end];
+    let has_entries = !inner.trim().is_empty();
+    let before_entry = contents[..array_end].trim_end_matches([' ', '\t', '\r', '\n']);
+    let closing_indent = &contents[before_entry.len()..array_end];
+
+    let mut updated = String::new();
+    updated.push_str(before_entry);
+    if has_entries {
+        updated.push(',');
+    }
+    updated.push('\n');
+    updated.push_str(entry);
+    updated.push_str(closing_indent);
+    updated.push_str(&contents[array_end..]);
+    Ok(updated)
+}
+
+fn insert_packages_array(contents: &str, entry: &str) -> Result<String, String> {
+    let Some(root_end) = root_object_end(contents) else {
+        return Err("could not locate end of project.json object".to_string());
+    };
+    let before = contents[..root_end].trim_end_matches([' ', '\t', '\r', '\n']);
+    let between = &contents[before.len()..root_end];
+    let needs_comma = before.as_bytes().last().is_some_and(|byte| *byte != b'{');
+
+    let mut updated = String::new();
+    updated.push_str(before);
+    if needs_comma {
+        updated.push(',');
+    }
+    updated.push_str("\n  \"packages\": [\n");
+    updated.push_str(entry);
+    updated.push_str("\n  ]");
+    updated.push_str(between);
+    updated.push_str(&contents[root_end..]);
+    Ok(updated)
+}
+
+fn json_array_bounds(contents: &str, field: &str) -> Option<(usize, usize)> {
+    let field_start = json_field_name_position(contents, field)?;
+    let colon = find_json_punct(contents, field_start + field.len() + 2, b':')?;
+    let array_start = find_json_punct(contents, colon + 1, b'[')?;
+    let array_end = matching_json_delimiter(contents, array_start, b'[', b']')?;
+    Some((array_start, array_end))
+}
+
+fn json_field_name_position(contents: &str, field: &str) -> Option<usize> {
+    let needle = format!("\"{field}\"");
+    let mut index = 0;
+
+    loop {
+        index = next_json_string_start(contents, index)?;
+        let end = json_string_end(contents, index)?;
+        if &contents[index..end] == needle {
+            return Some(index);
+        }
+        index = end;
+    }
+}
+
+fn root_object_end(contents: &str) -> Option<usize> {
+    let start = find_json_punct(contents, 0, b'{')?;
+    matching_json_delimiter(contents, start, b'{', b'}')
+}
+
+fn find_json_punct(contents: &str, start: usize, punct: u8) -> Option<usize> {
+    let bytes = contents.as_bytes();
+    let mut index = start;
+    let mut in_string = false;
+    let mut escaped = false;
+
+    while index < bytes.len() {
+        let byte = bytes[index];
+        if in_string {
+            if escaped {
+                escaped = false;
+            } else if byte == b'\\' {
+                escaped = true;
+            } else if byte == b'"' {
+                in_string = false;
+            }
+        } else if byte == b'"' {
+            in_string = true;
+        } else if byte == punct {
+            return Some(index);
+        } else if !byte.is_ascii_whitespace() {
+            return None;
+        }
+        index += 1;
+    }
+
+    None
+}
+
+fn matching_json_delimiter(contents: &str, start: usize, open: u8, close: u8) -> Option<usize> {
+    let bytes = contents.as_bytes();
+    let mut index = start;
+    let mut depth = 0usize;
+    let mut in_string = false;
+    let mut escaped = false;
+
+    while index < bytes.len() {
+        let byte = bytes[index];
+        if in_string {
+            if escaped {
+                escaped = false;
+            } else if byte == b'\\' {
+                escaped = true;
+            } else if byte == b'"' {
+                in_string = false;
+            }
+        } else if byte == b'"' {
+            in_string = true;
+        } else if byte == open {
+            depth = depth.checked_add(1)?;
+        } else if byte == close {
+            depth = depth.checked_sub(1)?;
+            if depth == 0 {
+                return Some(index);
+            }
+        }
+        index += 1;
+    }
+
+    None
+}
+
+fn next_json_string_start(contents: &str, start: usize) -> Option<usize> {
+    contents[start..].find('"').map(|offset| start + offset)
+}
+
+fn json_string_end(contents: &str, start: usize) -> Option<usize> {
+    let bytes = contents.as_bytes();
+    if bytes.get(start) != Some(&b'"') {
+        return None;
+    }
+
+    let mut index = start + 1;
+    let mut escaped = false;
+    while index < bytes.len() {
+        let byte = bytes[index];
+        if escaped {
+            escaped = false;
+        } else if byte == b'\\' {
+            escaped = true;
+        } else if byte == b'"' {
+            return Some(index + 1);
+        }
+        index += 1;
+    }
+    None
+}
+
 fn field_position(contents: &str, field: &str) -> (usize, usize) {
     let needle = format!("\"{field}\"");
     for (index, line) in contents.lines().enumerate() {
@@ -925,4 +1417,66 @@ fn hello_world_source() -> String {
 
 fn package_source() -> String {
     "EXPORT FUNC answer() AS Integer\n  RETURN 42\nEND FUNC\n".to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn package_add_manifest_insert_creates_packages_array() {
+        let contents = concat!(
+            "{\n",
+            "  \"name\": \"app\",\n",
+            "  \"version\": \"0.1.0\",\n",
+            "  \"mfb\": \"1.0\",\n",
+            "  \"sources\": [{ \"root\": \"src\" }]\n",
+            "}\n"
+        );
+        let manifest = parse_project_json(contents, Path::new("project.json")).expect("manifest");
+        let dependency = ProjectPackageDependency {
+            name: "shape".to_string(),
+            version: "=1.0.0".to_string(),
+            source: "file:///tmp/source/shape.mfp".to_string(),
+        };
+
+        let updated =
+            project_json_with_package(contents, &manifest, &dependency).expect("updated manifest");
+
+        assert!(updated.contains("\"packages\": ["));
+        assert!(updated.contains("\"name\": \"shape\""));
+        assert!(updated.contains("\"source\": \"file:///tmp/source/shape.mfp\""));
+        assert!(updated.parse::<JsonValue>().is_ok());
+    }
+
+    #[test]
+    fn package_add_manifest_append_preserves_json_array_format() {
+        let contents = concat!(
+            "{\n",
+            "  \"name\": \"app\",\n",
+            "  \"version\": \"0.1.0\",\n",
+            "  \"mfb\": \"1.0\",\n",
+            "  \"sources\": [{ \"root\": \"src\" }],\n",
+            "  \"packages\": [\n",
+            "    {\n",
+            "      \"name\": \"math\",\n",
+            "      \"version\": \"=1.0.0\",\n",
+            "      \"source\": \"file:packages/math.mfp\"\n",
+            "    }\n",
+            "  ]\n",
+            "}\n"
+        );
+        let manifest = parse_project_json(contents, Path::new("project.json")).expect("manifest");
+        let dependency = ProjectPackageDependency {
+            name: "shape".to_string(),
+            version: "=1.0.0".to_string(),
+            source: "file:///tmp/source/shape.mfp".to_string(),
+        };
+
+        let updated =
+            project_json_with_package(contents, &manifest, &dependency).expect("updated manifest");
+
+        assert!(updated.contains("    },\n    {\n      \"name\": \"shape\""));
+        assert!(updated.parse::<JsonValue>().is_ok());
+    }
 }
