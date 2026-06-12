@@ -2,7 +2,7 @@ NAME
   typeName - return the static type display name of a value
 
 SYNOPSIS
-  typeName(value AS T) AS String
+  typeName OF T(value AS T) AS String
 
 PACKAGE
   general
@@ -18,7 +18,7 @@ DESCRIPTION
   API. Programs must not rely on it for security decisions or redaction.
 
 OVERLOADS
-  typeName(value AS T) AS String
+  typeName OF T(value AS T) AS String
     Accepts any value type T and returns a String describing that static type.
 
 ERRORS

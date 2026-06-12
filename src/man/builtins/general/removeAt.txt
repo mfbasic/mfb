@@ -2,7 +2,7 @@ NAME
   removeAt - remove one list item by index
 
 SYNOPSIS
-  removeAt(value AS List OF T, index AS Integer) AS List OF T
+  removeAt OF T(value AS List OF T, index AS Integer) AS List OF T
 
 PACKAGE
   general
@@ -15,7 +15,7 @@ DESCRIPTION
   list is not mutated.
 
 OVERLOADS
-  removeAt(value AS List OF T, index AS Integer) AS List OF T
+  removeAt OF T(value AS List OF T, index AS Integer) AS List OF T
     Returns a list without the item at index.
 
 ERRORS

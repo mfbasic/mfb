@@ -2,7 +2,7 @@ NAME
   reduce - fold a list into one accumulated value
 
 SYNOPSIS
-  reduce(value AS List OF T, initial AS U, f AS FUNC(U, T) AS U) AS U
+  reduce OF T, U(value AS List OF T, initial AS U, f AS FUNC(U, T) AS U) AS U
 
 PACKAGE
   general
@@ -18,7 +18,7 @@ DESCRIPTION
   If value is empty, reduce returns initial without calling f.
 
 OVERLOADS
-  reduce(value AS List OF T, initial AS U, f AS FUNC(U, T) AS U) AS U
+  reduce OF T, U(value AS List OF T, initial AS U, f AS FUNC(U, T) AS U) AS U
     Folds items left to right.
 
 ERRORS

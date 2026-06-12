@@ -2,8 +2,8 @@ NAME
   set - return a collection with one value changed
 
 SYNOPSIS
-  set(value AS List OF T, index AS Integer, item AS T) AS List OF T
-  set(value AS Map OF K TO V, key AS K, item AS V) AS Map OF K TO V
+  set OF T(value AS List OF T, index AS Integer, item AS T) AS List OF T
+  set OF K, V(value AS Map OF K TO V, key AS K, item AS V) AS Map OF K TO V
 
 PACKAGE
   general
@@ -20,10 +20,10 @@ DESCRIPTION
   already present.
 
 OVERLOADS
-  set(value AS List OF T, index AS Integer, item AS T) AS List OF T
+  set OF T(value AS List OF T, index AS Integer, item AS T) AS List OF T
     Returns a list with item at index.
 
-  set(value AS Map OF K TO V, key AS K, item AS V) AS Map OF K TO V
+  set OF K, V(value AS Map OF K TO V, key AS K, item AS V) AS Map OF K TO V
     Returns a map with key set to item.
 
 ERRORS

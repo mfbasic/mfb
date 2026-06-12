@@ -45,6 +45,7 @@ struct Resolver<'a> {
     functions: HashMap<String, Vec<FunctionSymbol>>,
     types: HashSet<String>,
     variant_constructors: HashSet<String>,
+    active_template_params: HashSet<String>,
     had_error: bool,
 }
 
@@ -77,6 +78,7 @@ impl<'a> Resolver<'a> {
                 .map(|name| (*name).to_string())
                 .collect(),
             variant_constructors: HashSet::new(),
+            active_template_params: HashSet::new(),
             had_error: false,
         };
         resolver.collect_top_level_symbols(ast);
@@ -242,6 +244,10 @@ impl<'a> Resolver<'a> {
         type_decl: &TypeDecl,
         imports: &HashSet<String>,
     ) {
+        let previous_template_params = std::mem::replace(
+            &mut self.active_template_params,
+            type_decl.template_params.iter().cloned().collect(),
+        );
         match type_decl.kind {
             TypeDeclKind::Type => {
                 let mut names = HashMap::new();
@@ -313,6 +319,7 @@ impl<'a> Resolver<'a> {
                 }
             }
         }
+        self.active_template_params = previous_template_params;
     }
 
     fn resolve_member_field(
@@ -330,6 +337,10 @@ impl<'a> Resolver<'a> {
         function: &crate::ast::Function,
         imports: &HashSet<String>,
     ) {
+        let previous_template_params = std::mem::replace(
+            &mut self.active_template_params,
+            function.template_params.iter().cloned().collect(),
+        );
         let mut locals = HashMap::new();
 
         for param in &function.params {
@@ -368,6 +379,7 @@ impl<'a> Resolver<'a> {
         }
 
         self.resolve_block(file, &function.body, imports, &mut locals);
+        self.active_template_params = previous_template_params;
     }
 
     fn resolve_block(
@@ -683,7 +695,16 @@ impl<'a> Resolver<'a> {
             }
         }
 
-        if type_name == "Unknown" {
+        if let Some((base, args)) = type_name.split_once(" OF ") {
+            if self.types.contains(base) || self.active_template_params.contains(base) {
+                for arg in args.split(", ") {
+                    self.resolve_type_name(file, arg, line, imports);
+                }
+                return;
+            }
+        }
+
+        if type_name == "Unknown" || self.active_template_params.contains(type_name) {
             return;
         }
 

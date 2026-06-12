@@ -2,7 +2,7 @@ NAME
   values - return the values from a map
 
 SYNOPSIS
-  values(value AS Map OF K TO V) AS List OF V
+  values OF K, V(value AS Map OF K TO V) AS List OF V
 
 PACKAGE
   general
@@ -15,7 +15,7 @@ DESCRIPTION
   contains one item for each map entry.
 
 OVERLOADS
-  values(value AS Map OF K TO V) AS List OF V
+  values OF K, V(value AS Map OF K TO V) AS List OF V
     Returns the map values.
 
 ERRORS

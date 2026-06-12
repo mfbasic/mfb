@@ -2,7 +2,7 @@ NAME
   removeKey - remove one map entry by key
 
 SYNOPSIS
-  removeKey(value AS Map OF K TO V, key AS K) AS Map OF K TO V
+  removeKey OF K, V(value AS Map OF K TO V, key AS K) AS Map OF K TO V
 
 PACKAGE
   general
@@ -16,7 +16,7 @@ DESCRIPTION
   equivalent to the input map.
 
 OVERLOADS
-  removeKey(value AS Map OF K TO V, key AS K) AS Map OF K TO V
+  removeKey OF K, V(value AS Map OF K TO V, key AS K) AS Map OF K TO V
     Returns a map without key.
 
 ERRORS

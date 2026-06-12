@@ -2,7 +2,7 @@ NAME
   keys - return the keys from a map
 
 SYNOPSIS
-  keys(value AS Map OF K TO V) AS List OF K
+  keys OF K, V(value AS Map OF K TO V) AS List OF K
 
 PACKAGE
   general
@@ -15,7 +15,7 @@ DESCRIPTION
   result list contains one item for each map entry.
 
 OVERLOADS
-  keys(value AS Map OF K TO V) AS List OF K
+  keys OF K, V(value AS Map OF K TO V) AS List OF K
     Returns the map keys.
 
 ERRORS

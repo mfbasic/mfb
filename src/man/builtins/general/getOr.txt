@@ -2,8 +2,8 @@ NAME
   getOr - read a collection value with a default
 
 SYNOPSIS
-  getOr(value AS List OF T, index AS Integer, default AS T) AS T
-  getOr(value AS Map OF K TO V, key AS K, default AS V) AS V
+  getOr OF T(value AS List OF T, index AS Integer, default AS T) AS T
+  getOr OF K, V(value AS Map OF K TO V, key AS K, default AS V) AS V
 
 PACKAGE
   general
@@ -19,10 +19,10 @@ DESCRIPTION
   when absence should be treated as an error.
 
 OVERLOADS
-  getOr(value AS List OF T, index AS Integer, default AS T) AS T
+  getOr OF T(value AS List OF T, index AS Integer, default AS T) AS T
     Returns the indexed item or default.
 
-  getOr(value AS Map OF K TO V, key AS K, default AS V) AS V
+  getOr OF K, V(value AS Map OF K TO V, key AS K, default AS V) AS V
     Returns the mapped value or default.
 
 ERRORS

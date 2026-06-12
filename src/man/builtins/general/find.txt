@@ -3,8 +3,8 @@ NAME
 
 SYNOPSIS
   find(value AS String, needle AS String, start AS Integer = 0) AS Integer
-  find(value AS List OF T, item AS T, start AS Integer = 0) AS Integer
-  find(value AS List OF T, needle AS List OF T, start AS Integer = 0) AS Integer
+  find OF T(value AS List OF T, item AS T, start AS Integer = 0) AS Integer
+  find OF T(value AS List OF T, needle AS List OF T, start AS Integer = 0) AS Integer
 
 PACKAGE
   general
@@ -27,10 +27,10 @@ OVERLOADS
   find(value AS String, needle AS String, start AS Integer = 0) AS Integer
     Returns the first scalar index where needle occurs in value.
 
-  find(value AS List OF T, item AS T, start AS Integer = 0) AS Integer
+  find OF T(value AS List OF T, item AS T, start AS Integer = 0) AS Integer
     Returns the first list index where item appears.
 
-  find(value AS List OF T, needle AS List OF T, start AS Integer = 0) AS Integer
+  find OF T(value AS List OF T, needle AS List OF T, start AS Integer = 0) AS Integer
     Returns the first list index where the contiguous needle sublist appears.
 
 ERRORS

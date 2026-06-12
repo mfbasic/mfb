@@ -1,0 +1,118 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "templates",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  {
+    "kind": "type",
+    "visibility": "private",
+    "name": "Box$Integer",
+    "fields": [
+    { "visibility": null, "name": "value", "type": "Integer" }
+    ]
+  },
+  {
+    "kind": "type",
+    "visibility": "private",
+    "name": "Box$String",
+    "fields": [
+    { "visibility": null, "name": "value", "type": "String" }
+    ]
+  },
+  {
+    "kind": "union",
+    "visibility": "private",
+    "name": "Maybe$Integer",
+    "includes": [],
+    "variants": [
+    {
+      "name": "Present$Integer",
+      "fields": [
+      { "visibility": null, "name": "value", "type": "Integer" }
+      ]
+    }
+    ]
+  }
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "mutable": false, "name": "numberBox", "type": "Box$Integer", "value": { "kind": "call", "target": "box$Integer", "args": [{ "kind": "const", "type": "Integer", "value": "41" }] } },
+    { "op": "bind", "mutable": false, "name": "textBox", "type": "Box$String", "value": { "kind": "call", "target": "box$String", "args": [{ "kind": "const", "type": "String", "value": "abc" }] } },
+    { "op": "bind", "mutable": false, "name": "maybeNumber", "type": "Maybe$Integer", "value": { "kind": "call", "target": "present$Integer", "args": [{ "kind": "const", "type": "Integer", "value": "5" }] } },
+    { "op": "return", "value": { "kind": "binary", "op": "+", "left": { "kind": "call", "target": "unbox$Integer", "args": [{ "kind": "local", "name": "numberBox" }] }, "right": { "kind": "call", "target": "len", "args": [{ "kind": "call", "target": "unbox$String", "args": [{ "kind": "local", "name": "textBox" }] }] } } }
+    ]
+  },
+  {
+    "name": "box$Integer",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    { "name": "value", "type": "Integer", "default": null }
+    ],
+    "returns": "Box$Integer",
+    "body": [
+    { "op": "return", "value": { "kind": "constructor", "type": "Box$Integer", "args": [{ "kind": "local", "name": "value" }] } }
+    ]
+  },
+  {
+    "name": "box$String",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    { "name": "value", "type": "String", "default": null }
+    ],
+    "returns": "Box$String",
+    "body": [
+    { "op": "return", "value": { "kind": "constructor", "type": "Box$String", "args": [{ "kind": "local", "name": "value" }] } }
+    ]
+  },
+  {
+    "name": "present$Integer",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    { "name": "value", "type": "Integer", "default": null }
+    ],
+    "returns": "Maybe$Integer",
+    "body": [
+    { "op": "return", "value": { "kind": "constructor", "type": "Present$Integer", "args": [{ "kind": "local", "name": "value" }] } }
+    ]
+  },
+  {
+    "name": "unbox$Integer",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    { "name": "boxed", "type": "Box$Integer", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "return", "value": { "kind": "memberAccess", "target": { "kind": "local", "name": "boxed" }, "member": "value" } }
+    ]
+  },
+  {
+    "name": "unbox$String",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    { "name": "boxed", "type": "Box$String", "default": null }
+    ],
+    "returns": "String",
+    "body": [
+    { "op": "return", "value": { "kind": "memberAccess", "target": { "kind": "local", "name": "boxed" }, "member": "value" } }
+    ]
+  }
+  ]
+}

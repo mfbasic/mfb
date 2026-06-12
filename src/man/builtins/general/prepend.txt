@@ -2,7 +2,7 @@ NAME
   prepend - add an item to the start of a list
 
 SYNOPSIS
-  prepend(value AS List OF T, item AS T) AS List OF T
+  prepend OF T(value AS List OF T, item AS T) AS List OF T
 
 PACKAGE
   general
@@ -15,7 +15,7 @@ DESCRIPTION
   The original list is not mutated.
 
 OVERLOADS
-  prepend(value AS List OF T, item AS T) AS List OF T
+  prepend OF T(value AS List OF T, item AS T) AS List OF T
     Returns a list with item added at the start.
 
 ERRORS

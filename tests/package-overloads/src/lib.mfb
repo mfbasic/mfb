@@ -1,0 +1,12 @@
+EXPORT TYPE Vec2
+  x AS Integer
+  y AS Integer
+END TYPE
+
+EXPORT FUNC test() AS Integer
+  RETURN 42
+END FUNC
+
+EXPORT FUNC test(v AS Vec2) AS Integer
+  RETURN v::x
+END FUNC

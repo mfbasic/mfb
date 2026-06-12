@@ -2,7 +2,7 @@ NAME
   hasKey - test whether a map contains a key
 
 SYNOPSIS
-  hasKey(value AS Map OF K TO V, key AS K) AS Boolean
+  hasKey OF K, V(value AS Map OF K TO V, key AS K) AS Boolean
 
 PACKAGE
   general
@@ -14,7 +14,7 @@ DESCRIPTION
   hasKey returns TRUE when value contains key and FALSE otherwise.
 
 OVERLOADS
-  hasKey(value AS Map OF K TO V, key AS K) AS Boolean
+  hasKey OF K, V(value AS Map OF K TO V, key AS K) AS Boolean
     Tests for key membership.
 
 ERRORS

@@ -2,7 +2,7 @@ NAME
   forEach - run an action for each list item
 
 SYNOPSIS
-  forEach(value AS List OF T, action AS FUNC(T) AS Nothing) AS Nothing
+  forEach OF T(value AS List OF T, action AS FUNC(T) AS Nothing) AS Nothing
 
 PACKAGE
   general
@@ -17,7 +17,7 @@ DESCRIPTION
   fails for any item, the error auto-propagates and iteration stops.
 
 OVERLOADS
-  forEach(value AS List OF T, action AS FUNC(T) AS Nothing) AS Nothing
+  forEach OF T(value AS List OF T, action AS FUNC(T) AS Nothing) AS Nothing
     Runs action for every item.
 
 ERRORS

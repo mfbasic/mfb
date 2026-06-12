@@ -1,0 +1,12 @@
+$ mfb build -ast tests/templates
+Wrote AST to tests/templates/templates.ast
+[exit 0]
+$ mfb build -ir tests/templates
+Wrote IR to tests/templates/templates.ir
+[exit 0]
+$ mfb build -bc tests/templates
+Wrote bytecode hex to tests/templates/templates.hex
+[exit 0]
+$ mfb build -bin tests/templates
+Wrote binary to tests/templates/templates.aarch64.bin
+[exit 0]

@@ -2,7 +2,7 @@ NAME
   insert - insert an item into a list
 
 SYNOPSIS
-  insert(value AS List OF T, index AS Integer, item AS T) AS List OF T
+  insert OF T(value AS List OF T, index AS Integer, item AS T) AS List OF T
 
 PACKAGE
   general
@@ -17,7 +17,7 @@ DESCRIPTION
   index is zero-based. Inserting before index 0 places the item at the start.
 
 OVERLOADS
-  insert(value AS List OF T, index AS Integer, item AS T) AS List OF T
+  insert OF T(value AS List OF T, index AS Integer, item AS T) AS List OF T
     Returns a list with item inserted before index.
 
 ERRORS

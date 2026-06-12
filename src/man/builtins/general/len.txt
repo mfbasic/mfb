@@ -3,8 +3,8 @@ NAME
 
 SYNOPSIS
   len(value AS String) AS Integer
-  len(value AS List OF T) AS Integer
-  len(value AS Map OF K TO V) AS Integer
+  len OF T(value AS List OF T) AS Integer
+  len OF K, V(value AS Map OF K TO V) AS Integer
 
 PACKAGE
   general
@@ -27,10 +27,10 @@ OVERLOADS
   len(value AS String) AS Integer
     Returns the number of Unicode scalar values in value.
 
-  len(value AS List OF T) AS Integer
+  len OF T(value AS List OF T) AS Integer
     Returns the number of items in value.
 
-  len(value AS Map OF K TO V) AS Integer
+  len OF K, V(value AS Map OF K TO V) AS Integer
     Returns the number of entries in value.
 
 ERRORS

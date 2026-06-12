@@ -5,6 +5,7 @@ mod bytecode;
 mod ir;
 mod lexer;
 mod man;
+mod monomorph;
 mod os;
 mod resolver;
 mod rules;
@@ -204,8 +205,10 @@ fn build_project(options: &BuildOptions) -> Result<(), ()> {
         .expect("validated project name");
     let ast = ast::parse_project(project_name, &options.location, &manifest)?;
     resolver::resolve_project(&options.location, &manifest, &ast)?;
-    let entry = validate_entry_point(&options.location, &manifest, &ast)?;
-    typecheck::check_project(&options.location, &ast)?;
+    let concrete_ast = monomorph::monomorphize_project(&options.location, &ast)?;
+    resolver::resolve_project(&options.location, &manifest, &concrete_ast)?;
+    let entry = validate_entry_point(&options.location, &manifest, &concrete_ast)?;
+    typecheck::check_project(&options.location, &concrete_ast)?;
 
     match options.output {
         BuildOutput::Validate => {
@@ -219,7 +222,7 @@ fn build_project(options: &BuildOptions) -> Result<(), ()> {
                         eprintln!("error: {err}");
                     })?;
                 let ir = ir::lower_project_with_external_functions(
-                    &ast,
+                    &concrete_ast,
                     entry.clone(),
                     &external_functions,
                 );
@@ -231,7 +234,7 @@ fn build_project(options: &BuildOptions) -> Result<(), ()> {
                     )?;
                 println!("Wrote executable to {}", executable_path.display());
             } else if project_kind == "package" {
-                let ir = ir::lower_project(&ast, entry.clone());
+                let ir = ir::lower_project(&concrete_ast, entry.clone());
                 let metadata = package_metadata(&manifest);
                 let package_path =
                     os::write_package(&options.location, &ir, &metadata).map_err(|err| {
@@ -253,8 +256,11 @@ fn build_project(options: &BuildOptions) -> Result<(), ()> {
         }
         BuildOutput::Ir => {
             let external_functions = external_package_function_types(&options.location, &manifest);
-            let ir =
-                ir::lower_project_with_external_functions(&ast, entry.clone(), &external_functions);
+            let ir = ir::lower_project_with_external_functions(
+                &concrete_ast,
+                entry.clone(),
+                &external_functions,
+            );
             let ir_path = ir::write_ir(&options.location, &ir).map_err(|err| {
                 eprintln!("error: {err}");
             })?;
@@ -269,8 +275,11 @@ fn build_project(options: &BuildOptions) -> Result<(), ()> {
                 .map_err(|err| {
                     eprintln!("error: {err}");
                 })?;
-            let ir =
-                ir::lower_project_with_external_functions(&ast, entry.clone(), &external_functions);
+            let ir = ir::lower_project_with_external_functions(
+                &concrete_ast,
+                entry.clone(),
+                &external_functions,
+            );
             let version = manifest
                 .get("version")
                 .and_then(|value| value.get::<String>())
@@ -299,7 +308,11 @@ fn build_project(options: &BuildOptions) -> Result<(), ()> {
                 .map_err(|err| {
                     eprintln!("error: {err}");
                 })?;
-            let ir = ir::lower_project_with_external_functions(&ast, entry, &external_functions);
+            let ir = ir::lower_project_with_external_functions(
+                &concrete_ast,
+                entry,
+                &external_functions,
+            );
             let binary_path =
                 match arch::write_binary_dump(&options.location, &ir, &target, &packages) {
                     Ok(path) => path,

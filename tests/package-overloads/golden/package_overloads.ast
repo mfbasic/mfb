@@ -1,0 +1,47 @@
+{
+  "project": "package_overloads",
+  "files": [
+  {
+    "path": "src/lib.mfb",
+    "imports": [
+    ],
+    "items": [
+    {
+      "kind": "type",
+      "visibility": "export",
+      "name": "Vec2",
+      "line": 1,
+      "fields": [
+      { "visibility": null, "name": "x", "type": "Integer", "line": 2 },
+      { "visibility": null, "name": "y", "type": "Integer", "line": 3 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "export",
+      "name": "test",
+      "line": 6,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "return", "value": { "kind": "number", "value": "42" }, "line": 7 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "export",
+      "name": "test",
+      "line": 10,
+      "params": [
+      { "name": "v", "type": "Vec2", "default": null }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "return", "value": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "v" }, "member": "x" }, "line": 11 }
+      ]
+    }
+    ]
+  }
+  ]
+}

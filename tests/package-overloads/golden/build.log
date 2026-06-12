@@ -1,0 +1,9 @@
+$ mfb build -ast tests/package-overloads
+Wrote AST to tests/package-overloads/package_overloads.ast
+[exit 0]
+$ mfb build -ir tests/package-overloads
+Wrote IR to tests/package-overloads/package_overloads.ir
+[exit 0]
+$ mfb build tests/package-overloads
+Wrote package to tests/package-overloads/package_overloads.mfp
+[exit 0]

@@ -2,8 +2,8 @@ NAME
   get - read a list item or map value
 
 SYNOPSIS
-  get(value AS List OF T, index AS Integer) AS T
-  get(value AS Map OF K TO V, key AS K) AS V
+  get OF T(value AS List OF T, index AS Integer) AS T
+  get OF K, V(value AS Map OF K TO V, key AS K) AS V
 
 PACKAGE
   general
@@ -18,10 +18,10 @@ DESCRIPTION
   reads the value stored for key.
 
 OVERLOADS
-  get(value AS List OF T, index AS Integer) AS T
+  get OF T(value AS List OF T, index AS Integer) AS T
     Returns the item at zero-based index.
 
-  get(value AS Map OF K TO V, key AS K) AS V
+  get OF K, V(value AS Map OF K TO V, key AS K) AS V
     Returns the value associated with key.
 
 ERRORS

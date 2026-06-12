@@ -3,8 +3,8 @@ NAME
 
 SYNOPSIS
   isEmpty(value AS String) AS Boolean
-  isEmpty(value AS List OF T) AS Boolean
-  isEmpty(value AS Map OF K TO V) AS Boolean
+  isEmpty OF T(value AS List OF T) AS Boolean
+  isEmpty OF K, V(value AS Map OF K TO V) AS Boolean
 
 PACKAGE
   general
@@ -22,10 +22,10 @@ OVERLOADS
   isEmpty(value AS String) AS Boolean
     Returns TRUE when the string has no scalar values.
 
-  isEmpty(value AS List OF T) AS Boolean
+  isEmpty OF T(value AS List OF T) AS Boolean
     Returns TRUE when the list has no items.
 
-  isEmpty(value AS Map OF K TO V) AS Boolean
+  isEmpty OF K, V(value AS Map OF K TO V) AS Boolean
     Returns TRUE when the map has no entries.
 
 ERRORS

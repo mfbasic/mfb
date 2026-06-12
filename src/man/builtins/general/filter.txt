@@ -2,7 +2,7 @@ NAME
   filter - keep list items that pass a predicate
 
 SYNOPSIS
-  filter(value AS List OF T, predicate AS FUNC(T) AS Boolean) AS List OF T
+  filter OF T(value AS List OF T, predicate AS FUNC(T) AS Boolean) AS List OF T
 
 PACKAGE
   general
@@ -20,7 +20,7 @@ DESCRIPTION
   their argument type matches the list element type.
 
 OVERLOADS
-  filter(value AS List OF T, predicate AS FUNC(T) AS Boolean) AS List OF T
+  filter OF T(value AS List OF T, predicate AS FUNC(T) AS Boolean) AS List OF T
     Keeps items where predicate returns TRUE.
 
 ERRORS

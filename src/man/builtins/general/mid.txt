@@ -3,7 +3,7 @@ NAME
 
 SYNOPSIS
   mid(value AS String, start AS Integer, count AS Integer) AS String
-  mid(value AS List OF T, start AS Integer, count AS Integer) AS List OF T
+  mid OF T(value AS List OF T, start AS Integer, count AS Integer) AS List OF T
 
 PACKAGE
   general
@@ -24,7 +24,7 @@ OVERLOADS
   mid(value AS String, start AS Integer, count AS Integer) AS String
     Returns a substring by zero-based Unicode scalar index.
 
-  mid(value AS List OF T, start AS Integer, count AS Integer) AS List OF T
+  mid OF T(value AS List OF T, start AS Integer, count AS Integer) AS List OF T
     Returns a sublist by zero-based item index.
 
 ERRORS

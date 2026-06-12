@@ -6,36 +6,37 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use tinyjson::JsonValue;
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct AstProject {
     pub name: String,
     pub files: Vec<AstFile>,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct AstFile {
     pub path: String,
     pub imports: Vec<Import>,
     pub items: Vec<Item>,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Import {
     pub module: String,
     pub line: usize,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub enum Item {
     Function(Function),
     Type(TypeDecl),
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct TypeDecl {
     pub kind: TypeDeclKind,
     pub visibility: Visibility,
     pub name: String,
+    pub template_params: Vec<String>,
     pub fields: Vec<TypeField>,
     pub includes: Vec<String>,
     pub variants: Vec<UnionVariant>,
@@ -50,7 +51,7 @@ pub enum TypeDeclKind {
     Enum,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct TypeField {
     pub visibility: Option<Visibility>,
     pub name: String,
@@ -58,25 +59,26 @@ pub struct TypeField {
     pub line: usize,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct UnionVariant {
     pub name: String,
     pub fields: Vec<TypeField>,
     pub line: usize,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct EnumMember {
     pub name: String,
     pub line: usize,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Function {
     pub kind: FunctionKind,
     pub visibility: Visibility,
     pub isolated: bool,
     pub name: String,
+    pub template_params: Vec<String>,
     pub params: Vec<Param>,
     pub return_type: Option<String>,
     pub body: Vec<Statement>,
@@ -104,7 +106,7 @@ pub struct Param {
     pub line: usize,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub enum Statement {
     Let {
         mutable: bool,
@@ -145,14 +147,14 @@ pub enum Statement {
     },
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct MatchCase {
     pub pattern: MatchPattern,
     pub body: Vec<Statement>,
     pub line: usize,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub enum MatchPattern {
     Else,
     Expression(Expression),
@@ -441,6 +443,7 @@ impl<'a> FileParser<'a> {
             self.synchronize();
             return None;
         };
+        let template_params = self.parse_template_params();
 
         let params = if self.match_kind(TokenKind::LParen) {
             let params = self.parse_params();
@@ -483,6 +486,7 @@ impl<'a> FileParser<'a> {
                     visibility: Visibility::Private,
                     isolated,
                     name,
+                    template_params,
                     params,
                     return_type,
                     body,
@@ -519,6 +523,11 @@ impl<'a> FileParser<'a> {
             self.synchronize();
             return None;
         };
+        let template_params = if matches!(kind, TypeDeclKind::Enum) {
+            Vec::new()
+        } else {
+            self.parse_template_params()
+        };
 
         let includes =
             if matches!(kind, TypeDeclKind::Union) && self.check_identifier_ci("INCLUDES") {
@@ -547,6 +556,7 @@ impl<'a> FileParser<'a> {
                     kind,
                     visibility: Visibility::Private,
                     name,
+                    template_params,
                     fields,
                     includes,
                     variants,
@@ -600,6 +610,28 @@ impl<'a> FileParser<'a> {
             }
         }
         includes
+    }
+
+    fn parse_template_params(&mut self) -> Vec<String> {
+        if !self.check_identifier_ci("OF") {
+            return Vec::new();
+        }
+        self.advance();
+        let mut params = Vec::new();
+        loop {
+            if let Some(name) =
+                self.consume_identifier("Expected template parameter name after OF.")
+            {
+                params.push(name);
+            } else {
+                self.synchronize();
+                break;
+            }
+            if !self.match_kind(TokenKind::Comma) {
+                break;
+            }
+        }
+        params
     }
 
     fn parse_type_field(&mut self) -> Option<TypeField> {
@@ -1286,49 +1318,58 @@ impl<'a> FileParser<'a> {
             return None;
         }
         let mut name = self.parse_type_base_name("Expected a type name.")?;
-        if (name.eq_ignore_ascii_case("List") || name.eq_ignore_ascii_case("Result"))
-            && self.check_identifier_ci("OF")
-        {
+        if self.check_identifier_ci("OF") {
             self.advance();
-            let element = self.parse_type_name()?;
-            name.push_str(" OF ");
-            name.push_str(&element);
-        } else if name.eq_ignore_ascii_case("Map") && self.check_identifier_ci("OF") {
-            self.advance();
-            let key = self.parse_type_name()?;
-            if !self.check_identifier_ci("TO") {
+            if name.eq_ignore_ascii_case("Map") || name.eq_ignore_ascii_case("Thread") {
+                let first = self.parse_type_name()?;
+                if !self.check_identifier_ci("TO") {
+                    let token = self.peek().clone();
+                    self.report(
+                        "MFB_PARSE_UNEXPECTED_TOKEN",
+                        if name.eq_ignore_ascii_case("Map") {
+                            "Expected `TO` in map type."
+                        } else {
+                            "Expected `TO` in thread type."
+                        },
+                        &token,
+                    );
+                    return None;
+                }
+                self.advance();
+                let second = self.parse_type_name()?;
+                name.push_str(" OF ");
+                name.push_str(&first);
+                name.push_str(" TO ");
+                name.push_str(&second);
+                return Some(name);
+            }
+
+            let mut args = vec![self.parse_type_name()?];
+            while self.match_kind(TokenKind::Comma) {
+                args.push(self.parse_type_name()?);
+            }
+            if name.eq_ignore_ascii_case("List") || name.eq_ignore_ascii_case("Result") {
+                if args.len() != 1 {
+                    let token = self.peek().clone();
+                    self.report(
+                        "MFB_PARSE_UNEXPECTED_TOKEN",
+                        "This built-in template accepts exactly one type argument.",
+                        &token,
+                    );
+                    return None;
+                }
+            }
+            if args.is_empty() {
                 let token = self.peek().clone();
                 self.report(
                     "MFB_PARSE_UNEXPECTED_TOKEN",
-                    "Expected `TO` in map type.",
+                    "Expected at least one template type argument.",
                     &token,
                 );
                 return None;
             }
-            self.advance();
-            let value = self.parse_type_name()?;
             name.push_str(" OF ");
-            name.push_str(&key);
-            name.push_str(" TO ");
-            name.push_str(&value);
-        } else if name.eq_ignore_ascii_case("Thread") && self.check_identifier_ci("OF") {
-            self.advance();
-            let message = self.parse_type_name()?;
-            if !self.check_identifier_ci("TO") {
-                let token = self.peek().clone();
-                self.report(
-                    "MFB_PARSE_UNEXPECTED_TOKEN",
-                    "Expected `TO` in thread type.",
-                    &token,
-                );
-                return None;
-            }
-            self.advance();
-            let output = self.parse_type_name()?;
-            name.push_str(" OF ");
-            name.push_str(&message);
-            name.push_str(" TO ");
-            name.push_str(&output);
+            name.push_str(&args.join(", "));
         }
         Some(name)
     }
@@ -1729,6 +1770,7 @@ impl ToAstJson for TypeDecl {
             TypeDeclKind::Union => "union",
             TypeDeclKind::Enum => "enum",
         };
+        let template_params = template_params_json(&self.template_params, indent);
         match self.kind {
             TypeDeclKind::Type => format!(
                 concat!(
@@ -1736,6 +1778,7 @@ impl ToAstJson for TypeDecl {
                     "{}  \"kind\": {},\n",
                     "{}  \"visibility\": {},\n",
                     "{}  \"name\": {},\n",
+                    "{}",
                     "{}  \"line\": {},\n",
                     "{}  \"fields\": [{}\n{}  ]\n",
                     "{}}}"
@@ -1747,6 +1790,7 @@ impl ToAstJson for TypeDecl {
                 json_string(visibility_name(self.visibility)),
                 pad,
                 json_string(&self.name),
+                template_params,
                 pad,
                 self.line,
                 pad,
@@ -1760,6 +1804,7 @@ impl ToAstJson for TypeDecl {
                     "{}  \"kind\": {},\n",
                     "{}  \"visibility\": {},\n",
                     "{}  \"name\": {},\n",
+                    "{}",
                     "{}  \"line\": {},\n",
                     "{}  \"includes\": [{}],\n",
                     "{}  \"variants\": [{}\n{}  ]\n",
@@ -1772,6 +1817,7 @@ impl ToAstJson for TypeDecl {
                 json_string(visibility_name(self.visibility)),
                 pad,
                 json_string(&self.name),
+                template_params,
                 pad,
                 self.line,
                 pad,
@@ -1791,6 +1837,7 @@ impl ToAstJson for TypeDecl {
                     "{}  \"kind\": {},\n",
                     "{}  \"visibility\": {},\n",
                     "{}  \"name\": {},\n",
+                    "{}",
                     "{}  \"line\": {},\n",
                     "{}  \"members\": [{}\n{}  ]\n",
                     "{}}}"
@@ -1802,6 +1849,7 @@ impl ToAstJson for TypeDecl {
                 json_string(visibility_name(self.visibility)),
                 pad,
                 json_string(&self.name),
+                template_params,
                 pad,
                 self.line,
                 pad,
@@ -1876,12 +1924,14 @@ impl ToAstJson for Function {
             .as_ref()
             .map(|value| json_string(value))
             .unwrap_or_else(|| "null".to_string());
+        let template_params = template_params_json(&self.template_params, indent);
         format!(
             concat!(
                 "\n{}{{\n",
                 "{}  \"kind\": {},\n",
                 "{}  \"visibility\": {},\n",
                 "{}  \"name\": {},\n",
+                "{}",
                 "{}  \"line\": {},\n",
                 "{}  \"params\": [{}\n{}  ],\n",
                 "{}  \"returnType\": {},\n",
@@ -1898,6 +1948,7 @@ impl ToAstJson for Function {
             json_string(visibility_name(self.visibility)),
             pad,
             json_string(&self.name),
+            template_params,
             pad,
             self.line,
             pad,
@@ -2259,6 +2310,22 @@ fn join_indented<T: ToAstJson>(items: &[T], indent: usize) -> String {
         .map(|item| item.to_json(indent))
         .collect::<Vec<_>>()
         .join(",")
+}
+
+fn template_params_json(params: &[String], indent: usize) -> String {
+    if params.is_empty() {
+        return String::new();
+    }
+    let pad = " ".repeat(indent);
+    format!(
+        "{}  \"templateParams\": [{}],\n",
+        pad,
+        params
+            .iter()
+            .map(|param| json_string(param))
+            .collect::<Vec<_>>()
+            .join(", ")
+    )
 }
 
 fn contains_placeholder(expression: &Expression) -> bool {

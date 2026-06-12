@@ -2,8 +2,8 @@ NAME
   append - add an item or items to the end of a list
 
 SYNOPSIS
-  append(value AS List OF T, item AS T) AS List OF T
-  append(value AS List OF T, items AS List OF T) AS List OF T
+  append OF T(value AS List OF T, item AS T) AS List OF T
+  append OF T(value AS List OF T, items AS List OF T) AS List OF T
 
 PACKAGE
   general
@@ -16,10 +16,10 @@ DESCRIPTION
   not mutated.
 
 OVERLOADS
-  append(value AS List OF T, item AS T) AS List OF T
+  append OF T(value AS List OF T, item AS T) AS List OF T
     Returns a list with item added after the existing items.
 
-  append(value AS List OF T, items AS List OF T) AS List OF T
+  append OF T(value AS List OF T, items AS List OF T) AS List OF T
     Returns a list with all items added after the existing items.
 
 ERRORS
