@@ -759,6 +759,13 @@ impl<'a> Resolver<'a> {
                 file,
                 line,
             );
+        } else if builtins::is_builtin_import(root) && !builtins::is_builtin_call(name) {
+            self.report(
+                "SYMBOL_UNKNOWN_IDENTIFIER",
+                &format!("Built-in package `{root}` does not export `{name}`."),
+                file,
+                line,
+            );
         }
     }
 

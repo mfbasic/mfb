@@ -2,17 +2,29 @@ package: math
 summary: Deterministic numeric helper functions.
 usage: mfb man math [function]
 ---
-function: pi
-signature: math::pi() AS Float
-summary: Returns the mathematical constant pi.
+function: piFloat
+signature: math::piFloat AS Float
+summary: The mathematical constant pi as a Float.
 example:
-  LET value AS Float = math::pi()
+  LET value AS Float = math::piFloat
 ---
-function: e
-signature: math::e() AS Float
-summary: Returns the mathematical constant e.
+function: piFixed
+signature: math::piFixed AS Fixed
+summary: The mathematical constant pi rounded to the nearest Fixed value.
 example:
-  LET value AS Float = math::e()
+  LET value AS Fixed = math::piFixed
+---
+function: eFloat
+signature: math::eFloat AS Float
+summary: The mathematical constant e as a Float.
+example:
+  LET value AS Float = math::eFloat
+---
+function: eFixed
+signature: math::eFixed AS Fixed
+summary: The mathematical constant e rounded to the nearest Fixed value.
+example:
+  LET value AS Fixed = math::eFixed
 ---
 function: abs
 signature: math::abs(value AS Integer | Float | Fixed) AS same type
@@ -69,73 +81,73 @@ example:
   LET value AS Integer = math::trunc(3.75)
 ---
 function: sqrt
-signature: math::sqrt(value AS Integer | Float | Fixed) AS Float
+signature: math::sqrt(value AS Float) AS Float; math::sqrt(value AS Fixed) AS Fixed
 summary: Returns the square root of a number.
 example:
   LET value AS Float = math::sqrt(9.0)
 ---
 function: pow
-signature: math::pow(base AS number, exponent AS number) AS Float
+signature: math::pow(base AS Float, exponent AS Float) AS Float; math::pow(base AS Fixed, exponent AS Fixed) AS Fixed
 summary: Raises a number to a power.
 example:
-  LET value AS Float = math::pow(2, 8)
+  LET value AS Float = math::pow(2.0, 8.0)
 ---
 function: exp
-signature: math::exp(value AS Integer | Float | Fixed) AS Float
+signature: math::exp(value AS Float) AS Float; math::exp(value AS Fixed) AS Fixed
 summary: Raises e to a numeric power.
 example:
   LET value AS Float = math::exp(1.0)
 ---
 function: log
-signature: math::log(value AS Integer | Float | Fixed) AS Float
+signature: math::log(value AS Float) AS Float; math::log(value AS Fixed) AS Fixed
 summary: Returns the natural logarithm.
 example:
-  LET value AS Float = math::log(math::e())
+  LET value AS Float = math::log(math::eFloat)
 ---
 function: log10
-signature: math::log10(value AS Integer | Float | Fixed) AS Float
+signature: math::log10(value AS Float) AS Float; math::log10(value AS Fixed) AS Fixed
 summary: Returns the base-10 logarithm.
 example:
   LET value AS Float = math::log10(100.0)
 ---
 function: sin
-signature: math::sin(radians AS Integer | Float | Fixed) AS Float
+signature: math::sin(radians AS Float) AS Float; math::sin(radians AS Fixed) AS Fixed
 summary: Returns the sine of an angle in radians.
 example:
-  LET value AS Float = math::sin(math::pi())
+  LET value AS Float = math::sin(math::piFloat)
 ---
 function: cos
-signature: math::cos(radians AS Integer | Float | Fixed) AS Float
+signature: math::cos(radians AS Float) AS Float; math::cos(radians AS Fixed) AS Fixed
 summary: Returns the cosine of an angle in radians.
 example:
-  LET value AS Float = math::cos(math::pi())
+  LET value AS Float = math::cos(math::piFloat)
 ---
 function: tan
-signature: math::tan(radians AS Integer | Float | Fixed) AS Float
+signature: math::tan(radians AS Float) AS Float; math::tan(radians AS Fixed) AS Fixed
 summary: Returns the tangent of an angle in radians.
 example:
   LET value AS Float = math::tan(0.0)
 ---
 function: asin
-signature: math::asin(value AS Integer | Float | Fixed) AS Float
+signature: math::asin(value AS Float) AS Float; math::asin(value AS Fixed) AS Fixed
 summary: Returns the arcsine in radians.
 example:
   LET value AS Float = math::asin(0.5)
 ---
 function: acos
-signature: math::acos(value AS Integer | Float | Fixed) AS Float
+signature: math::acos(value AS Float) AS Float; math::acos(value AS Fixed) AS Fixed
 summary: Returns the arccosine in radians.
 example:
   LET value AS Float = math::acos(0.5)
 ---
 function: atan
-signature: math::atan(value AS Integer | Float | Fixed) AS Float
+signature: math::atan(value AS Float) AS Float; math::atan(value AS Fixed) AS Fixed
 summary: Returns the arctangent in radians.
 example:
   LET value AS Float = math::atan(1.0)
 ---
 function: atan2
-signature: math::atan2(y AS number, x AS number) AS Float
+signature: math::atan2(y AS Float, x AS Float) AS Float; math::atan2(y AS Fixed, x AS Fixed) AS Fixed
 summary: Returns the angle of y/x in radians using both coordinates.
 example:
   LET value AS Float = math::atan2(1.0, 1.0)
@@ -150,7 +162,7 @@ function: degrees
 signature: math::degrees(radians AS Integer | Float | Fixed) AS Float
 summary: Converts radians to degrees.
 example:
-  LET value AS Float = math::degrees(math::pi())
+  LET value AS Float = math::degrees(math::piFloat)
 ---
 function: isFinite
 signature: math::isFinite(value AS Integer | Float | Fixed) AS Boolean

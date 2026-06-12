@@ -989,11 +989,7 @@ impl<'a> Monomorphizer<'a> {
                 }
                 let left = self.expression_type(left, context)?;
                 let right = self.expression_type(right, context)?;
-                if left == "Float" || left == "Fixed" || right == "Float" || right == "Fixed" {
-                    Some("Float".to_string())
-                } else {
-                    Some("Integer".to_string())
-                }
+                Some(numeric_binary_result_type(operator, &left, &right).to_string())
             }
             Expression::Unary { operator, operand } => {
                 if operator == "NOT" {
@@ -1211,4 +1207,22 @@ fn sanitize_type_name(value: &str) -> String {
             }
         })
         .collect()
+}
+
+fn numeric_binary_result_type(operator: &str, left: &str, right: &str) -> &'static str {
+    if operator == "/" {
+        if left == "Fixed" && right == "Fixed" {
+            "Fixed"
+        } else {
+            "Float"
+        }
+    } else if left == "Float" || right == "Float" {
+        "Float"
+    } else if left == "Fixed" && right == "Fixed" {
+        "Fixed"
+    } else if left == "Fixed" || right == "Fixed" {
+        "Float"
+    } else {
+        "Integer"
+    }
 }

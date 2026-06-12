@@ -784,6 +784,9 @@ impl<'a> TypeChecker<'a> {
                 }
             }
             Expression::Identifier(name) if name == "NOTHING" => Type::Nothing,
+            Expression::Identifier(name) if builtins::math::is_math_constant(name) => {
+                self.parse_type(builtins::math::constant_type_name(name).unwrap_or("Unknown"))
+            }
             Expression::Identifier(name) => locals
                 .get(name)
                 .map(|local| local.type_.clone())
@@ -1310,7 +1313,10 @@ impl<'a> TypeChecker<'a> {
         }
 
         if matches!(operator, "=" | "<>") {
-            if self.compatible(left, right) || self.compatible(right, left) {
+            if (self.is_numeric(left) && self.is_numeric(right))
+                || self.compatible(left, right)
+                || self.compatible(right, left)
+            {
                 return Type::Boolean;
             }
             self.report(
@@ -1361,7 +1367,7 @@ impl<'a> TypeChecker<'a> {
         }
 
         if operator == "MOD" {
-            if self.compatible(&Type::Integer, left) && self.compatible(&Type::Integer, right) {
+            if is_integer_promotable(left) && is_integer_promotable(right) {
                 return Type::Integer;
             }
             self.report(
@@ -1378,13 +1384,7 @@ impl<'a> TypeChecker<'a> {
         }
 
         if self.is_numeric(left) && self.is_numeric(right) {
-            if matches!(left, Type::Float | Type::Fixed)
-                || matches!(right, Type::Float | Type::Fixed)
-            {
-                Type::Float
-            } else {
-                Type::Integer
-            }
+            numeric_binary_result_type(operator, left, right)
         } else {
             self.report(
                 "TYPE_BINARY_OPERATOR_MISMATCH",
@@ -2183,6 +2183,21 @@ impl<'a> TypeChecker<'a> {
                 .parse::<u16>()
                 .is_ok_and(|number| number <= u8::MAX as u16),
             (Type::Fixed, Type::Integer | Type::Float, Some(Expression::Number(_))) => true,
+            (
+                Type::Fixed,
+                Type::Integer | Type::Float,
+                Some(Expression::Unary { operator, operand }),
+            ) if operator == "-" && matches!(operand.as_ref(), Expression::Number(_)) => true,
+            (
+                Type::List(expected_element),
+                Type::List(_),
+                Some(Expression::ListLiteral(values)),
+            ) => values.iter().all(|value| {
+                let Some(actual_element) = numeric_literal_type(value) else {
+                    return false;
+                };
+                self.expression_compatible(expected_element, &actual_element, Some(value))
+            }),
             _ => false,
         }
     }
@@ -2386,6 +2401,41 @@ fn type_kind_name(kind: TypeDeclKind) -> &'static str {
         TypeDeclKind::Type => "TYPE",
         TypeDeclKind::Union => "UNION",
         TypeDeclKind::Enum => "ENUM",
+    }
+}
+
+fn numeric_literal_type(expression: &Expression) -> Option<Type> {
+    match expression {
+        Expression::Number(number) if number.contains('.') => Some(Type::Float),
+        Expression::Number(_) => Some(Type::Integer),
+        Expression::Unary { operator, operand }
+            if operator == "-" && matches!(operand.as_ref(), Expression::Number(_)) =>
+        {
+            numeric_literal_type(operand)
+        }
+        _ => None,
+    }
+}
+
+fn is_integer_promotable(type_: &Type) -> bool {
+    matches!(type_, Type::Byte | Type::Integer | Type::Unknown)
+}
+
+fn numeric_binary_result_type(operator: &str, left: &Type, right: &Type) -> Type {
+    if operator == "/" {
+        if matches!((left, right), (Type::Fixed, Type::Fixed)) {
+            Type::Fixed
+        } else {
+            Type::Float
+        }
+    } else if matches!(left, Type::Float) || matches!(right, Type::Float) {
+        Type::Float
+    } else if matches!((left, right), (Type::Fixed, Type::Fixed)) {
+        Type::Fixed
+    } else if matches!(left, Type::Fixed) || matches!(right, Type::Fixed) {
+        Type::Float
+    } else {
+        Type::Integer
     }
 }
 

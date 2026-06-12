@@ -420,7 +420,7 @@ pub enum NativeConst {
     Boolean(bool),
     Integer(i64),
     Float(f64),
-    Fixed,
+    Fixed(i64),
     String(String),
     Other,
 }
@@ -1868,7 +1868,7 @@ fn native_const(
             &constant.payload,
             0,
         )))),
-        5 => Ok(NativeConst::Fixed),
+        5 => Ok(NativeConst::Fixed(read_i64(&constant.payload, 0))),
         6 => {
             let string_id = read_u32(&constant.payload, 0);
             let value = strings.get(&string_id).cloned().ok_or_else(|| {
@@ -3324,16 +3324,12 @@ impl<'a> FunctionBuilder<'a> {
                         right_register.register,
                     ));
                 }
+                let left_type_id = self.registers[left_register.register as usize].type_id;
+                let right_type_id = self.registers[right_register.register as usize].type_id;
                 let type_id = if op == "&" {
                     TYPE_STRING
-                } else if self.registers[left_register.register as usize].type_id == TYPE_FLOAT
-                    || self.registers[right_register.register as usize].type_id == TYPE_FLOAT
-                    || self.registers[left_register.register as usize].type_id == TYPE_FIXED
-                    || self.registers[right_register.register as usize].type_id == TYPE_FIXED
-                {
-                    TYPE_FLOAT
                 } else {
-                    TYPE_INTEGER
+                    numeric_binary_type_id(op, left_type_id, right_type_id)
                 };
                 let dst = self.add_register(type_id, 0);
                 let opcode = match op.as_str() {
@@ -3356,6 +3352,8 @@ impl<'a> FunctionBuilder<'a> {
                         "String".to_string()
                     } else if type_id == TYPE_FLOAT {
                         "Float".to_string()
+                    } else if type_id == TYPE_FIXED {
+                        "Fixed".to_string()
                     } else {
                         "Integer".to_string()
                     },
@@ -4185,6 +4183,10 @@ impl ConstPool {
                         .to_le_bytes()
                         .to_vec(),
                 },
+                "Fixed" => ConstEntry {
+                    kind: 5,
+                    payload: fixed_raw_from_decimal(value)?.to_le_bytes().to_vec(),
+                },
                 "Boolean" => ConstEntry {
                     kind: 2,
                     payload: vec![if value == "true" { 1 } else { 0 }],
@@ -4209,6 +4211,59 @@ impl ConstPool {
         }
         bytes
     }
+}
+
+fn fixed_raw_from_decimal(value: &str) -> Result<i64, String> {
+    const SCALE: i128 = 1_i128 << 32;
+
+    let (negative, digits) = value
+        .strip_prefix('-')
+        .map(|rest| (true, rest))
+        .unwrap_or((false, value));
+    let (whole, fractional) = digits.split_once('.').unwrap_or((digits, ""));
+    if whole.is_empty() && fractional.is_empty() {
+        return Err(format!("invalid Fixed constant `{value}`"));
+    }
+    let mut whole_value = if whole.is_empty() {
+        0_i128
+    } else {
+        whole
+            .parse::<i128>()
+            .map_err(|_| format!("invalid Fixed constant `{value}`"))?
+    };
+    let mut fractional_value = 0_i128;
+    if !fractional.is_empty() {
+        let mut denominator = 1_i128;
+        for digit in fractional.bytes() {
+            if !digit.is_ascii_digit() {
+                return Err(format!("invalid Fixed constant `{value}`"));
+            }
+            fractional_value = fractional_value
+                .checked_mul(10)
+                .and_then(|current| current.checked_add((digit - b'0') as i128))
+                .ok_or_else(|| format!("Fixed constant `{value}` has too many digits"))?;
+            denominator = denominator
+                .checked_mul(10)
+                .ok_or_else(|| format!("Fixed constant `{value}` has too many digits"))?;
+        }
+        let scaled = fractional_value
+            .checked_mul(SCALE)
+            .ok_or_else(|| format!("Fixed constant `{value}` has too many digits"))?;
+        fractional_value = scaled / denominator;
+        if (scaled % denominator) * 2 >= denominator {
+            fractional_value += 1;
+        }
+        if fractional_value == SCALE {
+            whole_value += 1;
+            fractional_value = 0;
+        }
+    }
+    let raw = whole_value
+        .checked_mul(SCALE)
+        .and_then(|current| current.checked_add(fractional_value))
+        .ok_or_else(|| format!("Fixed constant `{value}` is out of range"))?;
+    let raw = if negative { -raw } else { raw };
+    i64::try_from(raw).map_err(|_| format!("Fixed constant `{value}` is out of range"))
 }
 
 impl ResourceTable {
@@ -4552,6 +4607,24 @@ fn hex_dump(bytes: &[u8]) -> String {
         output.push('\n');
     }
     output
+}
+
+fn numeric_binary_type_id(op: &str, left: u32, right: u32) -> u32 {
+    if op == "/" {
+        if left == TYPE_FIXED && right == TYPE_FIXED {
+            TYPE_FIXED
+        } else {
+            TYPE_FLOAT
+        }
+    } else if left == TYPE_FLOAT || right == TYPE_FLOAT {
+        TYPE_FLOAT
+    } else if left == TYPE_FIXED && right == TYPE_FIXED {
+        TYPE_FIXED
+    } else if left == TYPE_FIXED || right == TYPE_FIXED {
+        TYPE_FLOAT
+    } else {
+        TYPE_INTEGER
+    }
 }
 
 fn put_bytes(dst: &mut Vec<u8>, bytes: &[u8]) {

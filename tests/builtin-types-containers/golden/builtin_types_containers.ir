@@ -288,7 +288,7 @@
     { "op": "bind", "mutable": true, "name": "floatValue", "type": "Float", "value": { "kind": "const", "type": "Float", "value": "1.5" } },
     { "op": "assign", "name": "floatValue", "value": { "kind": "call", "target": "passFloat", "args": [{ "kind": "local", "name": "floatValue" }] } },
     { "op": "eval", "value": { "kind": "call", "target": "takeFloat", "args": [{ "kind": "local", "name": "floatValue" }] } },
-    { "op": "bind", "mutable": true, "name": "fixedValue", "type": "Fixed", "value": { "kind": "const", "type": "Float", "value": "2.25" } },
+    { "op": "bind", "mutable": true, "name": "fixedValue", "type": "Fixed", "value": { "kind": "const", "type": "Fixed", "value": "2.25" } },
     { "op": "assign", "name": "fixedValue", "value": { "kind": "call", "target": "passFixed", "args": [{ "kind": "local", "name": "fixedValue" }] } },
     { "op": "eval", "value": { "kind": "call", "target": "takeFixed", "args": [{ "kind": "local", "name": "fixedValue" }] } },
     { "op": "bind", "mutable": true, "name": "booleanValue", "type": "Boolean", "value": { "kind": "const", "type": "Boolean", "value": "true" } },

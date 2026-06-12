@@ -315,14 +315,14 @@ fn lower_statement(
             value,
             ..
         } => {
-            let lowered_value = value
-                .as_ref()
-                .map(|value| lower_expression(value, locals, context));
             let lowered_type = type_name.clone().unwrap_or_else(|| {
                 value
                     .as_ref()
                     .and_then(|value| expression_type(value, locals, context))
                     .expect("typecheck requires inferred binding type before IR lowering")
+            });
+            let lowered_value = value.as_ref().map(|value| {
+                lower_expression_with_expected(value, Some(&lowered_type), locals, context)
             });
             locals.insert(name.clone(), lowered_type.clone());
             IrOp::Bind {
@@ -484,6 +484,9 @@ fn expression_type(
         }
         Expression::Boolean(_) => Some("Boolean".to_string()),
         Expression::Identifier(value) if value == "NOTHING" => Some("Nothing".to_string()),
+        Expression::Identifier(value) if builtins::math::is_math_constant(value) => {
+            builtins::math::constant_type_name(value).map(str::to_string)
+        }
         Expression::Identifier(value) => locals
             .get(value)
             .cloned()
@@ -629,11 +632,7 @@ fn expression_type(
             }
             let left = expression_type(left, locals, context)?;
             let right = expression_type(right, locals, context)?;
-            if left == "Float" || left == "Fixed" || right == "Float" || right == "Fixed" {
-                Some("Float".to_string())
-            } else {
-                Some("Integer".to_string())
-            }
+            Some(numeric_binary_result_type(operator, &left, &right).to_string())
         }
         Expression::Unary { operator, operand } => {
             if operator == "NOT" {
@@ -658,13 +657,24 @@ fn lower_expression(
     locals: &HashMap<String, String>,
     context: &mut LowerContext<'_>,
 ) -> IrValue {
+    lower_expression_with_expected(expression, None, locals, context)
+}
+
+fn lower_expression_with_expected(
+    expression: &Expression,
+    expected: Option<&str>,
+    locals: &HashMap<String, String>,
+    context: &mut LowerContext<'_>,
+) -> IrValue {
     match expression {
         Expression::String(value) => IrValue::Const {
             type_: "String".to_string(),
             value: value.clone(),
         },
         Expression::Number(value) => IrValue::Const {
-            type_: if value.contains('.') {
+            type_: if expected == Some("Fixed") {
+                "Fixed".to_string()
+            } else if value.contains('.') {
                 "Float".to_string()
             } else {
                 "Integer".to_string()
@@ -678,6 +688,10 @@ fn lower_expression(
         Expression::Identifier(value) if value == "NOTHING" => IrValue::Const {
             type_: "Nothing".to_string(),
             value: "NOTHING".to_string(),
+        },
+        Expression::Identifier(value) if builtins::math::is_math_constant(value) => IrValue::Call {
+            target: value.clone(),
+            args: Vec::new(),
         },
         Expression::Identifier(value) => {
             if let Some(type_) = context.function_types.get(value) {
@@ -835,6 +849,24 @@ fn lower_expression(
             op: operator.clone(),
             operand: Box::new(lower_expression(operand, locals, context)),
         },
+    }
+}
+
+fn numeric_binary_result_type(operator: &str, left: &str, right: &str) -> &'static str {
+    if operator == "/" {
+        if left == "Fixed" && right == "Fixed" {
+            "Fixed"
+        } else {
+            "Float"
+        }
+    } else if left == "Float" || right == "Float" {
+        "Float"
+    } else if left == "Fixed" && right == "Fixed" {
+        "Fixed"
+    } else if left == "Fixed" || right == "Fixed" {
+        "Float"
+    } else {
+        "Integer"
     }
 }
 

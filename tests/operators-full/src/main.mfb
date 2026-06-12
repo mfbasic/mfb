@@ -4,12 +4,12 @@ END FUNC
 
 FUNC main() AS Integer
   LET piped AS Integer = 2 |> inc(_)
-  LET arithmetic AS Integer = -2 + 3 * 4 / 2 + 7 MOD 5 + 2 ^ 3
+  LET arithmetic AS Float = -2 + 3 * 4 / 2 + 7 MOD 5 + 2 ^ 3
   LET comparisons AS Boolean = arithmetic >= 9 AND arithmetic <> 0
   LET ordered AS Boolean = piped < arithmetic OR piped <= 3
   LET flags AS Boolean = NOT false XOR (arithmetic = 10) OR arithmetic > piped
   IF comparisons AND ordered AND flags THEN
-    RETURN arithmetic
+    RETURN toInt(arithmetic)
   END IF
   RETURN 1
 END FUNC

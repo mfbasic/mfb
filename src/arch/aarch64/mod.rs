@@ -73,6 +73,7 @@ const ARENA_STATE_SIZE: usize = 64;
 const ARENA_DEFAULT_BLOCK_SIZE: u64 = 4096;
 const ARENA_BLOCK_HEADER_SIZE: u64 = 32;
 const ERR_INVALID_ARGUMENT: u64 = 10002;
+const ERR_OVERFLOW: u64 = 10028;
 const ERR_NOT_TERMINAL: u64 = 10007;
 const ERR_PARSE: u64 = 10003;
 const ERR_NOT_FOUND: u64 = 10004;
@@ -310,7 +311,12 @@ impl<'a> NativeEmitter<'a> {
                 }
                 NATIVE_OPCODE_ADD | NATIVE_OPCODE_SUB | NATIVE_OPCODE_MUL | NATIVE_OPCODE_DIV
                 | NATIVE_OPCODE_MOD | NATIVE_OPCODE_POW => {
-                    self.emit_integer_arithmetic(instruction.opcode, instruction, epilogue)?;
+                    self.emit_numeric_arithmetic(
+                        function,
+                        instruction.opcode,
+                        instruction,
+                        epilogue,
+                    )?;
                 }
                 NATIVE_OPCODE_EQUAL
                 | NATIVE_OPCODE_NOT_EQUAL
@@ -318,10 +324,10 @@ impl<'a> NativeEmitter<'a> {
                 | NATIVE_OPCODE_LESS_EQUAL
                 | NATIVE_OPCODE_GREATER
                 | NATIVE_OPCODE_GREATER_EQUAL => {
-                    self.emit_comparison(instruction.opcode, instruction)?;
+                    self.emit_comparison(function, instruction.opcode, instruction)?;
                 }
                 NATIVE_OPCODE_NOT | NATIVE_OPCODE_NEG => {
-                    self.emit_unary(instruction.opcode, instruction)?;
+                    self.emit_unary(function, instruction.opcode, instruction)?;
                 }
                 NATIVE_OPCODE_XOR => {
                     self.emit_xor(instruction)?;
@@ -479,7 +485,12 @@ impl<'a> NativeEmitter<'a> {
                     self.emit_general_to_int(function, instruction, epilogue)?;
                 }
                 NATIVE_OPCODE_GENERAL_TO_FLOAT | NATIVE_OPCODE_GENERAL_TO_FIXED => {
-                    self.emit_general_numeric_widen_or_copy(function, instruction, epilogue)?;
+                    self.emit_general_numeric_widen_or_copy(
+                        function,
+                        instruction.opcode,
+                        instruction,
+                        epilogue,
+                    )?;
                 }
                 NATIVE_OPCODE_GENERAL_TO_BYTE => {
                     self.emit_general_to_byte(instruction, epilogue)?;
@@ -499,19 +510,19 @@ impl<'a> NativeEmitter<'a> {
                     self.emit_general_length_predicate(instruction.opcode, instruction)?;
                 }
                 NATIVE_OPCODE_MATH_PI | NATIVE_OPCODE_MATH_E => {
-                    self.emit_math_constant(instruction.opcode, instruction)?;
+                    self.emit_math_constant(function, instruction.opcode, instruction)?;
                 }
                 NATIVE_OPCODE_MATH_ABS | NATIVE_OPCODE_MATH_SIGN => {
-                    self.emit_math_unary_integer(instruction.opcode, instruction)?;
+                    self.emit_math_unary(function, instruction.opcode, instruction, epilogue)?;
                 }
                 NATIVE_OPCODE_MATH_MIN | NATIVE_OPCODE_MATH_MAX => {
-                    self.emit_math_min_max(instruction.opcode, instruction)?;
+                    self.emit_math_min_max(function, instruction.opcode, instruction)?;
                 }
                 NATIVE_OPCODE_MATH_CLAMP => {
-                    self.emit_math_clamp(instruction)?;
+                    self.emit_math_clamp(function, instruction)?;
                 }
                 NATIVE_OPCODE_MATH_IS_FINITE => {
-                    self.emit_math_is_finite(instruction)?;
+                    self.emit_math_is_finite(function, instruction)?;
                 }
                 NATIVE_OPCODE_MATH_FLOOR
                 | NATIVE_OPCODE_MATH_CEIL
@@ -531,7 +542,7 @@ impl<'a> NativeEmitter<'a> {
                 | NATIVE_OPCODE_MATH_ATAN2
                 | NATIVE_OPCODE_MATH_RADIANS
                 | NATIVE_OPCODE_MATH_DEGREES => {
-                    self.emit_math_float_intrinsic(instruction)?;
+                    self.emit_math_float_intrinsic(function, instruction, epilogue)?;
                 }
                 NATIVE_OPCODE_COLLECTION_GET => {
                     self.emit_collection_get(instruction, epilogue, false)?;
@@ -576,7 +587,7 @@ impl<'a> NativeEmitter<'a> {
                     self.emit_collection_contains(instruction)?;
                 }
                 NATIVE_OPCODE_COLLECTION_SUM => {
-                    self.emit_collection_sum(instruction)?;
+                    self.emit_collection_sum(function, instruction, epilogue)?;
                 }
                 NATIVE_OPCODE_COLLECTION_FOR_EACH => {
                     self.emit_collection_for_each(instruction, epilogue)?;
@@ -720,8 +731,9 @@ impl<'a> NativeEmitter<'a> {
                 self.code.str_imm(10, 31, slot + 8)?;
                 self.code.str_imm(31, 31, slot + 16)
             }
-            NativeConst::Fixed => {
-                Err("native bytecode execution does not support Fixed constants yet".to_string())
+            NativeConst::Fixed(value) => {
+                self.code.mov_imm(9, *value as u64);
+                self.code.str_imm(9, 31, slot)
             }
         }
     }
@@ -1903,20 +1915,49 @@ impl<'a> NativeEmitter<'a> {
 
     fn emit_collection_sum(
         &mut self,
+        function: &bytecode::NativeFunction,
         instruction: &bytecode::NativeInstruction,
+        epilogue: Label,
     ) -> Result<(), String> {
         let dst = operand(instruction, 0)?;
         let value = operand(instruction, 1)?;
+        let dst_type = function
+            .registers
+            .get(dst as usize)
+            .map(|register| register.type_)
+            .ok_or_else(|| format!("collection sum references missing register {dst}"))?;
         let loop_start = self.code.new_label();
         let done = self.code.new_label();
         self.code.ldr_imm(9, 31, slot_offset(value))?;
         self.code.ldr_imm(10, 31, slot_offset(value) + 8)?;
         self.code.add_imm(9, 9, HEAP_HEADER_SIZE)?;
+        if dst_type == NativeType::Float {
+            self.code.mov_imm(11, 0);
+            self.code.fmov_d_from_x(0, 11);
+            self.code.bind(loop_start);
+            self.code.cbz(10, done);
+            self.code.ldr_imm(12, 9, 0)?;
+            self.code.fmov_d_from_x(1, 12);
+            self.code.fadd_d(0, 0, 1);
+            self.code.add_imm(9, 9, SLOT_SIZE)?;
+            self.code.sub_imm(10, 10, 1)?;
+            self.code.b(loop_start);
+            self.code.bind(done);
+            return self.store_double(dst, 0);
+        }
         self.code.mov_imm(11, 0);
         self.code.bind(loop_start);
         self.code.cbz(10, done);
         self.code.ldr_imm(12, 9, 0)?;
-        self.code.add_reg(11, 11, 12);
+        if dst_type == NativeType::Fixed {
+            let ok = self.code.new_label();
+            self.code.adds_reg(11, 11, 12);
+            self.code.b_vc(ok);
+            self.fail_current_function(ERR_OVERFLOW, epilogue);
+            self.code.bind(ok);
+        } else {
+            self.code.add_reg(11, 11, 12);
+        }
         self.code.add_imm(9, 9, SLOT_SIZE)?;
         self.code.sub_imm(10, 10, 1)?;
         self.code.b(loop_start);
@@ -2756,9 +2797,8 @@ impl<'a> NativeEmitter<'a> {
                 self.emit_integer_to_string(dst, src, epilogue)
             }
             NativeType::Other => self.emit_byte_list_to_string(dst, src, epilogue),
-            NativeType::Float | NativeType::Fixed => {
-                self.emit_integer_to_string(dst, src, epilogue)
-            }
+            NativeType::Fixed => self.emit_fixed_to_string(dst, src, epilogue),
+            NativeType::Float => self.emit_float_to_string(dst, src, epilogue),
             _ => Err(format!(
                 "toString native lowering does not support {}",
                 native_type_name(src_type)
@@ -2779,17 +2819,25 @@ impl<'a> NativeEmitter<'a> {
             .get(src as usize)
             .map(|register| register.type_)
             .ok_or_else(|| format!("toInt references missing register {src}"))?;
-        if src_type == NativeType::String {
-            self.emit_parse_integer_to_slot(dst, src, epilogue)
-        } else {
-            self.code.ldr_imm(9, 31, slot_offset(src))?;
-            self.code.str_imm(9, 31, slot_offset(dst))
+        match src_type {
+            NativeType::String => self.emit_parse_integer_to_slot(dst, src, epilogue),
+            NativeType::Fixed => {
+                self.code.ldr_imm(9, 31, slot_offset(src))?;
+                self.code.asr_imm(9, 9, 32);
+                self.code.str_imm(9, 31, slot_offset(dst))
+            }
+            NativeType::Float => self.emit_float_to_integer(dst, src),
+            _ => {
+                self.code.ldr_imm(9, 31, slot_offset(src))?;
+                self.code.str_imm(9, 31, slot_offset(dst))
+            }
         }
     }
 
     fn emit_general_numeric_widen_or_copy(
         &mut self,
         function: &bytecode::NativeFunction,
+        opcode: u16,
         instruction: &bytecode::NativeInstruction,
         epilogue: Label,
     ) -> Result<(), String> {
@@ -2800,8 +2848,26 @@ impl<'a> NativeEmitter<'a> {
             .get(src as usize)
             .map(|register| register.type_)
             .ok_or_else(|| format!("numeric conversion references missing register {src}"))?;
+        if opcode == NATIVE_OPCODE_GENERAL_TO_FIXED {
+            return match src_type {
+                NativeType::String => self.emit_parse_fixed_to_slot(dst, src, epilogue),
+                NativeType::Integer => self.emit_integer_to_fixed(dst, src, epilogue),
+                NativeType::Float => self.emit_float_to_fixed(dst, src),
+                _ => Err(format!(
+                    "toFixed native lowering does not support {}",
+                    native_type_name(src_type)
+                )),
+            };
+        }
         if src_type == NativeType::String {
-            return self.emit_parse_integer_to_slot(dst, src, epilogue);
+            self.emit_parse_fixed_to_slot(dst, src, epilogue)?;
+            return self.emit_fixed_to_float(dst, dst);
+        }
+        if src_type == NativeType::Integer {
+            return self.emit_integer_slot_to_float(dst, src);
+        }
+        if src_type == NativeType::Fixed {
+            return self.emit_fixed_to_float(dst, src);
         }
         self.code.ldr_imm(9, 31, slot_offset(src))?;
         self.code.str_imm(9, 31, slot_offset(dst))
@@ -2903,26 +2969,73 @@ impl<'a> NativeEmitter<'a> {
 
     fn emit_math_constant(
         &mut self,
+        function: &bytecode::NativeFunction,
         opcode: u16,
         instruction: &bytecode::NativeInstruction,
     ) -> Result<(), String> {
         let dst = operand(instruction, 0)?;
-        let bits = match opcode {
-            NATIVE_OPCODE_MATH_PI => std::f64::consts::PI.to_bits(),
-            NATIVE_OPCODE_MATH_E => std::f64::consts::E.to_bits(),
+        let dst_type = function
+            .registers
+            .get(dst as usize)
+            .map(|register| register.type_)
+            .ok_or_else(|| format!("math constant references missing register {dst}"))?;
+        let float_value = match opcode {
+            NATIVE_OPCODE_MATH_PI => std::f64::consts::PI,
+            NATIVE_OPCODE_MATH_E => std::f64::consts::E,
             _ => unreachable!(),
+        };
+        let bits = match dst_type {
+            NativeType::Float => float_value.to_bits(),
+            NativeType::Fixed => (float_value * 4_294_967_296.0).round() as i64 as u64,
+            _ => {
+                return Err(format!(
+                    "math constant cannot write {}",
+                    native_type_name(dst_type)
+                ));
+            }
         };
         self.code.mov_imm(9, bits);
         self.code.str_imm(9, 31, slot_offset(dst))
     }
 
-    fn emit_math_unary_integer(
+    fn emit_math_unary(
         &mut self,
+        function: &bytecode::NativeFunction,
         opcode: u16,
         instruction: &bytecode::NativeInstruction,
+        epilogue: Label,
     ) -> Result<(), String> {
         let dst = operand(instruction, 0)?;
         let src = operand(instruction, 1)?;
+        let src_type = function
+            .registers
+            .get(src as usize)
+            .map(|register| register.type_)
+            .ok_or_else(|| format!("math unary references missing register {src}"))?;
+        if opcode == NATIVE_OPCODE_MATH_ABS && matches!(src_type, NativeType::Float) {
+            self.code.ldr_imm(9, 31, slot_offset(src))?;
+            self.code.mov_imm(10, 0x7fff_ffff_ffff_ffff);
+            self.code.and_reg(9, 9, 10);
+            return self.code.str_imm(9, 31, slot_offset(dst));
+        }
+        if opcode == NATIVE_OPCODE_MATH_SIGN && matches!(src_type, NativeType::Float) {
+            let negative = self.code.new_label();
+            let zero = self.code.new_label();
+            let done = self.code.new_label();
+            self.load_float_as_double(0, src)?;
+            self.code.fcmp_zero_d(0);
+            self.code.b_lt(negative);
+            self.code.b_eq(zero);
+            self.code.mov_imm(9, 1);
+            self.code.b(done);
+            self.code.bind(negative);
+            self.code.mov_imm(9, (-1_i64) as u64);
+            self.code.b(done);
+            self.code.bind(zero);
+            self.code.mov_imm(9, 0);
+            self.code.bind(done);
+            return self.code.str_imm(9, 31, slot_offset(dst));
+        }
         let negative = self.code.new_label();
         let zero = self.code.new_label();
         let done = self.code.new_label();
@@ -2931,6 +3044,11 @@ impl<'a> NativeEmitter<'a> {
         match opcode {
             NATIVE_OPCODE_MATH_ABS => {
                 self.code.b_ge(done);
+                self.code.mov_imm(10, i64::MIN as u64);
+                self.code.cmp_reg(9, 10);
+                self.code.b_ne(negative);
+                self.fail_current_function(ERR_OVERFLOW, epilogue);
+                self.code.bind(negative);
                 self.code.neg(9, 9);
             }
             NATIVE_OPCODE_MATH_SIGN => {
@@ -2952,17 +3070,29 @@ impl<'a> NativeEmitter<'a> {
 
     fn emit_math_min_max(
         &mut self,
+        function: &bytecode::NativeFunction,
         opcode: u16,
         instruction: &bytecode::NativeInstruction,
     ) -> Result<(), String> {
         let dst = operand(instruction, 0)?;
         let left = operand(instruction, 1)?;
         let right = operand(instruction, 2)?;
+        let dst_type = function
+            .registers
+            .get(dst as usize)
+            .map(|register| register.type_)
+            .ok_or_else(|| format!("math min/max references missing register {dst}"))?;
         let keep_left = self.code.new_label();
         let done = self.code.new_label();
         self.code.ldr_imm(9, 31, slot_offset(left))?;
         self.code.ldr_imm(10, 31, slot_offset(right))?;
-        self.code.cmp_reg(9, 10);
+        if dst_type == NativeType::Float {
+            self.code.fmov_d_from_x(0, 9);
+            self.code.fmov_d_from_x(1, 10);
+            self.code.fcmp_d(0, 1);
+        } else {
+            self.code.cmp_reg(9, 10);
+        }
         if opcode == NATIVE_OPCODE_MATH_MIN {
             self.code.b_le(keep_left);
         } else {
@@ -2975,21 +3105,42 @@ impl<'a> NativeEmitter<'a> {
         self.code.str_imm(9, 31, slot_offset(dst))
     }
 
-    fn emit_math_clamp(&mut self, instruction: &bytecode::NativeInstruction) -> Result<(), String> {
+    fn emit_math_clamp(
+        &mut self,
+        function: &bytecode::NativeFunction,
+        instruction: &bytecode::NativeInstruction,
+    ) -> Result<(), String> {
         let dst = operand(instruction, 0)?;
         let value = operand(instruction, 1)?;
         let low = operand(instruction, 2)?;
         let high = operand(instruction, 3)?;
+        let dst_type = function
+            .registers
+            .get(dst as usize)
+            .map(|register| register.type_)
+            .ok_or_else(|| format!("math clamp references missing register {dst}"))?;
         let above_low = self.code.new_label();
         let below_high = self.code.new_label();
         self.code.ldr_imm(9, 31, slot_offset(value))?;
         self.code.ldr_imm(10, 31, slot_offset(low))?;
         self.code.ldr_imm(11, 31, slot_offset(high))?;
-        self.code.cmp_reg(9, 10);
+        if dst_type == NativeType::Float {
+            self.code.fmov_d_from_x(0, 9);
+            self.code.fmov_d_from_x(1, 10);
+            self.code.fcmp_d(0, 1);
+        } else {
+            self.code.cmp_reg(9, 10);
+        }
         self.code.b_ge(above_low);
         self.code.mov_reg(9, 10);
         self.code.bind(above_low);
-        self.code.cmp_reg(9, 11);
+        if dst_type == NativeType::Float {
+            self.code.fmov_d_from_x(0, 9);
+            self.code.fmov_d_from_x(1, 11);
+            self.code.fcmp_d(0, 1);
+        } else {
+            self.code.cmp_reg(9, 11);
+        }
         self.code.b_le(below_high);
         self.code.mov_reg(9, 11);
         self.code.bind(below_high);
@@ -2998,24 +3149,782 @@ impl<'a> NativeEmitter<'a> {
 
     fn emit_math_is_finite(
         &mut self,
+        function: &bytecode::NativeFunction,
         instruction: &bytecode::NativeInstruction,
     ) -> Result<(), String> {
         let dst = operand(instruction, 0)?;
+        let src = operand(instruction, 1)?;
+        let src_type = function
+            .registers
+            .get(src as usize)
+            .map(|register| register.type_)
+            .ok_or_else(|| format!("math isFinite references missing register {src}"))?;
+        if src_type == NativeType::Float {
+            let false_label = self.code.new_label();
+            let done = self.code.new_label();
+            self.code.ldr_imm(9, 31, slot_offset(src))?;
+            self.code.lsr_imm(10, 9, 52);
+            self.code.mov_imm(11, 0x7ff);
+            self.code.and_reg(10, 10, 11);
+            self.code.cmp_reg(10, 11);
+            self.code.b_eq(false_label);
+            self.code.mov_imm(9, 1);
+            self.code.b(done);
+            self.code.bind(false_label);
+            self.code.mov_imm(9, 0);
+            self.code.bind(done);
+            return self.code.str_imm(9, 31, slot_offset(dst));
+        }
         self.code.mov_imm(9, 1);
         self.code.str_imm(9, 31, slot_offset(dst))
     }
 
     fn emit_math_float_intrinsic(
         &mut self,
+        function: &bytecode::NativeFunction,
         instruction: &bytecode::NativeInstruction,
+        epilogue: Label,
     ) -> Result<(), String> {
         let dst = operand(instruction, 0)?;
-        if let Some(src) = instruction.operands.get(1).copied() {
-            self.code.ldr_imm(9, 31, slot_offset(src))?;
+        if instruction.operands.iter().skip(1).any(|operand| {
+            function
+                .registers
+                .get(*operand as usize)
+                .is_some_and(|register| register.type_ == NativeType::Fixed)
+        }) {
+            return self.emit_fixed_math_intrinsic(instruction.opcode, dst, instruction, epilogue);
+        }
+        if instruction.operands.get(1).is_some() {
+            self.emit_float_math_intrinsic(instruction.opcode, dst, instruction, epilogue)?;
         } else {
             self.code.mov_imm(9, 0);
+            self.code.str_imm(9, 31, slot_offset(dst))?;
         }
+        Ok(())
+    }
+
+    fn emit_float_math_intrinsic(
+        &mut self,
+        opcode: u16,
+        dst: u32,
+        instruction: &bytecode::NativeInstruction,
+        epilogue: Label,
+    ) -> Result<(), String> {
+        let src = operand(instruction, 1)?;
+        self.load_float_as_double(0, src)?;
+        match opcode {
+            NATIVE_OPCODE_MATH_FLOOR
+            | NATIVE_OPCODE_MATH_CEIL
+            | NATIVE_OPCODE_MATH_ROUND
+            | NATIVE_OPCODE_MATH_TRUNC => self.emit_float_rounding(opcode, dst),
+            NATIVE_OPCODE_MATH_RADIANS | NATIVE_OPCODE_MATH_DEGREES => {
+                if opcode == NATIVE_OPCODE_MATH_RADIANS {
+                    self.emit_f64_const(1, std::f64::consts::PI / 180.0);
+                } else {
+                    self.emit_f64_const(1, 180.0 / std::f64::consts::PI);
+                }
+                self.code.fmul_d(0, 0, 1);
+                self.store_double(dst, 0)
+            }
+            NATIVE_OPCODE_MATH_SQRT => {
+                self.emit_domain_nonnegative_d(0, epilogue);
+                self.code.fsqrt_d(0, 0);
+                self.store_double(dst, 0)
+            }
+            NATIVE_OPCODE_MATH_EXP => {
+                self.emit_exp_float_d(0, epilogue);
+                self.store_double(dst, 0)
+            }
+            NATIVE_OPCODE_MATH_LOG | NATIVE_OPCODE_MATH_LOG10 => {
+                self.emit_log_d(0, epilogue);
+                if opcode == NATIVE_OPCODE_MATH_LOG10 {
+                    self.emit_f64_const(1, std::f64::consts::LN_10);
+                    self.code.fdiv_d(0, 0, 1);
+                }
+                self.store_double(dst, 0)
+            }
+            NATIVE_OPCODE_MATH_SIN | NATIVE_OPCODE_MATH_COS | NATIVE_OPCODE_MATH_TAN => {
+                match opcode {
+                    NATIVE_OPCODE_MATH_SIN => self.emit_sin_d(0),
+                    NATIVE_OPCODE_MATH_COS => self.emit_cos_d(0),
+                    NATIVE_OPCODE_MATH_TAN => self.emit_tan_d(0, epilogue),
+                    _ => unreachable!(),
+                }
+                self.store_double(dst, 0)
+            }
+            NATIVE_OPCODE_MATH_ASIN | NATIVE_OPCODE_MATH_ACOS | NATIVE_OPCODE_MATH_ATAN => {
+                match opcode {
+                    NATIVE_OPCODE_MATH_ASIN => self.emit_asin_d(0, epilogue),
+                    NATIVE_OPCODE_MATH_ACOS => self.emit_acos_d(0, epilogue),
+                    NATIVE_OPCODE_MATH_ATAN => self.emit_atan_d(0),
+                    _ => unreachable!(),
+                }
+                self.store_double(dst, 0)
+            }
+            NATIVE_OPCODE_MATH_ATAN2 => {
+                let right = operand(instruction, 2)?;
+                self.load_float_as_double(1, right)?;
+                self.emit_atan2_d(0, 1, epilogue);
+                self.store_double(dst, 0)
+            }
+            NATIVE_OPCODE_MATH_POW => {
+                let exponent = operand(instruction, 2)?;
+                self.load_float_as_double(1, exponent)?;
+                self.emit_pow_float_d(0, 1, epilogue);
+                self.store_double(dst, 0)
+            }
+            _ => Err(format!(
+                "native float lowering does not support math opcode {opcode}"
+            )),
+        }
+    }
+
+    fn emit_fixed_rounding(
+        &mut self,
+        opcode: u16,
+        dst: u32,
+        src: u32,
+        _epilogue: Label,
+    ) -> Result<(), String> {
+        self.code.ldr_imm(9, 31, slot_offset(src))?;
+        match opcode {
+            NATIVE_OPCODE_MATH_FLOOR => {
+                self.code.asr_imm(11, 9, 32);
+            }
+            NATIVE_OPCODE_MATH_CEIL => {
+                let done = self.code.new_label();
+                self.code.asr_imm(11, 9, 32);
+                self.code.cmp_zero(9);
+                self.code.b_le(done);
+                self.code.lsl_imm(12, 9, 32);
+                self.code.cbz(12, done);
+                self.code.add_imm(11, 11, 1)?;
+                self.code.bind(done);
+            }
+            NATIVE_OPCODE_MATH_TRUNC => {
+                let nonnegative = self.code.new_label();
+                let done = self.code.new_label();
+                self.code.cmp_zero(9);
+                self.code.b_ge(nonnegative);
+                self.code.neg(9, 9);
+                self.code.lsr_imm(11, 9, 32);
+                self.code.neg(11, 11);
+                self.code.b(done);
+                self.code.bind(nonnegative);
+                self.code.lsr_imm(11, 9, 32);
+                self.code.bind(done);
+            }
+            NATIVE_OPCODE_MATH_ROUND => {
+                let nonnegative = self.code.new_label();
+                let done = self.code.new_label();
+                self.code.cmp_zero(9);
+                self.code.b_ge(nonnegative);
+                self.code.neg(9, 9);
+                self.code.mov_imm(12, 0x8000_0000);
+                self.code.add_reg(9, 9, 12);
+                self.code.lsr_imm(11, 9, 32);
+                self.code.neg(11, 11);
+                self.code.b(done);
+                self.code.bind(nonnegative);
+                self.code.mov_imm(12, 0x8000_0000);
+                self.code.add_reg(9, 9, 12);
+                self.code.lsr_imm(11, 9, 32);
+                self.code.bind(done);
+            }
+            _ => unreachable!(),
+        }
+        self.code.str_imm(11, 31, slot_offset(dst))
+    }
+
+    fn emit_float_rounding(&mut self, opcode: u16, dst: u32) -> Result<(), String> {
+        match opcode {
+            NATIVE_OPCODE_MATH_FLOOR => self.code.fcvtms_x_from_d(11, 0),
+            NATIVE_OPCODE_MATH_CEIL => self.code.fcvtps_x_from_d(11, 0),
+            NATIVE_OPCODE_MATH_ROUND => self.code.fcvtas_x_from_d(11, 0),
+            NATIVE_OPCODE_MATH_TRUNC => self.code.fcvtzs_x_from_d(11, 0),
+            _ => unreachable!(),
+        }
+        self.code.str_imm(11, 31, slot_offset(dst))
+    }
+
+    fn emit_fixed_math_intrinsic(
+        &mut self,
+        opcode: u16,
+        dst: u32,
+        instruction: &bytecode::NativeInstruction,
+        epilogue: Label,
+    ) -> Result<(), String> {
+        match opcode {
+            NATIVE_OPCODE_MATH_FLOOR
+            | NATIVE_OPCODE_MATH_CEIL
+            | NATIVE_OPCODE_MATH_ROUND
+            | NATIVE_OPCODE_MATH_TRUNC => {
+                let src = operand(instruction, 1)?;
+                self.emit_fixed_rounding(opcode, dst, src, epilogue)
+            }
+            NATIVE_OPCODE_MATH_RADIANS | NATIVE_OPCODE_MATH_DEGREES => {
+                let src = operand(instruction, 1)?;
+                self.load_fixed_as_double(0, src)?;
+                if opcode == NATIVE_OPCODE_MATH_RADIANS {
+                    self.emit_f64_const(1, std::f64::consts::PI / 180.0);
+                } else {
+                    self.emit_f64_const(1, 180.0 / std::f64::consts::PI);
+                }
+                self.code.fmul_d(0, 0, 1);
+                self.store_double(dst, 0)
+            }
+            NATIVE_OPCODE_MATH_SQRT => {
+                let src = operand(instruction, 1)?;
+                self.load_fixed_as_double(0, src)?;
+                self.emit_domain_nonnegative_d(0, epilogue);
+                self.code.fsqrt_d(0, 0);
+                self.store_double_as_fixed(dst, 0)
+            }
+            NATIVE_OPCODE_MATH_EXP => {
+                let src = operand(instruction, 1)?;
+                self.load_fixed_as_double(0, src)?;
+                self.emit_exp_d(0, epilogue);
+                self.store_double_as_fixed(dst, 0)
+            }
+            NATIVE_OPCODE_MATH_LOG | NATIVE_OPCODE_MATH_LOG10 => {
+                let src = operand(instruction, 1)?;
+                self.load_fixed_as_double(0, src)?;
+                self.emit_log_d(0, epilogue);
+                if opcode == NATIVE_OPCODE_MATH_LOG10 {
+                    self.emit_f64_const(1, std::f64::consts::LN_10);
+                    self.code.fdiv_d(0, 0, 1);
+                }
+                self.store_double_as_fixed(dst, 0)
+            }
+            NATIVE_OPCODE_MATH_SIN | NATIVE_OPCODE_MATH_COS | NATIVE_OPCODE_MATH_TAN => {
+                let src = operand(instruction, 1)?;
+                self.load_fixed_as_double(0, src)?;
+                match opcode {
+                    NATIVE_OPCODE_MATH_SIN => self.emit_sin_d(0),
+                    NATIVE_OPCODE_MATH_COS => self.emit_cos_d(0),
+                    NATIVE_OPCODE_MATH_TAN => self.emit_tan_d(0, epilogue),
+                    _ => unreachable!(),
+                }
+                self.store_double_as_fixed(dst, 0)
+            }
+            NATIVE_OPCODE_MATH_ASIN | NATIVE_OPCODE_MATH_ACOS | NATIVE_OPCODE_MATH_ATAN => {
+                let src = operand(instruction, 1)?;
+                self.load_fixed_as_double(0, src)?;
+                match opcode {
+                    NATIVE_OPCODE_MATH_ASIN => self.emit_asin_d(0, epilogue),
+                    NATIVE_OPCODE_MATH_ACOS => self.emit_acos_d(0, epilogue),
+                    NATIVE_OPCODE_MATH_ATAN => self.emit_atan_d(0),
+                    _ => unreachable!(),
+                }
+                self.store_double_as_fixed(dst, 0)
+            }
+            NATIVE_OPCODE_MATH_ATAN2 => {
+                let y = operand(instruction, 1)?;
+                let x = operand(instruction, 2)?;
+                self.load_fixed_as_double(0, y)?;
+                self.load_fixed_as_double(1, x)?;
+                self.emit_atan2_d(0, 1, epilogue);
+                self.store_double_as_fixed(dst, 0)
+            }
+            NATIVE_OPCODE_MATH_POW => {
+                let base = operand(instruction, 1)?;
+                let exponent = operand(instruction, 2)?;
+                self.load_fixed_as_double(0, base)?;
+                self.load_fixed_as_double(1, exponent)?;
+                self.emit_pow_d(0, 1, epilogue);
+                self.store_double_as_fixed(dst, 0)
+            }
+            _ => Err(format!(
+                "native fixed-point lowering does not support math opcode {opcode} yet"
+            )),
+        }
+    }
+
+    fn load_fixed_as_double(&mut self, dd: u8, src: u32) -> Result<(), String> {
+        self.code.ldr_imm(9, 31, slot_offset(src))?;
+        self.code.scvtf_d_from_x(dd, 9);
+        self.emit_f64_const(7, 4_294_967_296.0);
+        self.code.fdiv_d(dd, dd, 7);
+        Ok(())
+    }
+
+    fn load_numeric_as_double(
+        &mut self,
+        dd: u8,
+        src: u32,
+        src_type: NativeType,
+    ) -> Result<(), String> {
+        match src_type {
+            NativeType::Float => self.load_float_as_double(dd, src),
+            NativeType::Fixed => self.load_fixed_as_double(dd, src),
+            NativeType::Byte | NativeType::Integer => {
+                self.code.ldr_imm(9, 31, slot_offset(src))?;
+                self.code.scvtf_d_from_x(dd, 9);
+                Ok(())
+            }
+            _ => Err(format!(
+                "numeric Float promotion cannot load {}",
+                native_type_name(src_type)
+            )),
+        }
+    }
+
+    fn store_double(&mut self, dst: u32, dn: u8) -> Result<(), String> {
+        self.code.fmov_x_from_d(9, dn);
         self.code.str_imm(9, 31, slot_offset(dst))
+    }
+
+    fn store_double_as_fixed(&mut self, dst: u32, dn: u8) -> Result<(), String> {
+        self.emit_f64_const(7, 4_294_967_296.0);
+        self.code.fmul_d(6, dn, 7);
+        self.code.fcvtzs_x_from_d(9, 6);
+        self.code.str_imm(9, 31, slot_offset(dst))
+    }
+
+    fn emit_f64_const(&mut self, dd: u8, value: f64) {
+        self.code.mov_imm(10, value.to_bits());
+        self.code.fmov_d_from_x(dd, 10);
+    }
+
+    fn emit_domain_positive_d(&mut self, dn: u8, epilogue: Label) {
+        let ok = self.code.new_label();
+        self.code.fcmp_zero_d(dn);
+        self.code.b_gt(ok);
+        self.fail_current_function(ERR_INVALID_ARGUMENT, epilogue);
+        self.code.bind(ok);
+    }
+
+    fn emit_domain_nonnegative_d(&mut self, dn: u8, epilogue: Label) {
+        let ok = self.code.new_label();
+        self.code.fcmp_zero_d(dn);
+        self.code.b_ge(ok);
+        self.fail_current_function(ERR_INVALID_ARGUMENT, epilogue);
+        self.code.bind(ok);
+    }
+
+    fn emit_domain_abs_le_one_d(&mut self, dn: u8, epilogue: Label) {
+        let ok = self.code.new_label();
+        self.code.fabs_d(6, dn);
+        self.emit_f64_const(7, 1.0);
+        self.code.fcmp_d(6, 7);
+        self.code.b_le(ok);
+        self.fail_current_function(ERR_INVALID_ARGUMENT, epilogue);
+        self.code.bind(ok);
+    }
+
+    fn emit_exp_d(&mut self, dn: u8, epilogue: Label) {
+        let not_overflow = self.code.new_label();
+        let not_underflow = self.code.new_label();
+        let compute = self.code.new_label();
+        let scale_positive = self.code.new_label();
+        let scale_negative = self.code.new_label();
+        let scale_done = self.code.new_label();
+        let pos_loop = self.code.new_label();
+        let neg_loop = self.code.new_label();
+
+        self.emit_f64_const(7, 21.487562596892644);
+        self.code.fcmp_d(dn, 7);
+        self.code.b_le(not_overflow);
+        self.fail_current_function(ERR_OVERFLOW, epilogue);
+        self.code.bind(not_overflow);
+        self.emit_f64_const(7, -64.0);
+        self.code.fcmp_d(dn, 7);
+        self.code.b_ge(not_underflow);
+        self.emit_f64_const(dn, 0.0);
+        self.code.b(scale_done);
+        self.code.bind(not_underflow);
+
+        self.emit_f64_const(7, std::f64::consts::LOG2_E);
+        self.code.fmul_d(1, dn, 7);
+        self.code.fcmp_zero_d(1);
+        let k_negative = self.code.new_label();
+        let k_ready = self.code.new_label();
+        self.code.b_lt(k_negative);
+        self.emit_f64_const(7, 0.5);
+        self.code.fadd_d(1, 1, 7);
+        self.code.b(k_ready);
+        self.code.bind(k_negative);
+        self.emit_f64_const(7, 0.5);
+        self.code.fsub_d(1, 1, 7);
+        self.code.bind(k_ready);
+        self.code.fcvtzs_x_from_d(11, 1);
+        self.code.scvtf_d_from_x(1, 11);
+        self.emit_f64_const(7, std::f64::consts::LN_2);
+        self.code.fmul_d(1, 1, 7);
+        self.code.fsub_d(2, dn, 1);
+
+        self.emit_f64_const(0, 1.0);
+        self.emit_f64_const(1, 1.0);
+        for i in 1..=18 {
+            self.code.fmul_d(1, 1, 2);
+            self.emit_f64_const(7, i as f64);
+            self.code.fdiv_d(1, 1, 7);
+            self.code.fadd_d(0, 0, 1);
+        }
+
+        self.code.cmp_zero(11);
+        self.code.b_gt(scale_positive);
+        self.code.b_lt(scale_negative);
+        self.code.b(scale_done);
+
+        self.code.bind(scale_positive);
+        self.emit_f64_const(7, 2.0);
+        self.code.bind(pos_loop);
+        self.code.cbz(11, scale_done);
+        self.code.fmul_d(0, 0, 7);
+        self.code.sub_imm(11, 11, 1).expect("literal 1 fits imm12");
+        self.code.b(pos_loop);
+
+        self.code.bind(scale_negative);
+        self.code.neg(11, 11);
+        self.emit_f64_const(7, 2.0);
+        self.code.bind(neg_loop);
+        self.code.cbz(11, scale_done);
+        self.code.fdiv_d(0, 0, 7);
+        self.code.sub_imm(11, 11, 1).expect("literal 1 fits imm12");
+        self.code.b(neg_loop);
+
+        self.code.bind(compute);
+        self.code.bind(scale_done);
+    }
+
+    fn emit_exp_float_d(&mut self, dn: u8, epilogue: Label) {
+        let not_overflow = self.code.new_label();
+        let not_underflow = self.code.new_label();
+        let scale_positive = self.code.new_label();
+        let scale_negative = self.code.new_label();
+        let scale_done = self.code.new_label();
+        let pos_loop = self.code.new_label();
+        let neg_loop = self.code.new_label();
+
+        self.emit_f64_const(7, 709.0);
+        self.code.fcmp_d(dn, 7);
+        self.code.b_le(not_overflow);
+        self.fail_current_function(ERR_OVERFLOW, epilogue);
+        self.code.bind(not_overflow);
+        self.emit_f64_const(7, -745.0);
+        self.code.fcmp_d(dn, 7);
+        self.code.b_ge(not_underflow);
+        self.emit_f64_const(dn, 0.0);
+        self.code.b(scale_done);
+        self.code.bind(not_underflow);
+
+        self.emit_f64_const(7, std::f64::consts::LOG2_E);
+        self.code.fmul_d(1, dn, 7);
+        self.code.fcmp_zero_d(1);
+        let k_negative = self.code.new_label();
+        let k_ready = self.code.new_label();
+        self.code.b_lt(k_negative);
+        self.emit_f64_const(7, 0.5);
+        self.code.fadd_d(1, 1, 7);
+        self.code.b(k_ready);
+        self.code.bind(k_negative);
+        self.emit_f64_const(7, 0.5);
+        self.code.fsub_d(1, 1, 7);
+        self.code.bind(k_ready);
+        self.code.fcvtzs_x_from_d(11, 1);
+        self.code.scvtf_d_from_x(1, 11);
+        self.emit_f64_const(7, std::f64::consts::LN_2);
+        self.code.fmul_d(1, 1, 7);
+        self.code.fsub_d(2, dn, 1);
+
+        self.emit_f64_const(0, 1.0);
+        self.emit_f64_const(1, 1.0);
+        for i in 1..=18 {
+            self.code.fmul_d(1, 1, 2);
+            self.emit_f64_const(7, i as f64);
+            self.code.fdiv_d(1, 1, 7);
+            self.code.fadd_d(0, 0, 1);
+        }
+
+        self.code.cmp_zero(11);
+        self.code.b_gt(scale_positive);
+        self.code.b_lt(scale_negative);
+        self.code.b(scale_done);
+
+        self.code.bind(scale_positive);
+        self.emit_f64_const(7, 2.0);
+        self.code.bind(pos_loop);
+        self.code.cbz(11, scale_done);
+        self.code.fmul_d(0, 0, 7);
+        self.code.sub_imm(11, 11, 1).expect("literal 1 fits imm12");
+        self.code.b(pos_loop);
+
+        self.code.bind(scale_negative);
+        self.code.neg(11, 11);
+        self.emit_f64_const(7, 2.0);
+        self.code.bind(neg_loop);
+        self.code.cbz(11, scale_done);
+        self.code.fdiv_d(0, 0, 7);
+        self.code.sub_imm(11, 11, 1).expect("literal 1 fits imm12");
+        self.code.b(neg_loop);
+
+        self.code.bind(scale_done);
+    }
+
+    fn emit_log_d(&mut self, dn: u8, epilogue: Label) {
+        self.emit_domain_positive_d(dn, epilogue);
+        self.code.mov_imm(11, 0);
+        self.emit_f64_const(7, std::f64::consts::SQRT_2);
+        let high_loop = self.code.new_label();
+        let low_check = self.code.new_label();
+        let low_loop = self.code.new_label();
+        let reduced = self.code.new_label();
+
+        self.code.bind(high_loop);
+        self.code.fcmp_d(dn, 7);
+        self.code.b_le(low_check);
+        self.emit_f64_const(6, 2.0);
+        self.code.fdiv_d(dn, dn, 6);
+        self.code.add_imm(11, 11, 1).expect("literal 1 fits imm12");
+        self.code.b(high_loop);
+
+        self.code.bind(low_check);
+        self.emit_f64_const(7, std::f64::consts::FRAC_1_SQRT_2);
+        self.code.bind(low_loop);
+        self.code.fcmp_d(dn, 7);
+        self.code.b_ge(reduced);
+        self.emit_f64_const(6, 2.0);
+        self.code.fmul_d(dn, dn, 6);
+        self.code.sub_imm(11, 11, 1).expect("literal 1 fits imm12");
+        self.code.b(low_loop);
+
+        self.code.bind(reduced);
+        self.emit_f64_const(6, 1.0);
+        self.code.fsub_d(1, dn, 6);
+        self.code.fadd_d(2, dn, 6);
+        self.code.fdiv_d(1, 1, 2);
+        self.code.fmul_d(2, 1, 1);
+        self.code.fmov_d(3, 1);
+        self.code.fmov_d(0, 1);
+        for divisor in (3..=31).step_by(2) {
+            self.code.fmul_d(3, 3, 2);
+            self.emit_f64_const(7, divisor as f64);
+            self.code.fdiv_d(4, 3, 7);
+            self.code.fadd_d(0, 0, 4);
+        }
+        self.emit_f64_const(7, 2.0);
+        self.code.fmul_d(0, 0, 7);
+        self.code.scvtf_d_from_x(1, 11);
+        self.emit_f64_const(7, std::f64::consts::LN_2);
+        self.code.fmul_d(1, 1, 7);
+        self.code.fadd_d(0, 0, 1);
+    }
+
+    fn emit_reduce_angle_d(&mut self, dn: u8) {
+        self.emit_f64_const(7, 1.0 / std::f64::consts::TAU);
+        self.code.fmul_d(1, dn, 7);
+        self.code.fcmp_zero_d(1);
+        let k_negative = self.code.new_label();
+        let k_ready = self.code.new_label();
+        self.code.b_lt(k_negative);
+        self.emit_f64_const(7, 0.5);
+        self.code.fadd_d(1, 1, 7);
+        self.code.b(k_ready);
+        self.code.bind(k_negative);
+        self.emit_f64_const(7, 0.5);
+        self.code.fsub_d(1, 1, 7);
+        self.code.bind(k_ready);
+        self.code.fcvtzs_x_from_d(11, 1);
+        self.code.scvtf_d_from_x(1, 11);
+        self.emit_f64_const(7, std::f64::consts::TAU);
+        self.code.fmul_d(1, 1, 7);
+        self.code.fsub_d(dn, dn, 1);
+    }
+
+    fn emit_sin_d(&mut self, dn: u8) {
+        self.emit_reduce_angle_d(dn);
+        self.code.fmul_d(1, dn, dn);
+        self.code.fmov_d(2, dn);
+        self.code.fmov_d(0, dn);
+        let mut subtract = true;
+        for divisor in [6.0, 20.0, 42.0, 72.0, 110.0, 156.0] {
+            self.code.fmul_d(2, 2, 1);
+            self.emit_f64_const(7, divisor);
+            self.code.fdiv_d(2, 2, 7);
+            if subtract {
+                self.code.fsub_d(0, 0, 2);
+            } else {
+                self.code.fadd_d(0, 0, 2);
+            }
+            subtract = !subtract;
+        }
+    }
+
+    fn emit_cos_d(&mut self, dn: u8) {
+        self.emit_reduce_angle_d(dn);
+        self.code.fmul_d(1, dn, dn);
+        self.emit_f64_const(2, 1.0);
+        self.emit_f64_const(0, 1.0);
+        let mut subtract = true;
+        for divisor in [2.0, 12.0, 30.0, 56.0, 90.0, 132.0] {
+            self.code.fmul_d(2, 2, 1);
+            self.emit_f64_const(7, divisor);
+            self.code.fdiv_d(2, 2, 7);
+            if subtract {
+                self.code.fsub_d(0, 0, 2);
+            } else {
+                self.code.fadd_d(0, 0, 2);
+            }
+            subtract = !subtract;
+        }
+    }
+
+    fn emit_tan_d(&mut self, dn: u8, epilogue: Label) {
+        self.code.fmov_d(5, dn);
+        self.emit_sin_d(dn);
+        self.code.fmov_d(4, 0);
+        self.code.fmov_d(dn, 5);
+        self.emit_cos_d(dn);
+        self.code.fabs_d(6, 0);
+        self.emit_f64_const(7, 1.0e-12);
+        self.code.fcmp_d(6, 7);
+        let ok = self.code.new_label();
+        self.code.b_gt(ok);
+        self.fail_current_function(ERR_INVALID_ARGUMENT, epilogue);
+        self.code.bind(ok);
+        self.code.fdiv_d(0, 4, 0);
+    }
+
+    fn emit_atan_poly_d(&mut self, dn: u8) {
+        self.code.fmul_d(1, dn, dn);
+        self.code.fmov_d(2, dn);
+        self.code.fmov_d(0, dn);
+        let mut subtract = true;
+        for divisor in (3..=31).step_by(2) {
+            self.code.fmul_d(2, 2, 1);
+            self.emit_f64_const(7, divisor as f64);
+            self.code.fdiv_d(3, 2, 7);
+            if subtract {
+                self.code.fsub_d(0, 0, 3);
+            } else {
+                self.code.fadd_d(0, 0, 3);
+            }
+            subtract = !subtract;
+        }
+    }
+
+    fn emit_atan_d(&mut self, dn: u8) {
+        let negative = self.code.new_label();
+        let abs_ready = self.code.new_label();
+        let small = self.code.new_label();
+        let medium = self.code.new_label();
+        let restore = self.code.new_label();
+        self.code.mov_imm(12, 0);
+        self.code.fcmp_zero_d(dn);
+        self.code.b_lt(negative);
+        self.code.b(abs_ready);
+        self.code.bind(negative);
+        self.code.mov_imm(12, 1);
+        self.code.fneg_d(dn, dn);
+        self.code.bind(abs_ready);
+
+        self.emit_f64_const(7, std::f64::consts::SQRT_2 - 1.0);
+        self.code.fcmp_d(dn, 7);
+        self.code.b_le(small);
+        self.emit_f64_const(7, 1.0);
+        self.code.fcmp_d(dn, 7);
+        self.code.b_le(medium);
+
+        self.emit_f64_const(6, 1.0);
+        self.code.fdiv_d(dn, 6, dn);
+        self.emit_atan_poly_d(dn);
+        self.emit_f64_const(7, std::f64::consts::FRAC_PI_2);
+        self.code.fsub_d(0, 7, 0);
+        self.code.b(restore);
+
+        self.code.bind(medium);
+        self.emit_f64_const(6, 1.0);
+        self.code.fsub_d(1, dn, 6);
+        self.code.fadd_d(2, dn, 6);
+        self.code.fdiv_d(dn, 1, 2);
+        self.emit_atan_poly_d(dn);
+        self.emit_f64_const(7, std::f64::consts::FRAC_PI_4);
+        self.code.fadd_d(0, 0, 7);
+        self.code.b(restore);
+
+        self.code.bind(small);
+        self.emit_atan_poly_d(dn);
+
+        self.code.bind(restore);
+        let done = self.code.new_label();
+        self.code.cbz(12, done);
+        self.code.fneg_d(0, 0);
+        self.code.bind(done);
+    }
+
+    fn emit_atan2_d(&mut self, y: u8, x: u8, epilogue: Label) {
+        let x_negative = self.code.new_label();
+        let x_zero = self.code.new_label();
+        let y_negative_for_x_neg = self.code.new_label();
+        let y_positive_axis = self.code.new_label();
+        let y_negative_axis = self.code.new_label();
+        let done = self.code.new_label();
+
+        self.code.fcmp_zero_d(x);
+        self.code.b_lt(x_negative);
+        self.code.b_eq(x_zero);
+        self.code.fdiv_d(0, y, x);
+        self.emit_atan_d(0);
+        self.code.b(done);
+
+        self.code.bind(x_negative);
+        self.code.fdiv_d(0, y, x);
+        self.emit_atan_d(0);
+        self.code.fcmp_zero_d(y);
+        self.code.b_lt(y_negative_for_x_neg);
+        self.emit_f64_const(7, std::f64::consts::PI);
+        self.code.fadd_d(0, 0, 7);
+        self.code.b(done);
+        self.code.bind(y_negative_for_x_neg);
+        self.emit_f64_const(7, std::f64::consts::PI);
+        self.code.fsub_d(0, 0, 7);
+        self.code.b(done);
+
+        self.code.bind(x_zero);
+        self.code.fcmp_zero_d(y);
+        self.code.b_gt(y_positive_axis);
+        self.code.b_lt(y_negative_axis);
+        self.fail_current_function(ERR_INVALID_ARGUMENT, epilogue);
+        self.code.bind(y_positive_axis);
+        self.emit_f64_const(0, std::f64::consts::FRAC_PI_2);
+        self.code.b(done);
+        self.code.bind(y_negative_axis);
+        self.emit_f64_const(0, -std::f64::consts::FRAC_PI_2);
+        self.code.bind(done);
+    }
+
+    fn emit_asin_d(&mut self, dn: u8, epilogue: Label) {
+        self.emit_domain_abs_le_one_d(dn, epilogue);
+        self.code.fmov_d(5, dn);
+        self.emit_f64_const(1, 1.0);
+        self.code.fmul_d(2, dn, dn);
+        self.code.fsub_d(1, 1, 2);
+        self.code.fsqrt_d(1, 1);
+        self.code.fmov_d(0, 5);
+        self.emit_atan2_d(0, 1, epilogue);
+    }
+
+    fn emit_acos_d(&mut self, dn: u8, epilogue: Label) {
+        self.emit_asin_d(dn, epilogue);
+        self.emit_f64_const(7, std::f64::consts::FRAC_PI_2);
+        self.code.fsub_d(0, 7, 0);
+    }
+
+    fn emit_pow_d(&mut self, base: u8, exponent: u8, epilogue: Label) {
+        self.emit_domain_positive_d(base, epilogue);
+        self.code.fmov_d(5, exponent);
+        self.emit_log_d(base, epilogue);
+        self.code.fmul_d(0, 0, 5);
+        self.emit_exp_d(0, epilogue);
+    }
+
+    fn emit_pow_float_d(&mut self, base: u8, exponent: u8, epilogue: Label) {
+        self.emit_domain_positive_d(base, epilogue);
+        self.code.fmov_d(5, exponent);
+        self.emit_log_d(base, epilogue);
+        self.code.fmul_d(0, 0, 5);
+        self.emit_exp_float_d(0, epilogue);
     }
 
     fn emit_general_numeric_predicate(
@@ -3327,6 +4236,128 @@ impl<'a> NativeEmitter<'a> {
         self.store_string_slot(dst, 1, scratch + 8)
     }
 
+    fn emit_fixed_to_string(&mut self, dst: u32, src: u32, epilogue: Label) -> Result<(), String> {
+        let min_fixed = self.code.new_label();
+        let nonnegative = self.code.new_label();
+        let abs_done = self.code.new_label();
+        let fraction_loop = self.code.new_label();
+        let integer_zero = self.code.new_label();
+        let integer_loop = self.code.new_label();
+        let integer_done = self.code.new_label();
+        let sign_done = self.code.new_label();
+        let copy_loop = self.code.new_label();
+        let copy_done = self.code.new_label();
+        let scratch = self.current_scratch;
+        let buffer = scratch + 80;
+
+        self.code.ldr_imm(9, 31, slot_offset(src))?;
+        self.code.mov_imm(10, i64::MIN as u64);
+        self.code.cmp_reg(9, 10);
+        self.code.b_eq(min_fixed);
+
+        self.code.mov_imm(20, 0);
+        self.code.cmp_zero(9);
+        self.code.b_ge(nonnegative);
+        self.code.neg(9, 9);
+        self.code.mov_imm(20, 1);
+        self.code.bind(nonnegative);
+        self.code.bind(abs_done);
+
+        self.code.lsr_imm(12, 9, 32);
+        self.code.lsl_imm(13, 9, 32);
+        self.code.lsr_imm(13, 13, 32);
+        self.code.mov_imm(14, 1_000_000);
+        self.code.mul(13, 13, 14);
+        self.code.mov_imm(14, 0x8000_0000);
+        self.code.add_reg(13, 13, 14);
+        self.code.mov_imm(14, 0x1_0000_0000);
+        self.code.sdiv(13, 13, 14);
+        self.code.mov_imm(14, 1_000_000);
+        self.code.cmp_reg(13, 14);
+        let fraction_ok = self.code.new_label();
+        self.code.b_ne(fraction_ok);
+        self.code.mov_imm(13, 0);
+        self.code.add_imm(12, 12, 1)?;
+        self.code.bind(fraction_ok);
+
+        self.code.add_imm(11, 31, buffer + 63)?;
+        self.code.mov_imm(10, 0);
+        self.code.mov_imm(15, 6);
+        self.code.mov_imm(14, 10);
+        self.code.bind(fraction_loop);
+        self.code.sdiv(16, 13, 14);
+        self.code.msub(17, 16, 14, 13);
+        self.code.add_imm(17, 17, b'0' as usize)?;
+        self.code.strb_imm(17, 11, 0);
+        self.code.sub_imm(11, 11, 1)?;
+        self.code.add_imm(10, 10, 1)?;
+        self.code.mov_reg(13, 16);
+        self.code.sub_imm(15, 15, 1)?;
+        self.code.cbnz(15, fraction_loop);
+
+        self.code.mov_imm(17, b'.' as u64);
+        self.code.strb_imm(17, 11, 0);
+        self.code.sub_imm(11, 11, 1)?;
+        self.code.add_imm(10, 10, 1)?;
+
+        self.code.cbz(12, integer_zero);
+        self.code.mov_imm(14, 10);
+        self.code.bind(integer_loop);
+        self.code.cbz(12, integer_done);
+        self.code.sdiv(13, 12, 14);
+        self.code.msub(16, 13, 14, 12);
+        self.code.add_imm(16, 16, b'0' as usize)?;
+        self.code.strb_imm(16, 11, 0);
+        self.code.sub_imm(11, 11, 1)?;
+        self.code.add_imm(10, 10, 1)?;
+        self.code.mov_reg(12, 13);
+        self.code.b(integer_loop);
+
+        self.code.bind(integer_zero);
+        self.code.mov_imm(16, b'0' as u64);
+        self.code.strb_imm(16, 11, 0);
+        self.code.sub_imm(11, 11, 1)?;
+        self.code.add_imm(10, 10, 1)?;
+
+        self.code.bind(integer_done);
+        self.code.cbz(20, sign_done);
+        self.code.mov_imm(16, b'-' as u64);
+        self.code.strb_imm(16, 11, 0);
+        self.code.sub_imm(11, 11, 1)?;
+        self.code.add_imm(10, 10, 1)?;
+        self.code.bind(sign_done);
+        self.code.add_imm(11, 11, 1)?;
+        self.code.str_imm(10, 31, scratch + 8)?;
+        self.code.str_imm(11, 31, scratch)?;
+
+        self.emit_allocate_string_from_len_reg(10, epilogue)?;
+        self.code.ldr_imm(10, 31, scratch + 8)?;
+        self.code.ldr_imm(11, 31, scratch)?;
+        self.code.add_imm(12, 1, HEAP_HEADER_SIZE)?;
+        self.code.bind(copy_loop);
+        self.code.cbz(10, copy_done);
+        self.code.ldrb_imm(13, 11, 0);
+        self.code.strb_imm(13, 12, 0);
+        self.code.add_imm(11, 11, 1)?;
+        self.code.add_imm(12, 12, 1)?;
+        self.code.sub_imm(10, 10, 1)?;
+        self.code.b(copy_loop);
+        self.code.bind(copy_done);
+        self.store_string_slot(dst, 1, scratch + 8)?;
+
+        let done = self.code.new_label();
+        self.code.b(done);
+        self.code.bind(min_fixed);
+        self.emit_ascii_string(dst, b"-2147483648.000000", epilogue)?;
+        self.code.bind(done);
+        Ok(())
+    }
+
+    fn emit_float_to_string(&mut self, dst: u32, src: u32, epilogue: Label) -> Result<(), String> {
+        self.emit_float_to_fixed(dst, src)?;
+        self.emit_fixed_to_string(dst, dst, epilogue)
+    }
+
     fn emit_byte_list_to_string(
         &mut self,
         dst: u32,
@@ -3416,6 +4447,163 @@ impl<'a> NativeEmitter<'a> {
         Ok(())
     }
 
+    fn emit_integer_to_fixed(&mut self, dst: u32, src: u32, epilogue: Label) -> Result<(), String> {
+        let valid_low = self.code.new_label();
+        let valid_high = self.code.new_label();
+        self.code.ldr_imm(9, 31, slot_offset(src))?;
+        self.code.mov_imm(10, i32::MIN as i64 as u64);
+        self.code.cmp_reg(9, 10);
+        self.code.b_ge(valid_low);
+        self.emit_error(ERR_OVERFLOW, epilogue);
+        self.code.bind(valid_low);
+        self.code.mov_imm(10, i32::MAX as u64);
+        self.code.cmp_reg(9, 10);
+        self.code.b_le(valid_high);
+        self.emit_error(ERR_OVERFLOW, epilogue);
+        self.code.bind(valid_high);
+        self.code.lsl_imm(9, 9, 32);
+        self.code.str_imm(9, 31, slot_offset(dst))
+    }
+
+    fn emit_integer_slot_to_float(&mut self, dst: u32, src: u32) -> Result<(), String> {
+        self.code.ldr_imm(9, 31, slot_offset(src))?;
+        self.code.scvtf_d_from_x(0, 9);
+        self.code.fmov_x_from_d(9, 0);
+        self.code.str_imm(9, 31, slot_offset(dst))
+    }
+
+    fn emit_fixed_to_float(&mut self, dst: u32, src: u32) -> Result<(), String> {
+        self.code.ldr_imm(9, 31, slot_offset(src))?;
+        self.code.scvtf_d_from_x(0, 9);
+        self.code.mov_imm(10, 4_294_967_296.0_f64.to_bits());
+        self.code.fmov_d_from_x(1, 10);
+        self.code.fdiv_d(0, 0, 1);
+        self.code.fmov_x_from_d(9, 0);
+        self.code.str_imm(9, 31, slot_offset(dst))
+    }
+
+    fn emit_float_to_integer(&mut self, dst: u32, src: u32) -> Result<(), String> {
+        self.code.ldr_imm(9, 31, slot_offset(src))?;
+        self.code.fmov_d_from_x(0, 9);
+        self.code.fcvtzs_x_from_d(9, 0);
+        self.code.str_imm(9, 31, slot_offset(dst))
+    }
+
+    fn emit_float_to_fixed(&mut self, dst: u32, src: u32) -> Result<(), String> {
+        self.code.ldr_imm(9, 31, slot_offset(src))?;
+        self.code.fmov_d_from_x(0, 9);
+        self.code.mov_imm(10, 4_294_967_296.0_f64.to_bits());
+        self.code.fmov_d_from_x(1, 10);
+        self.code.fmul_d(0, 0, 1);
+        self.code.fcvtzs_x_from_d(9, 0);
+        self.code.str_imm(9, 31, slot_offset(dst))
+    }
+
+    fn load_float_as_double(&mut self, dd: u8, src: u32) -> Result<(), String> {
+        self.code.ldr_imm(9, 31, slot_offset(src))?;
+        self.code.fmov_d_from_x(dd, 9);
+        Ok(())
+    }
+
+    fn emit_parse_fixed_to_slot(
+        &mut self,
+        dst: u32,
+        src: u32,
+        epilogue: Label,
+    ) -> Result<(), String> {
+        let loop_start = self.code.new_label();
+        let digit = self.code.new_label();
+        let decimal_point = self.code.new_label();
+        let after_sign = self.code.new_label();
+        let parse_error = self.code.new_label();
+        let done = self.code.new_label();
+        let positive = self.code.new_label();
+        let end = self.code.new_label();
+        let decimal_digit = self.code.new_label();
+
+        self.code.ldr_imm(9, 31, slot_offset(src))?;
+        self.code.ldr_imm(10, 31, slot_offset(src) + 8)?;
+        self.code.add_imm(9, 9, HEAP_HEADER_SIZE)?;
+        self.code.cbz(10, parse_error);
+        self.code.mov_imm(11, 0);
+        self.code.mov_imm(12, 0);
+        self.code.mov_imm(13, 0);
+        self.code.mov_imm(14, 1);
+        self.code.mov_imm(15, 0);
+        self.code.mov_imm(20, 0);
+        self.code.ldrb_imm(16, 9, 0);
+        self.code.cmp_reg_imm(16, b'-' as u64);
+        self.code.b_ne(after_sign);
+        self.code.mov_imm(12, 1);
+        self.code.add_imm(9, 9, 1)?;
+        self.code.sub_imm(10, 10, 1)?;
+        self.code.cbz(10, parse_error);
+        self.code.bind(after_sign);
+
+        self.code.bind(loop_start);
+        self.code.cbz(10, done);
+        self.code.ldrb_imm(16, 9, 0);
+        self.code.cmp_reg_imm(16, b'.' as u64);
+        self.code.b_eq(decimal_point);
+        self.code.cmp_reg_imm(16, b'0' as u64);
+        self.code.b_hs(digit);
+        self.code.b(parse_error);
+
+        self.code.bind(decimal_point);
+        self.code.cbnz(15, parse_error);
+        self.code.mov_imm(15, 1);
+        self.code.add_imm(9, 9, 1)?;
+        self.code.sub_imm(10, 10, 1)?;
+        self.code.b(loop_start);
+
+        self.code.bind(digit);
+        self.code.cmp_reg_imm(16, b'9' as u64);
+        self.code.b_hi(parse_error);
+        self.code.sub_imm(16, 16, b'0' as usize)?;
+        self.code.mov_imm(20, 1);
+        self.code.cbnz(15, decimal_digit);
+        let after_digit = self.code.new_label();
+        self.code.mov_imm(17, 10);
+        self.code.mul(11, 11, 17);
+        self.code.add_reg(11, 11, 16);
+        self.code.b(after_digit);
+        self.code.bind(decimal_digit);
+        self.code.mov_imm(17, 1_000_000);
+        self.code.cmp_reg(14, 17);
+        let skip_fraction = self.code.new_label();
+        self.code.b_ge(skip_fraction);
+        self.code.mov_imm(17, 10);
+        self.code.mul(13, 13, 17);
+        self.code.add_reg(13, 13, 16);
+        self.code.mul(14, 14, 17);
+        self.code.bind(skip_fraction);
+        self.code.bind(after_digit);
+        self.code.add_imm(9, 9, 1)?;
+        self.code.sub_imm(10, 10, 1)?;
+        self.code.b(loop_start);
+
+        self.code.bind(done);
+        self.code.cbz(20, parse_error);
+        self.code.lsl_imm(11, 11, 32);
+        self.code.cbz(13, positive);
+        self.code.mov_imm(16, 0x1_0000_0000);
+        self.code.mul(13, 13, 16);
+        self.code.sdiv(13, 13, 14);
+        self.code.add_reg(11, 11, 13);
+        self.code.bind(positive);
+        self.code.cbz(12, end);
+        self.code.neg(11, 11);
+        self.code.bind(end);
+        self.code.str_imm(11, 31, slot_offset(dst))?;
+        let after_success = self.code.new_label();
+        self.code.b(after_success);
+
+        self.code.bind(parse_error);
+        self.emit_error(ERR_PARSE, epilogue);
+        self.code.bind(after_success);
+        Ok(())
+    }
+
     fn write_heap_header(
         &mut self,
         object_reg: u8,
@@ -3441,8 +4629,9 @@ impl<'a> NativeEmitter<'a> {
         self.code.b(epilogue);
     }
 
-    fn emit_integer_arithmetic(
+    fn emit_numeric_arithmetic(
         &mut self,
+        function: &bytecode::NativeFunction,
         opcode: u16,
         instruction: &bytecode::NativeInstruction,
         epilogue: Label,
@@ -3450,6 +4639,40 @@ impl<'a> NativeEmitter<'a> {
         let dst = operand(instruction, 0)?;
         let left = operand(instruction, 1)?;
         let right = operand(instruction, 2)?;
+        let dst_type = function
+            .registers
+            .get(dst as usize)
+            .map(|register| register.type_)
+            .ok_or_else(|| format!("arithmetic references missing register {dst}"))?;
+        let left_type = function
+            .registers
+            .get(left as usize)
+            .map(|register| register.type_)
+            .ok_or_else(|| format!("arithmetic references missing register {left}"))?;
+        let right_type = function
+            .registers
+            .get(right as usize)
+            .map(|register| register.type_)
+            .ok_or_else(|| format!("arithmetic references missing register {right}"))?;
+        if dst_type == NativeType::Fixed
+            && !matches!(
+                opcode,
+                NATIVE_OPCODE_ADD | NATIVE_OPCODE_SUB | NATIVE_OPCODE_MUL | NATIVE_OPCODE_DIV
+            )
+        {
+            return Err(format!(
+                "native fixed-point lowering does not support opcode {opcode} yet"
+            ));
+        }
+        if dst_type == NativeType::Fixed {
+            self.code.ldr_imm(9, 31, slot_offset(left))?;
+            self.code.ldr_imm(10, 31, slot_offset(right))?;
+            return self.emit_fixed_arithmetic(opcode, dst, epilogue);
+        }
+        if dst_type == NativeType::Float {
+            return self
+                .emit_float_arithmetic(opcode, dst, left, left_type, right, right_type, epilogue);
+        }
         self.code.ldr_imm(9, 31, slot_offset(left))?;
         self.code.ldr_imm(10, 31, slot_offset(right))?;
         match opcode {
@@ -3472,6 +4695,143 @@ impl<'a> NativeEmitter<'a> {
         }
         self.code.str_imm(11, 31, slot_offset(dst))?;
         Ok(())
+    }
+
+    fn emit_float_arithmetic(
+        &mut self,
+        opcode: u16,
+        dst: u32,
+        left: u32,
+        left_type: NativeType,
+        right: u32,
+        right_type: NativeType,
+        epilogue: Label,
+    ) -> Result<(), String> {
+        self.load_numeric_as_double(0, left, left_type)?;
+        self.load_numeric_as_double(1, right, right_type)?;
+        match opcode {
+            NATIVE_OPCODE_ADD => self.code.fadd_d(0, 0, 1),
+            NATIVE_OPCODE_SUB => self.code.fsub_d(0, 0, 1),
+            NATIVE_OPCODE_MUL => self.code.fmul_d(0, 0, 1),
+            NATIVE_OPCODE_DIV => {
+                let nonzero = self.code.new_label();
+                self.code.fcmp_zero_d(1);
+                self.code.b_ne(nonzero);
+                self.fail_current_function(ERR_INVALID_ARGUMENT, epilogue);
+                self.code.bind(nonzero);
+                self.code.fdiv_d(0, 0, 1);
+            }
+            NATIVE_OPCODE_POW => self.emit_pow_float_d(0, 1, epilogue),
+            _ => {
+                return Err(format!(
+                    "native float arithmetic does not support opcode {opcode}"
+                ));
+            }
+        }
+        self.store_double(dst, 0)
+    }
+
+    fn emit_fixed_arithmetic(
+        &mut self,
+        opcode: u16,
+        dst: u32,
+        epilogue: Label,
+    ) -> Result<(), String> {
+        match opcode {
+            NATIVE_OPCODE_ADD => {
+                let ok = self.code.new_label();
+                self.code.adds_reg(11, 9, 10);
+                self.code.b_vc(ok);
+                self.fail_current_function(ERR_OVERFLOW, epilogue);
+                self.code.bind(ok);
+            }
+            NATIVE_OPCODE_SUB => {
+                let ok = self.code.new_label();
+                self.code.subs_reg(11, 9, 10);
+                self.code.b_vc(ok);
+                self.fail_current_function(ERR_OVERFLOW, epilogue);
+                self.code.bind(ok);
+            }
+            NATIVE_OPCODE_MUL => {
+                self.code.mul(11, 9, 10);
+                self.code.smulh(12, 9, 10);
+                self.code.lsr_imm(11, 11, 32);
+                self.code.lsl_imm(12, 12, 32);
+                self.code.orr_reg(11, 12, 11);
+                self.code.asr_imm(13, 12, 31);
+                let ok_zero = self.code.new_label();
+                let ok = self.code.new_label();
+                self.code.cbz(13, ok_zero);
+                self.code.mov_imm(14, (-1_i64) as u64);
+                self.code.cmp_reg(13, 14);
+                self.code.b_eq(ok);
+                self.fail_current_function(ERR_OVERFLOW, epilogue);
+                self.code.bind(ok_zero);
+                self.code.bind(ok);
+            }
+            NATIVE_OPCODE_DIV => self.emit_fixed_div(epilogue),
+            _ => unreachable!(),
+        }
+        self.code.str_imm(11, 31, slot_offset(dst))
+    }
+
+    fn emit_fixed_div(&mut self, epilogue: Label) {
+        self.emit_nonzero_or_error(10, epilogue);
+        self.code.eor(15, 9, 10);
+        self.code.cmp_zero(9);
+        let left_positive = self.code.new_label();
+        self.code.b_ge(left_positive);
+        self.code.neg(9, 9);
+        self.code.bind(left_positive);
+        self.code.cmp_zero(10);
+        let right_positive = self.code.new_label();
+        self.code.b_ge(right_positive);
+        self.code.neg(10, 10);
+        self.code.bind(right_positive);
+
+        self.code.lsr_imm(12, 9, 32);
+        self.code.lsl_imm(13, 9, 32);
+        self.code.mov_imm(11, 0);
+        self.code.mov_imm(14, 0);
+        self.code.mov_imm(16, 64);
+        let loop_start = self.code.new_label();
+        let no_bit = self.code.new_label();
+        let skip_subtract = self.code.new_label();
+        let done = self.code.new_label();
+
+        self.code.bind(loop_start);
+        self.code.cbz(16, done);
+        self.code.lsl_imm(14, 14, 1);
+        self.code.lsr_imm(17, 12, 63);
+        self.code.cbz(17, no_bit);
+        self.code.mov_imm(17, 1);
+        self.code.orr_reg(14, 14, 17);
+        self.code.bind(no_bit);
+        self.code.lsl_imm(12, 12, 1);
+        self.code.lsr_imm(17, 13, 63);
+        self.code.orr_reg(12, 12, 17);
+        self.code.lsl_imm(13, 13, 1);
+        self.code.lsl_imm(11, 11, 1);
+        self.code.cmp_reg(14, 10);
+        self.code.b_lo(skip_subtract);
+        self.code.sub_reg(14, 14, 10);
+        self.code.mov_imm(17, 1);
+        self.code.orr_reg(11, 11, 17);
+        self.code.bind(skip_subtract);
+        self.code.sub_imm(16, 16, 1).expect("literal 1 fits imm12");
+        self.code.b(loop_start);
+
+        self.code.bind(done);
+        self.code.cmp_zero(15);
+        let quotient_positive = self.code.new_label();
+        let quotient_done = self.code.new_label();
+        self.code.b_lt(quotient_positive);
+        self.code.cmp_zero(11);
+        self.code.b_ge(quotient_done);
+        self.fail_current_function(ERR_OVERFLOW, epilogue);
+        self.code.bind(quotient_positive);
+        self.code.neg(11, 11);
+        self.code.bind(quotient_done);
     }
 
     fn emit_nonzero_or_error(&mut self, reg: u8, epilogue: Label) {
@@ -3506,17 +4866,34 @@ impl<'a> NativeEmitter<'a> {
 
     fn emit_comparison(
         &mut self,
+        function: &bytecode::NativeFunction,
         opcode: u16,
         instruction: &bytecode::NativeInstruction,
     ) -> Result<(), String> {
         let dst = operand(instruction, 0)?;
         let left = operand(instruction, 1)?;
         let right = operand(instruction, 2)?;
+        let left_type = function
+            .registers
+            .get(left as usize)
+            .map(|register| register.type_)
+            .ok_or_else(|| format!("comparison references missing register {left}"))?;
+        let right_type = function
+            .registers
+            .get(right as usize)
+            .map(|register| register.type_)
+            .ok_or_else(|| format!("comparison references missing register {right}"))?;
         let false_label = self.code.new_label();
         let done = self.code.new_label();
-        self.code.ldr_imm(9, 31, slot_offset(left))?;
-        self.code.ldr_imm(10, 31, slot_offset(right))?;
-        self.code.cmp_reg(9, 10);
+        if promoted_numeric_comparison_uses_double(left_type, right_type) {
+            self.load_numeric_as_double(0, left, left_type)?;
+            self.load_numeric_as_double(1, right, right_type)?;
+            self.code.fcmp_d(0, 1);
+        } else {
+            self.code.ldr_imm(9, 31, slot_offset(left))?;
+            self.code.ldr_imm(10, 31, slot_offset(right))?;
+            self.code.cmp_reg(9, 10);
+        }
         match opcode {
             NATIVE_OPCODE_EQUAL => self.code.b_ne(false_label),
             NATIVE_OPCODE_NOT_EQUAL => self.code.b_eq(false_label),
@@ -3536,11 +4913,17 @@ impl<'a> NativeEmitter<'a> {
 
     fn emit_unary(
         &mut self,
+        function: &bytecode::NativeFunction,
         opcode: u16,
         instruction: &bytecode::NativeInstruction,
     ) -> Result<(), String> {
         let dst = operand(instruction, 0)?;
         let operand = operand(instruction, 1)?;
+        let dst_type = function
+            .registers
+            .get(dst as usize)
+            .map(|register| register.type_)
+            .ok_or_else(|| format!("unary references missing register {dst}"))?;
         self.code.ldr_imm(9, 31, slot_offset(operand))?;
         match opcode {
             NATIVE_OPCODE_NOT => {
@@ -3552,6 +4935,11 @@ impl<'a> NativeEmitter<'a> {
                 self.code.bind(true_label);
                 self.code.mov_imm(10, 1);
                 self.code.bind(done);
+            }
+            NATIVE_OPCODE_NEG if dst_type == NativeType::Float => {
+                self.code.fmov_d_from_x(0, 9);
+                self.code.fneg_d(0, 0);
+                self.code.fmov_x_from_d(10, 0);
             }
             NATIVE_OPCODE_NEG => self.code.neg(10, 9),
             _ => unreachable!(),
@@ -4586,6 +5974,13 @@ fn native_type_name(type_: NativeType) -> &'static str {
     }
 }
 
+fn promoted_numeric_comparison_uses_double(left: NativeType, right: NativeType) -> bool {
+    matches!(left, NativeType::Float)
+        || matches!(right, NativeType::Float)
+        || (matches!(left, NativeType::Fixed) && !matches!(right, NativeType::Fixed))
+        || (!matches!(left, NativeType::Fixed) && matches!(right, NativeType::Fixed))
+}
+
 fn align(value: usize, alignment: usize) -> usize {
     (value + alignment - 1) & !(alignment - 1)
 }
@@ -4753,6 +6148,10 @@ impl Code {
         self.b_cond(label, 13);
     }
 
+    fn b_vc(&mut self, label: Label) {
+        self.b_cond(label, 7);
+    }
+
     fn b_cond(&mut self, label: Label, cond: u8) {
         let at = self.bytes.len();
         self.emit(0);
@@ -4814,14 +6213,24 @@ impl Code {
     }
 
     fn add_imm(&mut self, rd: u8, rn: u8, value: usize) -> Result<(), String> {
-        let imm = checked_imm12(value)?;
-        self.emit(0x9100_0000 | (imm << 10) | ((rn as u32) << 5) | rd as u32);
+        if let Ok(imm) = checked_imm12(value) {
+            self.emit(0x9100_0000 | (imm << 10) | ((rn as u32) << 5) | rd as u32);
+        } else {
+            let scratch = scratch_excluding(rd, rn);
+            self.mov_imm(scratch, value as u64);
+            self.add_reg(rd, rn, scratch);
+        }
         Ok(())
     }
 
     fn sub_imm(&mut self, rd: u8, rn: u8, value: usize) -> Result<(), String> {
-        let imm = checked_imm12(value)?;
-        self.emit(0xd100_0000 | (imm << 10) | ((rn as u32) << 5) | rd as u32);
+        if let Ok(imm) = checked_imm12(value) {
+            self.emit(0xd100_0000 | (imm << 10) | ((rn as u32) << 5) | rd as u32);
+        } else {
+            let scratch = scratch_excluding(rd, rn);
+            self.mov_imm(scratch, value as u64);
+            self.sub_reg(rd, rn, scratch);
+        }
         Ok(())
     }
 
@@ -4831,6 +6240,14 @@ impl Code {
 
     fn sub_reg(&mut self, rd: u8, rn: u8, rm: u8) {
         self.emit(0xcb00_0000 | ((rm as u32) << 16) | ((rn as u32) << 5) | rd as u32);
+    }
+
+    fn adds_reg(&mut self, rd: u8, rn: u8, rm: u8) {
+        self.emit(0xab00_0000 | ((rm as u32) << 16) | ((rn as u32) << 5) | rd as u32);
+    }
+
+    fn subs_reg(&mut self, rd: u8, rn: u8, rm: u8) {
+        self.emit(0xeb00_0000 | ((rm as u32) << 16) | ((rn as u32) << 5) | rd as u32);
     }
 
     fn cmp_reg(&mut self, rn: u8, rm: u8) {
@@ -4850,12 +6267,20 @@ impl Code {
         self.emit(0x8a00_0000 | ((rm as u32) << 16) | ((rn as u32) << 5) | rd as u32);
     }
 
+    fn orr_reg(&mut self, rd: u8, rn: u8, rm: u8) {
+        self.emit(0xaa00_0000 | ((rm as u32) << 16) | ((rn as u32) << 5) | rd as u32);
+    }
+
     fn mvn(&mut self, rd: u8, rm: u8) {
         self.emit(0xaa20_03e0 | ((rm as u32) << 16) | rd as u32);
     }
 
     fn mul(&mut self, rd: u8, rn: u8, rm: u8) {
         self.emit(0x9b00_7c00 | ((rm as u32) << 16) | ((rn as u32) << 5) | rd as u32);
+    }
+
+    fn smulh(&mut self, rd: u8, rn: u8, rm: u8) {
+        self.emit(0x9b40_7c00 | ((rm as u32) << 16) | ((rn as u32) << 5) | rd as u32);
     }
 
     fn msub(&mut self, rd: u8, rn: u8, rm: u8, ra: u8) {
@@ -4872,12 +6297,101 @@ impl Code {
         self.emit(0x9ac0_0c00 | ((rm as u32) << 16) | ((rn as u32) << 5) | rd as u32);
     }
 
+    fn scvtf_d_from_x(&mut self, dd: u8, rn: u8) {
+        self.emit(0x9e62_0000 | ((rn as u32) << 5) | dd as u32);
+    }
+
+    fn fcvtzs_x_from_d(&mut self, rd: u8, dn: u8) {
+        self.emit(0x9e78_0000 | ((dn as u32) << 5) | rd as u32);
+    }
+
+    fn fcvtms_x_from_d(&mut self, rd: u8, dn: u8) {
+        self.emit(0x9e70_0000 | ((dn as u32) << 5) | rd as u32);
+    }
+
+    fn fcvtps_x_from_d(&mut self, rd: u8, dn: u8) {
+        self.emit(0x9e68_0000 | ((dn as u32) << 5) | rd as u32);
+    }
+
+    fn fcvtas_x_from_d(&mut self, rd: u8, dn: u8) {
+        self.emit(0x9e64_0000 | ((dn as u32) << 5) | rd as u32);
+    }
+
+    fn fmov_x_from_d(&mut self, rd: u8, dn: u8) {
+        self.emit(0x9e66_0000 | ((dn as u32) << 5) | rd as u32);
+    }
+
+    fn fmov_d_from_x(&mut self, dd: u8, rn: u8) {
+        self.emit(0x9e67_0000 | ((rn as u32) << 5) | dd as u32);
+    }
+
+    fn fmov_d(&mut self, dd: u8, dn: u8) {
+        self.emit(0x1e60_4000 | ((dn as u32) << 5) | dd as u32);
+    }
+
+    fn fadd_d(&mut self, dd: u8, dn: u8, dm: u8) {
+        self.emit(0x1e60_2800 | ((dm as u32) << 16) | ((dn as u32) << 5) | dd as u32);
+    }
+
+    fn fsub_d(&mut self, dd: u8, dn: u8, dm: u8) {
+        self.emit(0x1e60_3800 | ((dm as u32) << 16) | ((dn as u32) << 5) | dd as u32);
+    }
+
+    fn fmul_d(&mut self, dd: u8, dn: u8, dm: u8) {
+        self.emit(0x1e60_0800 | ((dm as u32) << 16) | ((dn as u32) << 5) | dd as u32);
+    }
+
+    fn fdiv_d(&mut self, dd: u8, dn: u8, dm: u8) {
+        self.emit(0x1e60_1800 | ((dm as u32) << 16) | ((dn as u32) << 5) | dd as u32);
+    }
+
+    fn fneg_d(&mut self, dd: u8, dn: u8) {
+        self.emit(0x1e61_4000 | ((dn as u32) << 5) | dd as u32);
+    }
+
+    fn fabs_d(&mut self, dd: u8, dn: u8) {
+        self.emit(0x1e60_c000 | ((dn as u32) << 5) | dd as u32);
+    }
+
+    fn fsqrt_d(&mut self, dd: u8, dn: u8) {
+        self.emit(0x1e61_c000 | ((dn as u32) << 5) | dd as u32);
+    }
+
+    fn fcmp_zero_d(&mut self, dn: u8) {
+        self.emit(0x1e60_2000 | ((dn as u32) << 5) | 0x8);
+    }
+
+    fn fcmp_d(&mut self, dn: u8, dm: u8) {
+        self.emit(0x1e60_2000 | ((dm as u32) << 16) | ((dn as u32) << 5));
+    }
+
     fn neg(&mut self, rd: u8, rm: u8) {
         self.emit(0xcb00_03e0 | ((rm as u32) << 16) | rd as u32);
     }
 
     fn eor(&mut self, rd: u8, rn: u8, rm: u8) {
         self.emit(0xca00_0000 | ((rm as u32) << 16) | ((rn as u32) << 5) | rd as u32);
+    }
+
+    fn lsl_imm(&mut self, rd: u8, rn: u8, shift: u8) {
+        debug_assert!(shift < 64);
+        let immr = (64 - shift as u32) & 63;
+        let imms = 63 - shift as u32;
+        self.emit(0xd340_0000 | (immr << 16) | (imms << 10) | ((rn as u32) << 5) | rd as u32);
+    }
+
+    fn lsr_imm(&mut self, rd: u8, rn: u8, shift: u8) {
+        debug_assert!(shift < 64);
+        self.emit(
+            0xd340_0000 | ((shift as u32) << 16) | (63 << 10) | ((rn as u32) << 5) | rd as u32,
+        );
+    }
+
+    fn asr_imm(&mut self, rd: u8, rn: u8, shift: u8) {
+        debug_assert!(shift < 64);
+        self.emit(
+            0x9340_0000 | ((shift as u32) << 16) | (63 << 10) | ((rn as u32) << 5) | rd as u32,
+        );
     }
 
     fn ldr_imm(&mut self, rt: u8, rn: u8, offset: usize) -> Result<(), String> {
@@ -4930,6 +6444,13 @@ fn checked_imm12(value: usize) -> Result<u32, String> {
         return Err(format!("AArch64 immediate {value} exceeds 12-bit encoding"));
     }
     Ok(value as u32)
+}
+
+fn scratch_excluding(a: u8, b: u8) -> u8 {
+    [17, 16, 15]
+        .into_iter()
+        .find(|candidate| *candidate != a && *candidate != b)
+        .expect("scratch register candidate list is non-empty")
 }
 
 fn branch_imm26(source: usize, target: usize) -> u32 {

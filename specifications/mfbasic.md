@@ -106,6 +106,22 @@ LET z = toFixed("1.25")  ' Fixed, fallible parse
 
 `Byte` is an unsigned 8-bit integer with range `0` through `255`. Integer literals may initialize a `Byte` only when the literal is statically in range. Runtime conversion to `Byte` uses `toByte`; out-of-range conversion fails with `10028`. Arithmetic on `Byte` values promotes them to `Integer`; assign or convert explicitly to store a result back into `Byte`.
 
+Binary numeric operators use the following result-type promotion. `Byte` is promoted to `Integer` before applying the table.
+
+| Left operand | Right operand | `+`, `-`, `*`, `^` result | `/` result |
+|--------------|---------------|---------------------------|------------|
+| `Integer` | `Integer` | `Integer` | `Float` |
+| `Integer` | `Fixed` | `Float` | `Float` |
+| `Integer` | `Float` | `Float` | `Float` |
+| `Fixed` | `Integer` | `Float` | `Float` |
+| `Fixed` | `Fixed` | `Fixed` | `Fixed` |
+| `Fixed` | `Float` | `Float` | `Float` |
+| `Float` | `Integer` | `Float` | `Float` |
+| `Float` | `Fixed` | `Float` | `Float` |
+| `Float` | `Float` | `Float` | `Float` |
+
+`MOD` accepts only `Integer` operands after `Byte` promotion and returns `Integer`. Numeric comparisons (`=`, `<>`, `<`, `>`, `<=`, `>=`) use the same operand promotion rules for comparison but always return `Boolean`.
+
 Numeric edge cases:
 
 - `Integer` arithmetic is checked. Overflow in `+`, `-`, `*`, unary `-`, exponentiation (`^`), and the minimum-integer `MOD -1` case fails with `ErrOverflow` (`10028`). Integer operations never wrap.

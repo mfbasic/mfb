@@ -1,0 +1,28 @@
+$ mfb build -ast tests/typecheck-builtin-math-legacy
+   2 | 
+   3 | FUNC main AS Integer
+   4 |   LET pi AS Float = math::pi()
+     | ^
+tests/typecheck-builtin-math-legacy/src/main.mfb:4 error[SYMBOL_UNKNOWN_IDENTIFIER]: identifier could not be resolved
+               Built-in package `math` does not export `math.pi`.
+   3 | FUNC main AS Integer
+   4 |   LET pi AS Float = math::pi()
+   5 |   LET e AS Float = math::e()
+     | ^
+tests/typecheck-builtin-math-legacy/src/main.mfb:5 error[SYMBOL_UNKNOWN_IDENTIFIER]: identifier could not be resolved
+               Built-in package `math` does not export `math.e`.
+[exit 1]
+$ mfb build -ir tests/typecheck-builtin-math-legacy
+   2 | 
+   3 | FUNC main AS Integer
+   4 |   LET pi AS Float = math::pi()
+     | ^
+tests/typecheck-builtin-math-legacy/src/main.mfb:4 error[SYMBOL_UNKNOWN_IDENTIFIER]: identifier could not be resolved
+               Built-in package `math` does not export `math.pi`.
+   3 | FUNC main AS Integer
+   4 |   LET pi AS Float = math::pi()
+   5 |   LET e AS Float = math::e()
+     | ^
+tests/typecheck-builtin-math-legacy/src/main.mfb:5 error[SYMBOL_UNKNOWN_IDENTIFIER]: identifier could not be resolved
+               Built-in package `math` does not export `math.e`.
+[exit 1]

@@ -1,9 +1,11 @@
 FUNC main AS Integer
   LET text AS String = "hello"
   LET numericText AS String = "42"
+  LET fixedText AS String = "42.5"
   LET bytes AS List OF Byte = []
   LET numbers AS List OF Integer = [1, 2, 3, 4]
   LET floats AS List OF Float = [1.5, -2.5, 0.0]
+  LET fixedValues AS List OF Fixed = [1.25, 2.5, -0.75]
   LET strings AS List OF String = ["a", "b"]
   LET scores AS Map OF String TO Integer = Map OF String TO Integer { "a" := 1 }
   LET integerValue AS Integer = 42
@@ -11,10 +13,16 @@ FUNC main AS Integer
   LET fixedValue AS Fixed = 2.25
   LET booleanValue AS Boolean = TRUE
   LET byteValue AS Byte = 7
+  LET byteSum AS Integer = byteValue + 1
+  LET byteRatio AS Float = byteValue / 2
+  LET byteRemainder AS Integer = byteValue MOD 2
 
   LET stringLen AS Integer = len(text)
   LET listLen AS Integer = len(strings)
   LET mapLen AS Integer = len(scores)
+  LET integerTotal AS Integer = sum(numbers)
+  LET floatTotal AS Float = sum(floats)
+  LET fixedTotal AS Fixed = sum(fixedValues)
 
   LET foundDefaultStart AS Integer = find(text, "l")
   LET foundExplicitStart AS Integer = find(text, "l", 3)
@@ -39,6 +47,7 @@ FUNC main AS Integer
   LET floatFromFixed AS Float = toFloat(fixedValue)
 
   LET parsedFixed AS Fixed = toFixed(numericText)
+  LET parsedFixedDecimal AS Fixed = toFixed(fixedText)
   LET fixedFromInteger AS Fixed = toFixed(integerValue)
   LET fixedFromFloat AS Fixed = toFixed(floatValue)
 
