@@ -21,7 +21,10 @@ Guidelines:
 
 - Before changing built-ins, bytecode, native code generation, runtime helpers, package behavior, or diagnostics, inspect and report any existing stub, placeholder, default-result, `todo`, `unimplemented`, or unsupported paths related to the task.
 - Do not add new stub, placeholder, default-result, mock, or proof-of-concept behavior unless explicitly requested.
+- Do not add defensive `unsupported`, `unimplemented`, `todo`, or generic error paths for requested behavior as a substitute for real implementation. Missing support must be treated as a blocker, not hidden behind a catch-all branch.
+- Do not satisfy compiler exhaustiveness or runtime dispatch by adding an `unsupported` case for a feature the task is supposed to implement. Wire the feature through every required layer or report the implementation as incomplete.
 - Do not route unimplemented behavior to zero values, empty strings, empty collections, `Nothing`, default records, or other fallback values that make unsupported behavior appear successful.
+- Do not add diagnostics that merely report requested behavior as "unsupported" unless the user's request is explicitly to reject that behavior. If behavior is meant to work, implement and validate it instead of producing a defensive error.
 - Do not describe a change as production-ready, complete, fully supported, or done while any part of the requested behavior is stubbed, defaulted, mocked, unreachable, unsupported, or only represented in AST, IR, bytecode, metadata, or generated native output.
 - For runtime features, add or run a runtime validation that executes the generated program and proves the requested behavior through exit code, stdout/stderr, file output, or another observable result.
 - If runtime behavior cannot be implemented or validated, state that the task is blocked or incomplete and do not present compiler plumbing or golden output as functional support.
