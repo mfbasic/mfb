@@ -556,6 +556,14 @@ fn expression_type(
                 return builtins::strings::resolve_call(callee, &arg_types)
                     .map(|resolved| resolved.return_type.to_string());
             }
+            if builtins::math::is_math_call(callee) {
+                let arg_types = arguments
+                    .iter()
+                    .map(|argument| expression_type(argument, locals, context))
+                    .collect::<Option<Vec<_>>>()?;
+                return builtins::math::resolve_call(callee, &arg_types)
+                    .map(|resolved| resolved.return_type.to_string());
+            }
             if builtins::fs::is_fs_call(callee) {
                 let arg_types = arguments
                     .iter()

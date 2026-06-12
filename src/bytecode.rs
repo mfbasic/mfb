@@ -178,6 +178,32 @@ pub(crate) const OPCODE_STRING_BYTE_LEN: u16 = 153;
 pub(crate) const OPCODE_STRING_REGEX_MATCH: u16 = 154;
 pub(crate) const OPCODE_STRING_REGEX_FIND: u16 = 155;
 pub(crate) const OPCODE_STRING_REGEX_REPLACE: u16 = 156;
+pub(crate) const OPCODE_MATH_PI: u16 = 230;
+pub(crate) const OPCODE_MATH_E: u16 = 231;
+pub(crate) const OPCODE_MATH_ABS: u16 = 232;
+pub(crate) const OPCODE_MATH_SIGN: u16 = 233;
+pub(crate) const OPCODE_MATH_MIN: u16 = 234;
+pub(crate) const OPCODE_MATH_MAX: u16 = 235;
+pub(crate) const OPCODE_MATH_CLAMP: u16 = 236;
+pub(crate) const OPCODE_MATH_FLOOR: u16 = 237;
+pub(crate) const OPCODE_MATH_CEIL: u16 = 238;
+pub(crate) const OPCODE_MATH_ROUND: u16 = 239;
+pub(crate) const OPCODE_MATH_TRUNC: u16 = 240;
+pub(crate) const OPCODE_MATH_SQRT: u16 = 241;
+pub(crate) const OPCODE_MATH_POW: u16 = 242;
+pub(crate) const OPCODE_MATH_EXP: u16 = 243;
+pub(crate) const OPCODE_MATH_LOG: u16 = 244;
+pub(crate) const OPCODE_MATH_LOG10: u16 = 245;
+pub(crate) const OPCODE_MATH_SIN: u16 = 246;
+pub(crate) const OPCODE_MATH_COS: u16 = 247;
+pub(crate) const OPCODE_MATH_TAN: u16 = 248;
+pub(crate) const OPCODE_MATH_ASIN: u16 = 249;
+pub(crate) const OPCODE_MATH_ACOS: u16 = 250;
+pub(crate) const OPCODE_MATH_ATAN: u16 = 251;
+pub(crate) const OPCODE_MATH_ATAN2: u16 = 252;
+pub(crate) const OPCODE_MATH_RADIANS: u16 = 253;
+pub(crate) const OPCODE_MATH_DEGREES: u16 = 254;
+pub(crate) const OPCODE_MATH_IS_FINITE: u16 = 255;
 pub(crate) const OPCODE_USING_ENTER: u16 = 170;
 pub(crate) const OPCODE_USING_LEAVE: u16 = 171;
 pub(crate) const OPCODE_CLOSE_RESOURCE: u16 = 172;
@@ -535,6 +561,32 @@ pub const NATIVE_OPCODE_STRING_BYTE_LEN: u16 = OPCODE_STRING_BYTE_LEN;
 pub const NATIVE_OPCODE_STRING_REGEX_MATCH: u16 = OPCODE_STRING_REGEX_MATCH;
 pub const NATIVE_OPCODE_STRING_REGEX_FIND: u16 = OPCODE_STRING_REGEX_FIND;
 pub const NATIVE_OPCODE_STRING_REGEX_REPLACE: u16 = OPCODE_STRING_REGEX_REPLACE;
+pub const NATIVE_OPCODE_MATH_PI: u16 = OPCODE_MATH_PI;
+pub const NATIVE_OPCODE_MATH_E: u16 = OPCODE_MATH_E;
+pub const NATIVE_OPCODE_MATH_ABS: u16 = OPCODE_MATH_ABS;
+pub const NATIVE_OPCODE_MATH_SIGN: u16 = OPCODE_MATH_SIGN;
+pub const NATIVE_OPCODE_MATH_MIN: u16 = OPCODE_MATH_MIN;
+pub const NATIVE_OPCODE_MATH_MAX: u16 = OPCODE_MATH_MAX;
+pub const NATIVE_OPCODE_MATH_CLAMP: u16 = OPCODE_MATH_CLAMP;
+pub const NATIVE_OPCODE_MATH_FLOOR: u16 = OPCODE_MATH_FLOOR;
+pub const NATIVE_OPCODE_MATH_CEIL: u16 = OPCODE_MATH_CEIL;
+pub const NATIVE_OPCODE_MATH_ROUND: u16 = OPCODE_MATH_ROUND;
+pub const NATIVE_OPCODE_MATH_TRUNC: u16 = OPCODE_MATH_TRUNC;
+pub const NATIVE_OPCODE_MATH_SQRT: u16 = OPCODE_MATH_SQRT;
+pub const NATIVE_OPCODE_MATH_POW: u16 = OPCODE_MATH_POW;
+pub const NATIVE_OPCODE_MATH_EXP: u16 = OPCODE_MATH_EXP;
+pub const NATIVE_OPCODE_MATH_LOG: u16 = OPCODE_MATH_LOG;
+pub const NATIVE_OPCODE_MATH_LOG10: u16 = OPCODE_MATH_LOG10;
+pub const NATIVE_OPCODE_MATH_SIN: u16 = OPCODE_MATH_SIN;
+pub const NATIVE_OPCODE_MATH_COS: u16 = OPCODE_MATH_COS;
+pub const NATIVE_OPCODE_MATH_TAN: u16 = OPCODE_MATH_TAN;
+pub const NATIVE_OPCODE_MATH_ASIN: u16 = OPCODE_MATH_ASIN;
+pub const NATIVE_OPCODE_MATH_ACOS: u16 = OPCODE_MATH_ACOS;
+pub const NATIVE_OPCODE_MATH_ATAN: u16 = OPCODE_MATH_ATAN;
+pub const NATIVE_OPCODE_MATH_ATAN2: u16 = OPCODE_MATH_ATAN2;
+pub const NATIVE_OPCODE_MATH_RADIANS: u16 = OPCODE_MATH_RADIANS;
+pub const NATIVE_OPCODE_MATH_DEGREES: u16 = OPCODE_MATH_DEGREES;
+pub const NATIVE_OPCODE_MATH_IS_FINITE: u16 = OPCODE_MATH_IS_FINITE;
 pub const NATIVE_OPCODE_USING_ENTER: u16 = OPCODE_USING_ENTER;
 pub const NATIVE_OPCODE_USING_LEAVE: u16 = OPCODE_USING_LEAVE;
 pub const NATIVE_OPCODE_CLOSE_RESOURCE: u16 = OPCODE_CLOSE_RESOURCE;
@@ -3186,6 +3238,9 @@ impl<'a> FunctionBuilder<'a> {
                 }
                 if builtins::strings::is_strings_call(target) {
                     return builtins::strings::lower_bytecode_call(self, target, args, locals);
+                }
+                if builtins::math::is_math_call(target) {
+                    return builtins::math::lower_bytecode_call(self, target, args, locals);
                 }
                 if builtins::fs::is_fs_call(target) {
                     return builtins::fs::lower_bytecode_call(self, target, args, locals);

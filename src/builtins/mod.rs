@@ -1,11 +1,12 @@
 pub(crate) mod fs;
 pub(crate) mod general;
 pub(crate) mod io;
+pub(crate) mod math;
 pub(crate) mod strings;
 pub(crate) mod thread;
 
 pub(crate) fn is_builtin_import(name: &str) -> bool {
-    matches!(name, "fs" | "io" | "strings" | "thread")
+    matches!(name, "fs" | "io" | "math" | "strings" | "thread")
 }
 
 pub(crate) fn is_builtin_type(name: &str) -> bool {
@@ -22,6 +23,7 @@ pub(crate) fn is_resource_type(type_name: &str) -> bool {
 
 pub(crate) fn call_return_type_name(name: &str) -> Option<&'static str> {
     strings::call_return_type_name(name)
+        .or_else(|| math::call_return_type_name(name))
         .or_else(|| fs::call_return_type_name(name))
         .or_else(|| io::call_return_type_name(name))
 }
@@ -29,6 +31,7 @@ pub(crate) fn call_return_type_name(name: &str) -> Option<&'static str> {
 pub(crate) fn is_builtin_call(name: &str) -> bool {
     general::is_general_call(name)
         || strings::is_strings_call(name)
+        || math::is_math_call(name)
         || fs::is_fs_call(name)
         || io::is_io_call(name)
         || thread::is_thread_call(name)

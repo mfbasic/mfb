@@ -1,0 +1,62 @@
+{
+  "project": "builtin_math",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "math", "line": 1 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "main",
+      "line": 3,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "pi", "type": "Float", "value": { "kind": "call", "callee": "math.pi", "arguments": [] }, "line": 4 },
+      { "kind": "binding", "mutable": false, "name": "e", "type": "Float", "value": { "kind": "call", "callee": "math.e", "arguments": [] }, "line": 5 },
+      { "kind": "binding", "mutable": false, "name": "absoluteInteger", "type": "Integer", "value": { "kind": "call", "callee": "math.abs", "arguments": [{ "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "42" } }] }, "line": 6 },
+      { "kind": "binding", "mutable": false, "name": "absoluteFloat", "type": "Float", "value": { "kind": "call", "callee": "math.abs", "arguments": [{ "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "3.5" } }] }, "line": 7 },
+      { "kind": "binding", "mutable": false, "name": "signNegative", "type": "Integer", "value": { "kind": "call", "callee": "math.sign", "arguments": [{ "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "7" } }] }, "line": 8 },
+      { "kind": "binding", "mutable": false, "name": "minimum", "type": "Integer", "value": { "kind": "call", "callee": "math.min", "arguments": [{ "kind": "number", "value": "4" }, { "kind": "number", "value": "9" }] }, "line": 9 },
+      { "kind": "binding", "mutable": false, "name": "maximum", "type": "Integer", "value": { "kind": "call", "callee": "math.max", "arguments": [{ "kind": "number", "value": "4" }, { "kind": "number", "value": "9" }] }, "line": 10 },
+      { "kind": "binding", "mutable": false, "name": "clamped", "type": "Integer", "value": { "kind": "call", "callee": "math.clamp", "arguments": [{ "kind": "number", "value": "12" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "10" }] }, "line": 11 },
+      { "kind": "binding", "mutable": false, "name": "floored", "type": "Integer", "value": { "kind": "call", "callee": "math.floor", "arguments": [{ "kind": "number", "value": "3.75" }] }, "line": 12 },
+      { "kind": "binding", "mutable": false, "name": "ceiled", "type": "Integer", "value": { "kind": "call", "callee": "math.ceil", "arguments": [{ "kind": "number", "value": "3.25" }] }, "line": 13 },
+      { "kind": "binding", "mutable": false, "name": "rounded", "type": "Integer", "value": { "kind": "call", "callee": "math.round", "arguments": [{ "kind": "number", "value": "3.5" }] }, "line": 14 },
+      { "kind": "binding", "mutable": false, "name": "truncated", "type": "Integer", "value": { "kind": "call", "callee": "math.trunc", "arguments": [{ "kind": "number", "value": "3.75" }] }, "line": 15 },
+      { "kind": "binding", "mutable": false, "name": "root", "type": "Float", "value": { "kind": "call", "callee": "math.sqrt", "arguments": [{ "kind": "number", "value": "9.0" }] }, "line": 16 },
+      { "kind": "binding", "mutable": false, "name": "raised", "type": "Float", "value": { "kind": "call", "callee": "math.pow", "arguments": [{ "kind": "number", "value": "2" }, { "kind": "number", "value": "8" }] }, "line": 17 },
+      { "kind": "binding", "mutable": false, "name": "exponential", "type": "Float", "value": { "kind": "call", "callee": "math.exp", "arguments": [{ "kind": "number", "value": "1.0" }] }, "line": 18 },
+      { "kind": "binding", "mutable": false, "name": "naturalLog", "type": "Float", "value": { "kind": "call", "callee": "math.log", "arguments": [{ "kind": "identifier", "value": "e" }] }, "line": 19 },
+      { "kind": "binding", "mutable": false, "name": "commonLog", "type": "Float", "value": { "kind": "call", "callee": "math.log10", "arguments": [{ "kind": "number", "value": "100.0" }] }, "line": 20 },
+      { "kind": "binding", "mutable": false, "name": "sine", "type": "Float", "value": { "kind": "call", "callee": "math.sin", "arguments": [{ "kind": "identifier", "value": "pi" }] }, "line": 21 },
+      { "kind": "binding", "mutable": false, "name": "cosine", "type": "Float", "value": { "kind": "call", "callee": "math.cos", "arguments": [{ "kind": "identifier", "value": "pi" }] }, "line": 22 },
+      { "kind": "binding", "mutable": false, "name": "tangent", "type": "Float", "value": { "kind": "call", "callee": "math.tan", "arguments": [{ "kind": "number", "value": "0.0" }] }, "line": 23 },
+      { "kind": "binding", "mutable": false, "name": "arcsine", "type": "Float", "value": { "kind": "call", "callee": "math.asin", "arguments": [{ "kind": "number", "value": "0.5" }] }, "line": 24 },
+      { "kind": "binding", "mutable": false, "name": "arccosine", "type": "Float", "value": { "kind": "call", "callee": "math.acos", "arguments": [{ "kind": "number", "value": "0.5" }] }, "line": 25 },
+      { "kind": "binding", "mutable": false, "name": "arctangent", "type": "Float", "value": { "kind": "call", "callee": "math.atan", "arguments": [{ "kind": "number", "value": "1.0" }] }, "line": 26 },
+      { "kind": "binding", "mutable": false, "name": "arctangent2", "type": "Float", "value": { "kind": "call", "callee": "math.atan2", "arguments": [{ "kind": "number", "value": "1.0" }, { "kind": "number", "value": "1.0" }] }, "line": 27 },
+      { "kind": "binding", "mutable": false, "name": "radians", "type": "Float", "value": { "kind": "call", "callee": "math.radians", "arguments": [{ "kind": "number", "value": "180.0" }] }, "line": 28 },
+      { "kind": "binding", "mutable": false, "name": "degrees", "type": "Float", "value": { "kind": "call", "callee": "math.degrees", "arguments": [{ "kind": "identifier", "value": "pi" }] }, "line": 29 },
+      { "kind": "binding", "mutable": false, "name": "finite", "type": "Boolean", "value": { "kind": "call", "callee": "math.isFinite", "arguments": [{ "kind": "identifier", "value": "degrees" }] }, "line": 30 },
+      {
+        "kind": "if",
+        "condition": { "kind": "identifier", "value": "finite" },
+        "line": 32,
+        "then": [
+        { "kind": "return", "value": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "absoluteInteger" }, "right": { "kind": "identifier", "value": "signNegative" } }, "right": { "kind": "identifier", "value": "minimum" } }, "right": { "kind": "identifier", "value": "maximum" } }, "right": { "kind": "identifier", "value": "clamped" } }, "right": { "kind": "identifier", "value": "floored" } }, "right": { "kind": "identifier", "value": "ceiled" } }, "right": { "kind": "identifier", "value": "rounded" } }, "right": { "kind": "identifier", "value": "truncated" } }, "line": 33 }
+        ],
+        "else": [
+        { "kind": "return", "value": { "kind": "number", "value": "1" }, "line": 35 }
+        ]
+      }
+      ]
+    }
+    ]
+  }
+  ]
+}

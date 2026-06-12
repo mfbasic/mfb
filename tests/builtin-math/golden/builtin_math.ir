@@ -1,0 +1,61 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "builtin_math",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "mutable": false, "name": "pi", "type": "Float", "value": { "kind": "call", "target": "math.pi", "args": [] } },
+    { "op": "bind", "mutable": false, "name": "e", "type": "Float", "value": { "kind": "call", "target": "math.e", "args": [] } },
+    { "op": "bind", "mutable": false, "name": "absoluteInteger", "type": "Integer", "value": { "kind": "call", "target": "math.abs", "args": [{ "kind": "unary", "op": "-", "operand": { "kind": "const", "type": "Integer", "value": "42" } }] } },
+    { "op": "bind", "mutable": false, "name": "absoluteFloat", "type": "Float", "value": { "kind": "call", "target": "math.abs", "args": [{ "kind": "unary", "op": "-", "operand": { "kind": "const", "type": "Float", "value": "3.5" } }] } },
+    { "op": "bind", "mutable": false, "name": "signNegative", "type": "Integer", "value": { "kind": "call", "target": "math.sign", "args": [{ "kind": "unary", "op": "-", "operand": { "kind": "const", "type": "Integer", "value": "7" } }] } },
+    { "op": "bind", "mutable": false, "name": "minimum", "type": "Integer", "value": { "kind": "call", "target": "math.min", "args": [{ "kind": "const", "type": "Integer", "value": "4" }, { "kind": "const", "type": "Integer", "value": "9" }] } },
+    { "op": "bind", "mutable": false, "name": "maximum", "type": "Integer", "value": { "kind": "call", "target": "math.max", "args": [{ "kind": "const", "type": "Integer", "value": "4" }, { "kind": "const", "type": "Integer", "value": "9" }] } },
+    { "op": "bind", "mutable": false, "name": "clamped", "type": "Integer", "value": { "kind": "call", "target": "math.clamp", "args": [{ "kind": "const", "type": "Integer", "value": "12" }, { "kind": "const", "type": "Integer", "value": "0" }, { "kind": "const", "type": "Integer", "value": "10" }] } },
+    { "op": "bind", "mutable": false, "name": "floored", "type": "Integer", "value": { "kind": "call", "target": "math.floor", "args": [{ "kind": "const", "type": "Float", "value": "3.75" }] } },
+    { "op": "bind", "mutable": false, "name": "ceiled", "type": "Integer", "value": { "kind": "call", "target": "math.ceil", "args": [{ "kind": "const", "type": "Float", "value": "3.25" }] } },
+    { "op": "bind", "mutable": false, "name": "rounded", "type": "Integer", "value": { "kind": "call", "target": "math.round", "args": [{ "kind": "const", "type": "Float", "value": "3.5" }] } },
+    { "op": "bind", "mutable": false, "name": "truncated", "type": "Integer", "value": { "kind": "call", "target": "math.trunc", "args": [{ "kind": "const", "type": "Float", "value": "3.75" }] } },
+    { "op": "bind", "mutable": false, "name": "root", "type": "Float", "value": { "kind": "call", "target": "math.sqrt", "args": [{ "kind": "const", "type": "Float", "value": "9.0" }] } },
+    { "op": "bind", "mutable": false, "name": "raised", "type": "Float", "value": { "kind": "call", "target": "math.pow", "args": [{ "kind": "const", "type": "Integer", "value": "2" }, { "kind": "const", "type": "Integer", "value": "8" }] } },
+    { "op": "bind", "mutable": false, "name": "exponential", "type": "Float", "value": { "kind": "call", "target": "math.exp", "args": [{ "kind": "const", "type": "Float", "value": "1.0" }] } },
+    { "op": "bind", "mutable": false, "name": "naturalLog", "type": "Float", "value": { "kind": "call", "target": "math.log", "args": [{ "kind": "local", "name": "e" }] } },
+    { "op": "bind", "mutable": false, "name": "commonLog", "type": "Float", "value": { "kind": "call", "target": "math.log10", "args": [{ "kind": "const", "type": "Float", "value": "100.0" }] } },
+    { "op": "bind", "mutable": false, "name": "sine", "type": "Float", "value": { "kind": "call", "target": "math.sin", "args": [{ "kind": "local", "name": "pi" }] } },
+    { "op": "bind", "mutable": false, "name": "cosine", "type": "Float", "value": { "kind": "call", "target": "math.cos", "args": [{ "kind": "local", "name": "pi" }] } },
+    { "op": "bind", "mutable": false, "name": "tangent", "type": "Float", "value": { "kind": "call", "target": "math.tan", "args": [{ "kind": "const", "type": "Float", "value": "0.0" }] } },
+    { "op": "bind", "mutable": false, "name": "arcsine", "type": "Float", "value": { "kind": "call", "target": "math.asin", "args": [{ "kind": "const", "type": "Float", "value": "0.5" }] } },
+    { "op": "bind", "mutable": false, "name": "arccosine", "type": "Float", "value": { "kind": "call", "target": "math.acos", "args": [{ "kind": "const", "type": "Float", "value": "0.5" }] } },
+    { "op": "bind", "mutable": false, "name": "arctangent", "type": "Float", "value": { "kind": "call", "target": "math.atan", "args": [{ "kind": "const", "type": "Float", "value": "1.0" }] } },
+    { "op": "bind", "mutable": false, "name": "arctangent2", "type": "Float", "value": { "kind": "call", "target": "math.atan2", "args": [{ "kind": "const", "type": "Float", "value": "1.0" }, { "kind": "const", "type": "Float", "value": "1.0" }] } },
+    { "op": "bind", "mutable": false, "name": "radians", "type": "Float", "value": { "kind": "call", "target": "math.radians", "args": [{ "kind": "const", "type": "Float", "value": "180.0" }] } },
+    { "op": "bind", "mutable": false, "name": "degrees", "type": "Float", "value": { "kind": "call", "target": "math.degrees", "args": [{ "kind": "local", "name": "pi" }] } },
+    { "op": "bind", "mutable": false, "name": "finite", "type": "Boolean", "value": { "kind": "call", "target": "math.isFinite", "args": [{ "kind": "local", "name": "degrees" }] } },
+    {
+      "op": "if",
+      "condition": { "kind": "local", "name": "finite" },
+      "then": [
+      { "op": "return", "value": { "kind": "binary", "op": "+", "left": { "kind": "binary", "op": "+", "left": { "kind": "binary", "op": "+", "left": { "kind": "binary", "op": "+", "left": { "kind": "binary", "op": "+", "left": { "kind": "binary", "op": "+", "left": { "kind": "binary", "op": "+", "left": { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "absoluteInteger" }, "right": { "kind": "local", "name": "signNegative" } }, "right": { "kind": "local", "name": "minimum" } }, "right": { "kind": "local", "name": "maximum" } }, "right": { "kind": "local", "name": "clamped" } }, "right": { "kind": "local", "name": "floored" } }, "right": { "kind": "local", "name": "ceiled" } }, "right": { "kind": "local", "name": "rounded" } }, "right": { "kind": "local", "name": "truncated" } } }
+      ],
+      "else": [
+      { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "1" } }
+      ]
+    }
+    ]
+  }
+  ]
+}

@@ -1,0 +1,225 @@
+use crate::bytecode::{
+    BuiltinCallLowerer, ValueSlot, OPCODE_MATH_ABS, OPCODE_MATH_ACOS, OPCODE_MATH_ASIN,
+    OPCODE_MATH_ATAN, OPCODE_MATH_ATAN2, OPCODE_MATH_CEIL, OPCODE_MATH_CLAMP, OPCODE_MATH_COS,
+    OPCODE_MATH_DEGREES, OPCODE_MATH_E, OPCODE_MATH_EXP, OPCODE_MATH_FLOOR, OPCODE_MATH_IS_FINITE,
+    OPCODE_MATH_LOG, OPCODE_MATH_LOG10, OPCODE_MATH_MAX, OPCODE_MATH_MIN, OPCODE_MATH_PI,
+    OPCODE_MATH_POW, OPCODE_MATH_RADIANS, OPCODE_MATH_ROUND, OPCODE_MATH_SIGN, OPCODE_MATH_SIN,
+    OPCODE_MATH_SQRT, OPCODE_MATH_TAN, OPCODE_MATH_TRUNC, TYPE_BOOLEAN, TYPE_FLOAT, TYPE_INTEGER,
+};
+use crate::ir::IrValue;
+use std::borrow::Cow;
+use std::collections::HashMap;
+
+const PACKAGE: &str = "math";
+
+const PI: &str = "math.pi";
+const E: &str = "math.e";
+const ABS: &str = "math.abs";
+const SIGN: &str = "math.sign";
+const MIN: &str = "math.min";
+const MAX: &str = "math.max";
+const CLAMP: &str = "math.clamp";
+const FLOOR: &str = "math.floor";
+const CEIL: &str = "math.ceil";
+const ROUND: &str = "math.round";
+const TRUNC: &str = "math.trunc";
+const SQRT: &str = "math.sqrt";
+const POW: &str = "math.pow";
+const EXP: &str = "math.exp";
+const LOG: &str = "math.log";
+const LOG10: &str = "math.log10";
+const SIN: &str = "math.sin";
+const COS: &str = "math.cos";
+const TAN: &str = "math.tan";
+const ASIN: &str = "math.asin";
+const ACOS: &str = "math.acos";
+const ATAN: &str = "math.atan";
+const ATAN2: &str = "math.atan2";
+const RADIANS: &str = "math.radians";
+const DEGREES: &str = "math.degrees";
+const IS_FINITE: &str = "math.isFinite";
+
+#[derive(Clone)]
+pub(crate) struct ResolvedCall<'a> {
+    pub(crate) return_type: Cow<'a, str>,
+}
+
+pub(crate) fn is_math_call(name: &str) -> bool {
+    matches!(
+        name,
+        PI | E
+            | ABS
+            | SIGN
+            | MIN
+            | MAX
+            | CLAMP
+            | FLOOR
+            | CEIL
+            | ROUND
+            | TRUNC
+            | SQRT
+            | POW
+            | EXP
+            | LOG
+            | LOG10
+            | SIN
+            | COS
+            | TAN
+            | ASIN
+            | ACOS
+            | ATAN
+            | ATAN2
+            | RADIANS
+            | DEGREES
+            | IS_FINITE
+    )
+}
+
+pub(crate) fn call_return_type_name(name: &str) -> Option<&'static str> {
+    match name {
+        PI | E | SQRT | POW | EXP | LOG | LOG10 | SIN | COS | TAN | ASIN | ACOS | ATAN | ATAN2
+        | RADIANS | DEGREES => Some("Float"),
+        FLOOR | CEIL | ROUND | TRUNC | SIGN => Some("Integer"),
+        IS_FINITE => Some("Boolean"),
+        _ => None,
+    }
+}
+
+pub(crate) fn resolve_call<'a>(name: &str, arg_types: &'a [String]) -> Option<ResolvedCall<'a>> {
+    let return_type = match name {
+        PI | E if arg_types.is_empty() => Cow::Borrowed("Float"),
+        ABS | MIN | MAX if all_same_numeric(arg_types, 1, 2) => {
+            Cow::Borrowed(arg_types[0].as_str())
+        }
+        CLAMP if all_same_numeric(arg_types, 3, 3) => Cow::Borrowed(arg_types[0].as_str()),
+        SIGN if one_numeric(arg_types) => Cow::Borrowed("Integer"),
+        FLOOR | CEIL | ROUND | TRUNC if one_floatish(arg_types) => Cow::Borrowed("Integer"),
+        SQRT | EXP | LOG | LOG10 | SIN | COS | TAN | ASIN | ACOS | ATAN | RADIANS | DEGREES
+            if one_numeric(arg_types) =>
+        {
+            Cow::Borrowed("Float")
+        }
+        POW | ATAN2 if two_numeric(arg_types) => Cow::Borrowed("Float"),
+        IS_FINITE if one_numeric(arg_types) => Cow::Borrowed("Boolean"),
+        _ => return None,
+    };
+    Some(ResolvedCall { return_type })
+}
+
+pub(crate) fn expected_arguments(name: &str) -> Option<&'static str> {
+    match name {
+        PI | E => Some("no arguments"),
+        ABS | SIGN | FLOOR | CEIL | ROUND | TRUNC | SQRT | EXP | LOG | LOG10 | SIN | COS | TAN
+        | ASIN | ACOS | ATAN | RADIANS | DEGREES | IS_FINITE => Some("Integer | Float | Fixed"),
+        MIN | MAX | POW | ATAN2 => Some("Integer | Float | Fixed, Integer | Float | Fixed"),
+        CLAMP => Some("numeric value, numeric low, numeric high of the same type"),
+        _ => None,
+    }
+}
+
+pub(crate) fn arity(name: &str) -> Option<(usize, usize)> {
+    match name {
+        PI | E => Some((0, 0)),
+        ABS | SIGN | FLOOR | CEIL | ROUND | TRUNC | SQRT | EXP | LOG | LOG10 | SIN | COS | TAN
+        | ASIN | ACOS | ATAN | RADIANS | DEGREES | IS_FINITE => Some((1, 1)),
+        MIN | MAX | POW | ATAN2 => Some((2, 2)),
+        CLAMP => Some((3, 3)),
+        _ => None,
+    }
+}
+
+pub(crate) fn lower_bytecode_call(
+    lowerer: &mut dyn BuiltinCallLowerer,
+    name: &str,
+    args: &[IrValue],
+    locals: &HashMap<String, ValueSlot>,
+) -> Result<ValueSlot, String> {
+    let lowered = args
+        .iter()
+        .map(|arg| lowerer.lower_value(arg, locals))
+        .collect::<Result<Vec<_>, _>>()?;
+    let arg_types = lowered
+        .iter()
+        .map(|slot| slot.type_name.clone())
+        .collect::<Vec<_>>();
+    let resolved = resolve_call(name, &arg_types).ok_or_else(|| {
+        format!(
+            "built-in `{name}` does not accept ({})",
+            arg_types.join(", ")
+        )
+    })?;
+
+    let dst_type_id = primitive_type_id(&resolved.return_type)
+        .unwrap_or_else(|| lowerer.type_id(&resolved.return_type));
+    let dst = lowerer.add_register(dst_type_id, 0);
+    let mut operands = vec![dst];
+    operands.extend(lowered.iter().map(|slot| slot.register));
+    lowerer.push(opcode_for(name)?, operands);
+    Ok(ValueSlot {
+        register: dst,
+        type_name: resolved.return_type.into_owned(),
+    })
+}
+
+fn opcode_for(name: &str) -> Result<u16, String> {
+    match name {
+        PI => Ok(OPCODE_MATH_PI),
+        E => Ok(OPCODE_MATH_E),
+        ABS => Ok(OPCODE_MATH_ABS),
+        SIGN => Ok(OPCODE_MATH_SIGN),
+        MIN => Ok(OPCODE_MATH_MIN),
+        MAX => Ok(OPCODE_MATH_MAX),
+        CLAMP => Ok(OPCODE_MATH_CLAMP),
+        FLOOR => Ok(OPCODE_MATH_FLOOR),
+        CEIL => Ok(OPCODE_MATH_CEIL),
+        ROUND => Ok(OPCODE_MATH_ROUND),
+        TRUNC => Ok(OPCODE_MATH_TRUNC),
+        SQRT => Ok(OPCODE_MATH_SQRT),
+        POW => Ok(OPCODE_MATH_POW),
+        EXP => Ok(OPCODE_MATH_EXP),
+        LOG => Ok(OPCODE_MATH_LOG),
+        LOG10 => Ok(OPCODE_MATH_LOG10),
+        SIN => Ok(OPCODE_MATH_SIN),
+        COS => Ok(OPCODE_MATH_COS),
+        TAN => Ok(OPCODE_MATH_TAN),
+        ASIN => Ok(OPCODE_MATH_ASIN),
+        ACOS => Ok(OPCODE_MATH_ACOS),
+        ATAN => Ok(OPCODE_MATH_ATAN),
+        ATAN2 => Ok(OPCODE_MATH_ATAN2),
+        RADIANS => Ok(OPCODE_MATH_RADIANS),
+        DEGREES => Ok(OPCODE_MATH_DEGREES),
+        IS_FINITE => Ok(OPCODE_MATH_IS_FINITE),
+        _ => Err(format!("unsupported {PACKAGE} built-in `{name}`")),
+    }
+}
+
+fn all_same_numeric(arg_types: &[String], min: usize, max: usize) -> bool {
+    (min..=max).contains(&arg_types.len())
+        && arg_types.first().is_some_and(|first| is_numeric(first))
+        && arg_types.iter().all(|type_| type_ == &arg_types[0])
+}
+
+fn one_numeric(arg_types: &[String]) -> bool {
+    arg_types.len() == 1 && is_numeric(&arg_types[0])
+}
+
+fn one_floatish(arg_types: &[String]) -> bool {
+    arg_types.len() == 1 && matches!(arg_types[0].as_str(), "Float" | "Fixed")
+}
+
+fn two_numeric(arg_types: &[String]) -> bool {
+    arg_types.len() == 2 && arg_types.iter().all(|type_| is_numeric(type_))
+}
+
+fn is_numeric(type_name: &str) -> bool {
+    matches!(type_name, "Integer" | "Float" | "Fixed")
+}
+
+fn primitive_type_id(type_name: &str) -> Option<u32> {
+    match type_name {
+        "Boolean" => Some(TYPE_BOOLEAN),
+        "Integer" => Some(TYPE_INTEGER),
+        "Float" => Some(TYPE_FLOAT),
+        _ => None,
+    }
+}

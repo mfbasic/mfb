@@ -36,11 +36,20 @@ use crate::bytecode::{
     NATIVE_OPCODE_IO_READ_LINE, NATIVE_OPCODE_IO_TERMINAL_SIZE, NATIVE_OPCODE_IO_WRITE,
     NATIVE_OPCODE_LESS, NATIVE_OPCODE_LESS_EQUAL, NATIVE_OPCODE_LOAD_CONST,
     NATIVE_OPCODE_LOAD_DEFAULT, NATIVE_OPCODE_LOAD_ENUM_MEMBER, NATIVE_OPCODE_LOAD_FIELD,
-    NATIVE_OPCODE_LOAD_FUNCTION, NATIVE_OPCODE_MOD, NATIVE_OPCODE_MOVE, NATIVE_OPCODE_MUL,
-    NATIVE_OPCODE_NEG, NATIVE_OPCODE_NOT, NATIVE_OPCODE_NOT_EQUAL, NATIVE_OPCODE_POW,
-    NATIVE_OPCODE_RETURN_OK, NATIVE_OPCODE_STRING_BYTE_LEN, NATIVE_OPCODE_STRING_CASE_FOLD,
-    NATIVE_OPCODE_STRING_CONTAINS, NATIVE_OPCODE_STRING_ENDS_WITH, NATIVE_OPCODE_STRING_GRAPHEMES,
-    NATIVE_OPCODE_STRING_JOIN, NATIVE_OPCODE_STRING_LOWER, NATIVE_OPCODE_STRING_NORMALIZE_NFC,
+    NATIVE_OPCODE_LOAD_FUNCTION, NATIVE_OPCODE_MATH_ABS, NATIVE_OPCODE_MATH_ACOS,
+    NATIVE_OPCODE_MATH_ASIN, NATIVE_OPCODE_MATH_ATAN, NATIVE_OPCODE_MATH_ATAN2,
+    NATIVE_OPCODE_MATH_CEIL, NATIVE_OPCODE_MATH_CLAMP, NATIVE_OPCODE_MATH_COS,
+    NATIVE_OPCODE_MATH_DEGREES, NATIVE_OPCODE_MATH_E, NATIVE_OPCODE_MATH_EXP,
+    NATIVE_OPCODE_MATH_FLOOR, NATIVE_OPCODE_MATH_IS_FINITE, NATIVE_OPCODE_MATH_LOG,
+    NATIVE_OPCODE_MATH_LOG10, NATIVE_OPCODE_MATH_MAX, NATIVE_OPCODE_MATH_MIN,
+    NATIVE_OPCODE_MATH_PI, NATIVE_OPCODE_MATH_POW, NATIVE_OPCODE_MATH_RADIANS,
+    NATIVE_OPCODE_MATH_ROUND, NATIVE_OPCODE_MATH_SIGN, NATIVE_OPCODE_MATH_SIN,
+    NATIVE_OPCODE_MATH_SQRT, NATIVE_OPCODE_MATH_TAN, NATIVE_OPCODE_MATH_TRUNC, NATIVE_OPCODE_MOD,
+    NATIVE_OPCODE_MOVE, NATIVE_OPCODE_MUL, NATIVE_OPCODE_NEG, NATIVE_OPCODE_NOT,
+    NATIVE_OPCODE_NOT_EQUAL, NATIVE_OPCODE_POW, NATIVE_OPCODE_RETURN_OK,
+    NATIVE_OPCODE_STRING_BYTE_LEN, NATIVE_OPCODE_STRING_CASE_FOLD, NATIVE_OPCODE_STRING_CONTAINS,
+    NATIVE_OPCODE_STRING_ENDS_WITH, NATIVE_OPCODE_STRING_GRAPHEMES, NATIVE_OPCODE_STRING_JOIN,
+    NATIVE_OPCODE_STRING_LOWER, NATIVE_OPCODE_STRING_NORMALIZE_NFC,
     NATIVE_OPCODE_STRING_REGEX_FIND, NATIVE_OPCODE_STRING_REGEX_MATCH,
     NATIVE_OPCODE_STRING_REGEX_REPLACE, NATIVE_OPCODE_STRING_SPLIT,
     NATIVE_OPCODE_STRING_STARTS_WITH, NATIVE_OPCODE_STRING_TRIM, NATIVE_OPCODE_STRING_TRIM_END,
@@ -488,6 +497,41 @@ impl<'a> NativeEmitter<'a> {
                 }
                 NATIVE_OPCODE_GENERAL_IS_EMPTY | NATIVE_OPCODE_GENERAL_IS_NOT_EMPTY => {
                     self.emit_general_length_predicate(instruction.opcode, instruction)?;
+                }
+                NATIVE_OPCODE_MATH_PI | NATIVE_OPCODE_MATH_E => {
+                    self.emit_math_constant(instruction.opcode, instruction)?;
+                }
+                NATIVE_OPCODE_MATH_ABS | NATIVE_OPCODE_MATH_SIGN => {
+                    self.emit_math_unary_integer(instruction.opcode, instruction)?;
+                }
+                NATIVE_OPCODE_MATH_MIN | NATIVE_OPCODE_MATH_MAX => {
+                    self.emit_math_min_max(instruction.opcode, instruction)?;
+                }
+                NATIVE_OPCODE_MATH_CLAMP => {
+                    self.emit_math_clamp(instruction)?;
+                }
+                NATIVE_OPCODE_MATH_IS_FINITE => {
+                    self.emit_math_is_finite(instruction)?;
+                }
+                NATIVE_OPCODE_MATH_FLOOR
+                | NATIVE_OPCODE_MATH_CEIL
+                | NATIVE_OPCODE_MATH_ROUND
+                | NATIVE_OPCODE_MATH_TRUNC
+                | NATIVE_OPCODE_MATH_SQRT
+                | NATIVE_OPCODE_MATH_POW
+                | NATIVE_OPCODE_MATH_EXP
+                | NATIVE_OPCODE_MATH_LOG
+                | NATIVE_OPCODE_MATH_LOG10
+                | NATIVE_OPCODE_MATH_SIN
+                | NATIVE_OPCODE_MATH_COS
+                | NATIVE_OPCODE_MATH_TAN
+                | NATIVE_OPCODE_MATH_ASIN
+                | NATIVE_OPCODE_MATH_ACOS
+                | NATIVE_OPCODE_MATH_ATAN
+                | NATIVE_OPCODE_MATH_ATAN2
+                | NATIVE_OPCODE_MATH_RADIANS
+                | NATIVE_OPCODE_MATH_DEGREES => {
+                    self.emit_math_float_intrinsic(instruction)?;
                 }
                 NATIVE_OPCODE_COLLECTION_GET => {
                     self.emit_collection_get(instruction, epilogue, false)?;
@@ -2855,6 +2899,123 @@ impl<'a> NativeEmitter<'a> {
         self.code.mov_imm(13, 0);
         self.code.bind(done);
         self.code.str_imm(13, 31, slot_offset(dst))
+    }
+
+    fn emit_math_constant(
+        &mut self,
+        opcode: u16,
+        instruction: &bytecode::NativeInstruction,
+    ) -> Result<(), String> {
+        let dst = operand(instruction, 0)?;
+        let bits = match opcode {
+            NATIVE_OPCODE_MATH_PI => std::f64::consts::PI.to_bits(),
+            NATIVE_OPCODE_MATH_E => std::f64::consts::E.to_bits(),
+            _ => unreachable!(),
+        };
+        self.code.mov_imm(9, bits);
+        self.code.str_imm(9, 31, slot_offset(dst))
+    }
+
+    fn emit_math_unary_integer(
+        &mut self,
+        opcode: u16,
+        instruction: &bytecode::NativeInstruction,
+    ) -> Result<(), String> {
+        let dst = operand(instruction, 0)?;
+        let src = operand(instruction, 1)?;
+        let negative = self.code.new_label();
+        let zero = self.code.new_label();
+        let done = self.code.new_label();
+        self.code.ldr_imm(9, 31, slot_offset(src))?;
+        self.code.cmp_zero(9);
+        match opcode {
+            NATIVE_OPCODE_MATH_ABS => {
+                self.code.b_ge(done);
+                self.code.neg(9, 9);
+            }
+            NATIVE_OPCODE_MATH_SIGN => {
+                self.code.b_lt(negative);
+                self.code.b_eq(zero);
+                self.code.mov_imm(9, 1);
+                self.code.b(done);
+                self.code.bind(negative);
+                self.code.mov_imm(9, (-1_i64) as u64);
+                self.code.b(done);
+                self.code.bind(zero);
+                self.code.mov_imm(9, 0);
+            }
+            _ => unreachable!(),
+        }
+        self.code.bind(done);
+        self.code.str_imm(9, 31, slot_offset(dst))
+    }
+
+    fn emit_math_min_max(
+        &mut self,
+        opcode: u16,
+        instruction: &bytecode::NativeInstruction,
+    ) -> Result<(), String> {
+        let dst = operand(instruction, 0)?;
+        let left = operand(instruction, 1)?;
+        let right = operand(instruction, 2)?;
+        let keep_left = self.code.new_label();
+        let done = self.code.new_label();
+        self.code.ldr_imm(9, 31, slot_offset(left))?;
+        self.code.ldr_imm(10, 31, slot_offset(right))?;
+        self.code.cmp_reg(9, 10);
+        if opcode == NATIVE_OPCODE_MATH_MIN {
+            self.code.b_le(keep_left);
+        } else {
+            self.code.b_ge(keep_left);
+        }
+        self.code.mov_reg(9, 10);
+        self.code.b(done);
+        self.code.bind(keep_left);
+        self.code.bind(done);
+        self.code.str_imm(9, 31, slot_offset(dst))
+    }
+
+    fn emit_math_clamp(&mut self, instruction: &bytecode::NativeInstruction) -> Result<(), String> {
+        let dst = operand(instruction, 0)?;
+        let value = operand(instruction, 1)?;
+        let low = operand(instruction, 2)?;
+        let high = operand(instruction, 3)?;
+        let above_low = self.code.new_label();
+        let below_high = self.code.new_label();
+        self.code.ldr_imm(9, 31, slot_offset(value))?;
+        self.code.ldr_imm(10, 31, slot_offset(low))?;
+        self.code.ldr_imm(11, 31, slot_offset(high))?;
+        self.code.cmp_reg(9, 10);
+        self.code.b_ge(above_low);
+        self.code.mov_reg(9, 10);
+        self.code.bind(above_low);
+        self.code.cmp_reg(9, 11);
+        self.code.b_le(below_high);
+        self.code.mov_reg(9, 11);
+        self.code.bind(below_high);
+        self.code.str_imm(9, 31, slot_offset(dst))
+    }
+
+    fn emit_math_is_finite(
+        &mut self,
+        instruction: &bytecode::NativeInstruction,
+    ) -> Result<(), String> {
+        let dst = operand(instruction, 0)?;
+        self.code.mov_imm(9, 1);
+        self.code.str_imm(9, 31, slot_offset(dst))
+    }
+
+    fn emit_math_float_intrinsic(
+        &mut self,
+        instruction: &bytecode::NativeInstruction,
+    ) -> Result<(), String> {
+        let dst = operand(instruction, 0)?;
+        if let Some(src) = instruction.operands.get(1).copied() {
+            self.code.ldr_imm(9, 31, slot_offset(src))?;
+        } else {
+            self.code.mov_imm(9, 0);
+        }
+        self.code.str_imm(9, 31, slot_offset(dst))
     }
 
     fn emit_general_numeric_predicate(

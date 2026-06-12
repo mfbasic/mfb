@@ -1,0 +1,37 @@
+IMPORT math
+
+FUNC main AS Integer
+  LET pi AS Float = math.pi()
+  LET e AS Float = math.e()
+  LET absoluteInteger AS Integer = math.abs(-42)
+  LET absoluteFloat AS Float = math.abs(-3.5)
+  LET signNegative AS Integer = math.sign(-7)
+  LET minimum AS Integer = math.min(4, 9)
+  LET maximum AS Integer = math.max(4, 9)
+  LET clamped AS Integer = math.clamp(12, 0, 10)
+  LET floored AS Integer = math.floor(3.75)
+  LET ceiled AS Integer = math.ceil(3.25)
+  LET rounded AS Integer = math.round(3.5)
+  LET truncated AS Integer = math.trunc(3.75)
+  LET root AS Float = math.sqrt(9.0)
+  LET raised AS Float = math.pow(2, 8)
+  LET exponential AS Float = math.exp(1.0)
+  LET naturalLog AS Float = math.log(e)
+  LET commonLog AS Float = math.log10(100.0)
+  LET sine AS Float = math.sin(pi)
+  LET cosine AS Float = math.cos(pi)
+  LET tangent AS Float = math.tan(0.0)
+  LET arcsine AS Float = math.asin(0.5)
+  LET arccosine AS Float = math.acos(0.5)
+  LET arctangent AS Float = math.atan(1.0)
+  LET arctangent2 AS Float = math.atan2(1.0, 1.0)
+  LET radians AS Float = math.radians(180.0)
+  LET degrees AS Float = math.degrees(pi)
+  LET finite AS Boolean = math.isFinite(degrees)
+
+  IF finite THEN
+    RETURN absoluteInteger + signNegative + minimum + maximum + clamped + floored + ceiled + rounded + truncated
+  ELSE
+    RETURN 1
+  END IF
+END FUNC

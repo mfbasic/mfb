@@ -1,0 +1,159 @@
+package: math
+summary: Deterministic numeric helper functions.
+usage: mfb man math [function]
+---
+function: pi
+signature: math.pi() AS Float
+summary: Returns the mathematical constant pi.
+example:
+  LET value AS Float = math.pi()
+---
+function: e
+signature: math.e() AS Float
+summary: Returns the mathematical constant e.
+example:
+  LET value AS Float = math.e()
+---
+function: abs
+signature: math.abs(value AS Integer | Float | Fixed) AS same type
+summary: Returns the absolute value of a number.
+example:
+  LET value AS Integer = math.abs(-4)
+---
+function: sign
+signature: math.sign(value AS Integer | Float | Fixed) AS Integer
+summary: Returns -1, 0, or 1 according to the value's sign.
+example:
+  LET value AS Integer = math.sign(-4)
+---
+function: min
+signature: math.min(a AS T, b AS T) AS T
+summary: Returns the smaller of two numeric values of the same type.
+example:
+  LET value AS Integer = math.min(2, 4)
+---
+function: max
+signature: math.max(a AS T, b AS T) AS T
+summary: Returns the larger of two numeric values of the same type.
+example:
+  LET value AS Integer = math.max(2, 4)
+---
+function: clamp
+signature: math.clamp(value AS T, low AS T, high AS T) AS T
+summary: Restricts a numeric value to an inclusive range.
+example:
+  LET value AS Integer = math.clamp(12, 0, 10)
+---
+function: floor
+signature: math.floor(value AS Float | Fixed) AS Integer
+summary: Rounds a number down to an integer.
+example:
+  LET value AS Integer = math.floor(3.75)
+---
+function: ceil
+signature: math.ceil(value AS Float | Fixed) AS Integer
+summary: Rounds a number up to an integer.
+example:
+  LET value AS Integer = math.ceil(3.25)
+---
+function: round
+signature: math.round(value AS Float | Fixed) AS Integer
+summary: Rounds a number to the nearest integer.
+example:
+  LET value AS Integer = math.round(3.5)
+---
+function: trunc
+signature: math.trunc(value AS Float | Fixed) AS Integer
+summary: Truncates a number toward zero.
+example:
+  LET value AS Integer = math.trunc(3.75)
+---
+function: sqrt
+signature: math.sqrt(value AS Integer | Float | Fixed) AS Float
+summary: Returns the square root of a number.
+example:
+  LET value AS Float = math.sqrt(9.0)
+---
+function: pow
+signature: math.pow(base AS number, exponent AS number) AS Float
+summary: Raises a number to a power.
+example:
+  LET value AS Float = math.pow(2, 8)
+---
+function: exp
+signature: math.exp(value AS Integer | Float | Fixed) AS Float
+summary: Raises e to a numeric power.
+example:
+  LET value AS Float = math.exp(1.0)
+---
+function: log
+signature: math.log(value AS Integer | Float | Fixed) AS Float
+summary: Returns the natural logarithm.
+example:
+  LET value AS Float = math.log(math.e())
+---
+function: log10
+signature: math.log10(value AS Integer | Float | Fixed) AS Float
+summary: Returns the base-10 logarithm.
+example:
+  LET value AS Float = math.log10(100.0)
+---
+function: sin
+signature: math.sin(radians AS Integer | Float | Fixed) AS Float
+summary: Returns the sine of an angle in radians.
+example:
+  LET value AS Float = math.sin(math.pi())
+---
+function: cos
+signature: math.cos(radians AS Integer | Float | Fixed) AS Float
+summary: Returns the cosine of an angle in radians.
+example:
+  LET value AS Float = math.cos(math.pi())
+---
+function: tan
+signature: math.tan(radians AS Integer | Float | Fixed) AS Float
+summary: Returns the tangent of an angle in radians.
+example:
+  LET value AS Float = math.tan(0.0)
+---
+function: asin
+signature: math.asin(value AS Integer | Float | Fixed) AS Float
+summary: Returns the arcsine in radians.
+example:
+  LET value AS Float = math.asin(0.5)
+---
+function: acos
+signature: math.acos(value AS Integer | Float | Fixed) AS Float
+summary: Returns the arccosine in radians.
+example:
+  LET value AS Float = math.acos(0.5)
+---
+function: atan
+signature: math.atan(value AS Integer | Float | Fixed) AS Float
+summary: Returns the arctangent in radians.
+example:
+  LET value AS Float = math.atan(1.0)
+---
+function: atan2
+signature: math.atan2(y AS number, x AS number) AS Float
+summary: Returns the angle of y/x in radians using both coordinates.
+example:
+  LET value AS Float = math.atan2(1.0, 1.0)
+---
+function: radians
+signature: math.radians(degrees AS Integer | Float | Fixed) AS Float
+summary: Converts degrees to radians.
+example:
+  LET value AS Float = math.radians(180.0)
+---
+function: degrees
+signature: math.degrees(radians AS Integer | Float | Fixed) AS Float
+summary: Converts radians to degrees.
+example:
+  LET value AS Float = math.degrees(math.pi())
+---
+function: isFinite
+signature: math.isFinite(value AS Integer | Float | Fixed) AS Boolean
+summary: Returns TRUE when a numeric value is finite.
+example:
+  LET ok AS Boolean = math.isFinite(1.0)
