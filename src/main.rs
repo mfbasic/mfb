@@ -18,7 +18,7 @@ use std::path::{Path, PathBuf};
 use std::process;
 use tinyjson::JsonValue;
 
-const USAGE: &str = "Usage: mfb <command> <arguments>\n\nCommands:\n  help                        Show this message\n  init <location>             Create a new MFBASIC executable project\n  init-pkg <location>         Create a new MFBASIC package project\n  pkg add <url>               Add a compiled package to the current project\n  build [-ast|-ir|-bc|-bin] [location] Validate and build an MFBASIC project\n  man [package] [function]    Show built-in package and function help";
+const USAGE: &str = "Usage: mfb <command> <arguments>\n\nCommands:\n  help                        Show this message\n  init <location>             Create a new MFBASIC executable project\n  init-pkg <location>         Create a new MFBASIC package project\n  pkg add <url>               Add a compiled package to the current project\n  pkg verify                  Verify packages declared by project.json\n  build [-ast|-ir|-bc|-bin] [location] Validate and build an MFBASIC project\n  man [package] [function]    Show built-in package and function help";
 
 const MFP_MAGIC: [u8; 8] = [0x4d, 0x46, 0x50, 0x0d, 0x0a, 0x1a, 0x0a, 0x00];
 
@@ -296,8 +296,14 @@ fn run_pkg_command(args: &[String]) -> Result<(), PkgCommandError> {
         [command, url] if command == "add" => {
             add_package(Path::new("."), url).map_err(PkgCommandError::Failed)
         }
+        [command] if command == "verify" => {
+            verify_packages(Path::new(".")).map_err(PkgCommandError::Failed)
+        }
         [command, ..] if command == "add" => Err(PkgCommandError::Usage(format!(
             "mfb pkg add requires exactly one <url>\n\n{USAGE}"
+        ))),
+        [command, ..] if command == "verify" => Err(PkgCommandError::Usage(format!(
+            "mfb pkg verify accepts no arguments\n\n{USAGE}"
         ))),
         [] => Err(PkgCommandError::Usage(format!(
             "mfb pkg requires a subcommand\n\n{USAGE}"
@@ -349,6 +355,264 @@ fn add_package(project_dir: &Path, url: &str) -> Result<(), String> {
         project_path.display()
     );
     Ok(())
+}
+
+fn verify_packages(project_dir: &Path) -> Result<(), String> {
+    let project_path = project_dir.join("project.json");
+    let contents = fs::read_to_string(&project_path)
+        .map_err(|err| format!("failed to read '{}': {err}", project_path.display()))?;
+    let manifest = parse_project_json(&contents, &project_path)?;
+    validate_packages_array(&manifest)?;
+
+    let Some(packages) = manifest
+        .get("packages")
+        .and_then(|value| value.get::<Vec<JsonValue>>())
+    else {
+        return Ok(());
+    };
+
+    for package in packages {
+        let Some(dependency) = project_package_dependency(package) else {
+            println!("<invalid> @ <invalid> : Invalid Package");
+            continue;
+        };
+        let result = verify_package_dependency(project_dir, &dependency);
+        println!("{}", package_verify_line(&dependency, &result));
+    }
+
+    Ok(())
+}
+
+fn project_package_dependency(value: &JsonValue) -> Option<ProjectPackageDependency> {
+    let package = value.get::<HashMap<String, JsonValue>>()?;
+    let name = package.get("name")?.get::<String>()?.clone();
+    let version = package
+        .get("version")
+        .and_then(|value| value.get::<String>())
+        .cloned()
+        .unwrap_or_default();
+    let source = package
+        .get("source")
+        .and_then(|value| value.get::<String>())
+        .cloned()
+        .unwrap_or_default();
+
+    if name.trim().is_empty() {
+        return None;
+    }
+
+    Some(ProjectPackageDependency {
+        name,
+        version,
+        source,
+    })
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum PackageVerifyStatus {
+    Ok,
+    NeedsUpdate,
+    InvalidPackage,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+struct PackageVerifyResult {
+    version: String,
+    status: PackageVerifyStatus,
+}
+
+impl PackageVerifyStatus {
+    fn message(&self) -> &'static str {
+        match self {
+            PackageVerifyStatus::Ok => "OK",
+            PackageVerifyStatus::NeedsUpdate => "Needs Update",
+            PackageVerifyStatus::InvalidPackage => "Invalid Package",
+        }
+    }
+}
+
+fn package_verify_line(
+    dependency: &ProjectPackageDependency,
+    result: &PackageVerifyResult,
+) -> String {
+    if result.version.is_empty() {
+        format!(
+            "{} @ {} : {}",
+            dependency.name,
+            dependency.version,
+            result.status.message()
+        )
+    } else {
+        format!(
+            "{} @ {} : {} ({})",
+            dependency.name,
+            dependency.version,
+            result.status.message(),
+            result.version
+        )
+    }
+}
+
+fn verify_package_dependency(
+    project_dir: &Path,
+    dependency: &ProjectPackageDependency,
+) -> PackageVerifyResult {
+    let package_file = project_dir
+        .join("packages")
+        .join(format!("{}.mfp", dependency.name));
+    if package_file.is_file() {
+        return match read_mfp_header(&package_file) {
+            Ok(header) => PackageVerifyResult {
+                version: header.version.clone(),
+                status: package_identity_status(
+                    &dependency.name,
+                    &dependency.version,
+                    &header.name,
+                    &header.version,
+                ),
+            },
+            Err(_) => PackageVerifyResult {
+                version: String::new(),
+                status: PackageVerifyStatus::InvalidPackage,
+            },
+        };
+    }
+
+    let package_manifest = project_dir
+        .join("packages")
+        .join(&dependency.name)
+        .join("project.json");
+    if package_manifest.is_file() {
+        return verify_source_package_manifest(&package_manifest, dependency);
+    }
+
+    PackageVerifyResult {
+        version: String::new(),
+        status: PackageVerifyStatus::InvalidPackage,
+    }
+}
+
+fn verify_source_package_manifest(
+    package_manifest: &Path,
+    dependency: &ProjectPackageDependency,
+) -> PackageVerifyResult {
+    let Ok(contents) = fs::read_to_string(package_manifest) else {
+        return PackageVerifyResult {
+            version: String::new(),
+            status: PackageVerifyStatus::InvalidPackage,
+        };
+    };
+    let Ok(manifest) = parse_project_json(&contents, package_manifest) else {
+        return PackageVerifyResult {
+            version: String::new(),
+            status: PackageVerifyStatus::InvalidPackage,
+        };
+    };
+    let Some(actual_name) = manifest.get("name").and_then(|value| value.get::<String>()) else {
+        return PackageVerifyResult {
+            version: String::new(),
+            status: PackageVerifyStatus::InvalidPackage,
+        };
+    };
+    let Some(actual_version) = manifest
+        .get("version")
+        .and_then(|value| value.get::<String>())
+    else {
+        return PackageVerifyResult {
+            version: String::new(),
+            status: PackageVerifyStatus::InvalidPackage,
+        };
+    };
+
+    PackageVerifyResult {
+        version: actual_version.clone(),
+        status: package_identity_status(
+            &dependency.name,
+            &dependency.version,
+            actual_name,
+            actual_version,
+        ),
+    }
+}
+
+fn package_identity_status(
+    expected_name: &str,
+    expected_version: &str,
+    actual_name: &str,
+    actual_version: &str,
+) -> PackageVerifyStatus {
+    if expected_name != actual_name {
+        return PackageVerifyStatus::InvalidPackage;
+    }
+
+    if package_version_matches(expected_version, actual_version) {
+        PackageVerifyStatus::Ok
+    } else {
+        PackageVerifyStatus::NeedsUpdate
+    }
+}
+
+fn package_version_matches(expected: &str, actual: &str) -> bool {
+    if expected.is_empty() {
+        return true;
+    }
+    if let Some(expected) = expected.strip_prefix('=') {
+        return expected == actual;
+    }
+    if let Some(expected) = expected.strip_prefix('^') {
+        return version_in_caret_range(expected, actual);
+    }
+    if let Some(expected) = expected.strip_prefix('~') {
+        return version_in_tilde_range(expected, actual);
+    }
+    expected == actual
+}
+
+fn version_in_caret_range(expected: &str, actual: &str) -> bool {
+    let Some(expected) = parse_semver_core(expected) else {
+        return expected == actual;
+    };
+    let Some(actual) = parse_semver_core(actual) else {
+        return false;
+    };
+
+    if actual < expected {
+        return false;
+    }
+
+    if expected.0 > 0 {
+        actual.0 == expected.0
+    } else if expected.1 > 0 {
+        actual.0 == 0 && actual.1 == expected.1
+    } else {
+        actual.0 == 0 && actual.1 == 0 && actual.2 == expected.2
+    }
+}
+
+fn version_in_tilde_range(expected: &str, actual: &str) -> bool {
+    let Some(expected) = parse_semver_core(expected) else {
+        return expected == actual;
+    };
+    let Some(actual) = parse_semver_core(actual) else {
+        return false;
+    };
+
+    actual >= expected && actual.0 == expected.0 && actual.1 == expected.1
+}
+
+fn parse_semver_core(version: &str) -> Option<(u64, u64, u64)> {
+    let core = version
+        .split_once(['-', '+'])
+        .map(|(core, _)| core)
+        .unwrap_or(version);
+    let mut parts = core.split('.');
+    let major = parts.next()?.parse().ok()?;
+    let minor = parts.next()?.parse().ok()?;
+    let patch = parts.next()?.parse().ok()?;
+    if parts.next().is_some() {
+        return None;
+    }
+    Some((major, minor, patch))
 }
 
 fn show_man(args: &[String]) -> Result<(), String> {
@@ -1478,5 +1742,106 @@ mod tests {
 
         assert!(updated.contains("    },\n    {\n      \"name\": \"shape\""));
         assert!(updated.parse::<JsonValue>().is_ok());
+    }
+
+    #[test]
+    fn package_verify_status_checks_name_and_version() {
+        assert_eq!(
+            package_identity_status("shape", "=1.2.3", "shape", "1.2.3"),
+            PackageVerifyStatus::Ok
+        );
+        assert_eq!(
+            package_identity_status("shape", "=1.2.3", "shape", "1.2.4"),
+            PackageVerifyStatus::NeedsUpdate
+        );
+        assert_eq!(
+            package_identity_status("shape", "=1.2.3", "color", "1.2.3"),
+            PackageVerifyStatus::InvalidPackage
+        );
+    }
+
+    #[test]
+    fn package_verify_supports_semver_ranges() {
+        assert!(package_version_matches("^1.2.3", "1.9.0"));
+        assert!(!package_version_matches("^1.2.3", "2.0.0"));
+        assert!(package_version_matches("~1.2.3", "1.2.9"));
+        assert!(!package_version_matches("~1.2.3", "1.3.0"));
+    }
+
+    #[test]
+    fn package_verify_line_shows_project_and_package_versions() {
+        let dependency = ProjectPackageDependency {
+            name: "shape".to_string(),
+            version: "^1.2.0".to_string(),
+            source: "registry:mfb".to_string(),
+        };
+
+        assert_eq!(
+            package_verify_line(
+                &dependency,
+                &PackageVerifyResult {
+                    version: "1.2.3".to_string(),
+                    status: PackageVerifyStatus::Ok,
+                }
+            ),
+            "shape @ ^1.2.0 : OK (1.2.3)"
+        );
+        assert_eq!(
+            package_verify_line(
+                &dependency,
+                &PackageVerifyResult {
+                    version: String::new(),
+                    status: PackageVerifyStatus::InvalidPackage,
+                }
+            ),
+            "shape @ ^1.2.0 : Invalid Package"
+        );
+    }
+
+    #[test]
+    fn package_verify_reads_source_package_manifest() {
+        let root = test_temp_dir("package_verify_reads_source_package_manifest");
+        let package_dir = root.join("packages").join("shape");
+        fs::create_dir_all(&package_dir).expect("package dir");
+        fs::write(
+            package_dir.join("project.json"),
+            concat!(
+                "{\n",
+                "  \"name\": \"shape\",\n",
+                "  \"version\": \"1.2.3\",\n",
+                "  \"mfb\": \"1.0\",\n",
+                "  \"kind\": \"package\",\n",
+                "  \"sources\": [{ \"root\": \"src\" }]\n",
+                "}\n"
+            ),
+        )
+        .expect("package manifest");
+
+        let dependency = ProjectPackageDependency {
+            name: "shape".to_string(),
+            version: "^1.2.0".to_string(),
+            source: "registry:mfb".to_string(),
+        };
+
+        assert_eq!(
+            verify_package_dependency(&root, &dependency),
+            PackageVerifyResult {
+                version: "1.2.3".to_string(),
+                status: PackageVerifyStatus::Ok,
+            }
+        );
+
+        fs::remove_dir_all(root).expect("remove temp dir");
+    }
+
+    fn test_temp_dir(name: &str) -> PathBuf {
+        let root = std::env::temp_dir().join(format!(
+            "mfb_{name}_{}_{}",
+            std::process::id(),
+            std::thread::current().name().unwrap_or("test")
+        ));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(&root).expect("temp dir");
+        root
     }
 }
