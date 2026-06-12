@@ -1,5 +1,6 @@
 use crate::builtins;
 use crate::ir::{IrFunction, IrMatchPattern, IrOp, IrProject, IrType, IrValue};
+use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -14,6 +15,10 @@ const SECTION_GLOBAL_TABLE: u16 = 7;
 const SECTION_FUNCTION_TABLE: u16 = 8;
 const SECTION_CODE: u16 = 9;
 const SECTION_RESOURCE_TABLE: u16 = 11;
+const SECTION_ABI_INDEX: u16 = 15;
+
+const ABI_FORMAT_VERSION: u16 = 1;
+const ABI_HASH_LEN: usize = 32;
 
 pub(crate) const TYPE_NOTHING: u32 = 1;
 pub(crate) const TYPE_BOOLEAN: u32 = 2;
@@ -246,6 +251,7 @@ pub struct BytecodeDependency {
     pub version_min: String,
     pub version_max: String,
     pub flags: u32,
+    pub pin: Option<String>,
 }
 
 #[derive(Clone)]
@@ -257,7 +263,7 @@ pub struct BytecodeExport {
     pub return_type: String,
 }
 
-#[derive(Clone, Copy, Eq, PartialEq)]
+#[derive(Clone, Copy, Eq, PartialEq, Hash)]
 pub enum BytecodeExportKind {
     Func,
     Sub,
@@ -267,6 +273,43 @@ pub enum BytecodeExportKind {
 pub struct BytecodeExportParam {
     pub type_: String,
     pub has_default: bool,
+}
+
+pub struct BytecodePackageInfo {
+    pub manifest_name: String,
+    pub manifest_version: String,
+    pub author: String,
+    pub url: String,
+    pub type_count: usize,
+    pub const_count: usize,
+    pub resource_count: usize,
+    pub function_count: usize,
+    pub export_count: usize,
+    pub import_count: usize,
+    pub abi_format_version: u16,
+    pub exports: Vec<BytecodePackageInfoExport>,
+    pub imports: Vec<BytecodePackageInfoImport>,
+}
+
+pub struct BytecodePackageInfoExport {
+    pub name: String,
+    pub kind: BytecodeExportKind,
+    pub sig_hash: String,
+}
+
+pub struct BytecodePackageInfoImport {
+    pub package_name: String,
+    pub version_min: String,
+    pub version_max: String,
+    pub flags: u32,
+    pub abi_version_request: String,
+    pub abi_pin: bool,
+    pub used_symbols: Vec<BytecodePackageInfoUsedSymbol>,
+}
+
+pub struct BytecodePackageInfoUsedSymbol {
+    pub name: String,
+    pub sig_hash: String,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -506,6 +549,11 @@ pub fn read_package_exports(path: &Path) -> Result<Vec<BytecodeExport>, String> 
     package_exports(&package).map_err(|err| format!("failed to read '{}': {err}", path.display()))
 }
 
+pub fn read_package_info(path: &Path) -> Result<BytecodePackageInfo, String> {
+    let package = read_package_bytecode(path)?;
+    package_info(&package).map_err(|err| format!("failed to read '{}': {err}", path.display()))
+}
+
 fn read_package_bytecode(path: &Path) -> Result<PackageBytecode, String> {
     let package =
         fs::read(path).map_err(|err| format!("failed to read '{}': {err}", path.display()))?;
@@ -646,6 +694,21 @@ fn read_bytecode_package(bytes: &[u8]) -> Result<PackageBytecode, String> {
             .copied()
             .ok_or_else(|| "MFBC is missing the import table section".to_string())?,
     )?;
+    let abi = read_abi_index(
+        sections
+            .get(&SECTION_ABI_INDEX)
+            .copied()
+            .ok_or_else(|| "MFBC is missing the ABI_INDEX section".to_string())?,
+    )?;
+    validate_abi_index(
+        &abi,
+        &exports,
+        &imports,
+        &strings.values,
+        &types,
+        &constants,
+        &functions,
+    )?;
 
     Ok(PackageBytecode {
         project: BytecodeProject {
@@ -655,6 +718,7 @@ fn read_bytecode_package(bytes: &[u8]) -> Result<PackageBytecode, String> {
             resources,
             manifest,
             imports,
+            abi,
             entry_function: u32::MAX,
             entry_flags: 0,
             functions,
@@ -694,6 +758,93 @@ fn package_exports(package: &PackageBytecode) -> Result<Vec<BytecodeExport>, Str
             })
         })
         .collect()
+}
+
+fn package_info(package: &PackageBytecode) -> Result<BytecodePackageInfo, String> {
+    let strings = &package.project.strings.values;
+    if package.project.abi.exports.len() != package.exports.len() {
+        return Err("ABI_INDEX export count disagrees with EXPORT_TABLE".to_string());
+    }
+
+    let exports = package
+        .exports
+        .iter()
+        .zip(package.project.abi.exports.iter())
+        .map(|(export, abi_export)| {
+            let name = string_at(strings, export.name)?.to_string();
+            if export.name != abi_export.name || export.kind != abi_export.kind {
+                return Err(format!(
+                    "ABI_INDEX export `{name}` disagrees with EXPORT_TABLE order"
+                ));
+            }
+            Ok(BytecodePackageInfoExport {
+                name,
+                kind: export.kind,
+                sig_hash: hex_hash(&abi_export.sig_hash),
+            })
+        })
+        .collect::<Result<Vec<_>, String>>()?;
+
+    let mut abi_edges = package
+        .project
+        .abi
+        .dep_edges
+        .iter()
+        .map(|edge| Ok((string_at(strings, edge.package_name)?.to_string(), edge)))
+        .collect::<Result<HashMap<_, _>, String>>()?;
+
+    let imports = package
+        .project
+        .imports
+        .entries
+        .iter()
+        .map(|entry| {
+            let package_name = string_at(strings, entry.package_name)?.to_string();
+            let edge = abi_edges.remove(&package_name);
+            let used_symbols = edge
+                .map(|edge| {
+                    edge.used_symbols
+                        .iter()
+                        .map(|symbol| {
+                            Ok(BytecodePackageInfoUsedSymbol {
+                                name: string_at(strings, symbol.name)?.to_string(),
+                                sig_hash: hex_hash(&symbol.sig_hash),
+                            })
+                        })
+                        .collect::<Result<Vec<_>, String>>()
+                })
+                .transpose()?
+                .unwrap_or_default();
+            Ok(BytecodePackageInfoImport {
+                package_name,
+                version_min: string_at(strings, entry.version_min)?.to_string(),
+                version_max: string_at(strings, entry.version_max)?.to_string(),
+                flags: entry.flags,
+                abi_version_request: edge
+                    .map(|edge| string_at(strings, edge.version_request).map(str::to_string))
+                    .transpose()?
+                    .unwrap_or_default(),
+                abi_pin: edge.is_some_and(|edge| edge.pin),
+                used_symbols,
+            })
+        })
+        .collect::<Result<Vec<_>, String>>()?;
+
+    Ok(BytecodePackageInfo {
+        manifest_name: string_at(strings, package.project.manifest.package_name)?.to_string(),
+        manifest_version: string_at(strings, package.project.manifest.package_version)?.to_string(),
+        author: string_at(strings, package.project.manifest.author)?.to_string(),
+        url: string_at(strings, package.project.manifest.url)?.to_string(),
+        type_count: package.project.types.entries.len(),
+        const_count: package.project.constants.entries.len(),
+        resource_count: package.project.resources.entries.len(),
+        function_count: package.project.functions.len(),
+        export_count: package.exports.len(),
+        import_count: package.project.imports.entries.len(),
+        abi_format_version: ABI_FORMAT_VERSION,
+        exports,
+        imports,
+    })
 }
 
 struct DecodedExport {
@@ -1066,6 +1217,118 @@ fn read_export_table(bytes: &[u8]) -> Result<Vec<DecodedExport>, String> {
     Ok(exports)
 }
 
+fn read_abi_index(bytes: &[u8]) -> Result<AbiIndex, String> {
+    let mut offset = 0;
+    let version = cursor_u16(bytes, &mut offset)?;
+    if version != ABI_FORMAT_VERSION {
+        return Err(format!("unsupported ABI_INDEX format version {version}"));
+    }
+    let _reserved = cursor_u16(bytes, &mut offset)?;
+
+    let export_count = cursor_u32(bytes, &mut offset)? as usize;
+    let mut exports = Vec::with_capacity(export_count);
+    for _ in 0..export_count {
+        let name = cursor_u32(bytes, &mut offset)?;
+        let kind = match cursor_u16(bytes, &mut offset)? {
+            1 => BytecodeExportKind::Func,
+            2 => BytecodeExportKind::Sub,
+            other => return Err(format!("unsupported ABI_INDEX export kind {other}")),
+        };
+        let sig_hash = cursor_hash(bytes, &mut offset)?;
+        exports.push(AbiExport {
+            name,
+            kind,
+            sig_hash,
+        });
+    }
+
+    let edge_count = cursor_u32(bytes, &mut offset)? as usize;
+    let mut dep_edges = Vec::with_capacity(edge_count);
+    for _ in 0..edge_count {
+        let package_name = cursor_u32(bytes, &mut offset)?;
+        let version_request = cursor_u32(bytes, &mut offset)?;
+        let pin = match cursor_u8(bytes, &mut offset)? {
+            0 => false,
+            1 => true,
+            other => return Err(format!("unsupported ABI_INDEX dep pin value {other}")),
+        };
+        let used_count = cursor_u32(bytes, &mut offset)? as usize;
+        let mut used_symbols = Vec::with_capacity(used_count);
+        for _ in 0..used_count {
+            used_symbols.push(AbiUsedSymbol {
+                name: cursor_u32(bytes, &mut offset)?,
+                sig_hash: cursor_hash(bytes, &mut offset)?,
+            });
+        }
+        dep_edges.push(AbiDepEdge {
+            package_name,
+            version_request,
+            pin,
+            used_symbols,
+        });
+    }
+
+    if offset != bytes.len() {
+        return Err("invalid trailing bytes in ABI_INDEX".to_string());
+    }
+
+    Ok(AbiIndex { exports, dep_edges })
+}
+
+fn validate_abi_index(
+    abi: &AbiIndex,
+    exports: &[DecodedExport],
+    imports: &ImportTable,
+    strings: &[String],
+    types: &TypeTable,
+    constants: &ConstPool,
+    functions: &[Function],
+) -> Result<(), String> {
+    if abi.exports.len() != exports.len() {
+        return Err("ABI_INDEX export count disagrees with EXPORT_TABLE".to_string());
+    }
+
+    for (export, abi_export) in exports.iter().zip(abi.exports.iter()) {
+        if export.name != abi_export.name || export.kind != abi_export.kind {
+            let name = string_at(strings, export.name).unwrap_or("<invalid>");
+            return Err(format!(
+                "ABI_INDEX export `{name}` disagrees with EXPORT_TABLE order"
+            ));
+        }
+        let Some(function) = functions.get(export.function_id as usize) else {
+            return Err(format!(
+                "export references missing function {}",
+                export.function_id
+            ));
+        };
+        let expected = function_sig_hash(function, export.kind, strings, types, constants)?;
+        if abi_export.sig_hash != expected {
+            let name = string_at(strings, export.name).unwrap_or("<invalid>");
+            return Err(format!(
+                "ABI_INDEX export `{name}` sigHash disagrees with bytecode (required {}, provided {})",
+                hex_hash(&expected),
+                hex_hash(&abi_export.sig_hash)
+            ));
+        }
+    }
+
+    let import_names = imports
+        .entries
+        .iter()
+        .map(|entry| string_at(strings, entry.package_name).map(str::to_string))
+        .collect::<Result<Vec<_>, _>>()?;
+    let edge_names = abi
+        .dep_edges
+        .iter()
+        .map(|edge| string_at(strings, edge.package_name).map(str::to_string))
+        .collect::<Result<Vec<_>, _>>()?;
+    if sorted_strings(import_names) != sorted_strings(edge_names) {
+        return Err("ABI_INDEX dependency edges disagree with IMPORT_TABLE entries".to_string());
+    }
+
+    Ok(())
+}
+
 fn type_name(types: &HashMap<u32, String>, id: u32) -> Result<&str, String> {
     if let Some(name) = primitive_type_name(id) {
         return Ok(name);
@@ -1083,6 +1346,234 @@ fn string_at(strings: &[String], id: u32) -> Result<&str, String> {
         .ok_or_else(|| format!("unknown string id {id}"))
 }
 
+fn function_sig_hash(
+    function: &Function,
+    export_kind: BytecodeExportKind,
+    strings: &[String],
+    types: &TypeTable,
+    constants: &ConstPool,
+) -> Result<[u8; ABI_HASH_LEN], String> {
+    let mut serializer = AbiSerializer::new(strings, types, constants);
+    serializer.bytes.extend_from_slice(b"MFBABI\0");
+    serializer.put_u16(ABI_FORMAT_VERSION);
+    serializer.put_str("function");
+    serializer.put_u16(match export_kind {
+        BytecodeExportKind::Func => 1,
+        BytecodeExportKind::Sub => 2,
+    });
+    serializer.put_u16(function.flags & (FUNCTION_FLAG_ISOLATED | FUNCTION_FLAG_SUB));
+    serializer.put_u32(function.params.len() as u32);
+    for param in &function.params {
+        serializer.serialize_type(param.type_id)?;
+        if param.default_const == u32::MAX {
+            serializer.put_u8(0);
+        } else {
+            serializer.put_u8(1);
+            serializer.serialize_const(param.default_const)?;
+        }
+    }
+    serializer.serialize_type(function.return_type)?;
+    Ok(hash_bytes(&serializer.bytes))
+}
+
+struct AbiSerializer<'a> {
+    strings: &'a [String],
+    types: &'a TypeTable,
+    constants: &'a ConstPool,
+    bytes: Vec<u8>,
+    type_refs: HashMap<u32, u32>,
+    next_ref: u32,
+}
+
+impl<'a> AbiSerializer<'a> {
+    fn new(strings: &'a [String], types: &'a TypeTable, constants: &'a ConstPool) -> Self {
+        Self {
+            strings,
+            types,
+            constants,
+            bytes: Vec::new(),
+            type_refs: HashMap::new(),
+            next_ref: 0,
+        }
+    }
+
+    fn serialize_type(&mut self, id: u32) -> Result<(), String> {
+        if let Some(primitive) = primitive_type_name(id) {
+            self.put_u8(1);
+            self.put_u32(id);
+            self.put_str(primitive);
+            return Ok(());
+        }
+
+        if let Some(ref_id) = self.type_refs.get(&id).copied() {
+            self.put_u8(2);
+            self.put_u32(ref_id);
+            return Ok(());
+        }
+
+        let entry = self
+            .types
+            .entries
+            .get((id - 9) as usize)
+            .ok_or_else(|| format!("unknown type id {id}"))?;
+        let ref_id = self.next_ref;
+        self.next_ref = self
+            .next_ref
+            .checked_add(1)
+            .ok_or_else(|| "ABI type graph has too many nodes".to_string())?;
+        self.type_refs.insert(id, ref_id);
+
+        self.put_u8(3);
+        self.put_u32(ref_id);
+        self.put_u16(entry.kind);
+        match entry.kind {
+            1 => self.serialize_record_type(entry),
+            2 => self.serialize_union_type(entry),
+            3 => self.serialize_enum_type(entry),
+            4 => {
+                self.put_str("list");
+                self.serialize_type(checked_u32_at(&entry.payload, 0)?)
+            }
+            5 => {
+                self.put_str("map");
+                self.serialize_type(checked_u32_at(&entry.payload, 0)?)?;
+                self.serialize_type(checked_u32_at(&entry.payload, 4)?)
+            }
+            6 => {
+                self.put_str("result");
+                self.serialize_type(checked_u32_at(&entry.payload, 0)?)
+            }
+            8 => self.serialize_function_type(entry),
+            9 => {
+                self.put_str("thread");
+                self.serialize_type(checked_u32_at(&entry.payload, 0)?)?;
+                self.serialize_type(checked_u32_at(&entry.payload, 4)?)
+            }
+            _ => {
+                self.put_str("opaque");
+                self.put_str(string_at(self.strings, entry.name)?);
+                Ok(())
+            }
+        }
+    }
+
+    fn serialize_record_type(&mut self, entry: &TypeEntry) -> Result<(), String> {
+        self.put_str("record");
+        let mut offset = 0;
+        let field_count = cursor_u32(&entry.payload, &mut offset)?;
+        self.put_u32(field_count);
+        for _ in 0..field_count {
+            let name = cursor_u32(&entry.payload, &mut offset)?;
+            let type_id = cursor_u32(&entry.payload, &mut offset)?;
+            let _visibility = cursor_u32(&entry.payload, &mut offset)?;
+            self.put_str(string_at(self.strings, name)?);
+            self.serialize_type(type_id)?;
+        }
+        Ok(())
+    }
+
+    fn serialize_union_type(&mut self, entry: &TypeEntry) -> Result<(), String> {
+        self.put_str("union");
+        let mut offset = 0;
+        let variant_count = cursor_u32(&entry.payload, &mut offset)?;
+        self.put_u32(variant_count);
+        for _ in 0..variant_count {
+            let name = cursor_u32(&entry.payload, &mut offset)?;
+            self.put_str(string_at(self.strings, name)?);
+            let field_count = cursor_u32(&entry.payload, &mut offset)?;
+            self.put_u32(field_count);
+            for _ in 0..field_count {
+                let field_name = cursor_u32(&entry.payload, &mut offset)?;
+                let field_type = cursor_u32(&entry.payload, &mut offset)?;
+                self.put_str(string_at(self.strings, field_name)?);
+                self.serialize_type(field_type)?;
+            }
+        }
+        Ok(())
+    }
+
+    fn serialize_enum_type(&mut self, entry: &TypeEntry) -> Result<(), String> {
+        self.put_str("enum");
+        let mut offset = 0;
+        let member_count = cursor_u32(&entry.payload, &mut offset)?;
+        self.put_u32(member_count);
+        for _ in 0..member_count {
+            let name = cursor_u32(&entry.payload, &mut offset)?;
+            let ordinal = cursor_u32(&entry.payload, &mut offset)?;
+            self.put_str(string_at(self.strings, name)?);
+            self.put_u32(ordinal);
+        }
+        Ok(())
+    }
+
+    fn serialize_function_type(&mut self, entry: &TypeEntry) -> Result<(), String> {
+        self.put_str("function-type");
+        let mut offset = 0;
+        let isolated = cursor_u32(&entry.payload, &mut offset)?;
+        let param_count = cursor_u32(&entry.payload, &mut offset)?;
+        let return_type = cursor_u32(&entry.payload, &mut offset)?;
+        self.put_u32(isolated);
+        self.put_u32(param_count);
+        self.serialize_type(return_type)?;
+        for _ in 0..param_count {
+            self.serialize_type(cursor_u32(&entry.payload, &mut offset)?)?;
+        }
+        Ok(())
+    }
+
+    fn serialize_const(&mut self, id: u32) -> Result<(), String> {
+        let constant = self
+            .constants
+            .entries
+            .get(id as usize)
+            .ok_or_else(|| format!("unknown const id {id}"))?;
+        self.put_u16(constant.kind);
+        match constant.kind {
+            6 => {
+                let string_id = checked_u32_at(&constant.payload, 0)?;
+                self.put_str(string_at(self.strings, string_id)?);
+            }
+            _ => {
+                self.put_u32(constant.payload.len() as u32);
+                self.bytes.extend_from_slice(&constant.payload);
+            }
+        }
+        Ok(())
+    }
+
+    fn put_u8(&mut self, value: u8) {
+        self.bytes.push(value);
+    }
+
+    fn put_u16(&mut self, value: u16) {
+        put_u16(&mut self.bytes, value);
+    }
+
+    fn put_u32(&mut self, value: u32) {
+        put_u32(&mut self.bytes, value);
+    }
+
+    fn put_str(&mut self, value: &str) {
+        put_bytes(&mut self.bytes, value.as_bytes());
+    }
+}
+
+fn hash_bytes(bytes: &[u8]) -> [u8; ABI_HASH_LEN] {
+    let digest = Sha256::digest(bytes);
+    let mut hash = [0; ABI_HASH_LEN];
+    hash.copy_from_slice(&digest);
+    hash
+}
+
+fn sorted_strings(mut values: Vec<String>) -> Vec<String> {
+    values.sort();
+    values
+}
+
+fn hex_hash(hash: &[u8; ABI_HASH_LEN]) -> String {
+    hash.iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
 fn skip_length_prefixed(bytes: &[u8], offset: &mut usize, field: &str) -> Result<(), String> {
     let length = cursor_u32(bytes, offset)? as usize;
     let end = offset
@@ -1095,12 +1586,35 @@ fn skip_length_prefixed(bytes: &[u8], offset: &mut usize, field: &str) -> Result
     Ok(())
 }
 
+fn cursor_u8(bytes: &[u8], offset: &mut usize) -> Result<u8, String> {
+    let value = *bytes
+        .get(*offset)
+        .ok_or_else(|| "truncated bytecode".to_string())?;
+    *offset = offset
+        .checked_add(1)
+        .ok_or_else(|| "invalid u8 offset".to_string())?;
+    Ok(value)
+}
+
 fn cursor_u16(bytes: &[u8], offset: &mut usize) -> Result<u16, String> {
     let value = checked_u16_at(bytes, *offset)?;
     *offset = offset
         .checked_add(2)
         .ok_or_else(|| "invalid u16 offset".to_string())?;
     Ok(value)
+}
+
+fn cursor_hash(bytes: &[u8], offset: &mut usize) -> Result<[u8; ABI_HASH_LEN], String> {
+    let end = offset
+        .checked_add(ABI_HASH_LEN)
+        .ok_or_else(|| "invalid hash offset".to_string())?;
+    let value = bytes
+        .get(*offset..end)
+        .ok_or_else(|| "truncated ABI hash".to_string())?;
+    let mut hash = [0; ABI_HASH_LEN];
+    hash.copy_from_slice(value);
+    *offset = end;
+    Ok(hash)
 }
 
 fn cursor_u32(bytes: &[u8], offset: &mut usize) -> Result<u32, String> {
@@ -1476,6 +1990,7 @@ struct BytecodeProject {
     resources: ResourceTable,
     manifest: BytecodeManifest,
     imports: ImportTable,
+    abi: AbiIndex,
     entry_function: u32,
     entry_flags: u32,
     functions: Vec<Function>,
@@ -1537,6 +2052,33 @@ struct ImportEntry {
     version_min: u32,
     version_max: u32,
     flags: u32,
+}
+
+#[derive(Clone)]
+struct AbiIndex {
+    exports: Vec<AbiExport>,
+    dep_edges: Vec<AbiDepEdge>,
+}
+
+#[derive(Clone)]
+struct AbiExport {
+    name: u32,
+    kind: BytecodeExportKind,
+    sig_hash: [u8; ABI_HASH_LEN],
+}
+
+#[derive(Clone)]
+struct AbiDepEdge {
+    package_name: u32,
+    version_request: u32,
+    pin: bool,
+    used_symbols: Vec<AbiUsedSymbol>,
+}
+
+#[derive(Clone)]
+struct AbiUsedSymbol {
+    name: u32,
+    sig_hash: [u8; ABI_HASH_LEN],
 }
 
 struct TypeModel {
@@ -1667,6 +2209,10 @@ struct Function {
     cleanups: Vec<Cleanup>,
 }
 
+fn is_exported_function(function: &Function) -> bool {
+    function.kind == FUNCTION_BYTECODE && function.flags & FUNCTION_FLAG_PRIVATE == 0
+}
+
 struct Param {
     name: u32,
     type_id: u32,
@@ -1747,6 +2293,13 @@ fn lower_merged_project(
     for package in packages {
         merge_package_bytecode(&mut project, package)?;
     }
+    project.abi = AbiIndex::from_project(
+        &project.strings,
+        &project.types,
+        &project.constants,
+        &project.imports,
+        &project.functions,
+    )?;
     Ok(project)
 }
 
@@ -1808,6 +2361,7 @@ fn lower_project_with_external_functions(
             &type_model,
         )?);
     }
+    let abi = AbiIndex::from_project(&strings, &types, &constants, &imports, &functions)?;
 
     let (entry_function, entry_flags) = if let Some(entry) = &ir.entry {
         let function_id = *function_ids.get(&entry.name).ok_or_else(|| {
@@ -1835,6 +2389,7 @@ fn lower_project_with_external_functions(
         resources,
         manifest,
         imports,
+        abi,
         entry_function,
         entry_flags,
         functions,
@@ -2311,7 +2866,11 @@ fn lower_function(
         builder.push(OPCODE_RETURN_OK, vec![nothing]);
     }
 
-    let mut flags = FUNCTION_FLAG_PRIVATE;
+    let mut flags = if function.visibility == "export" {
+        0
+    } else {
+        FUNCTION_FLAG_PRIVATE
+    };
     if function.kind == "sub" {
         flags |= FUNCTION_FLAG_SUB | FUNCTION_FLAG_RETURNS_NOTHING;
     }
@@ -3633,7 +4192,11 @@ impl ImportTable {
                 package_name: strings.intern(&dependency.name),
                 version_min: strings.intern(&dependency.version_min),
                 version_max: strings.intern(&dependency.version_max),
-                flags: dependency.flags,
+                flags: if dependency.pin.is_some() {
+                    dependency.flags | (1 << 4)
+                } else {
+                    dependency.flags
+                },
             })
             .collect();
 
@@ -3648,6 +4211,76 @@ impl ImportTable {
             put_u32(&mut bytes, entry.version_min);
             put_u32(&mut bytes, entry.version_max);
             put_u32(&mut bytes, entry.flags);
+        }
+        bytes
+    }
+}
+
+impl AbiIndex {
+    fn from_project(
+        strings: &StringPool,
+        types: &TypeTable,
+        constants: &ConstPool,
+        imports: &ImportTable,
+        functions: &[Function],
+    ) -> Result<Self, String> {
+        let mut exports = Vec::new();
+        for function in functions {
+            if !is_exported_function(function) {
+                continue;
+            }
+            let kind = if function.flags & FUNCTION_FLAG_SUB != 0 {
+                BytecodeExportKind::Sub
+            } else {
+                BytecodeExportKind::Func
+            };
+            exports.push(AbiExport {
+                name: function.name,
+                kind,
+                sig_hash: function_sig_hash(function, kind, &strings.values, types, constants)?,
+            });
+        }
+
+        let dep_edges = imports
+            .entries
+            .iter()
+            .map(|entry| AbiDepEdge {
+                package_name: entry.package_name,
+                version_request: entry.version_min,
+                pin: entry.flags & (1 << 4) != 0,
+                used_symbols: Vec::new(),
+            })
+            .collect();
+
+        Ok(Self { exports, dep_edges })
+    }
+
+    fn encode(&self) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        put_u16(&mut bytes, ABI_FORMAT_VERSION);
+        put_u16(&mut bytes, 0);
+        put_u32(&mut bytes, self.exports.len() as u32);
+        for export in &self.exports {
+            put_u32(&mut bytes, export.name);
+            put_u16(
+                &mut bytes,
+                match export.kind {
+                    BytecodeExportKind::Func => 1,
+                    BytecodeExportKind::Sub => 2,
+                },
+            );
+            bytes.extend_from_slice(&export.sig_hash);
+        }
+        put_u32(&mut bytes, self.dep_edges.len() as u32);
+        for edge in &self.dep_edges {
+            put_u32(&mut bytes, edge.package_name);
+            put_u32(&mut bytes, edge.version_request);
+            bytes.push(if edge.pin { 1 } else { 0 });
+            put_u32(&mut bytes, edge.used_symbols.len() as u32);
+            for symbol in &edge.used_symbols {
+                put_u32(&mut bytes, symbol.name);
+                bytes.extend_from_slice(&symbol.sig_hash);
+            }
         }
         bytes
     }
@@ -3675,6 +4308,7 @@ impl BytecodeProject {
             Section::new(SECTION_GLOBAL_TABLE, encode_empty_count()),
             Section::new(SECTION_FUNCTION_TABLE, self.encode_functions(&code_offsets)),
             Section::new(SECTION_CODE, code_section),
+            Section::new(SECTION_ABI_INDEX, self.abi.encode()),
         ];
         if !self.resources.entries.is_empty() {
             sections.push(Section::new(
@@ -3710,7 +4344,7 @@ impl BytecodeProject {
         let mut bytes = Vec::new();
         put_u32(&mut bytes, self.export_count());
         for (index, function) in self.functions.iter().enumerate() {
-            if function.kind != FUNCTION_BYTECODE {
+            if !is_exported_function(function) {
                 continue;
             }
             put_u32(&mut bytes, function.name);
@@ -3731,7 +4365,7 @@ impl BytecodeProject {
     fn export_count(&self) -> u32 {
         self.functions
             .iter()
-            .filter(|function| function.kind == FUNCTION_BYTECODE)
+            .filter(|function| is_exported_function(function))
             .count() as u32
     }
 

@@ -42,7 +42,7 @@ struct Resolver<'a> {
     ast: &'a AstProject,
     dependency_packages: HashMap<String, DependencyPackage>,
     top_levels: HashMap<String, Symbol>,
-    functions: HashMap<String, Symbol>,
+    functions: HashMap<String, Vec<FunctionSymbol>>,
     types: HashSet<String>,
     variant_constructors: HashSet<String>,
     had_error: bool,
@@ -52,6 +52,12 @@ struct Resolver<'a> {
 struct Symbol {
     file_path: String,
     line: usize,
+}
+
+#[derive(Clone)]
+struct FunctionSymbol {
+    symbol: Symbol,
+    params: Vec<Option<String>>,
 }
 
 impl<'a> Resolver<'a> {
@@ -82,15 +88,7 @@ impl<'a> Resolver<'a> {
             for item in &file.items {
                 match item {
                     Item::Function(function) => {
-                        if self.insert_top_level(file, &function.name, function.line) {
-                            self.functions.insert(
-                                function.name.clone(),
-                                Symbol {
-                                    file_path: file.path.clone(),
-                                    line: function.line,
-                                },
-                            );
-                        }
+                        self.insert_function(file, function);
                     }
                     Item::Type(type_decl) => {
                         if self.insert_top_level(file, &type_decl.name, type_decl.line) {
@@ -105,6 +103,59 @@ impl<'a> Resolver<'a> {
         }
     }
 
+    fn insert_function(&mut self, file: &AstFile, function: &crate::ast::Function) {
+        if let Some(previous) = self.top_levels.get(&function.name).cloned() {
+            self.report(
+                "SYMBOL_DUPLICATE_TOP_LEVEL",
+                &format!(
+                    "Top-level symbol `{}` was already declared in {}:{}.",
+                    function.name, previous.file_path, previous.line
+                ),
+                file,
+                function.line,
+            );
+            return;
+        }
+
+        let params = function
+            .params
+            .iter()
+            .map(|param| param.type_name.clone())
+            .collect::<Vec<_>>();
+        if let Some(previous) = self
+            .functions
+            .get(&function.name)
+            .and_then(|functions| {
+                functions
+                    .iter()
+                    .find(|candidate| candidate.params == params)
+            })
+            .cloned()
+        {
+            self.report(
+                "SYMBOL_DUPLICATE_TOP_LEVEL",
+                &format!(
+                    "Top-level symbol `{}` was already declared in {}:{}.",
+                    function.name, previous.symbol.file_path, previous.symbol.line
+                ),
+                file,
+                function.line,
+            );
+            return;
+        }
+
+        self.functions
+            .entry(function.name.clone())
+            .or_default()
+            .push(FunctionSymbol {
+                symbol: Symbol {
+                    file_path: file.path.clone(),
+                    line: function.line,
+                },
+                params,
+            });
+    }
+
     fn insert_top_level(&mut self, file: &AstFile, name: &str, line: usize) -> bool {
         if let Some(previous) = self.top_levels.get(name).cloned() {
             self.report(
@@ -112,6 +163,23 @@ impl<'a> Resolver<'a> {
                 &format!(
                     "Top-level symbol `{name}` was already declared in {}:{}.",
                     previous.file_path, previous.line
+                ),
+                file,
+                line,
+            );
+            return false;
+        }
+        if let Some(previous) = self
+            .functions
+            .get(name)
+            .and_then(|functions| functions.first())
+            .cloned()
+        {
+            self.report(
+                "SYMBOL_DUPLICATE_TOP_LEVEL",
+                &format!(
+                    "Top-level symbol `{name}` was already declared in {}:{}.",
+                    previous.symbol.file_path, previous.symbol.line
                 ),
                 file,
                 line,

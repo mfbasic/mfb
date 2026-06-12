@@ -18,7 +18,7 @@ use std::path::{Path, PathBuf};
 use std::process;
 use tinyjson::JsonValue;
 
-const USAGE: &str = "Usage: mfb <command> <arguments>\n\nCommands:\n  help                        Show this message\n  init <location>             Create a new MFBASIC executable project\n  init-pkg <location>         Create a new MFBASIC package project\n  pkg add <url>               Add a compiled package to the current project\n  pkg verify                  Verify packages declared by project.json\n  build [-ast|-ir|-bc|-bin] [location] Validate and build an MFBASIC project\n  man [package] [function]    Show built-in package and function help";
+const USAGE: &str = "Usage: mfb <command> <arguments>\n\nCommands:\n  help                        Show this message\n  init <location>             Create a new MFBASIC executable project\n  init-pkg <location>         Create a new MFBASIC package project\n  pkg add <url>               Add a compiled package to the current project\n  pkg info <package>          Show information about a compiled package\n  pkg verify                  Verify packages declared by project.json\n  build [-ast|-ir|-bc|-bin] [location] Validate and build an MFBASIC project\n  man [package] [function]    Show built-in package and function help";
 
 const MFP_MAGIC: [u8; 8] = [0x4d, 0x46, 0x50, 0x0d, 0x0a, 0x1a, 0x0a, 0x00];
 
@@ -325,11 +325,17 @@ fn run_pkg_command(args: &[String]) -> Result<(), PkgCommandError> {
         [command, url] if command == "add" => {
             add_package(Path::new("."), url).map_err(PkgCommandError::Failed)
         }
+        [command, package] if command == "info" => {
+            print_package_info(Path::new(package)).map_err(PkgCommandError::Failed)
+        }
         [command] if command == "verify" => {
             verify_packages(Path::new(".")).map_err(PkgCommandError::Failed)
         }
         [command, ..] if command == "add" => Err(PkgCommandError::Usage(format!(
             "mfb pkg add requires exactly one <url>\n\n{USAGE}"
+        ))),
+        [command, ..] if command == "info" => Err(PkgCommandError::Usage(format!(
+            "mfb pkg info requires exactly one <package>\n\n{USAGE}"
         ))),
         [command, ..] if command == "verify" => Err(PkgCommandError::Usage(format!(
             "mfb pkg verify accepts no arguments\n\n{USAGE}"
@@ -357,6 +363,7 @@ fn add_package(project_dir: &Path, url: &str) -> Result<(), String> {
     let dependency = ProjectPackageDependency {
         name: package.name.clone(),
         version: format!("={}", package.version),
+        pin: Some(package.version.clone()),
         source: url.to_string(),
     };
     let updated = project_json_with_package(&contents, &manifest, &dependency)?;
@@ -412,6 +419,115 @@ fn verify_packages(project_dir: &Path) -> Result<(), String> {
     Ok(())
 }
 
+fn print_package_info(path: &Path) -> Result<(), String> {
+    let header = read_mfp_header(path)?;
+    let info = bytecode::read_package_info(path)?;
+
+    println!("Package: {}", header.name);
+    println!("Version: {}", header.version);
+    println!("Author: {}", empty_marker(&header.author));
+    println!("URL: {}", empty_marker(&header.url));
+    println!("Path: {}", path.display());
+    println!();
+    println!("Container:");
+    println!("  format: MFP");
+    println!(
+        "  version: {}.{}",
+        header.container_major, header.container_minor
+    );
+    println!(
+        "  bytecode version: {}.{}",
+        header.bytecode_major, header.bytecode_minor
+    );
+    println!("  flags: 0x{:08x}", header.flags);
+    println!(
+        "  signature type: {}",
+        signature_type_name(header.signature_type)
+    );
+    println!("  signature length: {}", header.signature_length);
+    println!("  bytecode length: {}", header.bytecode_length);
+    println!();
+    println!("Manifest:");
+    println!("  name: {}", info.manifest_name);
+    println!("  version: {}", info.manifest_version);
+    println!("  author: {}", empty_marker(&info.author));
+    println!("  url: {}", empty_marker(&info.url));
+    println!();
+    println!("Bytecode:");
+    println!("  ABI format version: {}", info.abi_format_version);
+    println!("  types: {}", info.type_count);
+    println!("  constants: {}", info.const_count);
+    println!("  resources: {}", info.resource_count);
+    println!("  functions: {}", info.function_count);
+    println!("  imports: {}", info.import_count);
+    println!("  exports: {}", info.export_count);
+    println!();
+    println!("Exports:");
+    if info.exports.is_empty() {
+        println!("  <none>");
+    } else {
+        for export in &info.exports {
+            println!(
+                "  {} {}",
+                package_export_kind_name(export.kind),
+                export.name
+            );
+            println!("    sigHash: {}", export.sig_hash);
+        }
+    }
+    println!();
+    println!("Imports:");
+    if info.imports.is_empty() {
+        println!("  <none>");
+    } else {
+        for import in &info.imports {
+            println!("  {}", import.package_name);
+            println!("    version min: {}", empty_marker(&import.version_min));
+            println!("    version max: {}", empty_marker(&import.version_max));
+            println!("    flags: 0x{:08x}", import.flags);
+            println!(
+                "    ABI version request: {}",
+                empty_marker(&import.abi_version_request)
+            );
+            println!("    ABI pin: {}", import.abi_pin);
+            if import.used_symbols.is_empty() {
+                println!("    used symbols: <none>");
+            } else {
+                println!("    used symbols:");
+                for symbol in &import.used_symbols {
+                    println!("      {}", symbol.name);
+                    println!("        sigHash: {}", symbol.sig_hash);
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn signature_type_name(signature_type: u16) -> String {
+    match signature_type {
+        0 => "unsigned".to_string(),
+        1 => "Ed25519".to_string(),
+        other => format!("unknown ({other})"),
+    }
+}
+
+fn package_export_kind_name(kind: bytecode::BytecodeExportKind) -> &'static str {
+    match kind {
+        bytecode::BytecodeExportKind::Func => "FUNC",
+        bytecode::BytecodeExportKind::Sub => "SUB",
+    }
+}
+
+fn empty_marker(value: &str) -> &str {
+    if value.is_empty() {
+        "<empty>"
+    } else {
+        value
+    }
+}
+
 fn project_package_dependency(value: &JsonValue) -> Option<ProjectPackageDependency> {
     let package = value.get::<HashMap<String, JsonValue>>()?;
     let name = package.get("name")?.get::<String>()?.clone();
@@ -425,6 +541,10 @@ fn project_package_dependency(value: &JsonValue) -> Option<ProjectPackageDepende
         .and_then(|value| value.get::<String>())
         .cloned()
         .unwrap_or_default();
+    let pin = package
+        .get("pin")
+        .and_then(|value| value.get::<String>())
+        .cloned();
 
     if name.trim().is_empty() {
         return None;
@@ -433,6 +553,7 @@ fn project_package_dependency(value: &JsonValue) -> Option<ProjectPackageDepende
     Some(ProjectPackageDependency {
         name,
         version,
+        pin,
         source,
     })
 }
@@ -493,12 +614,7 @@ fn verify_package_dependency(
         return match read_mfp_header(&package_file) {
             Ok(header) => PackageVerifyResult {
                 version: header.version.clone(),
-                status: package_identity_status(
-                    &dependency.name,
-                    &dependency.version,
-                    &header.name,
-                    &header.version,
-                ),
+                status: package_dependency_status(dependency, &header.name, &header.version),
             },
             Err(_) => PackageVerifyResult {
                 version: String::new(),
@@ -555,12 +671,31 @@ fn verify_source_package_manifest(
 
     PackageVerifyResult {
         version: actual_version.clone(),
-        status: package_identity_status(
+        status: package_dependency_status(dependency, actual_name, actual_version),
+    }
+}
+
+fn package_dependency_status(
+    dependency: &ProjectPackageDependency,
+    actual_name: &str,
+    actual_version: &str,
+) -> PackageVerifyStatus {
+    if let Some(pin) = &dependency.pin {
+        if dependency.name != actual_name {
+            return PackageVerifyStatus::InvalidPackage;
+        }
+        if pin == actual_version {
+            PackageVerifyStatus::Ok
+        } else {
+            PackageVerifyStatus::NeedsUpdate
+        }
+    } else {
+        package_identity_status(
             &dependency.name,
             &dependency.version,
             actual_name,
             actual_version,
-        ),
+        )
     }
 }
 
@@ -854,11 +989,22 @@ fn parse_project_json(
 struct MfpHeader {
     name: String,
     version: String,
+    author: String,
+    url: String,
+    container_major: u16,
+    container_minor: u16,
+    bytecode_major: u16,
+    bytecode_minor: u16,
+    flags: u32,
+    signature_type: u16,
+    signature_length: usize,
+    bytecode_length: usize,
 }
 
 struct ProjectPackageDependency {
     name: String,
     version: String,
+    pin: Option<String>,
     source: String,
 }
 
@@ -945,6 +1091,10 @@ fn read_mfp_header(path: &Path) -> Result<MfpHeader, String> {
             path.display()
         ));
     }
+    let container_minor = read_u16(&bytes, 10)?;
+    let bytecode_major = read_u16(&bytes, 12)?;
+    let bytecode_minor = read_u16(&bytes, 14)?;
+    let flags = read_u32(&bytes, 16)?;
 
     let signature_type = read_u16(&bytes, 20)?;
     let signature_length = read_u32(&bytes, 22)? as usize;
@@ -964,8 +1114,8 @@ fn read_mfp_header(path: &Path) -> Result<MfpHeader, String> {
 
     let name = read_mfp_string(&bytes, &mut offset, "name", 255, true)?;
     let version = read_mfp_string(&bytes, &mut offset, "version", 64, true)?;
-    let _author = read_mfp_string(&bytes, &mut offset, "author", 512, false)?;
-    let _url = read_mfp_string(&bytes, &mut offset, "url", 2048, false)?;
+    let author = read_mfp_string(&bytes, &mut offset, "author", 512, false)?;
+    let url = read_mfp_string(&bytes, &mut offset, "url", 2048, false)?;
     let bytecode_length = read_u64(&bytes, offset)? as usize;
     offset = offset
         .checked_add(8)
@@ -975,7 +1125,20 @@ fn read_mfp_header(path: &Path) -> Result<MfpHeader, String> {
         return Err("invalid .mfp bytecode length".to_string());
     }
 
-    Ok(MfpHeader { name, version })
+    Ok(MfpHeader {
+        name,
+        version,
+        author,
+        url,
+        container_major,
+        container_minor,
+        bytecode_major,
+        bytecode_minor,
+        flags,
+        signature_type,
+        signature_length,
+        bytecode_length,
+    })
 }
 
 fn read_mfp_string(
@@ -1329,6 +1492,15 @@ fn installed_package_files(
                 .join("packages")
                 .join(format!("{}.mfp", dependency.name));
             if package_file.is_file() {
+                let header = read_mfp_header(&package_file)?;
+                if let Some(pin) = &dependency.pin {
+                    if header.version != *pin {
+                        return Err(format!(
+                            "package `{}` is pinned to version {}, but installed package is version {}",
+                            dependency.name, pin, header.version
+                        ));
+                    }
+                }
                 Ok(package_file)
             } else {
                 Err(format!(
@@ -1442,11 +1614,16 @@ fn package_dependencies(
                 .map(String::as_str)
                 .unwrap_or("");
             let (version_min, version_max, flags) = dependency_version_range(version);
+            let pin = package
+                .get("pin")
+                .and_then(|value| value.get::<String>())
+                .cloned();
             Some(bytecode::BytecodeDependency {
                 name,
                 version_min,
                 version_max,
                 flags,
+                pin,
             })
         })
         .collect()
@@ -1510,8 +1687,13 @@ fn project_json_with_package(
 fn package_dependency_json(dependency: &ProjectPackageDependency, indent: usize) -> String {
     let pad = " ".repeat(indent);
     let field_pad = " ".repeat(indent + 2);
+    let pin = dependency
+        .pin
+        .as_ref()
+        .map(|pin| format!(",\n{field_pad}\"pin\": {}", json_string(pin)))
+        .unwrap_or_default();
     format!(
-        "{pad}{{\n{field_pad}\"name\": {},\n{field_pad}\"version\": {},\n{field_pad}\"source\": {}\n{pad}}}",
+        "{pad}{{\n{field_pad}\"name\": {},\n{field_pad}\"version\": {}{pin},\n{field_pad}\"source\": {}\n{pad}}}",
         json_string(&dependency.name),
         json_string(&dependency.version),
         json_string(&dependency.source),
@@ -1812,6 +1994,7 @@ mod tests {
         let dependency = ProjectPackageDependency {
             name: "shape".to_string(),
             version: "=1.0.0".to_string(),
+            pin: None,
             source: "file:///tmp/source/shape.mfp".to_string(),
         };
 
@@ -1845,6 +2028,7 @@ mod tests {
         let dependency = ProjectPackageDependency {
             name: "shape".to_string(),
             version: "=1.0.0".to_string(),
+            pin: None,
             source: "file:///tmp/source/shape.mfp".to_string(),
         };
 
@@ -1884,6 +2068,7 @@ mod tests {
         let dependency = ProjectPackageDependency {
             name: "shape".to_string(),
             version: "^1.2.0".to_string(),
+            pin: None,
             source: "registry:mfb".to_string(),
         };
 
@@ -1931,6 +2116,7 @@ mod tests {
         let dependency = ProjectPackageDependency {
             name: "shape".to_string(),
             version: "^1.2.0".to_string(),
+            pin: None,
             source: "registry:mfb".to_string(),
         };
 
