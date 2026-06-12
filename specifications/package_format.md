@@ -1,25 +1,25 @@
-# `.mfl` Package Format
+# `.mfp` Package Format
 
-A `.mfl` file is a signed MFBASIC library package. It contains:
+A `.mfp` file is a signed MFBASIC package. It contains:
 
 ```text
-MFL container header
+MFP container header
 MFB architecture-independent package bytecode
 ```
 
 The container header provides quick package identity and signature information. The bytecode payload contains the package manifest, dependency metadata, public API metadata, type tables, constants, functions, native binding declarations, and architecture-independent register bytecode.
 
-All integers in `.mfl` files are little-endian. All strings are UTF-8 byte strings and are length-prefixed. No field is NUL-terminated.
+All integers in `.mfp` files are little-endian. All strings are UTF-8 byte strings and are length-prefixed. No field is NUL-terminated.
 
 ## Container layout
 
 ```text
-.mfl file
-  MFLHeader
+.mfp file
+  MFPHeader
   packageBytecode
 ```
 
-## `MFLHeader`
+## `MFPHeader`
 
 ```text
 magic              8 bytes
@@ -53,19 +53,19 @@ packageBytecode    byte[bytecodeLength]
 Recommended magic:
 
 ```text
-4D 46 4C 0D 0A 1A 0A 00
-M  F  L \r \n SUB \n NUL
+4D 46 50 0D 0A 1A 0A 00
+M  F  P \r \n SUB \n NUL
 ```
 
-The magic is deliberately not plain `"MFL1"` so corrupted text-mode transfers are easier to detect.
+The magic is deliberately not plain `"MFP1"` so corrupted text-mode transfers are easier to detect.
 
 ## Header fields
 
 | Field             | Meaning                                                           |
 | ----------------- | ----------------------------------------------------------------- |
 | `magic`           | File identification bytes.                                        |
-| `containerMajor`  | Major version of the `.mfl` container format.                     |
-| `containerMinor`  | Minor version of the `.mfl` container format.                     |
+| `containerMajor`  | Major version of the `.mfp` container format.                     |
+| `containerMinor`  | Minor version of the `.mfp` container format.                     |
 | `bytecodeMajor`   | Required major version of the package bytecode format.            |
 | `bytecodeMinor`   | Required minor version of the package bytecode format.            |
 | `flags`           | Container-level flags. Unknown required flags reject the package. |
@@ -160,7 +160,7 @@ If an implementation sees an unknown required flag, it must reject the package w
 
 ## Container validation
 
-A reader must reject an `.mfl` package when:
+A reader must reject an `.mfp` package when:
 
 * `magic` does not match.
 * `containerMajor` is unsupported.
@@ -189,7 +189,7 @@ Package names should use the same identifier restrictions as source package name
 
 # MFB Package Bytecode
 
-The package bytecode is the architecture-independent payload stored after the `.mfl` header.
+The package bytecode is the architecture-independent payload stored after the `.mfp` header.
 
 The bytecode is not machine code. It contains no native addresses, host pointers, host object layouts, CPU instructions, or platform-specific calling conventions. It is a typed register bytecode plus metadata.
 
@@ -325,9 +325,9 @@ entryFunction     functionId or 0xFFFFFFFF
 entryFlags        u32
 ```
 
-The manifest identity must match the `.mfl` header identity.
+The manifest identity must match the `.mfp` header identity.
 
-`entryFunction` identifies the executable entry point when the bytecode payload is linked as an executable. Library packages set it to `0xFFFFFFFF`. Entry flags:
+`entryFunction` identifies the executable entry point when the bytecode payload is linked as an executable. Packages set it to `0xFFFFFFFF`. Entry flags:
 
 ```text
 bit 0 = package has executable entry
@@ -1026,9 +1026,9 @@ Verifier rules:
 
 # Native Binding Metadata
 
-A package containing `LINK` declarations is still a normal `.mfl` package. The application imports it normally. The binding metadata lives inside the signed bytecode payload.
+A package containing `LINK` declarations is still a normal `.mfp` package. The application imports it normally. The binding metadata lives inside the signed bytecode payload.
 
-The existing native interface separates MFBASIC-facing wrapper signatures from C-facing ABI signatures, with `CString`, `CPtr`, `OUT`, `REF`, `SUCCESS_ON`, and `ERROR_ON` rules.  The `.mfl` stores those rules so importers do not repeat the `LINK`.
+The existing native interface separates MFBASIC-facing wrapper signatures from C-facing ABI signatures, with `CString`, `CPtr`, `OUT`, `REF`, `SUCCESS_ON`, and `ERROR_ON` rules.  The `.mfp` stores those rules so importers do not repeat the `LINK`.
 
 ## `NATIVE_LINK_TABLE`
 
@@ -1196,7 +1196,7 @@ Default rule: resources are not sendable to threads.
 
 # Verifier Rules
 
-The `.mfl` verifier runs before a package can be imported or linked.
+The `.mfp` verifier runs before a package can be imported or linked.
 
 The verifier must reject malformed, unsafe, or incompatible packages with `ErrVerificationFailed`, `ErrPackageInvalid`, or `ErrPackageVersion` as appropriate. The current standard error table already reserves these toolchain diagnostics. 
 
@@ -1285,7 +1285,7 @@ The native verifier checks:
 * Resource ownership is declared through `RESOURCE_TABLE`.
 * A package containing native metadata sets the container native flag.
 
-This directly addresses the `.mfl` verifier gap identified in the review: type-checked bytecode, initialized register use, resource ownership, valid control flow, package signature validation, and native-link manifest validation. 
+This directly addresses the `.mfp` verifier gap identified in the review: type-checked bytecode, initialized register use, resource ownership, valid control flow, package signature validation, and native-link manifest validation. 
 
 ---
 
@@ -1302,7 +1302,7 @@ END FUNC
 Produces conceptually:
 
 ```text
-MFLHeader
+MFPHeader
   magic
   versions
   signatureType
@@ -1355,9 +1355,9 @@ If `ADD` overflows, it creates `ErrOverflow` and routes to the trap or returns `
 This is the compact version I would add to your current `Build Artifacts` section:
 
 ````markdown
-### `.mfl` Container Format
+### `.mfp` Container Format
 
-A `.mfl` library package is a signed binary container followed by architecture-independent MFB bytecode.
+A `.mfp` package is a signed binary container followed by architecture-independent MFB bytecode.
 
 All integers are little-endian. All strings are UTF-8 byte strings with a `u32` byte length. No strings are NUL-terminated.
 
@@ -1454,5 +1454,5 @@ The verifier must check section bounds, type references, initialized register us
 
 ```
 
-That gives you a concrete `.mfl` container and a sane bytecode foundation without turning MFBASIC into a giant VM spec too early.
+That gives you a concrete `.mfp` container and a sane bytecode foundation without turning MFBASIC into a giant VM spec too early.
 ```

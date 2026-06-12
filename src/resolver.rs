@@ -705,7 +705,7 @@ impl<'a> Resolver<'a> {
         let package_file = self
             .project_dir
             .join("packages")
-            .join(format!("{name}.mfl"));
+            .join(format!("{name}.mfp"));
         if package_file.is_file() {
             return;
         }
@@ -799,11 +799,11 @@ impl<'a> Resolver<'a> {
         }
 
         let kind = manifest.get("kind").and_then(|value| value.get::<String>());
-        if kind.map(String::as_str) != Some("library") {
+        if kind.map(String::as_str) != Some("package") {
             self.report(
                 "IMPORT_PACKAGE_KIND_INVALID",
                 &format!(
-                    "Imported source package `{expected_name}` must declare `\"kind\": \"library\"` in `{}`.",
+                    "Imported source package `{expected_name}` must declare `\"kind\": \"package\"` in `{}`.",
                     manifest_path.display()
                 ),
                 file,

@@ -1,0 +1,21 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "package_basic",
+  "entry": null,
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "answer",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "42" } }
+    ]
+  }
+  ]
+}

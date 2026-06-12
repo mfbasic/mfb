@@ -1,0 +1,14 @@
+{
+  "name": "package_basic",
+  "version": "1.2.3-alpha.1",
+  "mfb": "1.0",
+  "kind": "package",
+  "author": "MFBASIC",
+  "url": "https://example.invalid/package-basic",
+  "sources": [
+    {
+      "root": "src",
+      "include": ["**/*.mfb"]
+    }
+  ]
+}

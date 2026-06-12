@@ -1,0 +1,6 @@
+$ mfb build -ast tests/resolver-package-mfp
+Wrote AST to tests/resolver-package-mfp/resolver_package_mfp.ast
+[exit 0]
+$ mfb build -ir tests/resolver-package-mfp
+Wrote IR to tests/resolver-package-mfp/resolver_package_mfp.ir
+[exit 0]

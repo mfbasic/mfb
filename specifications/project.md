@@ -2,7 +2,7 @@
 
 `project.json` is the source-level manifest for an MFBASIC project. It gives the project a stable identity, names its source inputs, declares package dependencies, and records build metadata used by compilers, package managers, language servers, and audit tools.
 
-The project manifest is an authoring file. It is not embedded verbatim in `.mfl` output. Compilers copy the relevant identity, dependency, native-link, language-version, and audit metadata into the compiled package manifest described by the `.mfl` package format.
+The project manifest is an authoring file. It is not embedded verbatim in `.mfp` output. Compilers copy the relevant identity, dependency, native-link, language-version, and audit metadata into the compiled package manifest described by the `.mfp` package format.
 
 `project.json` files are UTF-8 JSON. They must not contain comments or trailing commas.
 
@@ -83,7 +83,7 @@ The project manifest is an authoring file. It is not embedded verbatim in `.mfl`
 | `mfb` | string | Minimum compatible MFBASIC language version. |
 | `sources` | array | Source entries included in the project. |
 
-The `name` field must use the same identifier restrictions as MFBASIC package names unless a future registry specification defines a wider naming scheme. It must be the name used by `IMPORT name` in source code and by compiled `.mfl` package manifests.
+The `name` field must use the same identifier restrictions as MFBASIC package names unless a future registry specification defines a wider naming scheme. It must be the name used by `IMPORT name` in source code and by compiled `.mfp` package manifests.
 
 The `version` field is required for both package and executable projects so lockfiles, build metadata, and generated packages can identify the exact project revision. Pre-release and build metadata follow semantic versioning when used, such as `1.2.0-beta.1` or `1.2.0+build.5`.
 
@@ -123,7 +123,7 @@ The `mfb` field names the minimum language version required to parse and type-ch
 }
 ```
 
-Tools may copy `name`, `version`, `author`, and `url` into `.mfl` package headers and manifests. A verifier must treat the compiled manifest, not `project.json`, as the source of truth for a compiled package.
+Tools may copy `name`, `version`, `author`, and `url` into `.mfp` package headers and manifests. A verifier must treat the compiled manifest, not `project.json`, as the source of truth for a compiled package.
 
 ---
 
@@ -133,7 +133,7 @@ The optional `kind` field declares the primary build intent:
 
 | Value | Meaning |
 | ----- | ------- |
-| `package` | Build a reusable `.mfl` package. |
+| `package` | Build a reusable `.mfp` package. |
 | `executable` | Build a native executable with an entry point named by `entry`, defaulting to `main`. |
 
 If omitted, `kind` defaults to `executable` when a selected source package contains a valid entry point named by `entry` or by the default name `main`, and to `package` otherwise. Build tools should warn when inference is ambiguous.
@@ -222,8 +222,8 @@ Supported `source` forms:
 | ---- | ------- |
 | `stdlib` | Built-in standard package distributed with the toolchain. |
 | `registry:name` | Package from a named registry. |
-| `path:relative/path` | Source package or `.mfl` file relative to `project.json`. |
-| `file:relative/path/package.mfl` | Local compiled `.mfl` package. |
+| `path:relative/path` | Source package or `.mfp` file relative to `project.json`. |
+| `file:relative/path/package.mfp` | Local compiled `.mfp` package. |
 | `git+https://...` | Git repository fetched by the package manager. |
 | `https://...` | Registry-specific package URL or package archive. |
 
@@ -251,7 +251,7 @@ Projects that expose `LINK` bindings should set `kind` to `binding` and may incl
 }
 ```
 
-`native` metadata is informational to source tools and package managers until a matching `LINK` declaration is compiled. The compiled `.mfl` native-link metadata is authoritative for importers.
+`native` metadata is informational to source tools and package managers until a matching `LINK` declaration is compiled. The compiled `.mfp` native-link metadata is authoritative for importers.
 
 Built-in standard packages may require platform baseline libraries without user manifest entries. For example, macOS executable builds can satisfy built-in file I/O through the OS baseline `libSystem`; applications do not declare that dependency manually unless they expose their own `LINK` binding.
 

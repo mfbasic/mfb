@@ -1,0 +1,24 @@
+{
+  "project": "package_basic",
+  "files": [
+  {
+    "path": "src/lib.mfb",
+    "imports": [
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "answer",
+      "line": 1,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "return", "value": { "kind": "number", "value": "42" }, "line": 2 }
+      ]
+    }
+    ]
+  }
+  ]
+}

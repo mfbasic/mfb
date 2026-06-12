@@ -182,15 +182,48 @@ pub fn write_bytecode_hex(
     ir: &IrProject,
     version: &str,
 ) -> Result<PathBuf, String> {
-    let bytes = build_bytecode_bytes(ir, version)?;
+    let metadata = BytecodeMetadata::new(ir.name.clone(), version.to_string());
+    let bytes = build_bytecode_bytes(ir, &metadata)?;
     let hex_path = project_dir.join(format!("{}.hex", ir.name));
     fs::write(&hex_path, hex_dump(&bytes))
         .map_err(|err| format!("failed to write '{}': {err}", hex_path.display()))?;
     Ok(hex_path)
 }
 
-pub fn build_bytecode_bytes(ir: &IrProject, version: &str) -> Result<Vec<u8>, String> {
-    Ok(lower_project(ir, version)?.encode())
+pub fn build_bytecode_bytes(
+    ir: &IrProject,
+    metadata: &BytecodeMetadata,
+) -> Result<Vec<u8>, String> {
+    Ok(lower_project(ir, metadata)?.encode())
+}
+
+#[derive(Clone)]
+pub struct BytecodeMetadata {
+    pub name: String,
+    pub version: String,
+    pub author: String,
+    pub url: String,
+    pub dependencies: Vec<BytecodeDependency>,
+}
+
+impl BytecodeMetadata {
+    pub fn new(name: String, version: String) -> Self {
+        Self {
+            name,
+            version,
+            author: String::new(),
+            url: String::new(),
+            dependencies: Vec::new(),
+        }
+    }
+}
+
+#[derive(Clone)]
+pub struct BytecodeDependency {
+    pub name: String,
+    pub version_min: String,
+    pub version_max: String,
+    pub flags: u32,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -426,7 +459,8 @@ const RESOURCE_FLAG_CLOSE_MAY_FAIL: u32 = 1 << 3;
 const BUILTIN_FS_CLOSE_FUNCTION_ID: u32 = 0xffff_ff00;
 
 pub fn native_program(ir: &IrProject) -> Result<NativeProgram, String> {
-    let project = lower_project(ir, "native")?;
+    let metadata = BytecodeMetadata::new(ir.name.clone(), "native".to_string());
+    let project = lower_project(ir, &metadata)?;
     if project.entry_function == u32::MAX {
         return Err("native executable output requires an executable entry point".to_string());
     }
@@ -756,9 +790,18 @@ struct BytecodeProject {
     types: TypeTable,
     constants: ConstPool,
     resources: ResourceTable,
+    manifest: BytecodeManifest,
+    imports: ImportTable,
     entry_function: u32,
     entry_flags: u32,
     functions: Vec<Function>,
+}
+
+struct BytecodeManifest {
+    package_name: u32,
+    package_version: u32,
+    author: u32,
+    url: u32,
 }
 
 struct StringPool {
@@ -793,6 +836,17 @@ struct ResourceTable {
 struct ResourceEntry {
     type_id: u32,
     close_function_id: u32,
+    flags: u32,
+}
+
+struct ImportTable {
+    entries: Vec<ImportEntry>,
+}
+
+struct ImportEntry {
+    package_name: u32,
+    version_min: u32,
+    version_max: u32,
     flags: u32,
 }
 
@@ -949,16 +1003,21 @@ struct Cleanup {
     close_function_id: u32,
 }
 
-fn lower_project(ir: &IrProject, version: &str) -> Result<BytecodeProject, String> {
+fn lower_project(ir: &IrProject, metadata: &BytecodeMetadata) -> Result<BytecodeProject, String> {
     let mut strings = StringPool::new();
-    strings.intern(&ir.name);
-    strings.intern(version);
-    strings.intern("");
+    let manifest = BytecodeManifest {
+        package_name: strings.intern(&metadata.name),
+        package_version: strings.intern(&metadata.version),
+        author: strings.intern(&metadata.author),
+        url: strings.intern(&metadata.url),
+    };
+    let imports = ImportTable::from_metadata(&mut strings, metadata);
 
     let mut types = TypeTable::new();
     for ir_type in &ir.types {
-        types.add_source_type(&mut strings, &ir.name, ir_type);
+        types.reserve_source_type(&mut strings, &metadata.name, ir_type);
     }
+    types.populate_source_payloads(&mut strings, &ir.types)?;
     let mut resources = ResourceTable::new();
     if ir_uses_resource_type(ir) {
         resources.add_standard_file(&mut types, &mut strings);
@@ -1014,6 +1073,8 @@ fn lower_project(ir: &IrProject, version: &str) -> Result<BytecodeProject, Strin
         types,
         constants,
         resources,
+        manifest,
+        imports,
         entry_function,
         entry_flags,
         functions,
@@ -1930,6 +1991,65 @@ fn function_return_from_type(type_name: &str) -> Option<String> {
         .map(|(_, return_type)| return_type.to_string())
 }
 
+struct FunctionTypeSignature {
+    isolated: bool,
+    params: Vec<String>,
+    returns: String,
+}
+
+fn parse_function_type(type_name: &str) -> Option<FunctionTypeSignature> {
+    let (isolated, rest) = if let Some(rest) = type_name.strip_prefix("ISOLATED FUNC(") {
+        (true, rest)
+    } else {
+        (false, type_name.strip_prefix("FUNC(")?)
+    };
+    let (params, returns) = split_function_type_rest(rest)?;
+    Some(FunctionTypeSignature {
+        isolated,
+        params: split_top_level_types(params),
+        returns: returns.to_string(),
+    })
+}
+
+fn split_function_type_rest(rest: &str) -> Option<(&str, &str)> {
+    let mut depth = 0usize;
+    let bytes = rest.as_bytes();
+    for index in 0..bytes.len() {
+        match bytes[index] {
+            b'(' => depth += 1,
+            b')' if depth == 0 && rest[index..].starts_with(") AS ") => {
+                return Some((&rest[..index], &rest[index + 5..]));
+            }
+            b')' => depth = depth.saturating_sub(1),
+            _ => {}
+        }
+    }
+    None
+}
+
+fn split_top_level_types(params: &str) -> Vec<String> {
+    if params.trim().is_empty() {
+        return Vec::new();
+    }
+
+    let mut result = Vec::new();
+    let mut depth = 0usize;
+    let mut start = 0usize;
+    for (index, ch) in params.char_indices() {
+        match ch {
+            '(' => depth += 1,
+            ')' => depth = depth.saturating_sub(1),
+            ',' if depth == 0 => {
+                result.push(params[start..index].trim().to_string());
+                start = index + 1;
+            }
+            _ => {}
+        }
+    }
+    result.push(params[start..].trim().to_string());
+    result
+}
+
 fn close_function_id(name: &str) -> Result<u32, String> {
     match name {
         "fs.close" => Ok(BUILTIN_FS_CLOSE_FUNCTION_ID),
@@ -2022,7 +2142,7 @@ impl TypeTable {
         }
     }
 
-    fn add_source_type(
+    fn reserve_source_type(
         &mut self,
         strings: &mut StringPool,
         package: &str,
@@ -2034,8 +2154,29 @@ impl TypeTable {
             "enum" => 3,
             _ => 1,
         };
-        let payload = source_type_payload(strings, ir_type);
-        self.add_entry(strings, package, &ir_type.name, kind, payload)
+        self.add_entry(strings, package, &ir_type.name, kind, Vec::new())
+    }
+
+    fn populate_source_payloads(
+        &mut self,
+        strings: &mut StringPool,
+        ir_types: &[IrType],
+    ) -> Result<(), String> {
+        let source_types = ir_types
+            .iter()
+            .map(|ir_type| (ir_type.name.as_str(), ir_type))
+            .collect::<HashMap<_, _>>();
+
+        for ir_type in ir_types {
+            let id = *self
+                .ids
+                .get(&ir_type.name)
+                .ok_or_else(|| format!("source type `{}` was not reserved", ir_type.name))?;
+            let payload = source_type_payload(strings, self, &source_types, ir_type)?;
+            self.entries[(id - 9) as usize].payload = payload;
+        }
+
+        Ok(())
     }
 
     fn type_id(&mut self, strings: &mut StringPool, name: &str) -> u32 {
@@ -2135,7 +2276,18 @@ impl TypeTable {
         if let Some(id) = self.ids.get(name) {
             return *id;
         }
-        self.add_entry(strings, "", name, 8, Vec::new())
+        let mut payload = Vec::new();
+        if let Some(signature) = parse_function_type(name) {
+            put_u32(&mut payload, if signature.isolated { 1 } else { 0 });
+            put_u32(&mut payload, signature.params.len() as u32);
+            let return_type = self.type_id(strings, &signature.returns);
+            put_u32(&mut payload, return_type);
+            for param in signature.params {
+                let param_type = self.type_id(strings, &param);
+                put_u32(&mut payload, param_type);
+            }
+        }
+        self.add_entry(strings, "", name, 8, payload)
     }
 
     fn thread_type(
@@ -2198,44 +2350,71 @@ impl TypeTable {
     }
 }
 
-fn source_type_payload(strings: &mut StringPool, ir_type: &IrType) -> Vec<u8> {
+fn source_type_payload(
+    strings: &mut StringPool,
+    types: &mut TypeTable,
+    source_types: &HashMap<&str, &IrType>,
+    ir_type: &IrType,
+) -> Result<Vec<u8>, String> {
     let mut payload = Vec::new();
     match ir_type.kind.as_str() {
         "type" => {
             put_u32(&mut payload, ir_type.fields.len() as u32);
             for field in &ir_type.fields {
-                put_field_payload(strings, &mut payload, field);
+                put_field_payload(strings, types, &mut payload, field);
             }
         }
         "union" => {
-            put_u32(&mut payload, ir_type.includes.len() as u32);
-            for include in &ir_type.includes {
-                put_u32(&mut payload, strings.intern(include));
-            }
-            put_u32(&mut payload, ir_type.variants.len() as u32);
-            for variant in &ir_type.variants {
+            let variants = concrete_union_variants(source_types, ir_type)?;
+            put_u32(&mut payload, variants.len() as u32);
+            for variant in variants {
                 put_u32(&mut payload, strings.intern(&variant.name));
                 put_u32(&mut payload, variant.fields.len() as u32);
                 for field in &variant.fields {
-                    put_field_payload(strings, &mut payload, field);
+                    put_u32(&mut payload, strings.intern(&field.name));
+                    put_u32(&mut payload, types.type_id(strings, &field.type_));
                 }
             }
         }
         "enum" => {
             put_u32(&mut payload, ir_type.members.len() as u32);
-            for member in &ir_type.members {
+            for (ordinal, member) in ir_type.members.iter().enumerate() {
                 put_u32(&mut payload, strings.intern(&member.name));
+                put_u32(&mut payload, ordinal as u32);
             }
         }
         _ => {}
     }
-    payload
+    Ok(payload)
 }
 
-fn put_field_payload(strings: &mut StringPool, payload: &mut Vec<u8>, field: &crate::ir::IrField) {
+fn concrete_union_variants<'a>(
+    source_types: &HashMap<&str, &'a IrType>,
+    ir_type: &'a IrType,
+) -> Result<Vec<&'a crate::ir::IrVariant>, String> {
+    let mut variants = Vec::new();
+    for include in &ir_type.includes {
+        let included = source_types.get(include.as_str()).ok_or_else(|| {
+            format!(
+                "union `{}` includes unknown union `{include}`",
+                ir_type.name
+            )
+        })?;
+        variants.extend(concrete_union_variants(source_types, included)?);
+    }
+    variants.extend(ir_type.variants.iter());
+    Ok(variants)
+}
+
+fn put_field_payload(
+    strings: &mut StringPool,
+    types: &mut TypeTable,
+    payload: &mut Vec<u8>,
+    field: &crate::ir::IrField,
+) {
     put_u32(payload, strings.intern(&field.name));
-    put_u32(payload, strings.intern(&field.type_));
-    put_u16(
+    put_u32(payload, types.type_id(strings, &field.type_));
+    put_u32(
         payload,
         match field.visibility.as_deref() {
             Some("private") => 1,
@@ -2244,7 +2423,6 @@ fn put_field_payload(strings: &mut StringPool, payload: &mut Vec<u8>, field: &cr
             _ => 0,
         },
     );
-    put_u16(payload, 0);
 }
 
 impl ConstPool {
@@ -2337,6 +2515,35 @@ impl ResourceTable {
     }
 }
 
+impl ImportTable {
+    fn from_metadata(strings: &mut StringPool, metadata: &BytecodeMetadata) -> Self {
+        let entries = metadata
+            .dependencies
+            .iter()
+            .map(|dependency| ImportEntry {
+                package_name: strings.intern(&dependency.name),
+                version_min: strings.intern(&dependency.version_min),
+                version_max: strings.intern(&dependency.version_max),
+                flags: dependency.flags,
+            })
+            .collect();
+
+        Self { entries }
+    }
+
+    fn encode(&self) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        put_u32(&mut bytes, self.entries.len() as u32);
+        for entry in &self.entries {
+            put_u32(&mut bytes, entry.package_name);
+            put_u32(&mut bytes, entry.version_min);
+            put_u32(&mut bytes, entry.version_max);
+            put_u32(&mut bytes, entry.flags);
+        }
+        bytes
+    }
+}
+
 impl BytecodeProject {
     fn encode(&self) -> Vec<u8> {
         let mut code_section = Vec::new();
@@ -2354,7 +2561,7 @@ impl BytecodeProject {
             Section::new(SECTION_STRING_POOL, self.strings.encode()),
             Section::new(SECTION_TYPE_TABLE, self.types.encode()),
             Section::new(SECTION_CONST_POOL, self.constants.encode()),
-            Section::new(SECTION_IMPORT_TABLE, encode_empty_count()),
+            Section::new(SECTION_IMPORT_TABLE, self.imports.encode()),
             Section::new(SECTION_EXPORT_TABLE, self.encode_exports()),
             Section::new(SECTION_GLOBAL_TABLE, encode_empty_count()),
             Section::new(SECTION_FUNCTION_TABLE, self.encode_functions(&code_offsets)),
@@ -2372,17 +2579,17 @@ impl BytecodeProject {
 
     fn encode_manifest(&self) -> Vec<u8> {
         let mut bytes = Vec::new();
-        put_u32(&mut bytes, 0);
-        put_u32(&mut bytes, 1);
-        put_u32(&mut bytes, 2);
-        put_u32(&mut bytes, 2);
+        put_u32(&mut bytes, self.manifest.package_name);
+        put_u32(&mut bytes, self.manifest.package_version);
+        put_u32(&mut bytes, self.manifest.author);
+        put_u32(&mut bytes, self.manifest.url);
         put_u16(&mut bytes, 1);
         put_u16(&mut bytes, 0);
         put_u16(&mut bytes, 1);
         put_u16(&mut bytes, 0);
         put_u16(&mut bytes, 1);
         put_u16(&mut bytes, 0);
-        put_u32(&mut bytes, 0);
+        put_u32(&mut bytes, self.imports.entries.len() as u32);
         put_u32(&mut bytes, 0);
         put_u32(&mut bytes, self.export_count());
         put_u32(&mut bytes, self.entry_function);

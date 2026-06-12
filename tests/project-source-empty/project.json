@@ -2,7 +2,7 @@
   "name": "project_source_empty",
   "version": "0.1.0",
   "mfb": "1.0",
-  "kind": "library",
+  "kind": "package",
   "sources": [
     {
       "root": "src",

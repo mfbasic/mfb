@@ -91,9 +91,10 @@ for test_dir in "$TEST_ROOT"/*; do
   ast_path="$test_dir/$package_name.ast"
   ir_path="$test_dir/$package_name.ir"
   hex_path="$test_dir/$package_name.hex"
+  mfp_path="$test_dir/$package_name.mfp"
   bin_path="$test_dir/$package_name.$bin_arch.bin"
 
-  rm -f "$ast_path" "$ir_path" "$hex_path" "$bin_path" "$test_dir/$package_name.out"
+  rm -f "$ast_path" "$ir_path" "$hex_path" "$mfp_path" "$bin_path" "$test_dir/$package_name.out"
 
   {
     echo "$ mfb build -ast tests/$test_name"
@@ -105,6 +106,11 @@ for test_dir in "$TEST_ROOT"/*; do
     if [ -f "$golden_dir/$package_name.hex" ]; then
       echo "$ mfb build -bc tests/$test_name"
       "$MFB_EXE" build -bc "tests/$test_name"
+      echo "[exit $?]"
+    fi
+    if [ -f "$golden_dir/$package_name.mfp" ]; then
+      echo "$ mfb build tests/$test_name"
+      "$MFB_EXE" build "tests/$test_name"
       echo "[exit $?]"
     fi
     if [ -f "$golden_dir/$package_name.$bin_arch.bin" ]; then
@@ -123,6 +129,9 @@ for test_dir in "$TEST_ROOT"/*; do
   if [ -f "$hex_path" ]; then
     mv "$hex_path" "$actual_dir/$package_name.hex"
   fi
+  if [ -f "$mfp_path" ]; then
+    mv "$mfp_path" "$actual_dir/$package_name.mfp"
+  fi
   if [ -f "$bin_path" ]; then
     mv "$bin_path" "$actual_dir/$package_name.$bin_arch.bin"
   fi
@@ -137,6 +146,9 @@ for test_dir in "$TEST_ROOT"/*; do
   compare_optional_output "$test_name/$package_name.hex" \
     "$golden_dir/$package_name.hex" \
     "$actual_dir/$package_name.hex"
+  compare_optional_output "$test_name/$package_name.mfp" \
+    "$golden_dir/$package_name.mfp" \
+    "$actual_dir/$package_name.mfp"
   compare_optional_output "$test_name/$package_name.$bin_arch.bin" \
     "$golden_dir/$package_name.$bin_arch.bin" \
     "$actual_dir/$package_name.$bin_arch.bin"

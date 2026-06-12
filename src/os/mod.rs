@@ -1,5 +1,7 @@
 pub mod macos;
+pub mod package;
 
+use crate::bytecode::BytecodeMetadata;
 use crate::ir::IrProject;
 use crate::target::BuildTarget;
 use std::path::{Path, PathBuf};
@@ -15,4 +17,12 @@ pub fn write_executable(
             "native executable output does not support {os} yet"
         )),
     }
+}
+
+pub fn write_package(
+    project_dir: &Path,
+    ir: &IrProject,
+    metadata: &BytecodeMetadata,
+) -> Result<PathBuf, String> {
+    package::write_package(project_dir, ir, metadata)
 }

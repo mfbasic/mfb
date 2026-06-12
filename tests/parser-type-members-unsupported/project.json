@@ -2,7 +2,7 @@
   "name": "parser_type_members_unsupported",
   "version": "0.1.0",
   "mfb": "1.0",
-  "kind": "library",
+  "kind": "package",
   "sources": [
     {
       "root": "src",

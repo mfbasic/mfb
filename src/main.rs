@@ -18,7 +18,7 @@ use std::path::{Path, PathBuf};
 use std::process;
 use tinyjson::JsonValue;
 
-const USAGE: &str = "Usage: mfb <command> <arguments>\n\nCommands:\n  help                        Show this message\n  init <location>             Create a new MFBASIC project\n  build [-ast|-ir|-bc|-bin] [location] Validate and build an MFBASIC project\n  man [package] [function]    Show built-in package and function help";
+const USAGE: &str = "Usage: mfb <command> <arguments>\n\nCommands:\n  help                        Show this message\n  init <location>             Create a new MFBASIC executable project\n  init-pkg <location>         Create a new MFBASIC package project\n  build [-ast|-ir|-bc|-bin] [location] Validate and build an MFBASIC project\n  man [package] [function]    Show built-in package and function help";
 
 fn main() {
     let mut args = env::args().skip(1);
@@ -39,6 +39,22 @@ fn main() {
             }
 
             if let Err(err) = init_project(Path::new(&location)) {
+                eprintln!("error: {err}");
+                process::exit(1);
+            }
+        }
+        Some("init-pkg") => {
+            let Some(location) = args.next() else {
+                eprintln!("error: mfb init-pkg requires <location>\n\n{USAGE}");
+                process::exit(2);
+            };
+
+            if args.next().is_some() {
+                eprintln!("error: mfb init-pkg accepts exactly one <location>\n\n{USAGE}");
+                process::exit(2);
+            }
+
+            if let Err(err) = init_package_project(Path::new(&location)) {
                 eprintln!("error: {err}");
                 process::exit(1);
             }
@@ -140,15 +156,30 @@ fn init_project(location: &Path) -> Result<(), String> {
     Ok(())
 }
 
+fn init_package_project(location: &Path) -> Result<(), String> {
+    let src_dir = location.join("src");
+    fs::create_dir_all(&src_dir).map_err(|err| {
+        format!(
+            "failed to create source directory '{}': {err}",
+            src_dir.display()
+        )
+    })?;
+
+    let project_path = location.join("project.json");
+    let lib_path = src_dir.join("lib.mfb");
+
+    write_new_file(&project_path, package_project_manifest(location) + "\n")?;
+    write_new_file(&lib_path, package_source())?;
+
+    println!("Created MFBASIC package project at {}", location.display());
+    Ok(())
+}
+
 fn build_project(options: &BuildOptions) -> Result<(), ()> {
     let target = target::BuildTarget::host();
     let project_path = options.location.join("project.json");
     let manifest = validate_project_manifest(&project_path)?;
     let project_kind = project_kind(&manifest);
-    if project_kind == "package" {
-        eprintln!("error: package builds are not supported yet");
-        return Err(());
-    }
 
     let project_name = manifest
         .get("name")
@@ -175,6 +206,14 @@ fn build_project(options: &BuildOptions) -> Result<(), ()> {
                         eprintln!("error: {err}");
                     })?;
                 println!("Wrote executable to {}", executable_path.display());
+            } else if project_kind == "package" {
+                let ir = ir::lower_project(&ast, entry.clone());
+                let metadata = package_metadata(&manifest);
+                let package_path =
+                    os::write_package(&options.location, &ir, &metadata).map_err(|err| {
+                        eprintln!("error: {err}");
+                    })?;
+                println!("Wrote package to {}", package_path.display());
             } else {
                 println!(
                     "Validated MFBASIC project at {}",
@@ -208,6 +247,11 @@ fn build_project(options: &BuildOptions) -> Result<(), ()> {
             println!("Wrote bytecode hex to {}", bytecode_path.display());
         }
         BuildOutput::Binary => {
+            if project_kind == "package" {
+                eprintln!("error: package projects do not support native binary output; run `mfb build` to write a .mfp package");
+                return Err(());
+            }
+
             if has_external_packages(&manifest) {
                 eprintln!("error: binary output does not support external packages yet");
                 return Err(());
@@ -324,7 +368,7 @@ fn validate_entry_point(
     ast: &ast::AstProject,
 ) -> Result<Option<ir::EntryPoint>, ()> {
     let kind = project_kind(manifest);
-    if kind == "library" || kind == "package" {
+    if kind == "package" {
         return Ok(None);
     }
 
@@ -480,6 +524,14 @@ fn validate_project_manifest(project_path: &Path) -> Result<HashMap<String, Json
     }
 
     if !validate_optional_string(manifest, project_path, &contents, "entry") {
+        valid = false;
+    }
+
+    if !validate_optional_string(manifest, project_path, &contents, "author") {
+        valid = false;
+    }
+
+    if !validate_optional_string(manifest, project_path, &contents, "url") {
         valid = false;
     }
 
@@ -655,10 +707,10 @@ fn validate_kind(
         return false;
     };
 
-    if !matches!(kind.as_str(), "library" | "executable" | "package") {
+    if !matches!(kind.as_str(), "executable" | "package") {
         rules::show_diagnostic(
             "PROJECT_JSON_UNKNOWN_KIND",
-            "Expected `library`, `executable`, or `package`; continuing validation.",
+            "Expected `executable` or `package`; continuing validation.",
             project_path,
             line,
             column,
@@ -690,6 +742,72 @@ fn has_external_packages(manifest: &HashMap<String, JsonValue>) -> bool {
         .get("packages")
         .and_then(|value| value.get::<Vec<JsonValue>>())
         .is_some_and(|packages| !packages.is_empty())
+}
+
+fn package_metadata(manifest: &HashMap<String, JsonValue>) -> bytecode::BytecodeMetadata {
+    let name = manifest
+        .get("name")
+        .and_then(|value| value.get::<String>())
+        .expect("validated project name")
+        .clone();
+    let version = manifest
+        .get("version")
+        .and_then(|value| value.get::<String>())
+        .expect("validated project version")
+        .clone();
+    let mut metadata = bytecode::BytecodeMetadata::new(name, version);
+    metadata.author = manifest
+        .get("author")
+        .and_then(|value| value.get::<String>())
+        .cloned()
+        .unwrap_or_default();
+    metadata.url = manifest
+        .get("url")
+        .and_then(|value| value.get::<String>())
+        .cloned()
+        .unwrap_or_default();
+    metadata.dependencies = package_dependencies(manifest);
+    metadata
+}
+
+fn package_dependencies(
+    manifest: &HashMap<String, JsonValue>,
+) -> Vec<bytecode::BytecodeDependency> {
+    manifest
+        .get("packages")
+        .and_then(|value| value.get::<Vec<JsonValue>>())
+        .into_iter()
+        .flatten()
+        .filter_map(|package| package.get::<HashMap<String, JsonValue>>())
+        .filter_map(|package| {
+            let name = package.get("name")?.get::<String>()?.clone();
+            let version = package
+                .get("version")
+                .and_then(|value| value.get::<String>())
+                .map(String::as_str)
+                .unwrap_or("");
+            let (version_min, version_max, flags) = dependency_version_range(version);
+            Some(bytecode::BytecodeDependency {
+                name,
+                version_min,
+                version_max,
+                flags,
+            })
+        })
+        .collect()
+}
+
+fn dependency_version_range(version: &str) -> (String, String, u32) {
+    if let Some(version) = version.strip_prefix('^') {
+        return (version.to_string(), String::new(), 1 << 1);
+    }
+    if let Some(version) = version.strip_prefix('~') {
+        return (version.to_string(), String::new(), 1 << 2);
+    }
+    if version.is_empty() {
+        return (String::new(), String::new(), 0);
+    }
+    (version.to_string(), version.to_string(), 1)
 }
 
 fn field_position(contents: &str, field: &str) -> (usize, usize) {
@@ -744,6 +862,29 @@ fn project_manifest(location: &Path) -> String {
     )
 }
 
+fn package_project_manifest(location: &Path) -> String {
+    let name = json_string(&project_name(location));
+
+    format!(
+        concat!(
+            "{{\n",
+            "  \"name\": {},\n",
+            "  \"version\": \"0.1.0\",\n",
+            "  \"mfb\": \"1.0\",\n",
+            "  \"kind\": \"package\",\n",
+            "  \"sources\": [\n",
+            "    {{\n",
+            "      \"root\": \"src\",\n",
+            "      \"role\": \"package\",\n",
+            "      \"include\": [\"**/*.mfb\"]\n",
+            "    }}\n",
+            "  ]\n",
+            "}}"
+        ),
+        name
+    )
+}
+
 pub(crate) fn json_string(value: &str) -> String {
     JsonValue::String(value.to_string())
         .stringify()
@@ -780,4 +921,8 @@ fn sanitize_project_name(name: &str) -> String {
 
 fn hello_world_source() -> String {
     "IMPORT io\n\nSUB main()\n  io.print(\"Hello World\")\nEND SUB\n".to_string()
+}
+
+fn package_source() -> String {
+    "EXPORT FUNC answer() AS Integer\n  RETURN 42\nEND FUNC\n".to_string()
 }

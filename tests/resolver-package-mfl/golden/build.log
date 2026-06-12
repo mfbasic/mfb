@@ -1,6 +1,0 @@
-$ mfb build -ast tests/resolver-package-mfl
-Wrote AST to tests/resolver-package-mfl/resolver_package_mfl.ast
-[exit 0]
-$ mfb build -ir tests/resolver-package-mfl
-Wrote IR to tests/resolver-package-mfl/resolver_package_mfl.ir
-[exit 0]

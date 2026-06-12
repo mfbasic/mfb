@@ -782,13 +782,13 @@ compiler resolves the first identifier in the import using this order:
 3. If the declared dependency has a `source` beginning with `local:///`, the
    rest of the value must be an absolute path. The compiler checks
    `/absolute/path/project.json`; the manifest `name` must match the import and
-   `kind` must be `library`. `local://relative` and other non-absolute local
+   `kind` must be `package`. `local://relative` and other non-absolute local
    forms are errors. A package that uses `local:///` cannot be released without
    replacing that dependency source.
-4. Otherwise, the compiler checks `<project_root>/packages/packageName.mfl`.
-5. If no `.mfl` exists, the compiler checks
+4. Otherwise, the compiler checks `<project_root>/packages/packageName.mfp`.
+5. If no `.mfp` exists, the compiler checks
    `<project_root>/packages/packageName/project.json`; the manifest `name` must
-   match the import and `kind` must be `library`.
+   match the import and `kind` must be `package`.
 6. Otherwise, the declared package is missing from the package store and the
    import is a compile-time error.
 
@@ -800,7 +800,7 @@ declarations are not inherited from importers and imports are not transitive.
 
 ### 12.1 Package identity, versions, and manifests
 
-A package has a stable identity independent of its local directory name. Source projects declare identity, source inputs, and dependencies in a project manifest file named `project.json` at the project root. Compiled library packages embed the relevant manifest data in the `.mfl` file.
+A package has a stable identity independent of its local directory name. Source projects declare identity, source inputs, and dependencies in a project manifest file named `project.json` at the project root. Compiled packages embed the relevant manifest data in the `.mfp` file.
 
 Required manifest fields:
 
@@ -818,7 +818,7 @@ Version constraints use semantic-version ranges such as exact `=1.2.3`, compatib
 
 The package resolver produces one selected version for each package identity. If two constraints cannot be satisfied by the same version, resolution fails with a package-version diagnostic; the compiler does not load multiple versions of the same package identity into one program.
 
-A package may import a source package or an `.mfl` library package. Imported `.mfl` packages must have a compatible bytecode/package format version, compatible public API metadata, and an MFBASIC language version supported by the compiler.
+A package may import a source package or an `.mfp` package. Imported `.mfp` packages must have a compatible bytecode/package format version, compatible public API metadata, and an MFBASIC language version supported by the compiler.
 
 Executable builds use a lockfile named `project.lock`. The lockfile records the exact selected package identity, version, source or registry URL, content hash, bytecode/package version, native dependency metadata hash, and transitive dependencies. Locked builds must use the lockfile selections exactly; a hash or version mismatch fails before compilation or linking.
 
@@ -922,7 +922,7 @@ The compiler must diagnose:
 - Storing resources or thread handles in ordinary collections.
 - Any control-flow path that could drop the same resource or owned value more than once.
 
-`.mfl` packages must preserve enough ownership metadata for import-time type checking and bytecode verification (§20).
+`.mfp` packages must preserve enough ownership metadata for import-time type checking and bytecode verification (§20).
 
 ---
 
@@ -1024,9 +1024,9 @@ When a thread ends, its inbound queue is closed and further sends fail. Its outb
 
 ## 16. Native Libraries
 
-Native libraries are host dynamic libraries loaded through reusable `.mfl` binding packages. MFBASIC code cannot call arbitrary C symbols directly. A package that contains a `LINK` block declares the library name, its package-like namespace, opaque resource types, and the typed wrapper functions that are visible to MFBASIC code. Compiling that package emits normal `.mfl` bytecode plus native binding metadata.
+Native libraries are host dynamic libraries loaded through reusable `.mfp` binding packages. MFBASIC code cannot call arbitrary C symbols directly. A package that contains a `LINK` block declares the library name, its package-like namespace, opaque resource types, and the typed wrapper functions that are visible to MFBASIC code. Compiling that package emits normal `.mfp` bytecode plus native binding metadata.
 
-Application packages do not repeat a dependency's `LINK` block. They import the binding package normally with `IMPORT`, call its exported wrapper functions, and use its resource types through ordinary `USING` behavior. Final executable builds collect native dependencies from all imported `.mfl` packages, resolve them once for the target platform, validate their manifests, and link or load the declared native libraries before `main`.
+Application packages do not repeat a dependency's `LINK` block. They import the binding package normally with `IMPORT`, call its exported wrapper functions, and use its resource types through ordinary `USING` behavior. Final executable builds collect native dependencies from all imported `.mfp` packages, resolve them once for the target platform, validate their manifests, and link or load the declared native libraries before `main`.
 
 * Native ABI details do not leak across package boundaries unless explicitly part of the binding package's public API.
 * Application code importing a binding package sees ordinary MFBASIC types, functions, resources, `Result` behavior, and `USING` behavior.
@@ -1142,7 +1142,7 @@ Rules:
 - `RESOURCE` is a declaration form for concrete opaque unique-handle types; it is not an inheritance base type and cannot be used as a generic catch-all type.
 - Native resource ownership must be declared with `TYPE ... AS RESOURCE` and `CLOSE`; raw `CPtr` values must not escape into ordinary MFBASIC APIs.
 - `REF` and `OUT` native pointer values are temporary call-frame values. Native code must not retain them after return; if a binding needs retained native storage, it must model that storage as a declared `RESOURCE`.
-- Native libraries are platform-specific dependencies. A `.mfl` package may declare that it needs a native library, including version, search policy, platform constraints, and content/hash requirements, but the native library itself is not portable bytecode.
+- Native libraries are platform-specific dependencies. A `.mfp` package may declare that it needs a native library, including version, search policy, platform constraints, and content/hash requirements, but the native library itself is not portable bytecode.
 
 ---
 
@@ -1432,13 +1432,13 @@ The resulting model is `extraShape = shape + extraShape additions`, but the type
 
 ## 20. Build Artifacts
 
-MFBASIC uses source files for authoring, portable bytecode packages for libraries, and native binaries for executables.
+MFBASIC uses source files for authoring, portable bytecode packages, and native binaries for executables.
 
 | Artifact | Extension | Purpose |
 |----------|-----------|---------|
 | Source file | `.mfb` | Human-authored source code. Each `.mfb` file contributes to its directory's package namespace (§12). |
-| Library package | `.mfl` | Architecture-neutral bytecode package with embedded package manifest, public API metadata, dependency metadata, and optional native-link metadata. A compiled library can be built on one platform and imported on any platform that supports the same MFB bytecode/package version. |
-| Executable | platform-native | Final application binary for the target OS/CPU. Executables compile application code plus imported `.mfl` libraries to native code. |
+| Package | `.mfp` | Architecture-neutral bytecode package with embedded package manifest, public API metadata, dependency metadata, and optional native-link metadata. A compiled package can be built on one platform and imported on any platform that supports the same MFB bytecode/package version. |
+| Executable | platform-native | Final application binary for the target OS/CPU. Executables compile application code plus imported `.mfp` packages to native code. |
 
 The backend pipeline is:
 
@@ -1446,14 +1446,14 @@ The backend pipeline is:
 .mfb source
   -> typed program representation
   -> register bytecode
-  -> .mfl library package or native executable
+  -> .mfp package or native executable
 ```
 
-Library compilation emits `.mfl` packages containing portable bytecode plus the embedded package manifest, dependency metadata, native-link metadata, and public API metadata needed for import, type checking, linking, and verification. This metadata includes each exported type and function's ownership properties: copyability, movability, resource-handle status, closure-capture requirements, thread-sendability, drop requirements, and collection element constraints. A package containing `LINK` declarations emits a reusable native binding `.mfl`: importers consume the package API and do not repeat the `LINK` declarations. Executable compilation consumes `.mfb` application source, the resolved `mfb.lock`, and imported `.mfl` libraries, then resolves all native dependencies declared by those libraries and emits a native binary for the selected target platform.
+Package compilation emits `.mfp` packages containing portable bytecode plus the embedded package manifest, dependency metadata, native-link metadata, and public API metadata needed for import, type checking, linking, and verification. This metadata includes each exported type and function's ownership properties: copyability, movability, resource-handle status, closure-capture requirements, thread-sendability, drop requirements, and collection element constraints. A package containing `LINK` declarations emits a reusable native binding `.mfp`: importers consume the package API and do not repeat the `LINK` declarations. Executable compilation consumes `.mfb` application source, the resolved `mfb.lock`, and imported `.mfp` packages, then resolves all native dependencies declared by those packages and emits a native binary for the selected target platform.
 
-### 20.1 `.mfl` bytecode verification
+### 20.1 `.mfp` bytecode verification
 
-Every `.mfl` package is verified before its bytecode can be imported, linked into an executable, or executed by a VM. Verification is deterministic and must reject malformed packages before any package code runs.
+Every `.mfp` package is verified before its bytecode can be imported, linked into an executable, or executed by a VM. Verification is deterministic and must reject malformed packages before any package code runs.
 
 The verifier must check:
 
@@ -1471,7 +1471,7 @@ The verifier must check:
 
 Verification failure rejects the package with a toolchain diagnostic. It is not recoverable by program `TRAP` code because no package code has started running.
 
-An implementation may start with a tree-walk interpreter, then add a register bytecode VM, then add native code generation. The artifact contract remains: libraries are portable `.mfl` bytecode packages; executables are native platform binaries.
+An implementation may start with a tree-walk interpreter, then add a register bytecode VM, then add native code generation. The artifact contract remains: packages are portable `.mfp` bytecode packages; executables are native platform binaries.
 
 ---
 
@@ -1488,7 +1488,7 @@ Required diagnostics and tooling metadata:
 - Surface all native binding packages, linked native libraries, declared symbols, ABI mappings, and native resource close functions used by a build.
 - Surface package permissions and host capabilities when a standard or native package requires filesystem, network, process, environment, clock, randomness, or native-library access.
 - Lint dense or security-sensitive code for confusing identifier similarity. In the current ASCII-only identifier set this includes case-only near-collisions; if non-ASCII identifiers are ever enabled, it also includes Unicode normalization, case-fold, script-mixing, and confusable-character collisions.
-- Include fallible-call, propagation, `TRAP`, permission, native-link, and resource-cleanup metadata in `.mfl` packages when exported APIs contain or expose those behaviors.
+- Include fallible-call, propagation, `TRAP`, permission, native-link, and resource-cleanup metadata in `.mfp` packages when exported APIs contain or expose those behaviors.
 
 The toolchain must provide an audit command:
 
@@ -1512,7 +1512,7 @@ mfb lsp
 
 `mfb lsp` starts the language-server protocol implementation. It must expose diagnostics for fallible calls, auto-propagation paths, `TRAP` recovery, resource moves/use-after-move, unsafe or invalid native links, permissions, package-version conflicts, lockfile mismatches, dense security-sensitive lines, and identifier near-collisions.
 
-# ⟪MFBASIC⟫ — Standard Library
+# ⟪MFBASIC⟫ — Standard Package
 
 ## 1. Built-in Types
 
@@ -1875,7 +1875,7 @@ Math functions follow the numeric edge-case rules in §3.1. Integer and `Fixed` 
 
 Network functions live in the `net` package. Socket handles are opaque standard `RESOURCE` types and unique handles. They can be bound by `USING`; `net.close` runs automatically at `END USING`.
 
-The package defines DNS lookup, TCP stream sockets, UDP datagram sockets, and a required early TLS package. Unix-domain sockets and detailed DNS record inspection are outside the required core library and may be provided by extension packages.
+The package defines DNS lookup, TCP stream sockets, UDP datagram sockets, and a required early TLS package. Unix-domain sockets and detailed DNS record inspection are outside the required core package and may be provided by extension packages.
 
 | Type | Description |
 |------|-------------|
@@ -2020,22 +2020,22 @@ END IF
 
 Each exported constant has the same name as the `Name` column below and the integer value from the `Code` column. For example, `errorCode.ErrInvalidArgument = 10002`, `errorCode.ErrNotFound = 10004`, and `errorCode.ErrVerificationFailed = 30004`.
 
-System-defined error codes are reserved for the language, compiler, toolchain, and standard library. All system error code values must be `>= 10000` and `<= 99999`. User programs and third-party packages should use codes outside this range or reserve their own package-specific range by convention.
+System-defined error codes are reserved for the language, compiler, toolchain, and standard package. All system error code values must be `>= 10000` and `<= 99999`. User programs and third-party packages should use codes outside this range or reserve their own package-specific range by convention.
 
 Reserved bands:
 
 | Range | Owner |
 |-------|-------|
-| `10000`-`19999` | Runtime and standard library `Error` values. |
+| `10000`-`19999` | Runtime and standard package `Error` values. |
 | `20000`-`29999` | Parser, compiler, and static semantic diagnostics. |
 | `30000`-`39999` | Package manager, linker, bytecode verifier, and build tool diagnostics. |
 | `40000`-`99999` | Reserved for future system use. |
 
-Runtime and standard library errors:
+Runtime and standard package errors:
 
 | Code | Name | Meaning |
 |------|------|---------|
-| `10000` | `ErrUnknown` | Unclassified standard-library failure. |
+| `10000` | `ErrUnknown` | Unclassified standard-package failure. |
 | `10001` | `ErrIndexOutOfRange` | List index or range is outside valid bounds. |
 | `10002` | `ErrInvalidArgument` | Argument value is not valid for the requested operation. |
 | `10003` | `ErrInvalidFormat` | Text parse or non-finite numeric representation conversion failed. |
@@ -2101,13 +2101,13 @@ Toolchain diagnostics:
 | Code | Name | Meaning |
 |------|------|---------|
 | `30000` | `ErrBuildFailed` | Build failed for an otherwise unclassified toolchain reason. |
-| `30001` | `ErrPackageInvalid` | `.mfl` package is malformed or incompatible. |
+| `30001` | `ErrPackageInvalid` | `.mfp` package is malformed or incompatible. |
 | `30002` | `ErrPackageVersion` | Package bytecode or metadata version is unsupported. |
 | `30003` | `ErrLinkFailed` | Linking imported packages, native libraries, symbols, or executable artifacts failed. |
 | `30004` | `ErrVerificationFailed` | Bytecode verification failed. |
 | `30005` | `ErrTargetUnsupported` | Requested target OS, CPU, or ABI is unsupported. |
-| `30006` | `ErrPackageSignature` | `.mfl` package signature, hash, or lockfile trust record is missing or invalid for the active build mode. |
-| `30007` | `ErrNativeManifest` | Native-link metadata in a `.mfl` package is malformed, unsupported, or inconsistent with bytecode references. |
+| `30006` | `ErrPackageSignature` | `.mfp` package signature, hash, or lockfile trust record is missing or invalid for the active build mode. |
+| `30007` | `ErrNativeManifest` | Native-link metadata in a `.mfp` package is malformed, unsupported, or inconsistent with bytecode references. |
 | `30008` | `ErrLockfileMismatch` | Resolved package, version, hash, bytecode version, or native metadata does not match `mfb.lock`. |
 
-Runtime `Error` values produced by the standard library should use the runtime table above where possible. Compiler and toolchain codes are diagnostics; they are not normally produced by running MFBASIC programs.
+Runtime `Error` values produced by the standard package should use the runtime table above where possible. Compiler and toolchain codes are diagnostics; they are not normally produced by running MFBASIC programs.

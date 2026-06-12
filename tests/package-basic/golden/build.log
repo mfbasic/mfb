@@ -1,0 +1,9 @@
+$ mfb build -ast tests/package-basic
+Wrote AST to tests/package-basic/package_basic.ast
+[exit 0]
+$ mfb build -ir tests/package-basic
+Wrote IR to tests/package-basic/package_basic.ir
+[exit 0]
+$ mfb build tests/package-basic
+Wrote package to tests/package-basic/package_basic.mfp
+[exit 0]

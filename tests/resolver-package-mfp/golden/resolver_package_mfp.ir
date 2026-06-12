@@ -1,7 +1,7 @@
 {
   "format": "mfb-ir",
   "version": 1,
-  "project": "resolver_package_mfl",
+  "project": "resolver_package_mfp",
   "entry": {
     "name": "main",
     "returns": "Nothing",

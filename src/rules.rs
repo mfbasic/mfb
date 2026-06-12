@@ -164,7 +164,7 @@ pub const RULES: &[Rule] = &[
     Rule {
         name: "IMPORT_PACKAGE_KIND_INVALID",
         severity: Severity::Error,
-        message: "imported source package must be a library",
+        message: "imported source package must be a package",
     },
     Rule {
         name: "SYMBOL_DUPLICATE_IMPORT",
