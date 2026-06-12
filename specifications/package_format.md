@@ -424,7 +424,7 @@ These IDs are reserved and do not need table entries:
 0xFFFFFF00 = File
 ```
 
-All user, package, and instantiated built-in generic types appear in the `TYPE_TABLE`.
+All user, package, and instantiated template types appear in the `TYPE_TABLE`.
 
 ## Type entry
 
@@ -452,7 +452,7 @@ Type kinds:
 10 = standard resource
 ```
 
-There are still no user-defined generic types. `List`, `Map`, `Result`, and `Thread` are compiler-owned type constructors, and the type table stores concrete instantiations such as `List OF Integer` or `Result OF Vec3`.
+There are no open template declarations in package bytecode. `List`, `Map`, `Result`, and `Thread` are compiler-owned templates, user templates are expanded by the source compiler, and the type table stores only concrete instantiations such as `List OF Integer`, `Result OF Vec3`, or a user-defined `Stack OF String`.
 
 ## Record payload
 
@@ -1231,8 +1231,8 @@ The section verifier checks:
 The type verifier checks:
 
 * All `typeId` references are valid.
-* No user-defined generic declarations exist.
-* Built-in generic instantiations are concrete.
+* No open template declarations exist.
+* Template instantiations are concrete.
 * `Map` keys are comparable.
 * Union variant indexes are valid.
 * Record field indexes are valid.
