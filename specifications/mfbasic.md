@@ -1798,7 +1798,7 @@ Thread functions live in the `thread` package. Thread entry points must be expor
 
 | Function | Signature | Behavior |
 |----------|-----------|----------|
-| `thread.start` | `FUNC start(f AS ISOLATED FUNC(In) AS Out, data AS In, inboundLimit AS Integer = 64, outboundLimit AS Integer = 64) AS Thread OF Msg TO Out` | Starts `f` in a fresh package instance with bounded inbound and outbound queues, passing `data` into the thread by copy, move, or freeze. Fails with `10002` for queue limits below `1`. |
+| `thread.start` | `FUNC start(f AS ISOLATED FUNC(In) AS Out, data AS In, inboundLimit AS Integer = 64, outboundLimit AS Integer = 64) AS Thread OF Msg TO Out` | Starts imported package export `f` in a fresh package instance with bounded inbound and outbound queues, passing `data` into the thread by copy, move, or freeze. Current-package functions are rejected at compile time. Fails with `10002` for queue limits below `1`. |
 | `thread.isRunning` | `FUNC isRunning(t AS Thread OF Msg TO Out) AS Boolean` | `TRUE` while the thread entry function is still running. |
 | `thread.waitFor` | `FUNC waitFor(t AS Thread OF Msg TO Out) AS Out` | Waits for completion, then returns the thread's stored result. `Err` auto-propagates like any fallible function. |
 | `thread.cancel` | `FUNC cancel(t AS Thread OF Msg TO Out) AS Nothing` | Requests cooperative cancellation. New sends fail after cancellation is requested. |

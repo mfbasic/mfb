@@ -2,8 +2,8 @@ use crate::ast::{
     AstFile, AstProject, Expression, Function, FunctionKind, Item, MatchPattern, Statement,
     TypeDecl, TypeDeclKind, TypeField, Visibility,
 };
-use crate::bytecode::{self, BytecodeExportKind};
 use crate::builtins;
+use crate::bytecode::{self, BytecodeExportKind};
 use crate::rules;
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
@@ -264,7 +264,7 @@ impl<'a> TypeChecker<'a> {
                             })
                             .collect(),
                         return_type: self.parse_type(&export.return_type),
-                        isolated: false,
+                        isolated: export.isolated,
                     },
                 );
             }
@@ -1799,6 +1799,22 @@ impl<'a> TypeChecker<'a> {
                 self.type_name(&type_)
             })
             .collect::<Vec<_>>();
+
+        if callee == "thread.start" {
+            let valid_entry = matches!(
+                arguments.first(),
+                Some(Expression::Identifier(name)) if name.contains('.')
+            );
+            if !valid_entry {
+                self.report(
+                    "TYPE_CALL_ARGUMENT_MISMATCH",
+                    "thread.start entry point must be an exported ISOLATED FUNC from an imported package.",
+                    file,
+                    line,
+                );
+                return Type::Unknown;
+            }
+        }
 
         if let Some((min, max)) = builtins::thread::arity(callee) {
             if arguments.len() < min || arguments.len() > max {

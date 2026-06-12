@@ -252,6 +252,7 @@ pub struct BytecodeDependency {
 pub struct BytecodeExport {
     pub name: String,
     pub kind: BytecodeExportKind,
+    pub isolated: bool,
     pub params: Vec<BytecodeExportParam>,
     pub return_type: String,
 }
@@ -678,6 +679,7 @@ fn package_exports(package: &PackageBytecode) -> Result<Vec<BytecodeExport>, Str
             Ok(BytecodeExport {
                 name: string_at(&package.project.strings.values, export.name)?.to_string(),
                 kind: export.kind,
+                isolated: function.flags & FUNCTION_FLAG_ISOLATED != 0,
                 params: function
                     .params
                     .iter()
@@ -1991,10 +1993,7 @@ fn remap_function(function: Function, map: &MergeMap) -> Result<Function, String
                     start_pc: cleanup.start_pc,
                     end_pc: cleanup.end_pc,
                     resource_register: cleanup.resource_register,
-                    close_function_id: remap_function_id_if_needed(
-                        map,
-                        cleanup.close_function_id,
-                    )?,
+                    close_function_id: remap_function_id_if_needed(map, cleanup.close_function_id)?,
                 })
             })
             .collect::<Result<Vec<_>, String>>()?,
@@ -2052,6 +2051,10 @@ where
 }
 
 fn remap_type_payload(kind: u16, payload: &[u8], map: &MergeMap) -> Result<Vec<u8>, String> {
+    if payload.is_empty() {
+        return Ok(Vec::new());
+    }
+
     let mut out = Vec::new();
     match kind {
         1 => {
@@ -2059,8 +2062,14 @@ fn remap_type_payload(kind: u16, payload: &[u8], map: &MergeMap) -> Result<Vec<u
             let field_count = cursor_u32(payload, &mut offset)?;
             put_u32(&mut out, field_count);
             for _ in 0..field_count {
-                put_u32(&mut out, remap_string(map, cursor_u32(payload, &mut offset)?)?);
-                put_u32(&mut out, remap_type(map, cursor_u32(payload, &mut offset)?)?);
+                put_u32(
+                    &mut out,
+                    remap_string(map, cursor_u32(payload, &mut offset)?)?,
+                );
+                put_u32(
+                    &mut out,
+                    remap_type(map, cursor_u32(payload, &mut offset)?)?,
+                );
                 put_u32(&mut out, cursor_u32(payload, &mut offset)?);
             }
         }
@@ -2069,12 +2078,21 @@ fn remap_type_payload(kind: u16, payload: &[u8], map: &MergeMap) -> Result<Vec<u
             let variant_count = cursor_u32(payload, &mut offset)?;
             put_u32(&mut out, variant_count);
             for _ in 0..variant_count {
-                put_u32(&mut out, remap_string(map, cursor_u32(payload, &mut offset)?)?);
+                put_u32(
+                    &mut out,
+                    remap_string(map, cursor_u32(payload, &mut offset)?)?,
+                );
                 let field_count = cursor_u32(payload, &mut offset)?;
                 put_u32(&mut out, field_count);
                 for _ in 0..field_count {
-                    put_u32(&mut out, remap_string(map, cursor_u32(payload, &mut offset)?)?);
-                    put_u32(&mut out, remap_type(map, cursor_u32(payload, &mut offset)?)?);
+                    put_u32(
+                        &mut out,
+                        remap_string(map, cursor_u32(payload, &mut offset)?)?,
+                    );
+                    put_u32(
+                        &mut out,
+                        remap_type(map, cursor_u32(payload, &mut offset)?)?,
+                    );
                 }
             }
         }
@@ -2083,7 +2101,10 @@ fn remap_type_payload(kind: u16, payload: &[u8], map: &MergeMap) -> Result<Vec<u
             let member_count = cursor_u32(payload, &mut offset)?;
             put_u32(&mut out, member_count);
             for _ in 0..member_count {
-                put_u32(&mut out, remap_string(map, cursor_u32(payload, &mut offset)?)?);
+                put_u32(
+                    &mut out,
+                    remap_string(map, cursor_u32(payload, &mut offset)?)?,
+                );
                 put_u32(&mut out, cursor_u32(payload, &mut offset)?);
             }
         }
@@ -2099,9 +2120,15 @@ fn remap_type_payload(kind: u16, payload: &[u8], map: &MergeMap) -> Result<Vec<u
             put_u32(&mut out, cursor_u32(payload, &mut offset)?);
             let param_count = cursor_u32(payload, &mut offset)?;
             put_u32(&mut out, param_count);
-            put_u32(&mut out, remap_type(map, cursor_u32(payload, &mut offset)?)?);
+            put_u32(
+                &mut out,
+                remap_type(map, cursor_u32(payload, &mut offset)?)?,
+            );
             for _ in 0..param_count {
-                put_u32(&mut out, remap_type(map, cursor_u32(payload, &mut offset)?)?);
+                put_u32(
+                    &mut out,
+                    remap_type(map, cursor_u32(payload, &mut offset)?)?,
+                );
             }
         }
         _ => out.extend_from_slice(payload),

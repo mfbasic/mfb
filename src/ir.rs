@@ -150,10 +150,19 @@ pub(crate) enum IrValue {
 }
 
 pub fn lower_project(ast: &AstProject, entry: Option<EntryPoint>) -> IrProject {
+    lower_project_with_external_functions(ast, entry, &HashMap::new())
+}
+
+pub fn lower_project_with_external_functions(
+    ast: &AstProject,
+    entry: Option<EntryPoint>,
+    external_function_types: &HashMap<String, String>,
+) -> IrProject {
     let mut types = Vec::new();
     let mut functions = Vec::new();
     let function_returns = function_returns(ast);
-    let function_types = function_types(ast);
+    let mut function_types = function_types(ast);
+    function_types.extend(external_function_types.clone());
     let type_index = TypeIndex::new(ast);
     let mut context = LowerContext {
         function_returns: &function_returns,

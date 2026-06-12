@@ -210,14 +210,25 @@ fn build_project(options: &BuildOptions) -> Result<(), ()> {
     match options.output {
         BuildOutput::Validate => {
             if project_kind == "executable" {
-                let ir = ir::lower_project(&ast, entry.clone());
-                let packages = installed_package_files(&options.location, &manifest).map_err(|err| {
-                    eprintln!("error: {err}");
-                })?;
-                let executable_path = os::write_executable(&options.location, &ir, &target, &packages)
+                let packages =
+                    installed_package_files(&options.location, &manifest).map_err(|err| {
+                        eprintln!("error: {err}");
+                    })?;
+                let external_functions = external_package_function_types_from_files(&packages)
                     .map_err(|err| {
                         eprintln!("error: {err}");
                     })?;
+                let ir = ir::lower_project_with_external_functions(
+                    &ast,
+                    entry.clone(),
+                    &external_functions,
+                );
+                let executable_path =
+                    os::write_executable(&options.location, &ir, &target, &packages).map_err(
+                        |err| {
+                            eprintln!("error: {err}");
+                        },
+                    )?;
                 println!("Wrote executable to {}", executable_path.display());
             } else if project_kind == "package" {
                 let ir = ir::lower_project(&ast, entry.clone());
@@ -241,21 +252,29 @@ fn build_project(options: &BuildOptions) -> Result<(), ()> {
             println!("Wrote AST to {}", ast_path.display());
         }
         BuildOutput::Ir => {
-            let ir = ir::lower_project(&ast, entry.clone());
+            let external_functions = external_package_function_types(&options.location, &manifest);
+            let ir =
+                ir::lower_project_with_external_functions(&ast, entry.clone(), &external_functions);
             let ir_path = ir::write_ir(&options.location, &ir).map_err(|err| {
                 eprintln!("error: {err}");
             })?;
             println!("Wrote IR to {}", ir_path.display());
         }
         BuildOutput::Bytecode => {
-            let ir = ir::lower_project(&ast, entry.clone());
+            let packages =
+                installed_package_files(&options.location, &manifest).map_err(|err| {
+                    eprintln!("error: {err}");
+                })?;
+            let external_functions = external_package_function_types_from_files(&packages)
+                .map_err(|err| {
+                    eprintln!("error: {err}");
+                })?;
+            let ir =
+                ir::lower_project_with_external_functions(&ast, entry.clone(), &external_functions);
             let version = manifest
                 .get("version")
                 .and_then(|value| value.get::<String>())
                 .expect("validated project version");
-            let packages = installed_package_files(&options.location, &manifest).map_err(|err| {
-                eprintln!("error: {err}");
-            })?;
             let bytecode_path = if packages.is_empty() {
                 bytecode::write_bytecode_hex(&options.location, &ir, version)
             } else {
@@ -272,14 +291,23 @@ fn build_project(options: &BuildOptions) -> Result<(), ()> {
                 return Err(());
             }
 
-            let ir = ir::lower_project(&ast, entry);
-            let packages = installed_package_files(&options.location, &manifest).map_err(|err| {
-                eprintln!("error: {err}");
-            })?;
-            let binary_path =
-                arch::write_binary_dump(&options.location, &ir, &target, &packages).map_err(|err| {
+            let packages =
+                installed_package_files(&options.location, &manifest).map_err(|err| {
                     eprintln!("error: {err}");
                 })?;
+            let external_functions = external_package_function_types_from_files(&packages)
+                .map_err(|err| {
+                    eprintln!("error: {err}");
+                })?;
+            let ir = ir::lower_project_with_external_functions(&ast, entry, &external_functions);
+            let binary_path =
+                match arch::write_binary_dump(&options.location, &ir, &target, &packages) {
+                    Ok(path) => path,
+                    Err(err) => {
+                        eprintln!("error: {err}");
+                        return Err(());
+                    }
+                };
             println!("Wrote binary to {}", binary_path.display());
         }
     }
@@ -1311,6 +1339,64 @@ fn installed_package_files(
             }
         })
         .collect()
+}
+
+fn external_package_function_types(
+    project_dir: &Path,
+    manifest: &HashMap<String, JsonValue>,
+) -> HashMap<String, String> {
+    let Ok(packages) = installed_package_files(project_dir, manifest) else {
+        return HashMap::new();
+    };
+    external_package_function_types_from_files_lossy(&packages)
+}
+
+fn external_package_function_types_from_files(
+    packages: &[PathBuf],
+) -> Result<HashMap<String, String>, String> {
+    let mut functions = HashMap::new();
+    for package in packages {
+        let header = read_mfp_header(package)?;
+        for export in bytecode::read_package_exports(package)? {
+            functions.insert(
+                format!("{}.{}", header.name, export.name),
+                package_export_function_type(&export),
+            );
+        }
+    }
+    Ok(functions)
+}
+
+fn external_package_function_types_from_files_lossy(
+    packages: &[PathBuf],
+) -> HashMap<String, String> {
+    let mut functions = HashMap::new();
+    for package in packages {
+        let Ok(header) = read_mfp_header(package) else {
+            continue;
+        };
+        let Ok(exports) = bytecode::read_package_exports(package) else {
+            continue;
+        };
+        for export in exports {
+            functions.insert(
+                format!("{}.{}", header.name, export.name),
+                package_export_function_type(&export),
+            );
+        }
+    }
+    functions
+}
+
+fn package_export_function_type(export: &bytecode::BytecodeExport) -> String {
+    let params = export
+        .params
+        .iter()
+        .map(|param| param.type_.clone())
+        .collect::<Vec<_>>()
+        .join(", ");
+    let prefix = if export.isolated { "ISOLATED " } else { "" };
+    format!("{prefix}FUNC({params}) AS {}", export.return_type)
 }
 
 fn package_metadata(manifest: &HashMap<String, JsonValue>) -> bytecode::BytecodeMetadata {

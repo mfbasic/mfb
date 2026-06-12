@@ -4,9 +4,10 @@ usage: IMPORT thread
 ---
 function: start
 signature: FUNC start(f AS ISOLATED FUNC(In) AS Out, data AS In, inboundLimit AS Integer = 64, outboundLimit AS Integer = 64) AS Thread OF Msg TO Out
-summary: Starts an isolated function with input data and bounded inbound and outbound queues.
+summary: Starts an imported package isolated function with input data and bounded inbound and outbound queues.
 example:
-LET t AS Thread OF String TO Integer = thread.start(worker, "input")
+IMPORT workers
+LET t AS Thread OF String TO Integer = thread.start(workers.worker, "input")
 ---
 function: isRunning
 signature: FUNC isRunning(t AS Thread OF Msg TO Out) AS Boolean
