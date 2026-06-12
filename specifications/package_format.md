@@ -424,7 +424,7 @@ These IDs are reserved and do not need table entries:
 0xFFFFFF00 = File
 ```
 
-All user, package, and instantiated template types appear in the `TYPE_TABLE`.
+All user, package, and instantiated template types appear in the `TYPE_TABLE`. Type table entry ids start at `10`, immediately after the reserved built-in ids above, so entry index `0` has type id `10`.
 
 ## Type entry
 

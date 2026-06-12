@@ -278,24 +278,24 @@ Symlink behavior is explicit:
 
 ## 8. Built-in Thread Package
 
-Thread functions live in the `thread` package. Thread entry points must be exported `ISOLATED FUNC` declarations from imported packages; lambdas, closures, `SUB`s, non-isolated functions, and current-package functions are rejected at compile time.
+Thread functions live in the `thread` package. Thread entry points must be exported `ISOLATED FUNC` declarations from imported packages with type `ISOLATED FUNC(Thread OF Msg TO Out, In) AS Out`; lambdas, closures, `SUB`s, non-isolated functions, current-package functions, and functions without the leading thread handle parameter are rejected at compile time.
 
 | Function | Signature | Behavior |
 |----------|-----------|----------|
-| `thread.start` | `FUNC start(f AS ISOLATED FUNC(In) AS Out, data AS In, inboundLimit AS Integer = 64, outboundLimit AS Integer = 64) AS Thread OF Msg TO Out` | Starts imported package export `f` in a fresh package instance with bounded inbound and outbound queues, passing `data` into the thread by copy, move, or freeze. Current-package functions are rejected at compile time. Fails with `10002` for queue limits below `1`. |
-| `thread.isRunning` | `FUNC isRunning(t AS Thread OF Msg TO Out) AS Boolean` | `TRUE` while the thread entry function is still running. |
-| `thread.waitFor` | `FUNC waitFor(t AS Thread OF Msg TO Out) AS Out` | Waits for completion, then returns the thread's stored result. `Err` auto-propagates like any fallible function. |
-| `thread.cancel` | `FUNC cancel(t AS Thread OF Msg TO Out) AS Nothing` | Requests cooperative cancellation. New sends fail after cancellation is requested. |
-| `thread.send` | `FUNC send(t AS Thread OF Msg TO Out, data AS Msg, timeoutMs AS Integer = 0) AS Nothing` | Sends `data` to the thread's inbound queue by copy, move, or freeze. `timeoutMs = 0` does not wait for queue space. Fails if the thread has ended, cancellation was requested, the timeout expires, or the timeout is invalid. |
-| `thread.poll` | `FUNC poll(t AS Thread OF Msg TO Out, ms AS Integer) AS Boolean` | Waits up to `ms` milliseconds for an outbound message. Returns `TRUE` when `thread.read` can read without blocking. |
-| `thread.read` | `FUNC read(t AS Thread OF Msg TO Out) AS Msg` | Reads the next outbound message by copy, move, or freeze. Fails when no message is available. |
-| `thread.receive` | `FUNC receive(timeoutMs AS Integer = 0) AS Msg` | Worker-side read from the inbound queue. Valid only inside the worker thread. `timeoutMs = 0` does not wait. |
-| `thread.emit` | `FUNC emit(data AS Msg, timeoutMs AS Integer = 0) AS Nothing` | Worker-side send to the outbound queue. Valid only inside the worker thread. `timeoutMs = 0` does not wait for queue space. |
+| `thread.start` | `FUNC start OF In, Msg, Out(f AS ISOLATED FUNC(Thread OF Msg TO Out, In) AS Out, data AS In, inboundLimit AS Integer = 64, outboundLimit AS Integer = 64) AS Thread OF Msg TO Out` | Starts imported package export `f` in a fresh package instance with bounded inbound and outbound queues, passing the worker thread handle and `data` into the thread by copy, move, or freeze. Current-package functions are rejected at compile time. Fails with `10002` for queue limits below `1`. |
+| `thread.isRunning` | `FUNC isRunning OF Msg, Out(t AS Thread OF Msg TO Out) AS Boolean` | `TRUE` while the thread entry function is still running. |
+| `thread.waitFor` | `FUNC waitFor OF Msg, Out(t AS Thread OF Msg TO Out) AS Out` | Waits for completion, then returns the thread's stored result. `Err` auto-propagates like any fallible function. |
+| `thread.cancel` | `FUNC cancel OF Msg, Out(t AS Thread OF Msg TO Out) AS Nothing` | Requests cooperative cancellation. New sends fail after cancellation is requested. |
+| `thread.send` | `FUNC send OF Msg, Out(t AS Thread OF Msg TO Out, data AS Msg, timeoutMs AS Integer = 0) AS Nothing` | Sends `data` to the thread's inbound queue by copy, move, or freeze. `timeoutMs = 0` does not wait for queue space. Fails if the thread has ended, cancellation was requested, the timeout expires, or the timeout is invalid. |
+| `thread.poll` | `FUNC poll OF Msg, Out(t AS Thread OF Msg TO Out, ms AS Integer) AS Boolean` | Waits up to `ms` milliseconds for an outbound message. Returns `TRUE` when `thread.read` can read without blocking. |
+| `thread.read` | `FUNC read OF Msg, Out(t AS Thread OF Msg TO Out) AS Msg` | Reads the next outbound message by copy, move, or freeze. Fails when no message is available. |
+| `thread.receive` | `FUNC receive OF Msg, Out(t AS Thread OF Msg TO Out, timeoutMs AS Integer = 0) AS Msg` | Worker-side read from the inbound queue for `t`. Valid only inside the worker thread. `timeoutMs = 0` does not wait. |
+| `thread.emit` | `FUNC emit OF Msg, Out(t AS Thread OF Msg TO Out, data AS Msg, timeoutMs AS Integer = 0) AS Nothing` | Worker-side send to the outbound queue for `t`. Valid only inside the worker thread. `timeoutMs = 0` does not wait for queue space. |
 | `thread.isCancelled` | `FUNC isCancelled() AS Boolean` | Worker-side cancellation check. Returns `TRUE` after the parent requests cancellation. |
 
 When a thread ends, its `Thread` value keeps `result AS Result OF Out`. `thread.waitFor(t)` waits for that result to exist and returns it with normal `Result` auto-unwrapping behavior.
 
-`Msg` is inferred from an explicit `Thread OF Msg TO Out` binding or from later `thread.send`/`thread.read` use. If a thread does not exchange messages, `Msg` may be `Nothing`.
+Thread functions are ordinary built-in templates. Their `Msg` and `Out` parameters are resolved by the template rules in the language specification from argument types and expected result types. `thread.start` gets `Msg` and `Out` from the started function's first `Thread OF Msg TO Out` parameter, and gets `In` from the started function's second parameter and the `data` argument. If a thread does not exchange messages, `Msg` may be `Nothing`.
 
 Worker-side functions fail with `ErrInvalidArgument` when called outside a worker. Queue timeout uses `ErrTimeout`; unavailable messages use `ErrNotFound`; cancellation uses `ErrInterrupted`.
 

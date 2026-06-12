@@ -41,10 +41,7 @@ pub(crate) fn is_builtin_type(name: &str) -> bool {
 
 pub(crate) fn resolve_call<'a>(name: &str, arg_types: &'a [String]) -> Option<ResolvedCall<'a>> {
     let return_type = match name {
-        START if matches_start(arg_types) => {
-            let output = function_output(&arg_types[0])?;
-            Cow::Owned(format!("Thread OF Unknown TO {output}"))
-        }
+        START if matches_start(arg_types) => Cow::Owned(start_thread_type(&arg_types[0])?),
         IS_RUNNING if arg_types.len() == 1 && is_thread_type(&arg_types[0]) => {
             Cow::Borrowed("Boolean")
         }
@@ -65,11 +62,18 @@ pub(crate) fn resolve_call<'a>(name: &str, arg_types: &'a [String]) -> Option<Re
             Cow::Borrowed("Boolean")
         }
         READ if arg_types.len() == 1 => thread_message(&arg_types[0]).map(Cow::Borrowed)?,
-        RECEIVE if arg_types.is_empty() || exact(arg_types, &["Integer"]) => {
-            Cow::Borrowed("Unknown")
+        RECEIVE
+            if (arg_types.len() == 1 || arg_types.len() == 2)
+                && is_thread_type(&arg_types[0])
+                && arg_types.get(1).is_none_or(|timeout| timeout == "Integer") =>
+        {
+            thread_message(&arg_types[0]).map(Cow::Borrowed)?
         }
-        EMIT if (arg_types.len() == 1 || arg_types.len() == 2)
-            && arg_types.get(1).is_none_or(|timeout| timeout == "Integer") =>
+        EMIT if (arg_types.len() == 2 || arg_types.len() == 3)
+            && is_thread_type(&arg_types[0])
+            && thread_message(&arg_types[0])
+                .is_some_and(|message| message == "Unknown" || message == arg_types[1])
+            && arg_types.get(2).is_none_or(|timeout| timeout == "Integer") =>
         {
             Cow::Borrowed("Nothing")
         }
@@ -81,12 +85,12 @@ pub(crate) fn resolve_call<'a>(name: &str, arg_types: &'a [String]) -> Option<Re
 
 pub(crate) fn expected_arguments(name: &str) -> Option<&'static str> {
     match name {
-        START => Some("ISOLATED FUNC(In) AS Out, In, Integer, Integer"),
+        START => Some("ISOLATED FUNC(Thread OF Msg TO Out, In) AS Out, In, Integer, Integer"),
         IS_RUNNING | WAIT_FOR | CANCEL | READ => Some("Thread OF Msg TO Out"),
         SEND => Some("Thread OF Msg TO Out, Msg, Integer"),
         POLL => Some("Thread OF Msg TO Out, Integer"),
-        RECEIVE => Some("Integer"),
-        EMIT => Some("Msg, Integer"),
+        RECEIVE => Some("Thread OF Msg TO Out, Integer"),
+        EMIT => Some("Thread OF Msg TO Out, Msg, Integer"),
         IS_CANCELLED => Some("no arguments"),
         _ => None,
     }
@@ -98,8 +102,8 @@ pub(crate) fn arity(name: &str) -> Option<(usize, usize)> {
         IS_RUNNING | WAIT_FOR | CANCEL | READ => Some((1, 1)),
         SEND => Some((2, 3)),
         POLL => Some((2, 2)),
-        RECEIVE => Some((0, 1)),
-        EMIT => Some((1, 2)),
+        RECEIVE => Some((1, 2)),
+        EMIT => Some((2, 3)),
         IS_CANCELLED => Some((0, 0)),
         _ => None,
     }
@@ -173,14 +177,27 @@ fn matches_start(arg_types: &[String]) -> bool {
     if !(2..=4).contains(&arg_types.len()) {
         return false;
     }
-    function_input(&arg_types[0]).is_some_and(|input| input == arg_types[1])
+    let Some(params) = function_params(&arg_types[0]) else {
+        return false;
+    };
+    params.len() == 2
+        && is_thread_type(&params[0])
+        && thread_output(&params[0]).is_some_and(|output| {
+            function_output(&arg_types[0]).is_some_and(|function_output| output == function_output)
+        })
+        && params[1] == arg_types[1]
         && arg_types.get(2).is_none_or(|limit| limit == "Integer")
         && arg_types.get(3).is_none_or(|limit| limit == "Integer")
 }
 
-fn function_input(name: &str) -> Option<&str> {
+fn start_thread_type(name: &str) -> Option<String> {
+    function_params(name)?.first().cloned()
+}
+
+fn function_params(name: &str) -> Option<Vec<String>> {
     let rest = name.strip_prefix("ISOLATED FUNC(")?;
-    rest.split_once(") AS ").map(|(params, _)| params)
+    let (params, _) = rest.split_once(") AS ")?;
+    Some(split_top_level_types(params))
 }
 
 fn function_output(name: &str) -> Option<&str> {
@@ -204,12 +221,26 @@ pub(crate) fn thread_parts(name: &str) -> Option<(&str, &str)> {
     name.strip_prefix("Thread OF ")?.split_once(" TO ")
 }
 
-fn exact(arg_types: &[String], expected: &[&str]) -> bool {
-    arg_types.len() == expected.len()
-        && arg_types
-            .iter()
-            .zip(expected.iter())
-            .all(|(actual, expected)| actual == expected)
+fn split_top_level_types(params: &str) -> Vec<String> {
+    if params.trim().is_empty() {
+        return Vec::new();
+    }
+    let mut parts = Vec::new();
+    let mut depth = 0usize;
+    let mut start = 0usize;
+    for (index, ch) in params.char_indices() {
+        match ch {
+            '(' => depth += 1,
+            ')' => depth = depth.saturating_sub(1),
+            ',' if depth == 0 => {
+                parts.push(params[start..index].trim().to_string());
+                start = index + ch.len_utf8();
+            }
+            _ => {}
+        }
+    }
+    parts.push(params[start..].trim().to_string());
+    parts
 }
 
 fn primitive_type_id(type_name: &str) -> Option<u32> {

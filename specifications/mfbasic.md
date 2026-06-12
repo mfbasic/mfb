@@ -1005,7 +1005,7 @@ IMPORT workers
 IMPORT thread
 
 ' workers/jobs.mfb
-' EXPORT ISOLATED FUNC parseFile(path AS String) AS Integer
+' EXPORT ISOLATED FUNC parseFile(thread AS Thread OF Nothing TO Integer, path AS String) AS Integer
 
 LET t = thread.start(workers.parseFile, "data.csv")
 
@@ -1022,7 +1022,7 @@ io.print("Parsed " & toString(count) & " records")
 
 Rules:
 
-- A thread entry point must have type `ISOLATED FUNC(In) AS Out`.
+- A thread entry point must have type `ISOLATED FUNC(Thread OF Msg TO Out, In) AS Out`. The thread handle is passed as the first argument by the runtime when the worker starts.
 - A thread entry point must be an exported `ISOLATED FUNC` from an imported package. Starting a function from the current package is a compile error.
 - A thread entry point must not be a `SUB`.
 - A thread entry point must not be a closure or lambda. It must be a named package function.
@@ -1036,21 +1036,21 @@ Rules:
 The `thread` package exposes:
 
 ```basic
-thread.start(f AS ISOLATED FUNC(In) AS Out, data AS In, inboundLimit AS Integer = 64, outboundLimit AS Integer = 64) AS Thread OF Msg TO Out
-thread.isRunning(t AS Thread OF Msg TO Out) AS Boolean
-thread.waitFor(t AS Thread OF Msg TO Out) AS Out
-thread.cancel(t AS Thread OF Msg TO Out) AS Nothing
-thread.send(t AS Thread OF Msg TO Out, data AS Msg, timeoutMs AS Integer = 0) AS Nothing
-thread.poll(t AS Thread OF Msg TO Out, ms AS Integer) AS Boolean
-thread.read(t AS Thread OF Msg TO Out) AS Msg
-thread.receive(timeoutMs AS Integer = 0) AS Msg
-thread.emit(data AS Msg, timeoutMs AS Integer = 0) AS Nothing
+thread.start OF In, Msg, Out(f AS ISOLATED FUNC(Thread OF Msg TO Out, In) AS Out, data AS In, inboundLimit AS Integer = 64, outboundLimit AS Integer = 64) AS Thread OF Msg TO Out
+thread.isRunning OF Msg, Out(t AS Thread OF Msg TO Out) AS Boolean
+thread.waitFor OF Msg, Out(t AS Thread OF Msg TO Out) AS Out
+thread.cancel OF Msg, Out(t AS Thread OF Msg TO Out) AS Nothing
+thread.send OF Msg, Out(t AS Thread OF Msg TO Out, data AS Msg, timeoutMs AS Integer = 0) AS Nothing
+thread.poll OF Msg, Out(t AS Thread OF Msg TO Out, ms AS Integer) AS Boolean
+thread.read OF Msg, Out(t AS Thread OF Msg TO Out) AS Msg
+thread.receive OF Msg, Out(t AS Thread OF Msg TO Out, timeoutMs AS Integer = 0) AS Msg
+thread.emit OF Msg, Out(t AS Thread OF Msg TO Out, data AS Msg, timeoutMs AS Integer = 0) AS Nothing
 thread.isCancelled() AS Boolean
 ```
 
-`Msg` is inferred from an explicit `Thread OF Msg TO Out` binding or from later `thread.send`/`thread.read` use. If a thread does not exchange messages, `Msg` may be `Nothing`.
+Thread functions are ordinary built-in templates. Their `Msg` and `Out` parameters are resolved by the template rules in §3 from argument types and expected result types. `thread.start` gets `Msg` and `Out` from the started function's first `Thread OF Msg TO Out` parameter, and gets `In` from the started function's second parameter and the `data` argument. If a thread does not exchange messages, `Msg` may be `Nothing`.
 
-Each thread has a bounded inbound queue and bounded outbound queue. `thread.start` rejects limits less than `1` with `ErrInvalidArgument`. `thread.send` sends a value to the worker's inbound queue; `thread.receive` reads from that queue and is valid only inside the running worker. `thread.emit` sends from the worker to the parent-visible outbound queue and is valid only inside the running worker. `thread.poll` waits up to `ms` milliseconds for an outbound message from the worker and returns `TRUE` when `thread.read` can read without blocking. `thread.read` reads the next outbound message. Reading with no available message fails with `ErrNotFound`.
+Each thread has a bounded inbound queue and bounded outbound queue. `thread.start` rejects limits less than `1` with `ErrInvalidArgument`. `thread.send` sends a value to the worker's inbound queue; `thread.receive` reads from that queue through the worker's thread handle and is valid only inside the running worker. `thread.emit` sends through the worker's thread handle to the parent-visible outbound queue and is valid only inside the running worker. `thread.poll` waits up to `ms` milliseconds for an outbound message from the worker and returns `TRUE` when `thread.read` can read without blocking. `thread.read` reads the next outbound message. Reading with no available message fails with `ErrNotFound`.
 
 For queue operations, `timeoutMs = 0` means do not wait. A positive timeout waits up to that many milliseconds for space or data. Sending to a full queue or receiving from an empty queue after the timeout fails with `ErrTimeout`. Negative timeouts are invalid.
 

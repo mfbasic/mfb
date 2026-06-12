@@ -523,12 +523,7 @@ impl<'a> TypeChecker<'a> {
                     .as_ref()
                     .map(|value| self.infer_expression(file, value, locals, *line));
 
-                if matches!(inferred, Some(Type::Unknown))
-                    && !(declared.is_some()
-                        && value
-                            .as_ref()
-                            .is_some_and(is_contextual_thread_unknown_call))
-                {
+                if matches!(inferred, Some(Type::Unknown)) {
                     self.report(
                         "TYPE_UNKNOWN_VALUE",
                         &format!("Initializer for binding `{name}` does not have a known type."),
@@ -2323,13 +2318,6 @@ fn function_type(sig: &FunctionSig) -> Type {
         return_type: Box::new(sig.return_type.clone()),
         isolated: sig.isolated,
     }
-}
-
-fn is_contextual_thread_unknown_call(expression: &Expression) -> bool {
-    matches!(
-        expression,
-        Expression::Call { callee, .. } if callee == "thread.receive"
-    )
 }
 
 fn captured_locals(

@@ -30,6 +30,7 @@ pub(crate) const TYPE_BYTE: u32 = 7;
 pub(crate) const TYPE_ERROR: u32 = 8;
 pub(crate) const TYPE_TERMINAL_SIZE: u32 = 9;
 pub(crate) const TYPE_FILE_HANDLE: u32 = 0xffff_ff00;
+const FIRST_TABLE_TYPE_ID: u32 = 10;
 
 const FUNCTION_BYTECODE: u16 = 1;
 
@@ -959,7 +960,7 @@ fn read_type_entries(bytes: &[u8], strings: &[String]) -> Result<TypeTable, Stri
         if payload_offset < entries_end || payload_end > bytes.len() {
             return Err("invalid type payload bounds".to_string());
         }
-        let id = 9 + index as u32;
+        let id = FIRST_TABLE_TYPE_ID + index as u32;
         ids.insert(string_at(strings, name)?.to_string(), id);
         entries.push(TypeEntry {
             kind,
@@ -979,7 +980,7 @@ fn type_entry_names(types: &TypeTable, strings: &[String]) -> Result<HashMap<u32
         .enumerate()
         .map(|(index, entry)| {
             (
-                9 + index as u32,
+                FIRST_TABLE_TYPE_ID + index as u32,
                 (entry.kind, entry.name, entry.payload.clone()),
             )
         })
@@ -1021,12 +1022,12 @@ fn decode_type_name(
             let success = read_payload_type(payload, 0, raw, strings, decoded)?;
             format!("Result OF {success}")
         }
-        8 => decode_function_type(payload, raw, strings, decoded)?,
-        9 => {
+        7 => {
             let message = read_payload_type(payload, 0, raw, strings, decoded)?;
             let output = read_payload_type(payload, 4, raw, strings, decoded)?;
             format!("Thread OF {message} TO {output}")
         }
+        8 => decode_function_type(payload, raw, strings, decoded)?,
         _ => string_at(strings, *name)?.to_string(),
     };
     decoded.insert(id, decoded_name.clone());
@@ -1466,7 +1467,7 @@ impl<'a> AbiSerializer<'a> {
         let entry = self
             .types
             .entries
-            .get((id - 9) as usize)
+            .get((id - FIRST_TABLE_TYPE_ID) as usize)
             .ok_or_else(|| format!("unknown type id {id}"))?;
         let ref_id = self.next_ref;
         self.next_ref = self
@@ -1495,12 +1496,12 @@ impl<'a> AbiSerializer<'a> {
                 self.put_str("result");
                 self.serialize_type(checked_u32_at(&entry.payload, 0)?)
             }
-            8 => self.serialize_function_type(entry),
-            9 => {
+            7 => {
                 self.put_str("thread");
                 self.serialize_type(checked_u32_at(&entry.payload, 0)?)?;
                 self.serialize_type(checked_u32_at(&entry.payload, 4)?)
             }
+            8 => self.serialize_function_type(entry),
             _ => {
                 self.put_str("opaque");
                 self.put_str(string_at(self.strings, entry.name)?);
@@ -1939,7 +1940,7 @@ fn native_type_layouts_from_bytecode(
     }
 
     for (index, entry) in types.entries.iter().enumerate() {
-        let type_id = 9 + index as u32;
+        let type_id = FIRST_TABLE_TYPE_ID + index as u32;
         match entry.kind {
             1 if !entry.payload.is_empty() => {
                 let fields = native_record_field_layouts(&entry.payload, 0)?;
@@ -2492,10 +2493,10 @@ fn merge_package_bytecode(
     }
 
     for (index, entry) in package.project.types.entries.iter().enumerate() {
-        let old_id = 9 + index as u32;
+        let old_id = FIRST_TABLE_TYPE_ID + index as u32;
         let name = remap_string(&map, entry.name)?;
         let owner_package = remap_string(&map, entry.owner_package)?;
-        let new_id = 9 + project.types.entries.len() as u32;
+        let new_id = FIRST_TABLE_TYPE_ID + project.types.entries.len() as u32;
         let visible_name = merged_type_key(&project.strings, name, owner_package, &package_name)?;
         project.types.ids.insert(visible_name, new_id);
         project.types.entries.push(TypeEntry {
@@ -3896,7 +3897,7 @@ impl TypeTable {
                 .get(&ir_type.name)
                 .ok_or_else(|| format!("source type `{}` was not reserved", ir_type.name))?;
             let payload = source_type_payload(strings, self, &source_types, ir_type)?;
-            self.entries[(id - 9) as usize].payload = payload;
+            self.entries[(id - FIRST_TABLE_TYPE_ID) as usize].payload = payload;
         }
 
         Ok(())
@@ -3925,7 +3926,7 @@ impl TypeTable {
                     let output = self.type_id(strings, output);
                     self.thread_type(strings, message, output)
                 } else {
-                    self.add_entry(strings, "", name, 9, Vec::new())
+                    self.add_entry(strings, "", name, 7, Vec::new())
                 }
             }
             name if name.starts_with("FUNC(") => self.function_type(strings, name),
@@ -4027,7 +4028,7 @@ impl TypeTable {
         let mut payload = Vec::new();
         put_u32(&mut payload, message_type);
         put_u32(&mut payload, output_type);
-        self.add_entry(strings, "thread", &name, 9, payload)
+        self.add_entry(strings, "thread", &name, 7, payload)
     }
 
     fn add_entry(
@@ -4041,7 +4042,7 @@ impl TypeTable {
         if let Some(id) = self.ids.get(name) {
             return *id;
         }
-        let id = 9 + self.entries.len() as u32;
+        let id = FIRST_TABLE_TYPE_ID + self.entries.len() as u32;
         self.ids.insert(name.to_string(), id);
         self.entries.push(TypeEntry {
             kind,
