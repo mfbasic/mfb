@@ -820,7 +820,7 @@ The package resolver produces one selected version for each package identity. If
 
 A package may import a source package or an `.mfp` package. Imported `.mfp` packages must have a compatible bytecode/package format version, compatible public API metadata, and an MFBASIC language version supported by the compiler.
 
-Executable builds use a lockfile named `project.lock`. The lockfile records the exact selected package identity, version, source or registry URL, content hash, bytecode/package version, native dependency metadata hash, and transitive dependencies. Locked builds must use the lockfile selections exactly; a hash or version mismatch fails before compilation or linking.
+Executable builds use a lockfile named `project.lock`. The lockfile records the exact selected package identity, version, source or registry URL, content hash, bytecode/package version, native dependency metadata hash, and transitive dependencies. Locked builds must use the lockfile selections exactly; a hash or version mismatch fails before compilation, bytecode merging, or native linking.
 
 An **isolated function** is an exported top-level `FUNC` declared with `ISOLATED`. When an isolated function is used as a thread entry point, the runtime starts it in a fresh instance of its package. Starting isolated functions from the same package multiple times creates multiple independent instances; their top-level `MUT` bindings are not shared with each other or with the importing package.
 
@@ -1052,7 +1052,7 @@ LINK "sqlite3" AS sqlite
 END LINK
 ```
 
-`LINK "sqlite3" AS sqlite` creates the namespace `sqlite`, so linked functions are called like package functions:
+`LINK "sqlite3" AS sqlite` creates the namespace `sqlite`, so native wrapper functions are called like package functions:
 
 ```basic
 USING db = sqlite.open("app.db")
@@ -1062,7 +1062,7 @@ END USING
 
 `TYPE Db AS RESOURCE` declares an opaque unique native handle. For a C library this is usually represented by a pointer or host handle internally, but source code cannot inspect, cast, compare, serialize, print, copy, capture in a lambda, store in an ordinary collection, send to a thread, or do arithmetic on it. A resource may be passed only to functions whose signatures explicitly accept that resource type. Resource handles are not sendable to threads unless a future extension says so for a specific resource type.
 
-`CLOSE close` names the linked function that releases the resource. A resource type with a close function can be bound by `USING`; the close function runs automatically at `END USING`, including on error exits. Calling a linked function with a closed resource fails with `ErrResourceClosed`.
+`CLOSE close` names the native wrapper function that releases the resource. A resource type with a close function can be bound by `USING`; the close function runs automatically at `END USING`, including on error exits. Calling a native wrapper function with a closed resource fails with `ErrResourceClosed`.
 
 `SYMBOL "sqlite3_open"` gives the exact native symbol name to look up in the loaded library. The MFBASIC function name is the public wrapper name; it does not have to match the native symbol name.
 
@@ -1449,11 +1449,13 @@ The backend pipeline is:
   -> .mfp package or native executable
 ```
 
-Package compilation emits `.mfp` packages containing portable bytecode plus the embedded package manifest, dependency metadata, native-link metadata, and public API metadata needed for import, type checking, linking, and verification. This metadata includes each exported type and function's ownership properties: copyability, movability, resource-handle status, closure-capture requirements, thread-sendability, drop requirements, and collection element constraints. A package containing `LINK` declarations emits a reusable native binding `.mfp`: importers consume the package API and do not repeat the `LINK` declarations. Executable compilation consumes `.mfb` application source, the resolved `mfb.lock`, and imported `.mfp` packages, then resolves all native dependencies declared by those packages and emits a native binary for the selected target platform.
+Package compilation emits `.mfp` packages containing portable bytecode plus the embedded package manifest, dependency metadata, native-link metadata, and public API metadata needed for import, type checking, bytecode merging, and verification. This metadata includes each exported type and function's ownership properties: copyability, movability, resource-handle status, closure-capture requirements, thread-sendability, drop requirements, and collection element constraints. A package containing `LINK` declarations emits a reusable native binding `.mfp`: importers consume the package API and do not repeat the `LINK` declarations.
+
+Executable compilation consumes `.mfb` application source, the resolved `mfb.lock`, and imported `.mfp` packages. The compiler statically merges imported package bytecode into the project bytecode, resolving package-qualified MFBASIC calls to functions in the merged bytecode image. After bytecode merging, the native backend resolves all native dependencies declared by the merged packages, performs target OS/native linking as needed, and emits a native binary for the selected target platform.
 
 ### 20.1 `.mfp` bytecode verification
 
-Every `.mfp` package is verified before its bytecode can be imported, linked into an executable, or executed by a VM. Verification is deterministic and must reject malformed packages before any package code runs.
+Every `.mfp` package is verified before its bytecode can be imported, merged into project bytecode, or executed by a VM. Verification is deterministic and must reject malformed packages before any package code runs.
 
 The verifier must check:
 
@@ -2028,7 +2030,7 @@ Reserved bands:
 |-------|-------|
 | `10000`-`19999` | Runtime and standard package `Error` values. |
 | `20000`-`29999` | Parser, compiler, and static semantic diagnostics. |
-| `30000`-`39999` | Package manager, linker, bytecode verifier, and build tool diagnostics. |
+| `30000`-`39999` | Package manager, bytecode merger, native linker, bytecode verifier, and build tool diagnostics. |
 | `40000`-`99999` | Reserved for future system use. |
 
 Runtime and standard package errors:

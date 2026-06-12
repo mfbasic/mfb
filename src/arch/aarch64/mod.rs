@@ -107,6 +107,7 @@ pub fn write_binary_dump(
     project_dir: &Path,
     ir: &IrProject,
     target: &BuildTarget,
+    packages: &[PathBuf],
 ) -> Result<PathBuf, String> {
     if target.arch != "aarch64" {
         return Err(format!(
@@ -115,7 +116,11 @@ pub fn write_binary_dump(
         ));
     }
 
-    let program = bytecode::native_program(ir)?;
+    let program = if packages.is_empty() {
+        bytecode::native_program(ir)?
+    } else {
+        bytecode::native_program_with_packages(ir, packages)?
+    };
     let image = encode(&program, 0)?;
     let path = project_dir.join(format!("{}.{}.bin", ir.name, target.arch));
     let mut bytes = image.code;

@@ -327,7 +327,7 @@ entryFlags        u32
 
 The manifest identity must match the `.mfp` header identity.
 
-`entryFunction` identifies the executable entry point when the bytecode payload is linked as an executable. Packages set it to `0xFFFFFFFF`. Entry flags:
+`entryFunction` identifies the executable entry point when the bytecode payload is the root executable payload or has been produced by merging package bytecode into the root project bytecode. Reusable packages set it to `0xFFFFFFFF`. Entry flags:
 
 ```text
 bit 0 = package has executable entry
@@ -335,7 +335,7 @@ bit 1 = entry accepts command-line args as List OF String
 bit 2 = entry is FUNC returning Integer
 ```
 
-The linked executable runtime maps `SUB` entry success to process exit code `0`, `FUNC ... AS Integer` entry success to the returned integer value, and uncaught entry `Err(error)` to stderr output of `error.message` plus process exit code `error.code`. When args are accepted, argument element zero is the program name as invoked by the host.
+The executable runtime maps `SUB` entry success to process exit code `0`, `FUNC ... AS Integer` entry success to the returned integer value, and uncaught entry `Err(error)` to stderr output of `error.message` plus process exit code `error.code`. When args are accepted, argument element zero is the program name as invoked by the host.
 
 The manifest is the signed source of truth. The container header duplicates identity fields only so package managers can scan files without parsing every table.
 
@@ -362,7 +362,7 @@ bit 2 = compatible patch versions allowed
 bit 3 = import contains native dependencies
 ```
 
-Import graph cycles remain compile-time/link-time errors.
+Import graph cycles remain compile-time or bytecode merge-time errors.
 
 ## `EXPORT_TABLE`
 
@@ -612,7 +612,7 @@ bit 2 = initialized by constant
 bit 3 = initialized by function
 ```
 
-A package may have a package initializer function. The executable linker runs package initializers in dependency order before `main`. Isolated thread package instances run their own package initializers when the thread package instance starts.
+A package may have a package initializer function. The bytecode merger records package initializers in dependency order so the executable runtime can run them before `main`. Isolated thread package instances run their own package initializers when the thread package instance starts.
 
 ---
 
@@ -1196,7 +1196,7 @@ Default rule: resources are not sendable to threads.
 
 # Verifier Rules
 
-The `.mfp` verifier runs before a package can be imported or linked.
+The `.mfp` verifier runs before a package can be imported or merged.
 
 The verifier must reject malformed, unsafe, or incompatible packages with `ErrVerificationFailed`, `ErrPackageInvalid`, or `ErrPackageVersion` as appropriate. The current standard error table already reserves these toolchain diagnostics. 
 
@@ -1450,7 +1450,7 @@ The bytecode is a typed register bytecode. It contains no machine code, native a
 
 Every function returns `Result` at the bytecode level. Source-level auto-unwrapping is compiled as `CALL_RESULT` followed by `UNWRAP_RESULT`. A direct `MATCH` on a call compiles as `CALL_RESULT` followed by explicit `Result` inspection.
 
-The verifier must check section bounds, type references, initialized register use, valid branch targets, valid trap control flow, resource ownership, native binding metadata, and package signature validity before the package may be imported or linked.
+The verifier must check section bounds, type references, initialized register use, valid branch targets, valid trap control flow, resource ownership, native binding metadata, and package signature validity before the package may be imported or merged.
 
 ```
 

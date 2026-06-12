@@ -10,9 +10,10 @@ pub fn write_executable(
     project_dir: &Path,
     ir: &IrProject,
     target: &BuildTarget,
+    packages: &[PathBuf],
 ) -> Result<PathBuf, String> {
     match target.os.as_str() {
-        "macos" => macos::write_executable(project_dir, ir, target),
+        "macos" => macos::write_executable(project_dir, ir, target, packages),
         os => Err(format!(
             "native executable output does not support {os} yet"
         )),

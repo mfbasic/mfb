@@ -221,7 +221,7 @@ Supported `source` forms:
 | `git+https://...` | Git repository fetched by the package manager. |
 | `https://...` | Registry-specific package URL or package archive. |
 
-Dependency `name` values must be unique within `packages`. Import graph cycles remain compile-time or link-time errors.
+Dependency `name` values must be unique within `packages`. Import graph cycles remain compile-time or bytecode merge-time errors.
 
 The package resolver produces one selected version for each package identity. Executable builds must write or consume `mfb.lock`, which records exact selected package versions, source locators, content hashes, bytecode/package format versions, native dependency metadata hashes, and transitive dependencies.
 

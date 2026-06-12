@@ -210,15 +210,11 @@ fn build_project(options: &BuildOptions) -> Result<(), ()> {
     match options.output {
         BuildOutput::Validate => {
             if project_kind == "executable" {
-                if has_external_packages(&manifest) {
-                    eprintln!(
-                        "error: executable binary output does not support external packages yet"
-                    );
-                    return Err(());
-                }
-
                 let ir = ir::lower_project(&ast, entry.clone());
-                let executable_path = os::write_executable(&options.location, &ir, &target)
+                let packages = installed_package_files(&options.location, &manifest).map_err(|err| {
+                    eprintln!("error: {err}");
+                })?;
+                let executable_path = os::write_executable(&options.location, &ir, &target, &packages)
                     .map_err(|err| {
                         eprintln!("error: {err}");
                     })?;
@@ -257,10 +253,17 @@ fn build_project(options: &BuildOptions) -> Result<(), ()> {
                 .get("version")
                 .and_then(|value| value.get::<String>())
                 .expect("validated project version");
-            let bytecode_path = bytecode::write_bytecode_hex(&options.location, &ir, version)
-                .map_err(|err| {
-                    eprintln!("error: {err}");
-                })?;
+            let packages = installed_package_files(&options.location, &manifest).map_err(|err| {
+                eprintln!("error: {err}");
+            })?;
+            let bytecode_path = if packages.is_empty() {
+                bytecode::write_bytecode_hex(&options.location, &ir, version)
+            } else {
+                bytecode::write_merged_bytecode_hex(&options.location, &ir, version, &packages)
+            }
+            .map_err(|err| {
+                eprintln!("error: {err}");
+            })?;
             println!("Wrote bytecode hex to {}", bytecode_path.display());
         }
         BuildOutput::Binary => {
@@ -269,14 +272,12 @@ fn build_project(options: &BuildOptions) -> Result<(), ()> {
                 return Err(());
             }
 
-            if has_external_packages(&manifest) {
-                eprintln!("error: binary output does not support external packages yet");
-                return Err(());
-            }
-
             let ir = ir::lower_project(&ast, entry);
+            let packages = installed_package_files(&options.location, &manifest).map_err(|err| {
+                eprintln!("error: {err}");
+            })?;
             let binary_path =
-                arch::write_binary_dump(&options.location, &ir, &target).map_err(|err| {
+                arch::write_binary_dump(&options.location, &ir, &target, &packages).map_err(|err| {
                     eprintln!("error: {err}");
                 })?;
             println!("Wrote binary to {}", binary_path.display());
@@ -1281,11 +1282,35 @@ fn entry_point(manifest: &HashMap<String, JsonValue>) -> &str {
         .unwrap_or("main")
 }
 
-fn has_external_packages(manifest: &HashMap<String, JsonValue>) -> bool {
-    manifest
+fn installed_package_files(
+    project_dir: &Path,
+    manifest: &HashMap<String, JsonValue>,
+) -> Result<Vec<PathBuf>, String> {
+    let Some(packages) = manifest
         .get("packages")
         .and_then(|value| value.get::<Vec<JsonValue>>())
-        .is_some_and(|packages| !packages.is_empty())
+    else {
+        return Ok(Vec::new());
+    };
+
+    packages
+        .iter()
+        .filter_map(project_package_dependency)
+        .map(|dependency| {
+            let package_file = project_dir
+                .join("packages")
+                .join(format!("{}.mfp", dependency.name));
+            if package_file.is_file() {
+                Ok(package_file)
+            } else {
+                Err(format!(
+                    "package `{}` must be installed as '{}' before bytecode merging",
+                    dependency.name,
+                    package_file.display()
+                ))
+            }
+        })
+        .collect()
 }
 
 fn package_metadata(manifest: &HashMap<String, JsonValue>) -> bytecode::BytecodeMetadata {

@@ -15,6 +15,7 @@ pub fn write_executable(
     project_dir: &Path,
     ir: &IrProject,
     target: &BuildTarget,
+    packages: &[PathBuf],
 ) -> Result<PathBuf, String> {
     if target.os != "macos" || target.arch != "aarch64" {
         return Err(format!(
@@ -23,7 +24,11 @@ pub fn write_executable(
         ));
     }
 
-    let program = bytecode::native_program(ir)?;
+    let program = if packages.is_empty() {
+        bytecode::native_program(ir)?
+    } else {
+        bytecode::native_program_with_packages(ir, packages)?
+    };
     let imports_libsystem = program.imports.iter().any(|import| {
         import.kind == NativeImportKind::LibSystem
             && matches!(import.symbol, "_open" | "_close" | "___error")

@@ -2,6 +2,7 @@ use crate::ast::{
     AstFile, AstProject, Expression, Function, FunctionKind, Item, MatchPattern, Statement,
     TypeDecl, TypeDeclKind, TypeField, Visibility,
 };
+use crate::bytecode::{self, BytecodeExportKind};
 use crate::builtins;
 use crate::rules;
 use std::collections::{HashMap, HashSet};
@@ -117,6 +118,7 @@ impl<'a> TypeChecker<'a> {
         };
         checker.collect_types();
         checker.collect_functions();
+        checker.collect_package_functions();
         checker
     }
 
@@ -227,6 +229,56 @@ impl<'a> TypeChecker<'a> {
                 }
             }
         }
+    }
+
+    fn collect_package_functions(&mut self) {
+        let mut seen = HashSet::new();
+        for package in self.imported_packages() {
+            if !seen.insert(package.clone()) {
+                continue;
+            }
+            let package_file = self
+                .project_dir
+                .join("packages")
+                .join(format!("{package}.mfp"));
+            if !package_file.is_file() {
+                continue;
+            }
+            let Ok(exports) = bytecode::read_package_exports(&package_file) else {
+                continue;
+            };
+            for export in exports {
+                self.functions.insert(
+                    format!("{package}.{}", export.name),
+                    FunctionSig {
+                        kind: match export.kind {
+                            BytecodeExportKind::Func => FunctionKind::Func,
+                            BytecodeExportKind::Sub => FunctionKind::Sub,
+                        },
+                        params: export
+                            .params
+                            .into_iter()
+                            .map(|param| ParamSig {
+                                type_: self.parse_type(&param.type_),
+                                has_default: param.has_default,
+                            })
+                            .collect(),
+                        return_type: self.parse_type(&export.return_type),
+                        isolated: false,
+                    },
+                );
+            }
+        }
+    }
+
+    fn imported_packages(&self) -> HashSet<String> {
+        self.ast
+            .files
+            .iter()
+            .flat_map(|file| &file.imports)
+            .filter_map(|import| import.module.split('.').next().map(str::to_string))
+            .filter(|package| !builtins::is_builtin_import(package))
+            .collect()
     }
 
     fn check(&mut self) {
@@ -767,16 +819,16 @@ impl<'a> TypeChecker<'a> {
                     return self.check_builtin_call(file, callee, arguments, locals, line);
                 }
 
+                if let Some(sig) = self.functions.get(callee).cloned() {
+                    self.check_call(file, callee, &sig, arguments, locals, line);
+                    return sig.return_type;
+                }
+
                 if callee.contains('.') {
                     for argument in arguments {
                         self.infer_expression(file, argument, locals, line);
                     }
                     return Type::Unknown;
-                }
-
-                if let Some(sig) = self.functions.get(callee).cloned() {
-                    self.check_call(file, callee, &sig, arguments, locals, line);
-                    return sig.return_type;
                 }
 
                 if let Some(local) = locals.get(callee).cloned() {
