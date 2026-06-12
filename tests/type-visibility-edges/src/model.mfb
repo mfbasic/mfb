@@ -14,5 +14,5 @@ END TYPE
 
 SUB modelUse()
   LET s = Secret["tok", "label", 1]
-  LET token AS String = s::token
+  LET token AS String = s.token
 END SUB

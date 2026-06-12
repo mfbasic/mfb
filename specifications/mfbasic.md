@@ -55,7 +55,7 @@ TYPE Stack OF T
 END TYPE
 
 FUNC push OF T(s AS Stack OF T, value AS T) AS Stack OF T
-  RETURN WITH s { items := append(s::items, value) }
+  RETURN WITH s { items := append(s.items, value) }
 END FUNC
 ```
 
@@ -130,12 +130,12 @@ END TYPE
 LET v  = Vec3[1.0, 2.0, 3.0]                 ' positional
 LET w  = Vec3[x := 0.0, y := 1.0, z := 0.0]  ' by field
 LET v2 = WITH v { x := 99.0 }                ' functional update, v unchanged
-io.print(toString(v::x))                      ' field read; dot is package-only
+io::print(toString(v.x))                      ' field read
 ```
 
-Field access uses `::`: `value::fieldName`. It is compile-time checked, and the right side is a field identifier, not a variable or string.
+Field access uses `.`: `value.fieldName`. It is compile-time checked, and the right side is a field identifier, not a variable or string.
 
-Record fields may have visibility. A public field can be read, constructed, and updated anywhere the record type is visible. A `PACKAGE` field can be used only by files in the declaring package. A `PRIVATE` field can be used only in the declaring source file. Outside code that cannot see a field also cannot set it in a constructor, read it with `::`, or update it with `WITH`; such records are opaque across that boundary and must be constructed or modified through exported package functions.
+Record fields may have visibility. A public field can be read, constructed, and updated anywhere the record type is visible. A `PACKAGE` field can be used only by files in the declaring package. A `PRIVATE` field can be used only in the declaring source file. Outside code that cannot see a field also cannot set it in a constructor, read it with `.`, or update it with `WITH`; such records are opaque across that boundary and must be constructed or modified through exported package functions.
 
 Constructors use square brackets: `TypeName[...]` or `VariantName[...]`. Brackets are never used for indexing, so constructor syntax does not conflict with collection access.
 
@@ -162,15 +162,15 @@ A union may include the variants of another concrete union:
 ```basic
 IMPORT shape
 
-UNION ExtraShape INCLUDES shape.Shape
+UNION ExtraShape INCLUDES shape::Shape
   Triangle(a AS Float, b AS Float, c AS Float)
 END UNION
 
-LET c = Circle[10.0]                     ' variant included from shape.Shape
+LET c = Circle[10.0]                     ' variant included from shape::Shape
 LET t = Triangle[3.0, 4.0, 5.0]
 ```
 
-`INCLUDES` creates a new closed union whose variant set is the included union's variants plus the variants declared locally. It does not modify the included union, does not create subtyping, and does not make `ExtraShape` accepted where `shape.Shape` is expected. This is package layering, not polymorphism: the new package owns the larger domain and the free functions that operate on it.
+`INCLUDES` creates a new closed union whose variant set is the included union's variants plus the variants declared locally. It does not modify the included union, does not create subtyping, and does not make `ExtraShape` accepted where `shape::Shape` is expected. This is package layering, not polymorphism: the new package owns the larger domain and the free functions that operate on it.
 
 A package may extend a closed domain by defining a new union that includes another package's union variants, then forwarding or wrapping the included domain's operations through its own package functions:
 
@@ -178,17 +178,17 @@ A package may extend a closed domain by defining a new union that includes anoth
 FUNC area(s AS ExtraShape) AS Float
   MATCH s
     CASE Triangle
-      RETURN triangleArea(s::a, s::b, s::c)
+      RETURN triangleArea(s.a, s.b, s.c)
 
     CASE ELSE
-      RETURN shape.area(s)
+      RETURN shape::area(s)
   END MATCH
 END FUNC
 ```
 
-Included variants are reintroduced as variants of the new union for construction and matching. In the declaring package they are addressed like local variants; importers address them through the declaring package namespace, such as `extras.Circle[10.0]`. Variant name conflicts are compile-time errors.
+Included variants are reintroduced as variants of the new union for construction and matching. In the declaring package they are addressed like local variants; importers address them through the declaring package namespace, such as `extras::Circle[10.0]`. Variant name conflicts are compile-time errors.
 
-When matching a union that includes another union, variant cases narrow the matched value. In `CASE Triangle`, the scrutinee is known to be the `Triangle` variant, so its payload fields are available through normal field access such as `s::a`. If a `CASE ELSE` covers only variants included from one union, the scrutinee is narrowed to that included union in the `CASE ELSE` body, so forwarding calls such as `shape.area(s)` are valid there.
+When matching a union that includes another union, variant cases narrow the matched value. In `CASE Triangle`, the scrutinee is known to be the `Triangle` variant, so its payload fields are available through normal field access such as `s.a`. If a `CASE ELSE` covers only variants included from one union, the scrutinee is narrowed to that included union in the `CASE ELSE` body, so forwarding calls such as `shape::area(s)` are valid there.
 
 Recursive concrete unions are allowed:
 
@@ -234,7 +234,7 @@ The `Result OF T` shape above is compiler-owned notation. `Result` is a built-in
 
 - **Every function returns `Result OF T`** where `T` is the declared return type.
 - The error payload is **always** the single `Error` type — no per-function error types, no coercion.
-- There is no built-in `Option`/`Maybe`. Absence is represented by `Err(Error[code, message])`; use semantic error-code constants such as `errorCode.ErrNotFound` for not found.
+- There is no built-in `Option`/`Maybe`. Absence is represented by `Err(Error[code, message])`; use semantic error-code constants such as `errorCode::ErrNotFound` for not found.
 - `Result` is rarely written by hand; it is produced and consumed implicitly (see §8).
 
 ### 4.5 Enums
@@ -245,19 +245,19 @@ ENUM Color
 END ENUM
 ```
 
-Enum members are addressed as `EnumType::Member`, not as package names and not as bare globals:
+Enum members are addressed as `EnumType.Member`, not as package names and not as bare globals:
 
 ```basic
-LET c = Color::Red
+LET c = Color.Red
 
 MATCH c
-  CASE Color::Red   : io.print("red")
-  CASE Color::Green : io.print("green")
-  CASE Color::Blue  : io.print("blue")
+  CASE Color.Red   : io::print("red")
+  CASE Color.Green : io::print("green")
+  CASE Color.Blue  : io::print("blue")
 END MATCH
 ```
 
-The `::` token is used for both enum member access and record field access. `EnumType::Member` is resolved from a type name on the left; `value::field` is resolved from a value expression on the left.
+The `.` token is used for both enum member access and record field access. `EnumType.Member` is resolved from a type name on the left; `value.field` is resolved from a value expression on the left.
 
 ### 4.6 `Nothing`
 
@@ -266,7 +266,7 @@ The `::` token is used for both enum member access and record field access. `Enu
 ```basic
 SUB log(msg AS String)
   IF msg = "" THEN RETURN       ' Ok(NOTHING)
-  io.print(msg)
+  io::print(msg)
 END SUB
 ```
 
@@ -285,7 +285,7 @@ Map OF K TO V                      ' owned map
 Thread OF Msg TO Out                 ' isolated running or completed thread
 ```
 
-`Thread` is a built-in template for opaque handles to running or completed package instances. `Msg` is the message type used by `thread.send` and `thread.read`; `Out` is the thread entry function's success type. A completed thread exposes `result AS Result OF Out` for field access as `t::result`.
+`Thread` is a built-in template for opaque handles to running or completed package instances. `Msg` is the message type used by `thread::send` and `thread::read`; `Out` is the thread entry function's success type. A completed thread exposes `result AS Result OF Out` for field access as `t.result`.
 
 ### 4.9 Type Inference
 
@@ -350,7 +350,7 @@ LET x = 10
 IF cond THEN
   LET y = x + 1           ' OK: inner sees outer x
 END IF
-' io.print(toString(y))       ' ERROR: y died at END IF
+' io::print(toString(y))       ' ERROR: y died at END IF
 
 MUT total = 0
 FOR i = 1 TO 10
@@ -370,7 +370,7 @@ FUNC greet(name AS String, greeting AS String = "Hello") AS String
 END FUNC
 
 SUB log(msg AS String)
-  io.print("[log] " & msg)
+  io::print("[log] " & msg)
 END SUB
 ```
 
@@ -403,7 +403,7 @@ A `SUB` is the effect-only spelling of a function whose success type is `Nothing
 
 ```basic
 SUB logItem(x AS Integer)
-  io.print(toString(x))
+  io::print(toString(x))
 END SUB
 ```
 
@@ -413,7 +413,7 @@ For first-class function typing, a `SUB(A, B, ...)` is compatible with `FUNC(A, 
 
 ```basic
 SUB printItem(x AS Integer)
-  io.print(toString(x))
+  io::print(toString(x))
 END SUB
 
 forEach(nums, printItem)
@@ -422,9 +422,9 @@ forEach(nums, printItem)
 `Nothing` is a normal concrete unit type, not a bottom type and not a non-returning marker. `Result OF Nothing` participates in auto-unwrapping, propagation, and direct `MATCH` handling exactly like any other `Result OF T`:
 
 ```basic
-MATCH fs.writeAll(f, "done")
-  CASE Ok(NOTHING) : io.print("saved")
-  CASE Err(e)      : io.print(e::message)
+MATCH fs::writeAll(f, "done")
+  CASE Ok(NOTHING) : io::print("saved")
+  CASE Err(e)      : io::print(e.message)
 END MATCH
 ```
 
@@ -470,7 +470,7 @@ FUNC readAge(input AS String) AS Integer
   RETURN n
 
   TRAP err
-    io.print("Bad age: " & err::message)
+    io::print("Bad age: " & err.message)
     RETURN 0                           ' function succeeds with default
   END TRAP
 END FUNC
@@ -493,7 +493,7 @@ FUNC readAge(input AS String) AS Integer
   RETURN n
 
   TRAP err
-    IF err::code = 10003 THEN RECOVER 0   ' toInt(input) is treated as Ok(0)
+    IF err.code = 10003 THEN RECOVER 0   ' toInt(input) is treated as Ok(0)
     PROPAGATE
   END TRAP
 END FUNC
@@ -509,7 +509,7 @@ END TRAP
 
 ```basic
 TRAP err
-  FAIL Error[10999, "load failed: " & err::message]   ' wrap with context
+  FAIL Error[10999, "load failed: " & err.message]   ' wrap with context
 END TRAP
 ```
 
@@ -518,9 +518,9 @@ END TRAP
 To handle an error at the call site instead of auto-propagating, make the call the **direct scrutinee of a `MATCH`**. A matched call is *not* auto-unwrapped — you receive the `Result`.
 
 ```basic
-MATCH fs.openFile(path)
-  CASE Ok(f)  : LET line = fs.readLine(f)
-  CASE Err(e) : io.print("could not open: " & e::message)
+MATCH fs::openFile(path)
+  CASE Ok(f)  : LET line = fs::readLine(f)
+  CASE Err(e) : io::print("could not open: " & e.message)
 END MATCH
 ```
 
@@ -532,8 +532,8 @@ Use this same pattern for ordinary absence:
 IMPORT errorCode
 
 MATCH getUser(id)
-  CASE Ok(user) : io.print("Found")
-  CASE Err(e) WHEN e::code = errorCode.ErrNotFound : io.print("User does not exist")
+  CASE Ok(user) : io::print("Found")
+  CASE Err(e) WHEN e.code = errorCode::ErrNotFound : io::print("User does not exist")
   CASE Err(e) : FAIL e
 END MATCH
 ```
@@ -554,7 +554,7 @@ END MATCH
 8. Every `FUNC` path must end in `RETURN value` or `FAIL error`. Function fall-through is a compile error.
 9. A `SUB` with no `TRAP` may fall through to `END SUB`, implicitly returning `Ok(NOTHING)`.
 10. A `SUB` with a `TRAP` must end every normal path before the `TRAP` with `RETURN`, `RETURN NOTHING`, or `FAIL error`. Falling through from the normal body into the `TRAP` is a compile error.
-11. An executable entry point's uncaught `Err` terminates the process: `err::code` becomes the exit code, `err::message` is written to stderr. Give the entry point a `TRAP` for graceful handling.
+11. An executable entry point's uncaught `Err` terminates the process: `err.code` becomes the exit code, `err.message` is written to stderr. Give the entry point a `TRAP` for graceful handling.
 
 ### 8.7 Program entry point
 
@@ -584,7 +584,7 @@ Process result mapping:
 |---------------|------------------|
 | `SUB` returns `Ok(NOTHING)` | Exit code `0`. |
 | `FUNC ... AS Integer` returns `Ok(n)` | Exit code `n`. Implementations must reject or fail values outside the host process exit-code range. |
-| Entry returns uncaught `Err(err)` | Write `err::message` to stderr and exit with `err::code`. |
+| Entry returns uncaught `Err(err)` | Write `err.message` to stderr and exit with `err.code`. |
 
 Environment access outside command-line arguments is outside the core language specification and may be provided by a future standard package.
 
@@ -633,17 +633,17 @@ Also handles values (replacing the old `SELECT CASE`):
 
 ```basic
 MATCH grade
-  CASE "A"      : io.print("Great")
-  CASE "B", "C" : io.print("OK")
-  CASE ELSE     : io.print("?")
+  CASE "A"      : io::print("Great")
+  CASE "B", "C" : io::print("OK")
+  CASE ELSE     : io::print("?")
 END MATCH
 ```
 
 - Bind variant fields by position or name.
-- `CASE Variant` may match a variant without destructuring its payload. Inside that case body, the matched scrutinee is narrowed to that variant, so payload fields may be read with `value::field`.
+- `CASE Variant` may match a variant without destructuring its payload. Inside that case body, the matched scrutinee is narrowed to that variant, so payload fields may be read with `value.field`.
 - Literal patterns and comma-separated literal lists.
 - `NOTHING`, `TRUE`, `FALSE`, strings, and numbers are literal patterns. A bare identifier in a union match resolves to a variant name when the scrutinee type has that variant; otherwise use `CASE ELSE` for a catch-all.
-- Enum matches use qualified enum member patterns such as `Color::Red`.
+- Enum matches use qualified enum member patterns such as `Color.Red`.
 - Guards: `CASE Rect(w, h) WHEN w = h : ...`.
 - `CASE ELSE` for a catch-all.
 - **Exhaustiveness**: unions must cover all variants. Open types (`Integer`, `String`, etc.) require a `CASE ELSE` or it is a compile error.
@@ -654,13 +654,13 @@ END MATCH
 ## 10. Control Flow
 
 ```basic
-FOR i = 1 TO 10 STEP 2 : io.print(toString(i)) : NEXT
-FOR EACH item IN lines : io.print(item) : NEXT
+FOR i = 1 TO 10 STEP 2 : io::print(toString(i)) : NEXT
+FOR EACH item IN lines : io::print(item) : NEXT
 WHILE x < 10 : x = x + 1 : WEND
 DO : ... : LOOP UNTIL done
 DO WHILE ready : ... : LOOP
 
-IF x > 0 THEN io.print("pos") ELSE io.print("non-pos")
+IF x > 0 THEN io::print("pos") ELSE io::print("non-pos")
 
 IF cond THEN
   ...
@@ -683,7 +683,7 @@ There is **no `GOTO`** and **no `SELECT CASE`** (use `MATCH`).
 | Comparison | `=  <>  <  >  <=  >=` |
 | Logical | `AND  OR  NOT  XOR` (`AND`/`OR` short-circuit; `XOR` always evaluates both sides) |
 | String | `&` (concat) |
-| Field access | `::` |
+| Field access | `.` |
 | Pipeline | `\|>` with `_` placeholder |
 
 Precedence, highest to lowest:
@@ -691,7 +691,7 @@ Precedence, highest to lowest:
 | Precedence | Operators / forms |
 |------------|-------------------|
 | 1 | Primary expressions, calls, constructors, list/map literals, `WITH` |
-| 2 | Field access and enum member access: `::` |
+| 2 | Field access and enum member access: `.` |
 | 3 | Unary `-` |
 | 4 | Exponentiation: `^` |
 | 5 | Multiplication, division, modulo: `*`, `/`, `MOD` |
@@ -769,26 +769,26 @@ Visibility:
 
 Top-level `LET`, `MUT`, `FUNC`, `SUB`, `TYPE`, `UNION`, and `ENUM` may use `PRIVATE`, `PACKAGE`, or `EXPORT`. Fields in `TYPE` declarations may also use `PRIVATE`, `PACKAGE`, or `EXPORT`; omitted field visibility defaults to the containing type's visibility, capped at `PACKAGE` for non-exported types.
 
-Only exported top-level `FUNC` declarations may use `ISOLATED`. Imported package record and variant constructors are addressed as `package.identifier` when constructing values, but constructors for records with hidden fields are callable only from scopes that can see every required field.
+Only exported top-level `FUNC` declarations may use `ISOLATED`. Imported package record and variant constructors are addressed as `package::identifier` when constructing values, but constructors for records with hidden fields are callable only from scopes that can see every required field.
 
 Exported top-level `MUT` is allowed only when written explicitly as `EXPORT MUT`; it is package state visible to importers and must be surfaced by audit tooling. A top-level `MUT` without `EXPORT` is private or package-local according to its visibility annotation and remains discouraged for shared state.
 
-Dot notation is reserved exclusively for package access. Double-colon notation is reserved for field access into data values:
+Double-colon notation is reserved for package access. Dot notation is reserved for field access into data values and enum members:
 
 ```basic
 IMPORT geometry
 IMPORT longPackageName AS shortName
 
-LET s = geometry.Circle[2.0]
-io.print(toString(geometry.area(s)))
-io.print(toString(s::radius))
+LET s = geometry::Circle[2.0]
+io::print(toString(geometry::area(s)))
+io::print(toString(s.radius))
 ```
 
 Rules:
 
-- A dotted name has exactly two parts: `package.identifier`.
-- Nested dots are illegal: `a.b.c` is a compile error.
-- Record fields use `value::field`. Methods and object-style access do not exist.
+- A package-qualified name has exactly two parts: `package::identifier`.
+- Nested package qualifiers are illegal: `a::b::c` is a compile error.
+- Record fields use `value.field`. Methods and object-style access do not exist.
 - Imports are not transitive. A package cannot export an imported package or create re-export chains.
 - `IMPORT packageName AS aliasName` binds the package to `aliasName` in the importing file. The original package name is not also introduced by that import; use a second import only if both names are needed.
 - An import alias must not conflict with another imported package name or alias, a top-level declaration visible in the file, or a built-in package name such as `io`, `math`, `thread`, or `errorCode`.
@@ -805,7 +805,7 @@ PRIVATE FUNC helper() AS Float
 IMPORT mathstuff                  ' whole package
 IMPORT geometry
 
-io.print(toString(geometry.area(geometry.Circle[2.0])))
+io::print(toString(geometry::area(geometry::Circle[2.0])))
 ```
 
 Import graph is resolved at compile time; cycles are an error.
@@ -969,10 +969,10 @@ The compiler must diagnose:
 `RESOURCE` values, such as files and sockets, are unique handles. At any point in the program, exactly one live owner is responsible for each open handle. Resource handles are non-copyable owned values with additional close rules. They are scoped via `USING` and closed deterministically on scope exit, including on an error exit (`FAIL`, `PROPAGATE`, or an auto-propagated `Err`).
 
 ```basic
-USING f = fs.openFile("data.txt")  ' auto-propagates on Err
-  LET line = fs.readLine(f)
-  io.print(line)
-END USING                          ' fs.close(f) runs here, even on error exit
+USING f = fs::openFile("data.txt")  ' auto-propagates on Err
+  LET line = fs::readLine(f)
+  io::print(line)
+END USING                          ' fs::close(f) runs here, even on error exit
 ```
 
 `USING` owns the handle for the body and runs the resource's close operation exactly once. Standard resource operations borrow the handle for the duration of the call without transferring ownership. Close operations consume the handle, so the source binding is moved and cannot be used afterward. A resource handle cannot be copied, stored in an ordinary collection, sent to a thread, printed, compared, serialized, or captured by a lambda or ordinary closure.
@@ -990,7 +990,7 @@ Close failures are deterministic:
 | Body fails | Close succeeds | The original body error routes to the enclosing `TRAP` or caller. |
 | Body fails | Close fails | The original body error wins. The close error is emitted as diagnostic/audit metadata associated with the failed cleanup, but it does not replace or wrap the source-level `Error`. |
 
-This rule does not change the built-in `Error` shape. A secondary close failure is not directly inspectable by ordinary source code unless a future diagnostics API exposes cleanup metadata.
+This rule does not change the built-in `Error` shape: A secondary close failure is not directly inspectable by ordinary source code unless a future diagnostics API exposes cleanup metadata.
 
 `USING` is the only user-visible lifetime-management construct. Ordinary values use the ownership and lexical drop rules in §14.
 
@@ -1007,17 +1007,17 @@ IMPORT thread
 ' workers/jobs.mfb
 ' EXPORT ISOLATED FUNC parseFile(thread AS Thread OF Nothing TO Integer, path AS String) AS Integer
 
-LET t = thread.start(workers.parseFile, "data.csv")
+LET t = thread::start(workers::parseFile, "data.csv")
 
-WHILE thread.isRunning(t)
-  IF thread.poll(t, 10) THEN
-    LET message = thread.read(t)
-    io.print(message)
+WHILE thread::isRunning(t)
+  IF thread::poll(t, 10) THEN
+    LET message = thread::read(t)
+    io::print(message)
   END IF
 WEND
 
-LET count = thread.waitFor(t)
-io.print("Parsed " & toString(count) & " records")
+LET count = thread::waitFor(t)
+io::print("Parsed " & toString(count) & " records")
 ```
 
 Rules:
@@ -1026,37 +1026,37 @@ Rules:
 - A thread entry point must be an exported `ISOLATED FUNC` from an imported package. Starting a function from the current package is a compile error.
 - A thread entry point must not be a `SUB`.
 - A thread entry point must not be a closure or lambda. It must be a named package function.
-- Each started thread receives its own fresh instance of the entry function's package. Starting isolated functions from the same package more than once creates independent package state for each thread.
+- Each started thread receives its own fresh instance of the entry function's package. Starting isolated functions from the same package more than once creates independent package state for each thread:
 - Thread arguments and messages are copied, moved, or frozen when they enter a thread. Values read from a thread are copied, moved, or frozen when they leave the thread. No sender and receiver can observe or mutate the same live value.
 - Opaque resource handles, including `File`, socket handles, and `Thread`, are not sendable.
 - A thread's top-level `MUT` state is private to that thread's package instance.
 - If the thread entry function returns `Ok(v)`, the thread's stored result becomes `Ok(v)`. If it fails with `Err(e)`, including through auto-propagation, the thread's stored result becomes `Err(e)`.
-- The `Thread` value keeps the completed result after the thread ends. `thread.waitFor(t)` waits until completion and returns `t::result`, auto-unwrapping or auto-propagating like any other function call.
+- The `Thread` value keeps the completed result after the thread ends. `thread::waitFor(t)` waits until completion and returns `t.result`, auto-unwrapping or auto-propagating like any other function call.
 
 The `thread` package exposes:
 
 ```basic
-thread.start OF In, Msg, Out(f AS ISOLATED FUNC(Thread OF Msg TO Out, In) AS Out, data AS In, inboundLimit AS Integer = 64, outboundLimit AS Integer = 64) AS Thread OF Msg TO Out
-thread.isRunning OF Msg, Out(t AS Thread OF Msg TO Out) AS Boolean
-thread.waitFor OF Msg, Out(t AS Thread OF Msg TO Out) AS Out
-thread.cancel OF Msg, Out(t AS Thread OF Msg TO Out) AS Nothing
-thread.send OF Msg, Out(t AS Thread OF Msg TO Out, data AS Msg, timeoutMs AS Integer = 0) AS Nothing
-thread.poll OF Msg, Out(t AS Thread OF Msg TO Out, ms AS Integer) AS Boolean
-thread.read OF Msg, Out(t AS Thread OF Msg TO Out) AS Msg
-thread.receive OF Msg, Out(t AS Thread OF Msg TO Out, timeoutMs AS Integer = 0) AS Msg
-thread.emit OF Msg, Out(t AS Thread OF Msg TO Out, data AS Msg, timeoutMs AS Integer = 0) AS Nothing
-thread.isCancelled() AS Boolean
+thread::start OF In, Msg, Out(f AS ISOLATED FUNC(Thread OF Msg TO Out, In) AS Out, data AS In, inboundLimit AS Integer = 64, outboundLimit AS Integer = 64) AS Thread OF Msg TO Out
+thread::isRunning OF Msg, Out(t AS Thread OF Msg TO Out) AS Boolean
+thread::waitFor OF Msg, Out(t AS Thread OF Msg TO Out) AS Out
+thread::cancel OF Msg, Out(t AS Thread OF Msg TO Out) AS Nothing
+thread::send OF Msg, Out(t AS Thread OF Msg TO Out, data AS Msg, timeoutMs AS Integer = 0) AS Nothing
+thread::poll OF Msg, Out(t AS Thread OF Msg TO Out, ms AS Integer) AS Boolean
+thread::read OF Msg, Out(t AS Thread OF Msg TO Out) AS Msg
+thread::receive OF Msg, Out(t AS Thread OF Msg TO Out, timeoutMs AS Integer = 0) AS Msg
+thread::emit OF Msg, Out(t AS Thread OF Msg TO Out, data AS Msg, timeoutMs AS Integer = 0) AS Nothing
+thread::isCancelled() AS Boolean
 ```
 
-Thread functions are ordinary built-in templates. Their `Msg` and `Out` parameters are resolved by the template rules in §3 from argument types and expected result types. `thread.start` gets `Msg` and `Out` from the started function's first `Thread OF Msg TO Out` parameter, and gets `In` from the started function's second parameter and the `data` argument. If a thread does not exchange messages, `Msg` may be `Nothing`.
+Thread functions are ordinary built-in templates. Their `Msg` and `Out` parameters are resolved by the template rules in §3 from argument types and expected result types. `thread::start` gets `Msg` and `Out` from the started function's first `Thread OF Msg TO Out` parameter, and gets `In` from the started function's second parameter and the `data` argument. If a thread does not exchange messages, `Msg` may be `Nothing`.
 
-Each thread has a bounded inbound queue and bounded outbound queue. `thread.start` rejects limits less than `1` with `ErrInvalidArgument`. `thread.send` sends a value to the worker's inbound queue; `thread.receive` reads from that queue through the worker's thread handle and is valid only inside the running worker. `thread.emit` sends through the worker's thread handle to the parent-visible outbound queue and is valid only inside the running worker. `thread.poll` waits up to `ms` milliseconds for an outbound message from the worker and returns `TRUE` when `thread.read` can read without blocking. `thread.read` reads the next outbound message. Reading with no available message fails with `ErrNotFound`.
+Each thread has a bounded inbound queue and bounded outbound queue. `thread::start` rejects limits less than `1` with `ErrInvalidArgument`. `thread::send` sends a value to the worker's inbound queue; `thread::receive` reads from that queue through the worker's thread handle and is valid only inside the running worker. `thread::emit` sends through the worker's thread handle to the parent-visible outbound queue and is valid only inside the running worker. `thread::poll` waits up to `ms` milliseconds for an outbound message from the worker and returns `TRUE` when `thread::read` can read without blocking. `thread::read` reads the next outbound message. Reading with no available message fails with `ErrNotFound`.
 
 For queue operations, `timeoutMs = 0` means do not wait. A positive timeout waits up to that many milliseconds for space or data. Sending to a full queue or receiving from an empty queue after the timeout fails with `ErrTimeout`. Negative timeouts are invalid.
 
-`thread.cancel` requests cooperative cancellation. It does not kill the worker immediately. The worker observes cancellation with `thread.isCancelled()` and should return or fail promptly. After cancellation is requested, new `thread.send` calls fail with `ErrInterrupted`; unread inbound messages may be discarded. Outbound messages already emitted remain readable until drained.
+`thread::cancel` requests cooperative cancellation. It does not kill the worker immediately. The worker observes cancellation with `thread::isCancelled()` and should return or fail promptly. After cancellation is requested, new `thread::send` calls fail with `ErrInterrupted`; unread inbound messages may be discarded. Outbound messages already emitted remain readable until drained.
 
-When a thread ends, its inbound queue is closed and further sends fail. Its outbound queue remains readable until drained; after it is empty, `thread.poll` returns `FALSE` and `thread.read` fails with `ErrNotFound`. `thread.waitFor` may be called before or after draining messages and returns the stored result. Dropping a completed `Thread` handle releases all remaining queued messages. Dropping a running `Thread` handle requests cancellation and detaches the worker; the runtime must reclaim the worker when it exits, preventing zombie threads.
+When a thread ends, its inbound queue is closed and further sends fail. Its outbound queue remains readable until drained; after it is empty, `thread::poll` returns `FALSE` and `thread::read` fails with `ErrNotFound`. `thread::waitFor` may be called before or after draining messages and returns the stored result. Dropping a completed `Thread` handle releases all remaining queued messages. Dropping a running `Thread` handle requests cancellation and detaches the worker; the runtime must reclaim the worker when it exits, preventing zombie threads.
 
 ---
 
@@ -1093,7 +1093,7 @@ END LINK
 `LINK "sqlite3" AS sqlite` creates the namespace `sqlite`, so native wrapper functions are called like package functions:
 
 ```basic
-USING db = sqlite.open("app.db")
+USING db = sqlite::open("app.db")
   ' use db
 END USING
 ```
@@ -1104,7 +1104,7 @@ END USING
 
 `SYMBOL "sqlite3_open"` gives the exact native symbol name to look up in the loaded library. The MFBASIC function name is the public wrapper name; it does not have to match the native symbol name.
 
-`ABI (...) AS ...` gives the native C-facing call shape. The `FUNC` signature is the MFBASIC-facing wrapper type; the `ABI` signature is the host-library symbol's argument and return representation.
+`ABI (...) AS ...` gives the native C-facing call shape: The `FUNC` signature is the MFBASIC-facing wrapper type; the `ABI` signature is the host-library symbol's argument and return representation.
 
 Native ABI types are separate from MFBASIC source types:
 
@@ -1172,7 +1172,7 @@ Rules:
 
 - `LINK` names and all declared `SYMBOL` names are resolved before `main` starts. Native libraries are not lazy-loaded.
 - If a required native library or symbol cannot be loaded before `main`, the program terminates before entering `main`. The diagnostic is written to stderr and the process exits with `30003` (`ErrLinkFailed`). This startup failure is outside the `Result`/`TRAP` model because no MFBASIC function is running yet.
-- Linked names occupy a package-like namespace. A dotted name such as `sqlite.open` follows the same two-part rule as package access.
+- Linked names occupy a package-like namespace. A package-qualified name such as `sqlite::open` follows the same two-part rule as package access.
 - A native call may resolve only the symbols declared by `SYMBOL` entries in the binding package. Dynamic lookup by source strings or computed names is not available to ordinary MFBASIC code.
 - Native functions expose ordinary MFBASIC signatures. At call sites they auto-unwrap, auto-propagate, and participate in `MATCH` like any other fallible function.
 - Native functions may accept and return MFBASIC primitive values, strings, byte lists, and declared resource types through an explicit `ABI` mapping. Other conversions are implementation-defined unless specified by the binding.
@@ -1186,17 +1186,17 @@ Rules:
 
 ## 18. Built-in Functions
 
-Terminal and standard-stream I/O: `io.print`, `io.write`, `io.printError`, `io.writeError`, `io.flush`, `io.flushError`, `io.input`, `io.readLine`, `io.readChar`, `io.readByte`, `io.isInputTerminal`, `io.isOutputTerminal`, `io.isErrorTerminal`, `io.terminalSize`.
-Filesystem and file I/O: `fs.fileExists`, `fs.directoryExists`, `fs.exists`, `fs.readText`, `fs.writeText`, `fs.writeTextAtomic`, `fs.appendText`, `fs.open`, `fs.openFile`, `fs.openFileNoFollow`, `fs.createTempFile`, `fs.readLine`, `fs.readAll`, `fs.writeAll`, `fs.close`, `fs.eof`, `fs.canonicalPath`, `fs.isWithin`, `fs.pathJoin`, `fs.pathDirName`, `fs.pathBaseName`, `fs.pathExtension`, `fs.pathNormalize`, `fs.deleteFile`, `fs.createDirectory`, `fs.createDirectories`, `fs.deleteDirectory`, `fs.listDirectory`, `fs.currentDirectory`, `fs.setCurrentDirectory`.
-Network: `net.lookup`, `net.connectTcp`, `net.listenTcp`, `net.accept`, `net.bindUdp`, `net.receiveFrom`, `net.receiveTextFrom`, `net.sendTo`, `net.sendTextTo`, `net.poll`, `net.read`, `net.readText`, `net.write`, `net.writeText`, `net.close`, `net.localAddress`, `net.remoteAddress`, `net.setReadTimeout`, `net.setWriteTimeout`, `tls.connect`, `tls.wrap`, `tls.close`.
-Strings: `len`, `find`, `mid`, `replace`, `strings.trim`, `strings.trimStart`, `strings.trimEnd`, `strings.upper`, `strings.lower`, `strings.caseFold`, `strings.normalizeNfc`, `strings.graphemes`, `strings.startsWith`, `strings.endsWith`, `strings.contains`, `strings.split`, `strings.join`, `strings.byteLen`, `strings.regexMatch`, `strings.regexFind`, `strings.regexReplace`, `toString`, `toInt`, `toFloat`, `toFixed`, `toByte`, `isNumeric`, `&`.
+Terminal and standard-stream I/O: `io::print`, `io::write`, `io::printError`, `io::writeError`, `io::flush`, `io::flushError`, `io::input`, `io::readLine`, `io::readChar`, `io::readByte`, `io::isInputTerminal`, `io::isOutputTerminal`, `io::isErrorTerminal`, `io::terminalSize`.
+Filesystem and file I/O: `fs::fileExists`, `fs::directoryExists`, `fs::exists`, `fs::readText`, `fs::writeText`, `fs::writeTextAtomic`, `fs::appendText`, `fs::open`, `fs::openFile`, `fs::openFileNoFollow`, `fs::createTempFile`, `fs::readLine`, `fs::readAll`, `fs::writeAll`, `fs::close`, `fs::eof`, `fs::canonicalPath`, `fs::isWithin`, `fs::pathJoin`, `fs::pathDirName`, `fs::pathBaseName`, `fs::pathExtension`, `fs::pathNormalize`, `fs::deleteFile`, `fs::createDirectory`, `fs::createDirectories`, `fs::deleteDirectory`, `fs::listDirectory`, `fs::currentDirectory`, `fs::setCurrentDirectory`.
+Network: `net::lookup`, `net::connectTcp`, `net::listenTcp`, `net::accept`, `net::bindUdp`, `net::receiveFrom`, `net::receiveTextFrom`, `net::sendTo`, `net::sendTextTo`, `net::poll`, `net::read`, `net::readText`, `net::write`, `net::writeText`, `net::close`, `net::localAddress`, `net::remoteAddress`, `net::setReadTimeout`, `net::setWriteTimeout`, `tls::connect`, `tls::wrap`, `tls::close`.
+Strings: `len`, `find`, `mid`, `replace`, `strings::trim`, `strings::trimStart`, `strings::trimEnd`, `strings::upper`, `strings::lower`, `strings::caseFold`, `strings::normalizeNfc`, `strings::graphemes`, `strings::startsWith`, `strings::endsWith`, `strings::contains`, `strings::split`, `strings::join`, `strings::byteLen`, `strings::regexMatch`, `strings::regexFind`, `strings::regexReplace`, `toString`, `toInt`, `toFloat`, `toFixed`, `toByte`, `isNumeric`, `&`.
 Collections: `forEach`, `transform`, `filter`, `reduce`, `sum`, `get`, `getOr`, `find`, `mid`, `replace`, `set`, `append`, `prepend`, `insert`, `removeAt`, `removeKey`, `keys`, `values`, `hasKey`, `contains`, `len`.
-Threads: `thread.start`, `thread.isRunning`, `thread.waitFor`, `thread.cancel`, `thread.send`, `thread.poll`, `thread.read`, `thread.receive`, `thread.emit`, `thread.isCancelled`.
-Math: `math.piFloat`, `math.piFixed`, `math.eFloat`, `math.eFixed`, `math.abs`, `math.min`, `math.max`, `math.clamp`, `math.floor`, `math.ceil`, `math.round`, `math.sqrt`, `math.pow`, `math.exp`, `math.log`, `math.log10`, `math.sin`, `math.cos`, `math.tan`, `math.asin`, `math.acos`, `math.atan`, `math.atan2`.
-JSON: `json.parse`, `json.stringify`, `json.get`, `json.getOr`.
-Error codes: `errorCode.ErrInvalidArgument`, `errorCode.ErrNotFound`, and the other constants listed in the built-in error-code registry.
+Threads: `thread::start`, `thread::isRunning`, `thread::waitFor`, `thread::cancel`, `thread::send`, `thread::poll`, `thread::read`, `thread::receive`, `thread::emit`, `thread::isCancelled`.
+Math: `math::piFloat`, `math::piFixed`, `math::eFloat`, `math::eFixed`, `math::abs`, `math::min`, `math::max`, `math::clamp`, `math::floor`, `math::ceil`, `math::round`, `math::sqrt`, `math::pow`, `math::exp`, `math::log`, `math::log10`, `math::sin`, `math::cos`, `math::tan`, `math::asin`, `math::acos`, `math::atan`, `math::atan2`.
+JSON: `json::parse`, `json::stringify`, `json::get`, `json::getOr`.
+Error codes: `errorCode::ErrInvalidArgument`, `errorCode::ErrNotFound`, and the other constants listed in the built-in error-code registry.
 
-Fallible built-ins (`fs.openFile`, `toInt`, `get`, …) return `Result` and auto-propagate like any call.
+Fallible built-ins (`fs::openFile`, `toInt`, `get`, …) return `Result` and auto-propagate like any call.
 
 ---
 
@@ -1320,16 +1320,16 @@ addExpr        = mulExpr { ("+"|"-"|"&") mulExpr } ;
 mulExpr        = powExpr { ("*"|"/"|"MOD") powExpr } ;
 powExpr        = unary [ "^" powExpr ] ;       (* right-associative *)
 unary          = [ "-" ] fieldAccess ;
-fieldAccess    = primary { "::" ident } ;
+fieldAccess    = primary { "." ident } ;
 primary        = literal | ident | qualifiedIdent | call | lambda
                | enumMember | constructor | withExpr | listLit | mapLit
                | "(" expr ")" ;
 literal        = integer | decimal | string | "TRUE" | "FALSE" | "NOTHING" ;
 
-qualifiedIdent = ident "." ident ;          (* package.identifier only *)
-enumMember     = ident "::" ident ;         (* EnumType::Member *)
+qualifiedIdent = ident "::" ident ;         (* package::identifier only *)
+enumMember     = ident "." ident ;         (* EnumType.Member *)
                                                 (* Name resolution disambiguates
-                                                   ident::ident: type name on
+                                                   ident.ident: type name on
                                                    left => enum member; value on
                                                    left => field access. *)
 call           = (ident | qualifiedIdent) "(" [ callArgList ] ")" ;
@@ -1362,40 +1362,40 @@ TYPE Vec3
 END TYPE
 
 FUNC parseLine(line AS String) AS Vec3
-  LET parts = strings.split(line, ",")
+  LET parts = strings::split(line, ",")
   IF len(parts) <> 3 THEN FAIL Error[10002, "expected 3 fields"]
 
-  LET x = toFloat(strings.trim(get(parts, 0)))   ' auto-propagates on Err
-  LET y = toFloat(strings.trim(get(parts, 1)))
-  LET z = toFloat(strings.trim(get(parts, 2)))
+  LET x = toFloat(strings::trim(get(parts, 0)))   ' auto-propagates on Err
+  LET y = toFloat(strings::trim(get(parts, 1)))
+  LET z = toFloat(strings::trim(get(parts, 2)))
   RETURN Vec3[x, y, z]
 END FUNC
 
 FUNC loadPoints(path AS String) AS List OF Vec3
   MUT pts AS List OF Vec3 = []
-  USING f = fs.openFile(path)              ' auto-propagates on Err
-    WHILE NOT fs.eof(f)
-      LET v = parseLine(fs.readLine(f))    ' auto-propagates to TRAP below on bad input
+  USING f = fs::openFile(path)              ' auto-propagates on Err
+    WHILE NOT fs::eof(f)
+      LET v = parseLine(fs::readLine(f))    ' auto-propagates to TRAP below on bad input
       pts = append(pts, v)                 ' optimized in place for MUT
     WEND
   END USING                                ' f closed even on error exit
   RETURN pts                               ' freezes automatically here
 
   TRAP err
-    io.print("Load failed: " & err::message)
+    io::print("Load failed: " & err.message)
     RETURN []                              ' recover with empty list
   END TRAP
 END FUNC
 
 SUB main()
   LET pts   = loadPoints("data.csv")
-  io.print("Loaded " & toString(len(pts)) & " points")
-  LET total = pts |> transform(_, LAMBDA(p) -> p::x) |> sum(_)
-  io.print("Sum of x: " & toString(total))
+  io::print("Loaded " & toString(len(pts)) & " points")
+  LET total = pts |> transform(_, LAMBDA(p) -> p.x) |> sum(_)
+  io::print("Sum of x: " & toString(total))
   RETURN
 
   TRAP err
-    io.print("Fatal: " & err::message)   ' otherwise exits with err::code
+    io::print("Fatal: " & err.message)   ' otherwise exits with err.code
     RETURN
   END TRAP
 END SUB
@@ -1417,7 +1417,7 @@ END UNION
 EXPORT FUNC area(s AS Shape) AS Float
   MATCH s
     CASE Circle(r)
-      RETURN math.piFloat * r * r
+      RETURN math::piFloat * r * r
 
     CASE Rect(w, h)
       RETURN w * h
@@ -1430,23 +1430,23 @@ END FUNC
 IMPORT math
 IMPORT shape
 
-UNION ExtraShape INCLUDES shape.Shape
+UNION ExtraShape INCLUDES shape::Shape
   Triangle(a AS Float, b AS Float, c AS Float)
 END UNION
 
 EXPORT FUNC area(s AS ExtraShape) AS Float
   MATCH s
     CASE Triangle
-      RETURN triangleArea(s::a, s::b, s::c)
+      RETURN triangleArea(s.a, s.b, s.c)
 
     CASE ELSE
-      RETURN shape.area(s)
+      RETURN shape::area(s)
   END MATCH
 END FUNC
 
 PRIVATE FUNC triangleArea(a AS Float, b AS Float, c AS Float) AS Float
   LET p = (a + b + c) / 2.0
-  RETURN math.sqrt(p * (p - a) * (p - b) * (p - c))
+  RETURN math::sqrt(p * (p - a) * (p - b) * (p - c))
 END FUNC
 ```
 
@@ -1457,15 +1457,15 @@ IMPORT extraShape
 IMPORT io
 
 SUB main()
-  LET s = extraShape.Circle[10.0]
-  LET t = extraShape.Triangle[3.0, 4.0, 5.0]
+  LET s = extraShape::Circle[10.0]
+  LET t = extraShape::Triangle[3.0, 4.0, 5.0]
 
-  io.print(toString(extraShape.area(s)))
-  io.print(toString(extraShape.area(t)))
+  io::print(toString(extraShape::area(s)))
+  io::print(toString(extraShape::area(t)))
 END SUB
 ```
 
-The resulting model is `extraShape = shape + extraShape additions`, but the type system remains closed and explicit: `shape.Shape` is not a base class, `ExtraShape` is not a subtype, there is no virtual dispatch, and no package can retroactively add variants to another package's union.
+The resulting model is `extraShape = shape + extraShape additions`, but the type system remains closed and explicit: `shape::Shape` is not a base class, `ExtraShape` is not a subtype, there is no virtual dispatch, and no package can retroactively add variants to another package's union.
 
 ---
 

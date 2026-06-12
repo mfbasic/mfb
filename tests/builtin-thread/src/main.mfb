@@ -2,12 +2,12 @@ IMPORT thread
 IMPORT workers
 
 FUNC main AS Integer
-  LET t AS Thread OF String TO Integer = thread.start(workers.worker, "abc", 2, 2)
-  LET running AS Boolean = thread.isRunning(t)
-  thread.send(t, "def")
-  LET hasMessage AS Boolean = thread.poll(t, 0)
-  LET message AS String = thread.read(t)
-  thread.cancel(t)
-  LET value AS Integer = thread.waitFor(t)
+  LET t AS Thread OF String TO Integer = thread::start(workers::worker, "abc", 2, 2)
+  LET running AS Boolean = thread::isRunning(t)
+  thread::send(t, "def")
+  LET hasMessage AS Boolean = thread::poll(t, 0)
+  LET message AS String = thread::read(t)
+  thread::cancel(t)
+  LET value AS Integer = thread::waitFor(t)
   RETURN value + len(message)
 END FUNC

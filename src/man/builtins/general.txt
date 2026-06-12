@@ -186,7 +186,7 @@ function: forEach
 signature: forEach(values AS List OF T, action AS FUNC(T) AS Nothing) AS Nothing
 summary: Runs a function for each item in a list.
 example:
-forEach(["hello"], io.print)
+forEach(["hello"], io::print)
 ---
 function: transform
 signature: transform(values AS List OF T, mapper AS FUNC(T) AS U) AS List OF U

@@ -1,5 +1,5 @@
 IMPORT shape
 
 SUB main()
-  shape.draw()
+  shape::draw()
 END SUB

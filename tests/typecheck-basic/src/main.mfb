@@ -12,5 +12,5 @@ SUB main()
   LET message AS String = greet("Ada")
   MUT total AS Integer
   total
-  io.print(message)
+  io::print(message)
 END SUB

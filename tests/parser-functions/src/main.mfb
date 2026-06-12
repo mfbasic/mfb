@@ -5,5 +5,5 @@ FUNC greet(name AS String, greeting AS String = "Hello") AS String
 END FUNC
 
 SUB main()
-  io.print(greet("Ada"))
+  io::print(greet("Ada"))
 END SUB

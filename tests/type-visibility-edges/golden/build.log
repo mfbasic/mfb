@@ -22,7 +22,7 @@ tests/type-visibility-edges/src/main.mfb:4 error[TYPE_MEMBER_NOT_VISIBLE]: type 
                Constructor `Secret` cannot set hidden field `token` from this file.
    3 |   LET shared AS Shared = Shared[1]
    4 |   LET s = Secret["tok", "label", 1]
-   5 |   LET token AS String = s::token
+   5 |   LET token AS String = s.token
      | ^
 tests/type-visibility-edges/src/main.mfb:5 error[TYPE_MEMBER_NOT_VISIBLE]: type member is not visible from this scope
                Field `Secret::token` is not visible from this file.
@@ -51,7 +51,7 @@ tests/type-visibility-edges/src/main.mfb:4 error[TYPE_MEMBER_NOT_VISIBLE]: type 
                Constructor `Secret` cannot set hidden field `token` from this file.
    3 |   LET shared AS Shared = Shared[1]
    4 |   LET s = Secret["tok", "label", 1]
-   5 |   LET token AS String = s::token
+   5 |   LET token AS String = s.token
      | ^
 tests/type-visibility-edges/src/main.mfb:5 error[TYPE_MEMBER_NOT_VISIBLE]: type member is not visible from this scope
                Field `Secret::token` is not visible from this file.

@@ -36,7 +36,7 @@ EXAMPLES
   Use in diagnostics:
 
     SUB logType(value AS String)
-      io.print("type=" & typeName(value))
+      io::print("type=" & typeName(value))
     END SUB
 
 NOTES

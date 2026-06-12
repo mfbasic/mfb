@@ -30,12 +30,12 @@ TYPE CHECKING
 EXAMPLES
   Print each string:
 
-    forEach(["hello", "world"], io.print)
+    forEach(["hello", "world"], io::print)
 
   Use a local action:
 
     SUB printNumber(value AS Integer)
-      io.print(toString(value))
+      io::print(toString(value))
     END SUB
 
     forEach([1, 2, 3], printNumber)

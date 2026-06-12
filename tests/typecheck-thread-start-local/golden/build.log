@@ -1,7 +1,7 @@
 $ mfb build -ast tests/typecheck-thread-start-local
    6 | 
    7 | SUB main()
-   8 |   thread.start(worker, "abc")
+   8 |   thread::start(worker, "abc")
      | ^
 tests/typecheck-thread-start-local/src/main.mfb:8 error[TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
                thread.start entry point must be an exported ISOLATED FUNC from an imported package.
@@ -9,7 +9,7 @@ tests/typecheck-thread-start-local/src/main.mfb:8 error[TYPE_CALL_ARGUMENT_MISMA
 $ mfb build -ir tests/typecheck-thread-start-local
    6 | 
    7 | SUB main()
-   8 |   thread.start(worker, "abc")
+   8 |   thread::start(worker, "abc")
      | ^
 tests/typecheck-thread-start-local/src/main.mfb:8 error[TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
                thread.start entry point must be an exported ISOLATED FUNC from an imported package.

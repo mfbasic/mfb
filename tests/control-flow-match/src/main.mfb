@@ -9,16 +9,16 @@ END UNION
 
 FUNC enumAll(color AS Color) AS Integer
   MATCH color
-    CASE Color::Red
+    CASE Color.Red
       RETURN 1
-    CASE Color::Blue
+    CASE Color.Blue
       RETURN 2
   END MATCH
 END FUNC
 
 FUNC enumPartialWithElse(color AS Color) AS Integer
   MATCH color
-    CASE Color::Red
+    CASE Color.Red
       RETURN 1
     CASE ELSE
       RETURN 2
@@ -44,5 +44,5 @@ FUNC unionPartialWithElse(shape AS Shape) AS Integer
 END FUNC
 
 FUNC main() AS Integer
-  RETURN enumAll(Color::Blue) + enumPartialWithElse(Color::Blue) + unionAll(Point[]) + unionPartialWithElse(Circle[1])
+  RETURN enumAll(Color.Blue) + enumPartialWithElse(Color.Blue) + unionAll(Point[]) + unionPartialWithElse(Circle[1])
 END FUNC

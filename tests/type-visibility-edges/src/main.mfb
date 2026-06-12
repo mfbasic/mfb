@@ -2,7 +2,7 @@ SUB main()
   LET h AS Hidden = Hidden[1]
   LET shared AS Shared = Shared[1]
   LET s = Secret["tok", "label", 1]
-  LET token AS String = s::token
-  LET label AS String = s::label
-  LET id AS Integer = s::id
+  LET token AS String = s.token
+  LET label AS String = s.label
+  LET id AS Integer = s.id
 END SUB

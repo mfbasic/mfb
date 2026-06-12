@@ -27,8 +27,8 @@ END FUNC
 FUNC main() AS Integer
   LET pair AS Pair = makePair()
   LET list AS List OF String = passList(["a", join("b", "c")])
-  LET map AS Map OF String TO Integer = passMap(Map OF String TO Integer { "x" := pair::value, "y" := 2 })
+  LET map AS Map OF String TO Integer = passMap(Map OF String TO Integer { "x" := pair.value, "y" := 2 })
   LET seed AS String = "0123456789012345678901234567890123456789012345678901234567890123"
   LET grown AS String = grow(grow(grow(grow(grow(grow(grow(seed)))))))
-  RETURN pair::value
+  RETURN pair.value
 END FUNC

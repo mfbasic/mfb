@@ -7,58 +7,58 @@ signature: FUNC start OF In, Msg, Out(f AS ISOLATED FUNC(Thread OF Msg TO Out, I
 summary: Starts an imported package isolated function with input data and bounded inbound and outbound queues.
 example:
 IMPORT workers
-LET t AS Thread OF String TO Integer = thread.start(workers.worker, "input")
+LET t AS Thread OF String TO Integer = thread::start(workers::worker, "input")
 ---
 function: isRunning
 signature: FUNC isRunning OF Msg, Out(t AS Thread OF Msg TO Out) AS Boolean
 summary: Returns TRUE while the thread entry function is still running.
 example:
-LET running AS Boolean = thread.isRunning(t)
+LET running AS Boolean = thread::isRunning(t)
 ---
 function: waitFor
 signature: FUNC waitFor OF Msg, Out(t AS Thread OF Msg TO Out) AS Out
 summary: Waits for the thread to complete and returns its stored result.
 example:
-LET count AS Integer = thread.waitFor(t)
+LET count AS Integer = thread::waitFor(t)
 ---
 function: cancel
 signature: FUNC cancel OF Msg, Out(t AS Thread OF Msg TO Out) AS Nothing
-summary: Requests cooperative cancellation of a running thread.
+summary: Requests cooperative cancellation of a running thread:
 example:
-thread.cancel(t)
+thread::cancel(t)
 ---
 function: send
 signature: FUNC send OF Msg, Out(t AS Thread OF Msg TO Out, data AS Msg, timeoutMs AS Integer = 0) AS Nothing
 summary: Sends a message to the worker inbound queue.
 example:
-thread.send(t, "next")
+thread::send(t, "next")
 ---
 function: poll
 signature: FUNC poll OF Msg, Out(t AS Thread OF Msg TO Out, ms AS Integer) AS Boolean
 summary: Waits for an outbound message to become readable.
 example:
-LET ready AS Boolean = thread.poll(t, 10)
+LET ready AS Boolean = thread::poll(t, 10)
 ---
 function: read
 signature: FUNC read OF Msg, Out(t AS Thread OF Msg TO Out) AS Msg
 summary: Reads the next worker outbound message.
 example:
-LET message AS String = thread.read(t)
+LET message AS String = thread::read(t)
 ---
 function: receive
 signature: FUNC receive OF Msg, Out(t AS Thread OF Msg TO Out, timeoutMs AS Integer = 0) AS Msg
 summary: Reads a message from the current worker inbound queue.
 example:
-LET message AS String = thread.receive(t)
+LET message AS String = thread::receive(t)
 ---
 function: emit
 signature: FUNC emit OF Msg, Out(t AS Thread OF Msg TO Out, data AS Msg, timeoutMs AS Integer = 0) AS Nothing
 summary: Sends a message from the worker to the parent outbound queue.
 example:
-thread.emit(t, "done")
+thread::emit(t, "done")
 ---
 function: isCancelled
 signature: FUNC isCancelled() AS Boolean
 summary: Returns TRUE after the parent requests cancellation.
 example:
-LET cancelled AS Boolean = thread.isCancelled()
+LET cancelled AS Boolean = thread::isCancelled()

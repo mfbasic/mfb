@@ -6,7 +6,7 @@ tests/type-visibility/src/main.mfb:2 error[TYPE_MEMBER_NOT_VISIBLE]: type member
                Constructor `Secret` cannot set hidden field `token` from this file.
    1 | SUB main()
    2 |   LET s = Secret["abc"]
-   3 |   LET token AS String = s::token
+   3 |   LET token AS String = s.token
      | ^
 tests/type-visibility/src/main.mfb:3 error[TYPE_MEMBER_NOT_VISIBLE]: type member is not visible from this scope
                Field `Secret::token` is not visible from this file.
@@ -19,7 +19,7 @@ tests/type-visibility/src/main.mfb:2 error[TYPE_MEMBER_NOT_VISIBLE]: type member
                Constructor `Secret` cannot set hidden field `token` from this file.
    1 | SUB main()
    2 |   LET s = Secret["abc"]
-   3 |   LET token AS String = s::token
+   3 |   LET token AS String = s.token
      | ^
 tests/type-visibility/src/main.mfb:3 error[TYPE_MEMBER_NOT_VISIBLE]: type member is not visible from this scope
                Field `Secret::token` is not visible from this file.

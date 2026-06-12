@@ -4,46 +4,46 @@ FUNC main AS Integer
   LET path AS String = "tests/builtin-filesystem/src/main.mfb"
   LET directory AS String = "tests/builtin-filesystem/src"
   LET output AS String = "target/accept-fs-output.txt"
-  LET joined AS String = fs.pathJoin(["tests", "builtin-filesystem", "src", "main.mfb"])
-  LET current AS String = fs.currentDirectory()
-  LET isFile AS Boolean = fs.fileExists(path)
-  LET isDirectory AS Boolean = fs.directoryExists(directory)
-  LET anyExists AS Boolean = fs.exists(path)
-  LET text AS String = fs.readText(path)
-  LET canonical AS String = fs.canonicalPath(path)
-  LET contained AS Boolean = fs.isWithin(directory, path)
-  LET dirName AS String = fs.pathDirName(path)
-  LET baseName AS String = fs.pathBaseName(path)
-  LET extension AS String = fs.pathExtension(path)
-  LET normalized AS String = fs.pathNormalize("tests/./builtin-filesystem/src/../src/main.mfb")
-  LET entries AS List OF String = fs.listDirectory(directory)
+  LET joined AS String = fs::pathJoin(["tests", "builtin-filesystem", "src", "main.mfb"])
+  LET current AS String = fs::currentDirectory()
+  LET isFile AS Boolean = fs::fileExists(path)
+  LET isDirectory AS Boolean = fs::directoryExists(directory)
+  LET anyExists AS Boolean = fs::exists(path)
+  LET text AS String = fs::readText(path)
+  LET canonical AS String = fs::canonicalPath(path)
+  LET contained AS Boolean = fs::isWithin(directory, path)
+  LET dirName AS String = fs::pathDirName(path)
+  LET baseName AS String = fs::pathBaseName(path)
+  LET extension AS String = fs::pathExtension(path)
+  LET normalized AS String = fs::pathNormalize("tests/./builtin-filesystem/src/../src/main.mfb")
+  LET entries AS List OF String = fs::listDirectory(directory)
 
-  fs.writeText(output, "one")
-  fs.appendText(output, "two")
-  fs.writeTextAtomic(output, "three")
-  fs.createDirectories("target/accept-fs-dir/nested")
-  fs.createDirectory("target/accept-fs-dir/empty")
-  fs.deleteFile(output)
-  fs.deleteDirectory("target/accept-fs-dir/empty")
-  fs.setCurrentDirectory(current)
+  fs::writeText(output, "one")
+  fs::appendText(output, "two")
+  fs::writeTextAtomic(output, "three")
+  fs::createDirectories("target/accept-fs-dir/nested")
+  fs::createDirectory("target/accept-fs-dir/empty")
+  fs::deleteFile(output)
+  fs::deleteDirectory("target/accept-fs-dir/empty")
+  fs::setCurrentDirectory(current)
 
-  USING file = fs.open("tests/builtin-filesystem/src/main.mfb", "read")
-    LET firstLine AS String = fs.readLine(file)
-    LET atEnd AS Boolean = fs.eof(file)
-    LET rest AS String = fs.readAll(file)
+  USING file = fs::open("tests/builtin-filesystem/src/main.mfb", "read")
+    LET firstLine AS String = fs::readLine(file)
+    LET atEnd AS Boolean = fs::eof(file)
+    LET rest AS String = fs::readAll(file)
   END USING
 
-  USING defaultFile = fs.openFile(path)
+  USING defaultFile = fs::openFile(path)
   END USING
 
-  USING writeFile = fs.openFile(output, "write")
-    fs.writeAll(writeFile, "contents")
+  USING writeFile = fs::openFile(output, "write")
+    fs::writeAll(writeFile, "contents")
   END USING
 
-  USING noFollowFile = fs.openFileNoFollow(path, "read")
+  USING noFollowFile = fs::openFileNoFollow(path, "read")
   END USING
 
-  USING tempFile = fs.createTempFile("target", "mfb-test-", ".tmp")
+  USING tempFile = fs::createTempFile("target", "mfb-test-", ".tmp")
   END USING
 
   RETURN len(joined) + len(current) + len(text) + len(canonical) + len(dirName) + len(baseName) + len(extension) + len(normalized) + len(entries)

@@ -1170,8 +1170,8 @@ impl<'a> FileParser<'a> {
 
     fn parse_member_access(&mut self) -> Option<Expression> {
         let mut expression = self.parse_call_or_constructor()?;
-        while self.match_kind(TokenKind::DoubleColon) {
-            let member = self.consume_identifier("Expected identifier after `::`.")?;
+        while self.match_kind(TokenKind::Dot) {
+            let member = self.consume_identifier("Expected identifier after `.`.")?;
             expression = Expression::MemberAccess {
                 target: Box::new(expression),
                 member,
@@ -1273,8 +1273,8 @@ impl<'a> FileParser<'a> {
                     return self.parse_map_literal(key_type, value_type);
                 }
                 let mut name = value;
-                while self.match_kind(TokenKind::Dot) {
-                    let part = self.consume_identifier("Expected identifier after `.`.")?;
+                while self.match_kind(TokenKind::DoubleColon) {
+                    let part = self.consume_identifier("Expected identifier after `::`.")?;
                     name.push('.');
                     name.push_str(&part);
                 }
@@ -1299,8 +1299,8 @@ impl<'a> FileParser<'a> {
 
     fn parse_qualified_name(&mut self, detail: &str) -> Option<String> {
         let mut name = self.consume_identifier(detail)?;
-        while self.match_kind(TokenKind::Dot) {
-            let part = self.consume_identifier("Expected identifier after `.`.")?;
+        while self.match_kind(TokenKind::DoubleColon) {
+            let part = self.consume_identifier("Expected identifier after `::`.")?;
             name.push('.');
             name.push_str(&part);
         }
@@ -1439,8 +1439,8 @@ impl<'a> FileParser<'a> {
                 return None;
             }
         };
-        while self.match_kind(TokenKind::Dot) {
-            let part = self.consume_identifier("Expected identifier after `.`.")?;
+        while self.match_kind(TokenKind::DoubleColon) {
+            let part = self.consume_identifier("Expected identifier after `::`.")?;
             name.push('.');
             name.push_str(&part);
         }

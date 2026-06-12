@@ -7,8 +7,8 @@ TYPE Box
 END TYPE
 
 SUB main()
-  LET red AS Color = Color::Red
-  LET missing AS Color = Color::Blue
-  LET notEnum = Box::value
-  LET enumField = red::value
+  LET red AS Color = Color.Red
+  LET missing AS Color = Color.Blue
+  LET notEnum = Box.value
+  LET enumField = red.value
 END SUB

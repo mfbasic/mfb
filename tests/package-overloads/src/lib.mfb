@@ -8,5 +8,5 @@ EXPORT FUNC test() AS Integer
 END FUNC
 
 EXPORT FUNC test(v AS Vec2) AS Integer
-  RETURN v::x
+  RETURN v.x
 END FUNC

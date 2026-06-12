@@ -66,8 +66,8 @@ EXAMPLES
     IMPORT errorCode
 
     MATCH find(["a", "b"], "z")
-      CASE Ok(i) : io.print("found at " & toString(i))
-      CASE Err(e) WHEN e::code = errorCode.ErrNotFound : io.print("not found")
+      CASE Ok(i) : io::print("found at " & toString(i))
+      CASE Err(e) WHEN e.code = errorCode::ErrNotFound : io::print("not found")
       CASE Err(e) : FAIL e
     END MATCH
 

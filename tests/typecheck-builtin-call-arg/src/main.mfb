@@ -1,5 +1,5 @@
 IMPORT io
 
 SUB main()
-  io.print(1)
+  io::print(1)
 END SUB

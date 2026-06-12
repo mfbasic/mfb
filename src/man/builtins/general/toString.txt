@@ -19,8 +19,8 @@ IMPORTS
 DESCRIPTION
   toString converts a value from one of the supported built-in types to a
   String. It is intended for explicit text formatting before sending values to
-  text-oriented APIs such as io.print, io.write, io.printError, and
-  io.writeError.
+  text-oriented APIs such as io::print, io::write, io::printError, and
+  io::writeError.
 
   MFBASIC does not automatically stringify arbitrary values for output. Use
   toString where the language defines an overload, and write an application
@@ -78,7 +78,7 @@ EXAMPLES
   Print a number:
 
     LET count AS Integer = 42
-    io.print(toString(count))
+    io::print(toString(count))
 
   Format a Boolean:
 
@@ -106,5 +106,5 @@ SEE ALSO
   toFixed
   toByte
   typeName
-  io.print
-  io.write
+  io::print
+  io::write

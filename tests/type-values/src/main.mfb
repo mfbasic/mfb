@@ -15,7 +15,7 @@ END ENUM
 
 SUB main()
   LET p = Vec3[1.0, 2.0, 3.0]
-  LET x AS Float = p::x
-  LET c AS Color = Color::Red
+  LET x AS Float = p.x
+  LET c AS Color = Color.Red
   LET s AS Shape = Circle[2.5]
 END SUB

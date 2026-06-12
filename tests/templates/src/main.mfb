@@ -11,7 +11,7 @@ FUNC box OF T(value AS T) AS Box OF T
 END FUNC
 
 FUNC unbox OF T(boxed AS Box OF T) AS T
-  RETURN boxed::value
+  RETURN boxed.value
 END FUNC
 
 FUNC present OF T(value AS T) AS Maybe OF T

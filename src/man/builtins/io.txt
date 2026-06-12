@@ -1,87 +1,87 @@
 package: io
 summary: Terminal and standard stream input/output functions.
-usage: Add IMPORT io, then call functions with the io. prefix, for example io.print("hello").
+usage: Add IMPORT io, then call functions with the io:: prefix, for example io::print("hello").
 ---
 function: print
-signature: io.print(value AS String) AS Nothing
+signature: io::print(value AS String) AS Nothing
 summary: Writes a string to standard output followed by a newline.
 example:
-io.print("hello")
+io::print("hello")
 ---
 function: write
-signature: io.write(value AS String) AS Nothing
+signature: io::write(value AS String) AS Nothing
 summary: Writes a string to standard output without adding a newline.
 example:
-io.write("hello")
+io::write("hello")
 ---
 function: printError
-signature: io.printError(value AS String) AS Nothing
+signature: io::printError(value AS String) AS Nothing
 summary: Writes a string to standard error followed by a newline.
 example:
-io.printError("failed")
+io::printError("failed")
 ---
 function: writeError
-signature: io.writeError(value AS String) AS Nothing
+signature: io::writeError(value AS String) AS Nothing
 summary: Writes a string to standard error without adding a newline.
 example:
-io.writeError("failed")
+io::writeError("failed")
 ---
 function: flush
-signature: io.flush() AS Nothing
+signature: io::flush() AS Nothing
 summary: Flushes standard output.
 example:
-io.flush()
+io::flush()
 ---
 function: flushError
-signature: io.flushError() AS Nothing
+signature: io::flushError() AS Nothing
 summary: Flushes standard error.
 example:
-io.flushError()
+io::flushError()
 ---
 function: input
-signature: io.input([prompt AS String]) AS String
+signature: io::input([prompt AS String]) AS String
 summary: Reads a line from standard input, optionally after writing a prompt.
 example:
-LET name AS String = io.input("Name: ")
+LET name AS String = io::input("Name: ")
 ---
 function: readLine
-signature: io.readLine() AS String
+signature: io::readLine() AS String
 summary: Reads a line from standard input.
 example:
-LET line AS String = io.readLine()
+LET line AS String = io::readLine()
 ---
 function: readChar
-signature: io.readChar() AS String
+signature: io::readChar() AS String
 summary: Reads one character from standard input.
 example:
-LET char AS String = io.readChar()
+LET char AS String = io::readChar()
 ---
 function: readByte
-signature: io.readByte() AS Byte
+signature: io::readByte() AS Byte
 summary: Reads one byte from standard input.
 example:
-LET byte AS Byte = io.readByte()
+LET byte AS Byte = io::readByte()
 ---
 function: isInputTerminal
-signature: io.isInputTerminal() AS Boolean
+signature: io::isInputTerminal() AS Boolean
 summary: Returns TRUE when standard input is connected to a terminal.
 example:
-LET interactive AS Boolean = io.isInputTerminal()
+LET interactive AS Boolean = io::isInputTerminal()
 ---
 function: isOutputTerminal
-signature: io.isOutputTerminal() AS Boolean
+signature: io::isOutputTerminal() AS Boolean
 summary: Returns TRUE when standard output is connected to a terminal.
 example:
-LET interactive AS Boolean = io.isOutputTerminal()
+LET interactive AS Boolean = io::isOutputTerminal()
 ---
 function: isErrorTerminal
-signature: io.isErrorTerminal() AS Boolean
+signature: io::isErrorTerminal() AS Boolean
 summary: Returns TRUE when standard error is connected to a terminal.
 example:
-LET interactive AS Boolean = io.isErrorTerminal()
+LET interactive AS Boolean = io::isErrorTerminal()
 ---
 function: terminalSize
-signature: io.terminalSize() AS TerminalSize
+signature: io::terminalSize() AS TerminalSize
 summary: Returns the terminal column and row count.
 example:
-LET size AS TerminalSize = io.terminalSize()
+LET size AS TerminalSize = io::terminalSize()

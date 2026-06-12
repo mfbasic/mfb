@@ -5,5 +5,5 @@ EXPORT ISOLATED FUNC worker(seed AS String) AS Integer
 END FUNC
 
 SUB main()
-  thread.start(worker, "abc")
+  thread::start(worker, "abc")
 END SUB
