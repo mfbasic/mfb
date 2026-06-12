@@ -6,9 +6,9 @@ use crate::bytecode::{
     OPCODE_FS_FILE_EXISTS, OPCODE_FS_IS_WITHIN, OPCODE_FS_LIST_DIRECTORY, OPCODE_FS_OPEN,
     OPCODE_FS_OPEN_NO_FOLLOW, OPCODE_FS_PATH_BASE_NAME, OPCODE_FS_PATH_DIR_NAME,
     OPCODE_FS_PATH_EXTENSION, OPCODE_FS_PATH_JOIN, OPCODE_FS_PATH_NORMALIZE, OPCODE_FS_READ_ALL,
-    OPCODE_FS_READ_LINE, OPCODE_FS_READ_TEXT, OPCODE_FS_SET_CURRENT_DIRECTORY,
-    OPCODE_FS_WRITE_ALL, OPCODE_FS_WRITE_TEXT, OPCODE_FS_WRITE_TEXT_ATOMIC, TYPE_BOOLEAN,
-    TYPE_FILE_HANDLE, TYPE_NOTHING, TYPE_STRING,
+    OPCODE_FS_READ_LINE, OPCODE_FS_READ_TEXT, OPCODE_FS_SET_CURRENT_DIRECTORY, OPCODE_FS_WRITE_ALL,
+    OPCODE_FS_WRITE_TEXT, OPCODE_FS_WRITE_TEXT_ATOMIC, TYPE_BOOLEAN, TYPE_FILE_HANDLE,
+    TYPE_NOTHING, TYPE_STRING,
 };
 use crate::ir::IrValue;
 use std::borrow::Cow;
@@ -106,10 +106,16 @@ pub(crate) fn call_return_type_name(name: &str) -> Option<&'static str> {
         FILE_EXISTS | DIRECTORY_EXISTS | EXISTS | EOF | IS_WITHIN => Some("Boolean"),
         READ_TEXT | READ_LINE | READ_ALL | CANONICAL_PATH | PATH_JOIN | PATH_DIR_NAME
         | PATH_BASE_NAME | PATH_EXTENSION | PATH_NORMALIZE | CURRENT_DIRECTORY => Some("String"),
-        WRITE_TEXT | WRITE_TEXT_ATOMIC | APPEND_TEXT | WRITE_ALL | CLOSE | DELETE_FILE
-        | CREATE_DIRECTORY | CREATE_DIRECTORIES | DELETE_DIRECTORY | SET_CURRENT_DIRECTORY => {
-            Some("Nothing")
-        }
+        WRITE_TEXT
+        | WRITE_TEXT_ATOMIC
+        | APPEND_TEXT
+        | WRITE_ALL
+        | CLOSE
+        | DELETE_FILE
+        | CREATE_DIRECTORY
+        | CREATE_DIRECTORIES
+        | DELETE_DIRECTORY
+        | SET_CURRENT_DIRECTORY => Some("Nothing"),
         OPEN | OPEN_FILE | OPEN_FILE_NO_FOLLOW | CREATE_TEMP_FILE => Some(FILE_TYPE),
         LIST_DIRECTORY => Some("List OF String"),
         _ => None,
@@ -118,9 +124,21 @@ pub(crate) fn call_return_type_name(name: &str) -> Option<&'static str> {
 
 pub(crate) fn resolve_call<'a>(name: &str, arg_types: &'a [String]) -> Option<ResolvedCall<'a>> {
     let return_type = match name {
-        FILE_EXISTS | DIRECTORY_EXISTS | EXISTS | READ_TEXT | CANONICAL_PATH | PATH_DIR_NAME
-        | PATH_BASE_NAME | PATH_EXTENSION | PATH_NORMALIZE | DELETE_FILE | CREATE_DIRECTORY
-        | CREATE_DIRECTORIES | DELETE_DIRECTORY | LIST_DIRECTORY | SET_CURRENT_DIRECTORY
+        FILE_EXISTS
+        | DIRECTORY_EXISTS
+        | EXISTS
+        | READ_TEXT
+        | CANONICAL_PATH
+        | PATH_DIR_NAME
+        | PATH_BASE_NAME
+        | PATH_EXTENSION
+        | PATH_NORMALIZE
+        | DELETE_FILE
+        | CREATE_DIRECTORY
+        | CREATE_DIRECTORIES
+        | DELETE_DIRECTORY
+        | LIST_DIRECTORY
+        | SET_CURRENT_DIRECTORY
             if exact(arg_types, &["String"]) =>
         {
             Cow::Borrowed(call_return_type_name(name)?)
@@ -155,11 +173,21 @@ pub(crate) fn resolve_call<'a>(name: &str, arg_types: &'a [String]) -> Option<Re
 
 pub(crate) fn expected_arguments(name: &str) -> Option<&'static str> {
     match name {
-        FILE_EXISTS | DIRECTORY_EXISTS | EXISTS | READ_TEXT | CANONICAL_PATH | PATH_DIR_NAME
-        | PATH_BASE_NAME | PATH_EXTENSION | PATH_NORMALIZE | DELETE_FILE | CREATE_DIRECTORY
-        | CREATE_DIRECTORIES | DELETE_DIRECTORY | LIST_DIRECTORY | SET_CURRENT_DIRECTORY => {
-            Some("String")
-        }
+        FILE_EXISTS
+        | DIRECTORY_EXISTS
+        | EXISTS
+        | READ_TEXT
+        | CANONICAL_PATH
+        | PATH_DIR_NAME
+        | PATH_BASE_NAME
+        | PATH_EXTENSION
+        | PATH_NORMALIZE
+        | DELETE_FILE
+        | CREATE_DIRECTORY
+        | CREATE_DIRECTORIES
+        | DELETE_DIRECTORY
+        | LIST_DIRECTORY
+        | SET_CURRENT_DIRECTORY => Some("String"),
         WRITE_TEXT | WRITE_TEXT_ATOMIC | APPEND_TEXT => Some("String, String"),
         OPEN => Some("String, String"),
         OPEN_FILE | OPEN_FILE_NO_FOLLOW => Some("String, String"),
@@ -175,14 +203,22 @@ pub(crate) fn expected_arguments(name: &str) -> Option<&'static str> {
 
 pub(crate) fn arity(name: &str) -> Option<(usize, usize)> {
     match name {
-        FILE_EXISTS | DIRECTORY_EXISTS | EXISTS | READ_TEXT | CANONICAL_PATH | PATH_DIR_NAME
-        | PATH_BASE_NAME | PATH_EXTENSION | PATH_NORMALIZE | DELETE_FILE | CREATE_DIRECTORY
-        | CREATE_DIRECTORIES | DELETE_DIRECTORY | LIST_DIRECTORY | SET_CURRENT_DIRECTORY => {
-            Some((1, 1))
-        }
-        WRITE_TEXT | WRITE_TEXT_ATOMIC | APPEND_TEXT | OPEN | WRITE_ALL | IS_WITHIN => {
-            Some((2, 2))
-        }
+        FILE_EXISTS
+        | DIRECTORY_EXISTS
+        | EXISTS
+        | READ_TEXT
+        | CANONICAL_PATH
+        | PATH_DIR_NAME
+        | PATH_BASE_NAME
+        | PATH_EXTENSION
+        | PATH_NORMALIZE
+        | DELETE_FILE
+        | CREATE_DIRECTORY
+        | CREATE_DIRECTORIES
+        | DELETE_DIRECTORY
+        | LIST_DIRECTORY
+        | SET_CURRENT_DIRECTORY => Some((1, 1)),
+        WRITE_TEXT | WRITE_TEXT_ATOMIC | APPEND_TEXT | OPEN | WRITE_ALL | IS_WITHIN => Some((2, 2)),
         OPEN_FILE | OPEN_FILE_NO_FOLLOW => Some((1, 2)),
         CREATE_TEMP_FILE => Some((1, 3)),
         READ_LINE | READ_ALL | CLOSE | EOF => Some((1, 1)),
