@@ -848,6 +848,15 @@ impl<'a> Monomorphizer<'a> {
                 );
             }
         }
+        if let Some(rest) = type_name.strip_prefix("MapEntry OF ") {
+            if let Some((key, value)) = split_top_level_to(rest) {
+                return format!(
+                    "MapEntry OF {} TO {}",
+                    self.concrete_type_name(&key, substitutions),
+                    self.concrete_type_name(&value, substitutions)
+                );
+            }
+        }
         if let Some(rest) = type_name.strip_prefix("Thread OF ") {
             if let Some((message, output)) = split_top_level_to(rest) {
                 return format!(
@@ -878,6 +887,15 @@ impl<'a> Monomorphizer<'a> {
             if let Some((key, value)) = split_top_level_to(rest) {
                 return format!(
                     "Map OF {} TO {}",
+                    self.template_view_type(&key),
+                    self.template_view_type(&value)
+                );
+            }
+        }
+        if let Some(rest) = type_name.strip_prefix("MapEntry OF ") {
+            if let Some((key, value)) = split_top_level_to(rest) {
+                return format!(
+                    "MapEntry OF {} TO {}",
                     self.template_view_type(&key),
                     self.template_view_type(&value)
                 );
@@ -1156,6 +1174,19 @@ fn unify_type(
         return unify_type(&pattern_key, &actual_key, params, substitutions)
             && unify_type(&pattern_value, &actual_value, params, substitutions);
     }
+    if let Some(pattern_rest) = pattern.strip_prefix("MapEntry OF ") {
+        let Some(actual_rest) = actual.strip_prefix("MapEntry OF ") else {
+            return false;
+        };
+        let Some((pattern_key, pattern_value)) = split_top_level_to(pattern_rest) else {
+            return false;
+        };
+        let Some((actual_key, actual_value)) = split_top_level_to(actual_rest) else {
+            return false;
+        };
+        return unify_type(&pattern_key, &actual_key, params, substitutions)
+            && unify_type(&pattern_value, &actual_value, params, substitutions);
+    }
     if let Some(pattern_rest) = pattern.strip_prefix("Thread OF ") {
         let Some(actual_rest) = actual.strip_prefix("Thread OF ") else {
             return false;
@@ -1186,6 +1217,7 @@ fn unify_type(
 fn user_template_parts(type_name: &str) -> Option<(String, Vec<String>)> {
     if type_name.starts_with("List OF ")
         || type_name.starts_with("Map OF ")
+        || type_name.starts_with("MapEntry OF ")
         || type_name.starts_with("Result OF ")
         || type_name.starts_with("Thread OF ")
         || type_name.starts_with("FUNC(")
@@ -1214,6 +1246,15 @@ fn substitute_type_params(type_name: &str, substitutions: &HashMap<String, Strin
         if let Some((key, value)) = split_top_level_to(rest) {
             return format!(
                 "Map OF {} TO {}",
+                substitute_type_params(&key, substitutions),
+                substitute_type_params(&value, substitutions)
+            );
+        }
+    }
+    if let Some(rest) = type_name.strip_prefix("MapEntry OF ") {
+        if let Some((key, value)) = split_top_level_to(rest) {
+            return format!(
+                "MapEntry OF {} TO {}",
                 substitute_type_params(&key, substitutions),
                 substitute_type_params(&value, substitutions)
             );

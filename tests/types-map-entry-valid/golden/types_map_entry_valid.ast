@@ -1,0 +1,50 @@
+{
+  "project": "types_map_entry_valid",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 }
+    ],
+    "items": [
+    {
+      "kind": "sub",
+      "visibility": "private",
+      "name": "printEntry",
+      "line": 3,
+      "params": [
+      { "name": "entry", "type": "MapEntry OF String TO Integer", "default": null }
+      ],
+      "returnType": null,
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "entry" }, "member": "key" }] }, "line": 4 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "entry" }, "member": "value" }] }] }, "line": 5 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "main",
+      "line": 8,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "scores", "type": "Map OF String TO Integer", "value": { "kind": "map", "keyType": "String", "valueType": "Integer", "entries": [{ "key": { "kind": "string", "value": "Ada" }, "value": { "kind": "number", "value": "36" } }, { "key": { "kind": "string", "value": "Grace" }, "value": { "kind": "number", "value": "85" } }] }, "line": 9 },
+      {
+        "kind": "forEach",
+        "name": "entry",
+        "iterable": { "kind": "identifier", "value": "scores" },
+        "line": 11,
+        "body": [
+        { "kind": "binding", "mutable": false, "name": "typed", "type": "MapEntry OF String TO Integer", "value": { "kind": "identifier", "value": "entry" }, "line": 12 },
+        { "kind": "expression", "expression": { "kind": "call", "callee": "printEntry", "arguments": [{ "kind": "identifier", "value": "typed" }] }, "line": 13 }
+        ]
+      },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 16 }
+      ]
+    }
+    ]
+  }
+  ]
+}

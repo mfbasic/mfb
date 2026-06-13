@@ -1540,16 +1540,19 @@ impl<'a> FileParser<'a> {
         let mut name = self.parse_type_base_name("Expected a type name.")?;
         if self.check_identifier_ci("OF") {
             self.advance();
-            if name.eq_ignore_ascii_case("Map") || name.eq_ignore_ascii_case("Thread") {
+            if name.eq_ignore_ascii_case("Map")
+                || name.eq_ignore_ascii_case("MapEntry")
+                || name.eq_ignore_ascii_case("Thread")
+            {
                 let first = self.parse_type_name()?;
                 if !self.check_identifier_ci("TO") {
                     let token = self.peek().clone();
                     self.report(
                         "MFB_PARSE_UNEXPECTED_TOKEN",
-                        if name.eq_ignore_ascii_case("Map") {
-                            "Expected `TO` in map type."
-                        } else {
+                        if name.eq_ignore_ascii_case("Thread") {
                             "Expected `TO` in thread type."
+                        } else {
+                            "Expected `TO` in map type."
                         },
                         &token,
                     );

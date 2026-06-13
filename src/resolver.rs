@@ -758,6 +758,13 @@ impl<'a> Resolver<'a> {
                 return;
             }
         }
+        if let Some(rest) = type_name.strip_prefix("MapEntry OF ") {
+            if let Some((key, value)) = rest.split_once(" TO ") {
+                self.resolve_type_name(file, key, line, imports);
+                self.resolve_type_name(file, value, line, imports);
+                return;
+            }
+        }
 
         if let Some((base, args)) = type_name.split_once(" OF ") {
             if self.types.contains(base) || self.active_template_params.contains(base) {

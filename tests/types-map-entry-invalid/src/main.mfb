@@ -1,0 +1,10 @@
+FUNC main AS Integer
+  LET scores AS Map OF String TO Integer = Map OF String TO Integer { "Ada" := 36 }
+
+  FOR EACH entry IN scores
+    LET wrong AS MapEntry OF Integer TO String = entry
+    LET missing AS Integer = entry.count
+  NEXT
+
+  RETURN 0
+END FUNC

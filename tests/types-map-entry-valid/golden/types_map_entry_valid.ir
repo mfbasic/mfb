@@ -1,0 +1,49 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "types_map_entry_valid",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "printEntry",
+    "visibility": "private",
+    "kind": "sub",
+    "params": [
+    { "name": "entry", "type": "MapEntry OF String TO Integer", "default": null }
+    ],
+    "returns": "Nothing",
+    "body": [
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "memberAccess", "target": { "kind": "local", "name": "entry" }, "member": "key" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "memberAccess", "target": { "kind": "local", "name": "entry" }, "member": "value" }] }] } }
+    ]
+  },
+  {
+    "name": "main",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "mutable": false, "name": "scores", "type": "Map OF String TO Integer", "value": { "kind": "map", "type": "Map OF String TO Integer", "entries": [{ "key": { "kind": "const", "type": "String", "value": "Ada" }, "value": { "kind": "const", "type": "Integer", "value": "36" } }, { "key": { "kind": "const", "type": "String", "value": "Grace" }, "value": { "kind": "const", "type": "Integer", "value": "85" } }] } },
+    {
+      "op": "forEach",
+      "name": "entry",
+      "type": "MapEntry OF String TO Integer",
+      "iterable": { "kind": "local", "name": "scores" },
+      "body": [
+      { "op": "bind", "mutable": false, "name": "typed", "type": "MapEntry OF String TO Integer", "value": { "kind": "local", "name": "entry" } },
+      { "op": "eval", "value": { "kind": "call", "target": "printEntry", "args": [{ "kind": "local", "name": "typed" }] } }
+      ]
+    },
+    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

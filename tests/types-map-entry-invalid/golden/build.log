@@ -1,0 +1,40 @@
+$ mfb build -ast tests/types-map-entry-invalid
+   3 | 
+   4 |   FOR EACH entry IN scores
+   5 |     LET wrong AS MapEntry OF Integer TO String = entry
+     | ^
+tests/types-map-entry-invalid/src/main.mfb:5 error[TYPE_BINDING_MISMATCH]: binding initializer type does not match declared type
+               Binding `wrong` has initializer type MapEntry OF String TO Integer, expected MapEntry OF Integer TO String.
+   4 |   FOR EACH entry IN scores
+   5 |     LET wrong AS MapEntry OF Integer TO String = entry
+   6 |     LET missing AS Integer = entry.count
+     | ^
+tests/types-map-entry-invalid/src/main.mfb:6 error[TYPE_UNKNOWN_FIELD]: record field does not exist
+               Map entry has no field `count`.
+   4 |   FOR EACH entry IN scores
+   5 |     LET wrong AS MapEntry OF Integer TO String = entry
+   6 |     LET missing AS Integer = entry.count
+     | ^
+tests/types-map-entry-invalid/src/main.mfb:6 error[TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `missing` does not have a known type.
+[exit 1]
+$ mfb build -ir tests/types-map-entry-invalid
+   3 | 
+   4 |   FOR EACH entry IN scores
+   5 |     LET wrong AS MapEntry OF Integer TO String = entry
+     | ^
+tests/types-map-entry-invalid/src/main.mfb:5 error[TYPE_BINDING_MISMATCH]: binding initializer type does not match declared type
+               Binding `wrong` has initializer type MapEntry OF String TO Integer, expected MapEntry OF Integer TO String.
+   4 |   FOR EACH entry IN scores
+   5 |     LET wrong AS MapEntry OF Integer TO String = entry
+   6 |     LET missing AS Integer = entry.count
+     | ^
+tests/types-map-entry-invalid/src/main.mfb:6 error[TYPE_UNKNOWN_FIELD]: record field does not exist
+               Map entry has no field `count`.
+   4 |   FOR EACH entry IN scores
+   5 |     LET wrong AS MapEntry OF Integer TO String = entry
+   6 |     LET missing AS Integer = entry.count
+     | ^
+tests/types-map-entry-invalid/src/main.mfb:6 error[TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `missing` does not have a known type.
+[exit 1]
