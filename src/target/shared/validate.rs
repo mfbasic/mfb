@@ -193,6 +193,11 @@ fn collect_runtime_calls_from_ops_with_constants(
                     );
                 }
             }
+            NirOp::ForEach { iterable, body, .. } => {
+                collect_runtime_calls_from_value(iterable, calls, constants);
+                let mut body_constants = constants.clone();
+                collect_runtime_calls_from_ops_with_constants(body, calls, &mut body_constants);
+            }
             NirOp::Using { value, body, .. } => {
                 collect_runtime_calls_from_value(value, calls, constants);
                 let mut body_constants = constants.clone();
@@ -665,6 +670,40 @@ fn validate_ops(
                         used_helpers,
                     )?;
                 }
+            }
+            NirOp::ForEach {
+                name,
+                type_,
+                iterable,
+                body,
+            } => {
+                if name.is_empty() || type_.is_empty() {
+                    return Err("NIR forEach op has empty name or type".to_string());
+                }
+                validate_value(
+                    iterable,
+                    locals,
+                    function_names,
+                    import_names,
+                    type_value_names,
+                    used_helpers,
+                )?;
+                let mut body_locals = locals.clone();
+                body_locals.insert(
+                    name.clone(),
+                    LocalBinding {
+                        mutable: false,
+                        type_: type_.clone(),
+                    },
+                );
+                validate_ops(
+                    body,
+                    &mut body_locals,
+                    function_names,
+                    import_names,
+                    type_value_names,
+                    used_helpers,
+                )?;
             }
             NirOp::Using {
                 name,

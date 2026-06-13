@@ -882,6 +882,44 @@ impl<'a> TypeChecker<'a> {
                     Flow::FallsThrough
                 }
             }
+            Statement::ForEach {
+                name,
+                iterable,
+                body,
+                line,
+            } => {
+                let iterable_type = self.infer_expression(file, iterable, locals, *line);
+                let element_type = match iterable_type {
+                    Type::List(element) => *element,
+                    Type::Map(key, value) => Type::User(format!(
+                        "MapEntry OF {} TO {}",
+                        self.type_name(&key),
+                        self.type_name(&value)
+                    )),
+                    other => {
+                        self.report(
+                            "TYPE_FOR_EACH_REQUIRES_COLLECTION",
+                            &format!(
+                                "FOR EACH source has type {}, expected List or Map.",
+                                self.type_name(&other)
+                            ),
+                            file,
+                            *line,
+                        );
+                        Type::Unknown
+                    }
+                };
+                let mut nested = locals.clone();
+                nested.insert(
+                    name.clone(),
+                    LocalInfo {
+                        type_: element_type,
+                        mutable: false,
+                    },
+                );
+                self.check_block(file, body, expected_return, &mut nested);
+                Flow::FallsThrough
+            }
             Statement::Using {
                 name,
                 value,
@@ -1489,6 +1527,23 @@ impl<'a> TypeChecker<'a> {
             );
             return Type::Unknown;
         };
+        if let Some(rest) = type_name.strip_prefix("MapEntry OF ") {
+            if let Some((key, value)) = rest.split_once(" TO ") {
+                return match member {
+                    "key" => self.parse_type(key),
+                    "value" => self.parse_type(value),
+                    _ => {
+                        self.report(
+                            "TYPE_UNKNOWN_FIELD",
+                            &format!("Map entry has no field `{member}`."),
+                            file,
+                            line,
+                        );
+                        Type::Unknown
+                    }
+                };
+            }
+        }
         let Some(info) = self.type_infos.get(&type_name).cloned() else {
             if let Some(variants) = self.variant_constructors.get(&type_name).cloned() {
                 if let Some(field) = variants

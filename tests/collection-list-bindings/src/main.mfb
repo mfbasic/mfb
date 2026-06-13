@@ -1,0 +1,20 @@
+IMPORT io
+
+FUNC printList(values AS List OF String) AS Nothing
+  FOR EACH item IN values
+    io::print(item)
+  NEXT
+  RETURN NOTHING
+END FUNC
+
+FUNC main AS Integer
+  LET letValues AS List OF String = ["let-a", "let-b"]
+  MUT mutValues AS List OF String = ["mut-a"]
+  mutValues = ["mut-b", "mut-c"]
+  LET copied AS List OF String = mutValues
+
+  printList(letValues)
+  printList(mutValues)
+  printList(copied)
+  RETURN 0
+END FUNC

@@ -175,6 +175,12 @@ pub enum Statement {
         cases: Vec<MatchCase>,
         line: usize,
     },
+    ForEach {
+        name: String,
+        iterable: Expression,
+        body: Vec<Statement>,
+        line: usize,
+    },
     Using {
         name: String,
         value: Expression,
@@ -386,6 +392,7 @@ enum BlockTerminator {
     ElseIf,
     EndIf,
     EndMatch,
+    Next,
     EndUsing,
 }
 
@@ -847,6 +854,10 @@ impl<'a> FileParser<'a> {
             return self.parse_using_statement();
         }
 
+        if self.check_keyword(Keyword::For) {
+            return self.parse_for_each_statement();
+        }
+
         if self.check_keyword(Keyword::Let) || self.check_keyword(Keyword::Mut) {
             let keyword = self.advance().clone();
             let mutable = matches!(keyword.kind, TokenKind::Keyword(Keyword::Mut));
@@ -1082,6 +1093,34 @@ impl<'a> FileParser<'a> {
         Some(Statement::Using {
             name,
             value,
+            body,
+            line: token.line,
+        })
+    }
+
+    fn parse_for_each_statement(&mut self) -> Option<Statement> {
+        let token = self.advance().clone();
+        if !self.consume_keyword(Keyword::Each, "FOR EACH must include EACH.") {
+            return None;
+        }
+        let name = self.consume_identifier("FOR EACH loop variable must be an identifier.")?;
+        if !self.consume_keyword(
+            Keyword::In,
+            "FOR EACH must include IN before the collection.",
+        ) {
+            return None;
+        }
+        let iterable = self.parse_expression()?;
+        self.consume_statement_end("Expected end of statement after FOR EACH header.");
+        self.skip_separators();
+        let body = self.parse_statement_block(&[BlockTerminator::Next]);
+        if !self.consume_keyword(Keyword::Next, "FOR EACH block must end with NEXT.") {
+            return None;
+        }
+        self.consume_statement_end("Expected end of statement after NEXT.");
+        Some(Statement::ForEach {
+            name,
+            iterable,
             body,
             line: token.line,
         })
@@ -1730,6 +1769,7 @@ impl<'a> FileParser<'a> {
             BlockTerminator::ElseIf => self.check_keyword(Keyword::ElseIf),
             BlockTerminator::EndIf => self.is_end_block(Keyword::If),
             BlockTerminator::EndMatch => self.is_end_block(Keyword::Match),
+            BlockTerminator::Next => self.check_keyword(Keyword::Next),
             BlockTerminator::EndUsing => self.is_end_block(Keyword::Using),
         })
     }
@@ -2356,6 +2396,36 @@ impl ToAstJson for Statement {
                     json_string(name),
                     pad,
                     value.to_json(0),
+                    pad,
+                    line,
+                    pad,
+                    join_indented(body, indent + 2),
+                    pad,
+                    pad
+                )
+            }
+            Statement::ForEach {
+                name,
+                iterable,
+                body,
+                line,
+            } => {
+                format!(
+                    concat!(
+                        "\n{}{{\n",
+                        "{}  \"kind\": \"forEach\",\n",
+                        "{}  \"name\": {},\n",
+                        "{}  \"iterable\": {},\n",
+                        "{}  \"line\": {},\n",
+                        "{}  \"body\": [{}\n{}  ]\n",
+                        "{}}}"
+                    ),
+                    pad,
+                    pad,
+                    pad,
+                    json_string(name),
+                    pad,
+                    iterable.to_json(0),
                     pad,
                     line,
                     pad,

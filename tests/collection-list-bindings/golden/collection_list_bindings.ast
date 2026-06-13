@@ -1,0 +1,54 @@
+{
+  "project": "collection_list_bindings",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "printList",
+      "line": 3,
+      "params": [
+      { "name": "values", "type": "List OF String", "default": null }
+      ],
+      "returnType": "Nothing",
+      "body": [
+      {
+        "kind": "forEach",
+        "name": "item",
+        "iterable": { "kind": "identifier", "value": "values" },
+        "line": 4,
+        "body": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "identifier", "value": "item" }] }, "line": 5 }
+        ]
+      },
+      { "kind": "return", "value": { "kind": "identifier", "value": "NOTHING" }, "line": 7 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "main",
+      "line": 10,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "letValues", "type": "List OF String", "value": { "kind": "list", "values": [{ "kind": "string", "value": "let-a" }, { "kind": "string", "value": "let-b" }] }, "line": 11 },
+      { "kind": "binding", "mutable": true, "name": "mutValues", "type": "List OF String", "value": { "kind": "list", "values": [{ "kind": "string", "value": "mut-a" }] }, "line": 12 },
+      { "kind": "assignment", "name": "mutValues", "value": { "kind": "list", "values": [{ "kind": "string", "value": "mut-b" }, { "kind": "string", "value": "mut-c" }] }, "line": 13 },
+      { "kind": "binding", "mutable": false, "name": "copied", "type": "List OF String", "value": { "kind": "identifier", "value": "mutValues" }, "line": 14 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "printList", "arguments": [{ "kind": "identifier", "value": "letValues" }] }, "line": 16 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "printList", "arguments": [{ "kind": "identifier", "value": "mutValues" }] }, "line": 17 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "printList", "arguments": [{ "kind": "identifier", "value": "copied" }] }, "line": 18 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 19 }
+      ]
+    }
+    ]
+  }
+  ]
+}

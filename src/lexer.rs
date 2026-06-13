@@ -44,8 +44,11 @@ pub enum Keyword {
     ElseIf,
     False,
     Fail,
+    For,
+    Each,
     Func,
     If,
+    In,
     Import,
     Isolated,
     Let,
@@ -58,6 +61,7 @@ pub enum Keyword {
     And,
     Or,
     Not,
+    Next,
     Xor,
     Return,
     Sub,
@@ -407,10 +411,16 @@ fn keyword(value: &str) -> Option<Keyword> {
         Some(Keyword::False)
     } else if value.eq_ignore_ascii_case("FAIL") {
         Some(Keyword::Fail)
+    } else if value.eq_ignore_ascii_case("FOR") {
+        Some(Keyword::For)
+    } else if value.eq_ignore_ascii_case("EACH") {
+        Some(Keyword::Each)
     } else if value.eq_ignore_ascii_case("FUNC") {
         Some(Keyword::Func)
     } else if value.eq_ignore_ascii_case("IF") {
         Some(Keyword::If)
+    } else if value.eq_ignore_ascii_case("IN") {
+        Some(Keyword::In)
     } else if value.eq_ignore_ascii_case("IMPORT") {
         Some(Keyword::Import)
     } else if value.eq_ignore_ascii_case("ISOLATED") {
@@ -435,6 +445,8 @@ fn keyword(value: &str) -> Option<Keyword> {
         Some(Keyword::Or)
     } else if value.eq_ignore_ascii_case("NOT") {
         Some(Keyword::Not)
+    } else if value.eq_ignore_ascii_case("NEXT") {
+        Some(Keyword::Next)
     } else if value.eq_ignore_ascii_case("XOR") {
         Some(Keyword::Xor)
     } else if value.eq_ignore_ascii_case("RETURN") {

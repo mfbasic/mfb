@@ -109,6 +109,12 @@ pub(crate) enum NirOp {
         value: NirValue,
         cases: Vec<NirMatchCase>,
     },
+    ForEach {
+        name: String,
+        type_: String,
+        iterable: NirValue,
+        body: Vec<NirOp>,
+    },
     Using {
         name: String,
         type_: String,
@@ -361,6 +367,17 @@ fn lower_op(op: &IrOp) -> NirOp {
         IrOp::Match { value, cases } => NirOp::Match {
             value: lower_value(value),
             cases: cases.iter().map(lower_match_case).collect(),
+        },
+        IrOp::ForEach {
+            name,
+            type_,
+            iterable,
+            body,
+        } => NirOp::ForEach {
+            name: name.clone(),
+            type_: type_.clone(),
+            iterable: lower_value(iterable),
+            body: lower_ops(body),
         },
         IrOp::Using {
             name,
@@ -846,6 +863,34 @@ impl ToNirJson for NirOp {
                 value.to_json(indent),
                 pad,
                 join_json(cases, indent + 2),
+                pad,
+                pad
+            ),
+            NirOp::ForEach {
+                name,
+                type_,
+                iterable,
+                body,
+            } => format!(
+                concat!(
+                    "\n{}{{\n",
+                    "{}  \"op\": \"forEach\",\n",
+                    "{}  \"name\": {},\n",
+                    "{}  \"type\": {},\n",
+                    "{}  \"iterable\": {},\n",
+                    "{}  \"body\": [{}\n{}  ]\n",
+                    "{}}}"
+                ),
+                pad,
+                pad,
+                pad,
+                json_string(name),
+                pad,
+                json_string(type_),
+                pad,
+                iterable.to_json(indent),
+                pad,
+                join_json(body, indent + 2),
                 pad,
                 pad
             ),

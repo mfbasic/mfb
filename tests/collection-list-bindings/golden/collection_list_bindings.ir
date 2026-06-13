@@ -1,0 +1,53 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "collection_list_bindings",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "printList",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    { "name": "values", "type": "List OF String", "default": null }
+    ],
+    "returns": "Nothing",
+    "body": [
+    {
+      "op": "forEach",
+      "name": "item",
+      "type": "String",
+      "iterable": { "kind": "local", "name": "values" },
+      "body": [
+      { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "local", "name": "item" }] } }
+      ]
+    },
+    { "op": "return", "value": { "kind": "const", "type": "Nothing", "value": "NOTHING" } }
+    ]
+  },
+  {
+    "name": "main",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "mutable": false, "name": "letValues", "type": "List OF String", "value": { "kind": "list", "type": "List OF String", "values": [{ "kind": "const", "type": "String", "value": "let-a" }, { "kind": "const", "type": "String", "value": "let-b" }] } },
+    { "op": "bind", "mutable": true, "name": "mutValues", "type": "List OF String", "value": { "kind": "list", "type": "List OF String", "values": [{ "kind": "const", "type": "String", "value": "mut-a" }] } },
+    { "op": "assign", "name": "mutValues", "value": { "kind": "list", "type": "List OF String", "values": [{ "kind": "const", "type": "String", "value": "mut-b" }, { "kind": "const", "type": "String", "value": "mut-c" }] } },
+    { "op": "bind", "mutable": false, "name": "copied", "type": "List OF String", "value": { "kind": "local", "name": "mutValues" } },
+    { "op": "eval", "value": { "kind": "call", "target": "printList", "args": [{ "kind": "local", "name": "letValues" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "printList", "args": [{ "kind": "local", "name": "mutValues" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "printList", "args": [{ "kind": "local", "name": "copied" }] } },
+    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

@@ -157,6 +157,10 @@ fn push_op_helpers(ops: &[IrOp], helpers: &mut Vec<RuntimeHelper>) {
                     push_op_helpers(&case.body, helpers);
                 }
             }
+            IrOp::ForEach { iterable, body, .. } => {
+                push_value_helpers(iterable, helpers);
+                push_op_helpers(body, helpers);
+            }
             IrOp::Using { value, body, .. } => {
                 push_value_helpers(value, helpers);
                 push_op_helpers(body, helpers);

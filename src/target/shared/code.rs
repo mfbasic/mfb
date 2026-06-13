@@ -1176,6 +1176,13 @@ impl CodeBuilder<'_> {
                             abi::stack_pointer(),
                             stack_offset,
                         ));
+                    } else if is_collection_type(type_) {
+                        let result = self.lower_empty_collection(type_)?;
+                        self.emit(abi::store_u64(
+                            &result.location,
+                            abi::stack_pointer(),
+                            stack_offset,
+                        ));
                     } else if let Some(fields) = self.type_model.record_fields.get(type_).cloned() {
                         let record_offset = self.allocate_stack_object(type_, 8 * fields.len());
                         for index in 0..fields.len() {
@@ -1284,6 +1291,14 @@ impl CodeBuilder<'_> {
                     self.emit(abi::label(&end_label));
                     self.clear_local_constants();
                 }
+                NirOp::ForEach {
+                    name,
+                    type_,
+                    iterable,
+                    body,
+                } => {
+                    self.lower_for_each(name, type_, iterable, body)?;
+                }
                 NirOp::Using {
                     name,
                     type_,
@@ -1317,6 +1332,96 @@ impl CodeBuilder<'_> {
             }
             self.reset_temporary_registers();
         }
+        Ok(())
+    }
+
+    fn lower_for_each(
+        &mut self,
+        name: &str,
+        type_: &str,
+        iterable: &NirValue,
+        body: &[NirOp],
+    ) -> Result<(), String> {
+        let iterable_value = self.lower_value(iterable)?;
+        let slot_width = collection_slot_width(&iterable_value.type_).ok_or_else(|| {
+            format!(
+                "native code FOR EACH target '{}' is not a collection",
+                iterable_value.type_
+            )
+        })?;
+        let collection_slot = self.allocate_stack_object("for_each_collection", 8);
+        let cursor_slot = self.allocate_stack_object("for_each_cursor", 8);
+        let remaining_slot = self.allocate_stack_object("for_each_remaining", 8);
+        let local_slot = self.allocate_stack_object(name, 8);
+        let entry_payload_slot = if iterable_value.type_.starts_with("Map OF ") {
+            Some(self.allocate_stack_object("for_each_map_entry", 16))
+        } else {
+            None
+        };
+
+        self.emit(abi::store_u64(
+            &iterable_value.location,
+            abi::stack_pointer(),
+            collection_slot,
+        ));
+        self.emit(abi::load_u64("x8", abi::stack_pointer(), collection_slot));
+        self.emit(abi::load_u64("x9", "x8", 0));
+        self.emit(abi::add_immediate("x10", "x8", 8));
+        self.emit(abi::store_u64("x10", abi::stack_pointer(), cursor_slot));
+        self.emit(abi::store_u64("x9", abi::stack_pointer(), remaining_slot));
+
+        let loop_label = self.label("for_each_loop");
+        let end_label = self.label("for_each_end");
+        self.emit(abi::label(&loop_label));
+        self.emit(abi::load_u64("x9", abi::stack_pointer(), remaining_slot));
+        self.emit(abi::compare_immediate("x9", "0"));
+        self.emit(abi::branch_eq(&end_label));
+        self.emit(abi::load_u64("x10", abi::stack_pointer(), cursor_slot));
+        if let Some(entry_payload_slot) = entry_payload_slot {
+            self.emit(abi::load_u64("x11", "x10", 0));
+            self.emit(abi::load_u64("x12", "x10", 8));
+            self.emit(abi::store_u64(
+                "x11",
+                abi::stack_pointer(),
+                entry_payload_slot,
+            ));
+            self.emit(abi::store_u64(
+                "x12",
+                abi::stack_pointer(),
+                entry_payload_slot + 8,
+            ));
+            self.emit(abi::add_immediate(
+                "x11",
+                abi::stack_pointer(),
+                entry_payload_slot,
+            ));
+            self.emit(abi::store_u64("x11", abi::stack_pointer(), local_slot));
+        } else {
+            self.emit(abi::load_u64("x11", "x10", 0));
+            self.emit(abi::store_u64("x11", abi::stack_pointer(), local_slot));
+        }
+        self.emit(abi::add_immediate("x10", "x10", slot_width));
+        self.emit(abi::store_u64("x10", abi::stack_pointer(), cursor_slot));
+        self.emit(abi::subtract_immediate("x9", "x9", 1));
+        self.emit(abi::store_u64("x9", abi::stack_pointer(), remaining_slot));
+
+        let previous = self.locals.insert(
+            name.to_string(),
+            LocalValue {
+                type_: type_.to_string(),
+                stack_offset: local_slot,
+                constant: None,
+            },
+        );
+        self.lower_ops(body)?;
+        if let Some(previous) = previous {
+            self.locals.insert(name.to_string(), previous);
+        } else {
+            self.locals.remove(name);
+        }
+        self.emit(abi::branch(&loop_label));
+        self.emit(abi::label(&end_label));
+        self.clear_local_constants();
         Ok(())
     }
 
@@ -1593,10 +1698,114 @@ impl CodeBuilder<'_> {
                     "native code plan does not lower unary operator '{op}' yet"
                 ))
             }
-            NirValue::ListLiteral { .. } | NirValue::MapLiteral { .. } => {
-                Err("native code plan does not lower list/map literals yet".to_string())
-            }
+            NirValue::ListLiteral { type_, values } => self.lower_list_literal(type_, values),
+            NirValue::MapLiteral { type_, entries } => self.lower_map_literal(type_, entries),
         }
+    }
+
+    fn lower_empty_collection(&mut self, type_: &str) -> Result<ValueResult, String> {
+        self.lower_collection_stack_slots(type_, Vec::new(), "empty collection")
+    }
+
+    fn lower_list_literal(
+        &mut self,
+        type_: &str,
+        values: &[NirValue],
+    ) -> Result<ValueResult, String> {
+        let mut slots = Vec::new();
+        for value in values {
+            let value = self.lower_value(value)?;
+            let slot = self.allocate_stack_object("collection_value", 8);
+            self.emit(abi::store_u64(&value.location, abi::stack_pointer(), slot));
+            slots.push(slot);
+        }
+        self.lower_collection_stack_slots(type_, slots, "list")
+    }
+
+    fn lower_map_literal(
+        &mut self,
+        type_: &str,
+        entries: &[(NirValue, NirValue)],
+    ) -> Result<ValueResult, String> {
+        let mut slots = Vec::new();
+        for (key, value) in entries {
+            let key = self.lower_value(key)?;
+            let key_slot = self.allocate_stack_object("collection_key", 8);
+            self.emit(abi::store_u64(
+                &key.location,
+                abi::stack_pointer(),
+                key_slot,
+            ));
+            slots.push(key_slot);
+            let value = self.lower_value(value)?;
+            let value_slot = self.allocate_stack_object("collection_value", 8);
+            self.emit(abi::store_u64(
+                &value.location,
+                abi::stack_pointer(),
+                value_slot,
+            ));
+            slots.push(value_slot);
+        }
+        self.lower_collection_stack_slots(type_, slots, "map")
+    }
+
+    fn lower_collection_stack_slots(
+        &mut self,
+        type_: &str,
+        slots: Vec<usize>,
+        label: &str,
+    ) -> Result<ValueResult, String> {
+        let slot_width = collection_slot_width(type_)
+            .ok_or_else(|| format!("native code collection type '{type_}' is not supported"))?;
+        if slots.len() % (slot_width / 8) != 0 {
+            return Err(format!(
+                "native code collection literal '{type_}' has invalid slot count"
+            ));
+        }
+        let count = slots.len() / (slot_width / 8);
+        let size = 8 + slots.len() * 8;
+        let collection_slot = self.allocate_stack_object("collection_literal", 8);
+        let alloc_ok = self.label("collection_alloc_ok");
+        self.emit(abi::move_immediate(
+            abi::return_register(),
+            "Integer",
+            &size.to_string(),
+        ));
+        self.emit(abi::move_immediate("x1", "Integer", "8"));
+        self.emit(abi::branch_link(ARENA_ALLOC_SYMBOL));
+        self.relocations.push(CodeRelocation {
+            from: self.current_symbol.clone(),
+            to: ARENA_ALLOC_SYMBOL.to_string(),
+            kind: "branch26".to_string(),
+            binding: "internal".to_string(),
+            library: None,
+        });
+        self.emit(abi::compare_immediate(
+            abi::return_register(),
+            RESULT_OK_TAG,
+        ));
+        self.emit(abi::branch_eq(&alloc_ok));
+        self.emit_allocation_error_return()?;
+        self.emit(abi::label(&alloc_ok));
+        self.emit(abi::store_u64("x1", abi::stack_pointer(), collection_slot));
+        self.emit(abi::move_immediate("x8", "Integer", &count.to_string()));
+        self.emit(abi::store_u64("x8", "x1", 0));
+        for (index, slot) in slots.iter().enumerate() {
+            self.emit(abi::load_u64("x8", abi::stack_pointer(), collection_slot));
+            self.emit(abi::load_u64("x9", abi::stack_pointer(), *slot));
+            self.emit(abi::store_u64("x9", "x8", 8 + index * 8));
+        }
+        let register = self.allocate_register()?;
+        self.emit(abi::load_u64(
+            &register,
+            abi::stack_pointer(),
+            collection_slot,
+        ));
+        Ok(ValueResult {
+            type_: type_.to_string(),
+            location: register,
+            text: format!("{label} {type_}"),
+        })
     }
 
     fn load_string_constant(&mut self, value: &str) -> Result<String, String> {
@@ -1612,7 +1821,18 @@ impl CodeBuilder<'_> {
     ) -> Result<ValueResult, String> {
         let target_value = self.lower_value(target)?;
         let (field_index, field_type, payload_offset) =
-            if let Some(fields) = self.type_model.record_fields.get(&target_value.type_) {
+            if let Some((key_type, value_type)) = parse_map_entry_type(&target_value.type_) {
+                match member {
+                    "key" => (0, key_type, 0),
+                    "value" => (1, value_type, 0),
+                    _ => {
+                        return Err(format!(
+                            "native code map entry '{}' has no field '{}'",
+                            target_value.type_, member
+                        ));
+                    }
+                }
+            } else if let Some(fields) = self.type_model.record_fields.get(&target_value.type_) {
                 let Some((index, (_, field_type))) = fields
                     .iter()
                     .enumerate()
@@ -1995,7 +2215,15 @@ impl CodeBuilder<'_> {
                     self.static_type_name(operand)
                 }
             }
-            NirValue::MemberAccess { .. } => None,
+            NirValue::MemberAccess { target, member } => {
+                let target_type = self.static_type_name(target)?;
+                let (key_type, value_type) = parse_map_entry_type(&target_type)?;
+                match member.as_str() {
+                    "key" => Some(key_type),
+                    "value" => Some(value_type),
+                    _ => None,
+                }
+            }
         }
     }
 
@@ -2559,6 +2787,9 @@ fn ops_use_type_name(ops: &[NirOp]) -> bool {
             matches!(&case.pattern, NirMatchPattern::Value(value) if value_uses_type_name(value))
                 || ops_use_type_name(&case.body)
         }),
+        NirOp::ForEach { iterable, body, .. } => {
+            value_uses_type_name(iterable) || ops_use_type_name(body)
+        }
         NirOp::Using { value, body, .. } => value_uses_type_name(value) || ops_use_type_name(body),
     })
 }
@@ -2658,6 +2889,16 @@ fn collect_type_name_values_from_ops(ops: &[NirOp], values: &mut Vec<String>) {
                     }
                     collect_type_name_values_from_ops(&case.body, values);
                 }
+            }
+            NirOp::ForEach {
+                type_,
+                iterable,
+                body,
+                ..
+            } => {
+                push_string_value(values, type_.clone());
+                collect_type_name_values_from_value(iterable, values);
+                collect_type_name_values_from_ops(body, values);
             }
             NirOp::Using {
                 type_, value, body, ..
@@ -2812,6 +3053,24 @@ fn collect_string_values_from_ops_with_constants(
                         &mut case_types,
                     );
                 }
+            }
+            NirOp::ForEach {
+                name,
+                type_,
+                iterable,
+                body,
+            } => {
+                collect_string_values_from_value(iterable, values, constants, types);
+                let mut body_constants = constants.clone();
+                let mut body_types = types.clone();
+                body_constants.remove(name);
+                body_types.insert(name.clone(), type_.clone());
+                collect_string_values_from_ops_with_constants(
+                    body,
+                    values,
+                    &mut body_constants,
+                    &mut body_types,
+                );
             }
             NirOp::Using {
                 name,
@@ -3007,7 +3266,15 @@ fn static_type_name_with_types(
                 static_type_name_with_types(operand, types)
             }
         }
-        NirValue::MemberAccess { .. } => None,
+        NirValue::MemberAccess { target, member } => {
+            let target_type = static_type_name_with_types(target, types)?;
+            let (key_type, value_type) = parse_map_entry_type(&target_type)?;
+            match member.as_str() {
+                "key" => Some(key_type),
+                "value" => Some(value_type),
+                _ => None,
+            }
+        }
     }
 }
 
@@ -3045,6 +3312,26 @@ fn join_texts(values: &[ValueResult]) -> String {
         .map(|value| value.text.clone())
         .collect::<Vec<_>>()
         .join(", ")
+}
+
+fn is_collection_type(type_: &str) -> bool {
+    type_.starts_with("List OF ") || type_.starts_with("Map OF ")
+}
+
+fn collection_slot_width(type_: &str) -> Option<usize> {
+    if type_.starts_with("List OF ") {
+        Some(8)
+    } else if type_.starts_with("Map OF ") {
+        Some(16)
+    } else {
+        None
+    }
+}
+
+fn parse_map_entry_type(type_: &str) -> Option<(String, String)> {
+    let rest = type_.strip_prefix("MapEntry OF ")?;
+    let (key, value) = rest.split_once(" TO ")?;
+    Some((key.to_string(), value.to_string()))
 }
 
 fn numeric_binary_result_type(operator: &str, left: &str, right: &str) -> &'static str {

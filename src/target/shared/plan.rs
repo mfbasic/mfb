@@ -424,6 +424,10 @@ fn collect_platform_imports_from_ops(
                     collect_platform_imports_from_ops(platform, &case.body, imports);
                 }
             }
+            NirOp::ForEach { iterable, body, .. } => {
+                collect_platform_imports_from_value(platform, iterable, imports);
+                collect_platform_imports_from_ops(platform, body, imports);
+            }
             NirOp::Using { value, body, .. } => {
                 collect_platform_imports_from_value(platform, value, imports);
                 collect_platform_imports_from_ops(platform, body, imports);
@@ -568,6 +572,11 @@ fn collect_runtime_symbols_from_ops_with_constants(
                         &mut case_constants,
                     );
                 }
+            }
+            NirOp::ForEach { iterable, body, .. } => {
+                collect_runtime_symbols_from_value(iterable, symbols, constants);
+                let mut body_constants = constants.clone();
+                collect_runtime_symbols_from_ops_with_constants(body, symbols, &mut body_constants);
             }
             NirOp::Using { value, body, .. } => {
                 collect_runtime_symbols_from_value(value, symbols, constants);
@@ -828,6 +837,23 @@ impl FunctionPlanBuilder<'_> {
                     self.operations.push(format!("label {end_label}"));
                     self.constants.clear();
                 }
+                NirOp::ForEach {
+                    name,
+                    type_,
+                    iterable,
+                    body,
+                } => {
+                    self.lower_value(iterable)?;
+                    self.operations.push(format!(
+                        "forEach {name} AS {type_} IN {}",
+                        describe_value(iterable)
+                    ));
+                    let constants_before_loop = self.constants.clone();
+                    self.add_stack_slot(name, type_, false)?;
+                    self.lower_ops(body)?;
+                    self.constants = constants_before_loop;
+                    self.operations.push("next".to_string());
+                }
                 NirOp::Using {
                     name,
                     type_,
@@ -1041,6 +1067,7 @@ fn is_reference_type(type_: &str) -> bool {
     type_ == "String"
         || type_.starts_with("List OF ")
         || type_.starts_with("Map OF ")
+        || type_.starts_with("MapEntry OF ")
         || type_.starts_with("Result OF ")
         || type_.starts_with("Thread OF ")
         || type_.starts_with("FUNC(")

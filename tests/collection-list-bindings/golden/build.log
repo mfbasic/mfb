@@ -1,0 +1,17 @@
+$ mfb build -ast tests/collection-list-bindings
+Wrote AST to tests/collection-list-bindings/collection_list_bindings.ast
+[exit 0]
+$ mfb build -ir tests/collection-list-bindings
+Wrote IR to tests/collection-list-bindings/collection_list_bindings.ir
+[exit 0]
+$ mfb build tests/collection-list-bindings
+Wrote executable to tests/collection-list-bindings/collection_list_bindings.out
+[exit 0]
+$ tests/collection-list-bindings/collection_list_bindings.out
+let-a
+let-b
+mut-b
+mut-c
+mut-b
+mut-c
+[exit 0]

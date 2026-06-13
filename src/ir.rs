@@ -93,6 +93,12 @@ pub(crate) enum IrOp {
         value: IrValue,
         cases: Vec<IrMatchCase>,
     },
+    ForEach {
+        name: String,
+        type_: String,
+        iterable: IrValue,
+        body: Vec<IrOp>,
+    },
     Using {
         name: String,
         type_: String,
@@ -405,6 +411,25 @@ fn lower_statement(
                 .map(|case| lower_match_case(case, expression, locals, context))
                 .collect(),
         },
+        Statement::ForEach {
+            name,
+            iterable,
+            body,
+            ..
+        } => {
+            let iterable_type = expression_type(iterable, locals, context)
+                .expect("typecheck requires FOR EACH iterable type before IR lowering");
+            let element_type = collection_iteration_type(&iterable_type)
+                .expect("typecheck requires FOR EACH collection before IR lowering");
+            let mut nested = locals.clone();
+            nested.insert(name.clone(), element_type.clone());
+            IrOp::ForEach {
+                name: name.clone(),
+                type_: element_type,
+                iterable: lower_expression(iterable, locals, context),
+                body: lower_statement_block_with_trap(body, &nested, trap_body, context),
+            }
+        }
         Statement::Using {
             name, value, body, ..
         } => {
@@ -445,6 +470,27 @@ fn lower_statement_block_with_trap(
     body.iter()
         .map(|statement| lower_statement(statement, &mut nested, trap_body, context))
         .collect()
+}
+
+fn collection_iteration_type(type_: &str) -> Option<String> {
+    type_
+        .strip_prefix("List OF ")
+        .map(str::to_string)
+        .or_else(|| {
+            parse_map_type(type_).map(|(key, value)| format!("MapEntry OF {key} TO {value}"))
+        })
+}
+
+fn parse_map_type(type_: &str) -> Option<(String, String)> {
+    let rest = type_.strip_prefix("Map OF ")?;
+    let (key, value) = rest.split_once(" TO ")?;
+    Some((key.to_string(), value.to_string()))
+}
+
+fn parse_map_entry_type(type_: &str) -> Option<(String, String)> {
+    let rest = type_.strip_prefix("MapEntry OF ")?;
+    let (key, value) = rest.split_once(" TO ")?;
+    Some((key.to_string(), value.to_string()))
 }
 
 fn lower_match_case(
@@ -597,6 +643,13 @@ fn expression_type(
                 if let Some(output) = builtins::thread::thread_output(&target_type) {
                     return Some(format!("Result OF {output}"));
                 }
+            }
+            if let Some((key_type, value_type)) = parse_map_entry_type(&target_type) {
+                return match member.as_str() {
+                    "key" => Some(key_type),
+                    "value" => Some(value_type),
+                    _ => None,
+                };
             }
             context.type_index.record_field_type(&target_type, member)
         }
@@ -1452,6 +1505,36 @@ impl ToIrJson for IrOp {
                     value.to_json(indent),
                     pad,
                     join_json(cases, indent + 2),
+                    pad,
+                    pad
+                )
+            }
+            IrOp::ForEach {
+                name,
+                type_,
+                iterable,
+                body,
+            } => {
+                format!(
+                    concat!(
+                        "\n{}{{\n",
+                        "{}  \"op\": \"forEach\",\n",
+                        "{}  \"name\": {},\n",
+                        "{}  \"type\": {},\n",
+                        "{}  \"iterable\": {},\n",
+                        "{}  \"body\": [{}\n{}  ]\n",
+                        "{}}}"
+                    ),
+                    pad,
+                    pad,
+                    pad,
+                    json_string(name),
+                    pad,
+                    json_string(type_),
+                    pad,
+                    iterable.to_json(indent),
+                    pad,
+                    join_json(body, indent + 2),
                     pad,
                     pad
                 )

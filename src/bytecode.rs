@@ -125,6 +125,9 @@ const OPCODE_LOAD_FIELD: u16 = 82;
 const OPCODE_LOAD_ENUM_MEMBER: u16 = 83;
 const OPCODE_CONSTRUCT_LIST: u16 = 84;
 const OPCODE_CONSTRUCT_MAP: u16 = 85;
+const OPCODE_COLLECTION_ITER_BEGIN: u16 = 86;
+const OPCODE_COLLECTION_ITER_NEXT: u16 = 87;
+const OPCODE_LOAD_MAP_ENTRY_FIELD: u16 = 88;
 const OPCODE_BRANCH: u16 = 90;
 const OPCODE_BRANCH_IF_FALSE: u16 = 91;
 const OPCODE_VARIANT_MATCH: u16 = 92;
@@ -509,6 +512,9 @@ pub const NATIVE_OPCODE_LOAD_FIELD: u16 = OPCODE_LOAD_FIELD;
 pub const NATIVE_OPCODE_LOAD_ENUM_MEMBER: u16 = OPCODE_LOAD_ENUM_MEMBER;
 pub const NATIVE_OPCODE_CONSTRUCT_LIST: u16 = OPCODE_CONSTRUCT_LIST;
 pub const NATIVE_OPCODE_CONSTRUCT_MAP: u16 = OPCODE_CONSTRUCT_MAP;
+pub const NATIVE_OPCODE_COLLECTION_ITER_BEGIN: u16 = OPCODE_COLLECTION_ITER_BEGIN;
+pub const NATIVE_OPCODE_COLLECTION_ITER_NEXT: u16 = OPCODE_COLLECTION_ITER_NEXT;
+pub const NATIVE_OPCODE_LOAD_MAP_ENTRY_FIELD: u16 = OPCODE_LOAD_MAP_ENTRY_FIELD;
 pub const NATIVE_OPCODE_BRANCH: u16 = OPCODE_BRANCH;
 pub const NATIVE_OPCODE_BRANCH_IF_FALSE: u16 = OPCODE_BRANCH_IF_FALSE;
 pub const NATIVE_OPCODE_VARIANT_MATCH: u16 = OPCODE_VARIANT_MATCH;
@@ -1033,6 +1039,11 @@ fn decode_type_name(
             format!("Thread OF {message} TO {output}")
         }
         8 => decode_function_type(payload, raw, strings, decoded)?,
+        9 => {
+            let key = read_payload_type(payload, 0, raw, strings, decoded)?;
+            let value = read_payload_type(payload, 4, raw, strings, decoded)?;
+            format!("MapEntry OF {key} TO {value}")
+        }
         _ => string_at(strings, *name)?.to_string(),
     };
     decoded.insert(id, decoded_name.clone());
@@ -2633,6 +2644,12 @@ fn remap_instruction(mut instruction: Instruction, map: &MergeMap) -> Result<Ins
         OPCODE_CONSTRUCT_RECORD | OPCODE_CONSTRUCT_LIST | OPCODE_CONSTRUCT_MAP => {
             remap_operand(&mut instruction, 1, |value| remap_type(map, value))?;
         }
+        OPCODE_COLLECTION_ITER_BEGIN => {
+            remap_operand(&mut instruction, 2, |value| remap_type(map, value))?;
+        }
+        OPCODE_LOAD_MAP_ENTRY_FIELD => {
+            remap_operand(&mut instruction, 2, |value| remap_type(map, value))?;
+        }
         OPCODE_CONSTRUCT_VARIANT => {
             remap_operand(&mut instruction, 1, |value| remap_type(map, value))?;
             remap_operand(&mut instruction, 2, |value| remap_string(map, value))?;
@@ -2837,6 +2854,16 @@ fn ops_use_resource_type(ops: &[IrOp]) -> bool {
         IrOp::Match { value, cases } => {
             value_uses_resource_type(value)
                 || cases.iter().any(|case| ops_use_resource_type(&case.body))
+        }
+        IrOp::ForEach {
+            type_,
+            iterable,
+            body,
+            ..
+        } => {
+            is_resource_type_name(type_)
+                || value_uses_resource_type(iterable)
+                || ops_use_resource_type(body)
         }
         IrOp::Using {
             type_, value, body, ..
@@ -3110,6 +3137,49 @@ impl<'a> FunctionBuilder<'a> {
                 for jump in end_jumps {
                     self.patch_jump(jump);
                 }
+                Ok(())
+            }
+            IrOp::ForEach {
+                name,
+                type_,
+                iterable,
+                body,
+            } => {
+                let iterable = self.lower_value(iterable, locals)?;
+                let item_type = self.type_id(type_);
+                let item_register = self.add_register(item_type, 0);
+                let iterator_register = self.add_register(TYPE_INTEGER, 0);
+                let collection_type = self.type_id(&iterable.type_name);
+                let end_jump = self.push_jump(
+                    OPCODE_COLLECTION_ITER_BEGIN,
+                    vec![
+                        iterator_register,
+                        item_register,
+                        collection_type,
+                        iterable.register,
+                    ],
+                );
+                let loop_pc = self.code.len() as u32;
+                let mut nested = locals.clone();
+                nested.insert(
+                    name.clone(),
+                    ValueSlot {
+                        register: item_register,
+                        type_name: type_.clone(),
+                    },
+                );
+                self.lower_ops(body, &mut nested)?;
+                self.push(
+                    OPCODE_COLLECTION_ITER_NEXT,
+                    vec![
+                        iterator_register,
+                        item_register,
+                        collection_type,
+                        iterable.register,
+                        loop_pc,
+                    ],
+                );
+                self.patch_jump(end_jump);
                 Ok(())
             }
             IrOp::Using {
@@ -3566,6 +3636,29 @@ impl<'a> FunctionBuilder<'a> {
                 }
 
                 let target = self.lower_value(target, locals)?;
+                if let Some((key_type, value_type)) = parse_map_entry_type(&target.type_name) {
+                    let (field_index, field_type) = match member.as_str() {
+                        "key" => (0, key_type),
+                        "value" => (1, value_type),
+                        _ => {
+                            return Err(format!(
+                                "IR map entry member access `{}` is not a field of `{}`",
+                                member, target.type_name
+                            ));
+                        }
+                    };
+                    let field_type_id = self.type_id(&field_type);
+                    let entry_type_id = self.type_id(&target.type_name);
+                    let dst = self.add_register(field_type_id, 0);
+                    self.push(
+                        OPCODE_LOAD_MAP_ENTRY_FIELD,
+                        vec![dst, target.register, entry_type_id, field_index],
+                    );
+                    return Ok(ValueSlot {
+                        register: dst,
+                        type_name: field_type,
+                    });
+                }
                 let Some(field) = self
                     .type_model
                     .records
@@ -4010,6 +4103,16 @@ impl TypeTable {
                     self.add_entry(strings, "", name, 5, Vec::new())
                 }
             }
+            name if name.starts_with("MapEntry OF ") => {
+                let rest = name.trim_start_matches("MapEntry OF ");
+                if let Some((key, value)) = rest.split_once(" TO ") {
+                    let key = self.type_id(strings, key);
+                    let value = self.type_id(strings, value);
+                    self.map_entry_type(strings, key, value)
+                } else {
+                    self.add_entry(strings, "", name, 9, Vec::new())
+                }
+            }
             "Byte" => TYPE_BYTE,
             "Error" => {
                 strings.intern("code");
@@ -4063,6 +4166,18 @@ impl TypeTable {
         put_u32(&mut payload, key_type);
         put_u32(&mut payload, value_type);
         self.add_entry(strings, "", &name, 5, payload)
+    }
+
+    fn map_entry_type(&mut self, strings: &mut StringPool, key_type: u32, value_type: u32) -> u32 {
+        let name = format!("MapEntry#{key_type}#{value_type}");
+        if let Some(id) = self.ids.get(&name) {
+            return *id;
+        }
+
+        let mut payload = Vec::new();
+        put_u32(&mut payload, key_type);
+        put_u32(&mut payload, value_type);
+        self.add_entry(strings, "", &name, 9, payload)
     }
 
     fn function_type(&mut self, strings: &mut StringPool, name: &str) -> u32 {
@@ -4700,6 +4815,12 @@ fn numeric_binary_type_id(op: &str, left: u32, right: u32) -> u32 {
         Some(numeric::TYPE_INTEGER) => TYPE_INTEGER,
         _ => TYPE_INTEGER,
     }
+}
+
+fn parse_map_entry_type(type_: &str) -> Option<(String, String)> {
+    let rest = type_.strip_prefix("MapEntry OF ")?;
+    let (key, value) = rest.split_once(" TO ")?;
+    Some((key.to_string(), value.to_string()))
 }
 
 fn numeric_type_name(type_id: u32) -> Option<&'static str> {

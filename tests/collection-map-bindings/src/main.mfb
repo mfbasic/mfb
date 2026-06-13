@@ -1,0 +1,21 @@
+IMPORT io
+
+FUNC printMap(values AS Map OF String TO String) AS Nothing
+  FOR EACH entry IN values
+    io::print(entry.key)
+    io::print(entry.value)
+  NEXT
+  RETURN NOTHING
+END FUNC
+
+FUNC main AS Integer
+  LET letMap AS Map OF String TO String = Map OF String TO String { "a" := "one", "b" := "two" }
+  MUT mutMap AS Map OF String TO String = Map OF String TO String { "c" := "three" }
+  mutMap = Map OF String TO String { "d" := "four", "e" := "five" }
+  LET copied AS Map OF String TO String = mutMap
+
+  printMap(letMap)
+  printMap(mutMap)
+  printMap(copied)
+  RETURN 0
+END FUNC

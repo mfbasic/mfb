@@ -517,6 +517,32 @@ impl<'a> Monomorphizer<'a> {
                     .collect(),
                 line: *line,
             },
+            Statement::ForEach {
+                name,
+                iterable,
+                body,
+                line,
+            } => {
+                let lowered_iterable =
+                    self.lower_expression(iterable, substitutions, context, None, *line);
+                let mut nested = context.clone();
+                if let Some(type_name) = self.expression_type(&lowered_iterable, context) {
+                    let loop_type = if let Some(element) = type_name.strip_prefix("List OF ") {
+                        element.to_string()
+                    } else if let Some(rest) = type_name.strip_prefix("Map OF ") {
+                        format!("MapEntry OF {rest}")
+                    } else {
+                        "Unknown".to_string()
+                    };
+                    nested.locals.insert(name.clone(), loop_type);
+                }
+                Statement::ForEach {
+                    name: name.clone(),
+                    iterable: lowered_iterable,
+                    body: self.lower_statements(body, substitutions, &mut nested),
+                    line: *line,
+                }
+            }
             Statement::Using {
                 name,
                 value,

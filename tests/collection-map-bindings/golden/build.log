@@ -1,0 +1,23 @@
+$ mfb build -ast tests/collection-map-bindings
+Wrote AST to tests/collection-map-bindings/collection_map_bindings.ast
+[exit 0]
+$ mfb build -ir tests/collection-map-bindings
+Wrote IR to tests/collection-map-bindings/collection_map_bindings.ir
+[exit 0]
+$ mfb build tests/collection-map-bindings
+Wrote executable to tests/collection-map-bindings/collection_map_bindings.out
+[exit 0]
+$ tests/collection-map-bindings/collection_map_bindings.out
+a
+one
+b
+two
+d
+four
+e
+five
+d
+four
+e
+five
+[exit 0]
