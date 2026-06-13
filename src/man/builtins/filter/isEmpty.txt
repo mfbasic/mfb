@@ -7,10 +7,10 @@ SYNOPSIS
   isEmpty OF K, V(value AS Map OF K TO V) AS Boolean
 
 PACKAGE
-  general
+  filter
 
 IMPORTS
-  None. general functions are available without an IMPORT statement.
+  None. filter functions are available without an IMPORT statement.
 
 DESCRIPTION
   isEmpty returns TRUE when len(value) = 0.

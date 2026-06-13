@@ -1,6 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::arch::aarch64::{abi, ops::CodeOp};
+use crate::builtins;
 use crate::json_string;
 use crate::numeric;
 
@@ -286,6 +287,18 @@ pub(crate) fn lower_module_for_platform(
     for function in &module.functions {
         code_functions.push(lower_function(
             function,
+            &function_symbols,
+            &functions,
+            &platform_imports,
+            &string_symbols,
+            type_model.clone(),
+        )?);
+    }
+    for (name, type_, symbol) in builtin_function_refs(module) {
+        code_functions.push(lower_builtin_function_wrapper(
+            &name,
+            &type_,
+            &symbol,
             &function_symbols,
             &functions,
             &platform_imports,
@@ -1015,6 +1028,95 @@ fn lower_function(
     })
 }
 
+fn lower_builtin_function_wrapper(
+    name: &str,
+    type_: &str,
+    symbol: &str,
+    function_symbols: &HashMap<String, String>,
+    functions: &HashMap<String, &NirFunction>,
+    platform_imports: &HashMap<String, String>,
+    string_symbols: &HashMap<String, String>,
+    type_model: TypeModel,
+) -> Result<CodeFunction, String> {
+    let (params, returns) = function_type_parts(type_).ok_or_else(|| {
+        format!("native built-in function wrapper has malformed function type '{type_}'")
+    })?;
+    if params.len() != 1 || returns != "Boolean" {
+        return Err(format!(
+            "native built-in function wrapper expects a unary Boolean function, got '{type_}'"
+        ));
+    }
+
+    let param = CodeParam {
+        name: "value".to_string(),
+        type_: params[0].clone(),
+        location: abi::argument_register(0)?,
+    };
+    let mut builder = CodeBuilder {
+        current_symbol: symbol.to_string(),
+        function_symbols,
+        functions,
+        platform_imports,
+        type_model,
+        string_symbols,
+        locals: HashMap::new(),
+        instructions: vec![abi::label("entry")],
+        relocations: Vec::new(),
+        stack_slots: Vec::new(),
+        used_callee_saved: Vec::new(),
+        stack_size: 0,
+        next_register: 8,
+        next_label: 0,
+    };
+
+    let stack_offset = builder.allocate_stack_object("value", 8);
+    builder.locals.insert(
+        "value".to_string(),
+        LocalValue {
+            type_: param.type_.clone(),
+            stack_offset,
+            constant: None,
+        },
+    );
+    builder.emit(abi::store_u64(
+        &param.location,
+        abi::stack_pointer(),
+        stack_offset,
+    ));
+
+    let result = builder.lower_value(&NirValue::Call {
+        target: name.to_string(),
+        args: vec![NirValue::Local("value".to_string())],
+    })?;
+    builder.emit(abi::move_register(RESULT_VALUE_REGISTER, &result.location));
+    builder.emit(abi::move_immediate(
+        RESULT_TAG_REGISTER,
+        "Integer",
+        RESULT_OK_TAG,
+    ));
+    builder.emit(abi::return_());
+
+    let mut instructions = builder.instructions;
+    let mut stack_slots = builder.stack_slots;
+    let frame = finalize_frame(
+        &mut instructions,
+        &mut stack_slots,
+        builder.stack_size,
+        builder.used_callee_saved,
+    );
+
+    Ok(CodeFunction {
+        name: format!("builtin.{name}.{type_}"),
+        symbol: symbol.to_string(),
+        params: vec![param],
+        returns: returns,
+        frame,
+        instructions,
+        relocations: builder.relocations,
+        stack_slots,
+    })
+}
+
 fn lower_runtime_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
@@ -1592,10 +1694,8 @@ impl CodeBuilder<'_> {
                 })
             }
             NirValue::FunctionRef { name, type_ } => {
-                let symbol = self
-                    .function_symbols
-                    .get(name)
-                    .cloned()
+                let symbol = builtin_function_symbol_for_type(name, type_)
+                    .or_else(|| self.function_symbols.get(name).cloned())
                     .unwrap_or_else(|| name.clone());
                 let register = self.allocate_register()?;
                 self.emit(abi::load_page_address(&register, &symbol));
@@ -1713,6 +1813,20 @@ impl CodeBuilder<'_> {
                 if target == "isNumeric" && args.len() == 1 {
                     return self.lower_is_numeric(&args[0]);
                 }
+                if target == "isEven" && args.len() == 1 {
+                    return self.lower_integer_parity_predicate("isEven", &args[0], false);
+                }
+                if target == "isOdd" && args.len() == 1 {
+                    return self.lower_integer_parity_predicate("isOdd", &args[0], true);
+                }
+                if matches!(target.as_str(), "isPositive" | "isNegative" | "isZero")
+                    && args.len() == 1
+                {
+                    return self.lower_numeric_filter_predicate(target, &args[0]);
+                }
+                if matches!(target.as_str(), "isEmpty" | "isNotEmpty") && args.len() == 1 {
+                    return self.lower_empty_filter_predicate(target, &args[0]);
+                }
                 let symbol = self
                     .function_symbols
                     .get(target)
@@ -1725,6 +1839,20 @@ impl CodeBuilder<'_> {
                 target,
                 args,
             } => {
+                if target == "isEven" && args.len() == 1 {
+                    return self.lower_integer_parity_predicate("isEven", &args[0], false);
+                }
+                if target == "isOdd" && args.len() == 1 {
+                    return self.lower_integer_parity_predicate("isOdd", &args[0], true);
+                }
+                if matches!(target.as_str(), "isPositive" | "isNegative" | "isZero")
+                    && args.len() == 1
+                {
+                    return self.lower_numeric_filter_predicate(target, &args[0]);
+                }
+                if matches!(target.as_str(), "isEmpty" | "isNotEmpty") && args.len() == 1 {
+                    return self.lower_empty_filter_predicate(target, &args[0]);
+                }
                 if target == "typeName" && args.len() == 1 {
                     let type_name = self.static_type_name(&args[0]).ok_or_else(|| {
                         "native code cannot determine typeName argument type".to_string()
@@ -3494,6 +3622,122 @@ impl CodeBuilder<'_> {
             type_: "Boolean".to_string(),
             location: result,
             text: format!("isNumeric({})", value.text),
+        })
+    }
+
+    fn lower_integer_parity_predicate(
+        &mut self,
+        name: &str,
+        arg: &NirValue,
+        odd: bool,
+    ) -> Result<ValueResult, String> {
+        let value = self.lower_value(arg)?;
+        if value.type_ != "Integer" {
+            return Err(format!(
+                "native {name} does not accept argument type '{}'",
+                value.type_
+            ));
+        }
+
+        let mask = self.allocate_register()?;
+        let result = self.allocate_register()?;
+        let true_label = self.label(name);
+        let done_label = self.label(&format!("{name}_done"));
+        self.emit(abi::move_immediate(&mask, "Integer", "1"));
+        self.emit(abi::and_registers(&mask, &value.location, &mask));
+        self.emit(abi::compare_immediate(&mask, if odd { "1" } else { "0" }));
+        self.emit(abi::branch_eq(&true_label));
+        self.emit(abi::move_immediate(&result, "Boolean", "false"));
+        self.emit(abi::branch(&done_label));
+        self.emit(abi::label(&true_label));
+        self.emit(abi::move_immediate(&result, "Boolean", "true"));
+        self.emit(abi::label(&done_label));
+
+        Ok(ValueResult {
+            type_: "Boolean".to_string(),
+            location: result,
+            text: format!("{name}({})", value.text),
+        })
+    }
+
+    fn lower_numeric_filter_predicate(
+        &mut self,
+        name: &str,
+        arg: &NirValue,
+    ) -> Result<ValueResult, String> {
+        let value = self.lower_value(arg)?;
+        let result = self.allocate_register()?;
+        let true_label = self.label(name);
+        let done_label = self.label(&format!("{name}_done"));
+
+        match value.type_.as_str() {
+            "Integer" | "Fixed" => self.emit(abi::compare_immediate(&value.location, "0")),
+            "Float" => {
+                self.emit(abi::float_move_d_from_x("d0", &value.location));
+                self.emit(abi::float_compare_zero_d("d0"));
+            }
+            other => {
+                return Err(format!(
+                    "native {name} does not accept argument type '{other}'"
+                ));
+            }
+        }
+
+        match name {
+            "isPositive" => self.emit(abi::branch_gt(&true_label)),
+            "isNegative" => self.emit(abi::branch_lt(&true_label)),
+            "isZero" => self.emit(abi::branch_eq(&true_label)),
+            other => {
+                return Err(format!(
+                    "native filter predicate '{other}' is not implemented"
+                ));
+            }
+        }
+
+        self.emit(abi::move_immediate(&result, "Boolean", "false"));
+        self.emit(abi::branch(&done_label));
+        self.emit(abi::label(&true_label));
+        self.emit(abi::move_immediate(&result, "Boolean", "true"));
+        self.emit(abi::label(&done_label));
+
+        Ok(ValueResult {
+            type_: "Boolean".to_string(),
+            location: result,
+            text: format!("{name}({})", value.text),
+        })
+    }
+
+    fn lower_empty_filter_predicate(
+        &mut self,
+        name: &str,
+        arg: &NirValue,
+    ) -> Result<ValueResult, String> {
+        let len = self.lower_len(arg)?;
+        let result = self.allocate_register()?;
+        let true_label = self.label(name);
+        let done_label = self.label(&format!("{name}_done"));
+
+        self.emit(abi::compare_immediate(&len.location, "0"));
+        match name {
+            "isEmpty" => self.emit(abi::branch_eq(&true_label)),
+            "isNotEmpty" => self.emit(abi::branch_ne(&true_label)),
+            other => {
+                return Err(format!(
+                    "native filter predicate '{other}' is not implemented"
+                ));
+            }
+        }
+
+        self.emit(abi::move_immediate(&result, "Boolean", "false"));
+        self.emit(abi::branch(&done_label));
+        self.emit(abi::label(&true_label));
+        self.emit(abi::move_immediate(&result, "Boolean", "true"));
+        self.emit(abi::label(&done_label));
+
+        Ok(ValueResult {
+            type_: "Boolean".to_string(),
+            location: result,
+            text: format!("{name}({})", len.text),
         })
     }
 
@@ -10276,6 +10520,146 @@ fn map_type_parts(type_: &str) -> Option<(String, String)> {
 fn callable_return_type(type_: &str) -> Option<String> {
     let (_, returns) = type_.rsplit_once(") AS ")?;
     Some(returns.to_string())
+}
+
+fn function_type_parts(type_: &str) -> Option<(Vec<String>, String)> {
+    let rest = type_.strip_prefix("FUNC(")?;
+    let (params, returns) = rest.split_once(") AS ")?;
+    let params = if params.trim().is_empty() {
+        Vec::new()
+    } else {
+        params.split(", ").map(str::to_string).collect()
+    };
+    Some((params, returns.to_string()))
+}
+
+fn builtin_function_symbol_for_type(name: &str, type_: &str) -> Option<String> {
+    builtins::general::builtin_function_id_for_type(name, type_)?;
+    Some(format!(
+        "_mfb_builtin_{}_{}",
+        nir::symbol_fragment(name),
+        nir::symbol_fragment(type_)
+    ))
+}
+
+fn builtin_function_refs(module: &NirModule) -> Vec<(String, String, String)> {
+    let mut refs = Vec::new();
+    let mut seen = HashSet::new();
+    for function in &module.functions {
+        collect_builtin_function_refs_in_ops(&function.body, &mut refs, &mut seen);
+    }
+    refs
+}
+
+fn collect_builtin_function_refs_in_ops(
+    ops: &[NirOp],
+    refs: &mut Vec<(String, String, String)>,
+    seen: &mut HashSet<String>,
+) {
+    for op in ops {
+        match op {
+            NirOp::Bind { value, .. } => {
+                if let Some(value) = value {
+                    collect_builtin_function_refs_in_value(value, refs, seen);
+                }
+            }
+            NirOp::Assign { value, .. }
+            | NirOp::Eval { value }
+            | NirOp::Fail { error: value } => {
+                collect_builtin_function_refs_in_value(value, refs, seen);
+            }
+            NirOp::Return { value } => {
+                if let Some(value) = value {
+                    collect_builtin_function_refs_in_value(value, refs, seen);
+                }
+            }
+            NirOp::If {
+                condition,
+                then_body,
+                else_body,
+            } => {
+                collect_builtin_function_refs_in_value(condition, refs, seen);
+                collect_builtin_function_refs_in_ops(then_body, refs, seen);
+                collect_builtin_function_refs_in_ops(else_body, refs, seen);
+            }
+            NirOp::Match { value, cases } => {
+                collect_builtin_function_refs_in_value(value, refs, seen);
+                for case in cases {
+                    if let NirMatchPattern::Value(pattern) = &case.pattern {
+                        collect_builtin_function_refs_in_value(pattern, refs, seen);
+                    }
+                    collect_builtin_function_refs_in_ops(&case.body, refs, seen);
+                }
+            }
+            NirOp::ForEach {
+                iterable, body, ..
+            } => {
+                collect_builtin_function_refs_in_value(iterable, refs, seen);
+                collect_builtin_function_refs_in_ops(body, refs, seen);
+            }
+            NirOp::Using { value, body, .. } => {
+                collect_builtin_function_refs_in_value(value, refs, seen);
+                collect_builtin_function_refs_in_ops(body, refs, seen);
+            }
+        }
+    }
+}
+
+fn collect_builtin_function_refs_in_value(
+    value: &NirValue,
+    refs: &mut Vec<(String, String, String)>,
+    seen: &mut HashSet<String>,
+) {
+    match value {
+        NirValue::FunctionRef { name, type_ } => {
+            if let Some(symbol) = builtin_function_symbol_for_type(name, type_) {
+                let key = format!("{name}\0{type_}");
+                if seen.insert(key) {
+                    refs.push((name.clone(), type_.clone(), symbol));
+                }
+            }
+        }
+        NirValue::Call { args, .. } | NirValue::RuntimeCall { args, .. } => {
+            for arg in args {
+                collect_builtin_function_refs_in_value(arg, refs, seen);
+            }
+        }
+        NirValue::Constructor { args, .. } => {
+            for value in args {
+                collect_builtin_function_refs_in_value(value, refs, seen);
+            }
+        }
+        NirValue::WithUpdate {
+            target, updates, ..
+        } => {
+            collect_builtin_function_refs_in_value(target, refs, seen);
+            for update in updates {
+                collect_builtin_function_refs_in_value(&update.value, refs, seen);
+            }
+        }
+        NirValue::ListLiteral { values, .. } => {
+            for value in values {
+                collect_builtin_function_refs_in_value(value, refs, seen);
+            }
+        }
+        NirValue::MapLiteral { entries, .. } => {
+            for (key, value) in entries {
+                collect_builtin_function_refs_in_value(key, refs, seen);
+                collect_builtin_function_refs_in_value(value, refs, seen);
+            }
+        }
+        NirValue::Binary { left, right, .. } => {
+            collect_builtin_function_refs_in_value(left, refs, seen);
+            collect_builtin_function_refs_in_value(right, refs, seen);
+        }
+        NirValue::Unary { operand, .. } => {
+            collect_builtin_function_refs_in_value(operand, refs, seen);
+        }
+        NirValue::MemberAccess { target, .. } => {
+            collect_builtin_function_refs_in_value(target, refs, seen);
+        }
+        NirValue::Const { .. } | NirValue::Local(_) => {}
+    }
 }
 
 fn parse_map_entry_type(type_: &str) -> Option<(String, String)> {

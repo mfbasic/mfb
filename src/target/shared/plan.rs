@@ -443,7 +443,7 @@ fn collect_platform_imports_from_value(
 ) {
     match value {
         NirValue::RuntimeCall { target, args, .. } => {
-            if target != "typeName" {
+            if target != "typeName" && !runtime::is_native_direct_call(target) {
                 for import in platform_imports_for_runtime_call(platform, target) {
                     push_platform_import(imports, import);
                 }
@@ -598,7 +598,10 @@ fn collect_runtime_symbols_from_value(
             target,
             args,
         } => {
-            if target != "typeName" && native_static_string_value(value, constants).is_none() {
+            if target != "typeName"
+                && !runtime::is_native_direct_call(target)
+                && native_static_string_value(value, constants).is_none()
+            {
                 push_unique(symbols, runtime::symbol_for_call(*helper, target));
             }
             for arg in args {
@@ -932,7 +935,9 @@ impl FunctionPlanBuilder<'_> {
                 for arg in args {
                     self.lower_value(arg)?;
                 }
-                self.add_runtime_call(*helper, target, args);
+                if !runtime::is_native_direct_call(target) {
+                    self.add_runtime_call(*helper, target, args);
+                }
             }
             NirValue::Constructor { args, .. } => {
                 for arg in args {

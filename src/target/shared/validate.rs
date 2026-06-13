@@ -1,6 +1,7 @@
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
+use crate::builtins;
 use crate::ir::IrProject;
 use crate::target::{BackendCapabilities, BuildTarget};
 
@@ -91,6 +92,9 @@ pub(crate) fn validate_capabilities(
         collect_runtime_calls_from_ops(&function.body, &mut runtime_calls);
     }
     for call in &runtime_calls {
+        if runtime::is_native_direct_call(call) {
+            continue;
+        }
         if !capabilities.runtime_calls.contains(&call.as_str()) {
             return Err(format!(
                 "native backend does not support runtime call '{call}'"
@@ -767,7 +771,10 @@ fn validate_value(
         }
         NirValue::FunctionRef { name, type_ } => {
             validate_type_name(type_)?;
-            if function_names.contains(name) || import_names.contains(name) {
+            if function_names.contains(name)
+                || import_names.contains(name)
+                || builtins::general::builtin_function_id_for_type(name, type_).is_some()
+            {
                 Ok(())
             } else {
                 Err(format!("NIR function reference '{name}' does not resolve"))
@@ -849,7 +856,9 @@ fn validate_value(
                     expected.name()
                 ));
             }
-            push_unique(used_helpers, *helper);
+            if !runtime::is_native_direct_call(target) {
+                push_unique(used_helpers, *helper);
+            }
             Ok(())
         }
         NirValue::Constructor { type_, args } => {

@@ -1,0 +1,29 @@
+IMPORT io
+
+FUNC main AS Integer
+  LET integers AS List OF Integer = [-1, 0, 2]
+  LET negativeFloat AS Float = 0.0 - 1.5
+  LET zeroFloat AS Float = 0.0
+  LET positiveFloat AS Float = 2.25
+  LET zeroFixed AS Fixed = 0.000
+  LET oneFixed AS Fixed = 1.250
+  LET negativeFixed AS Fixed = zeroFixed - oneFixed
+  LET positiveFixed AS Fixed = 2.500
+  LET floats AS List OF Float = [negativeFloat, zeroFloat, positiveFloat]
+  LET fixeds AS List OF Fixed = [negativeFixed, zeroFixed, positiveFixed]
+
+  io::print(toString(isZero(-1)))
+  io::print(toString(isZero(0)))
+  io::print(toString(isZero(2)))
+  io::print(toString(isZero(negativeFloat)))
+  io::print(toString(isZero(0.0)))
+  io::print(toString(isZero(2.25)))
+  io::print(toString(isZero(negativeFixed)))
+  io::print(toString(isZero(0.000)))
+  io::print(toString(isZero(2.500)))
+  io::print(toString(len(filter(integers, isZero))))
+  io::print(toString(len(filter(floats, isZero))))
+  io::print(toString(len(filter(fixeds, isZero))))
+
+  RETURN 0
+END FUNC

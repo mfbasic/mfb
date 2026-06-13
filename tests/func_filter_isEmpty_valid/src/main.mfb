@@ -1,0 +1,20 @@
+IMPORT io
+
+FUNC main AS Integer
+  LET emptyList AS List OF Integer = []
+  LET list AS List OF Integer = [1, 2]
+  LET emptyMap AS Map OF String TO Integer = Map OF String TO Integer {}
+  LET map AS Map OF String TO Integer = Map OF String TO Integer { "Ada" := 36 }
+  LET texts AS List OF String = ["", "Ada", ""]
+  LET emptyTexts AS List OF String = filter(texts, isEmpty)
+
+  io::print(toString(isEmpty("")))
+  io::print(toString(isEmpty("Ada")))
+  io::print(toString(isEmpty(emptyList)))
+  io::print(toString(isEmpty(list)))
+  io::print(toString(isEmpty(emptyMap)))
+  io::print(toString(isEmpty(map)))
+  io::print(toString(len(emptyTexts)))
+
+  RETURN 0
+END FUNC

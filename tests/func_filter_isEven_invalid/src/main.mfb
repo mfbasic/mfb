@@ -1,0 +1,6 @@
+FUNC main AS Integer
+  LET missing AS Boolean = isEven()
+  LET wrongType AS Boolean = isEven("2")
+  LET tooMany AS Boolean = isEven(2, 4)
+  RETURN 0
+END FUNC

@@ -1,0 +1,6 @@
+FUNC main AS Integer
+  LET missing AS Boolean = isNotEmpty()
+  LET wrongType AS Boolean = isNotEmpty(1)
+  LET tooMany AS Boolean = isNotEmpty("a", "b")
+  RETURN 0
+END FUNC

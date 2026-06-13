@@ -5,10 +5,10 @@ SYNOPSIS
   isEven(value AS Integer) AS Boolean
 
 PACKAGE
-  general
+  filter
 
 IMPORTS
-  None. general functions are available without an IMPORT statement.
+  None. filter functions are available without an IMPORT statement.
 
 DESCRIPTION
   isEven returns TRUE when value MOD 2 = 0. It is useful in ordinary

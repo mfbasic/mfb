@@ -1,0 +1,47 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "func_filter_isPositive_valid",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "mutable": false, "name": "integers", "type": "List OF Integer", "value": { "kind": "list", "type": "List OF Integer", "values": [{ "kind": "unary", "op": "-", "operand": { "kind": "const", "type": "Integer", "value": "1" } }, { "kind": "const", "type": "Integer", "value": "0" }, { "kind": "const", "type": "Integer", "value": "2" }] } },
+    { "op": "bind", "mutable": false, "name": "negativeFloat", "type": "Float", "value": { "kind": "binary", "op": "-", "left": { "kind": "const", "type": "Float", "value": "0.0" }, "right": { "kind": "const", "type": "Float", "value": "1.5" } } },
+    { "op": "bind", "mutable": false, "name": "zeroFloat", "type": "Float", "value": { "kind": "const", "type": "Float", "value": "0.0" } },
+    { "op": "bind", "mutable": false, "name": "positiveFloat", "type": "Float", "value": { "kind": "const", "type": "Float", "value": "2.25" } },
+    { "op": "bind", "mutable": false, "name": "zeroFixed", "type": "Fixed", "value": { "kind": "const", "type": "Fixed", "value": "0.000" } },
+    { "op": "bind", "mutable": false, "name": "oneFixed", "type": "Fixed", "value": { "kind": "const", "type": "Fixed", "value": "1.250" } },
+    { "op": "bind", "mutable": false, "name": "negativeFixed", "type": "Fixed", "value": { "kind": "binary", "op": "-", "left": { "kind": "local", "name": "zeroFixed" }, "right": { "kind": "local", "name": "oneFixed" } } },
+    { "op": "bind", "mutable": false, "name": "positiveFixed", "type": "Fixed", "value": { "kind": "const", "type": "Fixed", "value": "2.500" } },
+    { "op": "bind", "mutable": false, "name": "floats", "type": "List OF Float", "value": { "kind": "list", "type": "List OF Float", "values": [{ "kind": "local", "name": "negativeFloat" }, { "kind": "local", "name": "zeroFloat" }, { "kind": "local", "name": "positiveFloat" }] } },
+    { "op": "bind", "mutable": false, "name": "fixeds", "type": "List OF Fixed", "value": { "kind": "list", "type": "List OF Fixed", "values": [{ "kind": "local", "name": "negativeFixed" }, { "kind": "local", "name": "zeroFixed" }, { "kind": "local", "name": "positiveFixed" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "isPositive", "args": [{ "kind": "unary", "op": "-", "operand": { "kind": "const", "type": "Integer", "value": "1" } }] }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "isPositive", "args": [{ "kind": "const", "type": "Integer", "value": "0" }] }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "isPositive", "args": [{ "kind": "const", "type": "Integer", "value": "2" }] }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "isPositive", "args": [{ "kind": "local", "name": "negativeFloat" }] }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "isPositive", "args": [{ "kind": "const", "type": "Float", "value": "0.0" }] }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "isPositive", "args": [{ "kind": "const", "type": "Float", "value": "2.25" }] }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "isPositive", "args": [{ "kind": "local", "name": "negativeFixed" }] }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "isPositive", "args": [{ "kind": "const", "type": "Float", "value": "0.000" }] }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "isPositive", "args": [{ "kind": "const", "type": "Float", "value": "2.500" }] }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "len", "args": [{ "kind": "call", "target": "filter", "args": [{ "kind": "local", "name": "integers" }, { "kind": "functionRef", "name": "isPositive", "type": "FUNC(Integer) AS Boolean" }] }] }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "len", "args": [{ "kind": "call", "target": "filter", "args": [{ "kind": "local", "name": "floats" }, { "kind": "functionRef", "name": "isPositive", "type": "FUNC(Float) AS Boolean" }] }] }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "len", "args": [{ "kind": "call", "target": "filter", "args": [{ "kind": "local", "name": "fixeds" }, { "kind": "functionRef", "name": "isPositive", "type": "FUNC(Fixed) AS Boolean" }] }] }] }] } },
+    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

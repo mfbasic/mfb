@@ -1,0 +1,38 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "func_filter_isEmpty_valid",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "mutable": false, "name": "emptyList", "type": "List OF Integer", "value": { "kind": "list", "type": "List OF Integer", "values": [] } },
+    { "op": "bind", "mutable": false, "name": "list", "type": "List OF Integer", "value": { "kind": "list", "type": "List OF Integer", "values": [{ "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "2" }] } },
+    { "op": "bind", "mutable": false, "name": "emptyMap", "type": "Map OF String TO Integer", "value": { "kind": "map", "type": "Map OF String TO Integer", "entries": [] } },
+    { "op": "bind", "mutable": false, "name": "map", "type": "Map OF String TO Integer", "value": { "kind": "map", "type": "Map OF String TO Integer", "entries": [{ "key": { "kind": "const", "type": "String", "value": "Ada" }, "value": { "kind": "const", "type": "Integer", "value": "36" } }] } },
+    { "op": "bind", "mutable": false, "name": "texts", "type": "List OF String", "value": { "kind": "list", "type": "List OF String", "values": [{ "kind": "const", "type": "String", "value": "" }, { "kind": "const", "type": "String", "value": "Ada" }, { "kind": "const", "type": "String", "value": "" }] } },
+    { "op": "bind", "mutable": false, "name": "emptyTexts", "type": "List OF String", "value": { "kind": "call", "target": "filter", "args": [{ "kind": "local", "name": "texts" }, { "kind": "functionRef", "name": "isEmpty", "type": "FUNC(String) AS Boolean" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "isEmpty", "args": [{ "kind": "const", "type": "String", "value": "" }] }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "isEmpty", "args": [{ "kind": "const", "type": "String", "value": "Ada" }] }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "isEmpty", "args": [{ "kind": "local", "name": "emptyList" }] }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "isEmpty", "args": [{ "kind": "local", "name": "list" }] }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "isEmpty", "args": [{ "kind": "local", "name": "emptyMap" }] }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "isEmpty", "args": [{ "kind": "local", "name": "map" }] }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "emptyTexts" }] }] }] } },
+    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

@@ -115,6 +115,46 @@ pub fn helper_for_call(name: &str) -> Option<RuntimeHelper> {
     }
 }
 
+pub(crate) fn is_native_direct_call(name: &str) -> bool {
+    matches!(
+        name,
+        "contains"
+            | "append"
+            | "get"
+            | "getOr"
+            | "hasKey"
+            | "insert"
+            | "find"
+            | "forEach"
+            | "filter"
+            | "keys"
+            | "len"
+            | "mid"
+            | "prepend"
+            | "reduce"
+            | "removeAt"
+            | "removeKey"
+            | "replace"
+            | "set"
+            | "sum"
+            | "transform"
+            | "values"
+            | "toByte"
+            | "toFixed"
+            | "toFloat"
+            | "toInt"
+            | "toString"
+            | "isEmpty"
+            | "isEven"
+            | "isNegative"
+            | "isNotEmpty"
+            | "isOdd"
+            | "isPositive"
+            | "isNumeric"
+            | "isZero"
+    )
+}
+
 pub fn required_helpers(ir: &IrProject) -> Vec<RuntimeHelper> {
     let mut helpers = Vec::new();
     for function in &ir.functions {
@@ -172,36 +212,7 @@ fn push_op_helpers(ops: &[IrOp], helpers: &mut Vec<RuntimeHelper>) {
 fn push_value_helpers(value: &IrValue, helpers: &mut Vec<RuntimeHelper>) {
     match value {
         IrValue::Call { target, args } => {
-            if !matches!(
-                target.as_str(),
-                "contains"
-                    | "append"
-                    | "get"
-                    | "getOr"
-                    | "hasKey"
-                    | "insert"
-                    | "find"
-                    | "forEach"
-                    | "filter"
-                    | "keys"
-                    | "len"
-                    | "mid"
-                    | "prepend"
-                    | "reduce"
-                    | "removeAt"
-                    | "removeKey"
-                    | "replace"
-                    | "set"
-                    | "sum"
-                    | "transform"
-                    | "values"
-                    | "toByte"
-                    | "toFixed"
-                    | "toFloat"
-                    | "toInt"
-                    | "toString"
-                    | "isNumeric"
-            ) {
+            if !is_native_direct_call(target) {
                 if let Some(helper) = helper_for_call(target) {
                     push_unique(helpers, helper);
                 }

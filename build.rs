@@ -7,11 +7,14 @@ fn main() {
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR"));
     let general_dir = manifest_dir.join("src/man/builtins/general");
     let collection_dir = manifest_dir.join("src/man/builtins/collection");
+    let filter_dir = manifest_dir.join("src/man/builtins/filter");
     println!("cargo:rerun-if-changed={}", general_dir.display());
     println!("cargo:rerun-if-changed={}", collection_dir.display());
+    println!("cargo:rerun-if-changed={}", filter_dir.display());
 
     let general_pages = man_pages(&general_dir, "general");
     let collection_pages = man_pages(&collection_dir, "collection");
+    let filter_pages = man_pages(&filter_dir, "filter");
 
     println!(
         "cargo:rerun-if-changed={}",
@@ -21,7 +24,15 @@ fn main() {
         "cargo:rerun-if-changed={}",
         collection_dir.join("package.txt").display()
     );
-    for page in general_pages.iter().chain(collection_pages.iter()) {
+    println!(
+        "cargo:rerun-if-changed={}",
+        filter_dir.join("package.txt").display()
+    );
+    for page in general_pages
+        .iter()
+        .chain(collection_pages.iter())
+        .chain(filter_pages.iter())
+    {
         println!("cargo:rerun-if-changed={}", page.display());
     }
 
@@ -31,6 +42,7 @@ fn main() {
 
     write_pages(&mut output, "GENERAL_FUNCTION_PAGES", general_pages);
     write_pages(&mut output, "COLLECTION_FUNCTION_PAGES", collection_pages);
+    write_pages(&mut output, "FILTER_FUNCTION_PAGES", filter_pages);
 }
 
 fn man_pages(dir: &PathBuf, package: &str) -> Vec<PathBuf> {

@@ -1,0 +1,23 @@
+$ mfb build -ast tests/func_filter_isZero_valid
+Wrote AST to tests/func_filter_isZero_valid/func_filter_isZero_valid.ast
+[exit 0]
+$ mfb build -ir tests/func_filter_isZero_valid
+Wrote IR to tests/func_filter_isZero_valid/func_filter_isZero_valid.ir
+[exit 0]
+$ mfb build tests/func_filter_isZero_valid
+Wrote executable to tests/func_filter_isZero_valid/func_filter_isZero_valid.out
+[exit 0]
+$ tests/func_filter_isZero_valid/func_filter_isZero_valid.out
+FALSE
+TRUE
+FALSE
+FALSE
+TRUE
+FALSE
+FALSE
+TRUE
+FALSE
+1
+1
+1
+[exit 0]

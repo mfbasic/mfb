@@ -1,0 +1,6 @@
+FUNC main AS Integer
+  LET missing AS Boolean = isZero()
+  LET wrongType AS Boolean = isZero("0")
+  LET tooMany AS Boolean = isZero(0, 0)
+  RETURN 0
+END FUNC

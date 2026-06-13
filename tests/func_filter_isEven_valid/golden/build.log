@@ -1,0 +1,20 @@
+$ mfb build -ast tests/func_filter_isEven_valid
+Wrote AST to tests/func_filter_isEven_valid/func_filter_isEven_valid.ast
+[exit 0]
+$ mfb build -ir tests/func_filter_isEven_valid
+Wrote IR to tests/func_filter_isEven_valid/func_filter_isEven_valid.ir
+[exit 0]
+$ mfb build tests/func_filter_isEven_valid
+Wrote executable to tests/func_filter_isEven_valid/func_filter_isEven_valid.out
+[exit 0]
+$ tests/func_filter_isEven_valid/func_filter_isEven_valid.out
+TRUE
+TRUE
+TRUE
+FALSE
+FALSE
+3
+-4
+0
+2
+[exit 0]

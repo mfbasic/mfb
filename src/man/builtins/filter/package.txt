@@ -1,0 +1,32 @@
+NAME
+  filter - predicate helper functions
+
+SYNOPSIS
+  mfb man filter [function]
+
+IMPORTS
+  None. filter functions are available without an IMPORT statement.
+
+DESCRIPTION
+  filter contains always-in-scope predicate helpers for ordinary conditionals,
+  MATCH guards, and collection filter predicates.
+
+  Numeric predicates test parity, sign, and zero values. Emptiness predicates
+  test String, List, and Map values using the same length rules as len.
+
+ERRORS
+  Filter predicates do not fail for supported evaluated arguments. Errors can
+  still propagate from evaluating an argument before the predicate is called.
+
+EXAMPLES
+  Filter integers:
+
+    LET values AS List OF Integer = filter([1, 2, 3, 4], isEven)
+
+  Test text:
+
+    LET ok AS Boolean = isNotEmpty("hello")
+
+SEE ALSO
+  collection
+  general

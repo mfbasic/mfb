@@ -10,7 +10,7 @@ IMPORTS
 
 DESCRIPTION
   general contains the built-in functions that are always in scope. These
-  functions cover string length and slicing, numeric conversion, predicates,
+  functions cover string length and slicing, numeric conversion,
   collection access and updates, higher-order list processing, and simple
   aggregate operations.
 

@@ -24,6 +24,7 @@ static PACKAGES: LazyLock<Vec<PackageDoc>> = LazyLock::new(|| {
         parse_types_package(),
         parse_general_package(),
         parse_collection_package(),
+        parse_filter_package(),
         parse_package(include_str!("builtins/io.txt")),
         parse_package(include_str!("builtins/math.txt")),
         parse_package(include_str!("builtins/thread.txt")),
@@ -109,10 +110,29 @@ fn parse_collection_package() -> PackageDoc {
     }
 }
 
+fn parse_filter_package() -> PackageDoc {
+    let page = include_str!("builtins/filter/package.txt");
+    let (name, summary) = parse_name_line(page).expect("filter package NAME line");
+    let functions = generated::FILTER_FUNCTION_PAGES
+        .iter()
+        .map(|(_, page)| parse_rendered_function_page(page))
+        .collect::<Vec<_>>()
+        .into_boxed_slice();
+
+    PackageDoc {
+        name,
+        summary,
+        usage: "mfb man filter [function]",
+        functions: Box::leak(functions),
+        page: Some(page),
+    }
+}
+
 fn generated_pages(package_name: &str) -> Option<&'static [(&'static str, &'static str)]> {
     match package_name {
         "general" => Some(generated::GENERAL_FUNCTION_PAGES),
         "collection" => Some(generated::COLLECTION_FUNCTION_PAGES),
+        "filter" => Some(generated::FILTER_FUNCTION_PAGES),
         _ => None,
     }
 }
