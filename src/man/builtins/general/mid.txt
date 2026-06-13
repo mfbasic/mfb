@@ -1,9 +1,8 @@
 NAME
-  mid - return a substring or sublist
+  mid - return a substring
 
 SYNOPSIS
   mid(value AS String, start AS Integer, count AS Integer) AS String
-  mid OF T(value AS List OF T, start AS Integer, count AS Integer) AS List OF T
 
 PACKAGE
   general
@@ -13,19 +12,12 @@ IMPORTS
 
 DESCRIPTION
   mid returns a slice of value beginning at zero-based start and containing
-  count elements.
-
-  For String values, start and count are measured in Unicode scalar values. They
-  are not byte offsets and not grapheme-cluster indexes.
-
-  For List values, start and count are measured in list items.
+  count Unicode scalar values. Indexes are not byte offsets and not
+  grapheme-cluster indexes.
 
 OVERLOADS
   mid(value AS String, start AS Integer, count AS Integer) AS String
     Returns a substring by zero-based Unicode scalar index.
-
-  mid OF T(value AS List OF T, start AS Integer, count AS Integer) AS List OF T
-    Returns a sublist by zero-based item index.
 
 ERRORS
   10001
@@ -34,17 +26,12 @@ ERRORS
   Other errors can propagate from evaluating arguments before mid is called.
 
 TYPE CHECKING
-  mid is defined only for String and List OF T values. start and count must be
-  Integer values.
+  value must be String. start and count must be Integer values.
 
 EXAMPLES
   Slice text:
 
     LET part AS String = mid("hello", 1, 3)
-
-  Slice a list:
-
-    LET middle AS List OF Integer = mid([1, 2, 3, 4], 1, 2)
 
 SEE ALSO
   find

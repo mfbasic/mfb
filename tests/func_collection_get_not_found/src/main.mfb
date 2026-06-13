@@ -1,0 +1,4 @@
+FUNC main AS Integer
+  LET names AS Map OF String TO Integer = Map OF String TO Integer { "Ada" := 36 }
+  RETURN get(names, "Grace")
+END FUNC

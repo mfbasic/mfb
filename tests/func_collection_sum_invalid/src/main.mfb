@@ -1,0 +1,5 @@
+FUNC main AS Integer
+  LET words AS List OF String = ["one", "two"]
+  LET total AS Integer = sum(words)
+  RETURN total
+END FUNC

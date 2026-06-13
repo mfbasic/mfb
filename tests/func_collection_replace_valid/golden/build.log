@@ -1,0 +1,22 @@
+$ mfb build -ast tests/func_collection_replace_valid
+Wrote AST to tests/func_collection_replace_valid/func_collection_replace_valid.ast
+[exit 0]
+$ mfb build -ir tests/func_collection_replace_valid
+Wrote IR to tests/func_collection_replace_valid/func_collection_replace_valid.ir
+[exit 0]
+$ mfb build tests/func_collection_replace_valid
+Wrote executable to tests/func_collection_replace_valid/func_collection_replace_valid.out
+[exit 0]
+$ tests/func_collection_replace_valid/func_collection_replace_valid.out
+7
+2
+7
+3
+Katherine
+Grace
+Katherine
+1
+2
+1
+3
+[exit 11]

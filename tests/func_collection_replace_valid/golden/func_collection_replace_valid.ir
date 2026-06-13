@@ -1,0 +1,75 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "func_collection_replace_valid",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "printIntegers",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    { "name": "values", "type": "List OF Integer", "default": null }
+    ],
+    "returns": "Nothing",
+    "body": [
+    {
+      "op": "forEach",
+      "name": "item",
+      "type": "Integer",
+      "iterable": { "kind": "local", "name": "values" },
+      "body": [
+      { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "local", "name": "item" }] }] } }
+      ]
+    },
+    { "op": "return", "value": { "kind": "const", "type": "Nothing", "value": "NOTHING" } }
+    ]
+  },
+  {
+    "name": "printStrings",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    { "name": "values", "type": "List OF String", "default": null }
+    ],
+    "returns": "Nothing",
+    "body": [
+    {
+      "op": "forEach",
+      "name": "item",
+      "type": "String",
+      "iterable": { "kind": "local", "name": "values" },
+      "body": [
+      { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "local", "name": "item" }] } }
+      ]
+    },
+    { "op": "return", "value": { "kind": "const", "type": "Nothing", "value": "NOTHING" } }
+    ]
+  },
+  {
+    "name": "main",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "mutable": false, "name": "numbers", "type": "List OF Integer", "value": { "kind": "list", "type": "List OF Integer", "values": [{ "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "2" }, { "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "3" }] } },
+    { "op": "bind", "mutable": false, "name": "names", "type": "List OF String", "value": { "kind": "list", "type": "List OF String", "values": [{ "kind": "const", "type": "String", "value": "Ada" }, { "kind": "const", "type": "String", "value": "Grace" }, { "kind": "const", "type": "String", "value": "Ada" }] } },
+    { "op": "bind", "mutable": false, "name": "noMatch", "type": "List OF Integer", "value": { "kind": "call", "target": "replace", "args": [{ "kind": "local", "name": "numbers" }, { "kind": "const", "type": "Integer", "value": "9" }, { "kind": "const", "type": "Integer", "value": "8" }] } },
+    { "op": "bind", "mutable": false, "name": "replacedNumbers", "type": "List OF Integer", "value": { "kind": "call", "target": "replace", "args": [{ "kind": "local", "name": "numbers" }, { "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "7" }] } },
+    { "op": "bind", "mutable": false, "name": "replacedNames", "type": "List OF String", "value": { "kind": "call", "target": "replace", "args": [{ "kind": "local", "name": "names" }, { "kind": "const", "type": "String", "value": "Ada" }, { "kind": "const", "type": "String", "value": "Katherine" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "printIntegers", "args": [{ "kind": "local", "name": "replacedNumbers" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "printStrings", "args": [{ "kind": "local", "name": "replacedNames" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "printIntegers", "args": [{ "kind": "local", "name": "noMatch" }] } },
+    { "op": "return", "value": { "kind": "binary", "op": "+", "left": { "kind": "binary", "op": "+", "left": { "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "replacedNumbers" }] }, "right": { "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "replacedNames" }] } }, "right": { "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "noMatch" }] } } }
+    ]
+  }
+  ]
+}

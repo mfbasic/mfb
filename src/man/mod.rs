@@ -22,6 +22,7 @@ pub(crate) struct FunctionDoc {
 static PACKAGES: LazyLock<Vec<PackageDoc>> = LazyLock::new(|| {
     vec![
         parse_general_package(),
+        parse_collection_package(),
         parse_package(include_str!("builtins/io.txt")),
         parse_package(include_str!("builtins/math.txt")),
         parse_package(include_str!("builtins/thread.txt")),
@@ -53,14 +54,9 @@ pub(crate) fn function_page(package: &PackageDoc, name: &str) -> Option<&'static
         .and_then(|remaining| remaining.strip_prefix('.'))
         .unwrap_or(name);
 
-    if package.name == "general" {
-        return generated::GENERAL_FUNCTION_PAGES
-            .iter()
-            .find(|(name, _)| *name == local_name)
-            .map(|(_, page)| *page);
-    }
-
-    None
+    generated_pages(package.name)
+        .and_then(|pages| pages.iter().find(|(name, _)| *name == local_name))
+        .map(|(_, page)| *page)
 }
 
 fn parse_general_package() -> PackageDoc {
@@ -78,6 +74,32 @@ fn parse_general_package() -> PackageDoc {
         usage: "mfb man general [function]",
         functions: Box::leak(functions),
         page: Some(page),
+    }
+}
+
+fn parse_collection_package() -> PackageDoc {
+    let page = include_str!("builtins/collection/package.txt");
+    let (name, summary) = parse_name_line(page).expect("collection package NAME line");
+    let functions = generated::COLLECTION_FUNCTION_PAGES
+        .iter()
+        .map(|(_, page)| parse_rendered_function_page(page))
+        .collect::<Vec<_>>()
+        .into_boxed_slice();
+
+    PackageDoc {
+        name,
+        summary,
+        usage: "mfb man collection [function]",
+        functions: Box::leak(functions),
+        page: Some(page),
+    }
+}
+
+fn generated_pages(package_name: &str) -> Option<&'static [(&'static str, &'static str)]> {
+    match package_name {
+        "general" => Some(generated::GENERAL_FUNCTION_PAGES),
+        "collection" => Some(generated::COLLECTION_FUNCTION_PAGES),
+        _ => None,
     }
 }
 

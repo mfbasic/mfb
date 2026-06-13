@@ -1,0 +1,23 @@
+IMPORT io
+
+FUNC main AS Integer
+  LET numbers AS List OF Integer = [10, 20, 30]
+  LET names AS Map OF String TO Integer = Map OF String TO Integer { "Ada" := 36, "Grace" := 85 }
+  LET codes AS Map OF Integer TO String = Map OF Integer TO String { 1 := "one", 2 := "two" }
+
+  LET first AS Integer = get(numbers, 0)
+  LET middle AS Integer = get(numbers, 1)
+  LET last AS Integer = get(numbers, 2)
+  LET ada AS Integer = get(names, "Ada")
+  LET grace AS Integer = get(names, "Grace")
+  LET two AS String = get(codes, 2)
+
+  io::print(toString(first))
+  io::print(toString(middle))
+  io::print(toString(last))
+  io::print(toString(ada))
+  io::print(toString(grace))
+  io::print(two)
+
+  RETURN first + middle + last + ada + grace
+END FUNC

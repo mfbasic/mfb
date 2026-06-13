@@ -1,0 +1,15 @@
+$ mfb build -ast tests/func_collection_hasKey_valid
+Wrote AST to tests/func_collection_hasKey_valid/func_collection_hasKey_valid.ast
+[exit 0]
+$ mfb build -ir tests/func_collection_hasKey_valid
+Wrote IR to tests/func_collection_hasKey_valid/func_collection_hasKey_valid.ir
+[exit 0]
+$ mfb build tests/func_collection_hasKey_valid
+Wrote executable to tests/func_collection_hasKey_valid/func_collection_hasKey_valid.out
+[exit 0]
+$ tests/func_collection_hasKey_valid/func_collection_hasKey_valid.out
+TRUE
+FALSE
+TRUE
+FALSE
+[exit 0]

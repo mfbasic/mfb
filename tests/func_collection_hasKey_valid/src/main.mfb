@@ -1,0 +1,17 @@
+IMPORT io
+
+FUNC main AS Integer
+  LET names AS Map OF String TO Integer = Map OF String TO Integer { "Ada" := 36, "Grace" := 85 }
+  LET codes AS Map OF Integer TO String = Map OF Integer TO String { 1 := "one", 2 := "two" }
+  LET hitString AS Boolean = hasKey(names, "Ada")
+  LET missString AS Boolean = hasKey(names, "Katherine")
+  LET hitInteger AS Boolean = hasKey(codes, 2)
+  LET missInteger AS Boolean = hasKey(codes, 3)
+
+  io::print(toString(hitString))
+  io::print(toString(missString))
+  io::print(toString(hitInteger))
+  io::print(toString(missInteger))
+
+  RETURN 0
+END FUNC

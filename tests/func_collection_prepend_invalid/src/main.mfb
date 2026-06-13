@@ -1,0 +1,5 @@
+FUNC main AS Integer
+  LET numbers AS List OF Integer = [1, 2]
+  LET values AS List OF Integer = prepend(numbers, "0")
+  RETURN len(values)
+END FUNC

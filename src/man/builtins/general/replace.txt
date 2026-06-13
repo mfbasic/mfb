@@ -1,9 +1,8 @@
 NAME
-  replace - replace matching text or list items
+  replace - replace matching text
 
 SYNOPSIS
   replace(value AS String, old AS String, new AS String) AS String
-  replace OF T(value AS List OF T, old AS T, new AS T) AS List OF T
 
 PACKAGE
   general
@@ -12,23 +11,13 @@ IMPORTS
   None. general functions are available without an IMPORT statement.
 
 DESCRIPTION
-  replace returns a new value with matches replaced. The original value is not
-  mutated.
-
-  For String values, replace substitutes all non-overlapping occurrences of old
-  with new.
+  replace substitutes all non-overlapping occurrences of old with new.
 
   If old is an empty String, replace returns value unchanged.
-
-  For List values, replace substitutes every item equal to old with new. The
-  element type T must be comparable.
 
 OVERLOADS
   replace(value AS String, old AS String, new AS String) AS String
     Replaces all non-overlapping text occurrences.
-
-  replace OF T(value AS List OF T, old AS T, new AS T) AS List OF T
-    Replaces every matching list item.
 
 ERRORS
   replace does not fail for supported argument types and valid evaluated
@@ -36,20 +25,14 @@ ERRORS
   is called.
 
 TYPE CHECKING
-  String replacement requires String old and new values. List replacement
-  requires old and new to have the list element type. List element type T must be
-  comparable.
+  value, old, and new must be String values.
 
 EXAMPLES
   Replace text:
 
     LET text AS String = replace("hello", "l", "x")
 
-  Replace list items:
-
-    LET values AS List OF Integer = replace([1, 2, 1], 1, 9)
-
 SEE ALSO
   find
   mid
-  set
+  len

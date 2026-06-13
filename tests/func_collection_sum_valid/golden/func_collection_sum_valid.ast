@@ -1,0 +1,39 @@
+{
+  "project": "func_collection_sum_valid",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "main",
+      "line": 3,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "integers", "type": "List OF Integer", "value": { "kind": "list", "values": [{ "kind": "number", "value": "1" }, { "kind": "number", "value": "2" }, { "kind": "number", "value": "3" }] }, "line": 4 },
+      { "kind": "binding", "mutable": false, "name": "floats", "type": "List OF Float", "value": { "kind": "list", "values": [{ "kind": "number", "value": "1.5" }, { "kind": "number", "value": "2.25" }] }, "line": 5 },
+      { "kind": "binding", "mutable": false, "name": "fixeds", "type": "List OF Fixed", "value": { "kind": "list", "values": [{ "kind": "number", "value": "1.250" }, { "kind": "number", "value": "2.500" }] }, "line": 6 },
+      { "kind": "binding", "mutable": false, "name": "empty", "type": "List OF Integer", "value": { "kind": "list", "values": [] }, "line": 7 },
+      { "kind": "binding", "mutable": false, "name": "intTotal", "type": "Integer", "value": { "kind": "call", "callee": "sum", "arguments": [{ "kind": "identifier", "value": "integers" }] }, "line": 9 },
+      { "kind": "binding", "mutable": false, "name": "floatTotal", "type": "Float", "value": { "kind": "call", "callee": "sum", "arguments": [{ "kind": "identifier", "value": "floats" }] }, "line": 10 },
+      { "kind": "binding", "mutable": false, "name": "fixedTotal", "type": "Fixed", "value": { "kind": "call", "callee": "sum", "arguments": [{ "kind": "identifier", "value": "fixeds" }] }, "line": 11 },
+      { "kind": "binding", "mutable": false, "name": "emptyTotal", "type": "Integer", "value": { "kind": "call", "callee": "sum", "arguments": [{ "kind": "identifier", "value": "empty" }] }, "line": 12 },
+      { "kind": "binding", "mutable": false, "name": "floatPrecision", "type": "Byte", "value": { "kind": "number", "value": "2" }, "line": 13 },
+      { "kind": "binding", "mutable": false, "name": "fixedPrecision", "type": "Byte", "value": { "kind": "number", "value": "3" }, "line": 14 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "intTotal" }] }] }, "line": 16 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "floatTotal" }, { "kind": "identifier", "value": "floatPrecision" }] }] }, "line": 17 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "fixedTotal" }, { "kind": "identifier", "value": "fixedPrecision" }] }] }, "line": 18 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "emptyTotal" }] }] }, "line": 19 },
+      { "kind": "return", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "intTotal" }, "right": { "kind": "identifier", "value": "emptyTotal" } }, "line": 21 }
+      ]
+    }
+    ]
+  }
+  ]
+}

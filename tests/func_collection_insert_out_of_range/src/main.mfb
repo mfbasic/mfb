@@ -1,0 +1,4 @@
+FUNC main AS Integer
+  LET values AS List OF Integer = insert([1, 2], 3, 9)
+  RETURN len(values)
+END FUNC

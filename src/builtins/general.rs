@@ -356,9 +356,11 @@ pub(crate) fn resolve_call<'a>(name: &str, arg_types: &'a [String]) -> Option<Re
 pub(crate) fn expected_arguments(name: &str) -> Option<&'static str> {
     match name {
         LEN => Some("String, List OF T, or Map OF K TO V"),
-        FIND => Some("String, String, Integer"),
-        MID => Some("String, Integer, Integer"),
-        REPLACE => Some("String, String, String"),
+        FIND => Some(
+            "String, String, Integer or List OF T, T, Integer or List OF T, List OF T, Integer",
+        ),
+        MID => Some("String, Integer, Integer or List OF T, Integer, Integer"),
+        REPLACE => Some("String, String, String or List OF T, T, T"),
         TYPE_NAME => Some("T"),
         TO_STRING => {
             Some("Integer, Float[, Byte], Fixed[, Byte], Boolean, String, Byte, or List OF Byte")

@@ -1,0 +1,26 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "func_collection_get_not_found",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "mutable": false, "name": "names", "type": "Map OF String TO Integer", "value": { "kind": "map", "type": "Map OF String TO Integer", "entries": [{ "key": { "kind": "const", "type": "String", "value": "Ada" }, "value": { "kind": "const", "type": "Integer", "value": "36" } }] } },
+    { "op": "return", "value": { "kind": "call", "target": "get", "args": [{ "kind": "local", "name": "names" }, { "kind": "const", "type": "String", "value": "Grace" }] } }
+    ]
+  }
+  ]
+}

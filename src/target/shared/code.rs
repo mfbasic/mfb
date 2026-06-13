@@ -49,6 +49,33 @@ const ERR_INVALID_FORMAT_CODE: &str = "10003";
 const ERR_INVALID_FORMAT_MESSAGE: &str = "invalid format";
 const ERR_INVALID_FORMAT_SYMBOL: &str = "_mfb_str_error_invalid_format";
 const ERR_OUT_OF_MEMORY_CODE: &str = "10010";
+const COLLECTION_KIND_LIST: usize = 0;
+const COLLECTION_KIND_MAP: usize = 1;
+const COLLECTION_HEADER_SIZE: usize = 40;
+const COLLECTION_OFFSET_KIND: usize = 0;
+const COLLECTION_OFFSET_KEY_TYPE: usize = 1;
+const COLLECTION_OFFSET_VALUE_TYPE: usize = 2;
+const COLLECTION_OFFSET_FLAGS_VERSION: usize = 3;
+const COLLECTION_OFFSET_COUNT: usize = 8;
+const COLLECTION_OFFSET_CAPACITY: usize = 16;
+const COLLECTION_OFFSET_DATA_LENGTH: usize = 24;
+const COLLECTION_OFFSET_DATA_CAPACITY: usize = 32;
+const COLLECTION_ENTRY_SIZE: usize = 40;
+const COLLECTION_ENTRY_OFFSET_FLAGS: usize = 0;
+const COLLECTION_ENTRY_OFFSET_KEY_OFFSET: usize = 8;
+const COLLECTION_ENTRY_OFFSET_KEY_LENGTH: usize = 16;
+const COLLECTION_ENTRY_OFFSET_VALUE_OFFSET: usize = 24;
+const COLLECTION_ENTRY_OFFSET_VALUE_LENGTH: usize = 32;
+const COLLECTION_ENTRY_FLAG_USED: usize = 1;
+const COLLECTION_TYPE_NONE: usize = 0;
+const COLLECTION_TYPE_BOOLEAN: usize = 2;
+const COLLECTION_TYPE_INTEGER: usize = 3;
+const COLLECTION_TYPE_FLOAT: usize = 4;
+const COLLECTION_TYPE_FIXED: usize = 5;
+const COLLECTION_TYPE_STRING: usize = 6;
+const COLLECTION_TYPE_BYTE: usize = 7;
+const COLLECTION_TYPE_LIST: usize = 20;
+const COLLECTION_TYPE_MAP: usize = 21;
 
 pub(crate) struct NativeCodePlan {
     pub(crate) target: String,
@@ -165,6 +192,24 @@ struct ValueResult {
     type_: String,
     location: String,
     text: String,
+}
+
+#[derive(Clone)]
+struct PayloadSlot {
+    slot: usize,
+    type_: String,
+}
+
+#[derive(Clone)]
+struct CollectionValueSlot {
+    key: Option<PayloadSlot>,
+    value: PayloadSlot,
+}
+
+struct CollectionTypeLayout {
+    kind: usize,
+    key_type_code: usize,
+    value_type_code: usize,
 }
 
 #[derive(Clone)]
@@ -421,9 +466,11 @@ impl CodeFunction {
                     }
                 }
                 "data" => {
-                    if !data_symbols.contains(&relocation.to) {
+                    if !data_symbols.contains(&relocation.to)
+                        && !defined_symbols.contains(&relocation.to)
+                    {
                         return Err(format!(
-                            "native code data relocation target '{}' is not a data object",
+                            "native code data relocation target '{}' is not a data object or defined symbol",
                             relocation.to
                         ));
                     }
@@ -939,11 +986,7 @@ fn lower_function(
         ));
     }
     builder.lower_ops(&function.body)?;
-    if !builder
-        .instructions
-        .iter()
-        .any(|instruction| instruction.op == CodeOp::Ret)
-    {
+    if !builder.current_block_returns() {
         builder.emit(abi::move_immediate(
             RESULT_TAG_REGISTER,
             "Integer",
@@ -1083,12 +1126,11 @@ fn finalize_frame(
     local_stack_size: usize,
     mut callee_saved: Vec<String>,
 ) -> CodeFrame {
-    if instructions
+    if instructions.iter().any(|instruction| {
+        instruction.op == CodeOp::BranchLink || instruction.op == CodeOp::BranchLinkRegister
+    }) && !callee_saved
         .iter()
-        .any(|instruction| instruction.op == CodeOp::BranchLink)
-        && !callee_saved
-            .iter()
-            .any(|register| register == abi::link_register())
+        .any(|register| register == abi::link_register())
     {
         callee_saved.push(abi::link_register().to_string());
     }
@@ -1357,17 +1399,32 @@ impl CodeBuilder<'_> {
         body: &[NirOp],
     ) -> Result<(), String> {
         let iterable_value = self.lower_value(iterable)?;
-        let slot_width = collection_slot_width(&iterable_value.type_).ok_or_else(|| {
-            format!(
+        if !is_collection_type(&iterable_value.type_) {
+            return Err(format!(
                 "native code FOR EACH target '{}' is not a collection",
                 iterable_value.type_
-            )
-        })?;
+            ));
+        }
+        let map_entry_types = if iterable_value.type_.starts_with("Map OF ") {
+            Some(map_type_parts(&iterable_value.type_).ok_or_else(|| {
+                format!(
+                    "native code FOR EACH target '{}' is not a valid map type",
+                    iterable_value.type_
+                )
+            })?)
+        } else {
+            None
+        };
+        let list_element_type = iterable_value
+            .type_
+            .strip_prefix("List OF ")
+            .map(str::to_string);
+        let item_value_type = list_element_type.as_deref();
         let collection_slot = self.allocate_stack_object("for_each_collection", 8);
         let cursor_slot = self.allocate_stack_object("for_each_cursor", 8);
         let remaining_slot = self.allocate_stack_object("for_each_remaining", 8);
         let local_slot = self.allocate_stack_object(name, 8);
-        let entry_payload_slot = if iterable_value.type_.starts_with("Map OF ") {
+        let entry_payload_slot = if map_entry_types.is_some() {
             Some(self.allocate_stack_object("for_each_map_entry", 16))
         } else {
             None
@@ -1379,8 +1436,8 @@ impl CodeBuilder<'_> {
             collection_slot,
         ));
         self.emit(abi::load_u64("x8", abi::stack_pointer(), collection_slot));
-        self.emit(abi::load_u64("x9", "x8", 0));
-        self.emit(abi::add_immediate("x10", "x8", 8));
+        self.emit(abi::load_u64("x9", "x8", COLLECTION_OFFSET_COUNT));
+        self.emit(abi::add_immediate("x10", "x8", COLLECTION_HEADER_SIZE));
         self.emit(abi::store_u64("x10", abi::stack_pointer(), cursor_slot));
         self.emit(abi::store_u64("x9", abi::stack_pointer(), remaining_slot));
 
@@ -1391,16 +1448,41 @@ impl CodeBuilder<'_> {
         self.emit(abi::compare_immediate("x9", "0"));
         self.emit(abi::branch_eq(&end_label));
         self.emit(abi::load_u64("x10", abi::stack_pointer(), cursor_slot));
-        if let Some(entry_payload_slot) = entry_payload_slot {
-            self.emit(abi::load_u64("x11", "x10", 0));
-            self.emit(abi::load_u64("x12", "x10", 8));
-            self.emit(abi::store_u64(
+        if let (Some(entry_payload_slot), Some((key_type, value_type))) =
+            (entry_payload_slot, map_entry_types.as_ref())
+        {
+            self.emit(abi::load_u64(
                 "x11",
+                "x10",
+                COLLECTION_ENTRY_OFFSET_KEY_OFFSET,
+            ));
+            self.emit(abi::load_u64(
+                "x12",
+                "x10",
+                COLLECTION_ENTRY_OFFSET_KEY_LENGTH,
+            ));
+            self.emit(abi::load_u64("x8", abi::stack_pointer(), collection_slot));
+            let key_value = self.emit_load_collection_payload(key_type, "x8", "x11", "x12")?;
+            self.emit(abi::store_u64(
+                &key_value,
                 abi::stack_pointer(),
                 entry_payload_slot,
             ));
-            self.emit(abi::store_u64(
+            self.emit(abi::load_u64("x10", abi::stack_pointer(), cursor_slot));
+            self.emit(abi::load_u64(
+                "x11",
+                "x10",
+                COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
+            ));
+            self.emit(abi::load_u64(
                 "x12",
+                "x10",
+                COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
+            ));
+            self.emit(abi::load_u64("x8", abi::stack_pointer(), collection_slot));
+            let item_value = self.emit_load_collection_payload(value_type, "x8", "x11", "x12")?;
+            self.emit(abi::store_u64(
+                &item_value,
                 abi::stack_pointer(),
                 entry_payload_slot + 8,
             ));
@@ -1411,11 +1493,35 @@ impl CodeBuilder<'_> {
             ));
             self.emit(abi::store_u64("x11", abi::stack_pointer(), local_slot));
         } else {
-            self.emit(abi::load_u64("x11", "x10", 0));
-            self.emit(abi::store_u64("x11", abi::stack_pointer(), local_slot));
+            let item_value_type = item_value_type.ok_or_else(|| {
+                format!(
+                    "native code FOR EACH target '{}' is not a list",
+                    iterable_value.type_
+                )
+            })?;
+            self.emit(abi::load_u64(
+                "x11",
+                "x10",
+                COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
+            ));
+            self.emit(abi::load_u64(
+                "x12",
+                "x10",
+                COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
+            ));
+            self.emit(abi::load_u64("x8", abi::stack_pointer(), collection_slot));
+            let item_value =
+                self.emit_load_collection_payload(item_value_type, "x8", "x11", "x12")?;
+            self.emit(abi::store_u64(
+                &item_value,
+                abi::stack_pointer(),
+                local_slot,
+            ));
         }
-        self.emit(abi::add_immediate("x10", "x10", slot_width));
+        self.emit(abi::load_u64("x10", abi::stack_pointer(), cursor_slot));
+        self.emit(abi::add_immediate("x10", "x10", COLLECTION_ENTRY_SIZE));
         self.emit(abi::store_u64("x10", abi::stack_pointer(), cursor_slot));
+        self.emit(abi::load_u64("x9", abi::stack_pointer(), remaining_slot));
         self.emit(abi::subtract_immediate("x9", "x9", 1));
         self.emit(abi::store_u64("x9", abi::stack_pointer(), remaining_slot));
 
@@ -1485,16 +1591,45 @@ impl CodeBuilder<'_> {
                     text: name.clone(),
                 })
             }
-            NirValue::FunctionRef { name, type_ } => Ok(ValueResult {
-                type_: type_.clone(),
-                location: self
+            NirValue::FunctionRef { name, type_ } => {
+                let symbol = self
                     .function_symbols
                     .get(name)
                     .cloned()
-                    .unwrap_or_else(|| name.clone()),
-                text: name.clone(),
-            }),
+                    .unwrap_or_else(|| name.clone());
+                let register = self.allocate_register()?;
+                self.emit(abi::load_page_address(&register, &symbol));
+                self.relocations.push(CodeRelocation {
+                    from: self.current_symbol.clone(),
+                    to: symbol.clone(),
+                    kind: "page21".to_string(),
+                    binding: "data".to_string(),
+                    library: None,
+                });
+                self.emit(abi::add_page_offset(&register, &register, &symbol));
+                self.relocations.push(CodeRelocation {
+                    from: self.current_symbol.clone(),
+                    to: symbol,
+                    kind: "pageoff12".to_string(),
+                    binding: "data".to_string(),
+                    library: None,
+                });
+                Ok(ValueResult {
+                    type_: type_.clone(),
+                    location: register,
+                    text: name.clone(),
+                })
+            }
             NirValue::Call { target, args } => {
+                if target == "contains" && args.len() == 2 {
+                    return self.lower_collection_contains(args);
+                }
+                if target == "get" && args.len() == 2 {
+                    return self.lower_collection_get(args);
+                }
+                if target == "getOr" && args.len() == 3 {
+                    return self.lower_collection_get_or(args);
+                }
                 if target == "find" && (args.len() == 2 || args.len() == 3) {
                     return self.lower_find(args);
                 }
@@ -1506,6 +1641,48 @@ impl CodeBuilder<'_> {
                 }
                 if target == "replace" && args.len() == 3 {
                     return self.lower_replace(args);
+                }
+                if target == "append" && args.len() == 2 {
+                    return self.lower_collection_append(args);
+                }
+                if target == "prepend" && args.len() == 2 {
+                    return self.lower_collection_prepend(args);
+                }
+                if target == "insert" && args.len() == 3 {
+                    return self.lower_collection_insert(args);
+                }
+                if target == "removeAt" && args.len() == 2 {
+                    return self.lower_collection_remove_at(args);
+                }
+                if target == "set" && args.len() == 3 {
+                    return self.lower_collection_set(args);
+                }
+                if target == "removeKey" && args.len() == 2 {
+                    return self.lower_collection_remove_key(args);
+                }
+                if target == "hasKey" && args.len() == 2 {
+                    return self.lower_collection_has_key(args);
+                }
+                if target == "keys" && args.len() == 1 {
+                    return self.lower_collection_keys(args);
+                }
+                if target == "values" && args.len() == 1 {
+                    return self.lower_collection_values_builtin(args);
+                }
+                if target == "sum" && args.len() == 1 {
+                    return self.lower_collection_sum(args);
+                }
+                if target == "forEach" && args.len() == 2 {
+                    return self.lower_collection_for_each_call(args);
+                }
+                if target == "transform" && args.len() == 2 {
+                    return self.lower_collection_transform_call(args);
+                }
+                if target == "filter" && args.len() == 2 {
+                    return self.lower_collection_filter_call(args);
+                }
+                if target == "reduce" && args.len() == 3 {
+                    return self.lower_collection_reduce_call(args);
                 }
                 if target == "toString" && (args.len() == 1 || args.len() == 2) {
                     return self.lower_to_string(args);
@@ -1712,6 +1889,47 @@ impl CodeBuilder<'_> {
 
     fn lower_replace(&mut self, args: &[NirValue]) -> Result<ValueResult, String> {
         let value = self.lower_value(&args[0])?;
+        if let Some(element_type) = list_element_type(&value.type_) {
+            let value_slot = self.allocate_stack_object("replace_list_value", 8);
+            self.emit(abi::store_u64(
+                &value.location,
+                abi::stack_pointer(),
+                value_slot,
+            ));
+            let old = self.lower_value(&args[1])?;
+            if old.type_ != element_type {
+                return Err(format!(
+                    "native list replace old must be {}, got {}",
+                    element_type, old.type_
+                ));
+            }
+            let old_slot = self.allocate_stack_object("replace_list_old", 8);
+            self.emit(abi::store_u64(
+                &old.location,
+                abi::stack_pointer(),
+                old_slot,
+            ));
+            let new = self.lower_value(&args[2])?;
+            if new.type_ != element_type {
+                return Err(format!(
+                    "native list replace new must be {}, got {}",
+                    element_type, new.type_
+                ));
+            }
+            let new_slot = self.allocate_stack_object("replace_list_new", 8);
+            self.emit(abi::store_u64(
+                &new.location,
+                abi::stack_pointer(),
+                new_slot,
+            ));
+            return self.lower_list_replace(
+                value_slot,
+                old_slot,
+                new_slot,
+                &value.type_,
+                &element_type,
+            );
+        }
         if value.type_ != "String" {
             return Err(format!(
                 "native string replace value must be String, got {}",
@@ -1950,6 +2168,283 @@ impl CodeBuilder<'_> {
         })
     }
 
+    fn lower_list_replace(
+        &mut self,
+        value_slot: usize,
+        old_slot: usize,
+        new_slot: usize,
+        list_type: &str,
+        element_type: &str,
+    ) -> Result<ValueResult, String> {
+        let layout = CollectionTypeLayout::from_type(list_type)
+            .ok_or_else(|| format!("native code collection type '{list_type}' is not supported"))?;
+        for register in ["x20", "x21", "x22", "x23", "x24", "x25"] {
+            self.mark_register_used(register);
+        }
+
+        let new_payload = PayloadSlot {
+            slot: new_slot,
+            type_: element_type.to_string(),
+        };
+        let new_len_slot = self.emit_payload_length_to_stack(&new_payload, "replace_new_len")?;
+        let data_len_slot = self.allocate_stack_object("replace_list_data_len", 8);
+        let result_slot = self.allocate_stack_object("replace_list_result", 8);
+        let loop_label = self.label("replace_list_length_loop");
+        let add_new = self.label("replace_list_length_add_new");
+        let add_old = self.label("replace_list_length_add_old");
+        let length_next = self.label("replace_list_length_next");
+        let length_done = self.label("replace_list_length_done");
+        let alloc_ok = self.label("replace_list_alloc_ok");
+        let copy_loop = self.label("replace_list_copy_loop");
+        let copy_new = self.label("replace_list_copy_new");
+        let copy_old = self.label("replace_list_copy_old");
+        let copy_new_string_loop = self.label("replace_list_copy_new_string_loop");
+        let copy_new_string_done = self.label("replace_list_copy_new_string_done");
+        let copy_old_loop = self.label("replace_list_copy_old_loop");
+        let copy_done_one = self.label("replace_list_copy_done_one");
+        let copy_done = self.label("replace_list_copy_done");
+
+        self.emit(abi::load_u64("x8", abi::stack_pointer(), value_slot));
+        self.emit(abi::load_u64("x9", abi::stack_pointer(), old_slot));
+        self.emit(abi::load_u64("x11", "x8", COLLECTION_OFFSET_COUNT));
+        self.emit(abi::move_immediate("x12", "Integer", "0"));
+        self.emit(abi::move_immediate("x15", "Integer", "0"));
+        self.emit(abi::add_immediate("x16", "x8", COLLECTION_HEADER_SIZE));
+        self.emit(abi::label(&loop_label));
+        self.emit(abi::compare_registers("x12", "x11"));
+        self.emit(abi::branch_ge(&length_done));
+        self.emit(abi::load_u64(
+            "x17",
+            "x16",
+            COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
+        ));
+        self.emit(abi::load_u64(
+            "x20",
+            "x16",
+            COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
+        ));
+        self.emit_collection_payload_matches_value_branch(
+            element_type,
+            "x8",
+            "x17",
+            "x20",
+            "x9",
+            &add_new,
+            &add_old,
+        )?;
+        self.emit(abi::label(&add_new));
+        self.emit(abi::load_u64("x21", abi::stack_pointer(), new_len_slot));
+        self.emit(abi::add_registers("x15", "x15", "x21"));
+        self.emit(abi::branch(&length_next));
+        self.emit(abi::label(&add_old));
+        self.emit(abi::add_registers("x15", "x15", "x20"));
+        self.emit(abi::label(&length_next));
+        self.emit(abi::add_immediate("x16", "x16", COLLECTION_ENTRY_SIZE));
+        self.emit(abi::add_immediate("x12", "x12", 1));
+        self.emit(abi::branch(&loop_label));
+
+        self.emit(abi::label(&length_done));
+        self.emit(abi::store_u64("x15", abi::stack_pointer(), data_len_slot));
+        self.emit(abi::move_immediate(
+            "x14",
+            "Integer",
+            &COLLECTION_ENTRY_SIZE.to_string(),
+        ));
+        self.emit(abi::multiply_registers("x16", "x11", "x14"));
+        self.emit(abi::add_immediate(
+            abi::return_register(),
+            "x16",
+            COLLECTION_HEADER_SIZE,
+        ));
+        self.emit(abi::add_registers(
+            abi::return_register(),
+            abi::return_register(),
+            "x15",
+        ));
+        self.emit(abi::move_immediate("x1", "Integer", "8"));
+        self.emit(abi::branch_link(ARENA_ALLOC_SYMBOL));
+        self.relocations.push(CodeRelocation {
+            from: self.current_symbol.clone(),
+            to: ARENA_ALLOC_SYMBOL.to_string(),
+            kind: "branch26".to_string(),
+            binding: "internal".to_string(),
+            library: None,
+        });
+        self.emit(abi::compare_immediate(
+            abi::return_register(),
+            RESULT_OK_TAG,
+        ));
+        self.emit(abi::branch_eq(&alloc_ok));
+        self.emit_allocation_error_return()?;
+        self.emit(abi::label(&alloc_ok));
+        self.emit(abi::store_u64("x1", abi::stack_pointer(), result_slot));
+
+        self.emit(abi::move_immediate("x13", "Byte", &layout.kind.to_string()));
+        self.emit(abi::store_u8("x13", "x1", COLLECTION_OFFSET_KIND));
+        self.emit(abi::move_immediate(
+            "x13",
+            "Byte",
+            &layout.key_type_code.to_string(),
+        ));
+        self.emit(abi::store_u8("x13", "x1", COLLECTION_OFFSET_KEY_TYPE));
+        self.emit(abi::move_immediate(
+            "x13",
+            "Byte",
+            &layout.value_type_code.to_string(),
+        ));
+        self.emit(abi::store_u8("x13", "x1", COLLECTION_OFFSET_VALUE_TYPE));
+        self.emit(abi::move_immediate("x13", "Byte", "1"));
+        self.emit(abi::store_u8("x13", "x1", COLLECTION_OFFSET_FLAGS_VERSION));
+        self.emit(abi::load_u64("x8", abi::stack_pointer(), value_slot));
+        self.emit(abi::load_u64("x11", "x8", COLLECTION_OFFSET_COUNT));
+        self.emit(abi::store_u64("x11", "x1", COLLECTION_OFFSET_COUNT));
+        self.emit(abi::store_u64("x11", "x1", COLLECTION_OFFSET_CAPACITY));
+        self.emit(abi::load_u64("x15", abi::stack_pointer(), data_len_slot));
+        self.emit(abi::store_u64("x15", "x1", COLLECTION_OFFSET_DATA_LENGTH));
+        self.emit(abi::store_u64("x15", "x1", COLLECTION_OFFSET_DATA_CAPACITY));
+
+        self.emit(abi::load_u64("x8", abi::stack_pointer(), value_slot));
+        self.emit(abi::load_u64("x9", abi::stack_pointer(), old_slot));
+        self.emit(abi::load_u64("x10", abi::stack_pointer(), new_slot));
+        self.emit(abi::load_u64("x11", "x8", COLLECTION_OFFSET_COUNT));
+        self.emit(abi::load_u64("x1", abi::stack_pointer(), result_slot));
+        self.emit(abi::add_immediate("x16", "x8", COLLECTION_HEADER_SIZE));
+        self.emit(abi::add_immediate("x17", "x1", COLLECTION_HEADER_SIZE));
+        self.emit_collection_data_pointer("x20", "x8");
+        self.emit(abi::move_immediate(
+            "x14",
+            "Integer",
+            &COLLECTION_ENTRY_SIZE.to_string(),
+        ));
+        self.emit(abi::multiply_registers("x21", "x11", "x14"));
+        self.emit(abi::add_registers("x21", "x17", "x21"));
+        self.emit(abi::move_immediate("x12", "Integer", "0"));
+        self.emit(abi::move_immediate("x13", "Integer", "0"));
+
+        self.emit(abi::label(&copy_loop));
+        self.emit(abi::compare_registers("x12", "x11"));
+        self.emit(abi::branch_ge(&copy_done));
+        self.emit(abi::move_immediate(
+            "x22",
+            "Byte",
+            &COLLECTION_ENTRY_FLAG_USED.to_string(),
+        ));
+        self.emit(abi::store_u8("x22", "x17", COLLECTION_ENTRY_OFFSET_FLAGS));
+        self.emit(abi::move_immediate("x22", "Integer", "0"));
+        self.emit(abi::store_u64(
+            "x22",
+            "x17",
+            COLLECTION_ENTRY_OFFSET_KEY_OFFSET,
+        ));
+        self.emit(abi::store_u64(
+            "x22",
+            "x17",
+            COLLECTION_ENTRY_OFFSET_KEY_LENGTH,
+        ));
+        self.emit(abi::load_u64(
+            "x22",
+            "x16",
+            COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
+        ));
+        self.emit(abi::load_u64(
+            "x23",
+            "x16",
+            COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
+        ));
+        self.emit(abi::store_u64(
+            "x13",
+            "x17",
+            COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
+        ));
+        self.emit_collection_payload_matches_value_branch(
+            element_type,
+            "x8",
+            "x22",
+            "x23",
+            "x9",
+            &copy_new,
+            &copy_old,
+        )?;
+
+        self.emit(abi::label(&copy_new));
+        self.emit(abi::load_u64("x23", abi::stack_pointer(), new_len_slot));
+        self.emit(abi::store_u64(
+            "x23",
+            "x17",
+            COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
+        ));
+        self.emit(abi::add_registers("x25", "x21", "x13"));
+        match element_type {
+            "Boolean" | "Byte" => {
+                self.emit(abi::load_u64("x24", abi::stack_pointer(), new_slot));
+                self.emit(abi::store_u8("x24", "x25", 0));
+            }
+            "Integer" | "Float" | "Fixed" => {
+                self.emit(abi::load_u64("x24", abi::stack_pointer(), new_slot));
+                self.emit(abi::store_u64("x24", "x25", 0));
+            }
+            "String" => {
+                self.emit(abi::load_u64("x24", abi::stack_pointer(), new_slot));
+                self.emit(abi::add_immediate("x24", "x24", 8));
+                self.emit(abi::label(&copy_new_string_loop));
+                self.emit(abi::compare_immediate("x23", "0"));
+                self.emit(abi::branch_eq(&copy_new_string_done));
+                self.emit(abi::load_u8("x22", "x24", 0));
+                self.emit(abi::store_u8("x22", "x25", 0));
+                self.emit(abi::add_immediate("x24", "x24", 1));
+                self.emit(abi::add_immediate("x25", "x25", 1));
+                self.emit(abi::subtract_immediate("x23", "x23", 1));
+                self.emit(abi::branch(&copy_new_string_loop));
+                self.emit(abi::label(&copy_new_string_done));
+            }
+            other => {
+                return Err(format!(
+                    "native collection packed payload does not support type '{other}'"
+                ));
+            }
+        }
+        self.emit(abi::branch(&copy_done_one));
+
+        self.emit(abi::label(&copy_old));
+        self.emit(abi::store_u64(
+            "x23",
+            "x17",
+            COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
+        ));
+        self.emit(abi::add_registers("x24", "x20", "x22"));
+        self.emit(abi::add_registers("x25", "x21", "x13"));
+        self.emit(abi::label(&copy_old_loop));
+        self.emit(abi::compare_immediate("x23", "0"));
+        self.emit(abi::branch_eq(&copy_done_one));
+        self.emit(abi::load_u8("x22", "x24", 0));
+        self.emit(abi::store_u8("x22", "x25", 0));
+        self.emit(abi::add_immediate("x24", "x24", 1));
+        self.emit(abi::add_immediate("x25", "x25", 1));
+        self.emit(abi::subtract_immediate("x23", "x23", 1));
+        self.emit(abi::branch(&copy_old_loop));
+
+        self.emit(abi::label(&copy_done_one));
+        self.emit(abi::load_u64(
+            "x23",
+            "x17",
+            COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
+        ));
+        self.emit(abi::add_registers("x13", "x13", "x23"));
+        self.emit(abi::add_immediate("x16", "x16", COLLECTION_ENTRY_SIZE));
+        self.emit(abi::add_immediate("x17", "x17", COLLECTION_ENTRY_SIZE));
+        self.emit(abi::add_immediate("x12", "x12", 1));
+        self.emit(abi::branch(&copy_loop));
+        self.emit(abi::label(&copy_done));
+
+        let result = self.allocate_register()?;
+        self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
+        Ok(ValueResult {
+            type_: list_type.to_string(),
+            location: result,
+            text: format!("replace({list_type}, {element_type}, {element_type})"),
+        })
+    }
+
     fn lower_to_string(&mut self, args: &[NirValue]) -> Result<ValueResult, String> {
         let value = self.lower_value(&args[0])?;
         let value_slot = self.allocate_stack_object("to_string_value", 8);
@@ -2183,6 +2678,7 @@ impl CodeBuilder<'_> {
     ) -> Result<ValueResult, String> {
         let list_slot = self.allocate_stack_object("to_string_byte_list", 8);
         let length_slot = self.allocate_stack_object("to_string_byte_list_length", 8);
+        let data_slot = self.allocate_stack_object("to_string_byte_list_data", 8);
         let result_slot = self.allocate_stack_object("to_string_byte_list_result", 8);
 
         let list = "x8";
@@ -2215,16 +2711,17 @@ impl CodeBuilder<'_> {
 
         self.emit(abi::move_register(list, source_register));
         self.emit(abi::store_u64(list, abi::stack_pointer(), list_slot));
-        self.emit(abi::load_u64(length, list, 0));
+        self.emit(abi::load_u64(length, list, COLLECTION_OFFSET_COUNT));
         self.emit(abi::store_u64(length, abi::stack_pointer(), length_slot));
+        self.emit_collection_data_pointer(offset, list);
+        self.emit(abi::store_u64(offset, abi::stack_pointer(), data_slot));
         self.emit(abi::move_immediate(index, "Integer", "0"));
 
         self.emit(abi::label(&validate_loop));
         self.emit(abi::compare_registers(index, length));
         self.emit(abi::branch_ge(&validate_done));
-        self.emit(abi::add_immediate(offset, index, 1));
-        self.emit(abi::shift_left_immediate(offset, offset, 3));
-        self.emit(abi::add_registers(offset, list, offset));
+        self.emit(abi::load_u64(offset, abi::stack_pointer(), data_slot));
+        self.emit(abi::add_registers(offset, offset, index));
         self.emit(abi::load_u8(byte, offset, 0));
 
         self.emit(abi::compare_immediate(byte, "128"));
@@ -2248,9 +2745,8 @@ impl CodeBuilder<'_> {
         self.emit(abi::add_immediate(index, index, 1));
         self.emit(abi::compare_registers(index, length));
         self.emit(abi::branch_ge(&invalid));
-        self.emit(abi::add_immediate(offset, index, 1));
-        self.emit(abi::shift_left_immediate(offset, offset, 3));
-        self.emit(abi::add_registers(offset, list, offset));
+        self.emit(abi::load_u64(offset, abi::stack_pointer(), data_slot));
+        self.emit(abi::add_registers(offset, offset, index));
         self.emit(abi::load_u8(byte2, offset, 0));
         self.emit(abi::compare_immediate(byte2, "128"));
         self.emit(abi::branch_lo(&invalid));
@@ -2264,13 +2760,13 @@ impl CodeBuilder<'_> {
         self.emit(abi::compare_registers(index, length));
         self.emit(abi::branch_ge(&invalid));
         self.emit(abi::subtract_immediate(index, index, 2));
-        self.emit(abi::add_immediate(offset, index, 2));
-        self.emit(abi::shift_left_immediate(offset, offset, 3));
-        self.emit(abi::add_registers(offset, list, offset));
+        self.emit(abi::load_u64(offset, abi::stack_pointer(), data_slot));
+        self.emit(abi::add_registers(offset, offset, index));
+        self.emit(abi::add_immediate(offset, offset, 1));
         self.emit(abi::load_u8(byte2, offset, 0));
-        self.emit(abi::add_immediate(offset, index, 3));
-        self.emit(abi::shift_left_immediate(offset, offset, 3));
-        self.emit(abi::add_registers(offset, list, offset));
+        self.emit(abi::load_u64(offset, abi::stack_pointer(), data_slot));
+        self.emit(abi::add_registers(offset, offset, index));
+        self.emit(abi::add_immediate(offset, offset, 2));
         self.emit(abi::load_u8(byte3, offset, 0));
         self.emit(abi::compare_immediate(byte3, "128"));
         self.emit(abi::branch_lo(&invalid));
@@ -2311,17 +2807,17 @@ impl CodeBuilder<'_> {
         self.emit(abi::compare_registers(index, length));
         self.emit(abi::branch_ge(&invalid));
         self.emit(abi::subtract_immediate(index, index, 3));
-        self.emit(abi::add_immediate(offset, index, 2));
-        self.emit(abi::shift_left_immediate(offset, offset, 3));
-        self.emit(abi::add_registers(offset, list, offset));
+        self.emit(abi::load_u64(offset, abi::stack_pointer(), data_slot));
+        self.emit(abi::add_registers(offset, offset, index));
+        self.emit(abi::add_immediate(offset, offset, 1));
         self.emit(abi::load_u8(byte2, offset, 0));
-        self.emit(abi::add_immediate(offset, index, 3));
-        self.emit(abi::shift_left_immediate(offset, offset, 3));
-        self.emit(abi::add_registers(offset, list, offset));
+        self.emit(abi::load_u64(offset, abi::stack_pointer(), data_slot));
+        self.emit(abi::add_registers(offset, offset, index));
+        self.emit(abi::add_immediate(offset, offset, 2));
         self.emit(abi::load_u8(byte3, offset, 0));
-        self.emit(abi::add_immediate(offset, index, 4));
-        self.emit(abi::shift_left_immediate(offset, offset, 3));
-        self.emit(abi::add_registers(offset, list, offset));
+        self.emit(abi::load_u64(offset, abi::stack_pointer(), data_slot));
+        self.emit(abi::add_registers(offset, offset, index));
+        self.emit(abi::add_immediate(offset, offset, 3));
         self.emit(abi::load_u8(byte4, offset, 0));
         for continuation in [byte3, byte4] {
             self.emit(abi::compare_immediate(continuation, "128"));
@@ -2391,9 +2887,8 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&copy_loop));
         self.emit(abi::compare_registers(index, length));
         self.emit(abi::branch_ge(&copy_done));
-        self.emit(abi::add_immediate(offset, index, 1));
-        self.emit(abi::shift_left_immediate(offset, offset, 3));
-        self.emit(abi::add_registers(offset, list, offset));
+        self.emit(abi::load_u64(offset, abi::stack_pointer(), data_slot));
+        self.emit(abi::add_registers(offset, offset, index));
         self.emit(abi::load_u8(byte, offset, 0));
         self.emit(abi::store_u8(byte, dst, 0));
         self.emit(abi::add_immediate(dst, dst, 1));
@@ -3550,6 +4045,11 @@ impl CodeBuilder<'_> {
         Ok(())
     }
 
+    fn emit_checked_integer_add(&mut self, dst: &str, lhs: &str, rhs: &str) -> Result<(), String> {
+        self.emit(abi::add_registers_set_flags(dst, lhs, rhs));
+        self.emit_overflow_if_flags_set()
+    }
+
     fn emit_byte_upper_bound_check(&mut self, value: &str) -> Result<(), String> {
         let overflow_label = self.label("byte_overflow");
         let ok_label = self.label("byte_ok");
@@ -3846,6 +4346,62 @@ impl CodeBuilder<'_> {
 
     fn lower_find(&mut self, args: &[NirValue]) -> Result<ValueResult, String> {
         let haystack = self.lower_value(&args[0])?;
+        if let Some(element_type) = list_element_type(&haystack.type_) {
+            let haystack_slot = self.allocate_stack_object("find_list_haystack", 8);
+            self.emit(abi::store_u64(
+                &haystack.location,
+                abi::stack_pointer(),
+                haystack_slot,
+            ));
+            let needle = self.lower_value(&args[1])?;
+            let needle_slot = self.allocate_stack_object("find_list_needle", 8);
+            self.emit(abi::store_u64(
+                &needle.location,
+                abi::stack_pointer(),
+                needle_slot,
+            ));
+            let start_slot = self.allocate_stack_object("find_list_start", 8);
+            if let Some(start) = args.get(2) {
+                let start = self.lower_value(start)?;
+                if start.type_ != "Integer" {
+                    return Err(format!(
+                        "native list find start must be Integer, got {}",
+                        start.type_
+                    ));
+                }
+                self.emit(abi::store_u64(
+                    &start.location,
+                    abi::stack_pointer(),
+                    start_slot,
+                ));
+            } else {
+                self.emit(abi::move_immediate("x8", "Integer", "0"));
+                self.emit(abi::store_u64("x8", abi::stack_pointer(), start_slot));
+            }
+
+            if needle.type_ == element_type {
+                return self.lower_list_find_item(
+                    haystack_slot,
+                    needle_slot,
+                    start_slot,
+                    &haystack.type_,
+                    &element_type,
+                );
+            }
+            if needle.type_ == haystack.type_ {
+                return self.lower_list_find_sublist(
+                    haystack_slot,
+                    needle_slot,
+                    start_slot,
+                    &haystack.type_,
+                    &element_type,
+                );
+            }
+            return Err(format!(
+                "native list find needle must be {} or {}, got {}",
+                element_type, haystack.type_, needle.type_
+            ));
+        }
         if haystack.type_ != "String" {
             return Err(format!(
                 "native string find haystack must be String, got {}",
@@ -4027,8 +4583,252 @@ impl CodeBuilder<'_> {
         })
     }
 
+    fn lower_list_find_item(
+        &mut self,
+        haystack_slot: usize,
+        needle_slot: usize,
+        start_slot: usize,
+        list_type: &str,
+        element_type: &str,
+    ) -> Result<ValueResult, String> {
+        let result_slot = self.allocate_stack_object("find_list_result", 8);
+        let valid_start = self.label("list_find_item_valid_start");
+        let loop_label = self.label("list_find_item_loop");
+        let found = self.label("list_find_item_found");
+        let next = self.label("list_find_item_next");
+        let invalid_start = self.label("list_find_item_invalid_start");
+        let not_found = self.label("list_find_item_not_found");
+        let done = self.label("list_find_item_done");
+
+        self.emit(abi::load_u64("x8", abi::stack_pointer(), haystack_slot));
+        self.emit(abi::load_u64("x9", abi::stack_pointer(), needle_slot));
+        self.emit(abi::load_u64("x10", "x8", COLLECTION_OFFSET_COUNT));
+        self.emit(abi::load_u64("x11", abi::stack_pointer(), start_slot));
+        self.emit(abi::compare_immediate("x11", "0"));
+        self.emit(abi::branch_ge(&valid_start));
+        self.emit(abi::branch(&invalid_start));
+        self.emit(abi::label(&valid_start));
+        self.emit(abi::compare_registers("x11", "x10"));
+        self.emit(abi::branch_gt(&invalid_start));
+        self.emit(abi::move_register("x12", "x11"));
+        self.emit(abi::move_immediate(
+            "x13",
+            "Integer",
+            &COLLECTION_ENTRY_SIZE.to_string(),
+        ));
+        self.emit(abi::multiply_registers("x14", "x12", "x13"));
+        self.emit(abi::add_immediate("x15", "x8", COLLECTION_HEADER_SIZE));
+        self.emit(abi::add_registers("x15", "x15", "x14"));
+
+        self.emit(abi::label(&loop_label));
+        self.emit(abi::compare_registers("x12", "x10"));
+        self.emit(abi::branch_ge(&not_found));
+        self.emit(abi::load_u64(
+            "x16",
+            "x15",
+            COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
+        ));
+        self.emit(abi::load_u64(
+            "x17",
+            "x15",
+            COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
+        ));
+        self.emit_collection_payload_matches_value_branch(
+            element_type,
+            "x8",
+            "x16",
+            "x17",
+            "x9",
+            &found,
+            &next,
+        )?;
+
+        self.emit(abi::label(&next));
+        self.emit(abi::add_immediate("x15", "x15", COLLECTION_ENTRY_SIZE));
+        self.emit(abi::add_immediate("x12", "x12", 1));
+        self.emit(abi::branch(&loop_label));
+
+        self.emit(abi::label(&invalid_start));
+        self.emit_index_out_of_range_return()?;
+        self.emit(abi::label(&not_found));
+        self.emit_not_found_return()?;
+        self.emit(abi::label(&found));
+        self.emit(abi::store_u64("x12", abi::stack_pointer(), result_slot));
+        self.emit(abi::branch(&done));
+        self.emit(abi::label(&done));
+
+        let result = self.allocate_register()?;
+        self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
+        Ok(ValueResult {
+            type_: "Integer".to_string(),
+            location: result,
+            text: format!("find({list_type}, {element_type})"),
+        })
+    }
+
+    fn lower_list_find_sublist(
+        &mut self,
+        haystack_slot: usize,
+        needle_slot: usize,
+        start_slot: usize,
+        list_type: &str,
+        element_type: &str,
+    ) -> Result<ValueResult, String> {
+        for register in ["x20", "x21", "x22", "x23", "x24", "x25"] {
+            self.mark_register_used(register);
+        }
+
+        let result_slot = self.allocate_stack_object("find_sublist_result", 8);
+        let valid_start = self.label("list_find_sublist_valid_start");
+        let empty_found = self.label("list_find_sublist_empty_found");
+        let outer_loop = self.label("list_find_sublist_outer_loop");
+        let compare_loop = self.label("list_find_sublist_compare_loop");
+        let compare_next = self.label("list_find_sublist_compare_next");
+        let found = self.label("list_find_sublist_found");
+        let advance_outer = self.label("list_find_sublist_advance_outer");
+        let invalid_start = self.label("list_find_sublist_invalid_start");
+        let not_found = self.label("list_find_sublist_not_found");
+        let done = self.label("list_find_sublist_done");
+
+        self.emit(abi::load_u64("x8", abi::stack_pointer(), haystack_slot));
+        self.emit(abi::load_u64("x9", abi::stack_pointer(), needle_slot));
+        self.emit(abi::load_u64("x10", "x8", COLLECTION_OFFSET_COUNT));
+        self.emit(abi::load_u64("x11", "x9", COLLECTION_OFFSET_COUNT));
+        self.emit(abi::load_u64("x12", abi::stack_pointer(), start_slot));
+        self.emit(abi::compare_immediate("x12", "0"));
+        self.emit(abi::branch_ge(&valid_start));
+        self.emit(abi::branch(&invalid_start));
+        self.emit(abi::label(&valid_start));
+        self.emit(abi::compare_registers("x12", "x10"));
+        self.emit(abi::branch_gt(&invalid_start));
+        self.emit(abi::compare_immediate("x11", "0"));
+        self.emit(abi::branch_eq(&empty_found));
+
+        self.emit(abi::move_register("x13", "x12"));
+        self.emit(abi::label(&outer_loop));
+        self.emit(abi::add_registers("x14", "x13", "x11"));
+        self.emit(abi::compare_registers("x14", "x10"));
+        self.emit(abi::branch_gt(&not_found));
+        self.emit(abi::move_immediate("x14", "Integer", "0"));
+
+        self.emit(abi::label(&compare_loop));
+        self.emit(abi::compare_registers("x14", "x11"));
+        self.emit(abi::branch_eq(&found));
+        self.emit(abi::add_registers("x15", "x13", "x14"));
+        self.emit(abi::move_immediate(
+            "x16",
+            "Integer",
+            &COLLECTION_ENTRY_SIZE.to_string(),
+        ));
+        self.emit(abi::multiply_registers("x15", "x15", "x16"));
+        self.emit(abi::add_immediate("x17", "x8", COLLECTION_HEADER_SIZE));
+        self.emit(abi::add_registers("x17", "x17", "x15"));
+        self.emit(abi::multiply_registers("x20", "x14", "x16"));
+        self.emit(abi::add_immediate("x25", "x9", COLLECTION_HEADER_SIZE));
+        self.emit(abi::add_registers("x20", "x25", "x20"));
+        self.emit(abi::load_u64(
+            "x21",
+            "x17",
+            COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
+        ));
+        self.emit(abi::load_u64(
+            "x22",
+            "x17",
+            COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
+        ));
+        self.emit(abi::load_u64(
+            "x23",
+            "x20",
+            COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
+        ));
+        self.emit(abi::load_u64(
+            "x24",
+            "x20",
+            COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
+        ));
+        self.emit_collection_payloads_match_branch(
+            element_type,
+            "x8",
+            "x21",
+            "x22",
+            "x9",
+            "x23",
+            "x24",
+            &compare_next,
+            &advance_outer,
+        )?;
+
+        self.emit(abi::label(&compare_next));
+        self.emit(abi::add_immediate("x14", "x14", 1));
+        self.emit(abi::branch(&compare_loop));
+
+        self.emit(abi::label(&advance_outer));
+        self.emit(abi::add_immediate("x13", "x13", 1));
+        self.emit(abi::branch(&outer_loop));
+
+        self.emit(abi::label(&empty_found));
+        self.emit(abi::store_u64("x12", abi::stack_pointer(), result_slot));
+        self.emit(abi::branch(&done));
+        self.emit(abi::label(&invalid_start));
+        self.emit_index_out_of_range_return()?;
+        self.emit(abi::label(&not_found));
+        self.emit_not_found_return()?;
+        self.emit(abi::label(&found));
+        self.emit(abi::store_u64("x13", abi::stack_pointer(), result_slot));
+        self.emit(abi::label(&done));
+
+        let result = self.allocate_register()?;
+        self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
+        Ok(ValueResult {
+            type_: "Integer".to_string(),
+            location: result,
+            text: format!("find({list_type}, {list_type}) over {element_type}"),
+        })
+    }
+
     fn lower_mid(&mut self, args: &[NirValue]) -> Result<ValueResult, String> {
         let value = self.lower_value(&args[0])?;
+        if let Some(element_type) = list_element_type(&value.type_) {
+            let value_slot = self.allocate_stack_object("mid_list_value", 8);
+            self.emit(abi::store_u64(
+                &value.location,
+                abi::stack_pointer(),
+                value_slot,
+            ));
+            let start = self.lower_value(&args[1])?;
+            if start.type_ != "Integer" {
+                return Err(format!(
+                    "native list mid start must be Integer, got {}",
+                    start.type_
+                ));
+            }
+            let start_slot = self.allocate_stack_object("mid_list_start", 8);
+            self.emit(abi::store_u64(
+                &start.location,
+                abi::stack_pointer(),
+                start_slot,
+            ));
+            let count = self.lower_value(&args[2])?;
+            if count.type_ != "Integer" {
+                return Err(format!(
+                    "native list mid count must be Integer, got {}",
+                    count.type_
+                ));
+            }
+            let count_slot = self.allocate_stack_object("mid_list_count", 8);
+            self.emit(abi::store_u64(
+                &count.location,
+                abi::stack_pointer(),
+                count_slot,
+            ));
+            return self.lower_list_mid(
+                value_slot,
+                start_slot,
+                count_slot,
+                &value.type_,
+                &element_type,
+            );
+        }
         if value.type_ != "String" {
             return Err(format!(
                 "native string mid value must be String, got {}",
@@ -4249,6 +5049,2779 @@ impl CodeBuilder<'_> {
         })
     }
 
+    fn lower_list_mid(
+        &mut self,
+        value_slot: usize,
+        start_slot: usize,
+        count_slot: usize,
+        list_type: &str,
+        element_type: &str,
+    ) -> Result<ValueResult, String> {
+        let layout = CollectionTypeLayout::from_type(list_type)
+            .ok_or_else(|| format!("native code collection type '{list_type}' is not supported"))?;
+        for register in ["x20", "x21", "x22", "x23", "x24", "x25"] {
+            self.mark_register_used(register);
+        }
+
+        let data_len_slot = self.allocate_stack_object("mid_list_data_len", 8);
+        let result_slot = self.allocate_stack_object("mid_list_result", 8);
+        let valid_start = self.label("mid_list_valid_start");
+        let valid_count = self.label("mid_list_valid_count");
+        let range_ok = self.label("mid_list_range_ok");
+        let length_loop = self.label("mid_list_length_loop");
+        let length_done = self.label("mid_list_length_done");
+        let alloc_ok = self.label("mid_list_alloc_ok");
+        let copy_loop = self.label("mid_list_copy_loop");
+        let copy_entry = self.label("mid_list_copy_entry");
+        let copy_bytes = self.label("mid_list_copy_bytes");
+        let copy_bytes_done = self.label("mid_list_copy_bytes_done");
+        let copy_done = self.label("mid_list_copy_done");
+        let invalid_range = self.label("mid_list_invalid_range");
+        let done = self.label("mid_list_done");
+
+        self.emit(abi::load_u64("x8", abi::stack_pointer(), value_slot));
+        self.emit(abi::load_u64("x9", abi::stack_pointer(), start_slot));
+        self.emit(abi::load_u64("x10", abi::stack_pointer(), count_slot));
+        self.emit(abi::load_u64("x11", "x8", COLLECTION_OFFSET_COUNT));
+        self.emit(abi::compare_immediate("x9", "0"));
+        self.emit(abi::branch_ge(&valid_start));
+        self.emit(abi::branch(&invalid_range));
+        self.emit(abi::label(&valid_start));
+        self.emit(abi::compare_immediate("x10", "0"));
+        self.emit(abi::branch_ge(&valid_count));
+        self.emit(abi::branch(&invalid_range));
+        self.emit(abi::label(&valid_count));
+        self.emit(abi::compare_registers("x9", "x11"));
+        self.emit(abi::branch_gt(&invalid_range));
+        self.emit(abi::add_registers("x12", "x9", "x10"));
+        self.emit(abi::compare_registers("x12", "x9"));
+        self.emit(abi::branch_lt(&invalid_range));
+        self.emit(abi::compare_registers("x12", "x11"));
+        self.emit(abi::branch_le(&range_ok));
+        self.emit(abi::branch(&invalid_range));
+
+        self.emit(abi::label(&range_ok));
+        self.emit(abi::move_immediate("x13", "Integer", "0"));
+        self.emit(abi::store_u64("x13", abi::stack_pointer(), data_len_slot));
+        self.emit(abi::move_immediate(
+            "x14",
+            "Integer",
+            &COLLECTION_ENTRY_SIZE.to_string(),
+        ));
+        self.emit(abi::multiply_registers("x15", "x9", "x14"));
+        self.emit(abi::add_immediate("x16", "x8", COLLECTION_HEADER_SIZE));
+        self.emit(abi::add_registers("x16", "x16", "x15"));
+
+        self.emit(abi::label(&length_loop));
+        self.emit(abi::compare_registers("x13", "x10"));
+        self.emit(abi::branch_ge(&length_done));
+        self.emit(abi::load_u64(
+            "x17",
+            "x16",
+            COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
+        ));
+        self.emit(abi::load_u64("x20", abi::stack_pointer(), data_len_slot));
+        self.emit(abi::add_registers("x20", "x20", "x17"));
+        self.emit(abi::store_u64("x20", abi::stack_pointer(), data_len_slot));
+        self.emit(abi::add_immediate("x16", "x16", COLLECTION_ENTRY_SIZE));
+        self.emit(abi::add_immediate("x13", "x13", 1));
+        self.emit(abi::branch(&length_loop));
+
+        self.emit(abi::label(&length_done));
+        self.emit(abi::move_immediate(
+            "x14",
+            "Integer",
+            &COLLECTION_ENTRY_SIZE.to_string(),
+        ));
+        self.emit(abi::multiply_registers("x15", "x10", "x14"));
+        self.emit(abi::load_u64("x16", abi::stack_pointer(), data_len_slot));
+        self.emit(abi::add_immediate(
+            abi::return_register(),
+            "x15",
+            COLLECTION_HEADER_SIZE,
+        ));
+        self.emit(abi::add_registers(
+            abi::return_register(),
+            abi::return_register(),
+            "x16",
+        ));
+        self.emit(abi::move_immediate("x1", "Integer", "8"));
+        self.emit(abi::branch_link(ARENA_ALLOC_SYMBOL));
+        self.relocations.push(CodeRelocation {
+            from: self.current_symbol.clone(),
+            to: ARENA_ALLOC_SYMBOL.to_string(),
+            kind: "branch26".to_string(),
+            binding: "internal".to_string(),
+            library: None,
+        });
+        self.emit(abi::compare_immediate(
+            abi::return_register(),
+            RESULT_OK_TAG,
+        ));
+        self.emit(abi::branch_eq(&alloc_ok));
+        self.emit_allocation_error_return()?;
+        self.emit(abi::label(&alloc_ok));
+        self.emit(abi::store_u64("x1", abi::stack_pointer(), result_slot));
+
+        self.emit(abi::move_immediate("x13", "Byte", &layout.kind.to_string()));
+        self.emit(abi::store_u8("x13", "x1", COLLECTION_OFFSET_KIND));
+        self.emit(abi::move_immediate(
+            "x13",
+            "Byte",
+            &layout.key_type_code.to_string(),
+        ));
+        self.emit(abi::store_u8("x13", "x1", COLLECTION_OFFSET_KEY_TYPE));
+        self.emit(abi::move_immediate(
+            "x13",
+            "Byte",
+            &layout.value_type_code.to_string(),
+        ));
+        self.emit(abi::store_u8("x13", "x1", COLLECTION_OFFSET_VALUE_TYPE));
+        self.emit(abi::move_immediate("x13", "Byte", "1"));
+        self.emit(abi::store_u8("x13", "x1", COLLECTION_OFFSET_FLAGS_VERSION));
+        self.emit(abi::load_u64("x10", abi::stack_pointer(), count_slot));
+        self.emit(abi::store_u64("x10", "x1", COLLECTION_OFFSET_COUNT));
+        self.emit(abi::store_u64("x10", "x1", COLLECTION_OFFSET_CAPACITY));
+        self.emit(abi::load_u64("x16", abi::stack_pointer(), data_len_slot));
+        self.emit(abi::store_u64("x16", "x1", COLLECTION_OFFSET_DATA_LENGTH));
+        self.emit(abi::store_u64("x16", "x1", COLLECTION_OFFSET_DATA_CAPACITY));
+
+        self.emit(abi::load_u64("x8", abi::stack_pointer(), value_slot));
+        self.emit(abi::load_u64("x9", abi::stack_pointer(), start_slot));
+        self.emit(abi::load_u64("x10", abi::stack_pointer(), count_slot));
+        self.emit(abi::load_u64("x1", abi::stack_pointer(), result_slot));
+        self.emit(abi::move_immediate(
+            "x14",
+            "Integer",
+            &COLLECTION_ENTRY_SIZE.to_string(),
+        ));
+        self.emit(abi::multiply_registers("x15", "x9", "x14"));
+        self.emit(abi::add_immediate("x16", "x8", COLLECTION_HEADER_SIZE));
+        self.emit(abi::add_registers("x16", "x16", "x15"));
+        self.emit(abi::add_immediate("x17", "x1", COLLECTION_HEADER_SIZE));
+        self.emit_collection_data_pointer("x20", "x8");
+        self.emit(abi::multiply_registers("x21", "x10", "x14"));
+        self.emit(abi::add_registers("x21", "x17", "x21"));
+        self.emit(abi::move_immediate("x12", "Integer", "0"));
+        self.emit(abi::move_immediate("x13", "Integer", "0"));
+
+        self.emit(abi::label(&copy_loop));
+        self.emit(abi::compare_registers("x12", "x10"));
+        self.emit(abi::branch_ge(&copy_done));
+        self.emit(abi::label(&copy_entry));
+        self.emit(abi::move_immediate(
+            "x22",
+            "Byte",
+            &COLLECTION_ENTRY_FLAG_USED.to_string(),
+        ));
+        self.emit(abi::store_u8("x22", "x17", COLLECTION_ENTRY_OFFSET_FLAGS));
+        self.emit(abi::move_immediate("x22", "Integer", "0"));
+        self.emit(abi::store_u64(
+            "x22",
+            "x17",
+            COLLECTION_ENTRY_OFFSET_KEY_OFFSET,
+        ));
+        self.emit(abi::store_u64(
+            "x22",
+            "x17",
+            COLLECTION_ENTRY_OFFSET_KEY_LENGTH,
+        ));
+        self.emit(abi::load_u64(
+            "x22",
+            "x16",
+            COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
+        ));
+        self.emit(abi::load_u64(
+            "x23",
+            "x16",
+            COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
+        ));
+        self.emit(abi::store_u64(
+            "x13",
+            "x17",
+            COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
+        ));
+        self.emit(abi::store_u64(
+            "x23",
+            "x17",
+            COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
+        ));
+        self.emit(abi::add_registers("x24", "x20", "x22"));
+        self.emit(abi::add_registers("x25", "x21", "x13"));
+
+        self.emit(abi::label(&copy_bytes));
+        self.emit(abi::compare_immediate("x23", "0"));
+        self.emit(abi::branch_eq(&copy_bytes_done));
+        self.emit(abi::load_u8("x22", "x24", 0));
+        self.emit(abi::store_u8("x22", "x25", 0));
+        self.emit(abi::add_immediate("x24", "x24", 1));
+        self.emit(abi::add_immediate("x25", "x25", 1));
+        self.emit(abi::subtract_immediate("x23", "x23", 1));
+        self.emit(abi::branch(&copy_bytes));
+        self.emit(abi::label(&copy_bytes_done));
+        self.emit(abi::load_u64(
+            "x23",
+            "x17",
+            COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
+        ));
+        self.emit(abi::add_registers("x13", "x13", "x23"));
+        self.emit(abi::add_immediate("x16", "x16", COLLECTION_ENTRY_SIZE));
+        self.emit(abi::add_immediate("x17", "x17", COLLECTION_ENTRY_SIZE));
+        self.emit(abi::add_immediate("x12", "x12", 1));
+        self.emit(abi::branch(&copy_loop));
+
+        self.emit(abi::label(&invalid_range));
+        self.emit_index_out_of_range_return()?;
+        self.emit(abi::label(&copy_done));
+        self.emit(abi::branch(&done));
+        self.emit(abi::label(&done));
+
+        let result = self.allocate_register()?;
+        self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
+        Ok(ValueResult {
+            type_: list_type.to_string(),
+            location: result,
+            text: format!("mid({list_type}, Integer, Integer) over {element_type}"),
+        })
+    }
+
+    fn lower_collection_get(&mut self, args: &[NirValue]) -> Result<ValueResult, String> {
+        let collection = self.lower_value(&args[0])?;
+        let collection_slot = self.allocate_stack_object("get_collection", 8);
+        self.emit(abi::store_u64(
+            &collection.location,
+            abi::stack_pointer(),
+            collection_slot,
+        ));
+
+        let key = self.lower_value(&args[1])?;
+        let key_slot = self.allocate_stack_object("get_key", 8);
+        self.emit(abi::store_u64(
+            &key.location,
+            abi::stack_pointer(),
+            key_slot,
+        ));
+
+        if let Some(element_type) = list_element_type(&collection.type_) {
+            if key.type_ != "Integer" {
+                return Err(format!(
+                    "native collection get list index must be Integer, got {}",
+                    key.type_
+                ));
+            }
+            return self.lower_list_get(
+                collection_slot,
+                key_slot,
+                &collection.type_,
+                &element_type,
+            );
+        }
+
+        if let Some((key_type, value_type)) = map_type_parts(&collection.type_) {
+            if key.type_ != key_type {
+                return Err(format!(
+                    "native collection get map key must be {}, got {}",
+                    key_type, key.type_
+                ));
+            }
+            return self.lower_map_get(
+                collection_slot,
+                key_slot,
+                &collection.type_,
+                &key_type,
+                &value_type,
+            );
+        }
+
+        Err(format!(
+            "native collection get does not accept {}",
+            collection.type_
+        ))
+    }
+
+    fn lower_collection_contains(&mut self, args: &[NirValue]) -> Result<ValueResult, String> {
+        let collection = self.lower_value(&args[0])?;
+        let collection_slot = self.allocate_stack_object("contains_collection", 8);
+        self.emit(abi::store_u64(
+            &collection.location,
+            abi::stack_pointer(),
+            collection_slot,
+        ));
+
+        let item = self.lower_value(&args[1])?;
+        let item_slot = self.allocate_stack_object("contains_item", 8);
+        self.emit(abi::store_u64(
+            &item.location,
+            abi::stack_pointer(),
+            item_slot,
+        ));
+
+        let Some(element_type) = list_element_type(&collection.type_) else {
+            return Err(format!(
+                "native collection contains does not accept {}",
+                collection.type_
+            ));
+        };
+        if item.type_ != element_type {
+            return Err(format!(
+                "native collection contains item must be {}, got {}",
+                element_type, item.type_
+            ));
+        }
+
+        self.reset_temporary_registers();
+        let collection_register = self.allocate_register()?;
+        let item_register = self.allocate_register()?;
+        let count = self.allocate_register()?;
+        let index = self.allocate_register()?;
+        let entry = self.allocate_register()?;
+        let value_offset = self.allocate_register()?;
+        let value_length = self.allocate_register()?;
+        let result = self.allocate_register()?;
+        let loop_label = self.label("contains_loop");
+        let found = self.label("contains_found");
+        let next = self.label("contains_next");
+        let not_found = self.label("contains_not_found");
+        let done = self.label("contains_done");
+
+        self.emit(abi::load_u64(
+            &collection_register,
+            abi::stack_pointer(),
+            collection_slot,
+        ));
+        self.emit(abi::load_u64(
+            &item_register,
+            abi::stack_pointer(),
+            item_slot,
+        ));
+        self.emit(abi::load_u64(
+            &count,
+            &collection_register,
+            COLLECTION_OFFSET_COUNT,
+        ));
+        self.emit(abi::move_immediate(&index, "Integer", "0"));
+        self.emit(abi::add_immediate(
+            &entry,
+            &collection_register,
+            COLLECTION_HEADER_SIZE,
+        ));
+
+        self.emit(abi::label(&loop_label));
+        self.emit(abi::compare_registers(&index, &count));
+        self.emit(abi::branch_ge(&not_found));
+        self.emit(abi::load_u64(
+            &value_offset,
+            &entry,
+            COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
+        ));
+        self.emit(abi::load_u64(
+            &value_length,
+            &entry,
+            COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
+        ));
+        self.emit_collection_payload_match_branch(
+            &element_type,
+            &collection_register,
+            &value_offset,
+            &value_length,
+            &item_register,
+            &found,
+            &next,
+        )?;
+
+        self.emit(abi::label(&found));
+        self.emit(abi::move_immediate(&result, "Boolean", "true"));
+        self.emit(abi::branch(&done));
+
+        self.emit(abi::label(&next));
+        self.emit(abi::add_immediate(&entry, &entry, COLLECTION_ENTRY_SIZE));
+        self.emit(abi::add_immediate(&index, &index, 1));
+        self.emit(abi::branch(&loop_label));
+
+        self.emit(abi::label(&not_found));
+        self.emit(abi::move_immediate(&result, "Boolean", "false"));
+        self.emit(abi::label(&done));
+
+        Ok(ValueResult {
+            type_: "Boolean".to_string(),
+            location: result,
+            text: format!("contains({}, {})", collection.type_, element_type),
+        })
+    }
+
+    fn lower_collection_get_or(&mut self, args: &[NirValue]) -> Result<ValueResult, String> {
+        let collection = self.lower_value(&args[0])?;
+        let collection_slot = self.allocate_stack_object("get_or_collection", 8);
+        self.emit(abi::store_u64(
+            &collection.location,
+            abi::stack_pointer(),
+            collection_slot,
+        ));
+
+        let key = self.lower_value(&args[1])?;
+        let key_slot = self.allocate_stack_object("get_or_key", 8);
+        self.emit(abi::store_u64(
+            &key.location,
+            abi::stack_pointer(),
+            key_slot,
+        ));
+
+        let default = self.lower_value(&args[2])?;
+        let default_slot = self.allocate_stack_object("get_or_default", 8);
+        self.emit(abi::store_u64(
+            &default.location,
+            abi::stack_pointer(),
+            default_slot,
+        ));
+
+        if let Some(element_type) = list_element_type(&collection.type_) {
+            if key.type_ != "Integer" {
+                return Err(format!(
+                    "native collection getOr list index must be Integer, got {}",
+                    key.type_
+                ));
+            }
+            if default.type_ != element_type {
+                return Err(format!(
+                    "native collection getOr default must be {}, got {}",
+                    element_type, default.type_
+                ));
+            }
+            return self.lower_list_get_or(
+                collection_slot,
+                key_slot,
+                default_slot,
+                &collection.type_,
+                &element_type,
+            );
+        }
+
+        if let Some((key_type, value_type)) = map_type_parts(&collection.type_) {
+            if key.type_ != key_type {
+                return Err(format!(
+                    "native collection getOr map key must be {}, got {}",
+                    key_type, key.type_
+                ));
+            }
+            if default.type_ != value_type {
+                return Err(format!(
+                    "native collection getOr default must be {}, got {}",
+                    value_type, default.type_
+                ));
+            }
+            return self.lower_map_get_or(
+                collection_slot,
+                key_slot,
+                default_slot,
+                &collection.type_,
+                &key_type,
+                &value_type,
+            );
+        }
+
+        Err(format!(
+            "native collection getOr does not accept {}",
+            collection.type_
+        ))
+    }
+
+    fn lower_collection_has_key(&mut self, args: &[NirValue]) -> Result<ValueResult, String> {
+        let collection = self.lower_value(&args[0])?;
+        let collection_slot = self.allocate_stack_object("has_key_collection", 8);
+        self.emit(abi::store_u64(
+            &collection.location,
+            abi::stack_pointer(),
+            collection_slot,
+        ));
+        let key = self.lower_value(&args[1])?;
+        let key_slot = self.allocate_stack_object("has_key_key", 8);
+        self.emit(abi::store_u64(
+            &key.location,
+            abi::stack_pointer(),
+            key_slot,
+        ));
+
+        let Some((key_type, _)) = map_type_parts(&collection.type_) else {
+            return Err(format!(
+                "native collection hasKey does not accept {}",
+                collection.type_
+            ));
+        };
+        if key.type_ != key_type {
+            return Err(format!(
+                "native collection hasKey key must be {}, got {}",
+                key_type, key.type_
+            ));
+        }
+
+        self.reset_temporary_registers();
+        let result = self.allocate_register()?;
+        let loop_label = self.label("has_key_loop");
+        let found = self.label("has_key_found");
+        let next = self.label("has_key_next");
+        let not_found = self.label("has_key_not_found");
+        let done = self.label("has_key_done");
+
+        self.emit(abi::load_u64("x8", abi::stack_pointer(), collection_slot));
+        self.emit(abi::load_u64("x9", abi::stack_pointer(), key_slot));
+        self.emit(abi::load_u64("x10", "x8", COLLECTION_OFFSET_COUNT));
+        self.emit(abi::move_immediate("x11", "Integer", "0"));
+        self.emit(abi::add_immediate("x12", "x8", COLLECTION_HEADER_SIZE));
+        self.emit(abi::label(&loop_label));
+        self.emit(abi::compare_registers("x11", "x10"));
+        self.emit(abi::branch_ge(&not_found));
+        self.emit(abi::load_u64(
+            "x13",
+            "x12",
+            COLLECTION_ENTRY_OFFSET_KEY_OFFSET,
+        ));
+        self.emit(abi::load_u64(
+            "x14",
+            "x12",
+            COLLECTION_ENTRY_OFFSET_KEY_LENGTH,
+        ));
+        self.emit_collection_payload_matches_value_branch(
+            &key_type, "x8", "x13", "x14", "x9", &found, &next,
+        )?;
+        self.emit(abi::label(&found));
+        self.emit(abi::move_immediate(&result, "Boolean", "true"));
+        self.emit(abi::branch(&done));
+        self.emit(abi::label(&next));
+        self.emit(abi::add_immediate("x12", "x12", COLLECTION_ENTRY_SIZE));
+        self.emit(abi::add_immediate("x11", "x11", 1));
+        self.emit(abi::branch(&loop_label));
+        self.emit(abi::label(&not_found));
+        self.emit(abi::move_immediate(&result, "Boolean", "false"));
+        self.emit(abi::label(&done));
+
+        Ok(ValueResult {
+            type_: "Boolean".to_string(),
+            location: result,
+            text: format!("hasKey({}, {})", collection.type_, key_type),
+        })
+    }
+
+    fn lower_collection_keys(&mut self, args: &[NirValue]) -> Result<ValueResult, String> {
+        let collection = self.lower_value(&args[0])?;
+        let Some((key_type, _)) = map_type_parts(&collection.type_) else {
+            return Err(format!(
+                "native collection keys does not accept {}",
+                collection.type_
+            ));
+        };
+        self.lower_map_projection(&collection, &key_type, true)
+    }
+
+    fn lower_collection_values_builtin(
+        &mut self,
+        args: &[NirValue],
+    ) -> Result<ValueResult, String> {
+        let collection = self.lower_value(&args[0])?;
+        let Some((_, value_type)) = map_type_parts(&collection.type_) else {
+            return Err(format!(
+                "native collection values does not accept {}",
+                collection.type_
+            ));
+        };
+        self.lower_map_projection(&collection, &value_type, false)
+    }
+
+    fn lower_map_projection(
+        &mut self,
+        collection: &ValueResult,
+        element_type: &str,
+        project_key: bool,
+    ) -> Result<ValueResult, String> {
+        let collection_slot = self.allocate_stack_object("map_projection_collection", 8);
+        self.emit(abi::store_u64(
+            &collection.location,
+            abi::stack_pointer(),
+            collection_slot,
+        ));
+        let layout = CollectionTypeLayout::from_type(&format!("List OF {element_type}"))
+            .ok_or_else(|| {
+                format!("native code collection type 'List OF {element_type}' is not supported")
+            })?;
+        for register in ["x20", "x21", "x22", "x23", "x24", "x25"] {
+            self.mark_register_used(register);
+        }
+        let data_len_slot = self.allocate_stack_object("map_projection_data_len", 8);
+        let result_slot = self.allocate_stack_object("map_projection_result", 8);
+        let length_loop = self.label("map_projection_length_loop");
+        let length_done = self.label("map_projection_length_done");
+        let alloc_ok = self.label("map_projection_alloc_ok");
+        let copy_loop = self.label("map_projection_copy_loop");
+        let copy_bytes = self.label("map_projection_copy_bytes");
+        let copy_bytes_done = self.label("map_projection_copy_bytes_done");
+        let copy_done = self.label("map_projection_copy_done");
+        let offset_field = if project_key {
+            COLLECTION_ENTRY_OFFSET_KEY_OFFSET
+        } else {
+            COLLECTION_ENTRY_OFFSET_VALUE_OFFSET
+        };
+        let length_field = if project_key {
+            COLLECTION_ENTRY_OFFSET_KEY_LENGTH
+        } else {
+            COLLECTION_ENTRY_OFFSET_VALUE_LENGTH
+        };
+
+        self.emit(abi::load_u64("x8", abi::stack_pointer(), collection_slot));
+        self.emit(abi::load_u64("x9", "x8", COLLECTION_OFFSET_COUNT));
+        self.emit(abi::move_immediate("x10", "Integer", "0"));
+        self.emit(abi::move_immediate("x11", "Integer", "0"));
+        self.emit(abi::add_immediate("x12", "x8", COLLECTION_HEADER_SIZE));
+        self.emit(abi::label(&length_loop));
+        self.emit(abi::compare_registers("x10", "x9"));
+        self.emit(abi::branch_ge(&length_done));
+        self.emit(abi::load_u64("x13", "x12", length_field));
+        self.emit(abi::add_registers("x11", "x11", "x13"));
+        self.emit(abi::add_immediate("x12", "x12", COLLECTION_ENTRY_SIZE));
+        self.emit(abi::add_immediate("x10", "x10", 1));
+        self.emit(abi::branch(&length_loop));
+        self.emit(abi::label(&length_done));
+        self.emit(abi::store_u64("x11", abi::stack_pointer(), data_len_slot));
+        self.emit(abi::move_immediate(
+            "x14",
+            "Integer",
+            &COLLECTION_ENTRY_SIZE.to_string(),
+        ));
+        self.emit(abi::multiply_registers("x15", "x9", "x14"));
+        self.emit(abi::add_immediate(
+            abi::return_register(),
+            "x15",
+            COLLECTION_HEADER_SIZE,
+        ));
+        self.emit(abi::add_registers(
+            abi::return_register(),
+            abi::return_register(),
+            "x11",
+        ));
+        self.emit(abi::move_immediate("x1", "Integer", "8"));
+        self.emit(abi::branch_link(ARENA_ALLOC_SYMBOL));
+        self.relocations.push(CodeRelocation {
+            from: self.current_symbol.clone(),
+            to: ARENA_ALLOC_SYMBOL.to_string(),
+            kind: "branch26".to_string(),
+            binding: "internal".to_string(),
+            library: None,
+        });
+        self.emit(abi::compare_immediate(
+            abi::return_register(),
+            RESULT_OK_TAG,
+        ));
+        self.emit(abi::branch_eq(&alloc_ok));
+        self.emit_allocation_error_return()?;
+        self.emit(abi::label(&alloc_ok));
+        self.emit(abi::store_u64("x1", abi::stack_pointer(), result_slot));
+        self.emit(abi::move_immediate("x13", "Byte", &layout.kind.to_string()));
+        self.emit(abi::store_u8("x13", "x1", COLLECTION_OFFSET_KIND));
+        self.emit(abi::move_immediate(
+            "x13",
+            "Byte",
+            &layout.key_type_code.to_string(),
+        ));
+        self.emit(abi::store_u8("x13", "x1", COLLECTION_OFFSET_KEY_TYPE));
+        self.emit(abi::move_immediate(
+            "x13",
+            "Byte",
+            &layout.value_type_code.to_string(),
+        ));
+        self.emit(abi::store_u8("x13", "x1", COLLECTION_OFFSET_VALUE_TYPE));
+        self.emit(abi::move_immediate("x13", "Byte", "1"));
+        self.emit(abi::store_u8("x13", "x1", COLLECTION_OFFSET_FLAGS_VERSION));
+        self.emit(abi::load_u64("x9", "x8", COLLECTION_OFFSET_COUNT));
+        self.emit(abi::store_u64("x9", "x1", COLLECTION_OFFSET_COUNT));
+        self.emit(abi::store_u64("x9", "x1", COLLECTION_OFFSET_CAPACITY));
+        self.emit(abi::load_u64("x11", abi::stack_pointer(), data_len_slot));
+        self.emit(abi::store_u64("x11", "x1", COLLECTION_OFFSET_DATA_LENGTH));
+        self.emit(abi::store_u64("x11", "x1", COLLECTION_OFFSET_DATA_CAPACITY));
+
+        self.emit(abi::load_u64("x8", abi::stack_pointer(), collection_slot));
+        self.emit(abi::load_u64("x1", abi::stack_pointer(), result_slot));
+        self.emit(abi::load_u64("x9", "x8", COLLECTION_OFFSET_COUNT));
+        self.emit(abi::add_immediate("x12", "x8", COLLECTION_HEADER_SIZE));
+        self.emit(abi::add_immediate("x17", "x1", COLLECTION_HEADER_SIZE));
+        self.emit_collection_data_pointer("x20", "x8");
+        self.emit(abi::move_immediate(
+            "x14",
+            "Integer",
+            &COLLECTION_ENTRY_SIZE.to_string(),
+        ));
+        self.emit(abi::multiply_registers("x21", "x9", "x14"));
+        self.emit(abi::add_registers("x21", "x17", "x21"));
+        self.emit(abi::move_immediate("x10", "Integer", "0"));
+        self.emit(abi::move_immediate("x11", "Integer", "0"));
+        self.emit(abi::label(&copy_loop));
+        self.emit(abi::compare_registers("x10", "x9"));
+        self.emit(abi::branch_ge(&copy_done));
+        self.emit(abi::move_immediate(
+            "x22",
+            "Byte",
+            &COLLECTION_ENTRY_FLAG_USED.to_string(),
+        ));
+        self.emit(abi::store_u8("x22", "x17", COLLECTION_ENTRY_OFFSET_FLAGS));
+        self.emit(abi::move_immediate("x22", "Integer", "0"));
+        self.emit(abi::store_u64(
+            "x22",
+            "x17",
+            COLLECTION_ENTRY_OFFSET_KEY_OFFSET,
+        ));
+        self.emit(abi::store_u64(
+            "x22",
+            "x17",
+            COLLECTION_ENTRY_OFFSET_KEY_LENGTH,
+        ));
+        self.emit(abi::load_u64("x22", "x12", offset_field));
+        self.emit(abi::load_u64("x23", "x12", length_field));
+        self.emit(abi::store_u64(
+            "x11",
+            "x17",
+            COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
+        ));
+        self.emit(abi::store_u64(
+            "x23",
+            "x17",
+            COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
+        ));
+        self.emit(abi::add_registers("x24", "x20", "x22"));
+        self.emit(abi::add_registers("x25", "x21", "x11"));
+        self.emit(abi::label(&copy_bytes));
+        self.emit(abi::compare_immediate("x23", "0"));
+        self.emit(abi::branch_eq(&copy_bytes_done));
+        self.emit(abi::load_u8("x22", "x24", 0));
+        self.emit(abi::store_u8("x22", "x25", 0));
+        self.emit(abi::add_immediate("x24", "x24", 1));
+        self.emit(abi::add_immediate("x25", "x25", 1));
+        self.emit(abi::subtract_immediate("x23", "x23", 1));
+        self.emit(abi::branch(&copy_bytes));
+        self.emit(abi::label(&copy_bytes_done));
+        self.emit(abi::load_u64(
+            "x23",
+            "x17",
+            COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
+        ));
+        self.emit(abi::add_registers("x11", "x11", "x23"));
+        self.emit(abi::add_immediate("x12", "x12", COLLECTION_ENTRY_SIZE));
+        self.emit(abi::add_immediate("x17", "x17", COLLECTION_ENTRY_SIZE));
+        self.emit(abi::add_immediate("x10", "x10", 1));
+        self.emit(abi::branch(&copy_loop));
+        self.emit(abi::label(&copy_done));
+        let result = self.allocate_register()?;
+        self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
+        Ok(ValueResult {
+            type_: format!("List OF {element_type}"),
+            location: result,
+            text: if project_key {
+                format!("keys({})", collection.type_)
+            } else {
+                format!("values({})", collection.type_)
+            },
+        })
+    }
+
+    fn lower_collection_sum(&mut self, args: &[NirValue]) -> Result<ValueResult, String> {
+        let collection = self.lower_value(&args[0])?;
+        let Some(element_type) = list_element_type(&collection.type_) else {
+            return Err(format!(
+                "native collection sum does not accept {}",
+                collection.type_
+            ));
+        };
+        if !matches!(element_type.as_str(), "Integer" | "Float" | "Fixed") {
+            return Err(format!(
+                "native collection sum does not accept {}",
+                collection.type_
+            ));
+        }
+        let collection_slot = self.allocate_stack_object("sum_collection", 8);
+        self.emit(abi::store_u64(
+            &collection.location,
+            abi::stack_pointer(),
+            collection_slot,
+        ));
+        let loop_label = self.label("sum_loop");
+        let done = self.label("sum_done");
+        self.emit(abi::load_u64("x8", abi::stack_pointer(), collection_slot));
+        self.emit(abi::load_u64("x9", "x8", COLLECTION_OFFSET_COUNT));
+        self.emit(abi::move_immediate("x10", "Integer", "0"));
+        self.emit(abi::add_immediate("x11", "x8", COLLECTION_HEADER_SIZE));
+        self.emit(abi::move_immediate("x14", &element_type, "0"));
+        self.emit(abi::label(&loop_label));
+        self.emit(abi::compare_registers("x10", "x9"));
+        self.emit(abi::branch_ge(&done));
+        self.emit(abi::load_u64(
+            "x12",
+            "x11",
+            COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
+        ));
+        self.emit_collection_data_pointer("x15", "x8");
+        self.emit(abi::add_registers("x15", "x15", "x12"));
+        match element_type.as_str() {
+            "Integer" => {
+                self.emit(abi::load_u64("x16", "x15", 0));
+                self.emit_checked_integer_add("x14", "x14", "x16")?;
+            }
+            "Float" => {
+                self.emit(abi::load_u64("x16", "x15", 0));
+                self.emit(abi::float_move_d_from_x("d0", "x14"));
+                self.emit(abi::float_move_d_from_x("d1", "x16"));
+                self.emit(abi::float_add_d("d0", "d0", "d1"));
+                self.emit(abi::float_move_x_from_d("x14", "d0"));
+            }
+            "Fixed" => {
+                self.emit(abi::load_u64("x16", "x15", 0));
+                self.emit_checked_integer_add("x14", "x14", "x16")?;
+            }
+            _ => unreachable!(),
+        }
+        self.emit(abi::add_immediate("x11", "x11", COLLECTION_ENTRY_SIZE));
+        self.emit(abi::add_immediate("x10", "x10", 1));
+        self.emit(abi::branch(&loop_label));
+        self.emit(abi::label(&done));
+        let result = self.allocate_register()?;
+        self.emit(abi::move_register(&result, "x14"));
+        Ok(ValueResult {
+            type_: element_type,
+            location: result,
+            text: format!("sum({})", collection.type_),
+        })
+    }
+
+    fn lower_collection_for_each_call(&mut self, args: &[NirValue]) -> Result<ValueResult, String> {
+        let collection = self.lower_value(&args[0])?;
+        let Some(element_type) = list_element_type(&collection.type_) else {
+            return Err(format!(
+                "native collection forEach does not accept {}",
+                collection.type_
+            ));
+        };
+        let action = self.lower_value(&args[1])?;
+        if !action.type_.starts_with("FUNC(") {
+            return Err(format!(
+                "native collection forEach action must be a function, got {}",
+                action.type_
+            ));
+        }
+        if action.location == "void" {
+            return Err(
+                "native collection forEach action does not have a callable location".to_string(),
+            );
+        }
+        let action_slot = self.allocate_stack_object("for_each_call_action", 8);
+        self.emit(abi::store_u64(
+            &action.location,
+            abi::stack_pointer(),
+            action_slot,
+        ));
+        let collection_slot = self.allocate_stack_object("for_each_call_collection", 8);
+        let cursor_slot = self.allocate_stack_object("for_each_call_cursor", 8);
+        let remaining_slot = self.allocate_stack_object("for_each_call_remaining", 8);
+        self.emit(abi::store_u64(
+            &collection.location,
+            abi::stack_pointer(),
+            collection_slot,
+        ));
+        self.emit(abi::load_u64("x8", abi::stack_pointer(), collection_slot));
+        self.emit(abi::load_u64("x9", "x8", COLLECTION_OFFSET_COUNT));
+        self.emit(abi::add_immediate("x10", "x8", COLLECTION_HEADER_SIZE));
+        self.emit(abi::store_u64("x10", abi::stack_pointer(), cursor_slot));
+        self.emit(abi::store_u64("x9", abi::stack_pointer(), remaining_slot));
+        let loop_label = self.label("for_each_call_loop");
+        let ok_label = self.label("for_each_call_ok");
+        let done = self.label("for_each_call_done");
+        self.emit(abi::label(&loop_label));
+        self.emit(abi::load_u64("x9", abi::stack_pointer(), remaining_slot));
+        self.emit(abi::compare_immediate("x9", "0"));
+        self.emit(abi::branch_eq(&done));
+        self.emit(abi::load_u64("x10", abi::stack_pointer(), cursor_slot));
+        self.emit(abi::load_u64(
+            "x11",
+            "x10",
+            COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
+        ));
+        self.emit(abi::load_u64(
+            "x12",
+            "x10",
+            COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
+        ));
+        self.emit(abi::load_u64("x8", abi::stack_pointer(), collection_slot));
+        let item = self.emit_load_collection_payload(&element_type, "x8", "x11", "x12")?;
+        self.emit(abi::move_register(&abi::argument_register(0)?, &item));
+        self.emit(abi::load_u64("x17", abi::stack_pointer(), action_slot));
+        self.emit_callable_branch("x17");
+        self.emit(abi::compare_immediate(RESULT_TAG_REGISTER, RESULT_OK_TAG));
+        self.emit(abi::branch_eq(&ok_label));
+        self.emit(abi::return_());
+        self.emit(abi::label(&ok_label));
+        self.emit(abi::load_u64("x10", abi::stack_pointer(), cursor_slot));
+        self.emit(abi::add_immediate("x10", "x10", COLLECTION_ENTRY_SIZE));
+        self.emit(abi::store_u64("x10", abi::stack_pointer(), cursor_slot));
+        self.emit(abi::load_u64("x9", abi::stack_pointer(), remaining_slot));
+        self.emit(abi::subtract_immediate("x9", "x9", 1));
+        self.emit(abi::store_u64("x9", abi::stack_pointer(), remaining_slot));
+        self.emit(abi::branch(&loop_label));
+        self.emit(abi::label(&done));
+        Ok(ValueResult {
+            type_: "Nothing".to_string(),
+            location: "void".to_string(),
+            text: format!("forEach({}, {})", collection.type_, action.text),
+        })
+    }
+
+    fn lower_collection_transform_call(
+        &mut self,
+        args: &[NirValue],
+    ) -> Result<ValueResult, String> {
+        let collection = self.lower_value(&args[0])?;
+        let Some(element_type) = list_element_type(&collection.type_) else {
+            return Err(format!(
+                "native collection transform does not accept {}",
+                collection.type_
+            ));
+        };
+        let collection_slot = self.allocate_stack_object("transform_collection", 8);
+        self.emit(abi::store_u64(
+            &collection.location,
+            abi::stack_pointer(),
+            collection_slot,
+        ));
+        let action = self.lower_value(&args[1])?;
+        let output_type = callable_return_type(&action.type_).ok_or_else(|| {
+            format!(
+                "native collection transform action must be a function, got {}",
+                action.type_
+            )
+        })?;
+        self.require_direct_callable("transform", &action)?;
+        let action_slot = self.allocate_stack_object("transform_action", 8);
+        self.emit(abi::store_u64(
+            &action.location,
+            abi::stack_pointer(),
+            action_slot,
+        ));
+        let output_list_type = format!("List OF {output_type}");
+        let output = self.lower_empty_collection(&output_list_type)?;
+        let output_slot = self.allocate_stack_object("transform_output", 8);
+        let cursor_slot = self.allocate_stack_object("transform_cursor", 8);
+        let remaining_slot = self.allocate_stack_object("transform_remaining", 8);
+        self.emit(abi::store_u64(
+            &output.location,
+            abi::stack_pointer(),
+            output_slot,
+        ));
+        self.initialize_collection_loop_slots(collection_slot, cursor_slot, remaining_slot);
+
+        let loop_label = self.label("transform_call_loop");
+        let ok_label = self.label("transform_call_ok");
+        let done = self.label("transform_call_done");
+        self.emit(abi::label(&loop_label));
+        self.emit(abi::load_u64("x9", abi::stack_pointer(), remaining_slot));
+        self.emit(abi::compare_immediate("x9", "0"));
+        self.emit(abi::branch_eq(&done));
+        let item = self.load_collection_loop_item(collection_slot, cursor_slot, &element_type)?;
+        self.emit(abi::move_register(&abi::argument_register(0)?, &item));
+        self.emit(abi::load_u64("x17", abi::stack_pointer(), action_slot));
+        self.emit_direct_callable_branch("x17");
+        self.emit(abi::compare_immediate(RESULT_TAG_REGISTER, RESULT_OK_TAG));
+        self.emit(abi::branch_eq(&ok_label));
+        self.emit(abi::return_());
+        self.emit(abi::label(&ok_label));
+
+        let item_slot = self.allocate_stack_object("transform_item", 8);
+        self.emit(abi::store_u64(
+            RESULT_VALUE_REGISTER,
+            abi::stack_pointer(),
+            item_slot,
+        ));
+        let singleton = self.lower_collection_values(
+            &output_list_type,
+            vec![CollectionValueSlot {
+                key: None,
+                value: PayloadSlot {
+                    slot: item_slot,
+                    type_: output_type.clone(),
+                },
+            }],
+            "transform item",
+        )?;
+        let singleton_slot = self.allocate_stack_object("transform_singleton", 8);
+        self.emit(abi::store_u64(
+            &singleton.location,
+            abi::stack_pointer(),
+            singleton_slot,
+        ));
+        let index_slot = self.allocate_stack_object("transform_append_index", 8);
+        self.emit(abi::load_u64("x8", abi::stack_pointer(), output_slot));
+        self.emit(abi::load_u64("x8", "x8", COLLECTION_OFFSET_COUNT));
+        self.emit(abi::store_u64("x8", abi::stack_pointer(), index_slot));
+        let updated = self.lower_list_insert_collection(
+            output_slot,
+            index_slot,
+            singleton_slot,
+            &output_list_type,
+            &output_type,
+        )?;
+        self.emit(abi::store_u64(
+            &updated.location,
+            abi::stack_pointer(),
+            output_slot,
+        ));
+        self.advance_collection_loop(cursor_slot, remaining_slot, &loop_label);
+        self.emit(abi::label(&done));
+        let result = self.allocate_register()?;
+        self.emit(abi::load_u64(&result, abi::stack_pointer(), output_slot));
+        Ok(ValueResult {
+            type_: output_list_type,
+            location: result,
+            text: format!("transform({}, {})", collection.type_, action.text),
+        })
+    }
+
+    fn lower_collection_filter_call(&mut self, args: &[NirValue]) -> Result<ValueResult, String> {
+        let collection = self.lower_value(&args[0])?;
+        let Some(element_type) = list_element_type(&collection.type_) else {
+            return Err(format!(
+                "native collection filter does not accept {}",
+                collection.type_
+            ));
+        };
+        let collection_slot = self.allocate_stack_object("filter_collection", 8);
+        self.emit(abi::store_u64(
+            &collection.location,
+            abi::stack_pointer(),
+            collection_slot,
+        ));
+        let action = self.lower_value(&args[1])?;
+        let output_type = callable_return_type(&action.type_).ok_or_else(|| {
+            format!(
+                "native collection filter predicate must be a function, got {}",
+                action.type_
+            )
+        })?;
+        if output_type != "Boolean" {
+            return Err(format!(
+                "native collection filter predicate must return Boolean, got {output_type}"
+            ));
+        }
+        self.require_direct_callable("filter", &action)?;
+        let action_slot = self.allocate_stack_object("filter_action", 8);
+        self.emit(abi::store_u64(
+            &action.location,
+            abi::stack_pointer(),
+            action_slot,
+        ));
+        let output = self.lower_empty_collection(&collection.type_)?;
+        let output_slot = self.allocate_stack_object("filter_output", 8);
+        let cursor_slot = self.allocate_stack_object("filter_cursor", 8);
+        let remaining_slot = self.allocate_stack_object("filter_remaining", 8);
+        let item_slot = self.allocate_stack_object("filter_item", 8);
+        self.emit(abi::store_u64(
+            &output.location,
+            abi::stack_pointer(),
+            output_slot,
+        ));
+        self.initialize_collection_loop_slots(collection_slot, cursor_slot, remaining_slot);
+
+        let loop_label = self.label("filter_call_loop");
+        let ok_label = self.label("filter_call_ok");
+        let keep_label = self.label("filter_call_keep");
+        let skip_label = self.label("filter_call_skip");
+        let done = self.label("filter_call_done");
+        self.emit(abi::label(&loop_label));
+        self.emit(abi::load_u64("x9", abi::stack_pointer(), remaining_slot));
+        self.emit(abi::compare_immediate("x9", "0"));
+        self.emit(abi::branch_eq(&done));
+        let item = self.load_collection_loop_item(collection_slot, cursor_slot, &element_type)?;
+        self.emit(abi::store_u64(&item, abi::stack_pointer(), item_slot));
+        self.emit(abi::move_register(&abi::argument_register(0)?, &item));
+        self.emit(abi::load_u64("x17", abi::stack_pointer(), action_slot));
+        self.emit_direct_callable_branch("x17");
+        self.emit(abi::compare_immediate(RESULT_TAG_REGISTER, RESULT_OK_TAG));
+        self.emit(abi::branch_eq(&ok_label));
+        self.emit(abi::return_());
+        self.emit(abi::label(&ok_label));
+        self.emit(abi::compare_immediate(RESULT_VALUE_REGISTER, "0"));
+        self.emit(abi::branch_ne(&keep_label));
+        self.emit(abi::branch(&skip_label));
+        self.emit(abi::label(&keep_label));
+        let singleton = self.lower_collection_values(
+            &collection.type_,
+            vec![CollectionValueSlot {
+                key: None,
+                value: PayloadSlot {
+                    slot: item_slot,
+                    type_: element_type.clone(),
+                },
+            }],
+            "filter item",
+        )?;
+        let singleton_slot = self.allocate_stack_object("filter_singleton", 8);
+        self.emit(abi::store_u64(
+            &singleton.location,
+            abi::stack_pointer(),
+            singleton_slot,
+        ));
+        let index_slot = self.allocate_stack_object("filter_append_index", 8);
+        self.emit(abi::load_u64("x8", abi::stack_pointer(), output_slot));
+        self.emit(abi::load_u64("x8", "x8", COLLECTION_OFFSET_COUNT));
+        self.emit(abi::store_u64("x8", abi::stack_pointer(), index_slot));
+        let updated = self.lower_list_insert_collection(
+            output_slot,
+            index_slot,
+            singleton_slot,
+            &collection.type_,
+            &element_type,
+        )?;
+        self.emit(abi::store_u64(
+            &updated.location,
+            abi::stack_pointer(),
+            output_slot,
+        ));
+        self.emit(abi::label(&skip_label));
+        self.advance_collection_loop(cursor_slot, remaining_slot, &loop_label);
+        self.emit(abi::label(&done));
+        let result = self.allocate_register()?;
+        self.emit(abi::load_u64(&result, abi::stack_pointer(), output_slot));
+        Ok(ValueResult {
+            type_: collection.type_.clone(),
+            location: result,
+            text: format!("filter({}, {})", collection.type_, action.text),
+        })
+    }
+
+    fn lower_collection_reduce_call(&mut self, args: &[NirValue]) -> Result<ValueResult, String> {
+        let collection = self.lower_value(&args[0])?;
+        let Some(element_type) = list_element_type(&collection.type_) else {
+            return Err(format!(
+                "native collection reduce does not accept {}",
+                collection.type_
+            ));
+        };
+        let collection_slot = self.allocate_stack_object("reduce_collection", 8);
+        self.emit(abi::store_u64(
+            &collection.location,
+            abi::stack_pointer(),
+            collection_slot,
+        ));
+        let initial = self.lower_value(&args[1])?;
+        let accumulator_slot = self.allocate_stack_object("reduce_accumulator", 8);
+        self.emit(abi::store_u64(
+            &initial.location,
+            abi::stack_pointer(),
+            accumulator_slot,
+        ));
+        let action = self.lower_value(&args[2])?;
+        let output_type = callable_return_type(&action.type_).ok_or_else(|| {
+            format!(
+                "native collection reduce reducer must be a function, got {}",
+                action.type_
+            )
+        })?;
+        if output_type != initial.type_ {
+            return Err(format!(
+                "native collection reduce reducer must return {}, got {output_type}",
+                initial.type_
+            ));
+        }
+        self.require_direct_callable("reduce", &action)?;
+        let action_slot = self.allocate_stack_object("reduce_action", 8);
+        self.emit(abi::store_u64(
+            &action.location,
+            abi::stack_pointer(),
+            action_slot,
+        ));
+        let cursor_slot = self.allocate_stack_object("reduce_cursor", 8);
+        let remaining_slot = self.allocate_stack_object("reduce_remaining", 8);
+        self.initialize_collection_loop_slots(collection_slot, cursor_slot, remaining_slot);
+
+        let loop_label = self.label("reduce_call_loop");
+        let ok_label = self.label("reduce_call_ok");
+        let done = self.label("reduce_call_done");
+        self.emit(abi::label(&loop_label));
+        self.emit(abi::load_u64("x9", abi::stack_pointer(), remaining_slot));
+        self.emit(abi::compare_immediate("x9", "0"));
+        self.emit(abi::branch_eq(&done));
+        let item = self.load_collection_loop_item(collection_slot, cursor_slot, &element_type)?;
+        self.emit(abi::load_u64(
+            &abi::argument_register(0)?,
+            abi::stack_pointer(),
+            accumulator_slot,
+        ));
+        self.emit(abi::move_register(&abi::argument_register(1)?, &item));
+        self.emit(abi::load_u64("x17", abi::stack_pointer(), action_slot));
+        self.emit_direct_callable_branch("x17");
+        self.emit(abi::compare_immediate(RESULT_TAG_REGISTER, RESULT_OK_TAG));
+        self.emit(abi::branch_eq(&ok_label));
+        self.emit(abi::return_());
+        self.emit(abi::label(&ok_label));
+        self.emit(abi::store_u64(
+            RESULT_VALUE_REGISTER,
+            abi::stack_pointer(),
+            accumulator_slot,
+        ));
+        self.advance_collection_loop(cursor_slot, remaining_slot, &loop_label);
+        self.emit(abi::label(&done));
+        let result = self.allocate_register()?;
+        self.emit(abi::load_u64(
+            &result,
+            abi::stack_pointer(),
+            accumulator_slot,
+        ));
+        Ok(ValueResult {
+            type_: initial.type_,
+            location: result,
+            text: format!(
+                "reduce({}, {}, {})",
+                collection.type_, initial.text, action.text
+            ),
+        })
+    }
+
+    fn require_direct_callable(&self, name: &str, action: &ValueResult) -> Result<(), String> {
+        if !action.type_.starts_with("FUNC(") {
+            return Err(format!(
+                "native collection {name} action must be a function, got {}",
+                action.type_
+            ));
+        }
+        if action.location == "void" {
+            return Err(format!(
+                "native collection {name} action does not have a callable location"
+            ));
+        }
+        Ok(())
+    }
+
+    fn emit_direct_callable_branch(&mut self, location: &str) {
+        self.emit_callable_branch(location);
+    }
+
+    fn emit_callable_branch(&mut self, location: &str) {
+        if location.starts_with('x') {
+            self.emit(abi::branch_link_register(location));
+            return;
+        }
+        self.emit(abi::branch_link(location));
+        self.relocations.push(CodeRelocation {
+            from: self.current_symbol.clone(),
+            to: location.to_string(),
+            kind: "branch26".to_string(),
+            binding: "internal".to_string(),
+            library: None,
+        });
+    }
+
+    fn initialize_collection_loop_slots(
+        &mut self,
+        collection_slot: usize,
+        cursor_slot: usize,
+        remaining_slot: usize,
+    ) {
+        self.emit(abi::load_u64("x8", abi::stack_pointer(), collection_slot));
+        self.emit(abi::load_u64("x9", "x8", COLLECTION_OFFSET_COUNT));
+        self.emit(abi::add_immediate("x10", "x8", COLLECTION_HEADER_SIZE));
+        self.emit(abi::store_u64("x10", abi::stack_pointer(), cursor_slot));
+        self.emit(abi::store_u64("x9", abi::stack_pointer(), remaining_slot));
+    }
+
+    fn load_collection_loop_item(
+        &mut self,
+        collection_slot: usize,
+        cursor_slot: usize,
+        element_type: &str,
+    ) -> Result<String, String> {
+        self.emit(abi::load_u64("x10", abi::stack_pointer(), cursor_slot));
+        self.emit(abi::load_u64(
+            "x11",
+            "x10",
+            COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
+        ));
+        self.emit(abi::load_u64(
+            "x12",
+            "x10",
+            COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
+        ));
+        self.emit(abi::load_u64("x8", abi::stack_pointer(), collection_slot));
+        self.emit_load_collection_payload(element_type, "x8", "x11", "x12")
+    }
+
+    fn advance_collection_loop(
+        &mut self,
+        cursor_slot: usize,
+        remaining_slot: usize,
+        loop_label: &str,
+    ) {
+        self.emit(abi::load_u64("x10", abi::stack_pointer(), cursor_slot));
+        self.emit(abi::add_immediate("x10", "x10", COLLECTION_ENTRY_SIZE));
+        self.emit(abi::store_u64("x10", abi::stack_pointer(), cursor_slot));
+        self.emit(abi::load_u64("x9", abi::stack_pointer(), remaining_slot));
+        self.emit(abi::subtract_immediate("x9", "x9", 1));
+        self.emit(abi::store_u64("x9", abi::stack_pointer(), remaining_slot));
+        self.emit(abi::branch(loop_label));
+    }
+
+    fn lower_collection_append(&mut self, args: &[NirValue]) -> Result<ValueResult, String> {
+        let list = self.lower_value(&args[0])?;
+        let Some(element_type) = list_element_type(&list.type_) else {
+            return Err(format!(
+                "native collection append does not accept {}",
+                list.type_
+            ));
+        };
+        let list_slot = self.allocate_stack_object("append_list", 8);
+        self.emit(abi::store_u64(
+            &list.location,
+            abi::stack_pointer(),
+            list_slot,
+        ));
+        let item = self.lower_value(&args[1])?;
+        let insert_slot =
+            self.collection_argument_as_list_slot(&list.type_, &element_type, item)?;
+        let index_slot = self.allocate_stack_object("append_index", 8);
+        self.emit(abi::load_u64("x8", abi::stack_pointer(), list_slot));
+        self.emit(abi::load_u64("x8", "x8", COLLECTION_OFFSET_COUNT));
+        self.emit(abi::store_u64("x8", abi::stack_pointer(), index_slot));
+        self.lower_list_insert_collection(
+            list_slot,
+            index_slot,
+            insert_slot,
+            &list.type_,
+            &element_type,
+        )
+    }
+
+    fn lower_collection_prepend(&mut self, args: &[NirValue]) -> Result<ValueResult, String> {
+        let list = self.lower_value(&args[0])?;
+        let Some(element_type) = list_element_type(&list.type_) else {
+            return Err(format!(
+                "native collection prepend does not accept {}",
+                list.type_
+            ));
+        };
+        let list_slot = self.allocate_stack_object("prepend_list", 8);
+        self.emit(abi::store_u64(
+            &list.location,
+            abi::stack_pointer(),
+            list_slot,
+        ));
+        let item = self.lower_value(&args[1])?;
+        if item.type_ == list.type_ {
+            return Err("native collection prepend expects a single item, not a list".to_string());
+        }
+        let insert_slot =
+            self.collection_argument_as_list_slot(&list.type_, &element_type, item)?;
+        let index_slot = self.allocate_stack_object("prepend_index", 8);
+        self.emit(abi::move_immediate("x8", "Integer", "0"));
+        self.emit(abi::store_u64("x8", abi::stack_pointer(), index_slot));
+        self.lower_list_insert_collection(
+            list_slot,
+            index_slot,
+            insert_slot,
+            &list.type_,
+            &element_type,
+        )
+    }
+
+    fn lower_collection_insert(&mut self, args: &[NirValue]) -> Result<ValueResult, String> {
+        let list = self.lower_value(&args[0])?;
+        let Some(element_type) = list_element_type(&list.type_) else {
+            return Err(format!(
+                "native collection insert does not accept {}",
+                list.type_
+            ));
+        };
+        let list_slot = self.allocate_stack_object("insert_list", 8);
+        self.emit(abi::store_u64(
+            &list.location,
+            abi::stack_pointer(),
+            list_slot,
+        ));
+        let index = self.lower_value(&args[1])?;
+        if index.type_ != "Integer" {
+            return Err(format!(
+                "native collection insert index must be Integer, got {}",
+                index.type_
+            ));
+        }
+        let index_slot = self.allocate_stack_object("insert_index", 8);
+        self.emit(abi::store_u64(
+            &index.location,
+            abi::stack_pointer(),
+            index_slot,
+        ));
+        let item = self.lower_value(&args[2])?;
+        if item.type_ == list.type_ {
+            return Err("native collection insert expects a single item, not a list".to_string());
+        }
+        let insert_slot =
+            self.collection_argument_as_list_slot(&list.type_, &element_type, item)?;
+        self.lower_list_insert_collection(
+            list_slot,
+            index_slot,
+            insert_slot,
+            &list.type_,
+            &element_type,
+        )
+    }
+
+    fn collection_argument_as_list_slot(
+        &mut self,
+        list_type: &str,
+        element_type: &str,
+        item: ValueResult,
+    ) -> Result<usize, String> {
+        if item.type_ == list_type {
+            let slot = self.allocate_stack_object("collection_insert_list", 8);
+            self.emit(abi::store_u64(&item.location, abi::stack_pointer(), slot));
+            return Ok(slot);
+        }
+        if item.type_ != element_type {
+            return Err(format!(
+                "native collection list item must be {}, got {}",
+                element_type, item.type_
+            ));
+        }
+        let item_slot = self.allocate_stack_object("collection_insert_item", 8);
+        self.emit(abi::store_u64(
+            &item.location,
+            abi::stack_pointer(),
+            item_slot,
+        ));
+        let singleton = self.lower_collection_values(
+            list_type,
+            vec![CollectionValueSlot {
+                key: None,
+                value: PayloadSlot {
+                    slot: item_slot,
+                    type_: element_type.to_string(),
+                },
+            }],
+            "singleton list",
+        )?;
+        let slot = self.allocate_stack_object("collection_insert_singleton", 8);
+        self.emit(abi::store_u64(
+            &singleton.location,
+            abi::stack_pointer(),
+            slot,
+        ));
+        Ok(slot)
+    }
+
+    fn lower_collection_remove_at(&mut self, args: &[NirValue]) -> Result<ValueResult, String> {
+        let list = self.lower_value(&args[0])?;
+        let Some(element_type) = list_element_type(&list.type_) else {
+            return Err(format!(
+                "native collection removeAt does not accept {}",
+                list.type_
+            ));
+        };
+        let list_slot = self.allocate_stack_object("remove_at_list", 8);
+        self.emit(abi::store_u64(
+            &list.location,
+            abi::stack_pointer(),
+            list_slot,
+        ));
+        let index = self.lower_value(&args[1])?;
+        if index.type_ != "Integer" {
+            return Err(format!(
+                "native collection removeAt index must be Integer, got {}",
+                index.type_
+            ));
+        }
+        let index_slot = self.allocate_stack_object("remove_at_index", 8);
+        self.emit(abi::store_u64(
+            &index.location,
+            abi::stack_pointer(),
+            index_slot,
+        ));
+        self.lower_list_remove_at(list_slot, index_slot, &list.type_, &element_type)
+    }
+
+    fn lower_collection_set(&mut self, args: &[NirValue]) -> Result<ValueResult, String> {
+        let collection = self.lower_value(&args[0])?;
+        if let Some(element_type) = list_element_type(&collection.type_) {
+            let list_slot = self.allocate_stack_object("set_list", 8);
+            self.emit(abi::store_u64(
+                &collection.location,
+                abi::stack_pointer(),
+                list_slot,
+            ));
+            let index = self.lower_value(&args[1])?;
+            if index.type_ != "Integer" {
+                return Err(format!(
+                    "native collection set list index must be Integer, got {}",
+                    index.type_
+                ));
+            }
+            let index_slot = self.allocate_stack_object("set_index", 8);
+            self.emit(abi::store_u64(
+                &index.location,
+                abi::stack_pointer(),
+                index_slot,
+            ));
+            let item = self.lower_value(&args[2])?;
+            if item.type_ != element_type {
+                return Err(format!(
+                    "native collection set list item must be {}, got {}",
+                    element_type, item.type_
+                ));
+            }
+            let singleton_slot =
+                self.collection_argument_as_list_slot(&collection.type_, &element_type, item)?;
+            let removed =
+                self.lower_list_remove_at(list_slot, index_slot, &collection.type_, &element_type)?;
+            let removed_slot = self.allocate_stack_object("set_removed_list", 8);
+            self.emit(abi::store_u64(
+                &removed.location,
+                abi::stack_pointer(),
+                removed_slot,
+            ));
+            return self.lower_list_insert_collection(
+                removed_slot,
+                index_slot,
+                singleton_slot,
+                &collection.type_,
+                &element_type,
+            );
+        }
+
+        if let Some((key_type, value_type)) = map_type_parts(&collection.type_) {
+            let map_slot = self.allocate_stack_object("set_map", 8);
+            self.emit(abi::store_u64(
+                &collection.location,
+                abi::stack_pointer(),
+                map_slot,
+            ));
+            let key = self.lower_value(&args[1])?;
+            if key.type_ != key_type {
+                return Err(format!(
+                    "native collection set map key must be {}, got {}",
+                    key_type, key.type_
+                ));
+            }
+            let key_slot = self.allocate_stack_object("set_map_key", 8);
+            self.emit(abi::store_u64(
+                &key.location,
+                abi::stack_pointer(),
+                key_slot,
+            ));
+            let value = self.lower_value(&args[2])?;
+            if value.type_ != value_type {
+                return Err(format!(
+                    "native collection set map value must be {}, got {}",
+                    value_type, value.type_
+                ));
+            }
+            let value_slot = self.allocate_stack_object("set_map_value", 8);
+            self.emit(abi::store_u64(
+                &value.location,
+                abi::stack_pointer(),
+                value_slot,
+            ));
+            let without =
+                self.lower_map_remove_key(map_slot, key_slot, &collection.type_, &key_type)?;
+            let without_slot = self.allocate_stack_object("set_map_without", 8);
+            self.emit(abi::store_u64(
+                &without.location,
+                abi::stack_pointer(),
+                without_slot,
+            ));
+            let singleton = self.lower_collection_values(
+                &collection.type_,
+                vec![CollectionValueSlot {
+                    key: Some(PayloadSlot {
+                        slot: key_slot,
+                        type_: key_type.clone(),
+                    }),
+                    value: PayloadSlot {
+                        slot: value_slot,
+                        type_: value_type,
+                    },
+                }],
+                "singleton map",
+            )?;
+            let singleton_slot = self.allocate_stack_object("set_map_singleton", 8);
+            self.emit(abi::store_u64(
+                &singleton.location,
+                abi::stack_pointer(),
+                singleton_slot,
+            ));
+            return self.lower_map_concat(without_slot, singleton_slot, &collection.type_);
+        }
+
+        Err(format!(
+            "native collection set does not accept {} yet",
+            collection.type_
+        ))
+    }
+
+    fn lower_collection_remove_key(&mut self, args: &[NirValue]) -> Result<ValueResult, String> {
+        let map = self.lower_value(&args[0])?;
+        let Some((key_type, _)) = map_type_parts(&map.type_) else {
+            return Err(format!(
+                "native collection removeKey does not accept {}",
+                map.type_
+            ));
+        };
+        let map_slot = self.allocate_stack_object("remove_key_map", 8);
+        self.emit(abi::store_u64(
+            &map.location,
+            abi::stack_pointer(),
+            map_slot,
+        ));
+        let key = self.lower_value(&args[1])?;
+        if key.type_ != key_type {
+            return Err(format!(
+                "native collection removeKey key must be {}, got {}",
+                key_type, key.type_
+            ));
+        }
+        let key_slot = self.allocate_stack_object("remove_key_key", 8);
+        self.emit(abi::store_u64(
+            &key.location,
+            abi::stack_pointer(),
+            key_slot,
+        ));
+        self.lower_map_remove_key(map_slot, key_slot, &map.type_, &key_type)
+    }
+
+    fn lower_list_insert_collection(
+        &mut self,
+        base_slot: usize,
+        index_slot: usize,
+        insert_slot: usize,
+        list_type: &str,
+        element_type: &str,
+    ) -> Result<ValueResult, String> {
+        let layout = CollectionTypeLayout::from_type(list_type)
+            .ok_or_else(|| format!("native code collection type '{list_type}' is not supported"))?;
+        for register in ["x20", "x21", "x22", "x23", "x24", "x25"] {
+            self.mark_register_used(register);
+        }
+        let result_slot = self.allocate_stack_object("list_insert_result", 8);
+        let valid_start = self.label("list_insert_valid_start");
+        let alloc_ok = self.label("list_insert_alloc_ok");
+        let invalid = self.label("list_insert_invalid");
+        let done = self.label("list_insert_done");
+
+        self.emit(abi::load_u64("x8", abi::stack_pointer(), base_slot));
+        self.emit(abi::load_u64("x9", abi::stack_pointer(), insert_slot));
+        self.emit(abi::load_u64("x10", abi::stack_pointer(), index_slot));
+        self.emit(abi::load_u64("x11", "x8", COLLECTION_OFFSET_COUNT));
+        self.emit(abi::compare_immediate("x10", "0"));
+        self.emit(abi::branch_ge(&valid_start));
+        self.emit(abi::branch(&invalid));
+        self.emit(abi::label(&valid_start));
+        self.emit(abi::compare_registers("x10", "x11"));
+        self.emit(abi::branch_gt(&invalid));
+        self.emit(abi::load_u64("x12", "x9", COLLECTION_OFFSET_COUNT));
+        self.emit(abi::add_registers("x13", "x11", "x12"));
+        self.emit(abi::load_u64("x14", "x8", COLLECTION_OFFSET_DATA_LENGTH));
+        self.emit(abi::load_u64("x15", "x9", COLLECTION_OFFSET_DATA_LENGTH));
+        self.emit(abi::add_registers("x15", "x14", "x15"));
+        self.emit(abi::move_immediate(
+            "x16",
+            "Integer",
+            &COLLECTION_ENTRY_SIZE.to_string(),
+        ));
+        self.emit(abi::multiply_registers("x17", "x13", "x16"));
+        self.emit(abi::add_immediate(
+            abi::return_register(),
+            "x17",
+            COLLECTION_HEADER_SIZE,
+        ));
+        self.emit(abi::add_registers(
+            abi::return_register(),
+            abi::return_register(),
+            "x15",
+        ));
+        self.emit(abi::move_immediate("x1", "Integer", "8"));
+        self.emit(abi::branch_link(ARENA_ALLOC_SYMBOL));
+        self.relocations.push(CodeRelocation {
+            from: self.current_symbol.clone(),
+            to: ARENA_ALLOC_SYMBOL.to_string(),
+            kind: "branch26".to_string(),
+            binding: "internal".to_string(),
+            library: None,
+        });
+        self.emit(abi::compare_immediate(
+            abi::return_register(),
+            RESULT_OK_TAG,
+        ));
+        self.emit(abi::branch_eq(&alloc_ok));
+        self.emit_allocation_error_return()?;
+        self.emit(abi::label(&alloc_ok));
+        self.emit(abi::store_u64("x1", abi::stack_pointer(), result_slot));
+        self.emit_write_list_header_from_registers(&layout, "x1", "x13", "x15");
+
+        self.emit(abi::load_u64("x8", abi::stack_pointer(), base_slot));
+        self.emit(abi::load_u64("x9", abi::stack_pointer(), insert_slot));
+        self.emit(abi::load_u64("x10", abi::stack_pointer(), index_slot));
+        self.emit(abi::load_u64("x1", abi::stack_pointer(), result_slot));
+        self.emit(abi::add_immediate("x17", "x1", COLLECTION_HEADER_SIZE));
+        self.emit(abi::load_u64("x13", "x1", COLLECTION_OFFSET_COUNT));
+        self.emit(abi::move_immediate(
+            "x16",
+            "Integer",
+            &COLLECTION_ENTRY_SIZE.to_string(),
+        ));
+        self.emit(abi::multiply_registers("x21", "x13", "x16"));
+        self.emit(abi::add_registers("x21", "x17", "x21"));
+        self.emit(abi::move_immediate("x13", "Integer", "0"));
+
+        self.emit(abi::add_immediate("x12", "x8", COLLECTION_HEADER_SIZE));
+        self.emit_collection_data_pointer("x20", "x8");
+        self.emit_copy_collection_entries(
+            "x12",
+            "x20",
+            "x17",
+            "x21",
+            "x13",
+            "x10",
+            "list_insert_prefix",
+        )?;
+        self.emit(abi::add_immediate("x12", "x9", COLLECTION_HEADER_SIZE));
+        self.emit_collection_data_pointer("x20", "x9");
+        self.emit(abi::load_u64("x14", "x9", COLLECTION_OFFSET_COUNT));
+        self.emit_copy_collection_entries(
+            "x12",
+            "x20",
+            "x17",
+            "x21",
+            "x13",
+            "x14",
+            "list_insert_inserted",
+        )?;
+        self.emit(abi::load_u64("x10", abi::stack_pointer(), index_slot));
+        self.emit(abi::load_u64("x14", "x8", COLLECTION_OFFSET_COUNT));
+        self.emit(abi::subtract_registers("x14", "x14", "x10"));
+        self.emit(abi::move_immediate(
+            "x16",
+            "Integer",
+            &COLLECTION_ENTRY_SIZE.to_string(),
+        ));
+        self.emit(abi::multiply_registers("x15", "x10", "x16"));
+        self.emit(abi::add_immediate("x12", "x8", COLLECTION_HEADER_SIZE));
+        self.emit(abi::add_registers("x12", "x12", "x15"));
+        self.emit_collection_data_pointer("x20", "x8");
+        self.emit_copy_collection_entries(
+            "x12",
+            "x20",
+            "x17",
+            "x21",
+            "x13",
+            "x14",
+            "list_insert_suffix",
+        )?;
+        self.emit(abi::branch(&done));
+        self.emit(abi::label(&invalid));
+        self.emit_index_out_of_range_return()?;
+        self.emit(abi::label(&done));
+
+        let result = self.allocate_register()?;
+        self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
+        Ok(ValueResult {
+            type_: list_type.to_string(),
+            location: result,
+            text: format!("list update {list_type} over {element_type}"),
+        })
+    }
+
+    fn lower_list_remove_at(
+        &mut self,
+        base_slot: usize,
+        index_slot: usize,
+        list_type: &str,
+        element_type: &str,
+    ) -> Result<ValueResult, String> {
+        let layout = CollectionTypeLayout::from_type(list_type)
+            .ok_or_else(|| format!("native code collection type '{list_type}' is not supported"))?;
+        for register in ["x20", "x21", "x22", "x23", "x24", "x25"] {
+            self.mark_register_used(register);
+        }
+        let result_slot = self.allocate_stack_object("list_remove_result", 8);
+        let valid_start = self.label("list_remove_valid_start");
+        let alloc_ok = self.label("list_remove_alloc_ok");
+        let invalid = self.label("list_remove_invalid");
+        let done = self.label("list_remove_done");
+
+        self.emit(abi::load_u64("x8", abi::stack_pointer(), base_slot));
+        self.emit(abi::load_u64("x10", abi::stack_pointer(), index_slot));
+        self.emit(abi::load_u64("x11", "x8", COLLECTION_OFFSET_COUNT));
+        self.emit(abi::compare_immediate("x10", "0"));
+        self.emit(abi::branch_ge(&valid_start));
+        self.emit(abi::branch(&invalid));
+        self.emit(abi::label(&valid_start));
+        self.emit(abi::compare_registers("x10", "x11"));
+        self.emit(abi::branch_ge(&invalid));
+        self.emit(abi::move_immediate(
+            "x16",
+            "Integer",
+            &COLLECTION_ENTRY_SIZE.to_string(),
+        ));
+        self.emit(abi::multiply_registers("x17", "x10", "x16"));
+        self.emit(abi::add_immediate("x12", "x8", COLLECTION_HEADER_SIZE));
+        self.emit(abi::add_registers("x12", "x12", "x17"));
+        self.emit(abi::load_u64("x14", "x8", COLLECTION_OFFSET_DATA_LENGTH));
+        self.emit(abi::load_u64(
+            "x15",
+            "x12",
+            COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
+        ));
+        self.emit(abi::subtract_registers("x15", "x14", "x15"));
+        self.emit(abi::subtract_immediate("x13", "x11", 1));
+        self.emit(abi::multiply_registers("x17", "x13", "x16"));
+        self.emit(abi::add_immediate(
+            abi::return_register(),
+            "x17",
+            COLLECTION_HEADER_SIZE,
+        ));
+        self.emit(abi::add_registers(
+            abi::return_register(),
+            abi::return_register(),
+            "x15",
+        ));
+        self.emit(abi::move_immediate("x1", "Integer", "8"));
+        self.emit(abi::branch_link(ARENA_ALLOC_SYMBOL));
+        self.relocations.push(CodeRelocation {
+            from: self.current_symbol.clone(),
+            to: ARENA_ALLOC_SYMBOL.to_string(),
+            kind: "branch26".to_string(),
+            binding: "internal".to_string(),
+            library: None,
+        });
+        self.emit(abi::compare_immediate(
+            abi::return_register(),
+            RESULT_OK_TAG,
+        ));
+        self.emit(abi::branch_eq(&alloc_ok));
+        self.emit_allocation_error_return()?;
+        self.emit(abi::label(&alloc_ok));
+        self.emit(abi::store_u64("x1", abi::stack_pointer(), result_slot));
+        self.emit_write_list_header_from_registers(&layout, "x1", "x13", "x15");
+
+        self.emit(abi::load_u64("x8", abi::stack_pointer(), base_slot));
+        self.emit(abi::load_u64("x10", abi::stack_pointer(), index_slot));
+        self.emit(abi::load_u64("x1", abi::stack_pointer(), result_slot));
+        self.emit(abi::add_immediate("x17", "x1", COLLECTION_HEADER_SIZE));
+        self.emit(abi::load_u64("x13", "x1", COLLECTION_OFFSET_COUNT));
+        self.emit(abi::move_immediate(
+            "x16",
+            "Integer",
+            &COLLECTION_ENTRY_SIZE.to_string(),
+        ));
+        self.emit(abi::multiply_registers("x21", "x13", "x16"));
+        self.emit(abi::add_registers("x21", "x17", "x21"));
+        self.emit(abi::move_immediate("x13", "Integer", "0"));
+        self.emit(abi::add_immediate("x12", "x8", COLLECTION_HEADER_SIZE));
+        self.emit_collection_data_pointer("x20", "x8");
+        self.emit_copy_collection_entries(
+            "x12",
+            "x20",
+            "x17",
+            "x21",
+            "x13",
+            "x10",
+            "list_remove_prefix",
+        )?;
+        self.emit(abi::load_u64("x10", abi::stack_pointer(), index_slot));
+        self.emit(abi::load_u64("x14", "x8", COLLECTION_OFFSET_COUNT));
+        self.emit(abi::subtract_registers("x14", "x14", "x10"));
+        self.emit(abi::subtract_immediate("x14", "x14", 1));
+        self.emit(abi::add_immediate("x15", "x10", 1));
+        self.emit(abi::multiply_registers("x15", "x15", "x16"));
+        self.emit(abi::add_immediate("x12", "x8", COLLECTION_HEADER_SIZE));
+        self.emit(abi::add_registers("x12", "x12", "x15"));
+        self.emit_collection_data_pointer("x20", "x8");
+        self.emit_copy_collection_entries(
+            "x12",
+            "x20",
+            "x17",
+            "x21",
+            "x13",
+            "x14",
+            "list_remove_suffix",
+        )?;
+        self.emit(abi::branch(&done));
+        self.emit(abi::label(&invalid));
+        self.emit_index_out_of_range_return()?;
+        self.emit(abi::label(&done));
+
+        let result = self.allocate_register()?;
+        self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
+        Ok(ValueResult {
+            type_: list_type.to_string(),
+            location: result,
+            text: format!("removeAt({list_type}, Integer) over {element_type}"),
+        })
+    }
+
+    fn emit_write_list_header_from_registers(
+        &mut self,
+        layout: &CollectionTypeLayout,
+        collection: &str,
+        count: &str,
+        data_len: &str,
+    ) {
+        self.emit(abi::move_immediate("x22", "Byte", &layout.kind.to_string()));
+        self.emit(abi::store_u8("x22", collection, COLLECTION_OFFSET_KIND));
+        self.emit(abi::move_immediate(
+            "x22",
+            "Byte",
+            &layout.key_type_code.to_string(),
+        ));
+        self.emit(abi::store_u8("x22", collection, COLLECTION_OFFSET_KEY_TYPE));
+        self.emit(abi::move_immediate(
+            "x22",
+            "Byte",
+            &layout.value_type_code.to_string(),
+        ));
+        self.emit(abi::store_u8(
+            "x22",
+            collection,
+            COLLECTION_OFFSET_VALUE_TYPE,
+        ));
+        self.emit(abi::move_immediate("x22", "Byte", "1"));
+        self.emit(abi::store_u8(
+            "x22",
+            collection,
+            COLLECTION_OFFSET_FLAGS_VERSION,
+        ));
+        self.emit(abi::store_u64(count, collection, COLLECTION_OFFSET_COUNT));
+        self.emit(abi::store_u64(
+            count,
+            collection,
+            COLLECTION_OFFSET_CAPACITY,
+        ));
+        self.emit(abi::store_u64(
+            data_len,
+            collection,
+            COLLECTION_OFFSET_DATA_LENGTH,
+        ));
+        self.emit(abi::store_u64(
+            data_len,
+            collection,
+            COLLECTION_OFFSET_DATA_CAPACITY,
+        ));
+    }
+
+    fn emit_copy_collection_entries(
+        &mut self,
+        source_entry: &str,
+        source_data: &str,
+        dest_entry: &str,
+        dest_data: &str,
+        dest_data_offset: &str,
+        count: &str,
+        label_prefix: &str,
+    ) -> Result<(), String> {
+        let loop_label = self.label(&format!("{label_prefix}_loop"));
+        let bytes_loop = self.label(&format!("{label_prefix}_bytes"));
+        let bytes_done = self.label(&format!("{label_prefix}_bytes_done"));
+        let done = self.label(&format!("{label_prefix}_done"));
+        self.emit(abi::label(&loop_label));
+        self.emit(abi::compare_immediate(count, "0"));
+        self.emit(abi::branch_eq(&done));
+        self.emit(abi::move_immediate(
+            "x22",
+            "Byte",
+            &COLLECTION_ENTRY_FLAG_USED.to_string(),
+        ));
+        self.emit(abi::store_u8(
+            "x22",
+            dest_entry,
+            COLLECTION_ENTRY_OFFSET_FLAGS,
+        ));
+        self.emit(abi::move_immediate("x22", "Integer", "0"));
+        self.emit(abi::store_u64(
+            "x22",
+            dest_entry,
+            COLLECTION_ENTRY_OFFSET_KEY_OFFSET,
+        ));
+        self.emit(abi::store_u64(
+            "x22",
+            dest_entry,
+            COLLECTION_ENTRY_OFFSET_KEY_LENGTH,
+        ));
+        self.emit(abi::load_u64(
+            "x22",
+            source_entry,
+            COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
+        ));
+        self.emit(abi::load_u64(
+            "x23",
+            source_entry,
+            COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
+        ));
+        self.emit(abi::store_u64(
+            dest_data_offset,
+            dest_entry,
+            COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
+        ));
+        self.emit(abi::store_u64(
+            "x23",
+            dest_entry,
+            COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
+        ));
+        self.emit(abi::add_registers("x24", source_data, "x22"));
+        self.emit(abi::add_registers("x25", dest_data, dest_data_offset));
+        self.emit(abi::label(&bytes_loop));
+        self.emit(abi::compare_immediate("x23", "0"));
+        self.emit(abi::branch_eq(&bytes_done));
+        self.emit(abi::load_u8("x22", "x24", 0));
+        self.emit(abi::store_u8("x22", "x25", 0));
+        self.emit(abi::add_immediate("x24", "x24", 1));
+        self.emit(abi::add_immediate("x25", "x25", 1));
+        self.emit(abi::subtract_immediate("x23", "x23", 1));
+        self.emit(abi::branch(&bytes_loop));
+        self.emit(abi::label(&bytes_done));
+        self.emit(abi::load_u64(
+            "x23",
+            dest_entry,
+            COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
+        ));
+        self.emit(abi::add_registers(
+            dest_data_offset,
+            dest_data_offset,
+            "x23",
+        ));
+        self.emit(abi::add_immediate(
+            source_entry,
+            source_entry,
+            COLLECTION_ENTRY_SIZE,
+        ));
+        self.emit(abi::add_immediate(
+            dest_entry,
+            dest_entry,
+            COLLECTION_ENTRY_SIZE,
+        ));
+        self.emit(abi::subtract_immediate(count, count, 1));
+        self.emit(abi::branch(&loop_label));
+        self.emit(abi::label(&done));
+        Ok(())
+    }
+
+    fn lower_map_concat(
+        &mut self,
+        left_slot: usize,
+        right_slot: usize,
+        map_type: &str,
+    ) -> Result<ValueResult, String> {
+        let layout = CollectionTypeLayout::from_type(map_type)
+            .ok_or_else(|| format!("native code collection type '{map_type}' is not supported"))?;
+        for register in ["x20", "x21", "x22", "x23", "x24", "x25"] {
+            self.mark_register_used(register);
+        }
+        let result_slot = self.allocate_stack_object("map_concat_result", 8);
+        let alloc_ok = self.label("map_concat_alloc_ok");
+        self.emit(abi::load_u64("x8", abi::stack_pointer(), left_slot));
+        self.emit(abi::load_u64("x9", abi::stack_pointer(), right_slot));
+        self.emit(abi::load_u64("x10", "x8", COLLECTION_OFFSET_COUNT));
+        self.emit(abi::load_u64("x11", "x9", COLLECTION_OFFSET_COUNT));
+        self.emit(abi::add_registers("x12", "x10", "x11"));
+        self.emit(abi::load_u64("x13", "x8", COLLECTION_OFFSET_DATA_LENGTH));
+        self.emit(abi::load_u64("x14", "x9", COLLECTION_OFFSET_DATA_LENGTH));
+        self.emit(abi::add_registers("x14", "x13", "x14"));
+        self.emit(abi::move_immediate(
+            "x15",
+            "Integer",
+            &COLLECTION_ENTRY_SIZE.to_string(),
+        ));
+        self.emit(abi::multiply_registers("x16", "x12", "x15"));
+        self.emit(abi::add_immediate(
+            abi::return_register(),
+            "x16",
+            COLLECTION_HEADER_SIZE,
+        ));
+        self.emit(abi::add_registers(
+            abi::return_register(),
+            abi::return_register(),
+            "x14",
+        ));
+        self.emit(abi::move_immediate("x1", "Integer", "8"));
+        self.emit(abi::branch_link(ARENA_ALLOC_SYMBOL));
+        self.relocations.push(CodeRelocation {
+            from: self.current_symbol.clone(),
+            to: ARENA_ALLOC_SYMBOL.to_string(),
+            kind: "branch26".to_string(),
+            binding: "internal".to_string(),
+            library: None,
+        });
+        self.emit(abi::compare_immediate(
+            abi::return_register(),
+            RESULT_OK_TAG,
+        ));
+        self.emit(abi::branch_eq(&alloc_ok));
+        self.emit_allocation_error_return()?;
+        self.emit(abi::label(&alloc_ok));
+        self.emit(abi::store_u64("x1", abi::stack_pointer(), result_slot));
+        self.emit_write_list_header_from_registers(&layout, "x1", "x12", "x14");
+        self.emit(abi::load_u64("x8", abi::stack_pointer(), left_slot));
+        self.emit(abi::load_u64("x9", abi::stack_pointer(), right_slot));
+        self.emit(abi::load_u64("x1", abi::stack_pointer(), result_slot));
+        self.emit(abi::add_immediate("x17", "x1", COLLECTION_HEADER_SIZE));
+        self.emit(abi::move_immediate("x13", "Integer", "0"));
+        self.emit(abi::load_u64("x12", "x1", COLLECTION_OFFSET_COUNT));
+        self.emit(abi::move_immediate(
+            "x15",
+            "Integer",
+            &COLLECTION_ENTRY_SIZE.to_string(),
+        ));
+        self.emit(abi::multiply_registers("x21", "x12", "x15"));
+        self.emit(abi::add_registers("x21", "x17", "x21"));
+        self.emit(abi::add_immediate("x12", "x8", COLLECTION_HEADER_SIZE));
+        self.emit_collection_data_pointer("x20", "x8");
+        self.emit(abi::load_u64("x10", "x8", COLLECTION_OFFSET_COUNT));
+        self.emit_copy_map_entries("x12", "x20", "x17", "x21", "x13", "x10", "map_concat_left")?;
+        self.emit(abi::add_immediate("x12", "x9", COLLECTION_HEADER_SIZE));
+        self.emit_collection_data_pointer("x20", "x9");
+        self.emit(abi::load_u64("x10", "x9", COLLECTION_OFFSET_COUNT));
+        self.emit_copy_map_entries("x12", "x20", "x17", "x21", "x13", "x10", "map_concat_right")?;
+        let result = self.allocate_register()?;
+        self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
+        Ok(ValueResult {
+            type_: map_type.to_string(),
+            location: result,
+            text: format!("map concat {map_type}"),
+        })
+    }
+
+    fn lower_map_remove_key(
+        &mut self,
+        map_slot: usize,
+        key_slot: usize,
+        map_type: &str,
+        key_type: &str,
+    ) -> Result<ValueResult, String> {
+        let layout = CollectionTypeLayout::from_type(map_type)
+            .ok_or_else(|| format!("native code collection type '{map_type}' is not supported"))?;
+        for register in ["x20", "x21", "x22", "x23", "x24", "x25"] {
+            self.mark_register_used(register);
+        }
+        let result_slot = self.allocate_stack_object("map_remove_result", 8);
+        let scan_loop = self.label("map_remove_scan_loop");
+        let scan_keep = self.label("map_remove_scan_keep");
+        let scan_next = self.label("map_remove_scan_next");
+        let scan_done = self.label("map_remove_scan_done");
+        let alloc_ok = self.label("map_remove_alloc_ok");
+        let copy_loop = self.label("map_remove_copy_loop");
+        let copy_keep = self.label("map_remove_copy_keep");
+        let copy_next = self.label("map_remove_copy_next");
+        let copy_done = self.label("map_remove_copy_done");
+
+        self.emit(abi::load_u64("x8", abi::stack_pointer(), map_slot));
+        self.emit(abi::load_u64("x9", abi::stack_pointer(), key_slot));
+        self.emit(abi::load_u64("x10", "x8", COLLECTION_OFFSET_COUNT));
+        self.emit(abi::move_immediate("x11", "Integer", "0"));
+        self.emit(abi::move_immediate("x14", "Integer", "0"));
+        self.emit(abi::move_immediate("x15", "Integer", "0"));
+        self.emit(abi::add_immediate("x12", "x8", COLLECTION_HEADER_SIZE));
+        self.emit(abi::label(&scan_loop));
+        self.emit(abi::compare_registers("x11", "x10"));
+        self.emit(abi::branch_ge(&scan_done));
+        self.emit(abi::load_u64(
+            "x13",
+            "x12",
+            COLLECTION_ENTRY_OFFSET_KEY_OFFSET,
+        ));
+        self.emit(abi::load_u64(
+            "x16",
+            "x12",
+            COLLECTION_ENTRY_OFFSET_KEY_LENGTH,
+        ));
+        self.emit_collection_payload_matches_value_branch(
+            key_type, "x8", "x13", "x16", "x9", &scan_next, &scan_keep,
+        )?;
+        self.emit(abi::label(&scan_keep));
+        self.emit(abi::add_immediate("x14", "x14", 1));
+        self.emit(abi::load_u64(
+            "x16",
+            "x12",
+            COLLECTION_ENTRY_OFFSET_KEY_LENGTH,
+        ));
+        self.emit(abi::load_u64(
+            "x17",
+            "x12",
+            COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
+        ));
+        self.emit(abi::add_registers("x15", "x15", "x16"));
+        self.emit(abi::add_registers("x15", "x15", "x17"));
+        self.emit(abi::label(&scan_next));
+        self.emit(abi::add_immediate("x12", "x12", COLLECTION_ENTRY_SIZE));
+        self.emit(abi::add_immediate("x11", "x11", 1));
+        self.emit(abi::branch(&scan_loop));
+        self.emit(abi::label(&scan_done));
+        self.emit(abi::move_immediate(
+            "x16",
+            "Integer",
+            &COLLECTION_ENTRY_SIZE.to_string(),
+        ));
+        self.emit(abi::multiply_registers("x17", "x14", "x16"));
+        self.emit(abi::add_immediate(
+            abi::return_register(),
+            "x17",
+            COLLECTION_HEADER_SIZE,
+        ));
+        self.emit(abi::add_registers(
+            abi::return_register(),
+            abi::return_register(),
+            "x15",
+        ));
+        self.emit(abi::move_immediate("x1", "Integer", "8"));
+        self.emit(abi::branch_link(ARENA_ALLOC_SYMBOL));
+        self.relocations.push(CodeRelocation {
+            from: self.current_symbol.clone(),
+            to: ARENA_ALLOC_SYMBOL.to_string(),
+            kind: "branch26".to_string(),
+            binding: "internal".to_string(),
+            library: None,
+        });
+        self.emit(abi::compare_immediate(
+            abi::return_register(),
+            RESULT_OK_TAG,
+        ));
+        self.emit(abi::branch_eq(&alloc_ok));
+        self.emit_allocation_error_return()?;
+        self.emit(abi::label(&alloc_ok));
+        self.emit(abi::store_u64("x1", abi::stack_pointer(), result_slot));
+        self.emit_write_list_header_from_registers(&layout, "x1", "x14", "x15");
+
+        self.emit(abi::load_u64("x8", abi::stack_pointer(), map_slot));
+        self.emit(abi::load_u64("x9", abi::stack_pointer(), key_slot));
+        self.emit(abi::load_u64("x1", abi::stack_pointer(), result_slot));
+        self.emit(abi::load_u64("x10", "x8", COLLECTION_OFFSET_COUNT));
+        self.emit(abi::move_immediate("x11", "Integer", "0"));
+        self.emit(abi::move_immediate("x13", "Integer", "0"));
+        self.emit(abi::add_immediate("x12", "x8", COLLECTION_HEADER_SIZE));
+        self.emit(abi::add_immediate("x17", "x1", COLLECTION_HEADER_SIZE));
+        self.emit_collection_data_pointer("x20", "x8");
+        self.emit(abi::load_u64("x14", "x1", COLLECTION_OFFSET_COUNT));
+        self.emit(abi::move_immediate(
+            "x16",
+            "Integer",
+            &COLLECTION_ENTRY_SIZE.to_string(),
+        ));
+        self.emit(abi::multiply_registers("x21", "x14", "x16"));
+        self.emit(abi::add_registers("x21", "x17", "x21"));
+        self.emit(abi::label(&copy_loop));
+        self.emit(abi::compare_registers("x11", "x10"));
+        self.emit(abi::branch_ge(&copy_done));
+        self.emit(abi::load_u64(
+            "x14",
+            "x12",
+            COLLECTION_ENTRY_OFFSET_KEY_OFFSET,
+        ));
+        self.emit(abi::load_u64(
+            "x15",
+            "x12",
+            COLLECTION_ENTRY_OFFSET_KEY_LENGTH,
+        ));
+        self.emit_collection_payload_matches_value_branch(
+            key_type, "x8", "x14", "x15", "x9", &copy_next, &copy_keep,
+        )?;
+        self.emit(abi::label(&copy_keep));
+        self.emit_copy_one_map_entry("x12", "x20", "x17", "x21", "x13");
+        self.emit(abi::label(&copy_next));
+        self.emit(abi::add_immediate("x12", "x12", COLLECTION_ENTRY_SIZE));
+        self.emit(abi::add_immediate("x11", "x11", 1));
+        self.emit(abi::branch(&copy_loop));
+        self.emit(abi::label(&copy_done));
+        let result = self.allocate_register()?;
+        self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
+        Ok(ValueResult {
+            type_: map_type.to_string(),
+            location: result,
+            text: format!("removeKey({map_type}, {key_type})"),
+        })
+    }
+
+    fn emit_copy_map_entries(
+        &mut self,
+        source_entry: &str,
+        source_data: &str,
+        dest_entry: &str,
+        dest_data: &str,
+        dest_data_offset: &str,
+        count: &str,
+        label_prefix: &str,
+    ) -> Result<(), String> {
+        let loop_label = self.label(&format!("{label_prefix}_loop"));
+        let done = self.label(&format!("{label_prefix}_done"));
+        self.emit(abi::label(&loop_label));
+        self.emit(abi::compare_immediate(count, "0"));
+        self.emit(abi::branch_eq(&done));
+        self.emit_copy_one_map_entry(
+            source_entry,
+            source_data,
+            dest_entry,
+            dest_data,
+            dest_data_offset,
+        );
+        self.emit(abi::add_immediate(
+            source_entry,
+            source_entry,
+            COLLECTION_ENTRY_SIZE,
+        ));
+        self.emit(abi::subtract_immediate(count, count, 1));
+        self.emit(abi::branch(&loop_label));
+        self.emit(abi::label(&done));
+        Ok(())
+    }
+
+    fn emit_copy_one_map_entry(
+        &mut self,
+        source_entry: &str,
+        source_data: &str,
+        dest_entry: &str,
+        dest_data: &str,
+        dest_data_offset: &str,
+    ) {
+        let key_loop = self.label("map_entry_key_copy_loop");
+        let key_done = self.label("map_entry_key_copy_done");
+        let value_loop = self.label("map_entry_value_copy_loop");
+        let value_done = self.label("map_entry_value_copy_done");
+        self.emit(abi::move_immediate(
+            "x22",
+            "Byte",
+            &COLLECTION_ENTRY_FLAG_USED.to_string(),
+        ));
+        self.emit(abi::store_u8(
+            "x22",
+            dest_entry,
+            COLLECTION_ENTRY_OFFSET_FLAGS,
+        ));
+        self.emit(abi::load_u64(
+            "x22",
+            source_entry,
+            COLLECTION_ENTRY_OFFSET_KEY_OFFSET,
+        ));
+        self.emit(abi::load_u64(
+            "x23",
+            source_entry,
+            COLLECTION_ENTRY_OFFSET_KEY_LENGTH,
+        ));
+        self.emit(abi::store_u64(
+            dest_data_offset,
+            dest_entry,
+            COLLECTION_ENTRY_OFFSET_KEY_OFFSET,
+        ));
+        self.emit(abi::store_u64(
+            "x23",
+            dest_entry,
+            COLLECTION_ENTRY_OFFSET_KEY_LENGTH,
+        ));
+        self.emit(abi::add_registers("x24", source_data, "x22"));
+        self.emit(abi::add_registers("x25", dest_data, dest_data_offset));
+        self.emit(abi::label(&key_loop));
+        self.emit(abi::compare_immediate("x23", "0"));
+        self.emit(abi::branch_eq(&key_done));
+        self.emit(abi::load_u8("x22", "x24", 0));
+        self.emit(abi::store_u8("x22", "x25", 0));
+        self.emit(abi::add_immediate("x24", "x24", 1));
+        self.emit(abi::add_immediate("x25", "x25", 1));
+        self.emit(abi::subtract_immediate("x23", "x23", 1));
+        self.emit(abi::branch(&key_loop));
+        self.emit(abi::label(&key_done));
+        self.emit(abi::load_u64(
+            "x23",
+            dest_entry,
+            COLLECTION_ENTRY_OFFSET_KEY_LENGTH,
+        ));
+        self.emit(abi::add_registers(
+            dest_data_offset,
+            dest_data_offset,
+            "x23",
+        ));
+
+        self.emit(abi::load_u64(
+            "x22",
+            source_entry,
+            COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
+        ));
+        self.emit(abi::load_u64(
+            "x23",
+            source_entry,
+            COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
+        ));
+        self.emit(abi::store_u64(
+            dest_data_offset,
+            dest_entry,
+            COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
+        ));
+        self.emit(abi::store_u64(
+            "x23",
+            dest_entry,
+            COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
+        ));
+        self.emit(abi::add_registers("x24", source_data, "x22"));
+        self.emit(abi::add_registers("x25", dest_data, dest_data_offset));
+        self.emit(abi::label(&value_loop));
+        self.emit(abi::compare_immediate("x23", "0"));
+        self.emit(abi::branch_eq(&value_done));
+        self.emit(abi::load_u8("x22", "x24", 0));
+        self.emit(abi::store_u8("x22", "x25", 0));
+        self.emit(abi::add_immediate("x24", "x24", 1));
+        self.emit(abi::add_immediate("x25", "x25", 1));
+        self.emit(abi::subtract_immediate("x23", "x23", 1));
+        self.emit(abi::branch(&value_loop));
+        self.emit(abi::label(&value_done));
+        self.emit(abi::load_u64(
+            "x23",
+            dest_entry,
+            COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
+        ));
+        self.emit(abi::add_registers(
+            dest_data_offset,
+            dest_data_offset,
+            "x23",
+        ));
+        self.emit(abi::add_immediate(
+            dest_entry,
+            dest_entry,
+            COLLECTION_ENTRY_SIZE,
+        ));
+    }
+
+    fn lower_list_get(
+        &mut self,
+        collection_slot: usize,
+        key_slot: usize,
+        collection_type: &str,
+        element_type: &str,
+    ) -> Result<ValueResult, String> {
+        self.reset_temporary_registers();
+        let collection = self.allocate_register()?;
+        let index = self.allocate_register()?;
+        let count = self.allocate_register()?;
+        let entry_offset = self.allocate_register()?;
+        let entry = self.allocate_register()?;
+        let value_offset = self.allocate_register()?;
+        let value_length = self.allocate_register()?;
+        let invalid = self.label("list_get_invalid");
+        let done = self.label("list_get_done");
+
+        self.emit(abi::load_u64(
+            &collection,
+            abi::stack_pointer(),
+            collection_slot,
+        ));
+        self.emit(abi::load_u64(&index, abi::stack_pointer(), key_slot));
+        self.emit(abi::compare_immediate(&index, "0"));
+        self.emit(abi::branch_lt(&invalid));
+        self.emit(abi::load_u64(&count, &collection, COLLECTION_OFFSET_COUNT));
+        self.emit(abi::compare_registers(&index, &count));
+        self.emit(abi::branch_ge(&invalid));
+        self.emit(abi::move_immediate(
+            &entry_offset,
+            "Integer",
+            &COLLECTION_ENTRY_SIZE.to_string(),
+        ));
+        self.emit(abi::multiply_registers(
+            &entry_offset,
+            &index,
+            &entry_offset,
+        ));
+        self.emit(abi::add_immediate(
+            &entry,
+            &collection,
+            COLLECTION_HEADER_SIZE,
+        ));
+        self.emit(abi::add_registers(&entry, &entry, &entry_offset));
+        self.emit(abi::load_u64(
+            &value_offset,
+            &entry,
+            COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
+        ));
+        self.emit(abi::load_u64(
+            &value_length,
+            &entry,
+            COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
+        ));
+        let result = self.emit_load_collection_payload(
+            element_type,
+            &collection,
+            &value_offset,
+            &value_length,
+        )?;
+        self.emit(abi::branch(&done));
+        self.emit(abi::label(&invalid));
+        self.emit_index_out_of_range_return()?;
+        self.emit(abi::label(&done));
+
+        Ok(ValueResult {
+            type_: element_type.to_string(),
+            location: result,
+            text: format!("get({collection_type}, Integer)"),
+        })
+    }
+
+    fn lower_map_get(
+        &mut self,
+        collection_slot: usize,
+        key_slot: usize,
+        collection_type: &str,
+        key_type: &str,
+        value_type: &str,
+    ) -> Result<ValueResult, String> {
+        self.reset_temporary_registers();
+        let collection = self.allocate_register()?;
+        let key = self.allocate_register()?;
+        let count = self.allocate_register()?;
+        let index = self.allocate_register()?;
+        let entry = self.allocate_register()?;
+        let key_offset = self.allocate_register()?;
+        let key_length = self.allocate_register()?;
+        let value_offset = self.allocate_register()?;
+        let value_length = self.allocate_register()?;
+        let loop_label = self.label("map_get_loop");
+        let found = self.label("map_get_found");
+        let next = self.label("map_get_next");
+        let not_found = self.label("map_get_not_found");
+        let done = self.label("map_get_done");
+
+        self.emit(abi::load_u64(
+            &collection,
+            abi::stack_pointer(),
+            collection_slot,
+        ));
+        self.emit(abi::load_u64(&key, abi::stack_pointer(), key_slot));
+        self.emit(abi::load_u64(&count, &collection, COLLECTION_OFFSET_COUNT));
+        self.emit(abi::move_immediate(&index, "Integer", "0"));
+        self.emit(abi::add_immediate(
+            &entry,
+            &collection,
+            COLLECTION_HEADER_SIZE,
+        ));
+
+        self.emit(abi::label(&loop_label));
+        self.emit(abi::compare_registers(&index, &count));
+        self.emit(abi::branch_ge(&not_found));
+        self.emit(abi::load_u64(
+            &key_offset,
+            &entry,
+            COLLECTION_ENTRY_OFFSET_KEY_OFFSET,
+        ));
+        self.emit(abi::load_u64(
+            &key_length,
+            &entry,
+            COLLECTION_ENTRY_OFFSET_KEY_LENGTH,
+        ));
+        self.emit_collection_payload_match_branch(
+            key_type,
+            &collection,
+            &key_offset,
+            &key_length,
+            &key,
+            &found,
+            &next,
+        )?;
+
+        self.emit(abi::label(&found));
+        self.emit(abi::load_u64(
+            &value_offset,
+            &entry,
+            COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
+        ));
+        self.emit(abi::load_u64(
+            &value_length,
+            &entry,
+            COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
+        ));
+        let result = self.emit_load_collection_payload(
+            value_type,
+            &collection,
+            &value_offset,
+            &value_length,
+        )?;
+        self.emit(abi::branch(&done));
+
+        self.emit(abi::label(&next));
+        self.emit(abi::add_immediate(&entry, &entry, COLLECTION_ENTRY_SIZE));
+        self.emit(abi::add_immediate(&index, &index, 1));
+        self.emit(abi::branch(&loop_label));
+
+        self.emit(abi::label(&not_found));
+        self.emit_not_found_return()?;
+        self.emit(abi::label(&done));
+
+        Ok(ValueResult {
+            type_: value_type.to_string(),
+            location: result,
+            text: format!("get({collection_type}, {key_type})"),
+        })
+    }
+
+    fn lower_list_get_or(
+        &mut self,
+        collection_slot: usize,
+        key_slot: usize,
+        default_slot: usize,
+        collection_type: &str,
+        element_type: &str,
+    ) -> Result<ValueResult, String> {
+        self.reset_temporary_registers();
+        let collection = self.allocate_register()?;
+        let index = self.allocate_register()?;
+        let count = self.allocate_register()?;
+        let entry_offset = self.allocate_register()?;
+        let entry = self.allocate_register()?;
+        let value_offset = self.allocate_register()?;
+        let value_length = self.allocate_register()?;
+        let use_default = self.label("list_get_or_default");
+        let done = self.label("list_get_or_done");
+
+        self.emit(abi::load_u64(
+            &collection,
+            abi::stack_pointer(),
+            collection_slot,
+        ));
+        self.emit(abi::load_u64(&index, abi::stack_pointer(), key_slot));
+        self.emit(abi::compare_immediate(&index, "0"));
+        self.emit(abi::branch_lt(&use_default));
+        self.emit(abi::load_u64(&count, &collection, COLLECTION_OFFSET_COUNT));
+        self.emit(abi::compare_registers(&index, &count));
+        self.emit(abi::branch_ge(&use_default));
+        self.emit(abi::move_immediate(
+            &entry_offset,
+            "Integer",
+            &COLLECTION_ENTRY_SIZE.to_string(),
+        ));
+        self.emit(abi::multiply_registers(
+            &entry_offset,
+            &index,
+            &entry_offset,
+        ));
+        self.emit(abi::add_immediate(
+            &entry,
+            &collection,
+            COLLECTION_HEADER_SIZE,
+        ));
+        self.emit(abi::add_registers(&entry, &entry, &entry_offset));
+        self.emit(abi::load_u64(
+            &value_offset,
+            &entry,
+            COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
+        ));
+        self.emit(abi::load_u64(
+            &value_length,
+            &entry,
+            COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
+        ));
+        let result = self.emit_load_collection_payload(
+            element_type,
+            &collection,
+            &value_offset,
+            &value_length,
+        )?;
+        self.emit(abi::branch(&done));
+        self.emit(abi::label(&use_default));
+        self.emit(abi::load_u64(&result, abi::stack_pointer(), default_slot));
+        self.emit(abi::label(&done));
+
+        Ok(ValueResult {
+            type_: element_type.to_string(),
+            location: result,
+            text: format!("getOr({collection_type}, Integer, {element_type})"),
+        })
+    }
+
+    fn lower_map_get_or(
+        &mut self,
+        collection_slot: usize,
+        key_slot: usize,
+        default_slot: usize,
+        collection_type: &str,
+        key_type: &str,
+        value_type: &str,
+    ) -> Result<ValueResult, String> {
+        self.reset_temporary_registers();
+        let collection = self.allocate_register()?;
+        let key = self.allocate_register()?;
+        let count = self.allocate_register()?;
+        let index = self.allocate_register()?;
+        let entry = self.allocate_register()?;
+        let key_offset = self.allocate_register()?;
+        let key_length = self.allocate_register()?;
+        let value_offset = self.allocate_register()?;
+        let value_length = self.allocate_register()?;
+        let loop_label = self.label("map_get_or_loop");
+        let found = self.label("map_get_or_found");
+        let next = self.label("map_get_or_next");
+        let use_default = self.label("map_get_or_default");
+        let done = self.label("map_get_or_done");
+
+        self.emit(abi::load_u64(
+            &collection,
+            abi::stack_pointer(),
+            collection_slot,
+        ));
+        self.emit(abi::load_u64(&key, abi::stack_pointer(), key_slot));
+        self.emit(abi::load_u64(&count, &collection, COLLECTION_OFFSET_COUNT));
+        self.emit(abi::move_immediate(&index, "Integer", "0"));
+        self.emit(abi::add_immediate(
+            &entry,
+            &collection,
+            COLLECTION_HEADER_SIZE,
+        ));
+
+        self.emit(abi::label(&loop_label));
+        self.emit(abi::compare_registers(&index, &count));
+        self.emit(abi::branch_ge(&use_default));
+        self.emit(abi::load_u64(
+            &key_offset,
+            &entry,
+            COLLECTION_ENTRY_OFFSET_KEY_OFFSET,
+        ));
+        self.emit(abi::load_u64(
+            &key_length,
+            &entry,
+            COLLECTION_ENTRY_OFFSET_KEY_LENGTH,
+        ));
+        self.emit_collection_payload_match_branch(
+            key_type,
+            &collection,
+            &key_offset,
+            &key_length,
+            &key,
+            &found,
+            &next,
+        )?;
+
+        self.emit(abi::label(&found));
+        self.emit(abi::load_u64(
+            &value_offset,
+            &entry,
+            COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
+        ));
+        self.emit(abi::load_u64(
+            &value_length,
+            &entry,
+            COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
+        ));
+        let result = self.emit_load_collection_payload(
+            value_type,
+            &collection,
+            &value_offset,
+            &value_length,
+        )?;
+        self.emit(abi::branch(&done));
+
+        self.emit(abi::label(&next));
+        self.emit(abi::add_immediate(&entry, &entry, COLLECTION_ENTRY_SIZE));
+        self.emit(abi::add_immediate(&index, &index, 1));
+        self.emit(abi::branch(&loop_label));
+
+        self.emit(abi::label(&use_default));
+        self.emit(abi::load_u64(&result, abi::stack_pointer(), default_slot));
+        self.emit(abi::label(&done));
+
+        Ok(ValueResult {
+            type_: value_type.to_string(),
+            location: result,
+            text: format!("getOr({collection_type}, {key_type}, {value_type})"),
+        })
+    }
+
     fn lower_len(&mut self, value: &NirValue) -> Result<ValueResult, String> {
         let value = self.lower_value(value)?;
         if value.type_ == "String" {
@@ -4292,7 +7865,11 @@ impl CodeBuilder<'_> {
             });
         } else if is_collection_type(&value.type_) {
             let register = self.allocate_register()?;
-            self.emit(abi::load_u64(&register, &value.location, 0));
+            self.emit(abi::load_u64(
+                &register,
+                &value.location,
+                COLLECTION_OFFSET_COUNT,
+            ));
             return Ok(ValueResult {
                 type_: "Integer".to_string(),
                 location: register,
@@ -4307,7 +7884,7 @@ impl CodeBuilder<'_> {
     }
 
     fn lower_empty_collection(&mut self, type_: &str) -> Result<ValueResult, String> {
-        self.lower_collection_stack_slots(type_, Vec::new(), "empty collection")
+        self.lower_collection_values(type_, Vec::new(), "empty collection")
     }
 
     fn lower_list_literal(
@@ -4320,9 +7897,15 @@ impl CodeBuilder<'_> {
             let value = self.lower_value(value)?;
             let slot = self.allocate_stack_object("collection_value", 8);
             self.emit(abi::store_u64(&value.location, abi::stack_pointer(), slot));
-            slots.push(slot);
+            slots.push(CollectionValueSlot {
+                key: None,
+                value: PayloadSlot {
+                    slot,
+                    type_: value.type_,
+                },
+            });
         }
-        self.lower_collection_stack_slots(type_, slots, "list")
+        self.lower_collection_values(type_, slots, "list")
     }
 
     fn lower_map_literal(
@@ -4339,7 +7922,6 @@ impl CodeBuilder<'_> {
                 abi::stack_pointer(),
                 key_slot,
             ));
-            slots.push(key_slot);
             let value = self.lower_value(value)?;
             let value_slot = self.allocate_stack_object("collection_value", 8);
             self.emit(abi::store_u64(
@@ -4347,33 +7929,48 @@ impl CodeBuilder<'_> {
                 abi::stack_pointer(),
                 value_slot,
             ));
-            slots.push(value_slot);
+            slots.push(CollectionValueSlot {
+                key: Some(PayloadSlot {
+                    slot: key_slot,
+                    type_: key.type_,
+                }),
+                value: PayloadSlot {
+                    slot: value_slot,
+                    type_: value.type_,
+                },
+            });
         }
-        self.lower_collection_stack_slots(type_, slots, "map")
+        self.lower_collection_values(type_, slots, "map")
     }
 
-    fn lower_collection_stack_slots(
+    fn lower_collection_values(
         &mut self,
         type_: &str,
-        slots: Vec<usize>,
+        slots: Vec<CollectionValueSlot>,
         label: &str,
     ) -> Result<ValueResult, String> {
-        let slot_width = collection_slot_width(type_)
+        let layout = CollectionTypeLayout::from_type(type_)
             .ok_or_else(|| format!("native code collection type '{type_}' is not supported"))?;
-        if slots.len() % (slot_width / 8) != 0 {
-            return Err(format!(
-                "native code collection literal '{type_}' has invalid slot count"
-            ));
+        let count = slots.len();
+        let data_len_slot = self.allocate_stack_object("collection_data_len", 8);
+        self.emit(abi::move_immediate("x8", "Integer", "0"));
+        self.emit(abi::store_u64("x8", abi::stack_pointer(), data_len_slot));
+        for slot in &slots {
+            if let Some(key) = &slot.key {
+                self.emit_add_payload_length(data_len_slot, key)?;
+            }
+            self.emit_add_payload_length(data_len_slot, &slot.value)?;
         }
-        let count = slots.len() / (slot_width / 8);
-        let size = 8 + slots.len() * 8;
+
         let collection_slot = self.allocate_stack_object("collection_literal", 8);
         let alloc_ok = self.label("collection_alloc_ok");
+        self.emit(abi::load_u64("x8", abi::stack_pointer(), data_len_slot));
         self.emit(abi::move_immediate(
-            abi::return_register(),
+            "x9",
             "Integer",
-            &size.to_string(),
+            &(COLLECTION_HEADER_SIZE + count * COLLECTION_ENTRY_SIZE).to_string(),
         ));
+        self.emit(abi::add_registers(abi::return_register(), "x8", "x9"));
         self.emit(abi::move_immediate("x1", "Integer", "8"));
         self.emit(abi::branch_link(ARENA_ALLOC_SYMBOL));
         self.relocations.push(CodeRelocation {
@@ -4391,12 +7988,15 @@ impl CodeBuilder<'_> {
         self.emit_allocation_error_return()?;
         self.emit(abi::label(&alloc_ok));
         self.emit(abi::store_u64("x1", abi::stack_pointer(), collection_slot));
-        self.emit(abi::move_immediate("x8", "Integer", &count.to_string()));
-        self.emit(abi::store_u64("x8", "x1", 0));
+
+        self.emit_write_collection_header(&layout, count, data_len_slot);
+
+        let data_offset_slot = self.allocate_stack_object("collection_data_offset", 8);
+        self.emit(abi::move_immediate("x8", "Integer", "0"));
+        self.emit(abi::store_u64("x8", abi::stack_pointer(), data_offset_slot));
+
         for (index, slot) in slots.iter().enumerate() {
-            self.emit(abi::load_u64("x8", abi::stack_pointer(), collection_slot));
-            self.emit(abi::load_u64("x9", abi::stack_pointer(), *slot));
-            self.emit(abi::store_u64("x9", "x8", 8 + index * 8));
+            self.emit_write_collection_entry(collection_slot, index, slot, data_offset_slot)?;
         }
         let register = self.allocate_register()?;
         self.emit(abi::load_u64(
@@ -4409,6 +8009,511 @@ impl CodeBuilder<'_> {
             location: register,
             text: format!("{label} {type_}"),
         })
+    }
+
+    fn emit_write_collection_header(
+        &mut self,
+        layout: &CollectionTypeLayout,
+        count: usize,
+        data_len_slot: usize,
+    ) {
+        self.emit(abi::move_immediate("x8", "Byte", &layout.kind.to_string()));
+        self.emit(abi::store_u8("x8", "x1", COLLECTION_OFFSET_KIND));
+        self.emit(abi::move_immediate(
+            "x8",
+            "Byte",
+            &layout.key_type_code.to_string(),
+        ));
+        self.emit(abi::store_u8("x8", "x1", COLLECTION_OFFSET_KEY_TYPE));
+        self.emit(abi::move_immediate(
+            "x8",
+            "Byte",
+            &layout.value_type_code.to_string(),
+        ));
+        self.emit(abi::store_u8("x8", "x1", COLLECTION_OFFSET_VALUE_TYPE));
+        self.emit(abi::move_immediate("x8", "Byte", "1"));
+        self.emit(abi::store_u8("x8", "x1", COLLECTION_OFFSET_FLAGS_VERSION));
+        self.emit(abi::move_immediate("x8", "Integer", &count.to_string()));
+        self.emit(abi::store_u64("x8", "x1", COLLECTION_OFFSET_COUNT));
+        self.emit(abi::store_u64("x8", "x1", COLLECTION_OFFSET_CAPACITY));
+        self.emit(abi::load_u64("x8", abi::stack_pointer(), data_len_slot));
+        self.emit(abi::store_u64("x8", "x1", COLLECTION_OFFSET_DATA_LENGTH));
+        self.emit(abi::store_u64("x8", "x1", COLLECTION_OFFSET_DATA_CAPACITY));
+    }
+
+    fn emit_write_collection_entry(
+        &mut self,
+        collection_slot: usize,
+        index: usize,
+        slot: &CollectionValueSlot,
+        data_offset_slot: usize,
+    ) -> Result<(), String> {
+        let entry_offset = COLLECTION_HEADER_SIZE + index * COLLECTION_ENTRY_SIZE;
+        let key_len_slot = if let Some(key) = &slot.key {
+            Some(self.emit_payload_length_to_stack(key, "collection_key_len")?)
+        } else {
+            None
+        };
+        let value_len_slot =
+            self.emit_payload_length_to_stack(&slot.value, "collection_value_len")?;
+        let collection_register = "x8";
+        self.emit(abi::load_u64(
+            collection_register,
+            abi::stack_pointer(),
+            collection_slot,
+        ));
+
+        self.emit(abi::move_immediate(
+            "x9",
+            "Byte",
+            &COLLECTION_ENTRY_FLAG_USED.to_string(),
+        ));
+        self.emit(abi::store_u8(
+            "x9",
+            collection_register,
+            entry_offset + COLLECTION_ENTRY_OFFSET_FLAGS,
+        ));
+
+        if let Some(key_len_slot) = key_len_slot {
+            self.emit(abi::load_u64("x10", abi::stack_pointer(), data_offset_slot));
+            self.emit(abi::store_u64(
+                "x10",
+                collection_register,
+                entry_offset + COLLECTION_ENTRY_OFFSET_KEY_OFFSET,
+            ));
+            self.emit(abi::load_u64("x11", abi::stack_pointer(), key_len_slot));
+            self.emit(abi::store_u64(
+                "x11",
+                collection_register,
+                entry_offset + COLLECTION_ENTRY_OFFSET_KEY_LENGTH,
+            ));
+            self.emit_copy_payload_to_collection(
+                collection_slot,
+                key_len_slot,
+                slot.key.as_ref().unwrap(),
+                data_offset_slot,
+            )?;
+        } else {
+            self.emit(abi::move_immediate("x10", "Integer", "0"));
+            self.emit(abi::store_u64(
+                "x10",
+                collection_register,
+                entry_offset + COLLECTION_ENTRY_OFFSET_KEY_OFFSET,
+            ));
+            self.emit(abi::store_u64(
+                "x10",
+                collection_register,
+                entry_offset + COLLECTION_ENTRY_OFFSET_KEY_LENGTH,
+            ));
+        }
+
+        self.emit(abi::load_u64(
+            collection_register,
+            abi::stack_pointer(),
+            collection_slot,
+        ));
+        self.emit(abi::load_u64("x10", abi::stack_pointer(), data_offset_slot));
+        self.emit(abi::store_u64(
+            "x10",
+            collection_register,
+            entry_offset + COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
+        ));
+        self.emit(abi::load_u64("x11", abi::stack_pointer(), value_len_slot));
+        self.emit(abi::store_u64(
+            "x11",
+            collection_register,
+            entry_offset + COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
+        ));
+        self.emit_copy_payload_to_collection(
+            collection_slot,
+            value_len_slot,
+            &slot.value,
+            data_offset_slot,
+        )?;
+        Ok(())
+    }
+
+    fn emit_add_payload_length(
+        &mut self,
+        total_slot: usize,
+        payload: &PayloadSlot,
+    ) -> Result<(), String> {
+        let len_slot = self.emit_payload_length_to_stack(payload, "collection_payload_len")?;
+        self.emit(abi::load_u64("x8", abi::stack_pointer(), total_slot));
+        self.emit(abi::load_u64("x9", abi::stack_pointer(), len_slot));
+        self.emit(abi::add_registers("x8", "x8", "x9"));
+        self.emit(abi::store_u64("x8", abi::stack_pointer(), total_slot));
+        Ok(())
+    }
+
+    fn emit_payload_length_to_stack(
+        &mut self,
+        payload: &PayloadSlot,
+        label: &str,
+    ) -> Result<usize, String> {
+        let len_slot = self.allocate_stack_object(label, 8);
+        match payload.type_.as_str() {
+            "Boolean" | "Byte" => {
+                self.emit(abi::move_immediate("x8", "Integer", "1"));
+            }
+            "Integer" | "Float" | "Fixed" => {
+                self.emit(abi::move_immediate("x8", "Integer", "8"));
+            }
+            "String" => {
+                self.emit(abi::load_u64("x8", abi::stack_pointer(), payload.slot));
+                self.emit(abi::load_u64("x8", "x8", 0));
+            }
+            other => {
+                return Err(format!(
+                    "native collection packed payload does not support type '{other}'"
+                ));
+            }
+        }
+        self.emit(abi::store_u64("x8", abi::stack_pointer(), len_slot));
+        Ok(len_slot)
+    }
+
+    fn emit_copy_payload_to_collection(
+        &mut self,
+        collection_slot: usize,
+        len_slot: usize,
+        payload: &PayloadSlot,
+        data_offset_slot: usize,
+    ) -> Result<(), String> {
+        self.emit(abi::load_u64("x8", abi::stack_pointer(), collection_slot));
+        self.emit(abi::load_u64("x9", abi::stack_pointer(), data_offset_slot));
+        self.emit(abi::add_immediate("x10", "x8", COLLECTION_HEADER_SIZE));
+        self.emit(abi::load_u64("x11", "x8", COLLECTION_OFFSET_CAPACITY));
+        self.emit(abi::move_immediate(
+            "x12",
+            "Integer",
+            &COLLECTION_ENTRY_SIZE.to_string(),
+        ));
+        self.emit(abi::multiply_registers("x11", "x11", "x12"));
+        self.emit(abi::add_registers("x10", "x10", "x11"));
+        self.emit(abi::add_registers("x10", "x10", "x9"));
+
+        match payload.type_.as_str() {
+            "Boolean" | "Byte" => {
+                self.emit(abi::load_u64("x12", abi::stack_pointer(), payload.slot));
+                self.emit(abi::store_u8("x12", "x10", 0));
+            }
+            "Integer" | "Float" | "Fixed" => {
+                self.emit(abi::load_u64("x12", abi::stack_pointer(), payload.slot));
+                self.emit(abi::store_u64("x12", "x10", 0));
+            }
+            "String" => {
+                let loop_label = self.label("collection_copy_string_loop");
+                let done_label = self.label("collection_copy_string_done");
+                self.emit(abi::load_u64("x12", abi::stack_pointer(), payload.slot));
+                self.emit(abi::add_immediate("x12", "x12", 8));
+                self.emit(abi::load_u64("x13", abi::stack_pointer(), len_slot));
+                self.emit(abi::label(&loop_label));
+                self.emit(abi::compare_immediate("x13", "0"));
+                self.emit(abi::branch_eq(&done_label));
+                self.emit(abi::load_u8("x14", "x12", 0));
+                self.emit(abi::store_u8("x14", "x10", 0));
+                self.emit(abi::add_immediate("x12", "x12", 1));
+                self.emit(abi::add_immediate("x10", "x10", 1));
+                self.emit(abi::subtract_immediate("x13", "x13", 1));
+                self.emit(abi::branch(&loop_label));
+                self.emit(abi::label(&done_label));
+            }
+            other => {
+                return Err(format!(
+                    "native collection packed payload does not support type '{other}'"
+                ));
+            }
+        }
+
+        self.emit(abi::load_u64("x8", abi::stack_pointer(), data_offset_slot));
+        self.emit(abi::load_u64("x9", abi::stack_pointer(), len_slot));
+        self.emit(abi::add_registers("x8", "x8", "x9"));
+        self.emit(abi::store_u64("x8", abi::stack_pointer(), data_offset_slot));
+        Ok(())
+    }
+
+    fn emit_collection_data_pointer(&mut self, dst: &str, collection: &str) {
+        let capacity = "x6";
+        let entry_size = "x7";
+        self.emit(abi::move_register(capacity, collection));
+        self.emit(abi::add_immediate(dst, collection, COLLECTION_HEADER_SIZE));
+        self.emit(abi::load_u64(
+            capacity,
+            capacity,
+            COLLECTION_OFFSET_CAPACITY,
+        ));
+        self.emit(abi::move_immediate(
+            entry_size,
+            "Integer",
+            &COLLECTION_ENTRY_SIZE.to_string(),
+        ));
+        self.emit(abi::multiply_registers(capacity, capacity, entry_size));
+        self.emit(abi::add_registers(dst, dst, capacity));
+    }
+
+    fn emit_load_collection_payload(
+        &mut self,
+        type_: &str,
+        collection: &str,
+        offset: &str,
+        length: &str,
+    ) -> Result<String, String> {
+        let collection_input = "x3";
+        let offset_input = "x4";
+        let length_input = "x5";
+        self.emit(abi::move_register(collection_input, collection));
+        self.emit(abi::move_register(offset_input, offset));
+        self.emit(abi::move_register(length_input, length));
+        let data = self.allocate_register()?;
+        self.emit_collection_data_pointer(&data, collection_input);
+        self.emit(abi::add_registers(&data, &data, offset_input));
+        match type_ {
+            "Boolean" | "Byte" => {
+                let result = self.allocate_register()?;
+                self.emit(abi::load_u8(&result, &data, 0));
+                Ok(result)
+            }
+            "Integer" | "Float" | "Fixed" => {
+                let result = self.allocate_register()?;
+                self.emit(abi::load_u64(&result, &data, 0));
+                Ok(result)
+            }
+            "String" => self.emit_materialize_string_from_bytes(&data, length_input),
+            other => Err(format!(
+                "native collection packed payload does not support type '{other}'"
+            )),
+        }
+    }
+
+    fn emit_materialize_string_from_bytes(
+        &mut self,
+        source: &str,
+        length: &str,
+    ) -> Result<String, String> {
+        let source_slot = self.allocate_stack_object("collection_string_source", 8);
+        let length_slot = self.allocate_stack_object("collection_string_length", 8);
+        let result_slot = self.allocate_stack_object("collection_string_result", 8);
+        let alloc_ok = self.label("collection_string_alloc_ok");
+        let copy_loop = self.label("collection_string_copy_loop");
+        let copy_done = self.label("collection_string_copy_done");
+
+        self.emit(abi::store_u64(source, abi::stack_pointer(), source_slot));
+        self.emit(abi::store_u64(length, abi::stack_pointer(), length_slot));
+        self.emit(abi::add_immediate(abi::return_register(), length, 9));
+        self.emit(abi::move_immediate("x1", "Integer", "8"));
+        self.emit(abi::branch_link(ARENA_ALLOC_SYMBOL));
+        self.relocations.push(CodeRelocation {
+            from: self.current_symbol.clone(),
+            to: ARENA_ALLOC_SYMBOL.to_string(),
+            kind: "branch26".to_string(),
+            binding: "internal".to_string(),
+            library: None,
+        });
+        self.emit(abi::compare_immediate(
+            abi::return_register(),
+            RESULT_OK_TAG,
+        ));
+        self.emit(abi::branch_eq(&alloc_ok));
+        self.emit_allocation_error_return()?;
+        self.emit(abi::label(&alloc_ok));
+        self.emit(abi::store_u64("x1", abi::stack_pointer(), result_slot));
+        self.emit(abi::load_u64("x12", abi::stack_pointer(), length_slot));
+        self.emit(abi::store_u64("x12", "x1", 0));
+        self.emit(abi::add_immediate("x13", "x1", 8));
+        self.emit(abi::load_u64("x14", abi::stack_pointer(), source_slot));
+        self.emit(abi::label(&copy_loop));
+        self.emit(abi::compare_immediate("x12", "0"));
+        self.emit(abi::branch_eq(&copy_done));
+        self.emit(abi::load_u8("x15", "x14", 0));
+        self.emit(abi::store_u8("x15", "x13", 0));
+        self.emit(abi::add_immediate("x14", "x14", 1));
+        self.emit(abi::add_immediate("x13", "x13", 1));
+        self.emit(abi::subtract_immediate("x12", "x12", 1));
+        self.emit(abi::branch(&copy_loop));
+        self.emit(abi::label(&copy_done));
+        self.emit(abi::move_immediate("x15", "Integer", "0"));
+        self.emit(abi::store_u8("x15", "x13", 0));
+        let result = self.allocate_register()?;
+        self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
+        Ok(result)
+    }
+
+    fn emit_collection_payload_match_branch(
+        &mut self,
+        type_: &str,
+        collection: &str,
+        offset: &str,
+        length: &str,
+        value: &str,
+        equal_label: &str,
+        not_equal_label: &str,
+    ) -> Result<(), String> {
+        let data = self.allocate_register()?;
+        self.emit_collection_data_pointer(&data, collection);
+        self.emit(abi::add_registers(&data, &data, offset));
+        match type_ {
+            "Boolean" | "Byte" => {
+                let candidate = self.allocate_register()?;
+                self.emit(abi::load_u8(&candidate, &data, 0));
+                self.emit(abi::compare_registers(&candidate, value));
+                self.emit(abi::branch_eq(equal_label));
+                self.emit(abi::branch(not_equal_label));
+            }
+            "Integer" | "Float" | "Fixed" => {
+                let candidate = self.allocate_register()?;
+                self.emit(abi::load_u64(&candidate, &data, 0));
+                self.emit(abi::compare_registers(&candidate, value));
+                self.emit(abi::branch_eq(equal_label));
+                self.emit(abi::branch(not_equal_label));
+            }
+            "String" => {
+                let value_len = self.allocate_register()?;
+                let value_cursor = self.allocate_register()?;
+                let remaining = self.allocate_register()?;
+                let packed_byte = self.allocate_register()?;
+                let value_byte = self.allocate_register()?;
+                let loop_label = self.label("collection_string_match_loop");
+                self.emit(abi::load_u64(&value_len, value, 0));
+                self.emit(abi::compare_registers(length, &value_len));
+                self.emit(abi::branch_ne(not_equal_label));
+                self.emit(abi::add_immediate(&value_cursor, value, 8));
+                self.emit(abi::move_register(&remaining, length));
+                self.emit(abi::label(&loop_label));
+                self.emit(abi::compare_immediate(&remaining, "0"));
+                self.emit(abi::branch_eq(equal_label));
+                self.emit(abi::load_u8(&packed_byte, &data, 0));
+                self.emit(abi::load_u8(&value_byte, &value_cursor, 0));
+                self.emit(abi::compare_registers(&packed_byte, &value_byte));
+                self.emit(abi::branch_ne(not_equal_label));
+                self.emit(abi::add_immediate(&data, &data, 1));
+                self.emit(abi::add_immediate(&value_cursor, &value_cursor, 1));
+                self.emit(abi::subtract_immediate(&remaining, &remaining, 1));
+                self.emit(abi::branch(&loop_label));
+            }
+            other => {
+                return Err(format!(
+                    "native collection packed payload does not support type '{other}'"
+                ));
+            }
+        }
+        Ok(())
+    }
+
+    fn emit_collection_payload_matches_value_branch(
+        &mut self,
+        type_: &str,
+        collection: &str,
+        offset: &str,
+        length: &str,
+        value: &str,
+        equal_label: &str,
+        not_equal_label: &str,
+    ) -> Result<(), String> {
+        self.emit(abi::move_register("x2", collection));
+        self.emit(abi::move_register("x3", offset));
+        self.emit_collection_data_pointer("x2", "x2");
+        self.emit(abi::add_registers("x2", "x2", "x3"));
+        match type_ {
+            "Boolean" | "Byte" => {
+                self.emit(abi::load_u8("x6", "x2", 0));
+                self.emit(abi::compare_registers("x6", value));
+                self.emit(abi::branch_eq(equal_label));
+                self.emit(abi::branch(not_equal_label));
+            }
+            "Integer" | "Float" | "Fixed" => {
+                self.emit(abi::load_u64("x6", "x2", 0));
+                self.emit(abi::compare_registers("x6", value));
+                self.emit(abi::branch_eq(equal_label));
+                self.emit(abi::branch(not_equal_label));
+            }
+            "String" => {
+                let loop_label = self.label("collection_string_value_match_loop");
+                self.emit(abi::load_u64("x3", value, 0));
+                self.emit(abi::compare_registers(length, "x3"));
+                self.emit(abi::branch_ne(not_equal_label));
+                self.emit(abi::add_immediate("x4", value, 8));
+                self.emit(abi::move_register("x5", length));
+                self.emit(abi::label(&loop_label));
+                self.emit(abi::compare_immediate("x5", "0"));
+                self.emit(abi::branch_eq(equal_label));
+                self.emit(abi::load_u8("x6", "x2", 0));
+                self.emit(abi::load_u8("x7", "x4", 0));
+                self.emit(abi::compare_registers("x6", "x7"));
+                self.emit(abi::branch_ne(not_equal_label));
+                self.emit(abi::add_immediate("x2", "x2", 1));
+                self.emit(abi::add_immediate("x4", "x4", 1));
+                self.emit(abi::subtract_immediate("x5", "x5", 1));
+                self.emit(abi::branch(&loop_label));
+            }
+            other => {
+                return Err(format!(
+                    "native collection packed payload does not support type '{other}'"
+                ));
+            }
+        }
+        Ok(())
+    }
+
+    fn emit_collection_payloads_match_branch(
+        &mut self,
+        type_: &str,
+        left_collection: &str,
+        left_offset: &str,
+        left_length: &str,
+        right_collection: &str,
+        right_offset: &str,
+        right_length: &str,
+        equal_label: &str,
+        not_equal_label: &str,
+    ) -> Result<(), String> {
+        self.emit(abi::move_register("x2", left_collection));
+        self.emit(abi::move_register("x3", left_offset));
+        self.emit(abi::move_register("x4", right_collection));
+        self.emit(abi::move_register("x5", right_offset));
+        self.emit_collection_data_pointer("x2", "x2");
+        self.emit(abi::add_registers("x2", "x2", "x3"));
+        self.emit_collection_data_pointer("x4", "x4");
+        self.emit(abi::add_registers("x4", "x4", "x5"));
+        match type_ {
+            "Boolean" | "Byte" => {
+                self.emit(abi::load_u8("x6", "x2", 0));
+                self.emit(abi::load_u8("x7", "x4", 0));
+                self.emit(abi::compare_registers("x6", "x7"));
+                self.emit(abi::branch_eq(equal_label));
+                self.emit(abi::branch(not_equal_label));
+            }
+            "Integer" | "Float" | "Fixed" => {
+                self.emit(abi::load_u64("x6", "x2", 0));
+                self.emit(abi::load_u64("x7", "x4", 0));
+                self.emit(abi::compare_registers("x6", "x7"));
+                self.emit(abi::branch_eq(equal_label));
+                self.emit(abi::branch(not_equal_label));
+            }
+            "String" => {
+                let loop_label = self.label("collection_payload_string_match_loop");
+                self.emit(abi::compare_registers(left_length, right_length));
+                self.emit(abi::branch_ne(not_equal_label));
+                self.emit(abi::move_register("x5", left_length));
+                self.emit(abi::label(&loop_label));
+                self.emit(abi::compare_immediate("x5", "0"));
+                self.emit(abi::branch_eq(equal_label));
+                self.emit(abi::load_u8("x6", "x2", 0));
+                self.emit(abi::load_u8("x7", "x4", 0));
+                self.emit(abi::compare_registers("x6", "x7"));
+                self.emit(abi::branch_ne(not_equal_label));
+                self.emit(abi::add_immediate("x2", "x2", 1));
+                self.emit(abi::add_immediate("x4", "x4", 1));
+                self.emit(abi::subtract_immediate("x5", "x5", 1));
+                self.emit(abi::branch(&loop_label));
+            }
+            other => {
+                return Err(format!(
+                    "native collection packed payload does not support type '{other}'"
+                ));
+            }
+        }
+        Ok(())
     }
 
     fn load_string_constant(&mut self, value: &str) -> Result<String, String> {
@@ -4946,10 +9051,16 @@ impl CodeBuilder<'_> {
     fn allocate_register(&mut self) -> Result<String, String> {
         let register = abi::temporary_register(self.next_register)?;
         self.next_register += 1;
-        if abi::is_callee_saved(&register) && !self.used_callee_saved.contains(&register) {
-            self.used_callee_saved.push(register.clone());
-        }
+        self.mark_register_used(&register);
         Ok(register)
+    }
+
+    fn mark_register_used(&mut self, register: &str) {
+        if abi::is_callee_saved(register)
+            && !self.used_callee_saved.iter().any(|saved| saved == register)
+        {
+            self.used_callee_saved.push(register.to_string());
+        }
     }
 
     fn reset_temporary_registers(&mut self) {
@@ -5097,7 +9208,9 @@ impl CodeBuilder<'_> {
 
     fn current_block_returns(&self) -> bool {
         self.instructions
-            .last()
+            .iter()
+            .rev()
+            .find(|instruction| instruction.op != CodeOp::Label)
             .is_some_and(|instruction| instruction.op == CodeOp::Ret)
     }
 }
@@ -5153,6 +9266,7 @@ impl CodeInstruction {
             | CodeOp::BranchLo
             | CodeOp::Branch
             | CodeOp::BranchLink => &["target"],
+            CodeOp::BranchLinkRegister => &["register"],
             CodeOp::BranchSelf | CodeOp::Svc | CodeOp::Ret => &[],
             CodeOp::LdrU64 | CodeOp::LdrU8 => &["dst", "base", "offset"],
             CodeOp::StrU64 | CodeOp::StrU8 => &["src", "base", "offset"],
@@ -5339,10 +9453,20 @@ fn string_symbols(module: &NirModule) -> HashMap<String, String> {
     ] {
         push_string_value(&mut values, value.to_string());
     }
-    if module_uses_call(module, "find") || module_uses_call(module, "mid") {
+    if module_uses_call(module, "find")
+        || module_uses_call(module, "mid")
+        || module_uses_call(module, "get")
+        || module_uses_call(module, "append")
+        || module_uses_call(module, "prepend")
+        || module_uses_call(module, "insert")
+        || module_uses_call(module, "transform")
+        || module_uses_call(module, "filter")
+        || module_uses_call(module, "removeAt")
+        || module_uses_call(module, "set")
+    {
         push_string_value(&mut values, ERR_INDEX_OUT_OF_RANGE_MESSAGE.to_string());
     }
-    if module_uses_call(module, "find") {
+    if module_uses_call(module, "find") || module_uses_call(module, "get") {
         push_string_value(&mut values, ERR_NOT_FOUND_MESSAGE.to_string());
     }
     if module_uses_call(module, "toString") {
@@ -5883,6 +10007,38 @@ fn collect_string_values_from_value(
     }
 }
 
+impl CollectionTypeLayout {
+    fn from_type(type_: &str) -> Option<Self> {
+        if let Some(value_type) = type_.strip_prefix("List OF ") {
+            return Some(Self {
+                kind: COLLECTION_KIND_LIST,
+                key_type_code: COLLECTION_TYPE_NONE,
+                value_type_code: collection_type_code(value_type)?,
+            });
+        }
+        let (key_type, value_type) = map_type_parts(type_)?;
+        Some(Self {
+            kind: COLLECTION_KIND_MAP,
+            key_type_code: collection_type_code(&key_type)?,
+            value_type_code: collection_type_code(&value_type)?,
+        })
+    }
+}
+
+fn collection_type_code(type_: &str) -> Option<usize> {
+    match type_ {
+        "Boolean" => Some(COLLECTION_TYPE_BOOLEAN),
+        "Byte" => Some(COLLECTION_TYPE_BYTE),
+        "Integer" => Some(COLLECTION_TYPE_INTEGER),
+        "Float" => Some(COLLECTION_TYPE_FLOAT),
+        "Fixed" => Some(COLLECTION_TYPE_FIXED),
+        "String" => Some(COLLECTION_TYPE_STRING),
+        _ if type_.starts_with("List OF ") => Some(COLLECTION_TYPE_LIST),
+        _ if type_.starts_with("Map OF ") => Some(COLLECTION_TYPE_MAP),
+        _ => None,
+    }
+}
+
 fn value_may_return_invalid_format(
     value: &NirValue,
     constants: &HashMap<String, NirValue>,
@@ -6107,14 +10263,19 @@ fn is_collection_type(type_: &str) -> bool {
     type_.starts_with("List OF ") || type_.starts_with("Map OF ")
 }
 
-fn collection_slot_width(type_: &str) -> Option<usize> {
-    if type_.starts_with("List OF ") {
-        Some(8)
-    } else if type_.starts_with("Map OF ") {
-        Some(16)
-    } else {
-        None
-    }
+fn list_element_type(type_: &str) -> Option<String> {
+    type_.strip_prefix("List OF ").map(str::to_string)
+}
+
+fn map_type_parts(type_: &str) -> Option<(String, String)> {
+    let rest = type_.strip_prefix("Map OF ")?;
+    let (key, value) = rest.split_once(" TO ")?;
+    Some((key.to_string(), value.to_string()))
+}
+
+fn callable_return_type(type_: &str) -> Option<String> {
+    let (_, returns) = type_.rsplit_once(") AS ")?;
+    Some(returns.to_string())
 }
 
 fn parse_map_entry_type(type_: &str) -> Option<(String, String)> {

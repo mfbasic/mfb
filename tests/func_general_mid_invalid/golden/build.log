@@ -14,7 +14,7 @@ tests/func_general_mid_invalid/src/main.mfb:2 error[TYPE_UNKNOWN_VALUE]: value t
    3 |   LET wrongValue AS String = mid(42, 0, 1)
      | ^
 tests/func_general_mid_invalid/src/main.mfb:3 error[TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
-               Call to `mid` has argument type(s) (Integer, Integer, Integer), expected String, Integer, Integer.
+               Call to `mid` has argument type(s) (Integer, Integer, Integer), expected String, Integer, Integer or List OF T, Integer, Integer.
    1 | FUNC main AS Integer
    2 |   LET missing AS String = mid()
    3 |   LET wrongValue AS String = mid(42, 0, 1)
@@ -26,7 +26,7 @@ tests/func_general_mid_invalid/src/main.mfb:3 error[TYPE_UNKNOWN_VALUE]: value t
    4 |   LET wrongStart AS String = mid("hello", "0", 1)
      | ^
 tests/func_general_mid_invalid/src/main.mfb:4 error[TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
-               Call to `mid` has argument type(s) (String, String, Integer), expected String, Integer, Integer.
+               Call to `mid` has argument type(s) (String, String, Integer), expected String, Integer, Integer or List OF T, Integer, Integer.
    2 |   LET missing AS String = mid()
    3 |   LET wrongValue AS String = mid(42, 0, 1)
    4 |   LET wrongStart AS String = mid("hello", "0", 1)
@@ -38,7 +38,7 @@ tests/func_general_mid_invalid/src/main.mfb:4 error[TYPE_UNKNOWN_VALUE]: value t
    5 |   LET wrongCount AS String = mid("hello", 0, "1")
      | ^
 tests/func_general_mid_invalid/src/main.mfb:5 error[TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
-               Call to `mid` has argument type(s) (String, Integer, String), expected String, Integer, Integer.
+               Call to `mid` has argument type(s) (String, Integer, String), expected String, Integer, Integer or List OF T, Integer, Integer.
    3 |   LET wrongValue AS String = mid(42, 0, 1)
    4 |   LET wrongStart AS String = mid("hello", "0", 1)
    5 |   LET wrongCount AS String = mid("hello", 0, "1")
@@ -74,7 +74,7 @@ tests/func_general_mid_invalid/src/main.mfb:2 error[TYPE_UNKNOWN_VALUE]: value t
    3 |   LET wrongValue AS String = mid(42, 0, 1)
      | ^
 tests/func_general_mid_invalid/src/main.mfb:3 error[TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
-               Call to `mid` has argument type(s) (Integer, Integer, Integer), expected String, Integer, Integer.
+               Call to `mid` has argument type(s) (Integer, Integer, Integer), expected String, Integer, Integer or List OF T, Integer, Integer.
    1 | FUNC main AS Integer
    2 |   LET missing AS String = mid()
    3 |   LET wrongValue AS String = mid(42, 0, 1)
@@ -86,7 +86,7 @@ tests/func_general_mid_invalid/src/main.mfb:3 error[TYPE_UNKNOWN_VALUE]: value t
    4 |   LET wrongStart AS String = mid("hello", "0", 1)
      | ^
 tests/func_general_mid_invalid/src/main.mfb:4 error[TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
-               Call to `mid` has argument type(s) (String, String, Integer), expected String, Integer, Integer.
+               Call to `mid` has argument type(s) (String, String, Integer), expected String, Integer, Integer or List OF T, Integer, Integer.
    2 |   LET missing AS String = mid()
    3 |   LET wrongValue AS String = mid(42, 0, 1)
    4 |   LET wrongStart AS String = mid("hello", "0", 1)
@@ -98,7 +98,7 @@ tests/func_general_mid_invalid/src/main.mfb:4 error[TYPE_UNKNOWN_VALUE]: value t
    5 |   LET wrongCount AS String = mid("hello", 0, "1")
      | ^
 tests/func_general_mid_invalid/src/main.mfb:5 error[TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
-               Call to `mid` has argument type(s) (String, Integer, String), expected String, Integer, Integer.
+               Call to `mid` has argument type(s) (String, Integer, String), expected String, Integer, Integer or List OF T, Integer, Integer.
    3 |   LET wrongValue AS String = mid(42, 0, 1)
    4 |   LET wrongStart AS String = mid("hello", "0", 1)
    5 |   LET wrongCount AS String = mid("hello", 0, "1")

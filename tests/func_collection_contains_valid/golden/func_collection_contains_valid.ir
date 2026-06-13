@@ -1,0 +1,53 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "func_collection_contains_valid",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "printBoolean",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    { "name": "value", "type": "Boolean", "default": null }
+    ],
+    "returns": "Nothing",
+    "body": [
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "local", "name": "value" }] }] } },
+    { "op": "return", "value": { "kind": "const", "type": "Nothing", "value": "NOTHING" } }
+    ]
+  },
+  {
+    "name": "main",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "mutable": false, "name": "empty", "type": "List OF Integer", "value": { "kind": "list", "type": "List OF Integer", "values": [] } },
+    { "op": "bind", "mutable": false, "name": "numbers", "type": "List OF Integer", "value": { "kind": "list", "type": "List OF Integer", "values": [{ "kind": "const", "type": "Integer", "value": "10" }, { "kind": "const", "type": "Integer", "value": "20" }, { "kind": "const", "type": "Integer", "value": "30" }] } },
+    { "op": "bind", "mutable": false, "name": "names", "type": "List OF String", "value": { "kind": "list", "type": "List OF String", "values": [{ "kind": "const", "type": "String", "value": "Ada" }, { "kind": "const", "type": "String", "value": "Grace" }] } },
+    { "op": "bind", "mutable": false, "name": "emptyMissing", "type": "Boolean", "value": { "kind": "call", "target": "contains", "args": [{ "kind": "local", "name": "empty" }, { "kind": "const", "type": "Integer", "value": "10" }] } },
+    { "op": "bind", "mutable": false, "name": "first", "type": "Boolean", "value": { "kind": "call", "target": "contains", "args": [{ "kind": "local", "name": "numbers" }, { "kind": "const", "type": "Integer", "value": "10" }] } },
+    { "op": "bind", "mutable": false, "name": "last", "type": "Boolean", "value": { "kind": "call", "target": "contains", "args": [{ "kind": "local", "name": "numbers" }, { "kind": "const", "type": "Integer", "value": "30" }] } },
+    { "op": "bind", "mutable": false, "name": "missing", "type": "Boolean", "value": { "kind": "call", "target": "contains", "args": [{ "kind": "local", "name": "numbers" }, { "kind": "const", "type": "Integer", "value": "40" }] } },
+    { "op": "bind", "mutable": false, "name": "stringHit", "type": "Boolean", "value": { "kind": "call", "target": "contains", "args": [{ "kind": "local", "name": "names" }, { "kind": "const", "type": "String", "value": "Grace" }] } },
+    { "op": "bind", "mutable": false, "name": "stringMiss", "type": "Boolean", "value": { "kind": "call", "target": "contains", "args": [{ "kind": "local", "name": "names" }, { "kind": "const", "type": "String", "value": "Katherine" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "printBoolean", "args": [{ "kind": "local", "name": "emptyMissing" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "printBoolean", "args": [{ "kind": "local", "name": "first" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "printBoolean", "args": [{ "kind": "local", "name": "last" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "printBoolean", "args": [{ "kind": "local", "name": "missing" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "printBoolean", "args": [{ "kind": "local", "name": "stringHit" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "printBoolean", "args": [{ "kind": "local", "name": "stringMiss" }] } },
+    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

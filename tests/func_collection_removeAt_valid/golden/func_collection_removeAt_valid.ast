@@ -1,0 +1,45 @@
+{
+  "project": "func_collection_removeAt_valid",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "main",
+      "line": 3,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "numbers", "type": "List OF Integer", "value": { "kind": "call", "callee": "removeAt", "arguments": [{ "kind": "list", "values": [{ "kind": "number", "value": "1" }, { "kind": "number", "value": "2" }, { "kind": "number", "value": "3" }, { "kind": "number", "value": "4" }] }, { "kind": "number", "value": "1" }] }, "line": 4 },
+      { "kind": "binding", "mutable": false, "name": "names", "type": "List OF String", "value": { "kind": "call", "callee": "removeAt", "arguments": [{ "kind": "list", "values": [{ "kind": "string", "value": "Ada" }, { "kind": "string", "value": "Grace" }, { "kind": "string", "value": "Katherine" }] }, { "kind": "number", "value": "2" }] }, "line": 5 },
+      {
+        "kind": "forEach",
+        "name": "value",
+        "iterable": { "kind": "identifier", "value": "numbers" },
+        "line": 7,
+        "body": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "value" }] }] }, "line": 8 }
+        ]
+      },
+      {
+        "kind": "forEach",
+        "name": "name",
+        "iterable": { "kind": "identifier", "value": "names" },
+        "line": 10,
+        "body": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "identifier", "value": "name" }] }, "line": 11 }
+        ]
+      },
+      { "kind": "return", "value": { "kind": "binary", "operator": "+", "left": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "numbers" }] }, "right": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "names" }] } }, "line": 14 }
+      ]
+    }
+    ]
+  }
+  ]
+}

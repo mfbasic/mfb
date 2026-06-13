@@ -285,6 +285,10 @@ pub(crate) fn branch_link(target: &str) -> CodeInstruction {
     CodeInstruction::new("bl").field("target", target)
 }
 
+pub(crate) fn branch_link_register(register: &str) -> CodeInstruction {
+    CodeInstruction::new("blr").field("register", register)
+}
+
 pub(crate) fn branch_self() -> CodeInstruction {
     CodeInstruction::new("branch_self")
 }

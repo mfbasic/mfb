@@ -1,0 +1,29 @@
+IMPORT io
+
+FUNC printIntegers(values AS List OF Integer) AS Nothing
+  FOR EACH item IN values
+    io::print(toString(item))
+  NEXT
+  RETURN NOTHING
+END FUNC
+
+FUNC printStrings(values AS List OF String) AS Nothing
+  FOR EACH item IN values
+    io::print(item)
+  NEXT
+  RETURN NOTHING
+END FUNC
+
+FUNC main AS Integer
+  LET numbers AS List OF Integer = [1, 2, 1, 3]
+  LET names AS List OF String = ["Ada", "Grace", "Ada"]
+  LET noMatch AS List OF Integer = replace(numbers, 9, 8)
+  LET replacedNumbers AS List OF Integer = replace(numbers, 1, 7)
+  LET replacedNames AS List OF String = replace(names, "Ada", "Katherine")
+
+  printIntegers(replacedNumbers)
+  printStrings(replacedNames)
+  printIntegers(noMatch)
+
+  RETURN len(replacedNumbers) + len(replacedNames) + len(noMatch)
+END FUNC

@@ -1,10 +1,8 @@
 NAME
-  len - return the length of a string, list, or map
+  len - return the length of a string
 
 SYNOPSIS
   len(value AS String) AS Integer
-  len OF T(value AS List OF T) AS Integer
-  len OF K, V(value AS Map OF K TO V) AS Integer
 
 PACKAGE
   general
@@ -13,51 +11,30 @@ IMPORTS
   None. general functions are available without an IMPORT statement.
 
 DESCRIPTION
-  len returns the size of a supported value.
-
-  For String values, len counts Unicode scalar values. It does not count UTF-8
-  bytes and it does not count user-perceived grapheme clusters. Use
+  len returns the number of Unicode scalar values in a String. It does not count
+  UTF-8 bytes and it does not count user-perceived grapheme clusters. Use
   strings::byteLen for byte length and strings::graphemes when grapheme clusters
   are needed.
-
-  For List values, len returns the number of items. For Map values, len returns
-  the number of key/value entries.
 
 OVERLOADS
   len(value AS String) AS Integer
     Returns the number of Unicode scalar values in value.
-
-  len OF T(value AS List OF T) AS Integer
-    Returns the number of items in value.
-
-  len OF K, V(value AS Map OF K TO V) AS Integer
-    Returns the number of entries in value.
 
 ERRORS
   len does not fail for supported argument types. Errors can still propagate from
   evaluating the argument expression before len is called.
 
 TYPE CHECKING
-  len is defined only for String, List OF T, and Map OF K TO V. Calling len on a
-  number, Boolean, Byte, record, union, resource, thread, function, or lambda is
-  a compile-time type error.
+  General len is defined only for String. Collection overloads are documented
+  under mfb man collection len.
 
 EXAMPLES
   Count string scalar values:
 
     LET count AS Integer = len("hello")
 
-  Count list items:
-
-    LET numbers AS List OF Integer = [1, 2, 3]
-    LET count AS Integer = len(numbers)
-
-  Count map entries:
-
-    LET ages AS Map OF String TO Integer = Map OF String TO Integer { "Ada" := 36 }
-    LET count AS Integer = len(ages)
-
 SEE ALSO
+  collection len
   isEmpty
   isNotEmpty
   strings::byteLen

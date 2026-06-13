@@ -1,0 +1,28 @@
+$ mfb build -ast tests/func_collection_reduce_invalid
+   5 | FUNC main AS Integer
+   6 |   LET numbers AS List OF Integer = [1, 2, 3]
+   7 |   LET total AS Integer = reduce(numbers, 0, addText)
+     | ^
+tests/func_collection_reduce_invalid/src/main.mfb:7 error[TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `reduce` has argument type(s) (List OF Integer, Integer, FUNC(String, Integer) AS String), expected List OF T, U, FUNC(U, T) AS U.
+   5 | FUNC main AS Integer
+   6 |   LET numbers AS List OF Integer = [1, 2, 3]
+   7 |   LET total AS Integer = reduce(numbers, 0, addText)
+     | ^
+tests/func_collection_reduce_invalid/src/main.mfb:7 error[TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `total` does not have a known type.
+[exit 1]
+$ mfb build -ir tests/func_collection_reduce_invalid
+   5 | FUNC main AS Integer
+   6 |   LET numbers AS List OF Integer = [1, 2, 3]
+   7 |   LET total AS Integer = reduce(numbers, 0, addText)
+     | ^
+tests/func_collection_reduce_invalid/src/main.mfb:7 error[TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `reduce` has argument type(s) (List OF Integer, Integer, FUNC(String, Integer) AS String), expected List OF T, U, FUNC(U, T) AS U.
+   5 | FUNC main AS Integer
+   6 |   LET numbers AS List OF Integer = [1, 2, 3]
+   7 |   LET total AS Integer = reduce(numbers, 0, addText)
+     | ^
+tests/func_collection_reduce_invalid/src/main.mfb:7 error[TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `total` does not have a known type.
+[exit 1]

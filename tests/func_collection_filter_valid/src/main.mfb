@@ -1,0 +1,33 @@
+IMPORT io
+
+FUNC isLarge(value AS Integer) AS Boolean
+  RETURN value > 2
+END FUNC
+
+FUNC isAda(value AS String) AS Boolean
+  RETURN len(value) = 3
+END FUNC
+
+FUNC main AS Integer
+  LET numbers AS List OF Integer = [1, 2, 3, 4]
+  LET names AS List OF String = ["Ada", "Grace", "Ada"]
+  LET empty AS List OF Integer = []
+  LET largePredicate AS FUNC(Integer) AS Boolean = isLarge
+  LET large AS List OF Integer = filter(numbers, largePredicate)
+  LET adas AS List OF String = filter(names, isAda)
+  LET small AS List OF Integer = filter(numbers, LAMBDA(value AS Integer) -> value < 3)
+  LET emptyLarge AS List OF Integer = filter(empty, isLarge)
+
+  io::print(toString(len(large)))
+  io::print(toString(get(large, 0)))
+  io::print(toString(get(large, 1)))
+  io::print(toString(len(adas)))
+  io::print(get(adas, 0))
+  io::print(get(adas, 1))
+  io::print(toString(len(small)))
+  io::print(toString(get(small, 0)))
+  io::print(toString(get(small, 1)))
+  io::print(toString(len(emptyLarge)))
+
+  RETURN sum(large) + sum(small) + len(adas) + len(emptyLarge)
+END FUNC

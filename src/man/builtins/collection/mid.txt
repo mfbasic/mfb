@@ -1,0 +1,37 @@
+NAME
+  mid - return a sublist
+
+SYNOPSIS
+  mid OF T(value AS List OF T, start AS Integer, count AS Integer) AS List OF T
+
+PACKAGE
+  collection
+
+IMPORTS
+  None. collection functions are available without an IMPORT statement.
+
+DESCRIPTION
+  mid returns a list slice beginning at zero-based start and containing count
+  items. The returned list is a new owned collection value.
+
+OVERLOADS
+  mid OF T(value AS List OF T, start AS Integer, count AS Integer) AS List OF T
+    Returns a sublist by zero-based item index.
+
+ERRORS
+  10001
+    Returned when start is less than 0, count is less than 0, or start + count
+    is greater than len(value).
+
+TYPE CHECKING
+  value must be List OF T. start and count must be Integer values.
+
+EXAMPLES
+  Slice a list:
+
+    LET middle AS List OF Integer = mid([1, 2, 3, 4], 1, 2)
+
+SEE ALSO
+  find
+  get
+  len

@@ -1,0 +1,54 @@
+NAME
+  sum - add the values in a numeric list
+
+SYNOPSIS
+  sum(value AS List OF Integer) AS Integer
+  sum(value AS List OF Float) AS Float
+  sum(value AS List OF Fixed) AS Fixed
+
+PACKAGE
+  collection
+
+IMPORTS
+  None. collection functions are available without an IMPORT statement.
+
+DESCRIPTION
+  sum returns the total of a numeric list. It supports Integer, Float, and Fixed
+  element types.
+
+  For empty lists, the result is the zero value for the element type.
+
+OVERLOADS
+  sum(value AS List OF Integer) AS Integer
+    Sums Integer values.
+
+  sum(value AS List OF Float) AS Float
+    Sums Float values.
+
+  sum(value AS List OF Fixed) AS Fixed
+    Sums Fixed values.
+
+ERRORS
+  ErrOverflow (10028)
+    Returned when Fixed summation overflows. Integer arithmetic in MFBASIC is
+    checked; an Integer summation that exceeds the Integer range fails with the
+    same overflow code.
+
+  Other errors can propagate from evaluating value before sum is called.
+
+TYPE CHECKING
+  sum accepts only List OF Integer, List OF Float, and List OF Fixed.
+
+EXAMPLES
+  Sum integers:
+
+    LET total AS Integer = sum([1, 2, 3])
+
+  Sum fixed-point values:
+
+    LET values AS List OF Fixed = [toFixed("1.25"), toFixed("2.50")]
+    LET total AS Fixed = sum(values)
+
+SEE ALSO
+  reduce
+  toFixed

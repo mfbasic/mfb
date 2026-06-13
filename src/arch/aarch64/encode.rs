@@ -258,6 +258,7 @@ impl Encoder {
             "b.lo" => self.emit_label_branch("b.lo", field(instruction, "target")?),
             "b" => self.emit_label_branch("b", field(instruction, "target")?),
             "bl" => self.emit_bl(field(instruction, "target")?),
+            "blr" => self.emit_blr(reg(field(instruction, "register")?)?),
             "svc" => self.emit_word(0xd400_0001),
             "branch_self" => self.emit_word(0x1400_0000),
             "ret" => self.emit_word(0xd65f_03c0),
@@ -582,6 +583,10 @@ impl Encoder {
             ));
         }
         Ok(())
+    }
+
+    fn emit_blr(&mut self, rn: u8) -> Result<(), String> {
+        self.emit_word(0xd63f_0000 | ((rn as u32) << 5))
     }
 
     fn emit_symbol_ref(&mut self, kind: &str, rd: u8, symbol: String) -> Result<(), String> {

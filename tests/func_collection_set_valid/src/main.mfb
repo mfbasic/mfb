@@ -1,0 +1,15 @@
+IMPORT io
+
+FUNC main AS Integer
+  LET numbers AS List OF Integer = set([1, 2, 3], 1, 9)
+  LET names AS List OF String = set(["Ada", "Grace"], 0, "Katherine")
+
+  FOR EACH value IN numbers
+    io::print(toString(value))
+  NEXT
+  FOR EACH name IN names
+    io::print(name)
+  NEXT
+
+  RETURN len(numbers) + len(names)
+END FUNC

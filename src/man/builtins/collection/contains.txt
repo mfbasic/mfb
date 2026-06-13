@@ -1,0 +1,37 @@
+NAME
+  contains - test whether a list contains an item
+
+SYNOPSIS
+  contains OF T(value AS List OF T, item AS T) AS Boolean
+
+PACKAGE
+  collection
+
+IMPORTS
+  None. collection functions are available without an IMPORT statement.
+
+DESCRIPTION
+  contains scans value from left to right and returns TRUE when item appears in
+  the list. The list is not copied.
+
+OVERLOADS
+  contains OF T(value AS List OF T, item AS T) AS Boolean
+    Returns TRUE when item appears in value.
+
+ERRORS
+  contains does not fail for supported evaluated arguments. Errors can still
+  propagate from evaluating arguments before contains is called.
+
+TYPE CHECKING
+  item must have the list element type T.
+
+EXAMPLES
+  Check for a value:
+
+    IF contains([1, 2, 3], 2) THEN
+      RETURN 0
+    END IF
+
+SEE ALSO
+  find
+  filter

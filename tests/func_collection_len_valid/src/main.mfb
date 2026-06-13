@@ -1,0 +1,20 @@
+IMPORT io
+
+FUNC main AS Integer
+  LET emptyList AS List OF Integer = []
+  LET numbers AS List OF Integer = [10, 20, 30]
+  LET emptyMap AS Map OF String TO Integer = Map OF String TO Integer {}
+  LET ages AS Map OF String TO Integer = Map OF String TO Integer { "Ada" := 36, "Grace" := 85 }
+
+  LET emptyListLen AS Integer = len(emptyList)
+  LET numbersLen AS Integer = len(numbers)
+  LET emptyMapLen AS Integer = len(emptyMap)
+  LET agesLen AS Integer = len(ages)
+
+  io::print(toString(emptyListLen))
+  io::print(toString(numbersLen))
+  io::print(toString(emptyMapLen))
+  io::print(toString(agesLen))
+
+  RETURN emptyListLen + numbersLen + emptyMapLen + agesLen
+END FUNC

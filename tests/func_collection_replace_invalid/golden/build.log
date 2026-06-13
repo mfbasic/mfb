@@ -1,0 +1,52 @@
+$ mfb build -ast tests/func_collection_replace_invalid
+   1 | FUNC main AS Integer
+   2 |   LET numbers AS List OF Integer = [1, 2, 3]
+   3 |   LET wrongOld AS List OF Integer = replace(numbers, "1", 9)
+     | ^
+tests/func_collection_replace_invalid/src/main.mfb:3 error[TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `replace` has argument type(s) (List OF Integer, String, Integer), expected String, String, String or List OF T, T, T.
+   1 | FUNC main AS Integer
+   2 |   LET numbers AS List OF Integer = [1, 2, 3]
+   3 |   LET wrongOld AS List OF Integer = replace(numbers, "1", 9)
+     | ^
+tests/func_collection_replace_invalid/src/main.mfb:3 error[TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `wrongOld` does not have a known type.
+   2 |   LET numbers AS List OF Integer = [1, 2, 3]
+   3 |   LET wrongOld AS List OF Integer = replace(numbers, "1", 9)
+   4 |   LET wrongNew AS List OF Integer = replace(numbers, 1, "9")
+     | ^
+tests/func_collection_replace_invalid/src/main.mfb:4 error[TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `replace` has argument type(s) (List OF Integer, Integer, String), expected String, String, String or List OF T, T, T.
+   2 |   LET numbers AS List OF Integer = [1, 2, 3]
+   3 |   LET wrongOld AS List OF Integer = replace(numbers, "1", 9)
+   4 |   LET wrongNew AS List OF Integer = replace(numbers, 1, "9")
+     | ^
+tests/func_collection_replace_invalid/src/main.mfb:4 error[TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `wrongNew` does not have a known type.
+[exit 1]
+$ mfb build -ir tests/func_collection_replace_invalid
+   1 | FUNC main AS Integer
+   2 |   LET numbers AS List OF Integer = [1, 2, 3]
+   3 |   LET wrongOld AS List OF Integer = replace(numbers, "1", 9)
+     | ^
+tests/func_collection_replace_invalid/src/main.mfb:3 error[TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `replace` has argument type(s) (List OF Integer, String, Integer), expected String, String, String or List OF T, T, T.
+   1 | FUNC main AS Integer
+   2 |   LET numbers AS List OF Integer = [1, 2, 3]
+   3 |   LET wrongOld AS List OF Integer = replace(numbers, "1", 9)
+     | ^
+tests/func_collection_replace_invalid/src/main.mfb:3 error[TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `wrongOld` does not have a known type.
+   2 |   LET numbers AS List OF Integer = [1, 2, 3]
+   3 |   LET wrongOld AS List OF Integer = replace(numbers, "1", 9)
+   4 |   LET wrongNew AS List OF Integer = replace(numbers, 1, "9")
+     | ^
+tests/func_collection_replace_invalid/src/main.mfb:4 error[TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `replace` has argument type(s) (List OF Integer, Integer, String), expected String, String, String or List OF T, T, T.
+   2 |   LET numbers AS List OF Integer = [1, 2, 3]
+   3 |   LET wrongOld AS List OF Integer = replace(numbers, "1", 9)
+   4 |   LET wrongNew AS List OF Integer = replace(numbers, 1, "9")
+     | ^
+tests/func_collection_replace_invalid/src/main.mfb:4 error[TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `wrongNew` does not have a known type.
+[exit 1]

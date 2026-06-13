@@ -1,0 +1,20 @@
+IMPORT io
+
+SUB printInteger(value AS Integer)
+  io::print(toString(value))
+END SUB
+
+SUB printString(value AS String)
+  io::print(value)
+END SUB
+
+FUNC main AS Integer
+  LET numbers AS List OF Integer = [1, 2, 3]
+  LET names AS List OF String = ["Ada", "Grace"]
+  LET printName AS FUNC(String) AS Nothing = printString
+
+  forEach(numbers, printInteger)
+  forEach(names, printName)
+
+  RETURN len(numbers) + len(names)
+END FUNC

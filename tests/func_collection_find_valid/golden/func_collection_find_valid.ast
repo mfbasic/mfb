@@ -1,0 +1,42 @@
+{
+  "project": "func_collection_find_valid",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "main",
+      "line": 3,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "numbers", "type": "List OF Integer", "value": { "kind": "list", "values": [{ "kind": "number", "value": "10" }, { "kind": "number", "value": "20" }, { "kind": "number", "value": "30" }, { "kind": "number", "value": "20" }] }, "line": 4 },
+      { "kind": "binding", "mutable": false, "name": "names", "type": "List OF String", "value": { "kind": "list", "values": [{ "kind": "string", "value": "Ada" }, { "kind": "string", "value": "Grace" }, { "kind": "string", "value": "Ada" }] }, "line": 5 },
+      { "kind": "binding", "mutable": false, "name": "numberNeedle", "type": "List OF Integer", "value": { "kind": "list", "values": [{ "kind": "number", "value": "20" }, { "kind": "number", "value": "30" }] }, "line": 6 },
+      { "kind": "binding", "mutable": false, "name": "nameNeedle", "type": "List OF String", "value": { "kind": "list", "values": [{ "kind": "string", "value": "Grace" }, { "kind": "string", "value": "Ada" }] }, "line": 7 },
+      { "kind": "binding", "mutable": false, "name": "emptyNeedle", "type": "List OF Integer", "value": { "kind": "list", "values": [] }, "line": 8 },
+      { "kind": "binding", "mutable": false, "name": "firstTwenty", "type": "Integer", "value": { "kind": "call", "callee": "find", "arguments": [{ "kind": "identifier", "value": "numbers" }, { "kind": "number", "value": "20" }] }, "line": 10 },
+      { "kind": "binding", "mutable": false, "name": "secondTwenty", "type": "Integer", "value": { "kind": "call", "callee": "find", "arguments": [{ "kind": "identifier", "value": "numbers" }, { "kind": "number", "value": "20" }, { "kind": "number", "value": "2" }] }, "line": 11 },
+      { "kind": "binding", "mutable": false, "name": "secondAda", "type": "Integer", "value": { "kind": "call", "callee": "find", "arguments": [{ "kind": "identifier", "value": "names" }, { "kind": "string", "value": "Ada" }, { "kind": "number", "value": "1" }] }, "line": 12 },
+      { "kind": "binding", "mutable": false, "name": "numberSublist", "type": "Integer", "value": { "kind": "call", "callee": "find", "arguments": [{ "kind": "identifier", "value": "numbers" }, { "kind": "identifier", "value": "numberNeedle" }] }, "line": 13 },
+      { "kind": "binding", "mutable": false, "name": "nameSublist", "type": "Integer", "value": { "kind": "call", "callee": "find", "arguments": [{ "kind": "identifier", "value": "names" }, { "kind": "identifier", "value": "nameNeedle" }] }, "line": 14 },
+      { "kind": "binding", "mutable": false, "name": "emptySublist", "type": "Integer", "value": { "kind": "call", "callee": "find", "arguments": [{ "kind": "identifier", "value": "numbers" }, { "kind": "identifier", "value": "emptyNeedle" }, { "kind": "number", "value": "4" }] }, "line": 15 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "firstTwenty" }] }] }, "line": 17 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "secondTwenty" }] }] }, "line": 18 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "secondAda" }] }] }, "line": 19 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "numberSublist" }] }] }, "line": 20 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "nameSublist" }] }] }, "line": 21 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "emptySublist" }] }] }, "line": 22 },
+      { "kind": "return", "value": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "firstTwenty" }, "right": { "kind": "identifier", "value": "secondTwenty" } }, "right": { "kind": "identifier", "value": "secondAda" } }, "right": { "kind": "identifier", "value": "numberSublist" } }, "right": { "kind": "identifier", "value": "nameSublist" } }, "right": { "kind": "identifier", "value": "emptySublist" } }, "line": 24 }
+      ]
+    }
+    ]
+  }
+  ]
+}

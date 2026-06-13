@@ -1,0 +1,7 @@
+FUNC main AS Integer
+  LET numbers AS List OF Integer = [1, 2, 3]
+  LET words AS List OF String = ["one", "two"]
+  LET wrongItem AS Integer = find(numbers, "2")
+  LET wrongNeedle AS Integer = find(numbers, words)
+  RETURN wrongItem + wrongNeedle
+END FUNC

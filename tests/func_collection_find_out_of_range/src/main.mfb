@@ -1,0 +1,4 @@
+FUNC main AS Integer
+  LET numbers AS List OF Integer = [1, 2, 3]
+  RETURN find(numbers, 2, 4)
+END FUNC

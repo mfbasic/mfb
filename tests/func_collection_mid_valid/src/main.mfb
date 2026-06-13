@@ -1,0 +1,29 @@
+IMPORT io
+
+FUNC printIntegers(values AS List OF Integer) AS Nothing
+  FOR EACH item IN values
+    io::print(toString(item))
+  NEXT
+  RETURN NOTHING
+END FUNC
+
+FUNC printStrings(values AS List OF String) AS Nothing
+  FOR EACH item IN values
+    io::print(item)
+  NEXT
+  RETURN NOTHING
+END FUNC
+
+FUNC main AS Integer
+  LET numbers AS List OF Integer = [10, 20, 30, 40]
+  LET names AS List OF String = ["Ada", "Grace", "Katherine"]
+  LET numberSlice AS List OF Integer = mid(numbers, 1, 2)
+  LET stringSlice AS List OF String = mid(names, 0, 2)
+  LET emptySlice AS List OF Integer = mid(numbers, 4, 0)
+
+  printIntegers(numberSlice)
+  printStrings(stringSlice)
+  io::print(toString(len(emptySlice)))
+
+  RETURN len(numberSlice) + len(stringSlice) + len(emptySlice)
+END FUNC

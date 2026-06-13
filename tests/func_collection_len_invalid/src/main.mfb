@@ -1,0 +1,4 @@
+FUNC main AS Integer
+  LET count AS Integer = len(10)
+  RETURN count
+END FUNC

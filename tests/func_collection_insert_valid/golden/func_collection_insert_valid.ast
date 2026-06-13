@@ -1,0 +1,47 @@
+{
+  "project": "func_collection_insert_valid",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "main",
+      "line": 3,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "middle", "type": "List OF Integer", "value": { "kind": "call", "callee": "insert", "arguments": [{ "kind": "list", "values": [{ "kind": "number", "value": "1" }, { "kind": "number", "value": "3" }] }, { "kind": "number", "value": "1" }, { "kind": "number", "value": "2" }] }, "line": 4 },
+      { "kind": "binding", "mutable": false, "name": "start", "type": "List OF Integer", "value": { "kind": "call", "callee": "insert", "arguments": [{ "kind": "identifier", "value": "middle" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "0" }] }, "line": 5 },
+      { "kind": "binding", "mutable": false, "name": "finalValues", "type": "List OF Integer", "value": { "kind": "call", "callee": "insert", "arguments": [{ "kind": "identifier", "value": "start" }, { "kind": "number", "value": "4" }, { "kind": "number", "value": "4" }] }, "line": 6 },
+      { "kind": "binding", "mutable": false, "name": "names", "type": "List OF String", "value": { "kind": "call", "callee": "insert", "arguments": [{ "kind": "list", "values": [{ "kind": "string", "value": "Ada" }, { "kind": "string", "value": "Katherine" }] }, { "kind": "number", "value": "1" }, { "kind": "string", "value": "Grace" }] }, "line": 7 },
+      {
+        "kind": "forEach",
+        "name": "value",
+        "iterable": { "kind": "identifier", "value": "finalValues" },
+        "line": 9,
+        "body": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "value" }] }] }, "line": 10 }
+        ]
+      },
+      {
+        "kind": "forEach",
+        "name": "name",
+        "iterable": { "kind": "identifier", "value": "names" },
+        "line": 12,
+        "body": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "identifier", "value": "name" }] }, "line": 13 }
+        ]
+      },
+      { "kind": "return", "value": { "kind": "binary", "operator": "+", "left": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "finalValues" }] }, "right": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "names" }] } }, "line": 16 }
+      ]
+    }
+    ]
+  }
+  ]
+}

@@ -1,0 +1,4 @@
+FUNC main AS Integer
+  LET values AS List OF Integer = [9223372036854775807, 1]
+  RETURN sum(values)
+END FUNC

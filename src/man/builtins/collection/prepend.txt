@@ -1,0 +1,35 @@
+NAME
+  prepend - add an item to the start of a list
+
+SYNOPSIS
+  prepend OF T(value AS List OF T, item AS T) AS List OF T
+
+PACKAGE
+  collection
+
+IMPORTS
+  None. collection functions are available without an IMPORT statement.
+
+DESCRIPTION
+  prepend returns a new list with item inserted before the existing first item.
+  The original list is not mutated.
+
+OVERLOADS
+  prepend OF T(value AS List OF T, item AS T) AS List OF T
+    Returns a list with item added at the start.
+
+ERRORS
+  prepend does not fail for supported evaluated arguments. Errors can still
+  propagate from evaluating arguments before prepend is called.
+
+TYPE CHECKING
+  item must have the list element type T.
+
+EXAMPLES
+  Add an item to the start:
+
+    LET numbers AS List OF Integer = prepend([2, 3], 1)
+
+SEE ALSO
+  append
+  insert

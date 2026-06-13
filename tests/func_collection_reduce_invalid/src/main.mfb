@@ -1,0 +1,9 @@
+FUNC addText(accumulator AS String, value AS Integer) AS String
+  RETURN accumulator & toString(value)
+END FUNC
+
+FUNC main AS Integer
+  LET numbers AS List OF Integer = [1, 2, 3]
+  LET total AS Integer = reduce(numbers, 0, addText)
+  RETURN total
+END FUNC

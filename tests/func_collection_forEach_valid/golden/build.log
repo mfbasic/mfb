@@ -1,0 +1,16 @@
+$ mfb build -ast tests/func_collection_forEach_valid
+Wrote AST to tests/func_collection_forEach_valid/func_collection_forEach_valid.ast
+[exit 0]
+$ mfb build -ir tests/func_collection_forEach_valid
+Wrote IR to tests/func_collection_forEach_valid/func_collection_forEach_valid.ir
+[exit 0]
+$ mfb build tests/func_collection_forEach_valid
+Wrote executable to tests/func_collection_forEach_valid/func_collection_forEach_valid.out
+[exit 0]
+$ tests/func_collection_forEach_valid/func_collection_forEach_valid.out
+1
+2
+3
+Ada
+Grace
+[exit 5]

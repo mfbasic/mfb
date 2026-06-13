@@ -1,0 +1,33 @@
+{
+  "project": "func_collection_set_map_valid",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "main",
+      "line": 3,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "ages", "type": "Map OF String TO Integer", "value": { "kind": "map", "keyType": "String", "valueType": "Integer", "entries": [{ "key": { "kind": "string", "value": "Ada" }, "value": { "kind": "number", "value": "36" } }, { "key": { "kind": "string", "value": "Grace" }, "value": { "kind": "number", "value": "85" } }] }, "line": 4 },
+      { "kind": "binding", "mutable": false, "name": "updated", "type": "Map OF String TO Integer", "value": { "kind": "call", "callee": "set", "arguments": [{ "kind": "identifier", "value": "ages" }, { "kind": "string", "value": "Ada" }, { "kind": "number", "value": "37" }] }, "line": 5 },
+      { "kind": "binding", "mutable": false, "name": "inserted", "type": "Map OF String TO Integer", "value": { "kind": "call", "callee": "set", "arguments": [{ "kind": "identifier", "value": "updated" }, { "kind": "string", "value": "Katherine" }, { "kind": "number", "value": "99" }] }, "line": 6 },
+      { "kind": "binding", "mutable": false, "name": "codes", "type": "Map OF Integer TO String", "value": { "kind": "call", "callee": "set", "arguments": [{ "kind": "map", "keyType": "Integer", "valueType": "String", "entries": [{ "key": { "kind": "number", "value": "1" }, "value": { "kind": "string", "value": "one" } }] }, { "kind": "number", "value": "2" }, { "kind": "string", "value": "two" }] }, "line": 7 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "get", "arguments": [{ "kind": "identifier", "value": "inserted" }, { "kind": "string", "value": "Ada" }] }] }] }, "line": 9 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "get", "arguments": [{ "kind": "identifier", "value": "inserted" }, { "kind": "string", "value": "Katherine" }] }] }] }, "line": 10 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "get", "arguments": [{ "kind": "identifier", "value": "codes" }, { "kind": "number", "value": "2" }] }] }, "line": 11 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "inserted" }] }] }] }, "line": 12 },
+      { "kind": "return", "value": { "kind": "binary", "operator": "+", "left": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "inserted" }] }, "right": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "codes" }] } }, "line": 14 }
+      ]
+    }
+    ]
+  }
+  ]
+}

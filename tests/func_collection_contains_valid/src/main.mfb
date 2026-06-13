@@ -1,0 +1,28 @@
+IMPORT io
+
+FUNC printBoolean(value AS Boolean) AS Nothing
+  io::print(toString(value))
+  RETURN NOTHING
+END FUNC
+
+FUNC main AS Integer
+  LET empty AS List OF Integer = []
+  LET numbers AS List OF Integer = [10, 20, 30]
+  LET names AS List OF String = ["Ada", "Grace"]
+
+  LET emptyMissing AS Boolean = contains(empty, 10)
+  LET first AS Boolean = contains(numbers, 10)
+  LET last AS Boolean = contains(numbers, 30)
+  LET missing AS Boolean = contains(numbers, 40)
+  LET stringHit AS Boolean = contains(names, "Grace")
+  LET stringMiss AS Boolean = contains(names, "Katherine")
+
+  printBoolean(emptyMissing)
+  printBoolean(first)
+  printBoolean(last)
+  printBoolean(missing)
+  printBoolean(stringHit)
+  printBoolean(stringMiss)
+
+  RETURN 0
+END FUNC

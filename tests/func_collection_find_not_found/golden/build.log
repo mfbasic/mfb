@@ -1,0 +1,12 @@
+$ mfb build -ast tests/func_collection_find_not_found
+Wrote AST to tests/func_collection_find_not_found/func_collection_find_not_found.ast
+[exit 0]
+$ mfb build -ir tests/func_collection_find_not_found
+Wrote IR to tests/func_collection_find_not_found/func_collection_find_not_found.ir
+[exit 0]
+$ mfb build tests/func_collection_find_not_found
+Wrote executable to tests/func_collection_find_not_found/func_collection_find_not_found.out
+[exit 0]
+$ tests/func_collection_find_not_found/func_collection_find_not_found.out
+Code: 10004 Message: not found
+[exit 255]

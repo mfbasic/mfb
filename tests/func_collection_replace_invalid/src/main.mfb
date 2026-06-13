@@ -1,0 +1,6 @@
+FUNC main AS Integer
+  LET numbers AS List OF Integer = [1, 2, 3]
+  LET wrongOld AS List OF Integer = replace(numbers, "1", 9)
+  LET wrongNew AS List OF Integer = replace(numbers, 1, "9")
+  RETURN len(wrongOld) + len(wrongNew)
+END FUNC

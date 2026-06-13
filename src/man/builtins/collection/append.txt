@@ -1,0 +1,45 @@
+NAME
+  append - add an item or items to the end of a list
+
+SYNOPSIS
+  append OF T(value AS List OF T, item AS T) AS List OF T
+  append OF T(value AS List OF T, items AS List OF T) AS List OF T
+
+PACKAGE
+  collection
+
+IMPORTS
+  None. collection functions are available without an IMPORT statement.
+
+DESCRIPTION
+  append returns a new list with content added at the end. The original list is
+  not mutated.
+
+OVERLOADS
+  append OF T(value AS List OF T, item AS T) AS List OF T
+    Returns a list with item added after the existing items.
+
+  append OF T(value AS List OF T, items AS List OF T) AS List OF T
+    Returns a list with all items added after the existing items.
+
+ERRORS
+  append does not fail for supported evaluated arguments. Errors can still
+  propagate from evaluating arguments before append is called.
+
+TYPE CHECKING
+  The appended item must have the list element type T, or the appended items
+  list must have the same List OF T type.
+
+EXAMPLES
+  Append one item:
+
+    LET numbers AS List OF Integer = append([1, 2], 3)
+
+  Append many items:
+
+    LET numbers AS List OF Integer = append([1, 2], [3, 4])
+
+SEE ALSO
+  prepend
+  insert
+  set

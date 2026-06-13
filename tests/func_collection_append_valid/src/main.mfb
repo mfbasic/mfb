@@ -1,0 +1,17 @@
+IMPORT io
+
+FUNC main AS Integer
+  LET numbers AS List OF Integer = append([1, 2], 3)
+  LET more AS List OF Integer = append(numbers, [4, 5])
+  LET names AS List OF String = append(["Ada"], "Grace")
+  LET moreNames AS List OF String = append(names, ["Katherine"])
+
+  FOR EACH value IN more
+    io::print(toString(value))
+  NEXT
+  FOR EACH name IN moreNames
+    io::print(name)
+  NEXT
+
+  RETURN len(more) + len(moreNames)
+END FUNC

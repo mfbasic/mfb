@@ -306,6 +306,8 @@ MapEntry OF K TO V                 ' map iteration entry
 
 `MapEntry OF K TO V` is the compiler-owned record shape used when iterating a map. It has public read-only fields `key AS K` and `value AS V`.
 
+Runtime collection storage is specified in `specifications/memory_layouts.md`.
+
 ### 4.8 Threads
 
 ```basic
@@ -776,6 +778,8 @@ pts = append(pts, v)                            ' in-place append on the mutable
 - Immutability is deep for the contained value graph. A `LET` collection does not allow mutation of its elements through the collection, and no element can be observed as shared mutable state through another collection or binding.
 
 Built-in collection helpers include `len`, `get`, `getOr`, `find`, `mid`, `replace`, `set`, `append`, `prepend`, `insert`, `removeAt`, `removeKey`, `keys`, `values`, `hasKey`, `contains`, `forEach`, `transform`, `filter`, `reduce`, and `sum`.
+
+The native collection memory layout is specified in `specifications/memory_layouts.md`.
 
 `FOR EACH` over `List OF T` visits items left to right. `FOR EACH` over `Map OF K TO V` visits `MapEntry OF K TO V` values in the map's implementation-defined stable iteration order.
 

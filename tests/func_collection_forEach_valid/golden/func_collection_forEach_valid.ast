@@ -1,0 +1,56 @@
+{
+  "project": "func_collection_forEach_valid",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 }
+    ],
+    "items": [
+    {
+      "kind": "sub",
+      "visibility": "private",
+      "name": "printInteger",
+      "line": 3,
+      "params": [
+      { "name": "value", "type": "Integer", "default": null }
+      ],
+      "returnType": null,
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "value" }] }] }, "line": 4 }
+      ]
+    },
+    {
+      "kind": "sub",
+      "visibility": "private",
+      "name": "printString",
+      "line": 7,
+      "params": [
+      { "name": "value", "type": "String", "default": null }
+      ],
+      "returnType": null,
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "identifier", "value": "value" }] }, "line": 8 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "main",
+      "line": 11,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "numbers", "type": "List OF Integer", "value": { "kind": "list", "values": [{ "kind": "number", "value": "1" }, { "kind": "number", "value": "2" }, { "kind": "number", "value": "3" }] }, "line": 12 },
+      { "kind": "binding", "mutable": false, "name": "names", "type": "List OF String", "value": { "kind": "list", "values": [{ "kind": "string", "value": "Ada" }, { "kind": "string", "value": "Grace" }] }, "line": 13 },
+      { "kind": "binding", "mutable": false, "name": "printName", "type": "FUNC(String) AS Nothing", "value": { "kind": "identifier", "value": "printString" }, "line": 14 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "forEach", "arguments": [{ "kind": "identifier", "value": "numbers" }, { "kind": "identifier", "value": "printInteger" }] }, "line": 16 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "forEach", "arguments": [{ "kind": "identifier", "value": "names" }, { "kind": "identifier", "value": "printName" }] }, "line": 17 },
+      { "kind": "return", "value": { "kind": "binary", "operator": "+", "left": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "numbers" }] }, "right": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "names" }] } }, "line": 19 }
+      ]
+    }
+    ]
+  }
+  ]
+}

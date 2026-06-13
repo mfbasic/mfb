@@ -1,0 +1,4 @@
+FUNC main AS Integer
+  LET values AS List OF Integer = removeAt([1, 2], "1")
+  RETURN len(values)
+END FUNC

@@ -1,0 +1,8 @@
+SUB printString(value AS String)
+END SUB
+
+FUNC main AS Integer
+  LET numbers AS List OF Integer = [1, 2, 3]
+  forEach(numbers, printString)
+  RETURN 0
+END FUNC

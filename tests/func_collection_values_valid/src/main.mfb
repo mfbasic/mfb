@@ -1,0 +1,17 @@
+IMPORT io
+
+FUNC main AS Integer
+  LET names AS Map OF String TO Integer = Map OF String TO Integer { "Ada" := 36, "Grace" := 85 }
+  LET codes AS Map OF Integer TO String = Map OF Integer TO String { 1 := "one", 2 := "two" }
+  LET ages AS List OF Integer = values(names)
+  LET words AS List OF String = values(codes)
+
+  FOR EACH age IN ages
+    io::print(toString(age))
+  NEXT
+  FOR EACH word IN words
+    io::print(word)
+  NEXT
+
+  RETURN len(ages) + len(words)
+END FUNC

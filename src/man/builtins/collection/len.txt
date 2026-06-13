@@ -1,0 +1,50 @@
+NAME
+  len - return the length of a list or map
+
+SYNOPSIS
+  len OF T(value AS List OF T) AS Integer
+  len OF K, V(value AS Map OF K TO V) AS Integer
+
+PACKAGE
+  collection
+
+IMPORTS
+  None. collection functions are available without an IMPORT statement.
+
+DESCRIPTION
+  len returns the size of a collection.
+
+  For List values, len returns the number of items. For Map values, len returns
+  the number of key/value entries.
+
+OVERLOADS
+  len OF T(value AS List OF T) AS Integer
+    Returns the number of items in value.
+
+  len OF K, V(value AS Map OF K TO V) AS Integer
+    Returns the number of entries in value.
+
+ERRORS
+  len does not fail for supported argument types. Errors can still propagate from
+  evaluating the argument expression before len is called.
+
+TYPE CHECKING
+  Collection len is defined only for List OF T and Map OF K TO V. Calling this
+  overload on a number, Boolean, Byte, record, union, resource, thread,
+  function, or lambda is a compile-time type error.
+
+EXAMPLES
+  Count list items:
+
+    LET numbers AS List OF Integer = [1, 2, 3]
+    LET count AS Integer = len(numbers)
+
+  Count map entries:
+
+    LET ages AS Map OF String TO Integer = Map OF String TO Integer { "Ada" := 36 }
+    LET count AS Integer = len(ages)
+
+SEE ALSO
+  general len
+  isEmpty
+  isNotEmpty

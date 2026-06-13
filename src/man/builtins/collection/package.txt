@@ -1,0 +1,38 @@
+NAME
+  collection - collection helper functions
+
+SYNOPSIS
+  mfb man collection [function]
+
+DESCRIPTION
+  Collection helpers operate on owned List and Map values. They are available
+  without an IMPORT statement.
+
+  Update helpers return a new collection value. Assigning the result back to the
+  same MUT binding may be optimized as an in-place update, but the semantic
+  result is still the returned value.
+
+FUNCTIONS
+  contains
+    Test whether a list contains an item.
+
+  get
+    Read a list item or map value.
+
+  getOr
+    Read a list item or map value, or return a default.
+
+  find
+    Locate a list item or contiguous sublist.
+
+  len
+    Return the number of items in a list or entries in a map.
+
+  mid
+    Return a sublist.
+
+  replace
+    Replace matching list items.
+
+SEE ALSO
+  general

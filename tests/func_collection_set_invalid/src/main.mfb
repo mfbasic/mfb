@@ -1,0 +1,4 @@
+FUNC main AS Integer
+  LET values AS List OF Integer = set([1, 2], "1", 9)
+  RETURN len(values)
+END FUNC

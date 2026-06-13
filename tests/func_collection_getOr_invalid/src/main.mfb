@@ -1,0 +1,5 @@
+FUNC main AS Integer
+  LET numbers AS List OF Integer = [1, 2, 3]
+  LET value AS Integer = getOr(numbers, 1, "missing")
+  RETURN value
+END FUNC

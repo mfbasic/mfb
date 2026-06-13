@@ -1,0 +1,54 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "func_collection_forEach_valid",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "printInteger",
+    "visibility": "private",
+    "kind": "sub",
+    "params": [
+    { "name": "value", "type": "Integer", "default": null }
+    ],
+    "returns": "Nothing",
+    "body": [
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "local", "name": "value" }] }] } }
+    ]
+  },
+  {
+    "name": "printString",
+    "visibility": "private",
+    "kind": "sub",
+    "params": [
+    { "name": "value", "type": "String", "default": null }
+    ],
+    "returns": "Nothing",
+    "body": [
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "local", "name": "value" }] } }
+    ]
+  },
+  {
+    "name": "main",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "mutable": false, "name": "numbers", "type": "List OF Integer", "value": { "kind": "list", "type": "List OF Integer", "values": [{ "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "2" }, { "kind": "const", "type": "Integer", "value": "3" }] } },
+    { "op": "bind", "mutable": false, "name": "names", "type": "List OF String", "value": { "kind": "list", "type": "List OF String", "values": [{ "kind": "const", "type": "String", "value": "Ada" }, { "kind": "const", "type": "String", "value": "Grace" }] } },
+    { "op": "bind", "mutable": false, "name": "printName", "type": "FUNC(String) AS Nothing", "value": { "kind": "functionRef", "name": "printString", "type": "FUNC(String) AS Nothing" } },
+    { "op": "eval", "value": { "kind": "call", "target": "forEach", "args": [{ "kind": "local", "name": "numbers" }, { "kind": "functionRef", "name": "printInteger", "type": "FUNC(Integer) AS Nothing" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "forEach", "args": [{ "kind": "local", "name": "names" }, { "kind": "local", "name": "printName" }] } },
+    { "op": "return", "value": { "kind": "binary", "op": "+", "left": { "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "numbers" }] }, "right": { "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "names" }] } } }
+    ]
+  }
+  ]
+}

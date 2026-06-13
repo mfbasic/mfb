@@ -1,0 +1,51 @@
+NAME
+  find - locate list items or sublists
+
+SYNOPSIS
+  find OF T(value AS List OF T, item AS T, start AS Integer = 0) AS Integer
+  find OF T(value AS List OF T, needle AS List OF T, start AS Integer = 0) AS Integer
+
+PACKAGE
+  collection
+
+IMPORTS
+  None. collection functions are available without an IMPORT statement.
+
+DESCRIPTION
+  find returns the zero-based position of the first match at or after start.
+
+  For item searches, find returns the first index whose item equals item. For
+  sublist searches, find returns the first index where the contiguous needle
+  sublist begins. An empty sublist matches at start when start is in range.
+
+OVERLOADS
+  find OF T(value AS List OF T, item AS T, start AS Integer = 0) AS Integer
+    Returns the first list index where item appears.
+
+  find OF T(value AS List OF T, needle AS List OF T, start AS Integer = 0) AS Integer
+    Returns the first list index where the contiguous needle sublist appears.
+
+ERRORS
+  ErrNotFound (10004)
+    Returned when no match exists at or after start.
+
+  10001
+    Returned when start is less than 0 or greater than len(value).
+
+TYPE CHECKING
+  Item search requires item to have the list element type T. Sublist search
+  requires needle to have the same List OF T type as value.
+
+EXAMPLES
+  Find a list item:
+
+    LET index AS Integer = find([10, 20, 30], 20)
+
+  Find a sublist:
+
+    LET index AS Integer = find([10, 20, 30], [20, 30])
+
+SEE ALSO
+  contains
+  get
+  mid

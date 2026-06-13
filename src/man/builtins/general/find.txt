@@ -1,10 +1,8 @@
 NAME
-  find - locate text, list items, or sublists
+  find - locate text
 
 SYNOPSIS
   find(value AS String, needle AS String, start AS Integer = 0) AS Integer
-  find OF T(value AS List OF T, item AS T, start AS Integer = 0) AS Integer
-  find OF T(value AS List OF T, needle AS List OF T, start AS Integer = 0) AS Integer
 
 PACKAGE
   general
@@ -18,20 +16,9 @@ DESCRIPTION
   For String values, indexes are Unicode scalar indexes. They are not byte
   offsets and not grapheme-cluster indexes.
 
-  For List values, indexes are item positions. Item and sublist searches require
-  the element type T to be comparable. Comparable types include primitive values,
-  Nothing, enum types, and records whose fields are all comparable. Lists, maps,
-  unions, functions, lambdas, threads, and resource handles are not comparable.
-
 OVERLOADS
   find(value AS String, needle AS String, start AS Integer = 0) AS Integer
     Returns the first scalar index where needle occurs in value.
-
-  find OF T(value AS List OF T, item AS T, start AS Integer = 0) AS Integer
-    Returns the first list index where item appears.
-
-  find OF T(value AS List OF T, needle AS List OF T, start AS Integer = 0) AS Integer
-    Returns the first list index where the contiguous needle sublist appears.
 
 ERRORS
   ErrNotFound (10004)
@@ -44,9 +31,7 @@ ERRORS
   is called.
 
 TYPE CHECKING
-  String search requires a String needle. List item search requires item to have
-  the list element type. List sublist search requires needle to have the same
-  List OF T type as value.
+  String search requires a String needle.
 
 EXAMPLES
   Find text:
@@ -57,21 +42,16 @@ EXAMPLES
 
     LET index AS Integer = find("hello", "l", 3)
 
-  Find a list item:
-
-    LET index AS Integer = find([10, 20, 30], 20)
-
   Handle absence explicitly:
 
     IMPORT errorCode
 
-    MATCH find(["a", "b"], "z")
+    MATCH find("abc", "z")
       CASE Ok(i) : io::print("found at " & toString(i))
       CASE Err(e) WHEN e.code = errorCode::ErrNotFound : io::print("not found")
       CASE Err(e) : FAIL e
     END MATCH
 
 SEE ALSO
-  contains
   mid
   replace
