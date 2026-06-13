@@ -21,6 +21,7 @@ pub(crate) struct FunctionDoc {
 
 static PACKAGES: LazyLock<Vec<PackageDoc>> = LazyLock::new(|| {
     vec![
+        parse_types_package(),
         parse_general_package(),
         parse_collection_package(),
         parse_package(include_str!("builtins/io.txt")),
@@ -57,6 +58,19 @@ pub(crate) fn function_page(package: &PackageDoc, name: &str) -> Option<&'static
     generated_pages(package.name)
         .and_then(|pages| pages.iter().find(|(name, _)| *name == local_name))
         .map(|(_, page)| *page)
+}
+
+fn parse_types_package() -> PackageDoc {
+    let page = include_str!("builtins/types.txt");
+    let (name, summary) = parse_name_line(page).expect("types package NAME line");
+
+    PackageDoc {
+        name,
+        summary,
+        usage: "mfb man types",
+        functions: &[],
+        page: Some(page),
+    }
 }
 
 fn parse_general_package() -> PackageDoc {
