@@ -224,6 +224,14 @@ fn collect_runtime_calls_from_value(
                 collect_runtime_calls_from_value(arg, calls, constants);
             }
         }
+        NirValue::WithUpdate {
+            target, updates, ..
+        } => {
+            collect_runtime_calls_from_value(target, calls, constants);
+            for update in updates {
+                collect_runtime_calls_from_value(&update.value, calls, constants);
+            }
+        }
         NirValue::ListLiteral { values, .. } => {
             for value in values {
                 collect_runtime_calls_from_value(value, calls, constants);
@@ -346,7 +354,7 @@ fn type_value_names(module: &NirModule) -> Result<TypeValueNames, String> {
                     constructors.insert(variant.name.clone());
                 }
             }
-            "record" | "resource" => {}
+            "type" | "record" | "resource" => {}
             other => {
                 return Err(format!(
                     "NIR type '{}' has invalid kind '{other}'",
@@ -784,6 +792,32 @@ fn validate_value(
             for arg in args {
                 validate_value(
                     arg,
+                    locals,
+                    function_names,
+                    import_names,
+                    type_value_names,
+                    used_helpers,
+                )?;
+            }
+            Ok(())
+        }
+        NirValue::WithUpdate {
+            type_,
+            target,
+            updates,
+        } => {
+            validate_type_name(type_)?;
+            validate_value(
+                target,
+                locals,
+                function_names,
+                import_names,
+                type_value_names,
+                used_helpers,
+            )?;
+            for update in updates {
+                validate_value(
+                    &update.value,
                     locals,
                     function_names,
                     import_names,

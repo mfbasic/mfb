@@ -188,6 +188,14 @@ fn push_value_helpers(value: &IrValue, helpers: &mut Vec<RuntimeHelper>) {
                 push_value_helpers(arg, helpers);
             }
         }
+        IrValue::WithUpdate {
+            target, updates, ..
+        } => {
+            push_value_helpers(target, helpers);
+            for update in updates {
+                push_value_helpers(&update.value, helpers);
+            }
+        }
         IrValue::ListLiteral { values, .. } => {
             for value in values {
                 push_value_helpers(value, helpers);

@@ -1,6 +1,6 @@
 use crate::ast::{
-    AstFile, AstProject, Expression, Item, MatchPattern, Statement, TypeDecl, TypeDeclKind,
-    TypeField,
+    AstFile, AstProject, ConstructorArg, Expression, Item, MatchPattern, Statement, TypeDecl,
+    TypeDeclKind, TypeField,
 };
 use crate::builtins;
 use crate::rules;
@@ -34,6 +34,13 @@ pub fn resolve_project(
         Err(())
     } else {
         Ok(())
+    }
+}
+
+fn constructor_arg_value(argument: &ConstructorArg) -> &Expression {
+    match argument {
+        ConstructorArg::Positional(value) => value,
+        ConstructorArg::Named { value, .. } => value,
     }
 }
 
@@ -593,7 +600,19 @@ impl<'a> Resolver<'a> {
                     self.resolve_type_name(file, type_name, line, imports);
                 }
                 for argument in arguments {
-                    self.resolve_expression(file, argument, line, imports, locals);
+                    self.resolve_expression(
+                        file,
+                        constructor_arg_value(argument),
+                        line,
+                        imports,
+                        locals,
+                    );
+                }
+            }
+            Expression::WithUpdate { target, updates } => {
+                self.resolve_expression(file, target, line, imports, locals);
+                for update in updates {
+                    self.resolve_expression(file, &update.value, update.line, imports, locals);
                 }
             }
             Expression::ListLiteral(values) => {

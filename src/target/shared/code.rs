@@ -1,10 +1,10 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use crate::arch::aarch64::{abi, ops::CodeOp};
 use crate::json_string;
 use crate::numeric;
 
-use super::nir::{self, NirFunction, NirMatchPattern, NirModule, NirOp, NirValue};
+use super::nir::{self, NirFunction, NirMatchPattern, NirModule, NirOp, NirRecordUpdate, NirValue};
 use super::plan::NativePlan;
 use super::runtime;
 
@@ -156,8 +156,11 @@ struct ValueResult {
 #[derive(Clone)]
 struct TypeModel {
     enum_members: HashMap<(String, String), usize>,
+    record_fields: HashMap<String, Vec<(String, String)>>,
+    union_names: HashSet<String>,
     union_variants: HashMap<String, String>,
     union_variant_tags: HashMap<String, usize>,
+    union_variant_fields: HashMap<String, Vec<(String, String)>>,
 }
 
 pub(crate) fn lower_module_for_platform(
@@ -435,22 +438,38 @@ impl CodeFunction {
 impl TypeModel {
     fn from_module(module: &NirModule) -> Result<Self, String> {
         let mut enum_members = HashMap::new();
+        let mut record_fields = HashMap::new();
+        let mut union_names = HashSet::new();
         let mut union_variants = HashMap::new();
         let mut union_variant_tags = HashMap::new();
         for type_ in &module.types {
             match type_.kind.as_str() {
+                "type" | "record" => {
+                    record_fields.insert(
+                        type_.name.clone(),
+                        type_
+                            .fields
+                            .iter()
+                            .map(|field| (field.name.clone(), field.type_.clone()))
+                            .collect(),
+                    );
+                }
                 "enum" => {
                     for (index, member) in type_.members.iter().enumerate() {
                         enum_members.insert((type_.name.clone(), member.name.clone()), index);
                     }
                 }
                 "union" => {
-                    for (index, variant) in type_.variants.iter().enumerate() {
+                    union_names.insert(type_.name.clone());
+                    for (index, variant) in expanded_nir_union_variants(module, &type_.name)
+                        .iter()
+                        .enumerate()
+                    {
                         union_variants.insert(variant.name.clone(), type_.name.clone());
                         union_variant_tags.insert(variant.name.clone(), index);
                     }
                 }
-                "record" | "resource" => {}
+                "resource" => {}
                 other => {
                     return Err(format!(
                         "native code plan does not know type kind '{other}'"
@@ -460,10 +479,50 @@ impl TypeModel {
         }
         Ok(Self {
             enum_members,
+            record_fields,
+            union_names,
             union_variants,
             union_variant_tags,
+            union_variant_fields: module
+                .types
+                .iter()
+                .filter(|type_| type_.kind == "union")
+                .flat_map(|type_| {
+                    expanded_nir_union_variants(module, &type_.name)
+                        .into_iter()
+                        .map(|variant| {
+                            (
+                                variant.name.clone(),
+                                variant
+                                    .fields
+                                    .iter()
+                                    .map(|field| (field.name.clone(), field.type_.clone()))
+                                    .collect(),
+                            )
+                        })
+                })
+                .collect(),
         })
     }
+}
+
+fn expanded_nir_union_variants<'a>(
+    module: &'a NirModule,
+    union_name: &str,
+) -> Vec<&'a super::nir::NirVariant> {
+    let Some(type_) = module
+        .types
+        .iter()
+        .find(|candidate| candidate.kind == "union" && candidate.name == union_name)
+    else {
+        return Vec::new();
+    };
+    let mut variants = Vec::new();
+    for include in &type_.includes {
+        variants.extend(expanded_nir_union_variants(module, include));
+    }
+    variants.extend(type_.variants.iter());
+    variants
 }
 
 fn lower_program_entry(
@@ -1117,6 +1176,26 @@ impl CodeBuilder<'_> {
                             abi::stack_pointer(),
                             stack_offset,
                         ));
+                    } else if let Some(fields) = self.type_model.record_fields.get(type_).cloned() {
+                        let record_offset = self.allocate_stack_object(type_, 8 * fields.len());
+                        for index in 0..fields.len() {
+                            self.emit(abi::store_u64(
+                                "x31",
+                                abi::stack_pointer(),
+                                record_offset + 8 * index,
+                            ));
+                        }
+                        let register = self.allocate_register()?;
+                        self.emit(abi::add_immediate(
+                            &register,
+                            abi::stack_pointer(),
+                            record_offset,
+                        ));
+                        self.emit(abi::store_u64(
+                            &register,
+                            abi::stack_pointer(),
+                            stack_offset,
+                        ));
                     }
                 }
                 NirOp::Assign { name, value } => {
@@ -1354,6 +1433,26 @@ impl CodeBuilder<'_> {
                     .map(|arg| self.lower_value(arg))
                     .collect::<Result<Vec<_>, _>>()?;
                 let register = self.allocate_register()?;
+                if self.type_model.record_fields.contains_key(type_) {
+                    let object_offset = self.allocate_stack_object(type_, 8 * arg_values.len());
+                    for (index, arg) in arg_values.iter().enumerate() {
+                        self.emit(abi::store_u64(
+                            &arg.location,
+                            abi::stack_pointer(),
+                            object_offset + 8 * index,
+                        ));
+                    }
+                    self.emit(abi::add_immediate(
+                        &register,
+                        abi::stack_pointer(),
+                        object_offset,
+                    ));
+                    return Ok(ValueResult {
+                        type_: type_.clone(),
+                        location: register,
+                        text: format!("construct {type_}({})", join_texts(&arg_values)),
+                    });
+                }
                 let tag = self
                     .type_model
                     .union_variant_tags
@@ -1397,34 +1496,34 @@ impl CodeBuilder<'_> {
                     text: format!("construct {type_}({})", join_texts(&arg_values)),
                 })
             }
+            NirValue::WithUpdate {
+                type_,
+                target,
+                updates,
+            } => self.lower_with_update(type_, target, updates),
             NirValue::MemberAccess { target, member } => match target.as_ref() {
                 NirValue::Local(type_name) => {
-                    let ordinal = self
+                    if let Some(ordinal) = self
                         .type_model
                         .enum_members
                         .get(&(type_name.clone(), member.clone()))
                         .copied()
-                        .ok_or_else(|| {
-                            format!(
-                                "native code enum member '{type_name}.{member}' does not resolve"
-                            )
-                        })?;
-                    let register = self.allocate_register()?;
-                    self.emit(abi::move_immediate(
-                        &register,
-                        "EnumOrdinal",
-                        &ordinal.to_string(),
-                    ));
-                    Ok(ValueResult {
-                        type_: type_name.clone(),
-                        location: register,
-                        text: format!("{type_name}.{member}"),
-                    })
+                    {
+                        let register = self.allocate_register()?;
+                        self.emit(abi::move_immediate(
+                            &register,
+                            "EnumOrdinal",
+                            &ordinal.to_string(),
+                        ));
+                        return Ok(ValueResult {
+                            type_: type_name.clone(),
+                            location: register,
+                            text: format!("{type_name}.{member}"),
+                        });
+                    }
+                    self.lower_field_access(target, member)
                 }
-                _ => Err(format!(
-                    "native code plan does not lower member access '{}'",
-                    member
-                )),
+                _ => self.lower_field_access(target, member),
             },
             NirValue::Binary { op, left, right } => {
                 if op == "&" {
@@ -1502,6 +1601,133 @@ impl CodeBuilder<'_> {
         let register = self.allocate_register()?;
         self.emit_load_string_constant(&register, value)?;
         Ok(register)
+    }
+
+    fn lower_field_access(
+        &mut self,
+        target: &NirValue,
+        member: &str,
+    ) -> Result<ValueResult, String> {
+        let target_value = self.lower_value(target)?;
+        let (field_index, field_type, payload_offset) =
+            if let Some(fields) = self.type_model.record_fields.get(&target_value.type_) {
+                let Some((index, (_, field_type))) = fields
+                    .iter()
+                    .enumerate()
+                    .find(|(_, (name, _))| name == member)
+                else {
+                    return Err(format!(
+                        "native code record '{}' has no field '{}'",
+                        target_value.type_, member
+                    ));
+                };
+                (index, field_type.clone(), 0)
+            } else if let Some(fields) = self
+                .type_model
+                .union_variant_fields
+                .get(&target_value.type_)
+            {
+                let Some((index, (_, field_type))) = fields
+                    .iter()
+                    .enumerate()
+                    .find(|(_, (name, _))| name == member)
+                else {
+                    return Err(format!(
+                        "native code variant '{}' has no field '{}'",
+                        target_value.type_, member
+                    ));
+                };
+                (index, field_type.clone(), 8)
+            } else if self.type_model.union_names.contains(&target_value.type_) {
+                let matches = self
+                    .type_model
+                    .union_variant_fields
+                    .values()
+                    .filter_map(|fields| {
+                        fields
+                            .iter()
+                            .enumerate()
+                            .find(|(_, (name, _))| name == member)
+                            .map(|(index, (_, field_type))| (index, field_type.clone()))
+                    })
+                    .collect::<Vec<_>>();
+                let Some((index, field_type)) = matches.first().cloned() else {
+                    return Err(format!(
+                        "native code union '{}' has no payload field '{}'",
+                        target_value.type_, member
+                    ));
+                };
+                (index, field_type, 8)
+            } else {
+                return Err(format!(
+                    "native code field access target '{}' is not a record or variant",
+                    target_value.type_
+                ));
+            };
+        let register = self.allocate_register()?;
+        self.emit(abi::load_u64(
+            &register,
+            &target_value.location,
+            payload_offset + 8 * field_index,
+        ));
+        Ok(ValueResult {
+            type_: field_type,
+            location: register,
+            text: format!("{}.{}", target_value.text, member),
+        })
+    }
+
+    fn lower_with_update(
+        &mut self,
+        type_: &str,
+        target: &NirValue,
+        updates: &[NirRecordUpdate],
+    ) -> Result<ValueResult, String> {
+        let fields = self
+            .type_model
+            .record_fields
+            .get(type_)
+            .cloned()
+            .ok_or_else(|| format!("native code WITH target '{type_}' is not a record"))?;
+        let target_value = self.lower_value(target)?;
+        let register = self.allocate_register()?;
+        let object_offset = self.allocate_stack_object(type_, 8 * fields.len());
+        for (index, _) in fields.iter().enumerate() {
+            let scratch = self.allocate_register()?;
+            self.emit(abi::load_u64(&scratch, &target_value.location, 8 * index));
+            self.emit(abi::store_u64(
+                &scratch,
+                abi::stack_pointer(),
+                object_offset + 8 * index,
+            ));
+        }
+        for update in updates {
+            let Some(index) = fields
+                .iter()
+                .position(|(field_name, _)| field_name == &update.field)
+            else {
+                return Err(format!(
+                    "native code WITH update references unknown field '{}'",
+                    update.field
+                ));
+            };
+            let value = self.lower_value(&update.value)?;
+            self.emit(abi::store_u64(
+                &value.location,
+                abi::stack_pointer(),
+                object_offset + 8 * index,
+            ));
+        }
+        self.emit(abi::add_immediate(
+            &register,
+            abi::stack_pointer(),
+            object_offset,
+        ));
+        Ok(ValueResult {
+            type_: type_.to_string(),
+            location: register,
+            text: format!("with {}", target_value.text),
+        })
     }
 
     fn lower_string_concat(
@@ -1733,6 +1959,7 @@ impl CodeBuilder<'_> {
             NirValue::Local(name) => self.locals.get(name).map(|local| local.type_.clone()),
             NirValue::FunctionRef { type_, .. }
             | NirValue::Constructor { type_, .. }
+            | NirValue::WithUpdate { type_, .. }
             | NirValue::ListLiteral { type_, .. }
             | NirValue::MapLiteral { type_, .. } => Some(type_.clone()),
             NirValue::Call { target, .. } | NirValue::RuntimeCall { target, .. } => {
@@ -2346,6 +2573,14 @@ fn value_uses_type_name(value: &NirValue) -> bool {
             NirValue::Call { args, .. }
             | NirValue::RuntimeCall { args, .. }
             | NirValue::Constructor { args, .. } => args.iter().any(value_uses_type_name),
+            NirValue::WithUpdate {
+                target, updates, ..
+            } => {
+                value_uses_type_name(target)
+                    || updates
+                        .iter()
+                        .any(|update| value_uses_type_name(&update.value))
+            }
             NirValue::ListLiteral { values, .. } => values.iter().any(value_uses_type_name),
             NirValue::MapLiteral { entries, .. } => entries
                 .iter()
@@ -2450,6 +2685,17 @@ fn collect_type_name_values_from_value(value: &NirValue, values: &mut Vec<String
         | NirValue::Constructor { args, .. } => {
             for arg in args {
                 collect_type_name_values_from_value(arg, values);
+            }
+        }
+        NirValue::WithUpdate {
+            type_,
+            target,
+            updates,
+        } => {
+            push_string_value(values, type_.clone());
+            collect_type_name_values_from_value(target, values);
+            for update in updates {
+                collect_type_name_values_from_value(&update.value, values);
             }
         }
         NirValue::ListLiteral { values: items, .. } => {
@@ -2607,6 +2853,14 @@ fn collect_string_values_from_value(
                 collect_string_values_from_value(arg, values, constants, types);
             }
         }
+        NirValue::WithUpdate {
+            target, updates, ..
+        } => {
+            collect_string_values_from_value(target, values, constants, types);
+            for update in updates {
+                collect_string_values_from_value(&update.value, values, constants, types);
+            }
+        }
         NirValue::ListLiteral { values: items, .. } => {
             for item in items {
                 collect_string_values_from_value(item, values, constants, types);
@@ -2717,6 +2971,7 @@ fn static_type_name_with_types(
         NirValue::Local(name) => types.get(name).cloned(),
         NirValue::FunctionRef { type_, .. }
         | NirValue::Constructor { type_, .. }
+        | NirValue::WithUpdate { type_, .. }
         | NirValue::ListLiteral { type_, .. }
         | NirValue::MapLiteral { type_, .. } => Some(type_.clone()),
         NirValue::Call { target, .. } | NirValue::RuntimeCall { target, .. } => {

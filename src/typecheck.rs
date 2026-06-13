@@ -1,6 +1,6 @@
 use crate::ast::{
-    AstFile, AstProject, Expression, Function, FunctionKind, Item, MatchPattern, Statement,
-    TypeDecl, TypeDeclKind, TypeField, Visibility,
+    AstFile, AstProject, ConstructorArg, Expression, Function, FunctionKind, Item, MatchPattern,
+    RecordUpdate, Statement, TypeDecl, TypeDeclKind, TypeField, Visibility,
 };
 use crate::builtins;
 use crate::bytecode::{self, BytecodeExportKind};
@@ -138,16 +138,72 @@ impl<'a> TypeChecker<'a> {
             for item in &file.items {
                 if let Item::Type(type_decl) = item {
                     let info = self.type_info(file, type_decl);
-                    for variant in &info.variants {
-                        self.variant_constructors
-                            .entry(variant_name_key(variant))
-                            .or_default()
-                            .push(variant.clone());
-                    }
                     self.type_infos.insert(type_decl.name.clone(), info);
                 }
             }
         }
+
+        let names = self.type_infos.keys().cloned().collect::<Vec<_>>();
+        for name in names {
+            let Some(TypeInfo {
+                kind: TypeDeclKind::Union,
+                ..
+            }) = self.type_infos.get(&name)
+            else {
+                continue;
+            };
+            let expanded = self.expanded_union_variants(&name, &mut HashSet::new());
+            if let Some(info) = self.type_infos.get_mut(&name) {
+                info.variants = expanded;
+            }
+        }
+
+        for info in self.type_infos.values() {
+            for variant in &info.variants {
+                self.variant_constructors
+                    .entry(variant_name_key(variant))
+                    .or_default()
+                    .push(variant.clone());
+            }
+        }
+    }
+
+    fn expanded_union_variants(
+        &self,
+        union_name: &str,
+        visiting: &mut HashSet<String>,
+    ) -> Vec<VariantConstructor> {
+        if !visiting.insert(union_name.to_string()) {
+            return Vec::new();
+        }
+        let mut variants = Vec::new();
+        let includes = self
+            .ast
+            .files
+            .iter()
+            .flat_map(|file| &file.items)
+            .find_map(|item| {
+                let Item::Type(type_decl) = item else {
+                    return None;
+                };
+                if type_decl.name == union_name {
+                    Some(type_decl.includes.clone())
+                } else {
+                    None
+                }
+            })
+            .unwrap_or_default();
+        for include in includes {
+            for mut variant in self.expanded_union_variants(&include, visiting) {
+                variant.union_name = union_name.to_string();
+                variants.push(variant);
+            }
+        }
+        if let Some(info) = self.type_infos.get(union_name) {
+            variants.extend(info.variants.clone());
+        }
+        visiting.remove(union_name);
+        variants
     }
 
     fn type_info(&self, file: &AstFile, type_decl: &TypeDecl) -> TypeInfo {
@@ -542,9 +598,15 @@ impl<'a> TypeChecker<'a> {
                 if let Some(declared) = &declared {
                     self.check_type_reference(file, declared, *line);
                 }
-                let inferred = value
-                    .as_ref()
-                    .map(|value| self.infer_expression(file, value, locals, *line));
+                let inferred = value.as_ref().map(|value| {
+                    self.infer_expression_with_expected(
+                        file,
+                        value,
+                        locals,
+                        *line,
+                        declared.as_ref(),
+                    )
+                });
 
                 if matches!(inferred, Some(Type::Unknown)) {
                     self.report(
@@ -611,7 +673,15 @@ impl<'a> TypeChecker<'a> {
             Statement::Return { value, line } => {
                 let actual = value
                     .as_ref()
-                    .map(|value| self.infer_expression(file, value, locals, *line))
+                    .map(|value| {
+                        self.infer_expression_with_expected(
+                            file,
+                            value,
+                            locals,
+                            *line,
+                            Some(expected_return),
+                        )
+                    })
                     .unwrap_or(Type::Nothing);
                 if matches!(actual, Type::Unknown) {
                     self.report(
@@ -789,6 +859,17 @@ impl<'a> TypeChecker<'a> {
                         }
                     }
                     let mut case_locals = locals.clone();
+                    if let Some((local_name, variant_name)) =
+                        self.match_case_narrowing(expression, &case.pattern)
+                    {
+                        case_locals.insert(
+                            local_name,
+                            LocalInfo {
+                                type_: Type::User(variant_name),
+                                mutable: false,
+                            },
+                        );
+                    }
                     let case_flow =
                         self.check_block(file, &case.body, expected_return, &mut case_locals);
                     all_return &= case_flow == Flow::AlwaysReturns;
@@ -840,6 +921,17 @@ impl<'a> TypeChecker<'a> {
         locals: &HashMap<String, LocalInfo>,
         line: usize,
     ) -> Type {
+        self.infer_expression_with_expected(file, expression, locals, line, None)
+    }
+
+    fn infer_expression_with_expected(
+        &mut self,
+        file: &AstFile,
+        expression: &Expression,
+        locals: &HashMap<String, LocalInfo>,
+        line: usize,
+        expected: Option<&Type>,
+    ) -> Type {
         match expression {
             Expression::String(_) => Type::String,
             Expression::Boolean(_) => Type::Boolean,
@@ -870,7 +962,10 @@ impl<'a> TypeChecker<'a> {
             Expression::Constructor {
                 type_name,
                 arguments,
-            } => self.infer_constructor(file, type_name, arguments, locals, line),
+            } => self.infer_constructor(file, type_name, arguments, locals, line, expected),
+            Expression::WithUpdate { target, updates } => {
+                self.infer_with_update(file, target, updates, locals, line)
+            }
             Expression::MemberAccess { target, member } => {
                 self.infer_member_access(file, target, member, locals, line)
             }
@@ -975,6 +1070,24 @@ impl<'a> TypeChecker<'a> {
         }
     }
 
+    fn match_case_narrowing(
+        &self,
+        expression: &Expression,
+        pattern: &MatchPattern,
+    ) -> Option<(String, String)> {
+        let Expression::Identifier(local_name) = expression else {
+            return None;
+        };
+        let MatchPattern::Expression(Expression::Identifier(variant_name)) = pattern else {
+            return None;
+        };
+        if self.variant_constructors.contains_key(variant_name) {
+            Some((local_name.clone(), variant_name.clone()))
+        } else {
+            None
+        }
+    }
+
     fn match_is_exhaustive(&self, matched_type: &Type, covered_cases: &HashSet<String>) -> bool {
         let Type::User(type_name) = matched_type else {
             return false;
@@ -1072,9 +1185,10 @@ impl<'a> TypeChecker<'a> {
         &mut self,
         file: &AstFile,
         type_name: &str,
-        arguments: &[Expression],
+        arguments: &[ConstructorArg],
         locals: &HashMap<String, LocalInfo>,
         line: usize,
+        expected: Option<&Type>,
     ) -> Type {
         if type_name == "Error" {
             let fields = vec![
@@ -1108,7 +1222,8 @@ impl<'a> TypeChecker<'a> {
                 );
                 return Type::Unknown;
             }
-            let success = self.infer_expression(file, &arguments[0], locals, line);
+            let success =
+                self.infer_expression(file, constructor_arg_value(&arguments[0]), locals, line);
             return Type::Result(Box::new(success));
         }
 
@@ -1125,7 +1240,8 @@ impl<'a> TypeChecker<'a> {
                 );
                 return Type::Unknown;
             }
-            let actual = self.infer_expression(file, &arguments[0], locals, line);
+            let actual =
+                self.infer_expression(file, constructor_arg_value(&arguments[0]), locals, line);
             if !self.compatible(&Type::Error, &actual) {
                 self.report(
                     "TYPE_CONSTRUCTOR_ARGUMENT_MISMATCH",
@@ -1175,7 +1291,16 @@ impl<'a> TypeChecker<'a> {
         }
 
         if let Some(variants) = self.variant_constructors.get(type_name).cloned() {
-            if variants.len() > 1 {
+            let selected = expected.and_then(|expected| {
+                let Type::User(expected_name) = expected else {
+                    return None;
+                };
+                variants
+                    .iter()
+                    .find(|variant| &variant.union_name == expected_name)
+                    .cloned()
+            });
+            if variants.len() > 1 && selected.is_none() {
                 self.report(
                     "TYPE_VARIANT_CONSTRUCTOR_AMBIGUOUS",
                     &format!(
@@ -1186,7 +1311,7 @@ impl<'a> TypeChecker<'a> {
                 );
                 return Type::Unknown;
             }
-            let variant = &variants[0];
+            let variant = selected.as_ref().unwrap_or(&variants[0]);
             if !self.visible_from(file, variant.visibility, &variant.file_path) {
                 self.report(
                     "TYPE_MEMBER_NOT_VISIBLE",
@@ -1209,9 +1334,100 @@ impl<'a> TypeChecker<'a> {
         }
 
         for argument in arguments {
-            self.infer_expression(file, argument, locals, line);
+            self.infer_expression(file, constructor_arg_value(argument), locals, line);
         }
         Type::Unknown
+    }
+
+    fn infer_with_update(
+        &mut self,
+        file: &AstFile,
+        target: &Expression,
+        updates: &[RecordUpdate],
+        locals: &HashMap<String, LocalInfo>,
+        line: usize,
+    ) -> Type {
+        let target_type = self.infer_expression(file, target, locals, line);
+        let Type::User(type_name) = &target_type else {
+            self.report(
+                "TYPE_FIELD_ACCESS_REQUIRES_RECORD",
+                &format!(
+                    "WITH update requires a record value, got {}.",
+                    self.type_name(&target_type)
+                ),
+                file,
+                line,
+            );
+            return Type::Unknown;
+        };
+        let Some(info) = self.type_infos.get(type_name).cloned() else {
+            return Type::Unknown;
+        };
+        if !matches!(info.kind, TypeDeclKind::Type) {
+            self.report(
+                "TYPE_FIELD_ACCESS_REQUIRES_RECORD",
+                &format!(
+                    "WITH update requires a record value, got {} `{type_name}`.",
+                    type_kind_name(info.kind)
+                ),
+                file,
+                line,
+            );
+            return Type::Unknown;
+        }
+        let mut seen = HashSet::new();
+        for update in updates {
+            if !seen.insert(update.field.clone()) {
+                self.report(
+                    "TYPE_DUPLICATE_FIELD",
+                    &format!("WITH update sets field `{}` more than once.", update.field),
+                    file,
+                    update.line,
+                );
+            }
+            let Some(field) = info.fields.iter().find(|field| field.name == update.field) else {
+                self.report(
+                    "TYPE_UNKNOWN_FIELD",
+                    &format!("TYPE `{type_name}` has no field `{}`.", update.field),
+                    file,
+                    update.line,
+                );
+                self.infer_expression(file, &update.value, locals, update.line);
+                continue;
+            };
+            if !self.visible_from(file, field.visibility, &info.file_path) {
+                self.report(
+                    "TYPE_MEMBER_NOT_VISIBLE",
+                    &format!(
+                        "Field `{type_name}::{}` is not visible from this file.",
+                        update.field
+                    ),
+                    file,
+                    update.line,
+                );
+            }
+            let actual = self.infer_expression_with_expected(
+                file,
+                &update.value,
+                locals,
+                update.line,
+                Some(&field.type_),
+            );
+            if !self.expression_compatible(&field.type_, &actual, Some(&update.value)) {
+                self.report(
+                    "TYPE_CONSTRUCTOR_ARGUMENT_MISMATCH",
+                    &format!(
+                        "WITH update for `{}` has type {}, expected {}.",
+                        update.field,
+                        self.type_name(&actual),
+                        self.type_name(&field.type_)
+                    ),
+                    file,
+                    update.line,
+                );
+            }
+        }
+        target_type
     }
 
     fn infer_member_access(
@@ -1274,6 +1490,22 @@ impl<'a> TypeChecker<'a> {
             return Type::Unknown;
         };
         let Some(info) = self.type_infos.get(&type_name).cloned() else {
+            if let Some(variants) = self.variant_constructors.get(&type_name).cloned() {
+                if let Some(field) = variants
+                    .first()
+                    .and_then(|variant| variant.fields.iter().find(|field| field.name == member))
+                    .cloned()
+                {
+                    return field.type_;
+                }
+                self.report(
+                    "TYPE_UNKNOWN_FIELD",
+                    &format!("Variant `{type_name}` has no field `{member}`."),
+                    file,
+                    line,
+                );
+                return Type::Unknown;
+            }
             if let Some(field_type) = builtins::io::builtin_type_fields(&type_name)
                 .and_then(|fields| fields.iter().find(|(name, _)| *name == member))
                 .map(|(_, type_name)| self.parse_type(type_name))
@@ -1325,7 +1557,7 @@ impl<'a> TypeChecker<'a> {
         constructor: &str,
         fields: &[FieldInfo],
         owner_file_path: &str,
-        arguments: &[Expression],
+        arguments: &[ConstructorArg],
         locals: &HashMap<String, LocalInfo>,
         line: usize,
     ) {
@@ -1356,12 +1588,45 @@ impl<'a> TypeChecker<'a> {
             }
         }
 
+        let mut seen_named = HashSet::new();
         for (index, argument) in arguments.iter().enumerate() {
-            let actual = self.infer_expression(file, argument, locals, line);
-            let Some(field) = fields.get(index) else {
+            let (field, argument_value, argument_line) = match argument {
+                ConstructorArg::Positional(value) => (fields.get(index), value, line),
+                ConstructorArg::Named {
+                    name,
+                    value,
+                    line: argument_line,
+                } => {
+                    if !seen_named.insert(name.clone()) {
+                        self.report(
+                            "TYPE_DUPLICATE_FIELD",
+                            &format!(
+                                "Constructor `{constructor}` sets field `{name}` more than once."
+                            ),
+                            file,
+                            *argument_line,
+                        );
+                    }
+                    (
+                        fields.iter().find(|field| field.name == *name),
+                        value,
+                        *argument_line,
+                    )
+                }
+            };
+            let actual = self.infer_expression(file, argument_value, locals, argument_line);
+            let Some(field) = field else {
+                if let ConstructorArg::Named { name, .. } = argument {
+                    self.report(
+                        "TYPE_UNKNOWN_FIELD",
+                        &format!("Constructor `{constructor}` has no field `{name}`."),
+                        file,
+                        argument_line,
+                    );
+                }
                 continue;
             };
-            if !self.expression_compatible(&field.type_, &actual, Some(argument)) {
+            if !self.expression_compatible(&field.type_, &actual, Some(argument_value)) {
                 self.report(
                     "TYPE_CONSTRUCTOR_ARGUMENT_MISMATCH",
                     &format!(
@@ -1372,7 +1637,7 @@ impl<'a> TypeChecker<'a> {
                         field.name
                     ),
                     file,
-                    line,
+                    argument_line,
                 );
             }
         }
@@ -2611,7 +2876,12 @@ fn collect_captured_locals(
         }
         Expression::Constructor { arguments, .. } => {
             for argument in arguments {
-                collect_captured_locals(argument, outer_locals, local_names, captures);
+                collect_captured_locals(
+                    constructor_arg_value(argument),
+                    outer_locals,
+                    local_names,
+                    captures,
+                );
             }
         }
         Expression::ListLiteral(values) => {
@@ -2628,7 +2898,20 @@ fn collect_captured_locals(
         Expression::MemberAccess { target, .. } => {
             collect_captured_locals(target, outer_locals, local_names, captures);
         }
+        Expression::WithUpdate { target, updates } => {
+            collect_captured_locals(target, outer_locals, local_names, captures);
+            for update in updates {
+                collect_captured_locals(&update.value, outer_locals, local_names, captures);
+            }
+        }
         Expression::String(_) | Expression::Number(_) | Expression::Boolean(_) => {}
+    }
+}
+
+fn constructor_arg_value(argument: &ConstructorArg) -> &Expression {
+    match argument {
+        ConstructorArg::Positional(value) => value,
+        ConstructorArg::Named { value, .. } => value,
     }
 }
 

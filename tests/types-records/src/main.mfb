@@ -1,0 +1,44 @@
+IMPORT io
+
+TYPE Point
+  x AS Integer
+  y AS Integer
+END TYPE
+
+TYPE Flags
+  label AS String
+  active AS Boolean
+  count AS Byte
+END TYPE
+
+FUNC sumPoint(p AS Point) AS Integer
+  RETURN p.x + p.y
+END FUNC
+
+FUNC describeFlags(value AS Flags) AS String
+  RETURN value.label
+END FUNC
+
+FUNC main AS Integer
+  LET positional AS Point = Point[1, 2]
+  LET named AS Point = Point[x := 3, y := 4]
+  LET updated AS Point = WITH positional { y := 10 }
+  MUT current AS Point = Point[5, 6]
+  current = WITH current { x := 7, y := 8 }
+  MUT defaults AS Point
+
+  LET flags AS Flags = Flags["ready", TRUE, 9]
+  LET renamed AS Flags = WITH flags { label := "done", active := FALSE, count := 10 }
+
+  io::print(typeName(positional))
+  io::print(describeFlags(flags))
+  io::print(describeFlags(renamed))
+  LET a AS Integer = sumPoint(positional)
+  LET b AS Integer = sumPoint(named)
+  LET c AS Integer = sumPoint(updated)
+  LET d AS Integer = sumPoint(current)
+  LET e AS Integer = sumPoint(defaults)
+  LET f AS Integer = toInt(flags.count)
+  LET g AS Integer = toInt(renamed.count)
+  RETURN a + b + c + d + e + f + g
+END FUNC

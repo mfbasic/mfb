@@ -453,6 +453,14 @@ fn collect_platform_imports_from_value(
                 collect_platform_imports_from_value(platform, arg, imports);
             }
         }
+        NirValue::WithUpdate {
+            target, updates, ..
+        } => {
+            collect_platform_imports_from_value(platform, target, imports);
+            for update in updates {
+                collect_platform_imports_from_value(platform, &update.value, imports);
+            }
+        }
         NirValue::ListLiteral { values, .. } => {
             for value in values {
                 collect_platform_imports_from_value(platform, value, imports);
@@ -591,6 +599,14 @@ fn collect_runtime_symbols_from_value(
         NirValue::Call { args, .. } | NirValue::Constructor { args, .. } => {
             for arg in args {
                 collect_runtime_symbols_from_value(arg, symbols, constants);
+            }
+        }
+        NirValue::WithUpdate {
+            target, updates, ..
+        } => {
+            collect_runtime_symbols_from_value(target, symbols, constants);
+            for update in updates {
+                collect_runtime_symbols_from_value(&update.value, symbols, constants);
             }
         }
         NirValue::ListLiteral { values, .. } => {
@@ -868,6 +884,14 @@ impl FunctionPlanBuilder<'_> {
                     self.lower_value(arg)?;
                 }
             }
+            NirValue::WithUpdate {
+                target, updates, ..
+            } => {
+                self.lower_value(target)?;
+                for update in updates {
+                    self.lower_value(&update.value)?;
+                }
+            }
             NirValue::ListLiteral { values, .. } => {
                 for value in values {
                     self.lower_value(value)?;
@@ -962,7 +986,7 @@ fn type_storage(module: &NirModule) -> Result<HashMap<String, StorageType>, Stri
                 size: 8,
                 align: 8,
             },
-            "record" | "resource" | "union" => StorageType {
+            "type" | "record" | "resource" | "union" => StorageType {
                 name: type_.name.clone(),
                 class: StorageClass::Reference,
                 size: 8,
@@ -1090,6 +1114,18 @@ fn describe_value(value: &NirValue) -> String {
                 .join(", ");
             format!("construct {type_}({args})")
         }
+        NirValue::WithUpdate {
+            type_,
+            target,
+            updates,
+        } => {
+            let updates = updates
+                .iter()
+                .map(|update| format!("{} := {}", update.field, describe_value(&update.value)))
+                .collect::<Vec<_>>()
+                .join(", ");
+            format!("with {type_} {} {{ {updates} }}", describe_value(target))
+        }
         NirValue::ListLiteral { values, .. } => {
             let values = values
                 .iter()
@@ -1142,6 +1178,14 @@ fn collect_string_literals(value: &NirValue, literals: &mut Vec<String>) {
         | NirValue::Constructor { args, .. } => {
             for arg in args {
                 collect_string_literals(arg, literals);
+            }
+        }
+        NirValue::WithUpdate {
+            target, updates, ..
+        } => {
+            collect_string_literals(target, literals);
+            for update in updates {
+                collect_string_literals(&update.value, literals);
             }
         }
         NirValue::ListLiteral { values, .. } => {

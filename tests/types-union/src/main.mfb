@@ -1,0 +1,56 @@
+IMPORT io
+
+UNION Shape
+  Circle(radius AS Integer)
+  Rect(w AS Integer, h AS Integer)
+  Point
+END UNION
+
+UNION ExtraShape INCLUDES Shape
+  Triangle(a AS Integer, b AS Integer, c AS Integer)
+END UNION
+
+FUNC shapeScore(s AS Shape) AS Integer
+  MATCH s
+    CASE Circle
+      RETURN s.radius
+    CASE Rect
+      RETURN s.w + s.h
+    CASE Point
+      RETURN 1
+  END MATCH
+END FUNC
+
+FUNC extraScore(s AS ExtraShape) AS Integer
+  MATCH s
+    CASE Circle
+      RETURN s.radius + 100
+    CASE Rect
+      RETURN s.w + s.h + 200
+    CASE Point
+      RETURN 300
+    CASE Triangle
+      RETURN s.a + s.b + s.c
+  END MATCH
+END FUNC
+
+FUNC main AS Integer
+  LET circle AS Shape = Circle[5]
+  LET rect AS Shape = Rect[2, 3]
+  LET point AS Shape = Point[]
+  LET extraCircle AS ExtraShape = Circle[7]
+  LET extraRect AS ExtraShape = Rect[4, 5]
+  LET extraPoint AS ExtraShape = Point[]
+  LET triangle AS ExtraShape = Triangle[6, 7, 8]
+
+  io::print(typeName(circle))
+  io::print(typeName(extraCircle))
+  LET a AS Integer = shapeScore(circle)
+  LET b AS Integer = shapeScore(rect)
+  LET c AS Integer = shapeScore(point)
+  LET d AS Integer = extraScore(extraCircle)
+  LET e AS Integer = extraScore(extraRect)
+  LET f AS Integer = extraScore(extraPoint)
+  LET g AS Integer = extraScore(triangle)
+  RETURN a + b + c + d + e + f + g
+END FUNC

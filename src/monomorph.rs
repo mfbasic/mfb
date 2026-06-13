@@ -1,6 +1,6 @@
 use crate::ast::{
-    AstFile, AstProject, Expression, Function, Item, MatchCase, MatchPattern, Statement, TypeDecl,
-    TypeDeclKind, TypeField, UnionVariant,
+    AstFile, AstProject, ConstructorArg, Expression, Function, Item, MatchCase, MatchPattern,
+    RecordUpdate, Statement, TypeDecl, TypeDeclKind, TypeField, UnionVariant,
 };
 use crate::numeric;
 use crate::rules;
@@ -578,7 +578,7 @@ impl<'a> Monomorphizer<'a> {
                 let lowered_args = arguments
                     .iter()
                     .map(|argument| {
-                        self.lower_expression(argument, substitutions, context, None, line)
+                        self.lower_constructor_arg(argument, substitutions, context, line)
                     })
                     .collect::<Vec<_>>();
                 let mut concrete_type = None;
@@ -618,7 +618,9 @@ impl<'a> Monomorphizer<'a> {
                         TypeDeclKind::Enum => Vec::new(),
                     };
                     for (field, argument) in fields.iter().zip(lowered_args.iter()) {
-                        if let Some(actual) = self.expression_type(argument, context) {
+                        if let Some(actual) =
+                            self.expression_type(constructor_arg_value(argument), context)
+                        {
                             unify_type(
                                 &field.type_name,
                                 &actual,
@@ -640,7 +642,9 @@ impl<'a> Monomorphizer<'a> {
                     if let Some((template, fields)) = self.variant_template(type_name) {
                         let mut inferred = HashMap::new();
                         for (field, argument) in fields.iter().zip(lowered_args.iter()) {
-                            if let Some(actual) = self.expression_type(argument, context) {
+                            if let Some(actual) =
+                                self.expression_type(constructor_arg_value(argument), context)
+                            {
                                 unify_type(
                                     &field.type_name,
                                     &actual,
@@ -665,6 +669,23 @@ impl<'a> Monomorphizer<'a> {
                     arguments: lowered_args,
                 }
             }
+            Expression::WithUpdate { target, updates } => Expression::WithUpdate {
+                target: Box::new(self.lower_expression(target, substitutions, context, None, line)),
+                updates: updates
+                    .iter()
+                    .map(|update| RecordUpdate {
+                        field: update.field.clone(),
+                        value: self.lower_expression(
+                            &update.value,
+                            substitutions,
+                            context,
+                            None,
+                            update.line,
+                        ),
+                        line: update.line,
+                    })
+                    .collect(),
+            },
             Expression::ListLiteral(values) => Expression::ListLiteral(
                 values
                     .iter()
@@ -742,6 +763,33 @@ impl<'a> Monomorphizer<'a> {
             Expression::String(value) => Expression::String(value.clone()),
             Expression::Number(value) => Expression::Number(value.clone()),
             Expression::Boolean(value) => Expression::Boolean(*value),
+        }
+    }
+
+    fn lower_constructor_arg(
+        &mut self,
+        argument: &ConstructorArg,
+        substitutions: &HashMap<String, String>,
+        context: &mut FunctionContext,
+        line: usize,
+    ) -> ConstructorArg {
+        match argument {
+            ConstructorArg::Positional(value) => ConstructorArg::Positional(self.lower_expression(
+                value,
+                substitutions,
+                context,
+                None,
+                line,
+            )),
+            ConstructorArg::Named {
+                name,
+                value,
+                line: arg_line,
+            } => ConstructorArg::Named {
+                name: name.clone(),
+                value: self.lower_expression(value, substitutions, context, None, *arg_line),
+                line: *arg_line,
+            },
         }
     }
 
@@ -954,6 +1002,7 @@ impl<'a> Monomorphizer<'a> {
                     context.variant_unions.get(type_name).cloned()
                 }
             }
+            Expression::WithUpdate { target, .. } => self.expression_type(target, context),
             Expression::ListLiteral(values) => values
                 .first()
                 .and_then(|value| self.expression_type(value, context))
@@ -1228,4 +1277,11 @@ fn sanitize_type_name(value: &str) -> String {
 
 fn numeric_binary_result_type(operator: &str, left: &str, right: &str) -> &'static str {
     numeric::binary_result_type(operator, left, right).unwrap_or(numeric::TYPE_INTEGER)
+}
+
+fn constructor_arg_value(argument: &ConstructorArg) -> &Expression {
+    match argument {
+        ConstructorArg::Positional(value) => value,
+        ConstructorArg::Named { value, .. } => value,
+    }
 }

@@ -74,6 +74,7 @@ pub enum Keyword {
     Trap,
     Union,
     Using,
+    With,
 }
 
 #[derive(Clone, Debug)]
@@ -466,6 +467,8 @@ fn keyword(value: &str) -> Option<Keyword> {
         Some(Keyword::Union)
     } else if value.eq_ignore_ascii_case("USING") {
         Some(Keyword::Using)
+    } else if value.eq_ignore_ascii_case("WITH") {
+        Some(Keyword::With)
     } else {
         None
     }

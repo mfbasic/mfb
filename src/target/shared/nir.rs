@@ -1,7 +1,7 @@
 use crate::bytecode::{self, BytecodeExportKind};
 use crate::ir::{
     EntryPoint, IrEnumMember, IrField, IrFunction, IrMatchCase, IrMatchPattern, IrOp, IrParam,
-    IrProject, IrType, IrValue, IrVariant,
+    IrProject, IrRecordUpdate, IrType, IrValue, IrVariant,
 };
 use crate::json_string;
 use std::path::PathBuf;
@@ -152,6 +152,11 @@ pub(crate) enum NirValue {
         type_: String,
         args: Vec<NirValue>,
     },
+    WithUpdate {
+        type_: String,
+        target: Box<NirValue>,
+        updates: Vec<NirRecordUpdate>,
+    },
     ListLiteral {
         type_: String,
         values: Vec<NirValue>,
@@ -173,6 +178,12 @@ pub(crate) enum NirValue {
         op: String,
         operand: Box<NirValue>,
     },
+}
+
+#[derive(Clone)]
+pub(crate) struct NirRecordUpdate {
+    pub(crate) field: String,
+    pub(crate) value: NirValue,
 }
 
 pub(crate) fn lower_module(
@@ -416,6 +427,15 @@ fn lower_value(value: &IrValue) -> NirValue {
             type_: type_.clone(),
             args: args.iter().map(lower_value).collect(),
         },
+        IrValue::WithUpdate {
+            type_,
+            target,
+            updates,
+        } => NirValue::WithUpdate {
+            type_: type_.clone(),
+            target: Box::new(lower_value(target)),
+            updates: updates.iter().map(lower_record_update).collect(),
+        },
         IrValue::ListLiteral { type_, values } => NirValue::ListLiteral {
             type_: type_.clone(),
             values: values.iter().map(lower_value).collect(),
@@ -440,6 +460,13 @@ fn lower_value(value: &IrValue) -> NirValue {
             op: op.clone(),
             operand: Box::new(lower_value(operand)),
         },
+    }
+}
+
+fn lower_record_update(update: &IrRecordUpdate) -> NirRecordUpdate {
+    NirRecordUpdate {
+        field: update.field.clone(),
+        value: lower_value(&update.value),
     }
 }
 
@@ -929,6 +956,20 @@ impl ToNirJson for NirValue {
                 json_string(type_),
                 join_values(args)
             ),
+            NirValue::WithUpdate {
+                type_,
+                target,
+                updates,
+            } => format!(
+                "{{ \"kind\": \"with\", \"type\": {}, \"target\": {}, \"updates\": [{}] }}",
+                json_string(type_),
+                target.to_json(0),
+                updates
+                    .iter()
+                    .map(|update| update.to_json(0))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
             NirValue::ListLiteral { type_, values } => format!(
                 "{{ \"kind\": \"list\", \"type\": {}, \"values\": [{}] }}",
                 json_string(type_),
@@ -969,6 +1010,16 @@ impl ToNirJson for NirValue {
                 operand.to_json(0)
             ),
         }
+    }
+}
+
+impl ToNirJson for NirRecordUpdate {
+    fn to_json(&self, _indent: usize) -> String {
+        format!(
+            "{{ \"field\": {}, \"value\": {} }}",
+            json_string(&self.field),
+            self.value.to_json(0)
+        )
     }
 }
 

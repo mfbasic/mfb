@@ -1,0 +1,90 @@
+{
+  "project": "types_records",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 }
+    ],
+    "items": [
+    {
+      "kind": "type",
+      "visibility": "private",
+      "name": "Point",
+      "line": 3,
+      "fields": [
+      { "visibility": null, "name": "x", "type": "Integer", "line": 4 },
+      { "visibility": null, "name": "y", "type": "Integer", "line": 5 }
+      ]
+    },
+    {
+      "kind": "type",
+      "visibility": "private",
+      "name": "Flags",
+      "line": 8,
+      "fields": [
+      { "visibility": null, "name": "label", "type": "String", "line": 9 },
+      { "visibility": null, "name": "active", "type": "Boolean", "line": 10 },
+      { "visibility": null, "name": "count", "type": "Byte", "line": 11 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "sumPoint",
+      "line": 14,
+      "params": [
+      { "name": "p", "type": "Point", "default": null }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "return", "value": { "kind": "binary", "operator": "+", "left": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "p" }, "member": "x" }, "right": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "p" }, "member": "y" } }, "line": 15 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "describeFlags",
+      "line": 18,
+      "params": [
+      { "name": "value", "type": "Flags", "default": null }
+      ],
+      "returnType": "String",
+      "body": [
+      { "kind": "return", "value": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "value" }, "member": "label" }, "line": 19 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "main",
+      "line": 22,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "positional", "type": "Point", "value": { "kind": "constructor", "type": "Point", "arguments": [{ "kind": "number", "value": "1" }, { "kind": "number", "value": "2" }] }, "line": 23 },
+      { "kind": "binding", "mutable": false, "name": "named", "type": "Point", "value": { "kind": "constructor", "type": "Point", "arguments": [{ "kind": "named", "name": "x", "value": { "kind": "number", "value": "3" } }, { "kind": "named", "name": "y", "value": { "kind": "number", "value": "4" } }] }, "line": 24 },
+      { "kind": "binding", "mutable": false, "name": "updated", "type": "Point", "value": { "kind": "with", "target": { "kind": "identifier", "value": "positional" }, "updates": [{ "field": "y", "value": { "kind": "number", "value": "10" } }] }, "line": 25 },
+      { "kind": "binding", "mutable": true, "name": "current", "type": "Point", "value": { "kind": "constructor", "type": "Point", "arguments": [{ "kind": "number", "value": "5" }, { "kind": "number", "value": "6" }] }, "line": 26 },
+      { "kind": "assignment", "name": "current", "value": { "kind": "with", "target": { "kind": "identifier", "value": "current" }, "updates": [{ "field": "x", "value": { "kind": "number", "value": "7" } }, { "field": "y", "value": { "kind": "number", "value": "8" } }] }, "line": 27 },
+      { "kind": "binding", "mutable": true, "name": "defaults", "type": "Point", "value": null, "line": 28 },
+      { "kind": "binding", "mutable": false, "name": "flags", "type": "Flags", "value": { "kind": "constructor", "type": "Flags", "arguments": [{ "kind": "string", "value": "ready" }, { "kind": "boolean", "value": true }, { "kind": "number", "value": "9" }] }, "line": 30 },
+      { "kind": "binding", "mutable": false, "name": "renamed", "type": "Flags", "value": { "kind": "with", "target": { "kind": "identifier", "value": "flags" }, "updates": [{ "field": "label", "value": { "kind": "string", "value": "done" } }, { "field": "active", "value": { "kind": "boolean", "value": false } }, { "field": "count", "value": { "kind": "number", "value": "10" } }] }, "line": 31 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "typeName", "arguments": [{ "kind": "identifier", "value": "positional" }] }] }, "line": 33 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "describeFlags", "arguments": [{ "kind": "identifier", "value": "flags" }] }] }, "line": 34 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "describeFlags", "arguments": [{ "kind": "identifier", "value": "renamed" }] }] }, "line": 35 },
+      { "kind": "binding", "mutable": false, "name": "a", "type": "Integer", "value": { "kind": "call", "callee": "sumPoint", "arguments": [{ "kind": "identifier", "value": "positional" }] }, "line": 36 },
+      { "kind": "binding", "mutable": false, "name": "b", "type": "Integer", "value": { "kind": "call", "callee": "sumPoint", "arguments": [{ "kind": "identifier", "value": "named" }] }, "line": 37 },
+      { "kind": "binding", "mutable": false, "name": "c", "type": "Integer", "value": { "kind": "call", "callee": "sumPoint", "arguments": [{ "kind": "identifier", "value": "updated" }] }, "line": 38 },
+      { "kind": "binding", "mutable": false, "name": "d", "type": "Integer", "value": { "kind": "call", "callee": "sumPoint", "arguments": [{ "kind": "identifier", "value": "current" }] }, "line": 39 },
+      { "kind": "binding", "mutable": false, "name": "e", "type": "Integer", "value": { "kind": "call", "callee": "sumPoint", "arguments": [{ "kind": "identifier", "value": "defaults" }] }, "line": 40 },
+      { "kind": "binding", "mutable": false, "name": "f", "type": "Integer", "value": { "kind": "call", "callee": "toInt", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "flags" }, "member": "count" }] }, "line": 41 },
+      { "kind": "binding", "mutable": false, "name": "g", "type": "Integer", "value": { "kind": "call", "callee": "toInt", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "renamed" }, "member": "count" }] }, "line": 42 },
+      { "kind": "return", "value": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "a" }, "right": { "kind": "identifier", "value": "b" } }, "right": { "kind": "identifier", "value": "c" } }, "right": { "kind": "identifier", "value": "d" } }, "right": { "kind": "identifier", "value": "e" } }, "right": { "kind": "identifier", "value": "f" } }, "right": { "kind": "identifier", "value": "g" } }, "line": 43 }
+      ]
+    }
+    ]
+  }
+  ]
+}

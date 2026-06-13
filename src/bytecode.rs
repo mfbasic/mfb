@@ -2860,6 +2860,14 @@ fn value_uses_resource_type(value: &IrValue) -> bool {
                 || args.iter().any(value_uses_resource_type)
         }
         IrValue::MemberAccess { target, .. } => value_uses_resource_type(target),
+        IrValue::WithUpdate {
+            target, updates, ..
+        } => {
+            value_uses_resource_type(target)
+                || updates
+                    .iter()
+                    .any(|update| value_uses_resource_type(&update.value))
+        }
         IrValue::Binary { left, right, .. } => {
             value_uses_resource_type(left) || value_uses_resource_type(right)
         }
@@ -3471,6 +3479,38 @@ impl<'a> FunctionBuilder<'a> {
 
                 Err(format!("IR references unknown constructor `{type_}`"))
             }
+            IrValue::WithUpdate {
+                type_,
+                target,
+                updates,
+            } => {
+                let Some(record) = self.type_model.records.get(type_).cloned() else {
+                    return Err(format!("IR WITH update target `{type_}` is not a record"));
+                };
+                let target = self.lower_value(target, locals)?;
+                let type_id = self.type_id(type_);
+                let dst = self.add_register(type_id, 0);
+                let mut operands = vec![dst, type_id];
+                for field in &record.fields {
+                    if let Some(update) = updates.iter().find(|update| update.field == field.name) {
+                        operands.push(self.lower_value(&update.value, locals)?.register);
+                    } else {
+                        let field_type = self.type_id(&field.type_name);
+                        let field_dst = self.add_register(field_type, 0);
+                        let field_name = self.strings.intern(&field.name);
+                        self.push(
+                            OPCODE_LOAD_FIELD,
+                            vec![field_dst, target.register, field_name],
+                        );
+                        operands.push(field_dst);
+                    }
+                }
+                self.push(OPCODE_CONSTRUCT_RECORD, operands);
+                Ok(ValueSlot {
+                    register: dst,
+                    type_name: type_.clone(),
+                })
+            }
             IrValue::ListLiteral { type_, values } => {
                 let mut value_registers = Vec::new();
                 for value in values {
@@ -3531,6 +3571,14 @@ impl<'a> FunctionBuilder<'a> {
                     .records
                     .get(&target.type_name)
                     .and_then(|record| record.fields.iter().find(|field| field.name == *member))
+                    .or_else(|| {
+                        self.type_model
+                            .variants
+                            .get(&target.type_name)
+                            .and_then(|variant| {
+                                variant.fields.iter().find(|field| field.name == *member)
+                            })
+                    })
                     .cloned()
                 else {
                     return Err(format!(

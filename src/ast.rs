@@ -115,6 +115,23 @@ pub struct Param {
 }
 
 #[derive(Clone, Debug)]
+pub enum ConstructorArg {
+    Positional(Expression),
+    Named {
+        name: String,
+        value: Expression,
+        line: usize,
+    },
+}
+
+#[derive(Clone, Debug)]
+pub struct RecordUpdate {
+    pub field: String,
+    pub value: Expression,
+    pub line: usize,
+}
+
+#[derive(Clone, Debug)]
 pub enum Statement {
     Let {
         mutable: bool,
@@ -203,7 +220,11 @@ pub enum Expression {
     },
     Constructor {
         type_name: String,
-        arguments: Vec<Expression>,
+        arguments: Vec<ConstructorArg>,
+    },
+    WithUpdate {
+        target: Box<Expression>,
+        updates: Vec<RecordUpdate>,
     },
     ListLiteral(Vec<Expression>),
     MapLiteral {
@@ -1246,7 +1267,47 @@ impl<'a> FileParser<'a> {
                 operand: Box::new(operand),
             });
         }
+        if self.match_keyword(Keyword::With) {
+            return self.parse_with_update();
+        }
         self.parse_member_access()
+    }
+
+    fn parse_with_update(&mut self) -> Option<Expression> {
+        let target = self.parse_member_access()?;
+        if !self.consume_kind(TokenKind::LBrace, "Expected `{` after WITH target.") {
+            return None;
+        }
+        let mut updates = Vec::new();
+        if !self.check_kind(&TokenKind::RBrace) {
+            loop {
+                let line = self.peek().line;
+                let Some(field) =
+                    self.consume_identifier("WITH update field must be an identifier.")
+                else {
+                    self.synchronize();
+                    return None;
+                };
+                if !self.consume_kind(
+                    TokenKind::ColonEqual,
+                    "Expected `:=` between WITH update field and value.",
+                ) {
+                    return None;
+                }
+                let value = self.parse_expression()?;
+                updates.push(RecordUpdate { field, value, line });
+                if !self.match_kind(TokenKind::Comma) {
+                    break;
+                }
+            }
+        }
+        if !self.consume_kind(TokenKind::RBrace, "Expected `}` after WITH updates.") {
+            return None;
+        }
+        Some(Expression::WithUpdate {
+            target: Box::new(target),
+            updates,
+        })
     }
 
     fn parse_member_access(&mut self) -> Option<Expression> {
@@ -1292,7 +1353,7 @@ impl<'a> FileParser<'a> {
                         return None;
                     }
                 };
-                let arguments = self.parse_argument_list(TokenKind::RBracket)?;
+                let arguments = self.parse_constructor_argument_list(TokenKind::RBracket)?;
                 expression = Expression::Constructor {
                     type_name,
                     arguments,
@@ -1318,6 +1379,45 @@ impl<'a> FileParser<'a> {
             TokenKind::RParen => "Expected `)` after call arguments.",
             TokenKind::RBracket => "Expected `]` after constructor arguments.",
             _ => "Expected closing delimiter after arguments.",
+        };
+        if !self.consume_kind(closing, detail) {
+            return None;
+        }
+        Some(arguments)
+    }
+
+    fn parse_constructor_argument_list(
+        &mut self,
+        closing: TokenKind,
+    ) -> Option<Vec<ConstructorArg>> {
+        let mut arguments = Vec::new();
+        if !self.check_kind(&closing) {
+            loop {
+                if matches!(self.peek().kind, TokenKind::Identifier(_))
+                    && self
+                        .peek_next()
+                        .is_some_and(|token| matches!(token.kind, TokenKind::ColonEqual))
+                {
+                    let line = self.peek().line;
+                    let name =
+                        self.consume_identifier("Constructor field name must be an identifier.")?;
+                    self.consume_kind(
+                        TokenKind::ColonEqual,
+                        "Expected `:=` between constructor field and value.",
+                    );
+                    let value = self.parse_expression()?;
+                    arguments.push(ConstructorArg::Named { name, value, line });
+                } else {
+                    arguments.push(ConstructorArg::Positional(self.parse_expression()?));
+                }
+                if !self.match_kind(TokenKind::Comma) {
+                    break;
+                }
+            }
+        }
+        let detail = match closing {
+            TokenKind::RBracket => "Expected `]` after constructor arguments.",
+            _ => "Expected closing delimiter after constructor arguments.",
         };
         if !self.consume_kind(closing, detail) {
             return None;
@@ -1767,6 +1867,10 @@ impl<'a> FileParser<'a> {
 
     fn peek(&self) -> &Token {
         &self.tokens[self.current]
+    }
+
+    fn peek_next(&self) -> Option<&Token> {
+        self.tokens.get(self.current + 1)
     }
 
     fn previous(&self) -> &Token {
@@ -2378,6 +2482,18 @@ impl ToAstJson for Expression {
                     args
                 )
             }
+            Expression::WithUpdate { target, updates } => {
+                let updates = updates
+                    .iter()
+                    .map(|update| update.to_json(0))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                format!(
+                    "{{ \"kind\": \"with\", \"target\": {}, \"updates\": [{}] }}",
+                    target.to_json(0),
+                    updates
+                )
+            }
             Expression::ListLiteral(values) => {
                 let values = values
                     .iter()
@@ -2426,6 +2542,29 @@ impl ToAstJson for Expression {
     }
 }
 
+impl ConstructorArg {
+    fn to_json(&self, _indent: usize) -> String {
+        match self {
+            ConstructorArg::Positional(value) => value.to_json(0),
+            ConstructorArg::Named { name, value, .. } => format!(
+                "{{ \"kind\": \"named\", \"name\": {}, \"value\": {} }}",
+                json_string(name),
+                value.to_json(0)
+            ),
+        }
+    }
+}
+
+impl RecordUpdate {
+    fn to_json(&self, _indent: usize) -> String {
+        format!(
+            "{{ \"field\": {}, \"value\": {} }}",
+            json_string(&self.field),
+            self.value.to_json(0)
+        )
+    }
+}
+
 fn visibility_name(visibility: Visibility) -> &'static str {
     match visibility {
         Visibility::Private => "private",
@@ -2465,8 +2604,9 @@ fn contains_placeholder(expression: &Expression) -> bool {
             contains_placeholder(left) || contains_placeholder(right)
         }
         Expression::Unary { operand, .. } => contains_placeholder(operand),
-        Expression::Call { arguments, .. } | Expression::Constructor { arguments, .. } => {
-            arguments.iter().any(contains_placeholder)
+        Expression::Call { arguments, .. } => arguments.iter().any(contains_placeholder),
+        Expression::Constructor { arguments, .. } => {
+            arguments.iter().any(constructor_arg_contains_placeholder)
         }
         Expression::Lambda { body, .. } => contains_placeholder(body),
         Expression::ListLiteral(values) => values.iter().any(contains_placeholder),
@@ -2474,7 +2614,20 @@ fn contains_placeholder(expression: &Expression) -> bool {
             .iter()
             .any(|(key, value)| contains_placeholder(key) || contains_placeholder(value)),
         Expression::MemberAccess { target, .. } => contains_placeholder(target),
+        Expression::WithUpdate { target, updates } => {
+            contains_placeholder(target)
+                || updates
+                    .iter()
+                    .any(|update| contains_placeholder(&update.value))
+        }
         Expression::String(_) | Expression::Number(_) | Expression::Boolean(_) => false,
+    }
+}
+
+fn constructor_arg_contains_placeholder(argument: &ConstructorArg) -> bool {
+    match argument {
+        ConstructorArg::Positional(value) => contains_placeholder(value),
+        ConstructorArg::Named { value, .. } => contains_placeholder(value),
     }
 }
 
@@ -2512,7 +2665,7 @@ fn substitute_placeholder(expression: Expression, input: &Expression) -> Express
             type_name,
             arguments: arguments
                 .into_iter()
-                .map(|argument| substitute_placeholder(argument, input))
+                .map(|argument| substitute_placeholder_constructor_arg(argument, input))
                 .collect(),
         },
         Expression::ListLiteral(values) => Expression::ListLiteral(
@@ -2542,6 +2695,33 @@ fn substitute_placeholder(expression: Expression, input: &Expression) -> Express
             target: Box::new(substitute_placeholder(*target, input)),
             member,
         },
+        Expression::WithUpdate { target, updates } => Expression::WithUpdate {
+            target: Box::new(substitute_placeholder(*target, input)),
+            updates: updates
+                .into_iter()
+                .map(|update| RecordUpdate {
+                    field: update.field,
+                    value: substitute_placeholder(update.value, input),
+                    line: update.line,
+                })
+                .collect(),
+        },
         other => other,
+    }
+}
+
+fn substitute_placeholder_constructor_arg(
+    argument: ConstructorArg,
+    input: &Expression,
+) -> ConstructorArg {
+    match argument {
+        ConstructorArg::Positional(value) => {
+            ConstructorArg::Positional(substitute_placeholder(value, input))
+        }
+        ConstructorArg::Named { name, value, line } => ConstructorArg::Named {
+            name,
+            value: substitute_placeholder(value, input),
+            line,
+        },
     }
 }

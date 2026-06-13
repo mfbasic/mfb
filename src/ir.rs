@@ -1,6 +1,6 @@
 use crate::ast::{
-    AstProject, EnumMember, Expression, Function, FunctionKind, Item, MatchCase, MatchPattern,
-    Param, Statement, TypeDecl, TypeDeclKind, TypeField, UnionVariant, Visibility,
+    AstProject, ConstructorArg, EnumMember, Expression, Function, FunctionKind, Item, MatchCase,
+    MatchPattern, Param, Statement, TypeDecl, TypeDeclKind, TypeField, UnionVariant, Visibility,
 };
 use crate::builtins;
 use crate::json_string;
@@ -130,6 +130,11 @@ pub(crate) enum IrValue {
         type_: String,
         args: Vec<IrValue>,
     },
+    WithUpdate {
+        type_: String,
+        target: Box<IrValue>,
+        updates: Vec<IrRecordUpdate>,
+    },
     ListLiteral {
         type_: String,
         values: Vec<IrValue>,
@@ -151,6 +156,11 @@ pub(crate) enum IrValue {
         op: String,
         operand: Box<IrValue>,
     },
+}
+
+pub(crate) struct IrRecordUpdate {
+    pub(crate) field: String,
+    pub(crate) value: IrValue,
 }
 
 pub fn lower_project(ast: &AstProject, entry: Option<EntryPoint>) -> IrProject {
@@ -392,7 +402,7 @@ fn lower_statement(
             value: lower_expression(expression, locals, context),
             cases: cases
                 .iter()
-                .map(|case| lower_match_case(case, locals, context))
+                .map(|case| lower_match_case(case, expression, locals, context))
                 .collect(),
         },
         Statement::Using {
@@ -439,6 +449,7 @@ fn lower_statement_block_with_trap(
 
 fn lower_match_case(
     case: &MatchCase,
+    matched_expression: &Expression,
     locals: &HashMap<String, String>,
     context: &mut LowerContext<'_>,
 ) -> IrMatchCase {
@@ -448,9 +459,32 @@ fn lower_match_case(
             IrMatchPattern::Value(lower_expression(expression, locals, context))
         }
     };
+    let mut case_locals = locals.clone();
+    if let Some((local, variant)) = match_case_narrowing(matched_expression, &case.pattern, context)
+    {
+        case_locals.insert(local, variant);
+    }
     IrMatchCase {
         pattern,
-        body: lower_statement_block(&case.body, locals, context),
+        body: lower_statement_block(&case.body, &case_locals, context),
+    }
+}
+
+fn match_case_narrowing(
+    expression: &Expression,
+    pattern: &MatchPattern,
+    context: &LowerContext<'_>,
+) -> Option<(String, String)> {
+    let Expression::Identifier(local) = expression else {
+        return None;
+    };
+    let MatchPattern::Expression(Expression::Identifier(variant)) = pattern else {
+        return None;
+    };
+    if context.type_index.variant_fields.contains_key(variant) {
+        Some((local.clone(), variant.clone()))
+    } else {
+        None
     }
 }
 
@@ -535,6 +569,7 @@ fn expression_type(
         Expression::Constructor { type_name, .. } => {
             context.type_index.constructor_result(type_name)
         }
+        Expression::WithUpdate { target, .. } => expression_type(target, locals, context),
         Expression::ListLiteral(values) => {
             let Some(first) = values.first() else {
                 return Some("List OF Unknown".to_string());
@@ -838,13 +873,32 @@ fn lower_expression_with_expected(
         Expression::Constructor {
             type_name,
             arguments,
-        } => IrValue::Constructor {
-            type_: type_name.clone(),
-            args: arguments
-                .iter()
-                .map(|argument| lower_expression(argument, locals, context))
-                .collect(),
-        },
+        } => {
+            let fields = context
+                .type_index
+                .records
+                .get(type_name)
+                .or_else(|| context.type_index.variant_fields.get(type_name));
+            IrValue::Constructor {
+                type_: type_name.clone(),
+                args: lower_constructor_args(arguments, fields, locals, context),
+            }
+        }
+        Expression::WithUpdate { target, updates } => {
+            let type_ = expression_type(target, locals, context)
+                .expect("typecheck requires WITH target type before IR lowering");
+            IrValue::WithUpdate {
+                type_: type_,
+                target: Box::new(lower_expression(target, locals, context)),
+                updates: updates
+                    .iter()
+                    .map(|update| IrRecordUpdate {
+                        field: update.field.clone(),
+                        value: lower_expression(&update.value, locals, context),
+                    })
+                    .collect(),
+            }
+        }
         Expression::ListLiteral(values) => {
             let lowered = values
                 .iter()
@@ -895,6 +949,56 @@ fn lower_expression_with_expected(
     }
 }
 
+fn lower_constructor_args(
+    arguments: &[ConstructorArg],
+    fields: Option<&Vec<IrField>>,
+    locals: &HashMap<String, String>,
+    context: &mut LowerContext<'_>,
+) -> Vec<IrValue> {
+    let Some(fields) = fields else {
+        return arguments
+            .iter()
+            .map(|argument| lower_expression(constructor_arg_value(argument), locals, context))
+            .collect();
+    };
+    if arguments
+        .iter()
+        .all(|argument| matches!(argument, ConstructorArg::Named { .. }))
+    {
+        return fields
+            .iter()
+            .filter_map(|field| {
+                arguments.iter().find_map(|argument| match argument {
+                    ConstructorArg::Named { name, value, .. } if name == &field.name => Some(
+                        lower_expression_with_expected(value, Some(&field.type_), locals, context),
+                    ),
+                    _ => None,
+                })
+            })
+            .collect();
+    }
+    arguments
+        .iter()
+        .enumerate()
+        .map(|(index, argument)| {
+            let expected = fields.get(index).map(|field| field.type_.as_str());
+            lower_expression_with_expected(
+                constructor_arg_value(argument),
+                expected,
+                locals,
+                context,
+            )
+        })
+        .collect()
+}
+
+fn constructor_arg_value(argument: &ConstructorArg) -> &Expression {
+    match argument {
+        ConstructorArg::Positional(value) => value,
+        ConstructorArg::Named { value, .. } => value,
+    }
+}
+
 fn numeric_binary_result_type(operator: &str, left: &str, right: &str) -> &'static str {
     numeric::binary_result_type(operator, left, right).unwrap_or(numeric::TYPE_INTEGER)
 }
@@ -919,6 +1023,7 @@ struct TypeIndex {
     records: HashMap<String, Vec<IrField>>,
     enums: HashMap<String, Vec<String>>,
     variants: HashMap<String, String>,
+    variant_fields: HashMap<String, Vec<IrField>>,
 }
 
 impl TypeIndex {
@@ -926,6 +1031,22 @@ impl TypeIndex {
         let mut records = HashMap::new();
         let mut enums = HashMap::new();
         let mut variants = HashMap::new();
+        let mut variant_fields = HashMap::new();
+        let union_decls = ast
+            .files
+            .iter()
+            .flat_map(|file| &file.items)
+            .filter_map(|item| {
+                let Item::Type(type_decl) = item else {
+                    return None;
+                };
+                if matches!(type_decl.kind, TypeDeclKind::Union) {
+                    Some((type_decl.name.clone(), type_decl))
+                } else {
+                    None
+                }
+            })
+            .collect::<HashMap<_, _>>();
         for file in &ast.files {
             for item in &file.items {
                 let Item::Type(type_decl) = item else {
@@ -939,8 +1060,12 @@ impl TypeIndex {
                         );
                     }
                     TypeDeclKind::Union => {
-                        for variant in &type_decl.variants {
+                        for variant in expanded_union_variants(type_decl, &union_decls) {
                             variants.insert(variant.name.clone(), type_decl.name.clone());
+                            variant_fields.insert(
+                                variant.name.clone(),
+                                variant.fields.iter().map(lower_field).collect(),
+                            );
                         }
                     }
                     TypeDeclKind::Enum => {
@@ -960,6 +1085,7 @@ impl TypeIndex {
             records,
             enums,
             variants,
+            variant_fields,
         }
     }
 
@@ -983,11 +1109,26 @@ impl TypeIndex {
             return Some(type_);
         }
         self.records
-            .get(type_name)?
+            .get(type_name)
+            .or_else(|| self.variant_fields.get(type_name))?
             .iter()
             .find(|field| field.name == member)
             .map(|field| field.type_.clone())
     }
+}
+
+fn expanded_union_variants<'a>(
+    type_decl: &'a TypeDecl,
+    union_decls: &HashMap<String, &'a TypeDecl>,
+) -> Vec<&'a UnionVariant> {
+    let mut variants = Vec::new();
+    for include in &type_decl.includes {
+        if let Some(included) = union_decls.get(include) {
+            variants.extend(expanded_union_variants(included, union_decls));
+        }
+    }
+    variants.extend(type_decl.variants.iter());
+    variants
 }
 
 impl IrProject {
@@ -1432,6 +1573,23 @@ impl ToIrJson for IrValue {
                     args
                 )
             }
+            IrValue::WithUpdate {
+                type_,
+                target,
+                updates,
+            } => {
+                let updates = updates
+                    .iter()
+                    .map(|update| update.to_json(0))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                format!(
+                    "{{ \"kind\": \"with\", \"type\": {}, \"target\": {}, \"updates\": [{}] }}",
+                    json_string(type_),
+                    target.to_json(0),
+                    updates
+                )
+            }
             IrValue::ListLiteral { type_, values } => {
                 let values = values
                     .iter()
@@ -1485,6 +1643,16 @@ impl ToIrJson for IrValue {
                 )
             }
         }
+    }
+}
+
+impl ToIrJson for IrRecordUpdate {
+    fn to_json(&self, _indent: usize) -> String {
+        format!(
+            "{{ \"field\": {}, \"value\": {} }}",
+            json_string(&self.field),
+            self.value.to_json(0)
+        )
     }
 }
 
