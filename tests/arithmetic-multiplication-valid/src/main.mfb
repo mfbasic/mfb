@@ -1,0 +1,11 @@
+FUNC main AS Integer
+  LET x AS Integer = 6
+  LET y AS Integer = 7
+  LET f AS Fixed = 1.5
+  LET g AS Fixed = 2.0
+  LET h AS Fixed = 3.0
+  IF f * g = h THEN
+    RETURN x * y
+  END IF
+  RETURN 1
+END FUNC

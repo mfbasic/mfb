@@ -1,0 +1,8 @@
+FUNC main AS Integer
+  LET x AS Integer = 2
+  LET e AS Integer = 5
+  LET f AS Fixed = 2.0
+  LET g AS Fixed = 3.0
+  f ^ g
+  RETURN x ^ e + 7 MOD 3
+END FUNC

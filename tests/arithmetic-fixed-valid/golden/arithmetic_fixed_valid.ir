@@ -1,0 +1,58 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "arithmetic_fixed_valid",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "mutable": false, "name": "a", "type": "Fixed", "value": { "kind": "const", "type": "Fixed", "value": "1.5" } },
+    { "op": "bind", "mutable": false, "name": "b", "type": "Fixed", "value": { "kind": "const", "type": "Fixed", "value": "2.0" } },
+    { "op": "bind", "mutable": false, "name": "c", "type": "Fixed", "value": { "kind": "const", "type": "Fixed", "value": "3.0" } },
+    { "op": "bind", "mutable": false, "name": "d", "type": "Fixed", "value": { "kind": "const", "type": "Fixed", "value": "5.0" } },
+    { "op": "bind", "mutable": false, "name": "e", "type": "Fixed", "value": { "kind": "const", "type": "Fixed", "value": "2.5" } },
+    { "op": "bind", "mutable": false, "name": "one", "type": "Fixed", "value": { "kind": "const", "type": "Fixed", "value": "1.0" } },
+    { "op": "bind", "mutable": false, "name": "three", "type": "Fixed", "value": { "kind": "const", "type": "Fixed", "value": "3.0" } },
+    { "op": "bind", "mutable": false, "name": "third", "type": "Fixed", "value": { "kind": "binary", "op": "/", "left": { "kind": "local", "name": "one" }, "right": { "kind": "local", "name": "three" } } },
+    {
+      "op": "if",
+      "condition": { "kind": "binary", "op": "=", "left": { "kind": "binary", "op": "*", "left": { "kind": "local", "name": "a" }, "right": { "kind": "local", "name": "b" } }, "right": { "kind": "local", "name": "c" } },
+      "then": [
+      {
+        "op": "if",
+        "condition": { "kind": "binary", "op": "=", "left": { "kind": "binary", "op": "/", "left": { "kind": "local", "name": "d" }, "right": { "kind": "local", "name": "b" } }, "right": { "kind": "local", "name": "e" } },
+        "then": [
+        {
+          "op": "if",
+          "condition": { "kind": "binary", "op": "<", "left": { "kind": "binary", "op": "*", "left": { "kind": "local", "name": "third" }, "right": { "kind": "local", "name": "three" } }, "right": { "kind": "local", "name": "one" } },
+          "then": [
+          { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "7" } }
+          ],
+          "else": [
+          ]
+        }
+        ],
+        "else": [
+        ]
+      }
+      ],
+      "else": [
+      ]
+    },
+    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "1" } }
+    ]
+  }
+  ]
+}

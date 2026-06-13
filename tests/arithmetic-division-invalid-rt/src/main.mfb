@@ -1,0 +1,5 @@
+FUNC main AS Integer
+  LET a AS Integer = 7
+  LET b AS Integer = 0
+  RETURN a MOD b
+END FUNC

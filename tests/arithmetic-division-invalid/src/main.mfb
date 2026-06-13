@@ -1,0 +1,4 @@
+FUNC main AS Integer
+  LET flag AS Boolean = true
+  RETURN flag / 2
+END FUNC

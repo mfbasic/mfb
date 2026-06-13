@@ -1,0 +1,5 @@
+FUNC main AS Integer
+  LET base AS Integer = 2
+  LET exponent AS Integer = -1
+  RETURN base ^ exponent
+END FUNC

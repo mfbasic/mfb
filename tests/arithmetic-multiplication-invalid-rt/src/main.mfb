@@ -1,0 +1,5 @@
+FUNC main AS Integer
+  LET x AS Integer = 9223372036854775807
+  LET y AS Integer = 2
+  RETURN x * y
+END FUNC

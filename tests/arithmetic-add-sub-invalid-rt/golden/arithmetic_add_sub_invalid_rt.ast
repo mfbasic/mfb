@@ -1,0 +1,27 @@
+{
+  "project": "arithmetic_add_sub_invalid_rt",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "main",
+      "line": 1,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "x", "type": "Byte", "value": { "kind": "number", "value": "10" }, "line": 2 },
+      { "kind": "binding", "mutable": false, "name": "y", "type": "Byte", "value": { "kind": "number", "value": "20" }, "line": 3 },
+      { "kind": "expression", "expression": { "kind": "binary", "operator": "-", "left": { "kind": "identifier", "value": "x" }, "right": { "kind": "identifier", "value": "y" } }, "line": 4 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 5 }
+      ]
+    }
+    ]
+  }
+  ]
+}

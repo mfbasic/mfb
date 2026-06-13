@@ -1,0 +1,28 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "arithmetic_add_sub_invalid_rt",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "mutable": false, "name": "x", "type": "Byte", "value": { "kind": "const", "type": "Byte", "value": "10" } },
+    { "op": "bind", "mutable": false, "name": "y", "type": "Byte", "value": { "kind": "const", "type": "Byte", "value": "20" } },
+    { "op": "eval", "value": { "kind": "binary", "op": "-", "left": { "kind": "local", "name": "x" }, "right": { "kind": "local", "name": "y" } } },
+    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

@@ -1,0 +1,4 @@
+FUNC main AS Integer
+  LET text AS String = "x"
+  RETURN 1 + text * 2
+END FUNC

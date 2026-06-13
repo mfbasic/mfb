@@ -1,0 +1,12 @@
+$ mfb build -ast tests/arithmetic-multiplication-invalid-rt
+Wrote AST to tests/arithmetic-multiplication-invalid-rt/arithmetic_multiplication_invalid_rt.ast
+[exit 0]
+$ mfb build -ir tests/arithmetic-multiplication-invalid-rt
+Wrote IR to tests/arithmetic-multiplication-invalid-rt/arithmetic_multiplication_invalid_rt.ir
+[exit 0]
+$ mfb build tests/arithmetic-multiplication-invalid-rt
+Wrote executable to tests/arithmetic-multiplication-invalid-rt/arithmetic_multiplication_invalid_rt.out
+[exit 0]
+$ tests/arithmetic-multiplication-invalid-rt/arithmetic_multiplication_invalid_rt.out
+Code: 10028 Message: numeric overflow
+[exit 255]

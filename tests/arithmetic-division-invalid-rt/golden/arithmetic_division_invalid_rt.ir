@@ -1,0 +1,27 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "arithmetic_division_invalid_rt",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "mutable": false, "name": "a", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "7" } },
+    { "op": "bind", "mutable": false, "name": "b", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    { "op": "return", "value": { "kind": "binary", "op": "MOD", "left": { "kind": "local", "name": "a" }, "right": { "kind": "local", "name": "b" } } }
+    ]
+  }
+  ]
+}

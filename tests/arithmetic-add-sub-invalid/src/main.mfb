@@ -1,0 +1,5 @@
+FUNC main AS Integer
+  LET value AS Integer = 1
+  LET text AS String = "1"
+  RETURN value - text
+END FUNC

@@ -1,0 +1,6 @@
+FUNC main AS Integer
+  LET value AS Fixed = 1.0
+  LET zero AS Fixed = 0.0
+  value / zero
+  RETURN 0
+END FUNC

@@ -1,0 +1,11 @@
+$ mfb build -ast tests/arithmetic-fixed-valid
+Wrote AST to tests/arithmetic-fixed-valid/arithmetic_fixed_valid.ast
+[exit 0]
+$ mfb build -ir tests/arithmetic-fixed-valid
+Wrote IR to tests/arithmetic-fixed-valid/arithmetic_fixed_valid.ir
+[exit 0]
+$ mfb build tests/arithmetic-fixed-valid
+Wrote executable to tests/arithmetic-fixed-valid/arithmetic_fixed_valid.out
+[exit 0]
+$ tests/arithmetic-fixed-valid/arithmetic_fixed_valid.out
+[exit 7]

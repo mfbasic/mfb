@@ -1,0 +1,12 @@
+$ mfb build -ast tests/arithmetic-fixed-invalid-rt
+Wrote AST to tests/arithmetic-fixed-invalid-rt/arithmetic_fixed_invalid_rt.ast
+[exit 0]
+$ mfb build -ir tests/arithmetic-fixed-invalid-rt
+Wrote IR to tests/arithmetic-fixed-invalid-rt/arithmetic_fixed_invalid_rt.ir
+[exit 0]
+$ mfb build tests/arithmetic-fixed-invalid-rt
+Wrote executable to tests/arithmetic-fixed-invalid-rt/arithmetic_fixed_invalid_rt.out
+[exit 0]
+$ tests/arithmetic-fixed-invalid-rt/arithmetic_fixed_invalid_rt.out
+Code: 10002 Message: invalid argument
+[exit 255]

@@ -1,0 +1,4 @@
+FUNC main AS Integer
+  LET zero AS Integer = 0
+  RETURN 1 + 2 * 3 / zero
+END FUNC

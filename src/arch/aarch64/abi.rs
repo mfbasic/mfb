@@ -111,8 +111,22 @@ pub(crate) fn add_registers(dst: &str, lhs: &str, rhs: &str) -> CodeInstruction 
         .field("rhs", rhs)
 }
 
+pub(crate) fn add_registers_set_flags(dst: &str, lhs: &str, rhs: &str) -> CodeInstruction {
+    CodeInstruction::new("adds")
+        .field("dst", dst)
+        .field("lhs", lhs)
+        .field("rhs", rhs)
+}
+
 pub(crate) fn subtract_registers(dst: &str, lhs: &str, rhs: &str) -> CodeInstruction {
     CodeInstruction::new("sub")
+        .field("dst", dst)
+        .field("lhs", lhs)
+        .field("rhs", rhs)
+}
+
+pub(crate) fn subtract_registers_set_flags(dst: &str, lhs: &str, rhs: &str) -> CodeInstruction {
+    CodeInstruction::new("subs")
         .field("dst", dst)
         .field("lhs", lhs)
         .field("rhs", rhs)
@@ -125,10 +139,45 @@ pub(crate) fn and_registers(dst: &str, lhs: &str, rhs: &str) -> CodeInstruction 
         .field("rhs", rhs)
 }
 
+pub(crate) fn or_registers(dst: &str, lhs: &str, rhs: &str) -> CodeInstruction {
+    CodeInstruction::new("orr")
+        .field("dst", dst)
+        .field("lhs", lhs)
+        .field("rhs", rhs)
+}
+
+pub(crate) fn exclusive_or_registers(dst: &str, lhs: &str, rhs: &str) -> CodeInstruction {
+    CodeInstruction::new("eor")
+        .field("dst", dst)
+        .field("lhs", lhs)
+        .field("rhs", rhs)
+}
+
 pub(crate) fn bitwise_not(dst: &str, src: &str) -> CodeInstruction {
     CodeInstruction::new("mvn")
         .field("dst", dst)
         .field("src", src)
+}
+
+pub(crate) fn multiply_registers(dst: &str, lhs: &str, rhs: &str) -> CodeInstruction {
+    CodeInstruction::new("mul")
+        .field("dst", dst)
+        .field("lhs", lhs)
+        .field("rhs", rhs)
+}
+
+pub(crate) fn signed_multiply_high_registers(dst: &str, lhs: &str, rhs: &str) -> CodeInstruction {
+    CodeInstruction::new("smulh")
+        .field("dst", dst)
+        .field("lhs", lhs)
+        .field("rhs", rhs)
+}
+
+pub(crate) fn signed_divide_registers(dst: &str, lhs: &str, rhs: &str) -> CodeInstruction {
+    CodeInstruction::new("sdiv")
+        .field("dst", dst)
+        .field("lhs", lhs)
+        .field("rhs", rhs)
 }
 
 pub(crate) fn unsigned_divide_registers(dst: &str, lhs: &str, rhs: &str) -> CodeInstruction {
@@ -149,6 +198,31 @@ pub(crate) fn multiply_subtract_registers(
         .field("lhs", lhs)
         .field("rhs", rhs)
         .field("minuend", minuend)
+}
+
+pub(crate) fn shift_left_immediate(dst: &str, src: &str, shift: u8) -> CodeInstruction {
+    CodeInstruction::new("lsl_imm")
+        .field("dst", dst)
+        .field("src", src)
+        .field("shift", &shift.to_string())
+}
+
+pub(crate) fn shift_right_immediate(dst: &str, src: &str, shift: u8) -> CodeInstruction {
+    CodeInstruction::new("lsr_imm")
+        .field("dst", dst)
+        .field("src", src)
+        .field("shift", &shift.to_string())
+}
+
+pub(crate) fn arithmetic_shift_right_immediate(
+    dst: &str,
+    src: &str,
+    shift: u8,
+) -> CodeInstruction {
+    CodeInstruction::new("asr_imm")
+        .field("dst", dst)
+        .field("src", src)
+        .field("shift", &shift.to_string())
 }
 
 pub(crate) fn subtract_stack(imm: usize) -> CodeInstruction {
@@ -185,6 +259,18 @@ pub(crate) fn branch_ge(target: &str) -> CodeInstruction {
 
 pub(crate) fn branch_lt(target: &str) -> CodeInstruction {
     CodeInstruction::new("b.lt").field("target", target)
+}
+
+pub(crate) fn branch_gt(target: &str) -> CodeInstruction {
+    CodeInstruction::new("b.gt").field("target", target)
+}
+
+pub(crate) fn branch_le(target: &str) -> CodeInstruction {
+    CodeInstruction::new("b.le").field("target", target)
+}
+
+pub(crate) fn branch_vc(target: &str) -> CodeInstruction {
+    CodeInstruction::new("b.vc").field("target", target)
 }
 
 pub(crate) fn branch_hi(target: &str) -> CodeInstruction {
@@ -254,4 +340,60 @@ pub(crate) fn add_page_offset(dst: &str, src: &str, symbol: &str) -> CodeInstruc
         .field("dst", dst)
         .field("src", src)
         .field("symbol", symbol)
+}
+
+pub(crate) fn float_move_x_from_d(dst: &str, src: &str) -> CodeInstruction {
+    CodeInstruction::new("fmov_x_from_d")
+        .field("dst", dst)
+        .field("src", src)
+}
+
+pub(crate) fn float_move_d_from_x(dst: &str, src: &str) -> CodeInstruction {
+    CodeInstruction::new("fmov_d_from_x")
+        .field("dst", dst)
+        .field("src", src)
+}
+
+pub(crate) fn float_add_d(dst: &str, lhs: &str, rhs: &str) -> CodeInstruction {
+    CodeInstruction::new("fadd_d")
+        .field("dst", dst)
+        .field("lhs", lhs)
+        .field("rhs", rhs)
+}
+
+pub(crate) fn float_subtract_d(dst: &str, lhs: &str, rhs: &str) -> CodeInstruction {
+    CodeInstruction::new("fsub_d")
+        .field("dst", dst)
+        .field("lhs", lhs)
+        .field("rhs", rhs)
+}
+
+pub(crate) fn float_multiply_d(dst: &str, lhs: &str, rhs: &str) -> CodeInstruction {
+    CodeInstruction::new("fmul_d")
+        .field("dst", dst)
+        .field("lhs", lhs)
+        .field("rhs", rhs)
+}
+
+pub(crate) fn float_divide_d(dst: &str, lhs: &str, rhs: &str) -> CodeInstruction {
+    CodeInstruction::new("fdiv_d")
+        .field("dst", dst)
+        .field("lhs", lhs)
+        .field("rhs", rhs)
+}
+
+pub(crate) fn float_compare_zero_d(src: &str) -> CodeInstruction {
+    CodeInstruction::new("fcmp_zero_d").field("src", src)
+}
+
+pub(crate) fn signed_convert_to_float_d(dst: &str, src: &str) -> CodeInstruction {
+    CodeInstruction::new("scvtf_d_from_x")
+        .field("dst", dst)
+        .field("src", src)
+}
+
+pub(crate) fn float_convert_to_signed_x(dst: &str, src: &str) -> CodeInstruction {
+    CodeInstruction::new("fcvtzs_x_from_d")
+        .field("dst", dst)
+        .field("src", src)
 }

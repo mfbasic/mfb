@@ -1,0 +1,6 @@
+FUNC main AS Integer
+  LET text AS String = "2.0"
+  LET value AS Fixed = 1.0
+  value + text
+  RETURN 0
+END FUNC

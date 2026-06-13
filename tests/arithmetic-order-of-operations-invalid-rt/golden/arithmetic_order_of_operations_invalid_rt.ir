@@ -1,0 +1,26 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "arithmetic_order_of_operations_invalid_rt",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "mutable": false, "name": "zero", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    { "op": "return", "value": { "kind": "binary", "op": "+", "left": { "kind": "const", "type": "Integer", "value": "1" }, "right": { "kind": "binary", "op": "/", "left": { "kind": "binary", "op": "*", "left": { "kind": "const", "type": "Integer", "value": "2" }, "right": { "kind": "const", "type": "Integer", "value": "3" } }, "right": { "kind": "local", "name": "zero" } } } }
+    ]
+  }
+  ]
+}

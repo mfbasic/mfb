@@ -1,0 +1,28 @@
+{
+  "project": "arithmetic_division_valid",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "main",
+      "line": 1,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "a", "type": "Integer", "value": { "kind": "number", "value": "7" }, "line": 2 },
+      { "kind": "binding", "mutable": false, "name": "b", "type": "Integer", "value": { "kind": "number", "value": "2" }, "line": 3 },
+      { "kind": "binding", "mutable": false, "name": "q", "type": "Float", "value": { "kind": "binary", "operator": "DIV", "left": { "kind": "identifier", "value": "a" }, "right": { "kind": "identifier", "value": "b" } }, "line": 4 },
+      { "kind": "expression", "expression": { "kind": "identifier", "value": "q" }, "line": 5 },
+      { "kind": "return", "value": { "kind": "binary", "operator": "/", "left": { "kind": "identifier", "value": "a" }, "right": { "kind": "identifier", "value": "b" } }, "line": 6 }
+      ]
+    }
+    ]
+  }
+  ]
+}

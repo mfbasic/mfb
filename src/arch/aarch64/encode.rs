@@ -152,7 +152,17 @@ impl Encoder {
                 reg(field(instruction, "lhs")?)?,
                 reg(field(instruction, "rhs")?)?,
             ),
+            "adds" => self.emit_adds(
+                reg(field(instruction, "dst")?)?,
+                reg(field(instruction, "lhs")?)?,
+                reg(field(instruction, "rhs")?)?,
+            ),
             "sub" => self.emit_sub(
+                reg(field(instruction, "dst")?)?,
+                reg(field(instruction, "lhs")?)?,
+                reg(field(instruction, "rhs")?)?,
+            ),
+            "subs" => self.emit_subs(
                 reg(field(instruction, "dst")?)?,
                 reg(field(instruction, "lhs")?)?,
                 reg(field(instruction, "rhs")?)?,
@@ -162,9 +172,34 @@ impl Encoder {
                 reg(field(instruction, "lhs")?)?,
                 reg(field(instruction, "rhs")?)?,
             ),
+            "orr" => self.emit_orr(
+                reg(field(instruction, "dst")?)?,
+                reg(field(instruction, "lhs")?)?,
+                reg(field(instruction, "rhs")?)?,
+            ),
+            "eor" => self.emit_eor(
+                reg(field(instruction, "dst")?)?,
+                reg(field(instruction, "lhs")?)?,
+                reg(field(instruction, "rhs")?)?,
+            ),
             "mvn" => self.emit_mvn(
                 reg(field(instruction, "dst")?)?,
                 reg(field(instruction, "src")?)?,
+            ),
+            "mul" => self.emit_mul(
+                reg(field(instruction, "dst")?)?,
+                reg(field(instruction, "lhs")?)?,
+                reg(field(instruction, "rhs")?)?,
+            ),
+            "smulh" => self.emit_smulh(
+                reg(field(instruction, "dst")?)?,
+                reg(field(instruction, "lhs")?)?,
+                reg(field(instruction, "rhs")?)?,
+            ),
+            "sdiv" => self.emit_sdiv(
+                reg(field(instruction, "dst")?)?,
+                reg(field(instruction, "lhs")?)?,
+                reg(field(instruction, "rhs")?)?,
             ),
             "udiv" => self.emit_udiv(
                 reg(field(instruction, "dst")?)?,
@@ -176,6 +211,21 @@ impl Encoder {
                 reg(field(instruction, "lhs")?)?,
                 reg(field(instruction, "rhs")?)?,
                 reg(field(instruction, "minuend")?)?,
+            ),
+            "lsl_imm" => self.emit_lsl_imm(
+                reg(field(instruction, "dst")?)?,
+                reg(field(instruction, "src")?)?,
+                shift(field(instruction, "shift")?)?,
+            ),
+            "lsr_imm" => self.emit_lsr_imm(
+                reg(field(instruction, "dst")?)?,
+                reg(field(instruction, "src")?)?,
+                shift(field(instruction, "shift")?)?,
+            ),
+            "asr_imm" => self.emit_asr_imm(
+                reg(field(instruction, "dst")?)?,
+                reg(field(instruction, "src")?)?,
+                shift(field(instruction, "shift")?)?,
             ),
             "add_imm" => self.emit_add_imm(
                 reg(field(instruction, "dst")?)?,
@@ -201,6 +251,9 @@ impl Encoder {
             "b.ne" => self.emit_label_branch("b.ne", field(instruction, "target")?),
             "b.ge" => self.emit_label_branch("b.ge", field(instruction, "target")?),
             "b.lt" => self.emit_label_branch("b.lt", field(instruction, "target")?),
+            "b.gt" => self.emit_label_branch("b.gt", field(instruction, "target")?),
+            "b.le" => self.emit_label_branch("b.le", field(instruction, "target")?),
+            "b.vc" => self.emit_label_branch("b.vc", field(instruction, "target")?),
             "b.hi" => self.emit_label_branch("b.hi", field(instruction, "target")?),
             "b.lo" => self.emit_label_branch("b.lo", field(instruction, "target")?),
             "b" => self.emit_label_branch("b", field(instruction, "target")?),
@@ -237,6 +290,47 @@ impl Encoder {
                 "add_pageoff",
                 reg(field(instruction, "dst")?)?,
                 field(instruction, "symbol")?,
+            ),
+            "fmov_x_from_d" => self.emit_fmov_x_from_d(
+                reg(field(instruction, "dst")?)?,
+                reg(field(instruction, "src")?)?,
+            ),
+            "fmov_d_from_x" => self.emit_fmov_d_from_x(
+                reg(field(instruction, "dst")?)?,
+                reg(field(instruction, "src")?)?,
+            ),
+            "fadd_d" => self.emit_fadd_d(
+                reg(field(instruction, "dst")?)?,
+                reg(field(instruction, "lhs")?)?,
+                reg(field(instruction, "rhs")?)?,
+            ),
+            "fsub_d" => self.emit_fsub_d(
+                reg(field(instruction, "dst")?)?,
+                reg(field(instruction, "lhs")?)?,
+                reg(field(instruction, "rhs")?)?,
+            ),
+            "fmul_d" => self.emit_fmul_d(
+                reg(field(instruction, "dst")?)?,
+                reg(field(instruction, "lhs")?)?,
+                reg(field(instruction, "rhs")?)?,
+            ),
+            "fdiv_d" => self.emit_fdiv_d(
+                reg(field(instruction, "dst")?)?,
+                reg(field(instruction, "lhs")?)?,
+                reg(field(instruction, "rhs")?)?,
+            ),
+            "fneg_d" => self.emit_fneg_d(
+                reg(field(instruction, "dst")?)?,
+                reg(field(instruction, "src")?)?,
+            ),
+            "fcmp_zero_d" => self.emit_fcmp_zero_d(reg(field(instruction, "src")?)?),
+            "scvtf_d_from_x" => self.emit_scvtf_d_from_x(
+                reg(field(instruction, "dst")?)?,
+                reg(field(instruction, "src")?)?,
+            ),
+            "fcvtzs_x_from_d" => self.emit_fcvtzs_x_from_d(
+                reg(field(instruction, "dst")?)?,
+                reg(field(instruction, "src")?)?,
             ),
             other => Err(format!(
                 "AArch64 encoder does not support instruction '{other}'"
@@ -276,16 +370,44 @@ impl Encoder {
         self.emit_word(0x8b00_0000 | ((rm as u32) << 16) | ((rn as u32) << 5) | rd as u32)
     }
 
+    fn emit_adds(&mut self, rd: u8, rn: u8, rm: u8) -> Result<(), String> {
+        self.emit_word(0xab00_0000 | ((rm as u32) << 16) | ((rn as u32) << 5) | rd as u32)
+    }
+
     fn emit_sub(&mut self, rd: u8, rn: u8, rm: u8) -> Result<(), String> {
         self.emit_word(0xcb00_0000 | ((rm as u32) << 16) | ((rn as u32) << 5) | rd as u32)
+    }
+
+    fn emit_subs(&mut self, rd: u8, rn: u8, rm: u8) -> Result<(), String> {
+        self.emit_word(0xeb00_0000 | ((rm as u32) << 16) | ((rn as u32) << 5) | rd as u32)
     }
 
     fn emit_and(&mut self, rd: u8, rn: u8, rm: u8) -> Result<(), String> {
         self.emit_word(0x8a00_0000 | ((rm as u32) << 16) | ((rn as u32) << 5) | rd as u32)
     }
 
+    fn emit_orr(&mut self, rd: u8, rn: u8, rm: u8) -> Result<(), String> {
+        self.emit_word(0xaa00_0000 | ((rm as u32) << 16) | ((rn as u32) << 5) | rd as u32)
+    }
+
+    fn emit_eor(&mut self, rd: u8, rn: u8, rm: u8) -> Result<(), String> {
+        self.emit_word(0xca00_0000 | ((rm as u32) << 16) | ((rn as u32) << 5) | rd as u32)
+    }
+
     fn emit_mvn(&mut self, rd: u8, rm: u8) -> Result<(), String> {
         self.emit_word(0xaa20_03e0 | ((rm as u32) << 16) | rd as u32)
+    }
+
+    fn emit_mul(&mut self, rd: u8, rn: u8, rm: u8) -> Result<(), String> {
+        self.emit_word(0x9b00_7c00 | ((rm as u32) << 16) | ((rn as u32) << 5) | rd as u32)
+    }
+
+    fn emit_smulh(&mut self, rd: u8, rn: u8, rm: u8) -> Result<(), String> {
+        self.emit_word(0x9b40_7c00 | ((rm as u32) << 16) | ((rn as u32) << 5) | rd as u32)
+    }
+
+    fn emit_sdiv(&mut self, rd: u8, rn: u8, rm: u8) -> Result<(), String> {
+        self.emit_word(0x9ac0_0c00 | ((rm as u32) << 16) | ((rn as u32) << 5) | rd as u32)
     }
 
     fn emit_udiv(&mut self, rd: u8, rn: u8, rm: u8) -> Result<(), String> {
@@ -299,6 +421,33 @@ impl Encoder {
                 | ((ra as u32) << 10)
                 | ((rn as u32) << 5)
                 | rd as u32,
+        )
+    }
+
+    fn emit_lsl_imm(&mut self, rd: u8, rn: u8, shift: u8) -> Result<(), String> {
+        if shift >= 64 {
+            return Err(format!("AArch64 lsl shift {shift} is out of range"));
+        }
+        let immr = (64 - shift as u32) & 63;
+        let imms = 63 - shift as u32;
+        self.emit_word(0xd340_0000 | (immr << 16) | (imms << 10) | ((rn as u32) << 5) | rd as u32)
+    }
+
+    fn emit_lsr_imm(&mut self, rd: u8, rn: u8, shift: u8) -> Result<(), String> {
+        if shift >= 64 {
+            return Err(format!("AArch64 lsr shift {shift} is out of range"));
+        }
+        self.emit_word(
+            0xd340_0000 | ((shift as u32) << 16) | (63 << 10) | ((rn as u32) << 5) | rd as u32,
+        )
+    }
+
+    fn emit_asr_imm(&mut self, rd: u8, rn: u8, shift: u8) -> Result<(), String> {
+        if shift >= 64 {
+            return Err(format!("AArch64 asr shift {shift} is out of range"));
+        }
+        self.emit_word(
+            0x9340_0000 | ((shift as u32) << 16) | (63 << 10) | ((rn as u32) << 5) | rd as u32,
         )
     }
 
@@ -329,6 +478,46 @@ impl Encoder {
 
     fn emit_cmp(&mut self, rn: u8, rm: u8) -> Result<(), String> {
         self.emit_word(0xeb00_001f | ((rm as u32) << 16) | ((rn as u32) << 5))
+    }
+
+    fn emit_fmov_x_from_d(&mut self, rd: u8, dn: u8) -> Result<(), String> {
+        self.emit_word(0x9e66_0000 | ((dn as u32) << 5) | rd as u32)
+    }
+
+    fn emit_fmov_d_from_x(&mut self, dd: u8, rn: u8) -> Result<(), String> {
+        self.emit_word(0x9e67_0000 | ((rn as u32) << 5) | dd as u32)
+    }
+
+    fn emit_fadd_d(&mut self, dd: u8, dn: u8, dm: u8) -> Result<(), String> {
+        self.emit_word(0x1e60_2800 | ((dm as u32) << 16) | ((dn as u32) << 5) | dd as u32)
+    }
+
+    fn emit_fsub_d(&mut self, dd: u8, dn: u8, dm: u8) -> Result<(), String> {
+        self.emit_word(0x1e60_3800 | ((dm as u32) << 16) | ((dn as u32) << 5) | dd as u32)
+    }
+
+    fn emit_fmul_d(&mut self, dd: u8, dn: u8, dm: u8) -> Result<(), String> {
+        self.emit_word(0x1e60_0800 | ((dm as u32) << 16) | ((dn as u32) << 5) | dd as u32)
+    }
+
+    fn emit_fdiv_d(&mut self, dd: u8, dn: u8, dm: u8) -> Result<(), String> {
+        self.emit_word(0x1e60_1800 | ((dm as u32) << 16) | ((dn as u32) << 5) | dd as u32)
+    }
+
+    fn emit_fneg_d(&mut self, dd: u8, dn: u8) -> Result<(), String> {
+        self.emit_word(0x1e61_4000 | ((dn as u32) << 5) | dd as u32)
+    }
+
+    fn emit_fcmp_zero_d(&mut self, dn: u8) -> Result<(), String> {
+        self.emit_word(0x1e60_2000 | ((dn as u32) << 5) | 0x8)
+    }
+
+    fn emit_scvtf_d_from_x(&mut self, dd: u8, rn: u8) -> Result<(), String> {
+        self.emit_word(0x9e62_0000 | ((rn as u32) << 5) | dd as u32)
+    }
+
+    fn emit_fcvtzs_x_from_d(&mut self, rd: u8, dn: u8) -> Result<(), String> {
+        self.emit_word(0x9e78_0000 | ((dn as u32) << 5) | rd as u32)
     }
 
     fn emit_ldr_u64(&mut self, rt: u8, rn: u8, offset: u64) -> Result<(), String> {
@@ -431,6 +620,9 @@ impl Encoder {
                 "b.ne" => 0x5400_0001 | (branch_imm19(patch.offset, target) << 5),
                 "b.ge" => 0x5400_000a | (branch_imm19(patch.offset, target) << 5),
                 "b.lt" => 0x5400_000b | (branch_imm19(patch.offset, target) << 5),
+                "b.gt" => 0x5400_000c | (branch_imm19(patch.offset, target) << 5),
+                "b.le" => 0x5400_000d | (branch_imm19(patch.offset, target) << 5),
+                "b.vc" => 0x5400_0007 | (branch_imm19(patch.offset, target) << 5),
                 "b.hi" => 0x5400_0008 | (branch_imm19(patch.offset, target) << 5),
                 "b.lo" => 0x5400_0003 | (branch_imm19(patch.offset, target) << 5),
                 other => return Err(format!("unknown AArch64 branch patch '{other}'")),
@@ -516,6 +708,14 @@ fn reg(name: String) -> Result<u8, String> {
         "x27" | "w27" => Ok(27),
         "x28" | "w28" => Ok(28),
         "x30" | "lr" => Ok(30),
+        "d0" => Ok(0),
+        "d1" => Ok(1),
+        "d2" => Ok(2),
+        "d3" => Ok(3),
+        "d4" => Ok(4),
+        "d5" => Ok(5),
+        "d6" => Ok(6),
+        "d7" => Ok(7),
         other => Err(format!("unknown AArch64 register '{other}'")),
     }
 }
@@ -528,6 +728,16 @@ fn immediate(value: String) -> Result<u64, String> {
             .parse::<u64>()
             .map_err(|_| format!("invalid immediate '{value}'")),
     }
+}
+
+fn shift(value: String) -> Result<u8, String> {
+    let value = value
+        .parse::<u8>()
+        .map_err(|_| format!("invalid shift immediate '{value}'"))?;
+    if value >= 64 {
+        return Err(format!("shift immediate {value} is out of range"));
+    }
+    Ok(value)
 }
 
 fn checked_imm12(value: u64) -> Result<u32, String> {

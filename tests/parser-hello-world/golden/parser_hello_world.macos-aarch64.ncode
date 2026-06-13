@@ -16,6 +16,7 @@
   { "symbol": "_mfb_str_entry_error_prefix", "kind": "constant", "layout": "mfb.string.v1 { u64 byteLength; u8 bytes[byteLength]; u8 nul }", "align": 8, "size": 16, "value": "Code: " },
   { "symbol": "_mfb_str_entry_error_separator", "kind": "constant", "layout": "mfb.string.v1 { u64 byteLength; u8 bytes[byteLength]; u8 nul }", "align": 8, "size": 24, "value": " Message: " },
   { "symbol": "_mfb_str_error_allocation", "kind": "constant", "layout": "mfb.string.v1 { u64 byteLength; u8 bytes[byteLength]; u8 nul }", "align": 8, "size": 32, "value": "allocation failed" },
+  { "symbol": "_mfb_str_error_invalid_argument", "kind": "constant", "layout": "mfb.string.v1 { u64 byteLength; u8 bytes[byteLength]; u8 nul }", "align": 8, "size": 32, "value": "invalid argument" },
   { "symbol": "_mfb_str_error_overflow", "kind": "constant", "layout": "mfb.string.v1 { u64 byteLength; u8 bytes[byteLength]; u8 nul }", "align": 8, "size": 32, "value": "numeric overflow" },
   { "symbol": "_mfb_str_error_underflow", "kind": "constant", "layout": "mfb.string.v1 { u64 byteLength; u8 bytes[byteLength]; u8 nul }", "align": 8, "size": 32, "value": "numeric underflow" }
   ],

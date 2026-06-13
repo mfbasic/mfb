@@ -1,0 +1,27 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "arithmetic_exp_mod_invalid_rt",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "mutable": false, "name": "base", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "2" } },
+    { "op": "bind", "mutable": false, "name": "exponent", "type": "Integer", "value": { "kind": "unary", "op": "-", "operand": { "kind": "const", "type": "Integer", "value": "1" } } },
+    { "op": "return", "value": { "kind": "binary", "op": "^", "left": { "kind": "local", "name": "base" }, "right": { "kind": "local", "name": "exponent" } } }
+    ]
+  }
+  ]
+}

@@ -1,0 +1,5 @@
+FUNC main AS Integer
+  LET value AS Integer = 2
+  LET text AS String = "3"
+  RETURN value ^ text
+END FUNC

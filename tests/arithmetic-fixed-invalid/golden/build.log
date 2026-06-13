@@ -1,0 +1,16 @@
+$ mfb build -ast tests/arithmetic-fixed-invalid
+   2 |   LET text AS String = "2.0"
+   3 |   LET value AS Fixed = 1.0
+   4 |   value + text
+     | ^
+tests/arithmetic-fixed-invalid/src/main.mfb:4 error[TYPE_BINARY_OPERATOR_MISMATCH]: binary operator operands have incompatible types
+               Operator `+` requires numeric operands, got Fixed and String.
+[exit 1]
+$ mfb build -ir tests/arithmetic-fixed-invalid
+   2 |   LET text AS String = "2.0"
+   3 |   LET value AS Fixed = 1.0
+   4 |   value + text
+     | ^
+tests/arithmetic-fixed-invalid/src/main.mfb:4 error[TYPE_BINARY_OPERATOR_MISMATCH]: binary operator operands have incompatible types
+               Operator `+` requires numeric operands, got Fixed and String.
+[exit 1]

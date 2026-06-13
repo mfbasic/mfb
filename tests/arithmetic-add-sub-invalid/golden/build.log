@@ -1,0 +1,28 @@
+$ mfb build -ast tests/arithmetic-add-sub-invalid
+   2 |   LET value AS Integer = 1
+   3 |   LET text AS String = "1"
+   4 |   RETURN value - text
+     | ^
+tests/arithmetic-add-sub-invalid/src/main.mfb:4 error[TYPE_BINARY_OPERATOR_MISMATCH]: binary operator operands have incompatible types
+               Operator `-` requires numeric operands, got Integer and String.
+   2 |   LET value AS Integer = 1
+   3 |   LET text AS String = "1"
+   4 |   RETURN value - text
+     | ^
+tests/arithmetic-add-sub-invalid/src/main.mfb:4 error[TYPE_UNKNOWN_VALUE]: value type could not be determined
+               RETURN value does not have a known type.
+[exit 1]
+$ mfb build -ir tests/arithmetic-add-sub-invalid
+   2 |   LET value AS Integer = 1
+   3 |   LET text AS String = "1"
+   4 |   RETURN value - text
+     | ^
+tests/arithmetic-add-sub-invalid/src/main.mfb:4 error[TYPE_BINARY_OPERATOR_MISMATCH]: binary operator operands have incompatible types
+               Operator `-` requires numeric operands, got Integer and String.
+   2 |   LET value AS Integer = 1
+   3 |   LET text AS String = "1"
+   4 |   RETURN value - text
+     | ^
+tests/arithmetic-add-sub-invalid/src/main.mfb:4 error[TYPE_UNKNOWN_VALUE]: value type could not be determined
+               RETURN value does not have a known type.
+[exit 1]

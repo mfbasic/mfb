@@ -1,0 +1,12 @@
+$ mfb build -ast tests/arithmetic-exp-mod-invalid-rt
+Wrote AST to tests/arithmetic-exp-mod-invalid-rt/arithmetic_exp_mod_invalid_rt.ast
+[exit 0]
+$ mfb build -ir tests/arithmetic-exp-mod-invalid-rt
+Wrote IR to tests/arithmetic-exp-mod-invalid-rt/arithmetic_exp_mod_invalid_rt.ir
+[exit 0]
+$ mfb build tests/arithmetic-exp-mod-invalid-rt
+Wrote executable to tests/arithmetic-exp-mod-invalid-rt/arithmetic_exp_mod_invalid_rt.out
+[exit 0]
+$ tests/arithmetic-exp-mod-invalid-rt/arithmetic_exp_mod_invalid_rt.out
+Code: 10002 Message: invalid argument
+[exit 255]

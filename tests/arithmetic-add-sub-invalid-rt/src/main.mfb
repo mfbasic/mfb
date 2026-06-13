@@ -1,0 +1,6 @@
+FUNC main AS Integer
+  LET x AS Byte = 10
+  LET y AS Byte = 20
+  x - y
+  RETURN 0
+END FUNC

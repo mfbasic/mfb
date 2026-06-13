@@ -1,0 +1,7 @@
+FUNC main AS Integer
+  LET a AS Integer = 7
+  LET b AS Integer = 2
+  LET q AS Float = a DIV b
+  q
+  RETURN a / b
+END FUNC

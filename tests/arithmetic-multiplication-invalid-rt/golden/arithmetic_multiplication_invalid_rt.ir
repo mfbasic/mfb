@@ -1,0 +1,27 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "arithmetic_multiplication_invalid_rt",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "mutable": false, "name": "x", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "9223372036854775807" } },
+    { "op": "bind", "mutable": false, "name": "y", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "2" } },
+    { "op": "return", "value": { "kind": "binary", "op": "*", "left": { "kind": "local", "name": "x" }, "right": { "kind": "local", "name": "y" } } }
+    ]
+  }
+  ]
+}

@@ -1,0 +1,39 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "arithmetic_multiplication_valid",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "mutable": false, "name": "x", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "6" } },
+    { "op": "bind", "mutable": false, "name": "y", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "7" } },
+    { "op": "bind", "mutable": false, "name": "f", "type": "Fixed", "value": { "kind": "const", "type": "Fixed", "value": "1.5" } },
+    { "op": "bind", "mutable": false, "name": "g", "type": "Fixed", "value": { "kind": "const", "type": "Fixed", "value": "2.0" } },
+    { "op": "bind", "mutable": false, "name": "h", "type": "Fixed", "value": { "kind": "const", "type": "Fixed", "value": "3.0" } },
+    {
+      "op": "if",
+      "condition": { "kind": "binary", "op": "=", "left": { "kind": "binary", "op": "*", "left": { "kind": "local", "name": "f" }, "right": { "kind": "local", "name": "g" } }, "right": { "kind": "local", "name": "h" } },
+      "then": [
+      { "op": "return", "value": { "kind": "binary", "op": "*", "left": { "kind": "local", "name": "x" }, "right": { "kind": "local", "name": "y" } } }
+      ],
+      "else": [
+      ]
+    },
+    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "1" } }
+    ]
+  }
+  ]
+}
