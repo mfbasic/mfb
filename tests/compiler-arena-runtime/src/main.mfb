@@ -1,0 +1,16 @@
+IMPORT io
+
+FUNC join(left AS String, right AS String) AS String
+  RETURN left & right
+END FUNC
+
+FUNC wrap(value AS String) AS String
+  RETURN "[" & value & "]"
+END FUNC
+
+FUNC main AS Integer
+  LET text AS String = join("arena", "-value")
+  io::print(text)
+  io::print(wrap(join("heap", "-string")))
+  RETURN 0
+END FUNC

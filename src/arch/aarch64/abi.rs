@@ -16,16 +16,15 @@ pub(crate) fn argument_register(index: usize) -> Result<String, String> {
 pub(crate) fn temporary_register(allocation: usize) -> Result<String, String> {
     let register = match allocation {
         8..=17 => format!("x{allocation}"),
-        18 => "x19".to_string(),
-        19 => "x20".to_string(),
-        20 => "x21".to_string(),
-        21 => "x22".to_string(),
-        22 => "x23".to_string(),
-        23 => "x24".to_string(),
-        24 => "x25".to_string(),
-        25 => "x26".to_string(),
-        26 => "x27".to_string(),
-        27 => "x28".to_string(),
+        18 => "x20".to_string(),
+        19 => "x21".to_string(),
+        20 => "x22".to_string(),
+        21 => "x23".to_string(),
+        22 => "x24".to_string(),
+        23 => "x25".to_string(),
+        24 => "x26".to_string(),
+        25 => "x27".to_string(),
+        26 => "x28".to_string(),
         other => {
             return Err(format!(
                 "aarch64 code plan exhausted physical registers at allocation {other}"
@@ -119,6 +118,19 @@ pub(crate) fn subtract_registers(dst: &str, lhs: &str, rhs: &str) -> CodeInstruc
         .field("rhs", rhs)
 }
 
+pub(crate) fn and_registers(dst: &str, lhs: &str, rhs: &str) -> CodeInstruction {
+    CodeInstruction::new("and")
+        .field("dst", dst)
+        .field("lhs", lhs)
+        .field("rhs", rhs)
+}
+
+pub(crate) fn bitwise_not(dst: &str, src: &str) -> CodeInstruction {
+    CodeInstruction::new("mvn")
+        .field("dst", dst)
+        .field("src", src)
+}
+
 pub(crate) fn unsigned_divide_registers(dst: &str, lhs: &str, rhs: &str) -> CodeInstruction {
     CodeInstruction::new("udiv")
         .field("dst", dst)
@@ -201,6 +213,13 @@ pub(crate) fn return_() -> CodeInstruction {
 
 pub(crate) fn load_u64(dst: &str, base: &str, offset: usize) -> CodeInstruction {
     CodeInstruction::new("ldr_u64")
+        .field("dst", dst)
+        .field("base", base)
+        .field("offset", &offset.to_string())
+}
+
+pub(crate) fn load_u8(dst: &str, base: &str, offset: usize) -> CodeInstruction {
+    CodeInstruction::new("ldr_u8")
         .field("dst", dst)
         .field("base", base)
         .field("offset", &offset.to_string())

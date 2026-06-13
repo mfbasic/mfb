@@ -157,6 +157,15 @@ impl Encoder {
                 reg(field(instruction, "lhs")?)?,
                 reg(field(instruction, "rhs")?)?,
             ),
+            "and" => self.emit_and(
+                reg(field(instruction, "dst")?)?,
+                reg(field(instruction, "lhs")?)?,
+                reg(field(instruction, "rhs")?)?,
+            ),
+            "mvn" => self.emit_mvn(
+                reg(field(instruction, "dst")?)?,
+                reg(field(instruction, "src")?)?,
+            ),
             "udiv" => self.emit_udiv(
                 reg(field(instruction, "dst")?)?,
                 reg(field(instruction, "lhs")?)?,
@@ -199,6 +208,11 @@ impl Encoder {
             "branch_self" => self.emit_word(0x1400_0000),
             "ret" => self.emit_word(0xd65f_03c0),
             "ldr_u64" => self.emit_ldr_u64(
+                reg(field(instruction, "dst")?)?,
+                reg(field(instruction, "base")?)?,
+                immediate(field(instruction, "offset")?)?,
+            ),
+            "ldr_u8" => self.emit_ldr_u8(
                 reg(field(instruction, "dst")?)?,
                 reg(field(instruction, "base")?)?,
                 immediate(field(instruction, "offset")?)?,
@@ -265,6 +279,14 @@ impl Encoder {
         self.emit_word(0xcb00_0000 | ((rm as u32) << 16) | ((rn as u32) << 5) | rd as u32)
     }
 
+    fn emit_and(&mut self, rd: u8, rn: u8, rm: u8) -> Result<(), String> {
+        self.emit_word(0x8a00_0000 | ((rm as u32) << 16) | ((rn as u32) << 5) | rd as u32)
+    }
+
+    fn emit_mvn(&mut self, rd: u8, rm: u8) -> Result<(), String> {
+        self.emit_word(0xaa20_03e0 | ((rm as u32) << 16) | rd as u32)
+    }
+
     fn emit_udiv(&mut self, rd: u8, rn: u8, rm: u8) -> Result<(), String> {
         self.emit_word(0x9ac0_0800 | ((rm as u32) << 16) | ((rn as u32) << 5) | rd as u32)
     }
@@ -322,6 +344,11 @@ impl Encoder {
         }
         let imm = checked_imm12(offset / 8)?;
         self.emit_word(0xf900_0000 | (imm << 10) | ((rn as u32) << 5) | rt as u32)
+    }
+
+    fn emit_ldr_u8(&mut self, rt: u8, rn: u8, offset: u64) -> Result<(), String> {
+        let imm = checked_imm12(offset)?;
+        self.emit_word(0x3940_0000 | (imm << 10) | ((rn as u32) << 5) | rt as u32)
     }
 
     fn emit_str_u8(&mut self, rt: u8, rn: u8, offset: u64) -> Result<(), String> {
@@ -457,7 +484,7 @@ fn field(instruction: &CodeInstruction, name: &str) -> Result<String, String> {
 
 fn reg(name: String) -> Result<u8, String> {
     match name.as_str() {
-        "sp" => Ok(31),
+        "sp" | "x31" | "xzr" => Ok(31),
         "x0" | "w0" => Ok(0),
         "x1" | "w1" => Ok(1),
         "x2" | "w2" => Ok(2),

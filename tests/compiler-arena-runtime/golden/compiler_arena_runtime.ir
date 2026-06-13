@@ -1,0 +1,53 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "compiler_arena_runtime",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "join",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    { "name": "left", "type": "String", "default": null },
+    { "name": "right", "type": "String", "default": null }
+    ],
+    "returns": "String",
+    "body": [
+    { "op": "return", "value": { "kind": "binary", "op": "&", "left": { "kind": "local", "name": "left" }, "right": { "kind": "local", "name": "right" } } }
+    ]
+  },
+  {
+    "name": "wrap",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    { "name": "value", "type": "String", "default": null }
+    ],
+    "returns": "String",
+    "body": [
+    { "op": "return", "value": { "kind": "binary", "op": "&", "left": { "kind": "binary", "op": "&", "left": { "kind": "const", "type": "String", "value": "[" }, "right": { "kind": "local", "name": "value" } }, "right": { "kind": "const", "type": "String", "value": "]" } } }
+    ]
+  },
+  {
+    "name": "main",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "mutable": false, "name": "text", "type": "String", "value": { "kind": "call", "target": "join", "args": [{ "kind": "const", "type": "String", "value": "arena" }, { "kind": "const", "type": "String", "value": "-value" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "local", "name": "text" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "wrap", "args": [{ "kind": "call", "target": "join", "args": [{ "kind": "const", "type": "String", "value": "heap" }, { "kind": "const", "type": "String", "value": "-string" }] }] }] } },
+    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

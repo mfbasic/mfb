@@ -1,0 +1,55 @@
+{
+  "project": "compiler_arena_runtime",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "join",
+      "line": 3,
+      "params": [
+      { "name": "left", "type": "String", "default": null },
+      { "name": "right", "type": "String", "default": null }
+      ],
+      "returnType": "String",
+      "body": [
+      { "kind": "return", "value": { "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "left" }, "right": { "kind": "identifier", "value": "right" } }, "line": 4 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "wrap",
+      "line": 7,
+      "params": [
+      { "name": "value", "type": "String", "default": null }
+      ],
+      "returnType": "String",
+      "body": [
+      { "kind": "return", "value": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "[" }, "right": { "kind": "identifier", "value": "value" } }, "right": { "kind": "string", "value": "]" } }, "line": 8 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "main",
+      "line": 11,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "text", "type": "String", "value": { "kind": "call", "callee": "join", "arguments": [{ "kind": "string", "value": "arena" }, { "kind": "string", "value": "-value" }] }, "line": 12 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "identifier", "value": "text" }] }, "line": 13 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "wrap", "arguments": [{ "kind": "call", "callee": "join", "arguments": [{ "kind": "string", "value": "heap" }, { "kind": "string", "value": "-string" }] }] }] }, "line": 14 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 15 }
+      ]
+    }
+    ]
+  }
+  ]
+}

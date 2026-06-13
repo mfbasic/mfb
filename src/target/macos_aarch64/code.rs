@@ -14,6 +14,11 @@ pub(crate) fn lower_module(
 
 struct Platform;
 
+const DARWIN_PROT_READ_WRITE: &str = "3";
+const DARWIN_MAP_PRIVATE_ANON: &str = "4098";
+const DARWIN_SYSCALL_MMAP: &str = "33554629";
+const DARWIN_SYSCALL_MUNMAP: &str = "33554505";
+
 impl code::CodegenPlatform for Platform {
     fn target(&self) -> &'static str {
         "macos-aarch64"
@@ -67,6 +72,28 @@ impl code::CodegenPlatform for Platform {
             binding: "external".to_string(),
             library: Some(library),
         });
+        Ok(())
+    }
+
+    fn emit_arena_map(&self, instructions: &mut Vec<CodeInstruction>) -> Result<(), String> {
+        instructions.extend([
+            abi::move_immediate(abi::return_register(), "Integer", "0"),
+            abi::move_register("x1", "x23"),
+            abi::move_immediate("x2", "Integer", DARWIN_PROT_READ_WRITE),
+            abi::move_immediate("x3", "Integer", DARWIN_MAP_PRIVATE_ANON),
+            abi::move_immediate("x4", "Integer", &u64::MAX.to_string()),
+            abi::move_immediate("x5", "Integer", "0"),
+            abi::move_immediate("x16", "Integer", DARWIN_SYSCALL_MMAP),
+            abi::syscall(),
+        ]);
+        Ok(())
+    }
+
+    fn emit_arena_unmap(&self, instructions: &mut Vec<CodeInstruction>) -> Result<(), String> {
+        instructions.extend([
+            abi::move_immediate("x16", "Integer", DARWIN_SYSCALL_MUNMAP),
+            abi::syscall(),
+        ]);
         Ok(())
     }
 }
