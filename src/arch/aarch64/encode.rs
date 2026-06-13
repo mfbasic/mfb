@@ -165,7 +165,7 @@ impl Encoder {
             "b.eq" => self.emit_label_branch("b.eq", field(instruction, "target")?),
             "b" => self.emit_label_branch("b", field(instruction, "target")?),
             "bl" => self.emit_bl(field(instruction, "target")?),
-            "svc" => self.emit_word(0xd400_1001),
+            "svc" => self.emit_word(0xd400_0001),
             "branch_self" => self.emit_word(0x1400_0000),
             "ret" => self.emit_word(0xd65f_03c0),
             "ldr_u64" => self.emit_ldr_u64(

@@ -135,6 +135,24 @@ pub(crate) struct CodeDataObject {
     pub(crate) value: String,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum CodegenPlatform {
+    MacosAarch64,
+    LinuxAarch64,
+}
+
+impl CodegenPlatform {
+    fn from_target(target: &str) -> Result<Self, String> {
+        match target {
+            "macos-aarch64" => Ok(Self::MacosAarch64),
+            "linux-aarch64" => Ok(Self::LinuxAarch64),
+            other => Err(format!(
+                "native code plan target '{other}' does not match a supported aarch64 target"
+            )),
+        }
+    }
+}
+
 pub(crate) struct CodeStackSlot {
     pub(crate) name: String,
     pub(crate) type_: String,
@@ -182,6 +200,18 @@ pub(crate) fn lower_module(
     module: &NirModule,
     native_plan: &NativePlan,
 ) -> Result<NativeCodePlan, String> {
+    lower_module_for_platform(
+        module,
+        native_plan,
+        CodegenPlatform::from_target(&module.target)?,
+    )
+}
+
+pub(crate) fn lower_module_for_platform(
+    module: &NirModule,
+    native_plan: &NativePlan,
+    platform: CodegenPlatform,
+) -> Result<NativeCodePlan, String> {
     let function_symbols = module
         .functions
         .iter()
@@ -222,7 +252,7 @@ pub(crate) fn lower_module(
 
     if let Some(entry) = &module.entry {
         let entry_symbol = nir::function_symbol(&entry.name);
-        code_functions.push(lower_program_entry(&entry_symbol, &entry.returns));
+        code_functions.push(lower_program_entry(&entry_symbol, &entry.returns, platform));
     }
     for function in &module.functions {
         code_functions.push(lower_function(
@@ -235,7 +265,7 @@ pub(crate) fn lower_module(
         )?);
     }
     for symbol in &native_plan.runtime_symbols {
-        code_functions.push(lower_runtime_helper(symbol, &platform_imports)?);
+        code_functions.push(lower_runtime_helper(symbol, &platform_imports, platform)?);
     }
 
     let plan = NativeCodePlan {
@@ -252,9 +282,9 @@ pub(crate) fn lower_module(
 
 impl NativeCodePlan {
     pub(crate) fn validate(&self) -> Result<(), String> {
-        if self.target != "macos-aarch64" {
+        if !matches!(self.target.as_str(), "macos-aarch64" | "linux-aarch64") {
             return Err(format!(
-                "native code plan target '{}' does not match macos-aarch64",
+                "native code plan target '{}' does not match a supported aarch64 target",
                 self.target
             ));
         }
@@ -465,7 +495,11 @@ impl TypeModel {
     }
 }
 
-fn lower_program_entry(language_entry_symbol: &str, language_entry_returns: &str) -> CodeFunction {
+fn lower_program_entry(
+    language_entry_symbol: &str,
+    language_entry_returns: &str,
+    platform: CodegenPlatform,
+) -> CodeFunction {
     let mut instructions = vec![
         CodeInstruction::new("label").field("name", "entry"),
         CodeInstruction::new("bl").field("target", language_entry_symbol),
@@ -478,11 +512,40 @@ fn lower_program_entry(language_entry_symbol: &str, language_entry_returns: &str
                 .field("value", "0"),
         );
     }
-    instructions.extend([
-        CodeInstruction::new("bl").field("target", "_exit"),
-        CodeInstruction::new("branch_self"),
-        CodeInstruction::new("ret"),
-    ]);
+    let mut relocations = vec![CodeRelocation {
+        from: "_main".to_string(),
+        to: language_entry_symbol.to_string(),
+        kind: "branch26".to_string(),
+        binding: "internal".to_string(),
+        library: None,
+    }];
+    match platform {
+        CodegenPlatform::MacosAarch64 => {
+            instructions.extend([
+                CodeInstruction::new("bl").field("target", "_exit"),
+                CodeInstruction::new("branch_self"),
+                CodeInstruction::new("ret"),
+            ]);
+            relocations.push(CodeRelocation {
+                from: "_main".to_string(),
+                to: "_exit".to_string(),
+                kind: "branch26".to_string(),
+                binding: "external".to_string(),
+                library: Some("libSystem".to_string()),
+            });
+        }
+        CodegenPlatform::LinuxAarch64 => {
+            instructions.extend([
+                CodeInstruction::new("mov_imm")
+                    .field("dst", "x8")
+                    .field("type", "Integer")
+                    .field("value", "93"),
+                CodeInstruction::new("svc"),
+                CodeInstruction::new("branch_self"),
+                CodeInstruction::new("ret"),
+            ]);
+        }
+    }
     CodeFunction {
         name: "program.entry".to_string(),
         symbol: "_main".to_string(),
@@ -494,22 +557,7 @@ fn lower_program_entry(language_entry_symbol: &str, language_entry_returns: &str
         },
         stack_slots: Vec::new(),
         instructions,
-        relocations: vec![
-            CodeRelocation {
-                from: "_main".to_string(),
-                to: language_entry_symbol.to_string(),
-                kind: "branch26".to_string(),
-                binding: "internal".to_string(),
-                library: None,
-            },
-            CodeRelocation {
-                from: "_main".to_string(),
-                to: "_exit".to_string(),
-                kind: "branch26".to_string(),
-                binding: "external".to_string(),
-                library: Some("libSystem".to_string()),
-            },
-        ],
+        relocations,
     }
 }
 
@@ -591,6 +639,7 @@ fn lower_function(
 fn lower_runtime_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
+    platform: CodegenPlatform,
 ) -> Result<CodeFunction, String> {
     let Some(spec) = runtime::spec_for_symbol(symbol) else {
         return Err(format!(
@@ -599,10 +648,8 @@ fn lower_runtime_helper(
     };
     match spec.call {
         "io.print" => {
-            let library = platform_imports
-                .get("_write")
-                .ok_or_else(|| "io.print runtime helper requires _write import".to_string())?
-                .clone();
+            let (frame, instructions, relocations) =
+                lower_io_print_helper(symbol, platform_imports, platform)?;
             Ok(CodeFunction {
                 name: "runtime.io.print".to_string(),
                 symbol: symbol.to_string(),
@@ -617,81 +664,152 @@ fn lower_runtime_helper(
                     })
                     .collect(),
                 returns: spec.abi.returns.to_string(),
-                frame: CodeFrame {
-                    stack_size: 16,
-                    callee_saved: vec!["x30".to_string()],
-                },
+                frame,
                 stack_slots: Vec::new(),
-                instructions: vec![
-                    CodeInstruction::new("label").field("name", "entry"),
-                    CodeInstruction::new("sub_sp").field("imm", "16"),
-                    CodeInstruction::new("str_u64")
-                        .field("src", "x30")
-                        .field("base", "sp")
-                        .field("offset", "0"),
-                    CodeInstruction::new("ldr_u64")
-                        .field("dst", "x2")
-                        .field("base", "x0")
-                        .field("offset", "0"),
-                    CodeInstruction::new("add_imm")
-                        .field("dst", "x1")
-                        .field("src", "x0")
-                        .field("imm", "8"),
-                    CodeInstruction::new("mov_imm")
-                        .field("dst", "x0")
-                        .field("type", "Integer")
-                        .field("value", "1"),
-                    CodeInstruction::new("bl").field("target", "_write"),
-                    CodeInstruction::new("mov_imm")
-                        .field("dst", "x9")
-                        .field("type", "Integer")
-                        .field("value", "10"),
-                    CodeInstruction::new("str_u64")
-                        .field("src", "x9")
-                        .field("base", "sp")
-                        .field("offset", "8"),
-                    CodeInstruction::new("mov_imm")
-                        .field("dst", "x0")
-                        .field("type", "Integer")
-                        .field("value", "1"),
-                    CodeInstruction::new("add_imm")
-                        .field("dst", "x1")
-                        .field("src", "sp")
-                        .field("imm", "8"),
-                    CodeInstruction::new("mov_imm")
-                        .field("dst", "x2")
-                        .field("type", "Integer")
-                        .field("value", "1"),
-                    CodeInstruction::new("bl").field("target", "_write"),
-                    CodeInstruction::new("ldr_u64")
-                        .field("dst", "x30")
-                        .field("base", "sp")
-                        .field("offset", "0"),
-                    CodeInstruction::new("add_sp").field("imm", "16"),
-                    CodeInstruction::new("ret"),
-                ],
-                relocations: vec![
-                    CodeRelocation {
-                        from: symbol.to_string(),
-                        to: "_write".to_string(),
-                        kind: "branch26".to_string(),
-                        binding: "external".to_string(),
-                        library: Some(library.clone()),
-                    },
-                    CodeRelocation {
-                        from: symbol.to_string(),
-                        to: "_write".to_string(),
-                        kind: "branch26".to_string(),
-                        binding: "external".to_string(),
-                        library: Some(library),
-                    },
-                ],
+                instructions,
+                relocations,
             })
         }
         other => Err(format!(
             "native code plan does not emit runtime call '{other}'"
         )),
     }
+}
+
+fn lower_io_print_helper(
+    symbol: &str,
+    platform_imports: &HashMap<String, String>,
+    platform: CodegenPlatform,
+) -> Result<(CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>), String> {
+    let mut instructions = vec![
+        CodeInstruction::new("label").field("name", "entry"),
+        CodeInstruction::new("sub_sp").field("imm", "16"),
+    ];
+    let mut relocations = Vec::new();
+    if platform == CodegenPlatform::MacosAarch64 {
+        instructions.push(
+            CodeInstruction::new("str_u64")
+                .field("src", "x30")
+                .field("base", "sp")
+                .field("offset", "0"),
+        );
+    }
+    instructions.extend([
+        CodeInstruction::new("ldr_u64")
+            .field("dst", "x2")
+            .field("base", "x0")
+            .field("offset", "0"),
+        CodeInstruction::new("add_imm")
+            .field("dst", "x1")
+            .field("src", "x0")
+            .field("imm", "8"),
+        CodeInstruction::new("mov_imm")
+            .field("dst", "x0")
+            .field("type", "Integer")
+            .field("value", "1"),
+    ]);
+    emit_platform_write(
+        symbol,
+        platform_imports,
+        platform,
+        &mut instructions,
+        &mut relocations,
+    )?;
+    instructions.extend([
+        CodeInstruction::new("mov_imm")
+            .field("dst", "x9")
+            .field("type", "Integer")
+            .field("value", "10"),
+        CodeInstruction::new("str_u64")
+            .field("src", "x9")
+            .field("base", "sp")
+            .field("offset", "8"),
+        CodeInstruction::new("mov_imm")
+            .field("dst", "x0")
+            .field("type", "Integer")
+            .field("value", "1"),
+        CodeInstruction::new("add_imm")
+            .field("dst", "x1")
+            .field("src", "sp")
+            .field("imm", "8"),
+        CodeInstruction::new("mov_imm")
+            .field("dst", "x2")
+            .field("type", "Integer")
+            .field("value", "1"),
+    ]);
+    emit_platform_write(
+        symbol,
+        platform_imports,
+        platform,
+        &mut instructions,
+        &mut relocations,
+    )?;
+    if platform == CodegenPlatform::MacosAarch64 {
+        instructions.extend([
+            CodeInstruction::new("ldr_u64")
+                .field("dst", "x30")
+                .field("base", "sp")
+                .field("offset", "0"),
+            CodeInstruction::new("add_sp").field("imm", "16"),
+            CodeInstruction::new("ret"),
+        ]);
+        Ok((
+            CodeFrame {
+                stack_size: 16,
+                callee_saved: vec!["x30".to_string()],
+            },
+            instructions,
+            relocations,
+        ))
+    } else {
+        instructions.extend([
+            CodeInstruction::new("add_sp").field("imm", "16"),
+            CodeInstruction::new("ret"),
+        ]);
+        Ok((
+            CodeFrame {
+                stack_size: 16,
+                callee_saved: Vec::new(),
+            },
+            instructions,
+            relocations,
+        ))
+    }
+}
+
+fn emit_platform_write(
+    from: &str,
+    platform_imports: &HashMap<String, String>,
+    platform: CodegenPlatform,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+) -> Result<(), String> {
+    match platform {
+        CodegenPlatform::MacosAarch64 => {
+            let library = platform_imports
+                .get("_write")
+                .ok_or_else(|| "io.print runtime helper requires _write import".to_string())?
+                .clone();
+            instructions.push(CodeInstruction::new("bl").field("target", "_write"));
+            relocations.push(CodeRelocation {
+                from: from.to_string(),
+                to: "_write".to_string(),
+                kind: "branch26".to_string(),
+                binding: "external".to_string(),
+                library: Some(library),
+            });
+        }
+        CodegenPlatform::LinuxAarch64 => {
+            instructions.extend([
+                CodeInstruction::new("mov_imm")
+                    .field("dst", "x8")
+                    .field("type", "Integer")
+                    .field("value", "64"),
+                CodeInstruction::new("svc"),
+            ]);
+        }
+    }
+    Ok(())
 }
 
 fn finalize_frame(

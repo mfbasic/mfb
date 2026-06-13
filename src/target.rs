@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 use crate::bytecode::BytecodeMetadata;
 use crate::ir::IrProject;
 
+pub mod linux_aarch64;
 pub mod macos_aarch64;
 pub mod package_mfp;
 
@@ -23,6 +24,19 @@ impl BuildTarget {
 
     pub fn name(&self) -> String {
         format!("{}-{}", self.os, self.arch)
+    }
+
+    pub fn parse(value: &str) -> Result<Self, String> {
+        let Some((os, arch)) = value.split_once('-') else {
+            return Err(format!("target '{value}' must use os-arch format"));
+        };
+        if os.is_empty() || arch.is_empty() || arch.contains('-') {
+            return Err(format!("target '{value}' must use os-arch format"));
+        }
+        Ok(Self {
+            os: os.to_string(),
+            arch: arch.to_string(),
+        })
     }
 }
 
@@ -71,7 +85,7 @@ pub(crate) trait NativeBackend: Sync {
     ) -> Result<PathBuf, String>;
 }
 
-static NATIVE_BACKENDS: &[&dyn NativeBackend] = &[&macos_aarch64::BACKEND];
+static NATIVE_BACKENDS: &[&dyn NativeBackend] = &[&macos_aarch64::BACKEND, &linux_aarch64::BACKEND];
 
 fn backend_for(target: &BuildTarget) -> Result<&'static dyn NativeBackend, String> {
     NATIVE_BACKENDS

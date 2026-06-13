@@ -19,7 +19,7 @@ use std::path::{Path, PathBuf};
 use std::process;
 use tinyjson::JsonValue;
 
-const USAGE: &str = "Usage: mfb <command> <arguments>\n\nCommands:\n  help                        Show this message\n  init <location>             Create a new MFBASIC executable project\n  init-pkg <location>         Create a new MFBASIC package project\n  pkg add <url>               Add a compiled package to the current project\n  pkg info <package>          Show information about a compiled package\n  pkg verify                  Verify packages declared by project.json\n  build [-ast|-ir|-bc|-nir|-nplan|-nobj|-ncode] [location] Validate and build an MFBASIC project\n  man [package] [function]    Show built-in package and function help";
+const USAGE: &str = "Usage: mfb <command> <arguments>\n\nCommands:\n  help                        Show this message\n  init <location>             Create a new MFBASIC executable project\n  init-pkg <location>         Create a new MFBASIC package project\n  pkg add <url>               Add a compiled package to the current project\n  pkg info <package>          Show information about a compiled package\n  pkg verify                  Verify packages declared by project.json\n  build [-ast|-ir|-bc|-nir|-nplan|-nobj|-ncode] [-target os-arch] [location] Validate and build an MFBASIC project\n  man [package] [function]    Show built-in package and function help";
 
 const MFP_MAGIC: [u8; 8] = [0x4d, 0x46, 0x50, 0x0d, 0x0a, 0x1a, 0x0a, 0x00];
 
@@ -107,6 +107,7 @@ fn main() {
 struct BuildOptions {
     location: PathBuf,
     output: BuildOutput,
+    target: target::BuildTarget,
 }
 
 enum BuildOutput {
@@ -123,8 +124,10 @@ enum BuildOutput {
 fn parse_build_options(args: Vec<String>) -> Result<BuildOptions, String> {
     let mut location = None;
     let mut output = BuildOutput::Validate;
+    let mut target = None;
+    let mut iter = args.into_iter();
 
-    for arg in args {
+    while let Some(arg) = iter.next() {
         if arg == "-ast" {
             if !matches!(output, BuildOutput::Validate) {
                 return Err("mfb build accepts only one output mode".to_string());
@@ -160,6 +163,13 @@ fn parse_build_options(args: Vec<String>) -> Result<BuildOptions, String> {
                 return Err("mfb build accepts only one output mode".to_string());
             }
             output = BuildOutput::NativeCodePlan;
+        } else if arg == "-target" {
+            let Some(value) = iter.next() else {
+                return Err("mfb build -target requires os-arch".to_string());
+            };
+            target = Some(target::BuildTarget::parse(&value)?);
+        } else if let Some(value) = arg.strip_prefix("-target=") {
+            target = Some(target::BuildTarget::parse(value)?);
         } else if arg.starts_with('-') {
             return Err(format!("unknown build option `{arg}`"));
         } else if location.replace(PathBuf::from(&arg)).is_some() {
@@ -170,6 +180,7 @@ fn parse_build_options(args: Vec<String>) -> Result<BuildOptions, String> {
     Ok(BuildOptions {
         location: location.unwrap_or_else(|| PathBuf::from(".")),
         output,
+        target: target.unwrap_or_else(target::BuildTarget::host),
     })
 }
 
@@ -212,7 +223,7 @@ fn init_package_project(location: &Path) -> Result<(), String> {
 }
 
 fn build_project(options: &BuildOptions) -> Result<(), ()> {
-    let target = target::BuildTarget::host();
+    let target = options.target.clone();
     let project_path = options.location.join("project.json");
     let manifest = validate_project_manifest(&project_path)?;
     let project_kind = project_kind(&manifest);

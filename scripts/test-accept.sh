@@ -11,36 +11,44 @@ ACTUAL_ROOT=$2
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 TEST_ROOT="$ROOT/tests"
 
-host_os="$(uname -s)"
-case "$host_os" in
-  Darwin)
-    target_os="macos"
-    ;;
-  Linux)
-    target_os="linux"
-    ;;
-  MINGW* | MSYS* | CYGWIN*)
-    target_os="windows"
-    ;;
-  *)
-    target_os="$(printf '%s' "$host_os" | tr '[:upper:]' '[:lower:]')"
-    ;;
-esac
+if [ -n "${MFB_TARGET:-}" ]; then
+  target_name="$MFB_TARGET"
+  target_arg="-target $MFB_TARGET"
+  target_label="$target_arg "
+else
+  host_os="$(uname -s)"
+  case "$host_os" in
+    Darwin)
+      target_os="macos"
+      ;;
+    Linux)
+      target_os="linux"
+      ;;
+    MINGW* | MSYS* | CYGWIN*)
+      target_os="windows"
+      ;;
+    *)
+      target_os="$(printf '%s' "$host_os" | tr '[:upper:]' '[:lower:]')"
+      ;;
+  esac
 
-host_arch="$(uname -m)"
-case "$host_arch" in
-  arm64)
-    target_arch="aarch64"
-    ;;
-  x86_64 | amd64)
-    target_arch="x86_64"
-    ;;
-  *)
-    target_arch="$host_arch"
-    ;;
-esac
+  host_arch="$(uname -m)"
+  case "$host_arch" in
+    arm64)
+      target_arch="aarch64"
+      ;;
+    x86_64 | amd64)
+      target_arch="x86_64"
+      ;;
+    *)
+      target_arch="$host_arch"
+      ;;
+  esac
 
-target_name="$target_os-$target_arch"
+  target_name="$target_os-$target_arch"
+  target_arg=""
+  target_label=""
+fi
 
 failures=0
 
@@ -142,23 +150,23 @@ for test_dir in "$TEST_ROOT"/*; do
       echo "[exit $?]"
     fi
     if [ -f "$golden_dir/$package_name.$target_name.nir" ]; then
-      echo "$ mfb build -nir tests/$test_name"
-      "$MFB_EXE" build -nir "tests/$test_name"
+      echo "$ mfb build ${target_label}-nir tests/$test_name"
+      "$MFB_EXE" build $target_arg -nir "tests/$test_name"
       echo "[exit $?]"
     fi
     if [ -f "$golden_dir/$package_name.$target_name.nplan" ]; then
-      echo "$ mfb build -nplan tests/$test_name"
-      "$MFB_EXE" build -nplan "tests/$test_name"
+      echo "$ mfb build ${target_label}-nplan tests/$test_name"
+      "$MFB_EXE" build $target_arg -nplan "tests/$test_name"
       echo "[exit $?]"
     fi
     if [ -f "$golden_dir/$package_name.$target_name.nobj" ]; then
-      echo "$ mfb build -nobj tests/$test_name"
-      "$MFB_EXE" build -nobj "tests/$test_name"
+      echo "$ mfb build ${target_label}-nobj tests/$test_name"
+      "$MFB_EXE" build $target_arg -nobj "tests/$test_name"
       echo "[exit $?]"
     fi
     if [ -f "$golden_dir/$package_name.$target_name.ncode" ]; then
-      echo "$ mfb build -ncode tests/$test_name"
-      "$MFB_EXE" build -ncode "tests/$test_name"
+      echo "$ mfb build ${target_label}-ncode tests/$test_name"
+      "$MFB_EXE" build $target_arg -ncode "tests/$test_name"
       echo "[exit $?]"
     fi
   } >"$log_path" 2>&1

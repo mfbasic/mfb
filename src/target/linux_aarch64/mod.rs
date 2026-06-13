@@ -1,13 +1,7 @@
-pub(crate) mod code;
-pub(crate) mod lower;
-pub(crate) mod nir;
-pub(crate) mod plan;
-pub(crate) mod runtime;
-pub(crate) mod validate;
-
 use crate::arch;
 use crate::ir::IrProject;
 use crate::os;
+use crate::target::macos_aarch64::{code, lower, plan, validate};
 use crate::target::{BackendCapabilities, BuildTarget, NativeBackend};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -19,7 +13,7 @@ pub(crate) struct Backend;
 impl NativeBackend for Backend {
     fn target(&self) -> BuildTarget {
         BuildTarget {
-            os: "macos".to_string(),
+            os: "linux".to_string(),
             arch: "aarch64".to_string(),
         }
     }
@@ -91,18 +85,18 @@ fn write_executable(
     target: &BuildTarget,
     packages: &[PathBuf],
 ) -> Result<PathBuf, String> {
-    validate::validate_target(target)?;
-    validate::validate_project(ir, packages)?;
-    let module = lower::lower_project(ir, target.name(), packages)?;
-    validate::validate_nir(&module)?;
-    validate::validate_capabilities(&module, &BACKEND.capabilities())?;
+    let module = lower_validated_module(ir, target, packages)?;
     let native_plan = plan::lower_module(&module)?;
     native_plan.validate()?;
-    os::macos::validate_native_object_plan(&native_plan)?;
-    let native_code = code::lower_module(&module, &native_plan)?;
+    os::linux::validate_native_object_plan(&native_plan)?;
+    let native_code = code::lower_module_for_platform(
+        &module,
+        &native_plan,
+        code::CodegenPlatform::LinuxAarch64,
+    )?;
     native_code.validate()?;
     let image = arch::aarch64::encode::encode(&native_code)?;
-    os::macos::write_linked_executable(project_dir, &ir.name, &image)
+    os::linux::write_linked_executable(project_dir, &ir.name, &image)
 }
 
 fn write_nir(
@@ -111,11 +105,7 @@ fn write_nir(
     target: &BuildTarget,
     packages: &[PathBuf],
 ) -> Result<PathBuf, String> {
-    validate::validate_target(target)?;
-    validate::validate_project(ir, packages)?;
-    let module = lower::lower_project(ir, target.name(), packages)?;
-    validate::validate_nir(&module)?;
-    validate::validate_capabilities(&module, &BACKEND.capabilities())?;
+    let module = lower_validated_module(ir, target, packages)?;
     let nir_path = project_dir.join(format!("{}.nir", ir.name));
     fs::write(&nir_path, module.to_json())
         .map_err(|err| format!("failed to write '{}': {err}", nir_path.display()))?;
@@ -128,11 +118,7 @@ fn write_native_plan(
     target: &BuildTarget,
     packages: &[PathBuf],
 ) -> Result<PathBuf, String> {
-    validate::validate_target(target)?;
-    validate::validate_project(ir, packages)?;
-    let module = lower::lower_project(ir, target.name(), packages)?;
-    validate::validate_nir(&module)?;
-    validate::validate_capabilities(&module, &BACKEND.capabilities())?;
+    let module = lower_validated_module(ir, target, packages)?;
     let native_plan = plan::lower_module(&module)?;
     native_plan.validate()?;
     let plan_path = project_dir.join(format!("{}.nplan", ir.name));
@@ -147,14 +133,10 @@ fn write_native_object_plan(
     target: &BuildTarget,
     packages: &[PathBuf],
 ) -> Result<PathBuf, String> {
-    validate::validate_target(target)?;
-    validate::validate_project(ir, packages)?;
-    let module = lower::lower_project(ir, target.name(), packages)?;
-    validate::validate_nir(&module)?;
-    validate::validate_capabilities(&module, &BACKEND.capabilities())?;
+    let module = lower_validated_module(ir, target, packages)?;
     let native_plan = plan::lower_module(&module)?;
     native_plan.validate()?;
-    os::macos::write_native_object_plan(project_dir, &ir.name, &native_plan)
+    os::linux::write_native_object_plan(project_dir, &ir.name, &native_plan)
 }
 
 fn write_native_code_plan(
@@ -163,18 +145,31 @@ fn write_native_code_plan(
     target: &BuildTarget,
     packages: &[PathBuf],
 ) -> Result<PathBuf, String> {
-    validate::validate_target(target)?;
-    validate::validate_project(ir, packages)?;
-    let module = lower::lower_project(ir, target.name(), packages)?;
-    validate::validate_nir(&module)?;
-    validate::validate_capabilities(&module, &BACKEND.capabilities())?;
+    let module = lower_validated_module(ir, target, packages)?;
     let native_plan = plan::lower_module(&module)?;
     native_plan.validate()?;
-    os::macos::validate_native_object_plan(&native_plan)?;
-    let native_code = code::lower_module(&module, &native_plan)?;
+    os::linux::validate_native_object_plan(&native_plan)?;
+    let native_code = code::lower_module_for_platform(
+        &module,
+        &native_plan,
+        code::CodegenPlatform::LinuxAarch64,
+    )?;
     native_code.validate()?;
     let code_path = project_dir.join(format!("{}.ncode", ir.name));
     fs::write(&code_path, native_code.to_json())
         .map_err(|err| format!("failed to write '{}': {err}", code_path.display()))?;
     Ok(code_path)
+}
+
+fn lower_validated_module(
+    ir: &IrProject,
+    target: &BuildTarget,
+    packages: &[PathBuf],
+) -> Result<crate::target::macos_aarch64::nir::NirModule, String> {
+    validate::validate_target(target)?;
+    validate::validate_project(ir, packages)?;
+    let module = lower::lower_project(ir, target.name(), packages)?;
+    validate::validate_nir(&module)?;
+    validate::validate_capabilities(&module, &BACKEND.capabilities())?;
+    Ok(module)
 }

@@ -135,9 +135,9 @@ pub(crate) fn lower_module(module: &NirModule) -> Result<NativePlan, String> {
 
 impl NativePlan {
     pub(crate) fn validate(&self) -> Result<(), String> {
-        if self.target != "macos-aarch64" {
+        if !matches!(self.target.as_str(), "macos-aarch64" | "linux-aarch64") {
             return Err(format!(
-                "native plan target '{}' does not match macos-aarch64",
+                "native plan target '{}' does not match a supported aarch64 target",
                 self.target
             ));
         }
@@ -362,7 +362,7 @@ fn runtime_symbols(module: &NirModule) -> Vec<String> {
 
 fn platform_imports(module: &NirModule) -> Vec<PlatformImport> {
     let mut imports = Vec::new();
-    if module.entry.is_some() {
+    if module.target == "macos-aarch64" && module.entry.is_some() {
         push_platform_import(
             &mut imports,
             PlatformImport {
@@ -371,6 +371,9 @@ fn platform_imports(module: &NirModule) -> Vec<PlatformImport> {
                 required_by: "_main".to_string(),
             },
         );
+    }
+    if module.target == "linux-aarch64" {
+        return imports;
     }
     for function in &module.functions {
         collect_platform_imports_from_ops(&function.body, &mut imports);
@@ -454,6 +457,9 @@ fn platform_imports_for_runtime_call(target: &str) -> Vec<PlatformImport> {
     let Some(spec) = runtime::spec_for_call(target) else {
         return Vec::new();
     };
+    if spec.platform_imports.is_empty() {
+        return Vec::new();
+    }
     spec.platform_imports
         .iter()
         .map(|import| PlatformImport {

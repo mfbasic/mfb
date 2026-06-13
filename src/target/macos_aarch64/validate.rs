@@ -13,11 +13,11 @@ struct TypeValueNames {
 }
 
 pub fn validate_target(target: &BuildTarget) -> Result<(), String> {
-    if target.os == "macos" && target.arch == "aarch64" {
+    if matches!(target.os.as_str(), "macos" | "linux") && target.arch == "aarch64" {
         Ok(())
     } else {
         Err(format!(
-            "macos-aarch64 target cannot build {}",
+            "aarch64 native target cannot build {}",
             target.name()
         ))
     }
@@ -28,9 +28,9 @@ pub fn validate_project(_ir: &IrProject, _packages: &[PathBuf]) -> Result<(), St
 }
 
 pub fn validate_nir(module: &NirModule) -> Result<(), String> {
-    if module.target != "macos-aarch64" {
+    if !matches!(module.target.as_str(), "macos-aarch64" | "linux-aarch64") {
         return Err(format!(
-            "NIR target '{}' does not match macos-aarch64",
+            "NIR target '{}' does not match a supported aarch64 target",
             module.target
         ));
     }
@@ -100,7 +100,7 @@ pub(crate) fn validate_capabilities(
     for call in runtime_calls {
         if !capabilities.runtime_calls.contains(&call.as_str()) {
             return Err(format!(
-                "macos-aarch64 backend does not support runtime call '{call}'"
+                "aarch64 backend does not support runtime call '{call}'"
             ));
         }
     }
@@ -113,7 +113,7 @@ pub(crate) fn validate_capabilities(
         });
         if !helper_supported {
             return Err(format!(
-                "macos-aarch64 backend does not implement runtime helper '{}'",
+                "aarch64 backend does not implement runtime helper '{}'",
                 helper.name()
             ));
         }
