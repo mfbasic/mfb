@@ -1,10 +1,15 @@
 use std::sync::LazyLock;
 
+mod generated {
+    include!(concat!(env!("OUT_DIR"), "/man_generated.rs"));
+}
+
 pub(crate) struct PackageDoc {
     pub(crate) name: &'static str,
     pub(crate) summary: &'static str,
     pub(crate) usage: &'static str,
     pub(crate) functions: &'static [FunctionDoc],
+    pub(crate) page: Option<&'static str>,
 }
 
 pub(crate) struct FunctionDoc {
@@ -16,7 +21,7 @@ pub(crate) struct FunctionDoc {
 
 static PACKAGES: LazyLock<Vec<PackageDoc>> = LazyLock::new(|| {
     vec![
-        parse_package(include_str!("builtins/general.txt")),
+        parse_general_package(),
         parse_package(include_str!("builtins/io.txt")),
         parse_package(include_str!("builtins/math.txt")),
         parse_package(include_str!("builtins/thread.txt")),
@@ -48,43 +53,31 @@ pub(crate) fn function_page(package: &PackageDoc, name: &str) -> Option<&'static
         .and_then(|remaining| remaining.strip_prefix('.'))
         .unwrap_or(name);
 
-    match (package.name, local_name) {
-        ("general", "append") => Some(include_str!("builtins/general/append.txt")),
-        ("general", "contains") => Some(include_str!("builtins/general/contains.txt")),
-        ("general", "filter") => Some(include_str!("builtins/general/filter.txt")),
-        ("general", "find") => Some(include_str!("builtins/general/find.txt")),
-        ("general", "forEach") => Some(include_str!("builtins/general/forEach.txt")),
-        ("general", "get") => Some(include_str!("builtins/general/get.txt")),
-        ("general", "getOr") => Some(include_str!("builtins/general/getOr.txt")),
-        ("general", "hasKey") => Some(include_str!("builtins/general/hasKey.txt")),
-        ("general", "insert") => Some(include_str!("builtins/general/insert.txt")),
-        ("general", "isEmpty") => Some(include_str!("builtins/general/isEmpty.txt")),
-        ("general", "isEven") => Some(include_str!("builtins/general/isEven.txt")),
-        ("general", "isNegative") => Some(include_str!("builtins/general/isNegative.txt")),
-        ("general", "isNotEmpty") => Some(include_str!("builtins/general/isNotEmpty.txt")),
-        ("general", "isNumeric") => Some(include_str!("builtins/general/isNumeric.txt")),
-        ("general", "isOdd") => Some(include_str!("builtins/general/isOdd.txt")),
-        ("general", "isPositive") => Some(include_str!("builtins/general/isPositive.txt")),
-        ("general", "isZero") => Some(include_str!("builtins/general/isZero.txt")),
-        ("general", "keys") => Some(include_str!("builtins/general/keys.txt")),
-        ("general", "len") => Some(include_str!("builtins/general/len.txt")),
-        ("general", "mid") => Some(include_str!("builtins/general/mid.txt")),
-        ("general", "prepend") => Some(include_str!("builtins/general/prepend.txt")),
-        ("general", "reduce") => Some(include_str!("builtins/general/reduce.txt")),
-        ("general", "removeAt") => Some(include_str!("builtins/general/removeAt.txt")),
-        ("general", "removeKey") => Some(include_str!("builtins/general/removeKey.txt")),
-        ("general", "replace") => Some(include_str!("builtins/general/replace.txt")),
-        ("general", "set") => Some(include_str!("builtins/general/set.txt")),
-        ("general", "sum") => Some(include_str!("builtins/general/sum.txt")),
-        ("general", "toByte") => Some(include_str!("builtins/general/toByte.txt")),
-        ("general", "toFixed") => Some(include_str!("builtins/general/toFixed.txt")),
-        ("general", "toFloat") => Some(include_str!("builtins/general/toFloat.txt")),
-        ("general", "toInt") => Some(include_str!("builtins/general/toInt.txt")),
-        ("general", "toString") => Some(include_str!("builtins/general/toString.txt")),
-        ("general", "transform") => Some(include_str!("builtins/general/transform.txt")),
-        ("general", "typeName") => Some(include_str!("builtins/general/typeName.txt")),
-        ("general", "values") => Some(include_str!("builtins/general/values.txt")),
-        _ => None,
+    if package.name == "general" {
+        return generated::GENERAL_FUNCTION_PAGES
+            .iter()
+            .find(|(name, _)| *name == local_name)
+            .map(|(_, page)| *page);
+    }
+
+    None
+}
+
+fn parse_general_package() -> PackageDoc {
+    let page = include_str!("builtins/general/package.txt");
+    let (name, summary) = parse_name_line(page).expect("general package NAME line");
+    let functions = generated::GENERAL_FUNCTION_PAGES
+        .iter()
+        .map(|(_, page)| parse_rendered_function_page(page))
+        .collect::<Vec<_>>()
+        .into_boxed_slice();
+
+    PackageDoc {
+        name,
+        summary,
+        usage: "mfb man general [function]",
+        functions: Box::leak(functions),
+        page: Some(page),
     }
 }
 
@@ -108,7 +101,36 @@ fn parse_package(source: &'static str) -> PackageDoc {
         summary,
         usage,
         functions: Box::leak(functions),
+        page: None,
     }
+}
+
+fn parse_rendered_function_page(page: &'static str) -> FunctionDoc {
+    let (name, summary) = parse_name_line(page).expect("function NAME line");
+    FunctionDoc {
+        name,
+        signature: first_synopsis_line(page).unwrap_or(""),
+        summary,
+        example: "",
+    }
+}
+
+fn parse_name_line(source: &'static str) -> Option<(&'static str, &'static str)> {
+    let mut lines = source.lines();
+    while !lines.next()?.trim().eq("NAME") {}
+
+    let line = lines.find(|line| !line.trim().is_empty())?.trim();
+    line.split_once(" - ")
+}
+
+fn first_synopsis_line(source: &'static str) -> Option<&'static str> {
+    let mut lines = source.lines();
+    while !lines.next()?.trim().eq("SYNOPSIS") {}
+
+    lines
+        .find(|line| !line.trim().is_empty())
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
 }
 
 fn parse_function(section: &'static str) -> FunctionDoc {
