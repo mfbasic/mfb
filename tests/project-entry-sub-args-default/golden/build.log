@@ -4,3 +4,12 @@ Wrote AST to tests/project-entry-sub-args-default/project_entry_sub_args_default
 $ mfb build -ir tests/project-entry-sub-args-default
 Wrote IR to tests/project-entry-sub-args-default/project_entry_sub_args_default.ir
 [exit 0]
+$ mfb build -nir tests/project-entry-sub-args-default
+Wrote native IR to tests/project-entry-sub-args-default/project_entry_sub_args_default.nir
+[exit 0]
+$ mfb build -nplan tests/project-entry-sub-args-default
+Wrote native plan to tests/project-entry-sub-args-default/project_entry_sub_args_default.nplan
+[exit 0]
+$ mfb build -nobj tests/project-entry-sub-args-default
+Wrote native object plan to tests/project-entry-sub-args-default/project_entry_sub_args_default.nobj
+[exit 0]

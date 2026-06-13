@@ -1,0 +1,29 @@
+{
+  "format": "mfb-native-plan",
+  "version": 1,
+  "target": "macos-aarch64",
+  "project": "project_entry_func_args_default",
+  "entrySymbol": "_mfb_fn_main",
+  "runtimeSymbols": [],
+  "externalSymbols": [],
+  "platformImports": [
+  { "library": "libSystem", "symbol": "_exit", "requiredBy": "_main" }
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "symbol": "_mfb_fn_main",
+    "returns": { "name": "Integer", "class": "integer", "size": 8, "align": 8 },
+    "params": [
+    { "name": "args", "storage": { "name": "List OF String", "class": "reference", "size": 8, "align": 8 } }
+    ],
+    "localSlots": [
+    ],
+    "labels": [
+    ],
+    "operations": ["return Integer(0)"],
+    "calls": [
+    ]
+  }
+  ]
+}

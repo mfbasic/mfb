@@ -7,6 +7,3 @@ Wrote IR to tests/function-values/function_values.ir
 $ mfb build -bc tests/function-values
 Wrote bytecode hex to tests/function-values/function_values.hex
 [exit 0]
-$ mfb build -bin tests/function-values
-Wrote binary to tests/function-values/function_values.aarch64.bin
-[exit 0]

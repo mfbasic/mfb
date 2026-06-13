@@ -7,6 +7,3 @@ Wrote IR to tests/builtin-types-containers/builtin_types_containers.ir
 $ mfb build -bc tests/builtin-types-containers
 Wrote bytecode hex to tests/builtin-types-containers/builtin_types_containers.hex
 [exit 0]
-$ mfb build -bin tests/builtin-types-containers
-Wrote binary to tests/builtin-types-containers/builtin_types_containers.aarch64.bin
-[exit 0]

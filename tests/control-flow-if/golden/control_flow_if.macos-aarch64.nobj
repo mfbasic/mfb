@@ -1,0 +1,74 @@
+{
+  "format": "mfb-native-object-plan",
+  "version": 2,
+  "target": "macos-aarch64",
+  "container": "mach-o",
+  "status": "planOnly",
+  "entry": "_main",
+  "imageBase": 4294967296,
+  "dylibs": ["/usr/lib/libSystem.B.dylib"],
+  "loadCommands": [
+  { "kind": "LC_SEGMENT_64", "name": "__TEXT" },
+  { "kind": "LC_SEGMENT_64", "name": "__LINKEDIT" },
+  { "kind": "LC_DYLD_INFO_ONLY", "name": null },
+  { "kind": "LC_SYMTAB", "name": null },
+  { "kind": "LC_DYSYMTAB", "name": null },
+  { "kind": "LC_LOAD_DYLINKER", "name": "/usr/lib/dyld" },
+  { "kind": "LC_BUILD_VERSION", "name": "macos" },
+  { "kind": "LC_MAIN", "name": null },
+  { "kind": "LC_CODE_SIGNATURE", "name": null },
+  { "kind": "LC_LOAD_DYLIB", "name": "/usr/lib/libSystem.B.dylib" }
+  ],
+  "segments": [
+  { "name": "__TEXT", "vmAddress": 4294967296, "vmSize": 32768, "fileOffset": 0, "fileSize": 32768, "maxProtection": "read-execute", "initialProtection": "read-execute" },
+  { "name": "__LINKEDIT", "vmAddress": 4295000064, "vmSize": 4096, "fileOffset": 32768, "fileSize": 4096, "maxProtection": "read", "initialProtection": "read" }
+  ],
+  "sections": [
+  { "segment": "__TEXT", "section": "__text", "kind": "code", "vmAddress": 4294983680, "fileOffset": 16384, "size": 156, "align": 4 },
+  { "segment": "__TEXT", "section": "__cstring", "kind": "cstring", "vmAddress": 4294983840, "fileOffset": 16544, "size": 0, "align": 1 },
+  { "segment": "__LINKEDIT", "section": null, "kind": "linkedit", "vmAddress": 4295000064, "fileOffset": 32768, "size": 4096, "align": 1 }
+  ],
+  "codeUnits": [
+  { "symbol": "_main", "section": "__TEXT,__text", "offset": 0, "plannedSize": 16, "operations": ["call entry function", "return 0"], "calls": ["_mfb_fn_main"], "dataRefs": [] },
+  { "symbol": "_mfb_fn_ifOnly", "section": "__TEXT,__text", "offset": 16, "plannedSize": 24, "operations": ["branchIfFalse local flag -> if_else_0", "return Integer(1)", "branch -> if_end_1", "label if_else_0", "label if_end_1", "return Integer(0)"], "calls": [], "dataRefs": [] },
+  { "symbol": "_mfb_fn_ifElse", "section": "__TEXT,__text", "offset": 40, "plannedSize": 24, "operations": ["branchIfFalse local flag -> if_else_0", "return Integer(1)", "branch -> if_end_1", "label if_else_0", "return Integer(2)", "label if_end_1"], "calls": [], "dataRefs": [] },
+  { "symbol": "_mfb_fn_ifElseIf", "section": "__TEXT,__text", "offset": 64, "plannedSize": 44, "operations": ["branchIfFalse local first -> if_else_0", "return Integer(1)", "branch -> if_end_1", "label if_else_0", "branchIfFalse local second -> if_else_2", "return Integer(2)", "branch -> if_end_3", "label if_else_2", "label if_end_3", "label if_end_1", "return Integer(0)"], "calls": [], "dataRefs": [] },
+  { "symbol": "_mfb_fn_ifElseIfElse", "section": "__TEXT,__text", "offset": 108, "plannedSize": 44, "operations": ["branchIfFalse local first -> if_else_0", "return Integer(1)", "branch -> if_end_1", "label if_else_0", "branchIfFalse local second -> if_else_2", "return Integer(2)", "branch -> if_end_3", "label if_else_2", "return Integer(3)", "label if_end_3", "label if_end_1"], "calls": [], "dataRefs": [] },
+  { "symbol": "_mfb_fn_main", "section": "__TEXT,__text", "offset": 152, "plannedSize": 4, "operations": ["return (((call ifOnly(Boolean(false)) + call ifElse(Boolean(true))) + call ifElseIf(Boolean(false), Boolean(true))) + call ifElseIfElse(Boolean(false), Boolean(false)))"], "calls": ["_mfb_fn_ifOnly", "_mfb_fn_ifElse", "_mfb_fn_ifElseIf", "_mfb_fn_ifElseIfElse"], "dataRefs": [] }
+  ],
+  "dataUnits": [
+  ],
+  "definedSymbols": ["_main", "_mfb_fn_ifOnly", "_mfb_fn_ifElse", "_mfb_fn_ifElseIf", "_mfb_fn_ifElseIfElse", "_mfb_fn_main"],
+  "importedSymbols": [
+  { "library": "libSystem", "symbol": "_exit" }
+  ],
+  "symbolTable": [
+  { "name": "_main", "kind": "defined", "section": "__TEXT,__text", "value": 0, "stringTableOffset": 1 },
+  { "name": "_mfb_fn_ifOnly", "kind": "defined", "section": "__TEXT,__text", "value": 16, "stringTableOffset": 7 },
+  { "name": "_mfb_fn_ifElse", "kind": "defined", "section": "__TEXT,__text", "value": 40, "stringTableOffset": 22 },
+  { "name": "_mfb_fn_ifElseIf", "kind": "defined", "section": "__TEXT,__text", "value": 64, "stringTableOffset": 37 },
+  { "name": "_mfb_fn_ifElseIfElse", "kind": "defined", "section": "__TEXT,__text", "value": 108, "stringTableOffset": 54 },
+  { "name": "_mfb_fn_main", "kind": "defined", "section": "__TEXT,__text", "value": 152, "stringTableOffset": 75 },
+  { "name": "_exit", "kind": "imported", "section": null, "value": null, "stringTableOffset": 88 }
+  ],
+  "stringTable": {
+    "size": 94,
+    "entries": [
+    { "value": "_main", "offset": 1 },
+    { "value": "_mfb_fn_ifOnly", "offset": 7 },
+    { "value": "_mfb_fn_ifElse", "offset": 22 },
+    { "value": "_mfb_fn_ifElseIf", "offset": 37 },
+    { "value": "_mfb_fn_ifElseIfElse", "offset": 54 },
+    { "value": "_mfb_fn_main", "offset": 75 },
+    { "value": "_exit", "offset": 88 }
+    ]
+  },
+  "relocations": [
+  { "from": "_main", "to": "_mfb_fn_main", "kind": "internalCall", "section": "__TEXT,__text" },
+  { "from": "_mfb_fn_main", "to": "_mfb_fn_ifOnly", "kind": "internalCall", "section": "__TEXT,__text" },
+  { "from": "_mfb_fn_main", "to": "_mfb_fn_ifElse", "kind": "internalCall", "section": "__TEXT,__text" },
+  { "from": "_mfb_fn_main", "to": "_mfb_fn_ifElseIf", "kind": "internalCall", "section": "__TEXT,__text" },
+  { "from": "_mfb_fn_main", "to": "_mfb_fn_ifElseIfElse", "kind": "internalCall", "section": "__TEXT,__text" },
+  { "from": "_main", "to": "_exit", "kind": "externalCall", "section": "__TEXT,__text" }
+  ]
+}

@@ -7,6 +7,3 @@ Wrote IR to tests/templates/templates.ir
 $ mfb build -bc tests/templates
 Wrote bytecode hex to tests/templates/templates.hex
 [exit 0]
-$ mfb build -bin tests/templates
-Wrote binary to tests/templates/templates.aarch64.bin
-[exit 0]

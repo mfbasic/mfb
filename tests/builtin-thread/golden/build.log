@@ -7,6 +7,3 @@ Wrote IR to tests/builtin-thread/builtin_thread.ir
 $ mfb build -bc tests/builtin-thread
 Wrote bytecode hex to tests/builtin-thread/builtin_thread.hex
 [exit 0]
-$ mfb build -bin tests/builtin-thread
-Wrote binary to tests/builtin-thread/builtin_thread.aarch64.bin
-[exit 0]

@@ -1,0 +1,29 @@
+{
+  "format": "mfb-nir",
+  "version": 1,
+  "target": "macos-aarch64",
+  "project": "project_entry_sub_foobar",
+  "entry": {
+    "name": "foobar",
+    "returns": "Nothing",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "imports": [
+  ],
+  "runtimeHelpers": [],
+  "functions": [
+  {
+    "name": "foobar",
+    "visibility": "private",
+    "kind": "sub",
+    "isolated": false,
+    "params": [
+    ],
+    "returns": "Nothing",
+    "body": [
+    ]
+  }
+  ]
+}

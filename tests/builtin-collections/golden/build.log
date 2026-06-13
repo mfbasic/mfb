@@ -7,6 +7,3 @@ Wrote IR to tests/builtin-collections/builtin_collections.ir
 $ mfb build -bc tests/builtin-collections
 Wrote bytecode hex to tests/builtin-collections/builtin_collections.hex
 [exit 0]
-$ mfb build -bin tests/builtin-collections
-Wrote binary to tests/builtin-collections/builtin_collections.aarch64.bin
-[exit 0]

@@ -19,7 +19,7 @@ use std::path::{Path, PathBuf};
 use std::process;
 use tinyjson::JsonValue;
 
-const USAGE: &str = "Usage: mfb <command> <arguments>\n\nCommands:\n  help                        Show this message\n  init <location>             Create a new MFBASIC executable project\n  init-pkg <location>         Create a new MFBASIC package project\n  pkg add <url>               Add a compiled package to the current project\n  pkg info <package>          Show information about a compiled package\n  pkg verify                  Verify packages declared by project.json\n  build [-ast|-ir|-bc|-bin] [location] Validate and build an MFBASIC project\n  man [package] [function]    Show built-in package and function help";
+const USAGE: &str = "Usage: mfb <command> <arguments>\n\nCommands:\n  help                        Show this message\n  init <location>             Create a new MFBASIC executable project\n  init-pkg <location>         Create a new MFBASIC package project\n  pkg add <url>               Add a compiled package to the current project\n  pkg info <package>          Show information about a compiled package\n  pkg verify                  Verify packages declared by project.json\n  build [-ast|-ir|-bc|-nir|-nplan|-nobj|-ncode] [location] Validate and build an MFBASIC project\n  man [package] [function]    Show built-in package and function help";
 
 const MFP_MAGIC: [u8; 8] = [0x4d, 0x46, 0x50, 0x0d, 0x0a, 0x1a, 0x0a, 0x00];
 
@@ -114,7 +114,10 @@ enum BuildOutput {
     Ast,
     Ir,
     Bytecode,
-    Binary,
+    NativeIr,
+    NativePlan,
+    NativeObjectPlan,
+    NativeCodePlan,
 }
 
 fn parse_build_options(args: Vec<String>) -> Result<BuildOptions, String> {
@@ -137,11 +140,26 @@ fn parse_build_options(args: Vec<String>) -> Result<BuildOptions, String> {
                 return Err("mfb build accepts only one output mode".to_string());
             }
             output = BuildOutput::Bytecode;
-        } else if arg == "-bin" {
+        } else if arg == "-nir" {
             if !matches!(output, BuildOutput::Validate) {
                 return Err("mfb build accepts only one output mode".to_string());
             }
-            output = BuildOutput::Binary;
+            output = BuildOutput::NativeIr;
+        } else if arg == "-nplan" {
+            if !matches!(output, BuildOutput::Validate) {
+                return Err("mfb build accepts only one output mode".to_string());
+            }
+            output = BuildOutput::NativePlan;
+        } else if arg == "-nobj" {
+            if !matches!(output, BuildOutput::Validate) {
+                return Err("mfb build accepts only one output mode".to_string());
+            }
+            output = BuildOutput::NativeObjectPlan;
+        } else if arg == "-ncode" {
+            if !matches!(output, BuildOutput::Validate) {
+                return Err("mfb build accepts only one output mode".to_string());
+            }
+            output = BuildOutput::NativeCodePlan;
         } else if arg.starts_with('-') {
             return Err(format!("unknown build option `{arg}`"));
         } else if location.replace(PathBuf::from(&arg)).is_some() {
@@ -227,7 +245,7 @@ fn build_project(options: &BuildOptions) -> Result<(), ()> {
                     &external_functions,
                 );
                 let executable_path =
-                    os::write_executable(&options.location, &ir, &target, &packages).map_err(
+                    target::write_executable(&options.location, &ir, &target, &packages).map_err(
                         |err| {
                             eprintln!("error: {err}");
                         },
@@ -236,8 +254,8 @@ fn build_project(options: &BuildOptions) -> Result<(), ()> {
             } else if project_kind == "package" {
                 let ir = ir::lower_project(&concrete_ast, entry.clone());
                 let metadata = package_metadata(&manifest);
-                let package_path =
-                    os::write_package(&options.location, &ir, &metadata).map_err(|err| {
+                let package_path = target::write_package(&options.location, &ir, &metadata)
+                    .map_err(|err| {
                         eprintln!("error: {err}");
                     })?;
                 println!("Wrote package to {}", package_path.display());
@@ -294,9 +312,9 @@ fn build_project(options: &BuildOptions) -> Result<(), ()> {
             })?;
             println!("Wrote bytecode hex to {}", bytecode_path.display());
         }
-        BuildOutput::Binary => {
+        BuildOutput::NativeIr => {
             if project_kind == "package" {
-                eprintln!("error: package projects do not support native binary output; run `mfb build` to write a .mfp package");
+                eprintln!("error: package projects do not support native IR output; run `mfb build` to write a .mfp package");
                 return Err(());
             }
 
@@ -313,15 +331,105 @@ fn build_project(options: &BuildOptions) -> Result<(), ()> {
                 entry,
                 &external_functions,
             );
-            let binary_path =
-                match arch::write_binary_dump(&options.location, &ir, &target, &packages) {
+            let nir_path = match target::write_nir(&options.location, &ir, &target, &packages) {
+                Ok(path) => path,
+                Err(err) => {
+                    eprintln!("error: {err}");
+                    return Err(());
+                }
+            };
+            println!("Wrote native IR to {}", nir_path.display());
+        }
+        BuildOutput::NativePlan => {
+            if project_kind == "package" {
+                eprintln!("error: package projects do not support native plan output; run `mfb build` to write a .mfp package");
+                return Err(());
+            }
+
+            let packages =
+                installed_package_files(&options.location, &manifest).map_err(|err| {
+                    eprintln!("error: {err}");
+                })?;
+            let external_functions = external_package_function_types_from_files(&packages)
+                .map_err(|err| {
+                    eprintln!("error: {err}");
+                })?;
+            let ir = ir::lower_project_with_external_functions(
+                &concrete_ast,
+                entry,
+                &external_functions,
+            );
+            let plan_path =
+                match target::write_native_plan(&options.location, &ir, &target, &packages) {
                     Ok(path) => path,
                     Err(err) => {
                         eprintln!("error: {err}");
                         return Err(());
                     }
                 };
-            println!("Wrote binary to {}", binary_path.display());
+            println!("Wrote native plan to {}", plan_path.display());
+        }
+        BuildOutput::NativeObjectPlan => {
+            if project_kind == "package" {
+                eprintln!("error: package projects do not support native object plan output; run `mfb build` to write a .mfp package");
+                return Err(());
+            }
+
+            let packages =
+                installed_package_files(&options.location, &manifest).map_err(|err| {
+                    eprintln!("error: {err}");
+                })?;
+            let external_functions = external_package_function_types_from_files(&packages)
+                .map_err(|err| {
+                    eprintln!("error: {err}");
+                })?;
+            let ir = ir::lower_project_with_external_functions(
+                &concrete_ast,
+                entry,
+                &external_functions,
+            );
+            let object_path = match target::write_native_object_plan(
+                &options.location,
+                &ir,
+                &target,
+                &packages,
+            ) {
+                Ok(path) => path,
+                Err(err) => {
+                    eprintln!("error: {err}");
+                    return Err(());
+                }
+            };
+            println!("Wrote native object plan to {}", object_path.display());
+        }
+        BuildOutput::NativeCodePlan => {
+            if project_kind == "package" {
+                eprintln!("error: package projects do not support native code plan output; run `mfb build` to write a .mfp package");
+                return Err(());
+            }
+
+            let packages =
+                installed_package_files(&options.location, &manifest).map_err(|err| {
+                    eprintln!("error: {err}");
+                })?;
+            let external_functions = external_package_function_types_from_files(&packages)
+                .map_err(|err| {
+                    eprintln!("error: {err}");
+                })?;
+            let ir = ir::lower_project_with_external_functions(
+                &concrete_ast,
+                entry,
+                &external_functions,
+            );
+            let code_path =
+                match target::write_native_code_plan(&options.location, &ir, &target, &packages) {
+                    Ok(path) => path,
+                    Err(err) => {
+                        eprintln!("error: {err}");
+                        return Err(());
+                    }
+                };
+            println!("Wrote native code plan to {}", code_path.display());
         }
     }
 

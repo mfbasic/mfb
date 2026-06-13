@@ -4,3 +4,12 @@ Wrote AST to tests/project-entry-sub-args-foobar/project_entry_sub_args_foobar.a
 $ mfb build -ir tests/project-entry-sub-args-foobar
 Wrote IR to tests/project-entry-sub-args-foobar/project_entry_sub_args_foobar.ir
 [exit 0]
+$ mfb build -nir tests/project-entry-sub-args-foobar
+Wrote native IR to tests/project-entry-sub-args-foobar/project_entry_sub_args_foobar.nir
+[exit 0]
+$ mfb build -nplan tests/project-entry-sub-args-foobar
+Wrote native plan to tests/project-entry-sub-args-foobar/project_entry_sub_args_foobar.nplan
+[exit 0]
+$ mfb build -nobj tests/project-entry-sub-args-foobar
+Wrote native object plan to tests/project-entry-sub-args-foobar/project_entry_sub_args_foobar.nobj
+[exit 0]

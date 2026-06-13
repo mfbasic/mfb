@@ -1,0 +1,30 @@
+{
+  "format": "mfb-nir",
+  "version": 1,
+  "target": "macos-aarch64",
+  "project": "project_entry_sub_args_main",
+  "entry": {
+    "name": "main",
+    "returns": "Nothing",
+    "accepts_args": true
+  },
+  "types": [
+  ],
+  "imports": [
+  ],
+  "runtimeHelpers": [],
+  "functions": [
+  {
+    "name": "main",
+    "visibility": "private",
+    "kind": "sub",
+    "isolated": false,
+    "params": [
+    { "name": "args", "type": "List OF String", "default": null }
+    ],
+    "returns": "Nothing",
+    "body": [
+    ]
+  }
+  ]
+}

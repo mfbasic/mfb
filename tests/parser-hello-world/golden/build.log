@@ -4,6 +4,15 @@ Wrote AST to tests/parser-hello-world/parser_hello_world.ast
 $ mfb build -ir tests/parser-hello-world
 Wrote IR to tests/parser-hello-world/parser_hello_world.ir
 [exit 0]
-$ mfb build -bin tests/parser-hello-world
-Wrote binary to tests/parser-hello-world/parser_hello_world.aarch64.bin
+$ mfb build -nir tests/parser-hello-world
+Wrote native IR to tests/parser-hello-world/parser_hello_world.nir
+[exit 0]
+$ mfb build -nplan tests/parser-hello-world
+Wrote native plan to tests/parser-hello-world/parser_hello_world.nplan
+[exit 0]
+$ mfb build -nobj tests/parser-hello-world
+Wrote native object plan to tests/parser-hello-world/parser_hello_world.nobj
+[exit 0]
+$ mfb build -ncode tests/parser-hello-world
+Wrote native code plan to tests/parser-hello-world/parser_hello_world.ncode
 [exit 0]

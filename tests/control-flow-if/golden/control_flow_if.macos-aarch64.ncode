@@ -1,0 +1,210 @@
+{
+  "format": "mfb-native-code-plan",
+  "version": 1,
+  "target": "macos-aarch64",
+  "arch": "aarch64",
+  "project": "control_flow_if",
+  "entrySymbol": "_main",
+  "imports": [
+  { "library": "libSystem", "symbol": "_exit" }
+  ],
+  "dataObjects": [
+  ],
+  "functions": [
+  {
+    "name": "program.entry",
+    "symbol": "_main",
+    "returns": "Nothing",
+    "frame": { "stackSize": 0, "calleeSaved": [] },
+    "params": [
+    ],
+    "stackSlots": [
+    ],
+    "instructions": [
+    { "op": "label", "name": "entry" },
+    { "op": "bl", "target": "_mfb_fn_main" },
+    { "op": "bl", "target": "_exit" },
+    { "op": "branch_self" },
+    { "op": "ret" }
+    ],
+    "relocations": [
+    { "from": "_main", "to": "_mfb_fn_main", "kind": "branch26", "binding": "internal", "library": null },
+    { "from": "_main", "to": "_exit", "kind": "branch26", "binding": "external", "library": "libSystem" }
+    ]
+  },
+  {
+    "name": "ifOnly",
+    "symbol": "_mfb_fn_ifOnly",
+    "returns": "Integer",
+    "frame": { "stackSize": 0, "calleeSaved": [] },
+    "params": [
+    { "name": "flag", "type": "Boolean", "location": "x0" }
+    ],
+    "stackSlots": [
+    ],
+    "instructions": [
+    { "op": "label", "name": "entry" },
+    { "op": "cmp_imm", "lhs": "x0", "rhs": "0" },
+    { "op": "b.eq", "target": "if_else_0", "reason": "ifFalse" },
+    { "op": "mov_imm", "dst": "x8", "type": "Integer", "value": "1" },
+    { "op": "mov", "dst": "x0", "src": "x8" },
+    { "op": "ret" },
+    { "op": "label", "name": "if_else_0" },
+    { "op": "label", "name": "if_end_1" },
+    { "op": "mov_imm", "dst": "x9", "type": "Integer", "value": "0" },
+    { "op": "mov", "dst": "x0", "src": "x9" },
+    { "op": "ret" }
+    ],
+    "relocations": [
+    ]
+  },
+  {
+    "name": "ifElse",
+    "symbol": "_mfb_fn_ifElse",
+    "returns": "Integer",
+    "frame": { "stackSize": 0, "calleeSaved": [] },
+    "params": [
+    { "name": "flag", "type": "Boolean", "location": "x0" }
+    ],
+    "stackSlots": [
+    ],
+    "instructions": [
+    { "op": "label", "name": "entry" },
+    { "op": "cmp_imm", "lhs": "x0", "rhs": "0" },
+    { "op": "b.eq", "target": "if_else_0", "reason": "ifFalse" },
+    { "op": "mov_imm", "dst": "x8", "type": "Integer", "value": "1" },
+    { "op": "mov", "dst": "x0", "src": "x8" },
+    { "op": "ret" },
+    { "op": "label", "name": "if_else_0" },
+    { "op": "mov_imm", "dst": "x9", "type": "Integer", "value": "2" },
+    { "op": "mov", "dst": "x0", "src": "x9" },
+    { "op": "ret" },
+    { "op": "label", "name": "if_end_1" }
+    ],
+    "relocations": [
+    ]
+  },
+  {
+    "name": "ifElseIf",
+    "symbol": "_mfb_fn_ifElseIf",
+    "returns": "Integer",
+    "frame": { "stackSize": 0, "calleeSaved": [] },
+    "params": [
+    { "name": "first", "type": "Boolean", "location": "x0" },
+    { "name": "second", "type": "Boolean", "location": "x1" }
+    ],
+    "stackSlots": [
+    ],
+    "instructions": [
+    { "op": "label", "name": "entry" },
+    { "op": "cmp_imm", "lhs": "x0", "rhs": "0" },
+    { "op": "b.eq", "target": "if_else_0", "reason": "ifFalse" },
+    { "op": "mov_imm", "dst": "x8", "type": "Integer", "value": "1" },
+    { "op": "mov", "dst": "x0", "src": "x8" },
+    { "op": "ret" },
+    { "op": "label", "name": "if_else_0" },
+    { "op": "cmp_imm", "lhs": "x1", "rhs": "0" },
+    { "op": "b.eq", "target": "if_else_2", "reason": "ifFalse" },
+    { "op": "mov_imm", "dst": "x9", "type": "Integer", "value": "2" },
+    { "op": "mov", "dst": "x0", "src": "x9" },
+    { "op": "ret" },
+    { "op": "label", "name": "if_else_2" },
+    { "op": "label", "name": "if_end_3" },
+    { "op": "label", "name": "if_end_1" },
+    { "op": "mov_imm", "dst": "x10", "type": "Integer", "value": "0" },
+    { "op": "mov", "dst": "x0", "src": "x10" },
+    { "op": "ret" }
+    ],
+    "relocations": [
+    ]
+  },
+  {
+    "name": "ifElseIfElse",
+    "symbol": "_mfb_fn_ifElseIfElse",
+    "returns": "Integer",
+    "frame": { "stackSize": 0, "calleeSaved": [] },
+    "params": [
+    { "name": "first", "type": "Boolean", "location": "x0" },
+    { "name": "second", "type": "Boolean", "location": "x1" }
+    ],
+    "stackSlots": [
+    ],
+    "instructions": [
+    { "op": "label", "name": "entry" },
+    { "op": "cmp_imm", "lhs": "x0", "rhs": "0" },
+    { "op": "b.eq", "target": "if_else_0", "reason": "ifFalse" },
+    { "op": "mov_imm", "dst": "x8", "type": "Integer", "value": "1" },
+    { "op": "mov", "dst": "x0", "src": "x8" },
+    { "op": "ret" },
+    { "op": "label", "name": "if_else_0" },
+    { "op": "cmp_imm", "lhs": "x1", "rhs": "0" },
+    { "op": "b.eq", "target": "if_else_2", "reason": "ifFalse" },
+    { "op": "mov_imm", "dst": "x9", "type": "Integer", "value": "2" },
+    { "op": "mov", "dst": "x0", "src": "x9" },
+    { "op": "ret" },
+    { "op": "label", "name": "if_else_2" },
+    { "op": "mov_imm", "dst": "x10", "type": "Integer", "value": "3" },
+    { "op": "mov", "dst": "x0", "src": "x10" },
+    { "op": "ret" },
+    { "op": "label", "name": "if_end_3" },
+    { "op": "label", "name": "if_end_1" }
+    ],
+    "relocations": [
+    ]
+  },
+  {
+    "name": "main",
+    "symbol": "_mfb_fn_main",
+    "returns": "Integer",
+    "frame": { "stackSize": 32, "calleeSaved": ["x19", "x20", "x21", "x30"] },
+    "params": [
+    ],
+    "stackSlots": [
+    ],
+    "instructions": [
+    { "op": "label", "name": "entry" },
+    { "op": "sub_sp", "imm": "32" },
+    { "op": "str_u64", "src": "x19", "base": "sp", "offset": "0" },
+    { "op": "str_u64", "src": "x20", "base": "sp", "offset": "8" },
+    { "op": "str_u64", "src": "x21", "base": "sp", "offset": "16" },
+    { "op": "str_u64", "src": "x30", "base": "sp", "offset": "24" },
+    { "op": "mov_imm", "dst": "x8", "type": "Boolean", "value": "false" },
+    { "op": "mov", "dst": "x0", "src": "x8" },
+    { "op": "bl", "target": "_mfb_fn_ifOnly" },
+    { "op": "mov", "dst": "x9", "src": "x0" },
+    { "op": "mov_imm", "dst": "x10", "type": "Boolean", "value": "true" },
+    { "op": "mov", "dst": "x0", "src": "x10" },
+    { "op": "bl", "target": "_mfb_fn_ifElse" },
+    { "op": "mov", "dst": "x11", "src": "x0" },
+    { "op": "add", "dst": "x12", "lhs": "x9", "rhs": "x11" },
+    { "op": "mov_imm", "dst": "x13", "type": "Boolean", "value": "false" },
+    { "op": "mov_imm", "dst": "x14", "type": "Boolean", "value": "true" },
+    { "op": "mov", "dst": "x0", "src": "x13" },
+    { "op": "mov", "dst": "x1", "src": "x14" },
+    { "op": "bl", "target": "_mfb_fn_ifElseIf" },
+    { "op": "mov", "dst": "x15", "src": "x0" },
+    { "op": "add", "dst": "x16", "lhs": "x12", "rhs": "x15" },
+    { "op": "mov_imm", "dst": "x17", "type": "Boolean", "value": "false" },
+    { "op": "mov_imm", "dst": "x19", "type": "Boolean", "value": "false" },
+    { "op": "mov", "dst": "x0", "src": "x17" },
+    { "op": "mov", "dst": "x1", "src": "x19" },
+    { "op": "bl", "target": "_mfb_fn_ifElseIfElse" },
+    { "op": "mov", "dst": "x20", "src": "x0" },
+    { "op": "add", "dst": "x21", "lhs": "x16", "rhs": "x20" },
+    { "op": "mov", "dst": "x0", "src": "x21" },
+    { "op": "ldr_u64", "dst": "x30", "base": "sp", "offset": "24" },
+    { "op": "ldr_u64", "dst": "x21", "base": "sp", "offset": "16" },
+    { "op": "ldr_u64", "dst": "x20", "base": "sp", "offset": "8" },
+    { "op": "ldr_u64", "dst": "x19", "base": "sp", "offset": "0" },
+    { "op": "add_sp", "imm": "32" },
+    { "op": "ret" }
+    ],
+    "relocations": [
+    { "from": "_mfb_fn_main", "to": "_mfb_fn_ifOnly", "kind": "branch26", "binding": "internal", "library": null },
+    { "from": "_mfb_fn_main", "to": "_mfb_fn_ifElse", "kind": "branch26", "binding": "internal", "library": null },
+    { "from": "_mfb_fn_main", "to": "_mfb_fn_ifElseIf", "kind": "branch26", "binding": "internal", "library": null },
+    { "from": "_mfb_fn_main", "to": "_mfb_fn_ifElseIfElse", "kind": "branch26", "binding": "internal", "library": null }
+    ]
+  }
+  ]
+}

@@ -1,0 +1,74 @@
+{
+  "format": "mfb-native-object-plan",
+  "version": 2,
+  "target": "macos-aarch64",
+  "container": "mach-o",
+  "status": "planOnly",
+  "entry": "_main",
+  "imageBase": 4294967296,
+  "dylibs": ["/usr/lib/libSystem.B.dylib"],
+  "loadCommands": [
+  { "kind": "LC_SEGMENT_64", "name": "__TEXT" },
+  { "kind": "LC_SEGMENT_64", "name": "__LINKEDIT" },
+  { "kind": "LC_DYLD_INFO_ONLY", "name": null },
+  { "kind": "LC_SYMTAB", "name": null },
+  { "kind": "LC_DYSYMTAB", "name": null },
+  { "kind": "LC_LOAD_DYLINKER", "name": "/usr/lib/dyld" },
+  { "kind": "LC_BUILD_VERSION", "name": "macos" },
+  { "kind": "LC_MAIN", "name": null },
+  { "kind": "LC_CODE_SIGNATURE", "name": null },
+  { "kind": "LC_LOAD_DYLIB", "name": "/usr/lib/libSystem.B.dylib" }
+  ],
+  "segments": [
+  { "name": "__TEXT", "vmAddress": 4294967296, "vmSize": 32768, "fileOffset": 0, "fileSize": 32768, "maxProtection": "read-execute", "initialProtection": "read-execute" },
+  { "name": "__LINKEDIT", "vmAddress": 4295000064, "vmSize": 4096, "fileOffset": 32768, "fileSize": 4096, "maxProtection": "read", "initialProtection": "read" }
+  ],
+  "sections": [
+  { "segment": "__TEXT", "section": "__text", "kind": "code", "vmAddress": 4294983680, "fileOffset": 16384, "size": 180, "align": 4 },
+  { "segment": "__TEXT", "section": "__cstring", "kind": "cstring", "vmAddress": 4294983872, "fileOffset": 16576, "size": 0, "align": 1 },
+  { "segment": "__LINKEDIT", "section": null, "kind": "linkedit", "vmAddress": 4295000064, "fileOffset": 32768, "size": 4096, "align": 1 }
+  ],
+  "codeUnits": [
+  { "symbol": "_main", "section": "__TEXT,__text", "offset": 0, "plannedSize": 16, "operations": ["call entry function", "return 0"], "calls": ["_mfb_fn_main"], "dataRefs": [] },
+  { "symbol": "_mfb_fn_enumAll", "section": "__TEXT,__text", "offset": 16, "plannedSize": 40, "operations": ["match local color", "case Color.Red -> match_case_1", "label match_case_1", "return Integer(1)", "branch -> match_end_0", "case Color.Blue -> match_case_2", "label match_case_2", "return Integer(2)", "branch -> match_end_0", "label match_end_0"], "calls": [], "dataRefs": [] },
+  { "symbol": "_mfb_fn_enumPartialWithElse", "section": "__TEXT,__text", "offset": 56, "plannedSize": 40, "operations": ["match local color", "case Color.Red -> match_case_1", "label match_case_1", "return Integer(1)", "branch -> match_end_0", "case else -> match_case_2", "label match_case_2", "return Integer(2)", "branch -> match_end_0", "label match_end_0"], "calls": [], "dataRefs": [] },
+  { "symbol": "_mfb_fn_unionAll", "section": "__TEXT,__text", "offset": 96, "plannedSize": 40, "operations": ["match local shape", "case Circle -> match_case_1", "label match_case_1", "return Integer(10)", "branch -> match_end_0", "case Point -> match_case_2", "label match_case_2", "return Integer(20)", "branch -> match_end_0", "label match_end_0"], "calls": [], "dataRefs": [] },
+  { "symbol": "_mfb_fn_unionPartialWithElse", "section": "__TEXT,__text", "offset": 136, "plannedSize": 40, "operations": ["match local shape", "case Circle -> match_case_1", "label match_case_1", "return Integer(10)", "branch -> match_end_0", "case else -> match_case_2", "label match_case_2", "return Integer(20)", "branch -> match_end_0", "label match_end_0"], "calls": [], "dataRefs": [] },
+  { "symbol": "_mfb_fn_main", "section": "__TEXT,__text", "offset": 176, "plannedSize": 4, "operations": ["return (((call enumAll(Color.Blue) + call enumPartialWithElse(Color.Blue)) + call unionAll(construct Point())) + call unionPartialWithElse(construct Circle(Integer(1))))"], "calls": ["_mfb_fn_enumAll", "_mfb_fn_enumPartialWithElse", "_mfb_fn_unionAll", "_mfb_fn_unionPartialWithElse"], "dataRefs": [] }
+  ],
+  "dataUnits": [
+  ],
+  "definedSymbols": ["_main", "_mfb_fn_enumAll", "_mfb_fn_enumPartialWithElse", "_mfb_fn_unionAll", "_mfb_fn_unionPartialWithElse", "_mfb_fn_main"],
+  "importedSymbols": [
+  { "library": "libSystem", "symbol": "_exit" }
+  ],
+  "symbolTable": [
+  { "name": "_main", "kind": "defined", "section": "__TEXT,__text", "value": 0, "stringTableOffset": 1 },
+  { "name": "_mfb_fn_enumAll", "kind": "defined", "section": "__TEXT,__text", "value": 16, "stringTableOffset": 7 },
+  { "name": "_mfb_fn_enumPartialWithElse", "kind": "defined", "section": "__TEXT,__text", "value": 56, "stringTableOffset": 23 },
+  { "name": "_mfb_fn_unionAll", "kind": "defined", "section": "__TEXT,__text", "value": 96, "stringTableOffset": 51 },
+  { "name": "_mfb_fn_unionPartialWithElse", "kind": "defined", "section": "__TEXT,__text", "value": 136, "stringTableOffset": 68 },
+  { "name": "_mfb_fn_main", "kind": "defined", "section": "__TEXT,__text", "value": 176, "stringTableOffset": 97 },
+  { "name": "_exit", "kind": "imported", "section": null, "value": null, "stringTableOffset": 110 }
+  ],
+  "stringTable": {
+    "size": 116,
+    "entries": [
+    { "value": "_main", "offset": 1 },
+    { "value": "_mfb_fn_enumAll", "offset": 7 },
+    { "value": "_mfb_fn_enumPartialWithElse", "offset": 23 },
+    { "value": "_mfb_fn_unionAll", "offset": 51 },
+    { "value": "_mfb_fn_unionPartialWithElse", "offset": 68 },
+    { "value": "_mfb_fn_main", "offset": 97 },
+    { "value": "_exit", "offset": 110 }
+    ]
+  },
+  "relocations": [
+  { "from": "_main", "to": "_mfb_fn_main", "kind": "internalCall", "section": "__TEXT,__text" },
+  { "from": "_mfb_fn_main", "to": "_mfb_fn_enumAll", "kind": "internalCall", "section": "__TEXT,__text" },
+  { "from": "_mfb_fn_main", "to": "_mfb_fn_enumPartialWithElse", "kind": "internalCall", "section": "__TEXT,__text" },
+  { "from": "_mfb_fn_main", "to": "_mfb_fn_unionAll", "kind": "internalCall", "section": "__TEXT,__text" },
+  { "from": "_mfb_fn_main", "to": "_mfb_fn_unionPartialWithElse", "kind": "internalCall", "section": "__TEXT,__text" },
+  { "from": "_main", "to": "_exit", "kind": "externalCall", "section": "__TEXT,__text" }
+  ]
+}

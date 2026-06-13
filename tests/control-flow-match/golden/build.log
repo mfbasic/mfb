@@ -7,6 +7,15 @@ Wrote IR to tests/control-flow-match/control_flow_match.ir
 $ mfb build -bc tests/control-flow-match
 Wrote bytecode hex to tests/control-flow-match/control_flow_match.hex
 [exit 0]
-$ mfb build -bin tests/control-flow-match
-Wrote binary to tests/control-flow-match/control_flow_match.aarch64.bin
+$ mfb build -nir tests/control-flow-match
+Wrote native IR to tests/control-flow-match/control_flow_match.nir
+[exit 0]
+$ mfb build -nplan tests/control-flow-match
+Wrote native plan to tests/control-flow-match/control_flow_match.nplan
+[exit 0]
+$ mfb build -nobj tests/control-flow-match
+Wrote native object plan to tests/control-flow-match/control_flow_match.nobj
+[exit 0]
+$ mfb build -ncode tests/control-flow-match
+Wrote native code plan to tests/control-flow-match/control_flow_match.ncode
 [exit 0]

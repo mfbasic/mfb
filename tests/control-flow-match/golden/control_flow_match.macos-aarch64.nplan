@@ -1,0 +1,104 @@
+{
+  "format": "mfb-native-plan",
+  "version": 1,
+  "target": "macos-aarch64",
+  "project": "control_flow_match",
+  "entrySymbol": "_mfb_fn_main",
+  "runtimeSymbols": [],
+  "externalSymbols": [],
+  "platformImports": [
+  { "library": "libSystem", "symbol": "_exit", "requiredBy": "_main" }
+  ],
+  "functions": [
+  {
+    "name": "enumAll",
+    "symbol": "_mfb_fn_enumAll",
+    "returns": { "name": "Integer", "class": "integer", "size": 8, "align": 8 },
+    "params": [
+    { "name": "color", "storage": { "name": "Color", "class": "integer", "size": 8, "align": 8 } }
+    ],
+    "localSlots": [
+    ],
+    "labels": [
+    { "name": "match_end_0", "kind": "matchEnd" },
+    { "name": "match_case_1", "kind": "matchCase" },
+    { "name": "match_case_2", "kind": "matchCase" }
+    ],
+    "operations": ["match local color", "case Color.Red -> match_case_1", "label match_case_1", "return Integer(1)", "branch -> match_end_0", "case Color.Blue -> match_case_2", "label match_case_2", "return Integer(2)", "branch -> match_end_0", "label match_end_0"],
+    "calls": [
+    ]
+  },
+  {
+    "name": "enumPartialWithElse",
+    "symbol": "_mfb_fn_enumPartialWithElse",
+    "returns": { "name": "Integer", "class": "integer", "size": 8, "align": 8 },
+    "params": [
+    { "name": "color", "storage": { "name": "Color", "class": "integer", "size": 8, "align": 8 } }
+    ],
+    "localSlots": [
+    ],
+    "labels": [
+    { "name": "match_end_0", "kind": "matchEnd" },
+    { "name": "match_case_1", "kind": "matchCase" },
+    { "name": "match_case_2", "kind": "matchCase" }
+    ],
+    "operations": ["match local color", "case Color.Red -> match_case_1", "label match_case_1", "return Integer(1)", "branch -> match_end_0", "case else -> match_case_2", "label match_case_2", "return Integer(2)", "branch -> match_end_0", "label match_end_0"],
+    "calls": [
+    ]
+  },
+  {
+    "name": "unionAll",
+    "symbol": "_mfb_fn_unionAll",
+    "returns": { "name": "Integer", "class": "integer", "size": 8, "align": 8 },
+    "params": [
+    { "name": "shape", "storage": { "name": "Shape", "class": "reference", "size": 8, "align": 8 } }
+    ],
+    "localSlots": [
+    ],
+    "labels": [
+    { "name": "match_end_0", "kind": "matchEnd" },
+    { "name": "match_case_1", "kind": "matchCase" },
+    { "name": "match_case_2", "kind": "matchCase" }
+    ],
+    "operations": ["match local shape", "case Circle -> match_case_1", "label match_case_1", "return Integer(10)", "branch -> match_end_0", "case Point -> match_case_2", "label match_case_2", "return Integer(20)", "branch -> match_end_0", "label match_end_0"],
+    "calls": [
+    ]
+  },
+  {
+    "name": "unionPartialWithElse",
+    "symbol": "_mfb_fn_unionPartialWithElse",
+    "returns": { "name": "Integer", "class": "integer", "size": 8, "align": 8 },
+    "params": [
+    { "name": "shape", "storage": { "name": "Shape", "class": "reference", "size": 8, "align": 8 } }
+    ],
+    "localSlots": [
+    ],
+    "labels": [
+    { "name": "match_end_0", "kind": "matchEnd" },
+    { "name": "match_case_1", "kind": "matchCase" },
+    { "name": "match_case_2", "kind": "matchCase" }
+    ],
+    "operations": ["match local shape", "case Circle -> match_case_1", "label match_case_1", "return Integer(10)", "branch -> match_end_0", "case else -> match_case_2", "label match_case_2", "return Integer(20)", "branch -> match_end_0", "label match_end_0"],
+    "calls": [
+    ]
+  },
+  {
+    "name": "main",
+    "symbol": "_mfb_fn_main",
+    "returns": { "name": "Integer", "class": "integer", "size": 8, "align": 8 },
+    "params": [
+    ],
+    "localSlots": [
+    ],
+    "labels": [
+    ],
+    "operations": ["return (((call enumAll(Color.Blue) + call enumPartialWithElse(Color.Blue)) + call unionAll(construct Point())) + call unionPartialWithElse(construct Circle(Integer(1))))"],
+    "calls": [
+    { "target": "enumAll", "symbol": "_mfb_fn_enumAll", "kind": "local", "stringLiterals": [] },
+    { "target": "enumPartialWithElse", "symbol": "_mfb_fn_enumPartialWithElse", "kind": "local", "stringLiterals": [] },
+    { "target": "unionAll", "symbol": "_mfb_fn_unionAll", "kind": "local", "stringLiterals": [] },
+    { "target": "unionPartialWithElse", "symbol": "_mfb_fn_unionPartialWithElse", "kind": "local", "stringLiterals": [] }
+    ]
+  }
+  ]
+}

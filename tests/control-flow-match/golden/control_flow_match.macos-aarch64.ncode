@@ -1,0 +1,215 @@
+{
+  "format": "mfb-native-code-plan",
+  "version": 1,
+  "target": "macos-aarch64",
+  "arch": "aarch64",
+  "project": "control_flow_match",
+  "entrySymbol": "_main",
+  "imports": [
+  { "library": "libSystem", "symbol": "_exit" }
+  ],
+  "dataObjects": [
+  ],
+  "functions": [
+  {
+    "name": "program.entry",
+    "symbol": "_main",
+    "returns": "Nothing",
+    "frame": { "stackSize": 0, "calleeSaved": [] },
+    "params": [
+    ],
+    "stackSlots": [
+    ],
+    "instructions": [
+    { "op": "label", "name": "entry" },
+    { "op": "bl", "target": "_mfb_fn_main" },
+    { "op": "bl", "target": "_exit" },
+    { "op": "branch_self" },
+    { "op": "ret" }
+    ],
+    "relocations": [
+    { "from": "_main", "to": "_mfb_fn_main", "kind": "branch26", "binding": "internal", "library": null },
+    { "from": "_main", "to": "_exit", "kind": "branch26", "binding": "external", "library": "libSystem" }
+    ]
+  },
+  {
+    "name": "enumAll",
+    "symbol": "_mfb_fn_enumAll",
+    "returns": "Integer",
+    "frame": { "stackSize": 0, "calleeSaved": [] },
+    "params": [
+    { "name": "color", "type": "Color", "location": "x0" }
+    ],
+    "stackSlots": [
+    ],
+    "instructions": [
+    { "op": "label", "name": "entry" },
+    { "op": "cmp_imm", "lhs": "x0", "rhs": "0" },
+    { "op": "b.eq", "target": "match_case_1" },
+    { "op": "cmp_imm", "lhs": "x0", "rhs": "1" },
+    { "op": "b.eq", "target": "match_case_2" },
+    { "op": "b", "target": "match_end_0" },
+    { "op": "label", "name": "match_case_1" },
+    { "op": "mov_imm", "dst": "x8", "type": "Integer", "value": "1" },
+    { "op": "mov", "dst": "x0", "src": "x8" },
+    { "op": "ret" },
+    { "op": "label", "name": "match_case_2" },
+    { "op": "mov_imm", "dst": "x9", "type": "Integer", "value": "2" },
+    { "op": "mov", "dst": "x0", "src": "x9" },
+    { "op": "ret" },
+    { "op": "label", "name": "match_end_0" }
+    ],
+    "relocations": [
+    ]
+  },
+  {
+    "name": "enumPartialWithElse",
+    "symbol": "_mfb_fn_enumPartialWithElse",
+    "returns": "Integer",
+    "frame": { "stackSize": 0, "calleeSaved": [] },
+    "params": [
+    { "name": "color", "type": "Color", "location": "x0" }
+    ],
+    "stackSlots": [
+    ],
+    "instructions": [
+    { "op": "label", "name": "entry" },
+    { "op": "cmp_imm", "lhs": "x0", "rhs": "0" },
+    { "op": "b.eq", "target": "match_case_1" },
+    { "op": "b", "target": "match_case_2" },
+    { "op": "label", "name": "match_case_1" },
+    { "op": "mov_imm", "dst": "x8", "type": "Integer", "value": "1" },
+    { "op": "mov", "dst": "x0", "src": "x8" },
+    { "op": "ret" },
+    { "op": "label", "name": "match_case_2" },
+    { "op": "mov_imm", "dst": "x9", "type": "Integer", "value": "2" },
+    { "op": "mov", "dst": "x0", "src": "x9" },
+    { "op": "ret" },
+    { "op": "label", "name": "match_end_0" }
+    ],
+    "relocations": [
+    ]
+  },
+  {
+    "name": "unionAll",
+    "symbol": "_mfb_fn_unionAll",
+    "returns": "Integer",
+    "frame": { "stackSize": 0, "calleeSaved": [] },
+    "params": [
+    { "name": "shape", "type": "Shape", "location": "x0" }
+    ],
+    "stackSlots": [
+    ],
+    "instructions": [
+    { "op": "label", "name": "entry" },
+    { "op": "ldr_u64", "dst": "x8", "base": "x0", "offset": "0" },
+    { "op": "cmp_imm", "lhs": "x8", "rhs": "0" },
+    { "op": "b.eq", "target": "match_case_1" },
+    { "op": "ldr_u64", "dst": "x9", "base": "x0", "offset": "0" },
+    { "op": "cmp_imm", "lhs": "x9", "rhs": "1" },
+    { "op": "b.eq", "target": "match_case_2" },
+    { "op": "b", "target": "match_end_0" },
+    { "op": "label", "name": "match_case_1" },
+    { "op": "mov_imm", "dst": "x10", "type": "Integer", "value": "10" },
+    { "op": "mov", "dst": "x0", "src": "x10" },
+    { "op": "ret" },
+    { "op": "label", "name": "match_case_2" },
+    { "op": "mov_imm", "dst": "x11", "type": "Integer", "value": "20" },
+    { "op": "mov", "dst": "x0", "src": "x11" },
+    { "op": "ret" },
+    { "op": "label", "name": "match_end_0" }
+    ],
+    "relocations": [
+    ]
+  },
+  {
+    "name": "unionPartialWithElse",
+    "symbol": "_mfb_fn_unionPartialWithElse",
+    "returns": "Integer",
+    "frame": { "stackSize": 0, "calleeSaved": [] },
+    "params": [
+    { "name": "shape", "type": "Shape", "location": "x0" }
+    ],
+    "stackSlots": [
+    ],
+    "instructions": [
+    { "op": "label", "name": "entry" },
+    { "op": "ldr_u64", "dst": "x8", "base": "x0", "offset": "0" },
+    { "op": "cmp_imm", "lhs": "x8", "rhs": "0" },
+    { "op": "b.eq", "target": "match_case_1" },
+    { "op": "b", "target": "match_case_2" },
+    { "op": "label", "name": "match_case_1" },
+    { "op": "mov_imm", "dst": "x9", "type": "Integer", "value": "10" },
+    { "op": "mov", "dst": "x0", "src": "x9" },
+    { "op": "ret" },
+    { "op": "label", "name": "match_case_2" },
+    { "op": "mov_imm", "dst": "x10", "type": "Integer", "value": "20" },
+    { "op": "mov", "dst": "x0", "src": "x10" },
+    { "op": "ret" },
+    { "op": "label", "name": "match_end_0" }
+    ],
+    "relocations": [
+    ]
+  },
+  {
+    "name": "main",
+    "symbol": "_mfb_fn_main",
+    "returns": "Integer",
+    "frame": { "stackSize": 64, "calleeSaved": ["x19", "x20", "x21", "x22", "x30"] },
+    "params": [
+    ],
+    "stackSlots": [
+    { "name": "Point_0", "type": "Point", "offset": 40 },
+    { "name": "Circle_1", "type": "Circle", "offset": 48 }
+    ],
+    "instructions": [
+    { "op": "label", "name": "entry" },
+    { "op": "sub_sp", "imm": "64" },
+    { "op": "str_u64", "src": "x19", "base": "sp", "offset": "0" },
+    { "op": "str_u64", "src": "x20", "base": "sp", "offset": "8" },
+    { "op": "str_u64", "src": "x21", "base": "sp", "offset": "16" },
+    { "op": "str_u64", "src": "x22", "base": "sp", "offset": "24" },
+    { "op": "str_u64", "src": "x30", "base": "sp", "offset": "32" },
+    { "op": "mov_imm", "dst": "x8", "type": "EnumOrdinal", "value": "1" },
+    { "op": "mov", "dst": "x0", "src": "x8" },
+    { "op": "bl", "target": "_mfb_fn_enumAll" },
+    { "op": "mov", "dst": "x9", "src": "x0" },
+    { "op": "mov_imm", "dst": "x10", "type": "EnumOrdinal", "value": "1" },
+    { "op": "mov", "dst": "x0", "src": "x10" },
+    { "op": "bl", "target": "_mfb_fn_enumPartialWithElse" },
+    { "op": "mov", "dst": "x11", "src": "x0" },
+    { "op": "add", "dst": "x12", "lhs": "x9", "rhs": "x11" },
+    { "op": "mov_imm", "dst": "x14", "type": "UnionTag", "value": "1" },
+    { "op": "str_u64", "src": "x14", "base": "sp", "offset": "40" },
+    { "op": "add_imm", "dst": "x13", "src": "sp", "imm": "40" },
+    { "op": "mov", "dst": "x0", "src": "x13" },
+    { "op": "bl", "target": "_mfb_fn_unionAll" },
+    { "op": "mov", "dst": "x15", "src": "x0" },
+    { "op": "add", "dst": "x16", "lhs": "x12", "rhs": "x15" },
+    { "op": "mov_imm", "dst": "x17", "type": "Integer", "value": "1" },
+    { "op": "mov_imm", "dst": "x20", "type": "UnionTag", "value": "0" },
+    { "op": "str_u64", "src": "x20", "base": "sp", "offset": "48" },
+    { "op": "str_u64", "src": "x17", "base": "sp", "offset": "56" },
+    { "op": "add_imm", "dst": "x19", "src": "sp", "imm": "48" },
+    { "op": "mov", "dst": "x0", "src": "x19" },
+    { "op": "bl", "target": "_mfb_fn_unionPartialWithElse" },
+    { "op": "mov", "dst": "x21", "src": "x0" },
+    { "op": "add", "dst": "x22", "lhs": "x16", "rhs": "x21" },
+    { "op": "mov", "dst": "x0", "src": "x22" },
+    { "op": "ldr_u64", "dst": "x30", "base": "sp", "offset": "32" },
+    { "op": "ldr_u64", "dst": "x22", "base": "sp", "offset": "24" },
+    { "op": "ldr_u64", "dst": "x21", "base": "sp", "offset": "16" },
+    { "op": "ldr_u64", "dst": "x20", "base": "sp", "offset": "8" },
+    { "op": "ldr_u64", "dst": "x19", "base": "sp", "offset": "0" },
+    { "op": "add_sp", "imm": "64" },
+    { "op": "ret" }
+    ],
+    "relocations": [
+    { "from": "_mfb_fn_main", "to": "_mfb_fn_enumAll", "kind": "branch26", "binding": "internal", "library": null },
+    { "from": "_mfb_fn_main", "to": "_mfb_fn_enumPartialWithElse", "kind": "branch26", "binding": "internal", "library": null },
+    { "from": "_mfb_fn_main", "to": "_mfb_fn_unionAll", "kind": "branch26", "binding": "internal", "library": null },
+    { "from": "_mfb_fn_main", "to": "_mfb_fn_unionPartialWithElse", "kind": "branch26", "binding": "internal", "library": null }
+    ]
+  }
+  ]
+}

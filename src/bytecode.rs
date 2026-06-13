@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use crate::builtins;
 use crate::ir::{IrFunction, IrMatchPattern, IrOp, IrProject, IrType, IrValue};
 use sha2::{Digest, Sha256};

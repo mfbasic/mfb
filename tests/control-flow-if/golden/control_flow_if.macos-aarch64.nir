@@ -1,0 +1,138 @@
+{
+  "format": "mfb-nir",
+  "version": 1,
+  "target": "macos-aarch64",
+  "project": "control_flow_if",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "imports": [
+  ],
+  "runtimeHelpers": [],
+  "functions": [
+  {
+    "name": "ifOnly",
+    "visibility": "private",
+    "kind": "func",
+    "isolated": false,
+    "params": [
+    { "name": "flag", "type": "Boolean", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    {
+      "op": "if",
+      "condition": { "kind": "local", "name": "flag" },
+      "then": [
+      { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "1" } }
+      ],
+      "else": [
+      ]
+    },
+    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  },
+  {
+    "name": "ifElse",
+    "visibility": "private",
+    "kind": "func",
+    "isolated": false,
+    "params": [
+    { "name": "flag", "type": "Boolean", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    {
+      "op": "if",
+      "condition": { "kind": "local", "name": "flag" },
+      "then": [
+      { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "1" } }
+      ],
+      "else": [
+      { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "2" } }
+      ]
+    }
+    ]
+  },
+  {
+    "name": "ifElseIf",
+    "visibility": "private",
+    "kind": "func",
+    "isolated": false,
+    "params": [
+    { "name": "first", "type": "Boolean", "default": null },
+    { "name": "second", "type": "Boolean", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    {
+      "op": "if",
+      "condition": { "kind": "local", "name": "first" },
+      "then": [
+      { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "1" } }
+      ],
+      "else": [
+      {
+        "op": "if",
+        "condition": { "kind": "local", "name": "second" },
+        "then": [
+        { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "2" } }
+        ],
+        "else": [
+        ]
+      }
+      ]
+    },
+    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  },
+  {
+    "name": "ifElseIfElse",
+    "visibility": "private",
+    "kind": "func",
+    "isolated": false,
+    "params": [
+    { "name": "first", "type": "Boolean", "default": null },
+    { "name": "second", "type": "Boolean", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    {
+      "op": "if",
+      "condition": { "kind": "local", "name": "first" },
+      "then": [
+      { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "1" } }
+      ],
+      "else": [
+      {
+        "op": "if",
+        "condition": { "kind": "local", "name": "second" },
+        "then": [
+        { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "2" } }
+        ],
+        "else": [
+        { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "3" } }
+        ]
+      }
+      ]
+    }
+    ]
+  },
+  {
+    "name": "main",
+    "visibility": "private",
+    "kind": "func",
+    "isolated": false,
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "return", "value": { "kind": "binary", "op": "+", "left": { "kind": "binary", "op": "+", "left": { "kind": "binary", "op": "+", "left": { "kind": "call", "target": "ifOnly", "args": [{ "kind": "const", "type": "Boolean", "value": "false" }] }, "right": { "kind": "call", "target": "ifElse", "args": [{ "kind": "const", "type": "Boolean", "value": "true" }] } }, "right": { "kind": "call", "target": "ifElseIf", "args": [{ "kind": "const", "type": "Boolean", "value": "false" }, { "kind": "const", "type": "Boolean", "value": "true" }] } }, "right": { "kind": "call", "target": "ifElseIfElse", "args": [{ "kind": "const", "type": "Boolean", "value": "false" }, { "kind": "const", "type": "Boolean", "value": "false" }] } } }
+    ]
+  }
+  ]
+}

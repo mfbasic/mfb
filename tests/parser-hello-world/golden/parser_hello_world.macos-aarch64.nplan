@@ -1,0 +1,30 @@
+{
+  "format": "mfb-native-plan",
+  "version": 1,
+  "target": "macos-aarch64",
+  "project": "parser_hello_world",
+  "entrySymbol": "_mfb_fn_main",
+  "runtimeSymbols": ["_mfb_rt_io_io_print"],
+  "externalSymbols": [],
+  "platformImports": [
+  { "library": "libSystem", "symbol": "_exit", "requiredBy": "_main" },
+  { "library": "libSystem", "symbol": "_write", "requiredBy": "_mfb_rt_io_io_print" }
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "symbol": "_mfb_fn_main",
+    "returns": { "name": "Nothing", "class": "void", "size": 0, "align": 1 },
+    "params": [
+    ],
+    "localSlots": [
+    ],
+    "labels": [
+    ],
+    "operations": ["eval runtimeCall io io.print(String(Hello World))"],
+    "calls": [
+    { "target": "io.print", "symbol": "_mfb_rt_io_io_print", "kind": "runtime", "stringLiterals": ["Hello World"] }
+    ]
+  }
+  ]
+}

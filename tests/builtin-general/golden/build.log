@@ -7,6 +7,3 @@ Wrote IR to tests/builtin-general/builtin_general.ir
 $ mfb build -bc tests/builtin-general
 Wrote bytecode hex to tests/builtin-general/builtin_general.hex
 [exit 0]
-$ mfb build -bin tests/builtin-general
-Wrote binary to tests/builtin-general/builtin_general.aarch64.bin
-[exit 0]

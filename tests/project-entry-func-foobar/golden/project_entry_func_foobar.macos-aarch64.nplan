@@ -1,0 +1,28 @@
+{
+  "format": "mfb-native-plan",
+  "version": 1,
+  "target": "macos-aarch64",
+  "project": "project_entry_func_foobar",
+  "entrySymbol": "_mfb_fn_foobar",
+  "runtimeSymbols": [],
+  "externalSymbols": [],
+  "platformImports": [
+  { "library": "libSystem", "symbol": "_exit", "requiredBy": "_main" }
+  ],
+  "functions": [
+  {
+    "name": "foobar",
+    "symbol": "_mfb_fn_foobar",
+    "returns": { "name": "Integer", "class": "integer", "size": 8, "align": 8 },
+    "params": [
+    ],
+    "localSlots": [
+    ],
+    "labels": [
+    ],
+    "operations": ["return Integer(0)"],
+    "calls": [
+    ]
+  }
+  ]
+}

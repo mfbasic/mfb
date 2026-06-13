@@ -11,15 +11,36 @@ ACTUAL_ROOT=$2
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 TEST_ROOT="$ROOT/tests"
 
+host_os="$(uname -s)"
+case "$host_os" in
+  Darwin)
+    target_os="macos"
+    ;;
+  Linux)
+    target_os="linux"
+    ;;
+  MINGW* | MSYS* | CYGWIN*)
+    target_os="windows"
+    ;;
+  *)
+    target_os="$(printf '%s' "$host_os" | tr '[:upper:]' '[:lower:]')"
+    ;;
+esac
+
 host_arch="$(uname -m)"
 case "$host_arch" in
   arm64)
-    bin_arch="aarch64"
+    target_arch="aarch64"
+    ;;
+  x86_64 | amd64)
+    target_arch="x86_64"
     ;;
   *)
-    bin_arch="$host_arch"
+    target_arch="$host_arch"
     ;;
 esac
+
+target_name="$target_os-$target_arch"
 
 failures=0
 
@@ -92,9 +113,16 @@ for test_dir in "$TEST_ROOT"/*; do
   ir_path="$test_dir/$package_name.ir"
   hex_path="$test_dir/$package_name.hex"
   mfp_path="$test_dir/$package_name.mfp"
-  bin_path="$test_dir/$package_name.$bin_arch.bin"
+  nir_path="$test_dir/$package_name.nir"
+  nplan_path="$test_dir/$package_name.nplan"
+  nobj_path="$test_dir/$package_name.nobj"
+  ncode_path="$test_dir/$package_name.ncode"
+  target_nir_path="$test_dir/$package_name.$target_name.nir"
+  target_nplan_path="$test_dir/$package_name.$target_name.nplan"
+  target_nobj_path="$test_dir/$package_name.$target_name.nobj"
+  target_ncode_path="$test_dir/$package_name.$target_name.ncode"
 
-  rm -f "$ast_path" "$ir_path" "$hex_path" "$mfp_path" "$bin_path" "$test_dir/$package_name.out"
+  rm -f "$ast_path" "$ir_path" "$hex_path" "$mfp_path" "$nir_path" "$nplan_path" "$nobj_path" "$ncode_path" "$target_nir_path" "$target_nplan_path" "$target_nobj_path" "$target_ncode_path" "$test_dir/$package_name.out"
 
   {
     echo "$ mfb build -ast tests/$test_name"
@@ -113,9 +141,24 @@ for test_dir in "$TEST_ROOT"/*; do
       "$MFB_EXE" build "tests/$test_name"
       echo "[exit $?]"
     fi
-    if [ -f "$golden_dir/$package_name.$bin_arch.bin" ]; then
-      echo "$ mfb build -bin tests/$test_name"
-      "$MFB_EXE" build -bin "tests/$test_name"
+    if [ -f "$golden_dir/$package_name.$target_name.nir" ]; then
+      echo "$ mfb build -nir tests/$test_name"
+      "$MFB_EXE" build -nir "tests/$test_name"
+      echo "[exit $?]"
+    fi
+    if [ -f "$golden_dir/$package_name.$target_name.nplan" ]; then
+      echo "$ mfb build -nplan tests/$test_name"
+      "$MFB_EXE" build -nplan "tests/$test_name"
+      echo "[exit $?]"
+    fi
+    if [ -f "$golden_dir/$package_name.$target_name.nobj" ]; then
+      echo "$ mfb build -nobj tests/$test_name"
+      "$MFB_EXE" build -nobj "tests/$test_name"
+      echo "[exit $?]"
+    fi
+    if [ -f "$golden_dir/$package_name.$target_name.ncode" ]; then
+      echo "$ mfb build -ncode tests/$test_name"
+      "$MFB_EXE" build -ncode "tests/$test_name"
       echo "[exit $?]"
     fi
   } >"$log_path" 2>&1
@@ -132,8 +175,17 @@ for test_dir in "$TEST_ROOT"/*; do
   if [ -f "$mfp_path" ]; then
     mv "$mfp_path" "$actual_dir/$package_name.mfp"
   fi
-  if [ -f "$bin_path" ]; then
-    mv "$bin_path" "$actual_dir/$package_name.$bin_arch.bin"
+  if [ -f "$nir_path" ]; then
+    mv "$nir_path" "$actual_dir/$package_name.$target_name.nir"
+  fi
+  if [ -f "$nplan_path" ]; then
+    mv "$nplan_path" "$actual_dir/$package_name.$target_name.nplan"
+  fi
+  if [ -f "$nobj_path" ]; then
+    mv "$nobj_path" "$actual_dir/$package_name.$target_name.nobj"
+  fi
+  if [ -f "$ncode_path" ]; then
+    mv "$ncode_path" "$actual_dir/$package_name.$target_name.ncode"
   fi
 
   compare_file "$test_name/build.log" "$golden_dir/build.log" "$log_path"
@@ -149,9 +201,18 @@ for test_dir in "$TEST_ROOT"/*; do
   compare_optional_output "$test_name/$package_name.mfp" \
     "$golden_dir/$package_name.mfp" \
     "$actual_dir/$package_name.mfp"
-  compare_optional_output "$test_name/$package_name.$bin_arch.bin" \
-    "$golden_dir/$package_name.$bin_arch.bin" \
-    "$actual_dir/$package_name.$bin_arch.bin"
+  compare_optional_output "$test_name/$package_name.$target_name.nir" \
+    "$golden_dir/$package_name.$target_name.nir" \
+    "$actual_dir/$package_name.$target_name.nir"
+  compare_optional_output "$test_name/$package_name.$target_name.nplan" \
+    "$golden_dir/$package_name.$target_name.nplan" \
+    "$actual_dir/$package_name.$target_name.nplan"
+  compare_optional_output "$test_name/$package_name.$target_name.nobj" \
+    "$golden_dir/$package_name.$target_name.nobj" \
+    "$actual_dir/$package_name.$target_name.nobj"
+  compare_optional_output "$test_name/$package_name.$target_name.ncode" \
+    "$golden_dir/$package_name.$target_name.ncode" \
+    "$actual_dir/$package_name.$target_name.ncode"
 done
 
 if [ "$failures" -ne 0 ]; then

@@ -1,0 +1,456 @@
+use std::collections::HashMap;
+
+use crate::target::macos_aarch64::code::{CodeInstruction, CodeOp, NativeCodePlan};
+
+pub(crate) struct EncodedImage {
+    pub(crate) text: Vec<u8>,
+    pub(crate) data: Vec<u8>,
+    pub(crate) symbols: Vec<EncodedSymbol>,
+    pub(crate) relocations: Vec<EncodedRelocation>,
+    pub(crate) imports: Vec<EncodedImport>,
+    pub(crate) entry: String,
+}
+
+pub(crate) struct EncodedSymbol {
+    pub(crate) name: String,
+    pub(crate) section: EncodedSection,
+    pub(crate) offset: usize,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum EncodedSection {
+    Text,
+    Data,
+}
+
+pub(crate) struct EncodedRelocation {
+    pub(crate) offset: usize,
+    pub(crate) target: String,
+    pub(crate) kind: String,
+    pub(crate) binding: String,
+    pub(crate) library: Option<String>,
+}
+
+pub(crate) struct EncodedImport {
+    pub(crate) library: String,
+    pub(crate) symbol: String,
+}
+
+pub(crate) fn encode(plan: &NativeCodePlan) -> Result<EncodedImage, String> {
+    let mut encoder = Encoder {
+        text: Vec::new(),
+        data: encode_data(plan),
+        symbols: Vec::new(),
+        relocations: Vec::new(),
+        imports: plan
+            .imports
+            .iter()
+            .map(|import| (import.symbol.clone(), import.library.clone()))
+            .collect(),
+        labels: HashMap::new(),
+        patches: Vec::new(),
+    };
+
+    let mut data_offset = 0;
+    for object in &plan.data_objects {
+        data_offset = align(data_offset, object.align);
+        encoder.symbols.push(EncodedSymbol {
+            name: object.symbol.clone(),
+            section: EncodedSection::Data,
+            offset: data_offset,
+        });
+        data_offset += object.size;
+    }
+
+    let mut text_offset = 0;
+    for function in &plan.functions {
+        encoder.symbols.push(EncodedSymbol {
+            name: function.symbol.clone(),
+            section: EncodedSection::Text,
+            offset: text_offset,
+        });
+        for instruction in &function.instructions {
+            text_offset += instruction_size(instruction)?;
+        }
+    }
+
+    for function in &plan.functions {
+        encoder.labels.clear();
+        let function_start = encoder.text.len();
+        for instruction in &function.instructions {
+            if instruction.op == CodeOp::Label {
+                encoder
+                    .labels
+                    .insert(field(instruction, "name")?, encoder.text.len());
+            } else {
+                encoder
+                    .text
+                    .resize(encoder.text.len() + instruction_size(instruction)?, 0);
+            }
+        }
+        encoder.text.truncate(function_start);
+        for instruction in &function.instructions {
+            encoder.emit_instruction(instruction)?;
+        }
+        encoder.patch_labels()?;
+        encoder.patches.clear();
+    }
+
+    let imports = plan
+        .imports
+        .iter()
+        .map(|import| EncodedImport {
+            library: import.library.clone(),
+            symbol: import.symbol.clone(),
+        })
+        .collect();
+
+    Ok(EncodedImage {
+        text: encoder.text,
+        data: encoder.data,
+        symbols: encoder.symbols,
+        relocations: encoder.relocations,
+        imports,
+        entry: plan
+            .entry_symbol
+            .clone()
+            .ok_or_else(|| "encoded image requires entry symbol".to_string())?,
+    })
+}
+
+struct Encoder {
+    text: Vec<u8>,
+    data: Vec<u8>,
+    symbols: Vec<EncodedSymbol>,
+    relocations: Vec<EncodedRelocation>,
+    imports: HashMap<String, String>,
+    labels: HashMap<String, usize>,
+    patches: Vec<LabelPatch>,
+}
+
+struct LabelPatch {
+    offset: usize,
+    target: String,
+    kind: String,
+}
+
+impl Encoder {
+    fn emit_instruction(&mut self, instruction: &CodeInstruction) -> Result<(), String> {
+        match instruction.op.mnemonic() {
+            "label" => Ok(()),
+            "mov" => self.emit_mov(
+                reg(field(instruction, "dst")?)?,
+                reg(field(instruction, "src")?)?,
+            ),
+            "mov_imm" => self.emit_mov_imm(
+                reg(field(instruction, "dst")?)?,
+                immediate(field(instruction, "value")?)?,
+            ),
+            "add" => self.emit_add(
+                reg(field(instruction, "dst")?)?,
+                reg(field(instruction, "lhs")?)?,
+                reg(field(instruction, "rhs")?)?,
+            ),
+            "add_imm" => self.emit_add_imm(
+                reg(field(instruction, "dst")?)?,
+                reg(field(instruction, "src")?)?,
+                immediate(field(instruction, "imm")?)?,
+            ),
+            "sub_sp" => self.emit_sub_sp(immediate(field(instruction, "imm")?)?),
+            "add_sp" => self.emit_add_sp(immediate(field(instruction, "imm")?)?),
+            "cmp_imm" => self.emit_cmp_imm(
+                reg(field(instruction, "lhs")?)?,
+                immediate(field(instruction, "rhs")?)?,
+            ),
+            "b.eq" => self.emit_label_branch("b.eq", field(instruction, "target")?),
+            "b" => self.emit_label_branch("b", field(instruction, "target")?),
+            "bl" => self.emit_bl(field(instruction, "target")?),
+            "svc" => self.emit_word(0xd400_1001),
+            "branch_self" => self.emit_word(0x1400_0000),
+            "ret" => self.emit_word(0xd65f_03c0),
+            "ldr_u64" => self.emit_ldr_u64(
+                reg(field(instruction, "dst")?)?,
+                reg(field(instruction, "base")?)?,
+                immediate(field(instruction, "offset")?)?,
+            ),
+            "str_u64" => self.emit_str_u64(
+                reg(field(instruction, "src")?)?,
+                reg(field(instruction, "base")?)?,
+                immediate(field(instruction, "offset")?)?,
+            ),
+            "adrp" => self.emit_symbol_ref(
+                "adrp",
+                reg(field(instruction, "dst")?)?,
+                field(instruction, "symbol")?,
+            ),
+            "add_pageoff" => self.emit_symbol_ref(
+                "add_pageoff",
+                reg(field(instruction, "dst")?)?,
+                field(instruction, "symbol")?,
+            ),
+            other => Err(format!(
+                "AArch64 encoder does not support instruction '{other}'"
+            )),
+        }
+    }
+
+    fn emit_word(&mut self, word: u32) -> Result<(), String> {
+        self.text.extend_from_slice(&word.to_le_bytes());
+        Ok(())
+    }
+
+    fn emit_mov(&mut self, rd: u8, rn: u8) -> Result<(), String> {
+        self.emit_word(0xaa00_03e0 | ((rn as u32) << 16) | rd as u32)
+    }
+
+    fn emit_mov_imm(&mut self, rd: u8, value: u64) -> Result<(), String> {
+        let mut emitted = false;
+        for (index, shift) in [0, 16, 32, 48].into_iter().enumerate() {
+            let part = ((value >> shift) & 0xffff) as u32;
+            if index == 0 {
+                self.emit_word(0xd280_0000 | (part << 5) | rd as u32)?;
+                emitted = true;
+            } else if part != 0 {
+                self.emit_word(
+                    0xf280_0000 | (((shift / 16) as u32) << 21) | (part << 5) | rd as u32,
+                )?;
+            }
+        }
+        if !emitted {
+            self.emit_word(0xd280_0000 | rd as u32)?;
+        }
+        Ok(())
+    }
+
+    fn emit_add(&mut self, rd: u8, rn: u8, rm: u8) -> Result<(), String> {
+        self.emit_word(0x8b00_0000 | ((rm as u32) << 16) | ((rn as u32) << 5) | rd as u32)
+    }
+
+    fn emit_add_imm(&mut self, rd: u8, rn: u8, imm: u64) -> Result<(), String> {
+        let imm = checked_imm12(imm)?;
+        self.emit_word(0x9100_0000 | (imm << 10) | ((rn as u32) << 5) | rd as u32)
+    }
+
+    fn emit_sub_sp(&mut self, imm: u64) -> Result<(), String> {
+        let imm = checked_imm12(imm)?;
+        self.emit_word(0xd100_03ff | (imm << 10))
+    }
+
+    fn emit_add_sp(&mut self, imm: u64) -> Result<(), String> {
+        let imm = checked_imm12(imm)?;
+        self.emit_word(0x9100_03ff | (imm << 10))
+    }
+
+    fn emit_cmp_imm(&mut self, rn: u8, imm: u64) -> Result<(), String> {
+        let imm = checked_imm12(imm)?;
+        self.emit_word(0xf100_001f | (imm << 10) | ((rn as u32) << 5))
+    }
+
+    fn emit_ldr_u64(&mut self, rt: u8, rn: u8, offset: u64) -> Result<(), String> {
+        if offset % 8 != 0 {
+            return Err(format!("unaligned AArch64 ldr offset {offset}"));
+        }
+        let imm = checked_imm12(offset / 8)?;
+        self.emit_word(0xf940_0000 | (imm << 10) | ((rn as u32) << 5) | rt as u32)
+    }
+
+    fn emit_str_u64(&mut self, rt: u8, rn: u8, offset: u64) -> Result<(), String> {
+        if offset % 8 != 0 {
+            return Err(format!("unaligned AArch64 str offset {offset}"));
+        }
+        let imm = checked_imm12(offset / 8)?;
+        self.emit_word(0xf900_0000 | (imm << 10) | ((rn as u32) << 5) | rt as u32)
+    }
+
+    fn emit_label_branch(&mut self, kind: &str, target: String) -> Result<(), String> {
+        let offset = self.text.len();
+        self.emit_word(0)?;
+        self.patches.push(LabelPatch {
+            offset,
+            target,
+            kind: kind.to_string(),
+        });
+        Ok(())
+    }
+
+    fn emit_bl(&mut self, target: String) -> Result<(), String> {
+        let offset = self.text.len();
+        self.emit_word(0x9400_0000)?;
+        if self.symbols.iter().any(|symbol| symbol.name == target) {
+            self.relocations.push(EncodedRelocation {
+                offset,
+                target,
+                kind: "branch26".to_string(),
+                binding: "internal".to_string(),
+                library: None,
+            });
+        } else if let Some(library) = self.imports.get(&target) {
+            self.relocations.push(EncodedRelocation {
+                offset,
+                target,
+                kind: "branch26".to_string(),
+                binding: "external".to_string(),
+                library: Some(library.clone()),
+            });
+        } else {
+            return Err(format!(
+                "AArch64 branch target symbol '{target}' does not resolve"
+            ));
+        }
+        Ok(())
+    }
+
+    fn emit_symbol_ref(&mut self, kind: &str, rd: u8, symbol: String) -> Result<(), String> {
+        let offset = self.text.len();
+        match kind {
+            "adrp" => self.emit_word(0x9000_0000 | rd as u32)?,
+            "add_pageoff" => self.emit_word(0x9100_0000 | ((rd as u32) << 5) | rd as u32)?,
+            _ => unreachable!(),
+        }
+        self.relocations.push(EncodedRelocation {
+            offset,
+            target: symbol,
+            kind: if kind == "adrp" {
+                "page21"
+            } else {
+                "pageoff12"
+            }
+            .to_string(),
+            binding: "data".to_string(),
+            library: None,
+        });
+        Ok(())
+    }
+
+    fn patch_labels(&mut self) -> Result<(), String> {
+        for patch in &self.patches {
+            let Some(&target) = self.labels.get(&patch.target) else {
+                return Err(format!(
+                    "AArch64 branch target label '{}' does not resolve",
+                    patch.target
+                ));
+            };
+            let word = match patch.kind.as_str() {
+                "b" => 0x1400_0000 | branch_imm26(patch.offset, target),
+                "b.eq" => 0x5400_0000 | (branch_imm19(patch.offset, target) << 5),
+                other => return Err(format!("unknown AArch64 branch patch '{other}'")),
+            };
+            self.text[patch.offset..patch.offset + 4].copy_from_slice(&word.to_le_bytes());
+        }
+        Ok(())
+    }
+}
+
+fn encode_data(plan: &NativeCodePlan) -> Vec<u8> {
+    let mut data = Vec::new();
+    for object in &plan.data_objects {
+        data.resize(align(data.len(), object.align), 0);
+        put_u64(&mut data, object.value.len() as u64);
+        data.extend_from_slice(object.value.as_bytes());
+        data.push(0);
+        data.resize(align(data.len(), object.align), 0);
+    }
+    data
+}
+
+fn instruction_size(instruction: &CodeInstruction) -> Result<usize, String> {
+    if instruction.op == CodeOp::Label {
+        return Ok(0);
+    }
+    if instruction.op == CodeOp::MovImm {
+        return Ok(wide_imm_word_count(immediate(field(instruction, "value")?)?) * 4);
+    }
+    Ok(4)
+}
+
+fn wide_imm_word_count(value: u64) -> usize {
+    1 + [16, 32, 48]
+        .into_iter()
+        .filter(|shift| ((value >> shift) & 0xffff) != 0)
+        .count()
+}
+
+fn field(instruction: &CodeInstruction, name: &str) -> Result<String, String> {
+    instruction
+        .fields
+        .iter()
+        .find(|(field, _)| *field == name)
+        .map(|(_, value)| value.clone())
+        .ok_or_else(|| {
+            format!(
+                "instruction '{}' missing field '{name}'",
+                instruction.op.mnemonic()
+            )
+        })
+}
+
+fn reg(name: String) -> Result<u8, String> {
+    match name.as_str() {
+        "sp" => Ok(31),
+        "x0" | "w0" => Ok(0),
+        "x1" | "w1" => Ok(1),
+        "x2" | "w2" => Ok(2),
+        "x3" | "w3" => Ok(3),
+        "x4" | "w4" => Ok(4),
+        "x5" | "w5" => Ok(5),
+        "x6" | "w6" => Ok(6),
+        "x7" | "w7" => Ok(7),
+        "x8" | "w8" => Ok(8),
+        "x9" | "w9" => Ok(9),
+        "x10" | "w10" => Ok(10),
+        "x11" | "w11" => Ok(11),
+        "x12" | "w12" => Ok(12),
+        "x13" | "w13" => Ok(13),
+        "x14" | "w14" => Ok(14),
+        "x15" | "w15" => Ok(15),
+        "x16" | "w16" => Ok(16),
+        "x17" | "w17" => Ok(17),
+        "x19" | "w19" => Ok(19),
+        "x20" | "w20" => Ok(20),
+        "x21" | "w21" => Ok(21),
+        "x22" | "w22" => Ok(22),
+        "x23" | "w23" => Ok(23),
+        "x24" | "w24" => Ok(24),
+        "x25" | "w25" => Ok(25),
+        "x26" | "w26" => Ok(26),
+        "x27" | "w27" => Ok(27),
+        "x28" | "w28" => Ok(28),
+        "x30" | "lr" => Ok(30),
+        other => Err(format!("unknown AArch64 register '{other}'")),
+    }
+}
+
+fn immediate(value: String) -> Result<u64, String> {
+    match value.as_str() {
+        "true" => Ok(1),
+        "false" => Ok(0),
+        _ => value
+            .parse::<u64>()
+            .map_err(|_| format!("invalid immediate '{value}'")),
+    }
+}
+
+fn checked_imm12(value: u64) -> Result<u32, String> {
+    if value > 4095 {
+        return Err(format!("AArch64 immediate {value} exceeds 12-bit encoding"));
+    }
+    Ok(value as u32)
+}
+
+fn branch_imm26(source: usize, target: usize) -> u32 {
+    let delta = target as isize - source as isize;
+    ((delta / 4) as i32 as u32) & 0x03ff_ffff
+}
+
+fn branch_imm19(source: usize, target: usize) -> u32 {
+    let delta = target as isize - source as isize;
+    ((delta / 4) as i32 as u32) & 0x0007_ffff
+}
+
+fn align(value: usize, alignment: usize) -> usize {
+    value.div_ceil(alignment) * alignment
+}
+
+fn put_u64(bytes: &mut Vec<u8>, value: u64) {
+    bytes.extend_from_slice(&value.to_le_bytes());
+}

@@ -7,6 +7,3 @@ Wrote IR to tests/function-overloads/function_overloads.ir
 $ mfb build -bc tests/function-overloads
 Wrote bytecode hex to tests/function-overloads/function_overloads.hex
 [exit 0]
-$ mfb build -bin tests/function-overloads
-Wrote binary to tests/function-overloads/function_overloads.aarch64.bin
-[exit 0]

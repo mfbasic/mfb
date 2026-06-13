@@ -7,6 +7,3 @@ Wrote IR to tests/builtin-strings/builtin_strings.ir
 $ mfb build -bc tests/builtin-strings
 Wrote bytecode hex to tests/builtin-strings/builtin_strings.hex
 [exit 0]
-$ mfb build -bin tests/builtin-strings
-Wrote binary to tests/builtin-strings/builtin_strings.aarch64.bin
-[exit 0]
