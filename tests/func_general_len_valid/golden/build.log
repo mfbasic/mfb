@@ -1,0 +1,18 @@
+$ mfb build -ast tests/func_general_len_valid
+Wrote AST to tests/func_general_len_valid/func_general_len_valid.ast
+[exit 0]
+$ mfb build -ir tests/func_general_len_valid
+Wrote IR to tests/func_general_len_valid/func_general_len_valid.ir
+[exit 0]
+$ mfb build tests/func_general_len_valid
+Wrote executable to tests/func_general_len_valid/func_general_len_valid.out
+[exit 0]
+$ tests/func_general_len_valid/func_general_len_valid.out
+len-string-empty
+len-string-ascii
+len-string-unicode
+len-list-empty
+len-list-values
+len-map-empty
+len-map-values
+[exit 13]

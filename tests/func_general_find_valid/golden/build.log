@@ -1,0 +1,15 @@
+$ mfb build -ast tests/func_general_find_valid
+Wrote AST to tests/func_general_find_valid/func_general_find_valid.ast
+[exit 0]
+$ mfb build -ir tests/func_general_find_valid
+Wrote IR to tests/func_general_find_valid/func_general_find_valid.ir
+[exit 0]
+$ mfb build tests/func_general_find_valid
+Wrote executable to tests/func_general_find_valid/func_general_find_valid.out
+[exit 0]
+$ tests/func_general_find_valid/func_general_find_valid.out
+find-string-first
+find-string-start
+find-string-unicode
+find-string-empty-needle
+[exit 9]

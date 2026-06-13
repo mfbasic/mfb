@@ -1,0 +1,3 @@
+FUNC main AS Integer
+  RETURN len(mid("hello", -1, 1))
+END FUNC

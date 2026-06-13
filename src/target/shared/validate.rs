@@ -786,6 +786,9 @@ fn validate_value(
             }
             if function_names.contains(target)
                 || import_names.contains(target)
+                || target == "find"
+                || target == "len"
+                || target == "mid"
                 || target == "toInt"
                 || locals
                     .get(target)

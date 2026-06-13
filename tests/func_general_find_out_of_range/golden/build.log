@@ -1,0 +1,12 @@
+$ mfb build -ast tests/func_general_find_out_of_range
+Wrote AST to tests/func_general_find_out_of_range/func_general_find_out_of_range.ast
+[exit 0]
+$ mfb build -ir tests/func_general_find_out_of_range
+Wrote IR to tests/func_general_find_out_of_range/func_general_find_out_of_range.ir
+[exit 0]
+$ mfb build tests/func_general_find_out_of_range
+Wrote executable to tests/func_general_find_out_of_range/func_general_find_out_of_range.out
+[exit 0]
+$ tests/func_general_find_out_of_range/func_general_find_out_of_range.out
+Code: 10001 Message: index out of range
+[exit 255]

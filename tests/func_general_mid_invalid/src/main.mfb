@@ -1,0 +1,8 @@
+FUNC main AS Integer
+  LET missing AS String = mid()
+  LET wrongValue AS String = mid(42, 0, 1)
+  LET wrongStart AS String = mid("hello", "0", 1)
+  LET wrongCount AS String = mid("hello", 0, "1")
+  LET tooMany AS String = mid("hello", 0, 1, 2)
+  RETURN 0
+END FUNC

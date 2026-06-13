@@ -1,0 +1,15 @@
+IMPORT io
+
+FUNC main AS Integer
+  LET first AS Integer = find("hello", "l")
+  LET afterStart AS Integer = find("hello", "l", 3)
+  LET unicode AS Integer = find("aé日é", "日")
+  LET emptyNeedle AS Integer = find("abcdef", "", 2)
+
+  io::print("find-string-first")
+  io::print("find-string-start")
+  io::print("find-string-unicode")
+  io::print("find-string-empty-needle")
+
+  RETURN first + afterStart + unicode + emptyNeedle
+END FUNC

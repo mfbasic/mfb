@@ -1,0 +1,25 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "func_general_find_out_of_range",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "return", "value": { "kind": "call", "target": "find", "args": [{ "kind": "const", "type": "String", "value": "hello" }, { "kind": "const", "type": "String", "value": "h" }, { "kind": "const", "type": "Integer", "value": "6" }] } }
+    ]
+  }
+  ]
+}

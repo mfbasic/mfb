@@ -1,0 +1,25 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "func_general_mid_negative_range",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "return", "value": { "kind": "call", "target": "len", "args": [{ "kind": "call", "target": "mid", "args": [{ "kind": "const", "type": "String", "value": "hello" }, { "kind": "unary", "op": "-", "operand": { "kind": "const", "type": "Integer", "value": "1" } }, { "kind": "const", "type": "Integer", "value": "1" }] }] } }
+    ]
+  }
+  ]
+}

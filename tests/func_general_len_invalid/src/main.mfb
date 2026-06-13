@@ -1,0 +1,6 @@
+FUNC main AS Integer
+  LET missing AS Integer = len()
+  LET wrongType AS Integer = len(42)
+  LET tooMany AS Integer = len("abc", 1)
+  RETURN missing + wrongType + tooMany
+END FUNC

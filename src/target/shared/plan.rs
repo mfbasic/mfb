@@ -885,7 +885,7 @@ impl FunctionPlanBuilder<'_> {
                 for arg in args {
                     self.lower_value(arg)?;
                 }
-                if target != "toInt" {
+                if !matches!(target.as_str(), "find" | "len" | "mid" | "toInt") {
                     self.add_call(target);
                 }
             }

@@ -1,0 +1,33 @@
+{
+  "project": "func_general_find_valid",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "main",
+      "line": 3,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "first", "type": "Integer", "value": { "kind": "call", "callee": "find", "arguments": [{ "kind": "string", "value": "hello" }, { "kind": "string", "value": "l" }] }, "line": 4 },
+      { "kind": "binding", "mutable": false, "name": "afterStart", "type": "Integer", "value": { "kind": "call", "callee": "find", "arguments": [{ "kind": "string", "value": "hello" }, { "kind": "string", "value": "l" }, { "kind": "number", "value": "3" }] }, "line": 5 },
+      { "kind": "binding", "mutable": false, "name": "unicode", "type": "Integer", "value": { "kind": "call", "callee": "find", "arguments": [{ "kind": "string", "value": "aé日é" }, { "kind": "string", "value": "日" }] }, "line": 6 },
+      { "kind": "binding", "mutable": false, "name": "emptyNeedle", "type": "Integer", "value": { "kind": "call", "callee": "find", "arguments": [{ "kind": "string", "value": "abcdef" }, { "kind": "string", "value": "" }, { "kind": "number", "value": "2" }] }, "line": 7 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "find-string-first" }] }, "line": 9 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "find-string-start" }] }, "line": 10 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "find-string-unicode" }] }, "line": 11 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "find-string-empty-needle" }] }, "line": 12 },
+      { "kind": "return", "value": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "first" }, "right": { "kind": "identifier", "value": "afterStart" } }, "right": { "kind": "identifier", "value": "unicode" } }, "right": { "kind": "identifier", "value": "emptyNeedle" } }, "line": 14 }
+      ]
+    }
+    ]
+  }
+  ]
+}

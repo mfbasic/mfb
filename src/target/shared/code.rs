@@ -18,6 +18,12 @@ const ERR_UNDERFLOW_MESSAGE: &str = "numeric underflow";
 const ERR_UNDERFLOW_SYMBOL: &str = "_mfb_str_error_underflow";
 const ERR_ALLOCATION_MESSAGE: &str = "allocation failed";
 const ERR_ALLOCATION_SYMBOL: &str = "_mfb_str_error_allocation";
+const ERR_INDEX_OUT_OF_RANGE_CODE: &str = "10001";
+const ERR_INDEX_OUT_OF_RANGE_MESSAGE: &str = "index out of range";
+const ERR_INDEX_OUT_OF_RANGE_SYMBOL: &str = "_mfb_str_error_index_out_of_range";
+const ERR_NOT_FOUND_CODE: &str = "10004";
+const ERR_NOT_FOUND_MESSAGE: &str = "not found";
+const ERR_NOT_FOUND_SYMBOL: &str = "_mfb_str_error_not_found";
 const ENTRY_ERROR_PREFIX: &str = "Code: ";
 const ENTRY_ERROR_PREFIX_SYMBOL: &str = "_mfb_str_entry_error_prefix";
 const ENTRY_ERROR_SEPARATOR: &str = " Message: ";
@@ -1481,6 +1487,15 @@ impl CodeBuilder<'_> {
                 text: name.clone(),
             }),
             NirValue::Call { target, args } => {
+                if target == "find" && (args.len() == 2 || args.len() == 3) {
+                    return self.lower_find(args);
+                }
+                if target == "len" && args.len() == 1 {
+                    return self.lower_len(&args[0]);
+                }
+                if target == "mid" && args.len() == 3 {
+                    return self.lower_mid(args);
+                }
                 if target == "typeName" && args.len() == 1 {
                     let type_name = self.static_type_name(&args[0]).ok_or_else(|| {
                         "native code cannot determine typeName argument type".to_string()
@@ -1693,13 +1708,501 @@ impl CodeBuilder<'_> {
                 })
             }
             NirValue::Unary { op, operand } => {
-                let _ = operand;
+                let operand = self.lower_value(operand)?;
+                if op == "-" && operand.type_ == "Integer" {
+                    let min_register = self.allocate_register()?;
+                    let overflow_label = self.label("integer_unary_overflow");
+                    let ok_label = self.label("integer_unary_ok");
+                    self.emit(abi::move_immediate(
+                        &min_register,
+                        "Integer",
+                        "9223372036854775808",
+                    ));
+                    self.emit(abi::compare_registers(&operand.location, &min_register));
+                    self.emit(abi::branch_eq(&overflow_label));
+                    let zero = self.allocate_register()?;
+                    self.emit(abi::move_immediate(&zero, "Integer", "0"));
+                    let register = self.allocate_register()?;
+                    self.emit(abi::subtract_registers(&register, &zero, &operand.location));
+                    self.emit(abi::branch(&ok_label));
+                    self.emit(abi::label(&overflow_label));
+                    self.emit_overflow_return()?;
+                    self.emit(abi::label(&ok_label));
+                    return Ok(ValueResult {
+                        type_: "Integer".to_string(),
+                        location: register,
+                        text: format!("(-{})", operand.text),
+                    });
+                }
                 Err(format!(
-                    "native code plan does not lower unary operator '{op}' yet"
+                    "native code plan does not lower unary operator '{op}' for {} yet",
+                    operand.type_
                 ))
             }
             NirValue::ListLiteral { type_, values } => self.lower_list_literal(type_, values),
             NirValue::MapLiteral { type_, entries } => self.lower_map_literal(type_, entries),
+        }
+    }
+
+    fn lower_find(&mut self, args: &[NirValue]) -> Result<ValueResult, String> {
+        let haystack = self.lower_value(&args[0])?;
+        if haystack.type_ != "String" {
+            return Err(format!(
+                "native string find haystack must be String, got {}",
+                haystack.type_
+            ));
+        }
+        let haystack_slot = self.allocate_stack_object("find_haystack", 8);
+        self.emit(abi::store_u64(
+            &haystack.location,
+            abi::stack_pointer(),
+            haystack_slot,
+        ));
+
+        let needle = self.lower_value(&args[1])?;
+        if needle.type_ != "String" {
+            return Err(format!(
+                "native string find needle must be String, got {}",
+                needle.type_
+            ));
+        }
+        let needle_slot = self.allocate_stack_object("find_needle", 8);
+        self.emit(abi::store_u64(
+            &needle.location,
+            abi::stack_pointer(),
+            needle_slot,
+        ));
+
+        let start_slot = self.allocate_stack_object("find_start", 8);
+        if let Some(start) = args.get(2) {
+            let start = self.lower_value(start)?;
+            if start.type_ != "Integer" {
+                return Err(format!(
+                    "native string find start must be Integer, got {}",
+                    start.type_
+                ));
+            }
+            self.emit(abi::store_u64(
+                &start.location,
+                abi::stack_pointer(),
+                start_slot,
+            ));
+        } else {
+            self.emit(abi::move_immediate("x8", "Integer", "0"));
+            self.emit(abi::store_u64("x8", abi::stack_pointer(), start_slot));
+        }
+
+        let result_slot = self.allocate_stack_object("find_result", 8);
+        let haystack_ptr = "x8";
+        let needle_ptr = "x9";
+        let haystack_len = "x10";
+        let needle_len = "x11";
+        let start = "x12";
+        let scalar_index = "x13";
+        let cursor = "x14";
+        let remaining = "x15";
+        let byte = "x16";
+        let mask = "x17";
+        let candidate = "x20";
+        let compare_remaining = "x21";
+        let needle_cursor = "x22";
+        let haystack_byte = "x23";
+        let needle_byte = "x24";
+        for register in [
+            candidate,
+            compare_remaining,
+            needle_cursor,
+            haystack_byte,
+            needle_byte,
+        ] {
+            if abi::is_callee_saved(register)
+                && !self.used_callee_saved.iter().any(|saved| saved == register)
+            {
+                self.used_callee_saved.push(register.to_string());
+            }
+        }
+
+        let locate_start = self.label("find_locate_start");
+        let locate_continue = self.label("find_locate_continue");
+        let start_ready = self.label("find_start_ready");
+        let search_loop = self.label("find_search_loop");
+        let compare_loop = self.label("find_compare_loop");
+        let advance_candidate = self.label("find_advance_candidate");
+        let skip_continuation = self.label("find_skip_continuation");
+        let candidate_ready = self.label("find_candidate_ready");
+        let found = self.label("find_found");
+        let invalid_start = self.label("find_invalid_start");
+        let not_found = self.label("find_not_found");
+
+        self.emit(abi::load_u64(
+            haystack_ptr,
+            abi::stack_pointer(),
+            haystack_slot,
+        ));
+        self.emit(abi::load_u64(needle_ptr, abi::stack_pointer(), needle_slot));
+        self.emit(abi::load_u64(haystack_len, haystack_ptr, 0));
+        self.emit(abi::load_u64(needle_len, needle_ptr, 0));
+        self.emit(abi::load_u64(start, abi::stack_pointer(), start_slot));
+        self.emit(abi::move_immediate(scalar_index, "Integer", "0"));
+        self.emit(abi::add_immediate(cursor, haystack_ptr, 8));
+        self.emit(abi::move_register(remaining, haystack_len));
+        self.emit(abi::move_immediate(mask, "Integer", "192"));
+
+        self.emit(abi::label(&locate_start));
+        self.emit(abi::compare_registers(scalar_index, start));
+        self.emit(abi::branch_eq(&start_ready));
+        self.emit(abi::compare_immediate(remaining, "0"));
+        self.emit(abi::branch_eq(&invalid_start));
+        self.emit(abi::load_u8(byte, cursor, 0));
+        self.emit(abi::and_registers(byte, byte, mask));
+        self.emit(abi::compare_immediate(byte, "128"));
+        self.emit(abi::branch_eq(&locate_continue));
+        self.emit(abi::add_immediate(scalar_index, scalar_index, 1));
+        self.emit(abi::label(&locate_continue));
+        self.emit(abi::add_immediate(cursor, cursor, 1));
+        self.emit(abi::subtract_immediate(remaining, remaining, 1));
+        self.emit(abi::branch(&locate_start));
+
+        self.emit(abi::label(&start_ready));
+        self.emit(abi::compare_immediate(needle_len, "0"));
+        self.emit(abi::branch_eq(&found));
+
+        self.emit(abi::label(&search_loop));
+        self.emit(abi::compare_registers(remaining, needle_len));
+        self.emit(abi::branch_lo(&not_found));
+        self.emit(abi::move_register(candidate, cursor));
+        self.emit(abi::add_immediate(needle_cursor, needle_ptr, 8));
+        self.emit(abi::move_register(compare_remaining, needle_len));
+
+        self.emit(abi::label(&compare_loop));
+        self.emit(abi::compare_immediate(compare_remaining, "0"));
+        self.emit(abi::branch_eq(&found));
+        self.emit(abi::load_u8(haystack_byte, candidate, 0));
+        self.emit(abi::load_u8(needle_byte, needle_cursor, 0));
+        self.emit(abi::compare_registers(haystack_byte, needle_byte));
+        self.emit(abi::branch_ne(&advance_candidate));
+        self.emit(abi::add_immediate(candidate, candidate, 1));
+        self.emit(abi::add_immediate(needle_cursor, needle_cursor, 1));
+        self.emit(abi::subtract_immediate(
+            compare_remaining,
+            compare_remaining,
+            1,
+        ));
+        self.emit(abi::branch(&compare_loop));
+
+        self.emit(abi::label(&advance_candidate));
+        self.emit(abi::add_immediate(cursor, cursor, 1));
+        self.emit(abi::subtract_immediate(remaining, remaining, 1));
+        self.emit(abi::label(&skip_continuation));
+        self.emit(abi::compare_immediate(remaining, "0"));
+        self.emit(abi::branch_eq(&candidate_ready));
+        self.emit(abi::load_u8(byte, cursor, 0));
+        self.emit(abi::and_registers(byte, byte, mask));
+        self.emit(abi::compare_immediate(byte, "128"));
+        self.emit(abi::branch_ne(&candidate_ready));
+        self.emit(abi::add_immediate(cursor, cursor, 1));
+        self.emit(abi::subtract_immediate(remaining, remaining, 1));
+        self.emit(abi::branch(&skip_continuation));
+        self.emit(abi::label(&candidate_ready));
+        self.emit(abi::add_immediate(scalar_index, scalar_index, 1));
+        self.emit(abi::branch(&search_loop));
+
+        self.emit(abi::label(&invalid_start));
+        self.emit_index_out_of_range_return()?;
+        self.emit(abi::label(&not_found));
+        self.emit_not_found_return()?;
+        self.emit(abi::label(&found));
+        self.emit(abi::store_u64(
+            scalar_index,
+            abi::stack_pointer(),
+            result_slot,
+        ));
+        let result = self.allocate_register()?;
+        self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
+
+        Ok(ValueResult {
+            type_: "Integer".to_string(),
+            location: result,
+            text: "find(String, String)".to_string(),
+        })
+    }
+
+    fn lower_mid(&mut self, args: &[NirValue]) -> Result<ValueResult, String> {
+        let value = self.lower_value(&args[0])?;
+        if value.type_ != "String" {
+            return Err(format!(
+                "native string mid value must be String, got {}",
+                value.type_
+            ));
+        }
+        let value_slot = self.allocate_stack_object("mid_value", 8);
+        self.emit(abi::store_u64(
+            &value.location,
+            abi::stack_pointer(),
+            value_slot,
+        ));
+
+        let start = self.lower_value(&args[1])?;
+        if start.type_ != "Integer" {
+            return Err(format!(
+                "native string mid start must be Integer, got {}",
+                start.type_
+            ));
+        }
+        let start_slot = self.allocate_stack_object("mid_start", 8);
+        self.emit(abi::store_u64(
+            &start.location,
+            abi::stack_pointer(),
+            start_slot,
+        ));
+
+        let count = self.lower_value(&args[2])?;
+        if count.type_ != "Integer" {
+            return Err(format!(
+                "native string mid count must be Integer, got {}",
+                count.type_
+            ));
+        }
+        let count_slot = self.allocate_stack_object("mid_count", 8);
+        self.emit(abi::store_u64(
+            &count.location,
+            abi::stack_pointer(),
+            count_slot,
+        ));
+
+        let result_slot = self.allocate_stack_object("mid_result", 8);
+        let start_ptr_slot = self.allocate_stack_object("mid_start_ptr", 8);
+        let byte_len_slot = self.allocate_stack_object("mid_byte_len", 8);
+        let value_ptr = "x8";
+        let string_len = "x9";
+        let cursor = "x10";
+        let remaining = "x11";
+        let scalar_index = "x12";
+        let start_index = "x13";
+        let count_value = "x14";
+        let end_index = "x15";
+        let byte = "x16";
+        let mask = "x17";
+        let start_ptr = "x20";
+        let end_ptr = "x21";
+        let copy_src = "x22";
+        let copy_dst = "x23";
+        let copy_remaining = "x24";
+        let byte_len = "x25";
+        for register in [
+            start_ptr,
+            end_ptr,
+            copy_src,
+            copy_dst,
+            copy_remaining,
+            byte_len,
+        ] {
+            if abi::is_callee_saved(register)
+                && !self.used_callee_saved.iter().any(|saved| saved == register)
+            {
+                self.used_callee_saved.push(register.to_string());
+            }
+        }
+
+        let locate_start = self.label("mid_locate_start");
+        let locate_start_continue = self.label("mid_locate_start_continue");
+        let locate_start_advanced = self.label("mid_locate_start_advanced");
+        let start_ready = self.label("mid_start_ready");
+        let locate_end = self.label("mid_locate_end");
+        let locate_end_continue = self.label("mid_locate_end_continue");
+        let locate_end_advanced = self.label("mid_locate_end_advanced");
+        let end_ready = self.label("mid_end_ready");
+        let alloc_ok = self.label("mid_alloc_ok");
+        let copy_loop = self.label("mid_copy_loop");
+        let copy_done = self.label("mid_copy_done");
+        let invalid_range = self.label("mid_invalid_range");
+
+        self.emit(abi::load_u64(value_ptr, abi::stack_pointer(), value_slot));
+        self.emit(abi::load_u64(start_index, abi::stack_pointer(), start_slot));
+        self.emit(abi::load_u64(count_value, abi::stack_pointer(), count_slot));
+        self.emit(abi::compare_immediate(start_index, "0"));
+        self.emit(abi::branch_lt(&invalid_range));
+        self.emit(abi::compare_immediate(count_value, "0"));
+        self.emit(abi::branch_lt(&invalid_range));
+        self.emit(abi::add_registers(end_index, start_index, count_value));
+        self.emit(abi::compare_registers(end_index, start_index));
+        self.emit(abi::branch_lo(&invalid_range));
+        self.emit(abi::load_u64(string_len, value_ptr, 0));
+        self.emit(abi::add_immediate(cursor, value_ptr, 8));
+        self.emit(abi::move_register(start_ptr, cursor));
+        self.emit(abi::move_register(end_ptr, cursor));
+        self.emit(abi::move_register(remaining, string_len));
+        self.emit(abi::move_immediate(scalar_index, "Integer", "0"));
+        self.emit(abi::move_immediate(mask, "Integer", "192"));
+
+        self.emit(abi::label(&locate_start));
+        self.emit(abi::compare_registers(scalar_index, start_index));
+        self.emit(abi::branch_eq(&start_ready));
+        self.emit(abi::compare_immediate(remaining, "0"));
+        self.emit(abi::branch_eq(&invalid_range));
+        self.emit(abi::add_immediate(cursor, cursor, 1));
+        self.emit(abi::subtract_immediate(remaining, remaining, 1));
+        self.emit(abi::label(&locate_start_continue));
+        self.emit(abi::compare_immediate(remaining, "0"));
+        self.emit(abi::branch_eq(&locate_start_advanced));
+        self.emit(abi::load_u8(byte, cursor, 0));
+        self.emit(abi::and_registers(byte, byte, mask));
+        self.emit(abi::compare_immediate(byte, "128"));
+        self.emit(abi::branch_ne(&locate_start_advanced));
+        self.emit(abi::add_immediate(cursor, cursor, 1));
+        self.emit(abi::subtract_immediate(remaining, remaining, 1));
+        self.emit(abi::branch(&locate_start_continue));
+        self.emit(abi::label(&locate_start_advanced));
+        self.emit(abi::add_immediate(scalar_index, scalar_index, 1));
+        self.emit(abi::branch(&locate_start));
+
+        self.emit(abi::label(&start_ready));
+        self.emit(abi::move_register(start_ptr, cursor));
+        self.emit(abi::move_register(end_ptr, cursor));
+        self.emit(abi::label(&locate_end));
+        self.emit(abi::compare_registers(scalar_index, end_index));
+        self.emit(abi::branch_eq(&end_ready));
+        self.emit(abi::compare_immediate(remaining, "0"));
+        self.emit(abi::branch_eq(&invalid_range));
+        self.emit(abi::add_immediate(cursor, cursor, 1));
+        self.emit(abi::subtract_immediate(remaining, remaining, 1));
+        self.emit(abi::label(&locate_end_continue));
+        self.emit(abi::compare_immediate(remaining, "0"));
+        self.emit(abi::branch_eq(&locate_end_advanced));
+        self.emit(abi::load_u8(byte, cursor, 0));
+        self.emit(abi::and_registers(byte, byte, mask));
+        self.emit(abi::compare_immediate(byte, "128"));
+        self.emit(abi::branch_ne(&locate_end_advanced));
+        self.emit(abi::add_immediate(cursor, cursor, 1));
+        self.emit(abi::subtract_immediate(remaining, remaining, 1));
+        self.emit(abi::branch(&locate_end_continue));
+        self.emit(abi::label(&locate_end_advanced));
+        self.emit(abi::add_immediate(scalar_index, scalar_index, 1));
+        self.emit(abi::branch(&locate_end));
+
+        self.emit(abi::label(&end_ready));
+        self.emit(abi::move_register(end_ptr, cursor));
+        self.emit(abi::subtract_registers(byte_len, end_ptr, start_ptr));
+        self.emit(abi::store_u64(
+            start_ptr,
+            abi::stack_pointer(),
+            start_ptr_slot,
+        ));
+        self.emit(abi::store_u64(
+            byte_len,
+            abi::stack_pointer(),
+            byte_len_slot,
+        ));
+        self.emit(abi::add_immediate(abi::return_register(), byte_len, 9));
+        self.emit(abi::move_immediate("x1", "Integer", "8"));
+        self.emit(abi::branch_link(ARENA_ALLOC_SYMBOL));
+        self.relocations.push(CodeRelocation {
+            from: self.current_symbol.clone(),
+            to: ARENA_ALLOC_SYMBOL.to_string(),
+            kind: "branch26".to_string(),
+            binding: "internal".to_string(),
+            library: None,
+        });
+        self.emit(abi::compare_immediate(
+            abi::return_register(),
+            RESULT_OK_TAG,
+        ));
+        self.emit(abi::branch_eq(&alloc_ok));
+        self.emit_allocation_error_return()?;
+        self.emit(abi::label(&alloc_ok));
+        self.emit(abi::store_u64("x1", abi::stack_pointer(), result_slot));
+        self.emit(abi::load_u64(byte_len, abi::stack_pointer(), byte_len_slot));
+        self.emit(abi::store_u64(byte_len, "x1", 0));
+        self.emit(abi::load_u64(
+            start_ptr,
+            abi::stack_pointer(),
+            start_ptr_slot,
+        ));
+        self.emit(abi::move_register(copy_src, start_ptr));
+        self.emit(abi::add_immediate(copy_dst, "x1", 8));
+        self.emit(abi::move_register(copy_remaining, byte_len));
+        self.emit(abi::label(&copy_loop));
+        self.emit(abi::compare_immediate(copy_remaining, "0"));
+        self.emit(abi::branch_eq(&copy_done));
+        self.emit(abi::load_u8(byte, copy_src, 0));
+        self.emit(abi::store_u8(byte, copy_dst, 0));
+        self.emit(abi::add_immediate(copy_src, copy_src, 1));
+        self.emit(abi::add_immediate(copy_dst, copy_dst, 1));
+        self.emit(abi::subtract_immediate(copy_remaining, copy_remaining, 1));
+        self.emit(abi::branch(&copy_loop));
+        self.emit(abi::label(&copy_done));
+        self.emit(abi::move_immediate(byte, "Integer", "0"));
+        self.emit(abi::store_u8(byte, copy_dst, 0));
+        let result = self.allocate_register()?;
+        self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
+        let done = self.label("mid_done");
+        self.emit(abi::branch(&done));
+
+        self.emit(abi::label(&invalid_range));
+        self.emit_index_out_of_range_return()?;
+        self.emit(abi::label(&done));
+
+        Ok(ValueResult {
+            type_: "String".to_string(),
+            location: result,
+            text: "mid(String, Integer, Integer)".to_string(),
+        })
+    }
+
+    fn lower_len(&mut self, value: &NirValue) -> Result<ValueResult, String> {
+        let value = self.lower_value(value)?;
+        if value.type_ == "String" {
+            let count_slot = self.allocate_stack_object("len_string_count", 8);
+            let remaining = self.allocate_register()?;
+            let cursor = self.allocate_register()?;
+            let byte = self.allocate_register()?;
+            let mask = self.allocate_register()?;
+            let loop_label = self.label("len_string_loop");
+            let continuation_label = self.label("len_string_continuation");
+            let next_label = self.label("len_string_next");
+            let done_label = self.label("len_string_done");
+            self.emit(abi::move_immediate(&byte, "Integer", "0"));
+            self.emit(abi::store_u64(&byte, abi::stack_pointer(), count_slot));
+            self.emit(abi::load_u64(&remaining, &value.location, 0));
+            self.emit(abi::add_immediate(&cursor, &value.location, 8));
+            self.emit(abi::move_immediate(&mask, "Integer", "192"));
+            self.emit(abi::label(&loop_label));
+            self.emit(abi::compare_immediate(&remaining, "0"));
+            self.emit(abi::branch_eq(&done_label));
+            self.emit(abi::load_u8(&byte, &cursor, 0));
+            self.emit(abi::and_registers(&byte, &byte, &mask));
+            self.emit(abi::compare_immediate(&byte, "128"));
+            self.emit(abi::branch_eq(&continuation_label));
+            self.emit(abi::load_u64(&byte, abi::stack_pointer(), count_slot));
+            self.emit(abi::add_immediate(&byte, &byte, 1));
+            self.emit(abi::store_u64(&byte, abi::stack_pointer(), count_slot));
+            self.emit(abi::branch(&next_label));
+            self.emit(abi::label(&continuation_label));
+            self.emit(abi::label(&next_label));
+            self.emit(abi::add_immediate(&cursor, &cursor, 1));
+            self.emit(abi::subtract_immediate(&remaining, &remaining, 1));
+            self.emit(abi::branch(&loop_label));
+            self.emit(abi::label(&done_label));
+            let register = self.allocate_register()?;
+            self.emit(abi::load_u64(&register, abi::stack_pointer(), count_slot));
+            return Ok(ValueResult {
+                type_: "Integer".to_string(),
+                location: register,
+                text: format!("len({})", value.text),
+            });
+        } else if is_collection_type(&value.type_) {
+            let register = self.allocate_register()?;
+            self.emit(abi::load_u64(&register, &value.location, 0));
+            return Ok(ValueResult {
+                type_: "Integer".to_string(),
+                location: register,
+                text: format!("len({})", value.text),
+            });
+        } else {
+            return Err(format!(
+                "native len does not accept argument type '{}'",
+                value.type_
+            ));
         }
     }
 
@@ -2187,7 +2690,8 @@ impl CodeBuilder<'_> {
             NirValue::Call { target, .. } | NirValue::RuntimeCall { target, .. } => {
                 match target.as_str() {
                     "typeName" | "toString" => Some("String".to_string()),
-                    "toInt" => Some("Integer".to_string()),
+                    "find" | "len" | "toInt" => Some("Integer".to_string()),
+                    "mid" => Some("String".to_string()),
                     "toFloat" => Some("Float".to_string()),
                     "toFixed" => Some("Fixed".to_string()),
                     "toByte" => Some("Byte".to_string()),
@@ -2393,51 +2897,38 @@ impl CodeBuilder<'_> {
     }
 
     fn emit_overflow_return(&mut self) -> Result<(), String> {
-        let message_register = self.load_string_address(ERR_OVERFLOW_MESSAGE)?;
-        self.emit(abi::move_immediate(
-            RESULT_TAG_REGISTER,
-            "Integer",
-            RESULT_ERR_TAG,
-        ));
-        self.emit(abi::move_immediate(
-            RESULT_VALUE_REGISTER,
-            "Integer",
-            ERR_OVERFLOW_CODE,
-        ));
-        self.emit(abi::move_register(
-            RESULT_ERROR_MESSAGE_REGISTER,
-            &message_register,
-        ));
-        self.emit(abi::return_());
-        Ok(())
+        self.emit_error_code_return(ERR_OVERFLOW_CODE, ERR_OVERFLOW_MESSAGE)
     }
 
     fn emit_underflow_return(&mut self) -> Result<(), String> {
-        let message_register = self.load_string_address(ERR_UNDERFLOW_MESSAGE)?;
-        self.emit(abi::move_immediate(
-            RESULT_TAG_REGISTER,
-            "Integer",
-            RESULT_ERR_TAG,
-        ));
-        self.emit(abi::move_immediate(
-            RESULT_VALUE_REGISTER,
-            "Integer",
-            ERR_UNDERFLOW_CODE,
-        ));
-        self.emit(abi::move_register(
-            RESULT_ERROR_MESSAGE_REGISTER,
-            &message_register,
-        ));
-        self.emit(abi::return_());
-        Ok(())
+        self.emit_error_code_return(ERR_UNDERFLOW_CODE, ERR_UNDERFLOW_MESSAGE)
     }
 
     fn emit_allocation_error_return(&mut self) -> Result<(), String> {
-        let message_register = self.load_string_address(ERR_ALLOCATION_MESSAGE)?;
-        self.emit(abi::move_register(
-            RESULT_VALUE_REGISTER,
-            RESULT_TAG_REGISTER,
-        ));
+        self.emit_error_register_return(RESULT_TAG_REGISTER, ERR_ALLOCATION_MESSAGE)
+    }
+
+    fn emit_index_out_of_range_return(&mut self) -> Result<(), String> {
+        self.emit_error_code_return(ERR_INDEX_OUT_OF_RANGE_CODE, ERR_INDEX_OUT_OF_RANGE_MESSAGE)
+    }
+
+    fn emit_not_found_return(&mut self) -> Result<(), String> {
+        self.emit_error_code_return(ERR_NOT_FOUND_CODE, ERR_NOT_FOUND_MESSAGE)
+    }
+
+    fn emit_error_code_return(&mut self, code: &str, message: &str) -> Result<(), String> {
+        let code_register = self.allocate_register()?;
+        self.emit(abi::move_immediate(&code_register, "Integer", code));
+        self.emit_error_register_return(&code_register, message)
+    }
+
+    fn emit_error_register_return(
+        &mut self,
+        code_register: &str,
+        message: &str,
+    ) -> Result<(), String> {
+        let message_register = self.load_string_address(message)?;
+        self.emit(abi::move_register(RESULT_VALUE_REGISTER, code_register));
         self.emit(abi::move_immediate(
             RESULT_TAG_REGISTER,
             "Integer",
@@ -2462,23 +2953,7 @@ impl CodeBuilder<'_> {
             .ok_or_else(|| "native code fail expects constant Error code".to_string())?;
         let message = string_constant_value(&args[1])
             .ok_or_else(|| "native code fail expects constant Error message".to_string())?;
-        let message_register = self.load_string_address(message)?;
-        self.emit(abi::move_immediate(
-            RESULT_TAG_REGISTER,
-            "Integer",
-            RESULT_ERR_TAG,
-        ));
-        self.emit(abi::move_immediate(
-            RESULT_VALUE_REGISTER,
-            "Integer",
-            &(code as u64).to_string(),
-        ));
-        self.emit(abi::move_register(
-            RESULT_ERROR_MESSAGE_REGISTER,
-            &message_register,
-        ));
-        self.emit(abi::return_());
-        Ok(())
+        self.emit_error_code_return(&(code as u64).to_string(), message)
     }
 
     fn load_string_address(&mut self, value: &str) -> Result<String, String> {
@@ -2542,6 +3017,7 @@ impl CodeInstruction {
             CodeOp::BranchEq
             | CodeOp::BranchNe
             | CodeOp::BranchGe
+            | CodeOp::BranchLt
             | CodeOp::BranchHi
             | CodeOp::BranchLo
             | CodeOp::Branch
@@ -2718,14 +3194,18 @@ fn string_symbols(module: &NirModule) -> HashMap<String, String> {
     for function in &module.functions {
         collect_string_values_from_ops(&function.body, &mut values);
     }
-    if !values.contains(&ERR_OVERFLOW_MESSAGE.to_string()) {
-        values.push(ERR_OVERFLOW_MESSAGE.to_string());
+    for value in [
+        ERR_OVERFLOW_MESSAGE,
+        ERR_UNDERFLOW_MESSAGE,
+        ERR_ALLOCATION_MESSAGE,
+    ] {
+        push_string_value(&mut values, value.to_string());
     }
-    if !values.contains(&ERR_UNDERFLOW_MESSAGE.to_string()) {
-        values.push(ERR_UNDERFLOW_MESSAGE.to_string());
+    if module_uses_call(module, "find") || module_uses_call(module, "mid") {
+        push_string_value(&mut values, ERR_INDEX_OUT_OF_RANGE_MESSAGE.to_string());
     }
-    if !values.contains(&ERR_ALLOCATION_MESSAGE.to_string()) {
-        values.push(ERR_ALLOCATION_MESSAGE.to_string());
+    if module_uses_call(module, "find") {
+        push_string_value(&mut values, ERR_NOT_FOUND_MESSAGE.to_string());
     }
     for value in [
         ENTRY_ERROR_PREFIX,
@@ -2740,12 +3220,8 @@ fn string_symbols(module: &NirModule) -> HashMap<String, String> {
         .into_iter()
         .enumerate()
         .map(|(index, value)| {
-            let symbol = if value == ERR_OVERFLOW_MESSAGE {
-                ERR_OVERFLOW_SYMBOL.to_string()
-            } else if value == ERR_UNDERFLOW_MESSAGE {
-                ERR_UNDERFLOW_SYMBOL.to_string()
-            } else if value == ERR_ALLOCATION_MESSAGE {
-                ERR_ALLOCATION_SYMBOL.to_string()
+            let symbol = if let Some(symbol) = standard_error_message_symbol(&value) {
+                symbol.to_string()
             } else if value == ENTRY_ERROR_PREFIX {
                 ENTRY_ERROR_PREFIX_SYMBOL.to_string()
             } else if value == ENTRY_ERROR_SEPARATOR {
@@ -2760,11 +3236,114 @@ fn string_symbols(module: &NirModule) -> HashMap<String, String> {
         .collect()
 }
 
+fn standard_error_messages() -> &'static [(&'static str, &'static str, &'static str)] {
+    &[
+        (ERR_OVERFLOW_CODE, ERR_OVERFLOW_MESSAGE, ERR_OVERFLOW_SYMBOL),
+        (
+            ERR_UNDERFLOW_CODE,
+            ERR_UNDERFLOW_MESSAGE,
+            ERR_UNDERFLOW_SYMBOL,
+        ),
+        (
+            ERR_OUT_OF_MEMORY_CODE,
+            ERR_ALLOCATION_MESSAGE,
+            ERR_ALLOCATION_SYMBOL,
+        ),
+        (
+            ERR_INDEX_OUT_OF_RANGE_CODE,
+            ERR_INDEX_OUT_OF_RANGE_MESSAGE,
+            ERR_INDEX_OUT_OF_RANGE_SYMBOL,
+        ),
+        (
+            ERR_NOT_FOUND_CODE,
+            ERR_NOT_FOUND_MESSAGE,
+            ERR_NOT_FOUND_SYMBOL,
+        ),
+    ]
+}
+
+fn standard_error_message_symbol(message: &str) -> Option<&'static str> {
+    standard_error_messages()
+        .iter()
+        .find_map(|(_, candidate, symbol)| (*candidate == message).then_some(*symbol))
+}
+
 fn module_uses_type_name(module: &NirModule) -> bool {
     module
         .functions
         .iter()
         .any(|function| ops_use_type_name(&function.body))
+}
+
+fn module_uses_call(module: &NirModule, target: &str) -> bool {
+    module
+        .functions
+        .iter()
+        .any(|function| ops_use_call(&function.body, target))
+}
+
+fn ops_use_call(ops: &[NirOp], target: &str) -> bool {
+    ops.iter().any(|op| match op {
+        NirOp::Bind { value, .. } | NirOp::Return { value } => {
+            value.as_ref().is_some_and(|value| value_uses_call(value, target))
+        }
+        NirOp::Fail { error } => value_uses_call(error, target),
+        NirOp::Assign { value, .. } | NirOp::Eval { value } => value_uses_call(value, target),
+        NirOp::If {
+            condition,
+            then_body,
+            else_body,
+        } => {
+            value_uses_call(condition, target)
+                || ops_use_call(then_body, target)
+                || ops_use_call(else_body, target)
+        }
+        NirOp::Match { value, cases } => {
+            value_uses_call(value, target)
+                || cases.iter().any(|case| {
+                    matches!(&case.pattern, NirMatchPattern::Value(value) if value_uses_call(value, target))
+                        || ops_use_call(&case.body, target)
+                })
+        }
+        NirOp::ForEach { iterable, body, .. } => {
+            value_uses_call(iterable, target) || ops_use_call(body, target)
+        }
+        NirOp::Using { value, body, .. } => {
+            value_uses_call(value, target) || ops_use_call(body, target)
+        }
+    })
+}
+
+fn value_uses_call(value: &NirValue, target: &str) -> bool {
+    match value {
+        NirValue::Call { target: call, args }
+        | NirValue::RuntimeCall {
+            target: call, args, ..
+        } => call == target || args.iter().any(|arg| value_uses_call(arg, target)),
+        NirValue::Constructor { args, .. } => args.iter().any(|arg| value_uses_call(arg, target)),
+        NirValue::WithUpdate {
+            target: updated,
+            updates,
+            ..
+        } => {
+            value_uses_call(updated, target)
+                || updates
+                    .iter()
+                    .any(|update| value_uses_call(&update.value, target))
+        }
+        NirValue::ListLiteral { values, .. } => {
+            values.iter().any(|value| value_uses_call(value, target))
+        }
+        NirValue::MapLiteral { entries, .. } => entries
+            .iter()
+            .any(|(key, value)| value_uses_call(key, target) || value_uses_call(value, target)),
+        NirValue::MemberAccess { target: value, .. } => value_uses_call(value, target),
+        NirValue::Binary { left, right, .. } => {
+            value_uses_call(left, target) || value_uses_call(right, target)
+        }
+        NirValue::Unary { operand, .. } => value_uses_call(operand, target),
+        NirValue::Const { .. } | NirValue::Local(_) | NirValue::FunctionRef { .. } => false,
+    }
 }
 
 fn ops_use_type_name(ops: &[NirOp]) -> bool {
@@ -3238,7 +3817,8 @@ fn static_type_name_with_types(
         NirValue::Call { target, .. } | NirValue::RuntimeCall { target, .. } => {
             match target.as_str() {
                 "typeName" | "toString" => Some("String".to_string()),
-                "toInt" => Some("Integer".to_string()),
+                "find" | "len" | "toInt" => Some("Integer".to_string()),
+                "mid" => Some("String".to_string()),
                 "toFloat" => Some("Float".to_string()),
                 "toFixed" => Some("Fixed".to_string()),
                 "toByte" => Some("Byte".to_string()),

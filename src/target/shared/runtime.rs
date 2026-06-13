@@ -172,7 +172,7 @@ fn push_op_helpers(ops: &[IrOp], helpers: &mut Vec<RuntimeHelper>) {
 fn push_value_helpers(value: &IrValue, helpers: &mut Vec<RuntimeHelper>) {
     match value {
         IrValue::Call { target, args } => {
-            if target != "toInt" {
+            if !matches!(target.as_str(), "find" | "len" | "mid" | "toInt") {
                 if let Some(helper) = helper_for_call(target) {
                     push_unique(helpers, helper);
                 }

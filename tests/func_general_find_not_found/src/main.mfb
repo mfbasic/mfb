@@ -1,0 +1,3 @@
+FUNC main AS Integer
+  RETURN find("hello", "z")
+END FUNC

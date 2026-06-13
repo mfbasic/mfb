@@ -1,0 +1,16 @@
+$ mfb build -ast tests/func_general_mid_valid
+Wrote AST to tests/func_general_mid_valid/func_general_mid_valid.ast
+[exit 0]
+$ mfb build -ir tests/func_general_mid_valid
+Wrote IR to tests/func_general_mid_valid/func_general_mid_valid.ir
+[exit 0]
+$ mfb build tests/func_general_mid_valid
+Wrote executable to tests/func_general_mid_valid/func_general_mid_valid.out
+[exit 0]
+$ tests/func_general_mid_valid/func_general_mid_valid.out
+ell
+é日
+
+
+hello
+[exit 10]

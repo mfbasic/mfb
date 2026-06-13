@@ -1,0 +1,85 @@
+{
+  "project": "func_general_len_valid",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "stringLens",
+      "line": 3,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "emptyText", "type": "String", "value": { "kind": "string", "value": "" }, "line": 4 },
+      { "kind": "binding", "mutable": false, "name": "asciiText", "type": "String", "value": { "kind": "string", "value": "hello" }, "line": 5 },
+      { "kind": "binding", "mutable": false, "name": "unicodeText", "type": "String", "value": { "kind": "string", "value": "aé日" }, "line": 6 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "len-string-empty" }] }, "line": 8 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "len-string-ascii" }] }, "line": 9 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "len-string-unicode" }] }, "line": 10 },
+      { "kind": "binding", "mutable": false, "name": "emptyCount", "type": "Integer", "value": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "emptyText" }] }, "line": 12 },
+      { "kind": "binding", "mutable": false, "name": "asciiCount", "type": "Integer", "value": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "asciiText" }] }, "line": 13 },
+      { "kind": "binding", "mutable": false, "name": "unicodeCount", "type": "Integer", "value": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "unicodeText" }] }, "line": 14 },
+      { "kind": "return", "value": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "emptyCount" }, "right": { "kind": "identifier", "value": "asciiCount" } }, "right": { "kind": "identifier", "value": "unicodeCount" } }, "line": 15 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "listLens",
+      "line": 18,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "emptyList", "type": "List OF Integer", "value": { "kind": "list", "values": [] }, "line": 19 },
+      { "kind": "binding", "mutable": false, "name": "numbers", "type": "List OF Integer", "value": { "kind": "list", "values": [{ "kind": "number", "value": "10" }, { "kind": "number", "value": "20" }, { "kind": "number", "value": "30" }] }, "line": 20 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "len-list-empty" }] }, "line": 22 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "len-list-values" }] }, "line": 23 },
+      { "kind": "binding", "mutable": false, "name": "emptyCount", "type": "Integer", "value": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "emptyList" }] }, "line": 25 },
+      { "kind": "binding", "mutable": false, "name": "valueCount", "type": "Integer", "value": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "numbers" }] }, "line": 26 },
+      { "kind": "return", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "emptyCount" }, "right": { "kind": "identifier", "value": "valueCount" } }, "line": 27 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "mapLens",
+      "line": 30,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "emptyMap", "type": "Map OF String TO Integer", "value": { "kind": "map", "keyType": "String", "valueType": "Integer", "entries": [] }, "line": 31 },
+      { "kind": "binding", "mutable": false, "name": "ages", "type": "Map OF String TO Integer", "value": { "kind": "map", "keyType": "String", "valueType": "Integer", "entries": [{ "key": { "kind": "string", "value": "Ada" }, "value": { "kind": "number", "value": "36" } }, { "key": { "kind": "string", "value": "Grace" }, "value": { "kind": "number", "value": "85" } }] }, "line": 32 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "len-map-empty" }] }, "line": 34 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "len-map-values" }] }, "line": 35 },
+      { "kind": "binding", "mutable": false, "name": "emptyCount", "type": "Integer", "value": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "emptyMap" }] }, "line": 37 },
+      { "kind": "binding", "mutable": false, "name": "valueCount", "type": "Integer", "value": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "ages" }] }, "line": 38 },
+      { "kind": "return", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "emptyCount" }, "right": { "kind": "identifier", "value": "valueCount" } }, "line": 39 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "main",
+      "line": 42,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "strings", "type": "Integer", "value": { "kind": "call", "callee": "stringLens", "arguments": [] }, "line": 43 },
+      { "kind": "binding", "mutable": false, "name": "lists", "type": "Integer", "value": { "kind": "call", "callee": "listLens", "arguments": [] }, "line": 44 },
+      { "kind": "binding", "mutable": false, "name": "maps", "type": "Integer", "value": { "kind": "call", "callee": "mapLens", "arguments": [] }, "line": 45 },
+      { "kind": "return", "value": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "strings" }, "right": { "kind": "identifier", "value": "lists" } }, "right": { "kind": "identifier", "value": "maps" } }, "line": 46 }
+      ]
+    }
+    ]
+  }
+  ]
+}

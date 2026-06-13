@@ -1,0 +1,7 @@
+FUNC main AS Integer
+  LET missing AS Integer = find()
+  LET wrongNeedle AS Integer = find("hello", 1)
+  LET wrongStart AS Integer = find("hello", "l", "0")
+  LET tooMany AS Integer = find("hello", "l", 0, 1)
+  RETURN missing + wrongNeedle + wrongStart + tooMany
+END FUNC

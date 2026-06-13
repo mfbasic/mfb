@@ -183,6 +183,10 @@ pub(crate) fn branch_ge(target: &str) -> CodeInstruction {
     CodeInstruction::new("b.ge").field("target", target)
 }
 
+pub(crate) fn branch_lt(target: &str) -> CodeInstruction {
+    CodeInstruction::new("b.lt").field("target", target)
+}
+
 pub(crate) fn branch_hi(target: &str) -> CodeInstruction {
     CodeInstruction::new("b.hi").field("target", target)
 }

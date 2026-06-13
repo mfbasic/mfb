@@ -422,7 +422,7 @@ fn lower_value(value: &IrValue) -> NirValue {
         },
         IrValue::Call { target, args } => {
             let args = args.iter().map(lower_value).collect();
-            if target == "toInt" {
+            if matches!(target.as_str(), "find" | "len" | "mid" | "toInt") {
                 NirValue::Call {
                     target: target.clone(),
                     args,

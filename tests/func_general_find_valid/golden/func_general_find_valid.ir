@@ -1,0 +1,33 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "func_general_find_valid",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "mutable": false, "name": "first", "type": "Integer", "value": { "kind": "call", "target": "find", "args": [{ "kind": "const", "type": "String", "value": "hello" }, { "kind": "const", "type": "String", "value": "l" }] } },
+    { "op": "bind", "mutable": false, "name": "afterStart", "type": "Integer", "value": { "kind": "call", "target": "find", "args": [{ "kind": "const", "type": "String", "value": "hello" }, { "kind": "const", "type": "String", "value": "l" }, { "kind": "const", "type": "Integer", "value": "3" }] } },
+    { "op": "bind", "mutable": false, "name": "unicode", "type": "Integer", "value": { "kind": "call", "target": "find", "args": [{ "kind": "const", "type": "String", "value": "aé日é" }, { "kind": "const", "type": "String", "value": "日" }] } },
+    { "op": "bind", "mutable": false, "name": "emptyNeedle", "type": "Integer", "value": { "kind": "call", "target": "find", "args": [{ "kind": "const", "type": "String", "value": "abcdef" }, { "kind": "const", "type": "String", "value": "" }, { "kind": "const", "type": "Integer", "value": "2" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "find-string-first" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "find-string-start" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "find-string-unicode" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "find-string-empty-needle" }] } },
+    { "op": "return", "value": { "kind": "binary", "op": "+", "left": { "kind": "binary", "op": "+", "left": { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "first" }, "right": { "kind": "local", "name": "afterStart" } }, "right": { "kind": "local", "name": "unicode" } }, "right": { "kind": "local", "name": "emptyNeedle" } } }
+    ]
+  }
+  ]
+}

@@ -1,0 +1,82 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "func_general_len_valid",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "stringLens",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "mutable": false, "name": "emptyText", "type": "String", "value": { "kind": "const", "type": "String", "value": "" } },
+    { "op": "bind", "mutable": false, "name": "asciiText", "type": "String", "value": { "kind": "const", "type": "String", "value": "hello" } },
+    { "op": "bind", "mutable": false, "name": "unicodeText", "type": "String", "value": { "kind": "const", "type": "String", "value": "aé日" } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "len-string-empty" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "len-string-ascii" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "len-string-unicode" }] } },
+    { "op": "bind", "mutable": false, "name": "emptyCount", "type": "Integer", "value": { "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "emptyText" }] } },
+    { "op": "bind", "mutable": false, "name": "asciiCount", "type": "Integer", "value": { "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "asciiText" }] } },
+    { "op": "bind", "mutable": false, "name": "unicodeCount", "type": "Integer", "value": { "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "unicodeText" }] } },
+    { "op": "return", "value": { "kind": "binary", "op": "+", "left": { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "emptyCount" }, "right": { "kind": "local", "name": "asciiCount" } }, "right": { "kind": "local", "name": "unicodeCount" } } }
+    ]
+  },
+  {
+    "name": "listLens",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "mutable": false, "name": "emptyList", "type": "List OF Integer", "value": { "kind": "list", "type": "List OF Unknown", "values": [] } },
+    { "op": "bind", "mutable": false, "name": "numbers", "type": "List OF Integer", "value": { "kind": "list", "type": "List OF Integer", "values": [{ "kind": "const", "type": "Integer", "value": "10" }, { "kind": "const", "type": "Integer", "value": "20" }, { "kind": "const", "type": "Integer", "value": "30" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "len-list-empty" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "len-list-values" }] } },
+    { "op": "bind", "mutable": false, "name": "emptyCount", "type": "Integer", "value": { "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "emptyList" }] } },
+    { "op": "bind", "mutable": false, "name": "valueCount", "type": "Integer", "value": { "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "numbers" }] } },
+    { "op": "return", "value": { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "emptyCount" }, "right": { "kind": "local", "name": "valueCount" } } }
+    ]
+  },
+  {
+    "name": "mapLens",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "mutable": false, "name": "emptyMap", "type": "Map OF String TO Integer", "value": { "kind": "map", "type": "Map OF String TO Integer", "entries": [] } },
+    { "op": "bind", "mutable": false, "name": "ages", "type": "Map OF String TO Integer", "value": { "kind": "map", "type": "Map OF String TO Integer", "entries": [{ "key": { "kind": "const", "type": "String", "value": "Ada" }, "value": { "kind": "const", "type": "Integer", "value": "36" } }, { "key": { "kind": "const", "type": "String", "value": "Grace" }, "value": { "kind": "const", "type": "Integer", "value": "85" } }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "len-map-empty" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "len-map-values" }] } },
+    { "op": "bind", "mutable": false, "name": "emptyCount", "type": "Integer", "value": { "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "emptyMap" }] } },
+    { "op": "bind", "mutable": false, "name": "valueCount", "type": "Integer", "value": { "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "ages" }] } },
+    { "op": "return", "value": { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "emptyCount" }, "right": { "kind": "local", "name": "valueCount" } } }
+    ]
+  },
+  {
+    "name": "main",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "mutable": false, "name": "strings", "type": "Integer", "value": { "kind": "call", "target": "stringLens", "args": [] } },
+    { "op": "bind", "mutable": false, "name": "lists", "type": "Integer", "value": { "kind": "call", "target": "listLens", "args": [] } },
+    { "op": "bind", "mutable": false, "name": "maps", "type": "Integer", "value": { "kind": "call", "target": "mapLens", "args": [] } },
+    { "op": "return", "value": { "kind": "binary", "op": "+", "left": { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "strings" }, "right": { "kind": "local", "name": "lists" } }, "right": { "kind": "local", "name": "maps" } } }
+    ]
+  }
+  ]
+}
