@@ -1206,12 +1206,13 @@ impl<'a> FileParser<'a> {
     fn parse_multiplication(&mut self) -> Option<Expression> {
         let mut expression = self.parse_power()?;
         while self.match_any(&[TokenKind::Star, TokenKind::Slash])
-            || self.match_keyword(Keyword::Mod)
+            || self.match_any_keywords(&[Keyword::Mod, Keyword::Div])
         {
             let operator = match self.previous().kind {
                 TokenKind::Star => "*",
                 TokenKind::Slash => "/",
                 TokenKind::Keyword(Keyword::Mod) => "MOD",
+                TokenKind::Keyword(Keyword::Div) => "DIV",
                 _ => unreachable!(),
             };
             let right = self.parse_power()?;

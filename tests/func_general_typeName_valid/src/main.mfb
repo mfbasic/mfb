@@ -1,0 +1,13 @@
+IMPORT io
+
+FUNC main AS Integer
+  LET b AS Byte = 1
+  LET x AS Fixed = 1.25
+  io::print(typeName(1))
+  io::print(typeName(b))
+  io::print(typeName(1.5))
+  io::print(typeName(x))
+  io::print(typeName(TRUE))
+  io::print(typeName("text"))
+  RETURN 0
+END FUNC

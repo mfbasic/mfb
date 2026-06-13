@@ -1,0 +1,5 @@
+FUNC main AS Integer
+  LET missing AS String = typeName()
+  LET tooMany AS String = typeName(1, 2)
+  RETURN 0
+END FUNC

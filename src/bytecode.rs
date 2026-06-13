@@ -2,6 +2,7 @@
 
 use crate::builtins;
 use crate::ir::{IrFunction, IrMatchPattern, IrOp, IrProject, IrType, IrValue};
+use crate::numeric;
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::fs;
@@ -3350,6 +3351,7 @@ impl<'a> FunctionBuilder<'a> {
                     "-" => OPCODE_SUB,
                     "*" => OPCODE_MUL,
                     "/" => OPCODE_DIV,
+                    "DIV" => OPCODE_DIV,
                     "MOD" => OPCODE_MOD,
                     "^" => OPCODE_POW,
                     "&" => OPCODE_CONCAT,
@@ -4637,26 +4639,28 @@ fn hex_dump(bytes: &[u8]) -> String {
 }
 
 fn numeric_binary_type_id(op: &str, left: u32, right: u32) -> u32 {
-    if op == "/" {
-        if left == TYPE_FIXED && right == TYPE_FIXED {
-            TYPE_FIXED
-        } else {
-            TYPE_FLOAT
-        }
-    } else if left == TYPE_FLOAT || right == TYPE_FLOAT {
-        TYPE_FLOAT
-    } else if left == TYPE_BYTE && right == TYPE_BYTE {
-        TYPE_BYTE
-    } else if (left == TYPE_BYTE && right == TYPE_FIXED)
-        || (left == TYPE_FIXED && right == TYPE_BYTE)
-    {
-        TYPE_FIXED
-    } else if left == TYPE_FIXED && right == TYPE_FIXED {
-        TYPE_FIXED
-    } else if left == TYPE_FIXED || right == TYPE_FIXED {
-        TYPE_FLOAT
-    } else {
-        TYPE_INTEGER
+    let Some(left) = numeric_type_name(left) else {
+        return TYPE_INTEGER;
+    };
+    let Some(right) = numeric_type_name(right) else {
+        return TYPE_INTEGER;
+    };
+    match numeric::binary_result_type(op, left, right) {
+        Some(numeric::TYPE_BYTE) => TYPE_BYTE,
+        Some(numeric::TYPE_FIXED) => TYPE_FIXED,
+        Some(numeric::TYPE_FLOAT) => TYPE_FLOAT,
+        Some(numeric::TYPE_INTEGER) => TYPE_INTEGER,
+        _ => TYPE_INTEGER,
+    }
+}
+
+fn numeric_type_name(type_id: u32) -> Option<&'static str> {
+    match type_id {
+        TYPE_BYTE => Some(numeric::TYPE_BYTE),
+        TYPE_FIXED => Some(numeric::TYPE_FIXED),
+        TYPE_FLOAT => Some(numeric::TYPE_FLOAT),
+        TYPE_INTEGER => Some(numeric::TYPE_INTEGER),
+        _ => None,
     }
 }
 

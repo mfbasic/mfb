@@ -4,6 +4,7 @@ use crate::ast::{
 };
 use crate::builtins;
 use crate::json_string;
+use crate::numeric;
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -895,25 +896,7 @@ fn lower_expression_with_expected(
 }
 
 fn numeric_binary_result_type(operator: &str, left: &str, right: &str) -> &'static str {
-    if operator == "/" {
-        if left == "Fixed" && right == "Fixed" {
-            "Fixed"
-        } else {
-            "Float"
-        }
-    } else if left == "Float" || right == "Float" {
-        "Float"
-    } else if left == "Byte" && right == "Byte" {
-        "Byte"
-    } else if (left == "Byte" && right == "Fixed") || (left == "Fixed" && right == "Byte") {
-        "Fixed"
-    } else if left == "Fixed" && right == "Fixed" {
-        "Fixed"
-    } else if left == "Fixed" || right == "Fixed" {
-        "Float"
-    } else {
-        "Integer"
-    }
+    numeric::binary_result_type(operator, left, right).unwrap_or(numeric::TYPE_INTEGER)
 }
 
 fn literal_expression_type(expression: &Expression) -> Option<String> {

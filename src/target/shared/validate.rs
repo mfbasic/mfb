@@ -209,7 +209,10 @@ fn collect_runtime_calls_from_value(
 ) {
     match value {
         NirValue::RuntimeCall { target, args, .. } => {
-            if !native_static_string_value(value, constants).is_some() && !calls.contains(target) {
+            if target != "typeName"
+                && native_static_string_value(value, constants).is_none()
+                && !calls.contains(target)
+            {
                 calls.push(target.clone());
             }
             for arg in args {

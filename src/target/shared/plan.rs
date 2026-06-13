@@ -439,8 +439,10 @@ fn collect_platform_imports_from_value(
 ) {
     match value {
         NirValue::RuntimeCall { target, args, .. } => {
-            for import in platform_imports_for_runtime_call(platform, target) {
-                push_platform_import(imports, import);
+            if target != "typeName" {
+                for import in platform_imports_for_runtime_call(platform, target) {
+                    push_platform_import(imports, import);
+                }
             }
             for arg in args {
                 collect_platform_imports_from_value(platform, arg, imports);
@@ -579,7 +581,7 @@ fn collect_runtime_symbols_from_value(
             target,
             args,
         } => {
-            if native_static_string_value(value, constants).is_none() {
+            if target != "typeName" && native_static_string_value(value, constants).is_none() {
                 push_unique(symbols, runtime::symbol_for_call(*helper, target));
             }
             for arg in args {
@@ -850,6 +852,12 @@ impl FunctionPlanBuilder<'_> {
                 target,
                 args,
             } => {
+                if target == "typeName" {
+                    for arg in args {
+                        self.lower_value(arg)?;
+                    }
+                    return Ok(());
+                }
                 for arg in args {
                     self.lower_value(arg)?;
                 }

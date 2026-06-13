@@ -6,6 +6,7 @@ mod ir;
 mod lexer;
 mod man;
 mod monomorph;
+mod numeric;
 mod os;
 mod resolver;
 mod rules;

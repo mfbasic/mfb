@@ -4,6 +4,7 @@ use crate::ast::{
 };
 use crate::builtins;
 use crate::bytecode::{self, BytecodeExportKind};
+use crate::numeric;
 use crate::rules;
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
@@ -1456,23 +1457,6 @@ impl<'a> TypeChecker<'a> {
             return Type::Unknown;
         }
 
-        if operator == "MOD" {
-            if is_integer_promotable(left) && is_integer_promotable(right) {
-                return Type::Integer;
-            }
-            self.report(
-                "TYPE_BINARY_OPERATOR_MISMATCH",
-                &format!(
-                    "Operator `MOD` requires Integer operands, got {} and {}.",
-                    self.type_name(left),
-                    self.type_name(right)
-                ),
-                file,
-                line,
-            );
-            return Type::Unknown;
-        }
-
         if self.is_numeric(left) && self.is_numeric(right) {
             numeric_binary_result_type(operator, left, right)
         } else {
@@ -2669,32 +2653,29 @@ fn numeric_literal_type(expression: &Expression) -> Option<Type> {
     }
 }
 
-fn is_integer_promotable(type_: &Type) -> bool {
-    matches!(type_, Type::Byte | Type::Integer | Type::Unknown)
+fn numeric_binary_result_type(operator: &str, left: &Type, right: &Type) -> Type {
+    let Some(left) = numeric_type_name(left) else {
+        return Type::Unknown;
+    };
+    let Some(right) = numeric_type_name(right) else {
+        return Type::Unknown;
+    };
+    match numeric::binary_result_type(operator, left, right) {
+        Some("Byte") => Type::Byte,
+        Some("Fixed") => Type::Fixed,
+        Some("Float") => Type::Float,
+        Some("Integer") => Type::Integer,
+        _ => Type::Unknown,
+    }
 }
 
-fn numeric_binary_result_type(operator: &str, left: &Type, right: &Type) -> Type {
-    if operator == "/" {
-        if matches!((left, right), (Type::Fixed, Type::Fixed)) {
-            Type::Fixed
-        } else {
-            Type::Float
-        }
-    } else if matches!(left, Type::Float) || matches!(right, Type::Float) {
-        Type::Float
-    } else if matches!((left, right), (Type::Byte, Type::Byte)) {
-        Type::Byte
-    } else if matches!(
-        (left, right),
-        (Type::Byte, Type::Fixed) | (Type::Fixed, Type::Byte)
-    ) {
-        Type::Fixed
-    } else if matches!((left, right), (Type::Fixed, Type::Fixed)) {
-        Type::Fixed
-    } else if matches!(left, Type::Fixed) || matches!(right, Type::Fixed) {
-        Type::Float
-    } else {
-        Type::Integer
+fn numeric_type_name(type_: &Type) -> Option<&'static str> {
+    match type_ {
+        Type::Byte => Some(numeric::TYPE_BYTE),
+        Type::Fixed => Some(numeric::TYPE_FIXED),
+        Type::Float => Some(numeric::TYPE_FLOAT),
+        Type::Integer => Some(numeric::TYPE_INTEGER),
+        _ => None,
     }
 }
 

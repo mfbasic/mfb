@@ -2,6 +2,7 @@ use crate::ast::{
     AstFile, AstProject, Expression, Function, Item, MatchCase, MatchPattern, Statement, TypeDecl,
     TypeDeclKind, TypeField, UnionVariant,
 };
+use crate::numeric;
 use crate::rules;
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
@@ -1226,23 +1227,5 @@ fn sanitize_type_name(value: &str) -> String {
 }
 
 fn numeric_binary_result_type(operator: &str, left: &str, right: &str) -> &'static str {
-    if operator == "/" {
-        if left == "Fixed" && right == "Fixed" {
-            "Fixed"
-        } else {
-            "Float"
-        }
-    } else if left == "Float" || right == "Float" {
-        "Float"
-    } else if left == "Byte" && right == "Byte" {
-        "Byte"
-    } else if (left == "Byte" && right == "Fixed") || (left == "Fixed" && right == "Byte") {
-        "Fixed"
-    } else if left == "Fixed" && right == "Fixed" {
-        "Fixed"
-    } else if left == "Fixed" || right == "Fixed" {
-        "Float"
-    } else {
-        "Integer"
-    }
+    numeric::binary_result_type(operator, left, right).unwrap_or(numeric::TYPE_INTEGER)
 }

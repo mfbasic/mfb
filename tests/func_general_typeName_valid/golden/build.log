@@ -1,0 +1,17 @@
+$ mfb build -ast tests/func_general_typeName_valid
+Wrote AST to tests/func_general_typeName_valid/func_general_typeName_valid.ast
+[exit 0]
+$ mfb build -ir tests/func_general_typeName_valid
+Wrote IR to tests/func_general_typeName_valid/func_general_typeName_valid.ir
+[exit 0]
+$ mfb build tests/func_general_typeName_valid
+Wrote executable to tests/func_general_typeName_valid/func_general_typeName_valid.out
+[exit 0]
+$ tests/func_general_typeName_valid/func_general_typeName_valid.out
+Integer
+Byte
+Float
+Fixed
+Boolean
+String
+[exit 0]

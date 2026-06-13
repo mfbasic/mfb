@@ -50,6 +50,7 @@ pub enum Keyword {
     Isolated,
     Let,
     Lambda,
+    Div,
     Mod,
     Match,
     Mut,
@@ -417,6 +418,8 @@ fn keyword(value: &str) -> Option<Keyword> {
         Some(Keyword::Let)
     } else if value.eq_ignore_ascii_case("LAMBDA") {
         Some(Keyword::Lambda)
+    } else if value.eq_ignore_ascii_case("DIV") {
+        Some(Keyword::Div)
     } else if value.eq_ignore_ascii_case("MOD") {
         Some(Keyword::Mod)
     } else if value.eq_ignore_ascii_case("MATCH") {

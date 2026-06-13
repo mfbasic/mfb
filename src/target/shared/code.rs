@@ -2,6 +2,7 @@ use std::collections::HashMap;
 
 use crate::arch::aarch64::{abi, ops::CodeOp};
 use crate::json_string;
+use crate::numeric;
 
 use super::nir::{self, NirFunction, NirMatchPattern, NirModule, NirOp, NirValue};
 use super::plan::NativePlan;
@@ -1098,6 +1099,17 @@ impl CodeBuilder<'_> {
                 text: name.clone(),
             }),
             NirValue::Call { target, args } => {
+                if target == "typeName" && args.len() == 1 {
+                    let type_name = self.static_type_name(&args[0]).ok_or_else(|| {
+                        "native code cannot determine typeName argument type".to_string()
+                    })?;
+                    let register = self.load_string_constant(&type_name)?;
+                    return Ok(ValueResult {
+                        type_: "String".to_string(),
+                        location: register,
+                        text: format!("typeName({type_name})"),
+                    });
+                }
                 if target == "toInt" && args.len() == 1 {
                     let arg = self.lower_value(&args[0])?;
                     if arg.type_ == "Byte" {
@@ -1121,12 +1133,25 @@ impl CodeBuilder<'_> {
                 helper,
                 target,
                 args,
-            } => self.emit_call(
-                target,
-                &runtime::symbol_for_call(*helper, target),
-                args,
-                Some("Nothing"),
-            ),
+            } => {
+                if target == "typeName" && args.len() == 1 {
+                    let type_name = self.static_type_name(&args[0]).ok_or_else(|| {
+                        "native code cannot determine typeName argument type".to_string()
+                    })?;
+                    let register = self.load_string_constant(&type_name)?;
+                    return Ok(ValueResult {
+                        type_: "String".to_string(),
+                        location: register,
+                        text: format!("typeName({type_name})"),
+                    });
+                }
+                self.emit_call(
+                    target,
+                    &runtime::symbol_for_call(*helper, target),
+                    args,
+                    Some("Nothing"),
+                )
+            }
             NirValue::Constructor { type_, args } => {
                 let arg_values = args
                     .iter()
@@ -1327,6 +1352,15 @@ impl CodeBuilder<'_> {
                         value,
                     })
             }
+            NirValue::Call { target, args } | NirValue::RuntimeCall { target, args, .. }
+                if target == "typeName" && args.len() == 1 =>
+            {
+                self.static_type_name(&args[0])
+                    .map(|value| NirValue::Const {
+                        type_: "String".to_string(),
+                        value,
+                    })
+            }
             NirValue::Binary { op, .. } if op == "&" => {
                 self.static_string_value(value)
                     .map(|value| NirValue::Const {
@@ -1354,6 +1388,11 @@ impl CodeBuilder<'_> {
             {
                 self.static_primitive_text(&args[0])
             }
+            NirValue::Call { target, args } | NirValue::RuntimeCall { target, args, .. }
+                if target == "typeName" && args.len() == 1 =>
+            {
+                self.static_type_name(&args[0])
+            }
             NirValue::Binary { op, left, right } if op == "&" => {
                 let left = self.static_string_value(left)?;
                 let right = self.static_string_value(right)?;
@@ -1380,6 +1419,49 @@ impl CodeBuilder<'_> {
                 .and_then(|local| local.constant.as_ref())
                 .and_then(|constant| self.static_primitive_text(constant)),
             _ => None,
+        }
+    }
+
+    fn static_type_name(&self, value: &NirValue) -> Option<String> {
+        match value {
+            NirValue::Const { type_, .. } => Some(type_.clone()),
+            NirValue::Local(name) => self.locals.get(name).map(|local| local.type_.clone()),
+            NirValue::FunctionRef { type_, .. }
+            | NirValue::Constructor { type_, .. }
+            | NirValue::ListLiteral { type_, .. }
+            | NirValue::MapLiteral { type_, .. } => Some(type_.clone()),
+            NirValue::Call { target, .. } | NirValue::RuntimeCall { target, .. } => {
+                match target.as_str() {
+                    "typeName" | "toString" => Some("String".to_string()),
+                    "toInt" => Some("Integer".to_string()),
+                    "toFloat" => Some("Float".to_string()),
+                    "toFixed" => Some("Fixed".to_string()),
+                    "toByte" => Some("Byte".to_string()),
+                    _ => None,
+                }
+            }
+            NirValue::Binary { op, left, right } => {
+                if matches!(
+                    op.as_str(),
+                    "=" | "<>" | "<" | ">" | "<=" | ">=" | "AND" | "OR" | "XOR"
+                ) {
+                    return Some("Boolean".to_string());
+                }
+                if op == "&" {
+                    return Some("String".to_string());
+                }
+                let left = self.static_type_name(left)?;
+                let right = self.static_type_name(right)?;
+                Some(numeric_binary_result_type(op, &left, &right).to_string())
+            }
+            NirValue::Unary { op, operand } => {
+                if op == "NOT" {
+                    Some("Boolean".to_string())
+                } else {
+                    self.static_type_name(operand)
+                }
+            }
+            NirValue::MemberAccess { .. } => None,
         }
     }
 
@@ -1845,6 +1927,9 @@ impl ToCodeJson for CodeStackSlot {
 
 fn string_symbols(module: &NirModule) -> HashMap<String, String> {
     let mut values = Vec::new();
+    if module_uses_type_name(module) {
+        collect_type_name_values(module, &mut values);
+    }
     for function in &module.functions {
         collect_string_values_from_ops(&function.body, &mut values);
     }
@@ -1885,22 +1970,201 @@ fn string_symbols(module: &NirModule) -> HashMap<String, String> {
         .collect()
 }
 
+fn module_uses_type_name(module: &NirModule) -> bool {
+    module
+        .functions
+        .iter()
+        .any(|function| ops_use_type_name(&function.body))
+}
+
+fn ops_use_type_name(ops: &[NirOp]) -> bool {
+    ops.iter().any(|op| match op {
+        NirOp::Bind { value, .. } | NirOp::Return { value } => {
+            value.as_ref().is_some_and(value_uses_type_name)
+        }
+        NirOp::Fail { error } => value_uses_type_name(error),
+        NirOp::Assign { value, .. } | NirOp::Eval { value } => value_uses_type_name(value),
+        NirOp::If {
+            condition,
+            then_body,
+            else_body,
+        } => {
+            value_uses_type_name(condition)
+                || ops_use_type_name(then_body)
+                || ops_use_type_name(else_body)
+        }
+        NirOp::Match { value, cases } => value_uses_type_name(value) || cases.iter().any(|case| {
+            matches!(&case.pattern, NirMatchPattern::Value(value) if value_uses_type_name(value))
+                || ops_use_type_name(&case.body)
+        }),
+        NirOp::Using { value, body, .. } => value_uses_type_name(value) || ops_use_type_name(body),
+    })
+}
+
+fn value_uses_type_name(value: &NirValue) -> bool {
+    let direct = match value {
+        NirValue::Call { target, .. } | NirValue::RuntimeCall { target, .. } => {
+            target == "typeName"
+        }
+        _ => false,
+    };
+    direct
+        || match value {
+            NirValue::Call { args, .. }
+            | NirValue::RuntimeCall { args, .. }
+            | NirValue::Constructor { args, .. } => args.iter().any(value_uses_type_name),
+            NirValue::ListLiteral { values, .. } => values.iter().any(value_uses_type_name),
+            NirValue::MapLiteral { entries, .. } => entries
+                .iter()
+                .any(|(key, value)| value_uses_type_name(key) || value_uses_type_name(value)),
+            NirValue::MemberAccess { target, .. } => value_uses_type_name(target),
+            NirValue::Binary { left, right, .. } => {
+                value_uses_type_name(left) || value_uses_type_name(right)
+            }
+            NirValue::Unary { operand, .. } => value_uses_type_name(operand),
+            NirValue::Const { .. } | NirValue::Local(_) | NirValue::FunctionRef { .. } => false,
+        }
+}
+
+fn collect_type_name_values(module: &NirModule, values: &mut Vec<String>) {
+    for value in [
+        "Boolean", "Byte", "Error", "Fixed", "Float", "Integer", "Nothing", "String",
+    ] {
+        push_string_value(values, value.to_string());
+    }
+    for type_ in &module.types {
+        push_string_value(values, type_.name.clone());
+        for field in &type_.fields {
+            push_string_value(values, field.type_.clone());
+        }
+        for variant in &type_.variants {
+            push_string_value(values, variant.name.clone());
+            for field in &variant.fields {
+                push_string_value(values, field.type_.clone());
+            }
+        }
+    }
+    for function in &module.functions {
+        push_string_value(values, function.returns.clone());
+        for param in &function.params {
+            push_string_value(values, param.type_.clone());
+        }
+        collect_type_name_values_from_ops(&function.body, values);
+    }
+}
+
+fn collect_type_name_values_from_ops(ops: &[NirOp], values: &mut Vec<String>) {
+    for op in ops {
+        match op {
+            NirOp::Bind { type_, value, .. } => {
+                push_string_value(values, type_.clone());
+                if let Some(value) = value {
+                    collect_type_name_values_from_value(value, values);
+                }
+            }
+            NirOp::Return { value } => {
+                if let Some(value) = value {
+                    collect_type_name_values_from_value(value, values);
+                }
+            }
+            NirOp::Fail { error } => collect_type_name_values_from_value(error, values),
+            NirOp::Assign { value, .. } | NirOp::Eval { value } => {
+                collect_type_name_values_from_value(value, values);
+            }
+            NirOp::If {
+                condition,
+                then_body,
+                else_body,
+            } => {
+                collect_type_name_values_from_value(condition, values);
+                collect_type_name_values_from_ops(then_body, values);
+                collect_type_name_values_from_ops(else_body, values);
+            }
+            NirOp::Match { value, cases } => {
+                collect_type_name_values_from_value(value, values);
+                for case in cases {
+                    if let NirMatchPattern::Value(value) = &case.pattern {
+                        collect_type_name_values_from_value(value, values);
+                    }
+                    collect_type_name_values_from_ops(&case.body, values);
+                }
+            }
+            NirOp::Using {
+                type_, value, body, ..
+            } => {
+                push_string_value(values, type_.clone());
+                collect_type_name_values_from_value(value, values);
+                collect_type_name_values_from_ops(body, values);
+            }
+        }
+    }
+}
+
+fn collect_type_name_values_from_value(value: &NirValue, values: &mut Vec<String>) {
+    match value {
+        NirValue::Const { type_, .. }
+        | NirValue::FunctionRef { type_, .. }
+        | NirValue::Constructor { type_, .. }
+        | NirValue::ListLiteral { type_, .. }
+        | NirValue::MapLiteral { type_, .. } => {
+            push_string_value(values, type_.clone());
+        }
+        _ => {}
+    }
+    match value {
+        NirValue::Call { args, .. }
+        | NirValue::RuntimeCall { args, .. }
+        | NirValue::Constructor { args, .. } => {
+            for arg in args {
+                collect_type_name_values_from_value(arg, values);
+            }
+        }
+        NirValue::ListLiteral { values: items, .. } => {
+            for item in items {
+                collect_type_name_values_from_value(item, values);
+            }
+        }
+        NirValue::MapLiteral { entries, .. } => {
+            for (key, value) in entries {
+                collect_type_name_values_from_value(key, values);
+                collect_type_name_values_from_value(value, values);
+            }
+        }
+        NirValue::MemberAccess { target, .. } => {
+            collect_type_name_values_from_value(target, values)
+        }
+        NirValue::Binary { left, right, .. } => {
+            collect_type_name_values_from_value(left, values);
+            collect_type_name_values_from_value(right, values);
+        }
+        NirValue::Unary { operand, .. } => collect_type_name_values_from_value(operand, values),
+        NirValue::Const { .. } | NirValue::Local(_) | NirValue::FunctionRef { .. } => {}
+    }
+}
+
 fn collect_string_values_from_ops(ops: &[NirOp], values: &mut Vec<String>) {
     let mut constants = HashMap::new();
-    collect_string_values_from_ops_with_constants(ops, values, &mut constants);
+    let mut types = HashMap::new();
+    collect_string_values_from_ops_with_constants(ops, values, &mut constants, &mut types);
 }
 
 fn collect_string_values_from_ops_with_constants(
     ops: &[NirOp],
     values: &mut Vec<String>,
     constants: &mut HashMap<String, NirValue>,
+    types: &mut HashMap<String, String>,
 ) {
     for op in ops {
         match op {
-            NirOp::Bind { name, value, .. } => {
+            NirOp::Bind {
+                name, type_, value, ..
+            } => {
+                types.insert(name.clone(), type_.clone());
                 if let Some(value) = value {
-                    collect_string_values_from_value(value, values, constants);
-                    if let Some(constant) = local_constant_value_with_constants(value, constants) {
+                    collect_string_values_from_value(value, values, constants, types);
+                    if let Some(constant) =
+                        local_constant_value_with_constants(value, constants, types)
+                    {
                         constants.insert(name.clone(), constant);
                     } else {
                         constants.remove(name);
@@ -1911,60 +2175,80 @@ fn collect_string_values_from_ops_with_constants(
             }
             NirOp::Return { value } => {
                 if let Some(value) = value {
-                    collect_string_values_from_value(value, values, constants);
+                    collect_string_values_from_value(value, values, constants, types);
                 }
             }
             NirOp::Fail { error } => {
-                collect_string_values_from_value(error, values, constants);
+                collect_string_values_from_value(error, values, constants, types);
             }
             NirOp::Assign { name, value } => {
-                collect_string_values_from_value(value, values, constants);
-                if let Some(constant) = local_constant_value_with_constants(value, constants) {
+                collect_string_values_from_value(value, values, constants, types);
+                if let Some(constant) = local_constant_value_with_constants(value, constants, types)
+                {
                     constants.insert(name.clone(), constant);
                 } else {
                     constants.remove(name);
                 }
             }
             NirOp::Eval { value } => {
-                collect_string_values_from_value(value, values, constants);
+                collect_string_values_from_value(value, values, constants, types);
             }
             NirOp::If {
                 condition,
                 then_body,
                 else_body,
             } => {
-                collect_string_values_from_value(condition, values, constants);
+                collect_string_values_from_value(condition, values, constants, types);
                 let mut then_constants = constants.clone();
                 let mut else_constants = constants.clone();
+                let mut then_types = types.clone();
+                let mut else_types = types.clone();
                 collect_string_values_from_ops_with_constants(
                     then_body,
                     values,
                     &mut then_constants,
+                    &mut then_types,
                 );
                 collect_string_values_from_ops_with_constants(
                     else_body,
                     values,
                     &mut else_constants,
+                    &mut else_types,
                 );
             }
             NirOp::Match { value, cases } => {
-                collect_string_values_from_value(value, values, constants);
+                collect_string_values_from_value(value, values, constants, types);
                 for case in cases {
                     if let NirMatchPattern::Value(value) = &case.pattern {
-                        collect_string_values_from_value(value, values, constants);
+                        collect_string_values_from_value(value, values, constants, types);
                     }
                     let mut case_constants = constants.clone();
+                    let mut case_types = types.clone();
                     collect_string_values_from_ops_with_constants(
                         &case.body,
                         values,
                         &mut case_constants,
+                        &mut case_types,
                     );
                 }
             }
-            NirOp::Using { value, body, .. } => {
-                collect_string_values_from_value(value, values, constants);
+            NirOp::Using {
+                name,
+                type_,
+                value,
+                body,
+                ..
+            } => {
+                collect_string_values_from_value(value, values, constants, types);
                 let mut body_constants = constants.clone();
-                collect_string_values_from_ops_with_constants(body, values, &mut body_constants);
+                let mut body_types = types.clone();
+                body_types.insert(name.clone(), type_.clone());
+                collect_string_values_from_ops_with_constants(
+                    body,
+                    values,
+                    &mut body_constants,
+                    &mut body_types,
+                );
             }
         }
     }
@@ -1974,8 +2258,9 @@ fn collect_string_values_from_value(
     value: &NirValue,
     values: &mut Vec<String>,
     constants: &HashMap<String, NirValue>,
+    types: &HashMap<String, String>,
 ) {
-    if let Some(value) = static_string_value_with_constants(value, constants) {
+    if let Some(value) = static_string_value_with_constants(value, constants, types) {
         push_string_value(values, value);
     }
     match value {
@@ -1986,29 +2271,29 @@ fn collect_string_values_from_value(
         | NirValue::RuntimeCall { args, .. }
         | NirValue::Constructor { args, .. } => {
             for arg in args {
-                collect_string_values_from_value(arg, values, constants);
+                collect_string_values_from_value(arg, values, constants, types);
             }
         }
         NirValue::ListLiteral { values: items, .. } => {
             for item in items {
-                collect_string_values_from_value(item, values, constants);
+                collect_string_values_from_value(item, values, constants, types);
             }
         }
         NirValue::MapLiteral { entries, .. } => {
             for (key, value) in entries {
-                collect_string_values_from_value(key, values, constants);
-                collect_string_values_from_value(value, values, constants);
+                collect_string_values_from_value(key, values, constants, types);
+                collect_string_values_from_value(value, values, constants, types);
             }
         }
         NirValue::MemberAccess { target, .. } => {
-            collect_string_values_from_value(target, values, constants)
+            collect_string_values_from_value(target, values, constants, types)
         }
         NirValue::Binary { left, right, .. } => {
-            collect_string_values_from_value(left, values, constants);
-            collect_string_values_from_value(right, values, constants);
+            collect_string_values_from_value(left, values, constants, types);
+            collect_string_values_from_value(right, values, constants, types);
         }
         NirValue::Unary { operand, .. } => {
-            collect_string_values_from_value(operand, values, constants)
+            collect_string_values_from_value(operand, values, constants, types)
         }
         NirValue::Const { .. } | NirValue::Local(_) | NirValue::FunctionRef { .. } => {}
     }
@@ -2023,6 +2308,7 @@ fn push_string_value(values: &mut Vec<String>, value: String) {
 fn local_constant_value_with_constants(
     value: &NirValue,
     constants: &HashMap<String, NirValue>,
+    types: &HashMap<String, String>,
 ) -> Option<NirValue> {
     match value {
         NirValue::Const { .. } => Some(value.clone()),
@@ -2039,10 +2325,20 @@ fn local_constant_value_with_constants(
                 value,
             })
         }
-        NirValue::Binary { op, .. } if op == "&" => {
-            static_string_value_with_constants(value, constants).map(|value| NirValue::Const {
+        NirValue::Call { target, args } | NirValue::RuntimeCall { target, args, .. }
+            if target == "typeName" && args.len() == 1 =>
+        {
+            static_type_name_with_types(&args[0], types).map(|value| NirValue::Const {
                 type_: "String".to_string(),
                 value,
+            })
+        }
+        NirValue::Binary { op, .. } if op == "&" => {
+            static_string_value_with_constants(value, constants, types).map(|value| {
+                NirValue::Const {
+                    type_: "String".to_string(),
+                    value,
+                }
             })
         }
         _ => None,
@@ -2052,24 +2348,76 @@ fn local_constant_value_with_constants(
 fn static_string_value_with_constants(
     value: &NirValue,
     constants: &HashMap<String, NirValue>,
+    types: &HashMap<String, String>,
 ) -> Option<String> {
     match value {
         NirValue::Const { type_, value } if type_ == "String" => Some(value.clone()),
         NirValue::Local(name) => constants
             .get(name)
-            .and_then(|constant| static_string_value_with_constants(constant, constants)),
+            .and_then(|constant| static_string_value_with_constants(constant, constants, types)),
         NirValue::Call { target, args } if target == "toString" && args.len() == 1 => {
             static_primitive_text_with_constants(&args[0], constants)
         }
         NirValue::RuntimeCall { target, args, .. } if target == "toString" && args.len() == 1 => {
             static_primitive_text_with_constants(&args[0], constants)
         }
+        NirValue::Call { target, args } | NirValue::RuntimeCall { target, args, .. }
+            if target == "typeName" && args.len() == 1 =>
+        {
+            static_type_name_with_types(&args[0], types)
+        }
         NirValue::Binary { op, left, right } if op == "&" => {
-            let left = static_string_value_with_constants(left, constants)?;
-            let right = static_string_value_with_constants(right, constants)?;
+            let left = static_string_value_with_constants(left, constants, types)?;
+            let right = static_string_value_with_constants(right, constants, types)?;
             Some(format!("{left}{right}"))
         }
         _ => None,
+    }
+}
+
+fn static_type_name_with_types(
+    value: &NirValue,
+    types: &HashMap<String, String>,
+) -> Option<String> {
+    match value {
+        NirValue::Const { type_, .. } => Some(type_.clone()),
+        NirValue::Local(name) => types.get(name).cloned(),
+        NirValue::FunctionRef { type_, .. }
+        | NirValue::Constructor { type_, .. }
+        | NirValue::ListLiteral { type_, .. }
+        | NirValue::MapLiteral { type_, .. } => Some(type_.clone()),
+        NirValue::Call { target, .. } | NirValue::RuntimeCall { target, .. } => {
+            match target.as_str() {
+                "typeName" | "toString" => Some("String".to_string()),
+                "toInt" => Some("Integer".to_string()),
+                "toFloat" => Some("Float".to_string()),
+                "toFixed" => Some("Fixed".to_string()),
+                "toByte" => Some("Byte".to_string()),
+                _ => None,
+            }
+        }
+        NirValue::Binary { op, left, right } => {
+            if matches!(
+                op.as_str(),
+                "=" | "<>" | "<" | ">" | "<=" | ">=" | "AND" | "OR" | "XOR"
+            ) {
+                return Some("Boolean".to_string());
+            }
+            if op == "&" {
+                return Some("String".to_string());
+            }
+            let left = static_type_name_with_types(left, types)?;
+            let right = static_type_name_with_types(right, types)?;
+            Some(numeric_binary_result_type(op, &left, &right).to_string())
+        }
+        NirValue::Unary { op, operand } => {
+            if op == "NOT" {
+                Some("Boolean".to_string())
+            } else {
+                static_type_name_with_types(operand, types)
+            }
+        }
+        NirValue::MemberAccess { .. } => None,
     }
 }
 
@@ -2110,25 +2458,7 @@ fn join_texts(values: &[ValueResult]) -> String {
 }
 
 fn numeric_binary_result_type(operator: &str, left: &str, right: &str) -> &'static str {
-    if operator == "/" {
-        if left == "Fixed" && right == "Fixed" {
-            "Fixed"
-        } else {
-            "Float"
-        }
-    } else if left == "Float" || right == "Float" {
-        "Float"
-    } else if left == "Byte" && right == "Byte" {
-        "Byte"
-    } else if (left == "Byte" && right == "Fixed") || (left == "Fixed" && right == "Byte") {
-        "Fixed"
-    } else if left == "Fixed" && right == "Fixed" {
-        "Fixed"
-    } else if left == "Fixed" || right == "Fixed" {
-        "Float"
-    } else {
-        "Integer"
-    }
+    numeric::binary_result_type(operator, left, right).unwrap_or(numeric::TYPE_INTEGER)
 }
 
 fn integer_constant_value(value: &NirValue) -> Option<i64> {

@@ -112,7 +112,7 @@ Fixed > Float > Integer > Byte
 |--------------|---------------|--------------------------------|---------|
 | `Byte`       | `Byte`        | `Byte`                         | `Float` |
 | `Byte`       | `Integer`     | `Integer`                      | `Float` |
-| `Byte`       | `Fixed`       | `Fixed`                        | `Fixed` |
+| `Byte`       | `Fixed`       | `Fixed`                        | `Float` |
 | `Byte`       | `Float`       | `Float`                        | `Float` |
 | `Integer`    | `Byte`        | `Integer`                      | `Float` |
 | `Integer`    | `Integer`     | `Integer`                      | `Float` |
