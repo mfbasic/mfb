@@ -130,7 +130,7 @@ struct CodeBuilder<'a> {
 #[derive(Clone)]
 struct LocalValue {
     type_: String,
-    location: String,
+    stack_offset: usize,
     constant: Option<NirValue>,
 }
 
@@ -645,21 +645,12 @@ fn lower_function(
     string_symbols: &HashMap<String, String>,
     type_model: TypeModel,
 ) -> Result<CodeFunction, String> {
-    let mut locals = HashMap::new();
     let params = function
         .params
         .iter()
         .enumerate()
         .map(|(index, param)| {
             let location = abi::argument_register(index)?;
-            locals.insert(
-                param.name.clone(),
-                LocalValue {
-                    type_: param.type_.clone(),
-                    location: location.clone(),
-                    constant: None,
-                },
-            );
             Ok(CodeParam {
                 name: param.name.clone(),
                 type_: param.type_.clone(),
@@ -675,7 +666,7 @@ fn lower_function(
         platform_imports,
         type_model,
         string_symbols,
-        locals,
+        locals: HashMap::new(),
         instructions: vec![abi::label("entry")],
         relocations: Vec::new(),
         stack_slots: Vec::new(),
@@ -684,6 +675,22 @@ fn lower_function(
         next_register: 8,
         next_label: 0,
     };
+    for param in &params {
+        let stack_offset = builder.allocate_stack_object(&param.name, 8);
+        builder.locals.insert(
+            param.name.clone(),
+            LocalValue {
+                type_: param.type_.clone(),
+                stack_offset,
+                constant: None,
+            },
+        );
+        builder.emit(abi::store_u64(
+            &param.location,
+            abi::stack_pointer(),
+            stack_offset,
+        ));
+    }
     builder.lower_ops(&function.body)?;
     if !builder
         .instructions
@@ -917,7 +924,7 @@ impl CodeBuilder<'_> {
                 NirOp::Bind {
                     name, type_, value, ..
                 } => {
-                    let register = self.allocate_register();
+                    let stack_offset = self.allocate_stack_object(name, 8);
                     let constant = value
                         .as_ref()
                         .and_then(|value| self.local_constant_value(value));
@@ -925,25 +932,31 @@ impl CodeBuilder<'_> {
                         name.clone(),
                         LocalValue {
                             type_: type_.clone(),
-                            location: register.clone(),
+                            stack_offset,
                             constant,
                         },
                     );
-                    self.allocate_stack_object(name, 8);
                     if let Some(value) = value {
                         let result = self.lower_value(value)?;
-                        self.emit(abi::move_register(&register, &result.location));
+                        self.emit(abi::store_u64(
+                            &result.location,
+                            abi::stack_pointer(),
+                            stack_offset,
+                        ));
                     }
                 }
                 NirOp::Assign { name, value } => {
-                    let dst = self
+                    let stack_offset = self
                         .locals
                         .get(name)
                         .ok_or_else(|| format!("native code assignment unknown local '{name}'"))?
-                        .location
-                        .clone();
+                        .stack_offset;
                     let result = self.lower_value(value)?;
-                    self.emit(abi::move_register(&dst, &result.location));
+                    self.emit(abi::store_u64(
+                        &result.location,
+                        abi::stack_pointer(),
+                        stack_offset,
+                    ));
                     let constant = self.local_constant_value(value);
                     if let Some(local) = self.locals.get_mut(name) {
                         local.constant = constant;
@@ -1023,17 +1036,21 @@ impl CodeBuilder<'_> {
                     value,
                     body,
                 } => {
-                    let register = self.allocate_register();
+                    let stack_offset = self.allocate_stack_object(name, 8);
                     let result = self.lower_value(value)?;
                     self.locals.insert(
                         name.clone(),
                         LocalValue {
                             type_: type_.clone(),
-                            location: register.clone(),
+                            stack_offset,
                             constant: self.local_constant_value(value),
                         },
                     );
-                    self.emit(abi::move_register(&register, &result.location));
+                    self.emit(abi::store_u64(
+                        &result.location,
+                        abi::stack_pointer(),
+                        stack_offset,
+                    ));
                     self.lower_ops(body)?;
                     let symbol = self
                         .function_symbols
@@ -1043,6 +1060,7 @@ impl CodeBuilder<'_> {
                     self.emit_call(close, &symbol, &[], None)?;
                 }
             }
+            self.reset_temporary_registers();
         }
         Ok(())
     }
@@ -1058,7 +1076,7 @@ impl CodeBuilder<'_> {
         }
         match value {
             NirValue::Const { type_, value } => {
-                let register = self.allocate_register();
+                let register = self.allocate_register()?;
                 if type_ == "String" {
                     self.emit_load_string_constant(&register, value)?;
                 } else {
@@ -1083,9 +1101,13 @@ impl CodeBuilder<'_> {
                     .locals
                     .get(name)
                     .ok_or_else(|| format!("native code local '{name}' does not resolve"))?;
+                let type_ = local.type_.clone();
+                let stack_offset = local.stack_offset;
+                let register = self.allocate_register()?;
+                self.emit(abi::load_u64(&register, abi::stack_pointer(), stack_offset));
                 Ok(ValueResult {
-                    type_: local.type_.clone(),
-                    location: local.location.clone(),
+                    type_,
+                    location: register,
                     text: name.clone(),
                 })
             }
@@ -1113,7 +1135,7 @@ impl CodeBuilder<'_> {
                 if target == "toInt" && args.len() == 1 {
                     let arg = self.lower_value(&args[0])?;
                     if arg.type_ == "Byte" {
-                        let register = self.allocate_register();
+                        let register = self.allocate_register()?;
                         self.emit(abi::move_register(&register, &arg.location));
                         return Ok(ValueResult {
                             type_: "Integer".to_string(),
@@ -1157,7 +1179,7 @@ impl CodeBuilder<'_> {
                     .iter()
                     .map(|arg| self.lower_value(arg))
                     .collect::<Result<Vec<_>, _>>()?;
-                let register = self.allocate_register();
+                let register = self.allocate_register()?;
                 let tag = self
                     .type_model
                     .union_variant_tags
@@ -1167,7 +1189,7 @@ impl CodeBuilder<'_> {
                         format!("native code union variant '{type_}' does not resolve")
                     })?;
                 let object_offset = self.allocate_stack_object(type_, 8 * (arg_values.len() + 1));
-                let tag_register = self.allocate_register();
+                let tag_register = self.allocate_register()?;
                 self.emit(abi::move_immediate(
                     &tag_register,
                     "UnionTag",
@@ -1213,7 +1235,7 @@ impl CodeBuilder<'_> {
                                 "native code enum member '{type_name}.{member}' does not resolve"
                             )
                         })?;
-                    let register = self.allocate_register();
+                    let register = self.allocate_register()?;
                     self.emit(abi::move_immediate(
                         &register,
                         "EnumOrdinal",
@@ -1233,7 +1255,7 @@ impl CodeBuilder<'_> {
             NirValue::Binary { op, left, right } => {
                 let left = self.lower_value(left)?;
                 let right = self.lower_value(right)?;
-                let register = self.allocate_register();
+                let register = self.allocate_register()?;
                 match op.as_str() {
                     "+" => {
                         self.emit(abi::add_registers(
@@ -1300,7 +1322,7 @@ impl CodeBuilder<'_> {
     }
 
     fn load_string_constant(&mut self, value: &str) -> Result<String, String> {
-        let register = self.allocate_register();
+        let register = self.allocate_register()?;
         self.emit_load_string_constant(&register, value)?;
         Ok(register)
     }
@@ -1499,7 +1521,7 @@ impl CodeBuilder<'_> {
                     .ok_or_else(|| {
                         format!("native code union variant '{variant}' does not resolve")
                     })?;
-                let tag_register = self.allocate_register();
+                let tag_register = self.allocate_register()?;
                 self.emit(abi::load_u64(&tag_register, &matched.location, 0));
                 self.emit(abi::compare_immediate(&tag_register, &tag.to_string()));
                 self.emit(abi::branch_eq(label));
@@ -1567,7 +1589,7 @@ impl CodeBuilder<'_> {
             self.emit(abi::return_());
             self.emit(abi::label(&ok_label));
         }
-        let register = self.allocate_register();
+        let register = self.allocate_register()?;
         self.emit(abi::move_register(&register, RESULT_VALUE_REGISTER));
         Ok(ValueResult {
             type_: result_type,
@@ -1576,14 +1598,17 @@ impl CodeBuilder<'_> {
         })
     }
 
-    fn allocate_register(&mut self) -> String {
-        let register =
-            abi::temporary_register(self.next_register).unwrap_or_else(|err| panic!("{err}"));
+    fn allocate_register(&mut self) -> Result<String, String> {
+        let register = abi::temporary_register(self.next_register)?;
         self.next_register += 1;
         if abi::is_callee_saved(&register) && !self.used_callee_saved.contains(&register) {
             self.used_callee_saved.push(register.clone());
         }
-        register
+        Ok(register)
+    }
+
+    fn reset_temporary_registers(&mut self) {
+        self.next_register = 8;
     }
 
     fn local_constants(&self) -> HashMap<String, Option<NirValue>> {
@@ -1703,7 +1728,7 @@ impl CodeBuilder<'_> {
             .get(value)
             .ok_or_else(|| format!("native code string literal '{value}' has no data object"))?
             .clone();
-        let register = self.allocate_register();
+        let register = self.allocate_register()?;
         self.emit(abi::load_page_address(&register, &symbol));
         self.relocations.push(CodeRelocation {
             from: self.current_symbol.clone(),
