@@ -15,6 +15,7 @@ These types are always in scope. They do not require `IMPORT`.
 | `Nothing` | Unit type with the single value `NOTHING`. |
 | `Error` | Standard error payload: `Error[code AS Integer, message AS String]`. |
 | `Result OF T` | Standard success/error union: `Ok(value AS T)` or `Err(error AS Error)`. |
+| `MapEntry OF K TO V` | Standard map iteration entry: `MapEntry[key AS K, value AS V]`. |
 | `Thread OF Msg TO Out` | Opaque handle to an isolated thread with message type `Msg` and result type `Out`. |
 
 The `Error` and `Result` shapes are built into the language:
@@ -33,9 +34,18 @@ END UNION
 
 The `Result OF T` declaration is compiler-owned notation. It describes the built-in `Result` template; concrete uses are monomorphized before bytecode generation.
 
+`MapEntry OF K TO V` is a compiler-owned record shape produced by iterating a `Map OF K TO V`. It has public read-only fields:
+
+```basic
+TYPE MapEntry OF K TO V
+  key AS K
+  value AS V
+END TYPE
+```
+
 ## 2. Built-in Containers
 
-The standard containers are owned value types. A `LET` container is an immutable snapshot. A `MUT` container is a locally mutable buffer while the binding is live. Map iteration order is implementation-defined but stable for a given unchanged map value: repeated `keys`, `values`, `forEach`, `transform`, `filter`, or `reduce` traversal of the same map value in one program run must use the same order. Creating a changed map value may choose a different order.
+The standard containers are owned value types. A `LET` container is an immutable snapshot. A `MUT` container is a locally mutable buffer while the binding is live. Map iteration order is implementation-defined but stable for a given unchanged map value: repeated `keys`, `values`, or `FOR EACH` traversal of the same map value in one program run must use the same order. Creating a changed map value may choose a different order.
 
 | Container | Description |
 |-----------|-------------|

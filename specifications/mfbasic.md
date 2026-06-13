@@ -299,9 +299,12 @@ END SUB
 ```basic
 List OF T                          ' owned sequence
 Map OF K TO V                      ' owned map
+MapEntry OF K TO V                 ' map iteration entry
 ```
 
-`List` and `Map` are built-in templates. Each concrete use, such as `List OF Integer` or `Map OF String TO Float`, is monomorphized before bytecode generation. There is one sequence type, `List`. There are no fixed-size arrays and no `DIM`. See §12.
+`List`, `Map`, and `MapEntry` are built-in templates. Each concrete use, such as `List OF Integer`, `Map OF String TO Float`, or `MapEntry OF String TO Float`, is monomorphized before bytecode generation. There is one sequence type, `List`. There are no fixed-size arrays and no `DIM`. See §12.
+
+`MapEntry OF K TO V` is the compiler-owned record shape used when iterating a map. It has public read-only fields `key AS K` and `value AS V`.
 
 ### 4.8 Threads
 
@@ -680,6 +683,7 @@ END MATCH
 ```basic
 FOR i = 1 TO 10 STEP 2 : io::print(toString(i)) : NEXT
 FOR EACH item IN lines : io::print(item) : NEXT
+FOR EACH entry IN scores : io::print(entry.key & "=" & toString(entry.value)) : NEXT
 WHILE x < 10 : x = x + 1 : WEND
 DO : ... : LOOP UNTIL done
 DO WHILE ready : ... : LOOP
@@ -694,6 +698,8 @@ ELSE
   ...
 END IF
 ```
+
+`FOR EACH` accepts `List OF T` and `Map OF K TO V` sources. A list loop binds the loop variable as `T`. A map loop binds the loop variable as `MapEntry OF K TO V`; `entry.key` has type `K` and `entry.value` has type `V`. Map loop order is implementation-defined but stable for a given unchanged map value, matching the order used by `keys` and `values`.
 
 There is **no `GOTO`** and **no `SELECT CASE`** (use `MATCH`).
 
@@ -770,6 +776,8 @@ pts = append(pts, v)                            ' in-place append on the mutable
 - Immutability is deep for the contained value graph. A `LET` collection does not allow mutation of its elements through the collection, and no element can be observed as shared mutable state through another collection or binding.
 
 Built-in collection helpers include `len`, `get`, `getOr`, `find`, `mid`, `replace`, `set`, `append`, `prepend`, `insert`, `removeAt`, `removeKey`, `keys`, `values`, `hasKey`, `contains`, `forEach`, `transform`, `filter`, `reduce`, and `sum`.
+
+`FOR EACH` over `List OF T` visits items left to right. `FOR EACH` over `Map OF K TO V` visits `MapEntry OF K TO V` values in the map's implementation-defined stable iteration order.
 
 ---
 
