@@ -1,0 +1,8 @@
+FUNC main AS Integer
+  LET missing AS String = toString()
+  LET wrongType AS String = toString([1, 2, 3])
+  LET wrongPrecisionType AS String = toString(1.25, "2")
+  LET precisionForInteger AS String = toString(1, TRUE)
+  LET tooMany AS String = toString(1.25, 2, 3)
+  RETURN 0
+END FUNC

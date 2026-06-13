@@ -235,13 +235,18 @@ pub(crate) fn resolve_call<'a>(name: &str, arg_types: &'a [String]) -> Option<Re
             }
         }
         TO_STRING => {
-            if arg_types.len() != 1 {
-                return None;
-            }
-            if matches!(
-                arg_types[0].as_str(),
-                "Integer" | "Float" | "Fixed" | "Boolean" | "String" | "Byte"
-            ) || arg_types[0] == "List OF Byte"
+            if arg_types.len() == 2
+                && matches!(arg_types[0].as_str(), "Float" | "Fixed")
+                && arg_types[1] == "Byte"
+            {
+                ResolvedCall {
+                    return_type: Cow::Borrowed("String"),
+                }
+            } else if arg_types.len() == 1
+                && (matches!(
+                    arg_types[0].as_str(),
+                    "Integer" | "Float" | "Fixed" | "Boolean" | "String" | "Byte"
+                ) || arg_types[0] == "List OF Byte")
             {
                 ResolvedCall {
                     return_type: Cow::Borrowed("String"),
@@ -355,7 +360,9 @@ pub(crate) fn expected_arguments(name: &str) -> Option<&'static str> {
         MID => Some("String, Integer, Integer"),
         REPLACE => Some("String, String, String"),
         TYPE_NAME => Some("T"),
-        TO_STRING => Some("Integer, Float, Fixed, Boolean, String, Byte, or List OF Byte"),
+        TO_STRING => {
+            Some("Integer, Float[, Byte], Fixed[, Byte], Boolean, String, Byte, or List OF Byte")
+        }
         TO_INT => Some("String, Byte, Float, or Fixed"),
         TO_FLOAT => Some("String, Integer, or Fixed"),
         TO_FIXED => Some("String, Integer, or Float"),
@@ -388,10 +395,9 @@ pub(crate) fn expected_arguments(name: &str) -> Option<&'static str> {
 
 pub(crate) fn arity(name: &str) -> Option<(usize, usize)> {
     match name {
-        LEN | TYPE_NAME | TO_STRING | TO_INT | TO_FLOAT | TO_FIXED | TO_BYTE | IS_NUMERIC
-        | IS_EVEN | IS_ODD | IS_POSITIVE | IS_NEGATIVE | IS_ZERO | IS_EMPTY | IS_NOT_EMPTY => {
-            Some((1, 1))
-        }
+        LEN | TYPE_NAME | TO_INT | TO_FLOAT | TO_FIXED | TO_BYTE | IS_NUMERIC | IS_EVEN
+        | IS_ODD | IS_POSITIVE | IS_NEGATIVE | IS_ZERO | IS_EMPTY | IS_NOT_EMPTY => Some((1, 1)),
+        TO_STRING => Some((1, 2)),
         FIND => Some((2, 3)),
         MID | REPLACE => Some((3, 3)),
         GET | REMOVE_AT | REMOVE_KEY | HAS_KEY | CONTAINS | APPEND | PREPEND => Some((2, 2)),

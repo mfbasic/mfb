@@ -3,8 +3,8 @@ NAME
 
 SYNOPSIS
   toString(value AS Integer) AS String
-  toString(value AS Float) AS String
-  toString(value AS Fixed) AS String
+  toString(value AS Float, precision AS Byte = 2) AS String
+  toString(value AS Fixed, precision AS Byte = 2) AS String
   toString(value AS Boolean) AS String
   toString(value AS String) AS String
   toString(value AS Byte) AS String
@@ -31,16 +31,15 @@ OVERLOADS
   toString(value AS Integer) AS String
     Converts an Integer to base-10 text.
 
-  toString(value AS Float) AS String
-    Converts a finite Float to implementation-defined round-trippable text.
-    MFBASIC source cannot construct successful NaN or infinity values; imported
-    non-finite Float values are rejected at the boundary before ordinary source
-    code can convert them.
+  toString(value AS Float, precision AS Byte = 2) AS String
+    Converts a finite Float to decimal text with precision digits after the
+    decimal point.
 
-  toString(value AS Fixed) AS String
-    Converts a Fixed value to decimal text. Fixed is binary fixed-point, so
-    decimal output reflects the representable value, not necessarily the
-    original decimal spelling used to create it.
+  toString(value AS Fixed, precision AS Byte = 2) AS String
+    Converts a Fixed value to decimal text with precision digits after the
+    decimal point. Fixed is binary fixed-point, so decimal output reflects the
+    representable value, not necessarily the original decimal spelling used to
+    create it.
 
   toString(value AS Boolean) AS String
     Returns "TRUE" for TRUE and "FALSE" for FALSE.
@@ -54,10 +53,10 @@ OVERLOADS
 
   toString(value AS List OF Byte) AS String
     Decodes the byte list as UTF-8 and returns the resulting String. Invalid
-    UTF-8 fails with ErrInvalidEncoding (10019).
+    UTF-8 fails with ErrEncoding (10019).
 
 ERRORS
-  ErrInvalidEncoding (10019)
+  ErrEncoding (10019)
     Returned by the List OF Byte overload when the byte sequence is not valid
     UTF-8.
 

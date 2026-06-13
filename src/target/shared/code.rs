@@ -24,6 +24,9 @@ const ERR_INDEX_OUT_OF_RANGE_SYMBOL: &str = "_mfb_str_error_index_out_of_range";
 const ERR_NOT_FOUND_CODE: &str = "10004";
 const ERR_NOT_FOUND_MESSAGE: &str = "not found";
 const ERR_NOT_FOUND_SYMBOL: &str = "_mfb_str_error_not_found";
+const ERR_ENCODING_CODE: &str = "10019";
+const ERR_ENCODING_MESSAGE: &str = "invalid encoding";
+const ERR_ENCODING_SYMBOL: &str = "_mfb_str_error_encoding";
 const ENTRY_ERROR_PREFIX: &str = "Code: ";
 const ENTRY_ERROR_PREFIX_SYMBOL: &str = "_mfb_str_entry_error_prefix";
 const ENTRY_ERROR_SEPARATOR: &str = " Message: ";
@@ -42,6 +45,9 @@ const ARENA_BLOCK_HEADER_SIZE: usize = 32;
 const ERR_INVALID_ARGUMENT_CODE: &str = "10002";
 const ERR_INVALID_ARGUMENT_MESSAGE: &str = "invalid argument";
 const ERR_INVALID_ARGUMENT_SYMBOL: &str = "_mfb_str_error_invalid_argument";
+const ERR_INVALID_FORMAT_CODE: &str = "10003";
+const ERR_INVALID_FORMAT_MESSAGE: &str = "invalid format";
+const ERR_INVALID_FORMAT_SYMBOL: &str = "_mfb_str_error_invalid_format";
 const ERR_OUT_OF_MEMORY_CODE: &str = "10010";
 
 pub(crate) struct NativeCodePlan {
@@ -1498,6 +1504,12 @@ impl CodeBuilder<'_> {
                 if target == "mid" && args.len() == 3 {
                     return self.lower_mid(args);
                 }
+                if target == "replace" && args.len() == 3 {
+                    return self.lower_replace(args);
+                }
+                if target == "toString" && (args.len() == 1 || args.len() == 2) {
+                    return self.lower_to_string(args);
+                }
                 if target == "typeName" && args.len() == 1 {
                     let type_name = self.static_type_name(&args[0]).ok_or_else(|| {
                         "native code cannot determine typeName argument type".to_string()
@@ -1510,16 +1522,19 @@ impl CodeBuilder<'_> {
                     });
                 }
                 if target == "toInt" && args.len() == 1 {
-                    let arg = self.lower_value(&args[0])?;
-                    if arg.type_ == "Byte" {
-                        let register = self.allocate_register()?;
-                        self.emit(abi::move_register(&register, &arg.location));
-                        return Ok(ValueResult {
-                            type_: "Integer".to_string(),
-                            location: register,
-                            text: format!("toInt({})", arg.text),
-                        });
-                    }
+                    return self.lower_to_int(&args[0]);
+                }
+                if target == "toFloat" && args.len() == 1 {
+                    return self.lower_to_float(&args[0]);
+                }
+                if target == "toFixed" && args.len() == 1 {
+                    return self.lower_to_fixed(&args[0]);
+                }
+                if target == "toByte" && args.len() == 1 {
+                    return self.lower_to_byte(&args[0]);
+                }
+                if target == "isNumeric" && args.len() == 1 {
+                    return self.lower_is_numeric(&args[0]);
                 }
                 let symbol = self
                     .function_symbols
@@ -1695,6 +1710,1546 @@ impl CodeBuilder<'_> {
         }
     }
 
+    fn lower_replace(&mut self, args: &[NirValue]) -> Result<ValueResult, String> {
+        let value = self.lower_value(&args[0])?;
+        if value.type_ != "String" {
+            return Err(format!(
+                "native string replace value must be String, got {}",
+                value.type_
+            ));
+        }
+        let value_slot = self.allocate_stack_object("replace_value", 8);
+        self.emit(abi::store_u64(
+            &value.location,
+            abi::stack_pointer(),
+            value_slot,
+        ));
+
+        let old = self.lower_value(&args[1])?;
+        if old.type_ != "String" {
+            return Err(format!(
+                "native string replace old must be String, got {}",
+                old.type_
+            ));
+        }
+        let old_slot = self.allocate_stack_object("replace_old", 8);
+        self.emit(abi::store_u64(
+            &old.location,
+            abi::stack_pointer(),
+            old_slot,
+        ));
+
+        let new = self.lower_value(&args[2])?;
+        if new.type_ != "String" {
+            return Err(format!(
+                "native string replace new must be String, got {}",
+                new.type_
+            ));
+        }
+        let new_slot = self.allocate_stack_object("replace_new", 8);
+        self.emit(abi::store_u64(
+            &new.location,
+            abi::stack_pointer(),
+            new_slot,
+        ));
+
+        let result_slot = self.allocate_stack_object("replace_result", 8);
+        let output_len_slot = self.allocate_stack_object("replace_output_len", 8);
+
+        let value_ptr = "x8";
+        let value_len = "x9";
+        let old_ptr = "x10";
+        let old_len = "x11";
+        let new_ptr = "x12";
+        let new_len = "x13";
+        let index = "x14";
+        let output_len = "x15";
+        let last_start = "x16";
+        let match_index = "x17";
+        let candidate = "x20";
+        let old_cursor = "x21";
+        let value_byte = "x22";
+        let old_byte = "x23";
+        let dest = "x24";
+        let new_cursor = "x25";
+        let new_index = "x26";
+        for register in [
+            candidate, old_cursor, value_byte, old_byte, dest, new_cursor, new_index,
+        ] {
+            if abi::is_callee_saved(register)
+                && !self.used_callee_saved.iter().any(|saved| saved == register)
+            {
+                self.used_callee_saved.push(register.to_string());
+            }
+        }
+
+        let copy_original = self.label("replace_copy_original");
+        let first_loop = self.label("replace_first_loop");
+        let first_compare = self.label("replace_first_compare");
+        let first_match = self.label("replace_first_match");
+        let first_next = self.label("replace_first_next");
+        let first_done = self.label("replace_first_done");
+        let alloc_ok = self.label("replace_alloc_ok");
+        let second_loop = self.label("replace_second_loop");
+        let second_compare = self.label("replace_second_compare");
+        let second_match = self.label("replace_second_match");
+        let second_copy_new_loop = self.label("replace_second_copy_new_loop");
+        let second_copy_new_done = self.label("replace_second_copy_new_done");
+        let second_copy_one = self.label("replace_second_copy_one");
+        let second_done = self.label("replace_second_done");
+        let done = self.label("replace_done");
+        let result = self.allocate_register()?;
+
+        self.emit(abi::load_u64(value_ptr, abi::stack_pointer(), value_slot));
+        self.emit(abi::load_u64(old_ptr, abi::stack_pointer(), old_slot));
+        self.emit(abi::load_u64(new_ptr, abi::stack_pointer(), new_slot));
+        self.emit(abi::load_u64(value_len, value_ptr, 0));
+        self.emit(abi::load_u64(old_len, old_ptr, 0));
+        self.emit(abi::load_u64(new_len, new_ptr, 0));
+        self.emit(abi::compare_immediate(old_len, "0"));
+        self.emit(abi::branch_eq(&copy_original));
+        self.emit(abi::compare_registers(old_len, value_len));
+        self.emit(abi::branch_hi(&copy_original));
+        self.emit(abi::add_immediate(value_ptr, value_ptr, 8));
+        self.emit(abi::add_immediate(old_ptr, old_ptr, 8));
+        self.emit(abi::add_immediate(new_ptr, new_ptr, 8));
+        self.emit(abi::move_immediate(index, "Integer", "0"));
+        self.emit(abi::move_register(output_len, value_len));
+        self.emit(abi::subtract_registers(last_start, value_len, old_len));
+
+        self.emit(abi::label(&first_loop));
+        self.emit(abi::compare_registers(index, last_start));
+        self.emit(abi::branch_hi(&first_done));
+        self.emit(abi::move_immediate(match_index, "Integer", "0"));
+        self.emit(abi::add_registers(candidate, value_ptr, index));
+        self.emit(abi::move_register(old_cursor, old_ptr));
+        self.emit(abi::label(&first_compare));
+        self.emit(abi::compare_registers(match_index, old_len));
+        self.emit(abi::branch_eq(&first_match));
+        self.emit(abi::load_u8(value_byte, candidate, 0));
+        self.emit(abi::load_u8(old_byte, old_cursor, 0));
+        self.emit(abi::compare_registers(value_byte, old_byte));
+        self.emit(abi::branch_ne(&first_next));
+        self.emit(abi::add_immediate(candidate, candidate, 1));
+        self.emit(abi::add_immediate(old_cursor, old_cursor, 1));
+        self.emit(abi::add_immediate(match_index, match_index, 1));
+        self.emit(abi::branch(&first_compare));
+
+        self.emit(abi::label(&first_match));
+        self.emit(abi::subtract_registers(output_len, output_len, old_len));
+        self.emit(abi::add_registers(output_len, output_len, new_len));
+        self.emit(abi::add_registers(index, index, old_len));
+        self.emit(abi::branch(&first_loop));
+
+        self.emit(abi::label(&first_next));
+        self.emit(abi::add_immediate(index, index, 1));
+        self.emit(abi::branch(&first_loop));
+
+        self.emit(abi::label(&first_done));
+        self.emit(abi::store_u64(
+            output_len,
+            abi::stack_pointer(),
+            output_len_slot,
+        ));
+        self.emit(abi::add_immediate(abi::return_register(), output_len, 9));
+        self.emit(abi::move_immediate("x1", "Integer", "8"));
+        self.emit(abi::branch_link(ARENA_ALLOC_SYMBOL));
+        self.relocations.push(CodeRelocation {
+            from: self.current_symbol.clone(),
+            to: ARENA_ALLOC_SYMBOL.to_string(),
+            kind: "branch26".to_string(),
+            binding: "internal".to_string(),
+            library: None,
+        });
+        self.emit(abi::compare_immediate(
+            abi::return_register(),
+            RESULT_OK_TAG,
+        ));
+        self.emit(abi::branch_eq(&alloc_ok));
+        self.emit_allocation_error_return()?;
+
+        self.emit(abi::label(&alloc_ok));
+        self.emit(abi::store_u64("x1", abi::stack_pointer(), result_slot));
+        self.emit(abi::load_u64(
+            output_len,
+            abi::stack_pointer(),
+            output_len_slot,
+        ));
+        self.emit(abi::store_u64(output_len, "x1", 0));
+        self.emit(abi::add_immediate(dest, "x1", 8));
+        self.emit(abi::load_u64(value_ptr, abi::stack_pointer(), value_slot));
+        self.emit(abi::load_u64(old_ptr, abi::stack_pointer(), old_slot));
+        self.emit(abi::load_u64(new_ptr, abi::stack_pointer(), new_slot));
+        self.emit(abi::load_u64(value_len, value_ptr, 0));
+        self.emit(abi::load_u64(old_len, old_ptr, 0));
+        self.emit(abi::load_u64(new_len, new_ptr, 0));
+        self.emit(abi::add_immediate(value_ptr, value_ptr, 8));
+        self.emit(abi::add_immediate(old_ptr, old_ptr, 8));
+        self.emit(abi::add_immediate(new_ptr, new_ptr, 8));
+        self.emit(abi::subtract_registers(last_start, value_len, old_len));
+        self.emit(abi::move_immediate(index, "Integer", "0"));
+
+        self.emit(abi::label(&second_loop));
+        self.emit(abi::compare_registers(index, value_len));
+        self.emit(abi::branch_ge(&second_done));
+        self.emit(abi::compare_registers(index, last_start));
+        self.emit(abi::branch_hi(&second_copy_one));
+        self.emit(abi::move_immediate(match_index, "Integer", "0"));
+        self.emit(abi::add_registers(candidate, value_ptr, index));
+        self.emit(abi::move_register(old_cursor, old_ptr));
+        self.emit(abi::label(&second_compare));
+        self.emit(abi::compare_registers(match_index, old_len));
+        self.emit(abi::branch_eq(&second_match));
+        self.emit(abi::load_u8(value_byte, candidate, 0));
+        self.emit(abi::load_u8(old_byte, old_cursor, 0));
+        self.emit(abi::compare_registers(value_byte, old_byte));
+        self.emit(abi::branch_ne(&second_copy_one));
+        self.emit(abi::add_immediate(candidate, candidate, 1));
+        self.emit(abi::add_immediate(old_cursor, old_cursor, 1));
+        self.emit(abi::add_immediate(match_index, match_index, 1));
+        self.emit(abi::branch(&second_compare));
+
+        self.emit(abi::label(&second_match));
+        self.emit(abi::move_immediate(new_index, "Integer", "0"));
+        self.emit(abi::move_register(new_cursor, new_ptr));
+        self.emit(abi::label(&second_copy_new_loop));
+        self.emit(abi::compare_registers(new_index, new_len));
+        self.emit(abi::branch_eq(&second_copy_new_done));
+        self.emit(abi::load_u8(value_byte, new_cursor, 0));
+        self.emit(abi::store_u8(value_byte, dest, 0));
+        self.emit(abi::add_immediate(new_cursor, new_cursor, 1));
+        self.emit(abi::add_immediate(dest, dest, 1));
+        self.emit(abi::add_immediate(new_index, new_index, 1));
+        self.emit(abi::branch(&second_copy_new_loop));
+        self.emit(abi::label(&second_copy_new_done));
+        self.emit(abi::add_registers(index, index, old_len));
+        self.emit(abi::branch(&second_loop));
+
+        self.emit(abi::label(&second_copy_one));
+        self.emit(abi::add_registers(candidate, value_ptr, index));
+        self.emit(abi::load_u8(value_byte, candidate, 0));
+        self.emit(abi::store_u8(value_byte, dest, 0));
+        self.emit(abi::add_immediate(dest, dest, 1));
+        self.emit(abi::add_immediate(index, index, 1));
+        self.emit(abi::branch(&second_loop));
+
+        self.emit(abi::label(&second_done));
+        self.emit(abi::move_immediate(value_byte, "Integer", "0"));
+        self.emit(abi::store_u8(value_byte, dest, 0));
+        self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
+        self.emit(abi::branch(&done));
+
+        self.emit(abi::label(&copy_original));
+        self.emit(abi::load_u64(&result, abi::stack_pointer(), value_slot));
+        self.emit(abi::label(&done));
+
+        Ok(ValueResult {
+            type_: "String".to_string(),
+            location: result,
+            text: "replace(String, String, String)".to_string(),
+        })
+    }
+
+    fn lower_to_string(&mut self, args: &[NirValue]) -> Result<ValueResult, String> {
+        let value = self.lower_value(&args[0])?;
+        let value_slot = self.allocate_stack_object("to_string_value", 8);
+        self.emit(abi::store_u64(
+            &value.location,
+            abi::stack_pointer(),
+            value_slot,
+        ));
+
+        let precision_slot = self.allocate_stack_object("to_string_precision", 8);
+        if let Some(precision) = args.get(1) {
+            let precision = self.lower_value(precision)?;
+            if precision.type_ != "Byte" {
+                return Err(format!(
+                    "native toString precision must be Byte, got {}",
+                    precision.type_
+                ));
+            }
+            self.emit(abi::store_u64(
+                &precision.location,
+                abi::stack_pointer(),
+                precision_slot,
+            ));
+        } else {
+            self.emit(abi::move_immediate("x8", "Byte", "2"));
+            self.emit(abi::store_u64("x8", abi::stack_pointer(), precision_slot));
+        }
+
+        self.reset_temporary_registers();
+        let value_register = self.allocate_register()?;
+        self.emit(abi::load_u64(
+            &value_register,
+            abi::stack_pointer(),
+            value_slot,
+        ));
+
+        match value.type_.as_str() {
+            "String" => Ok(ValueResult {
+                type_: "String".to_string(),
+                location: value_register,
+                text: format!("toString({})", value.text),
+            }),
+            "Boolean" => self.lower_boolean_to_string(&value_register),
+            "Byte" => self.emit_integer_to_string_value(&value_register, false),
+            "Integer" => self.emit_integer_to_string_value(&value_register, true),
+            "List OF Byte" => self.emit_byte_list_to_string_value(&value_register),
+            "Fixed" => {
+                let precision = self.allocate_register()?;
+                self.emit(abi::load_u64(
+                    &precision,
+                    abi::stack_pointer(),
+                    precision_slot,
+                ));
+                self.emit_fixed_to_string_value(&value_register, &precision)
+            }
+            "Float" => {
+                let precision = self.allocate_register()?;
+                let fixed_raw = self.allocate_register()?;
+                self.emit(abi::load_u64(
+                    &precision,
+                    abi::stack_pointer(),
+                    precision_slot,
+                ));
+                self.emit(abi::float_move_d_from_x("d0", &value_register));
+                self.emit_f64_const("d1", "x17", 4_294_967_296.0);
+                self.emit(abi::float_multiply_d("d0", "d0", "d1"));
+                self.emit(abi::float_convert_to_signed_x(&fixed_raw, "d0"));
+                self.emit_fixed_to_string_value(&fixed_raw, &precision)
+            }
+            other => Err(format!(
+                "native toString does not accept argument type '{other}'"
+            )),
+        }
+    }
+
+    fn lower_boolean_to_string(&mut self, value_register: &str) -> Result<ValueResult, String> {
+        let false_label = self.label("bool_string_false");
+        let done = self.label("bool_string_done");
+        let result = self.allocate_register()?;
+        self.emit(abi::compare_immediate(value_register, "0"));
+        self.emit(abi::branch_eq(&false_label));
+        self.emit_load_string_constant(&result, "TRUE")?;
+        self.emit(abi::branch(&done));
+        self.emit(abi::label(&false_label));
+        self.emit_load_string_constant(&result, "FALSE")?;
+        self.emit(abi::label(&done));
+        Ok(ValueResult {
+            type_: "String".to_string(),
+            location: result,
+            text: "toString(Boolean)".to_string(),
+        })
+    }
+
+    fn emit_integer_to_string_value(
+        &mut self,
+        source_register: &str,
+        signed: bool,
+    ) -> Result<ValueResult, String> {
+        let buffer_slot = self.allocate_stack_object("to_string_integer_buffer", 40);
+        let length_slot = self.allocate_stack_object("to_string_integer_length", 8);
+        let start_slot = self.allocate_stack_object("to_string_integer_start", 8);
+        let result_slot = self.allocate_stack_object("to_string_integer_result", 8);
+
+        let value = "x8";
+        let negative = "x9";
+        let length = "x10";
+        let cursor = "x11";
+        let divisor = "x12";
+        let quotient = "x13";
+        let digit = "x14";
+        let dst = "x15";
+        let done = self.label("int_string_done");
+        let nonnegative = self.label("int_string_nonnegative");
+        let zero = self.label("int_string_zero");
+        let loop_start = self.label("int_string_loop");
+        let digits_done = self.label("int_string_digits_done");
+        let sign_done = self.label("int_string_sign_done");
+        let alloc_ok = self.label("int_string_alloc_ok");
+        let copy_loop = self.label("int_string_copy_loop");
+        let copy_done = self.label("int_string_copy_done");
+
+        self.emit(abi::move_register(value, source_register));
+        self.emit(abi::move_immediate(negative, "Integer", "0"));
+        self.emit(abi::move_immediate(length, "Integer", "0"));
+        self.emit(abi::compare_immediate(value, "0"));
+        self.emit(abi::branch_eq(&zero));
+        if signed {
+            self.emit(abi::branch_ge(&nonnegative));
+            self.emit(abi::subtract_registers(value, "xzr", value));
+            self.emit(abi::move_immediate(negative, "Integer", "1"));
+            self.emit(abi::label(&nonnegative));
+        }
+        self.emit(abi::add_immediate(
+            cursor,
+            abi::stack_pointer(),
+            buffer_slot + 39,
+        ));
+        self.emit(abi::move_immediate(divisor, "Integer", "10"));
+        self.emit(abi::label(&loop_start));
+        self.emit(abi::compare_immediate(value, "0"));
+        self.emit(abi::branch_eq(&digits_done));
+        self.emit(abi::unsigned_divide_registers(quotient, value, divisor));
+        self.emit(abi::multiply_subtract_registers(
+            digit, quotient, divisor, value,
+        ));
+        self.emit(abi::add_immediate(digit, digit, b'0' as usize));
+        self.emit(abi::store_u8(digit, cursor, 0));
+        self.emit(abi::subtract_immediate(cursor, cursor, 1));
+        self.emit(abi::add_immediate(length, length, 1));
+        self.emit(abi::move_register(value, quotient));
+        self.emit(abi::branch(&loop_start));
+
+        self.emit(abi::label(&zero));
+        self.emit(abi::add_immediate(
+            cursor,
+            abi::stack_pointer(),
+            buffer_slot + 39,
+        ));
+        self.emit(abi::move_immediate(
+            digit,
+            "Integer",
+            &(b'0' as u64).to_string(),
+        ));
+        self.emit(abi::store_u8(digit, cursor, 0));
+        self.emit(abi::subtract_immediate(cursor, cursor, 1));
+        self.emit(abi::move_immediate(length, "Integer", "1"));
+
+        self.emit(abi::label(&digits_done));
+        self.emit(abi::compare_immediate(negative, "0"));
+        self.emit(abi::branch_eq(&sign_done));
+        self.emit(abi::move_immediate(
+            digit,
+            "Integer",
+            &(b'-' as u64).to_string(),
+        ));
+        self.emit(abi::store_u8(digit, cursor, 0));
+        self.emit(abi::subtract_immediate(cursor, cursor, 1));
+        self.emit(abi::add_immediate(length, length, 1));
+        self.emit(abi::label(&sign_done));
+        self.emit(abi::add_immediate(cursor, cursor, 1));
+        self.emit(abi::store_u64(length, abi::stack_pointer(), length_slot));
+        self.emit(abi::store_u64(cursor, abi::stack_pointer(), start_slot));
+
+        self.emit(abi::add_immediate(abi::return_register(), length, 9));
+        self.emit(abi::move_immediate("x1", "Integer", "8"));
+        self.emit(abi::branch_link(ARENA_ALLOC_SYMBOL));
+        self.relocations.push(CodeRelocation {
+            from: self.current_symbol.clone(),
+            to: ARENA_ALLOC_SYMBOL.to_string(),
+            kind: "branch26".to_string(),
+            binding: "internal".to_string(),
+            library: None,
+        });
+        self.emit(abi::compare_immediate(
+            abi::return_register(),
+            RESULT_OK_TAG,
+        ));
+        self.emit(abi::branch_eq(&alloc_ok));
+        self.emit_allocation_error_return()?;
+        self.emit(abi::label(&alloc_ok));
+        self.emit(abi::store_u64("x1", abi::stack_pointer(), result_slot));
+        self.emit(abi::load_u64(length, abi::stack_pointer(), length_slot));
+        self.emit(abi::store_u64(length, "x1", 0));
+        self.emit(abi::add_immediate(dst, "x1", 8));
+        self.emit(abi::load_u64(cursor, abi::stack_pointer(), start_slot));
+        self.emit(abi::label(&copy_loop));
+        self.emit(abi::compare_immediate(length, "0"));
+        self.emit(abi::branch_eq(&copy_done));
+        self.emit(abi::load_u8(digit, cursor, 0));
+        self.emit(abi::store_u8(digit, dst, 0));
+        self.emit(abi::add_immediate(cursor, cursor, 1));
+        self.emit(abi::add_immediate(dst, dst, 1));
+        self.emit(abi::subtract_immediate(length, length, 1));
+        self.emit(abi::branch(&copy_loop));
+        self.emit(abi::label(&copy_done));
+        self.emit(abi::move_immediate(digit, "Integer", "0"));
+        self.emit(abi::store_u8(digit, dst, 0));
+        let result = self.allocate_register()?;
+        self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
+        self.emit(abi::label(&done));
+        Ok(ValueResult {
+            type_: "String".to_string(),
+            location: result,
+            text: "toString(Integer)".to_string(),
+        })
+    }
+
+    fn emit_byte_list_to_string_value(
+        &mut self,
+        source_register: &str,
+    ) -> Result<ValueResult, String> {
+        let list_slot = self.allocate_stack_object("to_string_byte_list", 8);
+        let length_slot = self.allocate_stack_object("to_string_byte_list_length", 8);
+        let result_slot = self.allocate_stack_object("to_string_byte_list_result", 8);
+
+        let list = "x8";
+        let length = "x9";
+        let index = "x10";
+        let offset = "x11";
+        let byte = "x12";
+        let byte2 = "x13";
+        let byte3 = "x14";
+        let byte4 = "x15";
+        let result = "x16";
+        let dst = "x17";
+
+        let validate_loop = self.label("byte_list_string_validate_loop");
+        let validate_done = self.label("byte_list_string_validate_done");
+        let invalid = self.label("byte_list_string_invalid");
+        let ascii = self.label("byte_list_string_ascii");
+        let two = self.label("byte_list_string_two");
+        let three = self.label("byte_list_string_three");
+        let three_e0 = self.label("byte_list_string_three_e0");
+        let three_ed = self.label("byte_list_string_three_ed");
+        let three_mid = self.label("byte_list_string_three_mid");
+        let four = self.label("byte_list_string_four");
+        let four_f0 = self.label("byte_list_string_four_f0");
+        let four_f4 = self.label("byte_list_string_four_f4");
+        let four_mid = self.label("byte_list_string_four_mid");
+        let alloc_ok = self.label("byte_list_string_alloc_ok");
+        let copy_loop = self.label("byte_list_string_copy_loop");
+        let copy_done = self.label("byte_list_string_copy_done");
+
+        self.emit(abi::move_register(list, source_register));
+        self.emit(abi::store_u64(list, abi::stack_pointer(), list_slot));
+        self.emit(abi::load_u64(length, list, 0));
+        self.emit(abi::store_u64(length, abi::stack_pointer(), length_slot));
+        self.emit(abi::move_immediate(index, "Integer", "0"));
+
+        self.emit(abi::label(&validate_loop));
+        self.emit(abi::compare_registers(index, length));
+        self.emit(abi::branch_ge(&validate_done));
+        self.emit(abi::add_immediate(offset, index, 1));
+        self.emit(abi::shift_left_immediate(offset, offset, 3));
+        self.emit(abi::add_registers(offset, list, offset));
+        self.emit(abi::load_u8(byte, offset, 0));
+
+        self.emit(abi::compare_immediate(byte, "128"));
+        self.emit(abi::branch_lo(&ascii));
+
+        self.emit(abi::compare_immediate(byte, "194"));
+        self.emit(abi::branch_lo(&invalid));
+        self.emit(abi::compare_immediate(byte, "224"));
+        self.emit(abi::branch_lo(&two));
+        self.emit(abi::compare_immediate(byte, "240"));
+        self.emit(abi::branch_lo(&three));
+        self.emit(abi::compare_immediate(byte, "245"));
+        self.emit(abi::branch_lo(&four));
+        self.emit(abi::branch(&invalid));
+
+        self.emit(abi::label(&ascii));
+        self.emit(abi::add_immediate(index, index, 1));
+        self.emit(abi::branch(&validate_loop));
+
+        self.emit(abi::label(&two));
+        self.emit(abi::add_immediate(index, index, 1));
+        self.emit(abi::compare_registers(index, length));
+        self.emit(abi::branch_ge(&invalid));
+        self.emit(abi::add_immediate(offset, index, 1));
+        self.emit(abi::shift_left_immediate(offset, offset, 3));
+        self.emit(abi::add_registers(offset, list, offset));
+        self.emit(abi::load_u8(byte2, offset, 0));
+        self.emit(abi::compare_immediate(byte2, "128"));
+        self.emit(abi::branch_lo(&invalid));
+        self.emit(abi::compare_immediate(byte2, "192"));
+        self.emit(abi::branch_ge(&invalid));
+        self.emit(abi::add_immediate(index, index, 1));
+        self.emit(abi::branch(&validate_loop));
+
+        self.emit(abi::label(&three));
+        self.emit(abi::add_immediate(index, index, 2));
+        self.emit(abi::compare_registers(index, length));
+        self.emit(abi::branch_ge(&invalid));
+        self.emit(abi::subtract_immediate(index, index, 2));
+        self.emit(abi::add_immediate(offset, index, 2));
+        self.emit(abi::shift_left_immediate(offset, offset, 3));
+        self.emit(abi::add_registers(offset, list, offset));
+        self.emit(abi::load_u8(byte2, offset, 0));
+        self.emit(abi::add_immediate(offset, index, 3));
+        self.emit(abi::shift_left_immediate(offset, offset, 3));
+        self.emit(abi::add_registers(offset, list, offset));
+        self.emit(abi::load_u8(byte3, offset, 0));
+        self.emit(abi::compare_immediate(byte3, "128"));
+        self.emit(abi::branch_lo(&invalid));
+        self.emit(abi::compare_immediate(byte3, "192"));
+        self.emit(abi::branch_ge(&invalid));
+        self.emit(abi::compare_immediate(byte, "224"));
+        self.emit(abi::branch_eq(&three_e0));
+        self.emit(abi::compare_immediate(byte, "237"));
+        self.emit(abi::branch_eq(&three_ed));
+        self.emit(abi::branch(&three_mid));
+
+        self.emit(abi::label(&three_e0));
+        self.emit(abi::compare_immediate(byte2, "160"));
+        self.emit(abi::branch_lo(&invalid));
+        self.emit(abi::compare_immediate(byte2, "192"));
+        self.emit(abi::branch_ge(&invalid));
+        self.emit(abi::add_immediate(index, index, 3));
+        self.emit(abi::branch(&validate_loop));
+
+        self.emit(abi::label(&three_ed));
+        self.emit(abi::compare_immediate(byte2, "128"));
+        self.emit(abi::branch_lo(&invalid));
+        self.emit(abi::compare_immediate(byte2, "160"));
+        self.emit(abi::branch_ge(&invalid));
+        self.emit(abi::add_immediate(index, index, 3));
+        self.emit(abi::branch(&validate_loop));
+
+        self.emit(abi::label(&three_mid));
+        self.emit(abi::compare_immediate(byte2, "128"));
+        self.emit(abi::branch_lo(&invalid));
+        self.emit(abi::compare_immediate(byte2, "192"));
+        self.emit(abi::branch_ge(&invalid));
+        self.emit(abi::add_immediate(index, index, 3));
+        self.emit(abi::branch(&validate_loop));
+
+        self.emit(abi::label(&four));
+        self.emit(abi::add_immediate(index, index, 3));
+        self.emit(abi::compare_registers(index, length));
+        self.emit(abi::branch_ge(&invalid));
+        self.emit(abi::subtract_immediate(index, index, 3));
+        self.emit(abi::add_immediate(offset, index, 2));
+        self.emit(abi::shift_left_immediate(offset, offset, 3));
+        self.emit(abi::add_registers(offset, list, offset));
+        self.emit(abi::load_u8(byte2, offset, 0));
+        self.emit(abi::add_immediate(offset, index, 3));
+        self.emit(abi::shift_left_immediate(offset, offset, 3));
+        self.emit(abi::add_registers(offset, list, offset));
+        self.emit(abi::load_u8(byte3, offset, 0));
+        self.emit(abi::add_immediate(offset, index, 4));
+        self.emit(abi::shift_left_immediate(offset, offset, 3));
+        self.emit(abi::add_registers(offset, list, offset));
+        self.emit(abi::load_u8(byte4, offset, 0));
+        for continuation in [byte3, byte4] {
+            self.emit(abi::compare_immediate(continuation, "128"));
+            self.emit(abi::branch_lo(&invalid));
+            self.emit(abi::compare_immediate(continuation, "192"));
+            self.emit(abi::branch_ge(&invalid));
+        }
+        self.emit(abi::compare_immediate(byte, "240"));
+        self.emit(abi::branch_eq(&four_f0));
+        self.emit(abi::compare_immediate(byte, "244"));
+        self.emit(abi::branch_eq(&four_f4));
+        self.emit(abi::branch(&four_mid));
+
+        self.emit(abi::label(&four_f0));
+        self.emit(abi::compare_immediate(byte2, "144"));
+        self.emit(abi::branch_lo(&invalid));
+        self.emit(abi::compare_immediate(byte2, "192"));
+        self.emit(abi::branch_ge(&invalid));
+        self.emit(abi::add_immediate(index, index, 4));
+        self.emit(abi::branch(&validate_loop));
+
+        self.emit(abi::label(&four_f4));
+        self.emit(abi::compare_immediate(byte2, "128"));
+        self.emit(abi::branch_lo(&invalid));
+        self.emit(abi::compare_immediate(byte2, "144"));
+        self.emit(abi::branch_ge(&invalid));
+        self.emit(abi::add_immediate(index, index, 4));
+        self.emit(abi::branch(&validate_loop));
+
+        self.emit(abi::label(&four_mid));
+        self.emit(abi::compare_immediate(byte2, "128"));
+        self.emit(abi::branch_lo(&invalid));
+        self.emit(abi::compare_immediate(byte2, "192"));
+        self.emit(abi::branch_ge(&invalid));
+        self.emit(abi::add_immediate(index, index, 4));
+        self.emit(abi::branch(&validate_loop));
+
+        self.emit(abi::label(&invalid));
+        self.emit_encoding_error_return()?;
+
+        self.emit(abi::label(&validate_done));
+        self.emit(abi::load_u64(length, abi::stack_pointer(), length_slot));
+        self.emit(abi::add_immediate(abi::return_register(), length, 9));
+        self.emit(abi::move_immediate("x1", "Integer", "8"));
+        self.emit(abi::branch_link(ARENA_ALLOC_SYMBOL));
+        self.relocations.push(CodeRelocation {
+            from: self.current_symbol.clone(),
+            to: ARENA_ALLOC_SYMBOL.to_string(),
+            kind: "branch26".to_string(),
+            binding: "internal".to_string(),
+            library: None,
+        });
+        self.emit(abi::compare_immediate(
+            abi::return_register(),
+            RESULT_OK_TAG,
+        ));
+        self.emit(abi::branch_eq(&alloc_ok));
+        self.emit_allocation_error_return()?;
+        self.emit(abi::label(&alloc_ok));
+        self.emit(abi::store_u64("x1", abi::stack_pointer(), result_slot));
+        self.emit(abi::load_u64(length, abi::stack_pointer(), length_slot));
+        self.emit(abi::store_u64(length, "x1", 0));
+        self.emit(abi::add_immediate(dst, "x1", 8));
+        self.emit(abi::move_immediate(index, "Integer", "0"));
+        self.emit(abi::load_u64(list, abi::stack_pointer(), list_slot));
+
+        self.emit(abi::label(&copy_loop));
+        self.emit(abi::compare_registers(index, length));
+        self.emit(abi::branch_ge(&copy_done));
+        self.emit(abi::add_immediate(offset, index, 1));
+        self.emit(abi::shift_left_immediate(offset, offset, 3));
+        self.emit(abi::add_registers(offset, list, offset));
+        self.emit(abi::load_u8(byte, offset, 0));
+        self.emit(abi::store_u8(byte, dst, 0));
+        self.emit(abi::add_immediate(dst, dst, 1));
+        self.emit(abi::add_immediate(index, index, 1));
+        self.emit(abi::branch(&copy_loop));
+
+        self.emit(abi::label(&copy_done));
+        self.emit(abi::move_immediate(byte, "Integer", "0"));
+        self.emit(abi::store_u8(byte, dst, 0));
+        self.emit(abi::load_u64(result, abi::stack_pointer(), result_slot));
+
+        Ok(ValueResult {
+            type_: "String".to_string(),
+            location: result.to_string(),
+            text: "toString(List OF Byte)".to_string(),
+        })
+    }
+
+    fn emit_fixed_to_string_value(
+        &mut self,
+        source_register: &str,
+        precision_register: &str,
+    ) -> Result<ValueResult, String> {
+        let buffer_slot = self.allocate_stack_object("to_string_fixed_buffer", 48);
+        let integer_start_slot = self.allocate_stack_object("to_string_fixed_integer_start", 8);
+        let integer_len_slot = self.allocate_stack_object("to_string_fixed_integer_len", 8);
+        let total_len_slot = self.allocate_stack_object("to_string_fixed_total_len", 8);
+        let magnitude_slot = self.allocate_stack_object("to_string_fixed_magnitude", 8);
+        let precision_slot = self.allocate_stack_object("to_string_fixed_precision", 8);
+        let result_slot = self.allocate_stack_object("to_string_fixed_result", 8);
+
+        let raw = "x8";
+        let negative = "x9";
+        let int_part = "x10";
+        let frac_part = "x11";
+        let cursor = "x12";
+        let length = "x13";
+        let divisor = "x14";
+        let quotient = "x15";
+        let digit = "x16";
+        let precision = "x17";
+        let total_len = "x20";
+        let dst = "x21";
+        let counter = "x22";
+        let scale = "x23";
+        for register in [total_len, dst, counter, scale] {
+            if abi::is_callee_saved(register)
+                && !self.used_callee_saved.iter().any(|saved| saved == register)
+            {
+                self.used_callee_saved.push(register.to_string());
+            }
+        }
+
+        let nonnegative = self.label("fixed_string_nonnegative");
+        let integer_zero = self.label("fixed_string_integer_zero");
+        let integer_loop = self.label("fixed_string_integer_loop");
+        let integer_done = self.label("fixed_string_integer_done");
+        let sign_done = self.label("fixed_string_sign_done");
+        let no_fraction = self.label("fixed_string_no_fraction");
+        let alloc_ok = self.label("fixed_string_alloc_ok");
+        let copy_integer_loop = self.label("fixed_string_copy_integer_loop");
+        let copy_integer_done = self.label("fixed_string_copy_integer_done");
+        let fraction_loop = self.label("fixed_string_fraction_loop");
+        let fraction_done = self.label("fixed_string_fraction_done");
+
+        self.emit(abi::move_register(raw, source_register));
+        self.emit(abi::move_register(precision, precision_register));
+        self.emit(abi::store_u64(
+            precision,
+            abi::stack_pointer(),
+            precision_slot,
+        ));
+        self.emit(abi::move_immediate(negative, "Integer", "0"));
+        self.emit(abi::compare_immediate(raw, "0"));
+        self.emit(abi::branch_ge(&nonnegative));
+        self.emit(abi::subtract_registers(raw, "xzr", raw));
+        self.emit(abi::move_immediate(negative, "Integer", "1"));
+        self.emit(abi::label(&nonnegative));
+        self.emit(abi::store_u64(raw, abi::stack_pointer(), magnitude_slot));
+        self.emit(abi::shift_right_immediate(int_part, raw, 32));
+        self.emit(abi::shift_left_immediate(frac_part, raw, 32));
+        self.emit(abi::shift_right_immediate(frac_part, frac_part, 32));
+        self.emit(abi::move_immediate(length, "Integer", "0"));
+        self.emit(abi::add_immediate(
+            cursor,
+            abi::stack_pointer(),
+            buffer_slot + 47,
+        ));
+        self.emit(abi::compare_immediate(int_part, "0"));
+        self.emit(abi::branch_eq(&integer_zero));
+        self.emit(abi::move_immediate(divisor, "Integer", "10"));
+        self.emit(abi::label(&integer_loop));
+        self.emit(abi::compare_immediate(int_part, "0"));
+        self.emit(abi::branch_eq(&integer_done));
+        self.emit(abi::unsigned_divide_registers(quotient, int_part, divisor));
+        self.emit(abi::multiply_subtract_registers(
+            digit, quotient, divisor, int_part,
+        ));
+        self.emit(abi::add_immediate(digit, digit, b'0' as usize));
+        self.emit(abi::store_u8(digit, cursor, 0));
+        self.emit(abi::subtract_immediate(cursor, cursor, 1));
+        self.emit(abi::add_immediate(length, length, 1));
+        self.emit(abi::move_register(int_part, quotient));
+        self.emit(abi::branch(&integer_loop));
+
+        self.emit(abi::label(&integer_zero));
+        self.emit(abi::move_immediate(
+            digit,
+            "Integer",
+            &(b'0' as u64).to_string(),
+        ));
+        self.emit(abi::store_u8(digit, cursor, 0));
+        self.emit(abi::subtract_immediate(cursor, cursor, 1));
+        self.emit(abi::move_immediate(length, "Integer", "1"));
+
+        self.emit(abi::label(&integer_done));
+        self.emit(abi::compare_immediate(negative, "0"));
+        self.emit(abi::branch_eq(&sign_done));
+        self.emit(abi::move_immediate(
+            digit,
+            "Integer",
+            &(b'-' as u64).to_string(),
+        ));
+        self.emit(abi::store_u8(digit, cursor, 0));
+        self.emit(abi::subtract_immediate(cursor, cursor, 1));
+        self.emit(abi::add_immediate(length, length, 1));
+        self.emit(abi::label(&sign_done));
+        self.emit(abi::add_immediate(cursor, cursor, 1));
+        self.emit(abi::store_u64(
+            cursor,
+            abi::stack_pointer(),
+            integer_start_slot,
+        ));
+        self.emit(abi::store_u64(
+            length,
+            abi::stack_pointer(),
+            integer_len_slot,
+        ));
+        self.emit(abi::move_register(total_len, length));
+        self.emit(abi::compare_immediate(precision, "0"));
+        self.emit(abi::branch_eq(&no_fraction));
+        self.emit(abi::add_immediate(total_len, total_len, 1));
+        self.emit(abi::add_registers(total_len, total_len, precision));
+        self.emit(abi::label(&no_fraction));
+        self.emit(abi::store_u64(
+            total_len,
+            abi::stack_pointer(),
+            total_len_slot,
+        ));
+
+        self.emit(abi::add_immediate(abi::return_register(), total_len, 9));
+        self.emit(abi::move_immediate("x1", "Integer", "8"));
+        self.emit(abi::branch_link(ARENA_ALLOC_SYMBOL));
+        self.relocations.push(CodeRelocation {
+            from: self.current_symbol.clone(),
+            to: ARENA_ALLOC_SYMBOL.to_string(),
+            kind: "branch26".to_string(),
+            binding: "internal".to_string(),
+            library: None,
+        });
+        self.emit(abi::compare_immediate(
+            abi::return_register(),
+            RESULT_OK_TAG,
+        ));
+        self.emit(abi::branch_eq(&alloc_ok));
+        self.emit_allocation_error_return()?;
+        self.emit(abi::label(&alloc_ok));
+        self.emit(abi::store_u64("x1", abi::stack_pointer(), result_slot));
+        self.emit(abi::load_u64(
+            total_len,
+            abi::stack_pointer(),
+            total_len_slot,
+        ));
+        self.emit(abi::store_u64(total_len, "x1", 0));
+        self.emit(abi::add_immediate(dst, "x1", 8));
+        self.emit(abi::load_u64(
+            cursor,
+            abi::stack_pointer(),
+            integer_start_slot,
+        ));
+        self.emit(abi::load_u64(
+            length,
+            abi::stack_pointer(),
+            integer_len_slot,
+        ));
+        self.emit(abi::label(&copy_integer_loop));
+        self.emit(abi::compare_immediate(length, "0"));
+        self.emit(abi::branch_eq(&copy_integer_done));
+        self.emit(abi::load_u8(digit, cursor, 0));
+        self.emit(abi::store_u8(digit, dst, 0));
+        self.emit(abi::add_immediate(cursor, cursor, 1));
+        self.emit(abi::add_immediate(dst, dst, 1));
+        self.emit(abi::subtract_immediate(length, length, 1));
+        self.emit(abi::branch(&copy_integer_loop));
+        self.emit(abi::label(&copy_integer_done));
+
+        self.emit(abi::load_u64(
+            precision,
+            abi::stack_pointer(),
+            precision_slot,
+        ));
+        self.emit(abi::compare_immediate(precision, "0"));
+        self.emit(abi::branch_eq(&fraction_done));
+        self.emit(abi::move_immediate(
+            digit,
+            "Integer",
+            &(b'.' as u64).to_string(),
+        ));
+        self.emit(abi::store_u8(digit, dst, 0));
+        self.emit(abi::add_immediate(dst, dst, 1));
+        self.emit(abi::load_u64(raw, abi::stack_pointer(), magnitude_slot));
+        self.emit(abi::shift_left_immediate(frac_part, raw, 32));
+        self.emit(abi::shift_right_immediate(frac_part, frac_part, 32));
+        self.emit(abi::move_immediate(counter, "Integer", "0"));
+        self.emit(abi::move_immediate(divisor, "Integer", "10"));
+        self.emit(abi::move_immediate(scale, "Integer", "4294967296"));
+        self.emit(abi::label(&fraction_loop));
+        self.emit(abi::compare_registers(counter, precision));
+        self.emit(abi::branch_eq(&fraction_done));
+        self.emit(abi::multiply_registers(frac_part, frac_part, divisor));
+        self.emit(abi::unsigned_divide_registers(digit, frac_part, scale));
+        self.emit(abi::multiply_subtract_registers(
+            frac_part, digit, scale, frac_part,
+        ));
+        self.emit(abi::add_immediate(digit, digit, b'0' as usize));
+        self.emit(abi::store_u8(digit, dst, 0));
+        self.emit(abi::add_immediate(dst, dst, 1));
+        self.emit(abi::add_immediate(counter, counter, 1));
+        self.emit(abi::branch(&fraction_loop));
+        self.emit(abi::label(&fraction_done));
+        self.emit(abi::move_immediate(digit, "Integer", "0"));
+        self.emit(abi::store_u8(digit, dst, 0));
+
+        let result = self.allocate_register()?;
+        self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
+        Ok(ValueResult {
+            type_: "String".to_string(),
+            location: result,
+            text: "toString(Fixed)".to_string(),
+        })
+    }
+
+    fn lower_to_int(&mut self, arg: &NirValue) -> Result<ValueResult, String> {
+        let value = self.lower_value(arg)?;
+        if value.type_ == "Byte" {
+            let register = self.allocate_register()?;
+            self.emit(abi::move_register(&register, &value.location));
+            return Ok(ValueResult {
+                type_: "Integer".to_string(),
+                location: register,
+                text: format!("toInt({})", value.text),
+            });
+        }
+        let value_slot = self.allocate_stack_object("to_int_value", 8);
+        self.emit(abi::store_u64(
+            &value.location,
+            abi::stack_pointer(),
+            value_slot,
+        ));
+        self.reset_temporary_registers();
+        let source = self.allocate_register()?;
+        self.emit(abi::load_u64(&source, abi::stack_pointer(), value_slot));
+        match value.type_.as_str() {
+            "Fixed" => self.emit_fixed_to_int_value(&source),
+            "Float" => self.emit_float_to_int_value(&source),
+            "String" => self.emit_string_to_int_value(&source),
+            other => Err(format!(
+                "native toInt does not accept argument type '{other}'"
+            )),
+        }
+    }
+
+    fn emit_fixed_to_int_value(&mut self, source_register: &str) -> Result<ValueResult, String> {
+        let value = "x8";
+        let result = self.allocate_register()?;
+        let nonnegative = self.label("fixed_to_int_nonnegative");
+        let done = self.label("fixed_to_int_done");
+        self.emit(abi::move_register(value, source_register));
+        self.emit(abi::compare_immediate(value, "0"));
+        self.emit(abi::branch_ge(&nonnegative));
+        self.emit(abi::subtract_registers(&result, "xzr", value));
+        self.emit(abi::shift_right_immediate(&result, &result, 32));
+        self.emit(abi::subtract_registers(&result, "xzr", &result));
+        self.emit(abi::branch(&done));
+        self.emit(abi::label(&nonnegative));
+        self.emit(abi::arithmetic_shift_right_immediate(&result, value, 32));
+        self.emit(abi::label(&done));
+        Ok(ValueResult {
+            type_: "Integer".to_string(),
+            location: result,
+            text: "toInt(Fixed)".to_string(),
+        })
+    }
+
+    fn emit_float_to_int_value(&mut self, source_register: &str) -> Result<ValueResult, String> {
+        let bits = "x8";
+        let exponent = "x9";
+        let mantissa = "x10";
+        let sign = "x11";
+        let mask = "x12";
+        let ok = self.label("float_to_int_ok");
+        let check_edge = self.label("float_to_int_check_edge");
+        let edge_sign_ok = self.label("float_to_int_edge_sign_ok");
+        let overflow = self.label("float_to_int_overflow");
+        let invalid = self.label("float_to_int_invalid");
+        let result = self.allocate_register()?;
+
+        self.emit(abi::move_register(bits, source_register));
+        self.emit(abi::shift_right_immediate(exponent, bits, 52));
+        self.emit(abi::move_immediate(mask, "Integer", "2047"));
+        self.emit(abi::and_registers(exponent, exponent, mask));
+        self.emit(abi::compare_immediate(exponent, "2047"));
+        self.emit(abi::branch_eq(&invalid));
+        self.emit(abi::compare_immediate(exponent, "1086"));
+        self.emit(abi::branch_lt(&ok));
+        self.emit(abi::branch_eq(&check_edge));
+        self.emit(abi::branch(&overflow));
+
+        self.emit(abi::label(&check_edge));
+        self.emit(abi::shift_right_immediate(sign, bits, 63));
+        self.emit(abi::compare_immediate(sign, "1"));
+        self.emit(abi::branch_eq(&edge_sign_ok));
+        self.emit(abi::branch(&overflow));
+        self.emit(abi::label(&edge_sign_ok));
+        self.emit(abi::move_immediate(mask, "Integer", "4503599627370495"));
+        self.emit(abi::and_registers(mantissa, bits, mask));
+        self.emit(abi::compare_immediate(mantissa, "0"));
+        self.emit(abi::branch_ne(&overflow));
+
+        self.emit(abi::label(&ok));
+        self.emit(abi::float_move_d_from_x("d0", bits));
+        self.emit(abi::float_convert_to_signed_x(&result, "d0"));
+        let done = self.label("float_to_int_done");
+        self.emit(abi::branch(&done));
+        self.emit(abi::label(&invalid));
+        self.emit_invalid_format_return()?;
+        self.emit(abi::label(&overflow));
+        self.emit_overflow_return()?;
+        self.emit(abi::label(&done));
+
+        Ok(ValueResult {
+            type_: "Integer".to_string(),
+            location: result,
+            text: "toInt(Float)".to_string(),
+        })
+    }
+
+    fn emit_string_to_int_value(&mut self, source_register: &str) -> Result<ValueResult, String> {
+        let string = "x8";
+        let length = "x9";
+        let index = "x10";
+        let cursor = "x11";
+        let byte = "x12";
+        let acc = "x13";
+        let negative = "x14";
+        let digit = "x15";
+        let cutoff = "x16";
+        let cutlim = "x17";
+        let ten = "x6";
+        let invalid = self.label("string_to_int_invalid");
+        let overflow = self.label("string_to_int_overflow");
+        let first_not_minus = self.label("string_to_int_first_not_minus");
+        let sign_done = self.label("string_to_int_sign_done");
+        let loop_start = self.label("string_to_int_loop");
+        let loop_done = self.label("string_to_int_done");
+        let cutoff_equal = self.label("string_to_int_cutoff_equal");
+        let digit_ok = self.label("string_to_int_digit_ok");
+        let positive = self.label("string_to_int_positive");
+        let done = self.label("string_to_int_return");
+        let result = self.allocate_register()?;
+
+        self.emit(abi::move_register(string, source_register));
+        self.emit(abi::load_u64(length, string, 0));
+        self.emit(abi::compare_immediate(length, "0"));
+        self.emit(abi::branch_eq(&invalid));
+        self.emit(abi::add_immediate(cursor, string, 8));
+        self.emit(abi::move_immediate(index, "Integer", "0"));
+        self.emit(abi::move_immediate(acc, "Integer", "0"));
+        self.emit(abi::move_immediate(negative, "Integer", "0"));
+        self.emit(abi::load_u8(byte, cursor, 0));
+        self.emit(abi::compare_immediate(byte, "45"));
+        self.emit(abi::branch_ne(&first_not_minus));
+        self.emit(abi::move_immediate(negative, "Integer", "1"));
+        self.emit(abi::add_immediate(index, index, 1));
+        self.emit(abi::add_immediate(cursor, cursor, 1));
+        self.emit(abi::branch(&sign_done));
+        self.emit(abi::label(&first_not_minus));
+        self.emit(abi::compare_immediate(byte, "43"));
+        self.emit(abi::branch_ne(&sign_done));
+        self.emit(abi::add_immediate(index, index, 1));
+        self.emit(abi::add_immediate(cursor, cursor, 1));
+        self.emit(abi::label(&sign_done));
+        self.emit(abi::compare_registers(index, length));
+        self.emit(abi::branch_ge(&invalid));
+        self.emit(abi::move_immediate(cutoff, "Integer", "922337203685477580"));
+        self.emit(abi::move_immediate(cutlim, "Integer", "7"));
+        self.emit(abi::compare_immediate(negative, "0"));
+        let limit_ready = self.label("string_to_int_limit_ready");
+        self.emit(abi::branch_eq(&limit_ready));
+        self.emit(abi::move_immediate(cutlim, "Integer", "8"));
+        self.emit(abi::label(&limit_ready));
+        self.emit(abi::move_immediate(ten, "Integer", "10"));
+
+        self.emit(abi::label(&loop_start));
+        self.emit(abi::compare_registers(index, length));
+        self.emit(abi::branch_ge(&loop_done));
+        self.emit(abi::load_u8(byte, cursor, 0));
+        self.emit(abi::compare_immediate(byte, "48"));
+        self.emit(abi::branch_lo(&invalid));
+        self.emit(abi::compare_immediate(byte, "57"));
+        self.emit(abi::branch_hi(&invalid));
+        self.emit(abi::subtract_immediate(digit, byte, 48));
+        self.emit(abi::compare_registers(acc, cutoff));
+        self.emit(abi::branch_gt(&overflow));
+        self.emit(abi::branch_eq(&cutoff_equal));
+        self.emit(abi::branch(&digit_ok));
+        self.emit(abi::label(&cutoff_equal));
+        self.emit(abi::compare_registers(digit, cutlim));
+        self.emit(abi::branch_gt(&overflow));
+        self.emit(abi::label(&digit_ok));
+        self.emit(abi::multiply_registers(acc, acc, ten));
+        self.emit(abi::add_registers(acc, acc, digit));
+        self.emit(abi::add_immediate(index, index, 1));
+        self.emit(abi::add_immediate(cursor, cursor, 1));
+        self.emit(abi::branch(&loop_start));
+
+        self.emit(abi::label(&loop_done));
+        self.emit(abi::compare_immediate(negative, "0"));
+        self.emit(abi::branch_eq(&positive));
+        self.emit(abi::subtract_registers(&result, "xzr", acc));
+        self.emit(abi::branch(&done));
+        self.emit(abi::label(&positive));
+        self.emit(abi::move_register(&result, acc));
+        self.emit(abi::branch(&done));
+        self.emit(abi::label(&invalid));
+        self.emit_invalid_format_return()?;
+        self.emit(abi::label(&overflow));
+        self.emit_overflow_return()?;
+        self.emit(abi::label(&done));
+
+        Ok(ValueResult {
+            type_: "Integer".to_string(),
+            location: result,
+            text: "toInt(String)".to_string(),
+        })
+    }
+
+    fn lower_to_byte(&mut self, arg: &NirValue) -> Result<ValueResult, String> {
+        let value = self.lower_value(arg)?;
+        if value.type_ != "Integer" {
+            return Err(format!(
+                "native toByte does not accept argument type '{}'",
+                value.type_
+            ));
+        }
+        let result = self.allocate_register()?;
+        let overflow = self.label("to_byte_overflow");
+        let ok = self.label("to_byte_ok");
+        self.emit(abi::compare_immediate(&value.location, "0"));
+        self.emit(abi::branch_lt(&overflow));
+        self.emit(abi::compare_immediate(&value.location, "255"));
+        self.emit(abi::branch_hi(&overflow));
+        self.emit(abi::move_register(&result, &value.location));
+        self.emit(abi::branch(&ok));
+        self.emit(abi::label(&overflow));
+        self.emit_overflow_return()?;
+        self.emit(abi::label(&ok));
+        Ok(ValueResult {
+            type_: "Byte".to_string(),
+            location: result,
+            text: format!("toByte({})", value.text),
+        })
+    }
+
+    fn lower_to_float(&mut self, arg: &NirValue) -> Result<ValueResult, String> {
+        let value = self.lower_value(arg)?;
+        let value_slot = self.allocate_stack_object("to_float_value", 8);
+        self.emit(abi::store_u64(
+            &value.location,
+            abi::stack_pointer(),
+            value_slot,
+        ));
+        self.reset_temporary_registers();
+        let source = self.allocate_register()?;
+        self.emit(abi::load_u64(&source, abi::stack_pointer(), value_slot));
+        let result = self.allocate_register()?;
+        match value.type_.as_str() {
+            "Integer" => {
+                self.emit(abi::signed_convert_to_float_d("d0", &source));
+                self.emit(abi::float_move_x_from_d(&result, "d0"));
+            }
+            "Fixed" => {
+                let temp = ValueResult {
+                    type_: "Fixed".to_string(),
+                    location: source,
+                    text: value.text.clone(),
+                };
+                self.load_numeric_as_double("d0", &temp)?;
+                self.emit(abi::float_move_x_from_d(&result, "d0"));
+            }
+            "String" => {
+                let invalid = self.label("to_float_invalid");
+                let overflow = self.label("to_float_overflow");
+                self.emit_parse_decimal_string_to_double(&source, &invalid)?;
+                self.emit_double_overflow_check("d0", &overflow);
+                self.emit(abi::float_move_x_from_d(&result, "d0"));
+                let done = self.label("to_float_done");
+                self.emit(abi::branch(&done));
+                self.emit(abi::label(&invalid));
+                self.emit_invalid_format_return()?;
+                self.emit(abi::label(&overflow));
+                self.emit_overflow_return()?;
+                self.emit(abi::label(&done));
+            }
+            other => {
+                return Err(format!(
+                    "native toFloat does not accept argument type '{other}'"
+                ))
+            }
+        }
+        Ok(ValueResult {
+            type_: "Float".to_string(),
+            location: result,
+            text: format!("toFloat({})", value.text),
+        })
+    }
+
+    fn lower_to_fixed(&mut self, arg: &NirValue) -> Result<ValueResult, String> {
+        let value = self.lower_value(arg)?;
+        let value_slot = self.allocate_stack_object("to_fixed_value", 8);
+        self.emit(abi::store_u64(
+            &value.location,
+            abi::stack_pointer(),
+            value_slot,
+        ));
+        self.reset_temporary_registers();
+        let source = self.allocate_register()?;
+        self.emit(abi::load_u64(&source, abi::stack_pointer(), value_slot));
+        let result = self.allocate_register()?;
+        match value.type_.as_str() {
+            "Integer" => {
+                self.emit_integer_to_fixed_value(&source, &result)?;
+            }
+            "Float" => {
+                self.emit_float_bits_to_fixed_value(&source, &result)?;
+            }
+            "String" => {
+                let invalid = self.label("to_fixed_invalid");
+                let overflow = self.label("to_fixed_overflow");
+                self.emit_parse_decimal_string_to_double(&source, &invalid)?;
+                self.emit_double_overflow_check("d0", &overflow);
+                let parsed_bits = "x8";
+                self.emit(abi::float_move_x_from_d(parsed_bits, "d0"));
+                self.emit_float_bits_to_fixed_value(parsed_bits, &result)?;
+                let done = self.label("to_fixed_done");
+                self.emit(abi::branch(&done));
+                self.emit(abi::label(&invalid));
+                self.emit_invalid_format_return()?;
+                self.emit(abi::label(&overflow));
+                self.emit_overflow_return()?;
+                self.emit(abi::label(&done));
+            }
+            other => {
+                return Err(format!(
+                    "native toFixed does not accept argument type '{other}'"
+                ))
+            }
+        }
+        Ok(ValueResult {
+            type_: "Fixed".to_string(),
+            location: result,
+            text: format!("toFixed({})", value.text),
+        })
+    }
+
+    fn lower_is_numeric(&mut self, arg: &NirValue) -> Result<ValueResult, String> {
+        let value = self.lower_value(arg)?;
+        if value.type_ != "String" {
+            return Err(format!(
+                "native isNumeric does not accept argument type '{}'",
+                value.type_
+            ));
+        }
+        let value_slot = self.allocate_stack_object("is_numeric_value", 8);
+        self.emit(abi::store_u64(
+            &value.location,
+            abi::stack_pointer(),
+            value_slot,
+        ));
+        self.reset_temporary_registers();
+        let source = self.allocate_register()?;
+        self.emit(abi::load_u64(&source, abi::stack_pointer(), value_slot));
+        let invalid = self.label("is_numeric_false");
+        let done = self.label("is_numeric_done");
+        let result = self.allocate_register()?;
+        self.emit_parse_decimal_string_to_double(&source, &invalid)?;
+        self.emit(abi::move_immediate(&result, "Boolean", "true"));
+        self.emit(abi::branch(&done));
+        self.emit(abi::label(&invalid));
+        self.emit(abi::move_immediate(&result, "Boolean", "false"));
+        self.emit(abi::label(&done));
+        Ok(ValueResult {
+            type_: "Boolean".to_string(),
+            location: result,
+            text: format!("isNumeric({})", value.text),
+        })
+    }
+
+    fn emit_integer_to_fixed_value(&mut self, source: &str, result: &str) -> Result<(), String> {
+        let min = self.allocate_register()?;
+        let max = self.allocate_register()?;
+        let overflow = self.label("int_to_fixed_overflow");
+        let ok = self.label("int_to_fixed_ok");
+        self.emit(abi::move_immediate(&min, "Integer", "18446744071562067968"));
+        self.emit(abi::compare_registers(source, &min));
+        self.emit(abi::branch_lt(&overflow));
+        self.emit(abi::move_immediate(&max, "Integer", "2147483647"));
+        self.emit(abi::compare_registers(source, &max));
+        self.emit(abi::branch_gt(&overflow));
+        self.emit(abi::shift_left_immediate(result, source, 32));
+        self.emit(abi::branch(&ok));
+        self.emit(abi::label(&overflow));
+        self.emit_overflow_return()?;
+        self.emit(abi::label(&ok));
+        Ok(())
+    }
+
+    fn emit_float_bits_to_fixed_value(&mut self, source: &str, result: &str) -> Result<(), String> {
+        let exponent = "x9";
+        let mask = "x10";
+        let sign = "x11";
+        let mantissa = "x12";
+        let invalid = self.label("float_to_fixed_invalid");
+        let overflow = self.label("float_to_fixed_overflow");
+        let ok = self.label("float_to_fixed_ok");
+        let edge = self.label("float_to_fixed_edge");
+        let edge_negative = self.label("float_to_fixed_edge_negative");
+        let range_ok = self.label("float_to_fixed_range_ok");
+        self.emit(abi::move_register("x8", source));
+        self.emit(abi::shift_right_immediate(exponent, "x8", 52));
+        self.emit(abi::move_immediate(mask, "Integer", "2047"));
+        self.emit(abi::and_registers(exponent, exponent, mask));
+        self.emit(abi::compare_immediate(exponent, "2047"));
+        self.emit(abi::branch_eq(&invalid));
+        self.emit(abi::compare_immediate(exponent, "1054"));
+        self.emit(abi::branch_lt(&range_ok));
+        self.emit(abi::branch_eq(&edge));
+        self.emit(abi::branch(&overflow));
+        self.emit(abi::label(&edge));
+        self.emit(abi::shift_right_immediate(sign, "x8", 63));
+        self.emit(abi::compare_immediate(sign, "1"));
+        self.emit(abi::branch_eq(&edge_negative));
+        self.emit(abi::branch(&overflow));
+        self.emit(abi::label(&edge_negative));
+        self.emit(abi::move_immediate(mask, "Integer", "4503599627370495"));
+        self.emit(abi::and_registers(mantissa, "x8", mask));
+        self.emit(abi::compare_immediate(mantissa, "0"));
+        self.emit(abi::branch_ne(&overflow));
+        self.emit(abi::label(&range_ok));
+        self.emit(abi::float_move_d_from_x("d0", "x8"));
+        self.emit_f64_const("d1", "x17", 4_294_967_296.0);
+        self.emit(abi::float_multiply_d("d0", "d0", "d1"));
+        self.emit(abi::float_convert_to_signed_x(result, "d0"));
+        self.emit(abi::branch(&ok));
+        self.emit(abi::label(&invalid));
+        self.emit_invalid_format_return()?;
+        self.emit(abi::label(&overflow));
+        self.emit_overflow_return()?;
+        self.emit(abi::label(&ok));
+        Ok(())
+    }
+
+    fn emit_parse_decimal_string_to_double(
+        &mut self,
+        source_register: &str,
+        invalid_label: &str,
+    ) -> Result<(), String> {
+        let string = "x8";
+        let length = "x9";
+        let index = "x10";
+        let cursor = "x11";
+        let byte = "x12";
+        let digit = "x13";
+        let negative = "x14";
+        let seen_digit = "x15";
+        let ten_bits = "x16";
+        let dot_seen = "x17";
+        let exponent = "x4";
+        let exponent_negative = "x3";
+        let exponent_ten = "x2";
+        let loop_start = self.label("parse_decimal_loop");
+        let after_sign = self.label("parse_decimal_after_sign");
+        let not_minus = self.label("parse_decimal_not_minus");
+        let sign_done = self.label("parse_decimal_sign_done");
+        let dot = self.label("parse_decimal_dot");
+        let frac_digit = self.label("parse_decimal_frac_digit");
+        let int_digit = self.label("parse_decimal_int_digit");
+        let next = self.label("parse_decimal_next");
+        let finish = self.label("parse_decimal_finish");
+        let positive = self.label("parse_decimal_positive");
+        let exponent_start = self.label("parse_decimal_exponent_start");
+        let exponent_not_minus = self.label("parse_decimal_exponent_not_minus");
+        let exponent_sign_done = self.label("parse_decimal_exponent_sign_done");
+        let exponent_loop = self.label("parse_decimal_exponent_loop");
+        let exponent_apply = self.label("parse_decimal_exponent_apply");
+        let exponent_multiply_loop = self.label("parse_decimal_exponent_multiply_loop");
+        let exponent_divide_loop = self.label("parse_decimal_exponent_divide_loop");
+        let exponent_apply_done = self.label("parse_decimal_exponent_apply_done");
+        self.emit(abi::move_register(string, source_register));
+        self.emit(abi::load_u64(length, string, 0));
+        self.emit(abi::compare_immediate(length, "0"));
+        self.emit(abi::branch_eq(invalid_label));
+        self.emit(abi::add_immediate(cursor, string, 8));
+        self.emit(abi::move_immediate(index, "Integer", "0"));
+        self.emit(abi::move_immediate(negative, "Integer", "0"));
+        self.emit(abi::move_immediate(seen_digit, "Integer", "0"));
+        self.emit(abi::move_immediate(dot_seen, "Integer", "0"));
+        self.emit(abi::move_immediate(exponent_ten, "Integer", "10"));
+        self.emit(abi::move_immediate("x0", "Integer", "0"));
+        self.emit(abi::signed_convert_to_float_d("d0", "x0"));
+        self.emit_f64_const("d1", ten_bits, 10.0);
+        self.emit_f64_const("d3", "x7", 1.0);
+        self.emit(abi::load_u8(byte, cursor, 0));
+        self.emit(abi::compare_immediate(byte, "45"));
+        self.emit(abi::branch_ne(&not_minus));
+        self.emit(abi::move_immediate(negative, "Integer", "1"));
+        self.emit(abi::branch(&after_sign));
+        self.emit(abi::label(&not_minus));
+        self.emit(abi::compare_immediate(byte, "43"));
+        self.emit(abi::branch_ne(&sign_done));
+        self.emit(abi::label(&after_sign));
+        self.emit(abi::add_immediate(index, index, 1));
+        self.emit(abi::add_immediate(cursor, cursor, 1));
+        self.emit(abi::compare_registers(index, length));
+        self.emit(abi::branch_ge(invalid_label));
+        self.emit(abi::label(&sign_done));
+
+        self.emit(abi::label(&loop_start));
+        self.emit(abi::compare_registers(index, length));
+        self.emit(abi::branch_ge(&finish));
+        self.emit(abi::load_u8(byte, cursor, 0));
+        self.emit(abi::compare_immediate(byte, "46"));
+        self.emit(abi::branch_eq(&dot));
+        self.emit(abi::compare_immediate(byte, "69"));
+        self.emit(abi::branch_eq(&exponent_start));
+        self.emit(abi::compare_immediate(byte, "101"));
+        self.emit(abi::branch_eq(&exponent_start));
+        self.emit(abi::compare_immediate(byte, "48"));
+        self.emit(abi::branch_lo(invalid_label));
+        self.emit(abi::compare_immediate(byte, "57"));
+        self.emit(abi::branch_hi(invalid_label));
+        self.emit(abi::subtract_immediate(digit, byte, 48));
+        self.emit(abi::signed_convert_to_float_d("d2", digit));
+        self.emit(abi::move_immediate(seen_digit, "Integer", "1"));
+        self.emit(abi::compare_immediate(dot_seen, "0"));
+        self.emit(abi::branch_ne(&frac_digit));
+        self.emit(abi::label(&int_digit));
+        self.emit(abi::float_multiply_d("d0", "d0", "d1"));
+        self.emit(abi::float_add_d("d0", "d0", "d2"));
+        self.emit(abi::branch(&next));
+        self.emit(abi::label(&frac_digit));
+        self.emit(abi::float_multiply_d("d3", "d3", "d1"));
+        self.emit(abi::float_divide_d("d2", "d2", "d3"));
+        self.emit(abi::float_add_d("d0", "d0", "d2"));
+        self.emit(abi::branch(&next));
+        self.emit(abi::label(&dot));
+        self.emit(abi::compare_immediate(dot_seen, "0"));
+        self.emit(abi::branch_ne(invalid_label));
+        self.emit(abi::move_immediate(dot_seen, "Integer", "1"));
+        self.emit(abi::label(&next));
+        self.emit(abi::add_immediate(index, index, 1));
+        self.emit(abi::add_immediate(cursor, cursor, 1));
+        self.emit(abi::branch(&loop_start));
+
+        self.emit(abi::label(&exponent_start));
+        self.emit(abi::compare_immediate(seen_digit, "0"));
+        self.emit(abi::branch_eq(invalid_label));
+        self.emit(abi::add_immediate(index, index, 1));
+        self.emit(abi::add_immediate(cursor, cursor, 1));
+        self.emit(abi::compare_registers(index, length));
+        self.emit(abi::branch_ge(invalid_label));
+        self.emit(abi::move_immediate(exponent, "Integer", "0"));
+        self.emit(abi::move_immediate(exponent_negative, "Integer", "0"));
+        self.emit(abi::move_immediate(seen_digit, "Integer", "0"));
+        self.emit(abi::load_u8(byte, cursor, 0));
+        self.emit(abi::compare_immediate(byte, "45"));
+        self.emit(abi::branch_ne(&exponent_not_minus));
+        self.emit(abi::move_immediate(exponent_negative, "Integer", "1"));
+        self.emit(abi::add_immediate(index, index, 1));
+        self.emit(abi::add_immediate(cursor, cursor, 1));
+        self.emit(abi::branch(&exponent_sign_done));
+        self.emit(abi::label(&exponent_not_minus));
+        self.emit(abi::compare_immediate(byte, "43"));
+        self.emit(abi::branch_ne(&exponent_sign_done));
+        self.emit(abi::add_immediate(index, index, 1));
+        self.emit(abi::add_immediate(cursor, cursor, 1));
+        self.emit(abi::label(&exponent_sign_done));
+        self.emit(abi::compare_registers(index, length));
+        self.emit(abi::branch_ge(invalid_label));
+
+        self.emit(abi::label(&exponent_loop));
+        self.emit(abi::compare_registers(index, length));
+        self.emit(abi::branch_ge(&exponent_apply));
+        self.emit(abi::load_u8(byte, cursor, 0));
+        self.emit(abi::compare_immediate(byte, "48"));
+        self.emit(abi::branch_lo(invalid_label));
+        self.emit(abi::compare_immediate(byte, "57"));
+        self.emit(abi::branch_hi(invalid_label));
+        self.emit(abi::subtract_immediate(digit, byte, 48));
+        self.emit(abi::multiply_registers(exponent, exponent, exponent_ten));
+        self.emit(abi::add_registers(exponent, exponent, digit));
+        self.emit(abi::move_immediate(seen_digit, "Integer", "1"));
+        self.emit(abi::add_immediate(index, index, 1));
+        self.emit(abi::add_immediate(cursor, cursor, 1));
+        self.emit(abi::branch(&exponent_loop));
+
+        self.emit(abi::label(&exponent_apply));
+        self.emit(abi::compare_immediate(seen_digit, "0"));
+        self.emit(abi::branch_eq(invalid_label));
+        self.emit(abi::compare_immediate(exponent_negative, "0"));
+        self.emit(abi::branch_ne(&exponent_divide_loop));
+        self.emit(abi::label(&exponent_multiply_loop));
+        self.emit(abi::compare_immediate(exponent, "0"));
+        self.emit(abi::branch_eq(&exponent_apply_done));
+        self.emit(abi::float_multiply_d("d0", "d0", "d1"));
+        self.emit(abi::subtract_immediate(exponent, exponent, 1));
+        self.emit(abi::branch(&exponent_multiply_loop));
+        self.emit(abi::label(&exponent_divide_loop));
+        self.emit(abi::compare_immediate(exponent, "0"));
+        self.emit(abi::branch_eq(&exponent_apply_done));
+        self.emit(abi::float_divide_d("d0", "d0", "d1"));
+        self.emit(abi::subtract_immediate(exponent, exponent, 1));
+        self.emit(abi::branch(&exponent_divide_loop));
+        self.emit(abi::label(&exponent_apply_done));
+        self.emit(abi::move_immediate(seen_digit, "Integer", "1"));
+        self.emit(abi::branch(&finish));
+
+        self.emit(abi::label(&finish));
+        self.emit(abi::compare_immediate(seen_digit, "0"));
+        self.emit(abi::branch_eq(invalid_label));
+        self.emit(abi::compare_immediate(negative, "0"));
+        self.emit(abi::branch_eq(&positive));
+        self.emit(abi::float_negate_d("d0", "d0"));
+        self.emit(abi::label(&positive));
+        Ok(())
+    }
+
+    fn emit_double_overflow_check(&mut self, source: &str, overflow_label: &str) {
+        self.emit(abi::float_move_x_from_d("x6", source));
+        self.emit(abi::shift_right_immediate("x7", "x6", 52));
+        self.emit(abi::move_immediate("x5", "Integer", "2047"));
+        self.emit(abi::and_registers("x7", "x7", "x5"));
+        self.emit(abi::compare_immediate("x7", "2047"));
+        self.emit(abi::branch_eq(overflow_label));
+    }
+
     fn lower_arithmetic_binary(
         &mut self,
         op: &str,
@@ -1833,7 +3388,11 @@ impl CodeBuilder<'_> {
     ) -> Result<(), String> {
         match op {
             "+" => {
-                self.emit(abi::add_registers_set_flags(dst, &left.location, &right.location));
+                self.emit(abi::add_registers_set_flags(
+                    dst,
+                    &left.location,
+                    &right.location,
+                ));
                 self.emit_overflow_if_flags_set()?;
                 if byte_result {
                     self.emit_byte_upper_bound_check(dst)?;
@@ -1845,7 +3404,11 @@ impl CodeBuilder<'_> {
                     let ok_label = self.label("byte_ok");
                     self.emit(abi::compare_registers(&left.location, &right.location));
                     self.emit(abi::branch_lo(&underflow_label));
-                    self.emit(abi::subtract_registers(dst, &left.location, &right.location));
+                    self.emit(abi::subtract_registers(
+                        dst,
+                        &left.location,
+                        &right.location,
+                    ));
                     self.emit(abi::branch(&ok_label));
                     self.emit(abi::label(&underflow_label));
                     self.emit_underflow_return()?;
@@ -1868,7 +3431,11 @@ impl CodeBuilder<'_> {
             "/" | "DIV" => {
                 self.emit_nonzero_or_invalid(&right.location)?;
                 self.emit_integer_division_overflow_check(&left.location, &right.location)?;
-                self.emit(abi::signed_divide_registers(dst, &left.location, &right.location));
+                self.emit(abi::signed_divide_registers(
+                    dst,
+                    &left.location,
+                    &right.location,
+                ));
             }
             "MOD" => {
                 self.emit_nonzero_or_invalid(&right.location)?;
@@ -1905,7 +3472,11 @@ impl CodeBuilder<'_> {
     ) -> Result<(), String> {
         match op {
             "+" => {
-                self.emit(abi::add_registers_set_flags(dst, &left.location, &right.location));
+                self.emit(abi::add_registers_set_flags(
+                    dst,
+                    &left.location,
+                    &right.location,
+                ));
                 self.emit_overflow_if_flags_set()?;
             }
             "-" => {
@@ -2019,7 +3590,11 @@ impl CodeBuilder<'_> {
         Ok(())
     }
 
-    fn emit_integer_division_overflow_check(&mut self, left: &str, right: &str) -> Result<(), String> {
+    fn emit_integer_division_overflow_check(
+        &mut self,
+        left: &str,
+        right: &str,
+    ) -> Result<(), String> {
         let min = self.allocate_register()?;
         let minus_one = self.allocate_register()?;
         let not_min = self.label("div_not_min");
@@ -2027,7 +3602,11 @@ impl CodeBuilder<'_> {
         self.emit(abi::move_immediate(&min, "Integer", "9223372036854775808"));
         self.emit(abi::compare_registers(left, &min));
         self.emit(abi::branch_ne(&not_min));
-        self.emit(abi::move_immediate(&minus_one, "Integer", &u64::MAX.to_string()));
+        self.emit(abi::move_immediate(
+            &minus_one,
+            "Integer",
+            &u64::MAX.to_string(),
+        ));
         self.emit(abi::compare_registers(right, &minus_one));
         self.emit(abi::branch_ne(&ok));
         self.emit_overflow_return()?;
@@ -2112,10 +3691,7 @@ impl CodeBuilder<'_> {
         self.emit_abs_i64(&rhs_abs)?;
         self.emit(abi::unsigned_divide_registers(&integer, &lhs_abs, &rhs_abs));
         self.emit(abi::multiply_subtract_registers(
-            &remainder,
-            &integer,
-            &rhs_abs,
-            &lhs_abs,
+            &remainder, &integer, &rhs_abs, &lhs_abs,
         ));
         let max_integer = self.allocate_register()?;
         let overflow = self.label("fixed_div_overflow");
@@ -3213,12 +4789,13 @@ impl CodeBuilder<'_> {
             | NirValue::MapLiteral { type_, .. } => Some(type_.clone()),
             NirValue::Call { target, .. } | NirValue::RuntimeCall { target, .. } => {
                 match target.as_str() {
-                    "typeName" | "toString" => Some("String".to_string()),
+                    "replace" | "typeName" | "toString" => Some("String".to_string()),
                     "find" | "len" | "toInt" => Some("Integer".to_string()),
                     "mid" => Some("String".to_string()),
                     "toFloat" => Some("Float".to_string()),
                     "toFixed" => Some("Fixed".to_string()),
                     "toByte" => Some("Byte".to_string()),
+                    "isNumeric" => Some("Boolean".to_string()),
                     _ => None,
                 }
             }
@@ -3432,6 +5009,10 @@ impl CodeBuilder<'_> {
         self.emit_error_code_return(ERR_INVALID_ARGUMENT_CODE, ERR_INVALID_ARGUMENT_MESSAGE)
     }
 
+    fn emit_invalid_format_return(&mut self) -> Result<(), String> {
+        self.emit_error_code_return(ERR_INVALID_FORMAT_CODE, ERR_INVALID_FORMAT_MESSAGE)
+    }
+
     fn emit_allocation_error_return(&mut self) -> Result<(), String> {
         self.emit_error_register_return(RESULT_TAG_REGISTER, ERR_ALLOCATION_MESSAGE)
     }
@@ -3442,6 +5023,10 @@ impl CodeBuilder<'_> {
 
     fn emit_not_found_return(&mut self) -> Result<(), String> {
         self.emit_error_code_return(ERR_NOT_FOUND_CODE, ERR_NOT_FOUND_MESSAGE)
+    }
+
+    fn emit_encoding_error_return(&mut self) -> Result<(), String> {
+        self.emit_error_code_return(ERR_ENCODING_CODE, ERR_ENCODING_MESSAGE)
     }
 
     fn emit_error_code_return(&mut self, code: &str, message: &str) -> Result<(), String> {
@@ -3760,6 +5345,11 @@ fn string_symbols(module: &NirModule) -> HashMap<String, String> {
     if module_uses_call(module, "find") {
         push_string_value(&mut values, ERR_NOT_FOUND_MESSAGE.to_string());
     }
+    if module_uses_call(module, "toString") {
+        push_string_value(&mut values, "TRUE".to_string());
+        push_string_value(&mut values, "FALSE".to_string());
+        push_string_value(&mut values, ERR_ENCODING_MESSAGE.to_string());
+    }
     for value in [
         ENTRY_ERROR_PREFIX,
         ENTRY_ERROR_SEPARATOR,
@@ -3796,6 +5386,11 @@ fn standard_error_messages() -> &'static [(&'static str, &'static str, &'static 
             ERR_INVALID_ARGUMENT_MESSAGE,
             ERR_INVALID_ARGUMENT_SYMBOL,
         ),
+        (
+            ERR_INVALID_FORMAT_CODE,
+            ERR_INVALID_FORMAT_MESSAGE,
+            ERR_INVALID_FORMAT_SYMBOL,
+        ),
         (ERR_OVERFLOW_CODE, ERR_OVERFLOW_MESSAGE, ERR_OVERFLOW_SYMBOL),
         (
             ERR_UNDERFLOW_CODE,
@@ -3817,6 +5412,7 @@ fn standard_error_messages() -> &'static [(&'static str, &'static str, &'static 
             ERR_NOT_FOUND_MESSAGE,
             ERR_NOT_FOUND_SYMBOL,
         ),
+        (ERR_ENCODING_CODE, ERR_ENCODING_MESSAGE, ERR_ENCODING_SYMBOL),
     ]
 }
 
@@ -4240,6 +5836,9 @@ fn collect_string_values_from_value(
     if let Some(value) = static_string_value_with_constants(value, constants, types) {
         push_string_value(values, value);
     }
+    if value_may_return_invalid_format(value, constants, types) {
+        push_string_value(values, ERR_INVALID_FORMAT_MESSAGE.to_string());
+    }
     match value {
         NirValue::Const { type_, value } if type_ == "String" => {
             push_string_value(values, value.clone());
@@ -4281,6 +5880,57 @@ fn collect_string_values_from_value(
             collect_string_values_from_value(operand, values, constants, types)
         }
         NirValue::Const { .. } | NirValue::Local(_) | NirValue::FunctionRef { .. } => {}
+    }
+}
+
+fn value_may_return_invalid_format(
+    value: &NirValue,
+    constants: &HashMap<String, NirValue>,
+    types: &HashMap<String, String>,
+) -> bool {
+    (match value {
+        NirValue::Call { target, args } | NirValue::RuntimeCall { target, args, .. } => {
+            match target.as_str() {
+                "toInt" if args.len() == 1 => {
+                    static_type_name_with_types(&args[0], types).as_deref() != Some("Byte")
+                }
+                "toFloat" | "toFixed" | "isNumeric" => true,
+                _ => false,
+            }
+        }
+        _ => false,
+    }) || match value {
+        NirValue::Call { args, .. }
+        | NirValue::RuntimeCall { args, .. }
+        | NirValue::Constructor { args, .. } => args
+            .iter()
+            .any(|arg| value_may_return_invalid_format(arg, constants, types)),
+        NirValue::WithUpdate {
+            target, updates, ..
+        } => {
+            value_may_return_invalid_format(target, constants, types)
+                || updates
+                    .iter()
+                    .any(|update| value_may_return_invalid_format(&update.value, constants, types))
+        }
+        NirValue::ListLiteral { values, .. } => values
+            .iter()
+            .any(|value| value_may_return_invalid_format(value, constants, types)),
+        NirValue::MapLiteral { entries, .. } => entries.iter().any(|(key, value)| {
+            value_may_return_invalid_format(key, constants, types)
+                || value_may_return_invalid_format(value, constants, types)
+        }),
+        NirValue::MemberAccess { target, .. } => {
+            value_may_return_invalid_format(target, constants, types)
+        }
+        NirValue::Binary { left, right, .. } => {
+            value_may_return_invalid_format(left, constants, types)
+                || value_may_return_invalid_format(right, constants, types)
+        }
+        NirValue::Unary { operand, .. } => {
+            value_may_return_invalid_format(operand, constants, types)
+        }
+        NirValue::Const { .. } | NirValue::Local(_) | NirValue::FunctionRef { .. } => false,
     }
 }
 
@@ -4374,12 +6024,13 @@ fn static_type_name_with_types(
         | NirValue::MapLiteral { type_, .. } => Some(type_.clone()),
         NirValue::Call { target, .. } | NirValue::RuntimeCall { target, .. } => {
             match target.as_str() {
-                "typeName" | "toString" => Some("String".to_string()),
+                "replace" | "typeName" | "toString" => Some("String".to_string()),
                 "find" | "len" | "toInt" => Some("Integer".to_string()),
                 "mid" => Some("String".to_string()),
                 "toFloat" => Some("Float".to_string()),
                 "toFixed" => Some("Fixed".to_string()),
                 "toByte" => Some("Byte".to_string()),
+                "isNumeric" => Some("Boolean".to_string()),
                 _ => None,
             }
         }

@@ -1,0 +1,23 @@
+IMPORT io
+
+FUNC fromString(value AS String) AS Fixed
+  RETURN toFixed(value)
+END FUNC
+
+FUNC fromInteger(value AS Integer) AS Fixed
+  RETURN toFixed(value)
+END FUNC
+
+FUNC fromFloat(value AS Float) AS Fixed
+  RETURN toFixed(value)
+END FUNC
+
+FUNC main AS Integer
+  LET p AS Byte = 2
+  io::print(toString(fromString("2.50"), p))
+  io::print(toString(fromString("-3.75"), p))
+  io::print(toString(fromString("1.25e2"), p))
+  io::print(toString(fromInteger(42), p))
+  io::print(toString(fromFloat(1.25), p))
+  RETURN 0
+END FUNC

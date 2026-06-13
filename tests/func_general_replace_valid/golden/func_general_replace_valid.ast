@@ -1,0 +1,50 @@
+{
+  "project": "func_general_replace_valid",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "main",
+      "line": 3,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "text", "type": "String", "value": { "kind": "string", "value": "hello" }, "line": 4 },
+      { "kind": "binding", "mutable": false, "name": "simple", "type": "String", "value": { "kind": "call", "callee": "replace", "arguments": [{ "kind": "identifier", "value": "text" }, { "kind": "string", "value": "l" }, { "kind": "string", "value": "x" }] }, "line": 5 },
+      { "kind": "binding", "mutable": false, "name": "nonOverlap", "type": "String", "value": { "kind": "call", "callee": "replace", "arguments": [{ "kind": "string", "value": "aaaa" }, { "kind": "string", "value": "aa" }, { "kind": "string", "value": "b" }] }, "line": 6 },
+      { "kind": "binding", "mutable": false, "name": "deleteMatch", "type": "String", "value": { "kind": "call", "callee": "replace", "arguments": [{ "kind": "string", "value": "banana" }, { "kind": "string", "value": "na" }, { "kind": "string", "value": "" }] }, "line": 7 },
+      { "kind": "binding", "mutable": false, "name": "unicode", "type": "String", "value": { "kind": "call", "callee": "replace", "arguments": [{ "kind": "string", "value": "aé日é" }, { "kind": "string", "value": "é" }, { "kind": "string", "value": "E" }] }, "line": 8 },
+      { "kind": "binding", "mutable": false, "name": "noMatch", "type": "String", "value": { "kind": "call", "callee": "replace", "arguments": [{ "kind": "identifier", "value": "text" }, { "kind": "string", "value": "z" }, { "kind": "string", "value": "x" }] }, "line": 9 },
+      { "kind": "binding", "mutable": false, "name": "oldTooLong", "type": "String", "value": { "kind": "call", "callee": "replace", "arguments": [{ "kind": "string", "value": "hi" }, { "kind": "string", "value": "long" }, { "kind": "string", "value": "x" }] }, "line": 10 },
+      { "kind": "binding", "mutable": false, "name": "emptyOld", "type": "String", "value": { "kind": "call", "callee": "replace", "arguments": [{ "kind": "string", "value": "hi" }, { "kind": "string", "value": "" }, { "kind": "string", "value": "x" }] }, "line": 11 },
+      { "kind": "binding", "mutable": false, "name": "overlapCandidate", "type": "String", "value": { "kind": "call", "callee": "replace", "arguments": [{ "kind": "string", "value": "ababa" }, { "kind": "string", "value": "aba" }, { "kind": "string", "value": "x" }] }, "line": 12 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "identifier", "value": "simple" }] }, "line": 14 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "identifier", "value": "nonOverlap" }] }, "line": 15 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "identifier", "value": "deleteMatch" }] }, "line": 16 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "identifier", "value": "unicode" }] }, "line": 17 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "identifier", "value": "noMatch" }] }, "line": 18 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "identifier", "value": "oldTooLong" }] }, "line": 19 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "identifier", "value": "emptyOld" }] }, "line": 20 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "identifier", "value": "overlapCandidate" }] }, "line": 21 },
+      { "kind": "binding", "mutable": false, "name": "simpleLen", "type": "Integer", "value": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "simple" }] }, "line": 23 },
+      { "kind": "binding", "mutable": false, "name": "nonOverlapLen", "type": "Integer", "value": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "nonOverlap" }] }, "line": 24 },
+      { "kind": "binding", "mutable": false, "name": "deleteLen", "type": "Integer", "value": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "deleteMatch" }] }, "line": 25 },
+      { "kind": "binding", "mutable": false, "name": "unicodeLen", "type": "Integer", "value": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "unicode" }] }, "line": 26 },
+      { "kind": "binding", "mutable": false, "name": "noMatchLen", "type": "Integer", "value": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "noMatch" }] }, "line": 27 },
+      { "kind": "binding", "mutable": false, "name": "oldTooLongLen", "type": "Integer", "value": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "oldTooLong" }] }, "line": 28 },
+      { "kind": "binding", "mutable": false, "name": "emptyOldLen", "type": "Integer", "value": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "emptyOld" }] }, "line": 29 },
+      { "kind": "binding", "mutable": false, "name": "overlapLen", "type": "Integer", "value": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "overlapCandidate" }] }, "line": 30 },
+      { "kind": "return", "value": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "simpleLen" }, "right": { "kind": "identifier", "value": "nonOverlapLen" } }, "right": { "kind": "identifier", "value": "deleteLen" } }, "right": { "kind": "identifier", "value": "unicodeLen" } }, "right": { "kind": "identifier", "value": "noMatchLen" } }, "right": { "kind": "identifier", "value": "oldTooLongLen" } }, "right": { "kind": "identifier", "value": "emptyOldLen" } }, "right": { "kind": "identifier", "value": "overlapLen" } }, "line": 32 }
+      ]
+    }
+    ]
+  }
+  ]
+}

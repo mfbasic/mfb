@@ -1,0 +1,25 @@
+{
+  "project": "func_general_toFloat_overflow",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "main",
+      "line": 1,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "value", "type": "Float", "value": { "kind": "call", "callee": "toFloat", "arguments": [{ "kind": "string", "value": "999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999" }] }, "line": 2 },
+      { "kind": "return", "value": { "kind": "call", "callee": "toInt", "arguments": [{ "kind": "identifier", "value": "value" }] }, "line": 3 }
+      ]
+    }
+    ]
+  }
+  ]
+}

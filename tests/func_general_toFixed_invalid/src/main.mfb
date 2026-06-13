@@ -1,0 +1,6 @@
+FUNC main AS Integer
+  LET missing AS Fixed = toFixed()
+  LET wrongType AS Fixed = toFixed(TRUE)
+  LET tooMany AS Fixed = toFixed("1", "2")
+  RETURN 0
+END FUNC

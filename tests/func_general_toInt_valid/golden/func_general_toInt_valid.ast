@@ -1,0 +1,127 @@
+{
+  "project": "func_general_toInt_valid",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "fromString",
+      "line": 3,
+      "params": [
+      { "name": "value", "type": "String", "default": null }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "return", "value": { "kind": "call", "callee": "toInt", "arguments": [{ "kind": "identifier", "value": "value" }] }, "line": 4 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "fromByte",
+      "line": 7,
+      "params": [
+      { "name": "value", "type": "Byte", "default": null }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "return", "value": { "kind": "call", "callee": "toInt", "arguments": [{ "kind": "identifier", "value": "value" }] }, "line": 8 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "fromFloat",
+      "line": 11,
+      "params": [
+      { "name": "value", "type": "Float", "default": null }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "return", "value": { "kind": "call", "callee": "toInt", "arguments": [{ "kind": "identifier", "value": "value" }] }, "line": 12 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "fromFixed",
+      "line": 15,
+      "params": [
+      { "name": "value", "type": "Fixed", "default": null }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "return", "value": { "kind": "call", "callee": "toInt", "arguments": [{ "kind": "identifier", "value": "value" }] }, "line": 16 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "negativeFloat",
+      "line": 19,
+      "params": [
+      { "name": "value", "type": "Float", "default": null }
+      ],
+      "returnType": "Float",
+      "body": [
+      { "kind": "return", "value": { "kind": "binary", "operator": "-", "left": { "kind": "number", "value": "0.0" }, "right": { "kind": "identifier", "value": "value" } }, "line": 20 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "negativeFixed",
+      "line": 23,
+      "params": [
+      { "name": "value", "type": "Fixed", "default": null }
+      ],
+      "returnType": "Fixed",
+      "body": [
+      { "kind": "return", "value": { "kind": "binary", "operator": "-", "left": { "kind": "number", "value": "0" }, "right": { "kind": "identifier", "value": "value" } }, "line": 24 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "printInt",
+      "line": 27,
+      "params": [
+      { "name": "value", "type": "Integer", "default": null }
+      ],
+      "returnType": "Nothing",
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "value" }] }] }, "line": 28 },
+      { "kind": "return", "value": { "kind": "identifier", "value": "NOTHING" }, "line": 29 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "main",
+      "line": 32,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "printInt", "arguments": [{ "kind": "call", "callee": "fromString", "arguments": [{ "kind": "string", "value": "0" }] }] }, "line": 33 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "printInt", "arguments": [{ "kind": "call", "callee": "fromString", "arguments": [{ "kind": "string", "value": "+42" }] }] }, "line": 34 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "printInt", "arguments": [{ "kind": "call", "callee": "fromString", "arguments": [{ "kind": "string", "value": "-42" }] }] }, "line": 35 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "printInt", "arguments": [{ "kind": "call", "callee": "fromString", "arguments": [{ "kind": "string", "value": "9223372036854775807" }] }] }, "line": 36 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "printInt", "arguments": [{ "kind": "call", "callee": "fromString", "arguments": [{ "kind": "string", "value": "-9223372036854775808" }] }] }, "line": 37 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "printInt", "arguments": [{ "kind": "call", "callee": "fromByte", "arguments": [{ "kind": "number", "value": "255" }] }] }, "line": 38 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "printInt", "arguments": [{ "kind": "call", "callee": "fromFloat", "arguments": [{ "kind": "number", "value": "3.9" }] }] }, "line": 39 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "printInt", "arguments": [{ "kind": "call", "callee": "fromFloat", "arguments": [{ "kind": "call", "callee": "negativeFloat", "arguments": [{ "kind": "number", "value": "3.9" }] }] }] }, "line": 40 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "printInt", "arguments": [{ "kind": "call", "callee": "fromFixed", "arguments": [{ "kind": "number", "value": "12.75" }] }] }, "line": 41 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "printInt", "arguments": [{ "kind": "call", "callee": "fromFixed", "arguments": [{ "kind": "call", "callee": "negativeFixed", "arguments": [{ "kind": "number", "value": "12.75" }] }] }] }, "line": 42 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 43 }
+      ]
+    }
+    ]
+  }
+  ]
+}

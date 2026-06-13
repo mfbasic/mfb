@@ -1,0 +1,3 @@
+FUNC main AS Integer
+  RETURN toInt("12x")
+END FUNC

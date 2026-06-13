@@ -1,0 +1,19 @@
+$ mfb build -ast tests/func_general_replace_valid
+Wrote AST to tests/func_general_replace_valid/func_general_replace_valid.ast
+[exit 0]
+$ mfb build -ir tests/func_general_replace_valid
+Wrote IR to tests/func_general_replace_valid/func_general_replace_valid.ir
+[exit 0]
+$ mfb build tests/func_general_replace_valid
+Wrote executable to tests/func_general_replace_valid/func_general_replace_valid.out
+[exit 0]
+$ tests/func_general_replace_valid/func_general_replace_valid.out
+hexxo
+bb
+ba
+aE日E
+hello
+hi
+hi
+xba
+[exit 25]

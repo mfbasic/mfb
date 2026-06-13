@@ -1,0 +1,66 @@
+IMPORT io
+
+FUNC integerText(value AS Integer) AS String
+  RETURN toString(value)
+END FUNC
+
+FUNC byteText(value AS Byte) AS String
+  RETURN toString(value)
+END FUNC
+
+FUNC boolText(value AS Boolean) AS String
+  RETURN toString(value)
+END FUNC
+
+FUNC stringText(value AS String) AS String
+  RETURN toString(value)
+END FUNC
+
+FUNC fixedText(value AS Fixed) AS String
+  RETURN toString(value)
+END FUNC
+
+FUNC fixedTextWithPrecision(value AS Fixed, precision AS Byte) AS String
+  RETURN toString(value, precision)
+END FUNC
+
+FUNC floatText(value AS Float) AS String
+  RETURN toString(value)
+END FUNC
+
+FUNC floatTextWithPrecision(value AS Float, precision AS Byte) AS String
+  RETURN toString(value, precision)
+END FUNC
+
+FUNC byteListText(value AS List OF Byte) AS String
+  RETURN toString(value)
+END FUNC
+
+FUNC main AS Integer
+  LET integerNegative AS String = integerText(-123)
+  LET integerZero AS String = integerText(0)
+  LET byteMax AS String = byteText(255)
+  LET boolTrue AS String = boolText(TRUE)
+  LET boolFalse AS String = boolText(FALSE)
+  LET sameString AS String = stringText("ready")
+  LET fixedDefault AS String = fixedText(1.25)
+  LET fixedExplicit AS String = fixedTextWithPrecision(1.25, 3)
+  LET floatDefault AS String = floatText(2.25)
+  LET floatExplicit AS String = floatTextWithPrecision(2.25, 3)
+  LET bytes AS List OF Byte = [104, 195, 169, 226, 151, 134]
+  LET decoded AS String = byteListText(bytes)
+
+  io::print(integerNegative)
+  io::print(integerZero)
+  io::print(byteMax)
+  io::print(boolTrue)
+  io::print(boolFalse)
+  io::print(sameString)
+  io::print(fixedDefault)
+  io::print(fixedExplicit)
+  io::print(floatDefault)
+  io::print(floatExplicit)
+  io::print(decoded)
+
+  RETURN len(integerNegative) + len(integerZero) + len(byteMax) + len(boolTrue) + len(boolFalse) + len(sameString) + len(fixedDefault) + len(fixedExplicit) + len(floatDefault) + len(floatExplicit) + len(decoded)
+END FUNC

@@ -1,0 +1,12 @@
+$ mfb build -ast tests/func_general_toInt_overflow
+Wrote AST to tests/func_general_toInt_overflow/func_general_toInt_overflow.ast
+[exit 0]
+$ mfb build -ir tests/func_general_toInt_overflow
+Wrote IR to tests/func_general_toInt_overflow/func_general_toInt_overflow.ir
+[exit 0]
+$ mfb build tests/func_general_toInt_overflow
+Wrote executable to tests/func_general_toInt_overflow/func_general_toInt_overflow.out
+[exit 0]
+$ tests/func_general_toInt_overflow/func_general_toInt_overflow.out
+Code: 10028 Message: numeric overflow
+[exit 255]

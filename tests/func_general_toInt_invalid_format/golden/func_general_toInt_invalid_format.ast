@@ -1,0 +1,24 @@
+{
+  "project": "func_general_toInt_invalid_format",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "main",
+      "line": 1,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "return", "value": { "kind": "call", "callee": "toInt", "arguments": [{ "kind": "string", "value": "12x" }] }, "line": 2 }
+      ]
+    }
+    ]
+  }
+  ]
+}

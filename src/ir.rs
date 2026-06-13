@@ -781,6 +781,35 @@ fn function_return_from_type(type_: &str) -> Option<String> {
         .map(|(_, return_type)| return_type.to_string())
 }
 
+fn function_param_types_from_type(type_: &str) -> Option<Vec<String>> {
+    let rest = type_
+        .strip_prefix("FUNC(")
+        .or_else(|| type_.strip_prefix("ISOLATED FUNC("))?;
+    let (params, _) = rest.split_once(") AS ")?;
+    if params.trim().is_empty() {
+        return Some(Vec::new());
+    }
+    Some(params.split(", ").map(str::to_string).collect())
+}
+
+fn call_argument_expected_type(
+    callee: &str,
+    index: usize,
+    arguments: &[Expression],
+    locals: &HashMap<String, String>,
+    context: &LowerContext<'_>,
+) -> Option<String> {
+    if callee == "toString" && index == 1 && arguments.len() == 2 {
+        return Some("Byte".to_string());
+    }
+    context
+        .function_types
+        .get(callee)
+        .or_else(|| locals.get(callee))
+        .and_then(|type_| function_param_types_from_type(type_))
+        .and_then(|params| params.get(index).cloned())
+}
+
 fn lower_expression(
     expression: &Expression,
     locals: &HashMap<String, String>,
@@ -869,7 +898,17 @@ fn lower_expression_with_expected(
             } else {
                 arguments
                     .iter()
-                    .map(|argument| lower_expression(argument, locals, context))
+                    .enumerate()
+                    .map(|(index, argument)| {
+                        let expected =
+                            call_argument_expected_type(callee, index, arguments, locals, context);
+                        lower_expression_with_expected(
+                            argument,
+                            expected.as_deref(),
+                            locals,
+                            context,
+                        )
+                    })
                     .collect()
             };
             IrValue::Call {
@@ -953,14 +992,19 @@ fn lower_expression_with_expected(
             }
         }
         Expression::ListLiteral(values) => {
+            let expected_element = expected.and_then(|type_| type_.strip_prefix("List OF "));
             let lowered = values
                 .iter()
-                .map(|value| lower_expression(value, locals, context))
+                .map(|value| {
+                    lower_expression_with_expected(value, expected_element, locals, context)
+                })
                 .collect::<Vec<_>>();
-            let element_type = values
-                .first()
-                .and_then(|value| literal_expression_type(value))
-                .unwrap_or_else(|| "Unknown".to_string());
+            let element_type = expected_element.map(str::to_string).unwrap_or_else(|| {
+                values
+                    .first()
+                    .and_then(|value| literal_expression_type(value))
+                    .unwrap_or_else(|| "Unknown".to_string())
+            });
             IrValue::ListLiteral {
                 type_: format!("List OF {element_type}"),
                 values: lowered,

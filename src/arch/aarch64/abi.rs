@@ -214,11 +214,7 @@ pub(crate) fn shift_right_immediate(dst: &str, src: &str, shift: u8) -> CodeInst
         .field("shift", &shift.to_string())
 }
 
-pub(crate) fn arithmetic_shift_right_immediate(
-    dst: &str,
-    src: &str,
-    shift: u8,
-) -> CodeInstruction {
+pub(crate) fn arithmetic_shift_right_immediate(dst: &str, src: &str, shift: u8) -> CodeInstruction {
     CodeInstruction::new("asr_imm")
         .field("dst", dst)
         .field("src", src)
@@ -380,6 +376,12 @@ pub(crate) fn float_divide_d(dst: &str, lhs: &str, rhs: &str) -> CodeInstruction
         .field("dst", dst)
         .field("lhs", lhs)
         .field("rhs", rhs)
+}
+
+pub(crate) fn float_negate_d(dst: &str, src: &str) -> CodeInstruction {
+    CodeInstruction::new("fneg_d")
+        .field("dst", dst)
+        .field("src", src)
 }
 
 pub(crate) fn float_compare_zero_d(src: &str) -> CodeInstruction {

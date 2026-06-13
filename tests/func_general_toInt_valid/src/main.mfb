@@ -1,0 +1,44 @@
+IMPORT io
+
+FUNC fromString(value AS String) AS Integer
+  RETURN toInt(value)
+END FUNC
+
+FUNC fromByte(value AS Byte) AS Integer
+  RETURN toInt(value)
+END FUNC
+
+FUNC fromFloat(value AS Float) AS Integer
+  RETURN toInt(value)
+END FUNC
+
+FUNC fromFixed(value AS Fixed) AS Integer
+  RETURN toInt(value)
+END FUNC
+
+FUNC negativeFloat(value AS Float) AS Float
+  RETURN 0.0 - value
+END FUNC
+
+FUNC negativeFixed(value AS Fixed) AS Fixed
+  RETURN 0 - value
+END FUNC
+
+FUNC printInt(value AS Integer) AS Nothing
+  io::print(toString(value))
+  RETURN NOTHING
+END FUNC
+
+FUNC main AS Integer
+  printInt(fromString("0"))
+  printInt(fromString("+42"))
+  printInt(fromString("-42"))
+  printInt(fromString("9223372036854775807"))
+  printInt(fromString("-9223372036854775808"))
+  printInt(fromByte(255))
+  printInt(fromFloat(3.9))
+  printInt(fromFloat(negativeFloat(3.9)))
+  printInt(fromFixed(12.75))
+  printInt(fromFixed(negativeFixed(12.75)))
+  RETURN 0
+END FUNC

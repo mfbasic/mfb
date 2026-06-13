@@ -789,7 +789,13 @@ fn validate_value(
                 || target == "find"
                 || target == "len"
                 || target == "mid"
+                || target == "replace"
+                || target == "toByte"
+                || target == "toFixed"
+                || target == "toFloat"
                 || target == "toInt"
+                || target == "toString"
+                || target == "isNumeric"
                 || locals
                     .get(target)
                     .is_some_and(|local| is_function_type(&local.type_))

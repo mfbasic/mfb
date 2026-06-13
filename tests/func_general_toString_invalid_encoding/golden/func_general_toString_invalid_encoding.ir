@@ -1,0 +1,27 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "func_general_toString_invalid_encoding",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "mutable": false, "name": "bytes", "type": "List OF Byte", "value": { "kind": "list", "type": "List OF Byte", "values": [{ "kind": "const", "type": "Byte", "value": "255" }] } },
+    { "op": "bind", "mutable": false, "name": "decoded", "type": "String", "value": { "kind": "call", "target": "toString", "args": [{ "kind": "local", "name": "bytes" }] } },
+    { "op": "return", "value": { "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "decoded" }] } }
+    ]
+  }
+  ]
+}

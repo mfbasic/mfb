@@ -18,6 +18,8 @@ DESCRIPTION
   For String values, replace substitutes all non-overlapping occurrences of old
   with new.
 
+  If old is an empty String, replace returns value unchanged.
+
   For List values, replace substitutes every item equal to old with new. The
   element type T must be comparable.
 

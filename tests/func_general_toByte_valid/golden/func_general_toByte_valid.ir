@@ -1,0 +1,39 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "func_general_toByte_valid",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "byteText",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    { "name": "value", "type": "Integer", "default": null }
+    ],
+    "returns": "String",
+    "body": [
+    { "op": "return", "value": { "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "toByte", "args": [{ "kind": "local", "name": "value" }] }] } }
+    ]
+  },
+  {
+    "name": "main",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "byteText", "args": [{ "kind": "const", "type": "Integer", "value": "0" }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "byteText", "args": [{ "kind": "const", "type": "Integer", "value": "255" }] }] } },
+    { "op": "return", "value": { "kind": "call", "target": "toInt", "args": [{ "kind": "call", "target": "toByte", "args": [{ "kind": "const", "type": "Integer", "value": "7" }] }] } }
+    ]
+  }
+  ]
+}

@@ -1,0 +1,68 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "func_general_toFloat_valid",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "fromString",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    { "name": "value", "type": "String", "default": null }
+    ],
+    "returns": "Float",
+    "body": [
+    { "op": "return", "value": { "kind": "call", "target": "toFloat", "args": [{ "kind": "local", "name": "value" }] } }
+    ]
+  },
+  {
+    "name": "fromInteger",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    { "name": "value", "type": "Integer", "default": null }
+    ],
+    "returns": "Float",
+    "body": [
+    { "op": "return", "value": { "kind": "call", "target": "toFloat", "args": [{ "kind": "local", "name": "value" }] } }
+    ]
+  },
+  {
+    "name": "fromFixed",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    { "name": "value", "type": "Fixed", "default": null }
+    ],
+    "returns": "Float",
+    "body": [
+    { "op": "return", "value": { "kind": "call", "target": "toFloat", "args": [{ "kind": "local", "name": "value" }] } }
+    ]
+  },
+  {
+    "name": "main",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "mutable": false, "name": "p", "type": "Byte", "value": { "kind": "const", "type": "Byte", "value": "2" } },
+    { "op": "bind", "mutable": false, "name": "fixedValue", "type": "Fixed", "value": { "kind": "const", "type": "Fixed", "value": "1.25" } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "fromString", "args": [{ "kind": "const", "type": "String", "value": "2.50" }] }, { "kind": "local", "name": "p" }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "fromString", "args": [{ "kind": "const", "type": "String", "value": "-3.75" }] }, { "kind": "local", "name": "p" }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "fromString", "args": [{ "kind": "const", "type": "String", "value": "1.25e2" }] }, { "kind": "local", "name": "p" }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "fromInteger", "args": [{ "kind": "const", "type": "Integer", "value": "42" }] }, { "kind": "local", "name": "p" }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "fromFixed", "args": [{ "kind": "local", "name": "fixedValue" }] }, { "kind": "local", "name": "p" }] }] } },
+    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

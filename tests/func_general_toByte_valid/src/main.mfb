@@ -1,0 +1,11 @@
+IMPORT io
+
+FUNC byteText(value AS Integer) AS String
+  RETURN toString(toByte(value))
+END FUNC
+
+FUNC main AS Integer
+  io::print(byteText(0))
+  io::print(byteText(255))
+  RETURN toInt(toByte(7))
+END FUNC

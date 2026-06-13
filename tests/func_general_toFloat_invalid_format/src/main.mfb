@@ -1,0 +1,4 @@
+FUNC main AS Integer
+  LET value AS Float = toFloat("1x")
+  RETURN toInt(value)
+END FUNC

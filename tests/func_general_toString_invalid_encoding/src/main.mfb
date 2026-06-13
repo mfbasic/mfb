@@ -1,0 +1,5 @@
+FUNC main AS Integer
+  LET bytes AS List OF Byte = [255]
+  LET decoded AS String = toString(bytes)
+  RETURN len(decoded)
+END FUNC

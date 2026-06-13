@@ -1,0 +1,6 @@
+FUNC main AS Integer
+  LET missing AS Float = toFloat()
+  LET wrongType AS Float = toFloat(TRUE)
+  LET tooMany AS Float = toFloat("1", "2")
+  RETURN 0
+END FUNC

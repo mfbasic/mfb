@@ -1,0 +1,24 @@
+{
+  "project": "func_general_toInt_overflow",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "main",
+      "line": 1,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "return", "value": { "kind": "call", "callee": "toInt", "arguments": [{ "kind": "string", "value": "9223372036854775808" }] }, "line": 2 }
+      ]
+    }
+    ]
+  }
+  ]
+}

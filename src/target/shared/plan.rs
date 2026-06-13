@@ -885,7 +885,19 @@ impl FunctionPlanBuilder<'_> {
                 for arg in args {
                     self.lower_value(arg)?;
                 }
-                if !matches!(target.as_str(), "find" | "len" | "mid" | "toInt") {
+                if !matches!(
+                    target.as_str(),
+                    "find"
+                        | "len"
+                        | "mid"
+                        | "replace"
+                        | "toByte"
+                        | "toFixed"
+                        | "toFloat"
+                        | "toInt"
+                        | "toString"
+                        | "isNumeric"
+                ) {
                     self.add_call(target);
                 }
             }

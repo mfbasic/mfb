@@ -1,0 +1,25 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "func_general_toInt_overflow",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "return", "value": { "kind": "call", "target": "toInt", "args": [{ "kind": "const", "type": "String", "value": "9223372036854775808" }] } }
+    ]
+  }
+  ]
+}

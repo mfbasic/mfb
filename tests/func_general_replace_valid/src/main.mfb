@@ -1,0 +1,33 @@
+IMPORT io
+
+FUNC main AS Integer
+  LET text AS String = "hello"
+  LET simple AS String = replace(text, "l", "x")
+  LET nonOverlap AS String = replace("aaaa", "aa", "b")
+  LET deleteMatch AS String = replace("banana", "na", "")
+  LET unicode AS String = replace("aé日é", "é", "E")
+  LET noMatch AS String = replace(text, "z", "x")
+  LET oldTooLong AS String = replace("hi", "long", "x")
+  LET emptyOld AS String = replace("hi", "", "x")
+  LET overlapCandidate AS String = replace("ababa", "aba", "x")
+
+  io::print(simple)
+  io::print(nonOverlap)
+  io::print(deleteMatch)
+  io::print(unicode)
+  io::print(noMatch)
+  io::print(oldTooLong)
+  io::print(emptyOld)
+  io::print(overlapCandidate)
+
+  LET simpleLen AS Integer = len(simple)
+  LET nonOverlapLen AS Integer = len(nonOverlap)
+  LET deleteLen AS Integer = len(deleteMatch)
+  LET unicodeLen AS Integer = len(unicode)
+  LET noMatchLen AS Integer = len(noMatch)
+  LET oldTooLongLen AS Integer = len(oldTooLong)
+  LET emptyOldLen AS Integer = len(emptyOld)
+  LET overlapLen AS Integer = len(overlapCandidate)
+
+  RETURN simpleLen + nonOverlapLen + deleteLen + unicodeLen + noMatchLen + oldTooLongLen + emptyOldLen + overlapLen
+END FUNC

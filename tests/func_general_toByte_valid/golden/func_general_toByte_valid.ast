@@ -1,0 +1,40 @@
+{
+  "project": "func_general_toByte_valid",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "byteText",
+      "line": 3,
+      "params": [
+      { "name": "value", "type": "Integer", "default": null }
+      ],
+      "returnType": "String",
+      "body": [
+      { "kind": "return", "value": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "toByte", "arguments": [{ "kind": "identifier", "value": "value" }] }] }, "line": 4 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "main",
+      "line": 7,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "byteText", "arguments": [{ "kind": "number", "value": "0" }] }] }, "line": 8 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "byteText", "arguments": [{ "kind": "number", "value": "255" }] }] }, "line": 9 },
+      { "kind": "return", "value": { "kind": "call", "callee": "toInt", "arguments": [{ "kind": "call", "callee": "toByte", "arguments": [{ "kind": "number", "value": "7" }] }] }, "line": 10 }
+      ]
+    }
+    ]
+  }
+  ]
+}

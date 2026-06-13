@@ -1,0 +1,120 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "func_general_toInt_valid",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "fromString",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    { "name": "value", "type": "String", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "return", "value": { "kind": "call", "target": "toInt", "args": [{ "kind": "local", "name": "value" }] } }
+    ]
+  },
+  {
+    "name": "fromByte",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    { "name": "value", "type": "Byte", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "return", "value": { "kind": "call", "target": "toInt", "args": [{ "kind": "local", "name": "value" }] } }
+    ]
+  },
+  {
+    "name": "fromFloat",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    { "name": "value", "type": "Float", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "return", "value": { "kind": "call", "target": "toInt", "args": [{ "kind": "local", "name": "value" }] } }
+    ]
+  },
+  {
+    "name": "fromFixed",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    { "name": "value", "type": "Fixed", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "return", "value": { "kind": "call", "target": "toInt", "args": [{ "kind": "local", "name": "value" }] } }
+    ]
+  },
+  {
+    "name": "negativeFloat",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    { "name": "value", "type": "Float", "default": null }
+    ],
+    "returns": "Float",
+    "body": [
+    { "op": "return", "value": { "kind": "binary", "op": "-", "left": { "kind": "const", "type": "Float", "value": "0.0" }, "right": { "kind": "local", "name": "value" } } }
+    ]
+  },
+  {
+    "name": "negativeFixed",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    { "name": "value", "type": "Fixed", "default": null }
+    ],
+    "returns": "Fixed",
+    "body": [
+    { "op": "return", "value": { "kind": "binary", "op": "-", "left": { "kind": "const", "type": "Integer", "value": "0" }, "right": { "kind": "local", "name": "value" } } }
+    ]
+  },
+  {
+    "name": "printInt",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    { "name": "value", "type": "Integer", "default": null }
+    ],
+    "returns": "Nothing",
+    "body": [
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "local", "name": "value" }] }] } },
+    { "op": "return", "value": { "kind": "const", "type": "Nothing", "value": "NOTHING" } }
+    ]
+  },
+  {
+    "name": "main",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "eval", "value": { "kind": "call", "target": "printInt", "args": [{ "kind": "call", "target": "fromString", "args": [{ "kind": "const", "type": "String", "value": "0" }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "printInt", "args": [{ "kind": "call", "target": "fromString", "args": [{ "kind": "const", "type": "String", "value": "+42" }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "printInt", "args": [{ "kind": "call", "target": "fromString", "args": [{ "kind": "const", "type": "String", "value": "-42" }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "printInt", "args": [{ "kind": "call", "target": "fromString", "args": [{ "kind": "const", "type": "String", "value": "9223372036854775807" }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "printInt", "args": [{ "kind": "call", "target": "fromString", "args": [{ "kind": "const", "type": "String", "value": "-9223372036854775808" }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "printInt", "args": [{ "kind": "call", "target": "fromByte", "args": [{ "kind": "const", "type": "Byte", "value": "255" }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "printInt", "args": [{ "kind": "call", "target": "fromFloat", "args": [{ "kind": "const", "type": "Float", "value": "3.9" }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "printInt", "args": [{ "kind": "call", "target": "fromFloat", "args": [{ "kind": "call", "target": "negativeFloat", "args": [{ "kind": "const", "type": "Float", "value": "3.9" }] }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "printInt", "args": [{ "kind": "call", "target": "fromFixed", "args": [{ "kind": "const", "type": "Fixed", "value": "12.75" }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "printInt", "args": [{ "kind": "call", "target": "fromFixed", "args": [{ "kind": "call", "target": "negativeFixed", "args": [{ "kind": "const", "type": "Fixed", "value": "12.75" }] }] }] } },
+    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}
