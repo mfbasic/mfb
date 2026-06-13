@@ -1,0 +1,15 @@
+{
+  "name": "primitive_fixed_bindings_overflow",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "executable",
+  "sources": [
+    {
+      "root": "src",
+      "role": "main",
+      "include": ["**/*.mfb"]
+    }
+  ],
+  "entry": "main",
+  "targets": ["native"]
+}

@@ -1,0 +1,35 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "primitive_string_concatenation",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "mutable": false, "name": "intValue", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "1" } },
+    { "op": "bind", "mutable": false, "name": "byteValue", "type": "Byte", "value": { "kind": "const", "type": "Byte", "value": "2" } },
+    { "op": "bind", "mutable": false, "name": "floatValue", "type": "Float", "value": { "kind": "const", "type": "Float", "value": "3.5" } },
+    { "op": "bind", "mutable": false, "name": "fixedValue", "type": "Fixed", "value": { "kind": "const", "type": "Fixed", "value": "4.25" } },
+    { "op": "bind", "mutable": false, "name": "boolValue", "type": "Boolean", "value": { "kind": "const", "type": "Boolean", "value": "true" } },
+    { "op": "bind", "mutable": false, "name": "stringValue", "type": "String", "value": { "kind": "const", "type": "String", "value": "six" } },
+    { "op": "bind", "mutable": false, "name": "text", "type": "String", "value": { "kind": "binary", "op": "&", "left": { "kind": "binary", "op": "&", "left": { "kind": "binary", "op": "&", "left": { "kind": "binary", "op": "&", "left": { "kind": "binary", "op": "&", "left": { "kind": "binary", "op": "&", "left": { "kind": "binary", "op": "&", "left": { "kind": "binary", "op": "&", "left": { "kind": "binary", "op": "&", "left": { "kind": "binary", "op": "&", "left": { "kind": "binary", "op": "&", "left": { "kind": "const", "type": "String", "value": "i=" }, "right": { "kind": "call", "target": "toString", "args": [{ "kind": "local", "name": "intValue" }] } }, "right": { "kind": "const", "type": "String", "value": ",b=" } }, "right": { "kind": "call", "target": "toString", "args": [{ "kind": "local", "name": "byteValue" }] } }, "right": { "kind": "const", "type": "String", "value": ",f=" } }, "right": { "kind": "call", "target": "toString", "args": [{ "kind": "local", "name": "floatValue" }] } }, "right": { "kind": "const", "type": "String", "value": ",x=" } }, "right": { "kind": "call", "target": "toString", "args": [{ "kind": "local", "name": "fixedValue" }] } }, "right": { "kind": "const", "type": "String", "value": ",ok=" } }, "right": { "kind": "call", "target": "toString", "args": [{ "kind": "local", "name": "boolValue" }] } }, "right": { "kind": "const", "type": "String", "value": ",s=" } }, "right": { "kind": "call", "target": "toString", "args": [{ "kind": "local", "name": "stringValue" }] } } },
+    { "op": "bind", "mutable": true, "name": "copy", "type": "String", "value": { "kind": "local", "name": "text" } },
+    { "op": "assign", "name": "copy", "value": { "kind": "binary", "op": "&", "left": { "kind": "local", "name": "copy" }, "right": { "kind": "const", "type": "String", "value": "!" } } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "local", "name": "copy" }] } },
+    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

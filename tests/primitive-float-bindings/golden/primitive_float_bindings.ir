@@ -1,0 +1,28 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "primitive_float_bindings",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "mutable": false, "name": "letValue", "type": "Float", "value": { "kind": "const", "type": "Float", "value": "1.5" } },
+    { "op": "bind", "mutable": true, "name": "mutValue", "type": "Float", "value": { "kind": "const", "type": "Float", "value": "3.5" } },
+    { "op": "assign", "name": "mutValue", "value": { "kind": "const", "type": "Float", "value": "2.5" } },
+    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

@@ -106,26 +106,28 @@ LET z = toFixed("1.25")  ' Fixed, fallible parse
 
 `Byte` is an unsigned 8-bit integer with range `0` through `255`. Integer literals may initialize a `Byte` only when the literal is statically in range. Runtime conversion to `Byte` uses `toByte`; out-of-range conversion fails with `10028`.
 
-| Left operand | Right operand | `+`, `-`, `*`, `^` result | `/` result |
-|--------------|---------------|---------------------------|------------|
-| `Byte` | `Byte` | `Byte` | `Float` |
-| `Byte` | `Integer` | `Integer` | `Float` |
-| `Byte` | `Fixed` | `Fixed` | `Float` |
-| `Byte` | `Float` | `Float` | `Float` |
-| `Integer` | `Byte` | `Integer` | `Float` |
-| `Integer` | `Integer` | `Integer` | `Float` |
-| `Integer` | `Fixed` | `Float` | `Float` |
-| `Integer` | `Float` | `Float` | `Float` |
-| `Fixed` | `Byte` | `Fixed` | `Float` |
-| `Fixed` | `Integer` | `Float` | `Float` |
-| `Fixed` | `Fixed` | `Fixed` | `Fixed` |
-| `Fixed` | `Float` | `Float` | `Float` |
-| `Float` | `Byte` | `Float` | `Float` |
-| `Float` | `Integer` | `Float` | `Float` |
-| `Float` | `Fixed` | `Float` | `Float` |
-| `Float` | `Float` | `Float` | `Float` |
+Fixed > Float > Integer > Byte
 
-`MOD` accepts only `Byte` or `Integer` operands and returns `Integer`. Numeric comparisons (`=`, `<>`, `<`, `>`, `<=`, `>=`) use the same operand promotion rules for comparison but always return `Boolean`.
+| Left operand | Right operand | `+`, `-`, `*`, `^`, `/` `MOD`  | `DIV`   |
+|--------------|---------------|--------------------------------|---------|
+| `Byte`       | `Byte`        | `Byte`                         | `Float` |
+| `Byte`       | `Integer`     | `Integer`                      | `Float` |
+| `Byte`       | `Fixed`       | `Fixed`                        | `Fixed` |
+| `Byte`       | `Float`       | `Float`                        | `Float` |
+| `Integer`    | `Byte`        | `Integer`                      | `Float` |
+| `Integer`    | `Integer`     | `Integer`                      | `Float` |
+| `Integer`    | `Fixed`       | `Fixed`                        | `Float` |
+| `Integer`    | `Float`       | `Float`                        | `Float` |
+| `Fixed`      | `Byte`        | `Fixed`                        | `Float` |
+| `Fixed`      | `Integer`     | `Fixed`                        | `Float` |
+| `Fixed`      | `Fixed`       | `Fixed`                        | `Float` |
+| `Fixed`      | `Float`       | `Fixed`                        | `Float` |
+| `Float`      | `Byte`        | `Float`                        | `Float` |
+| `Float`      | `Integer`     | `Float`                        | `Float` |
+| `Float`      | `Fixed`       | `Fixed`                        | `Float` |
+| `Float`      | `Float`       | `Float`                        | `Float` |
+
+Numeric comparisons (`=`, `<>`, `<`, `>`, `<=`, `>=`) use the same operand promotion rules for comparison but always return `Boolean`.
 
 Numeric edge cases:
 
@@ -712,17 +714,17 @@ Precedence, highest to lowest:
 
 | Precedence | Operators / forms |
 |------------|-------------------|
-| 1 | Primary expressions, calls, constructors, list/map literals, `WITH` |
-| 2 | Field access and enum member access: `.` |
-| 3 | Unary `-` |
-| 4 | Exponentiation: `^` |
-| 5 | Multiplication, division, modulo: `*`, `/`, `MOD` |
-| 6 | Addition, subtraction, string concatenation: `+`, `-`, `&` |
-| 7 | Comparisons: `=`, `<>`, `<`, `>`, `<=`, `>=` |
-| 8 | `NOT` |
-| 9 | `AND` |
-| 10 | `OR`, `XOR` |
-| 11 | Pipeline: `|>` |
+| 1          | Primary expressions, calls, constructors, list/map literals, `WITH` |
+| 2          | Field access and enum member access: `.` |
+| 3          | Unary `-` |
+| 4          | Exponentiation: `^` |
+| 5          | Multiplication, division, modulo: `*`, `/`, `MOD`, `DIV` |
+| 6          | Addition, subtraction, string concatenation: `+`, `-`, `&` |
+| 7          | Comparisons: `=`, `<>`, `<`, `>`, `<=`, `>=` |
+| 8          | `NOT` |
+| 9          | `AND` |
+| 10         | `OR`, `XOR` |
+| 11         | Pipeline: `|>` |
 
 `XOR` has the same precedence as `OR` and evaluates both operands.
 

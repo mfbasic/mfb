@@ -554,17 +554,17 @@ impl<'a> TypeChecker<'a> {
                     );
                 }
 
-                let reported_byte_range_error =
+                let reported_range_error =
                     declared
                         .as_ref()
                         .zip(value.as_ref())
                         .is_some_and(|(declared, value)| {
-                            self.report_byte_literal_range_error(declared, value, file, *line)
+                            self.report_primitive_literal_range_error(declared, value, file, *line)
                         });
 
                 match (&declared, &inferred) {
                     (Some(declared), Some(inferred))
-                        if !reported_byte_range_error
+                        if !reported_range_error
                             && !self.expression_compatible(declared, inferred, value.as_ref()) =>
                     {
                         self.report(
@@ -696,9 +696,9 @@ impl<'a> TypeChecker<'a> {
                     );
                 }
                 let actual = self.infer_expression(file, value, locals, *line);
-                let reported_byte_range_error =
-                    self.report_byte_literal_range_error(&local.type_, value, file, *line);
-                if !reported_byte_range_error
+                let reported_range_error =
+                    self.report_primitive_literal_range_error(&local.type_, value, file, *line);
+                if !reported_range_error
                     && !self.expression_compatible(&local.type_, &actual, Some(value))
                 {
                     self.report(
@@ -2406,40 +2406,86 @@ impl<'a> TypeChecker<'a> {
         rules::show_diagnostic(rule, detail, &self.project_dir.join(&file.path), line, 1, 1);
     }
 
-    fn report_byte_literal_range_error(
+    fn report_primitive_literal_range_error(
         &mut self,
         expected: &Type,
         expression: &Expression,
         file: &AstFile,
         line: usize,
     ) -> bool {
-        if !matches!(expected, Type::Byte) {
-            return false;
+        match expected {
+            Type::Byte => {
+                let Some(range_error) = byte_literal_range_error(expression) else {
+                    return false;
+                };
+                match range_error {
+                    ByteLiteralRangeError::Overflow(value) => self.report(
+                        "TYPE_BYTE_LITERAL_OVERFLOW",
+                        &format!("Integer literal `{value}` is outside the Byte range 0..255."),
+                        file,
+                        line,
+                    ),
+                    ByteLiteralRangeError::Underflow(value) => self.report(
+                        "TYPE_BYTE_LITERAL_UNDERFLOW",
+                        &format!("Integer literal `{value}` is outside the Byte range 0..255."),
+                        file,
+                        line,
+                    ),
+                }
+                true
+            }
+            Type::Float => {
+                let Some(range_error) = float_literal_range_error(expression) else {
+                    return false;
+                };
+                match range_error {
+                    SignedLiteralRangeError::Overflow(value) => self.report(
+                        "TYPE_FLOAT_LITERAL_OVERFLOW",
+                        &format!("Numeric literal `{value}` is outside the Float range."),
+                        file,
+                        line,
+                    ),
+                    SignedLiteralRangeError::Underflow(value) => self.report(
+                        "TYPE_FLOAT_LITERAL_UNDERFLOW",
+                        &format!("Numeric literal `{value}` is outside the Float range."),
+                        file,
+                        line,
+                    ),
+                }
+                true
+            }
+            Type::Fixed => {
+                let Some(range_error) = fixed_literal_range_error(expression) else {
+                    return false;
+                };
+                match range_error {
+                    SignedLiteralRangeError::Overflow(value) => self.report(
+                        "TYPE_FIXED_LITERAL_OVERFLOW",
+                        &format!("Numeric literal `{value}` is outside the Fixed range."),
+                        file,
+                        line,
+                    ),
+                    SignedLiteralRangeError::Underflow(value) => self.report(
+                        "TYPE_FIXED_LITERAL_UNDERFLOW",
+                        &format!("Numeric literal `{value}` is outside the Fixed range."),
+                        file,
+                        line,
+                    ),
+                }
+                true
+            }
+            _ => false,
         }
-
-        let Some(range_error) = byte_literal_range_error(expression) else {
-            return false;
-        };
-        match range_error {
-            ByteLiteralRangeError::Overflow(value) => self.report(
-                "TYPE_BYTE_LITERAL_OVERFLOW",
-                &format!("Integer literal `{value}` is outside the Byte range 0..255."),
-                file,
-                line,
-            ),
-            ByteLiteralRangeError::Underflow(value) => self.report(
-                "TYPE_BYTE_LITERAL_UNDERFLOW",
-                &format!("Integer literal `{value}` is outside the Byte range 0..255."),
-                file,
-                line,
-            ),
-        }
-        true
     }
 }
 
 enum ByteLiteralRangeError<'a> {
     Overflow(&'a str),
+    Underflow(String),
+}
+
+enum SignedLiteralRangeError {
+    Overflow(String),
     Underflow(String),
 }
 
@@ -2461,6 +2507,45 @@ fn byte_literal_range_error(expression: &Expression) -> Option<ByteLiteralRangeE
                 return Some(ByteLiteralRangeError::Underflow(format!("-{value}")));
             };
             (number != 0).then_some(ByteLiteralRangeError::Underflow(format!("-{value}")))
+        }
+        _ => None,
+    }
+}
+
+fn float_literal_range_error(expression: &Expression) -> Option<SignedLiteralRangeError> {
+    let (text, negative) = signed_numeric_literal(expression)?;
+    let parsed = text.parse::<f64>().ok()?;
+    if parsed.is_finite() {
+        return None;
+    }
+    if negative {
+        Some(SignedLiteralRangeError::Underflow(format!("-{text}")))
+    } else {
+        Some(SignedLiteralRangeError::Overflow(text.to_string()))
+    }
+}
+
+fn fixed_literal_range_error(expression: &Expression) -> Option<SignedLiteralRangeError> {
+    let (text, negative) = signed_numeric_literal(expression)?;
+    let parsed = text.parse::<f64>().ok()?;
+    let value = if negative { -parsed } else { parsed };
+    if value < -2147483648.0 {
+        Some(SignedLiteralRangeError::Underflow(format!("-{text}")))
+    } else if value >= 2147483648.0 {
+        Some(SignedLiteralRangeError::Overflow(text.to_string()))
+    } else {
+        None
+    }
+}
+
+fn signed_numeric_literal(expression: &Expression) -> Option<(&str, bool)> {
+    match expression {
+        Expression::Number(value) => Some((value.as_str(), false)),
+        Expression::Unary { operator, operand } if operator == "-" => {
+            let Expression::Number(value) = operand.as_ref() else {
+                return None;
+            };
+            Some((value.as_str(), true))
         }
         _ => None,
     }

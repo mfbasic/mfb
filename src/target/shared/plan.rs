@@ -349,6 +349,7 @@ fn lower_function(
         labels: Vec::new(),
         operations: Vec::new(),
         calls: Vec::new(),
+        constants: HashMap::new(),
         next_label: 0,
     };
     builder.lower_ops(&function.body)?;
@@ -486,79 +487,205 @@ fn platform_imports_for_runtime_call(
 }
 
 fn collect_runtime_symbols_from_ops(ops: &[NirOp], symbols: &mut Vec<String>) {
+    let mut constants = HashMap::new();
+    collect_runtime_symbols_from_ops_with_constants(ops, symbols, &mut constants);
+}
+
+fn collect_runtime_symbols_from_ops_with_constants(
+    ops: &[NirOp],
+    symbols: &mut Vec<String>,
+    constants: &mut HashMap<String, NirValue>,
+) {
     for op in ops {
         match op {
-            NirOp::Bind { value, .. } | NirOp::Return { value } => {
+            NirOp::Bind { name, value, .. } => {
                 if let Some(value) = value {
-                    collect_runtime_symbols_from_value(value, symbols);
+                    collect_runtime_symbols_from_value(value, symbols, constants);
+                    if let Some(constant) = native_constant_value(value, constants) {
+                        constants.insert(name.clone(), constant);
+                    } else {
+                        constants.remove(name);
+                    }
+                } else {
+                    constants.remove(name);
+                }
+            }
+            NirOp::Return { value } => {
+                if let Some(value) = value {
+                    collect_runtime_symbols_from_value(value, symbols, constants);
                 }
             }
             NirOp::Fail { error } => {
-                collect_runtime_symbols_from_value(error, symbols);
+                collect_runtime_symbols_from_value(error, symbols, constants);
             }
-            NirOp::Assign { value, .. } | NirOp::Eval { value } => {
-                collect_runtime_symbols_from_value(value, symbols);
+            NirOp::Assign { name, value } => {
+                collect_runtime_symbols_from_value(value, symbols, constants);
+                if let Some(constant) = native_constant_value(value, constants) {
+                    constants.insert(name.clone(), constant);
+                } else {
+                    constants.remove(name);
+                }
+            }
+            NirOp::Eval { value } => {
+                collect_runtime_symbols_from_value(value, symbols, constants);
             }
             NirOp::If {
                 condition,
                 then_body,
                 else_body,
             } => {
-                collect_runtime_symbols_from_value(condition, symbols);
-                collect_runtime_symbols_from_ops(then_body, symbols);
-                collect_runtime_symbols_from_ops(else_body, symbols);
+                collect_runtime_symbols_from_value(condition, symbols, constants);
+                let mut then_constants = constants.clone();
+                let mut else_constants = constants.clone();
+                collect_runtime_symbols_from_ops_with_constants(
+                    then_body,
+                    symbols,
+                    &mut then_constants,
+                );
+                collect_runtime_symbols_from_ops_with_constants(
+                    else_body,
+                    symbols,
+                    &mut else_constants,
+                );
             }
             NirOp::Match { value, cases } => {
-                collect_runtime_symbols_from_value(value, symbols);
+                collect_runtime_symbols_from_value(value, symbols, constants);
                 for case in cases {
-                    collect_runtime_symbols_from_ops(&case.body, symbols);
+                    let mut case_constants = constants.clone();
+                    collect_runtime_symbols_from_ops_with_constants(
+                        &case.body,
+                        symbols,
+                        &mut case_constants,
+                    );
                 }
             }
             NirOp::Using { value, body, .. } => {
-                collect_runtime_symbols_from_value(value, symbols);
-                collect_runtime_symbols_from_ops(body, symbols);
+                collect_runtime_symbols_from_value(value, symbols, constants);
+                let mut body_constants = constants.clone();
+                collect_runtime_symbols_from_ops_with_constants(body, symbols, &mut body_constants);
             }
         }
     }
 }
 
-fn collect_runtime_symbols_from_value(value: &NirValue, symbols: &mut Vec<String>) {
+fn collect_runtime_symbols_from_value(
+    value: &NirValue,
+    symbols: &mut Vec<String>,
+    constants: &HashMap<String, NirValue>,
+) {
     match value {
         NirValue::RuntimeCall {
             helper,
             target,
             args,
         } => {
-            push_unique(symbols, runtime::symbol_for_call(*helper, target));
+            if native_static_string_value(value, constants).is_none() {
+                push_unique(symbols, runtime::symbol_for_call(*helper, target));
+            }
             for arg in args {
-                collect_runtime_symbols_from_value(arg, symbols);
+                collect_runtime_symbols_from_value(arg, symbols, constants);
             }
         }
         NirValue::Call { args, .. } | NirValue::Constructor { args, .. } => {
             for arg in args {
-                collect_runtime_symbols_from_value(arg, symbols);
+                collect_runtime_symbols_from_value(arg, symbols, constants);
             }
         }
         NirValue::ListLiteral { values, .. } => {
             for value in values {
-                collect_runtime_symbols_from_value(value, symbols);
+                collect_runtime_symbols_from_value(value, symbols, constants);
             }
         }
         NirValue::MapLiteral { entries, .. } => {
             for (key, value) in entries {
-                collect_runtime_symbols_from_value(key, symbols);
-                collect_runtime_symbols_from_value(value, symbols);
+                collect_runtime_symbols_from_value(key, symbols, constants);
+                collect_runtime_symbols_from_value(value, symbols, constants);
             }
         }
         NirValue::MemberAccess { target, .. } => {
-            collect_runtime_symbols_from_value(target, symbols)
+            collect_runtime_symbols_from_value(target, symbols, constants)
         }
         NirValue::Binary { left, right, .. } => {
-            collect_runtime_symbols_from_value(left, symbols);
-            collect_runtime_symbols_from_value(right, symbols);
+            collect_runtime_symbols_from_value(left, symbols, constants);
+            collect_runtime_symbols_from_value(right, symbols, constants);
         }
-        NirValue::Unary { operand, .. } => collect_runtime_symbols_from_value(operand, symbols),
+        NirValue::Unary { operand, .. } => {
+            collect_runtime_symbols_from_value(operand, symbols, constants)
+        }
         NirValue::Const { .. } | NirValue::Local(_) | NirValue::FunctionRef { .. } => {}
+    }
+}
+
+fn native_constant_value(
+    value: &NirValue,
+    constants: &HashMap<String, NirValue>,
+) -> Option<NirValue> {
+    match value {
+        NirValue::Const { .. } => Some(value.clone()),
+        NirValue::Local(name) => constants.get(name).cloned(),
+        NirValue::Call { target, args } if target == "toString" && args.len() == 1 => {
+            native_primitive_text(&args[0], constants).map(|value| NirValue::Const {
+                type_: "String".to_string(),
+                value,
+            })
+        }
+        NirValue::RuntimeCall { target, args, .. } if target == "toString" && args.len() == 1 => {
+            native_primitive_text(&args[0], constants).map(|value| NirValue::Const {
+                type_: "String".to_string(),
+                value,
+            })
+        }
+        NirValue::Binary { op, .. } if op == "&" => native_static_string_value(value, constants)
+            .map(|value| NirValue::Const {
+                type_: "String".to_string(),
+                value,
+            }),
+        _ => None,
+    }
+}
+
+fn native_static_string_value(
+    value: &NirValue,
+    constants: &HashMap<String, NirValue>,
+) -> Option<String> {
+    match value {
+        NirValue::Const { type_, value } if type_ == "String" => Some(value.clone()),
+        NirValue::Local(name) => constants
+            .get(name)
+            .and_then(|constant| native_static_string_value(constant, constants)),
+        NirValue::Call { target, args } if target == "toString" && args.len() == 1 => {
+            native_primitive_text(&args[0], constants)
+        }
+        NirValue::RuntimeCall { target, args, .. } if target == "toString" && args.len() == 1 => {
+            native_primitive_text(&args[0], constants)
+        }
+        NirValue::Binary { op, left, right } if op == "&" => {
+            let left = native_static_string_value(left, constants)?;
+            let right = native_static_string_value(right, constants)?;
+            Some(format!("{left}{right}"))
+        }
+        _ => None,
+    }
+}
+
+fn native_primitive_text(
+    value: &NirValue,
+    constants: &HashMap<String, NirValue>,
+) -> Option<String> {
+    match value {
+        NirValue::Const { type_, value } => match type_.as_str() {
+            "Integer" | "Byte" | "Float" | "Fixed" | "String" => Some(value.clone()),
+            "Boolean" => match value.as_str() {
+                "true" => Some("TRUE".to_string()),
+                "false" => Some("FALSE".to_string()),
+                _ => None,
+            },
+            _ => None,
+        },
+        NirValue::Local(name) => constants
+            .get(name)
+            .and_then(|constant| native_primitive_text(constant, constants)),
+        _ => None,
     }
 }
 
@@ -570,6 +697,7 @@ struct FunctionPlanBuilder<'a> {
     labels: Vec<PlanLabel>,
     operations: Vec<String>,
     calls: Vec<PlanCall>,
+    constants: HashMap<String, NirValue>,
     next_label: usize,
 }
 
@@ -586,6 +714,15 @@ impl FunctionPlanBuilder<'_> {
                     if let Some(value) = value {
                         self.lower_value(value)?;
                     }
+                    if let Some(value) = value {
+                        if let Some(constant) = native_constant_value(value, &self.constants) {
+                            self.constants.insert(name.clone(), constant);
+                        } else {
+                            self.constants.remove(name);
+                        }
+                    } else {
+                        self.constants.remove(name);
+                    }
                     let initializer = value
                         .as_ref()
                         .map(describe_value)
@@ -601,6 +738,11 @@ impl FunctionPlanBuilder<'_> {
                 }
                 NirOp::Assign { name, value } => {
                     self.lower_value(value)?;
+                    if let Some(constant) = native_constant_value(value, &self.constants) {
+                        self.constants.insert(name.clone(), constant);
+                    } else {
+                        self.constants.remove(name);
+                    }
                     self.operations
                         .push(format!("assign {name} = {}", describe_value(value)));
                 }
@@ -629,6 +771,7 @@ impl FunctionPlanBuilder<'_> {
                     else_body,
                 } => {
                     self.lower_value(condition)?;
+                    let constants_before_if = self.constants.clone();
                     let else_label = self.add_label(LabelKind::IfElse);
                     let end_label = self.add_label(LabelKind::IfEnd);
                     self.operations.push(format!(
@@ -639,17 +782,21 @@ impl FunctionPlanBuilder<'_> {
                     self.lower_ops(then_body)?;
                     self.operations.push(format!("branch -> {end_label}"));
                     self.operations.push(format!("label {else_label}"));
+                    self.constants = constants_before_if;
                     if !else_body.is_empty() {
                         self.lower_ops(else_body)?;
                     }
                     self.operations.push(format!("label {end_label}"));
+                    self.constants.clear();
                 }
                 NirOp::Match { value, cases } => {
                     self.lower_value(value)?;
                     self.operations
                         .push(format!("match {}", describe_value(value)));
                     let end_label = self.add_label(LabelKind::MatchEnd);
+                    let constants_before_match = self.constants.clone();
                     for case in cases {
+                        self.constants = constants_before_match.clone();
                         let case_label = self.add_label(LabelKind::MatchCase);
                         self.operations.push(format!(
                             "case {} -> {}",
@@ -661,6 +808,7 @@ impl FunctionPlanBuilder<'_> {
                         self.operations.push(format!("branch -> {end_label}"));
                     }
                     self.operations.push(format!("label {end_label}"));
+                    self.constants.clear();
                 }
                 NirOp::Using {
                     name,
@@ -685,6 +833,9 @@ impl FunctionPlanBuilder<'_> {
     }
 
     fn lower_value(&mut self, value: &NirValue) -> Result<(), String> {
+        if native_static_string_value(value, &self.constants).is_some() {
+            return Ok(());
+        }
         match value {
             NirValue::Call { target, args } => {
                 for arg in args {

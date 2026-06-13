@@ -130,6 +130,7 @@ struct CodeBuilder<'a> {
 struct LocalValue {
     type_: String,
     location: String,
+    constant: Option<NirValue>,
 }
 
 #[derive(Clone)]
@@ -655,6 +656,7 @@ fn lower_function(
                 LocalValue {
                     type_: param.type_.clone(),
                     location: location.clone(),
+                    constant: None,
                 },
             );
             Ok(CodeParam {
@@ -915,11 +917,15 @@ impl CodeBuilder<'_> {
                     name, type_, value, ..
                 } => {
                     let register = self.allocate_register();
+                    let constant = value
+                        .as_ref()
+                        .and_then(|value| self.local_constant_value(value));
                     self.locals.insert(
                         name.clone(),
                         LocalValue {
                             type_: type_.clone(),
                             location: register.clone(),
+                            constant,
                         },
                     );
                     self.allocate_stack_object(name, 8);
@@ -937,6 +943,10 @@ impl CodeBuilder<'_> {
                         .clone();
                     let result = self.lower_value(value)?;
                     self.emit(abi::move_register(&dst, &result.location));
+                    let constant = self.local_constant_value(value);
+                    if let Some(local) = self.locals.get_mut(name) {
+                        local.constant = constant;
+                    }
                 }
                 NirOp::Eval { value } => {
                     self.lower_value(value)?;
@@ -964,6 +974,7 @@ impl CodeBuilder<'_> {
                     let condition = self.lower_value(condition)?;
                     let else_label = self.label("if_else");
                     let end_label = self.label("if_end");
+                    let constants_before_if = self.local_constants();
                     self.emit(abi::compare_immediate(&condition.location, "0"));
                     self.emit(abi::branch_eq(&else_label).field("reason", "ifFalse"));
                     self.lower_ops(then_body)?;
@@ -971,8 +982,10 @@ impl CodeBuilder<'_> {
                         self.emit(abi::branch(&end_label));
                     }
                     self.emit(abi::label(&else_label));
+                    self.restore_local_constants(&constants_before_if);
                     self.lower_ops(else_body)?;
                     self.emit(abi::label(&end_label));
+                    self.clear_local_constants();
                 }
                 NirOp::Match { value, cases } => {
                     let matched = self.lower_value(value)?;
@@ -990,7 +1003,9 @@ impl CodeBuilder<'_> {
                         case_labels.push((label, case));
                     }
                     self.emit(abi::branch(else_label.as_deref().unwrap_or(&end_label)));
+                    let constants_before_match = self.local_constants();
                     for (label, case) in case_labels {
+                        self.restore_local_constants(&constants_before_match);
                         self.emit(abi::label(&label));
                         self.lower_ops(&case.body)?;
                         if !self.current_block_returns() {
@@ -998,6 +1013,7 @@ impl CodeBuilder<'_> {
                         }
                     }
                     self.emit(abi::label(&end_label));
+                    self.clear_local_constants();
                 }
                 NirOp::Using {
                     name,
@@ -1013,6 +1029,7 @@ impl CodeBuilder<'_> {
                         LocalValue {
                             type_: type_.clone(),
                             location: register.clone(),
+                            constant: self.local_constant_value(value),
                         },
                     );
                     self.emit(abi::move_register(&register, &result.location));
@@ -1030,35 +1047,22 @@ impl CodeBuilder<'_> {
     }
 
     fn lower_value(&mut self, value: &NirValue) -> Result<ValueResult, String> {
+        if let Some(string_value) = self.static_string_value(value) {
+            let register = self.load_string_constant(&string_value)?;
+            return Ok(ValueResult {
+                type_: "String".to_string(),
+                location: register,
+                text: format!("String({string_value})"),
+            });
+        }
         match value {
             NirValue::Const { type_, value } => {
                 let register = self.allocate_register();
                 if type_ == "String" {
-                    let symbol = self
-                        .string_symbols
-                        .get(value)
-                        .ok_or_else(|| {
-                            format!("native code string literal '{value}' has no data object")
-                        })?
-                        .clone();
-                    self.emit(abi::load_page_address(&register, &symbol));
-                    self.relocations.push(CodeRelocation {
-                        from: self.current_symbol.clone(),
-                        to: symbol.clone(),
-                        kind: "page21".to_string(),
-                        binding: "data".to_string(),
-                        library: None,
-                    });
-                    self.emit(abi::add_page_offset(&register, &register, &symbol));
-                    self.relocations.push(CodeRelocation {
-                        from: self.current_symbol.clone(),
-                        to: symbol,
-                        kind: "pageoff12".to_string(),
-                        binding: "data".to_string(),
-                        library: None,
-                    });
+                    self.emit_load_string_constant(&register, value)?;
                 } else {
-                    self.emit(abi::move_immediate(&register, type_, value));
+                    let immediate = native_immediate_value(type_, value)?;
+                    self.emit(abi::move_immediate(&register, type_, &immediate));
                 }
                 Ok(ValueResult {
                     type_: type_.clone(),
@@ -1270,6 +1274,115 @@ impl CodeBuilder<'_> {
         }
     }
 
+    fn load_string_constant(&mut self, value: &str) -> Result<String, String> {
+        let register = self.allocate_register();
+        self.emit_load_string_constant(&register, value)?;
+        Ok(register)
+    }
+
+    fn emit_load_string_constant(&mut self, register: &str, value: &str) -> Result<(), String> {
+        let symbol = self
+            .string_symbols
+            .get(value)
+            .ok_or_else(|| format!("native code string literal '{value}' has no data object"))?
+            .clone();
+        self.emit(abi::load_page_address(register, &symbol));
+        self.relocations.push(CodeRelocation {
+            from: self.current_symbol.clone(),
+            to: symbol.clone(),
+            kind: "page21".to_string(),
+            binding: "data".to_string(),
+            library: None,
+        });
+        self.emit(abi::add_page_offset(register, register, &symbol));
+        self.relocations.push(CodeRelocation {
+            from: self.current_symbol.clone(),
+            to: symbol,
+            kind: "pageoff12".to_string(),
+            binding: "data".to_string(),
+            library: None,
+        });
+        Ok(())
+    }
+
+    fn local_constant_value(&self, value: &NirValue) -> Option<NirValue> {
+        match value {
+            NirValue::Const { .. } => Some(value.clone()),
+            NirValue::Local(name) => self
+                .locals
+                .get(name)
+                .and_then(|local| local.constant.clone()),
+            NirValue::Call { target, args } if target == "toString" && args.len() == 1 => self
+                .static_primitive_text(&args[0])
+                .map(|value| NirValue::Const {
+                    type_: "String".to_string(),
+                    value,
+                }),
+            NirValue::RuntimeCall { target, args, .. }
+                if target == "toString" && args.len() == 1 =>
+            {
+                self.static_primitive_text(&args[0])
+                    .map(|value| NirValue::Const {
+                        type_: "String".to_string(),
+                        value,
+                    })
+            }
+            NirValue::Binary { op, .. } if op == "&" => {
+                self.static_string_value(value)
+                    .map(|value| NirValue::Const {
+                        type_: "String".to_string(),
+                        value,
+                    })
+            }
+            _ => None,
+        }
+    }
+
+    fn static_string_value(&self, value: &NirValue) -> Option<String> {
+        match value {
+            NirValue::Const { type_, value } if type_ == "String" => Some(value.clone()),
+            NirValue::Local(name) => self
+                .locals
+                .get(name)
+                .and_then(|local| local.constant.as_ref())
+                .and_then(|constant| self.static_string_value(constant)),
+            NirValue::Call { target, args } if target == "toString" && args.len() == 1 => {
+                self.static_primitive_text(&args[0])
+            }
+            NirValue::RuntimeCall { target, args, .. }
+                if target == "toString" && args.len() == 1 =>
+            {
+                self.static_primitive_text(&args[0])
+            }
+            NirValue::Binary { op, left, right } if op == "&" => {
+                let left = self.static_string_value(left)?;
+                let right = self.static_string_value(right)?;
+                Some(format!("{left}{right}"))
+            }
+            _ => None,
+        }
+    }
+
+    fn static_primitive_text(&self, value: &NirValue) -> Option<String> {
+        match value {
+            NirValue::Const { type_, value } => match type_.as_str() {
+                "Integer" | "Byte" | "Float" | "Fixed" | "String" => Some(value.clone()),
+                "Boolean" => match value.as_str() {
+                    "true" => Some("TRUE".to_string()),
+                    "false" => Some("FALSE".to_string()),
+                    _ => None,
+                },
+                _ => None,
+            },
+            NirValue::Local(name) => self
+                .locals
+                .get(name)
+                .and_then(|local| local.constant.as_ref())
+                .and_then(|constant| self.static_primitive_text(constant)),
+            _ => None,
+        }
+    }
+
     fn lower_match_compare(
         &mut self,
         matched: &ValueResult,
@@ -1389,6 +1502,25 @@ impl CodeBuilder<'_> {
             self.used_callee_saved.push(register.clone());
         }
         register
+    }
+
+    fn local_constants(&self) -> HashMap<String, Option<NirValue>> {
+        self.locals
+            .iter()
+            .map(|(name, local)| (name.clone(), local.constant.clone()))
+            .collect()
+    }
+
+    fn restore_local_constants(&mut self, constants: &HashMap<String, Option<NirValue>>) {
+        for (name, local) in &mut self.locals {
+            local.constant = constants.get(name).cloned().unwrap_or(None);
+        }
+    }
+
+    fn clear_local_constants(&mut self) {
+        for local in self.locals.values_mut() {
+            local.constant = None;
+        }
     }
 
     fn allocate_stack_object(&mut self, name: &str, size: usize) -> usize {
@@ -1754,77 +1886,211 @@ fn string_symbols(module: &NirModule) -> HashMap<String, String> {
 }
 
 fn collect_string_values_from_ops(ops: &[NirOp], values: &mut Vec<String>) {
+    let mut constants = HashMap::new();
+    collect_string_values_from_ops_with_constants(ops, values, &mut constants);
+}
+
+fn collect_string_values_from_ops_with_constants(
+    ops: &[NirOp],
+    values: &mut Vec<String>,
+    constants: &mut HashMap<String, NirValue>,
+) {
     for op in ops {
         match op {
-            NirOp::Bind { value, .. } | NirOp::Return { value } => {
+            NirOp::Bind { name, value, .. } => {
                 if let Some(value) = value {
-                    collect_string_values_from_value(value, values);
+                    collect_string_values_from_value(value, values, constants);
+                    if let Some(constant) = local_constant_value_with_constants(value, constants) {
+                        constants.insert(name.clone(), constant);
+                    } else {
+                        constants.remove(name);
+                    }
+                } else {
+                    constants.remove(name);
+                }
+            }
+            NirOp::Return { value } => {
+                if let Some(value) = value {
+                    collect_string_values_from_value(value, values, constants);
                 }
             }
             NirOp::Fail { error } => {
-                collect_string_values_from_value(error, values);
+                collect_string_values_from_value(error, values, constants);
             }
-            NirOp::Assign { value, .. } | NirOp::Eval { value } => {
-                collect_string_values_from_value(value, values);
+            NirOp::Assign { name, value } => {
+                collect_string_values_from_value(value, values, constants);
+                if let Some(constant) = local_constant_value_with_constants(value, constants) {
+                    constants.insert(name.clone(), constant);
+                } else {
+                    constants.remove(name);
+                }
+            }
+            NirOp::Eval { value } => {
+                collect_string_values_from_value(value, values, constants);
             }
             NirOp::If {
                 condition,
                 then_body,
                 else_body,
             } => {
-                collect_string_values_from_value(condition, values);
-                collect_string_values_from_ops(then_body, values);
-                collect_string_values_from_ops(else_body, values);
+                collect_string_values_from_value(condition, values, constants);
+                let mut then_constants = constants.clone();
+                let mut else_constants = constants.clone();
+                collect_string_values_from_ops_with_constants(
+                    then_body,
+                    values,
+                    &mut then_constants,
+                );
+                collect_string_values_from_ops_with_constants(
+                    else_body,
+                    values,
+                    &mut else_constants,
+                );
             }
             NirOp::Match { value, cases } => {
-                collect_string_values_from_value(value, values);
+                collect_string_values_from_value(value, values, constants);
                 for case in cases {
                     if let NirMatchPattern::Value(value) = &case.pattern {
-                        collect_string_values_from_value(value, values);
+                        collect_string_values_from_value(value, values, constants);
                     }
-                    collect_string_values_from_ops(&case.body, values);
+                    let mut case_constants = constants.clone();
+                    collect_string_values_from_ops_with_constants(
+                        &case.body,
+                        values,
+                        &mut case_constants,
+                    );
                 }
             }
             NirOp::Using { value, body, .. } => {
-                collect_string_values_from_value(value, values);
-                collect_string_values_from_ops(body, values);
+                collect_string_values_from_value(value, values, constants);
+                let mut body_constants = constants.clone();
+                collect_string_values_from_ops_with_constants(body, values, &mut body_constants);
             }
         }
     }
 }
 
-fn collect_string_values_from_value(value: &NirValue, values: &mut Vec<String>) {
+fn collect_string_values_from_value(
+    value: &NirValue,
+    values: &mut Vec<String>,
+    constants: &HashMap<String, NirValue>,
+) {
+    if let Some(value) = static_string_value_with_constants(value, constants) {
+        push_string_value(values, value);
+    }
     match value {
         NirValue::Const { type_, value } if type_ == "String" => {
-            if !values.contains(value) {
-                values.push(value.clone());
-            }
+            push_string_value(values, value.clone());
         }
         NirValue::Call { args, .. }
         | NirValue::RuntimeCall { args, .. }
         | NirValue::Constructor { args, .. } => {
             for arg in args {
-                collect_string_values_from_value(arg, values);
+                collect_string_values_from_value(arg, values, constants);
             }
         }
         NirValue::ListLiteral { values: items, .. } => {
             for item in items {
-                collect_string_values_from_value(item, values);
+                collect_string_values_from_value(item, values, constants);
             }
         }
         NirValue::MapLiteral { entries, .. } => {
             for (key, value) in entries {
-                collect_string_values_from_value(key, values);
-                collect_string_values_from_value(value, values);
+                collect_string_values_from_value(key, values, constants);
+                collect_string_values_from_value(value, values, constants);
             }
         }
-        NirValue::MemberAccess { target, .. } => collect_string_values_from_value(target, values),
-        NirValue::Binary { left, right, .. } => {
-            collect_string_values_from_value(left, values);
-            collect_string_values_from_value(right, values);
+        NirValue::MemberAccess { target, .. } => {
+            collect_string_values_from_value(target, values, constants)
         }
-        NirValue::Unary { operand, .. } => collect_string_values_from_value(operand, values),
+        NirValue::Binary { left, right, .. } => {
+            collect_string_values_from_value(left, values, constants);
+            collect_string_values_from_value(right, values, constants);
+        }
+        NirValue::Unary { operand, .. } => {
+            collect_string_values_from_value(operand, values, constants)
+        }
         NirValue::Const { .. } | NirValue::Local(_) | NirValue::FunctionRef { .. } => {}
+    }
+}
+
+fn push_string_value(values: &mut Vec<String>, value: String) {
+    if !values.contains(&value) {
+        values.push(value);
+    }
+}
+
+fn local_constant_value_with_constants(
+    value: &NirValue,
+    constants: &HashMap<String, NirValue>,
+) -> Option<NirValue> {
+    match value {
+        NirValue::Const { .. } => Some(value.clone()),
+        NirValue::Local(name) => constants.get(name).cloned(),
+        NirValue::Call { target, args } if target == "toString" && args.len() == 1 => {
+            static_primitive_text_with_constants(&args[0], constants).map(|value| NirValue::Const {
+                type_: "String".to_string(),
+                value,
+            })
+        }
+        NirValue::RuntimeCall { target, args, .. } if target == "toString" && args.len() == 1 => {
+            static_primitive_text_with_constants(&args[0], constants).map(|value| NirValue::Const {
+                type_: "String".to_string(),
+                value,
+            })
+        }
+        NirValue::Binary { op, .. } if op == "&" => {
+            static_string_value_with_constants(value, constants).map(|value| NirValue::Const {
+                type_: "String".to_string(),
+                value,
+            })
+        }
+        _ => None,
+    }
+}
+
+fn static_string_value_with_constants(
+    value: &NirValue,
+    constants: &HashMap<String, NirValue>,
+) -> Option<String> {
+    match value {
+        NirValue::Const { type_, value } if type_ == "String" => Some(value.clone()),
+        NirValue::Local(name) => constants
+            .get(name)
+            .and_then(|constant| static_string_value_with_constants(constant, constants)),
+        NirValue::Call { target, args } if target == "toString" && args.len() == 1 => {
+            static_primitive_text_with_constants(&args[0], constants)
+        }
+        NirValue::RuntimeCall { target, args, .. } if target == "toString" && args.len() == 1 => {
+            static_primitive_text_with_constants(&args[0], constants)
+        }
+        NirValue::Binary { op, left, right } if op == "&" => {
+            let left = static_string_value_with_constants(left, constants)?;
+            let right = static_string_value_with_constants(right, constants)?;
+            Some(format!("{left}{right}"))
+        }
+        _ => None,
+    }
+}
+
+fn static_primitive_text_with_constants(
+    value: &NirValue,
+    constants: &HashMap<String, NirValue>,
+) -> Option<String> {
+    match value {
+        NirValue::Const { type_, value } => match type_.as_str() {
+            "Integer" | "Byte" | "Float" | "Fixed" | "String" => Some(value.clone()),
+            "Boolean" => match value.as_str() {
+                "true" => Some("TRUE".to_string()),
+                "false" => Some("FALSE".to_string()),
+                _ => None,
+            },
+            _ => None,
+        },
+        NirValue::Local(name) => constants
+            .get(name)
+            .and_then(|constant| static_primitive_text_with_constants(constant, constants)),
+        _ => None,
     }
 }
 
@@ -1873,6 +2139,71 @@ fn integer_constant_value(value: &NirValue) -> Option<i64> {
         }
         _ => None,
     }
+}
+
+fn native_immediate_value(type_: &str, value: &str) -> Result<String, String> {
+    match type_ {
+        "Float" => Ok(value
+            .parse::<f64>()
+            .map_err(|_| format!("invalid Float constant `{value}`"))?
+            .to_bits()
+            .to_string()),
+        "Fixed" => Ok(fixed_raw_from_decimal(value)?.to_string()),
+        _ => Ok(value.to_string()),
+    }
+}
+
+fn fixed_raw_from_decimal(value: &str) -> Result<i64, String> {
+    const SCALE: i128 = 1_i128 << 32;
+
+    let (negative, digits) = value
+        .strip_prefix('-')
+        .map(|rest| (true, rest))
+        .unwrap_or((false, value));
+    let (whole, fractional) = digits.split_once('.').unwrap_or((digits, ""));
+    if whole.is_empty() && fractional.is_empty() {
+        return Err(format!("invalid Fixed constant `{value}`"));
+    }
+    let mut whole_value = if whole.is_empty() {
+        0_i128
+    } else {
+        whole
+            .parse::<i128>()
+            .map_err(|_| format!("invalid Fixed constant `{value}`"))?
+    };
+    let mut fractional_value = 0_i128;
+    if !fractional.is_empty() {
+        let mut denominator = 1_i128;
+        for digit in fractional.bytes() {
+            if !digit.is_ascii_digit() {
+                return Err(format!("invalid Fixed constant `{value}`"));
+            }
+            fractional_value = fractional_value
+                .checked_mul(10)
+                .and_then(|current| current.checked_add((digit - b'0') as i128))
+                .ok_or_else(|| format!("Fixed constant `{value}` has too many digits"))?;
+            denominator = denominator
+                .checked_mul(10)
+                .ok_or_else(|| format!("Fixed constant `{value}` has too many digits"))?;
+        }
+        let scaled = fractional_value
+            .checked_mul(SCALE)
+            .ok_or_else(|| format!("Fixed constant `{value}` has too many digits"))?;
+        fractional_value = scaled / denominator;
+        if (scaled % denominator) * 2 >= denominator {
+            fractional_value += 1;
+        }
+        if fractional_value == SCALE {
+            whole_value += 1;
+            fractional_value = 0;
+        }
+    }
+    let raw = whole_value
+        .checked_mul(SCALE)
+        .and_then(|current| current.checked_add(fractional_value))
+        .ok_or_else(|| format!("Fixed constant `{value}` is out of range"))?;
+    let raw = if negative { -raw } else { raw };
+    i64::try_from(raw).map_err(|_| format!("Fixed constant `{value}` is out of range"))
 }
 
 fn string_constant_value(value: &NirValue) -> Option<&str> {

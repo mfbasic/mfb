@@ -90,7 +90,7 @@ pub(crate) fn validate_capabilities(
     for function in &module.functions {
         collect_runtime_calls_from_ops(&function.body, &mut runtime_calls);
     }
-    for call in runtime_calls {
+    for call in &runtime_calls {
         if !capabilities.runtime_calls.contains(&call.as_str()) {
             return Err(format!(
                 "native backend does not support runtime call '{call}'"
@@ -98,6 +98,12 @@ pub(crate) fn validate_capabilities(
         }
     }
     for helper in &module.runtime_helpers {
+        let helper_used_by_emitted_call = runtime_calls
+            .iter()
+            .any(|call| runtime::helper_for_call(call) == Some(*helper));
+        if !helper_used_by_emitted_call {
+            continue;
+        }
         let helper_supported = runtime::supported_helper_specs().iter().any(|spec| {
             spec.helper == *helper
                 && !spec.abi.params.is_empty()
@@ -115,75 +121,201 @@ pub(crate) fn validate_capabilities(
 }
 
 fn collect_runtime_calls_from_ops(ops: &[NirOp], calls: &mut Vec<String>) {
+    let mut constants = HashMap::new();
+    collect_runtime_calls_from_ops_with_constants(ops, calls, &mut constants);
+}
+
+fn collect_runtime_calls_from_ops_with_constants(
+    ops: &[NirOp],
+    calls: &mut Vec<String>,
+    constants: &mut HashMap<String, NirValue>,
+) {
     for op in ops {
         match op {
-            NirOp::Bind { value, .. } | NirOp::Return { value } => {
+            NirOp::Bind { name, value, .. } => {
                 if let Some(value) = value {
-                    collect_runtime_calls_from_value(value, calls);
+                    collect_runtime_calls_from_value(value, calls, constants);
+                    if let Some(constant) = native_constant_value(value, constants) {
+                        constants.insert(name.clone(), constant);
+                    } else {
+                        constants.remove(name);
+                    }
+                } else {
+                    constants.remove(name);
+                }
+            }
+            NirOp::Return { value } => {
+                if let Some(value) = value {
+                    collect_runtime_calls_from_value(value, calls, constants);
                 }
             }
             NirOp::Fail { error } => {
-                collect_runtime_calls_from_value(error, calls);
+                collect_runtime_calls_from_value(error, calls, constants);
             }
-            NirOp::Assign { value, .. } | NirOp::Eval { value } => {
-                collect_runtime_calls_from_value(value, calls);
+            NirOp::Assign { name, value } => {
+                collect_runtime_calls_from_value(value, calls, constants);
+                if let Some(constant) = native_constant_value(value, constants) {
+                    constants.insert(name.clone(), constant);
+                } else {
+                    constants.remove(name);
+                }
+            }
+            NirOp::Eval { value } => {
+                collect_runtime_calls_from_value(value, calls, constants);
             }
             NirOp::If {
                 condition,
                 then_body,
                 else_body,
             } => {
-                collect_runtime_calls_from_value(condition, calls);
-                collect_runtime_calls_from_ops(then_body, calls);
-                collect_runtime_calls_from_ops(else_body, calls);
+                collect_runtime_calls_from_value(condition, calls, constants);
+                let mut then_constants = constants.clone();
+                let mut else_constants = constants.clone();
+                collect_runtime_calls_from_ops_with_constants(
+                    then_body,
+                    calls,
+                    &mut then_constants,
+                );
+                collect_runtime_calls_from_ops_with_constants(
+                    else_body,
+                    calls,
+                    &mut else_constants,
+                );
             }
             NirOp::Match { value, cases } => {
-                collect_runtime_calls_from_value(value, calls);
+                collect_runtime_calls_from_value(value, calls, constants);
                 for case in cases {
-                    collect_runtime_calls_from_ops(&case.body, calls);
+                    let mut case_constants = constants.clone();
+                    collect_runtime_calls_from_ops_with_constants(
+                        &case.body,
+                        calls,
+                        &mut case_constants,
+                    );
                 }
             }
             NirOp::Using { value, body, .. } => {
-                collect_runtime_calls_from_value(value, calls);
-                collect_runtime_calls_from_ops(body, calls);
+                collect_runtime_calls_from_value(value, calls, constants);
+                let mut body_constants = constants.clone();
+                collect_runtime_calls_from_ops_with_constants(body, calls, &mut body_constants);
             }
         }
     }
 }
 
-fn collect_runtime_calls_from_value(value: &NirValue, calls: &mut Vec<String>) {
+fn collect_runtime_calls_from_value(
+    value: &NirValue,
+    calls: &mut Vec<String>,
+    constants: &HashMap<String, NirValue>,
+) {
     match value {
         NirValue::RuntimeCall { target, args, .. } => {
-            if !calls.contains(target) {
+            if !native_static_string_value(value, constants).is_some() && !calls.contains(target) {
                 calls.push(target.clone());
             }
             for arg in args {
-                collect_runtime_calls_from_value(arg, calls);
+                collect_runtime_calls_from_value(arg, calls, constants);
             }
         }
         NirValue::Call { args, .. } | NirValue::Constructor { args, .. } => {
             for arg in args {
-                collect_runtime_calls_from_value(arg, calls);
+                collect_runtime_calls_from_value(arg, calls, constants);
             }
         }
         NirValue::ListLiteral { values, .. } => {
             for value in values {
-                collect_runtime_calls_from_value(value, calls);
+                collect_runtime_calls_from_value(value, calls, constants);
             }
         }
         NirValue::MapLiteral { entries, .. } => {
             for (key, value) in entries {
-                collect_runtime_calls_from_value(key, calls);
-                collect_runtime_calls_from_value(value, calls);
+                collect_runtime_calls_from_value(key, calls, constants);
+                collect_runtime_calls_from_value(value, calls, constants);
             }
         }
-        NirValue::MemberAccess { target, .. } => collect_runtime_calls_from_value(target, calls),
-        NirValue::Binary { left, right, .. } => {
-            collect_runtime_calls_from_value(left, calls);
-            collect_runtime_calls_from_value(right, calls);
+        NirValue::MemberAccess { target, .. } => {
+            collect_runtime_calls_from_value(target, calls, constants)
         }
-        NirValue::Unary { operand, .. } => collect_runtime_calls_from_value(operand, calls),
+        NirValue::Binary { left, right, .. } => {
+            collect_runtime_calls_from_value(left, calls, constants);
+            collect_runtime_calls_from_value(right, calls, constants);
+        }
+        NirValue::Unary { operand, .. } => {
+            collect_runtime_calls_from_value(operand, calls, constants)
+        }
         NirValue::Const { .. } | NirValue::Local(_) | NirValue::FunctionRef { .. } => {}
+    }
+}
+
+fn native_constant_value(
+    value: &NirValue,
+    constants: &HashMap<String, NirValue>,
+) -> Option<NirValue> {
+    match value {
+        NirValue::Const { .. } => Some(value.clone()),
+        NirValue::Local(name) => constants.get(name).cloned(),
+        NirValue::Call { target, args } if target == "toString" && args.len() == 1 => {
+            native_primitive_text(&args[0], constants).map(|value| NirValue::Const {
+                type_: "String".to_string(),
+                value,
+            })
+        }
+        NirValue::RuntimeCall { target, args, .. } if target == "toString" && args.len() == 1 => {
+            native_primitive_text(&args[0], constants).map(|value| NirValue::Const {
+                type_: "String".to_string(),
+                value,
+            })
+        }
+        NirValue::Binary { op, .. } if op == "&" => native_static_string_value(value, constants)
+            .map(|value| NirValue::Const {
+                type_: "String".to_string(),
+                value,
+            }),
+        _ => None,
+    }
+}
+
+fn native_static_string_value(
+    value: &NirValue,
+    constants: &HashMap<String, NirValue>,
+) -> Option<String> {
+    match value {
+        NirValue::Const { type_, value } if type_ == "String" => Some(value.clone()),
+        NirValue::Local(name) => constants
+            .get(name)
+            .and_then(|constant| native_static_string_value(constant, constants)),
+        NirValue::Call { target, args } if target == "toString" && args.len() == 1 => {
+            native_primitive_text(&args[0], constants)
+        }
+        NirValue::RuntimeCall { target, args, .. } if target == "toString" && args.len() == 1 => {
+            native_primitive_text(&args[0], constants)
+        }
+        NirValue::Binary { op, left, right } if op == "&" => {
+            let left = native_static_string_value(left, constants)?;
+            let right = native_static_string_value(right, constants)?;
+            Some(format!("{left}{right}"))
+        }
+        _ => None,
+    }
+}
+
+fn native_primitive_text(
+    value: &NirValue,
+    constants: &HashMap<String, NirValue>,
+) -> Option<String> {
+    match value {
+        NirValue::Const { type_, value } => match type_.as_str() {
+            "Integer" | "Byte" | "Float" | "Fixed" | "String" => Some(value.clone()),
+            "Boolean" => match value.as_str() {
+                "true" => Some("TRUE".to_string()),
+                "false" => Some("FALSE".to_string()),
+                _ => None,
+            },
+            _ => None,
+        },
+        NirValue::Local(name) => constants
+            .get(name)
+            .and_then(|constant| native_primitive_text(constant, constants)),
+        _ => None,
     }
 }
 

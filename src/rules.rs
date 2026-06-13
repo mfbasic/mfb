@@ -257,6 +257,26 @@ pub const RULES: &[Rule] = &[
         message: "integer literal is outside the Byte range",
     },
     Rule {
+        name: "TYPE_FLOAT_LITERAL_OVERFLOW",
+        severity: Severity::Error,
+        message: "numeric literal is outside the Float range",
+    },
+    Rule {
+        name: "TYPE_FLOAT_LITERAL_UNDERFLOW",
+        severity: Severity::Error,
+        message: "numeric literal is outside the Float range",
+    },
+    Rule {
+        name: "TYPE_FIXED_LITERAL_OVERFLOW",
+        severity: Severity::Error,
+        message: "numeric literal is outside the Fixed range",
+    },
+    Rule {
+        name: "TYPE_FIXED_LITERAL_UNDERFLOW",
+        severity: Severity::Error,
+        message: "numeric literal is outside the Fixed range",
+    },
+    Rule {
         name: "TYPE_LAMBDA_CAPTURE_UNSUPPORTED",
         severity: Severity::Error,
         message: "lambda captures are not supported by this compiler target",

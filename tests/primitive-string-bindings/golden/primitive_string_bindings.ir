@@ -1,0 +1,31 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "primitive_string_bindings",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "mutable": false, "name": "letValue", "type": "String", "value": { "kind": "const", "type": "String", "value": "hello" } },
+    { "op": "bind", "mutable": true, "name": "mutValue", "type": "String", "value": { "kind": "const", "type": "String", "value": "world" } },
+    { "op": "assign", "name": "mutValue", "value": { "kind": "const", "type": "String", "value": "mfb" } },
+    { "op": "bind", "mutable": false, "name": "copy", "type": "String", "value": { "kind": "local", "name": "letValue" } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "local", "name": "copy" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "local", "name": "mutValue" }] } },
+    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

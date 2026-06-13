@@ -1,0 +1,31 @@
+{
+  "project": "primitive_string_bindings",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "main",
+      "line": 3,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "letValue", "type": "String", "value": { "kind": "string", "value": "hello" }, "line": 4 },
+      { "kind": "binding", "mutable": true, "name": "mutValue", "type": "String", "value": { "kind": "string", "value": "world" }, "line": 5 },
+      { "kind": "assignment", "name": "mutValue", "value": { "kind": "string", "value": "mfb" }, "line": 6 },
+      { "kind": "binding", "mutable": false, "name": "copy", "type": "String", "value": { "kind": "identifier", "value": "letValue" }, "line": 7 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "identifier", "value": "copy" }] }, "line": 8 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "identifier", "value": "mutValue" }] }, "line": 9 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 10 }
+      ]
+    }
+    ]
+  }
+  ]
+}

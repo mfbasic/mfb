@@ -128,6 +128,7 @@ pub(crate) enum NirMatchPattern {
     Value(NirValue),
 }
 
+#[derive(Clone)]
 pub(crate) enum NirValue {
     Const {
         type_: String,
