@@ -1,3 +1,4 @@
+use crate::arch::aarch64::abi;
 use crate::builtins;
 use crate::ir::{IrOp, IrProject, IrValue};
 
@@ -47,7 +48,6 @@ pub(crate) struct RuntimeHelperSpec {
     pub(crate) call: &'static str,
     pub(crate) symbol: &'static str,
     pub(crate) abi: RuntimeHelperAbi,
-    pub(crate) platform_imports: &'static [PlatformImportSpec],
 }
 
 #[derive(Clone, Copy)]
@@ -64,21 +64,10 @@ pub(crate) struct RuntimeAbiParam {
     pub(crate) location: &'static str,
 }
 
-#[derive(Clone, Copy)]
-pub(crate) struct PlatformImportSpec {
-    pub(crate) library: &'static str,
-    pub(crate) symbol: &'static str,
-}
-
-const IO_PRINT_IMPORTS: &[PlatformImportSpec] = &[PlatformImportSpec {
-    library: "libSystem",
-    symbol: "_write",
-}];
-
 const IO_PRINT_PARAMS: &[RuntimeAbiParam] = &[RuntimeAbiParam {
     name: "value",
     type_: "String",
-    location: "x0",
+    location: abi::RETURN_REGISTER,
 }];
 
 pub(crate) const IO_PRINT_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
@@ -88,9 +77,8 @@ pub(crate) const IO_PRINT_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
     abi: RuntimeHelperAbi {
         params: IO_PRINT_PARAMS,
         returns: "Nothing",
-        clobbers: &["x0", "x1", "x2", "x9", "x16"],
+        clobbers: abi::IO_PRINT_CLOBBERS,
     },
-    platform_imports: IO_PRINT_IMPORTS,
 };
 
 pub(crate) fn supported_helper_specs() -> &'static [RuntimeHelperSpec] {

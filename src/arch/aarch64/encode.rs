@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
-use crate::target::macos_aarch64::code::{CodeInstruction, CodeOp, NativeCodePlan};
+use crate::arch::aarch64::ops::CodeOp;
+use crate::target::shared::code::{CodeInstruction, NativeCodePlan};
 
 pub(crate) struct EncodedImage {
     pub(crate) text: Vec<u8>,

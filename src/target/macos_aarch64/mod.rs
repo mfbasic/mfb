@@ -1,16 +1,13 @@
-pub(crate) mod code;
-pub(crate) mod lower;
-pub(crate) mod nir;
-pub(crate) mod plan;
-pub(crate) mod runtime;
-pub(crate) mod validate;
-
 use crate::arch;
 use crate::ir::IrProject;
 use crate::os;
+use crate::target::shared::{lower, validate};
 use crate::target::{BackendCapabilities, BuildTarget, NativeBackend};
 use std::fs;
 use std::path::{Path, PathBuf};
+
+pub(crate) mod code;
+pub(crate) mod plan;
 
 pub(crate) static BACKEND: Backend = Backend;
 

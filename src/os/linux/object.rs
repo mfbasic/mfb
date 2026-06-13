@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 
 use crate::json_string;
-use crate::target::macos_aarch64::plan::{CallKind, NativePlan};
+use crate::target::shared::plan::{CallKind, NativePlan};
 
 const IMAGE_BASE: u64 = 0x400000;
 const TEXT_FILE_OFFSET: usize = 0x1000;

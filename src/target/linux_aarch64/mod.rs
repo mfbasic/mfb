@@ -1,10 +1,13 @@
 use crate::arch;
 use crate::ir::IrProject;
 use crate::os;
-use crate::target::macos_aarch64::{code, lower, plan, validate};
+use crate::target::shared::{lower, validate};
 use crate::target::{BackendCapabilities, BuildTarget, NativeBackend};
 use std::fs;
 use std::path::{Path, PathBuf};
+
+pub(crate) mod code;
+pub(crate) mod plan;
 
 pub(crate) static BACKEND: Backend = Backend;
 
@@ -89,11 +92,7 @@ fn write_executable(
     let native_plan = plan::lower_module(&module)?;
     native_plan.validate()?;
     os::linux::validate_native_object_plan(&native_plan)?;
-    let native_code = code::lower_module_for_platform(
-        &module,
-        &native_plan,
-        code::CodegenPlatform::LinuxAarch64,
-    )?;
+    let native_code = code::lower_module(&module, &native_plan)?;
     native_code.validate()?;
     let image = arch::aarch64::encode::encode(&native_code)?;
     os::linux::write_linked_executable(project_dir, &ir.name, &image)
@@ -149,11 +148,7 @@ fn write_native_code_plan(
     let native_plan = plan::lower_module(&module)?;
     native_plan.validate()?;
     os::linux::validate_native_object_plan(&native_plan)?;
-    let native_code = code::lower_module_for_platform(
-        &module,
-        &native_plan,
-        code::CodegenPlatform::LinuxAarch64,
-    )?;
+    let native_code = code::lower_module(&module, &native_plan)?;
     native_code.validate()?;
     let code_path = project_dir.join(format!("{}.ncode", ir.name));
     fs::write(&code_path, native_code.to_json())
@@ -165,7 +160,7 @@ fn lower_validated_module(
     ir: &IrProject,
     target: &BuildTarget,
     packages: &[PathBuf],
-) -> Result<crate::target::macos_aarch64::nir::NirModule, String> {
+) -> Result<crate::target::shared::nir::NirModule, String> {
     validate::validate_target(target)?;
     validate::validate_project(ir, packages)?;
     let module = lower::lower_project(ir, target.name(), packages)?;

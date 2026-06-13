@@ -16,7 +16,7 @@ struct Platform;
 
 impl code::CodegenPlatform for Platform {
     fn target(&self) -> &'static str {
-        "macos-aarch64"
+        "linux-aarch64"
     }
 
     fn arch(&self) -> &'static str {
@@ -24,49 +24,35 @@ impl code::CodegenPlatform for Platform {
     }
 
     fn preserves_link_register_in_runtime_helpers(&self) -> bool {
-        true
+        false
     }
 
     fn emit_program_exit(
         &self,
-        from: &str,
+        _from: &str,
         instructions: &mut Vec<CodeInstruction>,
-        relocations: &mut Vec<CodeRelocation>,
+        _relocations: &mut Vec<CodeRelocation>,
     ) -> Result<(), String> {
         instructions.extend([
-            abi::branch_link("_exit"),
+            abi::move_immediate(abi::syscall_register(), "Integer", "93"),
+            abi::syscall(),
             abi::branch_self(),
             abi::return_(),
         ]);
-        relocations.push(CodeRelocation {
-            from: from.to_string(),
-            to: "_exit".to_string(),
-            kind: "branch26".to_string(),
-            binding: "external".to_string(),
-            library: Some("libSystem".to_string()),
-        });
         Ok(())
     }
 
     fn emit_write(
         &self,
-        from: &str,
-        platform_imports: &HashMap<String, String>,
+        _from: &str,
+        _platform_imports: &HashMap<String, String>,
         instructions: &mut Vec<CodeInstruction>,
-        relocations: &mut Vec<CodeRelocation>,
+        _relocations: &mut Vec<CodeRelocation>,
     ) -> Result<(), String> {
-        let library = platform_imports
-            .get("_write")
-            .ok_or_else(|| "io.print runtime helper requires _write import".to_string())?
-            .clone();
-        instructions.push(abi::branch_link("_write"));
-        relocations.push(CodeRelocation {
-            from: from.to_string(),
-            to: "_write".to_string(),
-            kind: "branch26".to_string(),
-            binding: "external".to_string(),
-            library: Some(library),
-        });
+        instructions.extend([
+            abi::move_immediate(abi::syscall_register(), "Integer", "64"),
+            abi::syscall(),
+        ]);
         Ok(())
     }
 }

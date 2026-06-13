@@ -13,14 +13,10 @@ struct TypeValueNames {
 }
 
 pub fn validate_target(target: &BuildTarget) -> Result<(), String> {
-    if matches!(target.os.as_str(), "macos" | "linux") && target.arch == "aarch64" {
-        Ok(())
-    } else {
-        Err(format!(
-            "aarch64 native target cannot build {}",
-            target.name()
-        ))
+    if target.os.is_empty() || target.arch.is_empty() {
+        return Err("native target must include an OS and architecture".to_string());
     }
+    Ok(())
 }
 
 pub fn validate_project(_ir: &IrProject, _packages: &[PathBuf]) -> Result<(), String> {
@@ -28,11 +24,8 @@ pub fn validate_project(_ir: &IrProject, _packages: &[PathBuf]) -> Result<(), St
 }
 
 pub fn validate_nir(module: &NirModule) -> Result<(), String> {
-    if !matches!(module.target.as_str(), "macos-aarch64" | "linux-aarch64") {
-        return Err(format!(
-            "NIR target '{}' does not match a supported aarch64 target",
-            module.target
-        ));
+    if module.target.is_empty() {
+        return Err("NIR target must not be empty".to_string());
     }
     if module.project.is_empty() {
         return Err("NIR project name must not be empty".to_string());
@@ -100,7 +93,7 @@ pub(crate) fn validate_capabilities(
     for call in runtime_calls {
         if !capabilities.runtime_calls.contains(&call.as_str()) {
             return Err(format!(
-                "aarch64 backend does not support runtime call '{call}'"
+                "native backend does not support runtime call '{call}'"
             ));
         }
     }
@@ -113,7 +106,7 @@ pub(crate) fn validate_capabilities(
         });
         if !helper_supported {
             return Err(format!(
-                "aarch64 backend does not implement runtime helper '{}'",
+                "native backend does not implement runtime helper '{}'",
                 helper.name()
             ));
         }
@@ -754,13 +747,13 @@ struct LocalBinding {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::target::macos_aarch64::nir::{NirFunction, NirModule, NirOp, NirValue};
+    use crate::target::shared::nir::{NirEntryPoint, NirFunction, NirModule, NirOp, NirValue};
 
     fn module(runtime_helpers: Vec<RuntimeHelper>) -> NirModule {
         NirModule {
-            target: "macos-aarch64".to_string(),
+            target: "test-target".to_string(),
             project: "hello".to_string(),
-            entry: Some(crate::target::macos_aarch64::nir::NirEntryPoint {
+            entry: Some(NirEntryPoint {
                 name: "main".to_string(),
                 returns: "Nothing".to_string(),
                 accepts_args: false,

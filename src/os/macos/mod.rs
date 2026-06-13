@@ -2,7 +2,7 @@ mod link;
 mod object;
 
 use crate::arch::aarch64::encode::EncodedImage;
-use crate::target::macos_aarch64::plan::NativePlan;
+use crate::target::shared::plan::NativePlan;
 use std::fs;
 use std::path::{Path, PathBuf};
 

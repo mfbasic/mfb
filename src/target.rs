@@ -7,6 +7,7 @@ use crate::ir::IrProject;
 pub mod linux_aarch64;
 pub mod macos_aarch64;
 pub mod package_mfp;
+pub(crate) mod shared;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BuildTarget {

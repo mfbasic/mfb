@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 
 use crate::json_string;
-use crate::target::macos_aarch64::plan::{CallKind, NativePlan};
+use crate::target::shared::plan::{CallKind, NativePlan};
 
 const VM_BASE: u64 = 0x1_0000_0000;
 const TEXT_FILE_OFFSET: usize = 0x4000;
@@ -880,7 +880,7 @@ fn json_string_list(values: &[String]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::target::macos_aarch64::plan::{
+    use crate::target::shared::plan::{
         CallKind, NativePlan, PlanCall, PlannedFunction, PlatformImport, StorageClass, StorageType,
     };
 
