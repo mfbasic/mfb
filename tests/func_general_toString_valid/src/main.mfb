@@ -47,7 +47,7 @@ FUNC main AS Integer
   LET fixedExplicit AS String = fixedTextWithPrecision(1.25, 3)
   LET floatDefault AS String = floatText(2.25)
   LET floatExplicit AS String = floatTextWithPrecision(2.25, 3)
-  LET bytes AS List OF Byte = [104, 195, 169, 226, 151, 134]
+  LET bytes AS List OF Byte = [72, 101, 108, 108, 111, 32, 87, 111, 114, 108, 100]
   LET decoded AS String = byteListText(bytes)
 
   io::print(integerNegative)
