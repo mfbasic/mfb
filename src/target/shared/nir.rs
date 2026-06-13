@@ -94,6 +94,9 @@ pub(crate) enum NirOp {
     Return {
         value: Option<NirValue>,
     },
+    Fail {
+        error: NirValue,
+    },
     Eval {
         value: NirValue,
     },
@@ -328,6 +331,9 @@ fn lower_op(op: &IrOp) -> NirOp {
         IrOp::Return { value } => NirOp::Return {
             value: value.as_ref().map(lower_value),
         },
+        IrOp::Fail { error } => NirOp::Fail {
+            error: lower_value(error),
+        },
         IrOp::Eval { value } => NirOp::Eval {
             value: lower_value(value),
         },
@@ -387,7 +393,12 @@ fn lower_value(value: &IrValue) -> NirValue {
         },
         IrValue::Call { target, args } => {
             let args = args.iter().map(lower_value).collect();
-            if let Some(helper) = super::runtime::helper_for_call(target) {
+            if target == "toInt" {
+                NirValue::Call {
+                    target: target.clone(),
+                    args,
+                }
+            } else if let Some(helper) = super::runtime::helper_for_call(target) {
                 NirValue::RuntimeCall {
                     helper,
                     target: target.clone(),
@@ -755,6 +766,13 @@ impl ToNirJson for NirOp {
                     .map(|value| value.to_json(indent))
                     .unwrap_or_else(|| "null".to_string());
                 format!("\n{}{{ \"op\": \"return\", \"value\": {} }}", pad, value)
+            }
+            NirOp::Fail { error } => {
+                format!(
+                    "\n{}{{ \"op\": \"fail\", \"error\": {} }}",
+                    pad,
+                    error.to_json(indent)
+                )
             }
             NirOp::Eval { value } => format!(
                 "\n{}{{ \"op\": \"eval\", \"value\": {} }}",

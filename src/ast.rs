@@ -82,6 +82,14 @@ pub struct Function {
     pub params: Vec<Param>,
     pub return_type: Option<String>,
     pub body: Vec<Statement>,
+    pub trap: Option<Trap>,
+    pub line: usize,
+}
+
+#[derive(Clone, Debug)]
+pub struct Trap {
+    pub name: String,
+    pub body: Vec<Statement>,
     pub line: usize,
 }
 
@@ -117,6 +125,17 @@ pub enum Statement {
     },
     Return {
         value: Option<Expression>,
+        line: usize,
+    },
+    Fail {
+        error: Expression,
+        line: usize,
+    },
+    Propagate {
+        line: usize,
+    },
+    Recover {
+        value: Expression,
         line: usize,
     },
     Assign {
@@ -469,7 +488,13 @@ impl<'a> FileParser<'a> {
         self.skip_separators();
 
         let mut body = Vec::new();
+        let mut trap = None;
         while !self.is_at_end() {
+            if self.check_keyword(Keyword::Trap) {
+                trap = self.parse_trap();
+                self.skip_separators();
+                continue;
+            }
             if self.check_keyword(Keyword::End) {
                 self.advance();
                 let expected = match kind {
@@ -490,6 +515,7 @@ impl<'a> FileParser<'a> {
                     params,
                     return_type,
                     body,
+                    trap,
                     line: kind_token.line,
                 });
             }
@@ -508,6 +534,34 @@ impl<'a> FileParser<'a> {
             &kind_token,
         );
         None
+    }
+
+    fn parse_trap(&mut self) -> Option<Trap> {
+        let token = self.advance().clone();
+        let Some(name) = self.consume_identifier("TRAP must bind an error identifier.") else {
+            self.synchronize();
+            return None;
+        };
+        self.consume_statement_end("Expected end of statement after TRAP header.");
+        self.skip_separators();
+
+        let mut body = Vec::new();
+        while !self.is_at_end() && !self.is_end_block(Keyword::Trap) {
+            if let Some(statement) = self.parse_statement() {
+                body.push(statement);
+            } else {
+                self.synchronize();
+            }
+            self.skip_separators();
+        }
+        if !self.consume_end_block(Keyword::Trap, "TRAP block must end with END TRAP.") {
+            return None;
+        }
+        Some(Trap {
+            name,
+            body,
+            line: token.line,
+        })
     }
 
     fn parse_type_decl(&mut self) -> Option<TypeDecl> {
@@ -805,6 +859,32 @@ impl<'a> FileParser<'a> {
             };
             self.consume_statement_end("Expected end of statement after RETURN.");
             return Some(Statement::Return {
+                value,
+                line: token.line,
+            });
+        }
+
+        if self.match_keyword(Keyword::Fail) {
+            let token = self.previous().clone();
+            let error = self.parse_expression()?;
+            self.consume_statement_end("Expected end of statement after FAIL.");
+            return Some(Statement::Fail {
+                error,
+                line: token.line,
+            });
+        }
+
+        if self.match_keyword(Keyword::Propagate) {
+            let token = self.previous().clone();
+            self.consume_statement_end("Expected end of statement after PROPAGATE.");
+            return Some(Statement::Propagate { line: token.line });
+        }
+
+        if self.match_keyword(Keyword::Recover) {
+            let token = self.previous().clone();
+            let value = self.parse_expression()?;
+            self.consume_statement_end("Expected end of statement after RECOVER.");
+            return Some(Statement::Recover {
                 value,
                 line: token.line,
             });
@@ -1924,6 +2004,11 @@ impl ToAstJson for Function {
             .as_ref()
             .map(|value| json_string(value))
             .unwrap_or_else(|| "null".to_string());
+        let trap = self
+            .trap
+            .as_ref()
+            .map(|trap| format!(",\n{}  \"trap\": {}", pad, trap.to_json(indent)))
+            .unwrap_or_default();
         let template_params = template_params_json(&self.template_params, indent);
         format!(
             concat!(
@@ -1935,7 +2020,8 @@ impl ToAstJson for Function {
                 "{}  \"line\": {},\n",
                 "{}  \"params\": [{}\n{}  ],\n",
                 "{}  \"returnType\": {},\n",
-                "{}  \"body\": [{}\n{}  ]\n",
+                "{}  \"body\": [{}\n{}  ]{}",
+                "\n",
                 "{}}}"
             ),
             pad,
@@ -1956,6 +2042,30 @@ impl ToAstJson for Function {
             pad,
             pad,
             return_type,
+            pad,
+            join_indented(&self.body, indent + 2),
+            pad,
+            trap,
+            pad
+        )
+    }
+}
+
+impl ToAstJson for Trap {
+    fn to_json(&self, indent: usize) -> String {
+        let pad = " ".repeat(indent);
+        format!(
+            concat!(
+                "{{\n",
+                "{}  \"name\": {},\n",
+                "{}  \"line\": {},\n",
+                "{}  \"body\": [{}\n{}  ]\n",
+                "{}}}"
+            ),
+            pad,
+            json_string(&self.name),
+            pad,
+            self.line,
             pad,
             join_indented(&self.body, indent + 2),
             pad,
@@ -2024,6 +2134,25 @@ impl ToAstJson for Statement {
                 format!(
                     "\n{}{{ \"kind\": \"return\", \"value\": {}, \"line\": {} }}",
                     pad, value, line
+                )
+            }
+            Statement::Fail { error, line } => {
+                format!(
+                    "\n{}{{ \"kind\": \"fail\", \"error\": {}, \"line\": {} }}",
+                    pad,
+                    error.to_json(indent),
+                    line
+                )
+            }
+            Statement::Propagate { line } => {
+                format!("\n{}{{ \"kind\": \"propagate\", \"line\": {} }}", pad, line)
+            }
+            Statement::Recover { value, line } => {
+                format!(
+                    "\n{}{{ \"kind\": \"recover\", \"value\": {}, \"line\": {} }}",
+                    pad,
+                    value.to_json(indent),
+                    line
                 )
             }
             Statement::Assign { name, value, line } => {

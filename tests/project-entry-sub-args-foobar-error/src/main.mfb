@@ -1,0 +1,3 @@
+SUB foobar(args AS List OF String)
+  FAIL Error[100, "This is a message"]
+END SUB

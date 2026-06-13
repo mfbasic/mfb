@@ -1,0 +1,26 @@
+$ mfb build -ast tests/primitive-byte-bindings
+Wrote AST to tests/primitive-byte-bindings/primitive_byte_bindings.ast
+[exit 0]
+$ mfb build -ir tests/primitive-byte-bindings
+Wrote IR to tests/primitive-byte-bindings/primitive_byte_bindings.ir
+[exit 0]
+$ mfb build -bc tests/primitive-byte-bindings
+Wrote bytecode hex to tests/primitive-byte-bindings/primitive_byte_bindings.hex
+[exit 0]
+$ mfb build -nir tests/primitive-byte-bindings
+Wrote native IR to tests/primitive-byte-bindings/primitive_byte_bindings.nir
+[exit 0]
+$ mfb build -nplan tests/primitive-byte-bindings
+Wrote native plan to tests/primitive-byte-bindings/primitive_byte_bindings.nplan
+[exit 0]
+$ mfb build -nobj tests/primitive-byte-bindings
+Wrote native object plan to tests/primitive-byte-bindings/primitive_byte_bindings.nobj
+[exit 0]
+$ mfb build -ncode tests/primitive-byte-bindings
+Wrote native code plan to tests/primitive-byte-bindings/primitive_byte_bindings.ncode
+[exit 0]
+$ mfb build tests/primitive-byte-bindings
+Wrote executable to tests/primitive-byte-bindings/primitive_byte_bindings.out
+[exit 0]
+$ tests/primitive-byte-bindings/primitive_byte_bindings.out
+[exit 6]

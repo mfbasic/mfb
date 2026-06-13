@@ -217,6 +217,46 @@ pub const RULES: &[Rule] = &[
         message: "binding initializer type does not match declared type",
     },
     Rule {
+        name: "TYPE_ASSIGNMENT_MISMATCH",
+        severity: Severity::Error,
+        message: "assignment value type does not match binding type",
+    },
+    Rule {
+        name: "TYPE_INTEGER_LITERAL_OVERFLOW",
+        severity: Severity::Error,
+        message: "integer literal is outside the Integer range",
+    },
+    Rule {
+        name: "TYPE_FAIL_REQUIRES_ERROR",
+        severity: Severity::Error,
+        message: "FAIL requires an Error value",
+    },
+    Rule {
+        name: "TYPE_PROPAGATE_REQUIRES_TRAP",
+        severity: Severity::Error,
+        message: "PROPAGATE requires a TRAP context",
+    },
+    Rule {
+        name: "TYPE_RECOVER_REQUIRES_TRAP",
+        severity: Severity::Error,
+        message: "RECOVER requires a recoverable TRAP context",
+    },
+    Rule {
+        name: "TYPE_TRAP_FALLTHROUGH",
+        severity: Severity::Error,
+        message: "TRAP path can fall through",
+    },
+    Rule {
+        name: "TYPE_BYTE_LITERAL_OVERFLOW",
+        severity: Severity::Error,
+        message: "integer literal is outside the Byte range",
+    },
+    Rule {
+        name: "TYPE_BYTE_LITERAL_UNDERFLOW",
+        severity: Severity::Error,
+        message: "integer literal is outside the Byte range",
+    },
+    Rule {
         name: "TYPE_LAMBDA_CAPTURE_UNSUPPORTED",
         severity: Severity::Error,
         message: "lambda captures are not supported by this compiler target",

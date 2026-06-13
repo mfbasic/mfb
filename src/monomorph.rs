@@ -260,6 +260,13 @@ impl<'a> Monomorphizer<'a> {
             }
         }
         function.body = self.lower_statements(&function.body, substitutions, &mut context);
+        if let Some(trap) = &mut function.trap {
+            let mut trap_context = context.clone();
+            trap_context
+                .locals
+                .insert(trap.name.clone(), "Error".to_string());
+            trap.body = self.lower_statements(&trap.body, substitutions, &mut trap_context);
+        }
         function
     }
 
@@ -437,6 +444,15 @@ impl<'a> Monomorphizer<'a> {
                 value: value
                     .as_ref()
                     .map(|value| self.lower_expression(value, substitutions, context, None, *line)),
+                line: *line,
+            },
+            Statement::Fail { error, line } => Statement::Fail {
+                error: self.lower_expression(error, substitutions, context, None, *line),
+                line: *line,
+            },
+            Statement::Propagate { line } => Statement::Propagate { line: *line },
+            Statement::Recover { value, line } => Statement::Recover {
+                value: self.lower_expression(value, substitutions, context, None, *line),
                 line: *line,
             },
             Statement::Assign { name, value, line } => Statement::Assign {
@@ -1218,6 +1234,10 @@ fn numeric_binary_result_type(operator: &str, left: &str, right: &str) -> &'stat
         }
     } else if left == "Float" || right == "Float" {
         "Float"
+    } else if left == "Byte" && right == "Byte" {
+        "Byte"
+    } else if (left == "Byte" && right == "Fixed") || (left == "Fixed" && right == "Byte") {
+        "Fixed"
     } else if left == "Fixed" && right == "Fixed" {
         "Fixed"
     } else if left == "Fixed" || right == "Fixed" {

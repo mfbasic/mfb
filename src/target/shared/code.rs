@@ -7,6 +7,24 @@ use super::nir::{self, NirFunction, NirMatchPattern, NirModule, NirOp, NirValue}
 use super::plan::NativePlan;
 use super::runtime;
 
+const RESULT_OK_TAG: &str = "0";
+const RESULT_ERR_TAG: &str = "1";
+const ERR_OVERFLOW_CODE: &str = "10028";
+const ERR_OVERFLOW_MESSAGE: &str = "numeric overflow";
+const ERR_OVERFLOW_SYMBOL: &str = "_mfb_str_error_overflow";
+const ERR_UNDERFLOW_CODE: &str = "10031";
+const ERR_UNDERFLOW_MESSAGE: &str = "numeric underflow";
+const ERR_UNDERFLOW_SYMBOL: &str = "_mfb_str_error_underflow";
+const ENTRY_ERROR_PREFIX: &str = "Code: ";
+const ENTRY_ERROR_PREFIX_SYMBOL: &str = "_mfb_str_entry_error_prefix";
+const ENTRY_ERROR_SEPARATOR: &str = " Message: ";
+const ENTRY_ERROR_SEPARATOR_SYMBOL: &str = "_mfb_str_entry_error_separator";
+const ENTRY_ERROR_NEWLINE: &str = "\n";
+const ENTRY_ERROR_NEWLINE_SYMBOL: &str = "_mfb_str_entry_error_newline";
+const RESULT_TAG_REGISTER: &str = abi::RETURN_REGISTER;
+const RESULT_VALUE_REGISTER: &str = "x1";
+const RESULT_ERROR_MESSAGE_REGISTER: &str = "x2";
+
 pub(crate) struct NativeCodePlan {
     pub(crate) target: String,
     pub(crate) arch: String,
@@ -164,8 +182,10 @@ pub(crate) fn lower_module_for_platform(
         })
         .collect::<Vec<_>>();
     let string_symbols = string_symbols(module);
-    let data_objects = string_symbols
-        .iter()
+    let mut string_objects = string_symbols.iter().collect::<Vec<_>>();
+    string_objects.sort_by(|(_, left_symbol), (_, right_symbol)| left_symbol.cmp(right_symbol));
+    let data_objects = string_objects
+        .into_iter()
         .map(|(value, symbol)| CodeDataObject {
             symbol: symbol.clone(),
             kind: "constant".to_string(),
@@ -183,6 +203,7 @@ pub(crate) fn lower_module_for_platform(
         code_functions.push(lower_program_entry(
             &entry_symbol,
             &entry.returns,
+            &platform_imports,
             platform,
         )?);
     }
@@ -432,12 +453,10 @@ impl TypeModel {
 fn lower_program_entry(
     language_entry_symbol: &str,
     language_entry_returns: &str,
+    platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
 ) -> Result<CodeFunction, String> {
     let mut instructions = vec![abi::label("entry"), abi::branch_link(language_entry_symbol)];
-    if language_entry_returns == "Nothing" {
-        instructions.push(abi::move_immediate(abi::return_register(), "Integer", "0"));
-    }
     let mut relocations = vec![CodeRelocation {
         from: "_main".to_string(),
         to: language_entry_symbol.to_string(),
@@ -445,6 +464,74 @@ fn lower_program_entry(
         binding: "internal".to_string(),
         library: None,
     }];
+    let error_label = "entry_error";
+    let exit_label = "entry_exit";
+    instructions.extend([
+        abi::compare_immediate(RESULT_TAG_REGISTER, RESULT_OK_TAG),
+        abi::branch_ne(error_label),
+    ]);
+    if language_entry_returns == "Nothing" {
+        instructions.push(abi::move_immediate(abi::return_register(), "Integer", "0"));
+    } else {
+        instructions.push(abi::move_register(
+            abi::return_register(),
+            RESULT_VALUE_REGISTER,
+        ));
+    }
+    instructions.push(abi::branch(exit_label));
+    instructions.extend([
+        abi::label(error_label),
+        abi::move_register("x19", RESULT_VALUE_REGISTER),
+        abi::move_register("x20", RESULT_ERROR_MESSAGE_REGISTER),
+    ]);
+    emit_write_string_object(
+        ENTRY_ERROR_PREFIX_SYMBOL,
+        "_main",
+        platform_imports,
+        platform,
+        &mut instructions,
+        &mut relocations,
+    )?;
+    emit_write_integer_to_stderr(
+        "_main",
+        platform_imports,
+        platform,
+        &mut instructions,
+        &mut relocations,
+    )?;
+    emit_write_string_object(
+        ENTRY_ERROR_SEPARATOR_SYMBOL,
+        "_main",
+        platform_imports,
+        platform,
+        &mut instructions,
+        &mut relocations,
+    )?;
+    instructions.extend([
+        abi::load_u64(abi::string_length_register(), "x20", 0),
+        abi::add_immediate(abi::string_data_register(), "x20", 8),
+        abi::move_immediate(abi::return_register(), "Integer", "2"),
+    ]);
+    platform.emit_write(
+        "_main",
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
+    emit_write_string_object(
+        ENTRY_ERROR_NEWLINE_SYMBOL,
+        "_main",
+        platform_imports,
+        platform,
+        &mut instructions,
+        &mut relocations,
+    )?;
+    instructions.push(abi::move_immediate(
+        abi::return_register(),
+        "Integer",
+        "255",
+    ));
+    instructions.push(abi::label(exit_label));
     platform.emit_program_exit("_main", &mut instructions, &mut relocations)?;
     Ok(CodeFunction {
         name: "program.entry".to_string(),
@@ -459,6 +546,93 @@ fn lower_program_entry(
         instructions,
         relocations,
     })
+}
+
+fn emit_write_string_object(
+    symbol: &str,
+    from: &str,
+    platform_imports: &HashMap<String, String>,
+    platform: &dyn CodegenPlatform,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+) -> Result<(), String> {
+    instructions.extend([
+        abi::load_page_address("x21", symbol),
+        abi::add_page_offset("x21", "x21", symbol),
+        abi::load_u64(abi::string_length_register(), "x21", 0),
+        abi::add_immediate(abi::string_data_register(), "x21", 8),
+        abi::move_immediate(abi::return_register(), "Integer", "2"),
+    ]);
+    relocations.extend([
+        CodeRelocation {
+            from: from.to_string(),
+            to: symbol.to_string(),
+            kind: "page21".to_string(),
+            binding: "data".to_string(),
+            library: None,
+        },
+        CodeRelocation {
+            from: from.to_string(),
+            to: symbol.to_string(),
+            kind: "pageoff12".to_string(),
+            binding: "data".to_string(),
+            library: None,
+        },
+    ]);
+    platform.emit_write(from, platform_imports, instructions, relocations)
+}
+
+fn emit_write_integer_to_stderr(
+    from: &str,
+    platform_imports: &HashMap<String, String>,
+    platform: &dyn CodegenPlatform,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+) -> Result<(), String> {
+    let absolute_ready_label = "entry_error_code_absolute_ready";
+    let digit_loop_label = "entry_error_code_digit_loop";
+    let digits_done_label = "entry_error_code_digits_done";
+    let write_label = "entry_error_code_write";
+    instructions.extend([
+        abi::subtract_stack(64),
+        abi::move_register("x21", "x19"),
+        abi::compare_immediate("x21", "0"),
+        abi::branch_ge(absolute_ready_label),
+        abi::move_immediate("x22", "Integer", "0"),
+        abi::subtract_registers("x21", "x22", "x21"),
+        abi::label(absolute_ready_label),
+        abi::add_immediate("x23", abi::stack_pointer(), 64),
+        abi::move_immediate("x24", "Integer", "10"),
+        abi::compare_immediate("x21", "0"),
+        abi::branch_ne(digit_loop_label),
+        abi::subtract_immediate("x23", "x23", 1),
+        abi::move_immediate("x22", "Integer", "48"),
+        abi::store_u8("x22", "x23", 0),
+        abi::branch(digits_done_label),
+        abi::label(digit_loop_label),
+        abi::unsigned_divide_registers("x25", "x21", "x24"),
+        abi::multiply_subtract_registers("x26", "x25", "x24", "x21"),
+        abi::add_immediate("x26", "x26", 48),
+        abi::subtract_immediate("x23", "x23", 1),
+        abi::store_u8("x26", "x23", 0),
+        abi::move_register("x21", "x25"),
+        abi::compare_immediate("x21", "0"),
+        abi::branch_ne(digit_loop_label),
+        abi::label(digits_done_label),
+        abi::compare_immediate("x19", "0"),
+        abi::branch_ge(write_label),
+        abi::subtract_immediate("x23", "x23", 1),
+        abi::move_immediate("x22", "Integer", "45"),
+        abi::store_u8("x22", "x23", 0),
+        abi::label(write_label),
+        abi::add_immediate("x27", abi::stack_pointer(), 64),
+        abi::subtract_registers(abi::string_length_register(), "x27", "x23"),
+        abi::move_register(abi::string_data_register(), "x23"),
+        abi::move_immediate(abi::return_register(), "Integer", "2"),
+    ]);
+    platform.emit_write(from, platform_imports, instructions, relocations)?;
+    instructions.push(abi::add_stack(64));
+    Ok(())
 }
 
 fn lower_function(
@@ -513,6 +687,11 @@ fn lower_function(
         .iter()
         .any(|instruction| instruction.op == CodeOp::Ret)
     {
+        builder.emit(abi::move_immediate(
+            RESULT_TAG_REGISTER,
+            "Integer",
+            RESULT_OK_TAG,
+        ));
         builder.emit(abi::return_());
     }
     let mut instructions = builder.instructions;
@@ -765,9 +944,17 @@ impl CodeBuilder<'_> {
                 NirOp::Return { value } => {
                     if let Some(value) = value {
                         let result = self.lower_value(value)?;
-                        self.emit(abi::move_register(abi::return_register(), &result.location));
+                        self.emit(abi::move_register(RESULT_VALUE_REGISTER, &result.location));
                     }
+                    self.emit(abi::move_immediate(
+                        RESULT_TAG_REGISTER,
+                        "Integer",
+                        RESULT_OK_TAG,
+                    ));
                     self.emit(abi::return_());
+                }
+                NirOp::Fail { error } => {
+                    self.emit_error_return(error)?;
                 }
                 NirOp::If {
                     condition,
@@ -907,6 +1094,18 @@ impl CodeBuilder<'_> {
                 text: name.clone(),
             }),
             NirValue::Call { target, args } => {
+                if target == "toInt" && args.len() == 1 {
+                    let arg = self.lower_value(&args[0])?;
+                    if arg.type_ == "Byte" {
+                        let register = self.allocate_register();
+                        self.emit(abi::move_register(&register, &arg.location));
+                        return Ok(ValueResult {
+                            type_: "Integer".to_string(),
+                            location: register,
+                            text: format!("toInt({})", arg.text),
+                        });
+                    }
+                }
                 let symbol = self
                     .function_symbols
                     .get(target)
@@ -1007,11 +1206,46 @@ impl CodeBuilder<'_> {
                 let right = self.lower_value(right)?;
                 let register = self.allocate_register();
                 match op.as_str() {
-                    "+" => self.emit(abi::add_registers(
-                        &register,
-                        &left.location,
-                        &right.location,
-                    )),
+                    "+" => {
+                        self.emit(abi::add_registers(
+                            &register,
+                            &left.location,
+                            &right.location,
+                        ));
+                        if left.type_ == "Byte" && right.type_ == "Byte" {
+                            let overflow_label = self.label("byte_overflow");
+                            let ok_label = self.label("byte_ok");
+                            self.emit(abi::compare_immediate(&register, "255"));
+                            self.emit(abi::branch_hi(&overflow_label));
+                            self.emit(abi::branch(&ok_label));
+                            self.emit(abi::label(&overflow_label));
+                            self.emit_overflow_return()?;
+                            self.emit(abi::label(&ok_label));
+                        }
+                    }
+                    "-" => {
+                        if left.type_ == "Byte" && right.type_ == "Byte" {
+                            let underflow_label = self.label("byte_underflow");
+                            let ok_label = self.label("byte_ok");
+                            self.emit(abi::compare_registers(&left.location, &right.location));
+                            self.emit(abi::branch_lo(&underflow_label));
+                            self.emit(abi::subtract_registers(
+                                &register,
+                                &left.location,
+                                &right.location,
+                            ));
+                            self.emit(abi::branch(&ok_label));
+                            self.emit(abi::label(&underflow_label));
+                            self.emit_underflow_return()?;
+                            self.emit(abi::label(&ok_label));
+                        } else {
+                            self.emit(abi::subtract_registers(
+                                &register,
+                                &left.location,
+                                &right.location,
+                            ));
+                        }
+                    }
                     other => {
                         return Err(format!(
                             "native code plan does not lower binary operator '{other}' yet"
@@ -1019,7 +1253,7 @@ impl CodeBuilder<'_> {
                     }
                 };
                 Ok(ValueResult {
-                    type_: left.type_.clone(),
+                    type_: numeric_binary_result_type(op, &left.type_, &right.type_).to_string(),
                     location: register,
                     text: format!("({} {op} {})", left.text, right.text),
                 })
@@ -1131,8 +1365,15 @@ impl CodeBuilder<'_> {
                 text: format!("call {target}({})", join_texts(&arg_values)),
             });
         }
+        if return_type.is_none() {
+            let ok_label = self.label("call_ok");
+            self.emit(abi::compare_immediate(RESULT_TAG_REGISTER, RESULT_OK_TAG));
+            self.emit(abi::branch_eq(&ok_label));
+            self.emit(abi::return_());
+            self.emit(abi::label(&ok_label));
+        }
         let register = self.allocate_register();
-        self.emit(abi::move_register(&register, abi::return_register()));
+        self.emit(abi::move_register(&register, RESULT_VALUE_REGISTER));
         Ok(ValueResult {
             type_: result_type,
             location: register,
@@ -1172,6 +1413,102 @@ impl CodeBuilder<'_> {
         self.instructions.push(instruction);
     }
 
+    fn emit_overflow_return(&mut self) -> Result<(), String> {
+        let message_register = self.load_string_address(ERR_OVERFLOW_MESSAGE)?;
+        self.emit(abi::move_immediate(
+            RESULT_TAG_REGISTER,
+            "Integer",
+            RESULT_ERR_TAG,
+        ));
+        self.emit(abi::move_immediate(
+            RESULT_VALUE_REGISTER,
+            "Integer",
+            ERR_OVERFLOW_CODE,
+        ));
+        self.emit(abi::move_register(
+            RESULT_ERROR_MESSAGE_REGISTER,
+            &message_register,
+        ));
+        self.emit(abi::return_());
+        Ok(())
+    }
+
+    fn emit_underflow_return(&mut self) -> Result<(), String> {
+        let message_register = self.load_string_address(ERR_UNDERFLOW_MESSAGE)?;
+        self.emit(abi::move_immediate(
+            RESULT_TAG_REGISTER,
+            "Integer",
+            RESULT_ERR_TAG,
+        ));
+        self.emit(abi::move_immediate(
+            RESULT_VALUE_REGISTER,
+            "Integer",
+            ERR_UNDERFLOW_CODE,
+        ));
+        self.emit(abi::move_register(
+            RESULT_ERROR_MESSAGE_REGISTER,
+            &message_register,
+        ));
+        self.emit(abi::return_());
+        Ok(())
+    }
+
+    fn emit_error_return(&mut self, error: &NirValue) -> Result<(), String> {
+        let NirValue::Constructor { type_, args } = error else {
+            return Err("native code fail expects Error constructor".to_string());
+        };
+        if type_ != "Error" || args.len() != 2 {
+            return Err("native code fail expects Error[code, message]".to_string());
+        }
+        let code = integer_constant_value(&args[0])
+            .ok_or_else(|| "native code fail expects constant Error code".to_string())?;
+        let message = string_constant_value(&args[1])
+            .ok_or_else(|| "native code fail expects constant Error message".to_string())?;
+        let message_register = self.load_string_address(message)?;
+        self.emit(abi::move_immediate(
+            RESULT_TAG_REGISTER,
+            "Integer",
+            RESULT_ERR_TAG,
+        ));
+        self.emit(abi::move_immediate(
+            RESULT_VALUE_REGISTER,
+            "Integer",
+            &(code as u64).to_string(),
+        ));
+        self.emit(abi::move_register(
+            RESULT_ERROR_MESSAGE_REGISTER,
+            &message_register,
+        ));
+        self.emit(abi::return_());
+        Ok(())
+    }
+
+    fn load_string_address(&mut self, value: &str) -> Result<String, String> {
+        let symbol = self
+            .string_symbols
+            .get(value)
+            .ok_or_else(|| format!("native code string literal '{value}' has no data object"))?
+            .clone();
+        let register = self.allocate_register();
+        self.emit(abi::load_page_address(&register, &symbol));
+        self.relocations.push(CodeRelocation {
+            from: self.current_symbol.clone(),
+            to: symbol.clone(),
+            kind: "page21".to_string(),
+            binding: "data".to_string(),
+            library: None,
+        });
+        self.emit(abi::add_page_offset(&register, &register, &symbol));
+        self.relocations.push(CodeRelocation {
+            from: self.current_symbol.clone(),
+            to: symbol,
+            kind: "pageoff12".to_string(),
+            binding: "data".to_string(),
+            library: None,
+        });
+        Ok(register)
+    }
+
     fn current_block_returns(&self) -> bool {
         self.instructions
             .last()
@@ -1197,14 +1534,22 @@ impl CodeInstruction {
             CodeOp::Label => &["name"],
             CodeOp::Mov => &["dst", "src"],
             CodeOp::MovImm => &["dst", "value"],
-            CodeOp::Add => &["dst", "lhs", "rhs"],
-            CodeOp::AddImm => &["dst", "src", "imm"],
+            CodeOp::Add | CodeOp::Sub | CodeOp::UDiv => &["dst", "lhs", "rhs"],
+            CodeOp::MSub => &["dst", "lhs", "rhs", "minuend"],
+            CodeOp::AddImm | CodeOp::SubImm => &["dst", "src", "imm"],
             CodeOp::SubSp | CodeOp::AddSp => &["imm"],
             CodeOp::CmpImm => &["lhs", "rhs"],
-            CodeOp::BranchEq | CodeOp::Branch | CodeOp::BranchLink => &["target"],
+            CodeOp::Cmp => &["lhs", "rhs"],
+            CodeOp::BranchEq
+            | CodeOp::BranchNe
+            | CodeOp::BranchGe
+            | CodeOp::BranchHi
+            | CodeOp::BranchLo
+            | CodeOp::Branch
+            | CodeOp::BranchLink => &["target"],
             CodeOp::BranchSelf | CodeOp::Svc | CodeOp::Ret => &[],
             CodeOp::LdrU64 => &["dst", "base", "offset"],
-            CodeOp::StrU64 => &["src", "base", "offset"],
+            CodeOp::StrU64 | CodeOp::StrU8 => &["src", "base", "offset"],
             CodeOp::Adrp | CodeOp::AddPageOff => &["dst", "symbol"],
         };
         for name in required {
@@ -1371,10 +1716,40 @@ fn string_symbols(module: &NirModule) -> HashMap<String, String> {
     for function in &module.functions {
         collect_string_values_from_ops(&function.body, &mut values);
     }
+    if !values.contains(&ERR_OVERFLOW_MESSAGE.to_string()) {
+        values.push(ERR_OVERFLOW_MESSAGE.to_string());
+    }
+    if !values.contains(&ERR_UNDERFLOW_MESSAGE.to_string()) {
+        values.push(ERR_UNDERFLOW_MESSAGE.to_string());
+    }
+    for value in [
+        ENTRY_ERROR_PREFIX,
+        ENTRY_ERROR_SEPARATOR,
+        ENTRY_ERROR_NEWLINE,
+    ] {
+        if !values.contains(&value.to_string()) {
+            values.push(value.to_string());
+        }
+    }
     values
         .into_iter()
         .enumerate()
-        .map(|(index, value)| (value, format!("_mfb_str_{index}")))
+        .map(|(index, value)| {
+            let symbol = if value == ERR_OVERFLOW_MESSAGE {
+                ERR_OVERFLOW_SYMBOL.to_string()
+            } else if value == ERR_UNDERFLOW_MESSAGE {
+                ERR_UNDERFLOW_SYMBOL.to_string()
+            } else if value == ENTRY_ERROR_PREFIX {
+                ENTRY_ERROR_PREFIX_SYMBOL.to_string()
+            } else if value == ENTRY_ERROR_SEPARATOR {
+                ENTRY_ERROR_SEPARATOR_SYMBOL.to_string()
+            } else if value == ENTRY_ERROR_NEWLINE {
+                ENTRY_ERROR_NEWLINE_SYMBOL.to_string()
+            } else {
+                format!("_mfb_str_{index}")
+            };
+            (value, symbol)
+        })
         .collect()
 }
 
@@ -1385,6 +1760,9 @@ fn collect_string_values_from_ops(ops: &[NirOp], values: &mut Vec<String>) {
                 if let Some(value) = value {
                     collect_string_values_from_value(value, values);
                 }
+            }
+            NirOp::Fail { error } => {
+                collect_string_values_from_value(error, values);
             }
             NirOp::Assign { value, .. } | NirOp::Eval { value } => {
                 collect_string_values_from_value(value, values);
@@ -1463,6 +1841,45 @@ fn join_texts(values: &[ValueResult]) -> String {
         .map(|value| value.text.clone())
         .collect::<Vec<_>>()
         .join(", ")
+}
+
+fn numeric_binary_result_type(operator: &str, left: &str, right: &str) -> &'static str {
+    if operator == "/" {
+        if left == "Fixed" && right == "Fixed" {
+            "Fixed"
+        } else {
+            "Float"
+        }
+    } else if left == "Float" || right == "Float" {
+        "Float"
+    } else if left == "Byte" && right == "Byte" {
+        "Byte"
+    } else if (left == "Byte" && right == "Fixed") || (left == "Fixed" && right == "Byte") {
+        "Fixed"
+    } else if left == "Fixed" && right == "Fixed" {
+        "Fixed"
+    } else if left == "Fixed" || right == "Fixed" {
+        "Float"
+    } else {
+        "Integer"
+    }
+}
+
+fn integer_constant_value(value: &NirValue) -> Option<i64> {
+    match value {
+        NirValue::Const { type_, value } if type_ == "Integer" => value.parse::<i64>().ok(),
+        NirValue::Unary { op, operand } if op == "-" => {
+            integer_constant_value(operand).and_then(i64::checked_neg)
+        }
+        _ => None,
+    }
+}
+
+fn string_constant_value(value: &NirValue) -> Option<&str> {
+    match value {
+        NirValue::Const { type_, value } if type_ == "String" => Some(value),
+        _ => None,
+    }
 }
 
 fn join_json<T: ToCodeJson>(values: &[T], indent: usize) -> String {

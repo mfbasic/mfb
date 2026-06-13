@@ -64,6 +64,7 @@
   { "from": "_main", "to": "_mfb_fn_main", "kind": "internalCall", "section": "__TEXT,__text" },
   { "from": "_mfb_fn_main", "to": "_mfb_rt_io_io_print", "kind": "internalCall", "section": "__TEXT,__text" },
   { "from": "_main", "to": "_exit", "kind": "externalCall", "section": "__TEXT,__text" },
+  { "from": "_main", "to": "_write", "kind": "externalCall", "section": "__TEXT,__text" },
   { "from": "_mfb_rt_io_io_print", "to": "_write", "kind": "externalCall", "section": "__TEXT,__text" },
   { "from": "_mfb_rt_io_io_print", "to": "_mfb_cstr_0", "kind": "dataReference", "section": "__TEXT,__text" }
   ]

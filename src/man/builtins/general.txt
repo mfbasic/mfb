@@ -39,8 +39,8 @@ example:
 LET text AS String = toString(42)
 ---
 function: toInt
-signature: toInt(value AS String | Float | Fixed) AS Integer
-summary: Converts text or a numeric value to an integer.
+signature: toInt(value AS String | Byte | Float | Fixed) AS Integer
+summary: Converts text, Byte, Float, or Fixed to an integer.
 example:
 LET value AS Integer = toInt("42")
 ---

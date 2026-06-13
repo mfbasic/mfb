@@ -36,23 +36,27 @@
   ],
   "definedSymbols": ["_main", "_mfb_fn_foobar"],
   "importedSymbols": [
-  { "library": "libSystem", "symbol": "_exit" }
+  { "library": "libSystem", "symbol": "_exit" },
+  { "library": "libSystem", "symbol": "_write" }
   ],
   "symbolTable": [
   { "name": "_main", "kind": "defined", "section": "__TEXT,__text", "value": 0, "stringTableOffset": 1 },
   { "name": "_mfb_fn_foobar", "kind": "defined", "section": "__TEXT,__text", "value": 16, "stringTableOffset": 7 },
-  { "name": "_exit", "kind": "imported", "section": null, "value": null, "stringTableOffset": 22 }
+  { "name": "_exit", "kind": "imported", "section": null, "value": null, "stringTableOffset": 22 },
+  { "name": "_write", "kind": "imported", "section": null, "value": null, "stringTableOffset": 28 }
   ],
   "stringTable": {
-    "size": 28,
+    "size": 35,
     "entries": [
     { "value": "_main", "offset": 1 },
     { "value": "_mfb_fn_foobar", "offset": 7 },
-    { "value": "_exit", "offset": 22 }
+    { "value": "_exit", "offset": 22 },
+    { "value": "_write", "offset": 28 }
     ]
   },
   "relocations": [
   { "from": "_main", "to": "_mfb_fn_foobar", "kind": "internalCall", "section": "__TEXT,__text" },
-  { "from": "_main", "to": "_exit", "kind": "externalCall", "section": "__TEXT,__text" }
+  { "from": "_main", "to": "_exit", "kind": "externalCall", "section": "__TEXT,__text" },
+  { "from": "_main", "to": "_write", "kind": "externalCall", "section": "__TEXT,__text" }
   ]
 }

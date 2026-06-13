@@ -1,0 +1,28 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "primitive_byte_bindings_underflow_rt",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "mutable": true, "name": "value", "type": "Byte", "value": { "kind": "const", "type": "Byte", "value": "0" } },
+    { "op": "bind", "mutable": false, "name": "one", "type": "Byte", "value": { "kind": "const", "type": "Byte", "value": "1" } },
+    { "op": "assign", "name": "value", "value": { "kind": "binary", "op": "-", "left": { "kind": "local", "name": "value" }, "right": { "kind": "local", "name": "one" } } },
+    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

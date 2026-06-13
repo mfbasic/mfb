@@ -1,0 +1,31 @@
+{
+  "project": "project_entry_func_foobar_trap",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "foobar",
+      "line": 1,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "fail", "error": { "kind": "constructor", "type": "Error", "arguments": [{ "kind": "number", "value": "100" }, { "kind": "string", "value": "This is a message" }] }, "line": 2 }
+      ],
+      "trap": {
+      "name": "err",
+      "line": 4,
+      "body": [
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 5 }
+      ]
+    }
+    }
+    ]
+  }
+  ]
+}

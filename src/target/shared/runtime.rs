@@ -131,6 +131,9 @@ fn push_op_helpers(ops: &[IrOp], helpers: &mut Vec<RuntimeHelper>) {
                     push_value_helpers(value, helpers);
                 }
             }
+            IrOp::Fail { error } => {
+                push_value_helpers(error, helpers);
+            }
             IrOp::Assign { value, .. } | IrOp::Eval { value } => {
                 push_value_helpers(value, helpers);
             }
@@ -165,8 +168,10 @@ fn push_op_helpers(ops: &[IrOp], helpers: &mut Vec<RuntimeHelper>) {
 fn push_value_helpers(value: &IrValue, helpers: &mut Vec<RuntimeHelper>) {
     match value {
         IrValue::Call { target, args } => {
-            if let Some(helper) = helper_for_call(target) {
-                push_unique(helpers, helper);
+            if target != "toInt" {
+                if let Some(helper) = helper_for_call(target) {
+                    push_unique(helpers, helper);
+                }
             }
             for arg in args {
                 push_value_helpers(arg, helpers);

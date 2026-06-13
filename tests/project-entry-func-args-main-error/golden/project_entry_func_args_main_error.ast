@@ -1,0 +1,25 @@
+{
+  "project": "project_entry_func_args_main_error",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "main",
+      "line": 1,
+      "params": [
+      { "name": "args", "type": "List OF String", "default": null }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "fail", "error": { "kind": "constructor", "type": "Error", "arguments": [{ "kind": "number", "value": "100" }, { "kind": "string", "value": "This is a message" }] }, "line": 2 }
+      ]
+    }
+    ]
+  }
+  ]
+}

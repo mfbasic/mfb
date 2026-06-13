@@ -152,7 +152,28 @@ impl Encoder {
                 reg(field(instruction, "lhs")?)?,
                 reg(field(instruction, "rhs")?)?,
             ),
+            "sub" => self.emit_sub(
+                reg(field(instruction, "dst")?)?,
+                reg(field(instruction, "lhs")?)?,
+                reg(field(instruction, "rhs")?)?,
+            ),
+            "udiv" => self.emit_udiv(
+                reg(field(instruction, "dst")?)?,
+                reg(field(instruction, "lhs")?)?,
+                reg(field(instruction, "rhs")?)?,
+            ),
+            "msub" => self.emit_msub(
+                reg(field(instruction, "dst")?)?,
+                reg(field(instruction, "lhs")?)?,
+                reg(field(instruction, "rhs")?)?,
+                reg(field(instruction, "minuend")?)?,
+            ),
             "add_imm" => self.emit_add_imm(
+                reg(field(instruction, "dst")?)?,
+                reg(field(instruction, "src")?)?,
+                immediate(field(instruction, "imm")?)?,
+            ),
+            "sub_imm" => self.emit_sub_imm(
                 reg(field(instruction, "dst")?)?,
                 reg(field(instruction, "src")?)?,
                 immediate(field(instruction, "imm")?)?,
@@ -163,7 +184,15 @@ impl Encoder {
                 reg(field(instruction, "lhs")?)?,
                 immediate(field(instruction, "rhs")?)?,
             ),
+            "cmp" => self.emit_cmp(
+                reg(field(instruction, "lhs")?)?,
+                reg(field(instruction, "rhs")?)?,
+            ),
             "b.eq" => self.emit_label_branch("b.eq", field(instruction, "target")?),
+            "b.ne" => self.emit_label_branch("b.ne", field(instruction, "target")?),
+            "b.ge" => self.emit_label_branch("b.ge", field(instruction, "target")?),
+            "b.hi" => self.emit_label_branch("b.hi", field(instruction, "target")?),
+            "b.lo" => self.emit_label_branch("b.lo", field(instruction, "target")?),
             "b" => self.emit_label_branch("b", field(instruction, "target")?),
             "bl" => self.emit_bl(field(instruction, "target")?),
             "svc" => self.emit_word(0xd400_0001),
@@ -175,6 +204,11 @@ impl Encoder {
                 immediate(field(instruction, "offset")?)?,
             ),
             "str_u64" => self.emit_str_u64(
+                reg(field(instruction, "src")?)?,
+                reg(field(instruction, "base")?)?,
+                immediate(field(instruction, "offset")?)?,
+            ),
+            "str_u8" => self.emit_str_u8(
                 reg(field(instruction, "src")?)?,
                 reg(field(instruction, "base")?)?,
                 immediate(field(instruction, "offset")?)?,
@@ -227,9 +261,32 @@ impl Encoder {
         self.emit_word(0x8b00_0000 | ((rm as u32) << 16) | ((rn as u32) << 5) | rd as u32)
     }
 
+    fn emit_sub(&mut self, rd: u8, rn: u8, rm: u8) -> Result<(), String> {
+        self.emit_word(0xcb00_0000 | ((rm as u32) << 16) | ((rn as u32) << 5) | rd as u32)
+    }
+
+    fn emit_udiv(&mut self, rd: u8, rn: u8, rm: u8) -> Result<(), String> {
+        self.emit_word(0x9ac0_0800 | ((rm as u32) << 16) | ((rn as u32) << 5) | rd as u32)
+    }
+
+    fn emit_msub(&mut self, rd: u8, rn: u8, rm: u8, ra: u8) -> Result<(), String> {
+        self.emit_word(
+            0x9b00_8000
+                | ((rm as u32) << 16)
+                | ((ra as u32) << 10)
+                | ((rn as u32) << 5)
+                | rd as u32,
+        )
+    }
+
     fn emit_add_imm(&mut self, rd: u8, rn: u8, imm: u64) -> Result<(), String> {
         let imm = checked_imm12(imm)?;
         self.emit_word(0x9100_0000 | (imm << 10) | ((rn as u32) << 5) | rd as u32)
+    }
+
+    fn emit_sub_imm(&mut self, rd: u8, rn: u8, imm: u64) -> Result<(), String> {
+        let imm = checked_imm12(imm)?;
+        self.emit_word(0xd100_0000 | (imm << 10) | ((rn as u32) << 5) | rd as u32)
     }
 
     fn emit_sub_sp(&mut self, imm: u64) -> Result<(), String> {
@@ -247,6 +304,10 @@ impl Encoder {
         self.emit_word(0xf100_001f | (imm << 10) | ((rn as u32) << 5))
     }
 
+    fn emit_cmp(&mut self, rn: u8, rm: u8) -> Result<(), String> {
+        self.emit_word(0xeb00_001f | ((rm as u32) << 16) | ((rn as u32) << 5))
+    }
+
     fn emit_ldr_u64(&mut self, rt: u8, rn: u8, offset: u64) -> Result<(), String> {
         if offset % 8 != 0 {
             return Err(format!("unaligned AArch64 ldr offset {offset}"));
@@ -261,6 +322,11 @@ impl Encoder {
         }
         let imm = checked_imm12(offset / 8)?;
         self.emit_word(0xf900_0000 | (imm << 10) | ((rn as u32) << 5) | rt as u32)
+    }
+
+    fn emit_str_u8(&mut self, rt: u8, rn: u8, offset: u64) -> Result<(), String> {
+        let imm = checked_imm12(offset)?;
+        self.emit_word(0x3900_0000 | (imm << 10) | ((rn as u32) << 5) | rt as u32)
     }
 
     fn emit_label_branch(&mut self, kind: &str, target: String) -> Result<(), String> {
@@ -334,6 +400,10 @@ impl Encoder {
             let word = match patch.kind.as_str() {
                 "b" => 0x1400_0000 | branch_imm26(patch.offset, target),
                 "b.eq" => 0x5400_0000 | (branch_imm19(patch.offset, target) << 5),
+                "b.ne" => 0x5400_0001 | (branch_imm19(patch.offset, target) << 5),
+                "b.ge" => 0x5400_000a | (branch_imm19(patch.offset, target) << 5),
+                "b.hi" => 0x5400_0008 | (branch_imm19(patch.offset, target) << 5),
+                "b.lo" => 0x5400_0003 | (branch_imm19(patch.offset, target) << 5),
                 other => return Err(format!("unknown AArch64 branch patch '{other}'")),
             };
             self.text[patch.offset..patch.offset + 4].copy_from_slice(&word.to_le_bytes());

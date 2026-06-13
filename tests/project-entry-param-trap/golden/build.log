@@ -1,0 +1,11 @@
+$ mfb build -ast tests/project-entry-param-trap
+Wrote AST to tests/project-entry-param-trap/project_entry_param_trap.ast
+[exit 0]
+$ mfb build -ir tests/project-entry-param-trap
+Wrote IR to tests/project-entry-param-trap/project_entry_param_trap.ir
+[exit 0]
+$ mfb build tests/project-entry-param-trap
+Wrote executable to tests/project-entry-param-trap/project_entry_param_trap.out
+[exit 0]
+$ tests/project-entry-param-trap/project_entry_param_trap.out
+[exit 0]

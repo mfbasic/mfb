@@ -1,0 +1,33 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "project_entry_sub_default_trap",
+  "entry": {
+    "name": "main",
+    "returns": "Nothing",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "visibility": "private",
+    "kind": "sub",
+    "params": [
+    ],
+    "returns": "Nothing",
+    "body": [
+    {
+      "op": "if",
+      "condition": { "kind": "const", "type": "Boolean", "value": "true" },
+      "then": [
+      { "op": "return", "value": null }
+      ],
+      "else": [
+      ]
+    }
+    ]
+  }
+  ]
+}

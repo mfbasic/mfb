@@ -379,6 +379,17 @@ impl<'a> Resolver<'a> {
         }
 
         self.resolve_block(file, &function.body, imports, &mut locals);
+        if let Some(trap) = &function.trap {
+            let mut trap_locals = locals.clone();
+            trap_locals.insert(
+                trap.name.clone(),
+                Symbol {
+                    file_path: file.path.clone(),
+                    line: trap.line,
+                },
+            );
+            self.resolve_block(file, &trap.body, imports, &mut trap_locals);
+        }
         self.active_template_params = previous_template_params;
     }
 
@@ -437,6 +448,13 @@ impl<'a> Resolver<'a> {
                 if let Some(value) = value {
                     self.resolve_expression(file, value, *line, imports, locals);
                 }
+            }
+            Statement::Fail { error, line } => {
+                self.resolve_expression(file, error, *line, imports, locals);
+            }
+            Statement::Propagate { .. } => {}
+            Statement::Recover { value, line } => {
+                self.resolve_expression(file, value, *line, imports, locals);
             }
             Statement::Assign { name, value, line } => {
                 self.resolve_identifier(file, name, *line, imports, locals);

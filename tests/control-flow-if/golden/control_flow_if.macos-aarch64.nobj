@@ -40,7 +40,8 @@
   ],
   "definedSymbols": ["_main", "_mfb_fn_ifOnly", "_mfb_fn_ifElse", "_mfb_fn_ifElseIf", "_mfb_fn_ifElseIfElse", "_mfb_fn_main"],
   "importedSymbols": [
-  { "library": "libSystem", "symbol": "_exit" }
+  { "library": "libSystem", "symbol": "_exit" },
+  { "library": "libSystem", "symbol": "_write" }
   ],
   "symbolTable": [
   { "name": "_main", "kind": "defined", "section": "__TEXT,__text", "value": 0, "stringTableOffset": 1 },
@@ -49,10 +50,11 @@
   { "name": "_mfb_fn_ifElseIf", "kind": "defined", "section": "__TEXT,__text", "value": 64, "stringTableOffset": 37 },
   { "name": "_mfb_fn_ifElseIfElse", "kind": "defined", "section": "__TEXT,__text", "value": 108, "stringTableOffset": 54 },
   { "name": "_mfb_fn_main", "kind": "defined", "section": "__TEXT,__text", "value": 152, "stringTableOffset": 75 },
-  { "name": "_exit", "kind": "imported", "section": null, "value": null, "stringTableOffset": 88 }
+  { "name": "_exit", "kind": "imported", "section": null, "value": null, "stringTableOffset": 88 },
+  { "name": "_write", "kind": "imported", "section": null, "value": null, "stringTableOffset": 94 }
   ],
   "stringTable": {
-    "size": 94,
+    "size": 101,
     "entries": [
     { "value": "_main", "offset": 1 },
     { "value": "_mfb_fn_ifOnly", "offset": 7 },
@@ -60,7 +62,8 @@
     { "value": "_mfb_fn_ifElseIf", "offset": 37 },
     { "value": "_mfb_fn_ifElseIfElse", "offset": 54 },
     { "value": "_mfb_fn_main", "offset": 75 },
-    { "value": "_exit", "offset": 88 }
+    { "value": "_exit", "offset": 88 },
+    { "value": "_write", "offset": 94 }
     ]
   },
   "relocations": [
@@ -69,6 +72,7 @@
   { "from": "_mfb_fn_main", "to": "_mfb_fn_ifElse", "kind": "internalCall", "section": "__TEXT,__text" },
   { "from": "_mfb_fn_main", "to": "_mfb_fn_ifElseIf", "kind": "internalCall", "section": "__TEXT,__text" },
   { "from": "_mfb_fn_main", "to": "_mfb_fn_ifElseIfElse", "kind": "internalCall", "section": "__TEXT,__text" },
-  { "from": "_main", "to": "_exit", "kind": "externalCall", "section": "__TEXT,__text" }
+  { "from": "_main", "to": "_exit", "kind": "externalCall", "section": "__TEXT,__text" },
+  { "from": "_main", "to": "_write", "kind": "externalCall", "section": "__TEXT,__text" }
   ]
 }

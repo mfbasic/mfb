@@ -80,6 +80,7 @@ String length, search, substring, and regex indexes are zero-based Unicode scala
 | `toString` | `FUNC toString(value AS Byte) AS String` | Converts a byte to base-10 text. |
 | `toString` | `FUNC toString(value AS List OF Byte) AS String` | Decodes a UTF-8 byte list into text. Fails with `10019` on invalid UTF-8. |
 | `toInt` | `FUNC toInt(value AS String) AS Integer` | Parses a base-10 `Integer`. Fails with `10003` on invalid input and `10028` on overflow. |
+| `toInt` | `FUNC toInt(value AS Byte) AS Integer` | Converts a `Byte` to `Integer`. |
 | `toInt` | `FUNC toInt(value AS Float) AS Integer` | Converts a `Float` to `Integer` by truncating toward zero. Fails with `10028` on overflow and `10003` on `NaN` or infinity. |
 | `toInt` | `FUNC toInt(value AS Fixed) AS Integer` | Converts a `Fixed` to `Integer` by truncating toward zero. |
 | `toFloat` | `FUNC toFloat(value AS String) AS Float` | Parses a `Float`. Fails with `10003` on invalid input and `10028` on overflow. |
@@ -552,6 +553,7 @@ Runtime and standard package errors:
 | `10028` | `ErrOverflow` | Arithmetic overflow or numeric conversion outside the destination range. |
 | `10029` | `ErrCloseFailed` | Resource close operation failed. When this is secondary to a body error, the body error remains the source-level result. |
 | `10030` | `ErrTlsFailed` | TLS handshake, certificate validation, server-name validation, or protocol operation failed. |
+| `10031` | `ErrUnderflow` | Arithmetic underflow below the destination range. |
 | `10999` | `ErrWrapped` | Generic wrapper code for adding context while preserving a message. |
 
 Compiler and static language diagnostics:

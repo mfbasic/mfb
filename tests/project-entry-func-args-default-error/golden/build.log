@@ -1,0 +1,12 @@
+$ mfb build -ast tests/project-entry-func-args-default-error
+Wrote AST to tests/project-entry-func-args-default-error/project_entry_func_args_default_error.ast
+[exit 0]
+$ mfb build -ir tests/project-entry-func-args-default-error
+Wrote IR to tests/project-entry-func-args-default-error/project_entry_func_args_default_error.ir
+[exit 0]
+$ mfb build tests/project-entry-func-args-default-error
+Wrote executable to tests/project-entry-func-args-default-error/project_entry_func_args_default_error.out
+[exit 0]
+$ tests/project-entry-func-args-default-error/project_entry_func_args_default_error.out
+Code: 100 Message: This is a message
+[exit 255]

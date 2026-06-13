@@ -1,0 +1,3 @@
+FUNC main AS Integer
+  FAIL Error[100, "This is a message"]
+END FUNC

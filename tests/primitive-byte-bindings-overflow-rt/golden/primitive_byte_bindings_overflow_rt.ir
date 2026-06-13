@@ -1,0 +1,28 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "primitive_byte_bindings_overflow_rt",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "mutable": true, "name": "mutValue", "type": "Byte", "value": { "kind": "const", "type": "Byte", "value": "100" } },
+    { "op": "bind", "mutable": false, "name": "addend", "type": "Byte", "value": { "kind": "const", "type": "Byte", "value": "100" } },
+    { "op": "assign", "name": "mutValue", "value": { "kind": "binary", "op": "+", "left": { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "mutValue" }, "right": { "kind": "local", "name": "addend" } }, "right": { "kind": "local", "name": "addend" } } },
+    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

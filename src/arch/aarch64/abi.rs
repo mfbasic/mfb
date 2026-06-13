@@ -98,11 +98,45 @@ pub(crate) fn add_immediate(dst: &str, src: &str, imm: usize) -> CodeInstruction
         .field("imm", &imm.to_string())
 }
 
+pub(crate) fn subtract_immediate(dst: &str, src: &str, imm: usize) -> CodeInstruction {
+    CodeInstruction::new("sub_imm")
+        .field("dst", dst)
+        .field("src", src)
+        .field("imm", &imm.to_string())
+}
+
 pub(crate) fn add_registers(dst: &str, lhs: &str, rhs: &str) -> CodeInstruction {
     CodeInstruction::new("add")
         .field("dst", dst)
         .field("lhs", lhs)
         .field("rhs", rhs)
+}
+
+pub(crate) fn subtract_registers(dst: &str, lhs: &str, rhs: &str) -> CodeInstruction {
+    CodeInstruction::new("sub")
+        .field("dst", dst)
+        .field("lhs", lhs)
+        .field("rhs", rhs)
+}
+
+pub(crate) fn unsigned_divide_registers(dst: &str, lhs: &str, rhs: &str) -> CodeInstruction {
+    CodeInstruction::new("udiv")
+        .field("dst", dst)
+        .field("lhs", lhs)
+        .field("rhs", rhs)
+}
+
+pub(crate) fn multiply_subtract_registers(
+    dst: &str,
+    lhs: &str,
+    rhs: &str,
+    minuend: &str,
+) -> CodeInstruction {
+    CodeInstruction::new("msub")
+        .field("dst", dst)
+        .field("lhs", lhs)
+        .field("rhs", rhs)
+        .field("minuend", minuend)
 }
 
 pub(crate) fn subtract_stack(imm: usize) -> CodeInstruction {
@@ -119,8 +153,30 @@ pub(crate) fn compare_immediate(lhs: &str, rhs: &str) -> CodeInstruction {
         .field("rhs", rhs)
 }
 
+pub(crate) fn compare_registers(lhs: &str, rhs: &str) -> CodeInstruction {
+    CodeInstruction::new("cmp")
+        .field("lhs", lhs)
+        .field("rhs", rhs)
+}
+
 pub(crate) fn branch_eq(target: &str) -> CodeInstruction {
     CodeInstruction::new("b.eq").field("target", target)
+}
+
+pub(crate) fn branch_ne(target: &str) -> CodeInstruction {
+    CodeInstruction::new("b.ne").field("target", target)
+}
+
+pub(crate) fn branch_ge(target: &str) -> CodeInstruction {
+    CodeInstruction::new("b.ge").field("target", target)
+}
+
+pub(crate) fn branch_hi(target: &str) -> CodeInstruction {
+    CodeInstruction::new("b.hi").field("target", target)
+}
+
+pub(crate) fn branch_lo(target: &str) -> CodeInstruction {
+    CodeInstruction::new("b.lo").field("target", target)
 }
 
 pub(crate) fn branch(target: &str) -> CodeInstruction {
@@ -152,6 +208,13 @@ pub(crate) fn load_u64(dst: &str, base: &str, offset: usize) -> CodeInstruction 
 
 pub(crate) fn store_u64(src: &str, base: &str, offset: usize) -> CodeInstruction {
     CodeInstruction::new("str_u64")
+        .field("src", src)
+        .field("base", base)
+        .field("offset", &offset.to_string())
+}
+
+pub(crate) fn store_u8(src: &str, base: &str, offset: usize) -> CodeInstruction {
+    CodeInstruction::new("str_u8")
         .field("src", src)
         .field("base", base)
         .field("offset", &offset.to_string())

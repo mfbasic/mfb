@@ -1,0 +1,12 @@
+$ mfb build -ast tests/primitive-byte-bindings-underflow-rt
+Wrote AST to tests/primitive-byte-bindings-underflow-rt/primitive_byte_bindings_underflow_rt.ast
+[exit 0]
+$ mfb build -ir tests/primitive-byte-bindings-underflow-rt
+Wrote IR to tests/primitive-byte-bindings-underflow-rt/primitive_byte_bindings_underflow_rt.ir
+[exit 0]
+$ mfb build tests/primitive-byte-bindings-underflow-rt
+Wrote executable to tests/primitive-byte-bindings-underflow-rt/primitive_byte_bindings_underflow_rt.out
+[exit 0]
+$ tests/primitive-byte-bindings-underflow-rt/primitive_byte_bindings_underflow_rt.out
+Code: 10031 Message: numeric underflow
+[exit 255]

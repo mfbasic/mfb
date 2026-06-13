@@ -1,0 +1,31 @@
+{
+  "project": "project_entry_sub_default_trap",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    ],
+    "items": [
+    {
+      "kind": "sub",
+      "visibility": "private",
+      "name": "main",
+      "line": 1,
+      "params": [
+      ],
+      "returnType": null,
+      "body": [
+      { "kind": "fail", "error": { "kind": "constructor", "type": "Error", "arguments": [{ "kind": "number", "value": "100" }, { "kind": "string", "value": "This is a message" }] }, "line": 2 }
+      ],
+      "trap": {
+      "name": "err",
+      "line": 4,
+      "body": [
+      { "kind": "return", "value": null, "line": 5 }
+      ]
+    }
+    }
+    ]
+  }
+  ]
+}

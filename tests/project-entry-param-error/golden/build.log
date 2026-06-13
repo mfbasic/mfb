@@ -1,0 +1,12 @@
+$ mfb build -ast tests/project-entry-param-error
+Wrote AST to tests/project-entry-param-error/project_entry_param_error.ast
+[exit 0]
+$ mfb build -ir tests/project-entry-param-error
+Wrote IR to tests/project-entry-param-error/project_entry_param_error.ir
+[exit 0]
+$ mfb build tests/project-entry-param-error
+Wrote executable to tests/project-entry-param-error/project_entry_param_error.out
+[exit 0]
+$ tests/project-entry-param-error/project_entry_param_error.out
+Code: 100 Message: This is a message
+[exit 255]

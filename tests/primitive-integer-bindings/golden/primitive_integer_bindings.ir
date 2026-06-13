@@ -1,0 +1,28 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "primitive_integer_bindings",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "mutable": false, "name": "letValue", "type": "Integer", "value": { "kind": "binary", "op": "+", "left": { "kind": "const", "type": "Integer", "value": "1" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } },
+    { "op": "bind", "mutable": true, "name": "mutValue", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "3" } },
+    { "op": "assign", "name": "mutValue", "value": { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "mutValue" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } },
+    { "op": "return", "value": { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "letValue" }, "right": { "kind": "local", "name": "mutValue" } } }
+    ]
+  }
+  ]
+}

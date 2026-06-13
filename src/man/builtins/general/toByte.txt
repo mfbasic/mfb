@@ -14,8 +14,8 @@ DESCRIPTION
   toByte converts an Integer to Byte. Byte is an unsigned 8-bit integer with
   range 0 through 255.
 
-  Arithmetic on Byte values promotes them to Integer. Use toByte when assigning
-  or storing an Integer result back into a Byte value.
+  Byte values may be converted to Integer with toInt. Use toByte when converting
+  an Integer value back to Byte.
 
 OVERLOADS
   toByte(value AS Integer) AS Byte

@@ -1,0 +1,31 @@
+{
+  "format": "mfb-native-plan",
+  "version": 1,
+  "target": "macos-aarch64",
+  "project": "primitive_byte_bindings",
+  "entrySymbol": "_mfb_fn_main",
+  "runtimeSymbols": [],
+  "externalSymbols": [],
+  "platformImports": [
+  { "library": "libSystem", "symbol": "_exit", "requiredBy": "_main" },
+  { "library": "libSystem", "symbol": "_write", "requiredBy": "_main" }
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "symbol": "_mfb_fn_main",
+    "returns": { "name": "Integer", "class": "integer", "size": 8, "align": 8 },
+    "params": [
+    ],
+    "localSlots": [
+    { "name": "letValue", "storage": { "name": "Byte", "class": "byte", "size": 1, "align": 1 }, "offset": -8, "mutable": false },
+    { "name": "mutValue", "storage": { "name": "Byte", "class": "byte", "size": 1, "align": 1 }, "offset": -16, "mutable": true }
+    ],
+    "labels": [
+    ],
+    "operations": ["bind immutable letValue AS Byte = Byte(2)", "bind mutable mutValue AS Byte = Byte(3)", "assign mutValue = Byte(4)", "return call toInt((local letValue + local mutValue))"],
+    "calls": [
+    ]
+  }
+  ]
+}

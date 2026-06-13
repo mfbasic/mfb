@@ -1,0 +1,27 @@
+{
+  "project": "primitive_byte_bindings_overflow_rt",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "main",
+      "line": 1,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": true, "name": "mutValue", "type": "Byte", "value": { "kind": "number", "value": "100" }, "line": 2 },
+      { "kind": "binding", "mutable": false, "name": "addend", "type": "Byte", "value": { "kind": "number", "value": "100" }, "line": 3 },
+      { "kind": "assignment", "name": "mutValue", "value": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "mutValue" }, "right": { "kind": "identifier", "value": "addend" } }, "right": { "kind": "identifier", "value": "addend" } }, "line": 4 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 5 }
+      ]
+    }
+    ]
+  }
+  ]
+}

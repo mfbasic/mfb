@@ -1,0 +1,3 @@
+FUNC main(args AS List OF String) AS Integer
+  FAIL Error[100, "This is a message"]
+END FUNC

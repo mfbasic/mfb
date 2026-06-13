@@ -77,6 +77,9 @@ pub(crate) enum IrOp {
     Return {
         value: Option<IrValue>,
     },
+    Fail {
+        error: IrValue,
+    },
     Eval {
         value: IrValue,
     },
@@ -268,11 +271,12 @@ fn lower_function(function: &Function, context: &mut LowerContext<'_>) -> IrFunc
             .map(|param| lower_param(param, &locals, context))
             .collect(),
         returns,
-        body: function
-            .body
-            .iter()
-            .map(|statement| lower_statement(statement, &mut locals, context))
-            .collect(),
+        body: lower_statement_block_with_trap(
+            &function.body,
+            &locals,
+            function.trap.as_ref().map(|trap| trap.body.as_slice()),
+            context,
+        ),
     }
 }
 
@@ -305,6 +309,7 @@ struct LowerContext<'a> {
 fn lower_statement(
     statement: &Statement,
     locals: &mut HashMap<String, String>,
+    trap_body: Option<&[Statement]>,
     context: &mut LowerContext<'_>,
 ) -> IrOp {
     match statement {
@@ -337,9 +342,35 @@ fn lower_statement(
                 .as_ref()
                 .map(|value| lower_expression(value, locals, context)),
         },
+        Statement::Fail { error, .. } => {
+            if let Some(trap_body) = trap_body {
+                return IrOp::If {
+                    condition: IrValue::Const {
+                        type_: "Boolean".to_string(),
+                        value: "true".to_string(),
+                    },
+                    then_body: lower_statement_block(trap_body, locals, context),
+                    else_body: Vec::new(),
+                };
+            }
+            IrOp::Fail {
+                error: lower_expression(error, locals, context),
+            }
+        }
+        Statement::Propagate { .. } => IrOp::Fail {
+            error: IrValue::Local("err".to_string()),
+        },
+        Statement::Recover { value, .. } => IrOp::Return {
+            value: Some(lower_expression(value, locals, context)),
+        },
         Statement::Assign { name, value, .. } => IrOp::Assign {
             name: name.clone(),
-            value: lower_expression(value, locals, context),
+            value: lower_expression_with_expected(
+                value,
+                locals.get(name).map(String::as_str),
+                locals,
+                context,
+            ),
         },
         Statement::Expression { expression, .. } => IrOp::Eval {
             value: lower_expression(expression, locals, context),
@@ -351,8 +382,8 @@ fn lower_statement(
             ..
         } => IrOp::If {
             condition: lower_expression(condition, locals, context),
-            then_body: lower_statement_block(then_body, locals, context),
-            else_body: lower_statement_block(else_body, locals, context),
+            then_body: lower_statement_block_with_trap(then_body, locals, trap_body, context),
+            else_body: lower_statement_block_with_trap(else_body, locals, trap_body, context),
         },
         Statement::Match {
             expression, cases, ..
@@ -379,7 +410,7 @@ fn lower_statement(
                 type_,
                 close,
                 value,
-                body: lower_statement_block(body, &nested, context),
+                body: lower_statement_block_with_trap(body, &nested, trap_body, context),
             }
         }
     }
@@ -390,9 +421,18 @@ fn lower_statement_block(
     locals: &HashMap<String, String>,
     context: &mut LowerContext<'_>,
 ) -> Vec<IrOp> {
+    lower_statement_block_with_trap(body, locals, None, context)
+}
+
+fn lower_statement_block_with_trap(
+    body: &[Statement],
+    locals: &HashMap<String, String>,
+    trap_body: Option<&[Statement]>,
+    context: &mut LowerContext<'_>,
+) -> Vec<IrOp> {
     let mut nested = locals.clone();
     body.iter()
-        .map(|statement| lower_statement(statement, &mut nested, context))
+        .map(|statement| lower_statement(statement, &mut nested, trap_body, context))
         .collect()
 }
 
@@ -674,6 +714,8 @@ fn lower_expression_with_expected(
         Expression::Number(value) => IrValue::Const {
             type_: if expected == Some("Fixed") {
                 "Fixed".to_string()
+            } else if expected == Some("Byte") {
+                "Byte".to_string()
             } else if value.contains('.') {
                 "Float".to_string()
             } else {
@@ -861,6 +903,10 @@ fn numeric_binary_result_type(operator: &str, left: &str, right: &str) -> &'stat
         }
     } else if left == "Float" || right == "Float" {
         "Float"
+    } else if left == "Byte" && right == "Byte" {
+        "Byte"
+    } else if (left == "Byte" && right == "Fixed") || (left == "Fixed" && right == "Byte") {
+        "Fixed"
     } else if left == "Fixed" && right == "Fixed" {
         "Fixed"
     } else if left == "Fixed" || right == "Fixed" {
@@ -1217,6 +1263,13 @@ impl ToIrJson for IrOp {
                     .map(|value| value.to_json(indent))
                     .unwrap_or_else(|| "null".to_string());
                 format!("\n{}{{ \"op\": \"return\", \"value\": {} }}", pad, value)
+            }
+            IrOp::Fail { error } => {
+                format!(
+                    "\n{}{{ \"op\": \"fail\", \"error\": {} }}",
+                    pad,
+                    error.to_json(indent)
+                )
             }
             IrOp::Assign { name, value } => {
                 format!(

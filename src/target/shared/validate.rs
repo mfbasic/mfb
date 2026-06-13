@@ -122,6 +122,9 @@ fn collect_runtime_calls_from_ops(ops: &[NirOp], calls: &mut Vec<String>) {
                     collect_runtime_calls_from_value(value, calls);
                 }
             }
+            NirOp::Fail { error } => {
+                collect_runtime_calls_from_value(error, calls);
+            }
             NirOp::Assign { value, .. } | NirOp::Eval { value } => {
                 collect_runtime_calls_from_value(value, calls);
             }
@@ -434,6 +437,16 @@ fn validate_ops(
                     )?;
                 }
             }
+            NirOp::Fail { error } => {
+                validate_value(
+                    error,
+                    locals,
+                    function_names,
+                    import_names,
+                    type_value_names,
+                    used_helpers,
+                )?;
+            }
             NirOp::Eval { value } => {
                 validate_value(
                     value,
@@ -591,6 +604,7 @@ fn validate_value(
             }
             if function_names.contains(target)
                 || import_names.contains(target)
+                || target == "toInt"
                 || locals
                     .get(target)
                     .is_some_and(|local| is_function_type(&local.type_))

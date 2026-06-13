@@ -1,0 +1,11 @@
+$ mfb build -ast tests/project-entry-sub-default-trap
+Wrote AST to tests/project-entry-sub-default-trap/project_entry_sub_default_trap.ast
+[exit 0]
+$ mfb build -ir tests/project-entry-sub-default-trap
+Wrote IR to tests/project-entry-sub-default-trap/project_entry_sub_default_trap.ir
+[exit 0]
+$ mfb build tests/project-entry-sub-default-trap
+Wrote executable to tests/project-entry-sub-default-trap/project_entry_sub_default_trap.out
+[exit 0]
+$ tests/project-entry-sub-default-trap/project_entry_sub_default_trap.out
+[exit 0]

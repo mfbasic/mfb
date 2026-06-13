@@ -1,0 +1,26 @@
+$ mfb build -ast tests/primitive-integer-bindings-overflow
+   1 | FUNC main AS Integer
+   2 |   LET tooLarge AS Integer = 9223372036854775808
+     | ^
+tests/primitive-integer-bindings-overflow/src/main.mfb:2 error[TYPE_INTEGER_LITERAL_OVERFLOW]: integer literal is outside the Integer range
+               Integer literal `9223372036854775808` is outside the Integer range.
+   2 |   LET tooLarge AS Integer = 9223372036854775808
+   3 |   MUT value AS Integer = 0
+   4 |   value = 9223372036854775808
+     | ^
+tests/primitive-integer-bindings-overflow/src/main.mfb:4 error[TYPE_INTEGER_LITERAL_OVERFLOW]: integer literal is outside the Integer range
+               Integer literal `9223372036854775808` is outside the Integer range.
+[exit 1]
+$ mfb build -ir tests/primitive-integer-bindings-overflow
+   1 | FUNC main AS Integer
+   2 |   LET tooLarge AS Integer = 9223372036854775808
+     | ^
+tests/primitive-integer-bindings-overflow/src/main.mfb:2 error[TYPE_INTEGER_LITERAL_OVERFLOW]: integer literal is outside the Integer range
+               Integer literal `9223372036854775808` is outside the Integer range.
+   2 |   LET tooLarge AS Integer = 9223372036854775808
+   3 |   MUT value AS Integer = 0
+   4 |   value = 9223372036854775808
+     | ^
+tests/primitive-integer-bindings-overflow/src/main.mfb:4 error[TYPE_INTEGER_LITERAL_OVERFLOW]: integer literal is outside the Integer range
+               Integer literal `9223372036854775808` is outside the Integer range.
+[exit 1]

@@ -17,6 +17,10 @@ impl plan::NativePlanPlatform for Platform {
         Vec::new()
     }
 
+    fn entry_error_imports(&self, _module: &NirModule) -> Vec<PlatformImport> {
+        Vec::new()
+    }
+
     fn runtime_imports(&self, _spec: &RuntimeHelperSpec) -> Vec<PlatformImport> {
         Vec::new()
     }

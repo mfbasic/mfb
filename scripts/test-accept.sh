@@ -169,7 +169,26 @@ for test_dir in "$TEST_ROOT"/*; do
       "$MFB_EXE" build $target_arg -ncode "tests/$test_name"
       echo "[exit $?]"
     fi
+    if [ -f "$golden_dir/$package_name.run" ]; then
+      echo "$ mfb build ${target_label}tests/$test_name"
+      build_output=$("$MFB_EXE" build $target_arg "tests/$test_name" 2>&1)
+      build_status=$?
+      printf '%s\n' "$build_output"
+      echo "[exit $build_status]"
+      if [ "$build_status" -eq 0 ]; then
+        run_path=$(printf '%s\n' "$build_output" | sed -n 's/^Wrote executable to //p' | tail -n 1)
+        if [ -n "$run_path" ]; then
+          echo "$ $run_path"
+          "$run_path"
+          echo "[exit $?]"
+        else
+          echo "error: build did not report an executable path"
+          echo "[exit 1]"
+        fi
+      fi
+    fi
   } >"$log_path" 2>&1
+  rm -f "$test_dir/$package_name.out"
 
   if [ -f "$ast_path" ]; then
     mv "$ast_path" "$actual_dir/$package_name.ast"

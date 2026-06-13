@@ -1,0 +1,3 @@
+SUB foobar
+  FAIL Error[100, "This is a message"]
+END SUB

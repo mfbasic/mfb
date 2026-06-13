@@ -468,6 +468,28 @@ impl<'a> TypeChecker<'a> {
         }
 
         let flow = self.check_block(file, &function.body, &expected_return, &mut locals);
+        if let Some(trap) = &function.trap {
+            let mut trap_locals = locals.clone();
+            trap_locals.insert(
+                trap.name.clone(),
+                LocalInfo {
+                    type_: Type::Error,
+                    mutable: false,
+                },
+            );
+            let trap_flow = self.check_block(file, &trap.body, &expected_return, &mut trap_locals);
+            if trap_flow != Flow::AlwaysReturns {
+                self.report(
+                    "TYPE_TRAP_FALLTHROUGH",
+                    &format!(
+                        "TRAP `{}` must return, fail, recover, or propagate.",
+                        trap.name
+                    ),
+                    file,
+                    trap.line,
+                );
+            }
+        }
 
         if matches!(function.kind, FunctionKind::Func) && flow != Flow::AlwaysReturns {
             self.report(
@@ -532,9 +554,18 @@ impl<'a> TypeChecker<'a> {
                     );
                 }
 
+                let reported_byte_range_error =
+                    declared
+                        .as_ref()
+                        .zip(value.as_ref())
+                        .is_some_and(|(declared, value)| {
+                            self.report_byte_literal_range_error(declared, value, file, *line)
+                        });
+
                 match (&declared, &inferred) {
                     (Some(declared), Some(inferred))
-                        if !self.expression_compatible(declared, inferred, value.as_ref()) =>
+                        if !reported_byte_range_error
+                            && !self.expression_compatible(declared, inferred, value.as_ref()) =>
                     {
                         self.report(
                             "TYPE_BINDING_MISMATCH",
@@ -615,6 +646,37 @@ impl<'a> TypeChecker<'a> {
                 }
                 Flow::AlwaysReturns
             }
+            Statement::Fail { error, line } => {
+                let actual = self.infer_expression(file, error, locals, *line);
+                if !self.compatible(&Type::Error, &actual) {
+                    self.report(
+                        "TYPE_FAIL_REQUIRES_ERROR",
+                        &format!("FAIL has type {}, expected Error.", self.type_name(&actual)),
+                        file,
+                        *line,
+                    );
+                }
+                Flow::AlwaysReturns
+            }
+            Statement::Propagate { line } => {
+                self.report(
+                    "TYPE_PROPAGATE_REQUIRES_TRAP",
+                    "PROPAGATE is valid only inside a TRAP.",
+                    file,
+                    *line,
+                );
+                Flow::AlwaysReturns
+            }
+            Statement::Recover { value, line } => {
+                self.infer_expression(file, value, locals, *line);
+                self.report(
+                    "TYPE_RECOVER_REQUIRES_TRAP",
+                    "RECOVER is not implemented for this trap context.",
+                    file,
+                    *line,
+                );
+                Flow::AlwaysReturns
+            }
             Statement::Assign { name, value, line } => {
                 let Some(local) = locals.get(name).cloned() else {
                     self.report(
@@ -634,7 +696,11 @@ impl<'a> TypeChecker<'a> {
                     );
                 }
                 let actual = self.infer_expression(file, value, locals, *line);
-                if !self.expression_compatible(&local.type_, &actual, Some(value)) {
+                let reported_byte_range_error =
+                    self.report_byte_literal_range_error(&local.type_, value, file, *line);
+                if !reported_byte_range_error
+                    && !self.expression_compatible(&local.type_, &actual, Some(value))
+                {
                     self.report(
                         "TYPE_ASSIGNMENT_MISMATCH",
                         &format!(
@@ -779,7 +845,15 @@ impl<'a> TypeChecker<'a> {
             Expression::Number(value) => {
                 if value.contains('.') {
                     Type::Float
+                } else if value.parse::<i64>().is_ok() {
+                    Type::Integer
                 } else {
+                    self.report(
+                        "TYPE_INTEGER_LITERAL_OVERFLOW",
+                        &format!("Integer literal `{value}` is outside the Integer range."),
+                        file,
+                        line,
+                    );
                     Type::Integer
                 }
             }
@@ -809,6 +883,22 @@ impl<'a> TypeChecker<'a> {
                 self.infer_binary(file, operator, &left_type, &right_type, line)
             }
             Expression::Unary { operator, operand } => {
+                if operator == "-" && !integer_literal_in_range(expression) {
+                    if let Expression::Number(value) = operand.as_ref() {
+                        self.report(
+                            "TYPE_INTEGER_LITERAL_OVERFLOW",
+                            &format!("Integer literal `-{value}` is outside the Integer range."),
+                            file,
+                            line,
+                        );
+                    }
+                    return Type::Integer;
+                }
+                if operator == "-"
+                    && matches!(operand.as_ref(), Expression::Number(value) if !value.contains('.'))
+                {
+                    return Type::Integer;
+                }
                 let operand_type = self.infer_expression(file, operand, locals, line);
                 self.infer_unary(file, operator, &operand_type, line)
             }
@@ -2315,6 +2405,83 @@ impl<'a> TypeChecker<'a> {
         self.had_error = true;
         rules::show_diagnostic(rule, detail, &self.project_dir.join(&file.path), line, 1, 1);
     }
+
+    fn report_byte_literal_range_error(
+        &mut self,
+        expected: &Type,
+        expression: &Expression,
+        file: &AstFile,
+        line: usize,
+    ) -> bool {
+        if !matches!(expected, Type::Byte) {
+            return false;
+        }
+
+        let Some(range_error) = byte_literal_range_error(expression) else {
+            return false;
+        };
+        match range_error {
+            ByteLiteralRangeError::Overflow(value) => self.report(
+                "TYPE_BYTE_LITERAL_OVERFLOW",
+                &format!("Integer literal `{value}` is outside the Byte range 0..255."),
+                file,
+                line,
+            ),
+            ByteLiteralRangeError::Underflow(value) => self.report(
+                "TYPE_BYTE_LITERAL_UNDERFLOW",
+                &format!("Integer literal `{value}` is outside the Byte range 0..255."),
+                file,
+                line,
+            ),
+        }
+        true
+    }
+}
+
+enum ByteLiteralRangeError<'a> {
+    Overflow(&'a str),
+    Underflow(String),
+}
+
+fn byte_literal_range_error(expression: &Expression) -> Option<ByteLiteralRangeError<'_>> {
+    match expression {
+        Expression::Number(value) if !value.contains('.') => value
+            .parse::<u16>()
+            .map_or(Some(ByteLiteralRangeError::Overflow(value)), |number| {
+                (number > u8::MAX as u16).then_some(ByteLiteralRangeError::Overflow(value))
+            }),
+        Expression::Unary { operator, operand } if operator == "-" => {
+            let Expression::Number(value) = operand.as_ref() else {
+                return None;
+            };
+            if value.contains('.') {
+                return None;
+            }
+            let Ok(number) = value.parse::<u128>() else {
+                return Some(ByteLiteralRangeError::Underflow(format!("-{value}")));
+            };
+            (number != 0).then_some(ByteLiteralRangeError::Underflow(format!("-{value}")))
+        }
+        _ => None,
+    }
+}
+
+fn integer_literal_in_range(expression: &Expression) -> bool {
+    match expression {
+        Expression::Number(value) if !value.contains('.') => value.parse::<i64>().is_ok(),
+        Expression::Unary { operator, operand } if operator == "-" => {
+            let Expression::Number(value) = operand.as_ref() else {
+                return true;
+            };
+            if value.contains('.') {
+                return true;
+            }
+            value
+                .parse::<u64>()
+                .is_ok_and(|number| number <= (i64::MAX as u64) + 1)
+        }
+        _ => true,
+    }
 }
 
 fn effective_field_visibility(
@@ -2430,6 +2597,13 @@ fn numeric_binary_result_type(operator: &str, left: &Type, right: &Type) -> Type
         }
     } else if matches!(left, Type::Float) || matches!(right, Type::Float) {
         Type::Float
+    } else if matches!((left, right), (Type::Byte, Type::Byte)) {
+        Type::Byte
+    } else if matches!(
+        (left, right),
+        (Type::Byte, Type::Fixed) | (Type::Fixed, Type::Byte)
+    ) {
+        Type::Fixed
     } else if matches!((left, right), (Type::Fixed, Type::Fixed)) {
         Type::Fixed
     } else if matches!(left, Type::Fixed) || matches!(right, Type::Fixed) {

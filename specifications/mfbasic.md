@@ -104,27 +104,33 @@ LET y AS Fixed = 1.25    ' Fixed
 LET z = toFixed("1.25")  ' Fixed, fallible parse
 ```
 
-`Byte` is an unsigned 8-bit integer with range `0` through `255`. Integer literals may initialize a `Byte` only when the literal is statically in range. Runtime conversion to `Byte` uses `toByte`; out-of-range conversion fails with `10028`. Arithmetic on `Byte` values promotes them to `Integer`; assign or convert explicitly to store a result back into `Byte`.
-
-Binary numeric operators use the following result-type promotion. `Byte` is promoted to `Integer` before applying the table.
+`Byte` is an unsigned 8-bit integer with range `0` through `255`. Integer literals may initialize a `Byte` only when the literal is statically in range. Runtime conversion to `Byte` uses `toByte`; out-of-range conversion fails with `10028`.
 
 | Left operand | Right operand | `+`, `-`, `*`, `^` result | `/` result |
 |--------------|---------------|---------------------------|------------|
+| `Byte` | `Byte` | `Byte` | `Float` |
+| `Byte` | `Integer` | `Integer` | `Float` |
+| `Byte` | `Fixed` | `Fixed` | `Float` |
+| `Byte` | `Float` | `Float` | `Float` |
+| `Integer` | `Byte` | `Integer` | `Float` |
 | `Integer` | `Integer` | `Integer` | `Float` |
 | `Integer` | `Fixed` | `Float` | `Float` |
 | `Integer` | `Float` | `Float` | `Float` |
+| `Fixed` | `Byte` | `Fixed` | `Float` |
 | `Fixed` | `Integer` | `Float` | `Float` |
 | `Fixed` | `Fixed` | `Fixed` | `Fixed` |
 | `Fixed` | `Float` | `Float` | `Float` |
+| `Float` | `Byte` | `Float` | `Float` |
 | `Float` | `Integer` | `Float` | `Float` |
 | `Float` | `Fixed` | `Float` | `Float` |
 | `Float` | `Float` | `Float` | `Float` |
 
-`MOD` accepts only `Integer` operands after `Byte` promotion and returns `Integer`. Numeric comparisons (`=`, `<>`, `<`, `>`, `<=`, `>=`) use the same operand promotion rules for comparison but always return `Boolean`.
+`MOD` accepts only `Byte` or `Integer` operands and returns `Integer`. Numeric comparisons (`=`, `<>`, `<`, `>`, `<=`, `>=`) use the same operand promotion rules for comparison but always return `Boolean`.
 
 Numeric edge cases:
 
 - `Integer` arithmetic is checked. Overflow in `+`, `-`, `*`, unary `-`, exponentiation (`^`), and the minimum-integer `MOD -1` case fails with `ErrOverflow` (`10028`). Integer operations never wrap.
+- `Byte` arithmetic that returns `Byte` is checked. Results above `255` fail with `ErrOverflow` (`10028`); results below `0` fail with `ErrUnderflow` (`10031`). Byte operations never wrap.
 - `Integer / Integer` is not integer division; `/` produces `Float`. Use `MOD` for remainders and a future integer-division helper if truncating division is needed. Division by zero fails with `ErrInvalidArgument` (`10002`).
 - `MOD` is defined only for `Integer`. `a MOD b` fails with `ErrInvalidArgument` (`10002`) when `b = 0`. Otherwise the remainder has the same sign as `a`, and `a = (truncTowardZero(a / b) * b) + (a MOD b)`.
 - `^` for `Integer` requires a non-negative integer exponent and fails with `ErrInvalidArgument` (`10002`) for negative exponents. Overflow fails with `ErrOverflow` (`10028`).
@@ -570,7 +576,7 @@ END MATCH
 8. Every `FUNC` path must end in `RETURN value` or `FAIL error`. Function fall-through is a compile error.
 9. A `SUB` with no `TRAP` may fall through to `END SUB`, implicitly returning `Ok(NOTHING)`.
 10. A `SUB` with a `TRAP` must end every normal path before the `TRAP` with `RETURN`, `RETURN NOTHING`, or `FAIL error`. Falling through from the normal body into the `TRAP` is a compile error.
-11. An executable entry point's uncaught `Err` terminates the process: `err.code` becomes the exit code, `err.message` is written to stderr. Give the entry point a `TRAP` for graceful handling.
+11. An executable entry point's uncaught `Err` terminates the process as an unhandled runtime error: the process exits with code `255`, and stderr receives `Code: <err.code> Message: <err.message>`. Give the entry point a `TRAP` for graceful handling.
 
 ### 8.7 Program entry point
 
@@ -600,7 +606,7 @@ Process result mapping:
 |---------------|------------------|
 | `SUB` returns `Ok(NOTHING)` | Exit code `0`. |
 | `FUNC ... AS Integer` returns `Ok(n)` | Exit code `n`. Implementations must reject or fail values outside the host process exit-code range. |
-| Entry returns uncaught `Err(err)` | Write `err.message` to stderr and exit with `err.code`. |
+| Entry returns uncaught `Err(err)` | Write `Code: <err.code> Message: <err.message>` to stderr and exit with code `255`. |
 
 Environment access outside command-line arguments is outside the core language specification and may be provided by a future standard package.
 

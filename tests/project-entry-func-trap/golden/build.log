@@ -1,0 +1,11 @@
+$ mfb build -ast tests/project-entry-func-trap
+Wrote AST to tests/project-entry-func-trap/project_entry_func_trap.ast
+[exit 0]
+$ mfb build -ir tests/project-entry-func-trap
+Wrote IR to tests/project-entry-func-trap/project_entry_func_trap.ir
+[exit 0]
+$ mfb build tests/project-entry-func-trap
+Wrote executable to tests/project-entry-func-trap/project_entry_func_trap.out
+[exit 0]
+$ tests/project-entry-func-trap/project_entry_func_trap.out
+[exit 0]

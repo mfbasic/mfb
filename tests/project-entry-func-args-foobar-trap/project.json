@@ -1,0 +1,12 @@
+{
+  "name": "project_entry_func_args_foobar_trap",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "executable",
+  "sources": [
+    {
+      "root": "src"
+    }
+  ],
+  "entry": "foobar"
+}

@@ -43,6 +43,7 @@ pub enum Keyword {
     Else,
     ElseIf,
     False,
+    Fail,
     Func,
     If,
     Import,
@@ -66,7 +67,10 @@ pub enum Keyword {
     Export,
     Package,
     Private,
+    Propagate,
+    Recover,
     Type,
+    Trap,
     Union,
     Using,
 }
@@ -399,6 +403,8 @@ fn keyword(value: &str) -> Option<Keyword> {
         Some(Keyword::ElseIf)
     } else if value.eq_ignore_ascii_case("FALSE") {
         Some(Keyword::False)
+    } else if value.eq_ignore_ascii_case("FAIL") {
+        Some(Keyword::Fail)
     } else if value.eq_ignore_ascii_case("FUNC") {
         Some(Keyword::Func)
     } else if value.eq_ignore_ascii_case("IF") {
@@ -445,8 +451,14 @@ fn keyword(value: &str) -> Option<Keyword> {
         Some(Keyword::Package)
     } else if value.eq_ignore_ascii_case("PRIVATE") {
         Some(Keyword::Private)
+    } else if value.eq_ignore_ascii_case("PROPAGATE") {
+        Some(Keyword::Propagate)
+    } else if value.eq_ignore_ascii_case("RECOVER") {
+        Some(Keyword::Recover)
     } else if value.eq_ignore_ascii_case("TYPE") {
         Some(Keyword::Type)
+    } else if value.eq_ignore_ascii_case("TRAP") {
+        Some(Keyword::Trap)
     } else if value.eq_ignore_ascii_case("UNION") {
         Some(Keyword::Union)
     } else if value.eq_ignore_ascii_case("USING") {

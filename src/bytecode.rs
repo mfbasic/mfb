@@ -117,6 +117,7 @@ const OPCODE_UNWRAP_RESULT: u16 = 61;
 const OPCODE_LOAD_FUNCTION: u16 = 62;
 const OPCODE_CALL_VALUE_RESULT: u16 = 63;
 const OPCODE_RETURN_OK: u16 = 70;
+const OPCODE_RETURN_ERR: u16 = 71;
 const OPCODE_CONSTRUCT_RECORD: u16 = 80;
 const OPCODE_CONSTRUCT_VARIANT: u16 = 81;
 const OPCODE_LOAD_FIELD: u16 = 82;
@@ -420,6 +421,7 @@ pub struct NativeInstruction {
 pub enum NativeConst {
     Nothing,
     Boolean(bool),
+    Byte(u8),
     Integer(i64),
     Float(f64),
     Fixed(i64),
@@ -1878,6 +1880,9 @@ fn native_const(
             })?;
             Ok(NativeConst::String(value))
         }
+        7 => Ok(NativeConst::Byte(
+            constant.payload.first().copied().unwrap_or(0),
+        )),
         _ => Ok(NativeConst::Other),
     }
 }
@@ -2818,6 +2823,7 @@ fn ops_use_resource_type(ops: &[IrOp]) -> bool {
         }
         IrOp::Assign { value, .. } | IrOp::Eval { value } => value_uses_resource_type(value),
         IrOp::Return { value } => value.as_ref().is_some_and(value_uses_resource_type),
+        IrOp::Fail { error } => value_uses_resource_type(error),
         IrOp::If {
             condition,
             then_body,
@@ -3062,6 +3068,11 @@ impl<'a> FunctionBuilder<'a> {
                     }
                 };
                 self.push(OPCODE_RETURN_OK, vec![register]);
+                Ok(())
+            }
+            IrOp::Fail { error } => {
+                let register = self.lower_value(error, locals)?.register;
+                self.push(OPCODE_RETURN_ERR, vec![register]);
                 Ok(())
             }
             IrOp::Eval { value } => {
@@ -3352,6 +3363,8 @@ impl<'a> FunctionBuilder<'a> {
                     register: dst,
                     type_name: if type_id == TYPE_STRING {
                         "String".to_string()
+                    } else if type_id == TYPE_BYTE {
+                        "Byte".to_string()
                     } else if type_id == TYPE_FLOAT {
                         "Float".to_string()
                     } else if type_id == TYPE_FIXED {
@@ -3541,7 +3554,13 @@ impl<'a> FunctionBuilder<'a> {
         }
         if matches!(
             type_id,
-            TYPE_NOTHING | TYPE_BOOLEAN | TYPE_INTEGER | TYPE_FLOAT | TYPE_FIXED | TYPE_STRING
+            TYPE_NOTHING
+                | TYPE_BOOLEAN
+                | TYPE_BYTE
+                | TYPE_INTEGER
+                | TYPE_FLOAT
+                | TYPE_FIXED
+                | TYPE_STRING
         ) {
             self.push(OPCODE_COPY, vec![dst, src]);
         } else {
@@ -4193,6 +4212,12 @@ impl ConstPool {
                     kind: 2,
                     payload: vec![if value == "true" { 1 } else { 0 }],
                 },
+                "Byte" => ConstEntry {
+                    kind: 7,
+                    payload: vec![value
+                        .parse::<u8>()
+                        .map_err(|_| format!("invalid Byte constant `{value}`"))?],
+                },
                 _ => return Err(format!("unsupported constant type `{type_}`")),
             },
             _ => return Err("only constant IR values can be stored in CONST_POOL".to_string()),
@@ -4620,6 +4645,12 @@ fn numeric_binary_type_id(op: &str, left: u32, right: u32) -> u32 {
         }
     } else if left == TYPE_FLOAT || right == TYPE_FLOAT {
         TYPE_FLOAT
+    } else if left == TYPE_BYTE && right == TYPE_BYTE {
+        TYPE_BYTE
+    } else if (left == TYPE_BYTE && right == TYPE_FIXED)
+        || (left == TYPE_FIXED && right == TYPE_BYTE)
+    {
+        TYPE_FIXED
     } else if left == TYPE_FIXED && right == TYPE_FIXED {
         TYPE_FIXED
     } else if left == TYPE_FIXED || right == TYPE_FIXED {

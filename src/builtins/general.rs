@@ -251,7 +251,7 @@ pub(crate) fn resolve_call<'a>(name: &str, arg_types: &'a [String]) -> Option<Re
             }
         }
         TO_INT => {
-            if exact_one_of(arg_types, &["String", "Float", "Fixed"]) {
+            if exact_one_of(arg_types, &["String", "Byte", "Float", "Fixed"]) {
                 ResolvedCall {
                     return_type: Cow::Borrowed("Integer"),
                 }
@@ -356,7 +356,7 @@ pub(crate) fn expected_arguments(name: &str) -> Option<&'static str> {
         REPLACE => Some("String, String, String"),
         TYPE_NAME => Some("T"),
         TO_STRING => Some("Integer, Float, Fixed, Boolean, String, Byte, or List OF Byte"),
-        TO_INT => Some("String, Float, or Fixed"),
+        TO_INT => Some("String, Byte, Float, or Fixed"),
         TO_FLOAT => Some("String, Integer, or Fixed"),
         TO_FIXED => Some("String, Integer, or Float"),
         TO_BYTE => Some("Integer"),

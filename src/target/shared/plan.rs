@@ -81,6 +81,7 @@ pub(crate) struct StorageType {
 #[derive(Clone)]
 pub(crate) enum StorageClass {
     Void,
+    Byte,
     Integer,
     Float,
     Fixed,
@@ -91,6 +92,7 @@ pub(crate) enum StorageClass {
 pub(crate) trait NativePlanPlatform {
     fn target(&self) -> &'static str;
     fn entry_imports(&self, module: &NirModule) -> Vec<PlatformImport>;
+    fn entry_error_imports(&self, module: &NirModule) -> Vec<PlatformImport>;
     fn runtime_imports(&self, spec: &runtime::RuntimeHelperSpec) -> Vec<PlatformImport>;
 }
 
@@ -304,6 +306,7 @@ impl StorageType {
                 }
             }
             StorageClass::Boolean
+            | StorageClass::Byte
             | StorageClass::Integer
             | StorageClass::Float
             | StorageClass::Fixed
@@ -378,6 +381,9 @@ fn platform_imports(module: &NirModule, platform: &dyn NativePlanPlatform) -> Ve
     for import in platform.entry_imports(module) {
         push_platform_import(&mut imports, import);
     }
+    for import in platform.entry_error_imports(module) {
+        push_platform_import(&mut imports, import);
+    }
     for function in &module.functions {
         collect_platform_imports_from_ops(platform, &function.body, &mut imports);
     }
@@ -395,6 +401,9 @@ fn collect_platform_imports_from_ops(
                 if let Some(value) = value {
                     collect_platform_imports_from_value(platform, value, imports);
                 }
+            }
+            NirOp::Fail { error } => {
+                collect_platform_imports_from_value(platform, error, imports);
             }
             NirOp::Assign { value, .. } | NirOp::Eval { value } => {
                 collect_platform_imports_from_value(platform, value, imports);
@@ -483,6 +492,9 @@ fn collect_runtime_symbols_from_ops(ops: &[NirOp], symbols: &mut Vec<String>) {
                 if let Some(value) = value {
                     collect_runtime_symbols_from_value(value, symbols);
                 }
+            }
+            NirOp::Fail { error } => {
+                collect_runtime_symbols_from_value(error, symbols);
             }
             NirOp::Assign { value, .. } | NirOp::Eval { value } => {
                 collect_runtime_symbols_from_value(value, symbols);
@@ -606,6 +618,11 @@ impl FunctionPlanBuilder<'_> {
                         self.operations.push("return".to_string());
                     }
                 }
+                NirOp::Fail { error } => {
+                    self.lower_value(error)?;
+                    self.operations
+                        .push(format!("fail {}", describe_value(error)));
+                }
                 NirOp::If {
                     condition,
                     then_body,
@@ -673,7 +690,9 @@ impl FunctionPlanBuilder<'_> {
                 for arg in args {
                     self.lower_value(arg)?;
                 }
-                self.add_call(target);
+                if target != "toInt" {
+                    self.add_call(target);
+                }
             }
             NirValue::RuntimeCall {
                 helper,
@@ -812,6 +831,8 @@ fn storage_for_type(
         (StorageClass::Void, 0, 1)
     } else if type_ == "Boolean" {
         (StorageClass::Boolean, 1, 1)
+    } else if type_ == "Byte" {
+        (StorageClass::Byte, 1, 1)
     } else if type_ == "Integer" {
         (StorageClass::Integer, 8, 8)
     } else if type_ == "Float" {
@@ -1151,6 +1172,7 @@ impl StorageClass {
     fn name(&self) -> &'static str {
         match self {
             StorageClass::Void => "void",
+            StorageClass::Byte => "byte",
             StorageClass::Integer => "integer",
             StorageClass::Float => "float",
             StorageClass::Fixed => "fixed",
@@ -1196,6 +1218,17 @@ mod tests {
             vec![PlatformImport {
                 library: "testRuntime".to_string(),
                 symbol: "test_program_done".to_string(),
+                required_by: "_main".to_string(),
+            }]
+        }
+
+        fn entry_error_imports(&self, module: &NirModule) -> Vec<PlatformImport> {
+            if module.entry.is_none() {
+                return Vec::new();
+            }
+            vec![PlatformImport {
+                library: "testRuntime".to_string(),
+                symbol: "test_error_output".to_string(),
                 required_by: "_main".to_string(),
             }]
         }
@@ -1253,8 +1286,11 @@ mod tests {
         assert_eq!(plan.platform_imports[0].symbol, "test_program_done");
         assert_eq!(plan.platform_imports[0].required_by, "_main");
         assert_eq!(plan.platform_imports[1].library, "testRuntime");
-        assert_eq!(plan.platform_imports[1].symbol, "test_output");
-        assert_eq!(plan.platform_imports[1].required_by, "_mfb_rt_io_io_print");
+        assert_eq!(plan.platform_imports[1].symbol, "test_error_output");
+        assert_eq!(plan.platform_imports[1].required_by, "_main");
+        assert_eq!(plan.platform_imports[2].library, "testRuntime");
+        assert_eq!(plan.platform_imports[2].symbol, "test_output");
+        assert_eq!(plan.platform_imports[2].required_by, "_mfb_rt_io_io_print");
         assert_eq!(plan.functions[0].calls[0].symbol, "_mfb_rt_io_io_print");
     }
 }
