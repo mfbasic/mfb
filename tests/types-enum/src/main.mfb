@@ -1,0 +1,50 @@
+IMPORT io
+
+ENUM Color
+  Red, Green, Blue
+END ENUM
+
+ENUM Mode
+  Idle, Running
+END ENUM
+
+FUNC colorScore(color AS Color) AS Integer
+  MATCH color
+    CASE Color.Red
+      RETURN 1
+    CASE Color.Green
+      RETURN 2
+    CASE Color.Blue
+      RETURN 3
+  END MATCH
+END FUNC
+
+FUNC colorFallback(color AS Color) AS Integer
+  MATCH color
+    CASE Color.Red
+      RETURN 10
+    CASE ELSE
+      RETURN 20
+  END MATCH
+END FUNC
+
+FUNC modeScore(mode AS Mode) AS Integer
+  MATCH mode
+    CASE Mode.Idle
+      RETURN 30
+    CASE Mode.Running
+      RETURN 40
+  END MATCH
+END FUNC
+
+FUNC main AS Integer
+  LET inferred = Color.Red
+  LET annotated AS Color = Color.Green
+  MUT current AS Color = Color.Blue
+  current = Color.Red
+  LET mode AS Mode = Mode.Running
+
+  io::print(typeName(inferred))
+  io::print(typeName(mode))
+  RETURN colorScore(inferred) + colorScore(annotated) + colorScore(current) + colorFallback(Color.Blue) + modeScore(mode)
+END FUNC

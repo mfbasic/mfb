@@ -1,0 +1,96 @@
+{
+  "project": "types_nothing",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "literalNothing",
+      "line": 3,
+      "params": [
+      ],
+      "returnType": "Nothing",
+      "body": [
+      { "kind": "return", "value": { "kind": "identifier", "value": "NOTHING" }, "line": 4 }
+      ]
+    },
+    {
+      "kind": "sub",
+      "visibility": "private",
+      "name": "fallthroughSub",
+      "line": 7,
+      "params": [
+      ],
+      "returnType": null,
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "fallthrough" }] }, "line": 8 }
+      ]
+    },
+    {
+      "kind": "sub",
+      "visibility": "private",
+      "name": "bareReturnSub",
+      "line": 11,
+      "params": [
+      ],
+      "returnType": null,
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "bare-return" }] }, "line": 12 },
+      { "kind": "return", "value": null, "line": 13 }
+      ]
+    },
+    {
+      "kind": "sub",
+      "visibility": "private",
+      "name": "explicitReturnSub",
+      "line": 16,
+      "params": [
+      ],
+      "returnType": null,
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "explicit-return" }] }, "line": 17 },
+      { "kind": "return", "value": { "kind": "identifier", "value": "NOTHING" }, "line": 18 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "callSubAsNothing",
+      "line": 21,
+      "params": [
+      ],
+      "returnType": "Nothing",
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "fallthroughSub", "arguments": [] }, "line": 22 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "bareReturnSub", "arguments": [] }, "line": 23 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "explicitReturnSub", "arguments": [] }, "line": 24 },
+      { "kind": "return", "value": { "kind": "call", "callee": "literalNothing", "arguments": [] }, "line": 25 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "main",
+      "line": 28,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "literal", "type": "Nothing", "value": { "kind": "identifier", "value": "NOTHING" }, "line": 29 },
+      { "kind": "binding", "mutable": true, "name": "defaulted", "type": "Nothing", "value": null, "line": 30 },
+      { "kind": "assignment", "name": "defaulted", "value": { "kind": "identifier", "value": "literal" }, "line": 31 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "typeName", "arguments": [{ "kind": "identifier", "value": "literal" }] }] }, "line": 33 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "typeName", "arguments": [{ "kind": "identifier", "value": "defaulted" }] }] }, "line": 34 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "callSubAsNothing", "arguments": [] }, "line": 35 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 36 }
+      ]
+    }
+    ]
+  }
+  ]
+}

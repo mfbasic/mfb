@@ -1,0 +1,91 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "types_nothing",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "literalNothing",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Nothing",
+    "body": [
+    { "op": "return", "value": { "kind": "const", "type": "Nothing", "value": "NOTHING" } }
+    ]
+  },
+  {
+    "name": "fallthroughSub",
+    "visibility": "private",
+    "kind": "sub",
+    "params": [
+    ],
+    "returns": "Nothing",
+    "body": [
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "fallthrough" }] } }
+    ]
+  },
+  {
+    "name": "bareReturnSub",
+    "visibility": "private",
+    "kind": "sub",
+    "params": [
+    ],
+    "returns": "Nothing",
+    "body": [
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "bare-return" }] } },
+    { "op": "return", "value": null }
+    ]
+  },
+  {
+    "name": "explicitReturnSub",
+    "visibility": "private",
+    "kind": "sub",
+    "params": [
+    ],
+    "returns": "Nothing",
+    "body": [
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "explicit-return" }] } },
+    { "op": "return", "value": { "kind": "const", "type": "Nothing", "value": "NOTHING" } }
+    ]
+  },
+  {
+    "name": "callSubAsNothing",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Nothing",
+    "body": [
+    { "op": "eval", "value": { "kind": "call", "target": "fallthroughSub", "args": [] } },
+    { "op": "eval", "value": { "kind": "call", "target": "bareReturnSub", "args": [] } },
+    { "op": "eval", "value": { "kind": "call", "target": "explicitReturnSub", "args": [] } },
+    { "op": "return", "value": { "kind": "call", "target": "literalNothing", "args": [] } }
+    ]
+  },
+  {
+    "name": "main",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "mutable": false, "name": "literal", "type": "Nothing", "value": { "kind": "const", "type": "Nothing", "value": "NOTHING" } },
+    { "op": "bind", "mutable": true, "name": "defaulted", "type": "Nothing", "value": null },
+    { "op": "assign", "name": "defaulted", "value": { "kind": "local", "name": "literal" } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "typeName", "args": [{ "kind": "local", "name": "literal" }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "typeName", "args": [{ "kind": "local", "name": "defaulted" }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "callSubAsNothing", "args": [] } },
+    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

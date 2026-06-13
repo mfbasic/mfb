@@ -1,0 +1,37 @@
+IMPORT io
+
+FUNC literalNothing AS Nothing
+  RETURN NOTHING
+END FUNC
+
+SUB fallthroughSub
+  io::print("fallthrough")
+END SUB
+
+SUB bareReturnSub
+  io::print("bare-return")
+  RETURN
+END SUB
+
+SUB explicitReturnSub
+  io::print("explicit-return")
+  RETURN NOTHING
+END SUB
+
+FUNC callSubAsNothing AS Nothing
+  fallthroughSub()
+  bareReturnSub()
+  explicitReturnSub()
+  RETURN literalNothing()
+END FUNC
+
+FUNC main AS Integer
+  LET literal AS Nothing = NOTHING
+  MUT defaulted AS Nothing
+  defaulted = literal
+
+  io::print(typeName(literal))
+  io::print(typeName(defaulted))
+  callSubAsNothing()
+  RETURN 0
+END FUNC

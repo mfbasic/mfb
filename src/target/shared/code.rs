@@ -1221,7 +1221,9 @@ impl CodeBuilder<'_> {
                 NirOp::Return { value } => {
                     if let Some(value) = value {
                         let result = self.lower_value(value)?;
-                        self.emit(abi::move_register(RESULT_VALUE_REGISTER, &result.location));
+                        if result.type_ != "Nothing" {
+                            self.emit(abi::move_register(RESULT_VALUE_REGISTER, &result.location));
+                        }
                     }
                     self.emit(abi::move_immediate(
                         RESULT_TAG_REGISTER,
@@ -3061,6 +3063,7 @@ fn integer_constant_value(value: &NirValue) -> Option<i64> {
 
 fn native_immediate_value(type_: &str, value: &str) -> Result<String, String> {
     match type_ {
+        "Nothing" => Ok("0".to_string()),
         "Float" => Ok(value
             .parse::<f64>()
             .map_err(|_| format!("invalid Float constant `{value}`"))?

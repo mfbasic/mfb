@@ -1,0 +1,16 @@
+$ mfb build -ast tests/types-nothing
+Wrote AST to tests/types-nothing/types_nothing.ast
+[exit 0]
+$ mfb build -ir tests/types-nothing
+Wrote IR to tests/types-nothing/types_nothing.ir
+[exit 0]
+$ mfb build tests/types-nothing
+Wrote executable to tests/types-nothing/types_nothing.out
+[exit 0]
+$ tests/types-nothing/types_nothing.out
+Nothing
+Nothing
+fallthrough
+bare-return
+explicit-return
+[exit 0]

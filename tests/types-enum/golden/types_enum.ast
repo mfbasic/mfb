@@ -1,0 +1,159 @@
+{
+  "project": "types_enum",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 }
+    ],
+    "items": [
+    {
+      "kind": "enum",
+      "visibility": "private",
+      "name": "Color",
+      "line": 3,
+      "members": [
+      { "name": "Red", "line": 4 },
+      { "name": "Green", "line": 4 },
+      { "name": "Blue", "line": 4 }
+      ]
+    },
+    {
+      "kind": "enum",
+      "visibility": "private",
+      "name": "Mode",
+      "line": 7,
+      "members": [
+      { "name": "Idle", "line": 8 },
+      { "name": "Running", "line": 8 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "colorScore",
+      "line": 11,
+      "params": [
+      { "name": "color", "type": "Color", "default": null }
+      ],
+      "returnType": "Integer",
+      "body": [
+      {
+        "kind": "match",
+        "expression": { "kind": "identifier", "value": "color" },
+        "line": 12,
+        "cases": [
+        {
+          "pattern": { "kind": "expression", "expression": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "Color" }, "member": "Red" } },
+          "line": 13,
+          "body": [
+          { "kind": "return", "value": { "kind": "number", "value": "1" }, "line": 14 }
+          ]
+        },
+        {
+          "pattern": { "kind": "expression", "expression": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "Color" }, "member": "Green" } },
+          "line": 15,
+          "body": [
+          { "kind": "return", "value": { "kind": "number", "value": "2" }, "line": 16 }
+          ]
+        },
+        {
+          "pattern": { "kind": "expression", "expression": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "Color" }, "member": "Blue" } },
+          "line": 17,
+          "body": [
+          { "kind": "return", "value": { "kind": "number", "value": "3" }, "line": 18 }
+          ]
+        }
+        ]
+      }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "colorFallback",
+      "line": 22,
+      "params": [
+      { "name": "color", "type": "Color", "default": null }
+      ],
+      "returnType": "Integer",
+      "body": [
+      {
+        "kind": "match",
+        "expression": { "kind": "identifier", "value": "color" },
+        "line": 23,
+        "cases": [
+        {
+          "pattern": { "kind": "expression", "expression": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "Color" }, "member": "Red" } },
+          "line": 24,
+          "body": [
+          { "kind": "return", "value": { "kind": "number", "value": "10" }, "line": 25 }
+          ]
+        },
+        {
+          "pattern": { "kind": "else" },
+          "line": 26,
+          "body": [
+          { "kind": "return", "value": { "kind": "number", "value": "20" }, "line": 27 }
+          ]
+        }
+        ]
+      }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "modeScore",
+      "line": 31,
+      "params": [
+      { "name": "mode", "type": "Mode", "default": null }
+      ],
+      "returnType": "Integer",
+      "body": [
+      {
+        "kind": "match",
+        "expression": { "kind": "identifier", "value": "mode" },
+        "line": 32,
+        "cases": [
+        {
+          "pattern": { "kind": "expression", "expression": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "Mode" }, "member": "Idle" } },
+          "line": 33,
+          "body": [
+          { "kind": "return", "value": { "kind": "number", "value": "30" }, "line": 34 }
+          ]
+        },
+        {
+          "pattern": { "kind": "expression", "expression": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "Mode" }, "member": "Running" } },
+          "line": 35,
+          "body": [
+          { "kind": "return", "value": { "kind": "number", "value": "40" }, "line": 36 }
+          ]
+        }
+        ]
+      }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "main",
+      "line": 40,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "inferred", "type": null, "value": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "Color" }, "member": "Red" }, "line": 41 },
+      { "kind": "binding", "mutable": false, "name": "annotated", "type": "Color", "value": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "Color" }, "member": "Green" }, "line": 42 },
+      { "kind": "binding", "mutable": true, "name": "current", "type": "Color", "value": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "Color" }, "member": "Blue" }, "line": 43 },
+      { "kind": "assignment", "name": "current", "value": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "Color" }, "member": "Red" }, "line": 44 },
+      { "kind": "binding", "mutable": false, "name": "mode", "type": "Mode", "value": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "Mode" }, "member": "Running" }, "line": 45 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "typeName", "arguments": [{ "kind": "identifier", "value": "inferred" }] }] }, "line": 47 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "typeName", "arguments": [{ "kind": "identifier", "value": "mode" }] }] }, "line": 48 },
+      { "kind": "return", "value": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "call", "callee": "colorScore", "arguments": [{ "kind": "identifier", "value": "inferred" }] }, "right": { "kind": "call", "callee": "colorScore", "arguments": [{ "kind": "identifier", "value": "annotated" }] } }, "right": { "kind": "call", "callee": "colorScore", "arguments": [{ "kind": "identifier", "value": "current" }] } }, "right": { "kind": "call", "callee": "colorFallback", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "Color" }, "member": "Blue" }] } }, "right": { "kind": "call", "callee": "modeScore", "arguments": [{ "kind": "identifier", "value": "mode" }] } }, "line": 49 }
+      ]
+    }
+    ]
+  }
+  ]
+}
