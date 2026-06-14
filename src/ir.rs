@@ -377,9 +377,6 @@ fn lower_statement(
         Statement::Propagate { .. } => IrOp::Fail {
             error: IrValue::Local("err".to_string()),
         },
-        Statement::Recover { value, .. } => IrOp::Return {
-            value: Some(lower_expression(value, locals, context)),
-        },
         Statement::Assign { name, value, .. } => IrOp::Assign {
             name: name.clone(),
             value: lower_expression_with_expected(

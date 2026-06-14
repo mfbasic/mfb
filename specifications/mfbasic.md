@@ -509,26 +509,11 @@ Trap outcomes:
 
 | Statement | Meaning | Produces |
 |-----------|---------|----------|
-| `RECOVER v` | resume at the failed expression with a replacement success value | `Ok(v)` at the error site |
 | `RETURN v` | function succeeds | `Ok(v)` |
 | `PROPAGATE` | re-propagate the current `err` | `Err(err)` |
 | `FAIL e2` | replace/wrap the error | `Err(e2)` |
 
-`RECOVER v` is valid only inside a `TRAP` reached from an auto-unwrapped expression with an expected success type. It resumes normal execution at the expression that produced `Err`, as if that expression had instead produced `Ok(v)`. The replacement value must type-check against the failed expression's expected success type. The trap block does not continue after `RECOVER`.
-
-```basic
-FUNC readAge(input AS String) AS Integer
-  LET n = toInt(input)
-  RETURN n
-
-  TRAP err
-    IF err.code = 10003 THEN RECOVER 0   ' toInt(input) is treated as Ok(0)
-    PROPAGATE
-  END TRAP
-END FUNC
-```
-
-`RECOVER` is not valid when the trap was entered from an explicit `FAIL` statement, because there is no failed value expression to resume. Use `RETURN`, `PROPAGATE`, or `FAIL` in that case.
+There is no trap resume operation. Once control enters a `TRAP`, the failed expression is abandoned. A trap may convert the error into the function's final success value with `RETURN`, rethrow the same error with `PROPAGATE`, or replace it with `FAIL`.
 
 ```basic
 TRAP err
@@ -569,7 +554,7 @@ END MATCH
 
 ### 8.5 `RETURN` semantics
 
-`RETURN v` **always** means function success and produces the function's final `Ok(v)`, whether it appears in the body or in the `TRAP`. It does not resume at the failed expression; use `RECOVER v` for that. A bare `RETURN` in a `SUB` produces `Ok(NOTHING)`. `RETURN NOTHING` is also valid in a `SUB`. A `SUB` with no `TRAP` may fall through to `END SUB`, which implicitly returns `Ok(NOTHING)`. `RETURN` never produces an error. `FAIL` and `PROPAGATE` produce errors; `RECOVER` produces a local replacement success value.
+`RETURN v` **always** means function success and produces the function's final `Ok(v)`, whether it appears in the body or in the `TRAP`. It does not resume at the failed expression. A bare `RETURN` in a `SUB` produces `Ok(NOTHING)`. `RETURN NOTHING` is also valid in a `SUB`. A `SUB` with no `TRAP` may fall through to `END SUB`, which implicitly returns `Ok(NOTHING)`. `RETURN` never produces an error. `FAIL` and `PROPAGATE` produce errors.
 
 ### 8.6 Rules
 
@@ -577,13 +562,12 @@ END MATCH
 2. The trap payload is always `Error`; written `TRAP err` with no type.
 3. The trap block is reachable only via `FAIL` (in the body), an auto-propagated `Err` from a call, or `FAIL`/`PROPAGATE` inside the trap. It is never reached by fall-through.
 4. `PROPAGATE` is valid only inside a `TRAP` (it refers to the current `err`). Elsewhere it is a compile error; use `FAIL e` instead.
-5. `RECOVER` is valid only inside a `TRAP`, and only when the current trap entry has a recoverable failed expression. Elsewhere it is a compile error.
-6. With no `TRAP`, any `Err` (from `FAIL` or an auto-propagated call) becomes the function's returned `Err`.
-7. Every `TRAP` path must end in `RECOVER`, `RETURN`, `PROPAGATE`, or `FAIL`. Trap fall-through is a compile error.
-8. Every `FUNC` path must end in `RETURN value` or `FAIL error`. Function fall-through is a compile error.
-9. A `SUB` with no `TRAP` may fall through to `END SUB`, implicitly returning `Ok(NOTHING)`.
-10. A `SUB` with a `TRAP` must end every normal path before the `TRAP` with `RETURN`, `RETURN NOTHING`, or `FAIL error`. Falling through from the normal body into the `TRAP` is a compile error.
-11. An executable entry point's uncaught `Err` terminates the process as an unhandled runtime error: the process exits with code `255`, and stderr receives `Code: <err.code> Message: <err.message>`. Give the entry point a `TRAP` for graceful handling.
+5. With no `TRAP`, any `Err` (from `FAIL` or an auto-propagated call) becomes the function's returned `Err`.
+6. Every `TRAP` path must end in `RETURN`, `PROPAGATE`, or `FAIL`. Trap fall-through is a compile error.
+7. Every `FUNC` path must end in `RETURN value` or `FAIL error`. Function fall-through is a compile error.
+8. A `SUB` with no `TRAP` may fall through to `END SUB`, implicitly returning `Ok(NOTHING)`.
+9. A `SUB` with a `TRAP` must end every normal path before the `TRAP` with `RETURN`, `RETURN NOTHING`, or `FAIL error`. Falling through from the normal body into the `TRAP` is a compile error.
+10. An executable entry point's uncaught `Err` terminates the process as an unhandled runtime error: the process exits with code `255`, and stderr receives `Code: <err.code> Message: <err.message>`. Give the entry point a `TRAP` for graceful handling.
 
 ### 8.7 Program entry point
 
@@ -634,7 +618,6 @@ FUNC f(a AS A) AS T            =>   FUNC f(a AS A) AS Result OF T
   RETURN v         =>  RETURN Ok(v)          (body or trap)
 
   __trap:
-    RECOVER v      =>  resume failed expression as Ok(v)
     PROPAGATE      =>  RETURN Err(err)
     FAIL e2        =>  RETURN Err(e2)
     RETURN v       =>  RETURN Ok(v)
@@ -1303,7 +1286,7 @@ block          = { statement } ;
 statement      = letStmt | mutStmt | assignStmt
                | ifStmt | forStmt | foreachStmt | whileStmt
                | doStmt | matchStmt | usingStmt
-               | failStmt | propagateStmt | recoverStmt | returnStmt
+               | failStmt | propagateStmt | returnStmt
                | exprStmt | "REM" ... ;
 
 letStmt        = "LET" ident [ "AS" type ] "=" expr ;
@@ -1320,7 +1303,7 @@ blockIfStmt    = "IF" expr "THEN" block
                    [ "ELSE" block ]
                    "END" "IF" ;
 simpleStmt     = letStmt | mutStmt | assignStmt | failStmt | propagateStmt
-               | recoverStmt | returnStmt | exprStmt ;
+               | returnStmt | exprStmt ;
 forStmt        = "FOR" ident "=" expr "TO" expr [ "STEP" expr ]
                    block "NEXT" ;
 foreachStmt    = "FOR" "EACH" ident "IN" expr block "NEXT" ;
@@ -1330,7 +1313,6 @@ doStmt         = "DO" block "LOOP" [ "UNTIL" expr ]
 
 failStmt       = "FAIL" expr ;
 propagateStmt  = "PROPAGATE" ;
-recoverStmt    = "RECOVER" expr ;
 returnStmt     = "RETURN" [ expr ] ;
 exprStmt       = expr ;
 
@@ -1420,7 +1402,7 @@ FUNC loadPoints(path AS String) AS List OF Vec3
 
   TRAP err
     io::print("Load failed: " & err.message)
-    RETURN []                              ' recover with empty list
+    RETURN []                              ' use empty list as the function result
   END TRAP
 END FUNC
 
@@ -1561,7 +1543,7 @@ Required diagnostics and tooling metadata:
 
 - Mark every fallible call site in editor diagnostics or semantic tokens, including calls hidden inside expressions and argument lists.
 - Show each auto-propagation edge from a fallible call to the enclosing `TRAP` or function return.
-- Show each `TRAP` recovery path, including whether it `RECOVER`s, `RETURN`s, `PROPAGATE`s, or replaces the error with `FAIL`.
+- Show each `TRAP` recovery path, including whether it `RETURN`s, `PROPAGATE`s, or replaces the error with `FAIL`.
 - Report fallible calls inside resource `USING` bodies together with the close-failure precedence rule from §15.
 - Surface all native binding packages, linked native libraries, declared symbols, ABI mappings, and native resource close functions used by a build.
 - Surface package permissions and host capabilities when a standard or native package requires filesystem, network, process, environment, clock, randomness, or native-library access.

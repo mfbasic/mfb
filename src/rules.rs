@@ -237,11 +237,6 @@ pub const RULES: &[Rule] = &[
         message: "PROPAGATE requires a TRAP context",
     },
     Rule {
-        name: "TYPE_RECOVER_REQUIRES_TRAP",
-        severity: Severity::Error,
-        message: "RECOVER requires a recoverable TRAP context",
-    },
-    Rule {
         name: "TYPE_TRAP_FALLTHROUGH",
         severity: Severity::Error,
         message: "TRAP path can fall through",

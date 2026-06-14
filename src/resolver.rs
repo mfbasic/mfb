@@ -460,9 +460,6 @@ impl<'a> Resolver<'a> {
                 self.resolve_expression(file, error, *line, imports, locals);
             }
             Statement::Propagate { .. } => {}
-            Statement::Recover { value, line } => {
-                self.resolve_expression(file, value, *line, imports, locals);
-            }
             Statement::Assign { name, value, line } => {
                 self.resolve_identifier(file, name, *line, imports, locals);
                 self.resolve_expression(file, value, *line, imports, locals);

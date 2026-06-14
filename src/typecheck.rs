@@ -538,10 +538,7 @@ impl<'a> TypeChecker<'a> {
             if trap_flow != Flow::AlwaysReturns {
                 self.report(
                     "TYPE_TRAP_FALLTHROUGH",
-                    &format!(
-                        "TRAP `{}` must return, fail, recover, or propagate.",
-                        trap.name
-                    ),
+                    &format!("TRAP `{}` must return, fail, or propagate.", trap.name),
                     file,
                     trap.line,
                 );
@@ -733,16 +730,6 @@ impl<'a> TypeChecker<'a> {
                 self.report(
                     "TYPE_PROPAGATE_REQUIRES_TRAP",
                     "PROPAGATE is valid only inside a TRAP.",
-                    file,
-                    *line,
-                );
-                Flow::AlwaysReturns
-            }
-            Statement::Recover { value, line } => {
-                self.infer_expression(file, value, locals, *line);
-                self.report(
-                    "TYPE_RECOVER_REQUIRES_TRAP",
-                    "RECOVER is not implemented for this trap context.",
                     file,
                     *line,
                 );

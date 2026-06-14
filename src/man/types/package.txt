@@ -1,12 +1,12 @@
 NAME
-  types - built-in MFBASIC types
+  types - MFBASIC type system
 
 SYNOPSIS
   mfb man types
 
 DESCRIPTION
   MFBASIC has a small set of compiler-owned types that are always understood by
-  the language. Primitive types name scalar values. Built-in templates such as
+  the language. Primitive types name scalar values. Compiler-owned templates such as
   List, Map, Result, MapEntry, and Thread are monomorphized before bytecode is
   generated, so each concrete use has a fully known type.
 

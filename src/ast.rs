@@ -151,10 +151,6 @@ pub enum Statement {
     Propagate {
         line: usize,
     },
-    Recover {
-        value: Expression,
-        line: usize,
-    },
     Assign {
         name: String,
         value: Expression,
@@ -910,16 +906,6 @@ impl<'a> FileParser<'a> {
             let token = self.previous().clone();
             self.consume_statement_end("Expected end of statement after PROPAGATE.");
             return Some(Statement::Propagate { line: token.line });
-        }
-
-        if self.match_keyword(Keyword::Recover) {
-            let token = self.previous().clone();
-            let value = self.parse_expression()?;
-            self.consume_statement_end("Expected end of statement after RECOVER.");
-            return Some(Statement::Recover {
-                value,
-                line: token.line,
-            });
         }
 
         if let TokenKind::Identifier(name) = self.peek().kind.clone() {
@@ -2294,14 +2280,6 @@ impl ToAstJson for Statement {
             }
             Statement::Propagate { line } => {
                 format!("\n{}{{ \"kind\": \"propagate\", \"line\": {} }}", pad, line)
-            }
-            Statement::Recover { value, line } => {
-                format!(
-                    "\n{}{{ \"kind\": \"recover\", \"value\": {}, \"line\": {} }}",
-                    pad,
-                    value.to_json(indent),
-                    line
-                )
             }
             Statement::Assign { name, value, line } => {
                 format!(

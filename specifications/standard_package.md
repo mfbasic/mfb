@@ -597,8 +597,7 @@ Compiler and static language diagnostics:
 | `20050` | `ErrInvalidTrap` | Function or sub violates the single bottom `TRAP` rule. |
 | `20051` | `ErrInvalidPropagate` | `PROPAGATE` appears outside a `TRAP`. |
 | `20052` | `ErrMissingReturn` | Function path can fall through without `RETURN` or `FAIL`. |
-| `20053` | `ErrTrapFallthrough` | `TRAP` path can fall through without `RECOVER`, `RETURN`, `PROPAGATE`, or `FAIL`. |
-| `20054` | `ErrInvalidRecover` | `RECOVER` appears outside a recoverable `TRAP` context or has the wrong replacement type. |
+| `20053` | `ErrTrapFallthrough` | `TRAP` path can fall through without `RETURN`, `PROPAGATE`, or `FAIL`. |
 | `20060` | `ErrImportNotFound` | Imported package cannot be resolved. |
 | `20061` | `ErrImportCycle` | Import graph contains a cycle. |
 | `20062` | `ErrInvalidQualifiedName` | Package-qualified name is not exactly `package::identifier`. |

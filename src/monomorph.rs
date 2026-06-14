@@ -452,10 +452,6 @@ impl<'a> Monomorphizer<'a> {
                 line: *line,
             },
             Statement::Propagate { line } => Statement::Propagate { line: *line },
-            Statement::Recover { value, line } => Statement::Recover {
-                value: self.lower_expression(value, substitutions, context, None, *line),
-                line: *line,
-            },
             Statement::Assign { name, value, line } => Statement::Assign {
                 name: name.clone(),
                 value: self.lower_expression(value, substitutions, context, None, *line),

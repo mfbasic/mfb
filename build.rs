@@ -9,11 +9,15 @@ fn main() {
     let collection_dir = manifest_dir.join("src/man/builtins/collection");
     let filter_dir = manifest_dir.join("src/man/builtins/filter");
     let strings_dir = manifest_dir.join("src/man/builtins/strings");
+    let types_page = manifest_dir.join("src/man/types/package.txt");
+    let errors_page = manifest_dir.join("src/man/errors/package.txt");
     let unicode_page = manifest_dir.join("src/man/unicode/package.txt");
     println!("cargo:rerun-if-changed={}", general_dir.display());
     println!("cargo:rerun-if-changed={}", collection_dir.display());
     println!("cargo:rerun-if-changed={}", filter_dir.display());
     println!("cargo:rerun-if-changed={}", strings_dir.display());
+    println!("cargo:rerun-if-changed={}", types_page.display());
+    println!("cargo:rerun-if-changed={}", errors_page.display());
     println!("cargo:rerun-if-changed={}", unicode_page.display());
 
     let general_pages = man_pages(&general_dir, "general");
