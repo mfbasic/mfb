@@ -336,12 +336,22 @@ Math functions live in the `math` package. Constants are `LET` values. Numeric f
 
 Math functions follow the numeric edge-case rules in §4.1. Integer and `Fixed` overflow fails with `ErrOverflow` (`10028`). Invalid domains, such as square root of a negative value or logarithm of a non-positive value, fail with `ErrInvalidArgument` (`10002`). `Float` functions return only finite values; a result that would be NaN is an invalid-domain error, and a result that would be infinity is an overflow error.
 
-| Constant | Type | Value |
-|----------|------|-------|
-| `math::piFloat` | `Float` | The mathematical constant pi as a `Float`. |
-| `math::piFixed` | `Fixed` | The mathematical constant pi rounded to the nearest `Fixed` value. |
-| `math::eFloat` | `Float` | The mathematical constant e as a `Float`. |
-| `math::eFixed` | `Fixed` | The mathematical constant e rounded to the nearest `Fixed` value. |
+| Constant          | Type    | Value |
+|-------------------|---------|-------|
+| `math::pi`        | `Float` | The mathematical constant pi as a `Float`. |
+| `math::piFixed`   | `Fixed` | The mathematical constant pi rounded to the nearest `Fixed` value. |
+| `math::2pi`       | `Float` | The mathematical constant 2 / pi as a `Float`. |
+| `math::2piFixed`  | `Fixed` | The mathematical constant 2 / pi rounded to the nearest `Fixed` value. |
+| `math::pi2`       | `Float` | The mathematical constant pi / 2 as a `Float`. |
+| `math::pi2Fixed`  | `Fixed` | The mathematical constant pi / 2 rounded to the nearest `Fixed` value. |
+| `math::pi4`       | `Float` | The mathematical constant pi / 4 as a `Float`. |
+| `math::pi4Fixed`  | `Fixed` | The mathematical constant pi / 4 rounded to the nearest `Fixed` value. |
+| `math::e`         | `Float` | The mathematical constant e as a `Float`. |
+| `math::eFixed`    | `Fixed` | The mathematical constant e rounded to the nearest `Fixed` value. |
+| `math::ln2`       | `Float` | The mathematical constant ln(2) as a `Float`. |
+| `math::ln2Fixed`  | `Fixed` | The mathematical constant ln(2) rounded to the nearest `Fixed` value. |
+| `math::ln10`      | `Float` | The mathematical constant ln(10) as a `Float`. |
+| `math::ln10Fixed` | `Fixed` | The mathematical constant ln(10) rounded to the nearest `Fixed` value. |
 
 | Function | Signature | Behavior |
 |----------|-----------|----------|
