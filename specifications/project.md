@@ -241,6 +241,22 @@ Import graph cycles remain compile-time or bytecode merge-time errors.
 
 The package resolver produces one selected version for each package `ident`. Executable builds must write or consume `mfb.lock`; its format is specified in `lockfile.md`.
 
+### Package Trust Policy
+
+Unsigned `.mfp` packages are rejected by default. The public registry source `registry:mfb` and all remote sources must reject unsigned packages unconditionally.
+
+Local development may opt into unsigned local packages with an explicit policy:
+
+```json
+{
+  "packagePolicy": {
+    "allowUnsignedLocal": true
+  }
+}
+```
+
+`allowUnsignedLocal` applies only to `path:` and `file:` sources. It does not apply to `registry:*`, `git+https://...`, `https://...`, mirrors, or cached registry blobs. When this policy permits an unsigned local package, `mfb.lock` must record the unsigned-local exception for that package.
+
 ---
 
 ## 8. Native Dependencies
@@ -309,6 +325,7 @@ A tool must reject `project.json` when:
 - No source files are selected for the requested build.
 - Two main source entries select the same source file.
 - A package dependency has an invalid name, invalid ident, invalid requested version, invalid `pin` value, or unsupported source locator.
+- `packagePolicy.allowUnsignedLocal` is used for any source other than `path:` or `file:`.
 - Dependency resolution cannot select one compatible version per package ident.
 
 Validation failure is a toolchain diagnostic. It is not recoverable by program `TRAP` code because no package code has started running.

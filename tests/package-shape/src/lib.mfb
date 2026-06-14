@@ -1,0 +1,30 @@
+EXPORT TYPE Point
+  x AS Float
+  y AS Float
+END TYPE
+
+EXPORT ENUM ShapeKind
+  Circle, Rectangle, PointShape
+END ENUM
+
+EXPORT UNION Shape
+  Circle(radius AS Float)
+  Rectangle(width AS Float, height AS Float)
+  PointShape(point AS Point)
+END UNION
+
+EXPORT FUNC shapeKind(shape AS Shape) AS ShapeKind
+  MATCH shape
+    CASE Circle
+      RETURN ShapeKind.Circle
+    CASE Rectangle
+      RETURN ShapeKind.Rectangle
+    CASE PointShape
+      RETURN ShapeKind.PointShape
+  END MATCH
+END FUNC
+
+EXPORT SUB translate(point AS Point, dx AS Float, dy AS Float)
+  LET nextX = point.x + dx
+  LET nextY = point.y + dy
+END SUB

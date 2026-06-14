@@ -1,0 +1,34 @@
+IMPORT thread
+
+EXPORT TYPE Vec2
+  x AS Integer
+  y AS Integer
+END TYPE
+
+EXPORT ENUM Color
+  Red, Green, Blue
+END ENUM
+
+EXPORT UNION MaybeNumber
+  Number(value AS Integer)
+  Missing
+END UNION
+
+EXPORT FUNC score() AS Integer
+  RETURN 1
+END FUNC
+
+EXPORT FUNC score(v AS Vec2) AS Integer
+  RETURN v.x + v.y
+END FUNC
+
+EXPORT SUB mark()
+END SUB
+
+EXPORT SUB mark(v AS Vec2)
+  LET total = v.x + v.y
+END SUB
+
+EXPORT ISOLATED FUNC worker(seed AS String) AS Integer
+  RETURN len(seed)
+END FUNC

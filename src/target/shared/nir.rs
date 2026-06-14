@@ -223,6 +223,9 @@ pub(crate) fn lower_imports(packages: &[PathBuf]) -> Result<Vec<NirImport>, Stri
                 kind: match export.kind {
                     BytecodeExportKind::Func => "func".to_string(),
                     BytecodeExportKind::Sub => "sub".to_string(),
+                    BytecodeExportKind::Type
+                    | BytecodeExportKind::Union
+                    | BytecodeExportKind::Enum => continue,
                 },
                 isolated: export.isolated,
                 params: export

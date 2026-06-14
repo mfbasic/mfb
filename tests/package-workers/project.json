@@ -1,0 +1,11 @@
+{
+  "name": "package_workers",
+  "version": "1.0.0",
+  "mfb": "1.0",
+  "kind": "package",
+  "sources": [{ "root": "src", "role": "lib", "include": ["**/*.mfb"] }],
+  "ident": "tests:package-workers",
+  "identKey": "ed25519-public:test-package-workers-ident",
+  "identFingerprint": "sha256:test-package-workers-ident",
+  "signingFingerprint": "sha256:test-package-workers-signing"
+}

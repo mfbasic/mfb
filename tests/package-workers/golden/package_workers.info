@@ -1,0 +1,52 @@
+Package: package_workers
+Ident: tests:package-workers
+Version: 1.0.0
+Ident Key: ed25519-public:test-package-workers-ident
+Ident Fingerprint: sha256:test-package-workers-ident
+Signing Fingerprint: sha256:test-package-workers-signing
+Author: <empty>
+URL: <empty>
+Path: tests/package-workers/package_workers.mfp
+
+Container:
+  format: MFP
+  version: 1.0
+  bytecode version: 1.0
+  flags: 0x00000000
+  signature type: unsigned
+  signature length: 0
+  bytecode length: 1366
+
+Manifest:
+  name: package_workers
+  ident: tests:package-workers
+  version: 1.0.0
+  ident key: ed25519-public:test-package-workers-ident
+  ident fingerprint: sha256:test-package-workers-ident
+  signing fingerprint: sha256:test-package-workers-signing
+  author: <empty>
+  url: <empty>
+
+Bytecode:
+  ABI format version: 1
+  types: 3
+  constants: 0
+  resources: 0
+  functions: 2
+  imports: 0
+  exports: 5
+
+Exports:
+  FUNC worker
+    sigHash: f3a127c4f60abc87c8d22269145f7b240ca1935e7f7400499e77d399ba2a3034
+  FUNC status
+    sigHash: 743b5bb25be1fd46b5e19023550273e519684ba6ae05d378eca3433fa1e3329e
+  TYPE WorkItem
+    sigHash: fd509506fdc6c95929beb9cacfaabd3361ce5aa8646bb80e8c4843b90da63710
+  ENUM WorkStatus
+    sigHash: 2f41ebc4673d5c91d08af83fd2190a2dc3fc78717056ad69df5249862e0d407f
+  UNION WorkResult
+    sigHash: 0bf645d5c461a3f251356e4658374726161318354f43ab8257f2c08175dd7ebc
+
+Imports:
+  <none>

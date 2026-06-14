@@ -1,0 +1,106 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "package_shape",
+  "entry": null,
+  "types": [
+  {
+    "kind": "type",
+    "visibility": "export",
+    "name": "Point",
+    "fields": [
+    { "visibility": null, "name": "x", "type": "Float" },
+    { "visibility": null, "name": "y", "type": "Float" }
+    ]
+  },
+  {
+    "kind": "enum",
+    "visibility": "export",
+    "name": "ShapeKind",
+    "members": [
+    { "name": "Circle" },
+    { "name": "Rectangle" },
+    { "name": "PointShape" }
+    ]
+  },
+  {
+    "kind": "union",
+    "visibility": "export",
+    "name": "Shape",
+    "includes": [],
+    "variants": [
+    {
+      "name": "Circle",
+      "fields": [
+      { "visibility": null, "name": "radius", "type": "Float" }
+      ]
+    },
+    {
+      "name": "Rectangle",
+      "fields": [
+      { "visibility": null, "name": "width", "type": "Float" },
+      { "visibility": null, "name": "height", "type": "Float" }
+      ]
+    },
+    {
+      "name": "PointShape",
+      "fields": [
+      { "visibility": null, "name": "point", "type": "Point" }
+      ]
+    }
+    ]
+  }
+  ],
+  "functions": [
+  {
+    "name": "shapeKind",
+    "visibility": "export",
+    "kind": "func",
+    "params": [
+    { "name": "shape", "type": "Shape", "default": null }
+    ],
+    "returns": "ShapeKind",
+    "body": [
+    {
+      "op": "match",
+      "value": { "kind": "local", "name": "shape" },
+      "cases": [
+      {
+        "pattern": { "kind": "value", "value": { "kind": "local", "name": "Circle" } },
+        "body": [
+        { "op": "return", "value": { "kind": "memberAccess", "target": { "kind": "local", "name": "ShapeKind" }, "member": "Circle" } }
+        ]
+      },
+      {
+        "pattern": { "kind": "value", "value": { "kind": "local", "name": "Rectangle" } },
+        "body": [
+        { "op": "return", "value": { "kind": "memberAccess", "target": { "kind": "local", "name": "ShapeKind" }, "member": "Rectangle" } }
+        ]
+      },
+      {
+        "pattern": { "kind": "value", "value": { "kind": "local", "name": "PointShape" } },
+        "body": [
+        { "op": "return", "value": { "kind": "memberAccess", "target": { "kind": "local", "name": "ShapeKind" }, "member": "PointShape" } }
+        ]
+      }
+      ]
+    }
+    ]
+  },
+  {
+    "name": "translate",
+    "visibility": "export",
+    "kind": "sub",
+    "params": [
+    { "name": "point", "type": "Point", "default": null },
+    { "name": "dx", "type": "Float", "default": null },
+    { "name": "dy", "type": "Float", "default": null }
+    ],
+    "returns": "Nothing",
+    "body": [
+    { "op": "bind", "mutable": false, "name": "nextX", "type": "Float", "value": { "kind": "binary", "op": "+", "left": { "kind": "memberAccess", "target": { "kind": "local", "name": "point" }, "member": "x" }, "right": { "kind": "local", "name": "dx" } } },
+    { "op": "bind", "mutable": false, "name": "nextY", "type": "Float", "value": { "kind": "binary", "op": "+", "left": { "kind": "memberAccess", "target": { "kind": "local", "name": "point" }, "member": "y" }, "right": { "kind": "local", "name": "dy" } } }
+    ]
+  }
+  ]
+}

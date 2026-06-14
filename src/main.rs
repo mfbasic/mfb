@@ -563,6 +563,14 @@ fn print_package_info(path: &Path) -> Result<(), String> {
     println!("Ident: {}", empty_marker(&header.ident));
     println!("Version: {}", header.version);
     println!("Ident Key: {}", empty_marker(&header.ident_key));
+    println!(
+        "Ident Fingerprint: {}",
+        empty_marker(&header.ident_fingerprint)
+    );
+    println!(
+        "Signing Fingerprint: {}",
+        empty_marker(&header.signing_fingerprint)
+    );
     println!("Author: {}", empty_marker(&header.author));
     println!("URL: {}", empty_marker(&header.url));
     println!("Path: {}", path.display());
@@ -590,6 +598,14 @@ fn print_package_info(path: &Path) -> Result<(), String> {
     println!("  ident: {}", empty_marker(&info.manifest_ident));
     println!("  version: {}", info.manifest_version);
     println!("  ident key: {}", empty_marker(&info.manifest_ident_key));
+    println!(
+        "  ident fingerprint: {}",
+        empty_marker(&info.manifest_ident_fingerprint)
+    );
+    println!(
+        "  signing fingerprint: {}",
+        empty_marker(&info.manifest_signing_fingerprint)
+    );
     println!("  author: {}", empty_marker(&info.author));
     println!("  url: {}", empty_marker(&info.url));
     println!();
@@ -653,6 +669,9 @@ fn package_export_kind_name(kind: bytecode::BytecodeExportKind) -> &'static str 
     match kind {
         bytecode::BytecodeExportKind::Func => "FUNC",
         bytecode::BytecodeExportKind::Sub => "SUB",
+        bytecode::BytecodeExportKind::Type => "TYPE",
+        bytecode::BytecodeExportKind::Union => "UNION",
+        bytecode::BytecodeExportKind::Enum => "ENUM",
     }
 }
 
@@ -837,7 +856,8 @@ fn package_dependency_status(
     if dependency.name != actual_name {
         return PackageVerifyStatus::InvalidPackage;
     }
-    if !dependency.ident.is_empty() && !actual_ident.is_empty() && dependency.ident != actual_ident {
+    if !dependency.ident.is_empty() && !actual_ident.is_empty() && dependency.ident != actual_ident
+    {
         return PackageVerifyStatus::InvalidPackage;
     }
     if dependency.pin {
@@ -1106,6 +1126,8 @@ struct MfpHeader {
     ident: String,
     version: String,
     ident_key: String,
+    ident_fingerprint: String,
+    signing_fingerprint: String,
     author: String,
     url: String,
     container_major: u16,
@@ -1234,6 +1256,9 @@ fn read_mfp_header(path: &Path) -> Result<MfpHeader, String> {
     let ident = read_mfp_string(&bytes, &mut offset, "ident", 255, false)?;
     let version = read_mfp_string(&bytes, &mut offset, "version", 64, true)?;
     let ident_key = read_mfp_string(&bytes, &mut offset, "identKey", 255, false)?;
+    let ident_fingerprint = read_mfp_string(&bytes, &mut offset, "identFingerprint", 255, false)?;
+    let signing_fingerprint =
+        read_mfp_string(&bytes, &mut offset, "signingFingerprint", 255, false)?;
     let author = read_mfp_string(&bytes, &mut offset, "author", 512, false)?;
     let url = read_mfp_string(&bytes, &mut offset, "url", 2048, false)?;
     let bytecode_length = read_u64(&bytes, offset)? as usize;
@@ -1250,6 +1275,8 @@ fn read_mfp_header(path: &Path) -> Result<MfpHeader, String> {
         ident,
         version,
         ident_key,
+        ident_fingerprint,
+        signing_fingerprint,
         author,
         url,
         container_major,
@@ -1711,6 +1738,18 @@ fn package_metadata(manifest: &HashMap<String, JsonValue>) -> bytecode::Bytecode
     metadata.ident_key = manifest
         .get("identKey")
         .or_else(|| manifest.get("ident_key"))
+        .and_then(|value| value.get::<String>())
+        .cloned()
+        .unwrap_or_default();
+    metadata.ident_fingerprint = manifest
+        .get("identFingerprint")
+        .or_else(|| manifest.get("ident_fingerprint"))
+        .and_then(|value| value.get::<String>())
+        .cloned()
+        .unwrap_or_default();
+    metadata.signing_fingerprint = manifest
+        .get("signingFingerprint")
+        .or_else(|| manifest.get("signing_fingerprint"))
         .and_then(|value| value.get::<String>())
         .cloned()
         .unwrap_or_default();

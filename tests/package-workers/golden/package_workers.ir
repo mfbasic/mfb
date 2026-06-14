@@ -1,0 +1,81 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "package_workers",
+  "entry": null,
+  "types": [
+  {
+    "kind": "type",
+    "visibility": "export",
+    "name": "WorkItem",
+    "fields": [
+    { "visibility": null, "name": "id", "type": "Integer" },
+    { "visibility": null, "name": "payload", "type": "String" }
+    ]
+  },
+  {
+    "kind": "enum",
+    "visibility": "export",
+    "name": "WorkStatus",
+    "members": [
+    { "name": "Pending" },
+    { "name": "Complete" }
+    ]
+  },
+  {
+    "kind": "union",
+    "visibility": "export",
+    "name": "WorkResult",
+    "includes": [],
+    "variants": [
+    {
+      "name": "Success",
+      "fields": [
+      { "visibility": null, "name": "value", "type": "Integer" }
+      ]
+    },
+    {
+      "name": "Failure",
+      "fields": [
+      { "visibility": null, "name": "message", "type": "String" }
+      ]
+    }
+    ]
+  }
+  ],
+  "functions": [
+  {
+    "name": "worker",
+    "visibility": "export",
+    "kind": "func",
+    "params": [
+    { "name": "seed", "type": "String", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "return", "value": { "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "seed" }] } }
+    ]
+  },
+  {
+    "name": "status",
+    "visibility": "export",
+    "kind": "func",
+    "params": [
+    { "name": "done", "type": "Boolean", "default": null }
+    ],
+    "returns": "WorkStatus",
+    "body": [
+    {
+      "op": "if",
+      "condition": { "kind": "local", "name": "done" },
+      "then": [
+      { "op": "return", "value": { "kind": "memberAccess", "target": { "kind": "local", "name": "WorkStatus" }, "member": "Complete" } }
+      ],
+      "else": [
+      { "op": "return", "value": { "kind": "memberAccess", "target": { "kind": "local", "name": "WorkStatus" }, "member": "Pending" } }
+      ]
+    }
+    ]
+  }
+  ]
+}

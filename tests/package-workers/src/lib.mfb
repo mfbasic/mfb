@@ -1,0 +1,27 @@
+IMPORT thread
+
+EXPORT TYPE WorkItem
+  id AS Integer
+  payload AS String
+END TYPE
+
+EXPORT ENUM WorkStatus
+  Pending, Complete
+END ENUM
+
+EXPORT UNION WorkResult
+  Success(value AS Integer)
+  Failure(message AS String)
+END UNION
+
+EXPORT ISOLATED FUNC worker(seed AS String) AS Integer
+  RETURN len(seed)
+END FUNC
+
+EXPORT FUNC status(done AS Boolean) AS WorkStatus
+  IF done THEN
+    RETURN WorkStatus.Complete
+  ELSE
+    RETURN WorkStatus.Pending
+  END IF
+END FUNC

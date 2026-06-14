@@ -45,6 +45,12 @@ version            byte[versionLength]
 identKeyLength     u32
 identKey           byte[identKeyLength]
 
+identFingerprintLength u32
+identFingerprint       byte[identFingerprintLength]
+
+signingFingerprintLength u32
+signingFingerprint       byte[signingFingerprintLength]
+
 authorLength       u32
 author             byte[authorLength]
 
@@ -81,13 +87,15 @@ The magic is deliberately not plain `"MFP1"` so corrupted text-mode transfers ar
 | `name`            | Source import name, such as `"sqlite"` or `"geometry"`.           |
 | `ident`           | Registry identity `<owner>#<package>` for resolved packages.      |
 | `version`         | Package version string.                                           |
-| `identKey`        | Registry signing-key identity or fingerprint for this package ident. |
+| `identKey`        | Owner ident public key for this package ident. |
+| `identFingerprint` | Fingerprint of `identKey`. |
+| `signingFingerprint` | Fingerprint of the package signing key that verifies `signature`. |
 | `author`          | Informational author string.                                      |
 | `url`             | Informational package/project URL.                                |
 | `bytecodeLength`  | Exact byte length of `packageBytecode`.                           |
 | `packageBytecode` | Architecture-independent MFB bytecode image.                      |
 
-The header `name`, `ident`, `version`, `identKey`, `author`, and `url` are for fast package scanning. The bytecode payload must also contain a signed manifest with the same package identity and signing-key identity. A verifier must reject the package if the header identity and bytecode manifest identity do not match.
+The header `name`, `ident`, `version`, `identKey`, `identFingerprint`, `signingFingerprint`, `author`, and `url` are for fast package scanning. The bytecode payload must also contain a signed manifest with the same package identity, owner ident key, owner ident fingerprint, and signing fingerprint. A verifier must reject the package if the header identity and bytecode manifest identity do not match.
 
 ## Signature coverage
 
@@ -112,6 +120,10 @@ versionLength
 version
 identKeyLength
 identKey
+identFingerprintLength
+identFingerprint
+signingFingerprintLength
+signingFingerprint
 authorLength
 author
 urlLength
@@ -134,7 +146,7 @@ signatureLength
 signature
 ```
 
-This signs the package import name, registry ident, requested signing key identity, version, metadata, and bytecode. `bytecodeLength` is signed, so truncation, extension, or bytecode replacement invalidates the signature.
+This signs the package import name, registry ident, owner ident key, owner ident fingerprint, signing fingerprint, version, metadata, and bytecode. `bytecodeLength` is signed, so truncation, extension, or bytecode replacement invalidates the signature.
 
 Verification must use the raw byte sequence exactly as stored. There is no string normalization, metadata canonicalization, JSON normalization, or re-serialization before verification.
 
@@ -152,10 +164,12 @@ Rules:
 * `signatureType = 1` means Ed25519.
 * If `signatureType = 1`, then `signatureLength` must be `64`.
 * Unknown `signatureType` values reject the package.
-* A build policy may reject unsigned packages.
-* A build policy may require a specific `identKey` or public key for a package ident, package URL, package registry, or package source.
+* Public registry packages must be signed. `registry:mfb` rejects packages with `signatureType = 0`.
+* `mfb pkg install` rejects unsigned packages by default. The only default-permitted exception is a `path:` or `file:` source when the project policy explicitly enables `allowUnsignedLocal`.
+* `mfb.lock` must record any unsigned-local exception, including the source package, policy name, and reason.
+* A build policy may require a specific `identKey`, `identFingerprint`, `signingFingerprint`, or signing public key for a package ident, package URL, package registry, or package source.
 
-The `identKey` is not trusted merely because it appears in the package. Package trust comes from the package manager, registry, local trust store, project lockfile, or explicit user configuration. Registry publish policy must verify that `identKey` is registered, non-revoked, and in scope for the package `ident`.
+The `identKey`, `identFingerprint`, and `signingFingerprint` are not trusted merely because they appear in the package. Package trust comes from the package manager, registry, local trust store, project lockfile, or explicit user configuration. Registry publish policy must verify that `identFingerprint` is the fingerprint of `identKey`, that the ident key controls the owner in `ident`, and that `signingFingerprint` belongs to the current signing key for that owner.
 
 ## Container flags
 
@@ -183,18 +197,20 @@ A reader must reject an `.mfp` package when:
 * Any string length exceeds the implementation limit.
 * `bytecodeLength` does not exactly match the remaining byte count.
 * There are trailing bytes after `packageBytecode`.
-* The bytecode manifest package name, ident, version, or identKey do not match the header name, ident, version, or identKey.
+* The bytecode manifest package name, ident, version, identKey, identFingerprint, or signingFingerprint do not match the header name, ident, version, identKey, identFingerprint, or signingFingerprint.
 
 Recommended limits:
 
 ```text
-nameLength      <= 255
-identLength     <= 255
-versionLength   <= 64
-identKeyLength  <= 255
-authorLength    <= 512
-urlLength       <= 2048
-bytecodeLength  <= implementation-defined maximum
+nameLength                <= 255
+identLength               <= 255
+versionLength             <= 64
+identKeyLength            <= 255
+identFingerprintLength    <= 255
+signingFingerprintLength  <= 255
+authorLength              <= 512
+urlLength                 <= 2048
+bytecodeLength            <= implementation-defined maximum
 ```
 
 Package names should use the same identifier restrictions as source package names unless the package manager later defines a wider registry naming scheme.
@@ -321,12 +337,14 @@ The empty string is allowed.
 ## `MANIFEST`
 
 ```text
-packageName       stringId
-packageIdent      stringId
-packageVersion    stringId
-identKey          stringId
-author            stringId
-url               stringId
+packageName        stringId
+packageIdent       stringId
+packageVersion     stringId
+identKey           stringId
+identFingerprint   stringId
+signingFingerprint stringId
+author             stringId
+url                stringId
 
 bytecodeMajor     u16
 bytecodeMinor     u16
@@ -343,7 +361,7 @@ entryFunction     functionId or 0xFFFFFFFF
 entryFlags        u32
 ```
 
-The manifest identity and `identKey` must match the `.mfp` header identity and `identKey`.
+The manifest identity, `identKey`, `identFingerprint`, and `signingFingerprint` must match the `.mfp` header identity, `identKey`, `identFingerprint`, and `signingFingerprint`.
 
 `entryFunction` identifies the executable entry point when the bytecode payload is the root executable payload or has been produced by merging package bytecode into the root project bytecode. Reusable packages set it to `0xFFFFFFFF`. Entry flags:
 
@@ -449,11 +467,42 @@ repeated dependencyAbiCount times:
     abiHash       byte[32]
 ```
 
-`abiFormatVersion = 1` uses SHA-256 hashes. The hash input for an exported function or sub begins with `MFBABI\0`, the ABI format version, the declaration kind, exported effect flags that affect callers such as `ISOLATED`, parameter count, parameter types, default argument presence and default constant values, and return type. Future ABI index versions may add exported types, constants, native binding entries, and additional declaration kinds without changing the `.mfp` container format.
+`abiFormatVersion = 1` uses SHA-256 hashes. The hash input for every exported ABI item begins with `MFBABI\0`, the ABI format version, the declaration kind, the fully qualified exported name, and the declaration-specific public shape described below. The hash input must use canonical type names/ids and canonical constant encodings so two compilers produce the same ABI hash for the same public surface.
 
-`exportAbiCount` must match the ABI-relevant entries in `EXPORT_TABLE` and must appear in the same order. For v1, `kind = 1` means exported `FUNC` and `kind = 2` means exported `SUB`. The verifier must reject an `ABI_INDEX` whose export names, kinds, order, or hashes disagree with the bytecode metadata.
+ABI v1 covers all caller-visible exported surface. It is not function-only. The required v1 declaration kinds are:
 
-`dependencyAbiCount` must match `IMPORT_TABLE` by package import name and package ident. Each dependency ABI entry repeats the requested `version` and `pin` state and records every imported symbol whose signature was used while compiling this package. These hashes are also present in `IMPORT_TABLE` so tools that only need dependency requirements can read one section; `ABI_INDEX` is the canonical ABI compatibility section when the two disagree.
+```text
+1 = exported FUNC
+2 = exported SUB
+3 = exported record type
+4 = exported union type
+5 = exported enum type
+6 = exported constant
+7 = exported global LET
+8 = exported global MUT
+9 = exported native wrapper function
+10 = exported resource type
+```
+
+For exported `FUNC`, `SUB`, and native wrapper functions, the hash input includes exported effect flags visible to callers, resource ownership annotations on parameters and returns, parameter count, parameter names when they are part of call syntax, parameter types, default argument presence and default constant values, return type for functions, and error/result behavior visible to callers.
+
+For exported record types, the hash input includes the record name, type parameters if any, field count, field order, field names, field types, visibility/export flags, mutability, default presence, and default constant values. Reordering exported fields is ABI-significant.
+
+For exported union types, the hash input includes the union name, type parameters if any, variant count, variant order or explicit tags, variant names, and each variant's exported field names, types, order, defaults, and ownership annotations.
+
+For exported enum types, the hash input includes the enum name, member count, member order, member names, and explicit ordinals/discriminants. Changing an exported ordinal is ABI-significant.
+
+For exported constants, the hash input includes the constant name, type, and canonical value when the value is visible to consumers at compile time.
+
+For exported global `LET` and `MUT`, the hash input includes the global name, declared type, mutability, initialization visibility, and caller-visible access shape. Changing `LET` to `MUT` or `MUT` to `LET` is ABI-significant.
+
+For exported resource types, the hash input includes the resource type name, close function signature, ownership/borrow/consume behavior, sendability flags, native/standard resource flag, and whether close may fail. These fields must agree with `RESOURCE_TABLE` and function metadata.
+
+Future ABI index versions may add more declaration kinds or more detailed hashes, but v1 must include every exported declaration kind listed above so the resolver cannot report ABI compatibility while exported types, constants, globals, native wrappers, resource behavior, or caller-visible effects have changed.
+
+`exportAbiCount` must match the ABI-relevant entries in `EXPORT_TABLE` and must appear in the same order. The verifier must reject an `ABI_INDEX` whose export names, kinds, order, or hashes disagree with the bytecode metadata.
+
+`dependencyAbiCount` must match `IMPORT_TABLE` by package import name and package ident. Each dependency ABI entry repeats the requested `version` and `pin` state and records every imported symbol whose ABI shape was used while compiling this package, including imported functions/subs, exported types, constants, globals, native wrappers, resource behavior, and caller-visible effects. These hashes are also present in `IMPORT_TABLE` so tools that only need dependency requirements can read one section; `ABI_INDEX` is the canonical ABI compatibility section when the two disagree.
 
 ---
 
@@ -1272,7 +1321,7 @@ The container verifier checks:
 * Header string validity.
 * Exact `bytecodeLength`.
 * No trailing bytes.
-* Header identity and identKey match manifest identity and identKey.
+* Header identity, identKey, identFingerprint, and signingFingerprint match manifest identity, identKey, identFingerprint, and signingFingerprint.
 
 ## Section verifier
 
@@ -1371,7 +1420,9 @@ MFPHeader
   name = "mathstuff"
   ident = "ada#mathstuff"
   version = "1.0.0"
-  identKey = "ed25519:..."
+  identKey = "ed25519-public:..."
+  identFingerprint = "sha256:..."
+  signingFingerprint = "sha256:..."
   author = "..."
   url = "..."
   bytecodeLength = N
@@ -1383,7 +1434,9 @@ packageBytecode
     "mathstuff"
     "ada#mathstuff"
     "1.0.0"
-    "ed25519:..."
+    "ed25519-public:..."
+    "sha256:..."
+    "sha256:..."
     "add"
     "a"
     "b"
@@ -1453,6 +1506,12 @@ version            byte[versionLength]
 identKeyLength     u32
 identKey           byte[identKeyLength]
 
+identFingerprintLength u32
+identFingerprint       byte[identFingerprintLength]
+
+signingFingerprintLength u32
+signingFingerprint       byte[signingFingerprintLength]
+
 authorLength       u32
 author             byte[authorLength]
 
@@ -1464,11 +1523,11 @@ bytecodeLength     u64
 packageBytecode    byte[bytecodeLength]
 ````
 
-The signature covers all bytes after the signature itself: `nameLength` through the end of `packageBytecode`. This includes `name`, `ident`, `version`, `identKey`, package metadata, and bytecode. It does not cover the magic, version fields, flags, signature type, signature length, or signature bytes.
+The signature covers all bytes after the signature itself: `nameLength` through the end of `packageBytecode`. This includes `name`, `ident`, `version`, `identKey`, `identFingerprint`, `signingFingerprint`, package metadata, and bytecode. It does not cover the magic, version fields, flags, signature type, signature length, or signature bytes.
 
-`signatureType = 0` means unsigned and requires `signatureLength = 0`. `signatureType = 1` means Ed25519 and requires `signatureLength = 64`. Unknown signature types reject the package.
+`signatureType = 0` means unsigned and requires `signatureLength = 0`. `signatureType = 1` means Ed25519 and requires `signatureLength = 64`. Unknown signature types reject the package. Public registry packages must use `signatureType = 1`; installs reject unsigned packages except for explicit `allowUnsignedLocal` exceptions on `path:` or `file:` sources.
 
-The bytecode payload must contain a signed package manifest. The manifest package name, ident, version, and identKey must match the header package name, ident, version, and identKey.
+The bytecode payload must contain a signed package manifest. The manifest package name, ident, version, identKey, identFingerprint, and signingFingerprint must match the header package name, ident, version, identKey, identFingerprint, and signingFingerprint.
 
 ### Package Bytecode
 

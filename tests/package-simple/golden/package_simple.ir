@@ -1,0 +1,105 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "package_simple",
+  "entry": null,
+  "types": [
+  {
+    "kind": "type",
+    "visibility": "export",
+    "name": "Vec2",
+    "fields": [
+    { "visibility": null, "name": "x", "type": "Integer" },
+    { "visibility": null, "name": "y", "type": "Integer" }
+    ]
+  },
+  {
+    "kind": "enum",
+    "visibility": "export",
+    "name": "Color",
+    "members": [
+    { "name": "Red" },
+    { "name": "Green" },
+    { "name": "Blue" }
+    ]
+  },
+  {
+    "kind": "union",
+    "visibility": "export",
+    "name": "MaybeNumber",
+    "includes": [],
+    "variants": [
+    {
+      "name": "Number",
+      "fields": [
+      { "visibility": null, "name": "value", "type": "Integer" }
+      ]
+    },
+    {
+      "name": "Missing",
+      "fields": [
+      ]
+    }
+    ]
+  }
+  ],
+  "functions": [
+  {
+    "name": "score$",
+    "visibility": "export",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "1" } }
+    ]
+  },
+  {
+    "name": "score$Vec2",
+    "visibility": "export",
+    "kind": "func",
+    "params": [
+    { "name": "v", "type": "Vec2", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "return", "value": { "kind": "binary", "op": "+", "left": { "kind": "memberAccess", "target": { "kind": "local", "name": "v" }, "member": "x" }, "right": { "kind": "memberAccess", "target": { "kind": "local", "name": "v" }, "member": "y" } } }
+    ]
+  },
+  {
+    "name": "mark$",
+    "visibility": "export",
+    "kind": "sub",
+    "params": [
+    ],
+    "returns": "Nothing",
+    "body": [
+    ]
+  },
+  {
+    "name": "mark$Vec2",
+    "visibility": "export",
+    "kind": "sub",
+    "params": [
+    { "name": "v", "type": "Vec2", "default": null }
+    ],
+    "returns": "Nothing",
+    "body": [
+    { "op": "bind", "mutable": false, "name": "total", "type": "Integer", "value": { "kind": "binary", "op": "+", "left": { "kind": "memberAccess", "target": { "kind": "local", "name": "v" }, "member": "x" }, "right": { "kind": "memberAccess", "target": { "kind": "local", "name": "v" }, "member": "y" } } }
+    ]
+  },
+  {
+    "name": "worker",
+    "visibility": "export",
+    "kind": "func",
+    "params": [
+    { "name": "seed", "type": "String", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "return", "value": { "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "seed" }] } }
+    ]
+  }
+  ]
+}

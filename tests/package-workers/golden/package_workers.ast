@@ -1,0 +1,92 @@
+{
+  "project": "package_workers",
+  "files": [
+  {
+    "path": "src/lib.mfb",
+    "imports": [
+    { "module": "thread", "line": 1 }
+    ],
+    "items": [
+    {
+      "kind": "type",
+      "visibility": "export",
+      "name": "WorkItem",
+      "line": 3,
+      "fields": [
+      { "visibility": null, "name": "id", "type": "Integer", "line": 4 },
+      { "visibility": null, "name": "payload", "type": "String", "line": 5 }
+      ]
+    },
+    {
+      "kind": "enum",
+      "visibility": "export",
+      "name": "WorkStatus",
+      "line": 8,
+      "members": [
+      { "name": "Pending", "line": 9 },
+      { "name": "Complete", "line": 9 }
+      ]
+    },
+    {
+      "kind": "union",
+      "visibility": "export",
+      "name": "WorkResult",
+      "line": 12,
+      "includes": [],
+      "variants": [
+      {
+        "name": "Success",
+        "line": 13,
+        "fields": [
+        { "visibility": null, "name": "value", "type": "Integer", "line": 13 }
+        ]
+      },
+      {
+        "name": "Failure",
+        "line": 14,
+        "fields": [
+        { "visibility": null, "name": "message", "type": "String", "line": 14 }
+        ]
+      }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "export",
+      "name": "worker",
+      "line": 17,
+      "params": [
+      { "name": "seed", "type": "String", "default": null }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "return", "value": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "seed" }] }, "line": 18 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "export",
+      "name": "status",
+      "line": 21,
+      "params": [
+      { "name": "done", "type": "Boolean", "default": null }
+      ],
+      "returnType": "WorkStatus",
+      "body": [
+      {
+        "kind": "if",
+        "condition": { "kind": "identifier", "value": "done" },
+        "line": 22,
+        "then": [
+        { "kind": "return", "value": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "WorkStatus" }, "member": "Complete" }, "line": 23 }
+        ],
+        "else": [
+        { "kind": "return", "value": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "WorkStatus" }, "member": "Pending" }, "line": 25 }
+        ]
+      }
+      ]
+    }
+    ]
+  }
+  ]
+}

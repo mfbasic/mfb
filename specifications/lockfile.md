@@ -27,8 +27,13 @@ The lockfile is JSON, UTF-8 encoded, and deterministic. Tools must preserve stab
       "pin": false,
       "source": "registry:mfb",
       "hash": "<signature-excluded package content hash>",
-      "signer": "<key fingerprint>",
-      "identKey": "<registered signing-key identity>",
+      "signatureType": "ed25519",
+      "identFingerprint": "<owner ident-key fingerprint>",
+      "signingFingerprint": "<package signing-key fingerprint>",
+      "signingKeyStatus": "current",
+      "publishedAt": "<timestamp>",
+      "signingKeyRotatedAt": null,
+      "unsignedLocalException": null,
       "container": {
         "major": 1,
         "minor": 0
@@ -86,17 +91,42 @@ The lockfile is JSON, UTF-8 encoded, and deterministic. Tools must preserve stab
 | `pin` | Whether the request required the exact `requestedVersion`. |
 | `source` | Source locator alias, such as `registry:mfb`, `file:...`, `path:...`, or `git+https://...`. |
 | `hash` | Authoritative signature-excluded package content hash. |
-| `signer` | Fingerprint of the signing key observed at resolution time. |
-| `identKey` | Registered signing-key identity declared by the signed `.mfp` header and manifest. |
+| `signatureType` | `ed25519` for signed packages, or `unsigned` only for an explicitly allowed local exception. |
+| `identFingerprint` | Fingerprint of the owner ident key declared by the signed `.mfp` header and manifest. |
+| `signingFingerprint` | Fingerprint of the package signing key that verifies the immutable `.mfp` signature. |
+| `signingKeyStatus` | `current` when the signing key is still current, or `past` when the key has since rotated. |
+| `publishedAt` | Timestamp recorded in the transparency log for this package publish. |
+| `signingKeyRotatedAt` | Rotation timestamp when `signingKeyStatus` is `past`; otherwise `null`. |
+| `unsignedLocalException` | `null` for signed packages. For unsigned `path:` or `file:` packages, records the explicit local-only policy exception that allowed install. |
 | `container` | `.mfp` container format major/minor. |
 | `bytecode` | MFB bytecode format major/minor. |
 | `abi` | ABI index format version and hash of the package's `ABI_INDEX` section. |
 | `native` | Native dependency metadata hash and resolved native requirements. |
 | `depends` | Resolved direct dependencies of this package. |
 
-The `hash` field is authoritative for locked installs. A locked install fetches by `hash`, verifies the bytes, verifies the package signature and `identKey` under the active trust policy, then verifies that package metadata matches the lock entry. Registry index data is not consulted when the lockfile is current.
+The `hash` field is authoritative for locked installs. A locked install fetches by `hash`, verifies the bytes, verifies the package signature with `signingFingerprint` under the active trust policy, verifies that `signingFingerprint` belongs to the owner represented by `identFingerprint`, then verifies that package metadata matches the lock entry. Registry index data is not consulted when the lockfile is current.
 
-The `signer` field is diagnostic. The cryptographic check is against the signature embedded in the fetched `.mfp` and the trust policy for `ident` and `identKey`.
+Unsigned packages are rejected unless all of the following are true: `signatureType` is `unsigned`, `source` is `path:` or `file:`, the project policy explicitly enables `allowUnsignedLocal`, and `unsignedLocalException` records that policy decision. Registry and remote sources (`registry:*`, `git+https://...`, `https://...`) can never use unsigned exceptions.
+
+Example unsigned-local exception:
+
+```json
+{
+  "signatureType": "unsigned",
+  "identFingerprint": null,
+  "signingFingerprint": null,
+  "signingKeyStatus": null,
+  "publishedAt": null,
+  "signingKeyRotatedAt": null,
+  "unsignedLocalException": {
+    "policy": "allowUnsignedLocal",
+    "source": "path:vendor/local-dev-package",
+    "reason": "local development package"
+  }
+}
+```
+
+If `signingKeyStatus` is `past`, install must verify `publishedAt < signingKeyRotatedAt` before accepting the package and should report that the package was verified with an old signing key. If either timestamp is missing, or if the package publish timestamp is not earlier than the key rotation timestamp, verification fails.
 
 The `depends` array is a cache of data derivable from each package's compiled manifest and `IMPORT_TABLE`. If `depends` disagrees with the fetched package, the signed package metadata is the source of truth and the lockfile must be regenerated or rejected under frozen mode.
 
@@ -108,6 +138,6 @@ Registry and mirror endpoint URLs are not stored in `mfb.lock`; `source` values 
 
 `mfb pkg install` with a mismatched `projectHash` re-resolves the changed dependency requests and rewrites `mfb.lock`.
 
-`mfb pkg install --frozen` fails on any `projectHash` mismatch, missing package hash, signature failure, metadata mismatch, unsupported package format, unsupported bytecode format, or native metadata mismatch.
+`mfb pkg install --frozen` fails on any `projectHash` mismatch, missing package hash, signature failure, unsigned package without a valid recorded unsigned-local exception, metadata mismatch, unsupported package format, unsupported bytecode format, or native metadata mismatch.
 
 `mfb pkg update [ident]` explicitly re-runs resolution for one package identity or all package identities and rewrites the lockfile with visible diffs.

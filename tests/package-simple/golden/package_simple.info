@@ -1,0 +1,58 @@
+Package: package_simple
+Ident: tests:package-simple
+Version: 1.0.0
+Ident Key: ed25519-public:test-package-simple-ident
+Ident Fingerprint: sha256:test-package-simple-ident
+Signing Fingerprint: sha256:test-package-simple-signing
+Author: <empty>
+URL: <empty>
+Path: tests/package-simple/package_simple.mfp
+
+Container:
+  format: MFP
+  version: 1.0
+  bytecode version: 1.0
+  flags: 0x00000000
+  signature type: unsigned
+  signature length: 0
+  bytecode length: 1922
+
+Manifest:
+  name: package_simple
+  ident: tests:package-simple
+  version: 1.0.0
+  ident key: ed25519-public:test-package-simple-ident
+  ident fingerprint: sha256:test-package-simple-ident
+  signing fingerprint: sha256:test-package-simple-signing
+  author: <empty>
+  url: <empty>
+
+Bytecode:
+  ABI format version: 1
+  types: 3
+  constants: 1
+  resources: 0
+  functions: 5
+  imports: 0
+  exports: 8
+
+Exports:
+  FUNC score$
+    sigHash: b8be4292b366a3dfc6022a8fa80c583bd1316b178fa4a14d1e732c3c7d17c71f
+  FUNC score$Vec2
+    sigHash: fac19c85c67081b2309f9271b0fe689fb1a2f20c0089a09144254713859dd565
+  SUB mark$
+    sigHash: cadf6e48a0d54c7f1c50bbf30e790c348f041176a78140b9d905cbf53aaf8296
+  SUB mark$Vec2
+    sigHash: f8c16b352cc903ae6d8e40831bb4b5f0614794721e9f590b8024e91c3fa52c03
+  FUNC worker
+    sigHash: f3a127c4f60abc87c8d22269145f7b240ca1935e7f7400499e77d399ba2a3034
+  TYPE Vec2
+    sigHash: da95cb2dd7cf9cac6a665ed1e1858fa9a46bbb940a0f01139c49a1586c55b52e
+  ENUM Color
+    sigHash: f506a215076273557bbf08998d73af7fb651488abbd49b12517ce61b2eb58485
+  UNION MaybeNumber
+    sigHash: 3fe4fc2f3685bd82132c1bb154efcf020547aa8c918b6a14fca61f6f32bcf5e2
+
+Imports:
+  <none>

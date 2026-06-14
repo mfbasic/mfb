@@ -311,6 +311,9 @@ impl<'a> TypeChecker<'a> {
                         kind: match export.kind {
                             BytecodeExportKind::Func => FunctionKind::Func,
                             BytecodeExportKind::Sub => FunctionKind::Sub,
+                            BytecodeExportKind::Type
+                            | BytecodeExportKind::Union
+                            | BytecodeExportKind::Enum => continue,
                         },
                         params: export
                             .params

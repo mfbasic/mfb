@@ -144,7 +144,7 @@ for test_dir in "$TEST_ROOT"/*; do
       "$MFB_EXE" build -bc "tests/$test_name"
       echo "[exit $?]"
     fi
-    if [ -f "$golden_dir/$package_name.mfp" ]; then
+    if [ -f "$golden_dir/$package_name.mfp" ] || [ -f "$golden_dir/$package_name.info" ]; then
       echo "$ mfb build tests/$test_name"
       "$MFB_EXE" build "tests/$test_name"
       echo "[exit $?]"
@@ -199,6 +199,9 @@ for test_dir in "$TEST_ROOT"/*; do
   if [ -f "$hex_path" ]; then
     mv "$hex_path" "$actual_dir/$package_name.hex"
   fi
+  if [ -f "$golden_dir/$package_name.info" ] && [ -f "$mfp_path" ]; then
+    "$MFB_EXE" pkg info "tests/$test_name/$package_name.mfp" >"$actual_dir/$package_name.info" 2>&1
+  fi
   if [ -f "$mfp_path" ]; then
     mv "$mfp_path" "$actual_dir/$package_name.mfp"
   fi
@@ -228,6 +231,9 @@ for test_dir in "$TEST_ROOT"/*; do
   compare_optional_output "$test_name/$package_name.mfp" \
     "$golden_dir/$package_name.mfp" \
     "$actual_dir/$package_name.mfp"
+  compare_optional_output "$test_name/$package_name.info" \
+    "$golden_dir/$package_name.info" \
+    "$actual_dir/$package_name.info"
   compare_optional_output "$test_name/$package_name.$target_name.nir" \
     "$golden_dir/$package_name.$target_name.nir" \
     "$actual_dir/$package_name.$target_name.nir"
