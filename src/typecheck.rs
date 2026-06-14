@@ -44,6 +44,7 @@ struct FunctionSig {
     params: Vec<ParamSig>,
     return_type: Type,
     isolated: bool,
+    imported_package_export: bool,
 }
 
 #[derive(Clone)]
@@ -281,6 +282,7 @@ impl<'a> TypeChecker<'a> {
                             params,
                             return_type,
                             isolated: function.isolated,
+                            imported_package_export: false,
                         },
                     );
                 }
@@ -325,6 +327,7 @@ impl<'a> TypeChecker<'a> {
                             .collect(),
                         return_type: self.parse_type(&export.return_type),
                         isolated: export.isolated,
+                        imported_package_export: true,
                     },
                 );
             }
@@ -2208,10 +2211,14 @@ impl<'a> TypeChecker<'a> {
             .collect::<Vec<_>>();
 
         if callee == "thread.start" {
-            let valid_entry = matches!(
-                arguments.first(),
-                Some(Expression::Identifier(name)) if name.contains('.')
-            );
+            let valid_entry = match arguments.first() {
+                Some(Expression::Identifier(name)) => self.functions.get(name).is_some_and(|sig| {
+                    sig.imported_package_export
+                        && matches!(sig.kind, FunctionKind::Func)
+                        && sig.isolated
+                }),
+                _ => false,
+            };
             if !valid_entry {
                 self.report(
                     "TYPE_CALL_ARGUMENT_MISMATCH",

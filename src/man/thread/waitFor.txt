@@ -1,0 +1,12 @@
+NAME
+  waitFor - wait for a worker result
+
+SYNOPSIS
+  thread::waitFor(t AS Thread OF Msg TO Out) AS Out
+
+DESCRIPTION
+  Waits until the worker has stored its result, then returns the successful Out
+  value. Err results auto-propagate using the normal fallible function rules.
+
+EXAMPLES
+  LET count AS Integer = thread::waitFor(t)

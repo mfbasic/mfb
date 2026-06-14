@@ -16,7 +16,7 @@ pub(crate) fn write_executable(
     let imports_libsystem = imports_libsystem(image)?;
     let code_offset = code_offset(imports_libsystem);
     let mut text = image.text.clone();
-    let import_stubs = if imports_libsystem {
+    let import_locations = if imports_libsystem {
         append_import_stubs(
             &mut text,
             image,
@@ -25,13 +25,13 @@ pub(crate) fn write_executable(
             image.data.len(),
         )?
     } else {
-        HashMap::new()
+        ImportLocations::default()
     };
     patch_relocations(
         &mut text,
         image,
         VM_BASE + code_offset as u64,
-        &import_stubs,
+        &import_locations,
     )?;
     let entry_offset = image
         .symbols
@@ -65,7 +65,7 @@ fn patch_relocations(
     text: &mut [u8],
     image: &EncodedImage,
     text_vmaddr: u64,
-    import_stubs: &HashMap<String, u64>,
+    import_locations: &ImportLocations,
 ) -> Result<(), String> {
     let data_vmaddr = text_vmaddr + text.len() as u64;
     for relocation in &image.relocations {
@@ -102,8 +102,8 @@ fn patch_relocations(
                     0x9100_0000 | (imm12 << 10) | (rn << 5) | rd,
                 );
             }
-            "external" => {
-                let Some(&target) = import_stubs.get(&relocation.target) else {
+            "external" if relocation.kind == "branch26" => {
+                let Some(&target) = import_locations.stubs.get(&relocation.target) else {
                     return Err(format!(
                         "macOS linker cannot bind external symbol '{}' from {}",
                         relocation.target,
@@ -113,6 +113,44 @@ fn patch_relocations(
                 let word = 0x9400_0000
                     | branch_imm26(text_vmaddr as usize + relocation.offset, target as usize);
                 write_u32(text, relocation.offset, word);
+            }
+            "external" if relocation.kind == "page21" => {
+                let Some(&target) = import_locations.got_entries.get(&relocation.target) else {
+                    return Err(format!(
+                        "macOS linker cannot bind external data symbol '{}' from {}",
+                        relocation.target,
+                        relocation.library.as_deref().unwrap_or("<unknown library>")
+                    ));
+                };
+                let pc = text_vmaddr + relocation.offset as u64;
+                let page_delta = ((target & !0xfff) as i64 - (pc & !0xfff) as i64) >> 12;
+                let encoded = page_delta as u32;
+                let immlo = encoded & 0b11;
+                let immhi = (encoded >> 2) & 0x7ffff;
+                let rd = read_u32(text, relocation.offset) & 0x1f;
+                write_u32(
+                    text,
+                    relocation.offset,
+                    0x9000_0000 | (immlo << 29) | (immhi << 5) | rd,
+                );
+            }
+            "external" if relocation.kind == "pageoff12" => {
+                let Some(&target) = import_locations.got_entries.get(&relocation.target) else {
+                    return Err(format!(
+                        "macOS linker cannot bind external data symbol '{}' from {}",
+                        relocation.target,
+                        relocation.library.as_deref().unwrap_or("<unknown library>")
+                    ));
+                };
+                let imm12 = (target & 0xfff) as u32;
+                let word = read_u32(text, relocation.offset);
+                let rd = word & 0x1f;
+                let rn = (word >> 5) & 0x1f;
+                write_u32(
+                    text,
+                    relocation.offset,
+                    0x9100_0000 | (imm12 << 10) | (rn << 5) | rd,
+                );
             }
             _ => {
                 return Err(format!(
@@ -137,23 +175,32 @@ fn imports_libsystem(image: &EncodedImage) -> Result<bool, String> {
     Ok(!image.imports.is_empty())
 }
 
+#[derive(Default)]
+struct ImportLocations {
+    stubs: HashMap<String, u64>,
+    got_entries: HashMap<String, u64>,
+}
+
 fn append_import_stubs(
     text: &mut Vec<u8>,
     image: &EncodedImage,
     text_vmaddr: u64,
     code_offset: usize,
     data_len: usize,
-) -> Result<HashMap<String, u64>, String> {
-    let mut stubs = HashMap::new();
+) -> Result<ImportLocations, String> {
+    let mut locations = ImportLocations::default();
     let layout = macho_layout(code_offset, text.len(), data_len, true);
     for (index, import) in image.imports.iter().enumerate() {
         let stub_offset = text.len();
         let stub_vmaddr = text_vmaddr + stub_offset as u64;
         let got_vmaddr = VM_BASE + layout.data_const_file_offset as u64 + (index * 8) as u64;
         emit_import_stub(text, stub_vmaddr, got_vmaddr);
-        stubs.insert(import.symbol.clone(), stub_vmaddr);
+        locations.stubs.insert(import.symbol.clone(), stub_vmaddr);
+        locations
+            .got_entries
+            .insert(import.symbol.clone(), got_vmaddr);
     }
-    Ok(stubs)
+    Ok(locations)
 }
 
 fn emit_import_stub(text: &mut Vec<u8>, stub_vmaddr: u64, got_vmaddr: u64) {
@@ -833,6 +880,57 @@ fn put_uleb128(bytes: &mut Vec<u8>, mut value: u64) {
         if value == 0 {
             break;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::arch::aarch64::encode::{EncodedImport, EncodedRelocation, EncodedSymbol};
+
+    #[test]
+    fn patches_external_data_relocations_to_got_entry() {
+        let mut text = vec![
+            0x00, 0x00, 0x00, 0x90, // adrp x0, symbol
+            0x00, 0x00, 0x00, 0x91, // add x0, x0, pageoff(symbol)
+        ];
+        let image = EncodedImage {
+            text: text.clone(),
+            data: Vec::new(),
+            symbols: vec![EncodedSymbol {
+                name: "_main".to_string(),
+                section: EncodedSection::Text,
+                offset: 0,
+            }],
+            relocations: vec![
+                EncodedRelocation {
+                    offset: 0,
+                    target: "_mach_task_self_".to_string(),
+                    kind: "page21".to_string(),
+                    binding: "external".to_string(),
+                    library: Some("libSystem".to_string()),
+                },
+                EncodedRelocation {
+                    offset: 4,
+                    target: "_mach_task_self_".to_string(),
+                    kind: "pageoff12".to_string(),
+                    binding: "external".to_string(),
+                    library: Some("libSystem".to_string()),
+                },
+            ],
+            imports: vec![EncodedImport {
+                library: "libSystem".to_string(),
+                symbol: "_mach_task_self_".to_string(),
+            }],
+            entry: "_main".to_string(),
+        };
+        let text_vmaddr = VM_BASE + 0x4000;
+        let locations =
+            append_import_stubs(&mut text, &image, text_vmaddr, 0x4000, 0).expect("import stubs");
+
+        patch_relocations(&mut text, &image, text_vmaddr, &locations).expect("relocations");
+
+        assert!(locations.got_entries.contains_key("_mach_task_self_"));
     }
 }
 

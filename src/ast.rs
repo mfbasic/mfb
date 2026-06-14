@@ -1553,20 +1553,16 @@ impl<'a> FileParser<'a> {
                 return Some(name);
             }
 
+            if name.eq_ignore_ascii_case("List") || name.eq_ignore_ascii_case("Result") {
+                let arg = self.parse_type_name()?;
+                name.push_str(" OF ");
+                name.push_str(&arg);
+                return Some(name);
+            }
+
             let mut args = vec![self.parse_type_name()?];
             while self.match_kind(TokenKind::Comma) {
                 args.push(self.parse_type_name()?);
-            }
-            if name.eq_ignore_ascii_case("List") || name.eq_ignore_ascii_case("Result") {
-                if args.len() != 1 {
-                    let token = self.peek().clone();
-                    self.report(
-                        "MFB_PARSE_UNEXPECTED_TOKEN",
-                        "This built-in template accepts exactly one type argument.",
-                        &token,
-                    );
-                    return None;
-                }
             }
             if args.is_empty() {
                 let token = self.peek().clone();

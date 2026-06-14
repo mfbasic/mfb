@@ -1,0 +1,14 @@
+NAME
+  poll - wait for an outbound message
+
+SYNOPSIS
+  thread::poll(t AS Thread OF Msg TO Out, ms AS Integer) AS Boolean
+
+DESCRIPTION
+  Waits up to ms milliseconds for an outbound message from the worker. Returns
+  TRUE when thread::read can read without blocking and FALSE when no message is
+  available before the timeout expires.
+
+EXAMPLES
+  LET ready AS Boolean = thread::poll(t, 0)
+  LET waited AS Boolean = thread::poll(t, 10)

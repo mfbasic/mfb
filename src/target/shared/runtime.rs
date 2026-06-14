@@ -120,6 +120,38 @@ const FS_FILE_STRING_PARAMS: &[RuntimeAbiParam] = &[
     },
 ];
 
+const STRING_VALUE_PARAMS: &[RuntimeAbiParam] = &[RuntimeAbiParam {
+    name: "value",
+    type_: "String",
+    location: "x0",
+}];
+
+const STRING_VALUE_PATTERN_PARAMS: &[RuntimeAbiParam] = &[
+    RuntimeAbiParam {
+        name: "value",
+        type_: "String",
+        location: "x0",
+    },
+    RuntimeAbiParam {
+        name: "pattern",
+        type_: "String",
+        location: "x1",
+    },
+];
+
+const STRING_LIST_SEPARATOR_PARAMS: &[RuntimeAbiParam] = &[
+    RuntimeAbiParam {
+        name: "values",
+        type_: "List OF String",
+        location: "x0",
+    },
+    RuntimeAbiParam {
+        name: "separator",
+        type_: "String",
+        location: "x1",
+    },
+];
+
 const FS_PATH_STRING_PARAMS: &[RuntimeAbiParam] = &[
     RuntimeAbiParam {
         name: "path",
@@ -671,6 +703,160 @@ pub(crate) const FS_EOF_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
     },
 };
 
+pub(crate) const STRINGS_TRIM_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
+    helper: RuntimeHelper::Strings,
+    call: "strings.trim",
+    symbol: "_mfb_rt_strings_strings_trim",
+    abi: RuntimeHelperAbi {
+        params: STRING_VALUE_PARAMS,
+        returns: "String",
+        clobbers: abi::IO_PRINT_CLOBBERS,
+    },
+};
+
+pub(crate) const STRINGS_TRIM_START_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
+    helper: RuntimeHelper::Strings,
+    call: "strings.trimStart",
+    symbol: "_mfb_rt_strings_strings_trimStart",
+    abi: RuntimeHelperAbi {
+        params: STRING_VALUE_PARAMS,
+        returns: "String",
+        clobbers: abi::IO_PRINT_CLOBBERS,
+    },
+};
+
+pub(crate) const STRINGS_TRIM_END_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
+    helper: RuntimeHelper::Strings,
+    call: "strings.trimEnd",
+    symbol: "_mfb_rt_strings_strings_trimEnd",
+    abi: RuntimeHelperAbi {
+        params: STRING_VALUE_PARAMS,
+        returns: "String",
+        clobbers: abi::IO_PRINT_CLOBBERS,
+    },
+};
+
+pub(crate) const STRINGS_UPPER_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
+    helper: RuntimeHelper::Strings,
+    call: "strings.upper",
+    symbol: "_mfb_rt_strings_strings_upper",
+    abi: RuntimeHelperAbi {
+        params: STRING_VALUE_PARAMS,
+        returns: "String",
+        clobbers: abi::IO_PRINT_CLOBBERS,
+    },
+};
+
+pub(crate) const STRINGS_LOWER_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
+    helper: RuntimeHelper::Strings,
+    call: "strings.lower",
+    symbol: "_mfb_rt_strings_strings_lower",
+    abi: RuntimeHelperAbi {
+        params: STRING_VALUE_PARAMS,
+        returns: "String",
+        clobbers: abi::IO_PRINT_CLOBBERS,
+    },
+};
+
+pub(crate) const STRINGS_CASE_FOLD_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
+    helper: RuntimeHelper::Strings,
+    call: "strings.caseFold",
+    symbol: "_mfb_rt_strings_strings_caseFold",
+    abi: RuntimeHelperAbi {
+        params: STRING_VALUE_PARAMS,
+        returns: "String",
+        clobbers: abi::IO_PRINT_CLOBBERS,
+    },
+};
+
+pub(crate) const STRINGS_NORMALIZE_NFC_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
+    helper: RuntimeHelper::Strings,
+    call: "strings.normalizeNfc",
+    symbol: "_mfb_rt_strings_strings_normalizeNfc",
+    abi: RuntimeHelperAbi {
+        params: STRING_VALUE_PARAMS,
+        returns: "String",
+        clobbers: abi::IO_PRINT_CLOBBERS,
+    },
+};
+
+pub(crate) const STRINGS_GRAPHEMES_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
+    helper: RuntimeHelper::Strings,
+    call: "strings.graphemes",
+    symbol: "_mfb_rt_strings_strings_graphemes",
+    abi: RuntimeHelperAbi {
+        params: STRING_VALUE_PARAMS,
+        returns: "List OF String",
+        clobbers: abi::IO_PRINT_CLOBBERS,
+    },
+};
+
+pub(crate) const STRINGS_STARTS_WITH_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
+    helper: RuntimeHelper::Strings,
+    call: "strings.startsWith",
+    symbol: "_mfb_rt_strings_strings_startsWith",
+    abi: RuntimeHelperAbi {
+        params: STRING_VALUE_PATTERN_PARAMS,
+        returns: "Boolean",
+        clobbers: abi::IO_PRINT_CLOBBERS,
+    },
+};
+
+pub(crate) const STRINGS_ENDS_WITH_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
+    helper: RuntimeHelper::Strings,
+    call: "strings.endsWith",
+    symbol: "_mfb_rt_strings_strings_endsWith",
+    abi: RuntimeHelperAbi {
+        params: STRING_VALUE_PATTERN_PARAMS,
+        returns: "Boolean",
+        clobbers: abi::IO_PRINT_CLOBBERS,
+    },
+};
+
+pub(crate) const STRINGS_CONTAINS_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
+    helper: RuntimeHelper::Strings,
+    call: "strings.contains",
+    symbol: "_mfb_rt_strings_strings_contains",
+    abi: RuntimeHelperAbi {
+        params: STRING_VALUE_PATTERN_PARAMS,
+        returns: "Boolean",
+        clobbers: abi::IO_PRINT_CLOBBERS,
+    },
+};
+
+pub(crate) const STRINGS_SPLIT_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
+    helper: RuntimeHelper::Strings,
+    call: "strings.split",
+    symbol: "_mfb_rt_strings_strings_split",
+    abi: RuntimeHelperAbi {
+        params: STRING_VALUE_PATTERN_PARAMS,
+        returns: "List OF String",
+        clobbers: abi::IO_PRINT_CLOBBERS,
+    },
+};
+
+pub(crate) const STRINGS_JOIN_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
+    helper: RuntimeHelper::Strings,
+    call: "strings.join",
+    symbol: "_mfb_rt_strings_strings_join",
+    abi: RuntimeHelperAbi {
+        params: STRING_LIST_SEPARATOR_PARAMS,
+        returns: "String",
+        clobbers: abi::IO_PRINT_CLOBBERS,
+    },
+};
+
+pub(crate) const STRINGS_BYTE_LEN_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
+    helper: RuntimeHelper::Strings,
+    call: "strings.byteLen",
+    symbol: "_mfb_rt_strings_strings_byteLen",
+    abi: RuntimeHelperAbi {
+        params: STRING_VALUE_PARAMS,
+        returns: "Integer",
+        clobbers: abi::IO_PRINT_CLOBBERS,
+    },
+};
+
 pub(crate) const FS_CANONICAL_PATH_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
     helper: RuntimeHelper::Fs,
     call: "fs.canonicalPath",
@@ -688,6 +874,189 @@ pub(crate) const FS_IS_WITHIN_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
     symbol: "_mfb_rt_fs_fs_isWithin",
     abi: RuntimeHelperAbi {
         params: FS_TWO_PATH_PARAMS,
+        returns: "Boolean",
+        clobbers: abi::IO_PRINT_CLOBBERS,
+    },
+};
+
+const THREAD_START_PARAMS: &[RuntimeAbiParam] = &[
+    RuntimeAbiParam {
+        name: "f",
+        type_: "ISOLATED FUNC(Thread OF Msg TO Out, In) AS Out",
+        location: "x0",
+    },
+    RuntimeAbiParam {
+        name: "data",
+        type_: "In",
+        location: "x1",
+    },
+    RuntimeAbiParam {
+        name: "inboundLimit",
+        type_: "Integer",
+        location: "x2",
+    },
+    RuntimeAbiParam {
+        name: "outboundLimit",
+        type_: "Integer",
+        location: "x3",
+    },
+];
+
+const THREAD_HANDLE_PARAMS: &[RuntimeAbiParam] = &[RuntimeAbiParam {
+    name: "t",
+    type_: "Thread OF Msg TO Out",
+    location: "x0",
+}];
+
+const THREAD_SEND_PARAMS: &[RuntimeAbiParam] = &[
+    RuntimeAbiParam {
+        name: "t",
+        type_: "Thread OF Msg TO Out",
+        location: "x0",
+    },
+    RuntimeAbiParam {
+        name: "data",
+        type_: "Msg",
+        location: "x1",
+    },
+    RuntimeAbiParam {
+        name: "timeoutMs",
+        type_: "Integer",
+        location: "x2",
+    },
+];
+
+const THREAD_POLL_PARAMS: &[RuntimeAbiParam] = &[
+    RuntimeAbiParam {
+        name: "t",
+        type_: "Thread OF Msg TO Out",
+        location: "x0",
+    },
+    RuntimeAbiParam {
+        name: "ms",
+        type_: "Integer",
+        location: "x1",
+    },
+];
+
+const THREAD_RECEIVE_PARAMS: &[RuntimeAbiParam] = &[
+    RuntimeAbiParam {
+        name: "t",
+        type_: "Thread OF Msg TO Out",
+        location: "x0",
+    },
+    RuntimeAbiParam {
+        name: "timeoutMs",
+        type_: "Integer",
+        location: "x1",
+    },
+];
+
+pub(crate) const THREAD_START_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
+    helper: RuntimeHelper::Thread,
+    call: "thread.start",
+    symbol: "_mfb_rt_thread_thread_start",
+    abi: RuntimeHelperAbi {
+        params: THREAD_START_PARAMS,
+        returns: "Thread OF Msg TO Out",
+        clobbers: abi::IO_PRINT_CLOBBERS,
+    },
+};
+
+pub(crate) const THREAD_IS_RUNNING_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
+    helper: RuntimeHelper::Thread,
+    call: "thread.isRunning",
+    symbol: "_mfb_rt_thread_thread_isRunning",
+    abi: RuntimeHelperAbi {
+        params: THREAD_HANDLE_PARAMS,
+        returns: "Boolean",
+        clobbers: abi::IO_PRINT_CLOBBERS,
+    },
+};
+
+pub(crate) const THREAD_WAIT_FOR_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
+    helper: RuntimeHelper::Thread,
+    call: "thread.waitFor",
+    symbol: "_mfb_rt_thread_thread_waitFor",
+    abi: RuntimeHelperAbi {
+        params: THREAD_HANDLE_PARAMS,
+        returns: "Out",
+        clobbers: abi::IO_PRINT_CLOBBERS,
+    },
+};
+
+pub(crate) const THREAD_CANCEL_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
+    helper: RuntimeHelper::Thread,
+    call: "thread.cancel",
+    symbol: "_mfb_rt_thread_thread_cancel",
+    abi: RuntimeHelperAbi {
+        params: THREAD_HANDLE_PARAMS,
+        returns: "Nothing",
+        clobbers: abi::IO_PRINT_CLOBBERS,
+    },
+};
+
+pub(crate) const THREAD_SEND_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
+    helper: RuntimeHelper::Thread,
+    call: "thread.send",
+    symbol: "_mfb_rt_thread_thread_send",
+    abi: RuntimeHelperAbi {
+        params: THREAD_SEND_PARAMS,
+        returns: "Nothing",
+        clobbers: abi::IO_PRINT_CLOBBERS,
+    },
+};
+
+pub(crate) const THREAD_POLL_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
+    helper: RuntimeHelper::Thread,
+    call: "thread.poll",
+    symbol: "_mfb_rt_thread_thread_poll",
+    abi: RuntimeHelperAbi {
+        params: THREAD_POLL_PARAMS,
+        returns: "Boolean",
+        clobbers: abi::IO_PRINT_CLOBBERS,
+    },
+};
+
+pub(crate) const THREAD_READ_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
+    helper: RuntimeHelper::Thread,
+    call: "thread.read",
+    symbol: "_mfb_rt_thread_thread_read",
+    abi: RuntimeHelperAbi {
+        params: THREAD_HANDLE_PARAMS,
+        returns: "Msg",
+        clobbers: abi::IO_PRINT_CLOBBERS,
+    },
+};
+
+pub(crate) const THREAD_RECEIVE_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
+    helper: RuntimeHelper::Thread,
+    call: "thread.receive",
+    symbol: "_mfb_rt_thread_thread_receive",
+    abi: RuntimeHelperAbi {
+        params: THREAD_RECEIVE_PARAMS,
+        returns: "Msg",
+        clobbers: abi::IO_PRINT_CLOBBERS,
+    },
+};
+
+pub(crate) const THREAD_EMIT_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
+    helper: RuntimeHelper::Thread,
+    call: "thread.emit",
+    symbol: "_mfb_rt_thread_thread_emit",
+    abi: RuntimeHelperAbi {
+        params: THREAD_SEND_PARAMS,
+        returns: "Nothing",
+        clobbers: abi::IO_PRINT_CLOBBERS,
+    },
+};
+
+pub(crate) const THREAD_IS_CANCELLED_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
+    helper: RuntimeHelper::Thread,
+    call: "thread.isCancelled",
+    symbol: "_mfb_rt_thread_thread_isCancelled",
+    abi: RuntimeHelperAbi {
+        params: &[],
         returns: "Boolean",
         clobbers: abi::IO_PRINT_CLOBBERS,
     },
@@ -742,6 +1111,30 @@ pub(crate) fn supported_helper_specs() -> &'static [RuntimeHelperSpec] {
         FS_EOF_SPEC,
         FS_CANONICAL_PATH_SPEC,
         FS_IS_WITHIN_SPEC,
+        STRINGS_TRIM_SPEC,
+        STRINGS_TRIM_START_SPEC,
+        STRINGS_TRIM_END_SPEC,
+        STRINGS_UPPER_SPEC,
+        STRINGS_LOWER_SPEC,
+        STRINGS_CASE_FOLD_SPEC,
+        STRINGS_NORMALIZE_NFC_SPEC,
+        STRINGS_GRAPHEMES_SPEC,
+        STRINGS_STARTS_WITH_SPEC,
+        STRINGS_ENDS_WITH_SPEC,
+        STRINGS_CONTAINS_SPEC,
+        STRINGS_SPLIT_SPEC,
+        STRINGS_JOIN_SPEC,
+        STRINGS_BYTE_LEN_SPEC,
+        THREAD_START_SPEC,
+        THREAD_IS_RUNNING_SPEC,
+        THREAD_WAIT_FOR_SPEC,
+        THREAD_CANCEL_SPEC,
+        THREAD_SEND_SPEC,
+        THREAD_POLL_SPEC,
+        THREAD_READ_SPEC,
+        THREAD_RECEIVE_SPEC,
+        THREAD_EMIT_SPEC,
+        THREAD_IS_CANCELLED_SPEC,
     ]
 }
 

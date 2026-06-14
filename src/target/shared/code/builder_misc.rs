@@ -426,6 +426,35 @@ impl CodeBuilder<'_> {
         }
     }
 
+    pub(super) fn thread_runtime_return_type(
+        &self,
+        target: &str,
+        args: &[NirValue],
+    ) -> Option<String> {
+        match target {
+            "thread.start" => {
+                let function_type = self.static_type_name(args.first()?)?;
+                function_type
+                    .strip_prefix("ISOLATED FUNC(")?
+                    .split_once(") AS ")
+                    .and_then(|(params, _)| split_top_level_types(params).into_iter().next())
+            }
+            "thread.isRunning" | "thread.poll" | "thread.isCancelled" => {
+                Some("Boolean".to_string())
+            }
+            "thread.cancel" | "thread.send" | "thread.emit" => Some("Nothing".to_string()),
+            "thread.waitFor" => {
+                let thread_type = self.static_type_name(args.first()?)?;
+                builtins::thread::thread_output(&thread_type).map(str::to_string)
+            }
+            "thread.read" | "thread.receive" => {
+                let thread_type = self.static_type_name(args.first()?)?;
+                builtins::thread::thread_message(&thread_type).map(str::to_string)
+            }
+            _ => None,
+        }
+    }
+
     pub(super) fn lower_match_compare(
         &mut self,
         matched: &ValueResult,
@@ -761,4 +790,26 @@ impl CodeBuilder<'_> {
             .last()
             .is_some_and(|instruction| instruction.op == CodeOp::Ret)
     }
+}
+
+fn split_top_level_types(params: &str) -> Vec<String> {
+    if params.trim().is_empty() {
+        return Vec::new();
+    }
+    let mut parts = Vec::new();
+    let mut depth = 0usize;
+    let mut start = 0usize;
+    for (index, ch) in params.char_indices() {
+        match ch {
+            '(' => depth += 1,
+            ')' => depth = depth.saturating_sub(1),
+            ',' if depth == 0 => {
+                parts.push(params[start..index].trim().to_string());
+                start = index + ch.len_utf8();
+            }
+            _ => {}
+        }
+    }
+    parts.push(params[start..].trim().to_string());
+    parts
 }

@@ -1,0 +1,14 @@
+$ mfb build -ast tests/thread-fs-read-return
+Wrote AST to tests/thread-fs-read-return/thread_fs_read_return.ast
+[exit 0]
+$ mfb build -ir tests/thread-fs-read-return
+Wrote IR to tests/thread-fs-read-return/thread_fs_read_return.ir
+[exit 0]
+$ mfb build tests/thread-fs-read-return
+Wrote executable to tests/thread-fs-read-return/thread_fs_read_return.out
+[exit 0]
+$ tests/thread-fs-read-return/thread_fs_read_return.out
+thread file line 1
+thread file line 2
+
+[exit 0]

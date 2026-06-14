@@ -1,0 +1,12 @@
+IMPORT thread
+
+EXPORT ISOLATED FUNC worker(t AS Thread OF String TO Integer, seed AS String) AS Integer
+  thread::emit(t, seed)
+  thread::emit(t, "immediate", 0)
+  thread::emit(t, "timed", 1)
+  RETURN len(seed)
+END FUNC
+
+FUNC main AS Integer
+  RETURN 0
+END FUNC

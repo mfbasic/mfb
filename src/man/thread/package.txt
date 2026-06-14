@@ -1,0 +1,25 @@
+NAME
+  thread - start isolated workers and exchange bounded queue messages
+
+SYNOPSIS
+  IMPORT thread
+  thread::start(worker, data)
+  thread::waitFor(t)
+
+DESCRIPTION
+  The thread package starts exported ISOLATED FUNC entry points from imported
+  packages in fresh package instances. Thread values carry an inbound message
+  queue, an outbound message queue, cancellation state, and the worker result.
+
+  Worker entry points must have the shape:
+
+    ISOLATED FUNC(Thread OF Msg TO Out, In) AS Out
+
+  The entry point must be an exported function from an imported package.
+  Lambdas, closures, SUBs, non-isolated functions, current-package functions,
+  and functions without the leading Thread parameter are rejected at compile
+  time.
+
+SEE ALSO
+  errors
+  types

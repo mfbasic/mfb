@@ -1,0 +1,27 @@
+{
+  "project": "thread_import_package_print",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "thread", "line": 1 },
+    { "module": "thread_import_worker", "line": 2 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "main",
+      "line": 4,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "t", "type": "Thread OF String TO Integer", "value": { "kind": "call", "callee": "thread.start", "arguments": [{ "kind": "identifier", "value": "thread_import_worker.callImpPrint" }, { "kind": "string", "value": "thread import package print" }] }, "line": 5 },
+      { "kind": "return", "value": { "kind": "call", "callee": "thread.waitFor", "arguments": [{ "kind": "identifier", "value": "t" }] }, "line": 6 }
+      ]
+    }
+    ]
+  }
+  ]
+}

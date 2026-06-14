@@ -1,0 +1,40 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "func_thread_isCancelled_valid",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "worker",
+    "visibility": "export",
+    "kind": "func",
+    "params": [
+    { "name": "t", "type": "Thread OF Nothing TO Integer", "default": null },
+    { "name": "seed", "type": "Integer", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "mutable": false, "name": "first", "type": "Boolean", "value": { "kind": "call", "target": "thread.isCancelled", "args": [] } },
+    { "op": "bind", "mutable": false, "name": "second", "type": "Boolean", "value": { "kind": "call", "target": "thread.isCancelled", "args": [] } },
+    { "op": "return", "value": { "kind": "local", "name": "seed" } }
+    ]
+  },
+  {
+    "name": "main",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

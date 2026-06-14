@@ -230,21 +230,41 @@ impl CodeBuilder<'_> {
                         text: format!("typeName({type_name})"),
                     });
                 }
-                let helper_args = if target == "io.pollInput" && args.is_empty() {
-                    vec![NirValue::Const {
+                let mut helper_args = args.clone();
+                if target == "io.pollInput" && helper_args.is_empty() {
+                    helper_args.push(NirValue::Const {
                         type_: "Integer".to_string(),
                         value: "0".to_string(),
-                    }]
-                } else {
-                    args.clone()
-                };
-                let result_type = builtins::call_return_type_name(target)
+                    });
+                } else if target == "thread.start" {
+                    while helper_args.len() < 4 {
+                        helper_args.push(NirValue::Const {
+                            type_: "Integer".to_string(),
+                            value: "64".to_string(),
+                        });
+                    }
+                } else if matches!(target.as_str(), "thread.send" | "thread.emit")
+                    && helper_args.len() == 2
+                {
+                    helper_args.push(NirValue::Const {
+                        type_: "Integer".to_string(),
+                        value: "0".to_string(),
+                    });
+                } else if target == "thread.receive" && helper_args.len() == 1 {
+                    helper_args.push(NirValue::Const {
+                        type_: "Integer".to_string(),
+                        value: "0".to_string(),
+                    });
+                }
+                let result_type = self
+                    .thread_runtime_return_type(target, &helper_args)
+                    .or_else(|| builtins::call_return_type_name(target).map(str::to_string))
                     .ok_or_else(|| format!("native runtime call '{target}' has no return type"))?;
                 self.emit_runtime_helper_call(
                     target,
                     &runtime::symbol_for_call(*helper, target),
                     &helper_args,
-                    result_type,
+                    &result_type,
                 )
             }
             NirValue::Constructor { type_, args } => {

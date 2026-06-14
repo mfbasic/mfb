@@ -1,0 +1,11 @@
+IMPORT thread
+IMPORT thread_workers
+
+FUNC main AS Integer
+  LET t AS Thread OF String TO Integer = thread::start(thread_workers::echoText, "a", 1, 1)
+  LET missing AS String = thread::receive()
+  LET wrongThread AS String = thread::receive(1)
+  LET wrongTimeout AS String = thread::receive(t, "bad")
+  LET tooMany AS String = thread::receive(t, 0, 1)
+  RETURN 0
+END FUNC

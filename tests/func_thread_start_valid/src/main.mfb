@@ -1,0 +1,10 @@
+IMPORT thread
+IMPORT thread_workers
+
+FUNC main AS Integer
+  LET t1 AS Thread OF String TO Integer = thread::start(thread_workers::echoText, "a")
+  LET t2 AS Thread OF String TO Integer = thread::start(thread_workers::echoText, "b", 1)
+  LET t3 AS Thread OF String TO Integer = thread::start(thread_workers::echoText, "c", 1, 1)
+  LET t4 AS Thread OF Nothing TO Integer = thread::start(thread_workers::noMessages, 41, 1, 1)
+  RETURN 0
+END FUNC

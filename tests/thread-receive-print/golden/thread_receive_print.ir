@@ -1,0 +1,34 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "thread_receive_print",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "mutable": false, "name": "t", "type": "Thread OF String TO Integer", "value": { "kind": "call", "target": "thread.start", "args": [{ "kind": "functionRef", "name": "thread_runtime_workers.printReceived", "type": "ISOLATED FUNC(Thread OF String TO Integer, String) AS Integer" }, { "kind": "const", "type": "String", "value": "start" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "thread.send", "args": [{ "kind": "local", "name": "t" }, { "kind": "const", "type": "String", "value": "alpha" }] } },
+    { "op": "bind", "mutable": false, "name": "hasAck1", "type": "Boolean", "value": { "kind": "call", "target": "thread.poll", "args": [{ "kind": "local", "name": "t" }, { "kind": "const", "type": "Integer", "value": "10" }] } },
+    { "op": "bind", "mutable": false, "name": "ack1", "type": "String", "value": { "kind": "call", "target": "thread.read", "args": [{ "kind": "local", "name": "t" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "thread.send", "args": [{ "kind": "local", "name": "t" }, { "kind": "const", "type": "String", "value": "beta" }] } },
+    { "op": "bind", "mutable": false, "name": "hasAck2", "type": "Boolean", "value": { "kind": "call", "target": "thread.poll", "args": [{ "kind": "local", "name": "t" }, { "kind": "const", "type": "Integer", "value": "10" }] } },
+    { "op": "bind", "mutable": false, "name": "ack2", "type": "String", "value": { "kind": "call", "target": "thread.read", "args": [{ "kind": "local", "name": "t" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "thread.send", "args": [{ "kind": "local", "name": "t" }, { "kind": "const", "type": "String", "value": "gamma" }] } },
+    { "op": "bind", "mutable": false, "name": "result", "type": "Integer", "value": { "kind": "call", "target": "thread.waitFor", "args": [{ "kind": "local", "name": "t" }] } },
+    { "op": "return", "value": { "kind": "local", "name": "result" } }
+    ]
+  }
+  ]
+}

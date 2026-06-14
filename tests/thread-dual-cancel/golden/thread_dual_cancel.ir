@@ -1,0 +1,55 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "thread_dual_cancel",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "mutable": false, "name": "counts", "type": "Thread OF String TO Integer", "value": { "kind": "call", "target": "thread.start", "args": [{ "kind": "functionRef", "name": "thread_runtime_workers.countWorker", "type": "ISOLATED FUNC(Thread OF String TO Integer, String) AS Integer" }, { "kind": "const", "type": "String", "value": "count" }] } },
+    { "op": "bind", "mutable": false, "name": "letters", "type": "Thread OF String TO Integer", "value": { "kind": "call", "target": "thread.start", "args": [{ "kind": "functionRef", "name": "thread_runtime_workers.alphabetWorker", "type": "ISOLATED FUNC(Thread OF String TO Integer, String) AS Integer" }, { "kind": "const", "type": "String", "value": "alpha" }] } },
+    { "op": "bind", "mutable": false, "name": "hasCount1", "type": "Boolean", "value": { "kind": "call", "target": "thread.poll", "args": [{ "kind": "local", "name": "counts" }, { "kind": "const", "type": "Integer", "value": "10" }] } },
+    { "op": "bind", "mutable": false, "name": "count1", "type": "String", "value": { "kind": "call", "target": "thread.read", "args": [{ "kind": "local", "name": "counts" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "binary", "op": "&", "left": { "kind": "const", "type": "String", "value": "count:" }, "right": { "kind": "local", "name": "count1" } }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "thread.send", "args": [{ "kind": "local", "name": "counts" }, { "kind": "const", "type": "String", "value": "next" }] } },
+    { "op": "bind", "mutable": false, "name": "hasLetter1", "type": "Boolean", "value": { "kind": "call", "target": "thread.poll", "args": [{ "kind": "local", "name": "letters" }, { "kind": "const", "type": "Integer", "value": "10" }] } },
+    { "op": "bind", "mutable": false, "name": "letter1", "type": "String", "value": { "kind": "call", "target": "thread.read", "args": [{ "kind": "local", "name": "letters" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "binary", "op": "&", "left": { "kind": "const", "type": "String", "value": "letter:" }, "right": { "kind": "local", "name": "letter1" } }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "thread.send", "args": [{ "kind": "local", "name": "letters" }, { "kind": "const", "type": "String", "value": "next" }] } },
+    { "op": "bind", "mutable": false, "name": "hasCount2", "type": "Boolean", "value": { "kind": "call", "target": "thread.poll", "args": [{ "kind": "local", "name": "counts" }, { "kind": "const", "type": "Integer", "value": "10" }] } },
+    { "op": "bind", "mutable": false, "name": "count2", "type": "String", "value": { "kind": "call", "target": "thread.read", "args": [{ "kind": "local", "name": "counts" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "binary", "op": "&", "left": { "kind": "const", "type": "String", "value": "count:" }, "right": { "kind": "local", "name": "count2" } }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "thread.send", "args": [{ "kind": "local", "name": "counts" }, { "kind": "const", "type": "String", "value": "next" }] } },
+    { "op": "bind", "mutable": false, "name": "hasLetter2", "type": "Boolean", "value": { "kind": "call", "target": "thread.poll", "args": [{ "kind": "local", "name": "letters" }, { "kind": "const", "type": "Integer", "value": "10" }] } },
+    { "op": "bind", "mutable": false, "name": "letter2", "type": "String", "value": { "kind": "call", "target": "thread.read", "args": [{ "kind": "local", "name": "letters" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "binary", "op": "&", "left": { "kind": "const", "type": "String", "value": "letter:" }, "right": { "kind": "local", "name": "letter2" } }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "thread.send", "args": [{ "kind": "local", "name": "letters" }, { "kind": "const", "type": "String", "value": "next" }] } },
+    { "op": "bind", "mutable": false, "name": "hasCount3", "type": "Boolean", "value": { "kind": "call", "target": "thread.poll", "args": [{ "kind": "local", "name": "counts" }, { "kind": "const", "type": "Integer", "value": "10" }] } },
+    { "op": "bind", "mutable": false, "name": "count3", "type": "String", "value": { "kind": "call", "target": "thread.read", "args": [{ "kind": "local", "name": "counts" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "binary", "op": "&", "left": { "kind": "const", "type": "String", "value": "count:" }, "right": { "kind": "local", "name": "count3" } }] } },
+    { "op": "bind", "mutable": false, "name": "hasLetter3", "type": "Boolean", "value": { "kind": "call", "target": "thread.poll", "args": [{ "kind": "local", "name": "letters" }, { "kind": "const", "type": "Integer", "value": "10" }] } },
+    { "op": "bind", "mutable": false, "name": "letter3", "type": "String", "value": { "kind": "call", "target": "thread.read", "args": [{ "kind": "local", "name": "letters" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "binary", "op": "&", "left": { "kind": "const", "type": "String", "value": "letter:" }, "right": { "kind": "local", "name": "letter3" } }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "thread.send", "args": [{ "kind": "local", "name": "counts" }, { "kind": "const", "type": "String", "value": "done" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "thread.send", "args": [{ "kind": "local", "name": "letters" }, { "kind": "const", "type": "String", "value": "done" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "thread.cancel", "args": [{ "kind": "local", "name": "counts" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "thread.cancel", "args": [{ "kind": "local", "name": "letters" }] } },
+    { "op": "bind", "mutable": false, "name": "countResult", "type": "Integer", "value": { "kind": "call", "target": "thread.waitFor", "args": [{ "kind": "local", "name": "counts" }] } },
+    { "op": "bind", "mutable": false, "name": "letterResult", "type": "Integer", "value": { "kind": "call", "target": "thread.waitFor", "args": [{ "kind": "local", "name": "letters" }] } },
+    { "op": "return", "value": { "kind": "binary", "op": "-", "left": { "kind": "local", "name": "countResult" }, "right": { "kind": "local", "name": "letterResult" } } }
+    ]
+  }
+  ]
+}

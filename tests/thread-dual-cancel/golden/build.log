@@ -1,0 +1,17 @@
+$ mfb build -ast tests/thread-dual-cancel
+Wrote AST to tests/thread-dual-cancel/thread_dual_cancel.ast
+[exit 0]
+$ mfb build -ir tests/thread-dual-cancel
+Wrote IR to tests/thread-dual-cancel/thread_dual_cancel.ir
+[exit 0]
+$ mfb build tests/thread-dual-cancel
+Wrote executable to tests/thread-dual-cancel/thread_dual_cancel.out
+[exit 0]
+$ tests/thread-dual-cancel/thread_dual_cancel.out
+count:1
+letter:A
+count:2
+letter:B
+count:3
+letter:C
+[exit 0]

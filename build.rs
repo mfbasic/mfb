@@ -12,6 +12,7 @@ fn main() {
     let types_dir = manifest_dir.join("src/man/types");
     let io_dir = manifest_dir.join("src/man/builtins/io");
     let fs_dir = manifest_dir.join("src/man/fs");
+    let thread_dir = manifest_dir.join("src/man/thread");
     let types_page = manifest_dir.join("src/man/types/package.txt");
     let errors_page = manifest_dir.join("src/man/errors/package.txt");
     let unicode_page = manifest_dir.join("src/man/unicode/package.txt");
@@ -22,6 +23,7 @@ fn main() {
     println!("cargo:rerun-if-changed={}", types_dir.display());
     println!("cargo:rerun-if-changed={}", io_dir.display());
     println!("cargo:rerun-if-changed={}", fs_dir.display());
+    println!("cargo:rerun-if-changed={}", thread_dir.display());
     println!("cargo:rerun-if-changed={}", types_page.display());
     println!("cargo:rerun-if-changed={}", errors_page.display());
     println!("cargo:rerun-if-changed={}", unicode_page.display());
@@ -33,6 +35,7 @@ fn main() {
     let types_pages = man_pages(&types_dir, "types");
     let io_pages = man_pages(&io_dir, "io");
     let fs_pages = man_pages(&fs_dir, "fs");
+    let thread_pages = man_pages(&thread_dir, "thread");
 
     println!(
         "cargo:rerun-if-changed={}",
@@ -62,6 +65,10 @@ fn main() {
         "cargo:rerun-if-changed={}",
         fs_dir.join("package.txt").display()
     );
+    println!(
+        "cargo:rerun-if-changed={}",
+        thread_dir.join("package.txt").display()
+    );
     for page in general_pages
         .iter()
         .chain(collection_pages.iter())
@@ -70,6 +77,7 @@ fn main() {
         .chain(types_pages.iter())
         .chain(io_pages.iter())
         .chain(fs_pages.iter())
+        .chain(thread_pages.iter())
     {
         println!("cargo:rerun-if-changed={}", page.display());
     }
@@ -85,6 +93,7 @@ fn main() {
     write_pages(&mut output, "TYPES_TOPIC_PAGES", types_pages);
     write_pages(&mut output, "IO_FUNCTION_PAGES", io_pages);
     write_pages(&mut output, "FS_FUNCTION_PAGES", fs_pages);
+    write_pages(&mut output, "THREAD_FUNCTION_PAGES", thread_pages);
 }
 
 fn man_pages(dir: &PathBuf, package: &str) -> Vec<PathBuf> {

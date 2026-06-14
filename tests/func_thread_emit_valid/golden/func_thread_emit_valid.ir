@@ -1,0 +1,41 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "func_thread_emit_valid",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "worker",
+    "visibility": "export",
+    "kind": "func",
+    "params": [
+    { "name": "t", "type": "Thread OF String TO Integer", "default": null },
+    { "name": "seed", "type": "String", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "eval", "value": { "kind": "call", "target": "thread.emit", "args": [{ "kind": "local", "name": "t" }, { "kind": "local", "name": "seed" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "thread.emit", "args": [{ "kind": "local", "name": "t" }, { "kind": "const", "type": "String", "value": "immediate" }, { "kind": "const", "type": "Integer", "value": "0" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "thread.emit", "args": [{ "kind": "local", "name": "t" }, { "kind": "const", "type": "String", "value": "timed" }, { "kind": "const", "type": "Integer", "value": "1" }] } },
+    { "op": "return", "value": { "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "seed" }] } }
+    ]
+  },
+  {
+    "name": "main",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

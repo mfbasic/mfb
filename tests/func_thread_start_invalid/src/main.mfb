@@ -1,0 +1,16 @@
+IMPORT thread
+IMPORT thread_workers
+
+EXPORT ISOLATED FUNC localWorker(t AS Thread OF String TO Integer, seed AS String) AS Integer
+  RETURN len(seed)
+END FUNC
+
+FUNC main AS Integer
+  LET localStart AS Thread OF String TO Integer = thread::start(localWorker, "a")
+  LET plainStart AS Thread OF String TO Integer = thread::start(thread_workers::plain, "a")
+  LET subStart AS Thread OF String TO Integer = thread::start(thread_workers::helper, "a")
+  LET badStart AS Thread OF String TO Integer = thread::start(thread_workers::badNoHandle, "a")
+  LET wrongData AS Thread OF String TO Integer = thread::start(thread_workers::echoText, 1)
+  LET missing AS Thread OF String TO Integer = thread::start()
+  RETURN 0
+END FUNC

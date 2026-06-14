@@ -1,0 +1,12 @@
+IMPORT thread
+IMPORT thread_workers
+
+FUNC main AS Integer
+  LET t AS Thread OF String TO Integer = thread::start(thread_workers::echoText, "a", 1, 1)
+  LET missing AS Boolean = thread::poll()
+  LET missingTimeout AS Boolean = thread::poll(t)
+  LET wrongThread AS Boolean = thread::poll(1, 0)
+  LET wrongTimeout AS Boolean = thread::poll(t, "bad")
+  LET tooMany AS Boolean = thread::poll(t, 0, 1)
+  RETURN 0
+END FUNC

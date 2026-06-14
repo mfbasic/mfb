@@ -1,0 +1,12 @@
+IMPORT thread
+
+EXPORT ISOLATED FUNC worker(t AS Thread OF String TO Integer, seed AS String) AS Integer
+  LET first AS String = thread::receive(t)
+  LET immediate AS String = thread::receive(t, 0)
+  LET timed AS String = thread::receive(t, 1)
+  RETURN len(seed) + len(first) + len(immediate) + len(timed)
+END FUNC
+
+FUNC main AS Integer
+  RETURN 0
+END FUNC

@@ -1,0 +1,35 @@
+{
+  "project": "thread_receive_print",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "thread", "line": 1 },
+    { "module": "thread_runtime_workers", "line": 2 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "main",
+      "line": 4,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "t", "type": "Thread OF String TO Integer", "value": { "kind": "call", "callee": "thread.start", "arguments": [{ "kind": "identifier", "value": "thread_runtime_workers.printReceived" }, { "kind": "string", "value": "start" }] }, "line": 5 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "thread.send", "arguments": [{ "kind": "identifier", "value": "t" }, { "kind": "string", "value": "alpha" }] }, "line": 6 },
+      { "kind": "binding", "mutable": false, "name": "hasAck1", "type": "Boolean", "value": { "kind": "call", "callee": "thread.poll", "arguments": [{ "kind": "identifier", "value": "t" }, { "kind": "number", "value": "10" }] }, "line": 7 },
+      { "kind": "binding", "mutable": false, "name": "ack1", "type": "String", "value": { "kind": "call", "callee": "thread.read", "arguments": [{ "kind": "identifier", "value": "t" }] }, "line": 8 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "thread.send", "arguments": [{ "kind": "identifier", "value": "t" }, { "kind": "string", "value": "beta" }] }, "line": 9 },
+      { "kind": "binding", "mutable": false, "name": "hasAck2", "type": "Boolean", "value": { "kind": "call", "callee": "thread.poll", "arguments": [{ "kind": "identifier", "value": "t" }, { "kind": "number", "value": "10" }] }, "line": 10 },
+      { "kind": "binding", "mutable": false, "name": "ack2", "type": "String", "value": { "kind": "call", "callee": "thread.read", "arguments": [{ "kind": "identifier", "value": "t" }] }, "line": 11 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "thread.send", "arguments": [{ "kind": "identifier", "value": "t" }, { "kind": "string", "value": "gamma" }] }, "line": 12 },
+      { "kind": "binding", "mutable": false, "name": "result", "type": "Integer", "value": { "kind": "call", "callee": "thread.waitFor", "arguments": [{ "kind": "identifier", "value": "t" }] }, "line": 13 },
+      { "kind": "return", "value": { "kind": "identifier", "value": "result" }, "line": 14 }
+      ]
+    }
+    ]
+  }
+  ]
+}

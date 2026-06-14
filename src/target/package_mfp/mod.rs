@@ -27,8 +27,9 @@ pub fn write_package(
     project_dir: &Path,
     ir: &IrProject,
     metadata: &BytecodeMetadata,
+    packages: &[PathBuf],
 ) -> Result<PathBuf, String> {
-    let bytecode = bytecode::build_bytecode_bytes(ir, metadata)?;
+    let bytecode = bytecode::build_package_bytecode_bytes(ir, metadata, packages)?;
     let package = build_package_bytes(metadata, &bytecode)?;
     let path = project_dir.join(format!("{}.mfp", metadata.name));
     fs::write(&path, package)

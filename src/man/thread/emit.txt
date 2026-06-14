@@ -1,0 +1,16 @@
+NAME
+  emit - send a message from a worker
+
+SYNOPSIS
+  thread::emit(t AS Thread OF Msg TO Out, data AS Msg, timeoutMs AS Integer = 0) AS Nothing
+
+DESCRIPTION
+  Worker-side send to the outbound queue for t. timeoutMs = 0 does not wait for
+  queue space. A positive timeout waits up to that many milliseconds.
+
+  Valid only inside the worker thread. Calling emit outside a worker fails with
+  ErrInvalidArgument. Timeout expiry fails with ErrTimeout.
+
+EXAMPLES
+  thread::emit(t, "done")
+  thread::emit(t, "done", 10)

@@ -1,0 +1,9 @@
+IMPORT thread
+IMPORT thread_workers
+
+FUNC main AS Integer
+  LET t AS Thread OF String TO Integer = thread::start(thread_workers::echoText, "a", 1, 1)
+  LET immediate AS Boolean = thread::poll(t, 0)
+  LET timed AS Boolean = thread::poll(t, 1)
+  RETURN 0
+END FUNC

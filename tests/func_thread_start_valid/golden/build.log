@@ -1,0 +1,6 @@
+$ mfb build -ast tests/func_thread_start_valid
+Wrote AST to tests/func_thread_start_valid/func_thread_start_valid.ast
+[exit 0]
+$ mfb build -ir tests/func_thread_start_valid
+Wrote IR to tests/func_thread_start_valid/func_thread_start_valid.ir
+[exit 0]

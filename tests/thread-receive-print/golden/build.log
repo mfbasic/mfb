@@ -1,0 +1,14 @@
+$ mfb build -ast tests/thread-receive-print
+Wrote AST to tests/thread-receive-print/thread_receive_print.ast
+[exit 0]
+$ mfb build -ir tests/thread-receive-print
+Wrote IR to tests/thread-receive-print/thread_receive_print.ir
+[exit 0]
+$ mfb build tests/thread-receive-print
+Wrote executable to tests/thread-receive-print/thread_receive_print.out
+[exit 0]
+$ tests/thread-receive-print/thread_receive_print.out
+alpha
+beta
+gamma
+[exit 0]

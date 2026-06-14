@@ -68,6 +68,16 @@ impl NativeBackend for Backend {
                 "fs.eof",
                 "fs.canonicalPath",
                 "fs.isWithin",
+                "thread.start",
+                "thread.isRunning",
+                "thread.waitFor",
+                "thread.cancel",
+                "thread.send",
+                "thread.poll",
+                "thread.read",
+                "thread.receive",
+                "thread.emit",
+                "thread.isCancelled",
             ],
         }
     }
@@ -132,7 +142,7 @@ fn write_executable(
     let native_plan = plan::lower_module(&module)?;
     native_plan.validate()?;
     os::linux::validate_native_object_plan(&native_plan)?;
-    let native_code = code::lower_module(&module, &native_plan)?;
+    let native_code = code::lower_module(&module, &native_plan, packages)?;
     native_code.validate()?;
     let image = arch::aarch64::encode::encode(&native_code)?;
     os::linux::write_linked_executable(project_dir, &ir.name, &image)
@@ -188,7 +198,7 @@ fn write_native_code_plan(
     let native_plan = plan::lower_module(&module)?;
     native_plan.validate()?;
     os::linux::validate_native_object_plan(&native_plan)?;
-    let native_code = code::lower_module(&module, &native_plan)?;
+    let native_code = code::lower_module(&module, &native_plan, packages)?;
     native_code.validate()?;
     let code_path = project_dir.join(format!("{}.ncode", ir.name));
     fs::write(&code_path, native_code.to_json())

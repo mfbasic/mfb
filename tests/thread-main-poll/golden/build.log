@@ -1,0 +1,14 @@
+$ mfb build -ast tests/thread-main-poll
+Wrote AST to tests/thread-main-poll/thread_main_poll.ast
+[exit 0]
+$ mfb build -ir tests/thread-main-poll
+Wrote IR to tests/thread-main-poll/thread_main_poll.ir
+[exit 0]
+$ mfb build tests/thread-main-poll
+Wrote executable to tests/thread-main-poll/thread_main_poll.out
+[exit 0]
+$ tests/thread-main-poll/thread_main_poll.out
+ready
+steady
+go
+[exit 0]

@@ -266,6 +266,14 @@ pub fn build_merged_bytecode_bytes(
     Ok(lower_merged_project(ir, metadata, packages)?.encode())
 }
 
+pub fn build_package_bytecode_bytes(
+    ir: &IrProject,
+    metadata: &BytecodeMetadata,
+    packages: &[PathBuf],
+) -> Result<Vec<u8>, String> {
+    Ok(lower_package_project(ir, metadata, packages)?.encode())
+}
+
 #[derive(Clone)]
 pub struct BytecodeMetadata {
     pub name: String,
@@ -444,6 +452,7 @@ pub struct NativeInstruction {
     pub operands: Vec<u32>,
 }
 
+#[derive(Clone)]
 pub enum NativeConst {
     Nothing,
     Boolean(bool),
@@ -453,6 +462,23 @@ pub enum NativeConst {
     Fixed(i64),
     String(String),
     Other,
+}
+
+pub struct NativePackageExport {
+    pub symbol: String,
+    pub name: String,
+    pub return_type: NativeType,
+    pub param_count: usize,
+    pub registers: Vec<NativeRegister>,
+    pub code: Vec<NativeInstruction>,
+    pub constants: Vec<NativeConst>,
+    pub external_calls: HashMap<u32, NativePackageCallTarget>,
+}
+
+#[derive(Clone)]
+pub struct NativePackageCallTarget {
+    pub symbol: String,
+    pub return_type: NativeType,
 }
 
 pub const NATIVE_OPCODE_LOAD_CONST: u16 = OPCODE_LOAD_CONST;
@@ -640,6 +666,25 @@ pub fn read_package_exports(path: &Path) -> Result<Vec<BytecodeExport>, String> 
 pub fn read_package_info(path: &Path) -> Result<BytecodePackageInfo, String> {
     let package = read_package_bytecode(path)?;
     package_info(&package).map_err(|err| format!("failed to read '{}': {err}", path.display()))
+}
+
+pub fn read_package_native_exports(path: &Path) -> Result<Vec<NativePackageExport>, String> {
+    let package = read_package_bytecode(path)?;
+    package_native_exports(package, &[])
+        .map_err(|err| format!("failed to read '{}': {err}", path.display()))
+}
+
+pub fn read_package_native_exports_with_available_packages(
+    path: &Path,
+    available_packages: &[PathBuf],
+) -> Result<Vec<NativePackageExport>, String> {
+    let package = read_package_bytecode(path)?;
+    let available = available_packages
+        .iter()
+        .map(|path| read_package_bytecode(path))
+        .collect::<Result<Vec<_>, _>>()?;
+    package_native_exports(package, &available)
+        .map_err(|err| format!("failed to read '{}': {err}", path.display()))
 }
 
 fn read_package_bytecode(path: &Path) -> Result<PackageBytecode, String> {
@@ -1007,6 +1052,156 @@ fn package_info(package: &PackageBytecode) -> Result<BytecodePackageInfo, String
         exports,
         imports,
     })
+}
+
+fn package_native_exports(
+    package: PackageBytecode,
+    available_packages: &[PackageBytecode],
+) -> Result<Vec<NativePackageExport>, String> {
+    let package_name = string_at(
+        &package.project.strings.values,
+        package.project.manifest.package_name,
+    )?
+    .to_string();
+    let external_calls = package_native_external_calls(&package, available_packages)?;
+    let mut strings = HashMap::new();
+    for (index, value) in package.project.strings.values.iter().enumerate() {
+        strings.insert(index as u32, value.clone());
+    }
+    let mut result_success_types = HashMap::new();
+    for (index, entry) in package.project.types.entries.iter().enumerate() {
+        if entry.kind == 6 && entry.payload.len() >= 4 {
+            result_success_types.insert(index as u32, read_u32(&entry.payload, 0));
+        }
+    }
+    let constants = package
+        .project
+        .constants
+        .entries
+        .iter()
+        .map(|constant| native_const(constant, &strings))
+        .collect::<Result<Vec<_>, _>>()?;
+    let mut exports = Vec::new();
+    for export in package.exports {
+        let function = package
+            .project
+            .functions
+            .get(export.function_id as usize)
+            .ok_or_else(|| format!("export references missing function {}", export.function_id))?;
+        let export_name = string_at(&package.project.strings.values, export.name)?.to_string();
+        exports.push(NativePackageExport {
+            symbol: format!(
+                "_mfb_pkg_{}_{}",
+                sanitize_symbol_part(&package_name),
+                sanitize_symbol_part(&export_name)
+            ),
+            name: format!("{package_name}.{export_name}"),
+            return_type: native_type(function.return_type, &result_success_types),
+            param_count: function.params.len(),
+            registers: function
+                .registers
+                .iter()
+                .map(|register| NativeRegister {
+                    type_id: register.type_id,
+                    type_: native_type(register.type_id, &result_success_types),
+                })
+                .collect(),
+            code: function
+                .code
+                .iter()
+                .map(|instruction| NativeInstruction {
+                    opcode: instruction.opcode,
+                    operands: instruction.operands.clone(),
+                })
+                .collect(),
+            constants: constants.clone(),
+            external_calls: external_calls.clone(),
+        });
+    }
+    Ok(exports)
+}
+
+fn package_native_external_calls(
+    package: &PackageBytecode,
+    available_packages: &[PackageBytecode],
+) -> Result<HashMap<u32, NativePackageCallTarget>, String> {
+    let package_strings = &package.project.strings.values;
+    let mut calls = HashMap::new();
+    let mut next_function_id = package.project.functions.len() as u32;
+
+    for import in &package.project.imports.entries {
+        let import_name = string_at(package_strings, import.package_name)?;
+        let import_ident = string_at(package_strings, import.package_ident)?;
+        let dependency = available_packages
+            .iter()
+            .find(|candidate| {
+                let strings = &candidate.project.strings.values;
+                let Ok(name) = string_at(strings, candidate.project.manifest.package_name) else {
+                    return false;
+                };
+                let Ok(ident) = string_at(strings, candidate.project.manifest.package_ident) else {
+                    return false;
+                };
+                name == import_name && ident == import_ident
+            })
+            .ok_or_else(|| {
+                format!(
+                    "package import `{import_name}` is not available for native package call resolution"
+                )
+            })?;
+        let dependency_strings = &dependency.project.strings.values;
+        let dependency_name =
+            string_at(dependency_strings, dependency.project.manifest.package_name)?;
+        let result_success_types = result_success_types(&dependency.project.types);
+        for export in &dependency.exports {
+            let function = dependency
+                .project
+                .functions
+                .get(export.function_id as usize)
+                .ok_or_else(|| {
+                    format!("export references missing function {}", export.function_id)
+                })?;
+            let export_name = string_at(dependency_strings, export.name)?;
+            calls.insert(
+                next_function_id + export.function_id,
+                NativePackageCallTarget {
+                    symbol: format!(
+                        "_mfb_pkg_{}_{}",
+                        sanitize_symbol_part(dependency_name),
+                        sanitize_symbol_part(export_name)
+                    ),
+                    return_type: native_type(function.return_type, &result_success_types),
+                },
+            );
+        }
+        next_function_id = next_function_id
+            .checked_add(dependency.project.functions.len() as u32)
+            .ok_or_else(|| "package bytecode has too many dependency functions".to_string())?;
+    }
+    Ok(calls)
+}
+
+fn result_success_types(types: &TypeTable) -> HashMap<u32, u32> {
+    let mut result_success_types = HashMap::new();
+    for (index, entry) in types.entries.iter().enumerate() {
+        if entry.kind == 6 && entry.payload.len() >= 4 {
+            result_success_types.insert(index as u32, read_u32(&entry.payload, 0));
+        }
+    }
+    result_success_types
+}
+
+fn sanitize_symbol_part(value: &str) -> String {
+    value
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() || ch == '_' {
+                ch
+            } else {
+                '_'
+            }
+        })
+        .collect()
 }
 
 struct DecodedExport {
@@ -2562,6 +2757,26 @@ fn lower_project(ir: &IrProject, metadata: &BytecodeMetadata) -> Result<Bytecode
     )
 }
 
+fn lower_package_project(
+    ir: &IrProject,
+    metadata: &BytecodeMetadata,
+    package_paths: &[PathBuf],
+) -> Result<BytecodeProject, String> {
+    let packages = package_paths
+        .iter()
+        .map(|path| read_package_bytecode(path))
+        .collect::<Result<Vec<_>, _>>()?;
+    let (external_function_ids, external_function_returns, external_function_abi_hashes) =
+        external_function_metadata(ir.functions.len() as u32, &packages)?;
+    lower_project_with_external_functions(
+        ir,
+        metadata,
+        &external_function_ids,
+        &external_function_returns,
+        &external_function_abi_hashes,
+    )
+}
+
 fn lower_merged_project(
     ir: &IrProject,
     metadata: &BytecodeMetadata,
@@ -2571,12 +2786,45 @@ fn lower_merged_project(
         .iter()
         .map(|path| read_package_bytecode(path))
         .collect::<Result<Vec<_>, _>>()?;
-    let app_function_count = ir.functions.len() as u32;
+    let (external_function_ids, external_function_returns, external_function_abi_hashes) =
+        external_function_metadata(ir.functions.len() as u32, &packages)?;
+
+    let mut project = lower_project_with_external_functions(
+        ir,
+        metadata,
+        &external_function_ids,
+        &external_function_returns,
+        &external_function_abi_hashes,
+    )?;
+    for package in packages {
+        merge_package_bytecode(&mut project, package)?;
+    }
+    project.abi = AbiIndex::from_project(
+        &project.strings,
+        &project.types,
+        &project.constants,
+        &project.imports,
+        &project.functions,
+    )?;
+    Ok(project)
+}
+
+fn external_function_metadata(
+    base_function_id: u32,
+    packages: &[PackageBytecode],
+) -> Result<
+    (
+        HashMap<String, u32>,
+        HashMap<String, String>,
+        HashMap<String, [u8; ABI_HASH_LEN]>,
+    ),
+    String,
+> {
     let mut external_function_ids = HashMap::new();
     let mut external_function_returns = HashMap::new();
     let mut external_function_abi_hashes = HashMap::new();
-    let mut next_function_id = app_function_count;
-    for package in &packages {
+    let mut next_function_id = base_function_id;
+    for package in packages {
         let package_name = string_at(
             &package.project.strings.values,
             package.project.manifest.package_name,
@@ -2610,25 +2858,11 @@ fn lower_merged_project(
             .checked_add(package.project.functions.len() as u32)
             .ok_or_else(|| "merged bytecode has too many functions".to_string())?;
     }
-
-    let mut project = lower_project_with_external_functions(
-        ir,
-        metadata,
-        &external_function_ids,
-        &external_function_returns,
-        &external_function_abi_hashes,
-    )?;
-    for package in packages {
-        merge_package_bytecode(&mut project, package)?;
-    }
-    project.abi = AbiIndex::from_project(
-        &project.strings,
-        &project.types,
-        &project.constants,
-        &project.imports,
-        &project.functions,
-    )?;
-    Ok(project)
+    Ok((
+        external_function_ids,
+        external_function_returns,
+        external_function_abi_hashes,
+    ))
 }
 
 fn lower_project_with_external_functions(

@@ -1,0 +1,10 @@
+IMPORT thread
+IMPORT thread_workers
+
+FUNC main AS Integer
+  LET t AS Thread OF String TO Integer = thread::start(thread_workers::echoText, "a", 1, 1)
+  LET ready AS Boolean = thread::poll(t, 1)
+  LET message AS String = thread::read(t)
+  LET size AS Integer = len(message)
+  RETURN 0
+END FUNC

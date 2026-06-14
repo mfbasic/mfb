@@ -185,6 +185,7 @@ pub fn write_package(
     project_dir: &Path,
     ir: &IrProject,
     metadata: &BytecodeMetadata,
+    packages: &[PathBuf],
 ) -> Result<PathBuf, String> {
-    package_mfp::write_package(project_dir, ir, metadata)
+    package_mfp::write_package(project_dir, ir, metadata, packages)
 }

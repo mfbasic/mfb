@@ -1,0 +1,37 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "thread_strings_split_return",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "mutable": false, "name": "content", "type": "String", "value": { "kind": "call", "target": "fs.readText", "args": [{ "kind": "const", "type": "String", "value": "tests/thread-strings-split-return/data/input.txt" }] } },
+    { "op": "bind", "mutable": false, "name": "t", "type": "Thread OF String TO List OF String", "value": { "kind": "call", "target": "thread.start", "args": [{ "kind": "functionRef", "name": "thread_runtime_workers.splitLines", "type": "ISOLATED FUNC(Thread OF String TO List OF String, String) AS List OF String" }, { "kind": "local", "name": "content" }] } },
+    { "op": "bind", "mutable": false, "name": "lines", "type": "List OF String", "value": { "kind": "call", "target": "thread.waitFor", "args": [{ "kind": "local", "name": "t" }] } },
+    {
+      "op": "forEach",
+      "name": "line",
+      "type": "String",
+      "iterable": { "kind": "local", "name": "lines" },
+      "body": [
+      { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "local", "name": "line" }] } }
+      ]
+    },
+    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

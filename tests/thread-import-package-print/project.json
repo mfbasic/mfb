@@ -1,0 +1,21 @@
+{
+  "name": "thread_import_package_print",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "executable",
+  "sources": [{ "root": "src", "role": "main", "include": ["**/*.mfb"] }],
+  "packages": [
+    {
+      "name": "thread_imp_print",
+      "version": "=0.1.0",
+      "source": "file:packages/thread_imp_print.mfp"
+    },
+    {
+      "name": "thread_import_worker",
+      "version": "=0.1.0",
+      "source": "file:packages/thread_import_worker.mfp"
+    }
+  ],
+  "entry": "main",
+  "targets": ["native"]
+}

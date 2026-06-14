@@ -1,0 +1,17 @@
+NAME
+  send - send a message to a worker
+
+SYNOPSIS
+  thread::send(t AS Thread OF Msg TO Out, data AS Msg, timeoutMs AS Integer = 0) AS Nothing
+
+DESCRIPTION
+  Sends data to the worker inbound queue. timeoutMs = 0 does not wait for queue
+  space. A positive timeout waits up to that many milliseconds.
+
+  Fails with ErrInterrupted when the thread has ended or cancellation was
+  requested. Fails with ErrTimeout when the timeout expires. Invalid timeout
+  values fail with ErrInvalidArgument.
+
+EXAMPLES
+  thread::send(t, "next")
+  thread::send(t, "next", 10)

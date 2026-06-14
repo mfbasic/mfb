@@ -1,0 +1,13 @@
+NAME
+  cancel - request cooperative thread cancellation
+
+SYNOPSIS
+  thread::cancel(t AS Thread OF Msg TO Out) AS Nothing
+
+DESCRIPTION
+  Requests cooperative cancellation of the worker. New sends fail after
+  cancellation is requested. The worker can observe the request with
+  thread::isCancelled.
+
+EXAMPLES
+  thread::cancel(t)

@@ -1,0 +1,57 @@
+{
+  "project": "thread_dual_cancel",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 },
+    { "module": "thread", "line": 2 },
+    { "module": "thread_runtime_workers", "line": 3 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "main",
+      "line": 5,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "counts", "type": "Thread OF String TO Integer", "value": { "kind": "call", "callee": "thread.start", "arguments": [{ "kind": "identifier", "value": "thread_runtime_workers.countWorker" }, { "kind": "string", "value": "count" }] }, "line": 6 },
+      { "kind": "binding", "mutable": false, "name": "letters", "type": "Thread OF String TO Integer", "value": { "kind": "call", "callee": "thread.start", "arguments": [{ "kind": "identifier", "value": "thread_runtime_workers.alphabetWorker" }, { "kind": "string", "value": "alpha" }] }, "line": 7 },
+      { "kind": "binding", "mutable": false, "name": "hasCount1", "type": "Boolean", "value": { "kind": "call", "callee": "thread.poll", "arguments": [{ "kind": "identifier", "value": "counts" }, { "kind": "number", "value": "10" }] }, "line": 9 },
+      { "kind": "binding", "mutable": false, "name": "count1", "type": "String", "value": { "kind": "call", "callee": "thread.read", "arguments": [{ "kind": "identifier", "value": "counts" }] }, "line": 10 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "count:" }, "right": { "kind": "identifier", "value": "count1" } }] }, "line": 11 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "thread.send", "arguments": [{ "kind": "identifier", "value": "counts" }, { "kind": "string", "value": "next" }] }, "line": 12 },
+      { "kind": "binding", "mutable": false, "name": "hasLetter1", "type": "Boolean", "value": { "kind": "call", "callee": "thread.poll", "arguments": [{ "kind": "identifier", "value": "letters" }, { "kind": "number", "value": "10" }] }, "line": 13 },
+      { "kind": "binding", "mutable": false, "name": "letter1", "type": "String", "value": { "kind": "call", "callee": "thread.read", "arguments": [{ "kind": "identifier", "value": "letters" }] }, "line": 14 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "letter:" }, "right": { "kind": "identifier", "value": "letter1" } }] }, "line": 15 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "thread.send", "arguments": [{ "kind": "identifier", "value": "letters" }, { "kind": "string", "value": "next" }] }, "line": 16 },
+      { "kind": "binding", "mutable": false, "name": "hasCount2", "type": "Boolean", "value": { "kind": "call", "callee": "thread.poll", "arguments": [{ "kind": "identifier", "value": "counts" }, { "kind": "number", "value": "10" }] }, "line": 18 },
+      { "kind": "binding", "mutable": false, "name": "count2", "type": "String", "value": { "kind": "call", "callee": "thread.read", "arguments": [{ "kind": "identifier", "value": "counts" }] }, "line": 19 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "count:" }, "right": { "kind": "identifier", "value": "count2" } }] }, "line": 20 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "thread.send", "arguments": [{ "kind": "identifier", "value": "counts" }, { "kind": "string", "value": "next" }] }, "line": 21 },
+      { "kind": "binding", "mutable": false, "name": "hasLetter2", "type": "Boolean", "value": { "kind": "call", "callee": "thread.poll", "arguments": [{ "kind": "identifier", "value": "letters" }, { "kind": "number", "value": "10" }] }, "line": 22 },
+      { "kind": "binding", "mutable": false, "name": "letter2", "type": "String", "value": { "kind": "call", "callee": "thread.read", "arguments": [{ "kind": "identifier", "value": "letters" }] }, "line": 23 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "letter:" }, "right": { "kind": "identifier", "value": "letter2" } }] }, "line": 24 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "thread.send", "arguments": [{ "kind": "identifier", "value": "letters" }, { "kind": "string", "value": "next" }] }, "line": 25 },
+      { "kind": "binding", "mutable": false, "name": "hasCount3", "type": "Boolean", "value": { "kind": "call", "callee": "thread.poll", "arguments": [{ "kind": "identifier", "value": "counts" }, { "kind": "number", "value": "10" }] }, "line": 27 },
+      { "kind": "binding", "mutable": false, "name": "count3", "type": "String", "value": { "kind": "call", "callee": "thread.read", "arguments": [{ "kind": "identifier", "value": "counts" }] }, "line": 28 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "count:" }, "right": { "kind": "identifier", "value": "count3" } }] }, "line": 29 },
+      { "kind": "binding", "mutable": false, "name": "hasLetter3", "type": "Boolean", "value": { "kind": "call", "callee": "thread.poll", "arguments": [{ "kind": "identifier", "value": "letters" }, { "kind": "number", "value": "10" }] }, "line": 30 },
+      { "kind": "binding", "mutable": false, "name": "letter3", "type": "String", "value": { "kind": "call", "callee": "thread.read", "arguments": [{ "kind": "identifier", "value": "letters" }] }, "line": 31 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "letter:" }, "right": { "kind": "identifier", "value": "letter3" } }] }, "line": 32 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "thread.send", "arguments": [{ "kind": "identifier", "value": "counts" }, { "kind": "string", "value": "done" }] }, "line": 34 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "thread.send", "arguments": [{ "kind": "identifier", "value": "letters" }, { "kind": "string", "value": "done" }] }, "line": 35 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "thread.cancel", "arguments": [{ "kind": "identifier", "value": "counts" }] }, "line": 36 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "thread.cancel", "arguments": [{ "kind": "identifier", "value": "letters" }] }, "line": 37 },
+      { "kind": "binding", "mutable": false, "name": "countResult", "type": "Integer", "value": { "kind": "call", "callee": "thread.waitFor", "arguments": [{ "kind": "identifier", "value": "counts" }] }, "line": 38 },
+      { "kind": "binding", "mutable": false, "name": "letterResult", "type": "Integer", "value": { "kind": "call", "callee": "thread.waitFor", "arguments": [{ "kind": "identifier", "value": "letters" }] }, "line": 39 },
+      { "kind": "return", "value": { "kind": "binary", "operator": "-", "left": { "kind": "identifier", "value": "countResult" }, "right": { "kind": "identifier", "value": "letterResult" } }, "line": 40 }
+      ]
+    }
+    ]
+  }
+  ]
+}

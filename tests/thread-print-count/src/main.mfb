@@ -1,0 +1,8 @@
+IMPORT thread
+IMPORT thread_runtime_workers
+
+FUNC main AS Integer
+  LET t AS Thread OF String TO Integer = thread::start(thread_runtime_workers::printNumbers, "start")
+  LET result AS Integer = thread::waitFor(t)
+  RETURN result
+END FUNC

@@ -425,7 +425,10 @@ fn unique_function_names(functions: &[NirFunction]) -> Result<HashSet<String>, S
                 function.name, function.kind
             ));
         }
-        if !matches!(function.visibility.as_str(), "private" | "public") {
+        if !matches!(
+            function.visibility.as_str(),
+            "private" | "public" | "export"
+        ) {
             return Err(format!(
                 "NIR function '{}' has invalid visibility '{}'",
                 function.name, function.visibility

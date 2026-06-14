@@ -1,0 +1,11 @@
+IMPORT thread
+IMPORT thread_workers
+
+FUNC main AS Integer
+  LET t AS Thread OF String TO Integer = thread::start(thread_workers::echoText, "a", 1, 1)
+  LET missing AS Nothing = thread::send()
+  LET wrongMessage AS Nothing = thread::send(t, 1)
+  LET wrongTimeout AS Nothing = thread::send(t, "b", "bad")
+  LET tooMany AS Nothing = thread::send(t, "b", 0, 1)
+  RETURN 0
+END FUNC

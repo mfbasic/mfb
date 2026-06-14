@@ -1,0 +1,3 @@
+{
+  "name": "func_thread_cancel_invalid",
+"version":"0.1.0","mfb":"1.0","kind":"executable","sources":[{"root":"src","role":"main","include":["**/*.mfb"]}],"packages":[{"name":"thread_workers","version":"=0.1.0","source":"file:packages/thread_workers.mfp"}],"entry":"main","targets":["native"]}

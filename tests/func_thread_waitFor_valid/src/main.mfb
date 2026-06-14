@@ -1,0 +1,12 @@
+IMPORT thread
+IMPORT thread_workers
+
+FUNC main AS Integer
+  LET textThread AS Thread OF String TO Integer = thread::start(thread_workers::echoText, "a", 1, 1)
+  LET noneThread AS Thread OF Nothing TO Integer = thread::start(thread_workers::noMessages, 1, 1, 1)
+  thread::send(textThread, "b", 1)
+  LET textValue AS Integer = thread::waitFor(textThread)
+  LET noneValue AS Integer = thread::waitFor(noneThread)
+  LET total AS Integer = textValue + noneValue
+  RETURN 0
+END FUNC

@@ -622,18 +622,29 @@ impl Encoder {
             "add_pageoff" => self.emit_word(0x9100_0000 | ((rd as u32) << 5) | rd as u32)?,
             _ => unreachable!(),
         }
-        self.relocations.push(EncodedRelocation {
-            offset,
-            target: symbol,
-            kind: if kind == "adrp" {
-                "page21"
-            } else {
-                "pageoff12"
-            }
-            .to_string(),
-            binding: "data".to_string(),
-            library: None,
-        });
+        let relocation_kind = if kind == "adrp" {
+            "page21"
+        } else {
+            "pageoff12"
+        }
+        .to_string();
+        if let Some(library) = self.imports.get(&symbol) {
+            self.relocations.push(EncodedRelocation {
+                offset,
+                target: symbol,
+                kind: relocation_kind,
+                binding: "external".to_string(),
+                library: Some(library.clone()),
+            });
+        } else {
+            self.relocations.push(EncodedRelocation {
+                offset,
+                target: symbol,
+                kind: relocation_kind,
+                binding: "data".to_string(),
+                library: None,
+            });
+        }
         Ok(())
     }
 

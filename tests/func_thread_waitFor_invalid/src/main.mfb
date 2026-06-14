@@ -1,0 +1,8 @@
+IMPORT thread
+
+FUNC main AS Integer
+  LET missing AS Integer = thread::waitFor()
+  LET wrongType AS Integer = thread::waitFor(1)
+  LET tooMany AS Integer = thread::waitFor(1, 2)
+  RETURN 0
+END FUNC

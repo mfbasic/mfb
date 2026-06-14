@@ -1,0 +1,10 @@
+IMPORT thread
+IMPORT thread_workers
+
+FUNC main AS Integer
+  LET textThread AS Thread OF String TO Integer = thread::start(thread_workers::echoText, "a", 1, 1)
+  LET noneThread AS Thread OF Nothing TO Integer = thread::start(thread_workers::noMessages, 1, 1, 1)
+  LET textRunning AS Boolean = thread::isRunning(textThread)
+  LET noneRunning AS Boolean = thread::isRunning(noneThread)
+  RETURN 0
+END FUNC

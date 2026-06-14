@@ -1,0 +1,41 @@
+{
+  "project": "func_thread_isCancelled_valid",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "thread", "line": 1 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "export",
+      "name": "worker",
+      "line": 3,
+      "params": [
+      { "name": "t", "type": "Thread OF Nothing TO Integer", "default": null },
+      { "name": "seed", "type": "Integer", "default": null }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "first", "type": "Boolean", "value": { "kind": "call", "callee": "thread.isCancelled", "arguments": [] }, "line": 4 },
+      { "kind": "binding", "mutable": false, "name": "second", "type": "Boolean", "value": { "kind": "call", "callee": "thread.isCancelled", "arguments": [] }, "line": 5 },
+      { "kind": "return", "value": { "kind": "identifier", "value": "seed" }, "line": 6 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "main",
+      "line": 9,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 10 }
+      ]
+    }
+    ]
+  }
+  ]
+}

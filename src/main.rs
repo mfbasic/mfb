@@ -266,12 +266,26 @@ fn build_project(options: &BuildOptions) -> Result<(), ()> {
                     )?;
                 println!("Wrote executable to {}", executable_path.display());
             } else if project_kind == "package" {
-                let ir = ir::lower_project(&concrete_ast, entry.clone());
-                let metadata = package_metadata(&manifest);
-                let package_path = target::write_package(&options.location, &ir, &metadata)
+                let packages =
+                    installed_package_files(&options.location, &manifest).map_err(|err| {
+                        eprintln!("error: {err}");
+                    })?;
+                let external_functions = external_package_function_types_from_files(&packages)
                     .map_err(|err| {
                         eprintln!("error: {err}");
                     })?;
+                let ir = ir::lower_project_with_external_functions(
+                    &concrete_ast,
+                    entry.clone(),
+                    &external_functions,
+                );
+                let metadata = package_metadata(&manifest);
+                let package_path =
+                    target::write_package(&options.location, &ir, &metadata, &packages).map_err(
+                        |err| {
+                            eprintln!("error: {err}");
+                        },
+                    )?;
                 println!("Wrote package to {}", package_path.display());
             } else {
                 println!(

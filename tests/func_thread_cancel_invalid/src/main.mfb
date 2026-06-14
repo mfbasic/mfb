@@ -1,0 +1,8 @@
+IMPORT thread
+
+FUNC main AS Integer
+  LET missing AS Nothing = thread::cancel()
+  LET wrongType AS Nothing = thread::cancel(1)
+  LET tooMany AS Nothing = thread::cancel(1, 2)
+  RETURN 0
+END FUNC

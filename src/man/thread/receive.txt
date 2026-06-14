@@ -1,0 +1,17 @@
+NAME
+  receive - read a worker inbound message
+
+SYNOPSIS
+  thread::receive(t AS Thread OF Msg TO Out, timeoutMs AS Integer = 0) AS Msg
+
+DESCRIPTION
+  Worker-side read from the inbound queue for t. timeoutMs = 0 does not wait
+  for a message. A positive timeout waits up to that many milliseconds.
+
+  Valid only inside the worker thread. Calling receive outside a worker fails
+  with ErrInvalidArgument. Unavailable messages fail with ErrNotFound and
+  timeout expiry fails with ErrTimeout.
+
+EXAMPLES
+  LET message AS String = thread::receive(t)
+  LET timed AS String = thread::receive(t, 10)

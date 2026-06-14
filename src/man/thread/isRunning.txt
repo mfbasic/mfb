@@ -1,0 +1,12 @@
+NAME
+  isRunning - test whether a worker is still running
+
+SYNOPSIS
+  thread::isRunning(t AS Thread OF Msg TO Out) AS Boolean
+
+DESCRIPTION
+  Returns TRUE while the thread entry function is still running. Returns FALSE
+  after the worker has completed or failed and stored its result.
+
+EXAMPLES
+  LET running AS Boolean = thread::isRunning(t)

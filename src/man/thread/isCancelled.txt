@@ -1,0 +1,12 @@
+NAME
+  isCancelled - test whether cancellation was requested
+
+SYNOPSIS
+  thread::isCancelled() AS Boolean
+
+DESCRIPTION
+  Worker-side cancellation check. Returns TRUE after the parent calls
+  thread::cancel for the current worker.
+
+EXAMPLES
+  LET cancelled AS Boolean = thread::isCancelled()

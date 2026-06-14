@@ -1,0 +1,2 @@
+readText line A
+readText line B
