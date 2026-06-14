@@ -315,25 +315,52 @@ acceptable substitute for thread functionality.
 
 ### Linux aarch64
 
-The Linux backend uses Linux thread and synchronization syscalls:
+The Linux backend is cross-compiled and does not invoke an external system
+linker. The compiler emits dynamic ELF executables directly.
 
 ```text
-clone
-clone3
-futex
-set_tid_address
-gettid
-tgkill
-exit
-exit_group
-sched_*
+<project>-glibc.out
+<project>-musl.out
 ```
 
-The backend may use `clone` or `clone3` depending on target support. Futexes are
-the synchronization primitive for waits, queue transitions, and completion
-notification. `tgkill` is available for directed thread signaling when needed.
-Thread exits must not terminate the whole process unless the main program calls
-`exit_group` or the runtime is handling process termination.
+The glibc executable uses:
+
+```text
+interpreter /lib/ld-linux-aarch64.so.1
+DT_NEEDED libc.so.6
+DT_NEEDED libpthread.so.0
+```
+
+The musl executable uses:
+
+```text
+interpreter /lib/ld-musl-aarch64.so.1
+DT_NEEDED libc.musl-aarch64.so.1
+```
+
+Musl exposes pthread entry points from libc, so a separate musl pthread library
+dependency is not required for the current backend.
+
+`thread::start` calls `pthread_create` with:
+
+```text
+pthread_create(&controlBlock.osHandle, NULL, _mfb_rt_thread_trampoline, controlBlock)
+```
+
+The Linux trampoline is a normal pthread start routine. It preserves the
+callee-saved runtime registers required by generated code, restores the worker
+arena state, calls the worker export, stores the returned result in the control
+block, marks the worker complete, and returns `NULL` to pthread.
+
+Linux threaded programs do not explicitly destroy the main runtime arena during
+process shutdown. A worker may still be running when the main function returns,
+and unmapping shared runtime memory would race that worker. Process exit lets
+the OS reclaim the arena instead.
+
+Raw Linux thread syscalls such as `clone`, `clone3`, `futex`, `set_tid_address`,
+`gettid`, `tgkill`, and thread-local raw `exit` are not the threading ABI for
+the current Linux backend. They may be used by libc internally, but generated
+thread helpers must call the libc/pthread interface.
 
 ## 11. Linking Requirements
 
@@ -359,6 +386,12 @@ The native backend must:
 8. Emit OS-specific runtime helper implementations or imports.
 9. Link the final executable so worker calls, package calls, and runtime helpers
    all resolve to native symbols.
+
+For Linux, runtime helpers used only inside package bytecode must still add the
+same platform dynamic imports as helpers used by the app package. For example,
+a worker package that calls `fs::readText`, `io::print`, or `thread::start`
+must cause the final Linux executable to import the required libc, libm, or
+libpthread symbols even if the app source does not call those helpers directly.
 
 It is not valid to make a package-to-package call by preserving a raw
 package-local function id and hoping the executable package order makes it

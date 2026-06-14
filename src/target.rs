@@ -59,7 +59,7 @@ pub(crate) trait NativeBackend: Sync {
         project_dir: &Path,
         ir: &IrProject,
         packages: &[PathBuf],
-    ) -> Result<PathBuf, String>;
+    ) -> Result<Vec<PathBuf>, String>;
     fn write_nir(
         &self,
         project_dir: &Path,
@@ -101,7 +101,7 @@ pub fn write_executable(
     ir: &IrProject,
     target: &BuildTarget,
     packages: &[PathBuf],
-) -> Result<PathBuf, String> {
+) -> Result<Vec<PathBuf>, String> {
     let backend = backend_for(target)?;
     if !backend.capabilities().executable {
         return Err(format!(

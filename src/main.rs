@@ -258,13 +258,15 @@ fn build_project(options: &BuildOptions) -> Result<(), ()> {
                     entry.clone(),
                     &external_functions,
                 );
-                let executable_path =
+                let executable_paths =
                     target::write_executable(&options.location, &ir, &target, &packages).map_err(
                         |err| {
                             eprintln!("error: {err}");
                         },
                     )?;
-                println!("Wrote executable to {}", executable_path.display());
+                for executable_path in executable_paths {
+                    println!("Wrote executable to {}", executable_path.display());
+                }
             } else if project_kind == "package" {
                 let packages =
                     installed_package_files(&options.location, &manifest).map_err(|err| {

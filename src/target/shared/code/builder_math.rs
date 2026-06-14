@@ -14,14 +14,16 @@ impl CodeBuilder<'_> {
                 self.lower_math_rounding(function, &args[0])
             }
             "sqrt" if args.len() == 1 => self.lower_math_sqrt(&args[0]),
-            "pow" if args.len() == 2 => self.lower_macos_libsystem_math(function, args),
-            "atan2" if args.len() == 2 => self.lower_macos_libsystem_math(function, args),
+            "pow" if args.len() == 2 => self.lower_external_math(function, args),
+            "atan2" if args.len() == 2 => self.lower_external_math(function, args),
             "exp" | "log" | "log10" | "sin" | "cos" | "tan" | "asin" | "acos" | "atan"
                 if args.len() == 1 =>
             {
-                self.lower_macos_libsystem_math(function, args)
+                self.lower_external_math(function, args)
             }
-            other => Err(format!("native math lowering does not support math.{other}")),
+            other => Err(format!(
+                "native math lowering does not support math.{other}"
+            )),
         }
     }
 
@@ -33,11 +35,7 @@ impl CodeBuilder<'_> {
                 let ok = self.label("math_abs_ok");
                 self.emit(abi::compare_immediate(&value.location, "0"));
                 self.emit(abi::branch_ge(&ok));
-                self.emit(abi::move_immediate(
-                    "x17",
-                    "Integer",
-                    "9223372036854775808",
-                ));
+                self.emit(abi::move_immediate("x17", "Integer", "9223372036854775808"));
                 self.emit(abi::compare_registers(&value.location, "x17"));
                 self.emit(abi::branch_ne(&ok));
                 self.emit_overflow_return()?;
@@ -49,15 +47,15 @@ impl CodeBuilder<'_> {
                 self.emit(abi::move_register(&dst, &value.location));
                 self.emit(abi::branch(&done));
                 self.emit(abi::label(&negative));
-                self.emit(abi::subtract_registers(dst.as_str(), "xzr", &value.location));
+                self.emit(abi::subtract_registers(
+                    dst.as_str(),
+                    "xzr",
+                    &value.location,
+                ));
                 self.emit(abi::label(&done));
             }
             "Float" => {
-                self.emit(abi::move_immediate(
-                    "x17",
-                    "Integer",
-                    "9223372036854775807",
-                ));
+                self.emit(abi::move_immediate("x17", "Integer", "9223372036854775807"));
                 self.emit(abi::and_registers(&dst, &value.location, "x17"));
             }
             other => return Err(format!("math.abs does not accept {other}")),
@@ -152,7 +150,11 @@ impl CodeBuilder<'_> {
         ));
         let low = self.lower_value(&args[1])?;
         let low_slot = self.allocate_stack_object("math_clamp_low", 8);
-        self.emit(abi::store_u64(&low.location, abi::stack_pointer(), low_slot));
+        self.emit(abi::store_u64(
+            &low.location,
+            abi::stack_pointer(),
+            low_slot,
+        ));
         let high = self.lower_value(&args[2])?;
         let high_slot = self.allocate_stack_object("math_clamp_high", 8);
         self.emit(abi::store_u64(
@@ -167,11 +169,7 @@ impl CodeBuilder<'_> {
         let value_reg = self.allocate_register()?;
         let low_reg = self.allocate_register()?;
         let high_reg = self.allocate_register()?;
-        self.emit(abi::load_u64(
-            &value_reg,
-            abi::stack_pointer(),
-            value_slot,
-        ));
+        self.emit(abi::load_u64(&value_reg, abi::stack_pointer(), value_slot));
         self.emit(abi::load_u64(&low_reg, abi::stack_pointer(), low_slot));
         self.emit(abi::load_u64(&high_reg, abi::stack_pointer(), high_slot));
 
@@ -320,16 +318,16 @@ impl CodeBuilder<'_> {
         }
     }
 
-    fn lower_macos_libsystem_math(
+    fn lower_external_math(
         &mut self,
         function: &str,
         args: &[NirValue],
     ) -> Result<ValueResult, String> {
-        let symbol = macos_math_symbol(function)
+        let symbol = external_math_symbol(function, self.platform_imports)
             .ok_or_else(|| format!("native math lowering does not support math.{function}"))?;
-        let Some(library) = self.platform_imports.get(symbol).cloned() else {
+        let Some(library) = self.platform_imports.get(&symbol).cloned() else {
             return Err(format!(
-                "native math lowering for math.{function} requires macOS libSystem import {symbol}"
+                "native math lowering for math.{function} requires platform import {symbol}"
             ));
         };
 
@@ -380,10 +378,10 @@ impl CodeBuilder<'_> {
             self.emit(abi::label(&valid));
         }
 
-        self.emit(abi::branch_link(symbol));
+        self.emit(abi::branch_link(&symbol));
         self.relocations.push(CodeRelocation {
             from: self.current_symbol.clone(),
-            to: symbol.to_string(),
+            to: symbol,
             kind: "branch26".to_string(),
             binding: "external".to_string(),
             library: Some(library),
@@ -418,19 +416,11 @@ impl CodeBuilder<'_> {
         let mantissa = self.allocate_register()?;
         let ok = self.label("math_float_result_finite");
         let overflow = self.label("math_float_result_overflow");
-        self.emit(abi::move_immediate(
-            "x17",
-            "Integer",
-            "9218868437227405312",
-        ));
+        self.emit(abi::move_immediate("x17", "Integer", "9218868437227405312"));
         self.emit(abi::and_registers(&exponent, bits, "x17"));
         self.emit(abi::compare_registers(&exponent, "x17"));
         self.emit(abi::branch_ne(&ok));
-        self.emit(abi::move_immediate(
-            "x17",
-            "Integer",
-            "4503599627370495",
-        ));
+        self.emit(abi::move_immediate("x17", "Integer", "4503599627370495"));
         self.emit(abi::and_registers(&mantissa, bits, "x17"));
         self.emit(abi::compare_immediate(&mantissa, "0"));
         self.emit(abi::branch_eq(&overflow));
@@ -465,11 +455,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch_eq(&edge_negative));
         self.emit(abi::branch(&overflow));
         self.emit(abi::label(&edge_negative));
-        self.emit(abi::move_immediate(
-            "x17",
-            "Integer",
-            "4503599627370495",
-        ));
+        self.emit(abi::move_immediate("x17", "Integer", "4503599627370495"));
         self.emit(abi::and_registers(&mantissa, &bits, "x17"));
         self.emit(abi::compare_immediate(&mantissa, "0"));
         self.emit(abi::branch_ne(&overflow));
@@ -485,19 +471,32 @@ impl CodeBuilder<'_> {
     }
 }
 
-fn macos_math_symbol(function: &str) -> Option<&'static str> {
-    match function {
-        "pow" => Some("_pow"),
-        "exp" => Some("_exp"),
-        "log" => Some("_log"),
-        "log10" => Some("_log10"),
-        "sin" => Some("_sin"),
-        "cos" => Some("_cos"),
-        "tan" => Some("_tan"),
-        "asin" => Some("_asin"),
-        "acos" => Some("_acos"),
-        "atan" => Some("_atan"),
-        "atan2" => Some("_atan2"),
-        _ => None,
+fn external_math_symbol(
+    function: &str,
+    platform_imports: &HashMap<String, String>,
+) -> Option<String> {
+    if !matches!(
+        function,
+        "pow"
+            | "exp"
+            | "log"
+            | "log10"
+            | "sin"
+            | "cos"
+            | "tan"
+            | "asin"
+            | "acos"
+            | "atan"
+            | "atan2"
+    ) {
+        return None;
     }
+    let prefixed = format!("_{function}");
+    if platform_imports.contains_key(&prefixed) {
+        return Some(prefixed);
+    }
+    if platform_imports.contains_key(function) {
+        return Some(function.to_string());
+    }
+    None
 }

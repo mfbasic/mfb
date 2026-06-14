@@ -91,7 +91,7 @@ impl NativeBackend for Backend {
         project_dir: &Path,
         ir: &IrProject,
         packages: &[PathBuf],
-    ) -> Result<PathBuf, String> {
+    ) -> Result<Vec<PathBuf>, String> {
         write_executable(project_dir, ir, &self.target(), packages)
     }
 
@@ -137,7 +137,7 @@ fn write_executable(
     ir: &IrProject,
     target: &BuildTarget,
     packages: &[PathBuf],
-) -> Result<PathBuf, String> {
+) -> Result<Vec<PathBuf>, String> {
     validate::validate_target(target)?;
     validate::validate_project(ir, packages)?;
     let module = lower::lower_project(ir, target.name(), packages)?;
@@ -149,7 +149,7 @@ fn write_executable(
     let native_code = code::lower_module(&module, &native_plan, packages)?;
     native_code.validate()?;
     let image = arch::aarch64::encode::encode(&native_code)?;
-    os::macos::write_linked_executable(project_dir, &ir.name, &image)
+    os::macos::write_linked_executable(project_dir, &ir.name, &image).map(|path| vec![path])
 }
 
 fn write_nir(

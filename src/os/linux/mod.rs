@@ -1,8 +1,10 @@
+pub(crate) mod flavor;
 mod link;
 mod object;
 
 use crate::arch::aarch64::encode::EncodedImage;
 use crate::target::shared::plan::NativePlan;
+use flavor::LinuxFlavor;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -26,7 +28,8 @@ pub(crate) fn validate_native_object_plan(plan: &NativePlan) -> Result<(), Strin
 pub(crate) fn write_linked_executable(
     project_dir: &Path,
     project_name: &str,
+    flavor: LinuxFlavor,
     image: &EncodedImage,
 ) -> Result<PathBuf, String> {
-    link::write_executable(project_dir, project_name, image)
+    link::write_executable(project_dir, project_name, flavor, image)
 }

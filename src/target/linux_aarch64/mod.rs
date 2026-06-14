@@ -1,6 +1,7 @@
 use crate::arch;
 use crate::ir::IrProject;
 use crate::os;
+use crate::os::linux::flavor::LinuxFlavor;
 use crate::target::shared::{lower, validate};
 use crate::target::{BackendCapabilities, BuildTarget, NativeBackend};
 use std::fs;
@@ -91,7 +92,7 @@ impl NativeBackend for Backend {
         project_dir: &Path,
         ir: &IrProject,
         packages: &[PathBuf],
-    ) -> Result<PathBuf, String> {
+    ) -> Result<Vec<PathBuf>, String> {
         write_executable(project_dir, ir, &self.target(), packages)
     }
 
@@ -137,15 +138,24 @@ fn write_executable(
     ir: &IrProject,
     target: &BuildTarget,
     packages: &[PathBuf],
-) -> Result<PathBuf, String> {
+) -> Result<Vec<PathBuf>, String> {
     let module = lower_validated_module(ir, target, packages)?;
-    let native_plan = plan::lower_module(&module)?;
-    native_plan.validate()?;
-    os::linux::validate_native_object_plan(&native_plan)?;
-    let native_code = code::lower_module(&module, &native_plan, packages)?;
-    native_code.validate()?;
-    let image = arch::aarch64::encode::encode(&native_code)?;
-    os::linux::write_linked_executable(project_dir, &ir.name, &image)
+    let mut paths = Vec::new();
+    for flavor in LinuxFlavor::ALL {
+        let native_plan = plan::lower_module(&module, flavor)?;
+        native_plan.validate()?;
+        os::linux::validate_native_object_plan(&native_plan)?;
+        let native_code = code::lower_module(&module, &native_plan, packages, flavor)?;
+        native_code.validate()?;
+        let image = arch::aarch64::encode::encode(&native_code)?;
+        paths.push(os::linux::write_linked_executable(
+            project_dir,
+            &ir.name,
+            flavor,
+            &image,
+        )?);
+    }
+    Ok(paths)
 }
 
 fn write_nir(
@@ -168,7 +178,7 @@ fn write_native_plan(
     packages: &[PathBuf],
 ) -> Result<PathBuf, String> {
     let module = lower_validated_module(ir, target, packages)?;
-    let native_plan = plan::lower_module(&module)?;
+    let native_plan = plan::lower_module(&module, LinuxFlavor::Glibc)?;
     native_plan.validate()?;
     let plan_path = project_dir.join(format!("{}.nplan", ir.name));
     fs::write(&plan_path, native_plan.to_json())
@@ -183,7 +193,7 @@ fn write_native_object_plan(
     packages: &[PathBuf],
 ) -> Result<PathBuf, String> {
     let module = lower_validated_module(ir, target, packages)?;
-    let native_plan = plan::lower_module(&module)?;
+    let native_plan = plan::lower_module(&module, LinuxFlavor::Glibc)?;
     native_plan.validate()?;
     os::linux::write_native_object_plan(project_dir, &ir.name, &native_plan)
 }
@@ -195,10 +205,10 @@ fn write_native_code_plan(
     packages: &[PathBuf],
 ) -> Result<PathBuf, String> {
     let module = lower_validated_module(ir, target, packages)?;
-    let native_plan = plan::lower_module(&module)?;
+    let native_plan = plan::lower_module(&module, LinuxFlavor::Glibc)?;
     native_plan.validate()?;
     os::linux::validate_native_object_plan(&native_plan)?;
-    let native_code = code::lower_module(&module, &native_plan, packages)?;
+    let native_code = code::lower_module(&module, &native_plan, packages, LinuxFlavor::Glibc)?;
     native_code.validate()?;
     let code_path = project_dir.join(format!("{}.ncode", ir.name));
     fs::write(&code_path, native_code.to_json())

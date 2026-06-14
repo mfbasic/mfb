@@ -195,6 +195,9 @@ pub(crate) struct CodeDataObject {
 pub(crate) trait CodegenPlatform {
     fn target(&self) -> &'static str;
     fn arch(&self) -> &'static str;
+    fn package_runtime_imports(&self, _spec: &runtime::RuntimeHelperSpec) -> Vec<CodeImport> {
+        Vec::new()
+    }
     fn preserves_link_register_in_runtime_helpers(&self) -> bool;
     fn emit_program_exit(
         &self,
@@ -465,6 +468,12 @@ pub(crate) fn lower_module_for_platform(
     let package_exports = package_native_exports(packages)?;
     let mut package_runtime_symbols = Vec::new();
     add_package_runtime_symbols(&mut package_runtime_symbols, &package_exports);
+    add_platform_package_runtime_imports(
+        platform,
+        &mut platform_imports,
+        &mut imports,
+        &package_runtime_symbols,
+    );
     if platform.target() == "macos-aarch64" && !package_runtime_symbols.is_empty() {
         add_macos_package_runtime_imports(
             &mut platform_imports,
@@ -532,6 +541,18 @@ pub(crate) fn lower_module_for_platform(
     }
     let type_model = TypeModel::from_module(module)?;
     let mut code_functions = Vec::new();
+    let mut runtime_symbols = native_plan.runtime_symbols.clone();
+    for symbol in package_runtime_symbols {
+        if !runtime_symbols.iter().any(|existing| existing == &symbol) {
+            runtime_symbols.push(symbol);
+        }
+    }
+    let skip_entry_arena_destroy = platform.target() == "linux-aarch64"
+        && runtime_symbols.iter().any(|symbol| {
+            runtime::spec_for_symbol(symbol)
+                .map(|spec| spec.call.starts_with("thread."))
+                .unwrap_or(false)
+        });
 
     if let Some(entry) = &module.entry {
         let entry_symbol = nir::function_symbol(&entry.name);
@@ -540,6 +561,7 @@ pub(crate) fn lower_module_for_platform(
             &entry.returns,
             &platform_imports,
             platform,
+            skip_entry_arena_destroy,
         )?);
     }
     for function in &module.functions {
@@ -572,12 +594,6 @@ pub(crate) fn lower_module_for_platform(
     }
     code_functions.push(lower_arena_alloc(platform)?);
     code_functions.push(lower_arena_destroy(platform)?);
-    let mut runtime_symbols = native_plan.runtime_symbols.clone();
-    for symbol in package_runtime_symbols {
-        if !runtime_symbols.iter().any(|existing| existing == &symbol) {
-            runtime_symbols.push(symbol);
-        }
-    }
     if runtime_symbols
         .iter()
         .any(|symbol| symbol == "_mfb_rt_fs_fs_readBytes")
@@ -918,6 +934,7 @@ fn lower_program_entry(
     language_entry_returns: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
+    skip_arena_destroy: bool,
 ) -> Result<CodeFunction, String> {
     let mut instructions = vec![
         abi::label("entry"),
@@ -1004,22 +1021,24 @@ fn lower_program_entry(
         "255",
     ));
     instructions.push(abi::label(exit_label));
-    instructions.extend([
-        abi::store_u64(abi::return_register(), ARENA_STATE_REGISTER, 32),
-        abi::store_u64(RESULT_VALUE_REGISTER, ARENA_STATE_REGISTER, 40),
-        abi::store_u64(RESULT_ERROR_MESSAGE_REGISTER, ARENA_STATE_REGISTER, 48),
-        abi::branch_link(ARENA_DESTROY_SYMBOL),
-        abi::load_u64(abi::return_register(), ARENA_STATE_REGISTER, 32),
-        abi::load_u64(RESULT_VALUE_REGISTER, ARENA_STATE_REGISTER, 40),
-        abi::load_u64(RESULT_ERROR_MESSAGE_REGISTER, ARENA_STATE_REGISTER, 48),
-    ]);
-    relocations.push(CodeRelocation {
-        from: "_main".to_string(),
-        to: ARENA_DESTROY_SYMBOL.to_string(),
-        kind: "branch26".to_string(),
-        binding: "internal".to_string(),
-        library: None,
-    });
+    if !skip_arena_destroy {
+        instructions.extend([
+            abi::store_u64(abi::return_register(), ARENA_STATE_REGISTER, 32),
+            abi::store_u64(RESULT_VALUE_REGISTER, ARENA_STATE_REGISTER, 40),
+            abi::store_u64(RESULT_ERROR_MESSAGE_REGISTER, ARENA_STATE_REGISTER, 48),
+            abi::branch_link(ARENA_DESTROY_SYMBOL),
+            abi::load_u64(abi::return_register(), ARENA_STATE_REGISTER, 32),
+            abi::load_u64(RESULT_VALUE_REGISTER, ARENA_STATE_REGISTER, 40),
+            abi::load_u64(RESULT_ERROR_MESSAGE_REGISTER, ARENA_STATE_REGISTER, 48),
+        ]);
+        relocations.push(CodeRelocation {
+            from: "_main".to_string(),
+            to: ARENA_DESTROY_SYMBOL.to_string(),
+            kind: "branch26".to_string(),
+            binding: "internal".to_string(),
+            library: None,
+        });
+    }
     platform.emit_program_exit("_main", &mut instructions, &mut relocations)?;
     Ok(CodeFunction {
         name: "program.entry".to_string(),
@@ -1468,6 +1487,30 @@ fn add_package_runtime_symbols(runtime_symbols: &mut Vec<String>, exports: &[Nat
     }
 }
 
+fn add_platform_package_runtime_imports(
+    platform: &dyn CodegenPlatform,
+    platform_imports: &mut HashMap<String, String>,
+    imports: &mut Vec<CodeImport>,
+    runtime_symbols: &[String],
+) {
+    for runtime_symbol in runtime_symbols {
+        let Some(spec) = runtime::spec_for_symbol(runtime_symbol) else {
+            continue;
+        };
+        for import in platform.package_runtime_imports(&spec) {
+            platform_imports
+                .entry(import.symbol.clone())
+                .or_insert_with(|| import.library.clone());
+            if !imports
+                .iter()
+                .any(|existing| existing.symbol == import.symbol)
+            {
+                imports.push(import);
+            }
+        }
+    }
+}
+
 fn add_macos_package_runtime_imports(
     platform_imports: &mut HashMap<String, String>,
     imports: &mut Vec<CodeImport>,
@@ -1615,9 +1658,11 @@ fn package_runtime_symbol(
                 (1, 0) => "_mfb_rt_io_io_write",
                 (2, 1) => "_mfb_rt_io_io_printError",
                 (2, 0) => "_mfb_rt_io_io_writeError",
-                _ => return Err(format!(
+                _ => {
+                    return Err(format!(
                     "native bytecode IO_WRITE uses unsupported fd/newline operands {fd}/{newline}"
-                )),
+                ))
+                }
             }
         }
         bytecode::NATIVE_OPCODE_IO_FLUSH => "_mfb_rt_io_io_flush",
@@ -2962,8 +3007,7 @@ fn lower_thread_start_helper(
     const OUT_LIMIT_OFFSET: usize = 32;
     const CB_OFFSET: usize = 40;
     const STACK_OFFSET: usize = 48;
-    const MACH_CHILD_OFFSET: usize = 56;
-    const MACH_STATE_OFFSET: usize = 64;
+    const MACH_STATE_OFFSET: usize = 56;
     const MACH_STATE_PC_OFFSET: usize = MACH_STATE_OFFSET + 256;
     const MACH_STATE_SP_OFFSET: usize = MACH_STATE_OFFSET + 248;
     const MACH_STATE_X0_OFFSET: usize = MACH_STATE_OFFSET;
@@ -2974,7 +3018,6 @@ fn lower_thread_start_helper(
     let alloc_stack_ok = format!("{symbol}_alloc_stack_ok");
     let spawn_error = format!("{symbol}_spawn_error");
     let parent_done = format!("{symbol}_parent_done");
-    let linux_child = format!("{symbol}_linux_child");
     let mut instructions = vec![abi::label("entry"), abi::subtract_stack(FRAME_SIZE)];
     let mut relocations = Vec::new();
 
@@ -3024,61 +3067,68 @@ fn lower_thread_start_helper(
         abi::store_u64("x10", "x9", THREAD_OFFSET_ENTRY),
         abi::load_u64("x10", abi::stack_pointer(), DATA_OFFSET),
         abi::store_u64("x10", "x9", THREAD_OFFSET_DATA),
-        abi::move_immediate("x0", "Integer", &THREAD_STACK_SIZE.to_string()),
-        abi::move_immediate("x1", "Integer", "16"),
-        abi::branch_link(ARENA_ALLOC_SYMBOL),
-    ]);
-    relocations.push(internal_branch(symbol, ARENA_ALLOC_SYMBOL));
-    instructions.extend([
-        abi::compare_immediate(RESULT_TAG_REGISTER, RESULT_OK_TAG),
-        abi::branch_eq(&alloc_stack_ok),
-        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_OUT_OF_MEMORY_CODE),
-        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
-    ]);
-    push_error_message_address(
-        symbol,
-        ERR_ALLOCATION_SYMBOL,
-        &mut instructions,
-        &mut relocations,
-    );
-    instructions.extend([
-        abi::branch(&parent_done),
-        abi::label(&alloc_stack_ok),
-        abi::store_u64("x1", abi::stack_pointer(), STACK_OFFSET),
-        abi::load_u64("x9", abi::stack_pointer(), CB_OFFSET),
-        abi::store_u64("x1", "x9", THREAD_OFFSET_STACK),
         abi::store_u64(ARENA_STATE_REGISTER, "x9", THREAD_OFFSET_ARENA_STATE),
     ]);
 
     if platform.target() == "linux-aarch64" {
         instructions.extend([
-            abi::load_u64("x9", abi::stack_pointer(), CB_OFFSET),
-            abi::load_u64("x1", abi::stack_pointer(), STACK_OFFSET),
-            abi::move_immediate("x11", "Integer", &(THREAD_STACK_SIZE - 16).to_string()),
-            abi::add_registers("x1", "x1", "x11"),
-            abi::store_u64("x9", "x1", 0),
-            abi::move_immediate("x0", "Integer", "1809"),
-            abi::move_immediate("x2", "Integer", "0"),
-            abi::move_immediate("x3", "Integer", "0"),
-            abi::move_immediate("x4", "Integer", "0"),
-            abi::move_immediate(abi::syscall_register(), "Integer", "220"),
-            abi::syscall(),
+            abi::add_immediate("x0", "x9", THREAD_OFFSET_OS_HANDLE),
+            abi::move_immediate("x1", "Integer", "0"),
+        ]);
+        instructions.push(abi::load_page_address("x2", THREAD_TRAMPOLINE_SYMBOL));
+        relocations.push(CodeRelocation {
+            from: symbol.to_string(),
+            to: THREAD_TRAMPOLINE_SYMBOL.to_string(),
+            kind: "page21".to_string(),
+            binding: "data".to_string(),
+            library: None,
+        });
+        instructions.push(abi::add_page_offset("x2", "x2", THREAD_TRAMPOLINE_SYMBOL));
+        relocations.push(CodeRelocation {
+            from: symbol.to_string(),
+            to: THREAD_TRAMPOLINE_SYMBOL.to_string(),
+            kind: "pageoff12".to_string(),
+            binding: "data".to_string(),
+            library: None,
+        });
+        instructions.extend([
+            abi::move_register("x3", "x9"),
+            abi::branch_link("pthread_create"),
+        ]);
+        relocations.push(external_branch(symbol, "pthread_create", platform_imports)?);
+        instructions.extend([
             abi::compare_immediate("x0", "0"),
-            abi::branch_eq(&linux_child),
-            abi::branch_lt(&spawn_error),
+            abi::branch_ne(&spawn_error),
             abi::load_u64("x9", abi::stack_pointer(), CB_OFFSET),
-            abi::store_u64("x0", "x9", THREAD_OFFSET_OS_HANDLE),
             abi::move_register(RESULT_VALUE_REGISTER, "x9"),
             abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
             abi::branch(&parent_done),
-            abi::label(&linux_child),
-            abi::load_u64("x0", abi::stack_pointer(), 0),
-            abi::branch_link(THREAD_TRAMPOLINE_SYMBOL),
-            abi::branch_self(),
         ]);
-        relocations.push(internal_branch(symbol, THREAD_TRAMPOLINE_SYMBOL));
     } else {
         instructions.extend([
+            abi::move_immediate("x0", "Integer", &THREAD_STACK_SIZE.to_string()),
+            abi::move_immediate("x1", "Integer", "16"),
+            abi::branch_link(ARENA_ALLOC_SYMBOL),
+        ]);
+        relocations.push(internal_branch(symbol, ARENA_ALLOC_SYMBOL));
+        instructions.extend([
+            abi::compare_immediate(RESULT_TAG_REGISTER, RESULT_OK_TAG),
+            abi::branch_eq(&alloc_stack_ok),
+            abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_OUT_OF_MEMORY_CODE),
+            abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
+        ]);
+        push_error_message_address(
+            symbol,
+            ERR_ALLOCATION_SYMBOL,
+            &mut instructions,
+            &mut relocations,
+        );
+        instructions.extend([
+            abi::branch(&parent_done),
+            abi::label(&alloc_stack_ok),
+            abi::store_u64("x1", abi::stack_pointer(), STACK_OFFSET),
+            abi::load_u64("x9", abi::stack_pointer(), CB_OFFSET),
+            abi::store_u64("x1", "x9", THREAD_OFFSET_STACK),
             abi::load_u64("x9", abi::stack_pointer(), CB_OFFSET),
             abi::store_u64("x9", abi::stack_pointer(), MACH_STATE_X0_OFFSET),
             abi::store_u64(
@@ -3132,7 +3182,7 @@ fn lower_thread_start_helper(
             abi::move_immediate("x1", "Integer", "6"),
             abi::add_immediate("x2", abi::stack_pointer(), MACH_STATE_OFFSET),
             abi::move_immediate("x3", "Integer", "68"),
-            abi::add_immediate("x4", abi::stack_pointer(), MACH_CHILD_OFFSET),
+            abi::add_immediate("x4", "x9", THREAD_OFFSET_OS_HANDLE),
             abi::branch_link("_thread_create_running"),
         ]);
         relocations.push(external_branch(
@@ -3144,8 +3194,6 @@ fn lower_thread_start_helper(
             abi::compare_immediate("x0", "0"),
             abi::branch_ne(&spawn_error),
             abi::load_u64("x9", abi::stack_pointer(), CB_OFFSET),
-            abi::load_u64("x10", abi::stack_pointer(), MACH_CHILD_OFFSET),
-            abi::store_u64("x10", "x9", THREAD_OFFSET_OS_HANDLE),
             abi::move_register(RESULT_VALUE_REGISTER, "x9"),
             abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
             abi::branch(&parent_done),
@@ -3194,39 +3242,63 @@ fn lower_thread_start_helper(
 }
 
 fn lower_thread_trampoline(platform: &dyn CodegenPlatform) -> Result<CodeFunction, String> {
-    let mut instructions = vec![
-        abi::label("entry"),
-        abi::subtract_stack(16),
-        abi::move_register("x20", "x0"),
-        abi::store_u64("x20", abi::stack_pointer(), 0),
-        abi::load_u64(ARENA_STATE_REGISTER, "x20", THREAD_OFFSET_ARENA_STATE),
-        abi::load_u64("x9", "x20", THREAD_OFFSET_ENTRY),
-        abi::load_u64("x1", "x20", THREAD_OFFSET_DATA),
-        abi::move_register("x0", "x20"),
-        abi::branch_link_register("x9"),
-        abi::load_u64("x20", abi::stack_pointer(), 0),
-        abi::store_u64(RESULT_TAG_REGISTER, "x20", THREAD_OFFSET_RESULT_TAG),
-        abi::store_u64(RESULT_VALUE_REGISTER, "x20", THREAD_OFFSET_RESULT_VALUE),
-        abi::store_u64(
-            RESULT_ERROR_MESSAGE_REGISTER,
-            "x20",
-            THREAD_OFFSET_RESULT_ERROR,
-        ),
-        abi::move_immediate("x10", "Integer", "1"),
-        abi::store_u64("x10", "x20", THREAD_OFFSET_STATE),
-        abi::add_stack(16),
-    ];
-    if platform.target() == "linux-aarch64" {
-        instructions.extend([
+    let instructions = if platform.target() == "linux-aarch64" {
+        vec![
+            abi::label("entry"),
+            abi::subtract_stack(32),
+            abi::store_u64(abi::link_register(), abi::stack_pointer(), 0),
+            abi::store_u64(ARENA_STATE_REGISTER, abi::stack_pointer(), 8),
+            abi::store_u64("x20", abi::stack_pointer(), 16),
+            abi::move_register("x20", "x0"),
+            abi::store_u64("x20", abi::stack_pointer(), 24),
+            abi::load_u64(ARENA_STATE_REGISTER, "x20", THREAD_OFFSET_ARENA_STATE),
+            abi::load_u64("x9", "x20", THREAD_OFFSET_ENTRY),
+            abi::load_u64("x1", "x20", THREAD_OFFSET_DATA),
+            abi::move_register("x0", "x20"),
+            abi::branch_link_register("x9"),
+            abi::load_u64("x20", abi::stack_pointer(), 24),
+            abi::store_u64(RESULT_TAG_REGISTER, "x20", THREAD_OFFSET_RESULT_TAG),
+            abi::store_u64(RESULT_VALUE_REGISTER, "x20", THREAD_OFFSET_RESULT_VALUE),
+            abi::store_u64(
+                RESULT_ERROR_MESSAGE_REGISTER,
+                "x20",
+                THREAD_OFFSET_RESULT_ERROR,
+            ),
+            abi::move_immediate("x10", "Integer", "1"),
+            abi::store_u64("x10", "x20", THREAD_OFFSET_STATE),
             abi::move_immediate("x0", "Integer", "0"),
-            abi::move_immediate(abi::syscall_register(), "Integer", "93"),
-            abi::syscall(),
+            abi::load_u64(ARENA_STATE_REGISTER, abi::stack_pointer(), 8),
+            abi::load_u64("x20", abi::stack_pointer(), 16),
+            abi::load_u64(abi::link_register(), abi::stack_pointer(), 0),
+            abi::add_stack(32),
+            abi::return_(),
+        ]
+    } else {
+        vec![
+            abi::label("entry"),
+            abi::subtract_stack(16),
+            abi::move_register("x20", "x0"),
+            abi::store_u64("x20", abi::stack_pointer(), 0),
+            abi::load_u64(ARENA_STATE_REGISTER, "x20", THREAD_OFFSET_ARENA_STATE),
+            abi::load_u64("x9", "x20", THREAD_OFFSET_ENTRY),
+            abi::load_u64("x1", "x20", THREAD_OFFSET_DATA),
+            abi::move_register("x0", "x20"),
+            abi::branch_link_register("x9"),
+            abi::load_u64("x20", abi::stack_pointer(), 0),
+            abi::store_u64(RESULT_TAG_REGISTER, "x20", THREAD_OFFSET_RESULT_TAG),
+            abi::store_u64(RESULT_VALUE_REGISTER, "x20", THREAD_OFFSET_RESULT_VALUE),
+            abi::store_u64(
+                RESULT_ERROR_MESSAGE_REGISTER,
+                "x20",
+                THREAD_OFFSET_RESULT_ERROR,
+            ),
+            abi::move_immediate("x10", "Integer", "1"),
+            abi::store_u64("x10", "x20", THREAD_OFFSET_STATE),
+            abi::add_stack(16),
             abi::branch_self(),
             abi::return_(),
-        ]);
-    } else {
-        instructions.extend([abi::branch_self(), abi::return_()]);
-    }
+        ]
+    };
     Ok(CodeFunction {
         name: "runtime.thread.trampoline".to_string(),
         symbol: THREAD_TRAMPOLINE_SYMBOL.to_string(),
@@ -3621,8 +3693,6 @@ fn lower_io_poll_input_helper(
     const POLLIN_PACKED_FD0: &str = "4294967296";
     const FRAME_SIZE: usize = 48;
     const POLLFD_OFFSET: usize = 8;
-    const TIMESPEC_SEC_OFFSET: usize = 16;
-    const TIMESPEC_NSEC_OFFSET: usize = 24;
     const TIMEOUT_OFFSET: usize = 32;
 
     let mut instructions = vec![abi::label("entry"), abi::subtract_stack(FRAME_SIZE)];
@@ -3640,36 +3710,7 @@ fn lower_io_poll_input_helper(
         abi::store_u64("x9", abi::stack_pointer(), POLLFD_OFFSET),
     ]);
 
-    if platform.target() == "linux-aarch64" {
-        let timeout_zero = format!("{symbol}_timeout_zero");
-        let timeout_positive = format!("{symbol}_timeout_positive");
-        let timeout_ready = format!("{symbol}_timeout_ready");
-        instructions.extend([
-            abi::load_u64("x10", abi::stack_pointer(), TIMEOUT_OFFSET),
-            abi::compare_immediate("x10", "0"),
-            abi::branch_eq(&timeout_zero),
-            abi::branch_gt(&timeout_positive),
-            abi::move_immediate("x2", "Integer", "0"),
-            abi::branch(&timeout_ready),
-            abi::label(&timeout_zero),
-            abi::store_u64("x31", abi::stack_pointer(), TIMESPEC_SEC_OFFSET),
-            abi::store_u64("x31", abi::stack_pointer(), TIMESPEC_NSEC_OFFSET),
-            abi::add_immediate("x2", abi::stack_pointer(), TIMESPEC_SEC_OFFSET),
-            abi::branch(&timeout_ready),
-            abi::label(&timeout_positive),
-            abi::move_immediate("x11", "Integer", "1000"),
-            abi::unsigned_divide_registers("x12", "x10", "x11"),
-            abi::multiply_subtract_registers("x13", "x12", "x11", "x10"),
-            abi::move_immediate("x14", "Integer", "1000000"),
-            abi::multiply_registers("x13", "x13", "x14"),
-            abi::store_u64("x12", abi::stack_pointer(), TIMESPEC_SEC_OFFSET),
-            abi::store_u64("x13", abi::stack_pointer(), TIMESPEC_NSEC_OFFSET),
-            abi::add_immediate("x2", abi::stack_pointer(), TIMESPEC_SEC_OFFSET),
-            abi::label(&timeout_ready),
-        ]);
-    } else {
-        instructions.push(abi::load_u64("x2", abi::stack_pointer(), TIMEOUT_OFFSET));
-    }
+    instructions.push(abi::load_u64("x2", abi::stack_pointer(), TIMEOUT_OFFSET));
 
     instructions.extend([
         abi::add_immediate(abi::return_register(), abi::stack_pointer(), POLLFD_OFFSET),
@@ -4797,11 +4838,33 @@ fn lower_fs_list_directory_helper(
         &mut instructions,
         &mut relocations,
     )?;
+    if platform.target() == "linux-aarch64" {
+        let name_len_loop = format!("{symbol}_count_name_len_loop");
+        let name_len_done = format!("{symbol}_count_name_len_done");
+        instructions.extend([
+            abi::compare_immediate(abi::return_register(), "0"),
+            abi::branch_eq(&count_done),
+            abi::add_immediate("x11", abi::return_register(), name_offset),
+            abi::move_register("x13", "x11"),
+            abi::move_immediate("x10", "Integer", "0"),
+            abi::label(&name_len_loop),
+            abi::load_u8("x12", "x13", 0),
+            abi::compare_immediate("x12", "0"),
+            abi::branch_eq(&name_len_done),
+            abi::add_immediate("x10", "x10", 1),
+            abi::add_immediate("x13", "x13", 1),
+            abi::branch(&name_len_loop),
+            abi::label(&name_len_done),
+        ]);
+    } else {
+        instructions.extend([
+            abi::compare_immediate(abi::return_register(), "0"),
+            abi::branch_eq(&count_done),
+            abi::load_u16("x10", abi::return_register(), namlen_offset),
+            abi::add_immediate("x11", abi::return_register(), name_offset),
+        ]);
+    }
     instructions.extend([
-        abi::compare_immediate(abi::return_register(), "0"),
-        abi::branch_eq(&count_done),
-        abi::load_u16("x10", abi::return_register(), namlen_offset),
-        abi::add_immediate("x11", abi::return_register(), name_offset),
         abi::compare_immediate("x10", "1"),
         abi::branch_ne(&count_skip),
         abi::load_u8("x12", "x11", 0),
@@ -4903,11 +4966,33 @@ fn lower_fs_list_directory_helper(
         &mut instructions,
         &mut relocations,
     )?;
+    if platform.target() == "linux-aarch64" {
+        let name_len_loop = format!("{symbol}_fill_name_len_loop");
+        let name_len_done = format!("{symbol}_fill_name_len_done");
+        instructions.extend([
+            abi::compare_immediate(abi::return_register(), "0"),
+            abi::branch_eq(&fill_done),
+            abi::add_immediate("x11", abi::return_register(), name_offset),
+            abi::move_register("x13", "x11"),
+            abi::move_immediate("x10", "Integer", "0"),
+            abi::label(&name_len_loop),
+            abi::load_u8("x12", "x13", 0),
+            abi::compare_immediate("x12", "0"),
+            abi::branch_eq(&name_len_done),
+            abi::add_immediate("x10", "x10", 1),
+            abi::add_immediate("x13", "x13", 1),
+            abi::branch(&name_len_loop),
+            abi::label(&name_len_done),
+        ]);
+    } else {
+        instructions.extend([
+            abi::compare_immediate(abi::return_register(), "0"),
+            abi::branch_eq(&fill_done),
+            abi::load_u16("x10", abi::return_register(), namlen_offset),
+            abi::add_immediate("x11", abi::return_register(), name_offset),
+        ]);
+    }
     instructions.extend([
-        abi::compare_immediate(abi::return_register(), "0"),
-        abi::branch_eq(&fill_done),
-        abi::load_u16("x10", abi::return_register(), namlen_offset),
-        abi::add_immediate("x11", abi::return_register(), name_offset),
         abi::compare_immediate("x10", "1"),
         abi::branch_ne(&fill_skip),
         abi::load_u8("x12", "x11", 0),
@@ -5031,6 +5116,7 @@ fn lower_fs_create_temp_file_helper(
     const FD_OFFSET: usize = 24;
     const FILE_OFFSET: usize = 32;
     const RANDOM_OFFSET: usize = 48;
+    const CURSOR_OFFSET: usize = 64;
     const UUID_FILE_EXTRA: usize = 46;
 
     let alloc_ok = format!("{symbol}_alloc_ok");
@@ -5095,6 +5181,7 @@ fn lower_fs_create_temp_file_helper(
         ]);
     }
     instructions.extend([
+        abi::store_u64("x13", abi::stack_pointer(), CURSOR_OFFSET),
         abi::add_immediate(abi::return_register(), abi::stack_pointer(), RANDOM_OFFSET),
         abi::move_immediate("x1", "Integer", "16"),
     ]);
@@ -5109,6 +5196,7 @@ fn lower_fs_create_temp_file_helper(
         abi::branch_ge(&random_ok),
         abi::branch(&open_error),
         abi::label(&random_ok),
+        abi::load_u64("x13", abi::stack_pointer(), CURSOR_OFFSET),
     ]);
     emit_uuid_v4_to_path(symbol, &mut instructions, RANDOM_OFFSET, "x13");
     for byte in b".tmp" {
