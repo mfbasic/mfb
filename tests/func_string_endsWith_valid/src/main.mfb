@@ -1,0 +1,12 @@
+IMPORT io
+IMPORT strings
+
+FUNC main AS Integer
+  io::print(toString(strings::endsWith("Hello", "")))
+  io::print(toString(strings::endsWith("Hello", "lo")))
+  io::print(toString(strings::endsWith("Hello 😀", "😀")))
+  io::print(toString(strings::endsWith("café", "é")))
+  io::print(toString(strings::endsWith("Hello", "he")))
+  io::print(toString(strings::endsWith("Hi", "Hello")))
+  RETURN 0
+END FUNC

@@ -251,7 +251,11 @@ impl CodeBuilder<'_> {
         })
     }
 
-    pub(super) fn emit_load_string_constant(&mut self, register: &str, value: &str) -> Result<(), String> {
+    pub(super) fn emit_load_string_constant(
+        &mut self,
+        register: &str,
+        value: &str,
+    ) -> Result<(), String> {
         let symbol = self
             .string_symbols
             .get(value)
@@ -559,7 +563,10 @@ impl CodeBuilder<'_> {
             .collect()
     }
 
-    pub(super) fn restore_local_constants(&mut self, constants: &HashMap<String, Option<NirValue>>) {
+    pub(super) fn restore_local_constants(
+        &mut self,
+        constants: &HashMap<String, Option<NirValue>>,
+    ) {
         for (name, local) in &mut self.locals {
             local.constant = constants.get(name).cloned().unwrap_or(None);
         }
@@ -625,7 +632,11 @@ impl CodeBuilder<'_> {
         self.emit_error_code_return(ERR_ENCODING_CODE, ERR_ENCODING_MESSAGE)
     }
 
-    pub(super) fn emit_error_code_return(&mut self, code: &str, message: &str) -> Result<(), String> {
+    pub(super) fn emit_error_code_return(
+        &mut self,
+        code: &str,
+        message: &str,
+    ) -> Result<(), String> {
         let code_register = self.allocate_register()?;
         self.emit(abi::move_immediate(&code_register, "Integer", code));
         self.emit_error_register_return(&code_register, message)

@@ -1,0 +1,66 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "func_string_graphemes_valid",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "printParts",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    { "name": "parts", "type": "List OF String", "default": null }
+    ],
+    "returns": "Nothing",
+    "body": [
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "parts" }] }] }] } },
+    {
+      "op": "forEach",
+      "name": "part",
+      "type": "String",
+      "iterable": { "kind": "local", "name": "parts" },
+      "body": [
+      { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "binary", "op": "&", "left": { "kind": "binary", "op": "&", "left": { "kind": "const", "type": "String", "value": "[" }, "right": { "kind": "local", "name": "part" } }, "right": { "kind": "const", "type": "String", "value": "]" } }] } }
+      ]
+    },
+    { "op": "return", "value": { "kind": "const", "type": "Nothing", "value": "NOTHING" } }
+    ]
+  },
+  {
+    "name": "splitGraphemes",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    { "name": "value", "type": "String", "default": null }
+    ],
+    "returns": "List OF String",
+    "body": [
+    { "op": "return", "value": { "kind": "call", "target": "strings.graphemes", "args": [{ "kind": "local", "name": "value" }] } }
+    ]
+  },
+  {
+    "name": "main",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "mutable": false, "name": "combining", "type": "List OF String", "value": { "kind": "call", "target": "splitGraphemes", "args": [{ "kind": "const", "type": "String", "value": "áb" }] } },
+    { "op": "bind", "mutable": false, "name": "family", "type": "List OF String", "value": { "kind": "call", "target": "splitGraphemes", "args": [{ "kind": "const", "type": "String", "value": "👨‍👩‍👧‍👦x" }] } },
+    { "op": "bind", "mutable": false, "name": "flags", "type": "List OF String", "value": { "kind": "call", "target": "splitGraphemes", "args": [{ "kind": "const", "type": "String", "value": "🇺🇸🇨🇦" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "printParts", "args": [{ "kind": "call", "target": "splitGraphemes", "args": [{ "kind": "const", "type": "String", "value": "" }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "printParts", "args": [{ "kind": "local", "name": "combining" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "printParts", "args": [{ "kind": "local", "name": "family" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "printParts", "args": [{ "kind": "local", "name": "flags" }] } },
+    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

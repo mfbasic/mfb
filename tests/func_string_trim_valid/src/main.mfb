@@ -1,0 +1,12 @@
+IMPORT io
+IMPORT strings
+
+FUNC main AS Integer
+  io::print("[" & strings::trim("  Hello  ") & "]")
+  io::print("[" & strings::trim("	😀	") & "]")
+  io::print("[" & strings::trim(" é ") & "]")
+  io::print("[" & strings::trim("　wide　") & "]")
+  io::print("[" & strings::trim("") & "]")
+  io::print("[" & strings::trim("   ") & "]")
+  RETURN 0
+END FUNC

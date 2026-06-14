@@ -1,0 +1,17 @@
+$ mfb build -ast tests/func_string_endsWith_valid
+Wrote AST to tests/func_string_endsWith_valid/func_string_endsWith_valid.ast
+[exit 0]
+$ mfb build -ir tests/func_string_endsWith_valid
+Wrote IR to tests/func_string_endsWith_valid/func_string_endsWith_valid.ir
+[exit 0]
+$ mfb build tests/func_string_endsWith_valid
+Wrote executable to tests/func_string_endsWith_valid/func_string_endsWith_valid.out
+[exit 0]
+$ tests/func_string_endsWith_valid/func_string_endsWith_valid.out
+TRUE
+TRUE
+TRUE
+TRUE
+FALSE
+FALSE
+[exit 0]

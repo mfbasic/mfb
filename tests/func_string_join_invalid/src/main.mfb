@@ -1,0 +1,9 @@
+IMPORT strings
+
+FUNC main AS Integer
+  LET missing AS String = strings::join(["a"])
+  LET wrongList AS String = strings::join([1, 2], ",")
+  LET wrongDelimiter AS String = strings::join(["a"], 1)
+  LET tooMany AS String = strings::join(["a"], ",", ";")
+  RETURN 0
+END FUNC

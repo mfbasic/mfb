@@ -1,0 +1,12 @@
+IMPORT io
+IMPORT strings
+
+FUNC main AS Integer
+  io::print(toString(strings::startsWith("Hello", "")))
+  io::print(toString(strings::startsWith("Hello", "He")))
+  io::print(toString(strings::startsWith("😀 Hello", "😀")))
+  io::print(toString(strings::startsWith("éclair", "é")))
+  io::print(toString(strings::startsWith("Hello", "hello")))
+  io::print(toString(strings::startsWith("Hi", "Hello")))
+  RETURN 0
+END FUNC

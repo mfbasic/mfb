@@ -1,0 +1,8 @@
+IMPORT strings
+
+FUNC main AS Integer
+  LET missing AS String = strings::caseFold()
+  LET wrongType AS String = strings::caseFold(12)
+  LET tooMany AS String = strings::caseFold("a", "b")
+  RETURN 0
+END FUNC

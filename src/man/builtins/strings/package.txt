@@ -1,0 +1,42 @@
+NAME
+    strings - Unicode string helper functions
+
+SYNOPSIS
+    IMPORT strings
+    strings::trim(value)
+    strings::trimStart(value)
+    strings::trimEnd(value)
+    strings::upper(value)
+    strings::lower(value)
+    strings::caseFold(value)
+    strings::normalizeNfc(value)
+    strings::graphemes(value)
+    strings::startsWith(value, prefix)
+    strings::endsWith(value, suffix)
+    strings::contains(value, needle)
+    strings::split(value, delimiter)
+    strings::join(parts, delimiter)
+    strings::byteLen(value)
+
+DESCRIPTION
+    The strings package contains package-qualified string helpers.
+
+    Index-based string functions use zero-based Unicode scalar indexes.
+    strings::byteLen returns UTF-8 byte length. strings::graphemes returns
+    user-perceived extended grapheme clusters.
+
+EXAMPLES
+    IMPORT io
+    IMPORT strings
+
+    FUNC main AS Integer
+      io::print(strings::trim("  Hello  "))
+      io::print(toString(strings::byteLen("Hello")))
+      RETURN 0
+    END FUNC
+
+SEE ALSO
+    mfb man general len
+    mfb man general find
+    mfb man general mid
+    mfb man general replace

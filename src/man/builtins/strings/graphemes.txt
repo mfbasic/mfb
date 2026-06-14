@@ -1,0 +1,18 @@
+NAME
+    graphemes - split a string into extended grapheme clusters
+
+SYNOPSIS
+    strings::graphemes(value AS String) AS List OF String
+
+DESCRIPTION
+    Splits value into Unicode extended grapheme clusters.
+
+EXAMPLES
+    IMPORT io
+    IMPORT strings
+
+    FUNC main AS Integer
+      LET parts = strings::graphemes("a😀")
+      io::print(toString(len(parts)))
+      RETURN 0
+    END FUNC

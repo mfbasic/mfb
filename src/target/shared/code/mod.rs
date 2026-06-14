@@ -77,6 +77,20 @@ const COLLECTION_TYPE_STRING: usize = 6;
 const COLLECTION_TYPE_BYTE: usize = 7;
 const COLLECTION_TYPE_LIST: usize = 20;
 const COLLECTION_TYPE_MAP: usize = 21;
+const UNICODE_STAGE1_SYMBOL: &str = "_mfb_unicode_stage1";
+const UNICODE_STAGE2_SYMBOL: &str = "_mfb_unicode_stage2";
+const UNICODE_PROPERTIES_SYMBOL: &str = "_mfb_unicode_properties";
+const UNICODE_SEQUENCES_SYMBOL: &str = "_mfb_unicode_sequences";
+const UNICODE_COMBINATIONS_SECOND_SYMBOL: &str = "_mfb_unicode_combinations_second";
+const UNICODE_COMBINATIONS_COMBINED_SYMBOL: &str = "_mfb_unicode_combinations_combined";
+const UNICODE_NFD_ENTRIES_SYMBOL: &str = "_mfb_unicode_nfd_entries";
+const UNICODE_NFD_SEQUENCES_SYMBOL: &str = "_mfb_unicode_nfd_sequences";
+const UNICODE_UPPERCASE_ENTRIES_SYMBOL: &str = "_mfb_unicode_uppercase_entries";
+const UNICODE_UPPERCASE_SEQUENCES_SYMBOL: &str = "_mfb_unicode_uppercase_sequences";
+const UNICODE_LOWERCASE_ENTRIES_SYMBOL: &str = "_mfb_unicode_lowercase_entries";
+const UNICODE_LOWERCASE_SEQUENCES_SYMBOL: &str = "_mfb_unicode_lowercase_sequences";
+const UNICODE_CASEFOLD_ENTRIES_SYMBOL: &str = "_mfb_unicode_casefold_entries";
+const UNICODE_CASEFOLD_SEQUENCES_SYMBOL: &str = "_mfb_unicode_casefold_sequences";
 
 pub(crate) struct NativeCodePlan {
     pub(crate) target: String,
@@ -261,7 +275,7 @@ pub(crate) fn lower_module_for_platform(
     let string_symbols = string_symbols(module);
     let mut string_objects = string_symbols.iter().collect::<Vec<_>>();
     string_objects.sort_by(|(_, left_symbol), (_, right_symbol)| left_symbol.cmp(right_symbol));
-    let data_objects = string_objects
+    let mut data_objects = string_objects
         .into_iter()
         .map(|(value, symbol)| CodeDataObject {
             symbol: symbol.clone(),
@@ -272,6 +286,9 @@ pub(crate) fn lower_module_for_platform(
             value: value.clone(),
         })
         .collect::<Vec<_>>();
+    if module_uses_unicode_runtime_tables(module) {
+        data_objects.extend(unicode_runtime_data_objects());
+    }
     let type_model = TypeModel::from_module(module)?;
     let mut code_functions = Vec::new();
 
@@ -1308,16 +1325,18 @@ fn adjust_stack_instruction_offsets(instructions: &mut [CodeInstruction], offset
     }
 }
 
-mod builder_control;
-mod builder_values;
-mod builder_strings;
-mod builder_conversions;
-mod builder_numeric;
-mod builder_search;
+mod builder_collection_layout;
 mod builder_collection_queries;
 mod builder_collection_updates;
-mod builder_collection_layout;
+mod builder_control;
+mod builder_conversions;
 mod builder_misc;
+mod builder_numeric;
+mod builder_search;
+mod builder_strings;
+mod builder_strings_package;
+mod builder_values;
+mod private;
 
 impl CodeInstruction {
     pub(crate) fn new(op: &str) -> Self {
@@ -1372,7 +1391,9 @@ impl CodeInstruction {
             | CodeOp::BranchLink => &["target"],
             CodeOp::BranchLinkRegister => &["register"],
             CodeOp::BranchSelf | CodeOp::Svc | CodeOp::Ret => &[],
-            CodeOp::LdrU64 | CodeOp::LdrU8 => &["dst", "base", "offset"],
+            CodeOp::LdrU64 | CodeOp::LdrU32 | CodeOp::LdrU16 | CodeOp::LdrU8 => {
+                &["dst", "base", "offset"]
+            }
             CodeOp::StrU64 | CodeOp::StrU8 => &["src", "base", "offset"],
             CodeOp::Adrp | CodeOp::AddPageOff => &["dst", "symbol"],
             CodeOp::FMovXFromD
@@ -1925,6 +1946,336 @@ fn collect_type_name_values_from_value(value: &NirValue, values: &mut Vec<String
     }
 }
 
+fn module_uses_unicode_runtime_tables(module: &NirModule) -> bool {
+    module.functions.iter().any(|function| {
+        let mut constants = HashMap::new();
+        let mut types = HashMap::new();
+        ops_use_unicode_runtime_tables(&function.body, &mut constants, &mut types)
+    })
+}
+
+fn ops_use_unicode_runtime_tables(
+    ops: &[NirOp],
+    constants: &mut HashMap<String, NirValue>,
+    types: &mut HashMap<String, String>,
+) -> bool {
+    for op in ops {
+        match op {
+            NirOp::Bind {
+                name, type_, value, ..
+            } => {
+                types.insert(name.clone(), type_.clone());
+                if let Some(value) = value {
+                    if value_uses_unicode_runtime_tables(value, constants, types) {
+                        return true;
+                    }
+                    if let Some(constant) =
+                        local_constant_value_with_constants(value, constants, types)
+                    {
+                        constants.insert(name.clone(), constant);
+                    } else {
+                        constants.remove(name);
+                    }
+                } else {
+                    constants.remove(name);
+                }
+            }
+            NirOp::Assign { name, value } => {
+                if value_uses_unicode_runtime_tables(value, constants, types) {
+                    return true;
+                }
+                if let Some(constant) = local_constant_value_with_constants(value, constants, types)
+                {
+                    constants.insert(name.clone(), constant);
+                } else {
+                    constants.remove(name);
+                }
+            }
+            NirOp::Eval { value } | NirOp::Fail { error: value } => {
+                if value_uses_unicode_runtime_tables(value, constants, types) {
+                    return true;
+                }
+            }
+            NirOp::Return { value } => {
+                if value
+                    .as_ref()
+                    .is_some_and(|value| value_uses_unicode_runtime_tables(value, constants, types))
+                {
+                    return true;
+                }
+            }
+            NirOp::If {
+                condition,
+                then_body,
+                else_body,
+            } => {
+                if value_uses_unicode_runtime_tables(condition, constants, types) {
+                    return true;
+                }
+                let mut then_constants = constants.clone();
+                let mut then_types = types.clone();
+                let mut else_constants = constants.clone();
+                let mut else_types = types.clone();
+                if ops_use_unicode_runtime_tables(then_body, &mut then_constants, &mut then_types)
+                    || ops_use_unicode_runtime_tables(
+                        else_body,
+                        &mut else_constants,
+                        &mut else_types,
+                    )
+                {
+                    return true;
+                }
+            }
+            NirOp::Match { value, cases } => {
+                if value_uses_unicode_runtime_tables(value, constants, types) {
+                    return true;
+                }
+                for case in cases {
+                    if let NirMatchPattern::Value(value) = &case.pattern {
+                        if value_uses_unicode_runtime_tables(value, constants, types) {
+                            return true;
+                        }
+                    }
+                    let mut case_constants = constants.clone();
+                    let mut case_types = types.clone();
+                    if ops_use_unicode_runtime_tables(
+                        &case.body,
+                        &mut case_constants,
+                        &mut case_types,
+                    ) {
+                        return true;
+                    }
+                }
+            }
+            NirOp::ForEach {
+                name,
+                type_,
+                iterable,
+                body,
+            } => {
+                if value_uses_unicode_runtime_tables(iterable, constants, types) {
+                    return true;
+                }
+                let mut body_constants = constants.clone();
+                let mut body_types = types.clone();
+                body_constants.remove(name);
+                body_types.insert(name.clone(), type_.clone());
+                if ops_use_unicode_runtime_tables(body, &mut body_constants, &mut body_types) {
+                    return true;
+                }
+            }
+            NirOp::Using {
+                name,
+                type_,
+                value,
+                body,
+                ..
+            } => {
+                if value_uses_unicode_runtime_tables(value, constants, types) {
+                    return true;
+                }
+                let mut body_constants = constants.clone();
+                let mut body_types = types.clone();
+                body_constants.remove(name);
+                body_types.insert(name.clone(), type_.clone());
+                if ops_use_unicode_runtime_tables(body, &mut body_constants, &mut body_types) {
+                    return true;
+                }
+            }
+        }
+    }
+    false
+}
+
+fn value_uses_unicode_runtime_tables(
+    value: &NirValue,
+    constants: &HashMap<String, NirValue>,
+    types: &HashMap<String, String>,
+) -> bool {
+    match value {
+        NirValue::Call { target, args } | NirValue::RuntimeCall { target, args, .. } => {
+            matches!(
+                target.as_str(),
+                "strings.upper"
+                    | "strings.lower"
+                    | "strings.caseFold"
+                    | "strings.normalizeNfc"
+                    | "strings.graphemes"
+            ) && !unicode_string_call_is_static(target, args, constants, types)
+                || args
+                    .iter()
+                    .any(|arg| value_uses_unicode_runtime_tables(arg, constants, types))
+        }
+        NirValue::Constructor { args, .. } => args
+            .iter()
+            .any(|arg| value_uses_unicode_runtime_tables(arg, constants, types)),
+        NirValue::WithUpdate {
+            target, updates, ..
+        } => {
+            value_uses_unicode_runtime_tables(target, constants, types)
+                || updates.iter().any(|update| {
+                    value_uses_unicode_runtime_tables(&update.value, constants, types)
+                })
+        }
+        NirValue::ListLiteral { values, .. } => values
+            .iter()
+            .any(|value| value_uses_unicode_runtime_tables(value, constants, types)),
+        NirValue::MapLiteral { entries, .. } => entries.iter().any(|(key, value)| {
+            value_uses_unicode_runtime_tables(key, constants, types)
+                || value_uses_unicode_runtime_tables(value, constants, types)
+        }),
+        NirValue::MemberAccess { target, .. } => {
+            value_uses_unicode_runtime_tables(target, constants, types)
+        }
+        NirValue::Binary { left, right, .. } => {
+            value_uses_unicode_runtime_tables(left, constants, types)
+                || value_uses_unicode_runtime_tables(right, constants, types)
+        }
+        NirValue::Unary { operand, .. } => {
+            value_uses_unicode_runtime_tables(operand, constants, types)
+        }
+        NirValue::Const { .. } | NirValue::Local(_) | NirValue::FunctionRef { .. } => false,
+    }
+}
+
+fn unicode_string_call_is_static(
+    target: &str,
+    args: &[NirValue],
+    constants: &HashMap<String, NirValue>,
+    types: &HashMap<String, String>,
+) -> bool {
+    matches!(
+        target,
+        "strings.upper"
+            | "strings.lower"
+            | "strings.caseFold"
+            | "strings.normalizeNfc"
+            | "strings.graphemes"
+    ) && args.len() == 1
+        && static_string_value_with_constants(&args[0], constants, types).is_some()
+}
+
+fn unicode_runtime_data_objects() -> Vec<CodeDataObject> {
+    let tables = crate::unicode_runtime_tables::tables();
+    vec![
+        raw_data_object(
+            UNICODE_STAGE1_SYMBOL,
+            "u16 utf8proc stage1 property index table",
+            tables.stage1.len() * 2,
+            crate::unicode_runtime_tables::stage1_hex(),
+            2,
+        ),
+        raw_data_object(
+            UNICODE_STAGE2_SYMBOL,
+            "u16 utf8proc stage2 property index table",
+            tables.stage2.len() * 2,
+            crate::unicode_runtime_tables::stage2_hex(),
+            2,
+        ),
+        raw_data_object(
+            UNICODE_PROPERTIES_SYMBOL,
+            "mfb.unicode.property.v1 records, 24 bytes each",
+            tables.properties.len() * 24,
+            crate::unicode_runtime_tables::properties_hex(),
+            2,
+        ),
+        raw_data_object(
+            UNICODE_SEQUENCES_SYMBOL,
+            "u16 utf8proc sequence table",
+            tables.sequences.len() * 2,
+            crate::unicode_runtime_tables::sequences_hex(),
+            2,
+        ),
+        raw_data_object(
+            UNICODE_COMBINATIONS_SECOND_SYMBOL,
+            "u32 utf8proc composition second codepoint table",
+            tables.combinations_second.len() * 4,
+            crate::unicode_runtime_tables::combinations_second_hex(),
+            4,
+        ),
+        raw_data_object(
+            UNICODE_COMBINATIONS_COMBINED_SYMBOL,
+            "u32 utf8proc composition combined codepoint table",
+            tables.combinations_combined.len() * 4,
+            crate::unicode_runtime_tables::combinations_combined_hex(),
+            4,
+        ),
+        raw_data_object(
+            UNICODE_NFD_ENTRIES_SYMBOL,
+            "mfb.unicode.nfd_entry.v1 records, 16 bytes each",
+            tables.nfd_entries.len() * 16,
+            crate::unicode_runtime_tables::nfd_entries_hex(),
+            4,
+        ),
+        raw_data_object(
+            UNICODE_NFD_SEQUENCES_SYMBOL,
+            "u32 flattened Unicode NFD sequence table",
+            tables.nfd_sequences.len() * 4,
+            crate::unicode_runtime_tables::nfd_sequences_hex(),
+            4,
+        ),
+        raw_data_object(
+            UNICODE_UPPERCASE_ENTRIES_SYMBOL,
+            "mfb.unicode.mapping_entry.v1 uppercase records, 16 bytes each",
+            tables.uppercase_entries.len() * 16,
+            crate::unicode_runtime_tables::uppercase_entries_hex(),
+            4,
+        ),
+        raw_data_object(
+            UNICODE_UPPERCASE_SEQUENCES_SYMBOL,
+            "u32 flattened Unicode uppercase sequence table",
+            tables.uppercase_sequences.len() * 4,
+            crate::unicode_runtime_tables::uppercase_sequences_hex(),
+            4,
+        ),
+        raw_data_object(
+            UNICODE_LOWERCASE_ENTRIES_SYMBOL,
+            "mfb.unicode.mapping_entry.v1 lowercase records, 16 bytes each",
+            tables.lowercase_entries.len() * 16,
+            crate::unicode_runtime_tables::lowercase_entries_hex(),
+            4,
+        ),
+        raw_data_object(
+            UNICODE_LOWERCASE_SEQUENCES_SYMBOL,
+            "u32 flattened Unicode lowercase sequence table",
+            tables.lowercase_sequences.len() * 4,
+            crate::unicode_runtime_tables::lowercase_sequences_hex(),
+            4,
+        ),
+        raw_data_object(
+            UNICODE_CASEFOLD_ENTRIES_SYMBOL,
+            "mfb.unicode.mapping_entry.v1 casefold records, 16 bytes each",
+            tables.casefold_entries.len() * 16,
+            crate::unicode_runtime_tables::casefold_entries_hex(),
+            4,
+        ),
+        raw_data_object(
+            UNICODE_CASEFOLD_SEQUENCES_SYMBOL,
+            "u32 flattened Unicode casefold sequence table",
+            tables.casefold_sequences.len() * 4,
+            crate::unicode_runtime_tables::casefold_sequences_hex(),
+            4,
+        ),
+    ]
+}
+
+fn raw_data_object(
+    symbol: &str,
+    layout: &str,
+    size: usize,
+    value: String,
+    alignment: usize,
+) -> CodeDataObject {
+    CodeDataObject {
+        symbol: symbol.to_string(),
+        kind: "raw".to_string(),
+        layout: layout.to_string(),
+        align: alignment,
+        size: align(size, alignment),
+        value,
+    }
+}
+
 fn collect_string_values_from_ops(ops: &[NirOp], values: &mut Vec<String>) {
     let mut constants = HashMap::new();
     let mut types = HashMap::new();
@@ -2063,6 +2414,15 @@ fn collect_string_values_from_value(
 ) {
     if let Some(value) = static_string_value_with_constants(value, constants, types) {
         push_string_value(values, value);
+    }
+    if let NirValue::Call { target, args } | NirValue::RuntimeCall { target, args, .. } = value {
+        if target == "strings.graphemes" && args.len() == 1 {
+            if let Some(value) = static_string_value_with_constants(&args[0], constants, types) {
+                for grapheme in crate::unicode_backend::graphemes(&value) {
+                    push_string_value(values, grapheme);
+                }
+            }
+        }
     }
     if value_may_return_invalid_format(value, constants, types) {
         push_string_value(values, ERR_INVALID_FORMAT_MESSAGE.to_string());
@@ -2228,6 +2588,16 @@ fn local_constant_value_with_constants(
                 value,
             })
         }
+        NirValue::Call { target, args } | NirValue::RuntimeCall { target, args, .. }
+            if strings_package_static_string_value(target, args, constants, types).is_some() =>
+        {
+            strings_package_static_string_value(target, args, constants, types).map(|value| {
+                NirValue::Const {
+                    type_: "String".to_string(),
+                    value,
+                }
+            })
+        }
         NirValue::Binary { op, .. } if op == "&" => {
             static_string_value_with_constants(value, constants, types).map(|value| {
                 NirValue::Const {
@@ -2261,10 +2631,33 @@ fn static_string_value_with_constants(
         {
             static_type_name_with_types(&args[0], types)
         }
+        NirValue::Call { target, args } | NirValue::RuntimeCall { target, args, .. } => {
+            strings_package_static_string_value(target, args, constants, types)
+        }
         NirValue::Binary { op, left, right } if op == "&" => {
             let left = static_string_value_with_constants(left, constants, types)?;
             let right = static_string_value_with_constants(right, constants, types)?;
             Some(format!("{left}{right}"))
+        }
+        _ => None,
+    }
+}
+
+fn strings_package_static_string_value(
+    target: &str,
+    args: &[NirValue],
+    constants: &HashMap<String, NirValue>,
+    types: &HashMap<String, String>,
+) -> Option<String> {
+    let value = args
+        .first()
+        .and_then(|arg| static_string_value_with_constants(arg, constants, types))?;
+    match target {
+        "strings.upper" if args.len() == 1 => Some(crate::unicode_backend::upper(&value)),
+        "strings.lower" if args.len() == 1 => Some(crate::unicode_backend::lower(&value)),
+        "strings.caseFold" if args.len() == 1 => Some(crate::unicode_backend::case_fold(&value)),
+        "strings.normalizeNfc" if args.len() == 1 => {
+            Some(crate::unicode_backend::normalize_nfc(&value))
         }
         _ => None,
     }
@@ -2287,6 +2680,19 @@ fn static_type_name_with_types(
                 "replace" | "typeName" | "toString" => Some("String".to_string()),
                 "find" | "len" | "toInt" => Some("Integer".to_string()),
                 "mid" => Some("String".to_string()),
+                "strings.trim"
+                | "strings.trimStart"
+                | "strings.trimEnd"
+                | "strings.upper"
+                | "strings.lower"
+                | "strings.caseFold"
+                | "strings.normalizeNfc"
+                | "strings.join" => Some("String".to_string()),
+                "strings.graphemes" | "strings.split" => Some("List OF String".to_string()),
+                "strings.startsWith" | "strings.endsWith" | "strings.contains" => {
+                    Some("Boolean".to_string())
+                }
+                "strings.byteLen" => Some("Integer".to_string()),
                 "toFloat" => Some("Float".to_string()),
                 "toFixed" => Some("Fixed".to_string()),
                 "toByte" => Some("Byte".to_string()),
@@ -2423,9 +2829,7 @@ fn collect_builtin_function_refs_in_ops(
                     collect_builtin_function_refs_in_value(value, refs, seen);
                 }
             }
-            NirOp::Assign { value, .. }
-            | NirOp::Eval { value }
-            | NirOp::Fail { error: value } => {
+            NirOp::Assign { value, .. } | NirOp::Eval { value } | NirOp::Fail { error: value } => {
                 collect_builtin_function_refs_in_value(value, refs, seen);
             }
             NirOp::Return { value } => {
@@ -2451,9 +2855,7 @@ fn collect_builtin_function_refs_in_ops(
                     collect_builtin_function_refs_in_ops(&case.body, refs, seen);
                 }
             }
-            NirOp::ForEach {
-                iterable, body, ..
-            } => {
+            NirOp::ForEach { iterable, body, .. } => {
                 collect_builtin_function_refs_in_value(iterable, refs, seen);
                 collect_builtin_function_refs_in_ops(body, refs, seen);
             }

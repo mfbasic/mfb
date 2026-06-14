@@ -1,0 +1,17 @@
+NAME
+    contains - test whether a string contains another string
+
+SYNOPSIS
+    strings::contains(value AS String, needle AS String) AS Boolean
+
+DESCRIPTION
+    Returns TRUE when needle appears in value. The empty needle is always found.
+
+EXAMPLES
+    IMPORT io
+    IMPORT strings
+
+    FUNC main AS Integer
+      io::print(toString(strings::contains("Hello 😀", "😀")))
+      RETURN 0
+    END FUNC

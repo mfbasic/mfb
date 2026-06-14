@@ -1,0 +1,8 @@
+IMPORT strings
+
+FUNC main AS Integer
+  LET missing AS String = strings::normalizeNfc()
+  LET wrongType AS String = strings::normalizeNfc(12)
+  LET tooMany AS String = strings::normalizeNfc("a", "b")
+  RETURN 0
+END FUNC

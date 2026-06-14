@@ -1,0 +1,17 @@
+NAME
+    caseFold - case-fold a string for caseless comparison
+
+SYNOPSIS
+    strings::caseFold(value AS String) AS String
+
+DESCRIPTION
+    Applies Unicode case folding and returns the folded string.
+
+EXAMPLES
+    IMPORT io
+    IMPORT strings
+
+    FUNC main AS Integer
+      io::print(strings::caseFold("Straße"))
+      RETURN 0
+    END FUNC

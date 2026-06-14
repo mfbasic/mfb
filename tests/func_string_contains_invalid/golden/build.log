@@ -1,0 +1,76 @@
+$ mfb build -ast tests/func_string_contains_invalid
+   2 | 
+   3 | FUNC main AS Integer
+   4 |   LET missing AS Boolean = strings::contains("abc")
+     | ^
+tests/func_string_contains_invalid/src/main.mfb:4 error[TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+               Call to `strings.contains` has 1 argument(s), expected 2.
+   2 | 
+   3 | FUNC main AS Integer
+   4 |   LET missing AS Boolean = strings::contains("abc")
+     | ^
+tests/func_string_contains_invalid/src/main.mfb:4 error[TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `missing` does not have a known type.
+   3 | FUNC main AS Integer
+   4 |   LET missing AS Boolean = strings::contains("abc")
+   5 |   LET wrongType AS Boolean = strings::contains("abc", 1)
+     | ^
+tests/func_string_contains_invalid/src/main.mfb:5 error[TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `strings.contains` has argument type(s) (String, Integer), expected String, String.
+   3 | FUNC main AS Integer
+   4 |   LET missing AS Boolean = strings::contains("abc")
+   5 |   LET wrongType AS Boolean = strings::contains("abc", 1)
+     | ^
+tests/func_string_contains_invalid/src/main.mfb:5 error[TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `wrongType` does not have a known type.
+   4 |   LET missing AS Boolean = strings::contains("abc")
+   5 |   LET wrongType AS Boolean = strings::contains("abc", 1)
+   6 |   LET tooMany AS Boolean = strings::contains("abc", "b", "c")
+     | ^
+tests/func_string_contains_invalid/src/main.mfb:6 error[TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+               Call to `strings.contains` has 3 argument(s), expected 2.
+   4 |   LET missing AS Boolean = strings::contains("abc")
+   5 |   LET wrongType AS Boolean = strings::contains("abc", 1)
+   6 |   LET tooMany AS Boolean = strings::contains("abc", "b", "c")
+     | ^
+tests/func_string_contains_invalid/src/main.mfb:6 error[TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `tooMany` does not have a known type.
+[exit 1]
+$ mfb build -ir tests/func_string_contains_invalid
+   2 | 
+   3 | FUNC main AS Integer
+   4 |   LET missing AS Boolean = strings::contains("abc")
+     | ^
+tests/func_string_contains_invalid/src/main.mfb:4 error[TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+               Call to `strings.contains` has 1 argument(s), expected 2.
+   2 | 
+   3 | FUNC main AS Integer
+   4 |   LET missing AS Boolean = strings::contains("abc")
+     | ^
+tests/func_string_contains_invalid/src/main.mfb:4 error[TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `missing` does not have a known type.
+   3 | FUNC main AS Integer
+   4 |   LET missing AS Boolean = strings::contains("abc")
+   5 |   LET wrongType AS Boolean = strings::contains("abc", 1)
+     | ^
+tests/func_string_contains_invalid/src/main.mfb:5 error[TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `strings.contains` has argument type(s) (String, Integer), expected String, String.
+   3 | FUNC main AS Integer
+   4 |   LET missing AS Boolean = strings::contains("abc")
+   5 |   LET wrongType AS Boolean = strings::contains("abc", 1)
+     | ^
+tests/func_string_contains_invalid/src/main.mfb:5 error[TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `wrongType` does not have a known type.
+   4 |   LET missing AS Boolean = strings::contains("abc")
+   5 |   LET wrongType AS Boolean = strings::contains("abc", 1)
+   6 |   LET tooMany AS Boolean = strings::contains("abc", "b", "c")
+     | ^
+tests/func_string_contains_invalid/src/main.mfb:6 error[TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+               Call to `strings.contains` has 3 argument(s), expected 2.
+   4 |   LET missing AS Boolean = strings::contains("abc")
+   5 |   LET wrongType AS Boolean = strings::contains("abc", 1)
+   6 |   LET tooMany AS Boolean = strings::contains("abc", "b", "c")
+     | ^
+tests/func_string_contains_invalid/src/main.mfb:6 error[TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `tooMany` does not have a known type.
+[exit 1]

@@ -1,0 +1,31 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "func_string_endsWith_valid",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "strings.endsWith", "args": [{ "kind": "const", "type": "String", "value": "Hello" }, { "kind": "const", "type": "String", "value": "" }] }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "strings.endsWith", "args": [{ "kind": "const", "type": "String", "value": "Hello" }, { "kind": "const", "type": "String", "value": "lo" }] }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "strings.endsWith", "args": [{ "kind": "const", "type": "String", "value": "Hello 😀" }, { "kind": "const", "type": "String", "value": "😀" }] }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "strings.endsWith", "args": [{ "kind": "const", "type": "String", "value": "café" }, { "kind": "const", "type": "String", "value": "é" }] }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "strings.endsWith", "args": [{ "kind": "const", "type": "String", "value": "Hello" }, { "kind": "const", "type": "String", "value": "he" }] }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "strings.endsWith", "args": [{ "kind": "const", "type": "String", "value": "Hi" }, { "kind": "const", "type": "String", "value": "Hello" }] }] }] } },
+    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

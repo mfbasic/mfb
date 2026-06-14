@@ -1,0 +1,8 @@
+IMPORT strings
+
+FUNC main AS Integer
+  LET missing AS String = strings::trimStart()
+  LET wrongType AS String = strings::trimStart(1)
+  LET tooMany AS String = strings::trimStart("a", "b")
+  RETURN 0
+END FUNC

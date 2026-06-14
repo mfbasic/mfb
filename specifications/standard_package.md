@@ -194,11 +194,20 @@ String helpers are exported by the `strings` package. Package functions are call
 | `strings::split` | `FUNC split(value AS String, delimiter AS String) AS List OF String` | Splits `value` by `delimiter`. |
 | `strings::join` | `FUNC join(parts AS List OF String, delimiter AS String) AS String` | Joins strings with `delimiter`. |
 | `strings::byteLen` | `FUNC byteLen(value AS String) AS Integer` | Number of bytes required to encode `value` as UTF-8. |
-| `strings::regexMatch` | `FUNC regexMatch(value AS String, pattern AS String) AS Boolean` | `TRUE` when `pattern` matches anywhere in `value`. Patterns use the implementation's documented regular-expression dialect and must reject invalid patterns with `ErrInvalidFormat`. |
-| `strings::regexFind` | `FUNC regexFind(value AS String, pattern AS String, start AS Integer = 0) AS Integer` | Returns the zero-based scalar index of the first regex match at or after `start`. Fails with `ErrNotFound` when absent. |
-| `strings::regexReplace` | `FUNC regexReplace(value AS String, pattern AS String, replacement AS String) AS String` | Replaces all regex matches. Invalid patterns fail with `ErrInvalidFormat`. |
 
-## 6. Built-in IO Package
+## 6. Regex Package
+
+Regular-expression helpers are exported by the `regex` package. Package functions are called with their package qualifier.
+
+The regular-expression dialect is runtime-defined and stable for this implementation. Invalid patterns fail with `ErrInvalidFormat`.
+
+| Function | Signature | Behavior |
+|----------|-----------|----------|
+| `regex::match` | `FUNC match(value AS String, pattern AS String) AS Boolean` | `TRUE` when `pattern` matches anywhere in `value`. |
+| `regex::find` | `FUNC find(value AS String, pattern AS String, start AS Integer = 0) AS Integer` | Returns the zero-based scalar index of the first regex match at or after `start`. Fails with `ErrNotFound` when absent. |
+| `regex::replace` | `FUNC replace(value AS String, pattern AS String, replacement AS String) AS String` | Replaces all regex matches. |
+
+## 7. Built-in IO Package
 
 Terminal and standard-stream I/O is provided by the `io` package. Package functions are called with their package qualifier.
 
@@ -232,7 +241,7 @@ There is no `PRINT` statement and no trailing-semicolon newline suppression. Use
 
 Use `toString` explicitly before calling `io::print`, `io::write`, `io::printError`, or `io::writeError` when outputting a non-string value. Output functions are intended for user-visible text and diagnostics, not automatic structured logging of arbitrary values.
 
-## 7. Built-in Filesystem Package
+## 8. Built-in Filesystem Package
 
 Filesystem and file-handle functions live in the `fs` package. Paths are `String` values.
 
@@ -287,7 +296,7 @@ Symlink behavior is explicit:
 
 `File` is an opaque standard `RESOURCE` type and unique handle. It can be bound by `USING` and is closed automatically with `fs::close` at `END USING`.
 
-## 8. Built-in Thread Package
+## 9. Built-in Thread Package
 
 Thread functions live in the `thread` package. Thread entry points must be exported `ISOLATED FUNC` declarations from imported packages with type `ISOLATED FUNC(Thread OF Msg TO Out, In) AS Out`; lambdas, closures, `SUB`s, non-isolated functions, current-package functions, and functions without the leading thread handle parameter are rejected at compile time.
 
@@ -310,7 +319,7 @@ Thread functions are ordinary built-in templates. Their `Msg` and `Out` paramete
 
 Worker-side functions fail with `ErrInvalidArgument` when called outside a worker. Queue timeout uses `ErrTimeout`; unavailable messages use `ErrNotFound`; cancellation uses `ErrInterrupted`.
 
-## 9. Built-in Math Package
+## 10. Built-in Math Package
 
 Math functions live in the `math` package. Constants are `LET` values. Numeric functions are overloaded by argument type; mixed numeric calls require an explicit conversion.
 
@@ -368,7 +377,7 @@ Math functions follow the numeric edge-case rules in §4.1. Integer and `Fixed` 
 | `math::atan2` | `FUNC atan2(y AS Float, x AS Float) AS Float` | Two-argument arc tangent using the standard `atan2(y, x)` convention. |
 | `math::atan2` | `FUNC atan2(y AS Fixed, x AS Fixed) AS Fixed` | Fixed-point two-argument arc tangent using the standard `atan2(y, x)` convention, rounded to nearest `Fixed`. |
 
-## 10. Built-in Net Package
+## 11. Built-in Net Package
 
 Network functions live in the `net` package. Socket handles are opaque standard `RESOURCE` types and unique handles. They can be bound by `USING`; `net::close` runs automatically at `END USING`.
 
@@ -479,7 +488,7 @@ Secure defaults are mandatory:
 | `tls::writeText` | `FUNC writeText(sock AS TlsSocket, value AS String) AS Nothing` | Encodes `value` as UTF-8, encrypts it, and writes all bytes. |
 | `tls::close` | `FUNC close(resource AS TlsSocket) AS Nothing` | Closes the TLS session and underlying transport. Calling it more than once is an error. |
 
-## 11. Built-in JSON Package
+## 12. Built-in JSON Package
 
 JSON functions live in the `json` package.
 
@@ -503,7 +512,7 @@ The `Json` union above is a built-in package type. JSON object member order is p
 | `json::get` | `FUNC get(value AS Json, path AS List OF String) AS Json` | Reads an object path from a JSON value. Fails with `ErrNotFound` when any component is absent or not an object. |
 | `json::getOr` | `FUNC getOr(value AS Json, path AS List OF String, default AS Json) AS Json` | Reads an object path or returns `default` when absent. |
 
-## 12. Built-in Error Codes
+## 13. Built-in Error Codes
 
 The built-in `errorCode` package exports named `Integer` constants for every standard runtime, compiler, and toolchain error listed in this section. Programs should use these names instead of raw integer literals in source code, examples, tests, and diagnostics:
 

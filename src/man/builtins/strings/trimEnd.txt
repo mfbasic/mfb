@@ -1,0 +1,17 @@
+NAME
+    trimEnd - remove trailing Unicode whitespace
+
+SYNOPSIS
+    strings::trimEnd(value AS String) AS String
+
+DESCRIPTION
+    Returns value without trailing Unicode whitespace.
+
+EXAMPLES
+    IMPORT io
+    IMPORT strings
+
+    FUNC main AS Integer
+      io::print(strings::trimEnd("  Hello  "))
+      RETURN 0
+    END FUNC

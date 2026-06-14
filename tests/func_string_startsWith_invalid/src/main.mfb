@@ -1,0 +1,8 @@
+IMPORT strings
+
+FUNC main AS Integer
+  LET missing AS Boolean = strings::startsWith("abc")
+  LET wrongType AS Boolean = strings::startsWith("abc", 1)
+  LET tooMany AS Boolean = strings::startsWith("abc", "a", "b")
+  RETURN 0
+END FUNC

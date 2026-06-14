@@ -12,6 +12,8 @@ mod resolver;
 mod rules;
 mod target;
 mod typecheck;
+mod unicode_backend;
+mod unicode_runtime_tables;
 
 use std::collections::HashMap;
 use std::env;
@@ -962,16 +964,18 @@ fn print_man_index() {
 fn print_package_man(package: &man::PackageDoc) {
     if let Some(page) = package.page {
         print_man_page(page);
-        println!();
-        println!("FUNCTIONS");
-        for function in package.functions {
-            println!("  {:<18} {}", function.name, function.summary);
+        if !package.functions.is_empty() {
+            println!();
+            println!("FUNCTIONS");
+            for function in package.functions {
+                println!("  {:<18} {}", function.name, function.summary);
+            }
+            println!();
+            println!(
+                "Run `mfb man {} <function>` for function signatures and examples.",
+                package.name
+            );
         }
-        println!();
-        println!(
-            "Run `mfb man {} <function>` for function signatures and examples.",
-            package.name
-        );
         return;
     }
 

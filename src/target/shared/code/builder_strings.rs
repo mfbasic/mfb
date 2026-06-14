@@ -634,7 +634,10 @@ impl CodeBuilder<'_> {
         }
     }
 
-    pub(super) fn lower_boolean_to_string(&mut self, value_register: &str) -> Result<ValueResult, String> {
+    pub(super) fn lower_boolean_to_string(
+        &mut self,
+        value_register: &str,
+    ) -> Result<ValueResult, String> {
         let false_label = self.label("bool_string_false");
         let done = self.label("bool_string_done");
         let result = self.allocate_register()?;

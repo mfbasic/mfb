@@ -1,0 +1,17 @@
+NAME
+    normalizeNfc - normalize a string to Unicode NFC
+
+SYNOPSIS
+    strings::normalizeNfc(value AS String) AS String
+
+DESCRIPTION
+    Returns value normalized to Unicode Normalization Form C.
+
+EXAMPLES
+    IMPORT io
+    IMPORT strings
+
+    FUNC main AS Integer
+      io::print(strings::normalizeNfc("Café"))
+      RETURN 0
+    END FUNC

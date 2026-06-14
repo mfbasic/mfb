@@ -23,17 +23,26 @@
     { "op": "bind", "mutable": false, "name": "emptyMiddle", "type": "String", "value": { "kind": "call", "target": "mid", "args": [{ "kind": "const", "type": "String", "value": "hello" }, { "kind": "const", "type": "Integer", "value": "2" }, { "kind": "const", "type": "Integer", "value": "0" }] } },
     { "op": "bind", "mutable": false, "name": "emptyEnd", "type": "String", "value": { "kind": "call", "target": "mid", "args": [{ "kind": "const", "type": "String", "value": "hello" }, { "kind": "const", "type": "Integer", "value": "5" }, { "kind": "const", "type": "Integer", "value": "0" }] } },
     { "op": "bind", "mutable": false, "name": "whole", "type": "String", "value": { "kind": "call", "target": "mid", "args": [{ "kind": "const", "type": "String", "value": "hello" }, { "kind": "const", "type": "Integer", "value": "0" }, { "kind": "const", "type": "Integer", "value": "5" }] } },
+    { "op": "bind", "mutable": false, "name": "emoji", "type": "String", "value": { "kind": "call", "target": "mid", "args": [{ "kind": "const", "type": "String", "value": "a😀é日" }, { "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "2" }] } },
+    { "op": "bind", "mutable": false, "name": "combining", "type": "String", "value": { "kind": "call", "target": "mid", "args": [{ "kind": "const", "type": "String", "value": "éx" }, { "kind": "const", "type": "Integer", "value": "0" }, { "kind": "const", "type": "Integer", "value": "2" }] } },
+    { "op": "bind", "mutable": false, "name": "family", "type": "String", "value": { "kind": "call", "target": "mid", "args": [{ "kind": "const", "type": "String", "value": "x👨‍👩‍👧‍👦y" }, { "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "7" }] } },
     { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "local", "name": "ascii" }] } },
     { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "local", "name": "unicode" }] } },
     { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "local", "name": "emptyMiddle" }] } },
     { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "local", "name": "emptyEnd" }] } },
     { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "local", "name": "whole" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "local", "name": "emoji" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "local", "name": "combining" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "local", "name": "family" }] } },
     { "op": "bind", "mutable": false, "name": "asciiLen", "type": "Integer", "value": { "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "ascii" }] } },
     { "op": "bind", "mutable": false, "name": "unicodeLen", "type": "Integer", "value": { "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "unicode" }] } },
     { "op": "bind", "mutable": false, "name": "emptyMiddleLen", "type": "Integer", "value": { "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "emptyMiddle" }] } },
     { "op": "bind", "mutable": false, "name": "emptyEndLen", "type": "Integer", "value": { "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "emptyEnd" }] } },
     { "op": "bind", "mutable": false, "name": "wholeLen", "type": "Integer", "value": { "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "whole" }] } },
-    { "op": "return", "value": { "kind": "binary", "op": "+", "left": { "kind": "binary", "op": "+", "left": { "kind": "binary", "op": "+", "left": { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "asciiLen" }, "right": { "kind": "local", "name": "unicodeLen" } }, "right": { "kind": "local", "name": "emptyMiddleLen" } }, "right": { "kind": "local", "name": "emptyEndLen" } }, "right": { "kind": "local", "name": "wholeLen" } } }
+    { "op": "bind", "mutable": false, "name": "emojiLen", "type": "Integer", "value": { "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "emoji" }] } },
+    { "op": "bind", "mutable": false, "name": "combiningLen", "type": "Integer", "value": { "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "combining" }] } },
+    { "op": "bind", "mutable": false, "name": "familyLen", "type": "Integer", "value": { "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "family" }] } },
+    { "op": "return", "value": { "kind": "binary", "op": "+", "left": { "kind": "binary", "op": "+", "left": { "kind": "binary", "op": "+", "left": { "kind": "binary", "op": "+", "left": { "kind": "binary", "op": "+", "left": { "kind": "binary", "op": "+", "left": { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "asciiLen" }, "right": { "kind": "local", "name": "unicodeLen" } }, "right": { "kind": "local", "name": "emptyMiddleLen" } }, "right": { "kind": "local", "name": "emptyEndLen" } }, "right": { "kind": "local", "name": "wholeLen" } }, "right": { "kind": "local", "name": "emojiLen" } }, "right": { "kind": "local", "name": "combiningLen" } }, "right": { "kind": "local", "name": "familyLen" } } }
     ]
   }
   ]

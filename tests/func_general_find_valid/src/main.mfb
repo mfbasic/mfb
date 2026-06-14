@@ -1,15 +1,13 @@
 IMPORT io
 
 FUNC main AS Integer
-  LET first AS Integer = find("hello", "l")
-  LET afterStart AS Integer = find("hello", "l", 3)
-  LET unicode AS Integer = find("aé日é", "日")
-  LET emptyNeedle AS Integer = find("abcdef", "", 2)
 
-  io::print("find-string-first")
-  io::print("find-string-start")
-  io::print("find-string-unicode")
-  io::print("find-string-empty-needle")
+  io::print("find-string-first: find(\"hello\", \"l\") = " & toString(find("hello", "l")))
+  io::print("find-string-start: find(\"hello\", \"l\", 3) = " & toString(find("hello", "l", 3)))
+  io::print("find-string-unicode: find(\"aé日é\", \"日\") = " & toString(find("aé日é", "日")))
+  io::print("find-string-empty-needle: find(\"abcdef\", \"\", 2) = " & toString(find("abcdef", "", 2)))
+  io::print("find-string-emoji: find(\"a😀é\", \"😀\") = " & toString(find("a😀é", "😀")))
+  io::print("find-string-combining-mark: find(\"éx\", \"́\") = " & toString(find("éx", "́")))
 
-  RETURN first + afterStart + unicode + emptyNeedle
+  RETURN 0
 END FUNC

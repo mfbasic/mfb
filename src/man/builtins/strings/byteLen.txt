@@ -1,0 +1,19 @@
+NAME
+    byteLen - return the UTF-8 byte length of a string
+
+SYNOPSIS
+    strings::byteLen(value AS String) AS Integer
+
+DESCRIPTION
+    Returns the number of bytes required to encode value as UTF-8.
+    This can be greater than len(value), which counts Unicode scalar values.
+
+EXAMPLES
+    IMPORT io
+    IMPORT strings
+
+    FUNC main AS Integer
+      io::print(toString(strings::byteLen("Hi")))
+      io::print(toString(strings::byteLen("😀")))
+      RETURN 0
+    END FUNC

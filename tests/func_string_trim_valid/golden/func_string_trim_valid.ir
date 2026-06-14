@@ -1,0 +1,31 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "func_string_trim_valid",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "binary", "op": "&", "left": { "kind": "binary", "op": "&", "left": { "kind": "const", "type": "String", "value": "[" }, "right": { "kind": "call", "target": "strings.trim", "args": [{ "kind": "const", "type": "String", "value": "  Hello  " }] } }, "right": { "kind": "const", "type": "String", "value": "]" } }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "binary", "op": "&", "left": { "kind": "binary", "op": "&", "left": { "kind": "const", "type": "String", "value": "[" }, "right": { "kind": "call", "target": "strings.trim", "args": [{ "kind": "const", "type": "String", "value": "\t😀\t" }] } }, "right": { "kind": "const", "type": "String", "value": "]" } }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "binary", "op": "&", "left": { "kind": "binary", "op": "&", "left": { "kind": "const", "type": "String", "value": "[" }, "right": { "kind": "call", "target": "strings.trim", "args": [{ "kind": "const", "type": "String", "value": " é " }] } }, "right": { "kind": "const", "type": "String", "value": "]" } }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "binary", "op": "&", "left": { "kind": "binary", "op": "&", "left": { "kind": "const", "type": "String", "value": "[" }, "right": { "kind": "call", "target": "strings.trim", "args": [{ "kind": "const", "type": "String", "value": "　wide　" }] } }, "right": { "kind": "const", "type": "String", "value": "]" } }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "binary", "op": "&", "left": { "kind": "binary", "op": "&", "left": { "kind": "const", "type": "String", "value": "[" }, "right": { "kind": "call", "target": "strings.trim", "args": [{ "kind": "const", "type": "String", "value": "" }] } }, "right": { "kind": "const", "type": "String", "value": "]" } }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "binary", "op": "&", "left": { "kind": "binary", "op": "&", "left": { "kind": "const", "type": "String", "value": "[" }, "right": { "kind": "call", "target": "strings.trim", "args": [{ "kind": "const", "type": "String", "value": "   " }] } }, "right": { "kind": "const", "type": "String", "value": "]" } }] } },
+    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

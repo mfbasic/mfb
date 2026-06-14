@@ -301,7 +301,12 @@ impl CodeBuilder<'_> {
         Ok(())
     }
 
-    pub(super) fn emit_checked_integer_add(&mut self, dst: &str, lhs: &str, rhs: &str) -> Result<(), String> {
+    pub(super) fn emit_checked_integer_add(
+        &mut self,
+        dst: &str,
+        lhs: &str,
+        rhs: &str,
+    ) -> Result<(), String> {
         self.emit(abi::add_registers_set_flags(dst, lhs, rhs));
         self.emit_overflow_if_flags_set()
     }
@@ -401,7 +406,12 @@ impl CodeBuilder<'_> {
         Ok(())
     }
 
-    pub(super) fn emit_fixed_multiply(&mut self, dst: &str, left: &str, right: &str) -> Result<(), String> {
+    pub(super) fn emit_fixed_multiply(
+        &mut self,
+        dst: &str,
+        left: &str,
+        right: &str,
+    ) -> Result<(), String> {
         let high = self.allocate_register()?;
         let shifted_high = self.allocate_register()?;
         let max_high = self.allocate_register()?;
@@ -430,7 +440,12 @@ impl CodeBuilder<'_> {
         Ok(())
     }
 
-    pub(super) fn emit_fixed_divide(&mut self, dst: &str, left: &str, right: &str) -> Result<(), String> {
+    pub(super) fn emit_fixed_divide(
+        &mut self,
+        dst: &str,
+        left: &str,
+        right: &str,
+    ) -> Result<(), String> {
         self.emit_nonzero_or_invalid(right)?;
         let lhs_abs = self.allocate_register()?;
         let rhs_abs = self.allocate_register()?;
@@ -495,7 +510,12 @@ impl CodeBuilder<'_> {
         Ok(())
     }
 
-    pub(super) fn emit_fixed_pow(&mut self, dst: &str, base: &str, exponent: &str) -> Result<(), String> {
+    pub(super) fn emit_fixed_pow(
+        &mut self,
+        dst: &str,
+        base: &str,
+        exponent: &str,
+    ) -> Result<(), String> {
         let one_raw = 1_u64 << 32;
         let remaining = self.allocate_register()?;
         let whole = self.allocate_register()?;
@@ -539,7 +559,11 @@ impl CodeBuilder<'_> {
         Ok(())
     }
 
-    pub(super) fn load_numeric_as_double(&mut self, dst: &str, value: &ValueResult) -> Result<(), String> {
+    pub(super) fn load_numeric_as_double(
+        &mut self,
+        dst: &str,
+        value: &ValueResult,
+    ) -> Result<(), String> {
         match value.type_.as_str() {
             "Float" => self.emit(abi::float_move_d_from_x(dst, &value.location)),
             "Byte" | "Integer" => self.emit(abi::signed_convert_to_float_d(dst, &value.location)),

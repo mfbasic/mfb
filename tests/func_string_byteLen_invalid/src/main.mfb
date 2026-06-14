@@ -1,0 +1,8 @@
+IMPORT strings
+
+FUNC main AS Integer
+  LET missing AS Integer = strings::byteLen()
+  LET wrongType AS Integer = strings::byteLen(12)
+  LET tooMany AS Integer = strings::byteLen("a", "b")
+  RETURN 0
+END FUNC

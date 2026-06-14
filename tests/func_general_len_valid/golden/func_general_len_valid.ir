@@ -21,13 +21,19 @@
     { "op": "bind", "mutable": false, "name": "emptyText", "type": "String", "value": { "kind": "const", "type": "String", "value": "" } },
     { "op": "bind", "mutable": false, "name": "asciiText", "type": "String", "value": { "kind": "const", "type": "String", "value": "hello" } },
     { "op": "bind", "mutable": false, "name": "unicodeText", "type": "String", "value": { "kind": "const", "type": "String", "value": "aé日" } },
+    { "op": "bind", "mutable": false, "name": "emojiText", "type": "String", "value": { "kind": "const", "type": "String", "value": "a😀é" } },
+    { "op": "bind", "mutable": false, "name": "familyText", "type": "String", "value": { "kind": "const", "type": "String", "value": "👨‍👩‍👧‍👦" } },
     { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "len-string-empty" }] } },
     { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "len-string-ascii" }] } },
     { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "len-string-unicode" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "len-string-emoji-combining" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "len-string-grapheme-cluster" }] } },
     { "op": "bind", "mutable": false, "name": "emptyCount", "type": "Integer", "value": { "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "emptyText" }] } },
     { "op": "bind", "mutable": false, "name": "asciiCount", "type": "Integer", "value": { "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "asciiText" }] } },
     { "op": "bind", "mutable": false, "name": "unicodeCount", "type": "Integer", "value": { "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "unicodeText" }] } },
-    { "op": "return", "value": { "kind": "binary", "op": "+", "left": { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "emptyCount" }, "right": { "kind": "local", "name": "asciiCount" } }, "right": { "kind": "local", "name": "unicodeCount" } } }
+    { "op": "bind", "mutable": false, "name": "emojiCount", "type": "Integer", "value": { "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "emojiText" }] } },
+    { "op": "bind", "mutable": false, "name": "familyCount", "type": "Integer", "value": { "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "familyText" }] } },
+    { "op": "return", "value": { "kind": "binary", "op": "+", "left": { "kind": "binary", "op": "+", "left": { "kind": "binary", "op": "+", "left": { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "emptyCount" }, "right": { "kind": "local", "name": "asciiCount" } }, "right": { "kind": "local", "name": "unicodeCount" } }, "right": { "kind": "local", "name": "emojiCount" } }, "right": { "kind": "local", "name": "familyCount" } } }
     ]
   },
   {

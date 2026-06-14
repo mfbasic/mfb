@@ -1,0 +1,17 @@
+NAME
+    trim - remove leading and trailing Unicode whitespace
+
+SYNOPSIS
+    strings::trim(value AS String) AS String
+
+DESCRIPTION
+    Returns value without leading or trailing Unicode whitespace.
+
+EXAMPLES
+    IMPORT io
+    IMPORT strings
+
+    FUNC main AS Integer
+      io::print(strings::trim("  Hello  "))
+      RETURN 0
+    END FUNC

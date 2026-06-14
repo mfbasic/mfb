@@ -1,0 +1,8 @@
+IMPORT strings
+
+FUNC main AS Integer
+  LET missing AS List OF String = strings::graphemes()
+  LET wrongType AS List OF String = strings::graphemes(12)
+  LET tooMany AS List OF String = strings::graphemes("a", "b")
+  RETURN 0
+END FUNC

@@ -152,6 +152,20 @@ pub(crate) fn is_native_direct_call(name: &str) -> bool {
             | "isPositive"
             | "isNumeric"
             | "isZero"
+            | "strings.byteLen"
+            | "strings.caseFold"
+            | "strings.contains"
+            | "strings.endsWith"
+            | "strings.graphemes"
+            | "strings.lower"
+            | "strings.normalizeNfc"
+            | "strings.startsWith"
+            | "strings.split"
+            | "strings.trim"
+            | "strings.trimEnd"
+            | "strings.trimStart"
+            | "strings.upper"
+            | "strings.join"
     )
 }
 

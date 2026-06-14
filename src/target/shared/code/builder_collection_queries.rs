@@ -1,7 +1,10 @@
 use super::*;
 
 impl CodeBuilder<'_> {
-    pub(super) fn lower_collection_get(&mut self, args: &[NirValue]) -> Result<ValueResult, String> {
+    pub(super) fn lower_collection_get(
+        &mut self,
+        args: &[NirValue],
+    ) -> Result<ValueResult, String> {
         let collection = self.lower_value(&args[0])?;
         let collection_slot = self.allocate_stack_object("get_collection", 8);
         self.emit(abi::store_u64(
@@ -55,7 +58,10 @@ impl CodeBuilder<'_> {
         ))
     }
 
-    pub(super) fn lower_collection_contains(&mut self, args: &[NirValue]) -> Result<ValueResult, String> {
+    pub(super) fn lower_collection_contains(
+        &mut self,
+        args: &[NirValue],
+    ) -> Result<ValueResult, String> {
         let collection = self.lower_value(&args[0])?;
         let collection_slot = self.allocate_stack_object("contains_collection", 8);
         self.emit(abi::store_u64(
@@ -165,7 +171,10 @@ impl CodeBuilder<'_> {
         })
     }
 
-    pub(super) fn lower_collection_get_or(&mut self, args: &[NirValue]) -> Result<ValueResult, String> {
+    pub(super) fn lower_collection_get_or(
+        &mut self,
+        args: &[NirValue],
+    ) -> Result<ValueResult, String> {
         let collection = self.lower_value(&args[0])?;
         let collection_slot = self.allocate_stack_object("get_or_collection", 8);
         self.emit(abi::store_u64(
@@ -241,7 +250,10 @@ impl CodeBuilder<'_> {
         ))
     }
 
-    pub(super) fn lower_collection_has_key(&mut self, args: &[NirValue]) -> Result<ValueResult, String> {
+    pub(super) fn lower_collection_has_key(
+        &mut self,
+        args: &[NirValue],
+    ) -> Result<ValueResult, String> {
         let collection = self.lower_value(&args[0])?;
         let collection_slot = self.allocate_stack_object("has_key_collection", 8);
         self.emit(abi::store_u64(
@@ -317,7 +329,10 @@ impl CodeBuilder<'_> {
         })
     }
 
-    pub(super) fn lower_collection_keys(&mut self, args: &[NirValue]) -> Result<ValueResult, String> {
+    pub(super) fn lower_collection_keys(
+        &mut self,
+        args: &[NirValue],
+    ) -> Result<ValueResult, String> {
         let collection = self.lower_value(&args[0])?;
         let Some((key_type, _)) = map_type_parts(&collection.type_) else {
             return Err(format!(
@@ -535,7 +550,10 @@ impl CodeBuilder<'_> {
         })
     }
 
-    pub(super) fn lower_collection_sum(&mut self, args: &[NirValue]) -> Result<ValueResult, String> {
+    pub(super) fn lower_collection_sum(
+        &mut self,
+        args: &[NirValue],
+    ) -> Result<ValueResult, String> {
         let collection = self.lower_value(&args[0])?;
         let Some(element_type) = list_element_type(&collection.type_) else {
             return Err(format!(
@@ -603,7 +621,10 @@ impl CodeBuilder<'_> {
         })
     }
 
-    pub(super) fn lower_collection_for_each_call(&mut self, args: &[NirValue]) -> Result<ValueResult, String> {
+    pub(super) fn lower_collection_for_each_call(
+        &mut self,
+        args: &[NirValue],
+    ) -> Result<ValueResult, String> {
         let collection = self.lower_value(&args[0])?;
         let Some(element_type) = list_element_type(&collection.type_) else {
             return Err(format!(
@@ -793,7 +814,10 @@ impl CodeBuilder<'_> {
         })
     }
 
-    pub(super) fn lower_collection_filter_call(&mut self, args: &[NirValue]) -> Result<ValueResult, String> {
+    pub(super) fn lower_collection_filter_call(
+        &mut self,
+        args: &[NirValue],
+    ) -> Result<ValueResult, String> {
         let collection = self.lower_value(&args[0])?;
         let Some(element_type) = list_element_type(&collection.type_) else {
             return Err(format!(
@@ -905,7 +929,10 @@ impl CodeBuilder<'_> {
         })
     }
 
-    pub(super) fn lower_collection_reduce_call(&mut self, args: &[NirValue]) -> Result<ValueResult, String> {
+    pub(super) fn lower_collection_reduce_call(
+        &mut self,
+        args: &[NirValue],
+    ) -> Result<ValueResult, String> {
         let collection = self.lower_value(&args[0])?;
         let Some(element_type) = list_element_type(&collection.type_) else {
             return Err(format!(
@@ -993,7 +1020,11 @@ impl CodeBuilder<'_> {
         })
     }
 
-    pub(super) fn require_direct_callable(&self, name: &str, action: &ValueResult) -> Result<(), String> {
+    pub(super) fn require_direct_callable(
+        &self,
+        name: &str,
+        action: &ValueResult,
+    ) -> Result<(), String> {
         if !action.type_.starts_with("FUNC(") {
             return Err(format!(
                 "native collection {name} action must be a function, got {}",

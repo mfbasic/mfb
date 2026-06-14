@@ -1,0 +1,11 @@
+IMPORT io
+IMPORT strings
+
+FUNC main AS Integer
+  io::print(toString(strings::byteLen("")))
+  io::print(toString(strings::byteLen("Hello")))
+  io::print(toString(strings::byteLen("é")))
+  io::print(toString(strings::byteLen("😀")))
+  io::print(toString(strings::byteLen("A😀é")))
+  RETURN 0
+END FUNC

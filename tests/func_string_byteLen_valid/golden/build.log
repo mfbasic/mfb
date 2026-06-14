@@ -1,0 +1,16 @@
+$ mfb build -ast tests/func_string_byteLen_valid
+Wrote AST to tests/func_string_byteLen_valid/func_string_byteLen_valid.ast
+[exit 0]
+$ mfb build -ir tests/func_string_byteLen_valid
+Wrote IR to tests/func_string_byteLen_valid/func_string_byteLen_valid.ir
+[exit 0]
+$ mfb build tests/func_string_byteLen_valid
+Wrote executable to tests/func_string_byteLen_valid/func_string_byteLen_valid.out
+[exit 0]
+$ tests/func_string_byteLen_valid/func_string_byteLen_valid.out
+0
+5
+2
+4
+7
+[exit 0]

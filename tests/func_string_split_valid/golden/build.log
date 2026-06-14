@@ -1,0 +1,26 @@
+$ mfb build -ast tests/func_string_split_valid
+Wrote AST to tests/func_string_split_valid/func_string_split_valid.ast
+[exit 0]
+$ mfb build -ir tests/func_string_split_valid
+Wrote IR to tests/func_string_split_valid/func_string_split_valid.ir
+[exit 0]
+$ mfb build tests/func_string_split_valid
+Wrote executable to tests/func_string_split_valid/func_string_split_valid.out
+[exit 0]
+$ tests/func_string_split_valid/func_string_split_valid.out
+3
+[a]
+[b]
+[c]
+3
+[a]
+[b]
+[c]
+4
+[]
+[a]
+[]
+[]
+1
+[abc]
+[exit 0]

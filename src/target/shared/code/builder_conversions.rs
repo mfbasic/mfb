@@ -31,7 +31,10 @@ impl CodeBuilder<'_> {
         }
     }
 
-    pub(super) fn emit_fixed_to_int_value(&mut self, source_register: &str) -> Result<ValueResult, String> {
+    pub(super) fn emit_fixed_to_int_value(
+        &mut self,
+        source_register: &str,
+    ) -> Result<ValueResult, String> {
         let value = "x8";
         let result = self.allocate_register()?;
         let nonnegative = self.label("fixed_to_int_nonnegative");
@@ -53,7 +56,10 @@ impl CodeBuilder<'_> {
         })
     }
 
-    pub(super) fn emit_float_to_int_value(&mut self, source_register: &str) -> Result<ValueResult, String> {
+    pub(super) fn emit_float_to_int_value(
+        &mut self,
+        source_register: &str,
+    ) -> Result<ValueResult, String> {
         let bits = "x8";
         let exponent = "x9";
         let mantissa = "x10";
@@ -106,7 +112,10 @@ impl CodeBuilder<'_> {
         })
     }
 
-    pub(super) fn emit_string_to_int_value(&mut self, source_register: &str) -> Result<ValueResult, String> {
+    pub(super) fn emit_string_to_int_value(
+        &mut self,
+        source_register: &str,
+    ) -> Result<ValueResult, String> {
         let string = "x8";
         let length = "x9";
         let index = "x10";
@@ -483,7 +492,11 @@ impl CodeBuilder<'_> {
         })
     }
 
-    pub(super) fn emit_integer_to_fixed_value(&mut self, source: &str, result: &str) -> Result<(), String> {
+    pub(super) fn emit_integer_to_fixed_value(
+        &mut self,
+        source: &str,
+        result: &str,
+    ) -> Result<(), String> {
         let min = self.allocate_register()?;
         let max = self.allocate_register()?;
         let overflow = self.label("int_to_fixed_overflow");
@@ -502,7 +515,11 @@ impl CodeBuilder<'_> {
         Ok(())
     }
 
-    pub(super) fn emit_float_bits_to_fixed_value(&mut self, source: &str, result: &str) -> Result<(), String> {
+    pub(super) fn emit_float_bits_to_fixed_value(
+        &mut self,
+        source: &str,
+        result: &str,
+    ) -> Result<(), String> {
         let exponent = "x9";
         let mask = "x10";
         let sign = "x11";

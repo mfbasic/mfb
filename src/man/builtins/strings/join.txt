@@ -1,0 +1,17 @@
+NAME
+    join - join a list of strings with a delimiter
+
+SYNOPSIS
+    strings::join(parts AS List OF String, delimiter AS String) AS String
+
+DESCRIPTION
+    Returns one string containing each string in parts separated by delimiter.
+
+EXAMPLES
+    IMPORT io
+    IMPORT strings
+
+    FUNC main AS Integer
+      io::print(strings::join(["Hello", "World"], " "))
+      RETURN 0
+    END FUNC

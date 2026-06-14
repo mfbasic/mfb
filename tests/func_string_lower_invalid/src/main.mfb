@@ -1,0 +1,8 @@
+IMPORT strings
+
+FUNC main AS Integer
+  LET missing AS String = strings::lower()
+  LET wrongType AS String = strings::lower(12)
+  LET tooMany AS String = strings::lower("a", "b")
+  RETURN 0
+END FUNC

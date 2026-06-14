@@ -1,7 +1,10 @@
 use super::*;
 
 impl CodeBuilder<'_> {
-    pub(super) fn lower_collection_append(&mut self, args: &[NirValue]) -> Result<ValueResult, String> {
+    pub(super) fn lower_collection_append(
+        &mut self,
+        args: &[NirValue],
+    ) -> Result<ValueResult, String> {
         let list = self.lower_value(&args[0])?;
         let Some(element_type) = list_element_type(&list.type_) else {
             return Err(format!(
@@ -31,7 +34,10 @@ impl CodeBuilder<'_> {
         )
     }
 
-    pub(super) fn lower_collection_prepend(&mut self, args: &[NirValue]) -> Result<ValueResult, String> {
+    pub(super) fn lower_collection_prepend(
+        &mut self,
+        args: &[NirValue],
+    ) -> Result<ValueResult, String> {
         let list = self.lower_value(&args[0])?;
         let Some(element_type) = list_element_type(&list.type_) else {
             return Err(format!(
@@ -63,7 +69,10 @@ impl CodeBuilder<'_> {
         )
     }
 
-    pub(super) fn lower_collection_insert(&mut self, args: &[NirValue]) -> Result<ValueResult, String> {
+    pub(super) fn lower_collection_insert(
+        &mut self,
+        args: &[NirValue],
+    ) -> Result<ValueResult, String> {
         let list = self.lower_value(&args[0])?;
         let Some(element_type) = list_element_type(&list.type_) else {
             return Err(format!(
@@ -148,7 +157,10 @@ impl CodeBuilder<'_> {
         Ok(slot)
     }
 
-    pub(super) fn lower_collection_remove_at(&mut self, args: &[NirValue]) -> Result<ValueResult, String> {
+    pub(super) fn lower_collection_remove_at(
+        &mut self,
+        args: &[NirValue],
+    ) -> Result<ValueResult, String> {
         let list = self.lower_value(&args[0])?;
         let Some(element_type) = list_element_type(&list.type_) else {
             return Err(format!(
@@ -178,7 +190,10 @@ impl CodeBuilder<'_> {
         self.lower_list_remove_at(list_slot, index_slot, &list.type_, &element_type)
     }
 
-    pub(super) fn lower_collection_set(&mut self, args: &[NirValue]) -> Result<ValueResult, String> {
+    pub(super) fn lower_collection_set(
+        &mut self,
+        args: &[NirValue],
+    ) -> Result<ValueResult, String> {
         let collection = self.lower_value(&args[0])?;
         if let Some(element_type) = list_element_type(&collection.type_) {
             let list_slot = self.allocate_stack_object("set_list", 8);
@@ -296,7 +311,10 @@ impl CodeBuilder<'_> {
         ))
     }
 
-    pub(super) fn lower_collection_remove_key(&mut self, args: &[NirValue]) -> Result<ValueResult, String> {
+    pub(super) fn lower_collection_remove_key(
+        &mut self,
+        args: &[NirValue],
+    ) -> Result<ValueResult, String> {
         let map = self.lower_value(&args[0])?;
         let Some((key_type, _)) = map_type_parts(&map.type_) else {
             return Err(format!(

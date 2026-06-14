@@ -40,7 +40,7 @@ pub(crate) struct EncodedImport {
 pub(crate) fn encode(plan: &NativeCodePlan) -> Result<EncodedImage, String> {
     let mut encoder = Encoder {
         text: Vec::new(),
-        data: encode_data(plan),
+        data: encode_data(plan)?,
         symbols: Vec::new(),
         relocations: Vec::new(),
         imports: plan
@@ -263,6 +263,16 @@ impl Encoder {
             "branch_self" => self.emit_word(0x1400_0000),
             "ret" => self.emit_word(0xd65f_03c0),
             "ldr_u64" => self.emit_ldr_u64(
+                reg(field(instruction, "dst")?)?,
+                reg(field(instruction, "base")?)?,
+                immediate(field(instruction, "offset")?)?,
+            ),
+            "ldr_u32" => self.emit_ldr_u32(
+                reg(field(instruction, "dst")?)?,
+                reg(field(instruction, "base")?)?,
+                immediate(field(instruction, "offset")?)?,
+            ),
+            "ldr_u16" => self.emit_ldr_u16(
                 reg(field(instruction, "dst")?)?,
                 reg(field(instruction, "base")?)?,
                 immediate(field(instruction, "offset")?)?,
@@ -529,6 +539,22 @@ impl Encoder {
         self.emit_word(0xf940_0000 | (imm << 10) | ((rn as u32) << 5) | rt as u32)
     }
 
+    fn emit_ldr_u32(&mut self, rt: u8, rn: u8, offset: u64) -> Result<(), String> {
+        if offset % 4 != 0 {
+            return Err(format!("unaligned AArch64 ldr u32 offset {offset}"));
+        }
+        let imm = checked_imm12(offset / 4)?;
+        self.emit_word(0xb940_0000 | (imm << 10) | ((rn as u32) << 5) | rt as u32)
+    }
+
+    fn emit_ldr_u16(&mut self, rt: u8, rn: u8, offset: u64) -> Result<(), String> {
+        if offset % 2 != 0 {
+            return Err(format!("unaligned AArch64 ldr u16 offset {offset}"));
+        }
+        let imm = checked_imm12(offset / 2)?;
+        self.emit_word(0x7940_0000 | (imm << 10) | ((rn as u32) << 5) | rt as u32)
+    }
+
     fn emit_str_u64(&mut self, rt: u8, rn: u8, offset: u64) -> Result<(), String> {
         if offset % 8 != 0 {
             return Err(format!("unaligned AArch64 str offset {offset}"));
@@ -638,16 +664,47 @@ impl Encoder {
     }
 }
 
-fn encode_data(plan: &NativeCodePlan) -> Vec<u8> {
+fn encode_data(plan: &NativeCodePlan) -> Result<Vec<u8>, String> {
     let mut data = Vec::new();
     for object in &plan.data_objects {
         data.resize(align(data.len(), object.align), 0);
-        put_u64(&mut data, object.value.len() as u64);
-        data.extend_from_slice(object.value.as_bytes());
-        data.push(0);
+        if object.kind == "raw" {
+            data.extend_from_slice(&decode_hex_bytes(&object.value)?);
+        } else {
+            put_u64(&mut data, object.value.len() as u64);
+            data.extend_from_slice(object.value.as_bytes());
+            data.push(0);
+        }
         data.resize(align(data.len(), object.align), 0);
     }
-    data
+    Ok(data)
+}
+
+fn decode_hex_bytes(value: &str) -> Result<Vec<u8>, String> {
+    let compact = value
+        .bytes()
+        .filter(|byte| !byte.is_ascii_whitespace() && *byte != b'_')
+        .collect::<Vec<_>>();
+    if compact.len() % 2 != 0 {
+        return Err("raw data object hex value must have an even digit count".to_string());
+    }
+    compact
+        .chunks_exact(2)
+        .map(|pair| {
+            let high = hex_digit(pair[0])?;
+            let low = hex_digit(pair[1])?;
+            Ok((high << 4) | low)
+        })
+        .collect()
+}
+
+fn hex_digit(value: u8) -> Result<u8, String> {
+    match value {
+        b'0'..=b'9' => Ok(value - b'0'),
+        b'a'..=b'f' => Ok(value - b'a' + 10),
+        b'A'..=b'F' => Ok(value - b'A' + 10),
+        _ => Err("raw data object contains non-hex digit".to_string()),
+    }
 }
 
 fn instruction_size(instruction: &CodeInstruction) -> Result<usize, String> {

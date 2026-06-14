@@ -1,0 +1,8 @@
+IMPORT strings
+
+FUNC main AS Integer
+  LET missing AS Boolean = strings::endsWith("abc")
+  LET wrongType AS Boolean = strings::endsWith(1, "c")
+  LET tooMany AS Boolean = strings::endsWith("abc", "c", "b")
+  RETURN 0
+END FUNC

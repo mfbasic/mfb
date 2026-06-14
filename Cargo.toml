@@ -2,7 +2,11 @@
 name = "mfb"
 version = "0.1.0"
 edition = "2021"
+license = "MIT"
 
 [dependencies]
 sha2 = "0.10"
 tinyjson = "2.5"
+unicode-casefold = "0.2"
+unicode-normalization = "0.1"
+unicode-segmentation = "1.12"

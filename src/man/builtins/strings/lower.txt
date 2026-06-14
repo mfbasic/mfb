@@ -1,0 +1,17 @@
+NAME
+    lower - convert a string to lowercase
+
+SYNOPSIS
+    strings::lower(value AS String) AS String
+
+DESCRIPTION
+    Converts value to lowercase using Unicode case mapping.
+
+EXAMPLES
+    IMPORT io
+    IMPORT strings
+
+    FUNC main AS Integer
+      io::print(strings::lower("HELLO"))
+      RETURN 0
+    END FUNC

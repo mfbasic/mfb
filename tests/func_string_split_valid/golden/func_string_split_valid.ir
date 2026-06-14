@@ -1,0 +1,55 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "func_string_split_valid",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "printParts",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    { "name": "parts", "type": "List OF String", "default": null }
+    ],
+    "returns": "Nothing",
+    "body": [
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "parts" }] }] }] } },
+    {
+      "op": "forEach",
+      "name": "part",
+      "type": "String",
+      "iterable": { "kind": "local", "name": "parts" },
+      "body": [
+      { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "binary", "op": "&", "left": { "kind": "binary", "op": "&", "left": { "kind": "const", "type": "String", "value": "[" }, "right": { "kind": "local", "name": "part" } }, "right": { "kind": "const", "type": "String", "value": "]" } }] } }
+      ]
+    },
+    { "op": "return", "value": { "kind": "const", "type": "Nothing", "value": "NOTHING" } }
+    ]
+  },
+  {
+    "name": "main",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "mutable": false, "name": "csv", "type": "List OF String", "value": { "kind": "call", "target": "strings.split", "args": [{ "kind": "const", "type": "String", "value": "a,b,c" }, { "kind": "const", "type": "String", "value": "," }] } },
+    { "op": "bind", "mutable": false, "name": "emoji", "type": "List OF String", "value": { "kind": "call", "target": "strings.split", "args": [{ "kind": "const", "type": "String", "value": "a😀b😀c" }, { "kind": "const", "type": "String", "value": "😀" }] } },
+    { "op": "bind", "mutable": false, "name": "edges", "type": "List OF String", "value": { "kind": "call", "target": "strings.split", "args": [{ "kind": "const", "type": "String", "value": ",a,," }, { "kind": "const", "type": "String", "value": "," }] } },
+    { "op": "bind", "mutable": false, "name": "noMatch", "type": "List OF String", "value": { "kind": "call", "target": "strings.split", "args": [{ "kind": "const", "type": "String", "value": "abc" }, { "kind": "const", "type": "String", "value": "|" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "printParts", "args": [{ "kind": "local", "name": "csv" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "printParts", "args": [{ "kind": "local", "name": "emoji" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "printParts", "args": [{ "kind": "local", "name": "edges" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "printParts", "args": [{ "kind": "local", "name": "noMatch" }] } },
+    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

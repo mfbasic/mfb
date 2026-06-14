@@ -601,6 +601,7 @@ fn collect_runtime_symbols_from_value(
             if target != "typeName"
                 && !runtime::is_native_direct_call(target)
                 && native_static_string_value(value, constants).is_none()
+                && native_static_graphemes_value(target, args, constants).is_none()
             {
                 push_unique(symbols, runtime::symbol_for_call(*helper, target));
             }
@@ -689,6 +690,9 @@ fn native_static_string_value(
         NirValue::RuntimeCall { target, args, .. } if target == "toString" && args.len() == 1 => {
             native_primitive_text(&args[0], constants)
         }
+        NirValue::Call { target, args } | NirValue::RuntimeCall { target, args, .. } => {
+            native_strings_package_static_string_value(target, args, constants)
+        }
         NirValue::Binary { op, left, right } if op == "&" => {
             let left = native_static_string_value(left, constants)?;
             let right = native_static_string_value(right, constants)?;
@@ -696,6 +700,37 @@ fn native_static_string_value(
         }
         _ => None,
     }
+}
+
+fn native_strings_package_static_string_value(
+    target: &str,
+    args: &[NirValue],
+    constants: &HashMap<String, NirValue>,
+) -> Option<String> {
+    let value = args
+        .first()
+        .and_then(|arg| native_static_string_value(arg, constants))?;
+    match target {
+        "strings.upper" if args.len() == 1 => Some(crate::unicode_backend::upper(&value)),
+        "strings.lower" if args.len() == 1 => Some(crate::unicode_backend::lower(&value)),
+        "strings.caseFold" if args.len() == 1 => Some(crate::unicode_backend::case_fold(&value)),
+        "strings.normalizeNfc" if args.len() == 1 => {
+            Some(crate::unicode_backend::normalize_nfc(&value))
+        }
+        _ => None,
+    }
+}
+
+fn native_static_graphemes_value(
+    target: &str,
+    args: &[NirValue],
+    constants: &HashMap<String, NirValue>,
+) -> Option<Vec<String>> {
+    if target != "strings.graphemes" || args.len() != 1 {
+        return None;
+    }
+    let value = native_static_string_value(&args[0], constants)?;
+    Some(crate::unicode_backend::graphemes(&value))
 }
 
 fn native_primitive_text(
@@ -882,6 +917,12 @@ impl FunctionPlanBuilder<'_> {
     fn lower_value(&mut self, value: &NirValue) -> Result<(), String> {
         if native_static_string_value(value, &self.constants).is_some() {
             return Ok(());
+        }
+        if let NirValue::RuntimeCall { target, args, .. } | NirValue::Call { target, args } = value
+        {
+            if native_static_graphemes_value(target, args, &self.constants).is_some() {
+                return Ok(());
+            }
         }
         match value {
             NirValue::Call { target, args } => {

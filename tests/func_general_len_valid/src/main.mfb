@@ -4,15 +4,21 @@ FUNC stringLens AS Integer
   LET emptyText AS String = ""
   LET asciiText AS String = "hello"
   LET unicodeText AS String = "aé日"
+  LET emojiText AS String = "a😀é"
+  LET familyText AS String = "👨‍👩‍👧‍👦"
 
   io::print("len-string-empty")
   io::print("len-string-ascii")
   io::print("len-string-unicode")
+  io::print("len-string-emoji-combining")
+  io::print("len-string-grapheme-cluster")
 
   LET emptyCount AS Integer = len(emptyText)
   LET asciiCount AS Integer = len(asciiText)
   LET unicodeCount AS Integer = len(unicodeText)
-  RETURN emptyCount + asciiCount + unicodeCount
+  LET emojiCount AS Integer = len(emojiText)
+  LET familyCount AS Integer = len(familyText)
+  RETURN emptyCount + asciiCount + unicodeCount + emojiCount + familyCount
 END FUNC
 
 FUNC listLens AS Integer

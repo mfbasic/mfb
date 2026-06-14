@@ -1,0 +1,17 @@
+NAME
+    trimStart - remove leading Unicode whitespace
+
+SYNOPSIS
+    strings::trimStart(value AS String) AS String
+
+DESCRIPTION
+    Returns value without leading Unicode whitespace.
+
+EXAMPLES
+    IMPORT io
+    IMPORT strings
+
+    FUNC main AS Integer
+      io::print(strings::trimStart("  Hello  "))
+      RETURN 0
+    END FUNC

@@ -1,0 +1,8 @@
+IMPORT strings
+
+FUNC main AS Integer
+  LET missing AS String = strings::upper()
+  LET wrongType AS String = strings::upper(12)
+  LET tooMany AS String = strings::upper("a", "b")
+  RETURN 0
+END FUNC

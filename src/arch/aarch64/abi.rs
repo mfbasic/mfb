@@ -308,6 +308,22 @@ pub(crate) fn load_u64(dst: &str, base: &str, offset: usize) -> CodeInstruction 
         .field("offset", &offset.to_string())
 }
 
+#[allow(dead_code)]
+pub(crate) fn load_u32(dst: &str, base: &str, offset: usize) -> CodeInstruction {
+    CodeInstruction::new("ldr_u32")
+        .field("dst", dst)
+        .field("base", base)
+        .field("offset", &offset.to_string())
+}
+
+#[allow(dead_code)]
+pub(crate) fn load_u16(dst: &str, base: &str, offset: usize) -> CodeInstruction {
+    CodeInstruction::new("ldr_u16")
+        .field("dst", dst)
+        .field("base", base)
+        .field("offset", &offset.to_string())
+}
+
 pub(crate) fn load_u8(dst: &str, base: &str, offset: usize) -> CodeInstruction {
     CodeInstruction::new("ldr_u8")
         .field("dst", dst)

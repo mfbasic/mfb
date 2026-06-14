@@ -1,0 +1,25 @@
+IMPORT io
+IMPORT strings
+
+FUNC printParts(parts AS List OF String) AS Nothing
+  io::print(toString(len(parts)))
+  FOR EACH part IN parts
+    io::print("[" & part & "]")
+  NEXT
+  RETURN NOTHING
+END FUNC
+
+FUNC splitGraphemes(value AS String) AS List OF String
+  RETURN strings::graphemes(value)
+END FUNC
+
+FUNC main AS Integer
+  LET combining AS List OF String = splitGraphemes("áb")
+  LET family AS List OF String = splitGraphemes("👨‍👩‍👧‍👦x")
+  LET flags AS List OF String = splitGraphemes("🇺🇸🇨🇦")
+  printParts(splitGraphemes(""))
+  printParts(combining)
+  printParts(family)
+  printParts(flags)
+  RETURN 0
+END FUNC

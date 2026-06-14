@@ -1,0 +1,17 @@
+NAME
+    startsWith - test whether a string starts with a prefix
+
+SYNOPSIS
+    strings::startsWith(value AS String, prefix AS String) AS Boolean
+
+DESCRIPTION
+    Returns TRUE when value starts with prefix. The empty prefix always matches.
+
+EXAMPLES
+    IMPORT io
+    IMPORT strings
+
+    FUNC main AS Integer
+      io::print(toString(strings::startsWith("😀 Hello", "😀")))
+      RETURN 0
+    END FUNC

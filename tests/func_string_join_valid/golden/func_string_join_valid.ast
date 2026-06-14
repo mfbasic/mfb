@@ -1,0 +1,33 @@
+{
+  "project": "func_string_join_valid",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 },
+    { "module": "strings", "line": 2 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "main",
+      "line": 4,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "empty", "type": "List OF String", "value": { "kind": "list", "values": [] }, "line": 5 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "[" }, "right": { "kind": "call", "callee": "strings.join", "arguments": [{ "kind": "identifier", "value": "empty" }, { "kind": "string", "value": "," }] } }, "right": { "kind": "string", "value": "]" } }] }, "line": 6 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "strings.join", "arguments": [{ "kind": "list", "values": [{ "kind": "string", "value": "Hello" }] }, { "kind": "string", "value": "," }] }] }, "line": 7 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "strings.join", "arguments": [{ "kind": "list", "values": [{ "kind": "string", "value": "Hello" }, { "kind": "string", "value": "World" }] }, { "kind": "string", "value": " " }] }] }, "line": 8 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "strings.join", "arguments": [{ "kind": "list", "values": [{ "kind": "string", "value": "a" }, { "kind": "string", "value": "b" }, { "kind": "string", "value": "c" }] }, { "kind": "string", "value": "" }] }] }, "line": 9 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "strings.join", "arguments": [{ "kind": "list", "values": [{ "kind": "string", "value": "😀" }, { "kind": "string", "value": "é" }, { "kind": "string", "value": "wide" }] }, { "kind": "string", "value": "|" }] }] }, "line": 10 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "strings.join", "arguments": [{ "kind": "list", "values": [{ "kind": "string", "value": "left" }, { "kind": "string", "value": "" }, { "kind": "string", "value": "right" }] }, { "kind": "string", "value": "-" }] }] }, "line": 11 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 12 }
+      ]
+    }
+    ]
+  }
+  ]
+}

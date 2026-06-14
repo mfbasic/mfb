@@ -8,8 +8,10 @@ $ mfb build tests/func_general_find_valid
 Wrote executable to tests/func_general_find_valid/func_general_find_valid.out
 [exit 0]
 $ tests/func_general_find_valid/func_general_find_valid.out
-find-string-first
-find-string-start
-find-string-unicode
-find-string-empty-needle
-[exit 9]
+find-string-first: find("hello", "l") = 2
+find-string-start: find("hello", "l", 3) = 3
+find-string-unicode: find("aé日é", "日") = 2
+find-string-empty-needle: find("abcdef", "", 2) = 2
+find-string-emoji: find("a😀é", "😀") = 1
+find-string-combining-mark: find("éx", "́") = 1
+[exit 0]

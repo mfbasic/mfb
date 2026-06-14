@@ -1,0 +1,17 @@
+NAME
+    endsWith - test whether a string ends with a suffix
+
+SYNOPSIS
+    strings::endsWith(value AS String, suffix AS String) AS Boolean
+
+DESCRIPTION
+    Returns TRUE when value ends with suffix. The empty suffix always matches.
+
+EXAMPLES
+    IMPORT io
+    IMPORT strings
+
+    FUNC main AS Integer
+      io::print(toString(strings::endsWith("Hello 😀", "😀")))
+      RETURN 0
+    END FUNC

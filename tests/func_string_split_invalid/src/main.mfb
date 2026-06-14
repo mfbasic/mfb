@@ -1,0 +1,9 @@
+IMPORT strings
+
+FUNC main AS Integer
+  LET missing AS List OF String = strings::split("a,b")
+  LET wrongValue AS List OF String = strings::split(1, ",")
+  LET wrongDelimiter AS List OF String = strings::split("a,b", 1)
+  LET tooMany AS List OF String = strings::split("a,b", ",", ";")
+  RETURN 0
+END FUNC

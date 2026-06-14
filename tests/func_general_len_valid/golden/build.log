@@ -11,8 +11,10 @@ $ tests/func_general_len_valid/func_general_len_valid.out
 len-string-empty
 len-string-ascii
 len-string-unicode
+len-string-emoji-combining
+len-string-grapheme-cluster
 len-list-empty
 len-list-values
 len-map-empty
 len-map-values
-[exit 13]
+[exit 24]

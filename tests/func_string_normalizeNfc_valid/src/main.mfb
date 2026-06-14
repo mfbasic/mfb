@@ -1,0 +1,17 @@
+IMPORT io
+IMPORT strings
+
+FUNC nfcValue(value AS String) AS String
+  RETURN strings::normalizeNfc(value)
+END FUNC
+
+FUNC main AS Integer
+  LET cafe AS String = "Café"
+  io::print(nfcValue(""))
+  io::print(nfcValue(cafe))
+  io::print(nfcValue("Å"))
+  io::print(nfcValue("Å"))
+  io::print(nfcValue("가"))
+  io::print(nfcValue("😀é"))
+  RETURN 0
+END FUNC

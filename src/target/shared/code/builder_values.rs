@@ -75,6 +75,9 @@ impl CodeBuilder<'_> {
                 })
             }
             NirValue::Call { target, args } => {
+                if let Some(result) = self.lower_strings_package_call(target, args)? {
+                    return Ok(result);
+                }
                 if target == "contains" && args.len() == 2 {
                     return self.lower_collection_contains(args);
                 }
@@ -193,6 +196,9 @@ impl CodeBuilder<'_> {
                 target,
                 args,
             } => {
+                if let Some(result) = self.lower_strings_package_call(target, args)? {
+                    return Ok(result);
+                }
                 if target == "isEven" && args.len() == 1 {
                     return self.lower_integer_parity_predicate("isEven", &args[0], false);
                 }

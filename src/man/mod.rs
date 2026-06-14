@@ -25,6 +25,8 @@ static PACKAGES: LazyLock<Vec<PackageDoc>> = LazyLock::new(|| {
         parse_general_package(),
         parse_collection_package(),
         parse_filter_package(),
+        parse_strings_package(),
+        parse_unicode_package(),
         parse_package(include_str!("builtins/io.txt")),
         parse_package(include_str!("builtins/math.txt")),
         parse_package(include_str!("builtins/thread.txt")),
@@ -128,11 +130,43 @@ fn parse_filter_package() -> PackageDoc {
     }
 }
 
+fn parse_strings_package() -> PackageDoc {
+    let page = include_str!("builtins/strings/package.txt");
+    let (name, summary) = parse_name_line(page).expect("strings package NAME line");
+    let functions = generated::STRINGS_FUNCTION_PAGES
+        .iter()
+        .map(|(_, page)| parse_rendered_function_page(page))
+        .collect::<Vec<_>>()
+        .into_boxed_slice();
+
+    PackageDoc {
+        name,
+        summary,
+        usage: "mfb man strings [function]",
+        functions: Box::leak(functions),
+        page: Some(page),
+    }
+}
+
+fn parse_unicode_package() -> PackageDoc {
+    let page = include_str!("unicode/package.txt");
+    let (name, summary) = parse_name_line(page).expect("unicode package NAME line");
+
+    PackageDoc {
+        name,
+        summary,
+        usage: "mfb man unicode",
+        functions: &[],
+        page: Some(page),
+    }
+}
+
 fn generated_pages(package_name: &str) -> Option<&'static [(&'static str, &'static str)]> {
     match package_name {
         "general" => Some(generated::GENERAL_FUNCTION_PAGES),
         "collection" => Some(generated::COLLECTION_FUNCTION_PAGES),
         "filter" => Some(generated::FILTER_FUNCTION_PAGES),
+        "strings" => Some(generated::STRINGS_FUNCTION_PAGES),
         _ => None,
     }
 }

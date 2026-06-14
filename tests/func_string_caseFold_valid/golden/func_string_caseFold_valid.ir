@@ -1,0 +1,43 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "func_string_caseFold_valid",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "foldValue",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    { "name": "value", "type": "String", "default": null }
+    ],
+    "returns": "String",
+    "body": [
+    { "op": "return", "value": { "kind": "call", "target": "strings.caseFold", "args": [{ "kind": "local", "name": "value" }] } }
+    ]
+  },
+  {
+    "name": "main",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "mutable": false, "name": "german", "type": "String", "value": { "kind": "const", "type": "String", "value": "Straße" } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "foldValue", "args": [{ "kind": "const", "type": "String", "value": "" }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "foldValue", "args": [{ "kind": "const", "type": "String", "value": "HELLO" }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "foldValue", "args": [{ "kind": "local", "name": "german" }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "foldValue", "args": [{ "kind": "const", "type": "String", "value": "İ" }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "foldValue", "args": [{ "kind": "const", "type": "String", "value": "É日😀" }] }] } },
+    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

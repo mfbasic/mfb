@@ -1,0 +1,17 @@
+NAME
+    upper - convert a string to uppercase
+
+SYNOPSIS
+    strings::upper(value AS String) AS String
+
+DESCRIPTION
+    Converts value to uppercase using Unicode case mapping.
+
+EXAMPLES
+    IMPORT io
+    IMPORT strings
+
+    FUNC main AS Integer
+      io::print(strings::upper("hello"))
+      RETURN 0
+    END FUNC

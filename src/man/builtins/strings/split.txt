@@ -1,0 +1,19 @@
+NAME
+    split - split a string by a delimiter
+
+SYNOPSIS
+    strings::split(value AS String, delimiter AS String) AS List OF String
+
+DESCRIPTION
+    Splits value into a list of strings separated by delimiter.
+    An empty delimiter is invalid.
+
+EXAMPLES
+    IMPORT io
+    IMPORT strings
+
+    FUNC main AS Integer
+      LET parts = strings::split("a,b,c", ",")
+      io::print(toString(len(parts)))
+      RETURN 0
+    END FUNC

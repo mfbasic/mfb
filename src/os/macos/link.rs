@@ -6,9 +6,7 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 
 const VM_BASE: u64 = 0x1_0000_0000;
-const TEXT_FILE_SIZE: usize = 0x4000;
-const DATA_CONST_FILE_OFFSET: usize = 0x4000;
-const LINKEDIT_FILE_OFFSET: usize = 0x8000;
+const PAGE_SIZE: usize = 0x4000;
 
 pub(crate) fn write_executable(
     project_dir: &Path,
@@ -19,7 +17,13 @@ pub(crate) fn write_executable(
     let code_offset = code_offset(imports_libsystem);
     let mut text = image.text.clone();
     let import_stubs = if imports_libsystem {
-        append_import_stubs(&mut text, image, VM_BASE + code_offset as u64)?
+        append_import_stubs(
+            &mut text,
+            image,
+            VM_BASE + code_offset as u64,
+            code_offset,
+            image.data.len(),
+        )?
     } else {
         HashMap::new()
     };
@@ -137,12 +141,15 @@ fn append_import_stubs(
     text: &mut Vec<u8>,
     image: &EncodedImage,
     text_vmaddr: u64,
+    code_offset: usize,
+    data_len: usize,
 ) -> Result<HashMap<String, u64>, String> {
     let mut stubs = HashMap::new();
+    let layout = macho_layout(code_offset, text.len(), data_len, true);
     for (index, import) in image.imports.iter().enumerate() {
         let stub_offset = text.len();
         let stub_vmaddr = text_vmaddr + stub_offset as u64;
-        let got_vmaddr = VM_BASE + DATA_CONST_FILE_OFFSET as u64 + (index * 8) as u64;
+        let got_vmaddr = VM_BASE + layout.data_const_file_offset as u64 + (index * 8) as u64;
         emit_import_stub(text, stub_vmaddr, got_vmaddr);
         stubs.insert(import.symbol.clone(), stub_vmaddr);
     }
@@ -222,9 +229,10 @@ fn encode_unsigned_mach_o(
     imports_libsystem: bool,
     image: &EncodedImage,
 ) -> Vec<u8> {
-    let linkedit = linkedit_layout(image, imports_libsystem);
+    let layout = macho_layout(code_offset, code.len(), data.len(), imports_libsystem);
+    let linkedit = linkedit_layout(image, imports_libsystem, layout.linkedit_file_offset);
     let signature_offset = align(linkedit.data_in_code_offset, 16);
-    let linkedit_file_size = signature_offset + signature_size - LINKEDIT_FILE_OFFSET;
+    let linkedit_file_size = signature_offset + signature_size - layout.linkedit_file_offset;
     let load_commands_size = load_commands_size(imports_libsystem);
     let mut bytes = Vec::new();
 
@@ -243,17 +251,21 @@ fn encode_unsigned_mach_o(
         code_offset,
         image.text.len(),
         code.len() - image.text.len(),
-        code.len() + data.len(),
+        layout.text_file_size,
     );
     if imports_libsystem {
-        data_const_segment(&mut bytes, image.imports.len());
+        data_const_segment(
+            &mut bytes,
+            layout.data_const_file_offset,
+            image.imports.len(),
+        );
     }
     segment(
         &mut bytes,
         "__LINKEDIT",
-        VM_BASE + LINKEDIT_FILE_OFFSET as u64,
-        0x4000,
-        LINKEDIT_FILE_OFFSET as u64,
+        VM_BASE + layout.linkedit_file_offset as u64,
+        align(linkedit_file_size, PAGE_SIZE) as u64,
+        layout.linkedit_file_offset as u64,
         linkedit_file_size as u64,
         1,
         1,
@@ -287,11 +299,11 @@ fn encode_unsigned_mach_o(
     bytes.resize(code_offset, 0);
     bytes.extend_from_slice(code);
     bytes.extend_from_slice(data);
-    bytes.resize(TEXT_FILE_SIZE, 0);
+    bytes.resize(layout.text_file_size, 0);
     if imports_libsystem {
-        bytes.resize(DATA_CONST_FILE_OFFSET, 0);
-        bytes.resize(DATA_CONST_FILE_OFFSET + image.imports.len() * 8, 0);
-        bytes.resize(LINKEDIT_FILE_OFFSET, 0);
+        bytes.resize(layout.data_const_file_offset, 0);
+        bytes.resize(layout.data_const_file_offset + image.imports.len() * 8, 0);
+        bytes.resize(layout.linkedit_file_offset, 0);
         bytes.extend_from_slice(&bind_info(image));
         bytes.resize(linkedit.symtab_offset, 0);
         bytes.extend_from_slice(&symbol_table(image));
@@ -307,6 +319,33 @@ fn encode_unsigned_mach_o(
     }
     bytes.resize(signature_offset, 0);
     bytes
+}
+
+#[derive(Clone, Copy)]
+struct MachOLayout {
+    text_file_size: usize,
+    data_const_file_offset: usize,
+    linkedit_file_offset: usize,
+}
+
+fn macho_layout(
+    code_offset: usize,
+    code_len: usize,
+    data_len: usize,
+    imports_libsystem: bool,
+) -> MachOLayout {
+    let text_file_size = align(code_offset + code_len + data_len, PAGE_SIZE);
+    let data_const_file_offset = text_file_size;
+    let linkedit_file_offset = if imports_libsystem {
+        data_const_file_offset + PAGE_SIZE
+    } else {
+        text_file_size
+    };
+    MachOLayout {
+        text_file_size,
+        data_const_file_offset,
+        linkedit_file_offset,
+    }
 }
 
 fn code_offset(imports_libsystem: bool) -> usize {
@@ -335,15 +374,15 @@ fn text_segment(
     code_offset: usize,
     code_len: usize,
     stub_len: usize,
-    _text_len: usize,
+    text_file_size: usize,
 ) {
     put_u32(bytes, 0x19);
     put_u32(bytes, 232);
     fixed_name(bytes, "__TEXT");
     put_u64(bytes, VM_BASE);
-    put_u64(bytes, TEXT_FILE_SIZE as u64);
+    put_u64(bytes, text_file_size as u64);
     put_u64(bytes, 0);
-    put_u64(bytes, TEXT_FILE_SIZE as u64);
+    put_u64(bytes, text_file_size as u64);
     put_u32(bytes, 5);
     put_u32(bytes, 5);
     put_u32(bytes, 2);
@@ -374,14 +413,14 @@ fn text_segment(
     );
 }
 
-fn data_const_segment(bytes: &mut Vec<u8>, import_count: usize) {
+fn data_const_segment(bytes: &mut Vec<u8>, file_offset: usize, import_count: usize) {
     put_u32(bytes, 0x19);
     put_u32(bytes, 152);
     fixed_name(bytes, "__DATA_CONST");
-    put_u64(bytes, VM_BASE + DATA_CONST_FILE_OFFSET as u64);
-    put_u64(bytes, 0x4000);
-    put_u64(bytes, DATA_CONST_FILE_OFFSET as u64);
-    put_u64(bytes, 0x4000);
+    put_u64(bytes, VM_BASE + file_offset as u64);
+    put_u64(bytes, PAGE_SIZE as u64);
+    put_u64(bytes, file_offset as u64);
+    put_u64(bytes, PAGE_SIZE as u64);
     put_u32(bytes, 3);
     put_u32(bytes, 3);
     put_u32(bytes, 1);
@@ -390,9 +429,9 @@ fn data_const_segment(bytes: &mut Vec<u8>, import_count: usize) {
         bytes,
         "__got",
         "__DATA_CONST",
-        VM_BASE + DATA_CONST_FILE_OFFSET as u64,
+        VM_BASE + file_offset as u64,
         (import_count * 8) as u64,
-        DATA_CONST_FILE_OFFSET,
+        file_offset,
         0x6,
         0,
         0,
@@ -593,8 +632,12 @@ struct LinkeditLayout {
     indirect_symbol_count: usize,
 }
 
-fn linkedit_layout(image: &EncodedImage, imports_libsystem: bool) -> LinkeditLayout {
-    let fixups_offset = LINKEDIT_FILE_OFFSET;
+fn linkedit_layout(
+    image: &EncodedImage,
+    imports_libsystem: bool,
+    linkedit_file_offset: usize,
+) -> LinkeditLayout {
+    let fixups_offset = linkedit_file_offset;
     let fixups_size = if imports_libsystem {
         bind_info(image).len()
     } else {
