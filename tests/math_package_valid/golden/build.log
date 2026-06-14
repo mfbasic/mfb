@@ -1,0 +1,67 @@
+$ mfb build -ast tests/math_package_valid
+Wrote AST to tests/math_package_valid/math_package_valid.ast
+[exit 0]
+$ mfb build -ir tests/math_package_valid
+Wrote IR to tests/math_package_valid/math_package_valid.ir
+[exit 0]
+$ mfb build tests/math_package_valid
+Wrote executable to tests/math_package_valid/math_package_valid.out
+[exit 0]
+$ tests/math_package_valid/math_package_valid.out
+3.141592
+3.141592
+0.636619
+0.636619
+1.570796
+1.570796
+0.785398
+0.785398
+2.718281
+2.718281
+0.693147
+0.693147
+2.302585
+2.302585
+7
+3.500000
+4.750000
+2
+2.000000
+1.500000
+4
+4.000000
+2.000000
+10
+0.500000
+1.500000
+3
+3
+4
+4
+4
+4
+3.000000
+3.000000
+8.000000
+2.250000
+2.718281
+2.718281
+1.000000
+0.000000
+2.000000
+2.000000
+0.000000
+0.000000
+-1.000000
+-1.000000
+0.000000
+0.000000
+0.523598
+0.523598
+1.047197
+1.047197
+0.785398
+0.785398
+0.785398
+0.785398
+[exit 0]

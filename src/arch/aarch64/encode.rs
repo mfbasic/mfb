@@ -479,28 +479,78 @@ impl Encoder {
     }
 
     fn emit_add_imm(&mut self, rd: u8, rn: u8, imm: u64) -> Result<(), String> {
-        let imm = checked_imm12(imm)?;
-        self.emit_word(0x9100_0000 | (imm << 10) | ((rn as u32) << 5) | rd as u32)
+        if let Some((imm12, shift12)) = encode_add_sub_imm(imm) {
+            return self.emit_add_imm_chunk(rd, rn, imm12, shift12);
+        }
+        let mut remaining = imm;
+        let mut src = rn;
+        while remaining > 0 {
+            let (chunk, shift12) = next_add_sub_chunk(remaining);
+            self.emit_add_imm_chunk(rd, src, chunk, shift12)?;
+            remaining -= if shift12 {
+                u64::from(chunk) << 12
+            } else {
+                u64::from(chunk)
+            };
+            src = rd;
+        }
+        Ok(())
+    }
+
+    fn emit_add_imm_chunk(&mut self, rd: u8, rn: u8, imm12: u32, shift12: bool) -> Result<(), String> {
+        self.emit_word(
+            0x9100_0000
+                | ((u32::from(shift12)) << 22)
+                | (imm12 << 10)
+                | ((rn as u32) << 5)
+                | rd as u32,
+        )
     }
 
     fn emit_sub_imm(&mut self, rd: u8, rn: u8, imm: u64) -> Result<(), String> {
-        let imm = checked_imm12(imm)?;
-        self.emit_word(0xd100_0000 | (imm << 10) | ((rn as u32) << 5) | rd as u32)
+        if let Some((imm12, shift12)) = encode_add_sub_imm(imm) {
+            return self.emit_sub_imm_chunk(rd, rn, imm12, shift12);
+        }
+        let mut remaining = imm;
+        let mut src = rn;
+        while remaining > 0 {
+            let (chunk, shift12) = next_add_sub_chunk(remaining);
+            self.emit_sub_imm_chunk(rd, src, chunk, shift12)?;
+            remaining -= if shift12 {
+                u64::from(chunk) << 12
+            } else {
+                u64::from(chunk)
+            };
+            src = rd;
+        }
+        Ok(())
+    }
+
+    fn emit_sub_imm_chunk(&mut self, rd: u8, rn: u8, imm12: u32, shift12: bool) -> Result<(), String> {
+        self.emit_word(
+            0xd100_0000
+                | ((u32::from(shift12)) << 22)
+                | (imm12 << 10)
+                | ((rn as u32) << 5)
+                | rd as u32,
+        )
     }
 
     fn emit_sub_sp(&mut self, imm: u64) -> Result<(), String> {
-        let imm = checked_imm12(imm)?;
-        self.emit_word(0xd100_03ff | (imm << 10))
+        self.emit_sub_imm(31, 31, imm)
     }
 
     fn emit_add_sp(&mut self, imm: u64) -> Result<(), String> {
-        let imm = checked_imm12(imm)?;
-        self.emit_word(0x9100_03ff | (imm << 10))
+        self.emit_add_imm(31, 31, imm)
     }
 
     fn emit_cmp_imm(&mut self, rn: u8, imm: u64) -> Result<(), String> {
-        let imm = checked_imm12(imm)?;
-        self.emit_word(0xf100_001f | (imm << 10) | ((rn as u32) << 5))
+        if let Ok(imm) = checked_imm12(imm) {
+            return self.emit_word(0xf100_001f | (imm << 10) | ((rn as u32) << 5));
+        }
+        let scratch = scratch_excluding(rn, 31);
+        self.emit_mov_imm(scratch, imm)?;
+        self.emit_cmp(rn, scratch)
     }
 
     fn emit_cmp(&mut self, rn: u8, rm: u8) -> Result<(), String> {
@@ -567,42 +617,66 @@ impl Encoder {
         if offset % 8 != 0 {
             return Err(format!("unaligned AArch64 ldr offset {offset}"));
         }
-        let imm = checked_imm12(offset / 8)?;
-        self.emit_word(0xf940_0000 | (imm << 10) | ((rn as u32) << 5) | rt as u32)
+        if let Ok(imm) = checked_imm12(offset / 8) {
+            return self.emit_word(0xf940_0000 | (imm << 10) | ((rn as u32) << 5) | rt as u32);
+        }
+        let scratch = scratch_excluding(rt, rn);
+        self.emit_add_imm(scratch, rn, offset)?;
+        self.emit_word(0xf940_0000 | ((scratch as u32) << 5) | rt as u32)
     }
 
     fn emit_ldr_u32(&mut self, rt: u8, rn: u8, offset: u64) -> Result<(), String> {
         if offset % 4 != 0 {
             return Err(format!("unaligned AArch64 ldr u32 offset {offset}"));
         }
-        let imm = checked_imm12(offset / 4)?;
-        self.emit_word(0xb940_0000 | (imm << 10) | ((rn as u32) << 5) | rt as u32)
+        if let Ok(imm) = checked_imm12(offset / 4) {
+            return self.emit_word(0xb940_0000 | (imm << 10) | ((rn as u32) << 5) | rt as u32);
+        }
+        let scratch = scratch_excluding(rt, rn);
+        self.emit_add_imm(scratch, rn, offset)?;
+        self.emit_word(0xb940_0000 | ((scratch as u32) << 5) | rt as u32)
     }
 
     fn emit_ldr_u16(&mut self, rt: u8, rn: u8, offset: u64) -> Result<(), String> {
         if offset % 2 != 0 {
             return Err(format!("unaligned AArch64 ldr u16 offset {offset}"));
         }
-        let imm = checked_imm12(offset / 2)?;
-        self.emit_word(0x7940_0000 | (imm << 10) | ((rn as u32) << 5) | rt as u32)
+        if let Ok(imm) = checked_imm12(offset / 2) {
+            return self.emit_word(0x7940_0000 | (imm << 10) | ((rn as u32) << 5) | rt as u32);
+        }
+        let scratch = scratch_excluding(rt, rn);
+        self.emit_add_imm(scratch, rn, offset)?;
+        self.emit_word(0x7940_0000 | ((scratch as u32) << 5) | rt as u32)
     }
 
     fn emit_str_u64(&mut self, rt: u8, rn: u8, offset: u64) -> Result<(), String> {
         if offset % 8 != 0 {
             return Err(format!("unaligned AArch64 str offset {offset}"));
         }
-        let imm = checked_imm12(offset / 8)?;
-        self.emit_word(0xf900_0000 | (imm << 10) | ((rn as u32) << 5) | rt as u32)
+        if let Ok(imm) = checked_imm12(offset / 8) {
+            return self.emit_word(0xf900_0000 | (imm << 10) | ((rn as u32) << 5) | rt as u32);
+        }
+        let scratch = scratch_excluding(rt, rn);
+        self.emit_add_imm(scratch, rn, offset)?;
+        self.emit_word(0xf900_0000 | ((scratch as u32) << 5) | rt as u32)
     }
 
     fn emit_ldr_u8(&mut self, rt: u8, rn: u8, offset: u64) -> Result<(), String> {
-        let imm = checked_imm12(offset)?;
-        self.emit_word(0x3940_0000 | (imm << 10) | ((rn as u32) << 5) | rt as u32)
+        if let Ok(imm) = checked_imm12(offset) {
+            return self.emit_word(0x3940_0000 | (imm << 10) | ((rn as u32) << 5) | rt as u32);
+        }
+        let scratch = scratch_excluding(rt, rn);
+        self.emit_add_imm(scratch, rn, offset)?;
+        self.emit_word(0x3940_0000 | ((scratch as u32) << 5) | rt as u32)
     }
 
     fn emit_str_u8(&mut self, rt: u8, rn: u8, offset: u64) -> Result<(), String> {
-        let imm = checked_imm12(offset)?;
-        self.emit_word(0x3900_0000 | (imm << 10) | ((rn as u32) << 5) | rt as u32)
+        if let Ok(imm) = checked_imm12(offset) {
+            return self.emit_word(0x3900_0000 | (imm << 10) | ((rn as u32) << 5) | rt as u32);
+        }
+        let scratch = scratch_excluding(rt, rn);
+        self.emit_add_imm(scratch, rn, offset)?;
+        self.emit_word(0x3900_0000 | ((scratch as u32) << 5) | rt as u32)
     }
 
     fn emit_label_branch(&mut self, kind: &str, target: String) -> Result<(), String> {
@@ -751,11 +825,48 @@ fn hex_digit(value: u8) -> Result<u8, String> {
 }
 
 fn instruction_size(instruction: &CodeInstruction) -> Result<usize, String> {
-    if instruction.op == CodeOp::Label {
-        return Ok(0);
-    }
-    if instruction.op == CodeOp::MovImm {
-        return Ok(wide_imm_word_count(immediate(field(instruction, "value")?)?) * 4);
+    match instruction.op {
+        CodeOp::Label => return Ok(0),
+        CodeOp::MovImm => {
+            return Ok(wide_imm_word_count(immediate(field(instruction, "value")?)?) * 4);
+        }
+        CodeOp::AddImm | CodeOp::SubImm => {
+            return Ok(sized_add_sub_imm(immediate(field(instruction, "imm")?)?));
+        }
+        CodeOp::AddSp | CodeOp::SubSp | CodeOp::CmpImm => {
+            return Ok(sized_add_sub_imm(immediate(
+                field(instruction, if instruction.op == CodeOp::CmpImm {
+                    "rhs"
+                } else {
+                    "imm"
+                })?,
+            )?));
+        }
+        CodeOp::LdrU64 | CodeOp::StrU64 => {
+            return Ok(sized_memory_imm(
+                immediate(field(instruction, "offset")?)?,
+                8,
+            ));
+        }
+        CodeOp::LdrU32 => {
+            return Ok(sized_memory_imm(
+                immediate(field(instruction, "offset")?)?,
+                4,
+            ));
+        }
+        CodeOp::LdrU16 => {
+            return Ok(sized_memory_imm(
+                immediate(field(instruction, "offset")?)?,
+                2,
+            ));
+        }
+        CodeOp::LdrU8 | CodeOp::StrU8 => {
+            return Ok(sized_memory_imm(
+                immediate(field(instruction, "offset")?)?,
+                1,
+            ));
+        }
+        _ => {}
     }
     Ok(4)
 }
@@ -852,6 +963,57 @@ fn checked_imm12(value: u64) -> Result<u32, String> {
     Ok(value as u32)
 }
 
+fn encode_add_sub_imm(value: u64) -> Option<(u32, bool)> {
+    if value <= 4095 {
+        Some((value as u32, false))
+    } else if value.is_multiple_of(4096) && (value >> 12) <= 4095 {
+        Some(((value >> 12) as u32, true))
+    } else {
+        None
+    }
+}
+
+fn scratch_excluding(a: u8, b: u8) -> u8 {
+    [17, 16, 15]
+        .into_iter()
+        .find(|candidate| *candidate != a && *candidate != b)
+        .expect("scratch register candidate list is non-empty")
+}
+
+fn sized_add_sub_imm(value: u64) -> usize {
+    if value == 0 {
+        return 4;
+    }
+    let mut remaining = value;
+    let mut words = 0;
+    while remaining > 0 {
+        let (chunk, shift12) = next_add_sub_chunk(remaining);
+        remaining -= if shift12 {
+            u64::from(chunk) << 12
+        } else {
+            u64::from(chunk)
+        };
+        words += 1;
+    }
+    words * 4
+}
+
+fn sized_memory_imm(offset: u64, scale: u64) -> usize {
+    if offset.is_multiple_of(scale) && (offset / scale) <= 4095 {
+        4
+    } else {
+        sized_add_sub_imm(offset) + 4
+    }
+}
+
+fn next_add_sub_chunk(remaining: u64) -> (u32, bool) {
+    if remaining >= 4096 {
+        (((remaining / 4096).min(4095)) as u32, true)
+    } else {
+        (remaining as u32, false)
+    }
+}
+
 fn branch_imm26(source: usize, target: usize) -> u32 {
     let delta = target as isize - source as isize;
     ((delta / 4) as i32 as u32) & 0x03ff_ffff
@@ -868,4 +1030,71 @@ fn align(value: usize, alignment: usize) -> usize {
 
 fn put_u64(bytes: &mut Vec<u8>, value: u64) {
     bytes.extend_from_slice(&value.to_le_bytes());
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::arch::aarch64::ops::CodeOp;
+    use crate::target::shared::code::CodeInstruction;
+
+    #[test]
+    fn instruction_size_expands_large_stack_and_memory_immediates() {
+        let sub_sp = CodeInstruction::new("sub_sp").field("imm", "6400");
+        let ldr = CodeInstruction::new("ldr_u64")
+            .field("dst", "x0")
+            .field("base", "sp")
+            .field("offset", "32800");
+
+        assert_eq!(instruction_size(&sub_sp).unwrap(), 8);
+        assert_eq!(instruction_size(&ldr).unwrap(), 12);
+    }
+
+    #[test]
+    fn encoder_accepts_large_immediates_with_fallback_sequences() {
+        let mut encoder = Encoder {
+            text: Vec::new(),
+            data: Vec::new(),
+            symbols: Vec::new(),
+            relocations: Vec::new(),
+            imports: HashMap::new(),
+            labels: HashMap::new(),
+            patches: Vec::new(),
+        };
+
+        encoder
+            .emit_instruction(&CodeInstruction::new("sub_sp").field("imm", "6400"))
+            .unwrap();
+        encoder
+            .emit_instruction(
+                &CodeInstruction::new("str_u64")
+                    .field("src", "x0")
+                    .field("base", "sp")
+                    .field("offset", "32800"),
+            )
+            .unwrap();
+        encoder
+            .emit_instruction(
+                &CodeInstruction::new("cmp_imm")
+                    .field("lhs", "x1")
+                    .field("rhs", "6400"),
+            )
+            .unwrap();
+
+        assert_eq!(encoder.text.len(), 28);
+    }
+
+    #[test]
+    fn codeop_sizes_cover_large_add_imm() {
+        let add = CodeInstruction {
+            op: CodeOp::AddImm,
+            fields: vec![
+                ("dst", "x0".to_string()),
+                ("src", "sp".to_string()),
+                ("imm", "6400".to_string()),
+            ],
+        };
+
+        assert_eq!(instruction_size(&add).unwrap(), 8);
+    }
 }

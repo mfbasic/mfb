@@ -1480,7 +1480,7 @@ impl<'a> FileParser<'a> {
                 }
                 let mut name = value;
                 while self.match_kind(TokenKind::DoubleColon) {
-                    let part = self.consume_identifier("Expected identifier after `::`.")?;
+                    let part = self.consume_qualified_identifier_part()?;
                     name.push('.');
                     name.push_str(&part);
                 }
@@ -1506,7 +1506,7 @@ impl<'a> FileParser<'a> {
     fn parse_qualified_name(&mut self, detail: &str) -> Option<String> {
         let mut name = self.consume_identifier(detail)?;
         while self.match_kind(TokenKind::DoubleColon) {
-            let part = self.consume_identifier("Expected identifier after `::`.")?;
+            let part = self.consume_qualified_identifier_part()?;
             name.push('.');
             name.push_str(&part);
         }
@@ -1645,7 +1645,7 @@ impl<'a> FileParser<'a> {
             }
         };
         while self.match_kind(TokenKind::DoubleColon) {
-            let part = self.consume_identifier("Expected identifier after `::`.")?;
+            let part = self.consume_qualified_identifier_part()?;
             name.push('.');
             name.push_str(&part);
         }
@@ -1785,6 +1785,32 @@ impl<'a> FileParser<'a> {
             self.report("MFB_PARSE_INVALID_IDENTIFIER", detail, &token);
             None
         }
+    }
+
+    fn consume_qualified_identifier_part(&mut self) -> Option<String> {
+        if let Some(part) = self.consume_numeric_identifier_part() {
+            return Some(part);
+        }
+        self.consume_identifier("Expected identifier after `::`.")
+    }
+
+    fn consume_numeric_identifier_part(&mut self) -> Option<String> {
+        let TokenKind::Number(number) = self.peek().kind.clone() else {
+            return None;
+        };
+        let Some(next) = self.tokens.get(self.current + 1) else {
+            return None;
+        };
+        let TokenKind::Identifier(identifier) = next.kind.clone() else {
+            return None;
+        };
+        let current = self.peek().clone();
+        if current.line != next.line || current.end != next.start {
+            return None;
+        }
+        self.advance();
+        self.advance();
+        Some(format!("{number}{identifier}"))
     }
 
     fn consume_keyword(&mut self, keyword: Keyword, detail: &str) -> bool {

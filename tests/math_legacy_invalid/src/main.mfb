@@ -1,0 +1,12 @@
+IMPORT math
+
+FUNC main AS Integer
+  LET pi AS Float = math::piFloat
+  LET e AS Float = math::eFloat
+  LET sign AS Integer = math::sign(-7)
+  LET truncated AS Integer = math::trunc(3.75)
+  LET radians AS Float = math::radians(180.0)
+  LET degrees AS Float = math::degrees(math::pi)
+  LET finite AS Boolean = math::isFinite(degrees)
+  RETURN 0
+END FUNC
