@@ -1,0 +1,11 @@
+NAME
+  ln2 - mathematical constant ln(2) as Float
+
+SYNOPSIS
+  math::ln2 AS Float
+
+DESCRIPTION
+  The mathematical constant ln(2) as a Float value.
+
+EXAMPLES
+  LET value AS Float = math::ln2

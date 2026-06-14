@@ -1,0 +1,15 @@
+NAME
+  round - nearest integer with halves away from zero
+
+SYNOPSIS
+  math::round(value AS Float) AS Integer
+  math::round(value AS Fixed) AS Integer
+
+DESCRIPTION
+  Returns the nearest integer, with halves rounded away from zero.
+
+  The Float overload fails with ErrOverflow (10028) when the result is outside
+  Integer range.
+
+EXAMPLES
+  LET value AS Integer = math::round(3.5)

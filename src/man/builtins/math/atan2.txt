@@ -1,0 +1,15 @@
+NAME
+  atan2 - two-argument arc tangent in radians
+
+SYNOPSIS
+  math::atan2(y AS Float, x AS Float) AS Float
+  math::atan2(y AS Fixed, x AS Fixed) AS Fixed
+
+DESCRIPTION
+  Returns the angle of the vector (x, y) using the standard atan2(y, x)
+  convention.
+
+  The Fixed overload rounds to the nearest Fixed value.
+
+EXAMPLES
+  LET value AS Float = math::atan2(1.0, 1.0)

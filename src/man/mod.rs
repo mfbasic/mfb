@@ -29,9 +29,9 @@ static PACKAGES: LazyLock<Vec<PackageDoc>> = LazyLock::new(|| {
         parse_strings_package(),
         parse_unicode_package(),
         parse_io_package(),
+        parse_math_package(),
         parse_fs_package(),
         parse_thread_package(),
-        parse_package(include_str!("builtins/math.txt")),
     ]
 });
 
@@ -199,6 +199,24 @@ fn parse_io_package() -> PackageDoc {
     }
 }
 
+fn parse_math_package() -> PackageDoc {
+    let page = include_str!("builtins/math/package.txt");
+    let (name, summary) = parse_name_line(page).expect("math package NAME line");
+    let functions = generated::MATH_FUNCTION_PAGES
+        .iter()
+        .map(|(_, page)| parse_rendered_function_page(page))
+        .collect::<Vec<_>>()
+        .into_boxed_slice();
+
+    PackageDoc {
+        name,
+        summary,
+        usage: "mfb man math [function]",
+        functions: Box::leak(functions),
+        page: Some(page),
+    }
+}
+
 fn parse_fs_package() -> PackageDoc {
     let page = include_str!("builtins/fs/package.txt");
     let (name, summary) = parse_name_line(page).expect("fs package NAME line");
@@ -243,33 +261,10 @@ fn generated_pages(package_name: &str) -> Option<&'static [(&'static str, &'stat
         "filter" => Some(generated::FILTER_FUNCTION_PAGES),
         "strings" => Some(generated::STRINGS_FUNCTION_PAGES),
         "io" => Some(generated::IO_FUNCTION_PAGES),
+        "math" => Some(generated::MATH_FUNCTION_PAGES),
         "fs" => Some(generated::FS_FUNCTION_PAGES),
         "thread" => Some(generated::THREAD_FUNCTION_PAGES),
         _ => None,
-    }
-}
-
-fn parse_package(source: &'static str) -> PackageDoc {
-    let mut sections = source.split("\n---\n");
-    let header = sections.next().expect("man page package header");
-    let mut header_lines = header.lines();
-
-    let name = parse_prefixed_line(&mut header_lines, "package:");
-    let summary = parse_prefixed_line(&mut header_lines, "summary:");
-    let usage = parse_prefixed_line(&mut header_lines, "usage:");
-
-    let functions = sections
-        .filter(|section| !section.trim().is_empty())
-        .map(parse_function)
-        .collect::<Vec<_>>()
-        .into_boxed_slice();
-
-    PackageDoc {
-        name,
-        summary,
-        usage,
-        functions: Box::leak(functions),
-        page: None,
     }
 }
 
@@ -299,32 +294,4 @@ fn first_synopsis_line(source: &'static str) -> Option<&'static str> {
         .find(|line| !line.trim().is_empty())
         .map(str::trim)
         .filter(|line| !line.is_empty())
-}
-
-fn parse_function(section: &'static str) -> FunctionDoc {
-    let mut lines = section.lines();
-    let name = parse_prefixed_line(&mut lines, "function:");
-    let signature = parse_prefixed_line(&mut lines, "signature:");
-    let summary = parse_prefixed_line(&mut lines, "summary:");
-
-    let example_marker = "example:\n";
-    let example_start = section
-        .find(example_marker)
-        .map(|index| index + example_marker.len())
-        .expect("man page function example");
-
-    FunctionDoc {
-        name,
-        signature,
-        summary,
-        example: section[example_start..].trim_end_matches('\n'),
-    }
-}
-
-fn parse_prefixed_line(lines: &mut std::str::Lines<'static>, prefix: &'static str) -> &'static str {
-    let line = lines.next().expect("man page line");
-    line.strip_prefix(prefix)
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .expect("man page prefixed value")
 }

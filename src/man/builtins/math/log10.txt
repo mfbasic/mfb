@@ -1,0 +1,15 @@
+NAME
+  log10 - base-10 logarithm
+
+SYNOPSIS
+  math::log10(value AS Float) AS Float
+  math::log10(value AS Fixed) AS Fixed
+
+DESCRIPTION
+  Returns the base-10 logarithm of value.
+
+  The Fixed overload rounds to the nearest Fixed value. Both overloads fail
+  with ErrInvalidArgument (10002) for non-positive input.
+
+EXAMPLES
+  LET value AS Float = math::log10(100.0)

@@ -1,0 +1,11 @@
+NAME
+  ln10Fixed - mathematical constant ln(10) as Fixed
+
+SYNOPSIS
+  math::ln10Fixed AS Fixed
+
+DESCRIPTION
+  The mathematical constant ln(10) rounded to the nearest Fixed value.
+
+EXAMPLES
+  LET value AS Fixed = math::ln10Fixed

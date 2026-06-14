@@ -11,6 +11,7 @@ fn main() {
     let strings_dir = manifest_dir.join("src/man/builtins/strings");
     let types_dir = manifest_dir.join("src/man/types");
     let io_dir = manifest_dir.join("src/man/builtins/io");
+    let math_dir = manifest_dir.join("src/man/builtins/math");
     let fs_dir = manifest_dir.join("src/man/builtins/fs");
     let thread_dir = manifest_dir.join("src/man/builtins/thread");
     let types_page = manifest_dir.join("src/man/types/package.txt");
@@ -22,6 +23,7 @@ fn main() {
     println!("cargo:rerun-if-changed={}", strings_dir.display());
     println!("cargo:rerun-if-changed={}", types_dir.display());
     println!("cargo:rerun-if-changed={}", io_dir.display());
+    println!("cargo:rerun-if-changed={}", math_dir.display());
     println!("cargo:rerun-if-changed={}", fs_dir.display());
     println!("cargo:rerun-if-changed={}", thread_dir.display());
     println!("cargo:rerun-if-changed={}", types_page.display());
@@ -34,6 +36,7 @@ fn main() {
     let strings_pages = man_pages(&strings_dir, "strings");
     let types_pages = man_pages(&types_dir, "types");
     let io_pages = man_pages(&io_dir, "io");
+    let math_pages = man_pages(&math_dir, "math");
     let fs_pages = man_pages(&fs_dir, "fs");
     let thread_pages = man_pages(&thread_dir, "thread");
 
@@ -63,6 +66,10 @@ fn main() {
     );
     println!(
         "cargo:rerun-if-changed={}",
+        math_dir.join("package.txt").display()
+    );
+    println!(
+        "cargo:rerun-if-changed={}",
         fs_dir.join("package.txt").display()
     );
     println!(
@@ -76,6 +83,7 @@ fn main() {
         .chain(strings_pages.iter())
         .chain(types_pages.iter())
         .chain(io_pages.iter())
+        .chain(math_pages.iter())
         .chain(fs_pages.iter())
         .chain(thread_pages.iter())
     {
@@ -92,6 +100,7 @@ fn main() {
     write_pages(&mut output, "STRINGS_FUNCTION_PAGES", strings_pages);
     write_pages(&mut output, "TYPES_TOPIC_PAGES", types_pages);
     write_pages(&mut output, "IO_FUNCTION_PAGES", io_pages);
+    write_pages(&mut output, "MATH_FUNCTION_PAGES", math_pages);
     write_pages(&mut output, "FS_FUNCTION_PAGES", fs_pages);
     write_pages(&mut output, "THREAD_FUNCTION_PAGES", thread_pages);
 }

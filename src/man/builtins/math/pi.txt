@@ -1,0 +1,11 @@
+NAME
+  pi - mathematical constant pi as Float
+
+SYNOPSIS
+  math::pi AS Float
+
+DESCRIPTION
+  The mathematical constant pi as a Float value.
+
+EXAMPLES
+  LET value AS Float = math::pi

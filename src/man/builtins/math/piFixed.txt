@@ -1,0 +1,11 @@
+NAME
+  piFixed - mathematical constant pi as Fixed
+
+SYNOPSIS
+  math::piFixed AS Fixed
+
+DESCRIPTION
+  The mathematical constant pi rounded to the nearest Fixed value.
+
+EXAMPLES
+  LET value AS Fixed = math::piFixed

@@ -1,0 +1,15 @@
+NAME
+  acos - arc cosine in radians
+
+SYNOPSIS
+  math::acos(value AS Float) AS Float
+  math::acos(value AS Fixed) AS Fixed
+
+DESCRIPTION
+  Returns the arc cosine of value in radians.
+
+  The Fixed overload rounds to the nearest Fixed value. Both overloads fail
+  with ErrInvalidArgument (10002) when value is outside [-1.0, 1.0].
+
+EXAMPLES
+  LET value AS Float = math::acos(0.5)

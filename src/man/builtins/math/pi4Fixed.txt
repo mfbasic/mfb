@@ -1,0 +1,11 @@
+NAME
+  pi4Fixed - mathematical constant pi / 4 as Fixed
+
+SYNOPSIS
+  math::pi4Fixed AS Fixed
+
+DESCRIPTION
+  The mathematical constant pi / 4 rounded to the nearest Fixed value.
+
+EXAMPLES
+  LET value AS Fixed = math::pi4Fixed

@@ -1,0 +1,15 @@
+NAME
+  clamp - restrict a numeric value to an inclusive range
+
+SYNOPSIS
+  math::clamp(value AS Integer, low AS Integer, high AS Integer) AS Integer
+  math::clamp(value AS Float, low AS Float, high AS Float) AS Float
+  math::clamp(value AS Fixed, low AS Fixed, high AS Fixed) AS Fixed
+
+DESCRIPTION
+  Restricts value to the inclusive range [low, high].
+
+  Fails with ErrInvalidArgument (10002) when low is greater than high.
+
+EXAMPLES
+  LET value AS Integer = math::clamp(12, 0, 10)

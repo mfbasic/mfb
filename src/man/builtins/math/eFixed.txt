@@ -1,0 +1,11 @@
+NAME
+  eFixed - mathematical constant e as Fixed
+
+SYNOPSIS
+  math::eFixed AS Fixed
+
+DESCRIPTION
+  The mathematical constant e rounded to the nearest Fixed value.
+
+EXAMPLES
+  LET value AS Fixed = math::eFixed

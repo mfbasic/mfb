@@ -1,0 +1,15 @@
+NAME
+  log - natural logarithm
+
+SYNOPSIS
+  math::log(value AS Float) AS Float
+  math::log(value AS Fixed) AS Fixed
+
+DESCRIPTION
+  Returns the natural logarithm of value.
+
+  The Fixed overload rounds to the nearest Fixed value. Both overloads fail
+  with ErrInvalidArgument (10002) for non-positive input.
+
+EXAMPLES
+  LET value AS Float = math::log(math::e)

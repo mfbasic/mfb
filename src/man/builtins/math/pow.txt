@@ -1,0 +1,16 @@
+NAME
+  pow - raise a numeric value to a power
+
+SYNOPSIS
+  math::pow(base AS Float, exponent AS Float) AS Float
+  math::pow(base AS Fixed, exponent AS Fixed) AS Fixed
+
+DESCRIPTION
+  Raises base to exponent.
+
+  The Fixed overload rounds to the nearest Fixed value and fails with
+  ErrInvalidArgument (10002) for invalid domains and ErrOverflow (10028) on
+  overflow.
+
+EXAMPLES
+  LET value AS Float = math::pow(2.0, 8.0)

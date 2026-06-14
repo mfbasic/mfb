@@ -1,0 +1,11 @@
+NAME
+  pi2 - mathematical constant pi / 2 as Float
+
+SYNOPSIS
+  math::pi2 AS Float
+
+DESCRIPTION
+  The mathematical constant pi / 2 as a Float value.
+
+EXAMPLES
+  LET value AS Float = math::pi2

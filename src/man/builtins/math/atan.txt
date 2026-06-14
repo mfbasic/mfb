@@ -1,0 +1,14 @@
+NAME
+  atan - arc tangent in radians
+
+SYNOPSIS
+  math::atan(value AS Float) AS Float
+  math::atan(value AS Fixed) AS Fixed
+
+DESCRIPTION
+  Returns the arc tangent of value in radians.
+
+  The Fixed overload rounds to the nearest Fixed value.
+
+EXAMPLES
+  LET value AS Float = math::atan(1.0)

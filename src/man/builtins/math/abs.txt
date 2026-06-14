@@ -1,0 +1,16 @@
+NAME
+  abs - absolute value for Integer, Float, and Fixed
+
+SYNOPSIS
+  math::abs(value AS Integer) AS Integer
+  math::abs(value AS Float) AS Float
+  math::abs(value AS Fixed) AS Fixed
+
+DESCRIPTION
+  Returns the absolute value of value.
+
+  The Integer and Fixed overloads fail with ErrOverflow (10028) for the
+  minimum-value overflow case.
+
+EXAMPLES
+  LET value AS Integer = math::abs(-4)

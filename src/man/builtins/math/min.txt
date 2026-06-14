@@ -1,0 +1,13 @@
+NAME
+  min - smaller of two numeric values
+
+SYNOPSIS
+  math::min(a AS Integer, b AS Integer) AS Integer
+  math::min(a AS Float, b AS Float) AS Float
+  math::min(a AS Fixed, b AS Fixed) AS Fixed
+
+DESCRIPTION
+  Returns the smaller of two values of the same numeric type.
+
+EXAMPLES
+  LET value AS Integer = math::min(2, 4)

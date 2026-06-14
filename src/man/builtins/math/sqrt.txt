@@ -1,0 +1,15 @@
+NAME
+  sqrt - square root for Float and Fixed
+
+SYNOPSIS
+  math::sqrt(value AS Float) AS Float
+  math::sqrt(value AS Fixed) AS Fixed
+
+DESCRIPTION
+  Returns the square root of value.
+
+  The Fixed overload rounds to the nearest Fixed value. Both overloads fail
+  with ErrInvalidArgument (10002) for negative input.
+
+EXAMPLES
+  LET value AS Float = math::sqrt(9.0)

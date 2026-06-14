@@ -1,0 +1,15 @@
+NAME
+  tan - tangent of an angle in radians
+
+SYNOPSIS
+  math::tan(value AS Float) AS Float
+  math::tan(value AS Fixed) AS Fixed
+
+DESCRIPTION
+  Returns the tangent of value, where value is an angle in radians.
+
+  The Fixed overload rounds to the nearest Fixed value. Undefined points fail
+  with ErrInvalidArgument (10002).
+
+EXAMPLES
+  LET value AS Float = math::tan(0.0)

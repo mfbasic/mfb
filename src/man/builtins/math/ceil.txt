@@ -1,0 +1,15 @@
+NAME
+  ceil - smallest integer greater than or equal to a numeric value
+
+SYNOPSIS
+  math::ceil(value AS Float) AS Integer
+  math::ceil(value AS Fixed) AS Integer
+
+DESCRIPTION
+  Returns the smallest integer greater than or equal to value.
+
+  The Float overload fails with ErrOverflow (10028) when the result is outside
+  Integer range.
+
+EXAMPLES
+  LET value AS Integer = math::ceil(3.25)

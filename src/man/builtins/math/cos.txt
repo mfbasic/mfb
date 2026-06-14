@@ -1,0 +1,14 @@
+NAME
+  cos - cosine of an angle in radians
+
+SYNOPSIS
+  math::cos(value AS Float) AS Float
+  math::cos(value AS Fixed) AS Fixed
+
+DESCRIPTION
+  Returns the cosine of value, where value is an angle in radians.
+
+  The Fixed overload rounds to the nearest Fixed value.
+
+EXAMPLES
+  LET value AS Float = math::cos(math::pi)

@@ -1,0 +1,11 @@
+NAME
+  pi2Fixed - mathematical constant pi / 2 as Fixed
+
+SYNOPSIS
+  math::pi2Fixed AS Fixed
+
+DESCRIPTION
+  The mathematical constant pi / 2 rounded to the nearest Fixed value.
+
+EXAMPLES
+  LET value AS Fixed = math::pi2Fixed

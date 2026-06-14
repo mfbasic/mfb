@@ -1,0 +1,11 @@
+NAME
+  e - mathematical constant e as Float
+
+SYNOPSIS
+  math::e AS Float
+
+DESCRIPTION
+  The mathematical constant e as a Float value.
+
+EXAMPLES
+  LET value AS Float = math::e

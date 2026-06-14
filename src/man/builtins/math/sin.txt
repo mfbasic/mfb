@@ -1,0 +1,14 @@
+NAME
+  sin - sine of an angle in radians
+
+SYNOPSIS
+  math::sin(value AS Float) AS Float
+  math::sin(value AS Fixed) AS Fixed
+
+DESCRIPTION
+  Returns the sine of value, where value is an angle in radians.
+
+  The Fixed overload rounds to the nearest Fixed value.
+
+EXAMPLES
+  LET value AS Float = math::sin(math::pi)

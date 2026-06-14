@@ -1,0 +1,13 @@
+NAME
+  max - larger of two numeric values
+
+SYNOPSIS
+  math::max(a AS Integer, b AS Integer) AS Integer
+  math::max(a AS Float, b AS Float) AS Float
+  math::max(a AS Fixed, b AS Fixed) AS Fixed
+
+DESCRIPTION
+  Returns the larger of two values of the same numeric type.
+
+EXAMPLES
+  LET value AS Integer = math::max(2, 4)

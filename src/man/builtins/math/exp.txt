@@ -1,0 +1,15 @@
+NAME
+  exp - e raised to a numeric power
+
+SYNOPSIS
+  math::exp(value AS Float) AS Float
+  math::exp(value AS Fixed) AS Fixed
+
+DESCRIPTION
+  Raises e to value.
+
+  The Fixed overload rounds to the nearest Fixed value and fails with
+  ErrOverflow (10028) on overflow.
+
+EXAMPLES
+  LET value AS Float = math::exp(1.0)

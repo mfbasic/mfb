@@ -1,0 +1,11 @@
+NAME
+  pi4 - mathematical constant pi / 4 as Float
+
+SYNOPSIS
+  math::pi4 AS Float
+
+DESCRIPTION
+  The mathematical constant pi / 4 as a Float value.
+
+EXAMPLES
+  LET value AS Float = math::pi4
