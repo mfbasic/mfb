@@ -1,7 +1,7 @@
 use crate::bytecode::{
     BuiltinCallLowerer, ValueSlot, OPCODE_IO_FLUSH, OPCODE_IO_IS_TERMINAL, OPCODE_IO_READ_BYTE,
-    OPCODE_IO_READ_CHAR, OPCODE_IO_READ_LINE, OPCODE_IO_TERMINAL_SIZE, OPCODE_IO_WRITE,
-    TYPE_BOOLEAN, TYPE_BYTE, TYPE_NOTHING, TYPE_STRING,
+    OPCODE_IO_POLL_INPUT, OPCODE_IO_READ_CHAR, OPCODE_IO_READ_LINE, OPCODE_IO_TERMINAL_SIZE,
+    OPCODE_IO_WRITE, TYPE_BOOLEAN, TYPE_BYTE, TYPE_NOTHING, TYPE_STRING,
 };
 use crate::ir::IrValue;
 use std::borrow::Cow;
@@ -21,6 +21,7 @@ const INPUT: &str = "io.input";
 const READ_LINE: &str = "io.readLine";
 const READ_CHAR: &str = "io.readChar";
 const READ_BYTE: &str = "io.readByte";
+const POLL_INPUT: &str = "io.pollInput";
 const IS_INPUT_TERMINAL: &str = "io.isInputTerminal";
 const IS_OUTPUT_TERMINAL: &str = "io.isOutputTerminal";
 const IS_ERROR_TERMINAL: &str = "io.isErrorTerminal";
@@ -44,6 +45,7 @@ pub(crate) fn is_io_call(name: &str) -> bool {
             | READ_LINE
             | READ_CHAR
             | READ_BYTE
+            | POLL_INPUT
             | IS_INPUT_TERMINAL
             | IS_OUTPUT_TERMINAL
             | IS_ERROR_TERMINAL
@@ -67,6 +69,7 @@ pub(crate) fn call_return_type_name(name: &str) -> Option<&'static str> {
         PRINT | WRITE | PRINT_ERROR | WRITE_ERROR | FLUSH | FLUSH_ERROR => Some("Nothing"),
         INPUT | READ_LINE | READ_CHAR => Some("String"),
         READ_BYTE => Some("Byte"),
+        POLL_INPUT => Some("Boolean"),
         IS_INPUT_TERMINAL | IS_OUTPUT_TERMINAL | IS_ERROR_TERMINAL => Some("Boolean"),
         TERMINAL_SIZE => Some(TERMINAL_SIZE_TYPE),
         _ => None,
@@ -85,6 +88,9 @@ pub(crate) fn resolve_call<'a>(name: &str, arg_types: &'a [String]) -> Option<Re
             Cow::Borrowed(call_return_type_name(name)?)
         }
         INPUT if arg_types.is_empty() || exact(arg_types, &["String"]) => Cow::Borrowed("String"),
+        POLL_INPUT if arg_types.is_empty() || exact(arg_types, &["Integer"]) => {
+            Cow::Borrowed("Boolean")
+        }
         _ => return None,
     };
     Some(ResolvedCall { return_type })
@@ -96,6 +102,7 @@ pub(crate) fn expected_arguments(name: &str) -> Option<&'static str> {
         FLUSH | FLUSH_ERROR | READ_LINE | READ_CHAR | READ_BYTE | IS_INPUT_TERMINAL
         | IS_OUTPUT_TERMINAL | IS_ERROR_TERMINAL | TERMINAL_SIZE => Some("no arguments"),
         INPUT => Some("String"),
+        POLL_INPUT => Some("Integer"),
         _ => None,
     }
 }
@@ -105,7 +112,7 @@ pub(crate) fn arity(name: &str) -> Option<(usize, usize)> {
         PRINT | WRITE | PRINT_ERROR | WRITE_ERROR => Some((1, 1)),
         FLUSH | FLUSH_ERROR | READ_LINE | READ_CHAR | READ_BYTE | IS_INPUT_TERMINAL
         | IS_OUTPUT_TERMINAL | IS_ERROR_TERMINAL | TERMINAL_SIZE => Some((0, 0)),
-        INPUT => Some((0, 1)),
+        INPUT | POLL_INPUT => Some((0, 1)),
         _ => None,
     }
 }
@@ -151,6 +158,13 @@ pub(crate) fn lower_bytecode_call(
                 .unwrap_or(u32::MAX);
             vec![dst, prompt]
         }
+        POLL_INPUT => {
+            let timeout = lowered
+                .first()
+                .map(|slot| slot.register)
+                .unwrap_or(u32::MAX);
+            vec![dst, timeout]
+        }
         READ_LINE | READ_CHAR | READ_BYTE | TERMINAL_SIZE => vec![dst],
         IS_INPUT_TERMINAL | IS_OUTPUT_TERMINAL | IS_ERROR_TERMINAL => vec![dst, fd_for(name)],
         _ => return Err(format!("unsupported {PACKAGE} built-in `{name}`")),
@@ -169,6 +183,7 @@ fn opcode_for(name: &str) -> Result<u16, String> {
         INPUT | READ_LINE => Ok(OPCODE_IO_READ_LINE),
         READ_CHAR => Ok(OPCODE_IO_READ_CHAR),
         READ_BYTE => Ok(OPCODE_IO_READ_BYTE),
+        POLL_INPUT => Ok(OPCODE_IO_POLL_INPUT),
         IS_INPUT_TERMINAL | IS_OUTPUT_TERMINAL | IS_ERROR_TERMINAL => Ok(OPCODE_IO_IS_TERMINAL),
         TERMINAL_SIZE => Ok(OPCODE_IO_TERMINAL_SIZE),
         _ => Err(format!("unsupported {PACKAGE} built-in `{name}`")),

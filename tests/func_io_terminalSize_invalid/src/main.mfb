@@ -1,0 +1,19 @@
+IMPORT io
+
+FUNC resize(size AS TerminalSize) AS TerminalSize
+  RETURN WITH size { columns := 80 }
+END FUNC
+
+FUNC constructLet AS TerminalSize
+  LET a AS TerminalSize = TerminalSize[rows := 10, columns := 10]
+  RETURN a
+END FUNC
+
+FUNC constructMut AS TerminalSize
+  MUT b AS TerminalSize = TerminalSize[rows := 10, columns := 10]
+  RETURN b
+END FUNC
+
+FUNC main AS Integer
+  RETURN 0
+END FUNC

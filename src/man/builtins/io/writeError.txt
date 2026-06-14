@@ -1,0 +1,15 @@
+NAME
+  writeError - write text to standard error without a newline
+
+SYNOPSIS
+  io::writeError(value AS String) AS Nothing
+
+DESCRIPTION
+  Writes value to standard error without appending a newline. The value is
+  UTF-8 text and may contain any valid Unicode scalar values, including emoji.
+
+  Fails with ErrOutput (10015) on output failure.
+
+EXAMPLES
+  io::writeError("failed")
+  io::writeError("é日😀")

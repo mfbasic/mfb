@@ -1,0 +1,28 @@
+{
+  "project": "func_io_flushError_valid",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "main",
+      "line": 3,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.writeError", "arguments": [{ "kind": "string", "value": "before" }] }, "line": 4 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.flushError", "arguments": [] }, "line": 5 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.printError", "arguments": [{ "kind": "string", "value": "-after" }] }, "line": 6 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 7 }
+      ]
+    }
+    ]
+  }
+  ]
+}

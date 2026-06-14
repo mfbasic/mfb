@@ -1281,6 +1281,19 @@ impl<'a> TypeChecker<'a> {
             return Type::Result(Box::new(Type::Unknown));
         }
 
+        if read_only_record_type(type_name) {
+            self.report(
+                "TYPE_READ_ONLY_RECORD_CONSTRUCTOR",
+                &format!("TYPE `{type_name}` is compiler-owned and cannot be constructed."),
+                file,
+                line,
+            );
+            for argument in arguments {
+                self.infer_expression(file, constructor_arg_value(argument), locals, line);
+            }
+            return Type::Unknown;
+        }
+
         if let Some(info) = self.type_infos.get(type_name).cloned() {
             if !self.visible_from(file, info.visibility, &info.file_path) {
                 self.report(
@@ -1385,6 +1398,18 @@ impl<'a> TypeChecker<'a> {
             );
             return Type::Unknown;
         };
+        if read_only_record_type(type_name) {
+            self.report(
+                "TYPE_READ_ONLY_RECORD_UPDATE",
+                &format!("TYPE `{type_name}` is read-only and cannot be updated."),
+                file,
+                line,
+            );
+            for update in updates {
+                self.infer_expression(file, &update.value, locals, update.line);
+            }
+            return Type::Unknown;
+        }
         let Some(info) = self.type_infos.get(type_name).cloned() else {
             return Type::Unknown;
         };
@@ -3002,6 +3027,10 @@ fn numeric_type_name(type_: &Type) -> Option<&'static str> {
         Type::Integer => Some(numeric::TYPE_INTEGER),
         _ => None,
     }
+}
+
+fn read_only_record_type(type_name: &str) -> bool {
+    type_name == builtins::io::TERMINAL_SIZE_TYPE || type_name.starts_with("MapEntry OF ")
 }
 
 fn variant_name_key(variant: &VariantConstructor) -> String {

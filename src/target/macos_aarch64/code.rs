@@ -75,6 +75,28 @@ impl code::CodegenPlatform for Platform {
         Ok(())
     }
 
+    fn emit_poll_input(
+        &self,
+        from: &str,
+        platform_imports: &HashMap<String, String>,
+        instructions: &mut Vec<CodeInstruction>,
+        relocations: &mut Vec<CodeRelocation>,
+    ) -> Result<(), String> {
+        let library = platform_imports
+            .get("_poll")
+            .ok_or_else(|| "io.pollInput runtime helper requires _poll import".to_string())?
+            .clone();
+        instructions.push(abi::branch_link("_poll"));
+        relocations.push(CodeRelocation {
+            from: from.to_string(),
+            to: "_poll".to_string(),
+            kind: "branch26".to_string(),
+            binding: "external".to_string(),
+            library: Some(library),
+        });
+        Ok(())
+    }
+
     fn emit_arena_map(&self, instructions: &mut Vec<CodeInstruction>) -> Result<(), String> {
         instructions.extend([
             abi::move_immediate(abi::return_register(), "Integer", "0"),

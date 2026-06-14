@@ -1,0 +1,13 @@
+IMPORT io
+
+FUNC missing AS Boolean
+  RETURN io::pollInput("now")
+END FUNC
+
+FUNC tooMany AS Boolean
+  RETURN io::pollInput(0, 1)
+END FUNC
+
+FUNC main AS Integer
+  RETURN 0
+END FUNC

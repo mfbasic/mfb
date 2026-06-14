@@ -1,0 +1,8 @@
+IMPORT io
+
+FUNC main AS Integer
+  io::write("before")
+  io::flush()
+  io::print("-after")
+  RETURN 0
+END FUNC

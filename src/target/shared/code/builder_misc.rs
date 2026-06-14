@@ -537,6 +537,60 @@ impl CodeBuilder<'_> {
         })
     }
 
+    pub(super) fn emit_runtime_helper_call(
+        &mut self,
+        target: &str,
+        symbol: &str,
+        args: &[NirValue],
+        result_type: &str,
+    ) -> Result<ValueResult, String> {
+        let arg_values = args
+            .iter()
+            .map(|arg| self.lower_value(arg))
+            .collect::<Result<Vec<_>, _>>()?;
+        for (index, arg) in arg_values.iter().enumerate() {
+            self.emit(abi::move_register(
+                &abi::argument_register(index)?,
+                &arg.location,
+            ));
+        }
+        self.emit(abi::branch_link(symbol));
+        let (binding, library) = if let Some(library) = self.platform_imports.get(symbol) {
+            ("external".to_string(), Some(library.clone()))
+        } else {
+            ("internal".to_string(), None)
+        };
+        self.relocations.push(CodeRelocation {
+            from: self.current_symbol.clone(),
+            to: symbol.to_string(),
+            kind: "branch26".to_string(),
+            binding,
+            library,
+        });
+
+        let ok_label = self.label("runtime_call_ok");
+        self.emit(abi::compare_immediate(RESULT_TAG_REGISTER, RESULT_OK_TAG));
+        self.emit(abi::branch_eq(&ok_label));
+        self.emit(abi::return_());
+        self.emit(abi::label(&ok_label));
+
+        if result_type == "Nothing" {
+            return Ok(ValueResult {
+                type_: result_type.to_string(),
+                location: "void".to_string(),
+                text: format!("call {target}({})", join_texts(&arg_values)),
+            });
+        }
+
+        let register = self.allocate_register()?;
+        self.emit(abi::move_register(&register, RESULT_VALUE_REGISTER));
+        Ok(ValueResult {
+            type_: result_type.to_string(),
+            location: register,
+            text: format!("call {target}({})", join_texts(&arg_values)),
+        })
+    }
+
     pub(super) fn allocate_register(&mut self) -> Result<String, String> {
         let register = abi::temporary_register(self.next_register)?;
         self.next_register += 1;
@@ -704,9 +758,7 @@ impl CodeBuilder<'_> {
 
     pub(super) fn current_block_returns(&self) -> bool {
         self.instructions
-            .iter()
-            .rev()
-            .find(|instruction| instruction.op != CodeOp::Label)
+            .last()
             .is_some_and(|instruction| instruction.op == CodeOp::Ret)
     }
 }

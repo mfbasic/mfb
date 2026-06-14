@@ -196,7 +196,10 @@
     { "op": "mov_imm", "dst": "x0", "type": "Integer", "value": "0" },
     { "op": "add_sp", "imm": "16" },
     { "op": "ret" },
-    { "op": "label", "name": "if_end_1" }
+    { "op": "label", "name": "if_end_1" },
+    { "op": "mov_imm", "dst": "x0", "type": "Integer", "value": "0" },
+    { "op": "add_sp", "imm": "16" },
+    { "op": "ret" }
     ],
     "relocations": [
     ]
@@ -290,7 +293,10 @@
     { "op": "add_sp", "imm": "16" },
     { "op": "ret" },
     { "op": "label", "name": "if_end_3" },
-    { "op": "label", "name": "if_end_1" }
+    { "op": "label", "name": "if_end_1" },
+    { "op": "mov_imm", "dst": "x0", "type": "Integer", "value": "0" },
+    { "op": "add_sp", "imm": "16" },
+    { "op": "ret" }
     ],
     "relocations": [
     ]

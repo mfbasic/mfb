@@ -1,0 +1,15 @@
+NAME
+  flushError - flush standard error
+
+SYNOPSIS
+  io::flushError() AS Nothing
+
+DESCRIPTION
+  Flushes standard error. The native runtime writes directly to the host
+  standard-error stream and does not add an additional MFBASIC error buffer.
+
+  Fails with ErrOutput (10015) on output failure.
+
+EXAMPLES
+  io::writeError("failed")
+  io::flushError()

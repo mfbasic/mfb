@@ -28,7 +28,15 @@ impl NativeBackend for Backend {
             native_plan: true,
             native_object_plan: true,
             native_code_plan: true,
-            runtime_calls: &["io.print"],
+            runtime_calls: &[
+                "io.print",
+                "io.write",
+                "io.printError",
+                "io.writeError",
+                "io.flush",
+                "io.flushError",
+                "io.pollInput",
+            ],
         }
     }
 

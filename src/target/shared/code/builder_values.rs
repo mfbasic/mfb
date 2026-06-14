@@ -224,11 +224,21 @@ impl CodeBuilder<'_> {
                         text: format!("typeName({type_name})"),
                     });
                 }
-                self.emit_call(
+                let helper_args = if target == "io.pollInput" && args.is_empty() {
+                    vec![NirValue::Const {
+                        type_: "Integer".to_string(),
+                        value: "0".to_string(),
+                    }]
+                } else {
+                    args.clone()
+                };
+                let result_type = builtins::call_return_type_name(target)
+                    .ok_or_else(|| format!("native runtime call '{target}' has no return type"))?;
+                self.emit_runtime_helper_call(
                     target,
                     &runtime::symbol_for_call(*helper, target),
-                    args,
-                    Some("Nothing"),
+                    &helper_args,
+                    result_type,
                 )
             }
             NirValue::Constructor { type_, args } => {

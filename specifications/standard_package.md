@@ -218,6 +218,9 @@ TYPE TerminalSize
 END TYPE
 ```
 
+`TerminalSize` is a compiler-owned record shape returned by `io::terminalSize`.
+It has public read-only fields and cannot be constructed or updated directly.
+
 | Function | Signature | Behavior |
 |----------|-----------|----------|
 | `io::print` | `FUNC print(value AS String) AS Nothing` | Writes `value` to standard output and appends a newline. Fails with `10015` on output failure. |
@@ -230,6 +233,7 @@ END TYPE
 | `io::readLine` | `FUNC readLine() AS String` | Reads one line from standard input and returns it without the line terminator. Fails with `10016` at EOF and `10020` on input failure. |
 | `io::readChar` | `FUNC readChar() AS String` | Reads one Unicode scalar value from standard input and returns it as a `String`. Fails with `10016` at EOF, `10019` on invalid UTF-8, and `10020` on input failure. |
 | `io::readByte` | `FUNC readByte() AS Byte` | Reads one byte from standard input. Fails with `10016` at EOF and `10020` on input failure. |
+| `io::pollInput` | `FUNC pollInput(timeoutMs AS Integer = 0) AS Boolean` | Waits until standard input can be read without blocking. `timeoutMs < 0` waits forever, `timeoutMs = 0` performs a nonblocking readiness check, and `timeoutMs > 0` waits up to that many milliseconds. Returns `TRUE` when input is ready and `FALSE` on timeout. Fails with `10020` on input polling failure. |
 | `io::isInputTerminal` | `FUNC isInputTerminal() AS Boolean` | `TRUE` when standard input is attached to an interactive terminal. |
 | `io::isOutputTerminal` | `FUNC isOutputTerminal() AS Boolean` | `TRUE` when standard output is attached to an interactive terminal. |
 | `io::isErrorTerminal` | `FUNC isErrorTerminal() AS Boolean` | `TRUE` when standard error is attached to an interactive terminal. |

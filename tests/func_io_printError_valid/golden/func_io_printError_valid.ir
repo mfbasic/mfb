@@ -1,0 +1,28 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "func_io_printError_valid",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "eval", "value": { "kind": "call", "target": "io.printError", "args": [{ "kind": "const", "type": "String", "value": "" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.printError", "args": [{ "kind": "const", "type": "String", "value": "error" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.printError", "args": [{ "kind": "const", "type": "String", "value": "é日😀" }] } },
+    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

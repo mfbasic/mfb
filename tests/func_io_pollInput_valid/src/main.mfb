@@ -1,0 +1,18 @@
+IMPORT io
+
+FUNC main AS Integer
+  LET implicitDefault AS Boolean = io::pollInput()
+  LET explicitZero AS Boolean = io::pollInput(0)
+  LET shortWait AS Boolean = io::pollInput(1)
+
+  io::print(toString(implicitDefault))
+  io::print(toString(explicitZero))
+  io::print(toString(shortWait))
+
+  IF FALSE THEN
+    LET waitForever AS Boolean = io::pollInput(-1)
+    io::print(toString(waitForever))
+  END IF
+
+  RETURN 0
+END FUNC

@@ -1,0 +1,6 @@
+$ mfb build -ast tests/func_io_terminalSize_valid
+Wrote AST to tests/func_io_terminalSize_valid/func_io_terminalSize_valid.ast
+[exit 0]
+$ mfb build -ir tests/func_io_terminalSize_valid
+Wrote IR to tests/func_io_terminalSize_valid/func_io_terminalSize_valid.ir
+[exit 0]

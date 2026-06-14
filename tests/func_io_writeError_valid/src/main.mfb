@@ -1,0 +1,9 @@
+IMPORT io
+
+FUNC main AS Integer
+  io::writeError("error")
+  io::writeError(" ")
+  io::writeError("é日😀")
+  io::printError("")
+  RETURN 0
+END FUNC

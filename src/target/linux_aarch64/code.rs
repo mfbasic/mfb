@@ -18,6 +18,7 @@ const LINUX_PROT_READ_WRITE: &str = "3";
 const LINUX_MAP_PRIVATE_ANON: &str = "34";
 const LINUX_SYSCALL_MMAP: &str = "222";
 const LINUX_SYSCALL_MUNMAP: &str = "215";
+const LINUX_SYSCALL_PPOLL: &str = "73";
 
 impl code::CodegenPlatform for Platform {
     fn target(&self) -> &'static str {
@@ -56,6 +57,22 @@ impl code::CodegenPlatform for Platform {
     ) -> Result<(), String> {
         instructions.extend([
             abi::move_immediate(abi::syscall_register(), "Integer", "64"),
+            abi::syscall(),
+        ]);
+        Ok(())
+    }
+
+    fn emit_poll_input(
+        &self,
+        _from: &str,
+        _platform_imports: &HashMap<String, String>,
+        instructions: &mut Vec<CodeInstruction>,
+        _relocations: &mut Vec<CodeRelocation>,
+    ) -> Result<(), String> {
+        instructions.extend([
+            abi::move_immediate("x3", "Integer", "0"),
+            abi::move_immediate("x4", "Integer", "0"),
+            abi::move_immediate(abi::syscall_register(), "Integer", LINUX_SYSCALL_PPOLL),
             abi::syscall(),
         ]);
         Ok(())

@@ -1,0 +1,18 @@
+NAME
+  io - Terminal and standard stream input/output functions
+
+SYNOPSIS
+  IMPORT io
+  io::print(value)
+  io::write(value)
+
+DESCRIPTION
+  The io package provides standard input, standard output, standard error, and
+  terminal inspection helpers.
+
+  Output functions accept String values only. Use toString explicitly before
+  printing non-string values.
+
+SEE ALSO
+  errors
+  types

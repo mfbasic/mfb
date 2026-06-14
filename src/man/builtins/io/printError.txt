@@ -1,0 +1,15 @@
+NAME
+  printError - write text to standard error with a newline
+
+SYNOPSIS
+  io::printError(value AS String) AS Nothing
+
+DESCRIPTION
+  Writes value to standard error and appends a newline. The value is UTF-8 text
+  and may contain any valid Unicode scalar values, including emoji.
+
+  Fails with ErrOutput (10015) on output failure.
+
+EXAMPLES
+  io::printError("failed")
+  io::printError("é日😀")

@@ -17,6 +17,7 @@
   { "symbol": "_mfb_str_entry_error_separator", "kind": "constant", "layout": "mfb.string.v1 { u64 byteLength; u8 bytes[byteLength]; u8 nul }", "align": 8, "size": 24, "value": " Message: " },
   { "symbol": "_mfb_str_error_allocation", "kind": "constant", "layout": "mfb.string.v1 { u64 byteLength; u8 bytes[byteLength]; u8 nul }", "align": 8, "size": 32, "value": "allocation failed" },
   { "symbol": "_mfb_str_error_invalid_argument", "kind": "constant", "layout": "mfb.string.v1 { u64 byteLength; u8 bytes[byteLength]; u8 nul }", "align": 8, "size": 32, "value": "invalid argument" },
+  { "symbol": "_mfb_str_error_output", "kind": "constant", "layout": "mfb.string.v1 { u64 byteLength; u8 bytes[byteLength]; u8 nul }", "align": 8, "size": 24, "value": "output failure" },
   { "symbol": "_mfb_str_error_overflow", "kind": "constant", "layout": "mfb.string.v1 { u64 byteLength; u8 bytes[byteLength]; u8 nul }", "align": 8, "size": 32, "value": "numeric overflow" },
   { "symbol": "_mfb_str_error_underflow", "kind": "constant", "layout": "mfb.string.v1 { u64 byteLength; u8 bytes[byteLength]; u8 nul }", "align": 8, "size": 32, "value": "numeric underflow" }
   ],
@@ -152,6 +153,12 @@
     { "op": "add_pageoff", "dst": "x8", "src": "x8", "symbol": "_mfb_str_0" },
     { "op": "mov", "dst": "x0", "src": "x8" },
     { "op": "bl", "target": "_mfb_rt_io_io_print" },
+    { "op": "cmp_imm", "lhs": "x0", "rhs": "0" },
+    { "op": "b.eq", "target": "runtime_call_ok_0" },
+    { "op": "ldr_u64", "dst": "x30", "base": "sp", "offset": "0" },
+    { "op": "add_sp", "imm": "16" },
+    { "op": "ret" },
+    { "op": "label", "name": "runtime_call_ok_0" },
     { "op": "mov_imm", "dst": "x0", "type": "Integer", "value": "0" },
     { "op": "ldr_u64", "dst": "x30", "base": "sp", "offset": "0" },
     { "op": "add_sp", "imm": "16" },
@@ -310,19 +317,33 @@
     { "op": "add_imm", "dst": "x1", "src": "x0", "imm": "8" },
     { "op": "mov_imm", "dst": "x0", "type": "Integer", "value": "1" },
     { "op": "bl", "target": "_write" },
+    { "op": "cmp_imm", "lhs": "x0", "rhs": "0" },
+    { "op": "b.lt", "target": "_mfb_rt_io_io_print_write_error" },
     { "op": "mov_imm", "dst": "x9", "type": "Integer", "value": "10" },
     { "op": "str_u64", "src": "x9", "base": "sp", "offset": "8" },
     { "op": "mov_imm", "dst": "x0", "type": "Integer", "value": "1" },
     { "op": "add_imm", "dst": "x1", "src": "sp", "imm": "8" },
     { "op": "mov_imm", "dst": "x2", "type": "Integer", "value": "1" },
     { "op": "bl", "target": "_write" },
+    { "op": "cmp_imm", "lhs": "x0", "rhs": "0" },
+    { "op": "b.lt", "target": "_mfb_rt_io_io_print_write_error" },
+    { "op": "mov_imm", "dst": "x0", "type": "Integer", "value": "0" },
+    { "op": "b", "target": "_mfb_rt_io_io_print_done" },
+    { "op": "label", "name": "_mfb_rt_io_io_print_write_error" },
+    { "op": "mov_imm", "dst": "x1", "type": "Integer", "value": "10015" },
+    { "op": "mov_imm", "dst": "x0", "type": "Integer", "value": "1" },
+    { "op": "adrp", "dst": "x2", "symbol": "_mfb_str_error_output" },
+    { "op": "add_pageoff", "dst": "x2", "src": "x2", "symbol": "_mfb_str_error_output" },
+    { "op": "label", "name": "_mfb_rt_io_io_print_done" },
     { "op": "ldr_u64", "dst": "x30", "base": "sp", "offset": "0" },
     { "op": "add_sp", "imm": "16" },
     { "op": "ret" }
     ],
     "relocations": [
     { "from": "_mfb_rt_io_io_print", "to": "_write", "kind": "branch26", "binding": "external", "library": "libSystem" },
-    { "from": "_mfb_rt_io_io_print", "to": "_write", "kind": "branch26", "binding": "external", "library": "libSystem" }
+    { "from": "_mfb_rt_io_io_print", "to": "_write", "kind": "branch26", "binding": "external", "library": "libSystem" },
+    { "from": "_mfb_rt_io_io_print", "to": "_mfb_str_error_output", "kind": "page21", "binding": "data", "library": null },
+    { "from": "_mfb_rt_io_io_print", "to": "_mfb_str_error_output", "kind": "pageoff12", "binding": "data", "library": null }
     ]
   }
   ]

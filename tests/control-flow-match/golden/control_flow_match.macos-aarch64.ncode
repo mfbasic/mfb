@@ -166,7 +166,10 @@
     { "op": "mov_imm", "dst": "x0", "type": "Integer", "value": "0" },
     { "op": "add_sp", "imm": "16" },
     { "op": "ret" },
-    { "op": "label", "name": "match_end_0" }
+    { "op": "label", "name": "match_end_0" },
+    { "op": "mov_imm", "dst": "x0", "type": "Integer", "value": "0" },
+    { "op": "add_sp", "imm": "16" },
+    { "op": "ret" }
     ],
     "relocations": [
     ]
@@ -202,7 +205,10 @@
     { "op": "mov_imm", "dst": "x0", "type": "Integer", "value": "0" },
     { "op": "add_sp", "imm": "16" },
     { "op": "ret" },
-    { "op": "label", "name": "match_end_0" }
+    { "op": "label", "name": "match_end_0" },
+    { "op": "mov_imm", "dst": "x0", "type": "Integer", "value": "0" },
+    { "op": "add_sp", "imm": "16" },
+    { "op": "ret" }
     ],
     "relocations": [
     ]
@@ -242,7 +248,10 @@
     { "op": "mov_imm", "dst": "x0", "type": "Integer", "value": "0" },
     { "op": "add_sp", "imm": "16" },
     { "op": "ret" },
-    { "op": "label", "name": "match_end_0" }
+    { "op": "label", "name": "match_end_0" },
+    { "op": "mov_imm", "dst": "x0", "type": "Integer", "value": "0" },
+    { "op": "add_sp", "imm": "16" },
+    { "op": "ret" }
     ],
     "relocations": [
     ]
@@ -279,7 +288,10 @@
     { "op": "mov_imm", "dst": "x0", "type": "Integer", "value": "0" },
     { "op": "add_sp", "imm": "16" },
     { "op": "ret" },
-    { "op": "label", "name": "match_end_0" }
+    { "op": "label", "name": "match_end_0" },
+    { "op": "mov_imm", "dst": "x0", "type": "Integer", "value": "0" },
+    { "op": "add_sp", "imm": "16" },
+    { "op": "ret" }
     ],
     "relocations": [
     ]

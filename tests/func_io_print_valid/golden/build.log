@@ -1,0 +1,14 @@
+$ mfb build -ast tests/func_io_print_valid
+Wrote AST to tests/func_io_print_valid/func_io_print_valid.ast
+[exit 0]
+$ mfb build -ir tests/func_io_print_valid
+Wrote IR to tests/func_io_print_valid/func_io_print_valid.ir
+[exit 0]
+$ mfb build tests/func_io_print_valid
+Wrote executable to tests/func_io_print_valid/func_io_print_valid.out
+[exit 0]
+$ tests/func_io_print_valid/func_io_print_valid.out
+
+Hello
+é日😀
+[exit 0]

@@ -367,6 +367,16 @@ pub const RULES: &[Rule] = &[
         message: "parameter must declare a type",
     },
     Rule {
+        name: "TYPE_READ_ONLY_RECORD_UPDATE",
+        severity: Severity::Error,
+        message: "read-only record cannot be updated",
+    },
+    Rule {
+        name: "TYPE_READ_ONLY_RECORD_CONSTRUCTOR",
+        severity: Severity::Error,
+        message: "read-only record cannot be constructed",
+    },
+    Rule {
         name: "TYPE_RESULT_IS_IMPLICIT",
         severity: Severity::Error,
         message: "Result return wrapping is implicit",

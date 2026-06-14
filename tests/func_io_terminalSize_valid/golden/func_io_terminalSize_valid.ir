@@ -1,0 +1,48 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "func_io_terminalSize_valid",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "useTerminalSize",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "mutable": false, "name": "a", "type": "TerminalSize", "value": { "kind": "call", "target": "io.terminalSize", "args": [] } },
+    { "op": "bind", "mutable": true, "name": "b", "type": "TerminalSize", "value": { "kind": "call", "target": "io.terminalSize", "args": [] } },
+    { "op": "assign", "name": "b", "value": { "kind": "local", "name": "a" } },
+    { "op": "return", "value": { "kind": "binary", "op": "+", "left": { "kind": "binary", "op": "+", "left": { "kind": "binary", "op": "+", "left": { "kind": "memberAccess", "target": { "kind": "local", "name": "a" }, "member": "rows" }, "right": { "kind": "memberAccess", "target": { "kind": "local", "name": "a" }, "member": "columns" } }, "right": { "kind": "memberAccess", "target": { "kind": "local", "name": "b" }, "member": "rows" } }, "right": { "kind": "memberAccess", "target": { "kind": "local", "name": "b" }, "member": "columns" } } }
+    ]
+  },
+  {
+    "name": "main",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    {
+      "op": "if",
+      "condition": { "kind": "const", "type": "Boolean", "value": "false" },
+      "then": [
+      { "op": "return", "value": { "kind": "call", "target": "useTerminalSize", "args": [] } }
+      ],
+      "else": [
+      ]
+    },
+    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

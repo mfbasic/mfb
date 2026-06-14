@@ -1540,9 +1540,21 @@ mod tests {
 
         fn runtime_imports(&self, spec: &RuntimeHelperSpec) -> Vec<PlatformImport> {
             match spec.call {
-                "io.print" => vec![PlatformImport {
+                "io.print" | "io.write" | "io.printError" | "io.writeError" => vec![PlatformImport {
                     library: "testRuntime".to_string(),
                     symbol: "test_output".to_string(),
+                    required_by: spec.symbol.to_string(),
+                }],
+                "io.input" | "io.readLine" | "io.readChar" | "io.readByte" => {
+                    vec![PlatformImport {
+                        library: "testRuntime".to_string(),
+                        symbol: "test_input".to_string(),
+                        required_by: spec.symbol.to_string(),
+                    }]
+                }
+                "io.pollInput" => vec![PlatformImport {
+                    library: "testRuntime".to_string(),
+                    symbol: "test_poll".to_string(),
                     required_by: spec.symbol.to_string(),
                 }],
                 _ => Vec::new(),

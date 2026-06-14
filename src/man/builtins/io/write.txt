@@ -1,0 +1,15 @@
+NAME
+  write - write text to standard output without a newline
+
+SYNOPSIS
+  io::write(value AS String) AS Nothing
+
+DESCRIPTION
+  Writes value to standard output without appending a newline. The value is
+  UTF-8 text and may contain any valid Unicode scalar values, including emoji.
+
+  Fails with ErrOutput (10015) on output failure.
+
+EXAMPLES
+  io::write("Hello")
+  io::write("é日😀")

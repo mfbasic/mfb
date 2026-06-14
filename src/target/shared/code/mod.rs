@@ -25,9 +25,21 @@ const ERR_INDEX_OUT_OF_RANGE_SYMBOL: &str = "_mfb_str_error_index_out_of_range";
 const ERR_NOT_FOUND_CODE: &str = "10004";
 const ERR_NOT_FOUND_MESSAGE: &str = "not found";
 const ERR_NOT_FOUND_SYMBOL: &str = "_mfb_str_error_not_found";
+const ERR_OUTPUT_CODE: &str = "10015";
+const ERR_OUTPUT_MESSAGE: &str = "output failure";
+const ERR_OUTPUT_SYMBOL: &str = "_mfb_str_error_output";
+const ERR_UNSUPPORTED_CODE: &str = "10007";
+const ERR_UNSUPPORTED_MESSAGE: &str = "unsupported operation";
+const ERR_UNSUPPORTED_SYMBOL: &str = "_mfb_str_error_unsupported";
+const ERR_EOF_CODE: &str = "10016";
+const ERR_EOF_MESSAGE: &str = "end of file";
+const ERR_EOF_SYMBOL: &str = "_mfb_str_error_eof";
 const ERR_ENCODING_CODE: &str = "10019";
 const ERR_ENCODING_MESSAGE: &str = "invalid encoding";
 const ERR_ENCODING_SYMBOL: &str = "_mfb_str_error_encoding";
+const ERR_INPUT_CODE: &str = "10020";
+const ERR_INPUT_MESSAGE: &str = "input failure";
+const ERR_INPUT_SYMBOL: &str = "_mfb_str_error_input";
 const ENTRY_ERROR_PREFIX: &str = "Code: ";
 const ENTRY_ERROR_PREFIX_SYMBOL: &str = "_mfb_str_entry_error_prefix";
 const ENTRY_ERROR_SEPARATOR: &str = " Message: ";
@@ -162,6 +174,13 @@ pub(crate) trait CodegenPlatform {
         relocations: &mut Vec<CodeRelocation>,
     ) -> Result<(), String>;
     fn emit_write(
+        &self,
+        from: &str,
+        platform_imports: &HashMap<String, String>,
+        instructions: &mut Vec<CodeInstruction>,
+        relocations: &mut Vec<CodeRelocation>,
+    ) -> Result<(), String>;
+    fn emit_poll_input(
         &self,
         from: &str,
         platform_imports: &HashMap<String, String>,
@@ -1145,11 +1164,59 @@ fn lower_runtime_helper(
         ));
     };
     match spec.call {
-        "io.print" => {
-            let (frame, instructions, relocations) =
-                lower_io_print_helper(symbol, platform_imports, platform)?;
+        "io.print" | "io.write" | "io.printError" | "io.writeError" => {
+            let (frame, instructions, relocations) = lower_io_write_helper(
+                symbol,
+                platform_imports,
+                platform,
+                matches!(spec.call, "io.printError" | "io.writeError"),
+                matches!(spec.call, "io.print" | "io.printError"),
+            )?;
             Ok(CodeFunction {
-                name: "runtime.io.print".to_string(),
+                name: format!("runtime.{}", spec.call),
+                symbol: symbol.to_string(),
+                params: spec
+                    .abi
+                    .params
+                    .iter()
+                    .map(|param| CodeParam {
+                        name: param.name.to_string(),
+                        type_: param.type_.to_string(),
+                        location: param.location.to_string(),
+                    })
+                    .collect(),
+                returns: spec.abi.returns.to_string(),
+                frame,
+                stack_slots: Vec::new(),
+                instructions,
+                relocations,
+            })
+        }
+        "io.flush" | "io.flushError" => {
+            let instructions = vec![
+                abi::label("entry"),
+                abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
+                abi::return_(),
+            ];
+            Ok(CodeFunction {
+                name: format!("runtime.{}", spec.call),
+                symbol: symbol.to_string(),
+                params: Vec::new(),
+                returns: spec.abi.returns.to_string(),
+                frame: CodeFrame {
+                    stack_size: 0,
+                    callee_saved: Vec::new(),
+                },
+                stack_slots: Vec::new(),
+                instructions,
+                relocations: Vec::new(),
+            })
+        }
+        "io.pollInput" => {
+            let (frame, instructions, relocations) =
+                lower_io_poll_input_helper(symbol, platform_imports, platform)?;
+            Ok(CodeFunction {
+                name: format!("runtime.{}", spec.call),
                 symbol: symbol.to_string(),
                 params: spec
                     .abi
@@ -1174,10 +1241,12 @@ fn lower_runtime_helper(
     }
 }
 
-fn lower_io_print_helper(
+fn lower_io_write_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
+    stderr: bool,
+    append_newline: bool,
 ) -> Result<(CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>), String> {
     let mut instructions = vec![abi::label("entry"), abi::subtract_stack(16)];
     let mut relocations = Vec::new();
@@ -1191,7 +1260,11 @@ fn lower_io_print_helper(
     instructions.extend([
         abi::load_u64(abi::string_length_register(), abi::return_register(), 0),
         abi::add_immediate(abi::string_data_register(), abi::return_register(), 8),
-        abi::move_immediate(abi::return_register(), "Integer", "1"),
+        abi::move_immediate(
+            abi::return_register(),
+            "Integer",
+            if stderr { "2" } else { "1" },
+        ),
     ]);
     platform.emit_write(
         symbol,
@@ -1199,19 +1272,71 @@ fn lower_io_print_helper(
         &mut instructions,
         &mut relocations,
     )?;
+    let write_error = format!("{symbol}_write_error");
+    let done = format!("{symbol}_done");
     instructions.extend([
-        abi::move_immediate(abi::newline_scratch_register(), "Integer", "10"),
-        abi::store_u64(abi::newline_scratch_register(), abi::stack_pointer(), 8),
-        abi::move_immediate(abi::return_register(), "Integer", "1"),
-        abi::add_immediate(abi::string_data_register(), abi::stack_pointer(), 8),
-        abi::move_immediate(abi::string_length_register(), "Integer", "1"),
+        abi::compare_immediate(abi::return_register(), "0"),
+        abi::branch_lt(&write_error),
     ]);
-    platform.emit_write(
-        symbol,
-        platform_imports,
-        &mut instructions,
-        &mut relocations,
-    )?;
+    if append_newline {
+        instructions.extend([
+            abi::move_immediate(abi::newline_scratch_register(), "Integer", "10"),
+            abi::store_u64(abi::newline_scratch_register(), abi::stack_pointer(), 8),
+            abi::move_immediate(
+                abi::return_register(),
+                "Integer",
+                if stderr { "2" } else { "1" },
+            ),
+            abi::add_immediate(abi::string_data_register(), abi::stack_pointer(), 8),
+            abi::move_immediate(abi::string_length_register(), "Integer", "1"),
+        ]);
+        platform.emit_write(
+            symbol,
+            platform_imports,
+            &mut instructions,
+            &mut relocations,
+        )?;
+        instructions.extend([
+            abi::compare_immediate(abi::return_register(), "0"),
+            abi::branch_lt(&write_error),
+        ]);
+    }
+    instructions.extend([
+        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
+        abi::branch(&done),
+        abi::label(&write_error),
+        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_OUTPUT_CODE),
+        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
+    ]);
+    let output_error_symbol = ERR_OUTPUT_SYMBOL.to_string();
+    instructions.push(
+        CodeInstruction::new("adrp")
+            .field("dst", RESULT_ERROR_MESSAGE_REGISTER)
+            .field("symbol", &output_error_symbol),
+    );
+    instructions.push(
+        CodeInstruction::new("add_pageoff")
+            .field("dst", RESULT_ERROR_MESSAGE_REGISTER)
+            .field("src", RESULT_ERROR_MESSAGE_REGISTER)
+            .field("symbol", &output_error_symbol),
+    );
+    relocations.extend([
+        CodeRelocation {
+            from: symbol.to_string(),
+            to: output_error_symbol.clone(),
+            kind: "page21".to_string(),
+            binding: "data".to_string(),
+            library: None,
+        },
+        CodeRelocation {
+            from: symbol.to_string(),
+            to: output_error_symbol,
+            kind: "pageoff12".to_string(),
+            binding: "data".to_string(),
+            library: None,
+        },
+    ]);
+    instructions.push(abi::label(&done));
     if platform.preserves_link_register_in_runtime_helpers() {
         instructions.extend([
             abi::load_u64(abi::link_register(), abi::stack_pointer(), 0),
@@ -1231,6 +1356,149 @@ fn lower_io_print_helper(
         Ok((
             CodeFrame {
                 stack_size: 16,
+                callee_saved: Vec::new(),
+            },
+            instructions,
+            relocations,
+        ))
+    }
+}
+
+fn lower_io_poll_input_helper(
+    symbol: &str,
+    platform_imports: &HashMap<String, String>,
+    platform: &dyn CodegenPlatform,
+) -> Result<(CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>), String> {
+    const POLLIN_PACKED_FD0: &str = "4294967296";
+    const FRAME_SIZE: usize = 48;
+    const POLLFD_OFFSET: usize = 8;
+    const TIMESPEC_SEC_OFFSET: usize = 16;
+    const TIMESPEC_NSEC_OFFSET: usize = 24;
+    const TIMEOUT_OFFSET: usize = 32;
+
+    let mut instructions = vec![abi::label("entry"), abi::subtract_stack(FRAME_SIZE)];
+    let mut relocations = Vec::new();
+    if platform.preserves_link_register_in_runtime_helpers() {
+        instructions.push(abi::store_u64(
+            abi::link_register(),
+            abi::stack_pointer(),
+            0,
+        ));
+    }
+    instructions.extend([
+        abi::store_u64(abi::return_register(), abi::stack_pointer(), TIMEOUT_OFFSET),
+        abi::move_immediate("x9", "Integer", POLLIN_PACKED_FD0),
+        abi::store_u64("x9", abi::stack_pointer(), POLLFD_OFFSET),
+    ]);
+
+    if platform.target() == "linux-aarch64" {
+        let timeout_zero = format!("{symbol}_timeout_zero");
+        let timeout_positive = format!("{symbol}_timeout_positive");
+        let timeout_ready = format!("{symbol}_timeout_ready");
+        instructions.extend([
+            abi::load_u64("x10", abi::stack_pointer(), TIMEOUT_OFFSET),
+            abi::compare_immediate("x10", "0"),
+            abi::branch_eq(&timeout_zero),
+            abi::branch_gt(&timeout_positive),
+            abi::move_immediate("x2", "Integer", "0"),
+            abi::branch(&timeout_ready),
+            abi::label(&timeout_zero),
+            abi::store_u64("x31", abi::stack_pointer(), TIMESPEC_SEC_OFFSET),
+            abi::store_u64("x31", abi::stack_pointer(), TIMESPEC_NSEC_OFFSET),
+            abi::add_immediate("x2", abi::stack_pointer(), TIMESPEC_SEC_OFFSET),
+            abi::branch(&timeout_ready),
+            abi::label(&timeout_positive),
+            abi::move_immediate("x11", "Integer", "1000"),
+            abi::unsigned_divide_registers("x12", "x10", "x11"),
+            abi::multiply_subtract_registers("x13", "x12", "x11", "x10"),
+            abi::move_immediate("x14", "Integer", "1000000"),
+            abi::multiply_registers("x13", "x13", "x14"),
+            abi::store_u64("x12", abi::stack_pointer(), TIMESPEC_SEC_OFFSET),
+            abi::store_u64("x13", abi::stack_pointer(), TIMESPEC_NSEC_OFFSET),
+            abi::add_immediate("x2", abi::stack_pointer(), TIMESPEC_SEC_OFFSET),
+            abi::label(&timeout_ready),
+        ]);
+    } else {
+        instructions.push(abi::load_u64("x2", abi::stack_pointer(), TIMEOUT_OFFSET));
+    }
+
+    instructions.extend([
+        abi::add_immediate(abi::return_register(), abi::stack_pointer(), POLLFD_OFFSET),
+        abi::move_immediate("x1", "Integer", "1"),
+    ]);
+    platform.emit_poll_input(
+        symbol,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
+
+    let poll_error = format!("{symbol}_poll_error");
+    let poll_ready = format!("{symbol}_poll_ready");
+    let done = format!("{symbol}_done");
+    instructions.extend([
+        abi::compare_immediate(abi::return_register(), "0"),
+        abi::branch_lt(&poll_error),
+        abi::branch_gt(&poll_ready),
+        abi::move_immediate(RESULT_VALUE_REGISTER, "Boolean", "0"),
+        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
+        abi::branch(&done),
+        abi::label(&poll_ready),
+        abi::move_immediate(RESULT_VALUE_REGISTER, "Boolean", "1"),
+        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
+        abi::branch(&done),
+        abi::label(&poll_error),
+        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_INPUT_CODE),
+        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
+    ]);
+    let input_error_symbol = ERR_INPUT_SYMBOL.to_string();
+    instructions.push(
+        CodeInstruction::new("adrp")
+            .field("dst", RESULT_ERROR_MESSAGE_REGISTER)
+            .field("symbol", &input_error_symbol),
+    );
+    instructions.push(
+        CodeInstruction::new("add_pageoff")
+            .field("dst", RESULT_ERROR_MESSAGE_REGISTER)
+            .field("src", RESULT_ERROR_MESSAGE_REGISTER)
+            .field("symbol", &input_error_symbol),
+    );
+    relocations.extend([
+        CodeRelocation {
+            from: symbol.to_string(),
+            to: input_error_symbol.clone(),
+            kind: "page21".to_string(),
+            binding: "data".to_string(),
+            library: None,
+        },
+        CodeRelocation {
+            from: symbol.to_string(),
+            to: input_error_symbol,
+            kind: "pageoff12".to_string(),
+            binding: "data".to_string(),
+            library: None,
+        },
+    ]);
+    instructions.push(abi::label(&done));
+    if platform.preserves_link_register_in_runtime_helpers() {
+        instructions.extend([
+            abi::load_u64(abi::link_register(), abi::stack_pointer(), 0),
+            abi::add_stack(FRAME_SIZE),
+            abi::return_(),
+        ]);
+        Ok((
+            CodeFrame {
+                stack_size: FRAME_SIZE,
+                callee_saved: vec![abi::link_register().to_string()],
+            },
+            instructions,
+            relocations,
+        ))
+    } else {
+        instructions.extend([abi::add_stack(FRAME_SIZE), abi::return_()]);
+        Ok((
+            CodeFrame {
+                stack_size: FRAME_SIZE,
                 callee_saved: Vec::new(),
             },
             instructions,
@@ -1578,6 +1846,32 @@ fn string_symbols(module: &NirModule) -> HashMap<String, String> {
     ] {
         push_string_value(&mut values, value.to_string());
     }
+    if module_uses_any_call(
+        module,
+        &[
+            "io.print",
+            "io.write",
+            "io.printError",
+            "io.writeError",
+            "io.flush",
+            "io.flushError",
+        ],
+    ) {
+        push_string_value(&mut values, ERR_OUTPUT_MESSAGE.to_string());
+    }
+    if module_uses_any_call(
+        module,
+        &["io.input", "io.readLine", "io.readChar", "io.readByte"],
+    ) {
+        push_string_value(&mut values, ERR_EOF_MESSAGE.to_string());
+        push_string_value(&mut values, ERR_INPUT_MESSAGE.to_string());
+    }
+    if module_uses_call(module, "io.pollInput") {
+        push_string_value(&mut values, ERR_INPUT_MESSAGE.to_string());
+    }
+    if module_uses_call(module, "io.terminalSize") {
+        push_string_value(&mut values, ERR_UNSUPPORTED_MESSAGE.to_string());
+    }
     if module_uses_call(module, "find")
         || module_uses_call(module, "mid")
         || module_uses_call(module, "get")
@@ -1661,7 +1955,15 @@ fn standard_error_messages() -> &'static [(&'static str, &'static str, &'static 
             ERR_NOT_FOUND_MESSAGE,
             ERR_NOT_FOUND_SYMBOL,
         ),
+        (
+            ERR_UNSUPPORTED_CODE,
+            ERR_UNSUPPORTED_MESSAGE,
+            ERR_UNSUPPORTED_SYMBOL,
+        ),
+        (ERR_OUTPUT_CODE, ERR_OUTPUT_MESSAGE, ERR_OUTPUT_SYMBOL),
+        (ERR_EOF_CODE, ERR_EOF_MESSAGE, ERR_EOF_SYMBOL),
         (ERR_ENCODING_CODE, ERR_ENCODING_MESSAGE, ERR_ENCODING_SYMBOL),
+        (ERR_INPUT_CODE, ERR_INPUT_MESSAGE, ERR_INPUT_SYMBOL),
     ]
 }
 
@@ -1683,6 +1985,10 @@ fn module_uses_call(module: &NirModule, target: &str) -> bool {
         .functions
         .iter()
         .any(|function| ops_use_call(&function.body, target))
+}
+
+fn module_uses_any_call(module: &NirModule, targets: &[&str]) -> bool {
+    targets.iter().any(|target| module_uses_call(module, target))
 }
 
 fn ops_use_call(ops: &[NirOp], target: &str) -> bool {

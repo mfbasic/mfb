@@ -1,0 +1,41 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "func_io_pollInput_valid",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "mutable": false, "name": "implicitDefault", "type": "Boolean", "value": { "kind": "call", "target": "io.pollInput", "args": [] } },
+    { "op": "bind", "mutable": false, "name": "explicitZero", "type": "Boolean", "value": { "kind": "call", "target": "io.pollInput", "args": [{ "kind": "const", "type": "Integer", "value": "0" }] } },
+    { "op": "bind", "mutable": false, "name": "shortWait", "type": "Boolean", "value": { "kind": "call", "target": "io.pollInput", "args": [{ "kind": "const", "type": "Integer", "value": "1" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "local", "name": "implicitDefault" }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "local", "name": "explicitZero" }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "local", "name": "shortWait" }] }] } },
+    {
+      "op": "if",
+      "condition": { "kind": "const", "type": "Boolean", "value": "false" },
+      "then": [
+      { "op": "bind", "mutable": false, "name": "waitForever", "type": "Boolean", "value": { "kind": "call", "target": "io.pollInput", "args": [{ "kind": "unary", "op": "-", "operand": { "kind": "const", "type": "Integer", "value": "1" } }] } },
+      { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "local", "name": "waitForever" }] }] } }
+      ],
+      "else": [
+      ]
+    },
+    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

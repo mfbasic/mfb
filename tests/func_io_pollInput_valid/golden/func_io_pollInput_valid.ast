@@ -1,0 +1,42 @@
+{
+  "project": "func_io_pollInput_valid",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "main",
+      "line": 3,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "implicitDefault", "type": "Boolean", "value": { "kind": "call", "callee": "io.pollInput", "arguments": [] }, "line": 4 },
+      { "kind": "binding", "mutable": false, "name": "explicitZero", "type": "Boolean", "value": { "kind": "call", "callee": "io.pollInput", "arguments": [{ "kind": "number", "value": "0" }] }, "line": 5 },
+      { "kind": "binding", "mutable": false, "name": "shortWait", "type": "Boolean", "value": { "kind": "call", "callee": "io.pollInput", "arguments": [{ "kind": "number", "value": "1" }] }, "line": 6 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "implicitDefault" }] }] }, "line": 8 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "explicitZero" }] }] }, "line": 9 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "shortWait" }] }] }, "line": 10 },
+      {
+        "kind": "if",
+        "condition": { "kind": "boolean", "value": false },
+        "line": 12,
+        "then": [
+        { "kind": "binding", "mutable": false, "name": "waitForever", "type": "Boolean", "value": { "kind": "call", "callee": "io.pollInput", "arguments": [{ "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "1" } }] }, "line": 13 },
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "waitForever" }] }] }, "line": 14 }
+        ],
+        "else": [
+        ]
+      },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 17 }
+      ]
+    }
+    ]
+  }
+  ]
+}

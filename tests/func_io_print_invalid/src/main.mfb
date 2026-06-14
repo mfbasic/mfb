@@ -1,0 +1,8 @@
+IMPORT io
+
+FUNC main AS Integer
+  LET missing AS Nothing = io::print()
+  LET wrongType AS Nothing = io::print(1)
+  LET tooMany AS Nothing = io::print("a", "b")
+  RETURN 0
+END FUNC

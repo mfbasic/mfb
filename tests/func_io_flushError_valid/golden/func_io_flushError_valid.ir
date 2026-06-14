@@ -1,0 +1,28 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "func_io_flushError_valid",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "eval", "value": { "kind": "call", "target": "io.writeError", "args": [{ "kind": "const", "type": "String", "value": "before" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.flushError", "args": [] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.printError", "args": [{ "kind": "const", "type": "String", "value": "-after" }] } },
+    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

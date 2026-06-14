@@ -1,0 +1,6 @@
+IMPORT io
+
+FUNC main AS Integer
+  LET wrongType AS Nothing = io::flush("x")
+  RETURN 0
+END FUNC

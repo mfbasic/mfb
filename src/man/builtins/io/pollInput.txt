@@ -1,0 +1,35 @@
+NAME
+  pollInput - test standard input readiness
+
+SYNOPSIS
+  io::pollInput(timeoutMs AS Integer = 0) AS Boolean
+
+DESCRIPTION
+  Waits until standard input can be read without blocking.
+
+  timeoutMs controls how long the call waits:
+    timeoutMs < 0 waits forever.
+    timeoutMs = 0 performs a nonblocking readiness check.
+    timeoutMs > 0 waits up to that many milliseconds.
+
+  Returns TRUE when input is ready and FALSE when the timeout expires.
+
+  Standard input remains under the host terminal's normal line discipline. On
+  canonical terminals, input may not become ready until the user submits a line.
+
+  Fails with ErrInputFailed (10020) on input polling failure.
+
+EXAMPLES
+  IF io::pollInput() THEN
+    io::print(io::readLine())
+  END IF
+
+  IF io::pollInput(1000) THEN
+    io::print(io::readChar())
+  ELSE
+    io::print("timeout")
+  END IF
+
+  IF io::pollInput(-1) THEN
+    io::print(io::readByte())
+  END IF

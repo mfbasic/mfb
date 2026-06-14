@@ -1,0 +1,28 @@
+$ mfb build -ast tests/func_io_flush_invalid
+   2 | 
+   3 | FUNC main AS Integer
+   4 |   LET wrongType AS Nothing = io::flush("x")
+     | ^
+tests/func_io_flush_invalid/src/main.mfb:4 error[TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+               Call to `io.flush` has 1 argument(s), expected 0.
+   2 | 
+   3 | FUNC main AS Integer
+   4 |   LET wrongType AS Nothing = io::flush("x")
+     | ^
+tests/func_io_flush_invalid/src/main.mfb:4 error[TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `wrongType` does not have a known type.
+[exit 1]
+$ mfb build -ir tests/func_io_flush_invalid
+   2 | 
+   3 | FUNC main AS Integer
+   4 |   LET wrongType AS Nothing = io::flush("x")
+     | ^
+tests/func_io_flush_invalid/src/main.mfb:4 error[TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+               Call to `io.flush` has 1 argument(s), expected 0.
+   2 | 
+   3 | FUNC main AS Integer
+   4 |   LET wrongType AS Nothing = io::flush("x")
+     | ^
+tests/func_io_flush_invalid/src/main.mfb:4 error[TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `wrongType` does not have a known type.
+[exit 1]
