@@ -1,0 +1,65 @@
+NAME
+  list - owned ordered List values
+
+SYNOPSIS
+  List OF T
+
+DESCRIPTION
+  List OF T is an owned ordered sequence. Every item has the same element type
+  T, and indexes are zero-based.
+
+  A list value owns its contents. Binding a list with LET creates an immutable
+  snapshot. Binding a list with MUT creates a locally mutable binding, but the
+  value is still owned by that binding.
+
+LITERALS
+  List literals use square brackets:
+
+    LET nums = [1, 2, 3]
+    LET empty AS List OF String = []
+
+  Empty lists need an expected type from an annotation or surrounding context.
+
+COPYING
+  Lists are copyable only when their element type is copyable. Copying a list
+  copies the list contents. The runtime collection layout is one contiguous
+  allocation, so copying a collection snapshot can be implemented as one
+  contiguous memory copy.
+
+  A copied list is independent of the original. Mutating one list binding does
+  not mutate another copied snapshot.
+
+OWNED ITEMS
+  List items are owned by the list. Primitive values are stored as payload
+  bytes. String payloads stored inside a collection are UTF-8 bytes owned by the
+  collection. The collection representation stores lookup metadata plus packed
+  item bytes in one allocation.
+
+  Version 1 collection storage supports primitive and String payloads directly.
+  User-defined records, unions, and nested collection payloads require an
+  extended representation before they can be stored directly inside collection
+  data.
+
+MUTATION
+  Collection helper functions such as append, prepend, insert, set, removeAt,
+  mid, replace, filter, and transform return the resulting list value.
+
+  For MUT list bindings, the compiler may update the local owned buffer when it
+  is safe to do so. For LET list bindings, the original value remains an
+  immutable snapshot and helper calls produce a new value.
+
+  The runtime layout keeps list order in the lookup table. Adding, removing, or
+  reordering items can often move lookup entries instead of moving packed item
+  bytes, which minimizes payload copying.
+
+ITERATION
+  FOR EACH iterates list items from index 0 to len(value) - 1:
+
+    FOR EACH item IN nums
+      io::print(toString(item))
+    NEXT
+
+SEE ALSO
+  types map
+  collection
+  mfbasic

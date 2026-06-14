@@ -966,14 +966,15 @@ fn print_package_man(package: &man::PackageDoc) {
         print_man_page(page);
         if !package.functions.is_empty() {
             println!();
-            println!("FUNCTIONS");
+            println!("{}", man_entry_heading(package));
             for function in package.functions {
                 println!("  {:<18} {}", function.name, function.summary);
             }
             println!();
             println!(
-                "Run `mfb man {} <function>` for function signatures and examples.",
-                package.name
+                "Run `mfb man {} <{}>` for details.",
+                package.name,
+                man_entry_name(package)
             );
         }
         return;
@@ -986,15 +987,32 @@ fn print_package_man(package: &man::PackageDoc) {
     println!("Usage:");
     println!("  {}", package.usage);
     println!();
-    println!("Functions:");
+    println!("{}:", man_entry_heading(package));
     for function in package.functions {
         println!("  {:<18} {}", function.name, function.summary);
     }
     println!();
     println!(
-        "Run `mfb man {} <function>` for function signatures and examples.",
-        package.name
+        "Run `mfb man {} <{}>` for details.",
+        package.name,
+        man_entry_name(package)
     );
+}
+
+fn man_entry_heading(package: &man::PackageDoc) -> &'static str {
+    if package.name == "types" {
+        "TOPICS"
+    } else {
+        "FUNCTIONS"
+    }
+}
+
+fn man_entry_name(package: &man::PackageDoc) -> &'static str {
+    if package.name == "types" {
+        "topic"
+    } else {
+        "function"
+    }
 }
 
 fn print_man_page(page: &str) {

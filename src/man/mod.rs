@@ -67,12 +67,17 @@ pub(crate) fn function_page(package: &PackageDoc, name: &str) -> Option<&'static
 fn parse_types_package() -> PackageDoc {
     let page = include_str!("types/package.txt");
     let (name, summary) = parse_name_line(page).expect("types package NAME line");
+    let functions = generated::TYPES_TOPIC_PAGES
+        .iter()
+        .map(|(_, page)| parse_rendered_function_page(page))
+        .collect::<Vec<_>>()
+        .into_boxed_slice();
 
     PackageDoc {
         name,
         summary,
-        usage: "mfb man types",
-        functions: &[],
+        usage: "mfb man types [topic]",
+        functions: Box::leak(functions),
         page: Some(page),
     }
 }
@@ -177,6 +182,7 @@ fn parse_unicode_package() -> PackageDoc {
 
 fn generated_pages(package_name: &str) -> Option<&'static [(&'static str, &'static str)]> {
     match package_name {
+        "types" => Some(generated::TYPES_TOPIC_PAGES),
         "general" => Some(generated::GENERAL_FUNCTION_PAGES),
         "collection" => Some(generated::COLLECTION_FUNCTION_PAGES),
         "filter" => Some(generated::FILTER_FUNCTION_PAGES),

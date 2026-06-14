@@ -1,0 +1,73 @@
+NAME
+  map - owned key/value Map values
+
+SYNOPSIS
+  Map OF K TO V
+
+DESCRIPTION
+  Map OF K TO V is an owned key/value collection. Keys have type K and values
+  have type V. K must be comparable.
+
+  A map value owns its keys and values. Binding a map with LET creates an
+  immutable snapshot. Binding a map with MUT creates a locally mutable binding,
+  but the value is still owned by that binding.
+
+LITERALS
+  Map literals name the key and value types:
+
+    LET ages = Map OF String TO Integer { "Ada" := 36, "Grace" := 85 }
+    LET empty AS Map OF String TO Integer = Map OF String TO Integer { }
+
+KEYS
+  Map keys must be comparable. Comparable types are Integer, Float, Fixed,
+  Boolean, String, Byte, Nothing, enum types, and records whose fields are all
+  comparable.
+
+  List, Map, unions, functions, lambdas, threads, and resource handles are not
+  comparable and cannot be used as map keys.
+
+COPYING
+  Maps are copyable only when both the key and value types are copyable. Copying
+  a map copies the map contents. The runtime collection layout is one
+  contiguous allocation, so copying a map snapshot can be implemented as one
+  contiguous memory copy.
+
+  A copied map is independent of the original. Mutating one map binding does not
+  mutate another copied snapshot.
+
+OWNED ITEMS
+  Map keys and values are owned by the map. Primitive keys and values are stored
+  as payload bytes. String keys and values stored inside a collection are UTF-8
+  bytes owned by the collection.
+
+  The collection representation stores a header, lookup entries, and packed key
+  and value payload bytes in one allocation. Version 1 collection storage
+  supports primitive and String payloads directly. User-defined records, unions,
+  and nested collection payloads require an extended representation before they
+  can be stored directly inside collection data.
+
+MUTATION
+  Collection helper functions such as set, removeKey, keys, values, get, getOr,
+  hasKey, and contains return or inspect map values.
+
+  For MUT map bindings, the compiler may update the local owned buffer when it
+  is safe to do so. For LET map bindings, the original value remains an
+  immutable snapshot and helper calls produce a new value.
+
+ITERATION ORDER
+  Map iteration order is implementation-defined but stable for a given unchanged
+  map value during one program run. Repeated keys, values, and FOR EACH
+  traversal of the same unchanged map use the same order.
+
+  Creating a changed map value may choose a different order.
+
+  FOR EACH over a map yields MapEntry OF K TO V values:
+
+    FOR EACH entry IN ages
+      io::print(entry.key & ": " & toString(entry.value))
+    NEXT
+
+SEE ALSO
+  types list
+  collection
+  mfbasic
