@@ -270,9 +270,13 @@ Symlink behavior is explicit:
 | `fs::fileExists` | `FUNC fileExists(path AS String) AS Boolean` | `TRUE` when `path` exists and is a regular file. |
 | `fs::directoryExists` | `FUNC directoryExists(path AS String) AS Boolean` | `TRUE` when `path` exists and is a directory. |
 | `fs::exists` | `FUNC exists(path AS String) AS Boolean` | `TRUE` when any filesystem entry exists at `path`. |
+| `fs::readBytes` | `FUNC readBytes(path AS String) AS List OF Byte` | Reads a file as raw bytes. Fails with `10011`, `10012`, or `10014`. |
 | `fs::readText` | `FUNC readText(path AS String) AS String` | Reads a UTF-8 text file. Fails with `10011`, `10012`, `10014`, or `10019`. |
+| `fs::writeBytes` | `FUNC writeBytes(path AS String, bytes AS List OF Byte) AS Nothing` | Writes raw bytes to a file, replacing any existing file. Fails with `10012`, `10013`, or `10015`. |
 | `fs::writeText` | `FUNC writeText(path AS String, value AS String) AS Nothing` | Writes a UTF-8 text file, replacing any existing file. Fails with `10012`, `10013`, or `10015`. |
+| `fs::writeBytesAtomic` | `FUNC writeBytesAtomic(path AS String, bytes AS List OF Byte) AS Nothing` | Writes raw bytes to a temporary file in the same directory, flushes it, then atomically replaces `path` when the host filesystem supports atomic rename. Fails rather than falling back to a non-atomic replace. |
 | `fs::writeTextAtomic` | `FUNC writeTextAtomic(path AS String, value AS String) AS Nothing` | Writes UTF-8 text to a temporary file in the same directory, flushes it, then atomically replaces `path` when the host filesystem supports atomic rename. Fails rather than falling back to a non-atomic replace. |
+| `fs::appendBytes` | `FUNC appendBytes(path AS String, bytes AS List OF Byte) AS Nothing` | Appends raw bytes to a file, creating it when needed. Fails with `10012`, `10013`, or `10015`. |
 | `fs::appendText` | `FUNC appendText(path AS String, value AS String) AS Nothing` | Appends UTF-8 text to a file, creating it when needed. Fails with `10012`, `10013`, or `10015`. |
 | `fs::open` | `FUNC open(path AS String, mode AS String) AS File` | Opens a file handle for use with `USING`. Portable modes are `"read"`/`"r"`, `"write"`/`"w"`, `"readWrite"`/`"rw"`, and `"append"`/`"a"`. Invalid modes, empty paths, and embedded NUL bytes fail with `ErrInvalidArgument` (`10002`). Missing files fail with `ErrNotFound` (`10004`) for read-style opens. |
 | `fs::openFile` | `FUNC openFile(path AS String, mode AS String = "read") AS File` | Opens a file handle. `mode` is `"read"`, `"write"`, or `"append"`. Fails with `10011`, `10012`, or `10013`. |
@@ -280,7 +284,9 @@ Symlink behavior is explicit:
 | `fs::createTempFile` | `FUNC createTempFile(directory AS String, prefix AS String = "mfb-", suffix AS String = ".tmp") AS File` | Securely creates and opens a new unique file in `directory` without following a final symlink. The caller owns the returned `File`. |
 | `fs::readLine` | `FUNC readLine(file AS File) AS String` | Reads one line without the line terminator. Fails with `10016` at EOF and `10014` on read failure. |
 | `fs::readAll` | `FUNC readAll(file AS File) AS String` | Reads the rest of the file as UTF-8 text. Fails with `10014` on read failure and `10019` on invalid UTF-8. |
+| `fs::readAllBytes` | `FUNC readAllBytes(file AS File) AS List OF Byte` | Reads the rest of the file as raw bytes. Fails with `10014` on read failure. |
 | `fs::writeAll` | `FUNC writeAll(file AS File, value AS String) AS Nothing` | Writes all text to `file`. Fails with `10015` on write failure. |
+| `fs::writeAllBytes` | `FUNC writeAllBytes(file AS File, bytes AS List OF Byte) AS Nothing` | Writes all bytes to `file`. Fails with `10015` on write failure. |
 | `fs::close` | `FUNC close(file AS File) AS Nothing` | Closes a file handle. Calling it more than once is an error. |
 | `fs::eof` | `FUNC eof(file AS File) AS Boolean` | `TRUE` when the next read would be at end of file. |
 | `fs::canonicalPath` | `FUNC canonicalPath(path AS String) AS String` | Returns an absolute normalized path after resolving `.`/`..` and symlinks for every existing component. Fails when the path or a required parent does not exist. |

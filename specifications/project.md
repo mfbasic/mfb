@@ -23,6 +23,7 @@ The project manifest is an authoring file. It is not embedded verbatim in `.mfp`
 ```json
 {
   "name": "geometry",
+  "ident": "ada#geometry",
   "version": "0.1.0",
   "description": "2D and 3D geometry helpers for MFBASIC.",
   "author": "Ada Lovelace <ada@example.com>",
@@ -52,12 +53,15 @@ The project manifest is an authoring file. It is not embedded verbatim in `.mfp`
   "packages": [
     {
       "name": "shape",
-      "version": "^2.1.0",
+      "ident": "ada#shape",
+      "version": "2.1.0",
       "source": "registry:mfb"
     },
     {
       "name": "color",
-      "version": "=0.4.2",
+      "ident": "ada#color",
+      "version": "0.4.2",
+      "pin": true,
       "source": "git+https://example.com/mfb/color.git"
     }
   ],
@@ -74,11 +78,14 @@ The project manifest is an authoring file. It is not embedded verbatim in `.mfp`
 | Field | Type | Meaning |
 | ----- | ---- | ------- |
 | `name` | string | Package import name used by source code. |
+| `ident` | string | Registry identity `<owner>#<package>` for published packages. |
 | `version` | string | Semantic version `MAJOR.MINOR.PATCH`. |
 | `mfb` | string | Minimum compatible MFBASIC language version. |
 | `sources` | array | Source entries included in the project. |
 
-The `name` field must use the same identifier restrictions as MFBASIC package names unless a future registry specification defines a wider naming scheme. It must be the name used by `IMPORT name` in source code and by compiled `.mfp` package manifests.
+The `name` field must use the same identifier restrictions as MFBASIC package names. It is the name used by `IMPORT name` in source code and by compiled `.mfp` package manifests. It is not globally unique and is not sufficient to resolve a registry dependency.
+
+The `ident` field is the registry identity for a package that will be published or resolved through a registry. It uses the repository identity form `<owner>#<package>`. The `<package>` slug may differ from `name`. Executable-only projects and private local packages may omit `ident`; tools that publish a package to a registry must require it and copy it into the compiled `.mfp` manifest.
 
 The `version` field is required for both package and executable projects so lockfiles, build metadata, and generated packages can identify the exact project revision. Pre-release and build metadata follow semantic versioning when used, such as `1.2.0-beta.1` or `1.2.0+build.5`.
 
@@ -91,6 +98,7 @@ The `mfb` field names the minimum language version required to parse and type-ch
 | Field | Type | Required | Meaning |
 | ----- | ---- | -------- | ------- |
 | `name` | string | yes | Package import name. |
+| `ident` | string | package publish | Registry identity `<owner>#<package>`. |
 | `version` | string | yes | Project/package version. |
 | `description` | string | no | Human-readable summary. |
 | `author` | string or object | no | Human-readable author metadata. |
@@ -118,7 +126,7 @@ The `mfb` field names the minimum language version required to parse and type-ch
 }
 ```
 
-Tools may copy `name`, `version`, `author`, and `url` into `.mfp` package headers and manifests. A verifier must treat the compiled manifest, not `project.json`, as the source of truth for a compiled package.
+Tools may copy `name`, `ident`, `version`, `author`, and `url` into `.mfp` package headers and manifests. A verifier must treat the compiled manifest, not `project.json`, as the source of truth for a compiled package.
 
 ---
 
@@ -192,7 +200,9 @@ The `packages` field declares package dependencies. It is an array, not an objec
 ```json
 {
   "name": "sqlite",
-  "version": "^3.0.0",
+  "ident": "data#sqlite",
+  "version": "3.0.0",
+  "pin": false,
   "source": "registry:mfb",
   "platforms": ["macos-aarch64", "linux-x64"],
   "optional": false
@@ -201,15 +211,21 @@ The `packages` field declares package dependencies. It is an array, not an objec
 
 | Field | Type | Required | Meaning |
 | ----- | ---- | -------- | ------- |
-| `name` | string | yes | Package identity imported by source code. |
-| `version` | string | yes, except local path sources | Semantic-version constraint. |
+| `name` | string | yes | Import name used by source code. |
+| `ident` | string | yes for registry sources | Registry identity `<owner>#<package>`. |
+| `version` | string | yes, except local path sources | Requested concrete semantic version. |
+| `pin` | boolean | no | If true, resolve exactly `version`; otherwise resolve the highest ABI-compatible version anchored at `version`. |
 | `source` | string | no | Package source locator. Defaults to the configured registry. |
 | `alias` | string | no | Local resolver alias; does not change source `IMPORT` names. |
 | `platforms` | array of strings | no | Target platforms where the package is active. |
 | `optional` | boolean | no | Whether missing platform-specific package resolution may be skipped. |
 | `hash` | string | no | Expected content hash for non-registry sources. |
 
-Version constraints use the same forms as the language package rules: exact `=1.2.3`, compatible `^1.2.0`, patch-compatible `~1.2.0`, inequalities such as `>=1.2.0 <2.0.0`, or wildcard `1.2.*`.
+The `version` field is a requested version, not a range expression. It must be a concrete semantic version such as `3.0.0`, without `^`, `~`, `=`, inequality operators, wildcards, or other range syntax.
+
+When `pin` is omitted or false, the resolver treats `version` as an ABI anchor: it may select the highest available package version whose `ABI_INDEX` is compatible with the requested version. When `pin` is true, the resolver must select exactly `version` and the matching content hash.
+
+The `ident` field is the resolver identity. The `name` field is the source import name. Two dependencies may have the same `name` only if they are never active in the same build and the build tool has a defined aliasing policy; otherwise dependency `name` values must be unique within active `packages`.
 
 Supported `source` forms:
 
@@ -221,15 +237,15 @@ Supported `source` forms:
 | `git+https://...` | Git repository fetched by the package manager. |
 | `https://...` | Registry-specific package URL or package archive. |
 
-Dependency `name` values must be unique within `packages`. Import graph cycles remain compile-time or bytecode merge-time errors.
+Import graph cycles remain compile-time or bytecode merge-time errors.
 
-The package resolver produces one selected version for each package identity. Executable builds must write or consume `mfb.lock`, which records exact selected package versions, source locators, content hashes, bytecode/package format versions, native dependency metadata hashes, and transitive dependencies.
+The package resolver produces one selected version for each package `ident`. Executable builds must write or consume `mfb.lock`; its format is specified in `lockfile.md`.
 
 ---
 
 ## 8. Native Dependencies
 
-Projects that expose `LINK` bindings should set `kind` to `binding` and may include `native` metadata. Application projects do not repeat a dependency package's native declarations; executable builds collect native requirements from selected packages.
+Projects that expose `LINK` bindings use `kind: "package"` and may include `native` metadata. Application projects do not repeat a dependency package's native declarations; executable builds collect native requirements from selected packages.
 
 ```json
 {
@@ -292,7 +308,7 @@ A tool must reject `project.json` when:
 - A source path escapes the project root under the active path policy.
 - No source files are selected for the requested build.
 - Two main source entries select the same source file.
-- A package dependency has an invalid name, invalid version constraint, or unsupported source locator.
-- Dependency resolution cannot select one compatible version per package identity.
+- A package dependency has an invalid name, invalid ident, invalid requested version, invalid `pin` value, or unsupported source locator.
+- Dependency resolution cannot select one compatible version per package ident.
 
 Validation failure is a toolchain diagnostic. It is not recoverable by program `TRAP` code because no package code has started running.
