@@ -1,0 +1,15 @@
+IMPORT fs
+IMPORT io
+
+FUNC main AS Integer
+  fs::createDirectories("target")
+  LET path AS String = "target/func_fs_appendText_valid.txt"
+  IF fs::fileExists(path) THEN
+    fs::deleteFile(path)
+  END IF
+  fs::appendText(path, "Hello ")
+  fs::appendText(path, "World é日😀")
+  io::print(fs::readText(path))
+  fs::deleteFile(path)
+  RETURN 0
+END FUNC

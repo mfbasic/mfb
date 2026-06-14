@@ -1,0 +1,9 @@
+IMPORT fs
+
+FUNC main AS Integer
+  fs::writeTextAtomic()
+  fs::writeTextAtomic(1, "value")
+  fs::writeTextAtomic("path", 1)
+  fs::writeTextAtomic("path", "value", "extra")
+  RETURN 0
+END FUNC

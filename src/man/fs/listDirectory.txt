@@ -1,0 +1,14 @@
+NAME
+  listDirectory - list direct child names
+
+SYNOPSIS
+  fs::listDirectory(path AS String) AS List OF String
+
+DESCRIPTION
+  Returns direct child entry names for path. The returned list contains names,
+  not full paths, and excludes "." and "..".
+
+  The order is implementation-defined but stable for a single runtime result.
+
+EXAMPLE
+  LET names AS List OF String = fs::listDirectory("target")

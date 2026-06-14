@@ -1,0 +1,12 @@
+NAME
+  writeBytes - write raw bytes to a file
+
+SYNOPSIS
+  fs::writeBytes(path AS String, bytes AS List OF Byte) AS Nothing
+
+DESCRIPTION
+  Writes bytes to path, replacing any existing file. Byte-list payload data is
+  written directly from the collection's packed data region.
+
+EXAMPLES
+  fs::writeBytes("target/output.bin", [72, 105])

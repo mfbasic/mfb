@@ -1,0 +1,100 @@
+$ mfb build -ast tests/func_fs_openFileNoFollow_invalid
+   2 | 
+   3 | FUNC main AS Integer
+   4 |   LET missing AS File = fs::openFileNoFollow()
+     | ^
+tests/func_fs_openFileNoFollow_invalid/src/main.mfb:4 error[TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+               Call to `fs.openFileNoFollow` has 0 argument(s), expected 1 to 2.
+   2 | 
+   3 | FUNC main AS Integer
+   4 |   LET missing AS File = fs::openFileNoFollow()
+     | ^
+tests/func_fs_openFileNoFollow_invalid/src/main.mfb:4 error[TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `missing` does not have a known type.
+   3 | FUNC main AS Integer
+   4 |   LET missing AS File = fs::openFileNoFollow()
+   5 |   LET wrongPath AS File = fs::openFileNoFollow(1)
+     | ^
+tests/func_fs_openFileNoFollow_invalid/src/main.mfb:5 error[TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `fs.openFileNoFollow` has argument type(s) (Integer), expected String, String.
+   3 | FUNC main AS Integer
+   4 |   LET missing AS File = fs::openFileNoFollow()
+   5 |   LET wrongPath AS File = fs::openFileNoFollow(1)
+     | ^
+tests/func_fs_openFileNoFollow_invalid/src/main.mfb:5 error[TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `wrongPath` does not have a known type.
+   4 |   LET missing AS File = fs::openFileNoFollow()
+   5 |   LET wrongPath AS File = fs::openFileNoFollow(1)
+   6 |   LET wrongMode AS File = fs::openFileNoFollow("a", 1)
+     | ^
+tests/func_fs_openFileNoFollow_invalid/src/main.mfb:6 error[TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `fs.openFileNoFollow` has argument type(s) (String, Integer), expected String, String.
+   4 |   LET missing AS File = fs::openFileNoFollow()
+   5 |   LET wrongPath AS File = fs::openFileNoFollow(1)
+   6 |   LET wrongMode AS File = fs::openFileNoFollow("a", 1)
+     | ^
+tests/func_fs_openFileNoFollow_invalid/src/main.mfb:6 error[TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `wrongMode` does not have a known type.
+   5 |   LET wrongPath AS File = fs::openFileNoFollow(1)
+   6 |   LET wrongMode AS File = fs::openFileNoFollow("a", 1)
+   7 |   LET tooMany AS File = fs::openFileNoFollow("a", "read", "x")
+     | ^
+tests/func_fs_openFileNoFollow_invalid/src/main.mfb:7 error[TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+               Call to `fs.openFileNoFollow` has 3 argument(s), expected 1 to 2.
+   5 |   LET wrongPath AS File = fs::openFileNoFollow(1)
+   6 |   LET wrongMode AS File = fs::openFileNoFollow("a", 1)
+   7 |   LET tooMany AS File = fs::openFileNoFollow("a", "read", "x")
+     | ^
+tests/func_fs_openFileNoFollow_invalid/src/main.mfb:7 error[TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `tooMany` does not have a known type.
+[exit 1]
+$ mfb build -ir tests/func_fs_openFileNoFollow_invalid
+   2 | 
+   3 | FUNC main AS Integer
+   4 |   LET missing AS File = fs::openFileNoFollow()
+     | ^
+tests/func_fs_openFileNoFollow_invalid/src/main.mfb:4 error[TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+               Call to `fs.openFileNoFollow` has 0 argument(s), expected 1 to 2.
+   2 | 
+   3 | FUNC main AS Integer
+   4 |   LET missing AS File = fs::openFileNoFollow()
+     | ^
+tests/func_fs_openFileNoFollow_invalid/src/main.mfb:4 error[TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `missing` does not have a known type.
+   3 | FUNC main AS Integer
+   4 |   LET missing AS File = fs::openFileNoFollow()
+   5 |   LET wrongPath AS File = fs::openFileNoFollow(1)
+     | ^
+tests/func_fs_openFileNoFollow_invalid/src/main.mfb:5 error[TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `fs.openFileNoFollow` has argument type(s) (Integer), expected String, String.
+   3 | FUNC main AS Integer
+   4 |   LET missing AS File = fs::openFileNoFollow()
+   5 |   LET wrongPath AS File = fs::openFileNoFollow(1)
+     | ^
+tests/func_fs_openFileNoFollow_invalid/src/main.mfb:5 error[TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `wrongPath` does not have a known type.
+   4 |   LET missing AS File = fs::openFileNoFollow()
+   5 |   LET wrongPath AS File = fs::openFileNoFollow(1)
+   6 |   LET wrongMode AS File = fs::openFileNoFollow("a", 1)
+     | ^
+tests/func_fs_openFileNoFollow_invalid/src/main.mfb:6 error[TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `fs.openFileNoFollow` has argument type(s) (String, Integer), expected String, String.
+   4 |   LET missing AS File = fs::openFileNoFollow()
+   5 |   LET wrongPath AS File = fs::openFileNoFollow(1)
+   6 |   LET wrongMode AS File = fs::openFileNoFollow("a", 1)
+     | ^
+tests/func_fs_openFileNoFollow_invalid/src/main.mfb:6 error[TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `wrongMode` does not have a known type.
+   5 |   LET wrongPath AS File = fs::openFileNoFollow(1)
+   6 |   LET wrongMode AS File = fs::openFileNoFollow("a", 1)
+   7 |   LET tooMany AS File = fs::openFileNoFollow("a", "read", "x")
+     | ^
+tests/func_fs_openFileNoFollow_invalid/src/main.mfb:7 error[TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+               Call to `fs.openFileNoFollow` has 3 argument(s), expected 1 to 2.
+   5 |   LET wrongPath AS File = fs::openFileNoFollow(1)
+   6 |   LET wrongMode AS File = fs::openFileNoFollow("a", 1)
+   7 |   LET tooMany AS File = fs::openFileNoFollow("a", "read", "x")
+     | ^
+tests/func_fs_openFileNoFollow_invalid/src/main.mfb:7 error[TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `tooMany` does not have a known type.
+[exit 1]

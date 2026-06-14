@@ -1,0 +1,12 @@
+NAME
+  pathJoin - join path components
+
+SYNOPSIS
+  fs::pathJoin(parts AS List OF String) AS String
+
+DESCRIPTION
+  Joins path components with the POSIX separator used by the current native
+  targets.
+
+EXAMPLES
+  LET path AS String = fs::pathJoin(["target", "output.txt"])

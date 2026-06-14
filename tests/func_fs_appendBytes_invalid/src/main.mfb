@@ -1,0 +1,9 @@
+IMPORT fs
+
+FUNC main AS Integer
+  LET missing AS Nothing = fs::appendBytes()
+  LET wrongPath AS Nothing = fs::appendBytes(1, [1])
+  LET wrongBytes AS Nothing = fs::appendBytes("a", "x")
+  LET tooMany AS Nothing = fs::appendBytes("a", [1], [2])
+  RETURN 0
+END FUNC

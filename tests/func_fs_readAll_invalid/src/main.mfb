@@ -1,0 +1,8 @@
+IMPORT fs
+
+FUNC main AS Integer
+  LET missing AS String = fs::readAll()
+  LET wrongType AS String = fs::readAll("x")
+  LET tooMany AS String = fs::readAll(fs::openFile("x"), "x")
+  RETURN 0
+END FUNC

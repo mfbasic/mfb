@@ -908,7 +908,7 @@ impl CodeBuilder<'_> {
         self.finish_string_predicate_result("strings.contains", result_slot)
     }
 
-    fn lower_strings_join(
+    pub(super) fn lower_strings_join(
         &mut self,
         parts: &NirValue,
         delimiter: &NirValue,
@@ -1350,7 +1350,7 @@ impl CodeBuilder<'_> {
         })
     }
 
-    fn require_string(&self, label: &str, value: &ValueResult) -> Result<(), String> {
+    pub(super) fn require_string(&self, label: &str, value: &ValueResult) -> Result<(), String> {
         if value.type_ == "String" {
             Ok(())
         } else {
@@ -1358,7 +1358,7 @@ impl CodeBuilder<'_> {
         }
     }
 
-    fn store_string_pointer(&mut self, label: &str, register: &str) -> usize {
+    pub(super) fn store_string_pointer(&mut self, label: &str, register: &str) -> usize {
         let slot = self.allocate_stack_object(label, 8);
         self.emit(abi::store_u64(register, abi::stack_pointer(), slot));
         slot

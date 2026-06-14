@@ -1,0 +1,6 @@
+IMPORT fs
+
+FUNC main AS Integer
+  LET wrong AS String = fs::tempDirectory("target")
+  RETURN 0
+END FUNC

@@ -1,0 +1,31 @@
+{
+  "project": "func_fs_readBytes_valid",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "fs", "line": 1 },
+    { "module": "io", "line": 2 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "main",
+      "line": 4,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "path", "type": "String", "value": { "kind": "string", "value": "target/func_fs_readBytes_valid.txt" }, "line": 5 },
+      { "kind": "binding", "mutable": false, "name": "bytes", "type": "List OF Byte", "value": { "kind": "list", "values": [{ "kind": "number", "value": "72" }, { "kind": "number", "value": "101" }, { "kind": "number", "value": "108" }, { "kind": "number", "value": "108" }, { "kind": "number", "value": "111" }] }, "line": 6 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "fs.writeBytes", "arguments": [{ "kind": "identifier", "value": "path" }, { "kind": "identifier", "value": "bytes" }] }, "line": 7 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "fs.readBytes", "arguments": [{ "kind": "identifier", "value": "path" }] }] }] }, "line": 8 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "fs.deleteFile", "arguments": [{ "kind": "identifier", "value": "path" }] }, "line": 9 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 10 }
+      ]
+    }
+    ]
+  }
+  ]
+}

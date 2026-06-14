@@ -1,0 +1,9 @@
+IMPORT fs
+
+FUNC main AS Integer
+  fs::writeBytesAtomic()
+  fs::writeBytesAtomic(1, [1])
+  fs::writeBytesAtomic("path", "bytes")
+  fs::writeBytesAtomic("path", [1], "extra")
+  RETURN 0
+END FUNC

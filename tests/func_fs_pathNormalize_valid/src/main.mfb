@@ -1,0 +1,10 @@
+IMPORT fs
+IMPORT io
+
+FUNC main AS Integer
+  io::print(fs::pathNormalize("target//a/./é日😀/../b.txt"))
+  io::print(fs::pathNormalize("/tmp///a/../b/"))
+  io::print(fs::pathNormalize("./a/b/.."))
+  io::print(fs::pathNormalize(""))
+  RETURN 0
+END FUNC

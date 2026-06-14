@@ -1,0 +1,9 @@
+IMPORT fs
+IMPORT io
+
+FUNC main AS Integer
+  LET path AS String = fs::tempDirectory()
+  io::print(toString(len(path) > 0))
+  io::print(toString(fs::directoryExists(path)))
+  RETURN 0
+END FUNC

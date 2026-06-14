@@ -1,0 +1,16 @@
+NAME
+  deleteFile - delete a regular file path
+
+SYNOPSIS
+  fs::deleteFile(path AS String) AS Nothing
+
+DESCRIPTION
+  Deletes the filesystem entry named by path. When the final component is a
+  symlink, the symlink itself is deleted rather than its target.
+
+  Fails with ErrInvalidArgument (10002) for an empty path or embedded NUL,
+  ErrNotFound (10004) when the path does not exist, ErrAccessDenied (10013)
+  when deletion is denied, or ErrOutput (10015) for other host failures.
+
+EXAMPLES
+  fs::deleteFile("target/output.txt")

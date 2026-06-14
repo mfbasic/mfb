@@ -1,0 +1,11 @@
+NAME
+  pathDirName - return the directory portion of a path
+
+SYNOPSIS
+  fs::pathDirName(path AS String) AS String
+
+DESCRIPTION
+  Returns the directory portion of path without accessing the filesystem.
+
+EXAMPLES
+  io::print(fs::pathDirName("target/output.txt"))

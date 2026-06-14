@@ -1,0 +1,8 @@
+IMPORT fs
+
+FUNC main AS Integer
+  LET missing AS Nothing = fs::deleteFile()
+  LET wrongType AS Nothing = fs::deleteFile(1)
+  LET tooMany AS Nothing = fs::deleteFile("a", "b")
+  RETURN 0
+END FUNC

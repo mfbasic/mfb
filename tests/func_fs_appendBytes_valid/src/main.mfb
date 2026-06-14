@@ -1,0 +1,17 @@
+IMPORT fs
+IMPORT io
+
+FUNC main AS Integer
+  fs::createDirectories("target")
+  LET path AS String = "target/func_fs_appendBytes_valid.txt"
+  IF fs::fileExists(path) THEN
+    fs::deleteFile(path)
+  END IF
+  LET hello AS List OF Byte = [72, 101, 108, 108, 111]
+  LET world AS List OF Byte = [32, 87, 111, 114, 108, 100]
+  fs::appendBytes(path, hello)
+  fs::appendBytes(path, world)
+  io::print(fs::readText(path))
+  fs::deleteFile(path)
+  RETURN 0
+END FUNC

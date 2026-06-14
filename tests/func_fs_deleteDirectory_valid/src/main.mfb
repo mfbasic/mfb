@@ -1,0 +1,14 @@
+IMPORT fs
+IMPORT io
+
+FUNC main AS Integer
+  LET path AS String = "target/func_fs_deleteDirectory_valid_tmp"
+  IF fs::directoryExists(path) THEN
+    fs::deleteDirectory(path)
+  END IF
+  fs::createDirectory(path)
+  io::print(toString(fs::directoryExists(path)))
+  fs::deleteDirectory(path)
+  io::print(toString(fs::directoryExists(path)))
+  RETURN 0
+END FUNC

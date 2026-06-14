@@ -1,0 +1,12 @@
+NAME
+  writeText - write a UTF-8 text file
+
+SYNOPSIS
+  fs::writeText(path AS String, value AS String) AS Nothing
+
+DESCRIPTION
+  Writes value to path, replacing any existing file. The write is retried until
+  every byte has been written or the host reports an output failure.
+
+EXAMPLES
+  fs::writeText("target/output.txt", "Hello")

@@ -1,0 +1,12 @@
+NAME
+  close - close a File resource
+
+SYNOPSIS
+  fs::close(file AS File) AS Nothing
+
+DESCRIPTION
+  Closes file. Calling close more than once on the same File is an error.
+
+EXAMPLES
+  LET f AS File = fs::openFile("data.txt")
+  fs::close(f)

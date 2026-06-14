@@ -1147,7 +1147,7 @@ fn is_reference_type(type_: &str) -> bool {
         || type_.starts_with("Thread OF ")
         || type_.starts_with("FUNC(")
         || type_.starts_with("ISOLATED FUNC(")
-        || matches!(type_, "FileHandle" | "DirHandle")
+        || matches!(type_, "File" | "FileHandle" | "DirHandle")
 }
 
 fn push_call(calls: &mut Vec<PlanCall>, target: &str, symbol: String, kind: CallKind) {
@@ -1540,11 +1540,13 @@ mod tests {
 
         fn runtime_imports(&self, spec: &RuntimeHelperSpec) -> Vec<PlatformImport> {
             match spec.call {
-                "io.print" | "io.write" | "io.printError" | "io.writeError" => vec![PlatformImport {
-                    library: "testRuntime".to_string(),
-                    symbol: "test_output".to_string(),
-                    required_by: spec.symbol.to_string(),
-                }],
+                "io.print" | "io.write" | "io.printError" | "io.writeError" => {
+                    vec![PlatformImport {
+                        library: "testRuntime".to_string(),
+                        symbol: "test_output".to_string(),
+                        required_by: spec.symbol.to_string(),
+                    }]
+                }
                 "io.input" | "io.readLine" | "io.readChar" | "io.readByte" => {
                     vec![PlatformImport {
                         library: "testRuntime".to_string(),

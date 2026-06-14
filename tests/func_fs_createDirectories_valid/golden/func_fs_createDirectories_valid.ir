@@ -1,0 +1,46 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "func_fs_createDirectories_valid",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "mutable": false, "name": "base", "type": "String", "value": { "kind": "const", "type": "String", "value": "target/func_fs_createDirectories_valid" } },
+    { "op": "bind", "mutable": false, "name": "nested", "type": "String", "value": { "kind": "const", "type": "String", "value": "target/func_fs_createDirectories_valid/a/b/é日😀" } },
+    {
+      "op": "if",
+      "condition": { "kind": "call", "target": "fs.directoryExists", "args": [{ "kind": "local", "name": "nested" }] },
+      "then": [
+      { "op": "eval", "value": { "kind": "call", "target": "fs.deleteDirectory", "args": [{ "kind": "local", "name": "nested" }] } },
+      { "op": "eval", "value": { "kind": "call", "target": "fs.deleteDirectory", "args": [{ "kind": "const", "type": "String", "value": "target/func_fs_createDirectories_valid/a/b" }] } },
+      { "op": "eval", "value": { "kind": "call", "target": "fs.deleteDirectory", "args": [{ "kind": "const", "type": "String", "value": "target/func_fs_createDirectories_valid/a" }] } },
+      { "op": "eval", "value": { "kind": "call", "target": "fs.deleteDirectory", "args": [{ "kind": "local", "name": "base" }] } }
+      ],
+      "else": [
+      ]
+    },
+    { "op": "eval", "value": { "kind": "call", "target": "fs.createDirectories", "args": [{ "kind": "local", "name": "nested" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "fs.createDirectories", "args": [{ "kind": "local", "name": "nested" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "fs.directoryExists", "args": [{ "kind": "local", "name": "nested" }] }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "fs.deleteDirectory", "args": [{ "kind": "local", "name": "nested" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "fs.deleteDirectory", "args": [{ "kind": "const", "type": "String", "value": "target/func_fs_createDirectories_valid/a/b" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "fs.deleteDirectory", "args": [{ "kind": "const", "type": "String", "value": "target/func_fs_createDirectories_valid/a" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "fs.deleteDirectory", "args": [{ "kind": "local", "name": "base" }] } },
+    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

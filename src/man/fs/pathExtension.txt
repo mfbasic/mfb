@@ -1,0 +1,12 @@
+NAME
+  pathExtension - return the final component extension
+
+SYNOPSIS
+  fs::pathExtension(path AS String) AS String
+
+DESCRIPTION
+  Returns the final component's extension, including the leading dot when one
+  is present.
+
+EXAMPLES
+  io::print(fs::pathExtension("target/output.txt"))

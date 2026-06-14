@@ -1,0 +1,11 @@
+IMPORT fs
+IMPORT io
+
+FUNC main AS Integer
+  LET path AS String = "target/func_fs_writeText_valid.txt"
+  fs::writeText(path, "one é")
+  fs::writeText(path, "two 日😀")
+  io::print(fs::readText(path))
+  fs::deleteFile(path)
+  RETURN 0
+END FUNC

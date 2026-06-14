@@ -1,0 +1,42 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "func_fs_writeBytesAtomic_valid",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "eval", "value": { "kind": "call", "target": "fs.createDirectories", "args": [{ "kind": "const", "type": "String", "value": "target/func_fs_writeBytesAtomic_valid" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "fs.writeText", "args": [{ "kind": "const", "type": "String", "value": "target/func_fs_writeBytesAtomic_valid/data.bin.mfb-tmp" }, { "kind": "const", "type": "String", "value": "sentinel" }] } },
+    { "op": "bind", "mutable": false, "name": "first", "type": "List OF Byte", "value": { "kind": "list", "type": "List OF Byte", "values": [{ "kind": "const", "type": "Byte", "value": "1" }, { "kind": "const", "type": "Byte", "value": "2" }, { "kind": "const", "type": "Byte", "value": "3" }] } },
+    { "op": "bind", "mutable": false, "name": "second", "type": "List OF Byte", "value": { "kind": "list", "type": "List OF Byte", "values": [{ "kind": "const", "type": "Byte", "value": "72" }, { "kind": "const", "type": "Byte", "value": "105" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "fs.writeBytesAtomic", "args": [{ "kind": "const", "type": "String", "value": "target/func_fs_writeBytesAtomic_valid/data.bin" }, { "kind": "local", "name": "first" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "fs.writeBytesAtomic", "args": [{ "kind": "const", "type": "String", "value": "target/func_fs_writeBytesAtomic_valid/data.bin" }, { "kind": "local", "name": "second" }] } },
+    { "op": "bind", "mutable": false, "name": "bytes", "type": "List OF Byte", "value": { "kind": "call", "target": "fs.readBytes", "args": [{ "kind": "const", "type": "String", "value": "target/func_fs_writeBytesAtomic_valid/data.bin" }] } },
+    {
+      "op": "forEach",
+      "name": "b",
+      "type": "Byte",
+      "iterable": { "kind": "local", "name": "bytes" },
+      "body": [
+      { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "local", "name": "b" }] }] } }
+      ]
+    },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "fs.readText", "args": [{ "kind": "const", "type": "String", "value": "target/func_fs_writeBytesAtomic_valid/data.bin.mfb-tmp" }] }] } },
+    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

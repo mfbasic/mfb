@@ -1,0 +1,14 @@
+NAME
+  readAllBytes - read all remaining bytes from a File
+
+SYNOPSIS
+  fs::readAllBytes(file AS File) AS List OF Byte
+
+DESCRIPTION
+  Reads all remaining bytes from file into one contiguous List OF Byte
+  collection and advances the file position to EOF.
+
+EXAMPLES
+  USING f = fs::openFile("data.bin")
+    LET bytes AS List OF Byte = fs::readAllBytes(f)
+  END USING

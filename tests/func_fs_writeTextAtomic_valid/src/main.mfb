@@ -1,0 +1,12 @@
+IMPORT fs
+IMPORT io
+
+FUNC main AS Integer
+  fs::createDirectories("target/func_fs_writeTextAtomic_valid")
+  fs::writeText("target/func_fs_writeTextAtomic_valid/é日😀.txt.mfb-tmp", "sentinel")
+  fs::writeTextAtomic("target/func_fs_writeTextAtomic_valid/é日😀.txt", "first")
+  fs::writeTextAtomic("target/func_fs_writeTextAtomic_valid/é日😀.txt", "second")
+  io::print(fs::readText("target/func_fs_writeTextAtomic_valid/é日😀.txt"))
+  io::print(fs::readText("target/func_fs_writeTextAtomic_valid/é日😀.txt.mfb-tmp"))
+  RETURN 0
+END FUNC

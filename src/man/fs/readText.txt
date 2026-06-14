@@ -1,0 +1,13 @@
+NAME
+  readText - read a UTF-8 text file
+
+SYNOPSIS
+  fs::readText(path AS String) AS String
+
+DESCRIPTION
+  Opens path, reads the complete file as UTF-8 text, closes the file, and
+  returns the resulting String. Missing paths, invalid paths, read failures, and
+  invalid encoding are reported as Errors.
+
+EXAMPLES
+  LET value AS String = fs::readText("data.txt")

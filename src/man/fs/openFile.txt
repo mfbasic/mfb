@@ -1,0 +1,13 @@
+NAME
+  openFile - open a file resource
+
+SYNOPSIS
+  fs::openFile(path AS String, mode AS String = "read") AS File
+
+DESCRIPTION
+  Opens path and returns an opaque File resource. The default mode is "read".
+  Portable modes are "read", "write", and "append".
+
+EXAMPLES
+  USING f = fs::openFile("data.txt")
+  END USING

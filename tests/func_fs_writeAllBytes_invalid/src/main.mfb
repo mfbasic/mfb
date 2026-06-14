@@ -1,0 +1,9 @@
+IMPORT fs
+
+FUNC main AS Integer
+  LET missing AS Nothing = fs::writeAllBytes()
+  LET wrongFile AS Nothing = fs::writeAllBytes("x", [1])
+  LET wrongBytes AS Nothing = fs::writeAllBytes(fs::openFile("x"), "x")
+  LET tooMany AS Nothing = fs::writeAllBytes(fs::openFile("x"), [1], [2])
+  RETURN 0
+END FUNC

@@ -18,6 +18,8 @@ const DARWIN_PROT_READ_WRITE: &str = "3";
 const DARWIN_MAP_PRIVATE_ANON: &str = "4098";
 const DARWIN_SYSCALL_MMAP: &str = "33554629";
 const DARWIN_SYSCALL_MUNMAP: &str = "33554505";
+const DARWIN_SYSCALL_OPEN: &str = "33554437";
+const DARWIN_CS_USER_TEMP_DIR: &str = "65537";
 
 impl code::CodegenPlatform for Platform {
     fn target(&self) -> &'static str {
@@ -97,6 +99,332 @@ impl code::CodegenPlatform for Platform {
         Ok(())
     }
 
+    fn emit_path_exists(
+        &self,
+        from: &str,
+        platform_imports: &HashMap<String, String>,
+        instructions: &mut Vec<CodeInstruction>,
+        relocations: &mut Vec<CodeRelocation>,
+    ) -> Result<(), String> {
+        let library = platform_imports
+            .get("_access")
+            .ok_or_else(|| "fs.exists runtime helper requires _access import".to_string())?
+            .clone();
+        instructions.extend([
+            abi::move_immediate("x1", "Integer", "0"),
+            abi::branch_link("_access"),
+        ]);
+        relocations.push(CodeRelocation {
+            from: from.to_string(),
+            to: "_access".to_string(),
+            kind: "branch26".to_string(),
+            binding: "external".to_string(),
+            library: Some(library),
+        });
+        Ok(())
+    }
+
+    fn emit_path_stat(
+        &self,
+        from: &str,
+        platform_imports: &HashMap<String, String>,
+        instructions: &mut Vec<CodeInstruction>,
+        relocations: &mut Vec<CodeRelocation>,
+    ) -> Result<(), String> {
+        let library = platform_imports
+            .get("_stat")
+            .ok_or_else(|| "fs stat runtime helper requires _stat import".to_string())?
+            .clone();
+        instructions.push(abi::branch_link("_stat"));
+        relocations.push(CodeRelocation {
+            from: from.to_string(),
+            to: "_stat".to_string(),
+            kind: "branch26".to_string(),
+            binding: "external".to_string(),
+            library: Some(library),
+        });
+        Ok(())
+    }
+
+    fn stat_mode_offset(&self) -> usize {
+        4
+    }
+
+    fn emit_current_directory(
+        &self,
+        from: &str,
+        platform_imports: &HashMap<String, String>,
+        instructions: &mut Vec<CodeInstruction>,
+        relocations: &mut Vec<CodeRelocation>,
+    ) -> Result<(), String> {
+        let library = platform_imports
+            .get("_getcwd")
+            .ok_or_else(|| {
+                "fs.currentDirectory runtime helper requires _getcwd import".to_string()
+            })?
+            .clone();
+        instructions.push(abi::branch_link("_getcwd"));
+        relocations.push(CodeRelocation {
+            from: from.to_string(),
+            to: "_getcwd".to_string(),
+            kind: "branch26".to_string(),
+            binding: "external".to_string(),
+            library: Some(library),
+        });
+        Ok(())
+    }
+
+    fn emit_fs_path_operation(
+        &self,
+        from: &str,
+        operation: code::FsPathOperation,
+        platform_imports: &HashMap<String, String>,
+        instructions: &mut Vec<CodeInstruction>,
+        relocations: &mut Vec<CodeRelocation>,
+    ) -> Result<(), String> {
+        let symbol = match operation {
+            code::FsPathOperation::Chdir => "_chdir",
+            code::FsPathOperation::Unlink => "_unlink",
+            code::FsPathOperation::Mkdir => "_mkdir",
+            code::FsPathOperation::Rmdir => "_rmdir",
+        };
+        let library = platform_imports
+            .get(symbol)
+            .ok_or_else(|| format!("filesystem runtime helper requires {symbol} import"))?
+            .clone();
+        if matches!(operation, code::FsPathOperation::Mkdir) {
+            instructions.push(abi::move_immediate("x1", "Integer", "493"));
+        }
+        instructions.push(abi::branch_link(symbol));
+        relocations.push(CodeRelocation {
+            from: from.to_string(),
+            to: symbol.to_string(),
+            kind: "branch26".to_string(),
+            binding: "external".to_string(),
+            library: Some(library),
+        });
+        Ok(())
+    }
+
+    fn emit_errno(
+        &self,
+        from: &str,
+        platform_imports: &HashMap<String, String>,
+        instructions: &mut Vec<CodeInstruction>,
+        relocations: &mut Vec<CodeRelocation>,
+    ) -> Result<(), String> {
+        let library = platform_imports
+            .get("___error")
+            .ok_or_else(|| "filesystem runtime helper requires ___error import".to_string())?
+            .clone();
+        instructions.push(abi::branch_link("___error"));
+        relocations.push(CodeRelocation {
+            from: from.to_string(),
+            to: "___error".to_string(),
+            kind: "branch26".to_string(),
+            binding: "external".to_string(),
+            library: Some(library),
+        });
+        instructions.push(abi::load_u32("x9", abi::return_register(), 0));
+        Ok(())
+    }
+
+    fn emit_open_file(
+        &self,
+        from: &str,
+        platform_imports: &HashMap<String, String>,
+        instructions: &mut Vec<CodeInstruction>,
+        relocations: &mut Vec<CodeRelocation>,
+    ) -> Result<(), String> {
+        let _ = (from, platform_imports, relocations);
+        instructions.extend([
+            abi::move_immediate("x16", "Integer", DARWIN_SYSCALL_OPEN),
+            abi::syscall(),
+        ]);
+        Ok(())
+    }
+
+    fn emit_read_file(
+        &self,
+        from: &str,
+        platform_imports: &HashMap<String, String>,
+        instructions: &mut Vec<CodeInstruction>,
+        relocations: &mut Vec<CodeRelocation>,
+    ) -> Result<(), String> {
+        emit_libsystem_call(from, "_read", platform_imports, instructions, relocations)
+    }
+
+    fn emit_close_file(
+        &self,
+        from: &str,
+        platform_imports: &HashMap<String, String>,
+        instructions: &mut Vec<CodeInstruction>,
+        relocations: &mut Vec<CodeRelocation>,
+    ) -> Result<(), String> {
+        emit_libsystem_call(from, "_close", platform_imports, instructions, relocations)
+    }
+
+    fn emit_sync_file(
+        &self,
+        from: &str,
+        platform_imports: &HashMap<String, String>,
+        instructions: &mut Vec<CodeInstruction>,
+        relocations: &mut Vec<CodeRelocation>,
+    ) -> Result<(), String> {
+        emit_libsystem_call(from, "_fsync", platform_imports, instructions, relocations)
+    }
+
+    fn emit_seek_file(
+        &self,
+        from: &str,
+        platform_imports: &HashMap<String, String>,
+        instructions: &mut Vec<CodeInstruction>,
+        relocations: &mut Vec<CodeRelocation>,
+    ) -> Result<(), String> {
+        emit_libsystem_call(from, "_lseek", platform_imports, instructions, relocations)
+    }
+
+    fn emit_rename_path(
+        &self,
+        from: &str,
+        platform_imports: &HashMap<String, String>,
+        instructions: &mut Vec<CodeInstruction>,
+        relocations: &mut Vec<CodeRelocation>,
+    ) -> Result<(), String> {
+        emit_libsystem_call(from, "_rename", platform_imports, instructions, relocations)
+    }
+
+    fn emit_mkstemps(
+        &self,
+        from: &str,
+        platform_imports: &HashMap<String, String>,
+        instructions: &mut Vec<CodeInstruction>,
+        relocations: &mut Vec<CodeRelocation>,
+    ) -> Result<(), String> {
+        emit_libsystem_call(
+            from,
+            "_mkstemps",
+            platform_imports,
+            instructions,
+            relocations,
+        )
+    }
+
+    fn emit_random_bytes(
+        &self,
+        from: &str,
+        platform_imports: &HashMap<String, String>,
+        instructions: &mut Vec<CodeInstruction>,
+        relocations: &mut Vec<CodeRelocation>,
+    ) -> Result<(), String> {
+        emit_libsystem_call(
+            from,
+            "_getentropy",
+            platform_imports,
+            instructions,
+            relocations,
+        )
+    }
+
+    fn emit_temp_directory(
+        &self,
+        from: &str,
+        platform_imports: &HashMap<String, String>,
+        instructions: &mut Vec<CodeInstruction>,
+        relocations: &mut Vec<CodeRelocation>,
+    ) -> Result<(), String> {
+        instructions.extend([
+            abi::move_register("x2", "x1"),
+            abi::move_register("x1", abi::return_register()),
+            abi::move_immediate(abi::return_register(), "Integer", DARWIN_CS_USER_TEMP_DIR),
+        ]);
+        emit_libsystem_call(
+            from,
+            "_confstr",
+            platform_imports,
+            instructions,
+            relocations,
+        )?;
+        instructions.push(abi::subtract_immediate(
+            abi::return_register(),
+            abi::return_register(),
+            1,
+        ));
+        Ok(())
+    }
+
+    fn emit_opendir(
+        &self,
+        from: &str,
+        platform_imports: &HashMap<String, String>,
+        instructions: &mut Vec<CodeInstruction>,
+        relocations: &mut Vec<CodeRelocation>,
+    ) -> Result<(), String> {
+        emit_libsystem_call(
+            from,
+            "_opendir",
+            platform_imports,
+            instructions,
+            relocations,
+        )
+    }
+
+    fn emit_readdir(
+        &self,
+        from: &str,
+        platform_imports: &HashMap<String, String>,
+        instructions: &mut Vec<CodeInstruction>,
+        relocations: &mut Vec<CodeRelocation>,
+    ) -> Result<(), String> {
+        emit_libsystem_call(
+            from,
+            "_readdir",
+            platform_imports,
+            instructions,
+            relocations,
+        )
+    }
+
+    fn emit_closedir(
+        &self,
+        from: &str,
+        platform_imports: &HashMap<String, String>,
+        instructions: &mut Vec<CodeInstruction>,
+        relocations: &mut Vec<CodeRelocation>,
+    ) -> Result<(), String> {
+        emit_libsystem_call(
+            from,
+            "_closedir",
+            platform_imports,
+            instructions,
+            relocations,
+        )
+    }
+
+    fn dirent_name_offset(&self) -> usize {
+        21
+    }
+
+    fn dirent_name_length_offset(&self) -> usize {
+        18
+    }
+
+    fn emit_realpath(
+        &self,
+        from: &str,
+        platform_imports: &HashMap<String, String>,
+        instructions: &mut Vec<CodeInstruction>,
+        relocations: &mut Vec<CodeRelocation>,
+    ) -> Result<(), String> {
+        emit_libsystem_call(
+            from,
+            "_realpath",
+            platform_imports,
+            instructions,
+            relocations,
+        )
+    }
+
     fn emit_arena_map(&self, instructions: &mut Vec<CodeInstruction>) -> Result<(), String> {
         instructions.extend([
             abi::move_immediate(abi::return_register(), "Integer", "0"),
@@ -118,4 +446,26 @@ impl code::CodegenPlatform for Platform {
         ]);
         Ok(())
     }
+}
+
+fn emit_libsystem_call(
+    from: &str,
+    symbol: &str,
+    platform_imports: &HashMap<String, String>,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+) -> Result<(), String> {
+    let library = platform_imports
+        .get(symbol)
+        .ok_or_else(|| format!("runtime helper requires {symbol} import"))?
+        .clone();
+    instructions.push(abi::branch_link(symbol));
+    relocations.push(CodeRelocation {
+        from: from.to_string(),
+        to: symbol.to_string(),
+        kind: "branch26".to_string(),
+        binding: "external".to_string(),
+        library: Some(library),
+    });
+    Ok(())
 }

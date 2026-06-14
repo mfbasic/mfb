@@ -1,0 +1,16 @@
+NAME
+  tempDirectory - return the OS temporary directory
+
+SYNOPSIS
+  fs::tempDirectory() AS String
+
+DESCRIPTION
+  Returns the directory used by fs::createTempFile() when no directory is
+  supplied.
+
+  On macOS this is the per-process Darwin user temp directory reported by
+  _confstr(_CS_DARWIN_USER_TEMP_DIR). On Linux this is TMPDIR when set and
+  non-empty, otherwise /tmp.
+
+EXAMPLES
+  fs::tempDirectory()

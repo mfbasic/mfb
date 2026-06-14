@@ -1,0 +1,14 @@
+$ mfb build -ast tests/func_fs_pathExtension_valid
+Wrote AST to tests/func_fs_pathExtension_valid/func_fs_pathExtension_valid.ast
+[exit 0]
+$ mfb build -ir tests/func_fs_pathExtension_valid
+Wrote IR to tests/func_fs_pathExtension_valid/func_fs_pathExtension_valid.ir
+[exit 0]
+$ mfb build tests/func_fs_pathExtension_valid
+Wrote executable to tests/func_fs_pathExtension_valid/func_fs_pathExtension_valid.out
+[exit 0]
+$ tests/func_fs_pathExtension_valid/func_fs_pathExtension_valid.out
+.txt
+
+.gz
+[exit 0]

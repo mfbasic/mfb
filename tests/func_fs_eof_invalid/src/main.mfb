@@ -1,0 +1,8 @@
+IMPORT fs
+
+FUNC main AS Integer
+  LET missing AS Boolean = fs::eof()
+  LET wrongType AS Boolean = fs::eof("x")
+  LET tooMany AS Boolean = fs::eof(fs::openFile("x"), "x")
+  RETURN 0
+END FUNC

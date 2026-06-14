@@ -1,0 +1,12 @@
+NAME
+  readBytes - read a file as raw bytes
+
+SYNOPSIS
+  fs::readBytes(path AS String) AS List OF Byte
+
+DESCRIPTION
+  Opens path, reads the complete file into one contiguous List OF Byte
+  collection, closes the file, and returns the byte list.
+
+EXAMPLES
+  LET bytes AS List OF Byte = fs::readBytes("data.bin")

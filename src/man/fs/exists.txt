@@ -1,0 +1,16 @@
+NAME
+  exists - test whether a filesystem entry exists
+
+SYNOPSIS
+  fs::exists(path AS String) AS Boolean
+
+DESCRIPTION
+  Returns TRUE when any filesystem entry exists at path. The final path
+  component is followed when it is a symlink.
+
+  The path is a UTF-8 String and may contain Unicode characters, including
+  emoji, when the host filesystem accepts those names.
+
+EXAMPLES
+  fs::exists("data.txt")
+  fs::exists("é日😀.txt")

@@ -1,0 +1,32 @@
+{
+  "project": "func_fs_writeTextAtomic_valid",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "fs", "line": 1 },
+    { "module": "io", "line": 2 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "main",
+      "line": 4,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "fs.createDirectories", "arguments": [{ "kind": "string", "value": "target/func_fs_writeTextAtomic_valid" }] }, "line": 5 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "fs.writeText", "arguments": [{ "kind": "string", "value": "target/func_fs_writeTextAtomic_valid/é日😀.txt.mfb-tmp" }, { "kind": "string", "value": "sentinel" }] }, "line": 6 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "fs.writeTextAtomic", "arguments": [{ "kind": "string", "value": "target/func_fs_writeTextAtomic_valid/é日😀.txt" }, { "kind": "string", "value": "first" }] }, "line": 7 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "fs.writeTextAtomic", "arguments": [{ "kind": "string", "value": "target/func_fs_writeTextAtomic_valid/é日😀.txt" }, { "kind": "string", "value": "second" }] }, "line": 8 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "fs.readText", "arguments": [{ "kind": "string", "value": "target/func_fs_writeTextAtomic_valid/é日😀.txt" }] }] }, "line": 9 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "fs.readText", "arguments": [{ "kind": "string", "value": "target/func_fs_writeTextAtomic_valid/é日😀.txt.mfb-tmp" }] }] }, "line": 10 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 11 }
+      ]
+    }
+    ]
+  }
+  ]
+}

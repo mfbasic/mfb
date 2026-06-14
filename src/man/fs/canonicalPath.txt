@@ -1,0 +1,15 @@
+NAME
+  canonicalPath - resolve a path to its canonical absolute path
+
+SYNOPSIS
+  fs::canonicalPath(path AS String) AS String
+
+DESCRIPTION
+  Returns an absolute normalized path after resolving "." components, ".."
+  components, and symlinks for existing filesystem components.
+
+  The path or required parent components must exist. Embedded NUL bytes are
+  rejected.
+
+EXAMPLE
+  LET full AS String = fs::canonicalPath("target/output.txt")

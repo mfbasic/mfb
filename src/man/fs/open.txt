@@ -1,0 +1,15 @@
+NAME
+  open - open a file resource with an explicit mode
+
+SYNOPSIS
+  fs::open(path AS String, mode AS String) AS File
+
+DESCRIPTION
+  Opens path and returns an opaque File resource. Portable modes are "read" or
+  "r", "write" or "w", "readWrite" or "rw", and "append" or "a".
+
+  File resources should be closed with fs::close or scoped with USING.
+
+EXAMPLES
+  USING f = fs::open("data.txt", "read")
+  END USING

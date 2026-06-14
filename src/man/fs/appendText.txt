@@ -1,0 +1,13 @@
+NAME
+  appendText - append UTF-8 text to a file
+
+SYNOPSIS
+  fs::appendText(path AS String, value AS String) AS Nothing
+
+DESCRIPTION
+  Appends value to path and creates the file when it does not exist. The append
+  is retried until every byte has been written or the host reports an output
+  failure.
+
+EXAMPLES
+  fs::appendText("target/output.txt", "line\n")

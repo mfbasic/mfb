@@ -1,0 +1,9 @@
+IMPORT fs
+IMPORT io
+
+FUNC main AS Integer
+  io::print(fs::pathExtension("target/a/é日😀.txt"))
+  io::print(fs::pathExtension("target/a/noext"))
+  io::print(fs::pathExtension("target/a/archive.tar.gz"))
+  RETURN 0
+END FUNC

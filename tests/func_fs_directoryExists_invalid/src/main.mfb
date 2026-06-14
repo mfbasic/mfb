@@ -1,0 +1,8 @@
+IMPORT fs
+
+FUNC main AS Integer
+  LET missing AS Boolean = fs::directoryExists()
+  LET wrongType AS Boolean = fs::directoryExists(1)
+  LET tooMany AS Boolean = fs::directoryExists("a", "b")
+  RETURN 0
+END FUNC

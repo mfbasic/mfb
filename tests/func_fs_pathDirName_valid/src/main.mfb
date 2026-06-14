@@ -1,0 +1,9 @@
+IMPORT fs
+IMPORT io
+
+FUNC main AS Integer
+  io::print(fs::pathDirName("target/a/é日😀.txt"))
+  io::print(fs::pathDirName("plain.txt"))
+  io::print(fs::pathDirName("/plain.txt"))
+  RETURN 0
+END FUNC

@@ -1,0 +1,9 @@
+IMPORT fs
+
+FUNC main AS Integer
+  LET missing AS File = fs::open("a")
+  LET wrongPath AS File = fs::open(1, "read")
+  LET wrongMode AS File = fs::open("a", 1)
+  LET tooMany AS File = fs::open("a", "read", "x")
+  RETURN 0
+END FUNC

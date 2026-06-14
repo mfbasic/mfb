@@ -1,0 +1,9 @@
+IMPORT fs
+
+FUNC main AS Integer
+  LET missing AS Boolean = fs::isWithin("a")
+  LET wrongLeft AS Boolean = fs::isWithin(1, "a")
+  LET wrongRight AS Boolean = fs::isWithin("a", 1)
+  LET tooMany AS Boolean = fs::isWithin("a", "b", "c")
+  RETURN 0
+END FUNC

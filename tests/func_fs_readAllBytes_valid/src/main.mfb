@@ -1,0 +1,13 @@
+IMPORT fs
+IMPORT io
+
+FUNC main AS Integer
+  LET path AS String = "target/func_fs_readAllBytes_valid.txt"
+  fs::writeText(path, "Hello\nWorld")
+  LET f AS File = fs::openFile(path)
+  io::print(fs::readLine(f))
+  io::print(toString(fs::readAllBytes(f)))
+  fs::close(f)
+  fs::deleteFile(path)
+  RETURN 0
+END FUNC

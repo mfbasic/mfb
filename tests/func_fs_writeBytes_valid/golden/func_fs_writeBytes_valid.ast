@@ -1,0 +1,33 @@
+{
+  "project": "func_fs_writeBytes_valid",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "fs", "line": 1 },
+    { "module": "io", "line": 2 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "main",
+      "line": 4,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "path", "type": "String", "value": { "kind": "string", "value": "target/func_fs_writeBytes_valid.txt" }, "line": 5 },
+      { "kind": "binding", "mutable": false, "name": "first", "type": "List OF Byte", "value": { "kind": "list", "values": [{ "kind": "number", "value": "79" }, { "kind": "number", "value": "108" }, { "kind": "number", "value": "100" }] }, "line": 6 },
+      { "kind": "binding", "mutable": false, "name": "second", "type": "List OF Byte", "value": { "kind": "list", "values": [{ "kind": "number", "value": "72" }, { "kind": "number", "value": "101" }, { "kind": "number", "value": "108" }, { "kind": "number", "value": "108" }, { "kind": "number", "value": "111" }] }, "line": 7 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "fs.writeBytes", "arguments": [{ "kind": "identifier", "value": "path" }, { "kind": "identifier", "value": "first" }] }, "line": 8 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "fs.writeBytes", "arguments": [{ "kind": "identifier", "value": "path" }, { "kind": "identifier", "value": "second" }] }, "line": 9 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "fs.readText", "arguments": [{ "kind": "identifier", "value": "path" }] }] }, "line": 10 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "fs.deleteFile", "arguments": [{ "kind": "identifier", "value": "path" }] }, "line": 11 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 12 }
+      ]
+    }
+    ]
+  }
+  ]
+}

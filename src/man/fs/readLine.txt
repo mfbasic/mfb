@@ -1,0 +1,14 @@
+NAME
+  readLine - read one line from a File
+
+SYNOPSIS
+  fs::readLine(file AS File) AS String
+
+DESCRIPTION
+  Reads one line from file without the line terminator. LF and CRLF terminators
+  are accepted. EOF before any byte is read is an Error.
+
+EXAMPLES
+  USING f = fs::openFile("data.txt")
+    LET line AS String = fs::readLine(f)
+  END USING

@@ -1,0 +1,100 @@
+$ mfb build -ast tests/func_fs_isWithin_invalid
+   2 | 
+   3 | FUNC main AS Integer
+   4 |   LET missing AS Boolean = fs::isWithin("a")
+     | ^
+tests/func_fs_isWithin_invalid/src/main.mfb:4 error[TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+               Call to `fs.isWithin` has 1 argument(s), expected 2.
+   2 | 
+   3 | FUNC main AS Integer
+   4 |   LET missing AS Boolean = fs::isWithin("a")
+     | ^
+tests/func_fs_isWithin_invalid/src/main.mfb:4 error[TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `missing` does not have a known type.
+   3 | FUNC main AS Integer
+   4 |   LET missing AS Boolean = fs::isWithin("a")
+   5 |   LET wrongLeft AS Boolean = fs::isWithin(1, "a")
+     | ^
+tests/func_fs_isWithin_invalid/src/main.mfb:5 error[TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `fs.isWithin` has argument type(s) (Integer, String), expected String, String.
+   3 | FUNC main AS Integer
+   4 |   LET missing AS Boolean = fs::isWithin("a")
+   5 |   LET wrongLeft AS Boolean = fs::isWithin(1, "a")
+     | ^
+tests/func_fs_isWithin_invalid/src/main.mfb:5 error[TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `wrongLeft` does not have a known type.
+   4 |   LET missing AS Boolean = fs::isWithin("a")
+   5 |   LET wrongLeft AS Boolean = fs::isWithin(1, "a")
+   6 |   LET wrongRight AS Boolean = fs::isWithin("a", 1)
+     | ^
+tests/func_fs_isWithin_invalid/src/main.mfb:6 error[TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `fs.isWithin` has argument type(s) (String, Integer), expected String, String.
+   4 |   LET missing AS Boolean = fs::isWithin("a")
+   5 |   LET wrongLeft AS Boolean = fs::isWithin(1, "a")
+   6 |   LET wrongRight AS Boolean = fs::isWithin("a", 1)
+     | ^
+tests/func_fs_isWithin_invalid/src/main.mfb:6 error[TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `wrongRight` does not have a known type.
+   5 |   LET wrongLeft AS Boolean = fs::isWithin(1, "a")
+   6 |   LET wrongRight AS Boolean = fs::isWithin("a", 1)
+   7 |   LET tooMany AS Boolean = fs::isWithin("a", "b", "c")
+     | ^
+tests/func_fs_isWithin_invalid/src/main.mfb:7 error[TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+               Call to `fs.isWithin` has 3 argument(s), expected 2.
+   5 |   LET wrongLeft AS Boolean = fs::isWithin(1, "a")
+   6 |   LET wrongRight AS Boolean = fs::isWithin("a", 1)
+   7 |   LET tooMany AS Boolean = fs::isWithin("a", "b", "c")
+     | ^
+tests/func_fs_isWithin_invalid/src/main.mfb:7 error[TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `tooMany` does not have a known type.
+[exit 1]
+$ mfb build -ir tests/func_fs_isWithin_invalid
+   2 | 
+   3 | FUNC main AS Integer
+   4 |   LET missing AS Boolean = fs::isWithin("a")
+     | ^
+tests/func_fs_isWithin_invalid/src/main.mfb:4 error[TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+               Call to `fs.isWithin` has 1 argument(s), expected 2.
+   2 | 
+   3 | FUNC main AS Integer
+   4 |   LET missing AS Boolean = fs::isWithin("a")
+     | ^
+tests/func_fs_isWithin_invalid/src/main.mfb:4 error[TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `missing` does not have a known type.
+   3 | FUNC main AS Integer
+   4 |   LET missing AS Boolean = fs::isWithin("a")
+   5 |   LET wrongLeft AS Boolean = fs::isWithin(1, "a")
+     | ^
+tests/func_fs_isWithin_invalid/src/main.mfb:5 error[TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `fs.isWithin` has argument type(s) (Integer, String), expected String, String.
+   3 | FUNC main AS Integer
+   4 |   LET missing AS Boolean = fs::isWithin("a")
+   5 |   LET wrongLeft AS Boolean = fs::isWithin(1, "a")
+     | ^
+tests/func_fs_isWithin_invalid/src/main.mfb:5 error[TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `wrongLeft` does not have a known type.
+   4 |   LET missing AS Boolean = fs::isWithin("a")
+   5 |   LET wrongLeft AS Boolean = fs::isWithin(1, "a")
+   6 |   LET wrongRight AS Boolean = fs::isWithin("a", 1)
+     | ^
+tests/func_fs_isWithin_invalid/src/main.mfb:6 error[TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `fs.isWithin` has argument type(s) (String, Integer), expected String, String.
+   4 |   LET missing AS Boolean = fs::isWithin("a")
+   5 |   LET wrongLeft AS Boolean = fs::isWithin(1, "a")
+   6 |   LET wrongRight AS Boolean = fs::isWithin("a", 1)
+     | ^
+tests/func_fs_isWithin_invalid/src/main.mfb:6 error[TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `wrongRight` does not have a known type.
+   5 |   LET wrongLeft AS Boolean = fs::isWithin(1, "a")
+   6 |   LET wrongRight AS Boolean = fs::isWithin("a", 1)
+   7 |   LET tooMany AS Boolean = fs::isWithin("a", "b", "c")
+     | ^
+tests/func_fs_isWithin_invalid/src/main.mfb:7 error[TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+               Call to `fs.isWithin` has 3 argument(s), expected 2.
+   5 |   LET wrongLeft AS Boolean = fs::isWithin(1, "a")
+   6 |   LET wrongRight AS Boolean = fs::isWithin("a", 1)
+   7 |   LET tooMany AS Boolean = fs::isWithin("a", "b", "c")
+     | ^
+tests/func_fs_isWithin_invalid/src/main.mfb:7 error[TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `tooMany` does not have a known type.
+[exit 1]

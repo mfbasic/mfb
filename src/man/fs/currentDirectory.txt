@@ -1,0 +1,12 @@
+NAME
+  currentDirectory - return the process current working directory
+
+SYNOPSIS
+  fs::currentDirectory() AS String
+
+DESCRIPTION
+  Returns the absolute current working directory path for the running process
+  as a UTF-8 String.
+
+EXAMPLES
+  fs::currentDirectory()

@@ -1,0 +1,17 @@
+IMPORT fs
+IMPORT io
+
+FUNC main AS Integer
+  fs::createDirectories("target/func_fs_writeBytesAtomic_valid")
+  fs::writeText("target/func_fs_writeBytesAtomic_valid/data.bin.mfb-tmp", "sentinel")
+  LET first AS List OF Byte = [1, 2, 3]
+  LET second AS List OF Byte = [72, 105]
+  fs::writeBytesAtomic("target/func_fs_writeBytesAtomic_valid/data.bin", first)
+  fs::writeBytesAtomic("target/func_fs_writeBytesAtomic_valid/data.bin", second)
+  LET bytes AS List OF Byte = fs::readBytes("target/func_fs_writeBytesAtomic_valid/data.bin")
+  FOR EACH b IN bytes
+    io::print(toString(b))
+  NEXT
+  io::print(fs::readText("target/func_fs_writeBytesAtomic_valid/data.bin.mfb-tmp"))
+  RETURN 0
+END FUNC

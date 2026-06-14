@@ -1,0 +1,11 @@
+NAME
+  appendBytes - append raw bytes to a file
+
+SYNOPSIS
+  fs::appendBytes(path AS String, bytes AS List OF Byte) AS Nothing
+
+DESCRIPTION
+  Appends bytes to path, creating the file when it does not exist.
+
+EXAMPLES
+  fs::appendBytes("target/output.bin", [10])

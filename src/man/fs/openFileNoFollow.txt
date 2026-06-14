@@ -1,0 +1,13 @@
+NAME
+  openFileNoFollow - open a file without following the final symlink
+
+SYNOPSIS
+  fs::openFileNoFollow(path AS String, mode AS String = "read") AS File
+
+DESCRIPTION
+  Opens path like fs::openFile, but asks the host OS not to follow a symlink in
+  the final path component.
+
+EXAMPLES
+  USING f = fs::openFileNoFollow("data.txt", "read")
+  END USING

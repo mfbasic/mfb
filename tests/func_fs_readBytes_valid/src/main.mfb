@@ -1,0 +1,11 @@
+IMPORT fs
+IMPORT io
+
+FUNC main AS Integer
+  LET path AS String = "target/func_fs_readBytes_valid.txt"
+  LET bytes AS List OF Byte = [72, 101, 108, 108, 111]
+  fs::writeBytes(path, bytes)
+  io::print(toString(fs::readBytes(path)))
+  fs::deleteFile(path)
+  RETURN 0
+END FUNC

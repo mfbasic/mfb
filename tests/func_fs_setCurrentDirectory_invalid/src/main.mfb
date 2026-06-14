@@ -1,0 +1,8 @@
+IMPORT fs
+
+FUNC main AS Integer
+  LET missing AS Nothing = fs::setCurrentDirectory()
+  LET wrongType AS Nothing = fs::setCurrentDirectory(1)
+  LET tooMany AS Nothing = fs::setCurrentDirectory("a", "b")
+  RETURN 0
+END FUNC

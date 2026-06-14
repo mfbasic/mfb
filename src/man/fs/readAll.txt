@@ -1,0 +1,14 @@
+NAME
+  readAll - read all remaining text from a File
+
+SYNOPSIS
+  fs::readAll(file AS File) AS String
+
+DESCRIPTION
+  Reads all remaining bytes from file as UTF-8 text starting at the current file
+  position and advances the file position to EOF.
+
+EXAMPLES
+  USING f = fs::openFile("data.txt")
+    LET value AS String = fs::readAll(f)
+  END USING

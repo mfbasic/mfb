@@ -1,0 +1,16 @@
+NAME
+  pathNormalize - normalize a path string syntactically
+
+SYNOPSIS
+  fs::pathNormalize(path AS String) AS String
+
+DESCRIPTION
+  Returns a normalized path without accessing the filesystem. Repeated slash
+  separators are collapsed, "." components are removed, and ".." components
+  remove the previous normal component when possible.
+
+  The operation is byte-oriented for path syntax. UTF-8 file names are preserved
+  unchanged.
+
+EXAMPLE
+  io::print(fs::pathNormalize("target//a/./file.txt"))

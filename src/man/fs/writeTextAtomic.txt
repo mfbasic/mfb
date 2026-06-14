@@ -1,0 +1,13 @@
+NAME
+  writeTextAtomic - atomically replace a text file
+
+SYNOPSIS
+  fs::writeTextAtomic(path AS String, value AS String) AS Nothing
+
+DESCRIPTION
+  Writes value to a temporary path next to path and then replaces path with an
+  OS rename operation. The final replacement is atomic when the host filesystem
+  supports atomic rename.
+
+EXAMPLE
+  fs::writeTextAtomic("target/output.txt", "done")

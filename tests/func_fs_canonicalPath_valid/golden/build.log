@@ -1,0 +1,13 @@
+$ mfb build -ast tests/func_fs_canonicalPath_valid
+Wrote AST to tests/func_fs_canonicalPath_valid/func_fs_canonicalPath_valid.ast
+[exit 0]
+$ mfb build -ir tests/func_fs_canonicalPath_valid
+Wrote IR to tests/func_fs_canonicalPath_valid/func_fs_canonicalPath_valid.ir
+[exit 0]
+$ mfb build tests/func_fs_canonicalPath_valid
+Wrote executable to tests/func_fs_canonicalPath_valid/func_fs_canonicalPath_valid.out
+[exit 0]
+$ tests/func_fs_canonicalPath_valid/func_fs_canonicalPath_valid.out
+é日😀.txt
+func_fs_canonicalPath_valid
+[exit 0]

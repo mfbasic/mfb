@@ -1,0 +1,17 @@
+IMPORT fs
+IMPORT io
+
+FUNC main AS Integer
+  LET f AS File = fs::openFile("tests/func_fs_openFile_valid/src/main.mfb")
+  io::print("default")
+  fs::close(f)
+  LET out AS String = "target/func_fs_openFile_valid.txt"
+  IF fs::fileExists(out) THEN
+    fs::deleteFile(out)
+  END IF
+  LET w AS File = fs::openFile(out, "write")
+  fs::close(w)
+  io::print(toString(fs::fileExists(out)))
+  fs::deleteFile(out)
+  RETURN 0
+END FUNC

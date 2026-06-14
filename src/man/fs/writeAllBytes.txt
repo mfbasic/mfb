@@ -1,0 +1,14 @@
+NAME
+  writeAllBytes - write all bytes to an open File
+
+SYNOPSIS
+  fs::writeAllBytes(file AS File, bytes AS List OF Byte) AS Nothing
+
+DESCRIPTION
+  Writes all bytes from the collection's packed data region to file, retrying
+  until every byte has been written or the host reports an output failure.
+
+EXAMPLES
+  USING f = fs::openFile("target/output.bin", "write")
+    fs::writeAllBytes(f, [72, 105])
+  END USING

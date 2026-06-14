@@ -1,0 +1,14 @@
+IMPORT fs
+IMPORT io
+
+FUNC main AS Integer
+  fs::createDirectories("target/func_fs_isWithin_valid/base/nested")
+  fs::createDirectories("target/func_fs_isWithin_valid/base2")
+  fs::writeText("target/func_fs_isWithin_valid/base/nested/é日😀.txt", "ok")
+  fs::writeText("target/func_fs_isWithin_valid/base2/other.txt", "ok")
+  io::print(toString(fs::isWithin("target/func_fs_isWithin_valid/base", "target/func_fs_isWithin_valid/base/nested/é日😀.txt")))
+  io::print(toString(fs::isWithin("target/func_fs_isWithin_valid/base", "target/func_fs_isWithin_valid/base")))
+  io::print(toString(fs::isWithin("target/func_fs_isWithin_valid/base", "target/func_fs_isWithin_valid/base2/other.txt")))
+  io::print(toString(fs::isWithin("/", "target/func_fs_isWithin_valid/base/nested/é日😀.txt")))
+  RETURN 0
+END FUNC

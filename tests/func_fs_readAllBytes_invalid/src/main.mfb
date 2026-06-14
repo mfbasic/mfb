@@ -1,0 +1,8 @@
+IMPORT fs
+
+FUNC main AS Integer
+  LET missing AS List OF Byte = fs::readAllBytes()
+  LET wrongType AS List OF Byte = fs::readAllBytes("x")
+  LET tooMany AS List OF Byte = fs::readAllBytes(fs::openFile("x"), "x")
+  RETURN 0
+END FUNC

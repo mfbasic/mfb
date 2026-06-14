@@ -1,0 +1,11 @@
+IMPORT fs
+IMPORT io
+
+FUNC main AS Integer
+  fs::createDirectories("target/func_fs_canonicalPath_valid")
+  fs::writeText("target/func_fs_canonicalPath_valid/é日😀.txt", "ok")
+  LET path AS String = fs::canonicalPath("target/func_fs_canonicalPath_valid/../func_fs_canonicalPath_valid/./é日😀.txt")
+  io::print(fs::pathBaseName(path))
+  io::print(fs::pathBaseName(fs::pathDirName(path)))
+  RETURN 0
+END FUNC

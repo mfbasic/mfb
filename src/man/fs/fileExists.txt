@@ -1,0 +1,16 @@
+NAME
+  fileExists - test whether a path names a regular file
+
+SYNOPSIS
+  fs::fileExists(path AS String) AS Boolean
+
+DESCRIPTION
+  Returns TRUE when path exists and resolves to a regular file. The final path
+  component is followed when it is a symlink.
+
+  Returns FALSE for missing paths, directories, and other non-regular
+  filesystem entries.
+
+EXAMPLES
+  fs::fileExists("data.txt")
+  fs::fileExists("é日😀.txt")

@@ -1,0 +1,8 @@
+IMPORT fs
+
+FUNC main AS Integer
+  LET missing AS String = fs::readLine()
+  LET wrongType AS String = fs::readLine("x")
+  LET tooMany AS String = fs::readLine(fs::openFile("x"), "x")
+  RETURN 0
+END FUNC

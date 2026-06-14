@@ -1,0 +1,13 @@
+NAME
+  createDirectories - create a directory tree
+
+SYNOPSIS
+  fs::createDirectories(path AS String) AS Nothing
+
+DESCRIPTION
+  Creates path and any missing parent directories. Existing directories are
+  accepted. Invalid paths, missing non-created parents caused by invalid
+  components, and access failures are reported as Errors.
+
+EXAMPLES
+  fs::createDirectories("target/example/nested")

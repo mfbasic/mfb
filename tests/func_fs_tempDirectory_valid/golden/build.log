@@ -1,0 +1,6 @@
+$ mfb build -ast tests/func_fs_tempDirectory_valid
+Wrote AST to tests/func_fs_tempDirectory_valid/func_fs_tempDirectory_valid.ast
+[exit 0]
+$ mfb build -ir tests/func_fs_tempDirectory_valid
+Wrote IR to tests/func_fs_tempDirectory_valid/func_fs_tempDirectory_valid.ir
+[exit 0]

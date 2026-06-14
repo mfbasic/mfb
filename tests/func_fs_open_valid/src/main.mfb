@@ -1,0 +1,9 @@
+IMPORT fs
+IMPORT io
+
+FUNC main AS Integer
+  LET f AS File = fs::open("tests/func_fs_open_valid/src/main.mfb", "read")
+  io::print("opened")
+  fs::close(f)
+  RETURN 0
+END FUNC

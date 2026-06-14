@@ -1,0 +1,16 @@
+NAME
+  directoryExists - test whether a path names a directory
+
+SYNOPSIS
+  fs::directoryExists(path AS String) AS Boolean
+
+DESCRIPTION
+  Returns TRUE when path exists and resolves to a directory. The final path
+  component is followed when it is a symlink.
+
+  Returns FALSE for missing paths, regular files, and other non-directory
+  filesystem entries.
+
+EXAMPLES
+  fs::directoryExists("data")
+  fs::directoryExists("é日😀")

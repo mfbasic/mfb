@@ -1,0 +1,9 @@
+IMPORT fs
+IMPORT io
+
+FUNC main AS Integer
+  LET current AS String = fs::currentDirectory()
+  io::print(toString(fs::directoryExists(current)))
+  io::print(toString(fs::directoryExists("tests")))
+  RETURN 0
+END FUNC

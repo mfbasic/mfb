@@ -1,0 +1,13 @@
+$ mfb build -ast tests/func_fs_pathJoin_valid
+Wrote AST to tests/func_fs_pathJoin_valid/func_fs_pathJoin_valid.ast
+[exit 0]
+$ mfb build -ir tests/func_fs_pathJoin_valid
+Wrote IR to tests/func_fs_pathJoin_valid/func_fs_pathJoin_valid.ir
+[exit 0]
+$ mfb build tests/func_fs_pathJoin_valid
+Wrote executable to tests/func_fs_pathJoin_valid/func_fs_pathJoin_valid.out
+[exit 0]
+$ tests/func_fs_pathJoin_valid/func_fs_pathJoin_valid.out
+target/func_fs_pathJoin_valid/é日😀.txt
+
+[exit 0]

@@ -75,6 +75,9 @@ impl CodeBuilder<'_> {
                 })
             }
             NirValue::Call { target, args } => {
+                if let Some(result) = self.lower_fs_path_call(target, args)? {
+                    return Ok(result);
+                }
                 if let Some(result) = self.lower_strings_package_call(target, args)? {
                     return Ok(result);
                 }
@@ -196,6 +199,9 @@ impl CodeBuilder<'_> {
                 target,
                 args,
             } => {
+                if let Some(result) = self.lower_fs_path_call(target, args)? {
+                    return Ok(result);
+                }
                 if let Some(result) = self.lower_strings_package_call(target, args)? {
                     return Ok(result);
                 }

@@ -1,0 +1,30 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "func_fs_canonicalPath_valid",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "eval", "value": { "kind": "call", "target": "fs.createDirectories", "args": [{ "kind": "const", "type": "String", "value": "target/func_fs_canonicalPath_valid" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "fs.writeText", "args": [{ "kind": "const", "type": "String", "value": "target/func_fs_canonicalPath_valid/é日😀.txt" }, { "kind": "const", "type": "String", "value": "ok" }] } },
+    { "op": "bind", "mutable": false, "name": "path", "type": "String", "value": { "kind": "call", "target": "fs.canonicalPath", "args": [{ "kind": "const", "type": "String", "value": "target/func_fs_canonicalPath_valid/../func_fs_canonicalPath_valid/./é日😀.txt" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "fs.pathBaseName", "args": [{ "kind": "local", "name": "path" }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "fs.pathBaseName", "args": [{ "kind": "call", "target": "fs.pathDirName", "args": [{ "kind": "local", "name": "path" }] }] }] } },
+    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

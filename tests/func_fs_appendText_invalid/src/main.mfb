@@ -1,0 +1,9 @@
+IMPORT fs
+
+FUNC main AS Integer
+  LET missing AS Nothing = fs::appendText()
+  LET wrongPath AS Nothing = fs::appendText(1, "x")
+  LET wrongValue AS Nothing = fs::appendText("a", 1)
+  LET tooMany AS Nothing = fs::appendText("a", "b", "c")
+  RETURN 0
+END FUNC

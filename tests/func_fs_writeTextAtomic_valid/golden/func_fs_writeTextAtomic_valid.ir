@@ -1,0 +1,31 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "func_fs_writeTextAtomic_valid",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "eval", "value": { "kind": "call", "target": "fs.createDirectories", "args": [{ "kind": "const", "type": "String", "value": "target/func_fs_writeTextAtomic_valid" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "fs.writeText", "args": [{ "kind": "const", "type": "String", "value": "target/func_fs_writeTextAtomic_valid/é日😀.txt.mfb-tmp" }, { "kind": "const", "type": "String", "value": "sentinel" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "fs.writeTextAtomic", "args": [{ "kind": "const", "type": "String", "value": "target/func_fs_writeTextAtomic_valid/é日😀.txt" }, { "kind": "const", "type": "String", "value": "first" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "fs.writeTextAtomic", "args": [{ "kind": "const", "type": "String", "value": "target/func_fs_writeTextAtomic_valid/é日😀.txt" }, { "kind": "const", "type": "String", "value": "second" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "fs.readText", "args": [{ "kind": "const", "type": "String", "value": "target/func_fs_writeTextAtomic_valid/é日😀.txt" }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "fs.readText", "args": [{ "kind": "const", "type": "String", "value": "target/func_fs_writeTextAtomic_valid/é日😀.txt.mfb-tmp" }] }] } },
+    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

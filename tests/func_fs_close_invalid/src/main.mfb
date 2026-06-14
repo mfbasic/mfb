@@ -1,0 +1,8 @@
+IMPORT fs
+
+FUNC main AS Integer
+  LET missing AS Nothing = fs::close()
+  LET wrongType AS Nothing = fs::close("x")
+  LET tooMany AS Nothing = fs::close(fs::openFile("x"), "x")
+  RETURN 0
+END FUNC

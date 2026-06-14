@@ -1,0 +1,24 @@
+NAME
+  createTempFile - securely create a unique temporary file
+
+SYNOPSIS
+  fs::createTempFile() AS File
+  fs::createTempFile(directory AS String) AS File
+
+DESCRIPTION
+  Creates and opens a new unique file named mfb-<uuid>.tmp.
+
+  Without an argument, the file is created in the OS temp directory. With a
+  directory argument, the file is created in that directory.
+
+  The file is opened read/write with exclusive-create behavior. The returned
+  File is owned by the caller and should be closed explicitly or with USING.
+
+EXAMPLE
+  USING f = fs::createTempFile()
+    fs::writeAll(f, "data")
+  END USING
+
+  USING f = fs::createTempFile("target")
+    fs::writeAll(f, "data")
+  END USING

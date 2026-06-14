@@ -1,0 +1,14 @@
+NAME
+  eof - test whether a File is at end of file
+
+SYNOPSIS
+  fs::eof(file AS File) AS Boolean
+
+DESCRIPTION
+  Returns TRUE when the current file position is at or beyond the end of the
+  file and FALSE otherwise.
+
+EXAMPLES
+  USING f = fs::openFile("data.txt")
+    io::print(toString(fs::eof(f)))
+  END USING

@@ -1,0 +1,11 @@
+NAME
+  pathBaseName - return the final path component
+
+SYNOPSIS
+  fs::pathBaseName(path AS String) AS String
+
+DESCRIPTION
+  Returns the final component of path without accessing the filesystem.
+
+EXAMPLES
+  io::print(fs::pathBaseName("target/output.txt"))

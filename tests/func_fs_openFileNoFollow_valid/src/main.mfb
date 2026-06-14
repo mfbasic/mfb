@@ -1,0 +1,9 @@
+IMPORT fs
+IMPORT io
+
+FUNC main AS Integer
+  LET f AS File = fs::openFileNoFollow("tests/func_fs_openFileNoFollow_valid/src/main.mfb")
+  io::print("nofollow")
+  fs::close(f)
+  RETURN 0
+END FUNC

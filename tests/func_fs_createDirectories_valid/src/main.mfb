@@ -1,0 +1,21 @@
+IMPORT fs
+IMPORT io
+
+FUNC main AS Integer
+  LET base AS String = "target/func_fs_createDirectories_valid"
+  LET nested AS String = "target/func_fs_createDirectories_valid/a/b/é日😀"
+  IF fs::directoryExists(nested) THEN
+    fs::deleteDirectory(nested)
+    fs::deleteDirectory("target/func_fs_createDirectories_valid/a/b")
+    fs::deleteDirectory("target/func_fs_createDirectories_valid/a")
+    fs::deleteDirectory(base)
+  END IF
+  fs::createDirectories(nested)
+  fs::createDirectories(nested)
+  io::print(toString(fs::directoryExists(nested)))
+  fs::deleteDirectory(nested)
+  fs::deleteDirectory("target/func_fs_createDirectories_valid/a/b")
+  fs::deleteDirectory("target/func_fs_createDirectories_valid/a")
+  fs::deleteDirectory(base)
+  RETURN 0
+END FUNC

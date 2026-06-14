@@ -1,0 +1,8 @@
+IMPORT fs
+
+FUNC main AS Integer
+  LET missing AS Nothing = fs::createDirectory()
+  LET wrongType AS Nothing = fs::createDirectory(1)
+  LET tooMany AS Nothing = fs::createDirectory("a", "b")
+  RETURN 0
+END FUNC

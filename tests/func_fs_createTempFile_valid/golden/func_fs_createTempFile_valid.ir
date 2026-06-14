@@ -1,0 +1,54 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "func_fs_createTempFile_valid",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "eval", "value": { "kind": "call", "target": "fs.createDirectories", "args": [{ "kind": "const", "type": "String", "value": "target/func_fs_createTempFile_valid" }] } },
+    { "op": "bind", "mutable": false, "name": "oldNames", "type": "List OF String", "value": { "kind": "call", "target": "fs.listDirectory", "args": [{ "kind": "const", "type": "String", "value": "target/func_fs_createTempFile_valid" }] } },
+    {
+      "op": "forEach",
+      "name": "oldName",
+      "type": "String",
+      "iterable": { "kind": "local", "name": "oldNames" },
+      "body": [
+      { "op": "eval", "value": { "kind": "call", "target": "fs.deleteFile", "args": [{ "kind": "call", "target": "fs.pathJoin", "args": [{ "kind": "list", "type": "List OF String", "values": [{ "kind": "const", "type": "String", "value": "target/func_fs_createTempFile_valid" }, { "kind": "local", "name": "oldName" }] }] }] } }
+      ]
+    },
+    { "op": "bind", "mutable": false, "name": "scratch", "type": "File", "value": { "kind": "call", "target": "fs.createTempFile", "args": [] } },
+    { "op": "eval", "value": { "kind": "call", "target": "fs.writeAll", "args": [{ "kind": "local", "name": "scratch" }, { "kind": "const", "type": "String", "value": "scratch" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "fs.close", "args": [{ "kind": "local", "name": "scratch" }] } },
+    { "op": "bind", "mutable": false, "name": "f", "type": "File", "value": { "kind": "call", "target": "fs.createTempFile", "args": [{ "kind": "const", "type": "String", "value": "target/func_fs_createTempFile_valid" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "fs.writeAll", "args": [{ "kind": "local", "name": "f" }, { "kind": "const", "type": "String", "value": "created" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "fs.close", "args": [{ "kind": "local", "name": "f" }] } },
+    { "op": "bind", "mutable": false, "name": "names", "type": "List OF String", "value": { "kind": "call", "target": "fs.listDirectory", "args": [{ "kind": "const", "type": "String", "value": "target/func_fs_createTempFile_valid" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "names" }] }] }] } },
+    {
+      "op": "forEach",
+      "name": "name",
+      "type": "String",
+      "iterable": { "kind": "local", "name": "names" },
+      "body": [
+      { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "strings.startsWith", "args": [{ "kind": "local", "name": "name" }, { "kind": "const", "type": "String", "value": "mfb-" }] }] }] } },
+      { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "strings.endsWith", "args": [{ "kind": "local", "name": "name" }, { "kind": "const", "type": "String", "value": ".tmp" }] }] }] } }
+      ]
+    },
+    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

@@ -1,0 +1,14 @@
+NAME
+  writeAll - write all text to an open File
+
+SYNOPSIS
+  fs::writeAll(file AS File, value AS String) AS Nothing
+
+DESCRIPTION
+  Writes all UTF-8 bytes from value to file, retrying until the full string has
+  been written or the host reports an output failure.
+
+EXAMPLES
+  USING f = fs::openFile("target/output.txt", "write")
+    fs::writeAll(f, "Hello")
+  END USING

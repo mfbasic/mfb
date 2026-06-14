@@ -421,7 +421,23 @@ fn lower_value(value: &IrValue) -> NirValue {
             type_: type_.clone(),
         },
         IrValue::Call { target, args } => {
-            let args = args.iter().map(lower_value).collect();
+            let mut args = args.iter().map(lower_value).collect::<Vec<_>>();
+            match (target.as_str(), args.len()) {
+                ("fs.openFile" | "fs.openFileNoFollow", 1) => {
+                    args.push(NirValue::Const {
+                        type_: "String".to_string(),
+                        value: "read".to_string(),
+                    });
+                }
+                ("fs.createTempFile", 0) => {
+                    args.push(NirValue::RuntimeCall {
+                        helper: super::runtime::RuntimeHelper::Fs,
+                        target: "fs.tempDirectory".to_string(),
+                        args: Vec::new(),
+                    });
+                }
+                _ => {}
+            }
             if matches!(
                 target.as_str(),
                 "contains"

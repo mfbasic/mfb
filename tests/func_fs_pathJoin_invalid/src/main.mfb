@@ -1,0 +1,9 @@
+IMPORT fs
+
+FUNC main AS Integer
+  LET missing AS String = fs::pathJoin()
+  LET wrongType AS String = fs::pathJoin("x")
+  LET wrongList AS String = fs::pathJoin([1, 2])
+  LET tooMany AS String = fs::pathJoin(["a"], ["b"])
+  RETURN 0
+END FUNC

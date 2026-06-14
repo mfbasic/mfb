@@ -1,0 +1,39 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "func_fs_deleteDirectory_valid",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "mutable": false, "name": "path", "type": "String", "value": { "kind": "const", "type": "String", "value": "target/func_fs_deleteDirectory_valid_tmp" } },
+    {
+      "op": "if",
+      "condition": { "kind": "call", "target": "fs.directoryExists", "args": [{ "kind": "local", "name": "path" }] },
+      "then": [
+      { "op": "eval", "value": { "kind": "call", "target": "fs.deleteDirectory", "args": [{ "kind": "local", "name": "path" }] } }
+      ],
+      "else": [
+      ]
+    },
+    { "op": "eval", "value": { "kind": "call", "target": "fs.createDirectory", "args": [{ "kind": "local", "name": "path" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "fs.directoryExists", "args": [{ "kind": "local", "name": "path" }] }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "fs.deleteDirectory", "args": [{ "kind": "local", "name": "path" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "fs.directoryExists", "args": [{ "kind": "local", "name": "path" }] }] }] } },
+    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

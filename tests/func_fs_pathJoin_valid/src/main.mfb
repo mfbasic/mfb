@@ -1,0 +1,10 @@
+IMPORT fs
+IMPORT io
+
+FUNC main AS Integer
+  LET parts AS List OF String = ["target", "func_fs_pathJoin_valid", "é日😀.txt"]
+  LET empty AS List OF String = []
+  io::print(fs::pathJoin(parts))
+  io::print(fs::pathJoin(empty))
+  RETURN 0
+END FUNC

@@ -1,0 +1,6 @@
+IMPORT fs
+
+FUNC main AS Integer
+  LET wrongType AS String = fs::currentDirectory("x")
+  RETURN 0
+END FUNC
