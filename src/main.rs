@@ -497,8 +497,9 @@ fn add_package(project_dir: &Path, url: &str) -> Result<(), String> {
     let package_filename = format!("{}.mfp", package.name);
     let dependency = ProjectPackageDependency {
         name: package.name.clone(),
-        version: format!("={}", package.version),
-        pin: Some(package.version.clone()),
+        ident: package.ident.clone(),
+        version: package.version.clone(),
+        pin: true,
         source: url.to_string(),
     };
     let updated = project_json_with_package(&contents, &manifest, &dependency)?;
@@ -559,7 +560,9 @@ fn print_package_info(path: &Path) -> Result<(), String> {
     let info = bytecode::read_package_info(path)?;
 
     println!("Package: {}", header.name);
+    println!("Ident: {}", empty_marker(&header.ident));
     println!("Version: {}", header.version);
+    println!("Ident Key: {}", empty_marker(&header.ident_key));
     println!("Author: {}", empty_marker(&header.author));
     println!("URL: {}", empty_marker(&header.url));
     println!("Path: {}", path.display());
@@ -584,7 +587,9 @@ fn print_package_info(path: &Path) -> Result<(), String> {
     println!();
     println!("Manifest:");
     println!("  name: {}", info.manifest_name);
+    println!("  ident: {}", empty_marker(&info.manifest_ident));
     println!("  version: {}", info.manifest_version);
+    println!("  ident key: {}", empty_marker(&info.manifest_ident_key));
     println!("  author: {}", empty_marker(&info.author));
     println!("  url: {}", empty_marker(&info.url));
     println!();
@@ -617,14 +622,10 @@ fn print_package_info(path: &Path) -> Result<(), String> {
     } else {
         for import in &info.imports {
             println!("  {}", import.package_name);
-            println!("    version min: {}", empty_marker(&import.version_min));
-            println!("    version max: {}", empty_marker(&import.version_max));
+            println!("    ident: {}", empty_marker(&import.package_ident));
+            println!("    version: {}", empty_marker(&import.version));
+            println!("    pin: {}", import.pin);
             println!("    flags: 0x{:08x}", import.flags);
-            println!(
-                "    ABI version request: {}",
-                empty_marker(&import.abi_version_request)
-            );
-            println!("    ABI pin: {}", import.abi_pin);
             if import.used_symbols.is_empty() {
                 println!("    used symbols: <none>");
             } else {
@@ -666,6 +667,11 @@ fn empty_marker(value: &str) -> &str {
 fn project_package_dependency(value: &JsonValue) -> Option<ProjectPackageDependency> {
     let package = value.get::<HashMap<String, JsonValue>>()?;
     let name = package.get("name")?.get::<String>()?.clone();
+    let ident = package
+        .get("ident")
+        .and_then(|value| value.get::<String>())
+        .cloned()
+        .unwrap_or_else(|| name.clone());
     let version = package
         .get("version")
         .and_then(|value| value.get::<String>())
@@ -678,8 +684,9 @@ fn project_package_dependency(value: &JsonValue) -> Option<ProjectPackageDepende
         .unwrap_or_default();
     let pin = package
         .get("pin")
-        .and_then(|value| value.get::<String>())
-        .cloned();
+        .and_then(|value| value.get::<bool>())
+        .copied()
+        .unwrap_or(false);
 
     if name.trim().is_empty() {
         return None;
@@ -687,6 +694,7 @@ fn project_package_dependency(value: &JsonValue) -> Option<ProjectPackageDepende
 
     Some(ProjectPackageDependency {
         name,
+        ident,
         version,
         pin,
         source,
@@ -749,7 +757,12 @@ fn verify_package_dependency(
         return match read_mfp_header(&package_file) {
             Ok(header) => PackageVerifyResult {
                 version: header.version.clone(),
-                status: package_dependency_status(dependency, &header.name, &header.version),
+                status: package_dependency_status(
+                    dependency,
+                    &header.name,
+                    &header.ident,
+                    &header.version,
+                ),
             },
             Err(_) => PackageVerifyResult {
                 version: String::new(),
@@ -803,47 +816,38 @@ fn verify_source_package_manifest(
             status: PackageVerifyStatus::InvalidPackage,
         };
     };
+    let actual_ident = manifest
+        .get("ident")
+        .and_then(|value| value.get::<String>())
+        .map(String::as_str)
+        .unwrap_or(actual_name);
 
     PackageVerifyResult {
         version: actual_version.clone(),
-        status: package_dependency_status(dependency, actual_name, actual_version),
+        status: package_dependency_status(dependency, actual_name, actual_ident, actual_version),
     }
 }
 
 fn package_dependency_status(
     dependency: &ProjectPackageDependency,
     actual_name: &str,
+    actual_ident: &str,
     actual_version: &str,
 ) -> PackageVerifyStatus {
-    if let Some(pin) = &dependency.pin {
-        if dependency.name != actual_name {
-            return PackageVerifyStatus::InvalidPackage;
-        }
-        if pin == actual_version {
-            PackageVerifyStatus::Ok
-        } else {
-            PackageVerifyStatus::NeedsUpdate
-        }
+    if dependency.name != actual_name {
+        return PackageVerifyStatus::InvalidPackage;
+    }
+    if !dependency.ident.is_empty() && !actual_ident.is_empty() && dependency.ident != actual_ident {
+        return PackageVerifyStatus::InvalidPackage;
+    }
+    if dependency.pin {
+        package_version_status(&dependency.version, actual_version)
     } else {
-        package_identity_status(
-            &dependency.name,
-            &dependency.version,
-            actual_name,
-            actual_version,
-        )
+        package_version_status(&dependency.version, actual_version)
     }
 }
 
-fn package_identity_status(
-    expected_name: &str,
-    expected_version: &str,
-    actual_name: &str,
-    actual_version: &str,
-) -> PackageVerifyStatus {
-    if expected_name != actual_name {
-        return PackageVerifyStatus::InvalidPackage;
-    }
-
+fn package_version_status(expected_version: &str, actual_version: &str) -> PackageVerifyStatus {
     if package_version_matches(expected_version, actual_version) {
         PackageVerifyStatus::Ok
     } else {
@@ -852,66 +856,7 @@ fn package_identity_status(
 }
 
 fn package_version_matches(expected: &str, actual: &str) -> bool {
-    if expected.is_empty() {
-        return true;
-    }
-    if let Some(expected) = expected.strip_prefix('=') {
-        return expected == actual;
-    }
-    if let Some(expected) = expected.strip_prefix('^') {
-        return version_in_caret_range(expected, actual);
-    }
-    if let Some(expected) = expected.strip_prefix('~') {
-        return version_in_tilde_range(expected, actual);
-    }
-    expected == actual
-}
-
-fn version_in_caret_range(expected: &str, actual: &str) -> bool {
-    let Some(expected) = parse_semver_core(expected) else {
-        return expected == actual;
-    };
-    let Some(actual) = parse_semver_core(actual) else {
-        return false;
-    };
-
-    if actual < expected {
-        return false;
-    }
-
-    if expected.0 > 0 {
-        actual.0 == expected.0
-    } else if expected.1 > 0 {
-        actual.0 == 0 && actual.1 == expected.1
-    } else {
-        actual.0 == 0 && actual.1 == 0 && actual.2 == expected.2
-    }
-}
-
-fn version_in_tilde_range(expected: &str, actual: &str) -> bool {
-    let Some(expected) = parse_semver_core(expected) else {
-        return expected == actual;
-    };
-    let Some(actual) = parse_semver_core(actual) else {
-        return false;
-    };
-
-    actual >= expected && actual.0 == expected.0 && actual.1 == expected.1
-}
-
-fn parse_semver_core(version: &str) -> Option<(u64, u64, u64)> {
-    let core = version
-        .split_once(['-', '+'])
-        .map(|(core, _)| core)
-        .unwrap_or(version);
-    let mut parts = core.split('.');
-    let major = parts.next()?.parse().ok()?;
-    let minor = parts.next()?.parse().ok()?;
-    let patch = parts.next()?.parse().ok()?;
-    if parts.next().is_some() {
-        return None;
-    }
-    Some((major, minor, patch))
+    expected.is_empty() || expected == actual
 }
 
 fn show_man(args: &[String]) -> Result<(), String> {
@@ -1158,7 +1103,9 @@ fn parse_project_json(
 
 struct MfpHeader {
     name: String,
+    ident: String,
     version: String,
+    ident_key: String,
     author: String,
     url: String,
     container_major: u16,
@@ -1173,8 +1120,9 @@ struct MfpHeader {
 
 struct ProjectPackageDependency {
     name: String,
+    ident: String,
     version: String,
-    pin: Option<String>,
+    pin: bool,
     source: String,
 }
 
@@ -1283,7 +1231,9 @@ fn read_mfp_header(path: &Path) -> Result<MfpHeader, String> {
     }
 
     let name = read_mfp_string(&bytes, &mut offset, "name", 255, true)?;
+    let ident = read_mfp_string(&bytes, &mut offset, "ident", 255, false)?;
     let version = read_mfp_string(&bytes, &mut offset, "version", 64, true)?;
+    let ident_key = read_mfp_string(&bytes, &mut offset, "identKey", 255, false)?;
     let author = read_mfp_string(&bytes, &mut offset, "author", 512, false)?;
     let url = read_mfp_string(&bytes, &mut offset, "url", 2048, false)?;
     let bytecode_length = read_u64(&bytes, offset)? as usize;
@@ -1297,7 +1247,9 @@ fn read_mfp_header(path: &Path) -> Result<MfpHeader, String> {
 
     Ok(MfpHeader {
         name,
+        ident,
         version,
+        ident_key,
         author,
         url,
         container_major,
@@ -1663,13 +1615,11 @@ fn installed_package_files(
                 .join(format!("{}.mfp", dependency.name));
             if package_file.is_file() {
                 let header = read_mfp_header(&package_file)?;
-                if let Some(pin) = &dependency.pin {
-                    if header.version != *pin {
-                        return Err(format!(
-                            "package `{}` is pinned to version {}, but installed package is version {}",
-                            dependency.name, pin, header.version
-                        ));
-                    }
+                if dependency.pin && header.version != dependency.version {
+                    return Err(format!(
+                        "package `{}` is pinned to version {}, but installed package is version {}",
+                        dependency.name, dependency.version, header.version
+                    ));
                 }
                 Ok(package_file)
             } else {
@@ -1753,6 +1703,17 @@ fn package_metadata(manifest: &HashMap<String, JsonValue>) -> bytecode::Bytecode
         .expect("validated project version")
         .clone();
     let mut metadata = bytecode::BytecodeMetadata::new(name, version);
+    metadata.ident = manifest
+        .get("ident")
+        .and_then(|value| value.get::<String>())
+        .cloned()
+        .unwrap_or_default();
+    metadata.ident_key = manifest
+        .get("identKey")
+        .or_else(|| manifest.get("ident_key"))
+        .and_then(|value| value.get::<String>())
+        .cloned()
+        .unwrap_or_default();
     metadata.author = manifest
         .get("author")
         .and_then(|value| value.get::<String>())
@@ -1778,38 +1739,30 @@ fn package_dependencies(
         .filter_map(|package| package.get::<HashMap<String, JsonValue>>())
         .filter_map(|package| {
             let name = package.get("name")?.get::<String>()?.clone();
+            let ident = package
+                .get("ident")
+                .and_then(|value| value.get::<String>())
+                .cloned()
+                .unwrap_or_else(|| name.clone());
             let version = package
                 .get("version")
                 .and_then(|value| value.get::<String>())
-                .map(String::as_str)
-                .unwrap_or("");
-            let (version_min, version_max, flags) = dependency_version_range(version);
+                .cloned()
+                .unwrap_or_default();
             let pin = package
                 .get("pin")
-                .and_then(|value| value.get::<String>())
-                .cloned();
+                .and_then(|value| value.get::<bool>())
+                .copied()
+                .unwrap_or(false);
             Some(bytecode::BytecodeDependency {
                 name,
-                version_min,
-                version_max,
-                flags,
+                ident,
+                version,
                 pin,
+                flags: 0,
             })
         })
         .collect()
-}
-
-fn dependency_version_range(version: &str) -> (String, String, u32) {
-    if let Some(version) = version.strip_prefix('^') {
-        return (version.to_string(), String::new(), 1 << 1);
-    }
-    if let Some(version) = version.strip_prefix('~') {
-        return (version.to_string(), String::new(), 1 << 2);
-    }
-    if version.is_empty() {
-        return (String::new(), String::new(), 0);
-    }
-    (version.to_string(), version.to_string(), 1)
 }
 
 fn validate_packages_array(manifest: &HashMap<String, JsonValue>) -> Result<(), String> {
@@ -1857,15 +1810,12 @@ fn project_json_with_package(
 fn package_dependency_json(dependency: &ProjectPackageDependency, indent: usize) -> String {
     let pad = " ".repeat(indent);
     let field_pad = " ".repeat(indent + 2);
-    let pin = dependency
-        .pin
-        .as_ref()
-        .map(|pin| format!(",\n{field_pad}\"pin\": {}", json_string(pin)))
-        .unwrap_or_default();
     format!(
-        "{pad}{{\n{field_pad}\"name\": {},\n{field_pad}\"version\": {}{pin},\n{field_pad}\"source\": {}\n{pad}}}",
+        "{pad}{{\n{field_pad}\"name\": {},\n{field_pad}\"ident\": {},\n{field_pad}\"version\": {},\n{field_pad}\"pin\": {},\n{field_pad}\"source\": {}\n{pad}}}",
         json_string(&dependency.name),
+        json_string(&dependency.ident),
         json_string(&dependency.version),
+        dependency.pin,
         json_string(&dependency.source),
         pad = pad,
         field_pad = field_pad,
@@ -2163,8 +2113,9 @@ mod tests {
         let manifest = parse_project_json(contents, Path::new("project.json")).expect("manifest");
         let dependency = ProjectPackageDependency {
             name: "shape".to_string(),
-            version: "=1.0.0".to_string(),
-            pin: None,
+            ident: "ada#shape".to_string(),
+            version: "1.0.0".to_string(),
+            pin: true,
             source: "file:///tmp/source/shape.mfp".to_string(),
         };
 
@@ -2173,6 +2124,9 @@ mod tests {
 
         assert!(updated.contains("\"packages\": ["));
         assert!(updated.contains("\"name\": \"shape\""));
+        assert!(updated.contains("\"ident\": \"ada#shape\""));
+        assert!(updated.contains("\"version\": \"1.0.0\""));
+        assert!(updated.contains("\"pin\": true"));
         assert!(updated.contains("\"source\": \"file:///tmp/source/shape.mfp\""));
         assert!(updated.parse::<JsonValue>().is_ok());
     }
@@ -2188,7 +2142,9 @@ mod tests {
             "  \"packages\": [\n",
             "    {\n",
             "      \"name\": \"math\",\n",
-            "      \"version\": \"=1.0.0\",\n",
+            "      \"ident\": \"std#math\",\n",
+            "      \"version\": \"1.0.0\",\n",
+            "      \"pin\": true,\n",
             "      \"source\": \"file:packages/math.mfp\"\n",
             "    }\n",
             "  ]\n",
@@ -2197,8 +2153,9 @@ mod tests {
         let manifest = parse_project_json(contents, Path::new("project.json")).expect("manifest");
         let dependency = ProjectPackageDependency {
             name: "shape".to_string(),
-            version: "=1.0.0".to_string(),
-            pin: None,
+            ident: "ada#shape".to_string(),
+            version: "1.0.0".to_string(),
+            pin: true,
             source: "file:///tmp/source/shape.mfp".to_string(),
         };
 
@@ -2211,34 +2168,45 @@ mod tests {
 
     #[test]
     fn package_verify_status_checks_name_and_version() {
+        let dependency = ProjectPackageDependency {
+            name: "shape".to_string(),
+            ident: "ada#shape".to_string(),
+            version: "1.2.3".to_string(),
+            pin: true,
+            source: "registry:mfb".to_string(),
+        };
         assert_eq!(
-            package_identity_status("shape", "=1.2.3", "shape", "1.2.3"),
+            package_dependency_status(&dependency, "shape", "ada#shape", "1.2.3"),
             PackageVerifyStatus::Ok
         );
         assert_eq!(
-            package_identity_status("shape", "=1.2.3", "shape", "1.2.4"),
+            package_dependency_status(&dependency, "shape", "ada#shape", "1.2.4"),
             PackageVerifyStatus::NeedsUpdate
         );
         assert_eq!(
-            package_identity_status("shape", "=1.2.3", "color", "1.2.3"),
+            package_dependency_status(&dependency, "color", "ada#shape", "1.2.3"),
+            PackageVerifyStatus::InvalidPackage
+        );
+        assert_eq!(
+            package_dependency_status(&dependency, "shape", "other#shape", "1.2.3"),
             PackageVerifyStatus::InvalidPackage
         );
     }
 
     #[test]
-    fn package_verify_supports_semver_ranges() {
-        assert!(package_version_matches("^1.2.3", "1.9.0"));
-        assert!(!package_version_matches("^1.2.3", "2.0.0"));
-        assert!(package_version_matches("~1.2.3", "1.2.9"));
-        assert!(!package_version_matches("~1.2.3", "1.3.0"));
+    fn package_verify_rejects_range_syntax_as_literal_version() {
+        assert!(!package_version_matches("^1.2.3", "1.9.0"));
+        assert!(!package_version_matches("~1.2.3", "1.2.9"));
+        assert!(package_version_matches("1.2.3", "1.2.3"));
     }
 
     #[test]
     fn package_verify_line_shows_project_and_package_versions() {
         let dependency = ProjectPackageDependency {
             name: "shape".to_string(),
-            version: "^1.2.0".to_string(),
-            pin: None,
+            ident: "ada#shape".to_string(),
+            version: "1.2.0".to_string(),
+            pin: false,
             source: "registry:mfb".to_string(),
         };
 
@@ -2250,7 +2218,7 @@ mod tests {
                     status: PackageVerifyStatus::Ok,
                 }
             ),
-            "shape @ ^1.2.0 : OK (1.2.3)"
+            "shape @ 1.2.0 : OK (1.2.3)"
         );
         assert_eq!(
             package_verify_line(
@@ -2260,7 +2228,7 @@ mod tests {
                     status: PackageVerifyStatus::InvalidPackage,
                 }
             ),
-            "shape @ ^1.2.0 : Invalid Package"
+            "shape @ 1.2.0 : Invalid Package"
         );
     }
 
@@ -2274,6 +2242,7 @@ mod tests {
             concat!(
                 "{\n",
                 "  \"name\": \"shape\",\n",
+                "  \"ident\": \"ada#shape\",\n",
                 "  \"version\": \"1.2.3\",\n",
                 "  \"mfb\": \"1.0\",\n",
                 "  \"kind\": \"package\",\n",
@@ -2285,8 +2254,9 @@ mod tests {
 
         let dependency = ProjectPackageDependency {
             name: "shape".to_string(),
-            version: "^1.2.0".to_string(),
-            pin: None,
+            ident: "ada#shape".to_string(),
+            version: "1.2.3".to_string(),
+            pin: false,
             source: "registry:mfb".to_string(),
         };
 

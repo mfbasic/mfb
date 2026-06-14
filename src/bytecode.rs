@@ -4,7 +4,7 @@ use crate::builtins;
 use crate::ir::{IrFunction, IrMatchPattern, IrOp, IrProject, IrType, IrValue};
 use crate::numeric;
 use sha2::{Digest, Sha256};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -269,7 +269,9 @@ pub fn build_merged_bytecode_bytes(
 #[derive(Clone)]
 pub struct BytecodeMetadata {
     pub name: String,
+    pub ident: String,
     pub version: String,
+    pub ident_key: String,
     pub author: String,
     pub url: String,
     pub dependencies: Vec<BytecodeDependency>,
@@ -279,7 +281,9 @@ impl BytecodeMetadata {
     pub fn new(name: String, version: String) -> Self {
         Self {
             name,
+            ident: String::new(),
             version,
+            ident_key: String::new(),
             author: String::new(),
             url: String::new(),
             dependencies: Vec::new(),
@@ -290,10 +294,10 @@ impl BytecodeMetadata {
 #[derive(Clone)]
 pub struct BytecodeDependency {
     pub name: String,
-    pub version_min: String,
-    pub version_max: String,
+    pub ident: String,
+    pub version: String,
+    pub pin: bool,
     pub flags: u32,
-    pub pin: Option<String>,
 }
 
 #[derive(Clone)]
@@ -319,7 +323,9 @@ pub struct BytecodeExportParam {
 
 pub struct BytecodePackageInfo {
     pub manifest_name: String,
+    pub manifest_ident: String,
     pub manifest_version: String,
+    pub manifest_ident_key: String,
     pub author: String,
     pub url: String,
     pub type_count: usize,
@@ -341,11 +347,10 @@ pub struct BytecodePackageInfoExport {
 
 pub struct BytecodePackageInfoImport {
     pub package_name: String,
-    pub version_min: String,
-    pub version_max: String,
+    pub package_ident: String,
+    pub version: String,
+    pub pin: bool,
     pub flags: u32,
-    pub abi_version_request: String,
-    pub abi_pin: bool,
     pub used_symbols: Vec<BytecodePackageInfoUsedSymbol>,
 }
 
@@ -631,13 +636,28 @@ pub fn read_package_info(path: &Path) -> Result<BytecodePackageInfo, String> {
 fn read_package_bytecode(path: &Path) -> Result<PackageBytecode, String> {
     let package =
         fs::read(path).map_err(|err| format!("failed to read '{}': {err}", path.display()))?;
-    let bytecode = mfp_bytecode_payload(&package)
+    let container = mfp_bytecode_payload(&package)
         .map_err(|err| format!("failed to read '{}': {err}", path.display()))?;
-    read_bytecode_package(bytecode)
-        .map_err(|err| format!("failed to read '{}': {err}", path.display()))
+    let package = read_bytecode_package(container.bytecode)
+        .map_err(|err| format!("failed to read '{}': {err}", path.display()))?;
+    validate_container_manifest_identity(&container.identity, &package)
+        .map_err(|err| format!("failed to read '{}': {err}", path.display()))?;
+    Ok(package)
 }
 
-fn mfp_bytecode_payload(bytes: &[u8]) -> Result<&[u8], String> {
+struct MfpContainer<'a> {
+    identity: MfpIdentity,
+    bytecode: &'a [u8],
+}
+
+struct MfpIdentity {
+    name: String,
+    ident: String,
+    version: String,
+    ident_key: String,
+}
+
+fn mfp_bytecode_payload(bytes: &[u8]) -> Result<MfpContainer<'_>, String> {
     const MFP_MAGIC: [u8; 8] = [0x4d, 0x46, 0x50, 0x0d, 0x0a, 0x1a, 0x0a, 0x00];
     if bytes.len() < 26 {
         return Err("package is too small to be a valid .mfp package".to_string());
@@ -659,8 +679,10 @@ fn mfp_bytecode_payload(bytes: &[u8]) -> Result<&[u8], String> {
         return Err("truncated .mfp signature".to_string());
     }
 
-    skip_length_prefixed(bytes, &mut offset, "name")?;
-    skip_length_prefixed(bytes, &mut offset, "version")?;
+    let name = read_length_prefixed(bytes, &mut offset, "name")?;
+    let ident = read_length_prefixed(bytes, &mut offset, "ident")?;
+    let version = read_length_prefixed(bytes, &mut offset, "version")?;
+    let ident_key = read_length_prefixed(bytes, &mut offset, "identKey")?;
     skip_length_prefixed(bytes, &mut offset, "author")?;
     skip_length_prefixed(bytes, &mut offset, "url")?;
     let bytecode_length = checked_u64_at(bytes, offset)? as usize;
@@ -673,7 +695,35 @@ fn mfp_bytecode_payload(bytes: &[u8]) -> Result<&[u8], String> {
     if end != bytes.len() {
         return Err("invalid .mfp bytecode length".to_string());
     }
-    Ok(&bytes[offset..end])
+    Ok(MfpContainer {
+        identity: MfpIdentity {
+            name,
+            ident,
+            version,
+            ident_key,
+        },
+        bytecode: &bytes[offset..end],
+    })
+}
+
+fn validate_container_manifest_identity(
+    identity: &MfpIdentity,
+    package: &PackageBytecode,
+) -> Result<(), String> {
+    let strings = &package.project.strings.values;
+    let manifest = &package.project.manifest;
+    let manifest_name = string_at(strings, manifest.package_name)?;
+    let manifest_ident = string_at(strings, manifest.package_ident)?;
+    let manifest_version = string_at(strings, manifest.package_version)?;
+    let manifest_ident_key = string_at(strings, manifest.ident_key)?;
+    if identity.name != manifest_name
+        || identity.ident != manifest_ident
+        || identity.version != manifest_version
+        || identity.ident_key != manifest_ident_key
+    {
+        return Err("MFP header identity does not match bytecode manifest identity".to_string());
+    }
+    Ok(())
 }
 
 fn read_bytecode_package(bytes: &[u8]) -> Result<PackageBytecode, String> {
@@ -864,7 +914,15 @@ fn package_info(package: &PackageBytecode) -> Result<BytecodePackageInfo, String
         .abi
         .dep_edges
         .iter()
-        .map(|edge| Ok((string_at(strings, edge.package_name)?.to_string(), edge)))
+        .map(|edge| {
+            Ok((
+                (
+                    string_at(strings, edge.package_name)?.to_string(),
+                    string_at(strings, edge.package_ident)?.to_string(),
+                ),
+                edge,
+            ))
+        })
         .collect::<Result<HashMap<_, _>, String>>()?;
 
     let imports = package
@@ -874,7 +932,8 @@ fn package_info(package: &PackageBytecode) -> Result<BytecodePackageInfo, String
         .iter()
         .map(|entry| {
             let package_name = string_at(strings, entry.package_name)?.to_string();
-            let edge = abi_edges.remove(&package_name);
+            let package_ident = string_at(strings, entry.package_ident)?.to_string();
+            let edge = abi_edges.remove(&(package_name.clone(), package_ident.clone()));
             let used_symbols = edge
                 .map(|edge| {
                     edge.used_symbols
@@ -891,14 +950,10 @@ fn package_info(package: &PackageBytecode) -> Result<BytecodePackageInfo, String
                 .unwrap_or_default();
             Ok(BytecodePackageInfoImport {
                 package_name,
-                version_min: string_at(strings, entry.version_min)?.to_string(),
-                version_max: string_at(strings, entry.version_max)?.to_string(),
+                package_ident,
+                version: string_at(strings, entry.version)?.to_string(),
+                pin: entry.pin,
                 flags: entry.flags,
-                abi_version_request: edge
-                    .map(|edge| string_at(strings, edge.version_request).map(str::to_string))
-                    .transpose()?
-                    .unwrap_or_default(),
-                abi_pin: edge.is_some_and(|edge| edge.pin),
                 used_symbols,
             })
         })
@@ -906,7 +961,9 @@ fn package_info(package: &PackageBytecode) -> Result<BytecodePackageInfo, String
 
     Ok(BytecodePackageInfo {
         manifest_name: string_at(strings, package.project.manifest.package_name)?.to_string(),
+        manifest_ident: string_at(strings, package.project.manifest.package_ident)?.to_string(),
         manifest_version: string_at(strings, package.project.manifest.package_version)?.to_string(),
+        manifest_ident_key: string_at(strings, package.project.manifest.ident_key)?.to_string(),
         author: string_at(strings, package.project.manifest.author)?.to_string(),
         url: string_at(strings, package.project.manifest.url)?.to_string(),
         type_count: package.project.types.entries.len(),
@@ -1235,10 +1292,15 @@ fn read_manifest(bytes: &[u8]) -> Result<BytecodeManifest, String> {
     let mut offset = 0;
     let manifest = BytecodeManifest {
         package_name: cursor_u32(bytes, &mut offset)?,
+        package_ident: cursor_u32(bytes, &mut offset)?,
         package_version: cursor_u32(bytes, &mut offset)?,
+        ident_key: cursor_u32(bytes, &mut offset)?,
         author: cursor_u32(bytes, &mut offset)?,
         url: cursor_u32(bytes, &mut offset)?,
     };
+    if offset != bytes.len() {
+        return Err("invalid trailing bytes in manifest".to_string());
+    }
     Ok(manifest)
 }
 
@@ -1249,12 +1311,33 @@ fn read_import_table(bytes: &[u8]) -> Result<ImportTable, String> {
     for _ in 0..count {
         entries.push(ImportEntry {
             package_name: cursor_u32(bytes, &mut offset)?,
-            version_min: cursor_u32(bytes, &mut offset)?,
-            version_max: cursor_u32(bytes, &mut offset)?,
+            package_ident: cursor_u32(bytes, &mut offset)?,
+            version: cursor_u32(bytes, &mut offset)?,
+            pin: match cursor_u8(bytes, &mut offset)? {
+                0 => false,
+                1 => true,
+                other => return Err(format!("unsupported import pin value {other}")),
+            },
             flags: cursor_u32(bytes, &mut offset)?,
+            used_symbols: read_used_symbols(bytes, &mut offset)?,
         });
     }
+    if offset != bytes.len() {
+        return Err("invalid trailing bytes in import table".to_string());
+    }
     Ok(ImportTable { entries })
+}
+
+fn read_used_symbols(bytes: &[u8], offset: &mut usize) -> Result<Vec<AbiUsedSymbol>, String> {
+    let count = cursor_u32(bytes, offset)? as usize;
+    let mut symbols = Vec::with_capacity(count);
+    for _ in 0..count {
+        symbols.push(AbiUsedSymbol {
+            name: cursor_u32(bytes, offset)?,
+            sig_hash: cursor_hash(bytes, offset)?,
+        });
+    }
+    Ok(symbols)
 }
 
 fn read_resource_table(bytes: &[u8]) -> Result<ResourceTable, String> {
@@ -1325,6 +1408,7 @@ fn read_abi_index(bytes: &[u8]) -> Result<AbiIndex, String> {
     let mut dep_edges = Vec::with_capacity(edge_count);
     for _ in 0..edge_count {
         let package_name = cursor_u32(bytes, &mut offset)?;
+        let package_ident = cursor_u32(bytes, &mut offset)?;
         let version_request = cursor_u32(bytes, &mut offset)?;
         let pin = match cursor_u8(bytes, &mut offset)? {
             0 => false,
@@ -1341,6 +1425,7 @@ fn read_abi_index(bytes: &[u8]) -> Result<AbiIndex, String> {
         }
         dep_edges.push(AbiDepEdge {
             package_name,
+            package_ident,
             version_request,
             pin,
             used_symbols,
@@ -1394,15 +1479,51 @@ fn validate_abi_index(
     let import_names = imports
         .entries
         .iter()
-        .map(|entry| string_at(strings, entry.package_name).map(str::to_string))
+        .map(|entry| {
+            Ok::<(String, String), String>((
+                string_at(strings, entry.package_name)?.to_string(),
+                string_at(strings, entry.package_ident)?.to_string(),
+            ))
+        })
         .collect::<Result<Vec<_>, _>>()?;
     let edge_names = abi
         .dep_edges
         .iter()
-        .map(|edge| string_at(strings, edge.package_name).map(str::to_string))
+        .map(|edge| {
+            Ok::<(String, String), String>((
+                string_at(strings, edge.package_name)?.to_string(),
+                string_at(strings, edge.package_ident)?.to_string(),
+            ))
+        })
         .collect::<Result<Vec<_>, _>>()?;
-    if sorted_strings(import_names) != sorted_strings(edge_names) {
+    if sorted_pairs(import_names) != sorted_pairs(edge_names) {
         return Err("ABI_INDEX dependency edges disagree with IMPORT_TABLE entries".to_string());
+    }
+
+    for import in &imports.entries {
+        let Some(edge) = abi.dep_edges.iter().find(|edge| {
+            edge.package_name == import.package_name && edge.package_ident == import.package_ident
+        }) else {
+            continue;
+        };
+        if edge.version_request != import.version || edge.pin != import.pin {
+            let name = string_at(strings, import.package_name).unwrap_or("<invalid>");
+            return Err(format!(
+                "ABI_INDEX dependency edge `{name}` disagrees with IMPORT_TABLE request"
+            ));
+        }
+        if edge.used_symbols.len() != import.used_symbols.len()
+            || edge
+                .used_symbols
+                .iter()
+                .zip(import.used_symbols.iter())
+                .any(|(a, b)| a.name != b.name || a.sig_hash != b.sig_hash)
+        {
+            let name = string_at(strings, import.package_name).unwrap_or("<invalid>");
+            return Err(format!(
+                "ABI_INDEX dependency edge `{name}` disagrees with IMPORT_TABLE used symbols"
+            ));
+        }
     }
 
     Ok(())
@@ -1649,6 +1770,11 @@ fn sorted_strings(mut values: Vec<String>) -> Vec<String> {
     values
 }
 
+fn sorted_pairs(mut values: Vec<(String, String)>) -> Vec<(String, String)> {
+    values.sort();
+    values
+}
+
 fn hex_hash(hash: &[u8; ABI_HASH_LEN]) -> String {
     hash.iter().map(|byte| format!("{byte:02x}")).collect()
 }
@@ -1663,6 +1789,22 @@ fn skip_length_prefixed(bytes: &[u8], offset: &mut usize, field: &str) -> Result
     }
     *offset = end;
     Ok(())
+}
+
+fn read_length_prefixed(
+    bytes: &[u8],
+    offset: &mut usize,
+    field: &str,
+) -> Result<String, String> {
+    let length = cursor_u32(bytes, offset)? as usize;
+    let end = offset
+        .checked_add(length)
+        .ok_or_else(|| format!("invalid .mfp {field} length"))?;
+    let value = bytes
+        .get(*offset..end)
+        .ok_or_else(|| format!("truncated .mfp {field}"))?;
+    *offset = end;
+    String::from_utf8(value.to_vec()).map_err(|_| format!(".mfp {field} is not valid UTF-8"))
 }
 
 fn cursor_u8(bytes: &[u8], offset: &mut usize) -> Result<u8, String> {
@@ -2085,7 +2227,9 @@ struct PackageBytecode {
 
 struct BytecodeManifest {
     package_name: u32,
+    package_ident: u32,
     package_version: u32,
+    ident_key: u32,
     author: u32,
     url: u32,
 }
@@ -2131,9 +2275,11 @@ struct ImportTable {
 
 struct ImportEntry {
     package_name: u32,
-    version_min: u32,
-    version_max: u32,
+    package_ident: u32,
+    version: u32,
+    pin: bool,
     flags: u32,
+    used_symbols: Vec<AbiUsedSymbol>,
 }
 
 #[derive(Clone)]
@@ -2152,6 +2298,7 @@ struct AbiExport {
 #[derive(Clone)]
 struct AbiDepEdge {
     package_name: u32,
+    package_ident: u32,
     version_request: u32,
     pin: bool,
     used_symbols: Vec<AbiUsedSymbol>,
@@ -2321,7 +2468,13 @@ struct Cleanup {
 }
 
 fn lower_project(ir: &IrProject, metadata: &BytecodeMetadata) -> Result<BytecodeProject, String> {
-    lower_project_with_external_functions(ir, metadata, &HashMap::new(), &HashMap::new())
+    lower_project_with_external_functions(
+        ir,
+        metadata,
+        &HashMap::new(),
+        &HashMap::new(),
+        &HashMap::new(),
+    )
 }
 
 fn lower_merged_project(
@@ -2336,6 +2489,7 @@ fn lower_merged_project(
     let app_function_count = ir.functions.len() as u32;
     let mut external_function_ids = HashMap::new();
     let mut external_function_returns = HashMap::new();
+    let mut external_function_abi_hashes = HashMap::new();
     let mut next_function_id = app_function_count;
     for package in &packages {
         let package_name = string_at(
@@ -2343,7 +2497,7 @@ fn lower_merged_project(
             package.project.manifest.package_name,
         )?;
         let type_names = type_entry_names(&package.project.types, &package.project.strings.values)?;
-        for export in &package.exports {
+        for (export, abi_export) in package.exports.iter().zip(package.project.abi.exports.iter()) {
             let function = package
                 .project
                 .functions
@@ -2352,6 +2506,11 @@ fn lower_merged_project(
                     format!("export references missing function {}", export.function_id)
                 })?;
             let export_name = string_at(&package.project.strings.values, export.name)?;
+            if export.name != abi_export.name || export.kind != abi_export.kind {
+                return Err(format!(
+                    "ABI_INDEX export `{export_name}` disagrees with EXPORT_TABLE order"
+                ));
+            }
             external_function_ids.insert(
                 format!("{package_name}.{export_name}"),
                 next_function_id + export.function_id,
@@ -2360,6 +2519,8 @@ fn lower_merged_project(
                 format!("{package_name}.{export_name}"),
                 type_name(&type_names, function.return_type)?.to_string(),
             );
+            external_function_abi_hashes
+                .insert(format!("{package_name}.{export_name}"), abi_export.sig_hash);
         }
         next_function_id = next_function_id
             .checked_add(package.project.functions.len() as u32)
@@ -2371,6 +2532,7 @@ fn lower_merged_project(
         metadata,
         &external_function_ids,
         &external_function_returns,
+        &external_function_abi_hashes,
     )?;
     for package in packages {
         merge_package_bytecode(&mut project, package)?;
@@ -2390,15 +2552,23 @@ fn lower_project_with_external_functions(
     metadata: &BytecodeMetadata,
     external_function_ids: &HashMap<String, u32>,
     external_function_returns: &HashMap<String, String>,
+    external_function_abi_hashes: &HashMap<String, [u8; ABI_HASH_LEN]>,
 ) -> Result<BytecodeProject, String> {
     let mut strings = StringPool::new();
+    let ident = if metadata.ident.is_empty() {
+        &metadata.name
+    } else {
+        &metadata.ident
+    };
     let manifest = BytecodeManifest {
         package_name: strings.intern(&metadata.name),
+        package_ident: strings.intern(ident),
         package_version: strings.intern(&metadata.version),
+        ident_key: strings.intern(&metadata.ident_key),
         author: strings.intern(&metadata.author),
         url: strings.intern(&metadata.url),
     };
-    let imports = ImportTable::from_metadata(&mut strings, metadata);
+    let mut imports = ImportTable::from_metadata(&mut strings, metadata);
 
     let mut types = TypeTable::new();
     for ir_type in &ir.types {
@@ -2431,6 +2601,7 @@ fn lower_project_with_external_functions(
     }
 
     let mut functions = Vec::new();
+    let mut used_imported_functions = HashSet::new();
     for function in &ir.functions {
         functions.push(lower_function(
             function,
@@ -2441,8 +2612,15 @@ fn lower_project_with_external_functions(
             &function_return_types,
             &function_return_type_names,
             &type_model,
+            external_function_abi_hashes,
+            &mut used_imported_functions,
         )?);
     }
+    imports.record_used_imports(
+        &mut strings,
+        &used_imported_functions,
+        external_function_abi_hashes,
+    );
     let abi = AbiIndex::from_project(&strings, &types, &constants, &imports, &functions)?;
 
     let (entry_function, entry_flags) = if let Some(entry) = &ir.entry {
@@ -2926,6 +3104,8 @@ fn lower_function(
     function_return_types: &HashMap<String, u32>,
     function_return_type_names: &HashMap<String, String>,
     type_model: &TypeModel,
+    external_function_abi_hashes: &HashMap<String, [u8; ABI_HASH_LEN]>,
+    used_imported_functions: &mut HashSet<String>,
 ) -> Result<Function, String> {
     let mut builder = FunctionBuilder::new(
         strings,
@@ -2935,6 +3115,8 @@ fn lower_function(
         function_return_types,
         function_return_type_names,
         type_model,
+        external_function_abi_hashes,
+        used_imported_functions,
     );
     let mut params = Vec::new();
     let mut locals = HashMap::new();
@@ -3008,6 +3190,8 @@ struct FunctionBuilder<'a> {
     function_return_types: &'a HashMap<String, u32>,
     function_return_type_names: &'a HashMap<String, String>,
     type_model: &'a TypeModel,
+    external_function_abi_hashes: &'a HashMap<String, [u8; ABI_HASH_LEN]>,
+    used_imported_functions: &'a mut HashSet<String>,
     registers: Vec<Register>,
     code: Vec<Instruction>,
     cleanups: Vec<Cleanup>,
@@ -3042,6 +3226,8 @@ impl<'a> FunctionBuilder<'a> {
         function_return_types: &'a HashMap<String, u32>,
         function_return_type_names: &'a HashMap<String, String>,
         type_model: &'a TypeModel,
+        external_function_abi_hashes: &'a HashMap<String, [u8; ABI_HASH_LEN]>,
+        used_imported_functions: &'a mut HashSet<String>,
     ) -> Self {
         Self {
             strings,
@@ -3051,6 +3237,8 @@ impl<'a> FunctionBuilder<'a> {
             function_return_types,
             function_return_type_names,
             type_model,
+            external_function_abi_hashes,
+            used_imported_functions,
             registers: Vec::new(),
             code: Vec::new(),
             cleanups: Vec::new(),
@@ -3386,6 +3574,9 @@ impl<'a> FunctionBuilder<'a> {
                     .function_ids
                     .get(target)
                     .ok_or_else(|| format!("IR references unknown function `{target}`"))?;
+                if self.external_function_abi_hashes.contains_key(target) {
+                    self.used_imported_functions.insert(target.clone());
+                }
                 let return_type = self.call_return_type(target)?;
                 let return_type_name = self.call_return_type_name(target)?.to_string();
                 let result_type = self.types.result_type(self.strings, return_type);
@@ -4503,17 +4694,60 @@ impl ImportTable {
             .iter()
             .map(|dependency| ImportEntry {
                 package_name: strings.intern(&dependency.name),
-                version_min: strings.intern(&dependency.version_min),
-                version_max: strings.intern(&dependency.version_max),
-                flags: if dependency.pin.is_some() {
-                    dependency.flags | (1 << 4)
+                package_ident: strings.intern(if dependency.ident.is_empty() {
+                    &dependency.name
                 } else {
-                    dependency.flags
-                },
+                    &dependency.ident
+                }),
+                version: strings.intern(&dependency.version),
+                pin: dependency.pin,
+                flags: dependency.flags,
+                used_symbols: Vec::new(),
             })
             .collect();
 
         Self { entries }
+    }
+
+    fn record_used_imports(
+        &mut self,
+        strings: &mut StringPool,
+        used_imported_functions: &HashSet<String>,
+        external_function_abi_hashes: &HashMap<String, [u8; ABI_HASH_LEN]>,
+    ) {
+        let import_names = self
+            .entries
+            .iter()
+            .map(|entry| {
+                (
+                    entry.package_name,
+                    strings.values[entry.package_name as usize].clone(),
+                )
+            })
+            .collect::<Vec<_>>();
+
+        for (package_name_id, package_name) in import_names {
+            let prefix = format!("{package_name}.");
+            let mut symbols = used_imported_functions
+                .iter()
+                .filter_map(|target| {
+                    let symbol_name = target.strip_prefix(&prefix)?;
+                    let sig_hash = *external_function_abi_hashes.get(target)?;
+                    Some(AbiUsedSymbol {
+                        name: strings.intern(symbol_name),
+                        sig_hash,
+                    })
+                })
+                .collect::<Vec<_>>();
+            symbols.sort_by_key(|symbol| strings.values[symbol.name as usize].clone());
+            if let Some(entry) = self
+                .entries
+                .iter_mut()
+                .find(|entry| entry.package_name == package_name_id)
+            {
+                entry.used_symbols = symbols;
+            }
+        }
     }
 
     fn encode(&self) -> Vec<u8> {
@@ -4521,9 +4755,15 @@ impl ImportTable {
         put_u32(&mut bytes, self.entries.len() as u32);
         for entry in &self.entries {
             put_u32(&mut bytes, entry.package_name);
-            put_u32(&mut bytes, entry.version_min);
-            put_u32(&mut bytes, entry.version_max);
+            put_u32(&mut bytes, entry.package_ident);
+            put_u32(&mut bytes, entry.version);
+            bytes.push(if entry.pin { 1 } else { 0 });
             put_u32(&mut bytes, entry.flags);
+            put_u32(&mut bytes, entry.used_symbols.len() as u32);
+            for symbol in &entry.used_symbols {
+                put_u32(&mut bytes, symbol.name);
+                bytes.extend_from_slice(&symbol.sig_hash);
+            }
         }
         bytes
     }
@@ -4559,9 +4799,10 @@ impl AbiIndex {
             .iter()
             .map(|entry| AbiDepEdge {
                 package_name: entry.package_name,
-                version_request: entry.version_min,
-                pin: entry.flags & (1 << 4) != 0,
-                used_symbols: Vec::new(),
+                package_ident: entry.package_ident,
+                version_request: entry.version,
+                pin: entry.pin,
+                used_symbols: entry.used_symbols.clone(),
             })
             .collect();
 
@@ -4587,6 +4828,7 @@ impl AbiIndex {
         put_u32(&mut bytes, self.dep_edges.len() as u32);
         for edge in &self.dep_edges {
             put_u32(&mut bytes, edge.package_name);
+            put_u32(&mut bytes, edge.package_ident);
             put_u32(&mut bytes, edge.version_request);
             bytes.push(if edge.pin { 1 } else { 0 });
             put_u32(&mut bytes, edge.used_symbols.len() as u32);
@@ -4636,7 +4878,9 @@ impl BytecodeProject {
     fn encode_manifest(&self) -> Vec<u8> {
         let mut bytes = Vec::new();
         put_u32(&mut bytes, self.manifest.package_name);
+        put_u32(&mut bytes, self.manifest.package_ident);
         put_u32(&mut bytes, self.manifest.package_version);
+        put_u32(&mut bytes, self.manifest.ident_key);
         put_u32(&mut bytes, self.manifest.author);
         put_u32(&mut bytes, self.manifest.url);
         put_u16(&mut bytes, 1);

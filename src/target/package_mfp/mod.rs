@@ -12,7 +12,9 @@ const SIGNATURE_UNSIGNED: u16 = 0;
 const FLAG_PRE_RELEASE: u32 = 1 << 3;
 
 const NAME_LIMIT: usize = 255;
+const IDENT_LIMIT: usize = 255;
 const VERSION_LIMIT: usize = 64;
+const IDENT_KEY_LIMIT: usize = 255;
 const AUTHOR_LIMIT: usize = 512;
 const URL_LIMIT: usize = 2048;
 
@@ -48,7 +50,9 @@ pub fn build_package_bytes(
     put_u16(&mut bytes, SIGNATURE_UNSIGNED);
     put_u32(&mut bytes, 0);
     put_bytes(&mut bytes, metadata.name.as_bytes());
+    put_bytes(&mut bytes, package_ident(metadata).as_bytes());
     put_bytes(&mut bytes, metadata.version.as_bytes());
+    put_bytes(&mut bytes, metadata.ident_key.as_bytes());
     put_bytes(&mut bytes, metadata.author.as_bytes());
     put_bytes(&mut bytes, metadata.url.as_bytes());
     put_u64(&mut bytes, package_bytecode.len() as u64);
@@ -58,10 +62,20 @@ pub fn build_package_bytes(
 
 fn validate_metadata(metadata: &BytecodeMetadata) -> Result<(), String> {
     validate_string("name", &metadata.name, NAME_LIMIT, true)?;
+    validate_string("ident", package_ident(metadata), IDENT_LIMIT, true)?;
     validate_string("version", &metadata.version, VERSION_LIMIT, true)?;
+    validate_string("identKey", &metadata.ident_key, IDENT_KEY_LIMIT, false)?;
     validate_string("author", &metadata.author, AUTHOR_LIMIT, false)?;
     validate_string("url", &metadata.url, URL_LIMIT, false)?;
     Ok(())
+}
+
+fn package_ident(metadata: &BytecodeMetadata) -> &str {
+    if metadata.ident.is_empty() {
+        &metadata.name
+    } else {
+        &metadata.ident
+    }
 }
 
 fn validate_string(field: &str, value: &str, limit: usize, required: bool) -> Result<(), String> {
@@ -110,7 +124,9 @@ mod tests {
     fn wraps_mfbc_payload_in_unsigned_mfp_container() {
         let metadata = BytecodeMetadata {
             name: "shape".to_string(),
+            ident: "ada#shape".to_string(),
             version: "1.2.3".to_string(),
+            ident_key: "ed25519:abc".to_string(),
             author: "Ada".to_string(),
             url: "https://example.invalid/shape".to_string(),
             dependencies: Vec::new(),
@@ -131,7 +147,9 @@ mod tests {
     fn rejects_non_bytecode_payload() {
         let metadata = BytecodeMetadata {
             name: "shape".to_string(),
+            ident: "ada#shape".to_string(),
             version: "1.2.3".to_string(),
+            ident_key: String::new(),
             author: String::new(),
             url: String::new(),
             dependencies: Vec::new(),
