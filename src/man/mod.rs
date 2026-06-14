@@ -200,7 +200,7 @@ fn parse_io_package() -> PackageDoc {
 }
 
 fn parse_fs_package() -> PackageDoc {
-    let page = include_str!("fs/package.txt");
+    let page = include_str!("builtins/fs/package.txt");
     let (name, summary) = parse_name_line(page).expect("fs package NAME line");
     let functions = generated::FS_FUNCTION_PAGES
         .iter()
@@ -218,7 +218,7 @@ fn parse_fs_package() -> PackageDoc {
 }
 
 fn parse_thread_package() -> PackageDoc {
-    let page = include_str!("thread/package.txt");
+    let page = include_str!("builtins/thread/package.txt");
     let (name, summary) = parse_name_line(page).expect("thread package NAME line");
     let functions = generated::THREAD_FUNCTION_PAGES
         .iter()

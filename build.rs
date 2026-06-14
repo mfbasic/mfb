@@ -11,8 +11,8 @@ fn main() {
     let strings_dir = manifest_dir.join("src/man/builtins/strings");
     let types_dir = manifest_dir.join("src/man/types");
     let io_dir = manifest_dir.join("src/man/builtins/io");
-    let fs_dir = manifest_dir.join("src/man/fs");
-    let thread_dir = manifest_dir.join("src/man/thread");
+    let fs_dir = manifest_dir.join("src/man/builtins/fs");
+    let thread_dir = manifest_dir.join("src/man/builtins/thread");
     let types_page = manifest_dir.join("src/man/types/package.txt");
     let errors_page = manifest_dir.join("src/man/errors/package.txt");
     let unicode_page = manifest_dir.join("src/man/unicode/package.txt");
