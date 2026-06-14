@@ -1,0 +1,13 @@
+IMPORT io
+IMPORT math
+
+FUNC main AS Integer
+  LET p AS Byte = 2
+  LET fixedNeg AS Fixed = 0 - toFixed("4.75")
+  io::print(toString(math::abs(-7)))
+  io::print(toString(math::abs(0)))
+  io::print(toString(math::abs(0.0 - 3.50), p))
+  io::print(toString(math::abs(2.25), p))
+  io::print(toString(math::abs(fixedNeg), p))
+  RETURN 0
+END FUNC

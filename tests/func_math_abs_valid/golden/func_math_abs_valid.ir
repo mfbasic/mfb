@@ -1,0 +1,32 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "func_math_abs_valid",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "mutable": false, "name": "p", "type": "Byte", "value": { "kind": "const", "type": "Byte", "value": "2" } },
+    { "op": "bind", "mutable": false, "name": "fixedNeg", "type": "Fixed", "value": { "kind": "binary", "op": "-", "left": { "kind": "const", "type": "Integer", "value": "0" }, "right": { "kind": "call", "target": "toFixed", "args": [{ "kind": "const", "type": "String", "value": "4.75" }] } } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "math.abs", "args": [{ "kind": "unary", "op": "-", "operand": { "kind": "const", "type": "Integer", "value": "7" } }] }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "math.abs", "args": [{ "kind": "const", "type": "Integer", "value": "0" }] }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "math.abs", "args": [{ "kind": "binary", "op": "-", "left": { "kind": "const", "type": "Float", "value": "0.0" }, "right": { "kind": "const", "type": "Float", "value": "3.50" } }] }, { "kind": "local", "name": "p" }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "math.abs", "args": [{ "kind": "const", "type": "Float", "value": "2.25" }] }, { "kind": "local", "name": "p" }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "math.abs", "args": [{ "kind": "local", "name": "fixedNeg" }] }, { "kind": "local", "name": "p" }] }] } },
+    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

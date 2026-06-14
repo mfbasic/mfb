@@ -8502,6 +8502,7 @@ mod builder_collection_updates;
 mod builder_control;
 mod builder_conversions;
 mod builder_fs_paths;
+mod builder_math;
 mod builder_misc;
 mod builder_numeric;
 mod builder_search;
@@ -8571,8 +8572,12 @@ impl CodeInstruction {
             CodeOp::FMovXFromD
             | CodeOp::FMovDFromX
             | CodeOp::FNegD
+            | CodeOp::FSqrtD
             | CodeOp::SCvtfDFromX
-            | CodeOp::FCvtzsXFromD => &["dst", "src"],
+            | CodeOp::FCvtzsXFromD
+            | CodeOp::FCvtmsXFromD
+            | CodeOp::FCvtpsXFromD
+            | CodeOp::FCvtasXFromD => &["dst", "src"],
             CodeOp::FCmpZeroD => &["src"],
         };
         for name in required {

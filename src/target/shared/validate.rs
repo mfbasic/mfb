@@ -858,6 +858,7 @@ fn validate_value(
                 || target == "toInt"
                 || target == "toString"
                 || target == "isNumeric"
+                || runtime::is_native_direct_call(target)
                 || locals
                     .get(target)
                     .is_some_and(|local| is_function_type(&local.type_))

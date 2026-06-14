@@ -55,9 +55,13 @@ pub(crate) enum CodeOp {
     FMulD,
     FDivD,
     FNegD,
+    FSqrtD,
     FCmpZeroD,
     SCvtfDFromX,
     FCvtzsXFromD,
+    FCvtmsXFromD,
+    FCvtpsXFromD,
+    FCvtasXFromD,
 }
 
 impl CodeOp {
@@ -118,9 +122,13 @@ impl CodeOp {
             CodeOp::FMulD => "fmul_d",
             CodeOp::FDivD => "fdiv_d",
             CodeOp::FNegD => "fneg_d",
+            CodeOp::FSqrtD => "fsqrt_d",
             CodeOp::FCmpZeroD => "fcmp_zero_d",
             CodeOp::SCvtfDFromX => "scvtf_d_from_x",
             CodeOp::FCvtzsXFromD => "fcvtzs_x_from_d",
+            CodeOp::FCvtmsXFromD => "fcvtms_x_from_d",
+            CodeOp::FCvtpsXFromD => "fcvtps_x_from_d",
+            CodeOp::FCvtasXFromD => "fcvtas_x_from_d",
         }
     }
 
@@ -181,9 +189,13 @@ impl CodeOp {
             "fmul_d" => Ok(CodeOp::FMulD),
             "fdiv_d" => Ok(CodeOp::FDivD),
             "fneg_d" => Ok(CodeOp::FNegD),
+            "fsqrt_d" => Ok(CodeOp::FSqrtD),
             "fcmp_zero_d" => Ok(CodeOp::FCmpZeroD),
             "scvtf_d_from_x" => Ok(CodeOp::SCvtfDFromX),
             "fcvtzs_x_from_d" => Ok(CodeOp::FCvtzsXFromD),
+            "fcvtms_x_from_d" => Ok(CodeOp::FCvtmsXFromD),
+            "fcvtps_x_from_d" => Ok(CodeOp::FCvtpsXFromD),
+            "fcvtas_x_from_d" => Ok(CodeOp::FCvtasXFromD),
             other => Err(format!("aarch64 code op '{other}' is not encodable")),
         }
     }

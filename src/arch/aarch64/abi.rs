@@ -404,6 +404,12 @@ pub(crate) fn float_negate_d(dst: &str, src: &str) -> CodeInstruction {
         .field("src", src)
 }
 
+pub(crate) fn float_sqrt_d(dst: &str, src: &str) -> CodeInstruction {
+    CodeInstruction::new("fsqrt_d")
+        .field("dst", dst)
+        .field("src", src)
+}
+
 pub(crate) fn float_compare_zero_d(src: &str) -> CodeInstruction {
     CodeInstruction::new("fcmp_zero_d").field("src", src)
 }
@@ -416,6 +422,24 @@ pub(crate) fn signed_convert_to_float_d(dst: &str, src: &str) -> CodeInstruction
 
 pub(crate) fn float_convert_to_signed_x(dst: &str, src: &str) -> CodeInstruction {
     CodeInstruction::new("fcvtzs_x_from_d")
+        .field("dst", dst)
+        .field("src", src)
+}
+
+pub(crate) fn float_floor_to_signed_x(dst: &str, src: &str) -> CodeInstruction {
+    CodeInstruction::new("fcvtms_x_from_d")
+        .field("dst", dst)
+        .field("src", src)
+}
+
+pub(crate) fn float_ceil_to_signed_x(dst: &str, src: &str) -> CodeInstruction {
+    CodeInstruction::new("fcvtps_x_from_d")
+        .field("dst", dst)
+        .field("src", src)
+}
+
+pub(crate) fn float_round_to_signed_x(dst: &str, src: &str) -> CodeInstruction {
+    CodeInstruction::new("fcvtas_x_from_d")
         .field("dst", dst)
         .field("src", src)
 }

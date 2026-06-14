@@ -94,6 +94,7 @@ pub(crate) trait NativePlanPlatform {
     fn entry_imports(&self, module: &NirModule) -> Vec<PlatformImport>;
     fn entry_error_imports(&self, module: &NirModule) -> Vec<PlatformImport>;
     fn runtime_imports(&self, spec: &runtime::RuntimeHelperSpec) -> Vec<PlatformImport>;
+    fn native_call_imports(&self, target: &str, required_by: &str) -> Vec<PlatformImport>;
 }
 
 pub(crate) fn lower_module_for_platform(
@@ -386,13 +387,19 @@ fn platform_imports(module: &NirModule, platform: &dyn NativePlanPlatform) -> Ve
         push_platform_import(&mut imports, import);
     }
     for function in &module.functions {
-        collect_platform_imports_from_ops(platform, &function.body, &mut imports);
+        collect_platform_imports_from_ops(
+            platform,
+            &nir::function_symbol(&function.name),
+            &function.body,
+            &mut imports,
+        );
     }
     imports
 }
 
 fn collect_platform_imports_from_ops(
     platform: &dyn NativePlanPlatform,
+    required_by: &str,
     ops: &[NirOp],
     imports: &mut Vec<PlatformImport>,
 ) {
@@ -400,37 +407,37 @@ fn collect_platform_imports_from_ops(
         match op {
             NirOp::Bind { value, .. } | NirOp::Return { value } => {
                 if let Some(value) = value {
-                    collect_platform_imports_from_value(platform, value, imports);
+                    collect_platform_imports_from_value(platform, required_by, value, imports);
                 }
             }
             NirOp::Fail { error } => {
-                collect_platform_imports_from_value(platform, error, imports);
+                collect_platform_imports_from_value(platform, required_by, error, imports);
             }
             NirOp::Assign { value, .. } | NirOp::Eval { value } => {
-                collect_platform_imports_from_value(platform, value, imports);
+                collect_platform_imports_from_value(platform, required_by, value, imports);
             }
             NirOp::If {
                 condition,
                 then_body,
                 else_body,
             } => {
-                collect_platform_imports_from_value(platform, condition, imports);
-                collect_platform_imports_from_ops(platform, then_body, imports);
-                collect_platform_imports_from_ops(platform, else_body, imports);
+                collect_platform_imports_from_value(platform, required_by, condition, imports);
+                collect_platform_imports_from_ops(platform, required_by, then_body, imports);
+                collect_platform_imports_from_ops(platform, required_by, else_body, imports);
             }
             NirOp::Match { value, cases } => {
-                collect_platform_imports_from_value(platform, value, imports);
+                collect_platform_imports_from_value(platform, required_by, value, imports);
                 for case in cases {
-                    collect_platform_imports_from_ops(platform, &case.body, imports);
+                    collect_platform_imports_from_ops(platform, required_by, &case.body, imports);
                 }
             }
             NirOp::ForEach { iterable, body, .. } => {
-                collect_platform_imports_from_value(platform, iterable, imports);
-                collect_platform_imports_from_ops(platform, body, imports);
+                collect_platform_imports_from_value(platform, required_by, iterable, imports);
+                collect_platform_imports_from_ops(platform, required_by, body, imports);
             }
             NirOp::Using { value, body, .. } => {
-                collect_platform_imports_from_value(platform, value, imports);
-                collect_platform_imports_from_ops(platform, body, imports);
+                collect_platform_imports_from_value(platform, required_by, value, imports);
+                collect_platform_imports_from_ops(platform, required_by, body, imports);
             }
         }
     }
@@ -438,6 +445,7 @@ fn collect_platform_imports_from_ops(
 
 fn collect_platform_imports_from_value(
     platform: &dyn NativePlanPlatform,
+    required_by: &str,
     value: &NirValue,
     imports: &mut Vec<PlatformImport>,
 ) {
@@ -449,42 +457,50 @@ fn collect_platform_imports_from_value(
                 }
             }
             for arg in args {
-                collect_platform_imports_from_value(platform, arg, imports);
+                collect_platform_imports_from_value(platform, required_by, arg, imports);
             }
         }
-        NirValue::Call { args, .. } | NirValue::Constructor { args, .. } => {
+        NirValue::Call { target, args } => {
+            for import in platform.native_call_imports(target, required_by) {
+                push_platform_import(imports, import);
+            }
             for arg in args {
-                collect_platform_imports_from_value(platform, arg, imports);
+                collect_platform_imports_from_value(platform, required_by, arg, imports);
+            }
+        }
+        NirValue::Constructor { args, .. } => {
+            for arg in args {
+                collect_platform_imports_from_value(platform, required_by, arg, imports);
             }
         }
         NirValue::WithUpdate {
             target, updates, ..
         } => {
-            collect_platform_imports_from_value(platform, target, imports);
+            collect_platform_imports_from_value(platform, required_by, target, imports);
             for update in updates {
-                collect_platform_imports_from_value(platform, &update.value, imports);
+                collect_platform_imports_from_value(platform, required_by, &update.value, imports);
             }
         }
         NirValue::ListLiteral { values, .. } => {
             for value in values {
-                collect_platform_imports_from_value(platform, value, imports);
+                collect_platform_imports_from_value(platform, required_by, value, imports);
             }
         }
         NirValue::MapLiteral { entries, .. } => {
             for (key, value) in entries {
-                collect_platform_imports_from_value(platform, key, imports);
-                collect_platform_imports_from_value(platform, value, imports);
+                collect_platform_imports_from_value(platform, required_by, key, imports);
+                collect_platform_imports_from_value(platform, required_by, value, imports);
             }
         }
         NirValue::MemberAccess { target, .. } => {
-            collect_platform_imports_from_value(platform, target, imports)
+            collect_platform_imports_from_value(platform, required_by, target, imports)
         }
         NirValue::Binary { left, right, .. } => {
-            collect_platform_imports_from_value(platform, left, imports);
-            collect_platform_imports_from_value(platform, right, imports);
+            collect_platform_imports_from_value(platform, required_by, left, imports);
+            collect_platform_imports_from_value(platform, required_by, right, imports);
         }
         NirValue::Unary { operand, .. } => {
-            collect_platform_imports_from_value(platform, operand, imports)
+            collect_platform_imports_from_value(platform, required_by, operand, imports)
         }
         NirValue::Const { .. } | NirValue::Local(_) | NirValue::FunctionRef { .. } => {}
     }
@@ -929,36 +945,7 @@ impl FunctionPlanBuilder<'_> {
                 for arg in args {
                     self.lower_value(arg)?;
                 }
-                if !matches!(
-                    target.as_str(),
-                    "contains"
-                        | "append"
-                        | "get"
-                        | "getOr"
-                        | "hasKey"
-                        | "insert"
-                        | "find"
-                        | "forEach"
-                        | "filter"
-                        | "keys"
-                        | "len"
-                        | "mid"
-                        | "prepend"
-                        | "reduce"
-                        | "removeAt"
-                        | "removeKey"
-                        | "replace"
-                        | "set"
-                        | "sum"
-                        | "transform"
-                        | "values"
-                        | "toByte"
-                        | "toFixed"
-                        | "toFloat"
-                        | "toInt"
-                        | "toString"
-                        | "isNumeric"
-                ) {
+                if !runtime::is_native_direct_call(target) {
                     self.add_call(target);
                 }
             }
@@ -1561,6 +1548,10 @@ mod tests {
                 }],
                 _ => Vec::new(),
             }
+        }
+
+        fn native_call_imports(&self, _target: &str, _required_by: &str) -> Vec<PlatformImport> {
+            Vec::new()
         }
     }
 

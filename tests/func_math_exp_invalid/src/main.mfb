@@ -1,0 +1,9 @@
+IMPORT math
+
+FUNC main AS Integer
+  LET missing AS Float = math::exp()
+  LET integerArg AS Float = math::exp(1)
+  LET wrongType AS Float = math::exp("x")
+  LET tooMany AS Float = math::exp(1.0, 2.0)
+  RETURN 0
+END FUNC

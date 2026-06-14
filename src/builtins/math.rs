@@ -13,10 +13,22 @@ use std::collections::HashMap;
 
 const PACKAGE: &str = "math";
 
+const PI: &str = "math.pi";
 const PI_FLOAT: &str = "math.piFloat";
 const PI_FIXED: &str = "math.piFixed";
+const TWO_PI: &str = "math.2pi";
+const TWO_PI_FIXED: &str = "math.2piFixed";
+const PI_2: &str = "math.pi2";
+const PI_2_FIXED: &str = "math.pi2Fixed";
+const PI_4: &str = "math.pi4";
+const PI_4_FIXED: &str = "math.pi4Fixed";
+const E: &str = "math.e";
 const E_FLOAT: &str = "math.eFloat";
 const E_FIXED: &str = "math.eFixed";
+const LN_2: &str = "math.ln2";
+const LN_2_FIXED: &str = "math.ln2Fixed";
+const LN_10: &str = "math.ln10";
+const LN_10_FIXED: &str = "math.ln10Fixed";
 const ABS: &str = "math.abs";
 const SIGN: &str = "math.sign";
 const MIN: &str = "math.min";
@@ -50,10 +62,22 @@ pub(crate) struct ResolvedCall<'a> {
 pub(crate) fn is_math_call(name: &str) -> bool {
     matches!(
         name,
-        PI_FLOAT
+        PI
+            | PI_FLOAT
             | PI_FIXED
+            | TWO_PI
+            | TWO_PI_FIXED
+            | PI_2
+            | PI_2_FIXED
+            | PI_4
+            | PI_4_FIXED
+            | E
             | E_FLOAT
             | E_FIXED
+            | LN_2
+            | LN_2_FIXED
+            | LN_10
+            | LN_10_FIXED
             | ABS
             | SIGN
             | MIN
@@ -83,8 +107,9 @@ pub(crate) fn is_math_call(name: &str) -> bool {
 
 pub(crate) fn call_return_type_name(name: &str) -> Option<&'static str> {
     match name {
-        PI_FLOAT | E_FLOAT => Some("Float"),
-        PI_FIXED | E_FIXED => Some("Fixed"),
+        PI | PI_FLOAT | TWO_PI | PI_2 | PI_4 | E | E_FLOAT | LN_2 | LN_10 => Some("Float"),
+        PI_FIXED | TWO_PI_FIXED | PI_2_FIXED | PI_4_FIXED | E_FIXED | LN_2_FIXED
+        | LN_10_FIXED => Some("Fixed"),
         SQRT | POW | EXP | LOG | LOG10 | SIN | COS | TAN | ASIN | ACOS | ATAN | ATAN2 => None,
         RADIANS | DEGREES => Some("Float"),
         FLOOR | CEIL | ROUND | TRUNC | SIGN => Some("Integer"),
@@ -94,21 +119,68 @@ pub(crate) fn call_return_type_name(name: &str) -> Option<&'static str> {
 }
 
 pub(crate) fn is_math_constant(name: &str) -> bool {
-    matches!(name, PI_FLOAT | PI_FIXED | E_FLOAT | E_FIXED)
+    matches!(
+        name,
+        PI
+            | PI_FLOAT
+            | PI_FIXED
+            | TWO_PI
+            | TWO_PI_FIXED
+            | PI_2
+            | PI_2_FIXED
+            | PI_4
+            | PI_4_FIXED
+            | E
+            | E_FLOAT
+            | E_FIXED
+            | LN_2
+            | LN_2_FIXED
+            | LN_10
+            | LN_10_FIXED
+    )
 }
 
 pub(crate) fn constant_type_name(name: &str) -> Option<&'static str> {
     match name {
-        PI_FLOAT | E_FLOAT => Some("Float"),
-        PI_FIXED | E_FIXED => Some("Fixed"),
+        PI | PI_FLOAT | TWO_PI | PI_2 | PI_4 | E | E_FLOAT | LN_2 | LN_10 => Some("Float"),
+        PI_FIXED | TWO_PI_FIXED | PI_2_FIXED | PI_4_FIXED | E_FIXED | LN_2_FIXED
+        | LN_10_FIXED => Some("Fixed"),
+        _ => None,
+    }
+}
+
+pub(crate) fn constant_value(name: &str) -> Option<&'static str> {
+    match name {
+        PI | PI_FLOAT => Some("3.141592653589793"),
+        PI_FIXED => Some("3.141592653589793"),
+        TWO_PI => Some("0.6366197723675814"),
+        TWO_PI_FIXED => Some("0.6366197723675814"),
+        PI_2 => Some("1.5707963267948966"),
+        PI_2_FIXED => Some("1.5707963267948966"),
+        PI_4 => Some("0.7853981633974483"),
+        PI_4_FIXED => Some("0.7853981633974483"),
+        E | E_FLOAT => Some("2.718281828459045"),
+        E_FIXED => Some("2.718281828459045"),
+        LN_2 => Some("0.6931471805599453"),
+        LN_2_FIXED => Some("0.6931471805599453"),
+        LN_10 => Some("2.302585092994046"),
+        LN_10_FIXED => Some("2.302585092994046"),
         _ => None,
     }
 }
 
 pub(crate) fn resolve_call<'a>(name: &str, arg_types: &'a [String]) -> Option<ResolvedCall<'a>> {
     let return_type = match name {
-        PI_FLOAT | E_FLOAT if arg_types.is_empty() => Cow::Borrowed("Float"),
-        PI_FIXED | E_FIXED if arg_types.is_empty() => Cow::Borrowed("Fixed"),
+        PI | PI_FLOAT | TWO_PI | PI_2 | PI_4 | E | E_FLOAT | LN_2 | LN_10
+            if arg_types.is_empty() =>
+        {
+            Cow::Borrowed("Float")
+        }
+        PI_FIXED | TWO_PI_FIXED | PI_2_FIXED | PI_4_FIXED | E_FIXED | LN_2_FIXED | LN_10_FIXED
+            if arg_types.is_empty() =>
+        {
+            Cow::Borrowed("Fixed")
+        }
         ABS | MIN | MAX if all_same_numeric(arg_types, 1, 2) => {
             Cow::Borrowed(arg_types[0].as_str())
         }
@@ -130,7 +202,10 @@ pub(crate) fn resolve_call<'a>(name: &str, arg_types: &'a [String]) -> Option<Re
 
 pub(crate) fn expected_arguments(name: &str) -> Option<&'static str> {
     match name {
-        PI_FLOAT | PI_FIXED | E_FLOAT | E_FIXED => Some("no arguments"),
+        PI | PI_FLOAT | PI_FIXED | TWO_PI | TWO_PI_FIXED | PI_2 | PI_2_FIXED | PI_4
+        | PI_4_FIXED | E | E_FLOAT | E_FIXED | LN_2 | LN_2_FIXED | LN_10 | LN_10_FIXED => {
+            Some("no arguments")
+        }
         ABS | SIGN | IS_FINITE => Some("Integer | Float | Fixed"),
         FLOOR | CEIL | ROUND | TRUNC => Some("Float | Fixed"),
         SQRT | EXP | LOG | LOG10 | SIN | COS | TAN | ASIN | ACOS | ATAN => Some("Float | Fixed"),
@@ -144,7 +219,10 @@ pub(crate) fn expected_arguments(name: &str) -> Option<&'static str> {
 
 pub(crate) fn arity(name: &str) -> Option<(usize, usize)> {
     match name {
-        PI_FLOAT | PI_FIXED | E_FLOAT | E_FIXED => Some((0, 0)),
+        PI | PI_FLOAT | PI_FIXED | TWO_PI | TWO_PI_FIXED | PI_2 | PI_2_FIXED | PI_4
+        | PI_4_FIXED | E | E_FLOAT | E_FIXED | LN_2 | LN_2_FIXED | LN_10 | LN_10_FIXED => {
+            Some((0, 0))
+        }
         ABS | SIGN | FLOOR | CEIL | ROUND | TRUNC | SQRT | EXP | LOG | LOG10 | SIN | COS | TAN
         | ASIN | ACOS | ATAN | RADIANS | DEGREES | IS_FINITE => Some((1, 1)),
         MIN | MAX | POW | ATAN2 => Some((2, 2)),
@@ -188,8 +266,8 @@ pub(crate) fn lower_bytecode_call(
 
 fn opcode_for(name: &str) -> Result<u16, String> {
     match name {
-        PI_FLOAT | PI_FIXED => Ok(OPCODE_MATH_PI),
-        E_FLOAT | E_FIXED => Ok(OPCODE_MATH_E),
+        PI | PI_FLOAT | PI_FIXED => Ok(OPCODE_MATH_PI),
+        E | E_FLOAT | E_FIXED => Ok(OPCODE_MATH_E),
         ABS => Ok(OPCODE_MATH_ABS),
         SIGN => Ok(OPCODE_MATH_SIGN),
         MIN => Ok(OPCODE_MATH_MIN),

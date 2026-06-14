@@ -1,0 +1,30 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "func_math_atan_valid",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "mutable": false, "name": "p", "type": "Byte", "value": { "kind": "const", "type": "Byte", "value": "2" } },
+    { "op": "bind", "mutable": false, "name": "fixedZero", "type": "Fixed", "value": { "kind": "call", "target": "toFixed", "args": [{ "kind": "const", "type": "String", "value": "0.00" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "math.atan", "args": [{ "kind": "const", "type": "Float", "value": "0.0" }] }, { "kind": "local", "name": "p" }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "math.atan", "args": [{ "kind": "const", "type": "Float", "value": "1.0" }] }, { "kind": "local", "name": "p" }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "math.atan", "args": [{ "kind": "local", "name": "fixedZero" }] }, { "kind": "local", "name": "p" }] }] } },
+    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

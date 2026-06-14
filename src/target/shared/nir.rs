@@ -441,36 +441,7 @@ fn lower_value(value: &IrValue) -> NirValue {
                 }
                 _ => {}
             }
-            if matches!(
-                target.as_str(),
-                "contains"
-                    | "append"
-                    | "get"
-                    | "getOr"
-                    | "hasKey"
-                    | "insert"
-                    | "find"
-                    | "forEach"
-                    | "filter"
-                    | "keys"
-                    | "len"
-                    | "mid"
-                    | "prepend"
-                    | "reduce"
-                    | "removeAt"
-                    | "removeKey"
-                    | "replace"
-                    | "set"
-                    | "sum"
-                    | "transform"
-                    | "values"
-                    | "toByte"
-                    | "toFixed"
-                    | "toFloat"
-                    | "toInt"
-                    | "toString"
-                    | "isNumeric"
-            ) {
+            if super::runtime::is_native_direct_call(target) {
                 NirValue::Call {
                     target: target.clone(),
                     args,

@@ -1,0 +1,13 @@
+IMPORT io
+IMPORT math
+
+FUNC main AS Integer
+  LET fixedPositive AS Fixed = toFixed("3.25")
+  LET fixedNegative AS Fixed = 0 - toFixed("3.75")
+  io::print(toString(math::ceil(3.25)))
+  io::print(toString(math::ceil(0 - 3.75)))
+  io::print(toString(math::ceil(4.0)))
+  io::print(toString(math::ceil(fixedPositive)))
+  io::print(toString(math::ceil(fixedNegative)))
+  RETURN 0
+END FUNC

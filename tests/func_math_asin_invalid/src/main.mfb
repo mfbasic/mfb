@@ -1,0 +1,9 @@
+IMPORT math
+
+FUNC main AS Integer
+  LET missing AS Float = math::asin()
+  LET integerArg AS Float = math::asin(1)
+  LET wrongType AS Float = math::asin("x")
+  LET tooMany AS Float = math::asin(1.0, 2.0)
+  RETURN 0
+END FUNC

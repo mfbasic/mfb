@@ -24,4 +24,8 @@ impl plan::NativePlanPlatform for Platform {
     fn runtime_imports(&self, _spec: &RuntimeHelperSpec) -> Vec<PlatformImport> {
         Vec::new()
     }
+
+    fn native_call_imports(&self, _target: &str, _required_by: &str) -> Vec<PlatformImport> {
+        Vec::new()
+    }
 }

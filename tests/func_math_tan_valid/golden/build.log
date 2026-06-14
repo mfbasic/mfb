@@ -1,0 +1,14 @@
+$ mfb build -ast tests/func_math_tan_valid
+Wrote AST to tests/func_math_tan_valid/func_math_tan_valid.ast
+[exit 0]
+$ mfb build -ir tests/func_math_tan_valid
+Wrote IR to tests/func_math_tan_valid/func_math_tan_valid.ir
+[exit 0]
+$ mfb build tests/func_math_tan_valid
+Wrote executable to tests/func_math_tan_valid/func_math_tan_valid.out
+[exit 0]
+$ tests/func_math_tan_valid/func_math_tan_valid.out
+0.00
+1.00
+1.00
+[exit 0]

@@ -1,0 +1,9 @@
+IMPORT math
+
+FUNC main AS Integer
+  LET missing AS Integer = math::round()
+  LET integerArg AS Integer = math::round(1)
+  LET wrongType AS Integer = math::round("x")
+  LET tooMany AS Integer = math::round(1.0, 2.0)
+  RETURN 0
+END FUNC

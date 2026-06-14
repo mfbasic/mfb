@@ -1,0 +1,31 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "func_math_sqrt_valid",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "mutable": false, "name": "p", "type": "Byte", "value": { "kind": "const", "type": "Byte", "value": "2" } },
+    { "op": "bind", "mutable": false, "name": "fixedSquare", "type": "Fixed", "value": { "kind": "call", "target": "toFixed", "args": [{ "kind": "const", "type": "String", "value": "16.0" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "math.sqrt", "args": [{ "kind": "const", "type": "Float", "value": "0.0" }] }, { "kind": "local", "name": "p" }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "math.sqrt", "args": [{ "kind": "const", "type": "Float", "value": "9.0" }] }, { "kind": "local", "name": "p" }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "math.sqrt", "args": [{ "kind": "const", "type": "Float", "value": "2.25" }] }, { "kind": "local", "name": "p" }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "math.sqrt", "args": [{ "kind": "local", "name": "fixedSquare" }] }, { "kind": "local", "name": "p" }] }] } },
+    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

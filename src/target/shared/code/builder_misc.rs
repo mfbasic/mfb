@@ -381,7 +381,7 @@ impl CodeBuilder<'_> {
             | NirValue::WithUpdate { type_, .. }
             | NirValue::ListLiteral { type_, .. }
             | NirValue::MapLiteral { type_, .. } => Some(type_.clone()),
-            NirValue::Call { target, .. } | NirValue::RuntimeCall { target, .. } => {
+            NirValue::Call { target, args } | NirValue::RuntimeCall { target, args, .. } => {
                 match target.as_str() {
                     "replace" | "typeName" | "toString" => Some("String".to_string()),
                     "find" | "len" | "toInt" => Some("Integer".to_string()),
@@ -390,6 +390,14 @@ impl CodeBuilder<'_> {
                     "toFixed" => Some("Fixed".to_string()),
                     "toByte" => Some("Byte".to_string()),
                     "isNumeric" => Some("Boolean".to_string()),
+                    "math.floor" | "math.ceil" | "math.round" => Some("Integer".to_string()),
+                    "math.sqrt" | "math.exp" | "math.log" | "math.log10" | "math.sin"
+                    | "math.cos" | "math.tan" | "math.asin" | "math.acos" | "math.atan" => {
+                        args.first().and_then(|arg| self.static_type_name(arg))
+                    }
+                    "math.pow" | "math.atan2" => {
+                        args.first().and_then(|arg| self.static_type_name(arg))
+                    }
                     _ => None,
                 }
             }

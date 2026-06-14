@@ -1,0 +1,36 @@
+{
+  "project": "func_math_clamp_valid",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 },
+    { "module": "math", "line": 2 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "main",
+      "line": 4,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "p", "type": "Byte", "value": { "kind": "number", "value": "2" }, "line": 5 },
+      { "kind": "binding", "mutable": false, "name": "fixedValue", "type": "Fixed", "value": { "kind": "binary", "operator": "-", "left": { "kind": "number", "value": "0" }, "right": { "kind": "call", "callee": "toFixed", "arguments": [{ "kind": "string", "value": "1.25" }] } }, "line": 6 },
+      { "kind": "binding", "mutable": false, "name": "fixedLow", "type": "Fixed", "value": { "kind": "binary", "operator": "-", "left": { "kind": "number", "value": "0" }, "right": { "kind": "call", "callee": "toFixed", "arguments": [{ "kind": "string", "value": "1.0" }] } }, "line": 7 },
+      { "kind": "binding", "mutable": false, "name": "fixedHigh", "type": "Fixed", "value": { "kind": "call", "callee": "toFixed", "arguments": [{ "kind": "string", "value": "1.0" }] }, "line": 8 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "math.clamp", "arguments": [{ "kind": "number", "value": "12" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "10" }] }] }] }, "line": 9 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "math.clamp", "arguments": [{ "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "3" } }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "10" }] }] }] }, "line": 10 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "math.clamp", "arguments": [{ "kind": "number", "value": "5" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "10" }] }] }] }, "line": 11 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "math.clamp", "arguments": [{ "kind": "number", "value": "3.50" }, { "kind": "number", "value": "0.0" }, { "kind": "number", "value": "3.0" }] }, { "kind": "identifier", "value": "p" }] }] }, "line": 12 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "math.clamp", "arguments": [{ "kind": "identifier", "value": "fixedValue" }, { "kind": "identifier", "value": "fixedLow" }, { "kind": "identifier", "value": "fixedHigh" }] }, { "kind": "identifier", "value": "p" }] }] }, "line": 13 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "math.clamp", "arguments": [{ "kind": "number", "value": "0.50" }, { "kind": "number", "value": "0.0" }, { "kind": "number", "value": "1.0" }] }, { "kind": "identifier", "value": "p" }] }] }, "line": 14 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 15 }
+      ]
+    }
+    ]
+  }
+  ]
+}

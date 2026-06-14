@@ -1,0 +1,31 @@
+{
+  "project": "func_math_cos_valid",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 },
+    { "module": "math", "line": 2 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "main",
+      "line": 4,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "p", "type": "Byte", "value": { "kind": "number", "value": "2" }, "line": 5 },
+      { "kind": "binding", "mutable": false, "name": "fixedPi", "type": "Fixed", "value": { "kind": "call", "callee": "toFixed", "arguments": [{ "kind": "string", "value": "3.1415926536" }] }, "line": 6 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "math.cos", "arguments": [{ "kind": "number", "value": "0.0" }] }, { "kind": "identifier", "value": "p" }] }] }, "line": 7 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "math.cos", "arguments": [{ "kind": "number", "value": "3.1415926536" }] }, { "kind": "identifier", "value": "p" }] }] }, "line": 8 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "math.cos", "arguments": [{ "kind": "identifier", "value": "fixedPi" }] }, { "kind": "identifier", "value": "p" }] }] }, "line": 9 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 10 }
+      ]
+    }
+    ]
+  }
+  ]
+}

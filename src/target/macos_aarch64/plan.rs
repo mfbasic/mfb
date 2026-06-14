@@ -259,4 +259,26 @@ impl plan::NativePlanPlatform for Platform {
             _ => Vec::new(),
         }
     }
+
+    fn native_call_imports(&self, target: &str, required_by: &str) -> Vec<PlatformImport> {
+        let symbol = match target {
+            "math.pow" => "_pow",
+            "math.exp" => "_exp",
+            "math.log" => "_log",
+            "math.log10" => "_log10",
+            "math.sin" => "_sin",
+            "math.cos" => "_cos",
+            "math.tan" => "_tan",
+            "math.asin" => "_asin",
+            "math.acos" => "_acos",
+            "math.atan" => "_atan",
+            "math.atan2" => "_atan2",
+            _ => return Vec::new(),
+        };
+        vec![PlatformImport {
+            library: "libSystem".to_string(),
+            symbol: symbol.to_string(),
+            required_by: required_by.to_string(),
+        }]
+    }
 }

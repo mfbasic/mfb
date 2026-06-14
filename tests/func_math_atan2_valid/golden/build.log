@@ -1,0 +1,14 @@
+$ mfb build -ast tests/func_math_atan2_valid
+Wrote AST to tests/func_math_atan2_valid/func_math_atan2_valid.ast
+[exit 0]
+$ mfb build -ir tests/func_math_atan2_valid
+Wrote IR to tests/func_math_atan2_valid/func_math_atan2_valid.ir
+[exit 0]
+$ mfb build tests/func_math_atan2_valid
+Wrote executable to tests/func_math_atan2_valid/func_math_atan2_valid.out
+[exit 0]
+$ tests/func_math_atan2_valid/func_math_atan2_valid.out
+0.78
+0.00
+3.14
+[exit 0]

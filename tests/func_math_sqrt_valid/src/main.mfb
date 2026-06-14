@@ -1,0 +1,12 @@
+IMPORT io
+IMPORT math
+
+FUNC main AS Integer
+  LET p AS Byte = 2
+  LET fixedSquare AS Fixed = toFixed("16.0")
+  io::print(toString(math::sqrt(0.0), p))
+  io::print(toString(math::sqrt(9.0), p))
+  io::print(toString(math::sqrt(2.25), p))
+  io::print(toString(math::sqrt(fixedSquare), p))
+  RETURN 0
+END FUNC

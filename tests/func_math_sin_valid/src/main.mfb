@@ -1,0 +1,11 @@
+IMPORT io
+IMPORT math
+
+FUNC main AS Integer
+  LET p AS Byte = 2
+  LET fixedHalfPi AS Fixed = toFixed("1.5707963268")
+  io::print(toString(math::sin(0.0), p))
+  io::print(toString(math::sin(1.5707963268), p))
+  io::print(toString(math::sin(fixedHalfPi), p))
+  RETURN 0
+END FUNC

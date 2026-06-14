@@ -1,0 +1,11 @@
+IMPORT io
+IMPORT math
+
+FUNC main AS Integer
+  LET p AS Byte = 2
+  LET fixedOne AS Fixed = toFixed("1.00")
+  io::print(toString(math::acos(1.0), p))
+  io::print(toString(math::acos(0.5), p))
+  io::print(toString(math::acos(fixedOne), p))
+  RETURN 0
+END FUNC

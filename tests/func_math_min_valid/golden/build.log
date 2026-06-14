@@ -1,0 +1,16 @@
+$ mfb build -ast tests/func_math_min_valid
+Wrote AST to tests/func_math_min_valid/func_math_min_valid.ast
+[exit 0]
+$ mfb build -ir tests/func_math_min_valid
+Wrote IR to tests/func_math_min_valid/func_math_min_valid.ir
+[exit 0]
+$ mfb build tests/func_math_min_valid
+Wrote executable to tests/func_math_min_valid/func_math_min_valid.out
+[exit 0]
+$ tests/func_math_min_valid/func_math_min_valid.out
+-4
+5
+-4.25
+1.25
+-3.75
+[exit 0]

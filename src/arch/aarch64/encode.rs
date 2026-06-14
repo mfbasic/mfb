@@ -334,12 +334,28 @@ impl Encoder {
                 reg(field(instruction, "dst")?)?,
                 reg(field(instruction, "src")?)?,
             ),
+            "fsqrt_d" => self.emit_fsqrt_d(
+                reg(field(instruction, "dst")?)?,
+                reg(field(instruction, "src")?)?,
+            ),
             "fcmp_zero_d" => self.emit_fcmp_zero_d(reg(field(instruction, "src")?)?),
             "scvtf_d_from_x" => self.emit_scvtf_d_from_x(
                 reg(field(instruction, "dst")?)?,
                 reg(field(instruction, "src")?)?,
             ),
             "fcvtzs_x_from_d" => self.emit_fcvtzs_x_from_d(
+                reg(field(instruction, "dst")?)?,
+                reg(field(instruction, "src")?)?,
+            ),
+            "fcvtms_x_from_d" => self.emit_fcvtms_x_from_d(
+                reg(field(instruction, "dst")?)?,
+                reg(field(instruction, "src")?)?,
+            ),
+            "fcvtps_x_from_d" => self.emit_fcvtps_x_from_d(
+                reg(field(instruction, "dst")?)?,
+                reg(field(instruction, "src")?)?,
+            ),
+            "fcvtas_x_from_d" => self.emit_fcvtas_x_from_d(
                 reg(field(instruction, "dst")?)?,
                 reg(field(instruction, "src")?)?,
             ),
@@ -519,6 +535,10 @@ impl Encoder {
         self.emit_word(0x1e61_4000 | ((dn as u32) << 5) | dd as u32)
     }
 
+    fn emit_fsqrt_d(&mut self, dd: u8, dn: u8) -> Result<(), String> {
+        self.emit_word(0x1e61_c000 | ((dn as u32) << 5) | dd as u32)
+    }
+
     fn emit_fcmp_zero_d(&mut self, dn: u8) -> Result<(), String> {
         self.emit_word(0x1e60_2000 | ((dn as u32) << 5) | 0x8)
     }
@@ -529,6 +549,18 @@ impl Encoder {
 
     fn emit_fcvtzs_x_from_d(&mut self, rd: u8, dn: u8) -> Result<(), String> {
         self.emit_word(0x9e78_0000 | ((dn as u32) << 5) | rd as u32)
+    }
+
+    fn emit_fcvtms_x_from_d(&mut self, rd: u8, dn: u8) -> Result<(), String> {
+        self.emit_word(0x9e70_0000 | ((dn as u32) << 5) | rd as u32)
+    }
+
+    fn emit_fcvtps_x_from_d(&mut self, rd: u8, dn: u8) -> Result<(), String> {
+        self.emit_word(0x9e68_0000 | ((dn as u32) << 5) | rd as u32)
+    }
+
+    fn emit_fcvtas_x_from_d(&mut self, rd: u8, dn: u8) -> Result<(), String> {
+        self.emit_word(0x9e64_0000 | ((dn as u32) << 5) | rd as u32)
     }
 
     fn emit_ldr_u64(&mut self, rt: u8, rn: u8, offset: u64) -> Result<(), String> {

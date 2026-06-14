@@ -1,0 +1,11 @@
+IMPORT io
+IMPORT math
+
+FUNC main AS Integer
+  LET p AS Byte = 2
+  LET fixedPiQuarter AS Fixed = toFixed("0.7853981634")
+  io::print(toString(math::tan(0.0), p))
+  io::print(toString(math::tan(0.7853981634), p))
+  io::print(toString(math::tan(fixedPiQuarter), p))
+  RETURN 0
+END FUNC

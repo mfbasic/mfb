@@ -1,0 +1,9 @@
+IMPORT math
+
+FUNC main AS Integer
+  LET missing AS Integer = math::ceil()
+  LET integerArg AS Integer = math::ceil(1)
+  LET wrongType AS Integer = math::ceil(TRUE)
+  LET tooMany AS Integer = math::ceil(1.0, 2.0)
+  RETURN 0
+END FUNC

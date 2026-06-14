@@ -1,0 +1,11 @@
+IMPORT io
+IMPORT math
+
+FUNC main AS Integer
+  LET p AS Byte = 2
+  LET fixedTen AS Fixed = toFixed("10.00")
+  io::print(toString(math::log10(100.0), p))
+  io::print(toString(math::log10(1.0), p))
+  io::print(toString(math::log10(fixedTen), p))
+  RETURN 0
+END FUNC

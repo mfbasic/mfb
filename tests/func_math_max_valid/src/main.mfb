@@ -1,0 +1,14 @@
+IMPORT io
+IMPORT math
+
+FUNC main AS Integer
+  LET p AS Byte = 2
+  LET fixedLow AS Fixed = 0 - toFixed("3.75")
+  LET fixedHigh AS Fixed = toFixed("2.50")
+  io::print(toString(math::max(2, -4)))
+  io::print(toString(math::max(5, 5)))
+  io::print(toString(math::max(2.50, 0.0 - 4.25), p))
+  io::print(toString(math::max(1.25, 1.25), p))
+  io::print(toString(math::max(fixedLow, fixedHigh), p))
+  RETURN 0
+END FUNC

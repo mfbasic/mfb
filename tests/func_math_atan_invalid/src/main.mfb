@@ -1,0 +1,9 @@
+IMPORT math
+
+FUNC main AS Integer
+  LET missing AS Float = math::atan()
+  LET integerArg AS Float = math::atan(1)
+  LET wrongType AS Float = math::atan("x")
+  LET tooMany AS Float = math::atan(1.0, 2.0)
+  RETURN 0
+END FUNC

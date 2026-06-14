@@ -1,0 +1,9 @@
+IMPORT math
+
+FUNC main AS Integer
+  LET missing AS Float = math::pow(2.0)
+  LET mixed AS Float = math::pow(2, 3.0)
+  LET wrongType AS Float = math::pow("x", "y")
+  LET tooMany AS Float = math::pow(2.0, 3.0, 4.0)
+  RETURN 0
+END FUNC

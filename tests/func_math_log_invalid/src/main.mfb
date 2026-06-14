@@ -1,0 +1,9 @@
+IMPORT math
+
+FUNC main AS Integer
+  LET missing AS Float = math::log()
+  LET integerArg AS Float = math::log(1)
+  LET wrongType AS Float = math::log("x")
+  LET tooMany AS Float = math::log(1.0, 2.0)
+  RETURN 0
+END FUNC

@@ -1,0 +1,12 @@
+IMPORT io
+IMPORT math
+
+FUNC main AS Integer
+  LET p AS Byte = 2
+  LET fixedY AS Fixed = toFixed("0.00")
+  LET fixedX AS Fixed = 0 - toFixed("1.00")
+  io::print(toString(math::atan2(1.0, 1.0), p))
+  io::print(toString(math::atan2(0.0, 1.0), p))
+  io::print(toString(math::atan2(fixedY, fixedX), p))
+  RETURN 0
+END FUNC

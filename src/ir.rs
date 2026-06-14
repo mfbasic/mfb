@@ -846,10 +846,15 @@ fn lower_expression_with_expected(
             type_: "Nothing".to_string(),
             value: "NOTHING".to_string(),
         },
-        Expression::Identifier(value) if builtins::math::is_math_constant(value) => IrValue::Call {
-            target: value.clone(),
-            args: Vec::new(),
-        },
+        Expression::Identifier(value) if builtins::math::is_math_constant(value) => {
+            let type_ = builtins::math::constant_type_name(value)
+                .unwrap_or("Unknown")
+                .to_string();
+            let value = builtins::math::constant_value(value)
+                .expect("recognized math constant has a value")
+                .to_string();
+            IrValue::Const { type_, value }
+        }
         Expression::Identifier(value) => {
             if let Some(type_) = context.function_types.get(value) {
                 IrValue::FunctionRef {

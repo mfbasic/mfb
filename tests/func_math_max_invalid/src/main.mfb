@@ -1,0 +1,8 @@
+IMPORT math
+
+FUNC main AS Integer
+  LET missing AS Integer = math::max(1)
+  LET mixed AS Float = math::max(1, 2.0)
+  LET wrongType AS Integer = math::max(TRUE, FALSE)
+  RETURN 0
+END FUNC

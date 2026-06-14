@@ -1,0 +1,9 @@
+IMPORT math
+
+FUNC main AS Integer
+  LET missing AS Integer = math::clamp(1, 2)
+  LET mixed AS Float = math::clamp(1, 0, 2.0)
+  LET wrongType AS Integer = math::clamp("x", "a", "z")
+  LET tooMany AS Integer = math::clamp(1, 0, 2, 3)
+  RETURN 0
+END FUNC

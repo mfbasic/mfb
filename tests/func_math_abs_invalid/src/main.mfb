@@ -1,0 +1,8 @@
+IMPORT math
+
+FUNC main AS Integer
+  LET missing AS Integer = math::abs()
+  LET wrongType AS Integer = math::abs("x")
+  LET tooMany AS Integer = math::abs(1, 2)
+  RETURN 0
+END FUNC
