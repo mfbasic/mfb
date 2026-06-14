@@ -73,25 +73,38 @@ Not a URL, and not required to encode where the bytes live — that's what conte
 
 ## 2. Account Model
 
-- **Account** = identity record: verified email (required), optional phone (recovery/2FA), optional linked OAuth (Google/Apple/Microsoft) for sign-in convenience.
-- Personal **owner handle** is reserved at signup, only after email verification (prevents handle-squatting via throwaway addresses).
-- **Orgs** are additional owner handles with their own member list and roles (owner / admin / publisher). Layer 2 identity doesn't distinguish personal vs. org owners — same namespace, same rules.
-- **OAuth is a signal, not the foundation.** Linking Google/Apple/Microsoft can satisfy email verification if emails match, but account recovery always falls back to the verified email/phone on file — never solely dependent on a third party's account state.
-- **2FA — tiered.** Optional by default. Automatically *required* once a package crosses a download/transitive-dependent threshold ("critical package" tier); publishing is blocked until enabled, with advance warning.
-- **Publish tokens**, not account credentials, for CI. Scoped to a specific package or org, short default TTL, individually revocable, scope must be a subset of the issuing account's current access.
-- **Ownership transfers** are explicit two-sided actions (initiator + acceptor), written to the transparency log — never a support-ticket-mediated process (which is sociallyengineerable).
+- **Account** = key-owned identity record. Registration is open to anyone and does not require a username/password, email, phone number, OAuth account, or approval step.
+- Personal **owner handle** is reserved at registration time after the registry verifies proof-of-possession for the submitted public keys. Handles are case-folded for uniqueness, original casing is preserved for display, and `std` is permanently reserved.
+- **Key-only authentication.** Login uses an authentication key challenge/response. The registry never stores passwords and never accepts password fallback for publishing authority.
+- **Orgs** are additional owner handles with their own member list and roles (owner / admin / publisher). Layer 2 identity doesn't distinguish personal vs. org owners — same namespace, same rules. Org membership changes are signed by an authorized current identity key and written to the transparency log.
+- **Recovery is explicit key rotation.** Losing every private key means losing the ability to administer the handle unless the account has previously configured additional recovery/auth keys or org maintainers. The registry should not support support-ticket-mediated account takeover.
+- **Publish tokens** are optional delegated credentials for CI. They are minted only by an authenticated account, automatically constrained to that owner or one of that owner's packages, short default TTL, individually revocable, and never bypass the package's current identity/signing-key checks.
+- **Ownership transfers** are explicit two-sided actions (initiator + acceptor), signed by both parties' current identity keys and written to the transparency log — never a support-ticket-mediated process.
 
 ---
 
 ## 3. Trust & Signing
 
-- Each account/org registers one or more **Ed25519 keys**, optionally scoped to specific package identities (a CI key can be limited to signing only `acme/geometry`). Key registration itself requires the account's normal auth (2FA if enabled) and is logged.
-- At publish time, the registry checks the `.mfp`'s signed `identKey` and signature against the account's *currently registered, non-revoked, in-scope* Ed25519 keys. **Unrecognized keys are rejected outright** — never silently accepted as "first seen, trust it."
+- Each account/owner has three distinct Ed25519 key roles:
+  - **Auth key** — authenticates the client to the registry with challenge/response login. This key authorizes sessions but does not sign package content.
+  - **Identity key** — binds an owner handle to the current public identity for that owner. This is the key clients and transparency-log auditors use to confirm that a package was published by the owner currently controlling the ident.
+  - **Signing key** — signs package releases for the owner that registered it. Signing authority is derived from the owner account; a key registered under one owner can never sign for another owner.
+- Private keys are generated and stored by the client. The registry stores public keys, key fingerprints, owner-derived authority, revocation state, and transparency-log entries only. The registry must not generate, return, escrow, or recover private signing keys; a CLI may generate local private keys before calling registration, but the API receives only public keys plus proof-of-possession signatures.
+- Registration records the initial auth public key, identity public key, signing public key, and proofs that the registrant controls all three corresponding private keys.
+- Registration and rotation do not accept user-supplied signing scopes. The registry automatically binds each signing key to the authenticated owner, and publish-time ident checks enforce that the owner part of `<owner>#<package>` matches that binding.
+- Key rotation changes the current identity public key and current signing public key for the owner. A rotation request must be made from an authenticated session and signed by the current identity key. It includes the replacement public keys plus proof-of-possession signatures for the replacement private keys. The old keys become non-current immediately for new publishes but remain in the transparency log for historical verification.
+- At publish time, the registry verifies all of the following:
+  - the authenticated session maps to the owner part of the submitted `<owner>#<package>` ident;
+  - the `.mfp` header's `ident` matches the route/request ident exactly;
+  - the `.mfp` header's identity-key fingerprint matches the current identity public key for that owner;
+  - the release signature verifies with the current non-revoked signing public key for that owner;
+  - the signing key is authorized by the current identity key and belongs to the owner in the package ident.
+  **Unrecognized, revoked, stale, or wrong-owner keys are rejected outright** — never silently accepted as "first seen, trust it."
 - **Content hash excludes the signature region.** Re-signing a version after key rotation doesn't change its content hash, so downstream lockfiles stay valid through a rotation/revocation response.
-- **Revocation:** immediate stop on new publishes from that key, logged with timestamp. Already-published versions aren't auto-invalidated (avoids a self-inflicted outage); reviewed individually and yanked if malicious.
-- **Transparency log** (Merkle-tree, CT/Rekor-style), built from v1: every key registration, revocation, publish (identity, version, content hash, signer fingerprint, timestamp), and ownership transfer. Clients pin the last-seen checkpoint (no rollback). Lets any maintainer audit "did I really publish this?" and makes registry-level compromises detectable rather than invisible.
+- **Revocation:** immediate stop on new authentication or publishes from that key, logged with timestamp. Already-published versions aren't auto-invalidated (avoids a self-inflicted outage); reviewed individually and yanked if malicious.
+- **Transparency log** (Merkle-tree, CT/Rekor-style), built from v1: every account registration, login-key registration, identity/signing-key rotation, key revocation, publish, unpublish, ownership transfer, identity, version, content hash, signer fingerprint, and timestamp. Clients pin the last-seen checkpoint (no rollback). Lets any maintainer audit "did I really publish this?" and makes registry-level compromises detectable rather than invisible.
 - **Index signing root-of-trust:** v1 index is signed by an online key; the index format reserves a field for an offline-root-key / threshold scheme (TUF-style root role) so this can be added in v2 without a breaking format change.
-- **Threshold/multi-sig** for critical-tier packages (N-of-M maintainer signatures required to publish): deferred to v2, gated behind the same critical-package threshold as mandatory 2FA.
+- **Threshold/multi-sig** for critical-tier packages (N-of-M identity/signing-key approvals required to publish): deferred to v2.
 - **First-install trust gap, stated plainly:** a client resolving a never-before-seen identity trusts the registry's *current* index mapping — same baseline as PyPI/npm/crates.io today. The difference is that mapping is itself in the transparency log, so any later tampering is permanently, publicly checkable.
 
 ---
@@ -110,9 +123,168 @@ Not a URL, and not required to encode where the bytes live — that's what conte
 - **Blob storage**: content-addressed, immutable, keyed by the signature-excluded content hash. **Write-once, permanent** — once a `.mfp` is released under a hash, `GET /blob/<hash>` works forever; the blob store has no delete path for normal operation. Infinitely cacheable — any CDN or third-party mirror can serve blobs without being trusted, since the client verifies hash + signature regardless of source.
 - **Index/metadata service**: maps `<owner>#<package>@<version> → hash`, plus signature, signer fingerprint, and transparency-log reference for each version. This layer is **mutable** — a release's metadata can be edited, or the release can be removed from the index entirely (delisted/yanked), without touching the underlying blob. A locked install that already has the hash never consults the index, so delisting a version doesn't break existing lockfiles — it only prevents *new* resolutions from finding it. Small, mutable, short-cache.
 - **Core endpoints**:
-  - `GET /index/<owner>#<package>` — version list + metadata
-  - `GET /blob/<hash>` — the `.mfp` itself
-  - `POST /publish` — authenticated, enforces key/scope checks from §3
+  - `POST /accounts/register` — open registration. It never returns private keys.
+    ```json
+    {
+      "owner": "alice",
+      "authPublicKey": "<ed25519-public-key>",
+      "identityPublicKey": "<ed25519-public-key>",
+      "signingPublicKey": "<ed25519-public-key>",
+      "proofs": {
+        "auth": "<signature-over-registration-challenge>",
+        "identity": "<signature-over-registration-challenge>",
+        "signing": "<signature-over-registration-challenge>"
+      }
+    }
+    ```
+    Response:
+    ```json
+    {
+      "owner": "alice",
+      "authKeyFingerprint": "<fingerprint>",
+      "identityKeyFingerprint": "<fingerprint>",
+      "signingKeyFingerprint": "<fingerprint>",
+      "logEntry": "<transparency-log-entry>"
+    }
+    ```
+  - `POST /auth/challenge` — starts key-based login.
+    ```json
+    {
+      "owner": "alice",
+      "authKeyFingerprint": "<fingerprint>"
+    }
+    ```
+    Response:
+    ```json
+    {
+      "challengeId": "<opaque-id>",
+      "nonce": "<random-nonce>",
+      "expiresAt": "<timestamp>"
+    }
+    ```
+  - `POST /auth/login` — completes login by verifying the auth key signature over the challenge.
+    ```json
+    {
+      "challengeId": "<opaque-id>",
+      "signature": "<auth-key-signature-over-nonce>"
+    }
+    ```
+    Response:
+    ```json
+    {
+      "sessionToken": "<short-lived-token>",
+      "owner": "alice",
+      "expiresAt": "<timestamp>"
+    }
+    ```
+  - `POST /keys/rotate` — authenticated key rotation. The registry makes the replacements current for future publishes and logs the rotation.
+    ```json
+    {
+      "owner": "alice",
+      "newIdentityPublicKey": "<ed25519-public-key>",
+      "newSigningPublicKey": "<ed25519-public-key>",
+      "proofs": {
+        "newIdentity": "<signature-over-rotation-challenge>",
+        "newSigning": "<signature-over-rotation-challenge>"
+      },
+      "rotationStatement": {
+        "previousIdentityKeyFingerprint": "<fingerprint>",
+        "previousSigningKeyFingerprint": "<fingerprint>",
+        "newIdentityKeyFingerprint": "<fingerprint>",
+        "newSigningKeyFingerprint": "<fingerprint>",
+        "reason": "routine-rotation"
+      },
+      "rotationSignature": "<current-identity-key-signature-over-rotation-statement>"
+    }
+    ```
+    Response:
+    ```json
+    {
+      "owner": "alice",
+      "identityKeyFingerprint": "<fingerprint>",
+      "signingKeyFingerprint": "<fingerprint>",
+      "logEntry": "<transparency-log-entry>"
+    }
+    ```
+  - `GET /index/<owner>#<package>` — version list + metadata. The literal `#` is percent-encoded as `%23` in HTTP paths.
+    ```json
+    {
+      "ident": "alice#shape",
+      "versions": [
+        {
+          "version": "2.3.1",
+          "hash": "<content-hash>",
+          "identityKeyFingerprint": "<fingerprint>",
+          "signingKeyFingerprint": "<fingerprint>",
+          "abiIndex": {},
+          "logEntry": "<transparency-log-entry>"
+        }
+      ]
+    }
+    ```
+  - `GET /blob/<hash>` — returns the `.mfp` bytes for the content hash.
+  - `POST /validate` — authenticated preflight check for a package artifact. Runs the same ident, current-identity-key, signing-key, hash, `ABI_INDEX`, native metadata, and policy checks as publish, but does not write the blob store, index, metadata service, or transparency log.
+    ```json
+    {
+      "ident": "alice#shape",
+      "version": "2.3.1",
+      "artifact": "<mfp-bytes-or-upload-reference>",
+      "contentHash": "<signature-excluded-content-hash>",
+      "identityKeyFingerprint": "<fingerprint>",
+      "signingKeyFingerprint": "<fingerprint>"
+    }
+    ```
+    Response:
+    ```json
+    {
+      "valid": true,
+      "contentHash": "<signature-excluded-content-hash>",
+      "abiIndex": {},
+      "diagnostics": []
+    }
+    ```
+  - `POST /publish` — authenticated publish. Runs the same checks as `POST /validate`, writes the content-addressed blob if absent, writes mutable index/metadata for `<owner>#<package>@<version>`, and records the publish in the transparency log.
+    ```json
+    {
+      "ident": "alice#shape",
+      "version": "2.3.1",
+      "artifact": "<mfp-bytes-or-upload-reference>",
+      "contentHash": "<signature-excluded-content-hash>",
+      "identityKeyFingerprint": "<fingerprint>",
+      "signingKeyFingerprint": "<fingerprint>"
+    }
+    ```
+    Response:
+    ```json
+    {
+      "ident": "alice#shape",
+      "version": "2.3.1",
+      "hash": "<content-hash>",
+      "blobStored": true,
+      "logEntry": "<transparency-log-entry>"
+    }
+    ```
+  - `POST /unpublish` — authenticated metadata removal for `<owner>#<package>@<version>`. Removes the version from the mutable index/search metadata so new resolutions cannot select it, records an unpublish/tombstone event in the transparency log, and never deletes `/blob/<hash>`.
+    ```json
+    {
+      "ident": "alice#shape",
+      "version": "2.3.1",
+      "hash": "<content-hash>",
+      "reason": "maintainer-request",
+      "unpublishStatementSignature": "<current-identity-key-signature-over-unpublish-statement>"
+    }
+    ```
+    Response:
+    ```json
+    {
+      "ident": "alice#shape",
+      "version": "2.3.1",
+      "hash": "<content-hash>",
+      "metadataRemoved": true,
+      "blobDeleted": false,
+      "logEntry": "<transparency-log-entry>"
+    }
+    ```
   - `GET /log/checkpoint`, `GET /log/proof/<entry>` — transparency log access
 - **Mirroring/federation**: because blobs are self-verifying (hash + signature), any mirror can serve them regardless of which registry's index pointed there. Self-hosted/internal registries are just additional `source` aliases configured locally — they don't need to be embedded in the ident itself.
 
@@ -127,7 +299,7 @@ Not a URL, and not required to encode where the bytes live — that's what conte
 | Offline root keys for index? | Format reserves field; mechanism deferred to v2 |
 | Threshold/multi-sig for critical packages | Deferred to v2 |
 | Typosquat detection | Warn-only at v1 |
-| Owner handle registration | Registry-issued accounts, email/phone verified, OAuth as additional sign-in |
+| Owner handle registration | Open key-based registration; no username/password, email, phone, or OAuth required |
 | Yanking | Hide from new resolution; bytes retained; never full delete |
 | Blob vs. metadata lifecycle | `/blob/<hash>` is permanent and undeletable in normal operation; index/metadata (listing, description, yank status) is mutable independent of the blob |
 | Name/identity recycling | Never, once published |
