@@ -99,19 +99,45 @@ The header `name`, `ident`, `version`, `identKey`, `identFingerprint`, `signingF
 
 ## Signature coverage
 
-The signature covers **all bytes after the signature itself**.
+The package content hash and package signature use the same byte representation:
+the entire `.mfp` file with only the `signature` byte range replaced by zero
+bytes of the same length.
 
 More precisely:
 
 ```text
-signedStart = offset immediately after signature
-signedEnd   = end of file
-signedBytes = file[signedStart : signedEnd]
+signatureStart = 26
+signatureEnd   = signatureStart + signatureLength
+
+coveredBytes = file[0 : signatureStart]
+             || zero[signatureLength]
+             || file[signatureEnd : end]
+
+contentHash = SHA-256(coveredBytes)
 ```
 
-The signed bytes include:
+The signature input for `signatureType = 1` is:
 
 ```text
+"MFP-PACKAGE-v1" || contentHash || ident || version
+```
+
+`ident` and `version` in the signature input are the raw header field byte
+strings without their length prefixes. The domain string is ASCII and prevents a
+package signature from being replayed as another Ed25519 signature type.
+
+The covered bytes include:
+
+```text
+magic
+containerMajor
+containerMinor
+bytecodeMajor
+bytecodeMinor
+flags
+signatureType
+signatureLength
+zero[signatureLength]
 nameLength
 name
 identLength
@@ -132,21 +158,16 @@ bytecodeLength
 packageBytecode
 ```
 
-The signature does **not** cover:
+The covered bytes exclude only the actual signature bytes:
 
 ```text
-magic
-containerMajor
-containerMinor
-bytecodeMajor
-bytecodeMinor
-flags
-signatureType
-signatureLength
 signature
 ```
 
-This signs the package import name, registry ident, owner ident key, owner ident fingerprint, signing fingerprint, version, metadata, and bytecode. `bytecodeLength` is signed, so truncation, extension, or bytecode replacement invalidates the signature.
+This signs the package import name, registry ident, owner ident key, owner ident
+fingerprint, signing fingerprint, version, container format versions, bytecode
+format versions, flags, metadata, and bytecode. `bytecodeLength` is covered, so
+truncation, extension, or bytecode replacement invalidates the signature.
 
 Verification must use the raw byte sequence exactly as stored. There is no string normalization, metadata canonicalization, JSON normalization, or re-serialization before verification.
 
@@ -1523,7 +1544,17 @@ bytecodeLength     u64
 packageBytecode    byte[bytecodeLength]
 ````
 
-The signature covers all bytes after the signature itself: `nameLength` through the end of `packageBytecode`. This includes `name`, `ident`, `version`, `identKey`, `identFingerprint`, `signingFingerprint`, package metadata, and bytecode. It does not cover the magic, version fields, flags, signature type, signature length, or signature bytes.
+The package content hash and package signature use the entire `.mfp` file with only the `signature` byte range replaced by zero bytes of the same length:
+
+```text
+signatureStart = 26
+signatureEnd   = signatureStart + signatureLength
+coveredBytes   = file[0 : signatureStart] || zero[signatureLength] || file[signatureEnd : end]
+contentHash    = SHA-256(coveredBytes)
+signatureInput = "MFP-PACKAGE-v1" || contentHash || ident || version
+```
+
+This covers the magic, container version, bytecode version, flags, signature type, signature length, header metadata, bytecode length, and bytecode. It excludes only the actual signature bytes.
 
 `signatureType = 0` means unsigned and requires `signatureLength = 0`. `signatureType = 1` means Ed25519 and requires `signatureLength = 64`. Unknown signature types reject the package. Public registry packages must use `signatureType = 1`; installs reject unsigned packages except for explicit `allowUnsignedLocal` exceptions on `path:` or `file:` sources.
 

@@ -30,7 +30,7 @@ Two layers, deliberately decoupled:
 
 Not a URL, and not required to encode where the bytes live — that's what content addressing is for.
 
-**Content addressing.** The actual unit of download/cache/reproducibility is a **cryptographic hash of the package content** (signature-excluded — see §3). The registry index maps `ident@version → hash`. A locked install skips the index entirely and fetches by hash from any source — registry, mirror, local cache — that has that blob.
+**Content addressing.** The actual unit of download/cache/reproducibility is the `.mfp` **content hash** defined by `package_format.md`: `SHA-256` over the entire package file with only the signature bytes zeroed. The registry index maps `ident@version → hash`. A locked install skips the index entirely and fetches by hash from any source — registry, mirror, local cache — that has that blob.
 
 **`project.json` entry:**
 ```json
@@ -110,7 +110,7 @@ Not a URL, and not required to encode where the bytes live — that's what conte
   - the signing key is authorized by the current ident key and belongs to the owner in the package ident.
   **Unrecognized, revoked, stale, or wrong-owner keys are rejected outright** — never silently accepted as "first seen, trust it."
 - At install/verification time, a package signed by a current key verifies normally. A package signed by a `past` key verifies only if the package's logged publish timestamp is earlier than that key's rotation timestamp. Clients should surface that state in output, e.g. `Verified with old signing key rotated on 2026-06-14`. A package signed after the recorded rotation timestamp with that old key is invalid.
-- **Blobs are immutable, including signatures.** Published `.mfp` blobs are never re-signed after key rotation. Key history exists so old blobs can still be verified against their original signatures. The content hash excludes the signature region for reproducible content identity, but `/blob/<hash>` still returns the original immutable package bytes that were published.
+- **Blobs are immutable, including signatures.** Published `.mfp` blobs are never re-signed after key rotation. Key history exists so old blobs can still be verified against their original signatures. The content hash is computed from the package bytes with only the signature bytes zeroed, so magic, container version, bytecode version, flags, signature type, signature length, metadata, bytecode length, and bytecode are all part of the content identity. `/blob/<hash>` still returns the original immutable package bytes that were published.
 - **Revocation:** immediate stop on new authentication or publishes from that key, logged with timestamp. Already-published versions aren't auto-invalidated (avoids a self-inflicted outage); reviewed individually and moved to `blocked` if malicious.
 - **Transparency log** (Merkle-tree, CT/Rekor-style), built from v1: every account registration, login-key registration, ident/signing-key rotation, key revocation, publish, release-state change, ownership transfer, identity, version, content hash, signing fingerprint, and timestamp. Clients pin the last-seen checkpoint (no rollback). Lets any maintainer audit "did I really publish this?" and makes registry-level compromises detectable rather than invisible.
 - **Index signing root-of-trust:** v1 uses an offline registry root key, not only an online index key. The root metadata binds a stable registry ID (for example `registry:mfb`) to the root public key, the allowed online snapshot/timestamp keys, signature thresholds for registry metadata, metadata expiration rules, and the current root version. Clients must be configured with the expected registry ID and root key fingerprint before trusting any index response.
@@ -132,7 +132,7 @@ Not a URL, and not required to encode where the bytes live — that's what conte
 
 ## 5. Registry API & Storage (sketch)
 
-- **Blob storage**: content-addressed, immutable, keyed by the signature-excluded content hash. **Write-once, permanent** — once a `.mfp` is released under a hash, `GET /blob/<hash>` works forever; the blob store has no delete path for normal operation. Infinitely cacheable — any CDN or third-party mirror can serve blobs without being trusted, since the client verifies hash + signature regardless of source.
+- **Blob storage**: content-addressed, immutable, keyed by the `.mfp` content hash defined in `package_format.md`. **Write-once, permanent** — once a `.mfp` is released under a hash, `GET /blob/<hash>` works forever; the blob store has no delete path for normal operation. Infinitely cacheable — any CDN or third-party mirror can serve blobs without being trusted, since the client verifies hash + signature regardless of source.
 - **Published version immutability:** after a successful publish, the mapping `<owner>#<package>@<version> → contentHash` is immutable forever. The hash for an existing version may never change, the package blob may never be replaced, and the package is never re-signed in place. A publisher that needs different bytes must publish a new version.
 - **Index/metadata service**: maps `<owner>#<package>@<version> → hash`, plus release state, signature, signing fingerprint, and transparency-log reference for each version. Version records are append-only for identity/version/hash; mutable metadata such as description, README, links, advisory text, deprecation message, and release state may change without changing the blob. Small, mutable, short-cache.
 - **Release states:**
@@ -255,7 +255,7 @@ Not a URL, and not required to encode where the bytes live — that's what conte
       "ident": "alice#shape",
       "version": "2.3.1",
       "artifact": "<mfp-bytes-or-upload-reference>",
-      "contentHash": "<signature-excluded-content-hash>",
+      "contentHash": "<mfp-content-hash>",
       "identFingerprint": "<fingerprint>",
       "signingFingerprint": "<fingerprint>"
     }
@@ -264,7 +264,7 @@ Not a URL, and not required to encode where the bytes live — that's what conte
     ```json
     {
       "valid": true,
-      "contentHash": "<signature-excluded-content-hash>",
+      "contentHash": "<mfp-content-hash>",
       "abiIndex": {},
       "diagnostics": []
     }
@@ -275,7 +275,7 @@ Not a URL, and not required to encode where the bytes live — that's what conte
       "ident": "alice#shape",
       "version": "2.3.1",
       "artifact": "<mfp-bytes-or-upload-reference>",
-      "contentHash": "<signature-excluded-content-hash>",
+      "contentHash": "<mfp-content-hash>",
       "identFingerprint": "<fingerprint>",
       "signingFingerprint": "<fingerprint>"
     }
@@ -346,7 +346,7 @@ Not a URL, and not required to encode where the bytes live — that's what conte
 
 The lockfile format lives in `lockfile.md`. The registry design depends on these lockfile properties:
 
-- Locked packages are fetched and verified by signature-excluded content hash plus the immutable package signature.
+- Locked packages are fetched and verified by the `.mfp` content hash plus the immutable package signature.
 - Registry and mirror endpoint URLs are local configuration; the lockfile stores source aliases, idents, and hashes.
 - The lockfile records the transparency-log checkpoint, registry root fingerprint/version, snapshot/timestamp metadata versions, key metadata, selected versions, requested versions, publish timestamps, key rotation timestamps when a past key is used, pin state, ABI metadata, native metadata hashes, package/container versions, bytecode versions, and transitive dependency cache.
 - When a locked package verifies with a `past` signing key, `install` must confirm `publishedAt < signingKeyRotatedAt` and should report that explicitly, e.g. `Verified with old signing key rotated on 2026-06-14`. If `publishedAt` is missing or is not earlier than the rotation timestamp, verification fails.
@@ -441,6 +441,5 @@ Semver convention treats all of `0.x` as unstable with no compatibility guarante
 ## Open for future passes
 
 - Exact legal-tombstone audit procedure and public transparency fields for emergency takedowns
-- Exact `.mfp` header layout change needed to exclude signature from the hashed region
 - Critical-package threshold values (download count / dependent count)
 - Federation/mirror discovery protocol details

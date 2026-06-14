@@ -682,7 +682,9 @@ fn mfp_bytecode_payload(bytes: &[u8]) -> Result<MfpContainer<'_>, String> {
             "unsupported MFP container major version {container_major}"
         ));
     }
+    let signature_type = checked_u16_at(bytes, 20)?;
     let signature_length = checked_u32_at(bytes, 22)? as usize;
+    validate_mfp_signature_header(signature_type, signature_length)?;
     let mut offset = 26usize
         .checked_add(signature_length)
         .ok_or_else(|| "invalid .mfp signature length".to_string())?;
@@ -719,6 +721,18 @@ fn mfp_bytecode_payload(bytes: &[u8]) -> Result<MfpContainer<'_>, String> {
         },
         bytecode: &bytes[offset..end],
     })
+}
+
+fn validate_mfp_signature_header(
+    signature_type: u16,
+    signature_length: usize,
+) -> Result<(), String> {
+    match (signature_type, signature_length) {
+        (0, 0) | (1, 64) => Ok(()),
+        (0, _) => Err("unsigned .mfp package must have zero signature length".to_string()),
+        (1, _) => Err("Ed25519 .mfp package must have a 64 byte signature".to_string()),
+        _ => Err(format!("unsupported .mfp signature type {signature_type}")),
+    }
 }
 
 fn validate_container_manifest_identity(

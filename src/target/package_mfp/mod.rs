@@ -1,5 +1,6 @@
 use crate::bytecode::{self, BytecodeMetadata};
 use crate::ir::IrProject;
+use sha2::{Digest, Sha256};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -9,6 +10,8 @@ const CONTAINER_MINOR: u16 = 0;
 const BYTECODE_MAJOR: u16 = 1;
 const BYTECODE_MINOR: u16 = 0;
 const SIGNATURE_UNSIGNED: u16 = 0;
+const SIGNATURE_ED25519: u16 = 1;
+const HEADER_PREFIX_LEN: usize = 26;
 const FLAG_PRE_RELEASE: u32 = 1 << 3;
 
 const NAME_LIMIT: usize = 255;
@@ -64,6 +67,36 @@ pub fn build_package_bytes(
     Ok(bytes)
 }
 
+pub fn package_content_hash(bytes: &[u8]) -> Result<[u8; 32], String> {
+    if bytes.len() < HEADER_PREFIX_LEN {
+        return Err("package is too small to be a valid .mfp package".to_string());
+    }
+    if bytes[0..8] != MFP_MAGIC {
+        return Err("package does not have the MFP package magic".to_string());
+    }
+    let signature_type = u16::from_le_bytes([bytes[20], bytes[21]]);
+    let signature_length =
+        u32::from_le_bytes([bytes[22], bytes[23], bytes[24], bytes[25]]) as usize;
+    validate_signature_header(signature_type, signature_length)?;
+    let signature_end = HEADER_PREFIX_LEN
+        .checked_add(signature_length)
+        .ok_or_else(|| "invalid .mfp signature length".to_string())?;
+    if signature_end > bytes.len() {
+        return Err("truncated .mfp signature".to_string());
+    }
+
+    let mut hasher = Sha256::new();
+    hasher.update(&bytes[..HEADER_PREFIX_LEN]);
+    if signature_length > 0 {
+        hasher.update(vec![0; signature_length]);
+    }
+    hasher.update(&bytes[signature_end..]);
+    let digest = hasher.finalize();
+    let mut hash = [0; 32];
+    hash.copy_from_slice(&digest);
+    Ok(hash)
+}
+
 fn validate_metadata(metadata: &BytecodeMetadata) -> Result<(), String> {
     validate_string("name", &metadata.name, NAME_LIMIT, true)?;
     validate_string("ident", package_ident(metadata), IDENT_LIMIT, true)?;
@@ -84,6 +117,19 @@ fn validate_metadata(metadata: &BytecodeMetadata) -> Result<(), String> {
     validate_string("author", &metadata.author, AUTHOR_LIMIT, false)?;
     validate_string("url", &metadata.url, URL_LIMIT, false)?;
     Ok(())
+}
+
+fn validate_signature_header(signature_type: u16, signature_length: usize) -> Result<(), String> {
+    match (signature_type, signature_length) {
+        (SIGNATURE_UNSIGNED, 0) | (SIGNATURE_ED25519, 64) => Ok(()),
+        (SIGNATURE_UNSIGNED, _) => {
+            Err("unsigned .mfp package must have zero signature length".to_string())
+        }
+        (SIGNATURE_ED25519, _) => {
+            Err("Ed25519 .mfp package must have a 64 byte signature".to_string())
+        }
+        _ => Err(format!("unsupported .mfp signature type {signature_type}")),
+    }
 }
 
 fn package_ident(metadata: &BytecodeMetadata) -> &str {
@@ -159,6 +205,34 @@ mod tests {
         assert_eq!(&package[12..14], &BYTECODE_MAJOR.to_le_bytes());
         assert_eq!(&package[14..16], &BYTECODE_MINOR.to_le_bytes());
         assert!(package.ends_with(payload));
+        let hash = package_content_hash(&package).expect("content hash");
+        assert_ne!(hash, [0; 32]);
+    }
+
+    #[test]
+    fn content_hash_zeroes_signature_bytes_but_covers_header_fields() {
+        let metadata = BytecodeMetadata {
+            name: "shape".to_string(),
+            ident: "ada#shape".to_string(),
+            version: "1.2.3".to_string(),
+            ident_key: "ed25519:abc".to_string(),
+            ident_fingerprint: "sha256:ident".to_string(),
+            signing_fingerprint: "sha256:signing".to_string(),
+            author: "Ada".to_string(),
+            url: "https://example.invalid/shape".to_string(),
+            dependencies: Vec::new(),
+        };
+        let mut package = build_package_bytes(&metadata, b"MFBCpayload").expect("package bytes");
+        package[20..22].copy_from_slice(&SIGNATURE_ED25519.to_le_bytes());
+        package[22..26].copy_from_slice(&64_u32.to_le_bytes());
+        package.splice(HEADER_PREFIX_LEN..HEADER_PREFIX_LEN, [0x7f; 64]);
+
+        let hash = package_content_hash(&package).expect("content hash");
+        package[HEADER_PREFIX_LEN..HEADER_PREFIX_LEN + 64].fill(0x42);
+        assert_eq!(package_content_hash(&package).expect("content hash"), hash);
+
+        package[16] ^= FLAG_PRE_RELEASE as u8;
+        assert_ne!(package_content_hash(&package).expect("content hash"), hash);
     }
 
     #[test]

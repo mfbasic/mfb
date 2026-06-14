@@ -26,7 +26,7 @@ The lockfile is JSON, UTF-8 encoded, and deterministic. Tools must preserve stab
       "requestedVersion": "2.1.0",
       "pin": false,
       "source": "registry:mfb",
-      "hash": "<signature-excluded package content hash>",
+      "hash": "<mfp-content-hash>",
       "signatureType": "ed25519",
       "identFingerprint": "<owner ident-key fingerprint>",
       "signingFingerprint": "<package signing-key fingerprint>",
@@ -90,7 +90,7 @@ The lockfile is JSON, UTF-8 encoded, and deterministic. Tools must preserve stab
 | `requestedVersion` | Concrete version requested by `project.json` or the dependency's compiled import metadata. |
 | `pin` | Whether the request required the exact `requestedVersion`. |
 | `source` | Source locator alias, such as `registry:mfb`, `file:...`, `path:...`, or `git+https://...`. |
-| `hash` | Authoritative signature-excluded package content hash. |
+| `hash` | Authoritative `.mfp` content hash: `SHA-256` over the package file with only the signature bytes zeroed, as defined in `package_format.md`. |
 | `signatureType` | `ed25519` for signed packages, or `unsigned` only for an explicitly allowed local exception. |
 | `identFingerprint` | Fingerprint of the owner ident key declared by the signed `.mfp` header and manifest. |
 | `signingFingerprint` | Fingerprint of the package signing key that verifies the immutable `.mfp` signature. |

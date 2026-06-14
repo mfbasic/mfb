@@ -556,6 +556,9 @@ fn verify_packages(project_dir: &Path) -> Result<(), String> {
 }
 
 fn print_package_info(path: &Path) -> Result<(), String> {
+    let package_bytes =
+        fs::read(path).map_err(|err| format!("failed to read '{}': {err}", path.display()))?;
+    let content_hash = target::package_mfp::package_content_hash(&package_bytes)?;
     let header = read_mfp_header(path)?;
     let info = bytecode::read_package_info(path)?;
 
@@ -591,6 +594,7 @@ fn print_package_info(path: &Path) -> Result<(), String> {
         signature_type_name(header.signature_type)
     );
     println!("  signature length: {}", header.signature_length);
+    println!("  content hash: {}", hex_bytes(&content_hash));
     println!("  bytecode length: {}", header.bytecode_length);
     println!();
     println!("Manifest:");
@@ -663,6 +667,10 @@ fn signature_type_name(signature_type: u16) -> String {
         1 => "Ed25519".to_string(),
         other => format!("unknown ({other})"),
     }
+}
+
+fn hex_bytes(bytes: &[u8]) -> String {
+    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
 fn package_export_kind_name(kind: bytecode::BytecodeExportKind) -> &'static str {
