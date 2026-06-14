@@ -550,6 +550,7 @@ impl CodeBuilder<'_> {
                     .get(target)
                     .map(|function| function.returns.clone())
             })
+            .or_else(|| self.package_return_types.get(target).cloned())
             .unwrap_or_else(|| "Unknown".to_string());
         if result_type == "Nothing" {
             return Ok(ValueResult {

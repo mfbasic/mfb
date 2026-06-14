@@ -21,6 +21,7 @@ pub(crate) struct NativeObjectPlan {
     data_units: Vec<DataUnitPlan>,
     defined_symbols: Vec<String>,
     imported_symbols: Vec<ObjectImport>,
+    external_symbols: Vec<String>,
     symbol_table: Vec<SymbolPlan>,
     string_table: StringTablePlan,
     relocations: Vec<ObjectRelocation>,
@@ -153,6 +154,7 @@ pub(crate) fn lower_plan(plan: &NativePlan) -> Result<NativeObjectPlan, String> 
     );
     let string_table = string_table(&symbol_table);
     let relocations = relocations(plan, &entry, &data_units);
+    let external_symbols = external_symbols(&relocations);
 
     let object = NativeObjectPlan {
         target: plan.target.clone(),
@@ -187,6 +189,7 @@ pub(crate) fn lower_plan(plan: &NativePlan) -> Result<NativeObjectPlan, String> 
         data_units,
         defined_symbols,
         imported_symbols,
+        external_symbols,
         symbol_table,
         string_table,
         relocations,
@@ -246,6 +249,7 @@ impl NativeObjectPlan {
                 "  \"dataUnits\": [{}\n  ],\n",
                 "  \"definedSymbols\": [{}],\n",
                 "  \"importedSymbols\": [{}\n  ],\n",
+                "  \"externalSymbols\": [{}],\n",
                 "  \"symbolTable\": [{}\n  ],\n",
                 "  \"stringTable\": {},\n",
                 "  \"relocations\": [{}\n  ]\n",
@@ -264,6 +268,7 @@ impl NativeObjectPlan {
             join_json(&self.data_units, 2),
             json_string_list(&self.defined_symbols),
             join_json(&self.imported_symbols, 2),
+            json_string_list(&self.external_symbols),
             join_json(&self.symbol_table, 2),
             self.string_table.to_json(2),
             join_json(&self.relocations, 2)
@@ -564,6 +569,16 @@ fn relocations(
     relocations
 }
 
+fn external_symbols(relocations: &[ObjectRelocation]) -> Vec<String> {
+    let mut symbols = Vec::new();
+    for relocation in relocations {
+        if relocation.kind == "packageCall" {
+            push_unique(&mut symbols, relocation.to.clone());
+        }
+    }
+    symbols
+}
+
 fn dylib_for_library(library: &str) -> Result<String, String> {
     match library {
         "libSystem" => Ok("/usr/lib/libSystem.B.dylib".to_string()),
@@ -610,6 +625,7 @@ fn validate_relocations(plan: &NativeObjectPlan) -> Result<(), String> {
         .iter()
         .map(|symbol| &symbol.symbol)
         .collect::<HashSet<_>>();
+    let external = plan.external_symbols.iter().collect::<HashSet<_>>();
     for relocation in &plan.relocations {
         if !defined.contains(&relocation.from) {
             return Err(format!(
@@ -617,7 +633,10 @@ fn validate_relocations(plan: &NativeObjectPlan) -> Result<(), String> {
                 relocation.from
             ));
         }
-        if !defined.contains(&relocation.to) && !imported.contains(&relocation.to) {
+        if !defined.contains(&relocation.to)
+            && !imported.contains(&relocation.to)
+            && !external.contains(&relocation.to)
+        {
             return Err(format!(
                 "native object plan relocation target '{}' is neither defined nor imported",
                 relocation.to

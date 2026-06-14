@@ -43,6 +43,7 @@
   { "library": "libSystem", "symbol": "_exit" },
   { "library": "libSystem", "symbol": "_write" }
   ],
+  "externalSymbols": [],
   "symbolTable": [
   { "name": "_main", "kind": "defined", "section": "__TEXT,__text", "value": 0, "stringTableOffset": 1 },
   { "name": "_mfb_fn_ifOnly", "kind": "defined", "section": "__TEXT,__text", "value": 16, "stringTableOffset": 7 },

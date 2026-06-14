@@ -8,7 +8,7 @@ use crate::json_string;
 use crate::numeric;
 
 use super::nir::{self, NirFunction, NirMatchPattern, NirModule, NirOp, NirRecordUpdate, NirValue};
-use super::plan::NativePlan;
+use super::plan::{CallKind, NativePlan};
 use super::runtime;
 
 const RESULT_OK_TAG: &str = "0";
@@ -371,6 +371,7 @@ struct CodeBuilder<'a> {
     current_symbol: String,
     function_symbols: &'a HashMap<String, String>,
     functions: &'a HashMap<String, &'a NirFunction>,
+    package_return_types: &'a HashMap<String, String>,
     platform_imports: &'a HashMap<String, String>,
     type_model: TypeModel,
     string_symbols: &'a HashMap<String, String>,
@@ -465,7 +466,22 @@ pub(crate) fn lower_module_for_platform(
             symbol: import.symbol.clone(),
         })
         .collect::<Vec<_>>();
-    let package_exports = package_native_exports(packages)?;
+    let all_package_exports = package_native_exports(packages)?;
+    let mut used_package_symbols = used_package_symbols(module, native_plan);
+    let package_return_types = all_package_exports
+        .iter()
+        .map(|export| {
+            Ok((
+                export.name.clone(),
+                native_type_name(export.return_type).to_string(),
+            ))
+        })
+        .collect::<Result<HashMap<_, _>, String>>()?;
+    include_transitive_package_symbols(&all_package_exports, &mut used_package_symbols);
+    let package_exports = all_package_exports
+        .into_iter()
+        .filter(|export| used_package_symbols.contains(&export.symbol))
+        .collect::<Vec<_>>();
     let mut package_runtime_symbols = Vec::new();
     add_package_runtime_symbols(&mut package_runtime_symbols, &package_exports);
     add_platform_package_runtime_imports(
@@ -569,6 +585,7 @@ pub(crate) fn lower_module_for_platform(
             function,
             &function_symbols,
             &functions,
+            &package_return_types,
             &platform_imports,
             &string_symbols,
             type_model.clone(),
@@ -581,6 +598,7 @@ pub(crate) fn lower_module_for_platform(
             &symbol,
             &function_symbols,
             &functions,
+            &package_return_types,
             &platform_imports,
             &string_symbols,
             type_model.clone(),
@@ -1281,6 +1299,7 @@ fn lower_function(
     function: &NirFunction,
     function_symbols: &HashMap<String, String>,
     functions: &HashMap<String, &NirFunction>,
+    package_return_types: &HashMap<String, String>,
     platform_imports: &HashMap<String, String>,
     string_symbols: &HashMap<String, String>,
     type_model: TypeModel,
@@ -1303,6 +1322,7 @@ fn lower_function(
         current_symbol: nir::function_symbol(&function.name),
         function_symbols,
         functions,
+        package_return_types,
         platform_imports,
         type_model,
         string_symbols,
@@ -1367,6 +1387,7 @@ fn lower_builtin_function_wrapper(
     symbol: &str,
     function_symbols: &HashMap<String, String>,
     functions: &HashMap<String, &NirFunction>,
+    package_return_types: &HashMap<String, String>,
     platform_imports: &HashMap<String, String>,
     string_symbols: &HashMap<String, String>,
     type_model: TypeModel,
@@ -1389,6 +1410,7 @@ fn lower_builtin_function_wrapper(
         current_symbol: symbol.to_string(),
         function_symbols,
         functions,
+        package_return_types,
         platform_imports,
         type_model,
         string_symbols,
@@ -1473,6 +1495,173 @@ fn package_string_symbols(exports: &[NativePackageExport]) -> HashMap<(String, u
         }
     }
     symbols
+}
+
+fn native_type_name(type_: bytecode::NativeType) -> &'static str {
+    match type_ {
+        bytecode::NativeType::Nothing => "Nothing",
+        bytecode::NativeType::Boolean => "Boolean",
+        bytecode::NativeType::Byte => "Byte",
+        bytecode::NativeType::Integer => "Integer",
+        bytecode::NativeType::Float => "Float",
+        bytecode::NativeType::Fixed => "Fixed",
+        bytecode::NativeType::String => "String",
+        bytecode::NativeType::FileHandle => "File",
+        bytecode::NativeType::Result => "Result",
+        bytecode::NativeType::Other => "Unknown",
+    }
+}
+
+fn used_package_symbols(module: &NirModule, native_plan: &NativePlan) -> HashSet<String> {
+    let mut symbols = native_plan
+        .functions
+        .iter()
+        .flat_map(|function| function.calls.iter())
+        .filter(|call| matches!(call.kind, CallKind::Import))
+        .map(|call| call.symbol.clone())
+        .collect::<HashSet<_>>();
+    let package_import_symbols = module
+        .imports
+        .iter()
+        .map(|import| (import.name.clone(), import.symbol.clone()))
+        .collect::<HashMap<_, _>>();
+    for function in &module.functions {
+        collect_package_function_refs_in_ops(&function.body, &package_import_symbols, &mut symbols);
+    }
+    symbols
+}
+
+fn include_transitive_package_symbols(
+    exports: &[NativePackageExport],
+    symbols: &mut HashSet<String>,
+) {
+    let export_symbols = exports
+        .iter()
+        .map(|export| export.symbol.clone())
+        .collect::<HashSet<_>>();
+    let mut changed = true;
+    while changed {
+        changed = false;
+        for export in exports {
+            if !symbols.contains(&export.symbol) {
+                continue;
+            }
+            for target in export.external_calls.values() {
+                if export_symbols.contains(&target.symbol) && symbols.insert(target.symbol.clone())
+                {
+                    changed = true;
+                }
+            }
+        }
+    }
+}
+
+fn collect_package_function_refs_in_ops(
+    ops: &[NirOp],
+    package_import_symbols: &HashMap<String, String>,
+    symbols: &mut HashSet<String>,
+) {
+    for op in ops {
+        match op {
+            NirOp::Bind { value, .. } | NirOp::Return { value } => {
+                if let Some(value) = value {
+                    collect_package_function_refs_in_value(value, package_import_symbols, symbols);
+                }
+            }
+            NirOp::Assign { value, .. } | NirOp::Eval { value } | NirOp::Fail { error: value } => {
+                collect_package_function_refs_in_value(value, package_import_symbols, symbols);
+            }
+            NirOp::If {
+                condition,
+                then_body,
+                else_body,
+            } => {
+                collect_package_function_refs_in_value(condition, package_import_symbols, symbols);
+                collect_package_function_refs_in_ops(then_body, package_import_symbols, symbols);
+                collect_package_function_refs_in_ops(else_body, package_import_symbols, symbols);
+            }
+            NirOp::Match { value, cases } => {
+                collect_package_function_refs_in_value(value, package_import_symbols, symbols);
+                for case in cases {
+                    if let NirMatchPattern::Value(pattern) = &case.pattern {
+                        collect_package_function_refs_in_value(
+                            pattern,
+                            package_import_symbols,
+                            symbols,
+                        );
+                    }
+                    collect_package_function_refs_in_ops(
+                        &case.body,
+                        package_import_symbols,
+                        symbols,
+                    );
+                }
+            }
+            NirOp::ForEach { iterable, body, .. } => {
+                collect_package_function_refs_in_value(iterable, package_import_symbols, symbols);
+                collect_package_function_refs_in_ops(body, package_import_symbols, symbols);
+            }
+            NirOp::Using { value, body, .. } => {
+                collect_package_function_refs_in_value(value, package_import_symbols, symbols);
+                collect_package_function_refs_in_ops(body, package_import_symbols, symbols);
+            }
+        }
+    }
+}
+
+fn collect_package_function_refs_in_value(
+    value: &NirValue,
+    package_import_symbols: &HashMap<String, String>,
+    symbols: &mut HashSet<String>,
+) {
+    match value {
+        NirValue::FunctionRef { name, .. } => {
+            if let Some(symbol) = package_import_symbols.get(name) {
+                symbols.insert(symbol.clone());
+            }
+        }
+        NirValue::Call { args, .. }
+        | NirValue::RuntimeCall { args, .. }
+        | NirValue::Constructor { args, .. } => {
+            for arg in args {
+                collect_package_function_refs_in_value(arg, package_import_symbols, symbols);
+            }
+        }
+        NirValue::WithUpdate {
+            target, updates, ..
+        } => {
+            collect_package_function_refs_in_value(target, package_import_symbols, symbols);
+            for update in updates {
+                collect_package_function_refs_in_value(
+                    &update.value,
+                    package_import_symbols,
+                    symbols,
+                );
+            }
+        }
+        NirValue::ListLiteral { values, .. } => {
+            for value in values {
+                collect_package_function_refs_in_value(value, package_import_symbols, symbols);
+            }
+        }
+        NirValue::MapLiteral { entries, .. } => {
+            for (key, value) in entries {
+                collect_package_function_refs_in_value(key, package_import_symbols, symbols);
+                collect_package_function_refs_in_value(value, package_import_symbols, symbols);
+            }
+        }
+        NirValue::MemberAccess { target, .. } => {
+            collect_package_function_refs_in_value(target, package_import_symbols, symbols);
+        }
+        NirValue::Binary { left, right, .. } => {
+            collect_package_function_refs_in_value(left, package_import_symbols, symbols);
+            collect_package_function_refs_in_value(right, package_import_symbols, symbols);
+        }
+        NirValue::Unary { operand, .. } => {
+            collect_package_function_refs_in_value(operand, package_import_symbols, symbols);
+        }
+        NirValue::Const { .. } | NirValue::Local(_) => {}
+    }
 }
 
 fn add_package_runtime_symbols(runtime_symbols: &mut Vec<String>, exports: &[NativePackageExport]) {
@@ -2721,6 +2910,7 @@ fn lower_direct_builtin_runtime_helper(
 ) -> Result<CodeFunction, String> {
     let function_symbols = HashMap::new();
     let functions = HashMap::new();
+    let package_return_types = HashMap::new();
     let string_symbols = standard_error_messages()
         .iter()
         .map(|(_, message, symbol)| ((*message).to_string(), (*symbol).to_string()))
@@ -2729,6 +2919,7 @@ fn lower_direct_builtin_runtime_helper(
         current_symbol: symbol.to_string(),
         function_symbols: &function_symbols,
         functions: &functions,
+        package_return_types: &package_return_types,
         platform_imports,
         type_model: TypeModel::empty(),
         string_symbols: &string_symbols,
