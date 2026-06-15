@@ -199,7 +199,14 @@ String helpers are exported by the `strings` package. Package functions are call
 
 Regular-expression helpers are exported by the `regex` package. Package functions are called with their package qualifier.
 
-The regular-expression dialect is runtime-defined and stable for this implementation. Invalid patterns fail with `ErrInvalidFormat`.
+The regular-expression dialect is the Rust `regex` crate style supported by this implementation. It is compiler-defined and must behave the same across targets. Invalid patterns fail with `ErrInvalidFormat`.
+
+Matching is Unicode-aware and user-visible indexes remain zero-based Unicode scalar indexes, not byte offsets. The implementation targets the Rust `regex` feature style rather than POSIX `regcomp()` semantics:
+
+- syntax and matching behavior should follow Rust `regex` style
+- backreferences and look-around are not supported
+- behavior must not vary by target libc or OS regex library
+- replacement behavior should follow Rust `regex`-style global replacement semantics supported by this implementation
 
 | Function | Signature | Behavior |
 |----------|-----------|----------|
