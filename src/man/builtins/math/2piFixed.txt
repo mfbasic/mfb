@@ -9,11 +9,3 @@ DESCRIPTION
 
 EXAMPLES
   LET value AS Fixed = math::2piFixed
-
-FIXME
-- Inconsistency 1: `src/man/builtins/math/2piFixed.txt` and `specifications/standard_package.md` define `math::2piFixed` as a `LET` constant, but `src/builtins/math.rs` also includes `math.2piFixed` in zero-argument call paths: `is_math_call`, `resolve_call`, `expected_arguments`, and `arity`.
-- Inconsistency 2: That callable implementation path is incomplete: `resolve_call("math.2piFixed", [])` can resolve to `Fixed`, but `opcode_for` has no `TWO_PI_FIXED` case and would report it as unsupported if lowered as a call.
-
-Notes: Resolve by keeping `math::2piFixed` constant-only and removing it from math call dispatch/arity paths, or intentionally document and fully implement/test `math::2piFixed()` as callable. The manual and spec currently support constant-only behavior.
-
-Untested: No dedicated `tests/func_math_2piFixed_valid` or `tests/func_math_2piFixed_invalid` coverage exists. Aggregate valid coverage reads `math::2piFixed`, but focused invalid coverage is missing for `math::2piFixed()`, `math::2piFixed(arg)`, assignment to incompatible types, and use without importing `math`.

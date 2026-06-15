@@ -15,8 +15,3 @@ EXAMPLES
       io::print(strings::normalizeNfc("Café"))
       RETURN 0
     END FUNC
-
-FIXME
-  None.
-
-Untested: Edge cases not explicitly covered include canonical combining-mark reordering and non-composing combining sequences that should remain valid NFC behavior.

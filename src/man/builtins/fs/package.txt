@@ -17,8 +17,3 @@ DESCRIPTION
 SEE ALSO
   errors
   types
-
-FIXME
-  None.
-
-Untested: `USING` auto-close behavior in current `func_fs_*` tests; createTempFile collision/exclusive-create behavior, nonexistent or non-directory directory argument, empty directory string, permission-denied directory, repeated uniqueness, and read-back from the returned read/write handle.

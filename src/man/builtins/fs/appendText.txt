@@ -11,11 +11,3 @@ DESCRIPTION
 
 EXAMPLES
   fs::appendText("target/output.txt", "line\n")
-
-FIXME
-- Inconsistency 1: `specifications/standard_package.md` says `fs::appendText` fails with `10012`, `10013`, or `10015`, but `src/target/shared/code/mod.rs` can return `10002` for embedded NUL paths, `10004` for `ENOENT` while opening, and `10010` for allocation failure. I did not find a path in the `appendText` lowering that emits `10012`.
-- Inconsistency 2: The manual page documents create-and-append plus retry-until-written behavior, but omits spec-level symlink behavior and failure behavior for `appendText`, especially final-component symlink following and the actual runtime error cases above.
-
-Notes: Update the spec/manual to match the implemented runtime behavior, or change the implementation/error mapping so `appendText` emits the documented filesystem errors. In particular, decide whether embedded NUL should be `ErrInvalidArgument` (`10002`) or `ErrInvalidPath` (`10012`), and whether missing parent paths should be `10004`, `10011`, or another documented code.
-
-Untested: embedded NUL path rejection, missing parent path/open failure code, invalid path error code `10012`, access denied, directory-as-target/output failure, fsync/close failure, final-component symlink following, empty append value, and large/partial-write retry behavior.

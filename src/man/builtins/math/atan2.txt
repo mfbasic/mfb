@@ -13,8 +13,3 @@ DESCRIPTION
 
 EXAMPLES
   LET value AS Float = math::atan2(1.0, 1.0)
-
-FIXME
-  None.
-
-Untested: `math::atan2(0.0, 0.0)`, `math::atan2(toFixed("0.0"), toFixed("0.0"))`, negative/positive zero axis behavior, mixed `Float`/`Fixed` invalid case, and `Fixed` quadrant coverage beyond `(0, -1)`.

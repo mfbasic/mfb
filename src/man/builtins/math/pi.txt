@@ -9,12 +9,3 @@ DESCRIPTION
 
 EXAMPLES
   LET value AS Float = math::pi
-
-FIXME
-- Inconsistency 1: `src/man/builtins/math/pi.txt` and `specifications/standard_package.md` document `math::pi AS Float`, but `specifications/mfbasic.md` still lists and uses `math::piFloat`.
-- Inconsistency 2: `math::pi` is documented/spec’d as a constant/`LET` value, but `src/builtins/math.rs` also accepts `math.pi` as a zero-argument built-in call and lowers it with `OPCODE_MATH_PI`.
-- Inconsistency 3: There are no dedicated `tests/func_math_pi_valid/**` or `tests/func_math_pi_invalid/**` directories for the documented `math::pi` item.
-
-Notes: Update `specifications/mfbasic.md` to use `math::pi`, not `math::piFloat`. Decide whether constants are identifier-only; if yes, remove `math.pi` from callable resolution/arity paths or reject `math::pi()` before lowering. If callable constants are intended, document that behavior in the manual/spec and update tests consistently.
-
-Untested: Dedicated valid assignment/use of `math::pi AS Float`; invalid `math::pi()` if constants are meant to be value-only; invalid `math::pi(1)`; incompatible assignment/context such as `LET value AS Integer = math::pi`; use without importing `math`; runtime value formatting/precision in a focused pi test.

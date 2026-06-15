@@ -15,8 +15,3 @@ EXAMPLES
       io::print(strings::trim("  Hello  "))
       RETURN 0
     END FUNC
-
-FIXME
-  None.
-
-Untested: non-ASCII Unicode whitespace such as NBSP, OGHAM space mark, U+2000..U+200A spaces, line/paragraph separators, narrow no-break space, medium mathematical space, and ideographic space; mixed leading/trailing multi-byte whitespace around multi-byte non-whitespace.

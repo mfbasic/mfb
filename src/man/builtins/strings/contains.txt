@@ -15,10 +15,3 @@ EXAMPLES
       io::print(toString(strings::contains("Hello 😀", "😀")))
       RETURN 0
     END FUNC
-
-FIXME
-- Inconsistency 1: `tests/func_string_contains_invalid/src/main.mfb` does not cover all invalid usages implied by the manual/spec/source signature `strings::contains(value AS String, needle AS String) AS Boolean`; it checks missing arg, wrong second-argument type, and too many args, but not wrong first-argument type or invalid/unqualified call context.
-
-Notes: Manual, spec, and implementation agree on signature and behavior, including empty needle returning `TRUE`. Add invalid cases for `strings::contains(1, "a")` and invalid receiver/context usage as applicable.
-
-Untested: wrong first argument type; invalid receiver/context; empty value with empty needle; needle equal to value; needle at start; needle at end; needle longer than a nonempty value.

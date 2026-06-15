@@ -15,8 +15,3 @@ EXAMPLES
       io::print(strings::lower("HELLO"))
       RETURN 0
     END FUNC
-
-FIXME
-  None.
-
-Untested: non-ASCII uppercase input, Unicode lowercase mappings that expand or combine code points, already-lowercase non-ASCII text, and context-sensitive lowercase cases such as Greek sigma if those are expected by “Unicode case mapping”.

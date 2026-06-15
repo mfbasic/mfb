@@ -14,12 +14,3 @@ DESCRIPTION
 
 EXAMPLES
   fs::createDirectory("target/example")
-
-FIXME
-- Inconsistency 1: The manual says the parent directory must already exist but does not document the actual missing-parent failure. `src/target/shared/code/mod.rs` maps `mkdir` `ENOENT` to `ErrNotFound (10004)`, and `specifications/standard_package.md` says `createDirectory` fails if the parent is missing.
-- Inconsistency 2: The manual names generic host failure as `ErrOutput (10015)`, while `specifications/standard_package.md` names error code `10015` as `ErrWriteFailed`. Source uses `ERR_OUTPUT_*` for the same code.
-- Inconsistency 3: The manual’s failure list omits `ErrOutOfMemory (10010)`, but the runtime helper can return it if allocating the NUL-terminated path copy fails.
-
-Notes: Add `ErrNotFound (10004)` for a missing parent. Standardize the canonical name for `10015` across manual/spec/source, or update this manual to the spec’s `ErrWriteFailed` name. Either document allocation failure or centralize it as an implicit runtime failure outside per-function docs.
-
-Untested: runtime empty path; embedded NUL; missing parent; target already exists as file, directory, or symlink; access-denied paths including `EACCES`/`EPERM`; generic host failure/`10015`; allocation failure; proving only one directory is created when intermediate parents are missing.

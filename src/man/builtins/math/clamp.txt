@@ -13,8 +13,3 @@ DESCRIPTION
 
 EXAMPLES
   LET value AS Integer = math::clamp(12, 0, 10)
-
-FIXME
-  None.
-
-Untested: `low > high` runtime failure for Integer, Float, and Fixed; `low == high`; boundary equality at `value == low` and `value == high`; Float below-low case; Fixed within-range, above-high, and equality cases.

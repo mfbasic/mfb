@@ -9,11 +9,3 @@ DESCRIPTION
 
 EXAMPLES
   LET value AS Fixed = math::pi2Fixed
-
-FIXME
-- Inconsistency 1: `src/man/builtins/math/pi2Fixed.txt` and `specifications/standard_package.md` document `math::pi2Fixed` as a `Fixed` constant, but `src/builtins/math.rs` also includes it in the built-in call resolver as a zero-argument call. That creates inconsistent source behavior because the constant identifier path is implemented, while bytecode call lowering does not support `math.pi2Fixed` in `opcode_for`.
-- Inconsistency 2: Tests only cover valid use indirectly in `tests/math_package_valid`; there are no dedicated `tests/func_math_pi2Fixed_valid/**` or `tests/func_math_pi2Fixed_invalid/**` directories for this documented built-in constant.
-
-Notes: Keep `math::pi2Fixed` as an identifier-only constant. Remove math constants, including `PI_2_FIXED`, from callable built-in resolution paths or reject `math::pi2Fixed()` before IR/bytecode. Add dedicated valid and invalid fixtures for `pi2Fixed`.
-
-Untested: Dedicated valid assignment/use as `Fixed`; invalid call syntax `math::pi2Fixed()`; invalid argument call `math::pi2Fixed(1)`; invalid assignment to an incompatible type.

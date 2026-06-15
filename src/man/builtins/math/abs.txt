@@ -14,10 +14,3 @@ DESCRIPTION
 
 EXAMPLES
   LET value AS Integer = math::abs(-4)
-
-FIXME
-- Inconsistency 1: `src/man/builtins/math/abs.txt` documents `ErrOverflow (10028)` for minimum-value `Integer` and `Fixed` inputs, and `specifications/standard_package.md` agrees, but `tests/func_math_abs_valid` and `tests/func_math_abs_invalid` do not cover either overflow case.
-
-Notes: Add runtime tests proving `math::abs` fails with `10028` for the minimum `Integer` value and minimum raw/range `Fixed` value. The inspected source paths appear intended to implement this behavior.
-
-Untested: Integer minimum overflow, Fixed minimum overflow, positive Fixed passthrough, negative zero/zero-like Float behavior, and Float special values if they are constructible or accepted elsewhere.

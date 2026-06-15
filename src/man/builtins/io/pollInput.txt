@@ -33,10 +33,3 @@ EXAMPLES
   IF io::pollInput(-1) THEN
     io::print(io::readByte())
   END IF
-
-FIXME
-- Inconsistency 1: `src/man/builtins/io/pollInput.txt` documents `pollInput` only as standard-input/host-terminal polling, including canonical terminal line discipline, but `specifications/plan-macos-app.md` requires app-mode `io::pollInput` to read from window-backed committed input queues.
-
-Notes: Keep the current CLI/stdin behavior, but update the manual to scope the terminal line-discipline text to standard terminal targets and add the app-mode behavior: `pollInput` reports queued committed window input when running as a macOS app.
-
-Untested: app-mode queued committed input behavior; `pollInput(0)` false timeout/no-input case; positive timeout expiration; negative wait path is present but not executed; input polling failure/`ErrInputFailed`; readiness with queued data before `readLine`, `readChar`, and `readByte`.

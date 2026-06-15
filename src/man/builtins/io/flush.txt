@@ -13,11 +13,3 @@ DESCRIPTION
 EXAMPLES
   io::write("ready")
   io::flush()
-
-FIXME
-- Inconsistency 1: `src/man/builtins/io/flush.txt` and `specifications/standard_package.md` say `io::flush()` flushes standard output and fails with `ErrOutput (10015)` on output failure, but `src/target/shared/code/mod.rs` emits an immediate OK result for `"io.flush"` with no stdout flush and no failure path.
-- Inconsistency 2: `specifications/plan-macos-app.md` requires `io::flush()` to force pending UI transcript updates visible before returning, but the shared runtime helper path is still a trivial success return for `"io.flush"`.
-
-Notes: Implement a real flush path for stdout where the target has buffered output or host flush semantics, returning `ErrOutput (10015)` on failure. For macOS app mode, wire `io::flush()` through the UI transcript dispatch/batching synchronization described by the app spec. If console native output is intentionally unbuffered and flush cannot fail, the spec/manual should explicitly state that target-specific no-op behavior.
-
-Untested: stdout flush failure/`ErrOutput`; behavior with redirected or buffered stdout; macOS app transcript synchronization before return; proof that `io::write("before"); io::flush()` makes output observable before later work; invalid cases beyond the current extra-argument arity test.

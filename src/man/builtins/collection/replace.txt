@@ -34,11 +34,3 @@ SEE ALSO
   find
   mid
   set
-
-FIXME
-- Inconsistency 1: `src/man/builtins/collection/replace.txt` omits the spec-required constraint that `T` must be comparable. `specifications/mfbasic.md` and `specifications/standard_package.md` both say collection `replace` requires comparable element types.
-- Inconsistency 2: `src/builtins/general.rs` resolves `replace(List OF T, T, T)` by element type equality only and does not enforce comparability, so source behavior can accept non-comparable list element types despite the specs.
-
-Notes: Add `T must be comparable` to the manual page’s type-checking section, then either enforce comparability in collection `replace` resolution/type checking or relax the specifications if non-comparable replacement is intended.
-
-Untested: non-comparable element rejection such as `List OF List`, `List OF Map`, union/function/lambda/thread/resource elements; comparable element coverage beyond `Integer` and `String` such as Boolean, Byte, Float, Fixed, Nothing, enums, and comparable records; empty list replacement; all-items-match replacement; `old == new`; wrong argument count and non-list receiver coverage specifically for collection `replace`.

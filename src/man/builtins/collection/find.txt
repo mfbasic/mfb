@@ -49,11 +49,3 @@ SEE ALSO
   contains
   get
   mid
-
-FIXME
-- Inconsistency 1: `src/man/builtins/collection/find.txt` does not document the spec-required `T must be comparable` constraint for both list item and sublist overloads.
-- Inconsistency 2: `src/builtins/general.rs` resolves collection `find` by matching `List OF T`/`T` or `List OF T`/`List OF T` only; it does not enforce the `specifications/*` comparable-element requirement.
-
-Notes: Update the manual type-checking section to state that `T` must be comparable. Add comparable-type validation to collection `find` resolution/type checking, or relax the specs if non-comparable list search is intended. Either remove/fix the legacy backend path or clearly exclude it from supported runtime behavior.
-
-Untested: non-comparable element rejection; wrong collection `start` type; wrong argument count for collection-specific calls; negative `start`; `start == len(value)` with non-empty item/sublist search; sublist not found; sublist longer than haystack; empty sublist with `start < len(value)` and `start > len(value)`; comparable element coverage beyond `Integer` and `String`.

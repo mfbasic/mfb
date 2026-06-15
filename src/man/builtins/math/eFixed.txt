@@ -9,10 +9,3 @@ DESCRIPTION
 
 EXAMPLES
   LET value AS Fixed = math::eFixed
-
-FIXME
-- Inconsistency 1: `math::eFixed` is documented and implemented as a `Fixed` math constant, but `tests/**` has no dedicated `func_math_eFixed_valid/**` or `func_math_eFixed_invalid/**` coverage. Existing coverage is only incidental in `tests/math_package_valid`.
-
-Notes: Add focused valid and invalid test directories for `math::eFixed`. Valid coverage should prove it has type `Fixed` and produces the rounded fixed-point value. Invalid coverage should reject calling it with arguments and assigning/using it where an incompatible type is required.
-
-Untested: exact rounded `Fixed` value beyond 6 printed decimals; `math::eFixed()` / `math::eFixed(1)` misuse; incompatible assignment such as `LET value AS String = math::eFixed`.

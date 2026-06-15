@@ -40,8 +40,3 @@ SEE ALSO
     mfb man general find
     mfb man general mid
     mfb man general replace
-
-FIXME
-  None.
-
-Untested: split with empty delimiter runtime error; startsWith/endsWith on empty value with empty prefix/suffix; broader Unicode whitespace set; NFC canonical reordering/blocker cases; grapheme variation selectors, skin tones, CRLF, and odd regional indicators.

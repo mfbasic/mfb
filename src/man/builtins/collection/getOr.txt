@@ -44,10 +44,3 @@ EXAMPLES
 SEE ALSO
   get
   hasKey
-
-FIXME
-- Inconsistency 1: `src/man/builtins/collection/getOr.txt` documents both `List` and `Map` overloads plus type-checking requirements, but `tests/func_collection_getOr_invalid` only covers one invalid case: list default type mismatch.
-
-Notes: The manual, `specifications/standard_package.md`, `specifications/mfbasic.md`, and `src` implementation agree on the signatures and behavior: `getOr(List OF T, Integer, T) AS T` and `getOr(Map OF K TO V, K, V) AS V`, returning the default for out-of-range indexes or missing keys. Resolve by expanding invalid tests for the documented type-checking surface.
-
-Untested: Wrong argument count; wrong list index type; wrong map key type; wrong map default type; non-list/non-map first argument; empty list default path; empty map default path; present value for a non-String map key.

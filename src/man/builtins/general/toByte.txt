@@ -43,6 +43,3 @@ EXAMPLES
 SEE ALSO
   toInt
   toString
-
-FIXME
-Untested: `toByte(-1)` is not covered; only the high overflow case `toByte(256)` is covered.

@@ -46,11 +46,3 @@ NOTES
 
 SEE ALSO
   toString
-
-FIXME
-- Inconsistency 1: `src/man/builtins/general/typeName.txt` says errors can propagate from evaluating `value` before `typeName` is called, but native lowering treats `typeName` as a static compile-time string and does not lower/evaluate the argument expression.
-- Inconsistency 2: The manual/spec say `typeName OF T(value AS T)` accepts any static type, but `src/target/shared/code/builder_misc.rs` and `src/target/shared/code/mod.rs` only recognize a limited set of expression forms/call targets when computing the static type. Calls such as collection `mid(List OF T, ...)` are hard-coded as `String`, and unrecognized calls can fail static type-name lowering despite type-checking.
-
-Notes: Resolve by either documenting `typeName` as a special static-type operator that does not evaluate its argument, or changing lowering to evaluate the argument before returning the static type name. Also make static type-name lowering use the type checker/NIR type for all expressions instead of ad hoc call-target tables; specifically fix `mid` to return `String` for string input and `List OF T` for list input.
-
-Untested: `typeName` on fallible or side-effecting expressions; `typeName` on user-function results; collection builtins such as `get`, `getOr`, `keys`, `values`, `sum`, and `mid(List OF T, ...)`; package/runtime calls; function refs/lambdas; thread/resource types; nested `List`, `Map`, `Result`, record, union, and enum expressions beyond simple locals; invalid cases other than missing and too many arguments.

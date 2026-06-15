@@ -13,10 +13,3 @@ DESCRIPTION
 
 EXAMPLES
   LET value AS Float = math::log(math::e)
-
-FIXME
-- Inconsistency 1: `src/man/builtins/math/log.txt` and `specifications/standard_package.md` document `ErrInvalidArgument (10002)` for non-positive input, and `src/target/shared/code/builder_math.rs` implements that runtime guard, but `tests/func_math_log_invalid` only covers compile-time arity/type errors. It does not prove the documented runtime failure behavior.
-
-Notes: Add function-specific runtime coverage for non-positive `Float` and `Fixed` inputs, verifying exit/error behavior for `ErrInvalidArgument (10002)`. Keep the existing arity/type invalid tests.
-
-Untested: `math::log(0.0)`, `math::log(-1.0)`, `math::log(toFixed("0.0"))`, `math::log(toFixed("-1.0"))`, and a non-zero/non-one Fixed success case that proves rounded Fixed output.

@@ -43,10 +43,3 @@ SEE ALSO
   prepend
   insert
   set
-
-FIXME
-- Inconsistency 1: `specifications/memory_layouts.md` describes `append` as writing into the existing `List` allocation and incrementing `count`, with only single-item behavior. The manual says `append` returns a new list, does not mutate the original, and supports both single-item and list-of-items overloads. `src/target/shared/code/builder_collection_updates.rs` also allocates a new result list and copies prefix/inserted/suffix entries through shared insert lowering.
-
-Notes: Resolve by updating `specifications/memory_layouts.md` to describe immutable/new-list append behavior for both overloads, or explicitly limit the in-place description to a destructive `MUT` assignment-back optimization if that is the intended low-level path.
-
-Untested: wrong argument count; non-list first argument; list-of-items overload with mismatched element type; appending to an empty list; appending an empty list; appending a list to itself; proof that the original `LET` list remains unchanged; focused runtime coverage for `MUT` assignment-back optimization.

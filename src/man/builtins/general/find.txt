@@ -55,6 +55,3 @@ EXAMPLES
 SEE ALSO
   mid
   replace
-
-FIXME
-Untested: Non-ASCII string `find` does not appear to have focused runtime coverage. Focused tests also do not cover negative `start`, `start == len` with an empty needle, or `start == len` with a non-empty needle.

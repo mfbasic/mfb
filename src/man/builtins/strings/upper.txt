@@ -15,8 +15,3 @@ EXAMPLES
       io::print(strings::upper("hello"))
       RETURN 0
     END FUNC
-
-FIXME
-  None.
-
-Untested: Dedicated tests cover the default runtime path for empty, ASCII, Unicode expansion, non-Latin text, emoji, combining mark, and invalid arity/type cases. Focused coverage for additional Unicode/non-ASCII uppercase expansion cases is still limited.

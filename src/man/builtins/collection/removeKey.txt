@@ -35,10 +35,3 @@ SEE ALSO
   hasKey
   keys
   set
-
-FIXME
-- Inconsistency 1: The manual states the original map is not mutated, but `tests/func_collection_removeKey_valid/src/main.mfb` does not verify the source map after `removeKey`.
-
-Notes: Specifications and source behavior appear consistent with the manual signature and missing-key behavior. Add a valid runtime assertion that the original map still contains the removed key/value after calling `removeKey`.
-
-Untested: original-map immutability; wrong argument count; non-map first argument; empty map; single-entry map removal; additional key types beyond `String` and `Integer`.

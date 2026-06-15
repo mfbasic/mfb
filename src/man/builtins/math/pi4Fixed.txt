@@ -9,10 +9,3 @@ DESCRIPTION
 
 EXAMPLES
   LET value AS Fixed = math::pi4Fixed
-
-FIXME
-- Inconsistency 1: `math::pi4Fixed` is documented and implemented as a zero-argument `Fixed` constant, but there are no dedicated `tests/func_math_pi4Fixed_valid/**` or `tests/func_math_pi4Fixed_invalid/**` directories. Existing coverage only prints the valid value in `tests/math_package_valid`.
-
-Notes: Manual, specification, source type, and source value are consistent. Add dedicated valid coverage for assigning/printing `math::pi4Fixed`, and invalid coverage for call-style usage with arguments and incompatible type/context usage.
-
-Untested: Dedicated valid constant access; invalid use with arguments; invalid assignment/use where `Fixed` is not accepted.

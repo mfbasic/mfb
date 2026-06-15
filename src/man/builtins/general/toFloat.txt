@@ -59,6 +59,3 @@ SEE ALSO
   toInt
   toFixed
   isNumeric
-
-FIXME
-Untested: non-finite text variants such as `"NaN"`, `"Infinity"`, `"inf"`, and `"nan"` in dedicated `func_general_toFloat_*` tests; leading `+`; empty string; whitespace; malformed exponent; `.5` and `1.` forms; underflow/subnormal boundary behavior.

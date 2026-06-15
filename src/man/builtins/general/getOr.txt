@@ -46,10 +46,3 @@ EXAMPLES
 SEE ALSO
   get
   hasKey
-
-FIXME
-- Inconsistency 1: `src/man/builtins/general/getOr.txt` documents type-checking requirements for both overloads, but `tests/func_collection_getOr_invalid` only checks one invalid case: list default type mismatch. It does not cover wrong argument count, wrong list index type, wrong map key type, wrong map default type, or invalid receiver/collection type.
-
-Notes: Add invalid `getOr` cases covering the documented list and map signatures: arity errors, non-`Integer` list index, mismatched list default, mismatched map key, mismatched map default, and non-list/non-map first argument.
-
-Untested: empty list fallback, empty map fallback, last valid list index, existing `Map OF Integer TO String` key, wrong argument count, wrong first argument type, wrong list index type, wrong map key type, wrong map default type.

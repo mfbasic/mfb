@@ -9,12 +9,3 @@ DESCRIPTION
 
 EXAMPLES
   fs::appendBytes("target/output.bin", [10])
-
-FIXME
-- Inconsistency 1: `src/man/builtins/fs/appendBytes.txt` does not document failure behavior, while `specifications/standard_package.md` says `fs::appendBytes` fails with `10012`, `10013`, or `10015`.
-- Inconsistency 2: `src/target/shared/code/mod.rs` maps native bytecode helper symbols for text filesystem operations, but does not map `NATIVE_OPCODE_FS_APPEND_BYTES` to `_mfb_rt_fs_fs_appendBytes`; `src/bytecode.rs` also exposes no `NATIVE_OPCODE_FS_APPEND_BYTES` constant despite defining `OPCODE_FS_APPEND_BYTES`.
-- Inconsistency 3: runtime lowering rejects empty paths and embedded NUL bytes with `ErrInvalidArgument`/`10002`, but `specifications/standard_package.md` lists only `10012`, `10013`, and `10015` for `fs::appendBytes`, and the manual page lists no error cases.
-
-Notes: Update the manual to include documented failure codes and path validation behavior. Add/export/map `NATIVE_OPCODE_FS_APPEND_BYTES` consistently if packaged/native bytecode dispatch is expected to support this built-in. Align `standard_package.md` with runtime behavior by documenting `10002` for invalid paths, or change runtime/spec if that behavior is not intended.
-
-Untested: empty path, embedded NUL path, access denied, missing parent/open failure, write/fsync/close failure, raw non-UTF-8 byte append, zero-length byte list, byte boundary values such as `0` and `255`, and packaged/native bytecode execution of `fs::appendBytes`.

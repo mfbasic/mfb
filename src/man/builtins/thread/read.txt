@@ -11,11 +11,3 @@ DESCRIPTION
 
 EXAMPLES
   LET message AS String = thread::read(t)
-
-FIXME
-- Inconsistency 1: `src/man/builtins/thread/read.txt` documents `thread::read` as a working runtime operation that reads the next worker outbound message and fails with `ErrNotFound` when none is available, matching `specifications/mfbasic.md`, `specifications/standard_package.md`, and `specifications/threading.md`; however the shared backend only declares/maps `_mfb_rt_thread_thread_read`, and I found no concrete helper implementation in the focused thread-read paths.
-- Inconsistency 2: `tests/func_thread_read_valid` only validates AST/IR compilation. It does not execute a generated program, so it does not prove the manual/spec runtime behavior for reading outbound messages or `ErrNotFound`.
-
-Notes: Resolve by implementing `_mfb_rt_thread_thread_read` for supported runtime backends and replacing the default-result path with real outbound-queue dequeue behavior, including `ErrNotFound` when empty and preserving queued messages after worker completion. Add runtime `.run` coverage for observable successful reads and empty-queue failure behavior.
-
-Untested: successful runtime read from `thread::emit`; read when no message is available; read after worker completion with queued messages still present; read after completed outbound queue is drained; FIFO ordering for multiple outbound messages; message value preservation across types beyond the current `String` compile-only case; `Thread OF Nothing TO Out`; assigning read result to the wrong type; behavior after cancellation.

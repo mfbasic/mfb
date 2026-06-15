@@ -15,10 +15,3 @@ DESCRIPTION
 EXAMPLES
   LET message AS String = thread::receive(t)
   LET timed AS String = thread::receive(t, 10)
-
-FIXME
-- Inconsistency 1: `src/man/builtins/thread/receive.txt` does not document that negative `timeoutMs` values are invalid, while `specifications/mfbasic.md`, `specifications/standard_package.md`, `specifications/threading.md`, and `src/target/shared/code/mod.rs` all treat negative timeouts as `ErrInvalidArgument`.
-
-Notes: Update the manual page to state that `timeoutMs < 0` fails with `ErrInvalidArgument`. The documented signature, worker-only restriction, default timeout behavior, empty nonblocking `ErrNotFound`, and positive timeout `ErrTimeout` otherwise match the specs and implementation.
-
-Untested: Runtime behavior for `thread::receive(t, -1)`; parent-side/outside-worker `ErrInvalidArgument`; empty inbound queue with `timeoutMs = 0` returning `ErrNotFound`; empty inbound queue with positive timeout returning `ErrTimeout`; delayed send arriving during a positive receive timeout.

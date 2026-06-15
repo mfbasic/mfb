@@ -15,8 +15,3 @@ EXAMPLES
       io::print(strings::trimEnd("  Hello  "))
       RETURN 0
     END FUNC
-
-FIXME
-  None.
-
-Untested: Focused valid tests do not explicitly cover non-ASCII trailing whitespace, an all-whitespace input, or a no-trailing-whitespace input.

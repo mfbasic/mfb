@@ -28,13 +28,3 @@ EXAMPLES
 SEE ALSO
   flow if
   errors
-
-FIXME
-- Inconsistency 1: `src/man/flow/match.txt` shows `CASE Ok(value)`, and the spec documents destructuring patterns such as `CASE Circle(r)` / `CASE Err(e)`, but `src/ast.rs` represents match patterns only as `Else` or a single expression and typechecking only narrows bare variant identifiers. Destructuring/binding patterns are not implemented.
-- Inconsistency 2: The manual says `CASE ELSE` is optional, but the spec requires exhaustive coverage: unions/enums must cover all variants, and open types like `Integer`/`String` require `CASE ELSE`.
-- Inconsistency 3: The spec supports comma-separated pattern lists and `WHEN` guards, but the manual page does not document them and the parser/typechecker do not model them as match pattern syntax.
-- Inconsistency 4: The spec says direct-call `MATCH` receives the raw `Result` for local `Ok`/`Err` handling, and the manual example implies `Ok(value)` handling, but the implementation infers ordinary expression/call types and does not wire direct-call `MATCH` to Result pattern handling.
-
-Notes: Resolve by either implementing the spec-level pattern model end to end, including destructuring bindings, pattern lists, guards, exhaustiveness diagnostics, and direct-call Result handling, then updating the manual with the full syntax; or narrow the spec/manual to the currently implemented behavior of single expression patterns plus `CASE ELSE`.
-
-Untested: destructuring patterns; `Ok`/`Err` direct-call Result matching; `WHEN` guards; comma-separated `CASE` pattern lists; open-type match without `CASE ELSE`; explicit invalid tests for mismatched pattern types; non-exhaustive enum/union diagnostics independent of missing-return flow.

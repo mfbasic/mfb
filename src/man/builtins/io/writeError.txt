@@ -13,11 +13,3 @@ DESCRIPTION
 EXAMPLES
   io::writeError("failed")
   io::writeError("é日😀")
-
-FIXME
-- Inconsistency 1: `src/man/builtins/io/writeError.txt` documents failure as `ErrOutput (10015)`, but `specifications/standard_package.md` names error code `10015` as `ErrWriteFailed`.
-- Inconsistency 2: The manual synopsis uses `io::writeError(value AS String)`, while `specifications/plan-macos-app.md` uses `io::writeError(text AS String)`.
-
-Notes: Resolve by standardizing the error name for code `10015`, preferably updating the manual to `ErrWriteFailed (10015)` if `standard_package.md` is canonical. Standardize the parameter name across docs, preferably `value` to match `standard_package.md` and the other output functions.
-
-Untested: stderr stream separation from stdout; output failure/error-code behavior for failed writes; empty-string `io::writeError("")` behavior.

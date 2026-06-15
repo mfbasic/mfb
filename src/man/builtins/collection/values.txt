@@ -33,10 +33,3 @@ EXAMPLES
 SEE ALSO
   keys
   len
-
-FIXME
-- Inconsistency 1: The manual says `values` “does not fail for an evaluated map,” but native lowering allocates a new list for the projection and has an allocation-error return path. Runtime allocation failure is therefore possible.
-
-Notes: Update `src/man/builtins/collection/values.txt` ERRORS to say `values` can fail if result-list allocation fails, while errors can still propagate from evaluating the argument.
-
-Untested: Empty map; actual returned value contents; ordering correspondence between `keys(map)` and `values(map)`; repeated stable order for the same map; wrong argument count; wrong non-map argument types beyond `List OF Integer`; allocation-failure behavior.

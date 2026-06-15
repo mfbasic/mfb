@@ -15,10 +15,3 @@ EXAMPLES
       io::print(strings::join(["Hello", "World"], " "))
       RETURN 0
     END FUNC
-
-FIXME
-- Inconsistency 1: Manual/spec/source identify the package as `strings::join`, but the focused tests are under `tests/func_string_join_valid` and `tests/func_string_join_invalid` instead of `tests/func_strings_join_valid` / `tests/func_strings_join_invalid`.
-
-Notes: Rename the test directories and associated project/golden names to use the `strings` package name, matching `src/man/builtins/strings/join.txt`, `specifications/standard_package.md`, and `src/builtins/strings.rs`. The documented signature and behavior otherwise match the spec and implementation.
-
-Untested: Unicode/multi-byte delimiter; delimiter containing multiple characters; very large joined output/allocation failure path.

@@ -12,11 +12,3 @@ DESCRIPTION
 
 EXAMPLE
   LET names AS List OF String = fs::listDirectory("target")
-
-FIXME
-- Inconsistency 1: `specifications/standard_package.md` says `fs::listDirectory` follows symlinks in the final path component and during directory traversal, but `src/man/builtins/fs/listDirectory.txt` does not document symlink behavior.
-- Inconsistency 2: `specifications/standard_package.md` describes the order as “implementation-defined stable order,” while the manual weakens/changes this to “stable for a single runtime result.”
-
-Notes: Update the manual to explicitly say `fs::listDirectory` follows symlinks, and align the ordering wording with the spec: “implementation-defined stable order.” The implementation signature and return type match the manual/spec, and tests cover direct child names plus exclusion of `.` and `..`.
-
-Untested: symlink-to-directory traversal, missing path, file path instead of directory, empty path, embedded NUL path, permission-denied directory, empty directory, and order stability across repeated calls.

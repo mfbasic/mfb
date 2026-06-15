@@ -12,11 +12,3 @@ EXAMPLES
   USING f = fs::openFile("data.bin")
     LET bytes AS List OF Byte = fs::readAllBytes(f)
   END USING
-
-FIXME
-- Inconsistency 1: The manual page omits documented failure behavior from `specifications/standard_package.md`: `fs::readAllBytes(file AS File) AS List OF Byte` fails with `10014` on read failure.
-- Inconsistency 2: The runtime implementation can also fail with `10017` for a closed file and `10010` for allocation failure, but the manual page documents no error cases.
-
-Notes: Update `src/man/builtins/fs/readAllBytes.txt` to include an errors/failure section matching the spec at minimum: read failures return `10014`. Consider also documenting closed-resource behavior (`10017`) and allocation failure (`10010`) if manual pages are expected to expose runtime errors.
-
-Untested: empty file; reading the entire file from offset 0; binary bytes including `0`, non-ASCII byte values, and bytes that are not UTF-8 text; repeated call at EOF returning an empty list; closed file error `10017`; read failure from a write-only/unreadable handle; seek/read failure behavior for non-regular or non-seekable files.

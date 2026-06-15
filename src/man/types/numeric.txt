@@ -149,13 +149,3 @@ SEE ALSO
   general toFloat
   general toFixed
   general toByte
-
-FIXME
-- Inconsistency 1: `src/man/types/numeric.txt` says `Integer / Integer` is not integer division, but its operator table says `/` with `Integer`/`Integer` returns `Integer`; `specifications/mfbasic.md` has the same internal conflict. `src/numeric.rs` and native lowering currently treat `Integer / Integer` as `Integer` signed division, and `tests/arithmetic-division-valid` returns `a / b` from an `Integer` function.
-- Inconsistency 2: `src/man/types/numeric.txt` says `MOD` is defined only for `Integer`, but its operator table includes `MOD` in the promoted result table for `Byte`, `Fixed`, and `Float`. `src/numeric.rs` also accepts numeric `MOD` by promotion, and native lowering even has a `Fixed MOD` path, while Float lowering rejects `MOD`.
-- Inconsistency 3: `DIV` is documented as producing `Float` for every numeric combination, and type inference agrees, but native integer lowering handles `DIV` with signed integer division when operands are integer-like. This can make `LET q AS Float = a DIV b` carry integer-division semantics before storage/conversion.
-- Inconsistency 4: The manual says `Fixed > Float > Integer > Byte`, then makes mixed `Fixed`/`Float` operations return `Fixed`. The ordering and table match each other, but this is unusual and should be explicitly confirmed because it means a `Float` operand can be narrowed into deterministic fixed arithmetic. Implementation matches the table.
-
-Notes: Resolve `/` by choosing one semantic source of truth. If `/` should be real division, update the result table, `src/numeric.rs`, IR/bytecode/native lowering, and division tests so integer `/` produces `Float`; keep `DIV` either as Float real division or rename/redefine it. If current truncating integer behavior is intended, update the manual/spec prose to stop saying `Integer / Integer` produces `Float`. Resolve `MOD` by either removing `MOD` from the general promotion table and making typecheck reject non-Integer `MOD`, or documenting and testing `Byte`/`Fixed`/`Float` modulo semantics and wiring Float lowering.
-
-Untested: full operator promotion matrix for `/`, `DIV`, `MOD`, and mixed `Fixed`/`Float`; non-Integer numeric `MOD` rejection or behavior; `Integer / Integer` fractional behavior; `DIV` fractional behavior; minimum-integer `MOD -1`; negative-dividend/negative-divisor `MOD` sign rules; `Byte` underflow via subtraction below zero; `Byte` overflow via multiplication/exponentiation; Float division overflow/non-finite results; text conversions for `NaN` and `Infinity`; conversion boundaries for `toByte(-1)`, `toInt` from Float/Fixed out of range, and Fixed literal rounding near min/max.

@@ -9,10 +9,3 @@ DESCRIPTION
 
 EXAMPLES
   LET value AS Fixed = math::ln2Fixed
-
-FIXME
-- Inconsistency 1: `src/man/builtins/math/ln2Fixed.txt` and `specifications/standard_package.md` define `math::ln2Fixed` as a `Fixed` constant, but `src/builtins/math.rs` also resolves math constants as zero-argument calls. A probe with `math::ln2Fixed()` typechecks far enough to reach native codegen, then fails with `native backend does not support runtime call 'math.ln2Fixed'`.
-
-Notes: Resolve by making math constants value-only everywhere: reject `math::ln2Fixed()` during type checking/resolution instead of treating constants as zero-argument calls. If callable constants are intended instead, document that form and implement native/backend support for all math constants, including `ln2Fixed`.
-
-Untested: Invalid coverage for `math::ln2Fixed()` call syntax, calls with arguments such as `math::ln2Fixed(1)`, and assigning `math::ln2Fixed` to a non-`Fixed` type.

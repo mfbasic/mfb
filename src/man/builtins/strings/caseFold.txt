@@ -15,8 +15,3 @@ EXAMPLES
       io::print(strings::caseFold("Straße"))
       RETURN 0
     END FUNC
-
-FIXME
-  None.
-
-Untested: Runtime coverage does not appear to exercise Unicode folds that expand length or map non-ASCII code points.

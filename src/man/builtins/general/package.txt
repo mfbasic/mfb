@@ -42,11 +42,3 @@ EXAMPLES
   Transform a list:
 
     LET text AS List OF String = transform([1, 2], toString)
-
-FIXME
-- Inconsistency 1: `src/man/builtins/general/package.txt` says `general` covers collection access/updates, higher-order list processing, and aggregate operations, and cites `get`, `append`, `set`, `insert`, `removeAt`, `removeKey`, `transform`, and `find` as general functions. `specifications/standard_package.md`, `specifications/mfbasic.md`, `src/man/mod.rs`, and the test directory names classify those collection helpers under `collection`, not `general`.
-- Inconsistency 2: The synopsis implies `mfb man general function` covers the functions described by the page, but most collection helpers named there have no `src/man/builtins/general/*.txt` page. `getOr` is duplicated under both `general` and `collection`, while `get`, `append`, `set`, `insert`, `removeAt`, `removeKey`, `transform`, and aggregate helpers are only under `collection`.
-
-Notes: Resolve by choosing one user-facing taxonomy. The least disruptive fix is to keep unqualified call behavior in `src/builtins/general.rs` as an implementation detail, change the `general` package overview to describe only string/numeric/core helpers, and cross-reference `collection` for collection access, updates, higher-order list processing, and aggregates. Remove or relocate the duplicated `general/getOr.txt` page if `getOr` is intended to be collection-only.
-
-Untested: No tests appear to assert `mfb man general` package-page content, completeness, or that `mfb man general <function>` succeeds/fails consistently for collection helpers. The package examples using `getOr` and `transform` are not covered as manual examples, and the `general`/`collection` documentation split can drift without a man-output test.

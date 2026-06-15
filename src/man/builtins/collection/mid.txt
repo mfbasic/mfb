@@ -35,10 +35,3 @@ SEE ALSO
   find
   get
   len
-
-FIXME
-- Inconsistency 1: `src/target/shared/code/builder_misc.rs` and `src/target/shared/code/mod.rs` classify every `mid(...)` call as `String` in static type-name helpers. That conflicts with `src/man/builtins/collection/mid.txt` and `specifications/standard_package.md`, which define `mid(List OF T, Integer, Integer) AS List OF T`.
-
-Notes: Resolve by making both static type helpers inspect the first argument: return `String` for string `mid`, return the input `List OF T` type for collection `mid`, and return `None` when the argument type cannot be determined. Add focused coverage for `typeName(mid(numbers, 1, 1))` or any native path that consumes static type info from a collection `mid`.
-
-Untested: collection `mid` with negative `count`; `start > len(value)` independent of `start + count`; wrong `count` type for a list receiver; missing/too many arguments in the collection-specific invalid directory; nested/record/list element types; copy independence of the returned owned list after subsequent list-producing operations.

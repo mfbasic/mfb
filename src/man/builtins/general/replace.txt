@@ -36,10 +36,3 @@ SEE ALSO
   find
   mid
   len
-
-FIXME
-- Inconsistency 1: `src/man/builtins/general/replace.txt` says `replace` does not fail for supported argument types and valid evaluated arguments, but `src/target/shared/code/builder_strings.rs` allocates a new result string for matching replacements and emits an allocation-error return path if allocation fails. `specifications/mfbasic.md` also says arena allocation reports `ErrOutOfMemory` through ordinary language-level `Result` propagation.
-
-Notes: Update the manual `ERRORS` section to document possible allocation failure, likely `ErrOutOfMemory (10010)`, or explicitly standardize allocation failure as an implicit runtime failure omitted from per-function manuals.
-
-Untested: allocation failure; output-growing replacement such as replacing `"a"` with `"aa"`; replacement where `new` contains `old`; whole-string replacement; empty input string; multi-character/multi-scalar `old` and `new`; start/end boundary matches.

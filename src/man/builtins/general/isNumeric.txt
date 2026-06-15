@@ -40,8 +40,3 @@ SEE ALSO
   toInt
   toFloat
   toFixed
-
-FIXME
-- Inconsistency 1: `src/target/shared/code/builder_conversions.rs` implements `isNumeric` by parsing to `Float` but does not run the overflow/non-finite check used by `toFloat`/`toFixed`. Values like very large exponent text can be accepted by `isNumeric` even though the documented “standard conversion functions” would reject overflow/non-finite numeric results.
-
-Untested: overflow/non-finite numeric text such as huge exponents; `NaN`/`Infinity`; empty string; sign-only strings; leading `+`; exponent sign forms; trailing/leading whitespace; fixed range boundaries; integer range boundaries.

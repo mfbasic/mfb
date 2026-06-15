@@ -23,12 +23,3 @@ EXAMPLES
 SEE ALSO
   fs open
   errors
-
-FIXME
-- Inconsistency 1: The manual example uses `fs::open(path)` with one argument, but `specifications/standard_package.md`, `src/builtins/fs.rs`, and `tests/func_fs_open_invalid` require `fs::open(path, mode)`.
-- Inconsistency 2: The manual says `USING` binds any resource type, matching the specs, but `src/builtins/mod.rs`/`src/builtins/fs.rs` only recognize `File`/`fs.close` as a resource close target.
-- Inconsistency 3: The manual/specs say `USING` closes automatically, including deterministic cleanup on exits, but native lowering is incomplete: `src/target/shared/code/builder_control.rs` emits the close call with no resource argument and only after normal body lowering; early `RETURN`/`FAIL` paths bypass it.
-
-Notes: Change the manual example to `fs::open(path, "read")` or `fs::openFile(path)`. Either implement generic resource close registration for all specified resource types, including net/native `LINK` resources, or narrow the manual/specs to current `File`-only support. Fix native lowering so `USING` close receives the bound resource and runs exactly once on normal, return, fail, propagated-error, and branch exits, with the close-failure precedence defined in `specifications/mfbasic.md`.
-
-Untested: Dedicated valid/invalid `USING` tests are missing. Cover valid `fs::open`, `fs::openFile`, `fs::openFileNoFollow`, and `fs::createTempFile` cleanup; non-resource binding rejection; missing `=`/missing `END USING`; binding scope outside the block; close on body `FAIL`/auto-propagated error/early `RETURN`; close failure precedence; double-close/use-after-close interactions; and non-`File` resource types once supported.

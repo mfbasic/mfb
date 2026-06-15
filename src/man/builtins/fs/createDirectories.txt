@@ -11,10 +11,3 @@ DESCRIPTION
 
 EXAMPLES
   fs::createDirectories("target/example/nested")
-
-FIXME
-- Inconsistency 1: `src/man/builtins/fs/createDirectories.txt` says existing directories are accepted, but `src/target/shared/code/mod.rs` treats `mkdir` `EEXIST` as success without verifying that the existing path is actually a directory. If the final target path already exists as a regular file, implementation can report success instead of an Error.
-
-Notes: Resolve by checking `EEXIST` paths with a directory test, or by documenting that any existing filesystem entry is accepted, though the latter conflicts with the function name/spec intent. Preferred fix is implementation-side: import/use `stat` or equivalent after `EEXIST` and only accept directory entries.
-
-Untested: existing regular file at final path; existing non-directory component in the middle of the path; empty string path; embedded NUL path; permission-denied parent; path where an intermediate component exists but is not searchable/writable.

@@ -23,10 +23,3 @@ DESCRIPTION
 SEE ALSO
   errors
   types
-
-FIXME
-- Inconsistency 1: `src/man/builtins/thread/package.txt` synopsis documents only `thread::start(worker, data)` and `thread::waitFor(t)`, but `specifications/standard_package.md`, `specifications/threading.md`, `src/builtins/thread.rs`, and `src/target/shared/runtime.rs` define the thread package as exposing `start`, `isRunning`, `waitFor`, `cancel`, `send`, `poll`, `read`, `receive`, `emit`, and `isCancelled`.
-
-Notes: Update the package manual overview to list the complete thread package API, including queue/cancellation helpers and worker-side helpers. Keep the per-function pages as detailed references, but make `package.txt` consistent with the spec/source public surface.
-
-Untested: Valid/invalid function directories exist for all ten thread methods, but edge coverage is still thin for queue-limit failures below `1`, negative timeouts, timeout expiry vs later queue space, send after cancellation/completion, read with no outbound message, worker-side `receive`/`emit` outside a worker at runtime, `isCancelled` after parent cancellation, `cancel` after completion/repeated cancel, and result error propagation through `waitFor`.

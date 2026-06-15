@@ -19,8 +19,3 @@ DESCRIPTION
 EXAMPLES
   LET t AS Thread OF String TO Integer = thread::start(workers::worker, "input")
   LET small AS Thread OF String TO Integer = thread::start(workers::worker, "input", 1, 1)
-
-FIXME
-  None.
-
-Untested: `thread::start(..., 0, 1)` and `thread::start(..., 1, 0)` returning `ErrInvalidArgument`; negative inbound/outbound limits; wrong limit types; too many arguments; lambdas/closures specifically as entry points; runtime proof that omitted limits become `64`; runtime proof that one omitted outbound limit becomes `64`; fresh package instance isolation across multiple starts.

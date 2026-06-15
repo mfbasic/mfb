@@ -13,12 +13,3 @@ DESCRIPTION
 EXAMPLES
   io::writeError("failed")
   io::flushError()
-
-FIXME
-- Inconsistency 1: `src/man/builtins/io/flushError.txt` says `io::flushError()` flushes standard error and fails with `ErrOutput (10015)` on output failure, matching `specifications/standard_package.md`, but `src/target/shared/code/mod.rs` emits an immediate OK result for `"io.flushError"` with no stderr flush and no failure path.
-- Inconsistency 2: `src/builtins/io.rs` lowers `flushError` with fd `2`, but `src/target/shared/code/mod.rs` maps every `NATIVE_OPCODE_IO_FLUSH` to `_mfb_rt_io_io_flush`, ignoring the fd operand and not selecting `_mfb_rt_io_io_flushError`.
-- Inconsistency 3: `specifications/plan-macos-app.md` says `io::flushError()` must force pending UI transcript updates visible before returning and cannot remain a trivial no-op when buffered, but the shared generated helper is a trivial success return.
-
-Notes: Implement a real stderr flush path for `io.flushError`, preserve/select fd `2` in native helper mapping, and return `ErrOutput (10015)` when the host/runtime flush fails. For the macOS app target, wire flush through the UI transcript dispatch synchronization described by the spec.
-
-Untested: stderr flush failure/`ErrOutput`; native helper selection distinguishing stdout `flush` from stderr `flushError`; behavior under redirected/buffered stderr; macOS UI transcript synchronization; invalid zero-arg `Nothing` misuse cases beyond the current extra-argument arity test.

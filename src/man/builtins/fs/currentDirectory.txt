@@ -10,12 +10,3 @@ DESCRIPTION
 
 EXAMPLES
   fs::currentDirectory()
-
-FIXME
-- Inconsistency 1: The manual and `specifications/standard_package.md` describe `fs::currentDirectory()` as simply returning `String`, but `src/target/shared/code/mod.rs` has runtime failure paths for `getcwd` failure as `ErrReadFailed (10014)` and allocation failure as `ErrOutOfMemory (10010)`.
-- Inconsistency 2: The manual promises an absolute current directory path “as a UTF-8 String”, but the implementation copies raw `getcwd` bytes into an MFB string without UTF-8 validation.
-- Inconsistency 3: The manual/spec imply the current directory is returned when available, but the implementation uses a fixed 4096-byte `getcwd` buffer, so very long current directory paths fail instead of retrying with a larger buffer.
-
-Notes: Document the actual failure modes in the manual/spec, or change the implementation to match the success-only contract where possible. Prefer dynamically retrying `getcwd` on `ERANGE`, and validate UTF-8 before constructing the `String` or explicitly define path strings as raw platform bytes.
-
-Untested: non-UTF-8 current directory paths; current directory paths longer than 4095 bytes; `getcwd` failure such as deleted/inaccessible working directory; allocation failure; invalid cases beyond extra argument arity, such as wrong assignment/usage contexts for the returned `String`.

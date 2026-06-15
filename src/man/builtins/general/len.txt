@@ -39,10 +39,3 @@ SEE ALSO
   isNotEmpty
   strings::byteLen
   strings::graphemes
-
-FIXME
-- Inconsistency 1: `src/man/builtins/general/len.txt` documents general `len` as string-only, including “General len is defined only for String,” but `specifications/standard_package.md`, `src/builtins/general.rs`, compiler diagnostics, and `tests/func_general_len_valid` define general `len` for `String`, `List OF T`, and `Map OF K TO V`.
-
-Notes: Update `src/man/builtins/general/len.txt` to document all three overloads, or move the collection overloads out of the General spec/source/test surface. Current implementation and tests favor documenting all overloads on the general page while keeping `collection len` as a cross-reference.
-
-Untested: Invalid coverage does not separately exercise every rejected non-supported type named by the collection manual, such as Boolean, Byte, record, resource, thread, function, or lambda. Valid string scalar cases are only asserted through aggregate exit code, not individual printed counts.

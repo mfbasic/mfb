@@ -10,10 +10,3 @@ DESCRIPTION
 
 EXAMPLES
   LET running AS Boolean = thread::isRunning(t)
-
-FIXME
-- Inconsistency 1: Manual synopsis omits the generic template parameters shown in `specifications/mfbasic.md` and `specifications/standard_package.md`: `thread::isRunning OF Msg, Out(t AS Thread OF Msg TO Out) AS Boolean`.
-
-Notes: Update `src/man/builtins/thread/isRunning.txt` synopsis to include `OF Msg, Out`. Runtime/source behavior otherwise matches the manual: `isRunning` returns `TRUE` for state `0` and `FALSE` after completion stores state `1`.
-
-Untested: Runtime behavior is not covered: `TRUE` while a worker is actively running, `FALSE` after successful completion, `FALSE` after failed completion, and behavior after `waitFor`. Valid tests only cover AST/IR typing for `Thread OF String TO Integer` and `Thread OF Nothing TO Integer`; invalid tests cover missing arg, wrong type, and too many args.

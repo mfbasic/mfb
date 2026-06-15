@@ -51,12 +51,3 @@ SEE ALSO
   sum
   transform
   filter
-
-FIXME
-- Inconsistency 1: `tests/func_collection_reduce_invalid` does not cover the manual/spec type-checking surface for `reduce`; it only checks one reducer mismatch case.
-- Inconsistency 2: The manual documents error propagation from `f`, but the focused `reduce` tests do not exercise a reducer that raises/returns an error.
-- Inconsistency 3: The manual says empty lists return `initial` without calling `f`; the valid test checks the returned value, but does not prove `f` is not called.
-
-Notes: The manual signature and behavior match `specifications/standard_package.md`, `specifications/mfbasic.md`, and the native lowering in `src/target/shared/code/builder_collection_queries.rs`. Resolve by expanding `tests/func_collection_reduce_valid` and `tests/func_collection_reduce_invalid` rather than changing the manual or implementation.
-
-Untested: wrong argument count; non-list first argument; non-callable reducer; reducer with wrong element parameter type; reducer with wrong accumulator parameter type as a distinct case; reducer wrong return type as a distinct case; valid `U != T` reduction such as `List OF Integer` to `String`; reducer error propagation; empty-list case proving reducer is not invoked.

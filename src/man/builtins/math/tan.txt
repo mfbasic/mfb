@@ -13,12 +13,3 @@ DESCRIPTION
 
 EXAMPLES
   LET value AS Float = math::tan(0.0)
-
-FIXME
-- Inconsistency 1: `src/man/builtins/math/tan.txt` says undefined points fail with `ErrInvalidArgument (10002)`, while `specifications/standard_package.md` only documents that failure for the `Fixed` overload; the `Float` overload is documented only as “Tangent, radians.”
-- Inconsistency 2: The active shared native lowering in `src/target/shared/code/builder_math.rs` routes `math::tan` through generic external `libm` handling and only checks for non-finite results. It does not implement a `tan`-specific undefined-point check, so it does not clearly satisfy the manual/spec `ErrInvalidArgument` requirement for undefined `Fixed` tangent points.
-- Inconsistency 4: `tests/func_math_tan_invalid` only covers compile-time arity/type errors. It does not test the documented runtime failure for undefined tangent points.
-
-Notes: Decide whether undefined-point failure applies to `Float`, `Fixed`, or both. Then align `src/man/builtins/math/tan.txt`, `specifications/standard_package.md`, and the active backend path to the same rule. If the rule is retained, add an explicit tangent singularity/domain check before/around external `tan` lowering.
-
-Untested: Runtime invalid undefined/singularity cases for `Float` and `Fixed`; near-`pi/2` boundary behavior; expected error code for large finite tangent results that overflow `Fixed`; negative angle behavior; representative `Fixed` zero input.

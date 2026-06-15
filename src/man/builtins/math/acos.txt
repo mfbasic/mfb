@@ -13,10 +13,3 @@ DESCRIPTION
 
 EXAMPLES
   LET value AS Float = math::acos(0.5)
-
-FIXME
-- Inconsistency 1: `src/man/builtins/math/acos.txt` and `specifications/standard_package.md` promise `ErrInvalidArgument (10002)` when `math::acos` receives values outside `[-1.0, 1.0]`, but `tests/func_math_acos_invalid/src/main.mfb` only covers compile-time misuse and does not test runtime domain failure for either overload.
-
-Notes: Add runtime invalid-domain coverage proving `math::acos(1.1)` and `math::acos(toFixed("1.1"))` fail with `10002`. The implementation paths appear intended to satisfy the manual: shared native lowering maps libm `NaN` results to invalid argument.
-
-Untested: Float lower boundary `-1.0`, Fixed lower boundary `toFixed("-1.0")`, Float out-of-domain below `-1.0`, Fixed out-of-domain below `-1.0`, and runtime invalid-domain cases above `1.0` for both overloads.

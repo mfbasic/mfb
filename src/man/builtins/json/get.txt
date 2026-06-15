@@ -22,12 +22,3 @@ EXAMPLES
 SEE ALSO
   getOr
   parse
-
-FIXME
-- Inconsistency 1: `json::get` documents/specifies `ErrNotFound (10004)` when a path component is absent, but `tests/func_json_get_valid` and `tests/func_json_get_invalid` do not exercise that runtime failure.
-- Inconsistency 2: `json::get` documents/specifies `ErrNotFound (10004)` when traversal reaches a non-object before the path is exhausted, but no focused test covers that runtime failure.
-- Inconsistency 3: The invalid test does not cover the documented second parameter type. It covers 0 args, 3 args, and wrong `value` type, but not wrong `path` type.
-
-Notes: Manual, specifications, and source agree on signature, package, return type, empty-path behavior, object traversal, and `ErrNotFound (10004)` semantics. Resolve by expanding `tests/func_json_get_invalid` for wrong path type and adding runtime validation for absent paths and non-object traversal.
-
-Untested: wrong path argument type; missing top-level key; missing nested key; path continuing through `Null`, `Bool`, `Num`, `Str`, or `Arr`; returned terminal `Arr`/`Num` values.

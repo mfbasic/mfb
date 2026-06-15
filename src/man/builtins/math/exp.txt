@@ -13,10 +13,3 @@ DESCRIPTION
 
 EXAMPLES
   LET value AS Float = math::exp(1.0)
-
-FIXME
-- Inconsistency 1: `src/man/builtins/math/exp.txt` and `specifications/standard_package.md` document `ErrOverflow (10028)` only for `math::exp(Fixed)`, but `src/target/shared/code/builder_math.rs` checks external math results for non-finite Float values and emits overflow for Float infinity as well.
-
-Notes: Update both the manual page and `specifications/standard_package.md` to say `math::exp(Float)` fails with `ErrOverflow (10028)` when the Float result overflows/non-finite, or change the implementation if Float overflow is intended to be handled differently.
-
-Untested: Float overflow such as large positive input; Fixed overflow; Fixed rounding near half-unit boundaries; negative Float/Fixed inputs returning values between 0 and 1; nonzero Fixed representative beyond `0.0`/`1.0`; invalid assignment/expected-return-type mismatches for the Fixed overload.

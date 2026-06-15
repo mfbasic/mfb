@@ -37,11 +37,3 @@ SEE ALSO
   types numeric
   types logical
   mfbasic
-
-FIXME
-- Inconsistency 1: `src/man/types/comparisons.txt` says `=` and `<>` accept numeric operands or compatible comparable operands, matching `specifications/mfbasic.md` where comparable types exclude `List`, `Map`, unions, functions, lambdas, threads, and resource handles. `src/typecheck.rs` instead accepts `=`/`<>` for any structurally compatible operands, including `List`, `Map`, `Result`, `Thread`, `Function`, unions, and records whose fields are not comparable.
-- Inconsistency 2: `specifications/mfbasic.md` says records are comparable only when all fields are comparable, but `src/typecheck.rs` treats same-named user types as compatible without checking record field comparability for `=`/`<>`.
-
-Notes: Resolve by adding and using an `is_comparable` predicate in comparison typechecking: allow numeric equality through numeric promotion, allow Boolean/String/Byte/Integer/Float/Fixed/Nothing/enums, and allow records only when every field type is comparable. Reject lists, maps, unions, functions/lambdas, threads, resource-like handles, and records containing non-comparable fields. Keep `<`, `>`, `<=`, `>=` numeric-only as documented.
-
-Untested: `=`/`<>` coverage is missing for `Nothing`, enum equality, comparable record equality, records with non-comparable fields, unions, lists, maps, function values/lambdas, `Result`, and `Thread`; invalid tests also do not cover `<>` for non-comparable compatible operands or equality rejection for same-type non-comparable operands.

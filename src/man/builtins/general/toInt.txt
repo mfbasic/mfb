@@ -70,6 +70,3 @@ SEE ALSO
   toFixed
   toByte
   isNumeric
-
-FIXME
-Untested: direct `toInt(Float)` overflow/out-of-range; direct `toInt(Float)` NaN/infinity import-boundary handling; `toInt(Fixed)` near min/max and negative fractional truncation on every backend; string empty input, sign-only input, whitespace input, positive overflow with `+`, and negative underflow below `-9223372036854775808`.

@@ -10,13 +10,3 @@ DESCRIPTION
 
 EXAMPLES
   LET bytes AS List OF Byte = fs::readBytes("data.bin")
-
-FIXME
-- Inconsistency 1: `src/man/builtins/fs/readBytes.txt` documents the signature and success behavior only, but `specifications/standard_package.md` specifies failure behavior for `fs::readBytes`: `10011`, `10012`, or `10014`.
-- Inconsistency 2: `specifications/standard_package.md` says `fs::readBytes` fails with `10011`/`10012` for path errors, but `src/target/shared/code/mod.rs` maps missing paths/open `ENOENT` to `ErrNotFound (10004)` and empty or embedded-NUL paths to `ErrInvalidArgument (10002)`.
-- Inconsistency 3: Runtime lowering can also emit `ErrAccessDenied (10013)`, `ErrWriteFailed`/output failure `(10015)` for generic open failures, and `ErrOutOfMemory (10010)`, none of which are listed by the manual page or the `fs::readBytes` spec row.
-- Inconsistency 4: The source opens paths normally, so final symlinks are followed for `readBytes`, but the symlink behavior list in `specifications/standard_package.md` omits `fs::readBytes`, and the manual page does not state symlink behavior.
-
-Notes: Align the error contract across the manual, spec, and runtime. Either change runtime mapping to emit `ErrPathNotFound (10011)` and `ErrInvalidPath (10012)` where the spec requires them, or update the spec/manual to document the actual emitted errors: `10002`, `10004`, `10010`, `10013`, `10014`, and possible `10015`. Add explicit manual text for symlink-following behavior if current source behavior is intended.
-
-Untested: Only the happy path and compile-time arity/type errors are covered. Missing coverage includes empty path, embedded NUL path, missing file, missing parent path, access denied, directory-as-source/read failure, symlink final component behavior, empty file, non-UTF/raw byte payloads, large-file/allocation failure behavior, and runtime error assertions for the documented failure codes.

@@ -22,11 +22,3 @@ EXAMPLES
 SEE ALSO
   flow for
   types map
-
-FIXME
-- Inconsistency 1: `src/man/flow/forEach.txt` omits iteration order. `specifications/mfbasic.md` says `FOR EACH` over `List OF T` visits left to right, and over `Map OF K TO V` visits entries in implementation-defined stable order. Targeted runtime tests also assert list order and sample map traversal order.
-- Inconsistency 2: The page names the statement `forEach`, which is ambiguous with the collection builtin `forEach(value, action)`. The spec grammar and examples describe the flow form as `FOR EACH ... IN ... NEXT`.
-
-Notes: Update the flow manual to call the statement `FOR EACH`, and add rules for list left-to-right order and map implementation-defined stable order. Keep the lowercase `forEach` topic name only as the man-page lookup name if needed.
-
-Untested: invalid `FOR EACH` over a non-List/non-Map source; malformed headers missing loop variable or `IN`; missing `NEXT`; empty list/map iteration; repeated traversal of the same unchanged map proving stable order; loop-variable immutability/shadowing behavior; nested `FOR EACH` loops.

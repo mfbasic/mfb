@@ -103,15 +103,3 @@ SEE ALSO
   types
   general
   mfbasic
-
-FIXME
-- Inconsistency 1: `PROPAGATE` is documented/spec’d as valid inside `TRAP`, but `src/typecheck.rs` reports `TYPE_PROPAGATE_REQUIRES_TRAP` for every `PROPAGATE`, including trap bodies.
-- Inconsistency 2: Direct-call `MATCH` is documented/spec’d to receive raw `Result`, but typechecking infers ordinary call success types, so `CASE Ok` / `CASE Err` handling is not wired for matched calls.
-- Inconsistency 3: `FAIL` with a `TRAP` should transfer the actual `Error` payload to the trap variable, but IR lowering replaces it with the trap body and discards the error expression.
-- Inconsistency 4: The single bottom `TRAP` rule is documented/spec’d, but parsing/typechecking do not diagnose multiple traps or statements after a trap.
-- Inconsistency 5: A `SUB` with a `TRAP` is documented/spec’d to require all normal paths before the trap to end with `RETURN` or `FAIL`, but typechecking allows normal `SUB` fall-through even when a trap exists.
-- Inconsistency 6: Calls that return `Err` are documented/spec’d to route to the enclosing `TRAP`, but source lowering/native call emission returns the error to the caller instead of jumping to trap handling.
-
-Notes: Resolve by carrying trap context through typecheck, IR, and native lowering; bind the current `Error` for `err`; make `PROPAGATE` legal only in trap context; special-case direct-call `MATCH` scrutinees as `Result OF T`; and add diagnostics for invalid trap placement/count and `SUB` trap fall-through.
-
-Untested: `PROPAGATE` inside a trap; `PROPAGATE` outside a trap; `MATCH call()` with `Ok`/`Err`; trap payload access via `err.code`/`err.message`; multiple traps; statements after `END TRAP`; `SUB` with trap and body fall-through; auto-propagation from user calls and built-ins into traps; left-to-right argument short-circuit when an earlier argument fails.

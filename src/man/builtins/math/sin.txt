@@ -12,10 +12,3 @@ DESCRIPTION
 
 EXAMPLES
   LET value AS Float = math::sin(math::pi)
-
-FIXME
-- Inconsistency 1: `src/man/builtins/math/sin.txt` example uses `math::pi`, and `specifications/standard_package.md`, `src/builtins/math.rs`, and tests support `math::pi`, but `specifications/mfbasic.md` lists `math::piFloat` instead of `math::pi`.
-
-Notes: Resolve inconsistency 1 by updating `specifications/mfbasic.md` to list `math::pi` or by changing the manual example and implementation/tests to the `piFloat` naming scheme.
-
-Untested: negative angles, large angle range reduction, `math::sin(math::pi)` in the dedicated `func_math_sin_valid` test, Fixed rounding near half-unit boundaries, Fixed negative inputs, and Float/Fixed behavior for very large finite inputs.

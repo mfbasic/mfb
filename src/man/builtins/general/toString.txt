@@ -107,10 +107,3 @@ SEE ALSO
   typeName
   io::print
   io::write
-
-FIXME
-- Inconsistency 1: `specifications/standard_package.md` says `toString(Float, precision = 2)` converts a float to “implementation-defined round-trippable text”, but `src/man/builtins/general/toString.txt`, `src/builtins/general.rs`, `src/target/shared/code/builder_strings.rs`, and `tests/func_general_toString_valid` define/test fixed decimal output with `precision` digits after the decimal point.
-
-Notes: Resolve by updating `specifications/standard_package.md` to match the implemented precision-based decimal formatting, or change the implementation/manual/tests to provide actual round-trippable Float text. The current implementation and tests support the manual’s fixed-precision behavior.
-
-Untested: invalid UTF-8 for `List OF Byte` returning `ErrEncoding (10019)`; empty byte list; multi-byte UTF-8 byte lists; `Float`/`Fixed` precision `0`; high `Byte` precision values; negative `Float`/`Fixed`; Float values that lose information under fixed-precision formatting; invalid calls for unsupported user-defined records/unions/enums/resources/threads/functions/lambdas/maps; invalid two-argument calls for `Boolean`, `String`, `Byte`, and `List OF Byte`.

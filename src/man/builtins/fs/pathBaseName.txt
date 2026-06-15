@@ -9,6 +9,3 @@ DESCRIPTION
 
 EXAMPLES
   io::print(fs::pathBaseName("target/output.txt"))
-
-FIXME
-Untested: empty path, path with no separator, multiple trailing slashes, repeated separators, `"."`, `".."`, basename after `"/a//b"`, and non-slash separators such as backslash/drive-style paths.

@@ -9,10 +9,3 @@ DESCRIPTION
 
 EXAMPLES
   LET value AS Fixed = math::piFixed
-
-FIXME
-- Inconsistency 1: `src/man/builtins/math/piFixed.txt` and `specifications/standard_package.md` describe `math::piFixed` as a `LET` constant, but `src/builtins/math.rs` also treats `math.piFixed` as a zero-argument callable in call resolution/arity paths. A minimal `math::piFixed()` program typechecks and emits IR as a call, but normal native build fails with `native backend does not support runtime call 'math.piFixed'`.
-
-Notes: Resolve by keeping `math::piFixed` constant-only and removing it from math call dispatch/type/arity paths, or fully implement and document `math::piFixed()` as callable across all backends. The manual and spec currently support the constant-only interpretation.
-
-Untested: No dedicated `tests/func_math_piFixed_valid` or `tests/func_math_piFixed_invalid` coverage exists. Missing focused coverage for constant use, rejected call syntax `math::piFixed()`, rejected extra arguments, incompatible assignment type, and use without importing `math`.

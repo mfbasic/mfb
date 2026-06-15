@@ -33,11 +33,3 @@ EXAMPLES
 SEE ALSO
   types comparisons
   mfbasic
-
-FIXME
-- Inconsistency 1: `specifications/mfbasic.md` grammar allows only a single optional `NOT` before a comparison, but `src/ast.rs` parses `NOT` recursively, so `NOT NOT value` is accepted as nested unary logical negation.
-- Inconsistency 2: `src/man/types/logical.txt` documents runtime semantics for `NOT`, `AND`, `OR`, and `XOR`, but `tests/**` has no focused logical-operator valid/invalid coverage. The only Boolean-related test found covers Boolean bindings, not operators.
-
-Notes: Resolve the `NOT` grammar mismatch by updating the spec to `notExpr = "NOT" notExpr | cmpExpr` if chained `NOT` is intended, matching the parser/manual. Add focused logical operator tests; source lowering and type checking otherwise appear aligned with the manual/spec claims for Boolean-only operands, precedence, `AND`/`OR` short-circuiting, and `XOR` evaluating both operands.
-
-Untested: `NOT TRUE/FALSE`; chained `NOT NOT`; `AND` short-circuit when left is `FALSE`; `OR` short-circuit when left is `TRUE`; `XOR` truth table and proof that both operands evaluate; precedence for `NOT`, `AND`, `OR`, `XOR`; `OR`/`XOR` same-precedence left associativity; non-Boolean operands for each operator.

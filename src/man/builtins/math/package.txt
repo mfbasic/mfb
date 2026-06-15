@@ -25,11 +25,3 @@ EXAMPLES
   LET limited AS Integer = math::clamp(12, 0, 10)
   LET root AS Float = math::sqrt(9.0)
   LET angle AS Float = math::atan2(1.0, 1.0)
-
-FIXME
-- Inconsistency 1: `src/man/builtins/math/package.txt` documents `math::pi`, and `specifications/standard_package.md`, `src/builtins/math.rs`, and `tests/math_package_valid` agree, but `specifications/mfbasic.md` lists `math::piFloat` and `math::eFloat` instead of `math::pi` and `math::e`.
-- Inconsistency 2: The package manual and `specifications/standard_package.md` say math constants are `LET` values, but `src/builtins/math.rs` also treats constants as zero-argument calls during call resolution/arity handling. That allows call-style constants to typecheck instead of being rejected as non-functions.
-
-Notes: Update `specifications/mfbasic.md` to use the implemented/documented constant names (`math::pi`, `math::e`). Make constants value-only in source call resolution/type checking, or document and fully implement callable constants consistently across all constants/backends.
-
-Untested: Invalid constant usage such as `math::pi()`, `math::pi(1)`, and assignment to incompatible types; runtime invalid-domain cases promised by the package page such as negative `sqrt`, non-positive `log`/`log10`, invalid `asin`/`acos`, `clamp(low > high)` for all overloads, integer/fixed `abs` minimum-value overflow, float overflow/non-finite result paths, and mixed numeric argument rejection across every overload.

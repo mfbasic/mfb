@@ -71,12 +71,3 @@ SEE ALSO
   types list
   collection
   mfbasic
-
-FIXME
-- Inconsistency 1: `src/man/types/map.txt` lists `contains` as a helper that inspects map values, but `specifications/standard_package.md`, `src/man/builtins/collection/contains.txt`, `src/builtins/general.rs`, source lowering, and tests define `contains` only for `List OF T`.
-- Inconsistency 2: The manual/specs say `Map` keys must be comparable and reject `List`, `Map`, unions, functions, lambdas, threads, and resources as keys, but the inspected type-checking path for map types/literals does not enforce comparability.
-- Inconsistency 3: The manual says v1 collection storage directly supports only primitive/String payloads and needs an extended representation for records, unions, and nested collections, but current native source has inline record/union payload handling and pointer payload handling for nested collections. `specifications/mfbasic.md` also describes list/map storage as value-slot payloads, which conflicts with the manual’s packed-byte-only wording.
-
-Notes: Remove `contains` from the map helper list unless a real map overload is intentionally added. Add comparable-key validation for every `Map OF K TO V` type use/literal/package verification path, or narrow the manual/spec language. Pick one canonical collection layout story and update `src/man/types/map.txt` plus the relevant specs/source behavior to match.
-
-Untested: non-comparable map key rejection; comparable key coverage for Boolean, Byte, Float, Fixed, Nothing, enums, and comparable records; invalid map keys for List/Map/union/function/lambda/thread/resource; map values/keys using records, unions, and nested collections; duplicate map literal keys; map iteration/key/value order stability after repeated `keys`, `values`, and `FOR EACH`; `contains` called with a map should be explicitly invalid if list-only behavior is intended.

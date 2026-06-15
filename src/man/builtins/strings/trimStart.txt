@@ -15,8 +15,3 @@ EXAMPLES
       io::print(strings::trimStart("  Hello  "))
       RETURN 0
     END FUNC
-
-FIXME
-  None.
-
-Untested: The dedicated `trimStart` tests cover current runtime behavior for ASCII space, tab, NBSP, U+3000, empty input, and invalid arity/type usage. Edge cases not directly covered include all-whitespace input, strings with no leading whitespace, newline/CR leading whitespace, and the full Unicode White_Space set.

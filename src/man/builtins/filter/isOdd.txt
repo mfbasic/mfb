@@ -37,10 +37,3 @@ EXAMPLES
 SEE ALSO
   isEven
   filter
-
-FIXME
-- Inconsistency 1: `src/man/builtins/filter/isOdd.txt` says `isOdd` is useful in `MATCH` guards, and `specifications/standard_package.md` makes the same claim for filter predicates, but `src/ast.rs` parses only `CASE <expression>` and `CASE ELSE`; it does not parse `CASE ... WHEN ...` guards from `specifications/mfbasic.md`.
-
-Notes: Resolve by either implementing `MATCH ... CASE ... WHEN isOdd(value)` support end to end and adding runtime coverage, or narrowing the `isOdd` manual/spec wording to remove the `MATCH` guard claim until guards exist. The `Integer -> Boolean` signature, `value MOD 2 <> 0` behavior, direct-call runtime output, and `filter(values, isOdd)` usage otherwise align.
-
-Untested: `MATCH` guard usage with `isOdd`; ordinary conditional usage such as `IF isOdd(x)`; argument-evaluation error propagation before `isOdd`; non-String wrong-type cases such as Float/Fixed/Boolean/List; integer boundary values.

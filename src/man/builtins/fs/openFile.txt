@@ -11,11 +11,3 @@ DESCRIPTION
 EXAMPLES
   USING f = fs::openFile("data.txt")
   END USING
-
-FIXME
-- Inconsistency 1: `src/man/builtins/fs/openFile.txt` and `specifications/standard_package.md` document only `"read"`, `"write"`, and `"append"` modes, but `src/target/shared/code/mod.rs` accepts `"r"`, `"w"`, `"rw"`, `"readWrite"`, and `"a"` as well.
-- Inconsistency 2: `specifications/standard_package.md` says `fs::openFile` fails with `10011`, `10012`, or `10013`, but the runtime helper maps open failures to `ErrNotFound` `10004`, `ErrAccessDenied` `10013`, `ErrAlreadyExists` `10005`, or `ErrOutput` `10015`; invalid empty paths, embedded NULs, and invalid mode strings return `ErrInvalidArgument` `10002`. The manual page does not document these failure cases.
-
-Notes: Either restrict `openFile` mode parsing to the documented modes, or update the manual/spec to match `fs::open` mode support. Align the spec’s `openFile` error list with the runtime mapping, or change runtime mapping to the documented filesystem path errors.
-
-Untested: `append` mode runtime behavior; accepted aliases `"r"`, `"w"`, `"a"`; accepted read/write modes `"rw"` and `"readWrite"`; invalid mode string runtime error; empty path runtime error; embedded NUL path runtime error; missing file read error; access-denied open error; append creating and appending to an existing file.

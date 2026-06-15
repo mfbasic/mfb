@@ -9,6 +9,3 @@ DESCRIPTION
 
 EXAMPLES
   io::print(fs::pathDirName("target/output.txt"))
-
-FIXME
-Untested: No untested overloads found; the single `String -> String` overload is covered. Edge cases not covered include empty path, root-only `/`, trailing slashes such as `a/` and `/a/`, repeated slashes, directory-only inputs, `.`/`..` components, and execution through the legacy AArch64 backend path.

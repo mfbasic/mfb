@@ -14,11 +14,3 @@ DESCRIPTION
 EXAMPLES
   thread::emit(t, "done")
   thread::emit(t, "done", 10)
-
-FIXME
-- Inconsistency 1: `src/man/builtins/thread/emit.txt` says a positive `timeoutMs` waits up to that many milliseconds, and `specifications/*` agree, but `src/target/shared/code/mod.rs` `thread_queue_write_helper` immediately returns `ErrTimeout` whenever the outbound queue is non-empty. It does not wait for positive timeouts.
-- Inconsistency 2: `specifications/*` and `src/target/shared/code/mod.rs` treat negative `timeoutMs` as `ErrInvalidArgument`, but the manual page does not document negative timeout behavior.
-
-Notes: Implement real positive-timeout waiting for `thread::emit` in `thread_queue_write_helper`, matching the queue semantics used by the spec, or change the spec/manual if non-waiting emit is intended. Update the manual to explicitly state negative timeout values fail with `ErrInvalidArgument`.
-
-Untested: Runtime delivery from worker `thread::emit` to parent `thread::read`; calling `thread::emit` outside the worker; negative timeout; full outbound queue with `timeoutMs = 0`; full outbound queue with positive timeout and later space; positive timeout expiry; emitted message type/runtime value preservation; default timeout lowering executing at runtime.

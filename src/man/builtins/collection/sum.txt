@@ -52,10 +52,3 @@ EXAMPLES
 SEE ALSO
   reduce
   toFixed
-
-FIXME
-- Inconsistency 1: `specifications/mfbasic.md` says `Float` arithmetic that overflows to infinity must fail with `ErrOverflow` (`10028`), but `src/target/shared/code/builder_collection_queries.rs` lowers `sum(List OF Float)` with a raw floating add and no non-finite/overflow check.
-
-Notes: Add Float result validation in the `sum` lowering path after each `float_add_d`, matching the normal Float arithmetic overflow behavior, or explicitly specify that `sum(List OF Float)` has different overflow semantics.
-
-Untested: Fixed overflow in `sum`; Float overflow/non-finite result in `sum`; empty `List OF Float`; empty `List OF Fixed`; invalid wrong argument count; invalid scalar argument; invalid map argument; invalid unsupported list element types beyond `List OF String`.

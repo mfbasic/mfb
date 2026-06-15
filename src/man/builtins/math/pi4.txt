@@ -9,11 +9,3 @@ DESCRIPTION
 
 EXAMPLES
   LET value AS Float = math::pi4
-
-FIXME
-- Inconsistency 1: `math::pi4` is documented and specified as a `Float` constant and implemented with the expected value, but there are no dedicated `tests/func_math_pi4_valid/**` or `tests/func_math_pi4_invalid/**` directories. Existing coverage only exercises valid printing through `tests/math_package_valid`.
-- Inconsistency 2: `src/builtins/math.rs` includes `math.pi4` in zero-argument call resolution/arity metadata, but `opcode_for` has no `PI_4` arm. If call-style constant usage can reach bytecode lowering, it will fail despite being resolved earlier.
-
-Notes: Add dedicated valid and invalid `func_math_pi4` tests. For the source mismatch, either make constants strictly identifier-only by removing them from call-resolution paths, or fully support zero-argument constant calls through lowering if that syntax is intended.
-
-Untested: Dedicated valid assignment/value coverage for `math::pi4`; invalid wrong-type assignment/context; invalid call-style usage such as passing arguments to `math::pi4`; whether zero-argument call syntax for the constant is rejected consistently or lowered successfully.

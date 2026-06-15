@@ -16,8 +16,3 @@ EXAMPLES
       io::print(toString(len(parts)))
       RETURN 0
     END FUNC
-
-FIXME
-  None.
-
-Untested: Edge cases needing coverage include non-ASCII scalar values, combining marks, ZWJ emoji sequences, regional-indicator flags, CRLF/control boundaries, Hangul syllable clusters, spacing marks, prepend characters, and Indic conjunct/GB9c sequences.

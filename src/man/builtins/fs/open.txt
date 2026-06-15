@@ -13,10 +13,3 @@ DESCRIPTION
 EXAMPLES
   USING f = fs::open("data.txt", "read")
   END USING
-
-FIXME
-- Inconsistency 1: `src/man/builtins/fs/open.txt` omits the error behavior specified for `fs::open`: invalid modes, empty paths, and embedded NUL bytes fail with `ErrInvalidArgument (10002)`, and missing files fail with `ErrNotFound (10004)` for read-style opens.
-
-Notes: Update the manual page to include the specified error cases. The implementation paths I checked accept the documented mode spellings and map empty/NUL paths and missing files consistently with `specifications/standard_package.md`.
-
-Untested: mode aliases `"r"`, `"w"`, `"rw"`, `"a"`; full modes `"write"`, `"readWrite"`, `"append"`; invalid mode string; empty path; embedded NUL path; missing file in read mode; missing parent in write/readWrite/append modes; write/readWrite/append observable behavior; `USING` cleanup with `fs::open`; permission-denied open.

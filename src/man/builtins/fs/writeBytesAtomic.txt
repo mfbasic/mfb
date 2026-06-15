@@ -11,10 +11,3 @@ DESCRIPTION
 
 EXAMPLE
   fs::writeBytesAtomic("target/output.bin", [72, 105])
-
-FIXME
-- Inconsistency 1: `src/man/builtins/fs/writeBytesAtomic.txt` omits spec-required behavior from `specifications/standard_package.md`: the temporary file is flushed before replacement, and the function fails rather than falling back to a non-atomic replacement when atomic rename is unavailable.
-
-Notes: Update the manual page to say `fs::writeBytesAtomic` writes raw bytes to a temporary file in the same directory, flushes it, then atomically replaces `path` using host rename support, failing instead of using a non-atomic fallback. The targeted `src/**` implementation appears aligned: it uses `mkstemps`, writes the byte list, calls `fsync`, closes, then calls `rename`.
-
-Untested: empty byte list; empty path; embedded NUL path; missing parent directory; permission denied; target is a directory; write/fsync/close/rename failure paths; symlink replacement behavior; proof that no non-atomic fallback occurs when rename fails.

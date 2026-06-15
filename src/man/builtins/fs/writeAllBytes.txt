@@ -12,11 +12,3 @@ EXAMPLES
   USING f = fs::openFile("target/output.bin", "write")
     fs::writeAllBytes(f, [72, 105])
   END USING
-
-FIXME
-- Inconsistency 1: `src/man/builtins/fs/writeAllBytes.txt` describes host output failure but omits the `10015` failure code specified in `specifications/standard_package.md` for `fs::writeAllBytes`.
-- Inconsistency 2: The runtime implementation has an explicit closed-file error path for `fs::writeAllBytes`, but the manual only documents writing to an open `File` and does not state the closed-handle behavior.
-
-Notes: Update the manual to say `writeAllBytes` fails with `10015` on write failure, matching the standard package spec. Also document closed-handle behavior consistently with the runtime/resource model, or clarify elsewhere that “open File” excludes closed handles and closed-resource calls fail.
-
-Untested: empty byte list; binary bytes outside printable UTF-8/text examples such as `0` and `255`; write to read-only handle; write after `fs::close`; runtime output failure/`10015`; partial-write retry behavior; append-mode positioning; invalid call with valid `File` plus `List OF Integer`; invalid call with non-`File` receiver plus correctly typed `List OF Byte`.

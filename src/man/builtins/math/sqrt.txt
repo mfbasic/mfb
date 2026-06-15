@@ -13,10 +13,3 @@ DESCRIPTION
 
 EXAMPLES
   LET value AS Float = math::sqrt(9.0)
-
-FIXME
-- Inconsistency 1: `src/man/builtins/math/sqrt.txt` and `specifications/standard_package.md` document `ErrInvalidArgument` (`10002`) for negative Float and Fixed inputs, and `src/target/shared/code/builder_math.rs` implements those checks, but `tests/func_math_sqrt_invalid` only covers compile-time arity/type errors. It does not validate the documented runtime domain failure.
-
-Notes: Add runtime invalid/domain tests for `math::sqrt(-1.0)` and `math::sqrt(toFixed("-1.0"))` that prove exit/error behavior includes `ErrInvalidArgument` (`10002`). Keep the existing compile-time invalid tests for wrong arity/type.
-
-Untested: negative Float input; negative Fixed input; Fixed zero input; Fixed non-perfect-square input that proves nearest-Fixed rounding.

@@ -15,10 +15,3 @@ EXAMPLES
       io::print(toString(strings::endsWith("Hello 😀", "😀")))
       RETURN 0
     END FUNC
-
-FIXME
-- Inconsistency 1: `tests/func_string_endsWith_invalid/src/main.mfb` checks wrong argument count and a non-String `value`, but does not check a non-String `suffix`, even though the manual, spec, and implementation all require `suffix AS String`.
-
-Notes: Add an invalid case such as `strings::endsWith("abc", 1)` and update the invalid golden output.
-
-Untested: empty `value` with empty `suffix`; empty `value` with non-empty `suffix`; wrong suffix type; missing imported `strings` package/invalid call context if that is expected to be covered per function invalid tests.

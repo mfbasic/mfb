@@ -9,10 +9,3 @@ DESCRIPTION
 
 EXAMPLES
   LET value AS Float = math::ln10
-
-FIXME
-- Inconsistency 1: `src/man/builtins/math/ln10.txt`, `specifications/standard_package.md`, and `src/builtins/math.rs` define `math::ln10 AS Float`, but `specifications/mfbasic.md` built-in Math list omits `math::ln10` and instead lists older-looking names such as `math::piFloat`/`math::eFloat`.
-
-Notes: Update `specifications/mfbasic.md` built-in Math list to include `math::ln10` and align the constant names with `specifications/standard_package.md` and the implemented `src/builtins/math.rs` names.
-
-Untested: No dedicated `tests/func_math_ln10_valid` or `tests/func_math_ln10_invalid` coverage exists. Existing aggregate valid coverage prints `math::ln10`; invalid edge cases such as calling `math::ln10()` with arguments or using it in an incompatible typed assignment are not covered in a focused test directory.

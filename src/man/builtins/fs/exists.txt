@@ -14,10 +14,3 @@ DESCRIPTION
 EXAMPLES
   fs::exists("data.txt")
   fs::exists("é日😀.txt")
-
-FIXME
-- Inconsistency 1: `src/man/builtins/fs/exists.txt` documents that the final path component is followed when it is a symlink, and `specifications/standard_package.md` says `fs::exists` follows symlinks, but `tests/func_fs_exists_valid` has no symlink fixture or runtime expectation proving that behavior.
-
-Notes: Add valid runtime coverage for symlink behavior, including a symlink to an existing file or directory. The implementation uses `access`, which should follow final symlinks, so this likely needs test coverage rather than a source change.
-
-Untested: Directory paths returning `TRUE`; final symlink to an existing target returning `TRUE`; broken final symlink returning `FALSE`; intermediate symlink traversal; empty path behavior.

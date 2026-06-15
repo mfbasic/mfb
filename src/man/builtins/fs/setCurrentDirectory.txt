@@ -14,10 +14,3 @@ DESCRIPTION
 EXAMPLES
   fs::setCurrentDirectory("tests")
   fs::setCurrentDirectory("..")
-
-FIXME
-- Inconsistency 1: The manual lists `ErrInvalidArgument`, `ErrNotFound`, `ErrAccessDenied`, and `ErrOutput`, but the implementation can also return `ErrOutOfMemory (10010)` when allocating the NUL-terminated path copy fails.
-
-Notes: Update `src/man/builtins/fs/setCurrentDirectory.txt` to document `ErrOutOfMemory (10010)`, or change the implementation only if the standard intends allocation failure to be reported differently.
-
-Untested: empty path; embedded NUL path; missing path runtime failure; access-denied traversal; non-directory path component/final component; very long path; allocation failure; absolute path change; runtime assertion that the process working directory actually changes beyond the existing relative `"tests"` case.

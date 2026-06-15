@@ -22,8 +22,3 @@ EXAMPLE
   USING f = fs::createTempFile("target")
     fs::writeAll(f, "data")
   END USING
-
-FIXME
-  None.
-
-Untested: no-argument temp file location/name, repeated calls proving uniqueness, collision/exclusive-create behavior, nonexistent directory, directory argument that is a file, empty directory string, embedded NUL in directory, permission-denied directory, and read-back from the returned read/write handle.

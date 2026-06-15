@@ -46,10 +46,3 @@ SEE ALSO
   isPositive
   isNegative
   filter
-
-FIXME
-- Inconsistency 1: `tests/func_filter_isZero_valid/src/main.mfb` appears to test `Fixed` direct calls with `isZero(0.000)` and `isZero(2.500)`, but the golden IR resolves both as `Float` literals, not `Fixed`. The manual documents a `Fixed` overload, and implementation/spec support it, but direct zero and positive `Fixed` calls are not actually covered.
-
-Notes: Update the valid test to call `isZero(zeroFixed)` and `isZero(positiveFixed)` directly, then regenerate goldens. Existing spec, manual, resolver, and native lowering agree on `Integer`, `Float`, and `Fixed`.
-
-Untested: Direct `Fixed` zero and positive direct-call results; invalid rejection for other non-supported types beyond `String`, such as `Boolean`, `Byte`, `List`, or `Map`.

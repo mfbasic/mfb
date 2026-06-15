@@ -63,11 +63,3 @@ SEE ALSO
   types map
   collection
   mfbasic
-
-FIXME
-- Inconsistency 1: `src/man/types/list.txt` says empty lists need an expected type from an annotation or surrounding context, matching `specifications/mfbasic.md`, but `src/typecheck.rs` allows `LET empty = []`; IR emits `List OF Unknown`, native build succeeds, and the executable runs.
-- Inconsistency 2: `src/man/types/list.txt` and `specifications/memory_layouts.md` say records, unions, and nested collection payloads require an extended representation before direct collection storage, but `src/target/shared/code` has native collection payload support for nested `List`/`Map` pointers and inline record/union payloads.
-
-Notes: Resolve inconsistency 1 by rejecting `List OF Unknown` for unannotated empty list bindings/usages, or update the manual/specs to define `List OF Unknown` and its restrictions. Resolve inconsistency 2 by either updating the manual/specs to document the implemented record/union/nested payload representation, or by rejecting those element types until the documented extended representation exists.
-
-Untested: unannotated empty-list rejection; list payloads for records, unions, and nested lists/maps; copy independence after mutating one copied list snapshot; helper coverage for non-Integer/String element types across append/prepend/insert/set/removeAt/mid/replace/find/contains/filter/transform/reduce.
