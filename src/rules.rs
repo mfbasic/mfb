@@ -579,6 +579,66 @@ pub const RULES: &[Rule] = &[
         severity: Severity::Error,
         message: "project entry point is invalid",
     },
+    Rule {
+        code: "2-200-0100",
+        name: "BUILD_FAILED",
+        severity: Severity::Error,
+        message: "build failed for an unclassified orchestration reason",
+    },
+    Rule {
+        code: "2-205-0001",
+        name: "PACKAGE_VERSION_UNSUPPORTED",
+        severity: Severity::Error,
+        message: "package bytecode or metadata version is unsupported",
+    },
+    Rule {
+        code: "2-205-0002",
+        name: "NATIVE_MANIFEST_INVALID",
+        severity: Severity::Error,
+        message: "native-link metadata in a package is malformed or inconsistent",
+    },
+    Rule {
+        code: "3-302-0001",
+        name: "VERIFICATION_FAILED",
+        severity: Severity::Error,
+        message: "bytecode or native validation failed",
+    },
+    Rule {
+        code: "3-304-0001",
+        name: "TARGET_UNSUPPORTED",
+        severity: Severity::Error,
+        message: "requested target OS, CPU, or ABI is unsupported",
+    },
+    Rule {
+        code: "5-500-0001",
+        name: "LINK_FAILED",
+        severity: Severity::Error,
+        message: "linking packages, native libraries, symbols, objects, or executables failed",
+    },
+    Rule {
+        code: "6-603-0001",
+        name: "LOCKFILE_MISMATCH",
+        severity: Severity::Error,
+        message: "resolved package state does not match mfb.lock",
+    },
+    Rule {
+        code: "6-605-0001",
+        name: "PACKAGE_INVALID",
+        severity: Severity::Error,
+        message: "package container is malformed or incompatible",
+    },
+    Rule {
+        code: "6-605-0002",
+        name: "PACKAGE_SIGNATURE_INVALID",
+        severity: Severity::Error,
+        message: "package signature, hash, or trust record is missing or invalid",
+    },
+    Rule {
+        code: "3-304-0002",
+        name: "PACKAGE_NATIVE_OUTPUT_UNSUPPORTED",
+        severity: Severity::Error,
+        message: "package projects do not support the requested native output mode",
+    },
 ];
 
 pub fn show_diagnostic(
@@ -622,6 +682,12 @@ pub fn show_diagnostic(
         rule.name,
         rule.message
     );
+    eprintln!("               {}", detailed_message);
+}
+
+pub fn show_general_diagnostic(rule_name: &str, detailed_message: &str) {
+    let rule = rule_for(rule_name);
+    eprintln!("{}[{} {}]: {}", rule.severity, rule.code, rule.name, rule.message);
     eprintln!("               {}", detailed_message);
 }
 

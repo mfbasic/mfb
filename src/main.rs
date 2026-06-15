@@ -344,7 +344,10 @@ fn build_project(options: &BuildOptions) -> Result<(), ()> {
         }
         BuildOutput::NativeIr => {
             if project_kind == "package" {
-                eprintln!("error: package projects do not support native IR output; run `mfb build` to write a .mfp package");
+                rules::show_general_diagnostic(
+                    "PACKAGE_NATIVE_OUTPUT_UNSUPPORTED",
+                    "Package projects do not support native IR output; run `mfb build` to write a .mfp package.",
+                );
                 return Err(());
             }
 
@@ -372,7 +375,10 @@ fn build_project(options: &BuildOptions) -> Result<(), ()> {
         }
         BuildOutput::NativePlan => {
             if project_kind == "package" {
-                eprintln!("error: package projects do not support native plan output; run `mfb build` to write a .mfp package");
+                rules::show_general_diagnostic(
+                    "PACKAGE_NATIVE_OUTPUT_UNSUPPORTED",
+                    "Package projects do not support native plan output; run `mfb build` to write a .mfp package.",
+                );
                 return Err(());
             }
 
@@ -401,7 +407,10 @@ fn build_project(options: &BuildOptions) -> Result<(), ()> {
         }
         BuildOutput::NativeObjectPlan => {
             if project_kind == "package" {
-                eprintln!("error: package projects do not support native object plan output; run `mfb build` to write a .mfp package");
+                rules::show_general_diagnostic(
+                    "PACKAGE_NATIVE_OUTPUT_UNSUPPORTED",
+                    "Package projects do not support native object plan output; run `mfb build` to write a .mfp package.",
+                );
                 return Err(());
             }
 
@@ -434,7 +443,10 @@ fn build_project(options: &BuildOptions) -> Result<(), ()> {
         }
         BuildOutput::NativeCodePlan => {
             if project_kind == "package" {
-                eprintln!("error: package projects do not support native code plan output; run `mfb build` to write a .mfp package");
+                rules::show_general_diagnostic(
+                    "PACKAGE_NATIVE_OUTPUT_UNSUPPORTED",
+                    "Package projects do not support native code plan output; run `mfb build` to write a .mfp package.",
+                );
                 return Err(());
             }
 

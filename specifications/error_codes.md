@@ -190,22 +190,24 @@ These codes correspond to `src/rules.rs` and are emitted directly by the compile
 
 ## Toolchain and Package Diagnostics
 
-These are the canonical non-runtime diagnostic constants for packaging, verification, targeting, and linking.
+These are non-runtime diagnostics emitted by the `mfb` application and therefore belong in `src/rules.rs` like the rest of the compiler-facing rule set.
 
-| Code | Integer | Name | Meaning |
-|------|---------|------|---------|
-| `2-200-0100` | `22000100` | `ErrBuildFailed` | Build failed for an otherwise unclassified orchestration reason. |
-| `2-205-0001` | `22050001` | `ErrPackageVersion` | Package bytecode or metadata version is unsupported. |
-| `2-205-0002` | `22050002` | `ErrNativeManifest` | Native-link metadata in a package is malformed, unsupported, or inconsistent with bytecode references. |
-| `3-302-0001` | `33020001` | `ErrVerificationFailed` | Bytecode or native validation failed. |
-| `3-304-0001` | `33040001` | `ErrTargetUnsupported` | Requested target OS, CPU, or ABI is unsupported. |
-| `5-500-0001` | `55000001` | `ErrLinkFailed` | Linking packages, native libraries, symbols, objects, or final executable artifacts failed. |
-| `6-603-0001` | `66030001` | `ErrLockfileMismatch` | Resolved package, version, hash, bytecode version, or native metadata does not match `mfb.lock`. |
-| `6-605-0001` | `66050001` | `ErrPackageInvalid` | Package container is malformed or incompatible. |
-| `6-605-0002` | `66050002` | `ErrPackageSignature` | Package signature, hash, or trust record is missing or invalid for the active build mode. |
+| Code         | Rule                            | Severity | Message |
+|--------------|---------------------------------|----------|---------|
+| `2-200-0100` | `BUILD_FAILED`                  | error    | `build failed for an unclassified orchestration reason` |
+| `2-205-0001` | `PACKAGE_VERSION_UNSUPPORTED`   | error    | `package bytecode or metadata version is unsupported` |
+| `2-205-0002` | `NATIVE_MANIFEST_INVALID`       | error    | `native-link metadata in a package is malformed or inconsistent` |
+| `3-302-0001` | `VERIFICATION_FAILED`           | error    | `bytecode or native validation failed` |
+| `3-304-0001` | `TARGET_UNSUPPORTED`            | error    | `requested target OS, CPU, or ABI is unsupported` |
+| `3-304-0002` | `PACKAGE_NATIVE_OUTPUT_UNSUPPORTED` | error | `package projects do not support the requested native output mode` |
+| `5-500-0001` | `LINK_FAILED`                   | error    | `linking packages, native libraries, symbols, objects, or executables failed` |
+| `6-603-0001` | `LOCKFILE_MISMATCH`             | error    | `resolved package state does not match mfb.lock` |
+| `6-605-0001` | `PACKAGE_INVALID`               | error    | `package container is malformed or incompatible` |
+| `6-605-0002` | `PACKAGE_SIGNATURE_INVALID`     | error    | `package signature, hash, or trust record is missing or invalid` |
 
 ## Notes
 
 - This registry supersedes the older flat `10000`/`20000`/`30000` documentation bands.
 - Older umbrella compiler names such as `ErrSyntax` are intentionally replaced here by the concrete emitted rule identifiers from `src/rules.rs`.
-- If a new compiler rule or runtime error is added in `src/`, it must be assigned here and in source at the same time.
+- Non-runtime diagnostics emitted by the `mfb` process should be added to `src/rules.rs` and documented here in `Code | Rule | Severity | Message` form.
+- Runtime `Error.code` values remain the separate exported constant registry because they are program-visible data, not host-tool diagnostics.
