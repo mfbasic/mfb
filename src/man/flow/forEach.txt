@@ -1,0 +1,24 @@
+NAME
+  forEach - collection iteration
+
+SYNOPSIS
+  FOR EACH item IN values
+    ...
+  NEXT
+
+DESCRIPTION
+  FOR EACH iterates a List or Map.
+
+RULES
+  Iterating a List OF T binds the loop variable as T.
+
+  Iterating a Map OF K TO V binds the loop variable as MapEntry OF K TO V with
+  `key` and `value` fields.
+
+EXAMPLES
+  FOR EACH line IN lines : io::print(line) : NEXT
+  FOR EACH entry IN scores : io::print(entry.key & "=" & toString(entry.value)) : NEXT
+
+SEE ALSO
+  flow for
+  types map

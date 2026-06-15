@@ -171,10 +171,28 @@ pub enum Statement {
         cases: Vec<MatchCase>,
         line: usize,
     },
+    For {
+        name: String,
+        start: Expression,
+        end: Expression,
+        step: Option<Expression>,
+        body: Vec<Statement>,
+        line: usize,
+    },
     ForEach {
         name: String,
         iterable: Expression,
         body: Vec<Statement>,
+        line: usize,
+    },
+    While {
+        condition: Expression,
+        body: Vec<Statement>,
+        line: usize,
+    },
+    DoUntil {
+        body: Vec<Statement>,
+        condition: Expression,
         line: usize,
     },
     Using {
@@ -389,8 +407,10 @@ enum BlockTerminator {
     ElseIf,
     EndIf,
     EndMatch,
+    Loop,
     Next,
     EndUsing,
+    Wend,
 }
 
 impl<'a> FileParser<'a> {
@@ -852,7 +872,15 @@ impl<'a> FileParser<'a> {
         }
 
         if self.check_keyword(Keyword::For) {
-            return self.parse_for_each_statement();
+            return self.parse_for_statement();
+        }
+
+        if self.check_keyword(Keyword::While) {
+            return self.parse_while_statement();
+        }
+
+        if self.check_keyword(Keyword::Do) {
+            return self.parse_do_statement();
         }
 
         if self.check_keyword(Keyword::Let) || self.check_keyword(Keyword::Mut) {
@@ -1085,11 +1113,44 @@ impl<'a> FileParser<'a> {
         })
     }
 
-    fn parse_for_each_statement(&mut self) -> Option<Statement> {
+    fn parse_for_statement(&mut self) -> Option<Statement> {
         let token = self.advance().clone();
-        if !self.consume_keyword(Keyword::Each, "FOR EACH must include EACH.") {
+        if self.match_keyword(Keyword::Each) {
+            return self.parse_for_each_statement(token);
+        }
+        let name = self.consume_identifier("FOR loop variable must be an identifier.")?;
+        if !self.consume_kind(TokenKind::Equal, "FOR loop must assign the initial value with `=`.")
+        {
             return None;
         }
+        let start = self.parse_expression()?;
+        if !self.consume_keyword(Keyword::To, "FOR loop must include TO before the end value.") {
+            return None;
+        }
+        let end = self.parse_expression()?;
+        let step = if self.match_keyword(Keyword::Step) {
+            Some(self.parse_expression()?)
+        } else {
+            None
+        };
+        self.consume_statement_end("Expected end of statement after FOR header.");
+        self.skip_separators();
+        let body = self.parse_statement_block(&[BlockTerminator::Next]);
+        if !self.consume_keyword(Keyword::Next, "FOR block must end with NEXT.") {
+            return None;
+        }
+        self.consume_statement_end("Expected end of statement after NEXT.");
+        Some(Statement::For {
+            name,
+            start,
+            end,
+            step,
+            body,
+            line: token.line,
+        })
+    }
+
+    fn parse_for_each_statement(&mut self, token: Token) -> Option<Statement> {
         let name = self.consume_identifier("FOR EACH loop variable must be an identifier.")?;
         if !self.consume_keyword(
             Keyword::In,
@@ -1109,6 +1170,62 @@ impl<'a> FileParser<'a> {
             name,
             iterable,
             body,
+            line: token.line,
+        })
+    }
+
+    fn parse_while_statement(&mut self) -> Option<Statement> {
+        let token = self.advance().clone();
+        let condition = self.parse_expression()?;
+        self.consume_statement_end("Expected end of statement after WHILE header.");
+        self.skip_separators();
+        let body = self.parse_statement_block(&[BlockTerminator::Wend]);
+        if !self.consume_keyword(Keyword::Wend, "WHILE block must end with WEND.") {
+            return None;
+        }
+        self.consume_statement_end("Expected end of statement after WEND.");
+        Some(Statement::While {
+            condition,
+            body,
+            line: token.line,
+        })
+    }
+
+    fn parse_do_statement(&mut self) -> Option<Statement> {
+        let token = self.advance().clone();
+        if self.match_keyword(Keyword::While) {
+            let condition = self.parse_expression()?;
+            self.consume_statement_end("Expected end of statement after DO WHILE header.");
+            self.skip_separators();
+            let body = self.parse_statement_block(&[BlockTerminator::Loop]);
+            if !self.consume_keyword(Keyword::Loop, "DO WHILE block must end with LOOP.") {
+                return None;
+            }
+            self.consume_statement_end("Expected end of statement after LOOP.");
+            return Some(Statement::While {
+                condition,
+                body,
+                line: token.line,
+            });
+        }
+
+        self.consume_statement_end("Expected end of statement after DO.");
+        self.skip_separators();
+        let body = self.parse_statement_block(&[BlockTerminator::Loop]);
+        if !self.consume_keyword(Keyword::Loop, "DO block must end with LOOP.") {
+            return None;
+        }
+        if !self.consume_keyword(
+            Keyword::Until,
+            "DO blocks must end with LOOP UNTIL <condition>.",
+        ) {
+            return None;
+        }
+        let condition = self.parse_expression()?;
+        self.consume_statement_end("Expected end of statement after LOOP UNTIL condition.");
+        Some(Statement::DoUntil {
+            body,
+            condition,
             line: token.line,
         })
     }
@@ -1466,7 +1583,7 @@ impl<'a> FileParser<'a> {
                 if value.eq_ignore_ascii_case("Map") && self.check_identifier_ci("OF") {
                     self.advance();
                     let key_type = self.parse_type_name()?;
-                    if !self.check_identifier_ci("TO") {
+                    if !self.check_identifier_ci("TO") && !self.check_keyword(Keyword::To) {
                         let token = self.peek().clone();
                         self.report(
                             "MFB_PARSE_UNEXPECTED_TOKEN",
@@ -1532,7 +1649,7 @@ impl<'a> FileParser<'a> {
                 || name.eq_ignore_ascii_case("Thread")
             {
                 let first = self.parse_type_name()?;
-                if !self.check_identifier_ci("TO") {
+                if !self.check_identifier_ci("TO") && !self.check_keyword(Keyword::To) {
                     let token = self.peek().clone();
                     self.report(
                         "MFB_PARSE_UNEXPECTED_TOKEN",
@@ -1755,8 +1872,10 @@ impl<'a> FileParser<'a> {
             BlockTerminator::ElseIf => self.check_keyword(Keyword::ElseIf),
             BlockTerminator::EndIf => self.is_end_block(Keyword::If),
             BlockTerminator::EndMatch => self.is_end_block(Keyword::Match),
+            BlockTerminator::Loop => self.check_keyword(Keyword::Loop),
             BlockTerminator::Next => self.check_keyword(Keyword::Next),
             BlockTerminator::EndUsing => self.is_end_block(Keyword::Using),
+            BlockTerminator::Wend => self.check_keyword(Keyword::Wend),
         })
     }
 
@@ -2378,6 +2497,48 @@ impl ToAstJson for Statement {
                     pad
                 )
             }
+            Statement::For {
+                name,
+                start,
+                end,
+                step,
+                body,
+                line,
+            } => {
+                let step = step
+                    .as_ref()
+                    .map(|value| value.to_json(0))
+                    .unwrap_or_else(|| "null".to_string());
+                format!(
+                    concat!(
+                        "\n{}{{\n",
+                        "{}  \"kind\": \"for\",\n",
+                        "{}  \"name\": {},\n",
+                        "{}  \"start\": {},\n",
+                        "{}  \"end\": {},\n",
+                        "{}  \"step\": {},\n",
+                        "{}  \"line\": {},\n",
+                        "{}  \"body\": [{}\n{}  ]\n",
+                        "{}}}"
+                    ),
+                    pad,
+                    pad,
+                    pad,
+                    json_string(name),
+                    pad,
+                    start.to_json(0),
+                    pad,
+                    end.to_json(0),
+                    pad,
+                    step,
+                    pad,
+                    line,
+                    pad,
+                    join_indented(body, indent + 2),
+                    pad,
+                    pad
+                )
+            }
             Statement::Using {
                 name,
                 value,
@@ -2400,6 +2561,58 @@ impl ToAstJson for Statement {
                     json_string(name),
                     pad,
                     value.to_json(0),
+                    pad,
+                    line,
+                    pad,
+                    join_indented(body, indent + 2),
+                    pad,
+                    pad
+                )
+            }
+            Statement::While {
+                condition,
+                body,
+                line,
+            } => {
+                format!(
+                    concat!(
+                        "\n{}{{\n",
+                        "{}  \"kind\": \"while\",\n",
+                        "{}  \"condition\": {},\n",
+                        "{}  \"line\": {},\n",
+                        "{}  \"body\": [{}\n{}  ]\n",
+                        "{}}}"
+                    ),
+                    pad,
+                    pad,
+                    pad,
+                    condition.to_json(0),
+                    pad,
+                    line,
+                    pad,
+                    join_indented(body, indent + 2),
+                    pad,
+                    pad
+                )
+            }
+            Statement::DoUntil {
+                body,
+                condition,
+                line,
+            } => {
+                format!(
+                    concat!(
+                        "\n{}{{\n",
+                        "{}  \"kind\": \"doUntil\",\n",
+                        "{}  \"condition\": {},\n",
+                        "{}  \"line\": {},\n",
+                        "{}  \"body\": [{}\n{}  ]\n",
+                        "{}}}"
+                    ),
+                    pad,
+                    pad,
+                    pad,
+                    condition.to_json(0),
                     pad,
                     line,
                     pad,

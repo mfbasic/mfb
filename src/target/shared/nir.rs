@@ -109,6 +109,10 @@ pub(crate) enum NirOp {
         value: NirValue,
         cases: Vec<NirMatchCase>,
     },
+    While {
+        condition: NirValue,
+        body: Vec<NirOp>,
+    },
     ForEach {
         name: String,
         type_: String,
@@ -370,6 +374,10 @@ fn lower_op(op: &IrOp) -> NirOp {
         IrOp::Match { value, cases } => NirOp::Match {
             value: lower_value(value),
             cases: cases.iter().map(lower_match_case).collect(),
+        },
+        IrOp::While { condition, body } => NirOp::While {
+            condition: lower_value(condition),
+            body: lower_ops(body),
         },
         IrOp::ForEach {
             name,
@@ -882,6 +890,23 @@ impl ToNirJson for NirOp {
                 value.to_json(indent),
                 pad,
                 join_json(cases, indent + 2),
+                pad,
+                pad
+            ),
+            NirOp::While { condition, body } => format!(
+                concat!(
+                    "\n{}{{\n",
+                    "{}  \"op\": \"while\",\n",
+                    "{}  \"condition\": {},\n",
+                    "{}  \"body\": [{}\n{}  ]\n",
+                    "{}}}"
+                ),
+                pad,
+                pad,
+                pad,
+                condition.to_json(indent),
+                pad,
+                join_json(body, indent + 2),
                 pad,
                 pad
             ),

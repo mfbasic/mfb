@@ -1,0 +1,145 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "control_flow_valid",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "mutable": true, "name": "$for_iter0", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "1" } },
+    { "op": "bind", "mutable": false, "name": "$for_end1", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "5" } },
+    { "op": "bind", "mutable": false, "name": "$for_step2", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "2" } },
+    {
+      "op": "while",
+      "condition": { "kind": "binary", "op": "OR", "left": { "kind": "binary", "op": "AND", "left": { "kind": "binary", "op": ">=", "left": { "kind": "local", "name": "$for_step2" }, "right": { "kind": "const", "type": "Integer", "value": "0" } }, "right": { "kind": "binary", "op": "<=", "left": { "kind": "local", "name": "$for_iter0" }, "right": { "kind": "local", "name": "$for_end1" } } }, "right": { "kind": "binary", "op": "AND", "left": { "kind": "binary", "op": "<", "left": { "kind": "local", "name": "$for_step2" }, "right": { "kind": "const", "type": "Integer", "value": "0" } }, "right": { "kind": "binary", "op": ">=", "left": { "kind": "local", "name": "$for_iter0" }, "right": { "kind": "local", "name": "$for_end1" } } } },
+      "body": [
+      { "op": "bind", "mutable": false, "name": "i", "type": "Integer", "value": { "kind": "local", "name": "$for_iter0" } },
+      { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "binary", "op": "&", "left": { "kind": "const", "type": "String", "value": "int=" }, "right": { "kind": "call", "target": "toString", "args": [{ "kind": "local", "name": "i" }] } }] } },
+      { "op": "assign", "name": "$for_iter0", "value": { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "$for_iter0" }, "right": { "kind": "local", "name": "$for_step2" } } }
+      ]
+    },
+    { "op": "bind", "mutable": true, "name": "$for_iter3", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "5" } },
+    { "op": "bind", "mutable": false, "name": "$for_end4", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "1" } },
+    { "op": "bind", "mutable": false, "name": "$for_step5", "type": "Integer", "value": { "kind": "unary", "op": "-", "operand": { "kind": "const", "type": "Integer", "value": "2" } } },
+    {
+      "op": "while",
+      "condition": { "kind": "binary", "op": "OR", "left": { "kind": "binary", "op": "AND", "left": { "kind": "binary", "op": ">=", "left": { "kind": "local", "name": "$for_step5" }, "right": { "kind": "const", "type": "Integer", "value": "0" } }, "right": { "kind": "binary", "op": "<=", "left": { "kind": "local", "name": "$for_iter3" }, "right": { "kind": "local", "name": "$for_end4" } } }, "right": { "kind": "binary", "op": "AND", "left": { "kind": "binary", "op": "<", "left": { "kind": "local", "name": "$for_step5" }, "right": { "kind": "const", "type": "Integer", "value": "0" } }, "right": { "kind": "binary", "op": ">=", "left": { "kind": "local", "name": "$for_iter3" }, "right": { "kind": "local", "name": "$for_end4" } } } },
+      "body": [
+      { "op": "bind", "mutable": false, "name": "down", "type": "Integer", "value": { "kind": "local", "name": "$for_iter3" } },
+      { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "binary", "op": "&", "left": { "kind": "const", "type": "String", "value": "down=" }, "right": { "kind": "call", "target": "toString", "args": [{ "kind": "local", "name": "down" }] } }] } },
+      { "op": "assign", "name": "$for_iter3", "value": { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "$for_iter3" }, "right": { "kind": "local", "name": "$for_step5" } } }
+      ]
+    },
+    { "op": "bind", "mutable": true, "name": "$for_iter6", "type": "Byte", "value": { "kind": "call", "target": "toByte", "args": [{ "kind": "const", "type": "Integer", "value": "1" }] } },
+    { "op": "bind", "mutable": false, "name": "$for_end7", "type": "Byte", "value": { "kind": "call", "target": "toByte", "args": [{ "kind": "const", "type": "Integer", "value": "5" }] } },
+    { "op": "bind", "mutable": false, "name": "$for_step8", "type": "Byte", "value": { "kind": "call", "target": "toByte", "args": [{ "kind": "const", "type": "Integer", "value": "2" }] } },
+    {
+      "op": "while",
+      "condition": { "kind": "binary", "op": "OR", "left": { "kind": "binary", "op": "AND", "left": { "kind": "binary", "op": ">=", "left": { "kind": "local", "name": "$for_step8" }, "right": { "kind": "const", "type": "Byte", "value": "0" } }, "right": { "kind": "binary", "op": "<=", "left": { "kind": "local", "name": "$for_iter6" }, "right": { "kind": "local", "name": "$for_end7" } } }, "right": { "kind": "binary", "op": "AND", "left": { "kind": "binary", "op": "<", "left": { "kind": "local", "name": "$for_step8" }, "right": { "kind": "const", "type": "Byte", "value": "0" } }, "right": { "kind": "binary", "op": ">=", "left": { "kind": "local", "name": "$for_iter6" }, "right": { "kind": "local", "name": "$for_end7" } } } },
+      "body": [
+      { "op": "bind", "mutable": false, "name": "b", "type": "Byte", "value": { "kind": "local", "name": "$for_iter6" } },
+      { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "binary", "op": "&", "left": { "kind": "const", "type": "String", "value": "byte=" }, "right": { "kind": "call", "target": "toString", "args": [{ "kind": "local", "name": "b" }] } }] } },
+      { "op": "assign", "name": "$for_iter6", "value": { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "$for_iter6" }, "right": { "kind": "local", "name": "$for_step8" } } }
+      ]
+    },
+    { "op": "bind", "mutable": true, "name": "$for_iter9", "type": "Fixed", "value": { "kind": "call", "target": "toFixed", "args": [{ "kind": "const", "type": "String", "value": "1.0" }] } },
+    { "op": "bind", "mutable": false, "name": "$for_end10", "type": "Fixed", "value": { "kind": "call", "target": "toFixed", "args": [{ "kind": "const", "type": "String", "value": "2.0" }] } },
+    { "op": "bind", "mutable": false, "name": "$for_step11", "type": "Fixed", "value": { "kind": "call", "target": "toFixed", "args": [{ "kind": "const", "type": "String", "value": "0.5" }] } },
+    {
+      "op": "while",
+      "condition": { "kind": "binary", "op": "OR", "left": { "kind": "binary", "op": "AND", "left": { "kind": "binary", "op": ">=", "left": { "kind": "local", "name": "$for_step11" }, "right": { "kind": "const", "type": "Fixed", "value": "0" } }, "right": { "kind": "binary", "op": "<=", "left": { "kind": "local", "name": "$for_iter9" }, "right": { "kind": "local", "name": "$for_end10" } } }, "right": { "kind": "binary", "op": "AND", "left": { "kind": "binary", "op": "<", "left": { "kind": "local", "name": "$for_step11" }, "right": { "kind": "const", "type": "Fixed", "value": "0" } }, "right": { "kind": "binary", "op": ">=", "left": { "kind": "local", "name": "$for_iter9" }, "right": { "kind": "local", "name": "$for_end10" } } } },
+      "body": [
+      { "op": "bind", "mutable": false, "name": "f", "type": "Fixed", "value": { "kind": "local", "name": "$for_iter9" } },
+      { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "binary", "op": "&", "left": { "kind": "const", "type": "String", "value": "fixed=" }, "right": { "kind": "call", "target": "toString", "args": [{ "kind": "local", "name": "f" }] } }] } },
+      { "op": "assign", "name": "$for_iter9", "value": { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "$for_iter9" }, "right": { "kind": "local", "name": "$for_step11" } } }
+      ]
+    },
+    { "op": "bind", "mutable": true, "name": "$for_iter12", "type": "Float", "value": { "kind": "const", "type": "Float", "value": "1.0" } },
+    { "op": "bind", "mutable": false, "name": "$for_end13", "type": "Float", "value": { "kind": "const", "type": "Float", "value": "2.0" } },
+    { "op": "bind", "mutable": false, "name": "$for_step14", "type": "Float", "value": { "kind": "const", "type": "Float", "value": "0.5" } },
+    {
+      "op": "while",
+      "condition": { "kind": "binary", "op": "OR", "left": { "kind": "binary", "op": "AND", "left": { "kind": "binary", "op": ">=", "left": { "kind": "local", "name": "$for_step14" }, "right": { "kind": "const", "type": "Float", "value": "0" } }, "right": { "kind": "binary", "op": "<=", "left": { "kind": "local", "name": "$for_iter12" }, "right": { "kind": "local", "name": "$for_end13" } } }, "right": { "kind": "binary", "op": "AND", "left": { "kind": "binary", "op": "<", "left": { "kind": "local", "name": "$for_step14" }, "right": { "kind": "const", "type": "Float", "value": "0" } }, "right": { "kind": "binary", "op": ">=", "left": { "kind": "local", "name": "$for_iter12" }, "right": { "kind": "local", "name": "$for_end13" } } } },
+      "body": [
+      { "op": "bind", "mutable": false, "name": "x", "type": "Float", "value": { "kind": "local", "name": "$for_iter12" } },
+      { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "binary", "op": "&", "left": { "kind": "const", "type": "String", "value": "float=" }, "right": { "kind": "call", "target": "toString", "args": [{ "kind": "local", "name": "x" }] } }] } },
+      { "op": "assign", "name": "$for_iter12", "value": { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "$for_iter12" }, "right": { "kind": "local", "name": "$for_step14" } } }
+      ]
+    },
+    { "op": "bind", "mutable": false, "name": "lines", "type": "List OF String", "value": { "kind": "list", "type": "List OF String", "values": [{ "kind": "const", "type": "String", "value": "alpha" }, { "kind": "const", "type": "String", "value": "beta" }] } },
+    {
+      "op": "forEach",
+      "name": "item",
+      "type": "String",
+      "iterable": { "kind": "local", "name": "lines" },
+      "body": [
+      { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "binary", "op": "&", "left": { "kind": "const", "type": "String", "value": "line=" }, "right": { "kind": "local", "name": "item" } }] } }
+      ]
+    },
+    { "op": "bind", "mutable": false, "name": "scores", "type": "Map OF String TO Integer", "value": { "kind": "map", "type": "Map OF String TO Integer", "entries": [{ "key": { "kind": "const", "type": "String", "value": "ada" }, "value": { "kind": "const", "type": "Integer", "value": "10" } }] } },
+    {
+      "op": "forEach",
+      "name": "entry",
+      "type": "MapEntry OF String TO Integer",
+      "iterable": { "kind": "local", "name": "scores" },
+      "body": [
+      { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "binary", "op": "&", "left": { "kind": "binary", "op": "&", "left": { "kind": "memberAccess", "target": { "kind": "local", "name": "entry" }, "member": "key" }, "right": { "kind": "const", "type": "String", "value": "=" } }, "right": { "kind": "call", "target": "toString", "args": [{ "kind": "memberAccess", "target": { "kind": "local", "name": "entry" }, "member": "value" }] } }] } }
+      ]
+    },
+    { "op": "bind", "mutable": true, "name": "counter", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    {
+      "op": "while",
+      "condition": { "kind": "binary", "op": "<", "left": { "kind": "local", "name": "counter" }, "right": { "kind": "const", "type": "Integer", "value": "3" } },
+      "body": [
+      { "op": "assign", "name": "counter", "value": { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "counter" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } },
+      { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "binary", "op": "&", "left": { "kind": "const", "type": "String", "value": "while=" }, "right": { "kind": "call", "target": "toString", "args": [{ "kind": "local", "name": "counter" }] } }] } }
+      ]
+    },
+    { "op": "bind", "mutable": true, "name": "once", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    { "op": "assign", "name": "once", "value": { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "once" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "binary", "op": "&", "left": { "kind": "const", "type": "String", "value": "doUntil=" }, "right": { "kind": "call", "target": "toString", "args": [{ "kind": "local", "name": "once" }] } }] } },
+    {
+      "op": "while",
+      "condition": { "kind": "unary", "op": "NOT", "operand": { "kind": "binary", "op": ">=", "left": { "kind": "local", "name": "once" }, "right": { "kind": "const", "type": "Integer", "value": "2" } } },
+      "body": [
+      { "op": "assign", "name": "once", "value": { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "once" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } },
+      { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "binary", "op": "&", "left": { "kind": "const", "type": "String", "value": "doUntil=" }, "right": { "kind": "call", "target": "toString", "args": [{ "kind": "local", "name": "once" }] } }] } }
+      ]
+    },
+    { "op": "bind", "mutable": true, "name": "ready", "type": "Boolean", "value": { "kind": "const", "type": "Boolean", "value": "true" } },
+    { "op": "bind", "mutable": true, "name": "spins", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    {
+      "op": "while",
+      "condition": { "kind": "local", "name": "ready" },
+      "body": [
+      { "op": "assign", "name": "spins", "value": { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "spins" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } },
+      { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "binary", "op": "&", "left": { "kind": "const", "type": "String", "value": "doWhile=" }, "right": { "kind": "call", "target": "toString", "args": [{ "kind": "local", "name": "spins" }] } }] } },
+      { "op": "assign", "name": "ready", "value": { "kind": "const", "type": "Boolean", "value": "false" } }
+      ]
+    },
+    { "op": "bind", "mutable": true, "name": "skipped", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    {
+      "op": "while",
+      "condition": { "kind": "binary", "op": "<", "left": { "kind": "local", "name": "skipped" }, "right": { "kind": "const", "type": "Integer", "value": "0" } },
+      "body": [
+      { "op": "assign", "name": "skipped", "value": { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "skipped" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+      ]
+    },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "binary", "op": "&", "left": { "kind": "const", "type": "String", "value": "skipped=" }, "right": { "kind": "call", "target": "toString", "args": [{ "kind": "local", "name": "skipped" }] } }] } },
+    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

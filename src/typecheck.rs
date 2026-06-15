@@ -876,6 +876,61 @@ impl<'a> TypeChecker<'a> {
                     Flow::FallsThrough
                 }
             }
+            Statement::For {
+                name,
+                start,
+                end,
+                step,
+                body,
+                line,
+            } => {
+                let start_type = self.infer_expression(file, start, locals, *line);
+                let end_type = self.infer_expression(file, end, locals, *line);
+                let step_type = match step {
+                    Some(step) => self.infer_expression(file, step, locals, *line),
+                    None => Type::Integer,
+                };
+                let numeric_types = [&start_type, &end_type, &step_type];
+                let all_numeric = numeric_types.iter().all(|type_| self.is_numeric(type_));
+                let loop_type = if all_numeric {
+                    promote_loop_numeric_type(&start_type, &end_type, &step_type)
+                } else {
+                    for (label, type_) in [("start", &start_type), ("end", &end_type), ("step", &step_type)] {
+                        if !self.is_numeric(type_) {
+                            self.report(
+                                "TYPE_FOR_REQUIRES_NUMERIC",
+                                &format!(
+                                    "FOR loop {label} value has type {}, expected numeric.",
+                                    self.type_name(type_)
+                                ),
+                                file,
+                                *line,
+                            );
+                        }
+                    }
+                    Type::Unknown
+                };
+                if let Some(step) = step {
+                    if numeric_literal_is_zero(step) {
+                        self.report(
+                            "TYPE_FOR_STEP_ZERO",
+                            "FOR loop STEP must not be zero.",
+                            file,
+                            *line,
+                        );
+                    }
+                }
+                let mut nested = locals.clone();
+                nested.insert(
+                    name.clone(),
+                    LocalInfo {
+                        type_: loop_type,
+                        mutable: false,
+                    },
+                );
+                self.check_block(file, body, expected_return, &mut nested);
+                Flow::FallsThrough
+            }
             Statement::ForEach {
                 name,
                 iterable,
@@ -912,6 +967,48 @@ impl<'a> TypeChecker<'a> {
                     },
                 );
                 self.check_block(file, body, expected_return, &mut nested);
+                Flow::FallsThrough
+            }
+            Statement::While {
+                condition,
+                body,
+                line,
+            } => {
+                let condition_type = self.infer_expression(file, condition, locals, *line);
+                if !self.expression_compatible(&Type::Boolean, &condition_type, Some(condition)) {
+                    self.report(
+                        "TYPE_CONDITION_REQUIRES_BOOLEAN",
+                        &format!(
+                            "WHILE condition has type {}, expected Boolean.",
+                            self.type_name(&condition_type)
+                        ),
+                        file,
+                        *line,
+                    );
+                }
+                let mut nested = locals.clone();
+                self.check_block(file, body, expected_return, &mut nested);
+                Flow::FallsThrough
+            }
+            Statement::DoUntil {
+                body,
+                condition,
+                line,
+            } => {
+                let mut nested = locals.clone();
+                self.check_block(file, body, expected_return, &mut nested);
+                let condition_type = self.infer_expression(file, condition, locals, *line);
+                if !self.expression_compatible(&Type::Boolean, &condition_type, Some(condition)) {
+                    self.report(
+                        "TYPE_CONDITION_REQUIRES_BOOLEAN",
+                        &format!(
+                            "LOOP UNTIL condition has type {}, expected Boolean.",
+                            self.type_name(&condition_type)
+                        ),
+                        file,
+                        *line,
+                    );
+                }
                 Flow::FallsThrough
             }
             Statement::Using {
@@ -3068,6 +3165,44 @@ fn numeric_literal_type(expression: &Expression) -> Option<Type> {
             numeric_literal_type(operand)
         }
         _ => None,
+    }
+}
+
+fn numeric_literal_is_zero(expression: &Expression) -> bool {
+    match expression {
+        Expression::Number(value) => value.parse::<f64>().is_ok_and(|number| number == 0.0),
+        Expression::Unary { operator, operand }
+            if operator == "-" && matches!(operand.as_ref(), Expression::Number(_)) =>
+        {
+            numeric_literal_is_zero(operand)
+        }
+        _ => false,
+    }
+}
+
+fn promote_loop_numeric_type(start: &Type, end: &Type, step: &Type) -> Type {
+    let Some(start_name) = numeric_type_name(start) else {
+        return Type::Unknown;
+    };
+    let Some(end_name) = numeric_type_name(end) else {
+        return Type::Unknown;
+    };
+    let Some(step_name) = numeric_type_name(step) else {
+        return Type::Unknown;
+    };
+    let first = numeric::binary_result_type("+", start_name, end_name).unwrap_or(numeric::TYPE_INTEGER);
+    let second =
+        numeric::binary_result_type("+", first, step_name).unwrap_or(numeric::TYPE_INTEGER);
+    type_from_numeric_name(second)
+}
+
+fn type_from_numeric_name(type_name: &str) -> Type {
+    match type_name {
+        numeric::TYPE_BYTE => Type::Byte,
+        numeric::TYPE_INTEGER => Type::Integer,
+        numeric::TYPE_FIXED => Type::Fixed,
+        numeric::TYPE_FLOAT => Type::Float,
+        _ => Type::Unknown,
     }
 }
 

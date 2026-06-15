@@ -1598,6 +1598,14 @@ fn collect_package_function_refs_in_ops(
                     );
                 }
             }
+            NirOp::While { condition, body } => {
+                collect_package_function_refs_in_value(
+                    condition,
+                    package_import_symbols,
+                    symbols,
+                );
+                collect_package_function_refs_in_ops(body, package_import_symbols, symbols);
+            }
             NirOp::ForEach { iterable, body, .. } => {
                 collect_package_function_refs_in_value(iterable, package_import_symbols, symbols);
                 collect_package_function_refs_in_ops(body, package_import_symbols, symbols);
@@ -9282,6 +9290,9 @@ fn ops_use_call(ops: &[NirOp], target: &str) -> bool {
                         || ops_use_call(&case.body, target)
                 })
         }
+        NirOp::While { condition, body } => {
+            value_uses_call(condition, target) || ops_use_call(body, target)
+        }
         NirOp::ForEach { iterable, body, .. } => {
             value_uses_call(iterable, target) || ops_use_call(body, target)
         }
@@ -9343,6 +9354,9 @@ fn ops_use_type_name(ops: &[NirOp]) -> bool {
             matches!(&case.pattern, NirMatchPattern::Value(value) if value_uses_type_name(value))
                 || ops_use_type_name(&case.body)
         }),
+        NirOp::While { condition, body } => {
+            value_uses_type_name(condition) || ops_use_type_name(body)
+        }
         NirOp::ForEach { iterable, body, .. } => {
             value_uses_type_name(iterable) || ops_use_type_name(body)
         }
@@ -9445,6 +9459,10 @@ fn collect_type_name_values_from_ops(ops: &[NirOp], values: &mut Vec<String>) {
                     }
                     collect_type_name_values_from_ops(&case.body, values);
                 }
+            }
+            NirOp::While { condition, body } => {
+                collect_type_name_values_from_value(condition, values);
+                collect_type_name_values_from_ops(body, values);
             }
             NirOp::ForEach {
                 type_,
@@ -9619,6 +9637,16 @@ fn ops_use_unicode_runtime_tables(
                     ) {
                         return true;
                     }
+                }
+            }
+            NirOp::While { condition, body } => {
+                if value_uses_unicode_runtime_tables(condition, constants, types) {
+                    return true;
+                }
+                let mut body_constants = constants.clone();
+                let mut body_types = types.clone();
+                if ops_use_unicode_runtime_tables(body, &mut body_constants, &mut body_types) {
+                    return true;
                 }
             }
             NirOp::ForEach {
@@ -9939,6 +9967,17 @@ fn collect_string_values_from_ops_with_constants(
                         &mut case_types,
                     );
                 }
+            }
+            NirOp::While { condition, body } => {
+                collect_string_values_from_value(condition, values, constants, types);
+                let mut body_constants = constants.clone();
+                let mut body_types = types.clone();
+                collect_string_values_from_ops_with_constants(
+                    body,
+                    values,
+                    &mut body_constants,
+                    &mut body_types,
+                );
             }
             NirOp::ForEach {
                 name,
@@ -10436,6 +10475,10 @@ fn collect_builtin_function_refs_in_ops(
                     }
                     collect_builtin_function_refs_in_ops(&case.body, refs, seen);
                 }
+            }
+            NirOp::While { condition, body } => {
+                collect_builtin_function_refs_in_value(condition, refs, seen);
+                collect_builtin_function_refs_in_ops(body, refs, seen);
             }
             NirOp::ForEach { iterable, body, .. } => {
                 collect_builtin_function_refs_in_value(iterable, refs, seen);

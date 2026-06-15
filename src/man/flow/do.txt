@@ -1,0 +1,29 @@
+NAME
+  do - DO loop forms
+
+SYNOPSIS
+  DO
+    ...
+  LOOP UNTIL condition
+
+  DO WHILE condition
+    ...
+  LOOP
+
+DESCRIPTION
+  DO supports both post-test and pre-test loop forms.
+
+RULES
+  `DO ... LOOP UNTIL condition` runs the body first, then stops when the
+  Boolean condition becomes TRUE.
+
+  `DO WHILE condition ... LOOP` checks the Boolean condition before each
+  iteration and may run zero times.
+
+EXAMPLES
+  DO : work = work + 1 : LOOP UNTIL done
+  DO WHILE ready : io::print("tick") : ready = FALSE : LOOP
+
+SEE ALSO
+  flow while
+  flow for

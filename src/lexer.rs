@@ -40,6 +40,7 @@ pub enum TokenKind {
 pub enum Keyword {
     As,
     Case,
+    Do,
     Else,
     ElseIf,
     False,
@@ -53,6 +54,7 @@ pub enum Keyword {
     Isolated,
     Let,
     Lambda,
+    Loop,
     Div,
     Mod,
     Match,
@@ -73,10 +75,15 @@ pub enum Keyword {
     Package,
     Private,
     Propagate,
+    Step,
+    To,
     Type,
     Trap,
+    Until,
     Union,
     Using,
+    While,
+    Wend,
     With,
 }
 
@@ -402,6 +409,8 @@ fn keyword(value: &str) -> Option<Keyword> {
         Some(Keyword::As)
     } else if value.eq_ignore_ascii_case("CASE") {
         Some(Keyword::Case)
+    } else if value.eq_ignore_ascii_case("DO") {
+        Some(Keyword::Do)
     } else if value.eq_ignore_ascii_case("ELSE") {
         Some(Keyword::Else)
     } else if value.eq_ignore_ascii_case("ELSEIF") {
@@ -428,6 +437,8 @@ fn keyword(value: &str) -> Option<Keyword> {
         Some(Keyword::Let)
     } else if value.eq_ignore_ascii_case("LAMBDA") {
         Some(Keyword::Lambda)
+    } else if value.eq_ignore_ascii_case("LOOP") {
+        Some(Keyword::Loop)
     } else if value.eq_ignore_ascii_case("DIV") {
         Some(Keyword::Div)
     } else if value.eq_ignore_ascii_case("MOD") {
@@ -468,14 +479,24 @@ fn keyword(value: &str) -> Option<Keyword> {
         Some(Keyword::Private)
     } else if value.eq_ignore_ascii_case("PROPAGATE") {
         Some(Keyword::Propagate)
+    } else if value.eq_ignore_ascii_case("STEP") {
+        Some(Keyword::Step)
+    } else if value.eq_ignore_ascii_case("TO") {
+        Some(Keyword::To)
     } else if value.eq_ignore_ascii_case("TYPE") {
         Some(Keyword::Type)
     } else if value.eq_ignore_ascii_case("TRAP") {
         Some(Keyword::Trap)
+    } else if value.eq_ignore_ascii_case("UNTIL") {
+        Some(Keyword::Until)
     } else if value.eq_ignore_ascii_case("UNION") {
         Some(Keyword::Union)
     } else if value.eq_ignore_ascii_case("USING") {
         Some(Keyword::Using)
+    } else if value.eq_ignore_ascii_case("WHILE") {
+        Some(Keyword::While)
+    } else if value.eq_ignore_ascii_case("WEND") {
+        Some(Keyword::Wend)
     } else if value.eq_ignore_ascii_case("WITH") {
         Some(Keyword::With)
     } else {

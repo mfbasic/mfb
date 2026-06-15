@@ -54,6 +54,8 @@ pub(crate) enum LabelKind {
     IfEnd,
     MatchCase,
     MatchEnd,
+    WhileLoop,
+    WhileEnd,
 }
 
 pub(crate) struct PlanCall {
@@ -268,7 +270,9 @@ impl PlannedFunction {
                 LabelKind::IfElse
                 | LabelKind::IfEnd
                 | LabelKind::MatchCase
-                | LabelKind::MatchEnd => {}
+                | LabelKind::MatchEnd
+                | LabelKind::WhileLoop
+                | LabelKind::WhileEnd => {}
             }
         }
         if self.operations.is_empty() {
@@ -431,6 +435,10 @@ fn collect_platform_imports_from_ops(
                     collect_platform_imports_from_ops(platform, required_by, &case.body, imports);
                 }
             }
+            NirOp::While { condition, body } => {
+                collect_platform_imports_from_value(platform, required_by, condition, imports);
+                collect_platform_imports_from_ops(platform, required_by, body, imports);
+            }
             NirOp::ForEach { iterable, body, .. } => {
                 collect_platform_imports_from_value(platform, required_by, iterable, imports);
                 collect_platform_imports_from_ops(platform, required_by, body, imports);
@@ -588,6 +596,11 @@ fn collect_runtime_symbols_from_ops_with_constants(
                         &mut case_constants,
                     );
                 }
+            }
+            NirOp::While { condition, body } => {
+                collect_runtime_symbols_from_value(condition, symbols, constants);
+                let mut body_constants = constants.clone();
+                collect_runtime_symbols_from_ops_with_constants(body, symbols, &mut body_constants);
             }
             NirOp::ForEach { iterable, body, .. } => {
                 collect_runtime_symbols_from_value(iterable, symbols, constants);
@@ -891,6 +904,20 @@ impl FunctionPlanBuilder<'_> {
                     self.operations.push(format!("label {end_label}"));
                     self.constants.clear();
                 }
+                NirOp::While { condition, body } => {
+                    let loop_label = self.add_label(LabelKind::WhileLoop);
+                    let end_label = self.add_label(LabelKind::WhileEnd);
+                    self.operations.push(format!("label {loop_label}"));
+                    self.lower_value(condition)?;
+                    self.operations.push(format!(
+                        "branchIfFalse {} -> {end_label}",
+                        describe_value(condition)
+                    ));
+                    self.lower_ops(body)?;
+                    self.operations.push(format!("branch -> {loop_label}"));
+                    self.operations.push(format!("label {end_label}"));
+                    self.constants.clear();
+                }
                 NirOp::ForEach {
                     name,
                     type_,
@@ -1028,6 +1055,8 @@ impl FunctionPlanBuilder<'_> {
             LabelKind::IfEnd => "if_end",
             LabelKind::MatchCase => "match_case",
             LabelKind::MatchEnd => "match_end",
+            LabelKind::WhileLoop => "while_loop",
+            LabelKind::WhileEnd => "while_end",
         };
         let name = format!("{prefix}_{id}");
         self.labels.push(PlanLabel {
@@ -1445,6 +1474,8 @@ impl LabelKind {
             LabelKind::IfEnd => "ifEnd",
             LabelKind::MatchCase => "matchCase",
             LabelKind::MatchEnd => "matchEnd",
+            LabelKind::WhileLoop => "whileLoop",
+            LabelKind::WhileEnd => "whileEnd",
         }
     }
 }

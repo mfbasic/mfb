@@ -492,6 +492,39 @@ impl<'a> Resolver<'a> {
                     self.resolve_nested_block(file, &case.body, imports, locals);
                 }
             }
+            Statement::For {
+                name,
+                start,
+                end,
+                step,
+                body,
+                line,
+            } => {
+                self.resolve_expression(file, start, *line, imports, locals);
+                self.resolve_expression(file, end, *line, imports, locals);
+                if let Some(step) = step {
+                    self.resolve_expression(file, step, *line, imports, locals);
+                }
+                let mut nested = locals.clone();
+                if nested
+                    .insert(
+                        name.clone(),
+                        Symbol {
+                            file_path: file.path.clone(),
+                            line: *line,
+                        },
+                    )
+                    .is_some()
+                {
+                    self.report(
+                        "SYMBOL_DUPLICATE_LOCAL",
+                        &format!("Local binding `{name}` is already declared in this function."),
+                        file,
+                        *line,
+                    );
+                }
+                self.resolve_block(file, body, imports, &mut nested);
+            }
             Statement::ForEach {
                 name,
                 iterable,
@@ -518,6 +551,22 @@ impl<'a> Resolver<'a> {
                     );
                 }
                 self.resolve_block(file, body, imports, &mut nested);
+            }
+            Statement::While {
+                condition,
+                body,
+                line,
+            } => {
+                self.resolve_expression(file, condition, *line, imports, locals);
+                self.resolve_nested_block(file, body, imports, locals);
+            }
+            Statement::DoUntil {
+                body,
+                condition,
+                line,
+            } => {
+                self.resolve_nested_block(file, body, imports, locals);
+                self.resolve_expression(file, condition, *line, imports, locals);
             }
             Statement::Using {
                 name,

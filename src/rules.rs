@@ -222,6 +222,21 @@ pub const RULES: &[Rule] = &[
         message: "unary operator is not recognized",
     },
     Rule {
+        name: "TYPE_FOR_REQUIRES_NUMERIC",
+        severity: Severity::Error,
+        message: "FOR loop operands must be numeric",
+    },
+    Rule {
+        name: "TYPE_FOR_STEP_ZERO",
+        severity: Severity::Error,
+        message: "FOR loop step must not be zero",
+    },
+    Rule {
+        name: "TYPE_CONDITION_REQUIRES_BOOLEAN",
+        severity: Severity::Error,
+        message: "control-flow condition must be Boolean",
+    },
+    Rule {
         name: "TYPE_BINDING_MISMATCH",
         severity: Severity::Error,
         message: "binding initializer type does not match declared type",

@@ -22,6 +22,7 @@ pub(crate) struct FunctionDoc {
 static PACKAGES: LazyLock<Vec<PackageDoc>> = LazyLock::new(|| {
     vec![
         parse_types_package(),
+        parse_flow_package(),
         parse_errors_package(),
         parse_general_package(),
         parse_collection_package(),
@@ -79,6 +80,24 @@ fn parse_types_package() -> PackageDoc {
         name,
         summary,
         usage: "mfb man types [topic]",
+        functions: Box::leak(functions),
+        page: Some(page),
+    }
+}
+
+fn parse_flow_package() -> PackageDoc {
+    let page = include_str!("flow/package.txt");
+    let (name, summary) = parse_name_line(page).expect("flow package NAME line");
+    let functions = generated::FLOW_TOPIC_PAGES
+        .iter()
+        .map(|(_, page)| parse_rendered_function_page(page))
+        .collect::<Vec<_>>()
+        .into_boxed_slice();
+
+    PackageDoc {
+        name,
+        summary,
+        usage: "mfb man flow [topic]",
         functions: Box::leak(functions),
         page: Some(page),
     }
@@ -275,6 +294,7 @@ fn parse_json_package() -> PackageDoc {
 fn generated_pages(package_name: &str) -> Option<&'static [(&'static str, &'static str)]> {
     match package_name {
         "types" => Some(generated::TYPES_TOPIC_PAGES),
+        "flow" => Some(generated::FLOW_TOPIC_PAGES),
         "general" => Some(generated::GENERAL_FUNCTION_PAGES),
         "collection" => Some(generated::COLLECTION_FUNCTION_PAGES),
         "filter" => Some(generated::FILTER_FUNCTION_PAGES),

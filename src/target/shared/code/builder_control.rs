@@ -150,6 +150,19 @@ impl CodeBuilder<'_> {
                     self.emit(abi::label(&end_label));
                     self.clear_local_constants();
                 }
+                NirOp::While { condition, body } => {
+                    let loop_label = self.label("while_loop");
+                    let end_label = self.label("while_end");
+                    self.emit(abi::label(&loop_label));
+                    let condition = self.lower_value(condition)?;
+                    self.emit(abi::compare_immediate(&condition.location, "0"));
+                    self.emit(abi::branch_eq(&end_label));
+                    self.clear_local_constants();
+                    self.lower_ops(body)?;
+                    self.emit(abi::branch(&loop_label));
+                    self.emit(abi::label(&end_label));
+                    self.clear_local_constants();
+                }
                 NirOp::ForEach {
                     name,
                     type_,

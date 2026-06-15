@@ -1,0 +1,37 @@
+NAME
+  if - conditional execution
+
+SYNOPSIS
+  IF condition THEN statement
+  IF condition THEN
+    ...
+  ELSEIF otherCondition THEN
+    ...
+  ELSE
+    ...
+  END IF
+
+DESCRIPTION
+  IF evaluates a Boolean condition and executes the matching branch.
+
+RULES
+  The condition must be Boolean.
+
+  The single-line form runs one statement when the condition is TRUE.
+
+  The block form may include zero or more ELSEIF clauses and an optional ELSE.
+
+EXAMPLES
+  IF ready THEN io::print("go")
+
+  IF score > 90 THEN
+    io::print("A")
+  ELSEIF score > 80 THEN
+    io::print("B")
+  ELSE
+    io::print("C")
+  END IF
+
+SEE ALSO
+  flow match
+  flow while

@@ -3364,6 +3364,9 @@ fn ops_use_resource_type(ops: &[IrOp]) -> bool {
             value_uses_resource_type(value)
                 || cases.iter().any(|case| ops_use_resource_type(&case.body))
         }
+        IrOp::While { condition, body } => {
+            value_uses_resource_type(condition) || ops_use_resource_type(body)
+        }
         IrOp::ForEach {
             type_,
             iterable,
@@ -3656,6 +3659,16 @@ impl<'a> FunctionBuilder<'a> {
                 for jump in end_jumps {
                     self.patch_jump(jump);
                 }
+                Ok(())
+            }
+            IrOp::While { condition, body } => {
+                let loop_pc = self.code.len() as u32;
+                let condition = self.lower_value(condition, locals)?;
+                let end_jump = self.push_jump(OPCODE_BRANCH_IF_FALSE, vec![condition.register]);
+                let mut nested = locals.clone();
+                self.lower_ops(body, &mut nested)?;
+                self.push(OPCODE_BRANCH, vec![loop_pc]);
+                self.patch_jump(end_jump);
                 Ok(())
             }
             IrOp::ForEach {

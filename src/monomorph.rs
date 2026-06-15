@@ -513,6 +513,45 @@ impl<'a> Monomorphizer<'a> {
                     .collect(),
                 line: *line,
             },
+            Statement::For {
+                name,
+                start,
+                end,
+                step,
+                body,
+                line,
+            } => {
+                let lowered_start =
+                    self.lower_expression(start, substitutions, context, None, *line);
+                let lowered_end = self.lower_expression(end, substitutions, context, None, *line);
+                let lowered_step = step.as_ref().map(|value| {
+                    self.lower_expression(value, substitutions, context, None, *line)
+                });
+                let mut nested = context.clone();
+                if let Some(loop_type) = self
+                    .expression_type(&lowered_start, context)
+                    .zip(
+                        self.expression_type(&lowered_end, context),
+                    )
+                    .map(|(start_type, end_type)| {
+                        let step_type = lowered_step
+                            .as_ref()
+                            .and_then(|value| self.expression_type(value, context))
+                            .unwrap_or_else(|| "Integer".to_string());
+                        promote_loop_numeric_type_name(&start_type, &end_type, &step_type)
+                    })
+                {
+                    nested.locals.insert(name.clone(), loop_type);
+                }
+                Statement::For {
+                    name: name.clone(),
+                    start: lowered_start,
+                    end: lowered_end,
+                    step: lowered_step,
+                    body: self.lower_statements(body, substitutions, &mut nested),
+                    line: *line,
+                }
+            }
             Statement::ForEach {
                 name,
                 iterable,
@@ -539,6 +578,24 @@ impl<'a> Monomorphizer<'a> {
                     line: *line,
                 }
             }
+            Statement::While {
+                condition,
+                body,
+                line,
+            } => Statement::While {
+                condition: self.lower_expression(condition, substitutions, context, None, *line),
+                body: self.lower_statements(body, substitutions, &mut context.clone()),
+                line: *line,
+            },
+            Statement::DoUntil {
+                body,
+                condition,
+                line,
+            } => Statement::DoUntil {
+                body: self.lower_statements(body, substitutions, &mut context.clone()),
+                condition: self.lower_expression(condition, substitutions, context, None, *line),
+                line: *line,
+            },
             Statement::Using {
                 name,
                 value,
@@ -1340,6 +1397,11 @@ fn sanitize_type_name(value: &str) -> String {
 
 fn numeric_binary_result_type(operator: &str, left: &str, right: &str) -> &'static str {
     numeric::binary_result_type(operator, left, right).unwrap_or(numeric::TYPE_INTEGER)
+}
+
+fn promote_loop_numeric_type_name(start: &str, end: &str, step: &str) -> String {
+    let first = numeric_binary_result_type("+", start, end);
+    numeric_binary_result_type("+", first, step).to_string()
 }
 
 fn constructor_arg_value(argument: &ConstructorArg) -> &Expression {

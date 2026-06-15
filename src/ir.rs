@@ -93,6 +93,10 @@ pub(crate) enum IrOp {
         value: IrValue,
         cases: Vec<IrMatchCase>,
     },
+    While {
+        condition: IrValue,
+        body: Vec<IrOp>,
+    },
     ForEach {
         name: String,
         type_: String,
@@ -118,6 +122,7 @@ pub(crate) enum IrMatchPattern {
     Value(IrValue),
 }
 
+#[derive(Clone)]
 pub(crate) enum IrValue {
     Const {
         type_: String,
@@ -164,6 +169,7 @@ pub(crate) enum IrValue {
     },
 }
 
+#[derive(Clone)]
 pub(crate) struct IrRecordUpdate {
     pub(crate) field: String,
     pub(crate) value: IrValue,
@@ -193,6 +199,7 @@ pub fn lower_project_with_external_functions(
         type_index: &type_index,
         lambdas: Vec::new(),
         next_lambda_id: 0,
+        next_temp_id: 0,
     };
 
     for file in &ast.files {
@@ -324,6 +331,7 @@ struct LowerContext<'a> {
     type_index: &'a TypeIndex,
     lambdas: Vec<IrFunction>,
     next_lambda_id: usize,
+    next_temp_id: usize,
 }
 
 fn lower_statement(
@@ -331,7 +339,7 @@ fn lower_statement(
     locals: &mut HashMap<String, String>,
     trap_body: Option<&[Statement]>,
     context: &mut LowerContext<'_>,
-) -> IrOp {
+) -> Vec<IrOp> {
     match statement {
         Statement::Let {
             mutable,
@@ -350,37 +358,37 @@ fn lower_statement(
                 lower_expression_with_expected(value, Some(&lowered_type), locals, context)
             });
             locals.insert(name.clone(), lowered_type.clone());
-            IrOp::Bind {
+            vec![IrOp::Bind {
                 mutable: *mutable,
                 name: name.clone(),
                 type_: lowered_type,
                 value: lowered_value,
-            }
+            }]
         }
-        Statement::Return { value, .. } => IrOp::Return {
+        Statement::Return { value, .. } => vec![IrOp::Return {
             value: value
                 .as_ref()
                 .map(|value| lower_expression(value, locals, context)),
-        },
+        }],
         Statement::Fail { error, .. } => {
             if let Some(trap_body) = trap_body {
-                return IrOp::If {
+                return vec![IrOp::If {
                     condition: IrValue::Const {
                         type_: "Boolean".to_string(),
                         value: "true".to_string(),
                     },
                     then_body: lower_statement_block(trap_body, locals, context),
                     else_body: Vec::new(),
-                };
+                }];
             }
-            IrOp::Fail {
+            vec![IrOp::Fail {
                 error: lower_expression(error, locals, context),
-            }
+            }]
         }
-        Statement::Propagate { .. } => IrOp::Fail {
+        Statement::Propagate { .. } => vec![IrOp::Fail {
             error: IrValue::Local("err".to_string()),
-        },
-        Statement::Assign { name, value, .. } => IrOp::Assign {
+        }],
+        Statement::Assign { name, value, .. } => vec![IrOp::Assign {
             name: name.clone(),
             value: lower_expression_with_expected(
                 value,
@@ -388,29 +396,138 @@ fn lower_statement(
                 locals,
                 context,
             ),
-        },
-        Statement::Expression { expression, .. } => IrOp::Eval {
+        }],
+        Statement::Expression { expression, .. } => vec![IrOp::Eval {
             value: lower_expression(expression, locals, context),
-        },
+        }],
         Statement::If {
             condition,
             then_body,
             else_body,
             ..
-        } => IrOp::If {
+        } => vec![IrOp::If {
             condition: lower_expression(condition, locals, context),
             then_body: lower_statement_block_with_trap(then_body, locals, trap_body, context),
             else_body: lower_statement_block_with_trap(else_body, locals, trap_body, context),
-        },
+        }],
         Statement::Match {
             expression, cases, ..
-        } => IrOp::Match {
+        } => vec![IrOp::Match {
             value: lower_expression(expression, locals, context),
             cases: cases
                 .iter()
                 .map(|case| lower_match_case(case, expression, locals, context))
                 .collect(),
-        },
+        }],
+        Statement::For {
+            name,
+            start,
+            end,
+            step,
+            body,
+            ..
+        } => {
+            let start_type = expression_type(start, locals, context)
+                .expect("typecheck requires FOR start type before IR lowering");
+            let end_type = expression_type(end, locals, context)
+                .expect("typecheck requires FOR end type before IR lowering");
+            let step_type = step
+                .as_ref()
+                .and_then(|value| expression_type(value, locals, context))
+                .unwrap_or_else(|| "Integer".to_string());
+            let loop_type = promote_loop_numeric_type_name(&start_type, &end_type, &step_type);
+            let iter_name = make_temp_local_name(context, "for_iter");
+            let end_name = make_temp_local_name(context, "for_end");
+            let step_name = make_temp_local_name(context, "for_step");
+
+            let start_value = lower_expression_with_expected(start, Some(&loop_type), locals, context);
+            let end_value = lower_expression_with_expected(end, Some(&loop_type), locals, context);
+            let step_value = step
+                .as_ref()
+                .map(|value| lower_expression_with_expected(value, Some(&loop_type), locals, context))
+                .unwrap_or_else(|| numeric_constant_for_type(&loop_type, "1"));
+
+            locals.insert(iter_name.clone(), loop_type.clone());
+            locals.insert(end_name.clone(), loop_type.clone());
+            locals.insert(step_name.clone(), loop_type.clone());
+
+            let step_local = IrValue::Local(step_name.clone());
+            let iter_local = IrValue::Local(iter_name.clone());
+            let end_local = IrValue::Local(end_name.clone());
+            let zero = numeric_constant_for_type(&loop_type, "0");
+            let condition = IrValue::Binary {
+                op: "OR".to_string(),
+                left: Box::new(IrValue::Binary {
+                    op: "AND".to_string(),
+                    left: Box::new(IrValue::Binary {
+                        op: ">=".to_string(),
+                        left: Box::new(step_local.clone()),
+                        right: Box::new(zero.clone()),
+                    }),
+                    right: Box::new(IrValue::Binary {
+                        op: "<=".to_string(),
+                        left: Box::new(iter_local.clone()),
+                        right: Box::new(end_local.clone()),
+                    }),
+                }),
+                right: Box::new(IrValue::Binary {
+                    op: "AND".to_string(),
+                    left: Box::new(IrValue::Binary {
+                        op: "<".to_string(),
+                        left: Box::new(step_local.clone()),
+                        right: Box::new(zero),
+                    }),
+                    right: Box::new(IrValue::Binary {
+                        op: ">=".to_string(),
+                        left: Box::new(iter_local.clone()),
+                        right: Box::new(end_local.clone()),
+                    }),
+                }),
+            };
+
+            let mut nested = locals.clone();
+            nested.insert(name.clone(), loop_type.clone());
+            let mut while_body = vec![IrOp::Bind {
+                mutable: false,
+                name: name.clone(),
+                type_: loop_type.clone(),
+                value: Some(iter_local.clone()),
+            }];
+            while_body.extend(lower_statement_block_with_trap(body, &nested, trap_body, context));
+            while_body.push(IrOp::Assign {
+                name: iter_name.clone(),
+                value: IrValue::Binary {
+                    op: "+".to_string(),
+                    left: Box::new(iter_local),
+                    right: Box::new(step_local),
+                },
+            });
+
+            vec![
+                IrOp::Bind {
+                    mutable: true,
+                    name: iter_name,
+                    type_: loop_type.clone(),
+                    value: Some(start_value),
+                },
+                IrOp::Bind {
+                    mutable: false,
+                    name: end_name,
+                    type_: loop_type.clone(),
+                    value: Some(end_value),
+                },
+                IrOp::Bind {
+                    mutable: false,
+                    name: step_name,
+                    type_: loop_type,
+                    value: Some(step_value),
+                },
+                IrOp::While {
+                    condition,
+                    body: while_body,
+                },
+            ]
+        }
         Statement::ForEach {
             name,
             iterable,
@@ -423,12 +540,37 @@ fn lower_statement(
                 .expect("typecheck requires FOR EACH collection before IR lowering");
             let mut nested = locals.clone();
             nested.insert(name.clone(), element_type.clone());
-            IrOp::ForEach {
+            vec![IrOp::ForEach {
                 name: name.clone(),
                 type_: element_type,
                 iterable: lower_expression(iterable, locals, context),
                 body: lower_statement_block_with_trap(body, &nested, trap_body, context),
-            }
+            }]
+        }
+        Statement::While {
+            condition, body, ..
+        } => vec![IrOp::While {
+            condition: lower_expression(condition, locals, context),
+            body: lower_statement_block_with_trap(body, locals, trap_body, context),
+        }],
+        Statement::DoUntil {
+            body, condition, ..
+        } => {
+            let body_ops = lower_statement_block_with_trap(body, locals, trap_body, context);
+            let loop_body = lower_statement_block_with_trap(body, locals, trap_body, context);
+            vec![
+                body_ops,
+                vec![IrOp::While {
+                    condition: IrValue::Unary {
+                        op: "NOT".to_string(),
+                        operand: Box::new(lower_expression(condition, locals, context)),
+                    },
+                    body: loop_body,
+                }],
+            ]
+            .into_iter()
+            .flatten()
+            .collect()
         }
         Statement::Using {
             name, value, body, ..
@@ -441,13 +583,13 @@ fn lower_statement(
                 .to_string();
             let mut nested = locals.clone();
             nested.insert(name.clone(), type_.clone());
-            IrOp::Using {
+            vec![IrOp::Using {
                 name: name.clone(),
                 type_,
                 close,
                 value,
                 body: lower_statement_block_with_trap(body, &nested, trap_body, context),
-            }
+            }]
         }
     }
 }
@@ -468,7 +610,7 @@ fn lower_statement_block_with_trap(
 ) -> Vec<IrOp> {
     let mut nested = locals.clone();
     body.iter()
-        .map(|statement| lower_statement(statement, &mut nested, trap_body, context))
+        .flat_map(|statement| lower_statement(statement, &mut nested, trap_body, context))
         .collect()
 }
 
@@ -479,6 +621,24 @@ fn collection_iteration_type(type_: &str) -> Option<String> {
         .or_else(|| {
             parse_map_type(type_).map(|(key, value)| format!("MapEntry OF {key} TO {value}"))
         })
+}
+
+fn make_temp_local_name(context: &mut LowerContext<'_>, prefix: &str) -> String {
+    let name = format!("${prefix}{}", context.next_temp_id);
+    context.next_temp_id += 1;
+    name
+}
+
+fn promote_loop_numeric_type_name(start: &str, end: &str, step: &str) -> String {
+    let first = numeric_binary_result_type("+", start, end);
+    numeric_binary_result_type("+", first, step).to_string()
+}
+
+fn numeric_constant_for_type(type_: &str, value: &str) -> IrValue {
+    IrValue::Const {
+        type_: type_.to_string(),
+        value: value.to_string(),
+    }
 }
 
 fn parse_map_type(type_: &str) -> Option<(String, String)> {
@@ -1564,6 +1724,25 @@ impl ToIrJson for IrOp {
                     value.to_json(indent),
                     pad,
                     join_json(cases, indent + 2),
+                    pad,
+                    pad
+                )
+            }
+            IrOp::While { condition, body } => {
+                format!(
+                    concat!(
+                        "\n{}{{\n",
+                        "{}  \"op\": \"while\",\n",
+                        "{}  \"condition\": {},\n",
+                        "{}  \"body\": [{}\n{}  ]\n",
+                        "{}}}"
+                    ),
+                    pad,
+                    pad,
+                    pad,
+                    condition.to_json(indent),
+                    pad,
+                    join_json(body, indent + 2),
                     pad,
                     pad
                 )

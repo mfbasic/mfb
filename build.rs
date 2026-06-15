@@ -10,6 +10,7 @@ fn main() {
     let filter_dir = manifest_dir.join("src/man/builtins/filter");
     let strings_dir = manifest_dir.join("src/man/builtins/strings");
     let types_dir = manifest_dir.join("src/man/types");
+    let flow_dir = manifest_dir.join("src/man/flow");
     let io_dir = manifest_dir.join("src/man/builtins/io");
     let math_dir = manifest_dir.join("src/man/builtins/math");
     let fs_dir = manifest_dir.join("src/man/builtins/fs");
@@ -23,6 +24,7 @@ fn main() {
     println!("cargo:rerun-if-changed={}", filter_dir.display());
     println!("cargo:rerun-if-changed={}", strings_dir.display());
     println!("cargo:rerun-if-changed={}", types_dir.display());
+    println!("cargo:rerun-if-changed={}", flow_dir.display());
     println!("cargo:rerun-if-changed={}", io_dir.display());
     println!("cargo:rerun-if-changed={}", math_dir.display());
     println!("cargo:rerun-if-changed={}", fs_dir.display());
@@ -37,6 +39,7 @@ fn main() {
     let filter_pages = man_pages(&filter_dir, "filter");
     let strings_pages = man_pages(&strings_dir, "strings");
     let types_pages = man_pages(&types_dir, "types");
+    let flow_pages = man_pages(&flow_dir, "flow");
     let io_pages = man_pages(&io_dir, "io");
     let math_pages = man_pages(&math_dir, "math");
     let fs_pages = man_pages(&fs_dir, "fs");
@@ -65,6 +68,10 @@ fn main() {
     );
     println!(
         "cargo:rerun-if-changed={}",
+        flow_dir.join("package.txt").display()
+    );
+    println!(
+        "cargo:rerun-if-changed={}",
         io_dir.join("package.txt").display()
     );
     println!(
@@ -89,6 +96,7 @@ fn main() {
         .chain(filter_pages.iter())
         .chain(strings_pages.iter())
         .chain(types_pages.iter())
+        .chain(flow_pages.iter())
         .chain(io_pages.iter())
         .chain(math_pages.iter())
         .chain(fs_pages.iter())
@@ -107,6 +115,7 @@ fn main() {
     write_pages(&mut output, "FILTER_FUNCTION_PAGES", filter_pages);
     write_pages(&mut output, "STRINGS_FUNCTION_PAGES", strings_pages);
     write_pages(&mut output, "TYPES_TOPIC_PAGES", types_pages);
+    write_pages(&mut output, "FLOW_TOPIC_PAGES", flow_pages);
     write_pages(&mut output, "IO_FUNCTION_PAGES", io_pages);
     write_pages(&mut output, "MATH_FUNCTION_PAGES", math_pages);
     write_pages(&mut output, "FS_FUNCTION_PAGES", fs_pages);

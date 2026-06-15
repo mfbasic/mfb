@@ -197,6 +197,11 @@ fn collect_runtime_calls_from_ops_with_constants(
                     );
                 }
             }
+            NirOp::While { condition, body } => {
+                collect_runtime_calls_from_value(condition, calls, constants);
+                let mut body_constants = constants.clone();
+                collect_runtime_calls_from_ops_with_constants(body, calls, &mut body_constants);
+            }
             NirOp::ForEach { iterable, body, .. } => {
                 collect_runtime_calls_from_value(iterable, calls, constants);
                 let mut body_constants = constants.clone();
@@ -738,6 +743,25 @@ fn validate_ops(
                         type_: type_.clone(),
                     },
                 );
+                validate_ops(
+                    body,
+                    &mut body_locals,
+                    function_names,
+                    import_names,
+                    type_value_names,
+                    used_helpers,
+                )?;
+            }
+            NirOp::While { condition, body } => {
+                validate_value(
+                    condition,
+                    locals,
+                    function_names,
+                    import_names,
+                    type_value_names,
+                    used_helpers,
+                )?;
+                let mut body_locals = locals.clone();
                 validate_ops(
                     body,
                     &mut body_locals,
