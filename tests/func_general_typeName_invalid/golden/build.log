@@ -2,47 +2,47 @@ $ mfb build -ast tests/func_general_typeName_invalid
    1 | FUNC main AS Integer
    2 |   LET missing AS String = typeName()
      | ^
-tests/func_general_typeName_invalid/src/main.mfb:2 error[TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+tests/func_general_typeName_invalid/src/main.mfb:2 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
                Call to `typeName` has 0 argument(s), expected 1.
    1 | FUNC main AS Integer
    2 |   LET missing AS String = typeName()
      | ^
-tests/func_general_typeName_invalid/src/main.mfb:2 error[TYPE_UNKNOWN_VALUE]: value type could not be determined
+tests/func_general_typeName_invalid/src/main.mfb:2 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `missing` does not have a known type.
    1 | FUNC main AS Integer
    2 |   LET missing AS String = typeName()
    3 |   LET tooMany AS String = typeName(1, 2)
      | ^
-tests/func_general_typeName_invalid/src/main.mfb:3 error[TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+tests/func_general_typeName_invalid/src/main.mfb:3 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
                Call to `typeName` has 2 argument(s), expected 1.
    1 | FUNC main AS Integer
    2 |   LET missing AS String = typeName()
    3 |   LET tooMany AS String = typeName(1, 2)
      | ^
-tests/func_general_typeName_invalid/src/main.mfb:3 error[TYPE_UNKNOWN_VALUE]: value type could not be determined
+tests/func_general_typeName_invalid/src/main.mfb:3 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `tooMany` does not have a known type.
 [exit 1]
 $ mfb build -ir tests/func_general_typeName_invalid
    1 | FUNC main AS Integer
    2 |   LET missing AS String = typeName()
      | ^
-tests/func_general_typeName_invalid/src/main.mfb:2 error[TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+tests/func_general_typeName_invalid/src/main.mfb:2 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
                Call to `typeName` has 0 argument(s), expected 1.
    1 | FUNC main AS Integer
    2 |   LET missing AS String = typeName()
      | ^
-tests/func_general_typeName_invalid/src/main.mfb:2 error[TYPE_UNKNOWN_VALUE]: value type could not be determined
+tests/func_general_typeName_invalid/src/main.mfb:2 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `missing` does not have a known type.
    1 | FUNC main AS Integer
    2 |   LET missing AS String = typeName()
    3 |   LET tooMany AS String = typeName(1, 2)
      | ^
-tests/func_general_typeName_invalid/src/main.mfb:3 error[TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+tests/func_general_typeName_invalid/src/main.mfb:3 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
                Call to `typeName` has 2 argument(s), expected 1.
    1 | FUNC main AS Integer
    2 |   LET missing AS String = typeName()
    3 |   LET tooMany AS String = typeName(1, 2)
      | ^
-tests/func_general_typeName_invalid/src/main.mfb:3 error[TYPE_UNKNOWN_VALUE]: value type could not be determined
+tests/func_general_typeName_invalid/src/main.mfb:3 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `tooMany` does not have a known type.
 [exit 1]

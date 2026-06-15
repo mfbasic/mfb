@@ -3,37 +3,37 @@ $ mfb build -ast tests/func_thread_read_invalid
    3 | FUNC main AS Integer
    4 |   LET missing AS String = thread::read()
      | ^
-tests/func_thread_read_invalid/src/main.mfb:4 error[TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+tests/func_thread_read_invalid/src/main.mfb:4 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
                Call to `thread.read` has 0 argument(s), expected 1.
    2 | 
    3 | FUNC main AS Integer
    4 |   LET missing AS String = thread::read()
      | ^
-tests/func_thread_read_invalid/src/main.mfb:4 error[TYPE_UNKNOWN_VALUE]: value type could not be determined
+tests/func_thread_read_invalid/src/main.mfb:4 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `missing` does not have a known type.
    3 | FUNC main AS Integer
    4 |   LET missing AS String = thread::read()
    5 |   LET wrongThread AS String = thread::read(1)
      | ^
-tests/func_thread_read_invalid/src/main.mfb:5 error[TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+tests/func_thread_read_invalid/src/main.mfb:5 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
                Call to `thread.read` has argument type(s) (Integer), expected Thread OF Msg TO Out.
    3 | FUNC main AS Integer
    4 |   LET missing AS String = thread::read()
    5 |   LET wrongThread AS String = thread::read(1)
      | ^
-tests/func_thread_read_invalid/src/main.mfb:5 error[TYPE_UNKNOWN_VALUE]: value type could not be determined
+tests/func_thread_read_invalid/src/main.mfb:5 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `wrongThread` does not have a known type.
    4 |   LET missing AS String = thread::read()
    5 |   LET wrongThread AS String = thread::read(1)
    6 |   LET tooMany AS String = thread::read(1, 2)
      | ^
-tests/func_thread_read_invalid/src/main.mfb:6 error[TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+tests/func_thread_read_invalid/src/main.mfb:6 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
                Call to `thread.read` has 2 argument(s), expected 1.
    4 |   LET missing AS String = thread::read()
    5 |   LET wrongThread AS String = thread::read(1)
    6 |   LET tooMany AS String = thread::read(1, 2)
      | ^
-tests/func_thread_read_invalid/src/main.mfb:6 error[TYPE_UNKNOWN_VALUE]: value type could not be determined
+tests/func_thread_read_invalid/src/main.mfb:6 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `tooMany` does not have a known type.
 [exit 1]
 $ mfb build -ir tests/func_thread_read_invalid
@@ -41,36 +41,36 @@ $ mfb build -ir tests/func_thread_read_invalid
    3 | FUNC main AS Integer
    4 |   LET missing AS String = thread::read()
      | ^
-tests/func_thread_read_invalid/src/main.mfb:4 error[TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+tests/func_thread_read_invalid/src/main.mfb:4 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
                Call to `thread.read` has 0 argument(s), expected 1.
    2 | 
    3 | FUNC main AS Integer
    4 |   LET missing AS String = thread::read()
      | ^
-tests/func_thread_read_invalid/src/main.mfb:4 error[TYPE_UNKNOWN_VALUE]: value type could not be determined
+tests/func_thread_read_invalid/src/main.mfb:4 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `missing` does not have a known type.
    3 | FUNC main AS Integer
    4 |   LET missing AS String = thread::read()
    5 |   LET wrongThread AS String = thread::read(1)
      | ^
-tests/func_thread_read_invalid/src/main.mfb:5 error[TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+tests/func_thread_read_invalid/src/main.mfb:5 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
                Call to `thread.read` has argument type(s) (Integer), expected Thread OF Msg TO Out.
    3 | FUNC main AS Integer
    4 |   LET missing AS String = thread::read()
    5 |   LET wrongThread AS String = thread::read(1)
      | ^
-tests/func_thread_read_invalid/src/main.mfb:5 error[TYPE_UNKNOWN_VALUE]: value type could not be determined
+tests/func_thread_read_invalid/src/main.mfb:5 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `wrongThread` does not have a known type.
    4 |   LET missing AS String = thread::read()
    5 |   LET wrongThread AS String = thread::read(1)
    6 |   LET tooMany AS String = thread::read(1, 2)
      | ^
-tests/func_thread_read_invalid/src/main.mfb:6 error[TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+tests/func_thread_read_invalid/src/main.mfb:6 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
                Call to `thread.read` has 2 argument(s), expected 1.
    4 |   LET missing AS String = thread::read()
    5 |   LET wrongThread AS String = thread::read(1)
    6 |   LET tooMany AS String = thread::read(1, 2)
      | ^
-tests/func_thread_read_invalid/src/main.mfb:6 error[TYPE_UNKNOWN_VALUE]: value type could not be determined
+tests/func_thread_read_invalid/src/main.mfb:6 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `tooMany` does not have a known type.
 [exit 1]

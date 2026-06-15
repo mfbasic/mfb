@@ -2086,7 +2086,7 @@ impl<'a> TypeChecker<'a> {
                 .unwrap_or(Type::Unknown);
             if param.type_name.is_none() {
                 self.report(
-                    "TYPE_PARAMETER_MISSING",
+                    "TYPE_PARAM_REQUIRES_TYPE",
                     &format!(
                         "Lambda parameter `{}` must declare an `AS` type.",
                         param.name
@@ -2097,7 +2097,7 @@ impl<'a> TypeChecker<'a> {
             }
             if param.default.is_some() {
                 self.report(
-                    "TYPE_DEFAULT_ARGUMENT_ORDER",
+                    "TYPE_DEFAULT_ARG_ORDER",
                     "Lambda parameters cannot declare default values.",
                     file,
                     param.line,

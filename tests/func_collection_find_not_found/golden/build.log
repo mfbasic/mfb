@@ -8,5 +8,5 @@ $ mfb build tests/func_collection_find_not_found
 Wrote executable to tests/func_collection_find_not_found/func_collection_find_not_found.out
 [exit 0]
 $ tests/func_collection_find_not_found/func_collection_find_not_found.out
-Code: 10004 Message: not found
+Code: 77050004 Message: not found
 [exit 255]

@@ -92,7 +92,7 @@ Exported templates in source packages are instantiated by the importing compilat
 | `String` | UTF-8, immutable |
 | `Byte` | unsigned 8-bit |
 
-`Fixed` is a binary fixed-point number stored as a signed 32-bit integer part and a 32-bit fractional part. Its range is approximately `-2147483648.0` through `2147483647.9999999998`, with a resolution of `1 / 2^32`. Fixed-point arithmetic is deterministic across targets, but it is not exact decimal currency arithmetic because most decimal fractions are rounded to binary fixed-point values. Overflow produces `Err(Error[10028, ...])`; divide-by-zero and invalid numeric domains produce `Err(Error[10002, ...])`.
+`Fixed` is a binary fixed-point number stored as a signed 32-bit integer part and a 32-bit fractional part. Its range is approximately `-2147483648.0` through `2147483647.9999999998`, with a resolution of `1 / 2^32`. Fixed-point arithmetic is deterministic across targets, but it is not exact decimal currency arithmetic because most decimal fractions are rounded to binary fixed-point values. Overflow produces `Err(Error[77050010, ...])`; divide-by-zero and invalid numeric domains produce `Err(Error[77050002, ...])`.
 
 The name `Fixed` is retained for deterministic binary fixed-point arithmetic. A future exact base-10 financial type, if added, should use a distinct name such as `Decimal` and must specify decimal scale, rounding, and overflow rules separately.
 
@@ -104,7 +104,7 @@ LET y AS Fixed = 1.25    ' Fixed
 LET z = toFixed("1.25")  ' Fixed, fallible parse
 ```
 
-`Byte` is an unsigned 8-bit integer with range `0` through `255`. Integer literals may initialize a `Byte` only when the literal is statically in range. Runtime conversion to `Byte` uses `toByte`; out-of-range conversion fails with `10028`.
+`Byte` is an unsigned 8-bit integer with range `0` through `255`. Integer literals may initialize a `Byte` only when the literal is statically in range. Runtime conversion to `Byte` uses `toByte`; out-of-range conversion fails with `77050010`.
 
 Fixed > Float > Integer > Byte
 
@@ -131,14 +131,14 @@ Numeric comparisons (`=`, `<>`, `<`, `>`, `<=`, `>=`) use the same operand promo
 
 Numeric edge cases:
 
-- `Integer` arithmetic is checked. Overflow in `+`, `-`, `*`, unary `-`, exponentiation (`^`), and the minimum-integer `MOD -1` case fails with `ErrOverflow` (`10028`). Integer operations never wrap.
-- `Byte` arithmetic that returns `Byte` is checked. Results above `255` fail with `ErrOverflow` (`10028`); results below `0` fail with `ErrUnderflow` (`10031`). Byte operations never wrap.
-- `Integer / Integer` is not integer division; `/` produces `Float`. Use `MOD` for remainders and a future integer-division helper if truncating division is needed. Division by zero fails with `ErrInvalidArgument` (`10002`).
-- `MOD` is defined only for `Integer`. `a MOD b` fails with `ErrInvalidArgument` (`10002`) when `b = 0`. Otherwise the remainder has the same sign as `a`, and `a = (truncTowardZero(a / b) * b) + (a MOD b)`.
-- `^` for `Integer` requires a non-negative integer exponent and fails with `ErrInvalidArgument` (`10002`) for negative exponents. Overflow fails with `ErrOverflow` (`10028`).
-- `Float` follows IEEE 754 binary64 representation, but MFBASIC does not expose successful non-finite arithmetic results. Operations or math functions that would produce NaN or infinity fail instead: invalid domains and division by zero fail with `ErrInvalidArgument` (`10002`), and overflow to infinity fails with `ErrOverflow` (`10028`). Imported native `Float` values that are already NaN or infinity are rejected at the boundary with `ErrInvalidFormat` (`10003`).
+- `Integer` arithmetic is checked. Overflow in `+`, `-`, `*`, unary `-`, exponentiation (`^`), and the minimum-integer `MOD -1` case fails with `ErrOverflow` (`77050010`). Integer operations never wrap.
+- `Byte` arithmetic that returns `Byte` is checked. Results above `255` fail with `ErrOverflow` (`77050010`); results below `0` fail with `ErrUnderflow` (`77050011`). Byte operations never wrap.
+- `Integer / Integer` is not integer division; `/` produces `Float`. Use `MOD` for remainders and a future integer-division helper if truncating division is needed. Division by zero fails with `ErrInvalidArgument` (`77050002`).
+- `MOD` is defined only for `Integer`. `a MOD b` fails with `ErrInvalidArgument` (`77050002`) when `b = 0`. Otherwise the remainder has the same sign as `a`, and `a = (truncTowardZero(a / b) * b) + (a MOD b)`.
+- `^` for `Integer` requires a non-negative integer exponent and fails with `ErrInvalidArgument` (`77050002`) for negative exponents. Overflow fails with `ErrOverflow` (`77050010`).
+- `Float` follows IEEE 754 binary64 representation, but MFBASIC does not expose successful non-finite arithmetic results. Operations or math functions that would produce NaN or infinity fail instead: invalid domains and division by zero fail with `ErrInvalidArgument` (`77050002`), and overflow to infinity fails with `ErrOverflow` (`77050010`). Imported native `Float` values that are already NaN or infinity are rejected at the boundary with `ErrInvalidFormat` (`77050003`).
 - Float comparisons are total over finite values only. Comparing a non-finite `Float` is not possible in ordinary MFBASIC source because non-finite values cannot be constructed or imported successfully.
-- Converting `Float` or `Fixed` to `Integer` or `Byte` fails with `ErrOverflow` (`10028`) when outside the destination range. Converting text to a numeric type fails with `ErrInvalidFormat` (`10003`) when the text is malformed or names a non-finite value such as `NaN` or `Infinity`.
+- Converting `Float` or `Fixed` to `Integer` or `Byte` fails with `ErrOverflow` (`77050010`) when outside the destination range. Converting text to a numeric type fails with `ErrInvalidFormat` (`77050003`) when the text is malformed or names a non-finite value such as `NaN` or `Infinity`.
 
 ### 4.2 Records (product types)
 
@@ -483,7 +483,7 @@ When an error path exits a `USING` body, resource close behavior is resolved by 
 Use `FAIL` to fail explicitly with an `Error`:
 
 ```basic
-IF n < 0 THEN FAIL Error[10002, "negative"]
+IF n < 0 THEN FAIL Error[77050002, "negative"]
 ```
 
 `FAIL e` routes to the enclosing `TRAP`; with no trap, the function returns `Err(e)`.
@@ -495,7 +495,7 @@ Each `FUNC`/`SUB` may declare **at most one** `TRAP`, at the bottom, after norma
 ```basic
 FUNC readAge(input AS String) AS Integer
   LET n = toInt(input)                 ' auto-propagates on Err
-  IF n < 0 THEN FAIL Error[10002, "negative"]
+  IF n < 0 THEN FAIL Error[77050002, "negative"]
   RETURN n
 
   TRAP err
@@ -523,7 +523,7 @@ END TRAP
 
 ```basic
 TRAP err
-  FAIL Error[10999, "load failed: " & err.message]   ' wrap with context
+  FAIL Error[77060001, "load failed: " & err.message]   ' wrap with context
 END TRAP
 ```
 
@@ -1135,7 +1135,7 @@ Native ABI types are separate from MFBASIC source types:
 | `CFloat32`, `CFloat64` | 32-bit and 64-bit C floating-point values. |
 | `CIntPtr`, `CUIntPtr` | Signed and unsigned integer values with pointer width. |
 | `CSize` | Unsigned C size value, equivalent to `size_t`. |
-| `CString` | Null-terminated UTF-8 string pointer created from a MFBASIC `String` for the duration of the call. Embedded NUL bytes are rejected before the native call with `ErrInvalidArgument` (`10002`). |
+| `CString` | Null-terminated UTF-8 string pointer created from a MFBASIC `String` for the duration of the call. Embedded NUL bytes are rejected before the native call with `ErrInvalidArgument` (`77050002`). |
 | `CPtr` | Opaque native pointer value used only inside native bindings. It cannot be inspected, manipulated, stored, returned, or named by ordinary MFBASIC code except as the hidden representation of a declared `RESOURCE`. |
 | `CVoid` | Native `void` return. Valid only as an ABI return type. Use MFBASIC `Nothing` for the wrapper's source-level return type. |
 
@@ -1190,7 +1190,7 @@ END LINK
 Rules:
 
 - `LINK` names and all declared `SYMBOL` names are resolved before `main` starts. Native libraries are not lazy-loaded.
-- If a required native library or symbol cannot be loaded before `main`, the program terminates before entering `main`. The diagnostic is written to stderr and the process exits with `30003` (`ErrLinkFailed`). This startup failure is outside the `Result`/`TRAP` model because no MFBASIC function is running yet.
+- If a required native library or symbol cannot be loaded before `main`, the program terminates before entering `main`. The diagnostic is written to stderr and the process exits with `55000001` (`ErrLinkFailed`). This startup failure is outside the `Result`/`TRAP` model because no MFBASIC function is running yet.
 - Linked names occupy a package-like namespace. A package-qualified name such as `sqlite::open` follows the same two-part rule as package access.
 - A native call may resolve only the symbols declared by `SYMBOL` entries in the binding package. Dynamic lookup by source strings or computed names is not available to ordinary MFBASIC code.
 - Native functions expose ordinary MFBASIC signatures. At call sites they auto-unwrap, auto-propagate, and participate in `MATCH` like any other fallible function.
@@ -1382,7 +1382,7 @@ END TYPE
 
 FUNC parseLine(line AS String) AS Vec3
   LET parts = strings::split(line, ",")
-  IF len(parts) <> 3 THEN FAIL Error[10002, "expected 3 fields"]
+  IF len(parts) <> 3 THEN FAIL Error[77050002, "expected 3 fields"]
 
   LET x = toFloat(strings::trim(get(parts, 0)))   ' auto-propagates on Err
   LET y = toFloat(strings::trim(get(parts, 1)))

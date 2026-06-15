@@ -39,7 +39,7 @@ FUNC __json_get(value AS Json, path AS List OF String) AS Json
         LET fields AS Map OF String TO Json = currentValue.fields
         nextValue = get(fields, key)
       CASE ELSE
-        FAIL Error[10004, "not found"]
+        FAIL Error[77050004, "not found"]
     END MATCH
     current = nextValue
   NEXT
@@ -116,14 +116,14 @@ END FUNC
 FUNC __json_stringifyNumber(value AS Float) AS String
   LET integerText AS String = toString(value, toByte(0))
   IF __json_isInvalidNumberText(integerText) THEN
-    FAIL Error[10003, "invalid JSON format"]
+    FAIL Error[77050003, "invalid JSON format"]
   END IF
   IF toFloat(integerText) = value THEN
     RETURN integerText
   END IF
   LET rendered AS String = toString(value, toByte(9))
   IF __json_isInvalidNumberText(rendered) THEN
-    FAIL Error[10003, "invalid JSON format"]
+    FAIL Error[77050003, "invalid JSON format"]
   END IF
   RETURN __json_trimFloatText(rendered)
 END FUNC
@@ -196,7 +196,7 @@ FUNC __json_parse(value AS String) AS Json
   LET parsed AS __JsonNode = __json_parseValue(chars, __json_skipWhitespace(chars, 0))
   LET endIndex AS Integer = __json_skipWhitespace(chars, parsed.index)
   IF endIndex <> len(chars) THEN
-    FAIL Error[10003, "invalid JSON format"]
+    FAIL Error[77050003, "invalid JSON format"]
   END IF
   RETURN parsed.value
 END FUNC
@@ -204,7 +204,7 @@ END FUNC
 FUNC __json_parseValue(chars AS List OF String, index AS Integer) AS __JsonNode
   LET nextIndex AS Integer = __json_skipWhitespace(chars, index)
   IF nextIndex >= len(chars) THEN
-    FAIL Error[10003, "invalid JSON format"]
+    FAIL Error[77050003, "invalid JSON format"]
   END IF
 
   LET ch AS String = get(chars, nextIndex)
@@ -236,7 +236,7 @@ END FUNC
 FUNC __json_parseArray(chars AS List OF String, index AS Integer) AS __JsonNode
   LET nextIndex AS Integer = __json_skipWhitespace(chars, index)
   IF nextIndex >= len(chars) THEN
-    FAIL Error[10003, "invalid JSON format"]
+    FAIL Error[77050003, "invalid JSON format"]
   END IF
   IF get(chars, nextIndex) = "]" THEN
     LET emptyItems AS List OF Json = []
@@ -251,7 +251,7 @@ FUNC __json_parseArrayItems(chars AS List OF String, index AS Integer, items AS 
   LET nextItems AS List OF Json = append(items, parsed.value)
   LET nextIndex AS Integer = __json_skipWhitespace(chars, parsed.index)
   IF nextIndex >= len(chars) THEN
-    FAIL Error[10003, "invalid JSON format"]
+    FAIL Error[77050003, "invalid JSON format"]
   END IF
 
   LET ch AS String = get(chars, nextIndex)
@@ -262,13 +262,13 @@ FUNC __json_parseArrayItems(chars AS List OF String, index AS Integer, items AS 
     RETURN __JsonNode[value, nextIndex + 1]
   END IF
 
-  FAIL Error[10003, "invalid JSON format"]
+  FAIL Error[77050003, "invalid JSON format"]
 END FUNC
 
 FUNC __json_parseObject(chars AS List OF String, index AS Integer) AS __JsonNode
   LET nextIndex AS Integer = __json_skipWhitespace(chars, index)
   IF nextIndex >= len(chars) THEN
-    FAIL Error[10003, "invalid JSON format"]
+    FAIL Error[77050003, "invalid JSON format"]
   END IF
   IF get(chars, nextIndex) = "}" THEN
     LET emptyFields AS Map OF String TO Json = Map OF String TO Json {}
@@ -281,28 +281,28 @@ END FUNC
 FUNC __json_parseObjectItems(chars AS List OF String, index AS Integer, fields AS Map OF String TO Json) AS __JsonNode
   LET nextIndex AS Integer = __json_skipWhitespace(chars, index)
   IF nextIndex >= len(chars) THEN
-    FAIL Error[10003, "invalid JSON format"]
+    FAIL Error[77050003, "invalid JSON format"]
   END IF
   LET quote AS String = get(chars, nextIndex)
   IF quote <> "\"" THEN
-    FAIL Error[10003, "invalid JSON format"]
+    FAIL Error[77050003, "invalid JSON format"]
   END IF
 
   LET keyState AS __JsonStringNode = __json_parseString(chars, nextIndex + 1, "")
   LET colonIndex AS Integer = __json_skipWhitespace(chars, keyState.index)
   IF colonIndex >= len(chars) THEN
-    FAIL Error[10003, "invalid JSON format"]
+    FAIL Error[77050003, "invalid JSON format"]
   END IF
   LET colon AS String = get(chars, colonIndex)
   IF colon <> ":" THEN
-    FAIL Error[10003, "invalid JSON format"]
+    FAIL Error[77050003, "invalid JSON format"]
   END IF
 
   LET valueState AS __JsonNode = __json_parseValue(chars, colonIndex + 1)
   LET nextFields AS Map OF String TO Json = set(fields, keyState.value, valueState.value)
   LET afterValue AS Integer = __json_skipWhitespace(chars, valueState.index)
   IF afterValue >= len(chars) THEN
-    FAIL Error[10003, "invalid JSON format"]
+    FAIL Error[77050003, "invalid JSON format"]
   END IF
 
   LET ch AS String = get(chars, afterValue)
@@ -313,12 +313,12 @@ FUNC __json_parseObjectItems(chars AS List OF String, index AS Integer, fields A
     RETURN __JsonNode[value, afterValue + 1]
   END IF
 
-  FAIL Error[10003, "invalid JSON format"]
+  FAIL Error[77050003, "invalid JSON format"]
 END FUNC
 
 FUNC __json_parseString(chars AS List OF String, index AS Integer, current AS String) AS __JsonStringNode
   IF index >= len(chars) THEN
-    FAIL Error[10003, "invalid JSON format"]
+    FAIL Error[77050003, "invalid JSON format"]
   END IF
 
   LET ch AS String = get(chars, index)
@@ -328,7 +328,7 @@ FUNC __json_parseString(chars AS List OF String, index AS Integer, current AS St
 
   IF ch = "\\" THEN
     IF index + 1 >= len(chars) THEN
-      FAIL Error[10003, "invalid JSON format"]
+      FAIL Error[77050003, "invalid JSON format"]
     END IF
     LET escapeState AS __JsonStringNode = __json_parseEscape(chars, index + 1)
     RETURN __json_parseString(chars, escapeState.index, current & escapeState.value)
@@ -339,7 +339,7 @@ END FUNC
 
 FUNC __json_parseEscape(chars AS List OF String, index AS Integer) AS __JsonStringNode
   IF index >= len(chars) THEN
-    FAIL Error[10003, "invalid JSON format"]
+    FAIL Error[77050003, "invalid JSON format"]
   END IF
   LET ch AS String = get(chars, index)
   IF ch = "u" THEN
@@ -367,37 +367,37 @@ FUNC __json_decodeEscape(ch AS String) AS String
     RETURN "\t"
   END IF
 
-  FAIL Error[10003, "invalid JSON format"]
+  FAIL Error[77050003, "invalid JSON format"]
 END FUNC
 
 FUNC __json_parseUnicodeEscape(chars AS List OF String, index AS Integer) AS __JsonStringNode
   LET first AS Integer = __json_parseHexQuad(chars, index)
   IF __json_isHighSurrogate(first) THEN
     IF index + 10 >= len(chars) THEN
-      FAIL Error[10003, "invalid JSON format"]
+      FAIL Error[77050003, "invalid JSON format"]
     END IF
     IF get(chars, index + 4) <> "\\" THEN
-      FAIL Error[10003, "invalid JSON format"]
+      FAIL Error[77050003, "invalid JSON format"]
     END IF
     IF get(chars, index + 5) <> "u" THEN
-      FAIL Error[10003, "invalid JSON format"]
+      FAIL Error[77050003, "invalid JSON format"]
     END IF
     LET second AS Integer = __json_parseHexQuad(chars, index + 6)
     IF __json_isLowSurrogate(second) = FALSE THEN
-      FAIL Error[10003, "invalid JSON format"]
+      FAIL Error[77050003, "invalid JSON format"]
     END IF
     LET codePoint AS Integer = 65536 + (first - 55296) * 1024 + (second - 56320)
     RETURN __JsonStringNode[__json_codePointToString(codePoint), index + 10]
   END IF
   IF __json_isLowSurrogate(first) THEN
-    FAIL Error[10003, "invalid JSON format"]
+    FAIL Error[77050003, "invalid JSON format"]
   END IF
   RETURN __JsonStringNode[__json_codePointToString(first), index + 4]
 END FUNC
 
 FUNC __json_parseHexQuad(chars AS List OF String, index AS Integer) AS Integer
   IF index + 3 >= len(chars) THEN
-    FAIL Error[10003, "invalid JSON format"]
+    FAIL Error[77050003, "invalid JSON format"]
   END IF
   LET d0 AS Integer = __json_hexValue(get(chars, index))
   LET d1 AS Integer = __json_hexValue(get(chars, index + 1))
@@ -452,7 +452,7 @@ FUNC __json_hexValue(ch AS String) AS Integer
   ELSEIF ch = "f" THEN
     RETURN 15
   END IF
-  FAIL Error[10003, "invalid JSON format"]
+  FAIL Error[77050003, "invalid JSON format"]
 END FUNC
 
 FUNC __json_isHighSurrogate(value AS Integer) AS Boolean
@@ -465,7 +465,7 @@ END FUNC
 
 FUNC __json_codePointToString(value AS Integer) AS String
   IF value < 0 THEN
-    FAIL Error[10003, "invalid JSON format"]
+    FAIL Error[77050003, "invalid JSON format"]
   END IF
   IF value <= 127 THEN
     LET bytes AS List OF Byte = [toByte(value)]
@@ -501,13 +501,13 @@ FUNC __json_codePointToString(value AS Integer) AS String
     LET bytes AS List OF Byte = [lead, second, third, tail]
     RETURN toString(bytes)
   END IF
-  FAIL Error[10003, "invalid JSON format"]
+  FAIL Error[77050003, "invalid JSON format"]
 END FUNC
 
 FUNC __json_parseNumber(chars AS List OF String, index AS Integer) AS __JsonNode
   LET token AS __JsonStringNode = __json_collectNumber(chars, index, "")
   IF __json_validNumber(token.value) = FALSE THEN
-    FAIL Error[10003, "invalid JSON format"]
+    FAIL Error[77050003, "invalid JSON format"]
   END IF
   LET numberValue AS Float = __json_toNumber(token.value)
   LET value AS Json = Num[numberValue]
@@ -539,7 +539,7 @@ END FUNC
 FUNC __json_toNumber(value AS String) AS Float
   RETURN toFloat(value)
   TRAP err
-    FAIL Error[10003, "invalid JSON format"]
+    FAIL Error[77050003, "invalid JSON format"]
   END TRAP
 END FUNC
 
@@ -648,12 +648,12 @@ FUNC __json_expectLiteralAt(chars AS List OF String, index AS Integer, literal A
     RETURN index
   END IF
   IF index >= len(chars) THEN
-    FAIL Error[10003, "invalid JSON format"]
+    FAIL Error[77050003, "invalid JSON format"]
   END IF
   LET actual AS String = get(chars, index)
   LET expected AS String = get(literal, offset)
   IF actual <> expected THEN
-    FAIL Error[10003, "invalid JSON format"]
+    FAIL Error[77050003, "invalid JSON format"]
   END IF
   RETURN __json_expectLiteralAt(chars, index + 1, literal, offset + 1)
 END FUNC

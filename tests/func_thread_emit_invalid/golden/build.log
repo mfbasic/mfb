@@ -3,49 +3,49 @@ $ mfb build -ast tests/func_thread_emit_invalid
    5 |   LET t AS Thread OF String TO Integer = thread::start(thread_workers::echoText, "a", 1, 1)
    6 |   LET missing AS Nothing = thread::emit()
      | ^
-tests/func_thread_emit_invalid/src/main.mfb:6 error[TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+tests/func_thread_emit_invalid/src/main.mfb:6 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
                Call to `thread.emit` has 0 argument(s), expected 2 to 3.
    4 | FUNC main AS Integer
    5 |   LET t AS Thread OF String TO Integer = thread::start(thread_workers::echoText, "a", 1, 1)
    6 |   LET missing AS Nothing = thread::emit()
      | ^
-tests/func_thread_emit_invalid/src/main.mfb:6 error[TYPE_UNKNOWN_VALUE]: value type could not be determined
+tests/func_thread_emit_invalid/src/main.mfb:6 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `missing` does not have a known type.
    5 |   LET t AS Thread OF String TO Integer = thread::start(thread_workers::echoText, "a", 1, 1)
    6 |   LET missing AS Nothing = thread::emit()
    7 |   LET wrongMessage AS Nothing = thread::emit(t, 1)
      | ^
-tests/func_thread_emit_invalid/src/main.mfb:7 error[TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+tests/func_thread_emit_invalid/src/main.mfb:7 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
                Call to `thread.emit` has argument type(s) (Thread OF String TO Integer, Integer), expected Thread OF Msg TO Out, Msg, Integer.
    5 |   LET t AS Thread OF String TO Integer = thread::start(thread_workers::echoText, "a", 1, 1)
    6 |   LET missing AS Nothing = thread::emit()
    7 |   LET wrongMessage AS Nothing = thread::emit(t, 1)
      | ^
-tests/func_thread_emit_invalid/src/main.mfb:7 error[TYPE_UNKNOWN_VALUE]: value type could not be determined
+tests/func_thread_emit_invalid/src/main.mfb:7 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `wrongMessage` does not have a known type.
    6 |   LET missing AS Nothing = thread::emit()
    7 |   LET wrongMessage AS Nothing = thread::emit(t, 1)
    8 |   LET wrongTimeout AS Nothing = thread::emit(t, "b", "bad")
      | ^
-tests/func_thread_emit_invalid/src/main.mfb:8 error[TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+tests/func_thread_emit_invalid/src/main.mfb:8 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
                Call to `thread.emit` has argument type(s) (Thread OF String TO Integer, String, String), expected Thread OF Msg TO Out, Msg, Integer.
    6 |   LET missing AS Nothing = thread::emit()
    7 |   LET wrongMessage AS Nothing = thread::emit(t, 1)
    8 |   LET wrongTimeout AS Nothing = thread::emit(t, "b", "bad")
      | ^
-tests/func_thread_emit_invalid/src/main.mfb:8 error[TYPE_UNKNOWN_VALUE]: value type could not be determined
+tests/func_thread_emit_invalid/src/main.mfb:8 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `wrongTimeout` does not have a known type.
    7 |   LET wrongMessage AS Nothing = thread::emit(t, 1)
    8 |   LET wrongTimeout AS Nothing = thread::emit(t, "b", "bad")
    9 |   LET tooMany AS Nothing = thread::emit(t, "b", 0, 1)
      | ^
-tests/func_thread_emit_invalid/src/main.mfb:9 error[TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+tests/func_thread_emit_invalid/src/main.mfb:9 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
                Call to `thread.emit` has 4 argument(s), expected 2 to 3.
    7 |   LET wrongMessage AS Nothing = thread::emit(t, 1)
    8 |   LET wrongTimeout AS Nothing = thread::emit(t, "b", "bad")
    9 |   LET tooMany AS Nothing = thread::emit(t, "b", 0, 1)
      | ^
-tests/func_thread_emit_invalid/src/main.mfb:9 error[TYPE_UNKNOWN_VALUE]: value type could not be determined
+tests/func_thread_emit_invalid/src/main.mfb:9 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `tooMany` does not have a known type.
 [exit 1]
 $ mfb build -ir tests/func_thread_emit_invalid
@@ -53,48 +53,48 @@ $ mfb build -ir tests/func_thread_emit_invalid
    5 |   LET t AS Thread OF String TO Integer = thread::start(thread_workers::echoText, "a", 1, 1)
    6 |   LET missing AS Nothing = thread::emit()
      | ^
-tests/func_thread_emit_invalid/src/main.mfb:6 error[TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+tests/func_thread_emit_invalid/src/main.mfb:6 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
                Call to `thread.emit` has 0 argument(s), expected 2 to 3.
    4 | FUNC main AS Integer
    5 |   LET t AS Thread OF String TO Integer = thread::start(thread_workers::echoText, "a", 1, 1)
    6 |   LET missing AS Nothing = thread::emit()
      | ^
-tests/func_thread_emit_invalid/src/main.mfb:6 error[TYPE_UNKNOWN_VALUE]: value type could not be determined
+tests/func_thread_emit_invalid/src/main.mfb:6 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `missing` does not have a known type.
    5 |   LET t AS Thread OF String TO Integer = thread::start(thread_workers::echoText, "a", 1, 1)
    6 |   LET missing AS Nothing = thread::emit()
    7 |   LET wrongMessage AS Nothing = thread::emit(t, 1)
      | ^
-tests/func_thread_emit_invalid/src/main.mfb:7 error[TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+tests/func_thread_emit_invalid/src/main.mfb:7 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
                Call to `thread.emit` has argument type(s) (Thread OF String TO Integer, Integer), expected Thread OF Msg TO Out, Msg, Integer.
    5 |   LET t AS Thread OF String TO Integer = thread::start(thread_workers::echoText, "a", 1, 1)
    6 |   LET missing AS Nothing = thread::emit()
    7 |   LET wrongMessage AS Nothing = thread::emit(t, 1)
      | ^
-tests/func_thread_emit_invalid/src/main.mfb:7 error[TYPE_UNKNOWN_VALUE]: value type could not be determined
+tests/func_thread_emit_invalid/src/main.mfb:7 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `wrongMessage` does not have a known type.
    6 |   LET missing AS Nothing = thread::emit()
    7 |   LET wrongMessage AS Nothing = thread::emit(t, 1)
    8 |   LET wrongTimeout AS Nothing = thread::emit(t, "b", "bad")
      | ^
-tests/func_thread_emit_invalid/src/main.mfb:8 error[TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+tests/func_thread_emit_invalid/src/main.mfb:8 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
                Call to `thread.emit` has argument type(s) (Thread OF String TO Integer, String, String), expected Thread OF Msg TO Out, Msg, Integer.
    6 |   LET missing AS Nothing = thread::emit()
    7 |   LET wrongMessage AS Nothing = thread::emit(t, 1)
    8 |   LET wrongTimeout AS Nothing = thread::emit(t, "b", "bad")
      | ^
-tests/func_thread_emit_invalid/src/main.mfb:8 error[TYPE_UNKNOWN_VALUE]: value type could not be determined
+tests/func_thread_emit_invalid/src/main.mfb:8 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `wrongTimeout` does not have a known type.
    7 |   LET wrongMessage AS Nothing = thread::emit(t, 1)
    8 |   LET wrongTimeout AS Nothing = thread::emit(t, "b", "bad")
    9 |   LET tooMany AS Nothing = thread::emit(t, "b", 0, 1)
      | ^
-tests/func_thread_emit_invalid/src/main.mfb:9 error[TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+tests/func_thread_emit_invalid/src/main.mfb:9 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
                Call to `thread.emit` has 4 argument(s), expected 2 to 3.
    7 |   LET wrongMessage AS Nothing = thread::emit(t, 1)
    8 |   LET wrongTimeout AS Nothing = thread::emit(t, "b", "bad")
    9 |   LET tooMany AS Nothing = thread::emit(t, "b", 0, 1)
      | ^
-tests/func_thread_emit_invalid/src/main.mfb:9 error[TYPE_UNKNOWN_VALUE]: value type could not be determined
+tests/func_thread_emit_invalid/src/main.mfb:9 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `tooMany` does not have a known type.
 [exit 1]

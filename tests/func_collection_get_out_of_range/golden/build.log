@@ -8,5 +8,5 @@ $ mfb build tests/func_collection_get_out_of_range
 Wrote executable to tests/func_collection_get_out_of_range/func_collection_get_out_of_range.out
 [exit 0]
 $ tests/func_collection_get_out_of_range/func_collection_get_out_of_range.out
-Code: 10001 Message: index out of range
+Code: 77050001 Message: index out of range
 [exit 255]

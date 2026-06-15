@@ -3,7 +3,7 @@ $ mfb build -ast tests/arithmetic-fixed-invalid
    3 |   LET value AS Fixed = 1.0
    4 |   value + text
      | ^
-tests/arithmetic-fixed-invalid/src/main.mfb:4 error[TYPE_BINARY_OPERATOR_MISMATCH]: binary operator operands have incompatible types
+tests/arithmetic-fixed-invalid/src/main.mfb:4 error[2-203-0001 TYPE_BINARY_OPERATOR_MISMATCH]: binary operator operands have incompatible types
                Operator `+` requires numeric operands, got Fixed and String.
 [exit 1]
 $ mfb build -ir tests/arithmetic-fixed-invalid
@@ -11,6 +11,6 @@ $ mfb build -ir tests/arithmetic-fixed-invalid
    3 |   LET value AS Fixed = 1.0
    4 |   value + text
      | ^
-tests/arithmetic-fixed-invalid/src/main.mfb:4 error[TYPE_BINARY_OPERATOR_MISMATCH]: binary operator operands have incompatible types
+tests/arithmetic-fixed-invalid/src/main.mfb:4 error[2-203-0001 TYPE_BINARY_OPERATOR_MISMATCH]: binary operator operands have incompatible types
                Operator `+` requires numeric operands, got Fixed and String.
 [exit 1]

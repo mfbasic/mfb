@@ -3,73 +3,73 @@ $ mfb build -ast tests/func_thread_start_invalid
    8 | FUNC main AS Integer
    9 |   LET localStart AS Thread OF String TO Integer = thread::start(localWorker, "a")
      | ^
-tests/func_thread_start_invalid/src/main.mfb:9 error[TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+tests/func_thread_start_invalid/src/main.mfb:9 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
                thread.start entry point must be an exported ISOLATED FUNC from an imported package.
    7 | 
    8 | FUNC main AS Integer
    9 |   LET localStart AS Thread OF String TO Integer = thread::start(localWorker, "a")
      | ^
-tests/func_thread_start_invalid/src/main.mfb:9 error[TYPE_UNKNOWN_VALUE]: value type could not be determined
+tests/func_thread_start_invalid/src/main.mfb:9 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `localStart` does not have a known type.
    8 | FUNC main AS Integer
    9 |   LET localStart AS Thread OF String TO Integer = thread::start(localWorker, "a")
   10 |   LET plainStart AS Thread OF String TO Integer = thread::start(thread_workers::plain, "a")
      | ^
-tests/func_thread_start_invalid/src/main.mfb:10 error[TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+tests/func_thread_start_invalid/src/main.mfb:10 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
                thread.start entry point must be an exported ISOLATED FUNC from an imported package.
    8 | FUNC main AS Integer
    9 |   LET localStart AS Thread OF String TO Integer = thread::start(localWorker, "a")
   10 |   LET plainStart AS Thread OF String TO Integer = thread::start(thread_workers::plain, "a")
      | ^
-tests/func_thread_start_invalid/src/main.mfb:10 error[TYPE_UNKNOWN_VALUE]: value type could not be determined
+tests/func_thread_start_invalid/src/main.mfb:10 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `plainStart` does not have a known type.
    9 |   LET localStart AS Thread OF String TO Integer = thread::start(localWorker, "a")
   10 |   LET plainStart AS Thread OF String TO Integer = thread::start(thread_workers::plain, "a")
   11 |   LET subStart AS Thread OF String TO Integer = thread::start(thread_workers::helper, "a")
      | ^
-tests/func_thread_start_invalid/src/main.mfb:11 error[TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+tests/func_thread_start_invalid/src/main.mfb:11 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
                thread.start entry point must be an exported ISOLATED FUNC from an imported package.
    9 |   LET localStart AS Thread OF String TO Integer = thread::start(localWorker, "a")
   10 |   LET plainStart AS Thread OF String TO Integer = thread::start(thread_workers::plain, "a")
   11 |   LET subStart AS Thread OF String TO Integer = thread::start(thread_workers::helper, "a")
      | ^
-tests/func_thread_start_invalid/src/main.mfb:11 error[TYPE_UNKNOWN_VALUE]: value type could not be determined
+tests/func_thread_start_invalid/src/main.mfb:11 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `subStart` does not have a known type.
   10 |   LET plainStart AS Thread OF String TO Integer = thread::start(thread_workers::plain, "a")
   11 |   LET subStart AS Thread OF String TO Integer = thread::start(thread_workers::helper, "a")
   12 |   LET badStart AS Thread OF String TO Integer = thread::start(thread_workers::badNoHandle, "a")
      | ^
-tests/func_thread_start_invalid/src/main.mfb:12 error[TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+tests/func_thread_start_invalid/src/main.mfb:12 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
                Call to `thread.start` has argument type(s) (ISOLATED FUNC(String) AS Integer, String), expected ISOLATED FUNC(Thread OF Msg TO Out, In) AS Out, In, Integer, Integer.
   10 |   LET plainStart AS Thread OF String TO Integer = thread::start(thread_workers::plain, "a")
   11 |   LET subStart AS Thread OF String TO Integer = thread::start(thread_workers::helper, "a")
   12 |   LET badStart AS Thread OF String TO Integer = thread::start(thread_workers::badNoHandle, "a")
      | ^
-tests/func_thread_start_invalid/src/main.mfb:12 error[TYPE_UNKNOWN_VALUE]: value type could not be determined
+tests/func_thread_start_invalid/src/main.mfb:12 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `badStart` does not have a known type.
   11 |   LET subStart AS Thread OF String TO Integer = thread::start(thread_workers::helper, "a")
   12 |   LET badStart AS Thread OF String TO Integer = thread::start(thread_workers::badNoHandle, "a")
   13 |   LET wrongData AS Thread OF String TO Integer = thread::start(thread_workers::echoText, 1)
      | ^
-tests/func_thread_start_invalid/src/main.mfb:13 error[TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+tests/func_thread_start_invalid/src/main.mfb:13 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
                Call to `thread.start` has argument type(s) (ISOLATED FUNC(Thread OF String TO Integer, String) AS Integer, Integer), expected ISOLATED FUNC(Thread OF Msg TO Out, In) AS Out, In, Integer, Integer.
   11 |   LET subStart AS Thread OF String TO Integer = thread::start(thread_workers::helper, "a")
   12 |   LET badStart AS Thread OF String TO Integer = thread::start(thread_workers::badNoHandle, "a")
   13 |   LET wrongData AS Thread OF String TO Integer = thread::start(thread_workers::echoText, 1)
      | ^
-tests/func_thread_start_invalid/src/main.mfb:13 error[TYPE_UNKNOWN_VALUE]: value type could not be determined
+tests/func_thread_start_invalid/src/main.mfb:13 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `wrongData` does not have a known type.
   12 |   LET badStart AS Thread OF String TO Integer = thread::start(thread_workers::badNoHandle, "a")
   13 |   LET wrongData AS Thread OF String TO Integer = thread::start(thread_workers::echoText, 1)
   14 |   LET missing AS Thread OF String TO Integer = thread::start()
      | ^
-tests/func_thread_start_invalid/src/main.mfb:14 error[TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+tests/func_thread_start_invalid/src/main.mfb:14 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
                thread.start entry point must be an exported ISOLATED FUNC from an imported package.
   12 |   LET badStart AS Thread OF String TO Integer = thread::start(thread_workers::badNoHandle, "a")
   13 |   LET wrongData AS Thread OF String TO Integer = thread::start(thread_workers::echoText, 1)
   14 |   LET missing AS Thread OF String TO Integer = thread::start()
      | ^
-tests/func_thread_start_invalid/src/main.mfb:14 error[TYPE_UNKNOWN_VALUE]: value type could not be determined
+tests/func_thread_start_invalid/src/main.mfb:14 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `missing` does not have a known type.
 [exit 1]
 $ mfb build -ir tests/func_thread_start_invalid
@@ -77,72 +77,72 @@ $ mfb build -ir tests/func_thread_start_invalid
    8 | FUNC main AS Integer
    9 |   LET localStart AS Thread OF String TO Integer = thread::start(localWorker, "a")
      | ^
-tests/func_thread_start_invalid/src/main.mfb:9 error[TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+tests/func_thread_start_invalid/src/main.mfb:9 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
                thread.start entry point must be an exported ISOLATED FUNC from an imported package.
    7 | 
    8 | FUNC main AS Integer
    9 |   LET localStart AS Thread OF String TO Integer = thread::start(localWorker, "a")
      | ^
-tests/func_thread_start_invalid/src/main.mfb:9 error[TYPE_UNKNOWN_VALUE]: value type could not be determined
+tests/func_thread_start_invalid/src/main.mfb:9 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `localStart` does not have a known type.
    8 | FUNC main AS Integer
    9 |   LET localStart AS Thread OF String TO Integer = thread::start(localWorker, "a")
   10 |   LET plainStart AS Thread OF String TO Integer = thread::start(thread_workers::plain, "a")
      | ^
-tests/func_thread_start_invalid/src/main.mfb:10 error[TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+tests/func_thread_start_invalid/src/main.mfb:10 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
                thread.start entry point must be an exported ISOLATED FUNC from an imported package.
    8 | FUNC main AS Integer
    9 |   LET localStart AS Thread OF String TO Integer = thread::start(localWorker, "a")
   10 |   LET plainStart AS Thread OF String TO Integer = thread::start(thread_workers::plain, "a")
      | ^
-tests/func_thread_start_invalid/src/main.mfb:10 error[TYPE_UNKNOWN_VALUE]: value type could not be determined
+tests/func_thread_start_invalid/src/main.mfb:10 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `plainStart` does not have a known type.
    9 |   LET localStart AS Thread OF String TO Integer = thread::start(localWorker, "a")
   10 |   LET plainStart AS Thread OF String TO Integer = thread::start(thread_workers::plain, "a")
   11 |   LET subStart AS Thread OF String TO Integer = thread::start(thread_workers::helper, "a")
      | ^
-tests/func_thread_start_invalid/src/main.mfb:11 error[TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+tests/func_thread_start_invalid/src/main.mfb:11 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
                thread.start entry point must be an exported ISOLATED FUNC from an imported package.
    9 |   LET localStart AS Thread OF String TO Integer = thread::start(localWorker, "a")
   10 |   LET plainStart AS Thread OF String TO Integer = thread::start(thread_workers::plain, "a")
   11 |   LET subStart AS Thread OF String TO Integer = thread::start(thread_workers::helper, "a")
      | ^
-tests/func_thread_start_invalid/src/main.mfb:11 error[TYPE_UNKNOWN_VALUE]: value type could not be determined
+tests/func_thread_start_invalid/src/main.mfb:11 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `subStart` does not have a known type.
   10 |   LET plainStart AS Thread OF String TO Integer = thread::start(thread_workers::plain, "a")
   11 |   LET subStart AS Thread OF String TO Integer = thread::start(thread_workers::helper, "a")
   12 |   LET badStart AS Thread OF String TO Integer = thread::start(thread_workers::badNoHandle, "a")
      | ^
-tests/func_thread_start_invalid/src/main.mfb:12 error[TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+tests/func_thread_start_invalid/src/main.mfb:12 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
                Call to `thread.start` has argument type(s) (ISOLATED FUNC(String) AS Integer, String), expected ISOLATED FUNC(Thread OF Msg TO Out, In) AS Out, In, Integer, Integer.
   10 |   LET plainStart AS Thread OF String TO Integer = thread::start(thread_workers::plain, "a")
   11 |   LET subStart AS Thread OF String TO Integer = thread::start(thread_workers::helper, "a")
   12 |   LET badStart AS Thread OF String TO Integer = thread::start(thread_workers::badNoHandle, "a")
      | ^
-tests/func_thread_start_invalid/src/main.mfb:12 error[TYPE_UNKNOWN_VALUE]: value type could not be determined
+tests/func_thread_start_invalid/src/main.mfb:12 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `badStart` does not have a known type.
   11 |   LET subStart AS Thread OF String TO Integer = thread::start(thread_workers::helper, "a")
   12 |   LET badStart AS Thread OF String TO Integer = thread::start(thread_workers::badNoHandle, "a")
   13 |   LET wrongData AS Thread OF String TO Integer = thread::start(thread_workers::echoText, 1)
      | ^
-tests/func_thread_start_invalid/src/main.mfb:13 error[TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+tests/func_thread_start_invalid/src/main.mfb:13 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
                Call to `thread.start` has argument type(s) (ISOLATED FUNC(Thread OF String TO Integer, String) AS Integer, Integer), expected ISOLATED FUNC(Thread OF Msg TO Out, In) AS Out, In, Integer, Integer.
   11 |   LET subStart AS Thread OF String TO Integer = thread::start(thread_workers::helper, "a")
   12 |   LET badStart AS Thread OF String TO Integer = thread::start(thread_workers::badNoHandle, "a")
   13 |   LET wrongData AS Thread OF String TO Integer = thread::start(thread_workers::echoText, 1)
      | ^
-tests/func_thread_start_invalid/src/main.mfb:13 error[TYPE_UNKNOWN_VALUE]: value type could not be determined
+tests/func_thread_start_invalid/src/main.mfb:13 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `wrongData` does not have a known type.
   12 |   LET badStart AS Thread OF String TO Integer = thread::start(thread_workers::badNoHandle, "a")
   13 |   LET wrongData AS Thread OF String TO Integer = thread::start(thread_workers::echoText, 1)
   14 |   LET missing AS Thread OF String TO Integer = thread::start()
      | ^
-tests/func_thread_start_invalid/src/main.mfb:14 error[TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+tests/func_thread_start_invalid/src/main.mfb:14 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
                thread.start entry point must be an exported ISOLATED FUNC from an imported package.
   12 |   LET badStart AS Thread OF String TO Integer = thread::start(thread_workers::badNoHandle, "a")
   13 |   LET wrongData AS Thread OF String TO Integer = thread::start(thread_workers::echoText, 1)
   14 |   LET missing AS Thread OF String TO Integer = thread::start()
      | ^
-tests/func_thread_start_invalid/src/main.mfb:14 error[TYPE_UNKNOWN_VALUE]: value type could not be determined
+tests/func_thread_start_invalid/src/main.mfb:14 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `missing` does not have a known type.
 [exit 1]

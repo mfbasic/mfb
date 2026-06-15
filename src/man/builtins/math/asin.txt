@@ -9,7 +9,7 @@ DESCRIPTION
   Returns the arc sine of value in radians.
 
   The Fixed overload rounds to the nearest Fixed value. Both overloads fail
-  with ErrInvalidArgument (10002) when value is outside [-1.0, 1.0].
+  with ErrInvalidArgument (77050002) when value is outside [-1.0, 1.0].
 
 EXAMPLES
   LET value AS Float = math::asin(0.5)

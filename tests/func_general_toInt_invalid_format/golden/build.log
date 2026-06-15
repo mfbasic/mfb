@@ -8,5 +8,5 @@ $ mfb build tests/func_general_toInt_invalid_format
 Wrote executable to tests/func_general_toInt_invalid_format/func_general_toInt_invalid_format.out
 [exit 0]
 $ tests/func_general_toInt_invalid_format/func_general_toInt_invalid_format.out
-Code: 10003 Message: invalid format
+Code: 77050003 Message: invalid format
 [exit 255]

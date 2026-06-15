@@ -8,7 +8,7 @@ DESCRIPTION
   Writes value to standard output and appends a newline. The value is UTF-8
   text and may contain any valid Unicode scalar values, including emoji.
 
-  Fails with ErrOutput (10015) on output failure.
+  Fails with ErrWriteFailed (77020002) on output failure.
 
 EXAMPLES
   io::print("Hello")

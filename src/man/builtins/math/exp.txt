@@ -9,7 +9,7 @@ DESCRIPTION
   Raises e to value.
 
   The Fixed overload rounds to the nearest Fixed value and fails with
-  ErrOverflow (10028) on overflow.
+  ErrOverflow (77050010) on overflow.
 
 EXAMPLES
   LET value AS Float = math::exp(1.0)

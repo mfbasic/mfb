@@ -13,45 +13,45 @@ use super::runtime;
 
 const RESULT_OK_TAG: &str = "0";
 const RESULT_ERR_TAG: &str = "1";
-const ERR_OVERFLOW_CODE: &str = "10028";
+const ERR_OVERFLOW_CODE: &str = "77050010";
 const ERR_OVERFLOW_MESSAGE: &str = "numeric overflow";
 const ERR_OVERFLOW_SYMBOL: &str = "_mfb_str_error_overflow";
-const ERR_UNDERFLOW_CODE: &str = "10031";
+const ERR_UNDERFLOW_CODE: &str = "77050011";
 const ERR_UNDERFLOW_MESSAGE: &str = "numeric underflow";
 const ERR_UNDERFLOW_SYMBOL: &str = "_mfb_str_error_underflow";
 const ERR_ALLOCATION_MESSAGE: &str = "allocation failed";
 const ERR_ALLOCATION_SYMBOL: &str = "_mfb_str_error_allocation";
-const ERR_INDEX_OUT_OF_RANGE_CODE: &str = "10001";
+const ERR_INDEX_OUT_OF_RANGE_CODE: &str = "77050001";
 const ERR_INDEX_OUT_OF_RANGE_MESSAGE: &str = "index out of range";
 const ERR_INDEX_OUT_OF_RANGE_SYMBOL: &str = "_mfb_str_error_index_out_of_range";
-const ERR_NOT_FOUND_CODE: &str = "10004";
+const ERR_NOT_FOUND_CODE: &str = "77050004";
 const ERR_NOT_FOUND_MESSAGE: &str = "not found";
 const ERR_NOT_FOUND_SYMBOL: &str = "_mfb_str_error_not_found";
-const ERR_TIMEOUT_CODE: &str = "10008";
+const ERR_TIMEOUT_CODE: &str = "77050008";
 const ERR_TIMEOUT_MESSAGE: &str = "timeout";
 const ERR_TIMEOUT_SYMBOL: &str = "_mfb_str_error_timeout";
-const ERR_INTERRUPTED_CODE: &str = "10009";
+const ERR_INTERRUPTED_CODE: &str = "77050009";
 const ERR_INTERRUPTED_MESSAGE: &str = "interrupted";
 const ERR_INTERRUPTED_SYMBOL: &str = "_mfb_str_error_interrupted";
-const ERR_READ_CODE: &str = "10014";
+const ERR_READ_CODE: &str = "77020001";
 const ERR_READ_MESSAGE: &str = "read failure";
 const ERR_READ_SYMBOL: &str = "_mfb_str_error_read";
-const ERR_OUTPUT_CODE: &str = "10015";
+const ERR_OUTPUT_CODE: &str = "77020002";
 const ERR_OUTPUT_MESSAGE: &str = "output failure";
 const ERR_OUTPUT_SYMBOL: &str = "_mfb_str_error_output";
-const ERR_UNSUPPORTED_CODE: &str = "10007";
+const ERR_UNSUPPORTED_CODE: &str = "77050007";
 const ERR_UNSUPPORTED_MESSAGE: &str = "unsupported operation";
 const ERR_UNSUPPORTED_SYMBOL: &str = "_mfb_str_error_unsupported";
-const ERR_EOF_CODE: &str = "10016";
+const ERR_EOF_CODE: &str = "77020003";
 const ERR_EOF_MESSAGE: &str = "end of file";
 const ERR_EOF_SYMBOL: &str = "_mfb_str_error_eof";
-const ERR_RESOURCE_CLOSED_CODE: &str = "10017";
+const ERR_RESOURCE_CLOSED_CODE: &str = "77030004";
 const ERR_RESOURCE_CLOSED_MESSAGE: &str = "resource closed";
 const ERR_RESOURCE_CLOSED_SYMBOL: &str = "_mfb_str_error_resource_closed";
-const ERR_ENCODING_CODE: &str = "10019";
+const ERR_ENCODING_CODE: &str = "77020004";
 const ERR_ENCODING_MESSAGE: &str = "invalid encoding";
 const ERR_ENCODING_SYMBOL: &str = "_mfb_str_error_encoding";
-const ERR_INPUT_CODE: &str = "10020";
+const ERR_INPUT_CODE: &str = "77020005";
 const ERR_INPUT_MESSAGE: &str = "input failure";
 const ERR_INPUT_SYMBOL: &str = "_mfb_str_error_input";
 const ENTRY_ERROR_PREFIX: &str = "Code: ";
@@ -69,20 +69,20 @@ const ARENA_STATE_REGISTER: &str = "x19";
 const ARENA_STATE_SIZE: usize = 64;
 const ARENA_DEFAULT_BLOCK_SIZE: u64 = 4096;
 const ARENA_BLOCK_HEADER_SIZE: usize = 32;
-const ERR_INVALID_ARGUMENT_CODE: &str = "10002";
+const ERR_INVALID_ARGUMENT_CODE: &str = "77050002";
 const ERR_INVALID_ARGUMENT_MESSAGE: &str = "invalid argument";
 const ERR_INVALID_ARGUMENT_SYMBOL: &str = "_mfb_str_error_invalid_argument";
-const ERR_INVALID_FORMAT_CODE: &str = "10003";
+const ERR_INVALID_FORMAT_CODE: &str = "77050003";
 const ERR_INVALID_FORMAT_MESSAGE: &str = "invalid format";
 const ERR_INVALID_FORMAT_SYMBOL: &str = "_mfb_str_error_invalid_format";
-const ERR_OUT_OF_MEMORY_CODE: &str = "10010";
-const ERR_ALREADY_EXISTS_CODE: &str = "10005";
+const ERR_OUT_OF_MEMORY_CODE: &str = "77010001";
+const ERR_ALREADY_EXISTS_CODE: &str = "77050005";
 const ERR_ALREADY_EXISTS_MESSAGE: &str = "already exists";
 const ERR_ALREADY_EXISTS_SYMBOL: &str = "_mfb_str_error_already_exists";
-const ERR_ACCESS_DENIED_CODE: &str = "10013";
+const ERR_ACCESS_DENIED_CODE: &str = "77030003";
 const ERR_ACCESS_DENIED_MESSAGE: &str = "access denied";
 const ERR_ACCESS_DENIED_SYMBOL: &str = "_mfb_str_error_access_denied";
-const ERR_DIRECTORY_NOT_EMPTY_CODE: &str = "10018";
+const ERR_DIRECTORY_NOT_EMPTY_CODE: &str = "77030005";
 const ERR_DIRECTORY_NOT_EMPTY_MESSAGE: &str = "directory not empty";
 const ERR_DIRECTORY_NOT_EMPTY_SYMBOL: &str = "_mfb_str_error_directory_not_empty";
 const FS_MODE_TYPE_MASK: &str = "61440";
@@ -10703,11 +10703,11 @@ mod tests {
     fn arena_rejects_invalid_alignment() {
         assert_eq!(
             checked_arena_used_after_alloc(0x1000, 0, 128, 8, 0),
-            Err(10002)
+            Err(77050002)
         );
         assert_eq!(
             checked_arena_used_after_alloc(0x1000, 0, 128, 8, 3),
-            Err(10002)
+            Err(77050002)
         );
     }
 
@@ -10727,7 +10727,7 @@ mod tests {
         );
         assert_eq!(
             checked_arena_used_after_alloc(0x1000, 120, 128, 16, 16),
-            Err(10010)
+            Err(77010001)
         );
     }
 
@@ -10735,11 +10735,11 @@ mod tests {
     fn arena_checks_arithmetic_overflow() {
         assert_eq!(
             checked_arena_used_after_alloc(u64::MAX - 8, 0, 128, 8, 8),
-            Err(10010)
+            Err(77010001)
         );
         assert_eq!(
             checked_arena_used_after_alloc(0x1000, 0, u64::MAX, u64::MAX, 8),
-            Err(10010)
+            Err(77010001)
         );
     }
 }

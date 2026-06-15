@@ -9,7 +9,7 @@ SYNOPSIS
 DESCRIPTION
   Returns the absolute value of value.
 
-  The Integer and Fixed overloads fail with ErrOverflow (10028) for the
+  The Integer and Fixed overloads fail with ErrOverflow (77050010) for the
   minimum-value overflow case.
 
 EXAMPLES

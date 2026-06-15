@@ -8,5 +8,5 @@ $ mfb build tests/arithmetic-fixed-invalid-rt
 Wrote executable to tests/arithmetic-fixed-invalid-rt/arithmetic_fixed_invalid_rt.out
 [exit 0]
 $ tests/arithmetic-fixed-invalid-rt/arithmetic_fixed_invalid_rt.out
-Code: 10002 Message: invalid argument
+Code: 77050002 Message: invalid argument
 [exit 255]

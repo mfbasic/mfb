@@ -7,9 +7,9 @@ SYNOPSIS
 DESCRIPTION
   Creates a single directory. The parent directory must already exist.
 
-  Fails with ErrInvalidArgument (10002) for an empty path or embedded NUL,
-  ErrAlreadyExists (10005) when the final path already exists,
-  ErrAccessDenied (10013) when creation is denied, or ErrOutput (10015) for
+  Fails with ErrInvalidArgument (77050002) for an empty path or embedded NUL,
+  ErrAlreadyExists (77050005) when the final path already exists,
+  ErrAccessDenied (77030003) when creation is denied, or ErrWriteFailed (77020002) for
   other host failures.
 
 EXAMPLES

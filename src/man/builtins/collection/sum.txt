@@ -29,7 +29,7 @@ OVERLOADS
     Sums Fixed values.
 
 ERRORS
-  ErrOverflow (10028)
+  ErrOverflow (77050010)
     Returned when Fixed summation overflows. Integer arithmetic in MFBASIC is
     checked; an Integer summation that exceeds the Integer range fails with the
     same overflow code.

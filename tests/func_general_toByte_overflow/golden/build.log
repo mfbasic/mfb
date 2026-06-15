@@ -8,5 +8,5 @@ $ mfb build tests/func_general_toByte_overflow
 Wrote executable to tests/func_general_toByte_overflow/func_general_toByte_overflow.out
 [exit 0]
 $ tests/func_general_toByte_overflow/func_general_toByte_overflow.out
-Code: 10028 Message: numeric overflow
+Code: 77050010 Message: numeric overflow
 [exit 255]

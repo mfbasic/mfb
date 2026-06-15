@@ -25,10 +25,10 @@ OVERLOADS
     Returns the value associated with key.
 
 ERRORS
-  10001
+  77050001
     Returned by the List overload when index is out of range.
 
-  ErrNotFound (10004)
+  ErrNotFound (77050004)
     Returned by the Map overload when key is missing.
 
   Other errors can propagate from evaluating arguments before get is called.

@@ -53,10 +53,10 @@ OVERLOADS
 
   toString(value AS List OF Byte) AS String
     Decodes the byte list as UTF-8 and returns the resulting String. Invalid
-    UTF-8 fails with ErrEncoding (10019).
+    UTF-8 fails with ErrEncoding (77020004).
 
 ERRORS
-  ErrEncoding (10019)
+  ErrEncoding (77020004)
     Returned by the List OF Byte overload when the byte sequence is not valid
     UTF-8.
 

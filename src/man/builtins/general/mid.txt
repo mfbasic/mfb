@@ -20,7 +20,7 @@ OVERLOADS
     Returns a substring by zero-based Unicode scalar index.
 
 ERRORS
-  10001
+  77050001
     Returned when start or count describes an invalid range.
 
   Other errors can propagate from evaluating arguments before mid is called.

@@ -8,5 +8,5 @@ $ mfb build tests/arithmetic-division-invalid-rt
 Wrote executable to tests/arithmetic-division-invalid-rt/arithmetic_division_invalid_rt.out
 [exit 0]
 $ tests/arithmetic-division-invalid-rt/arithmetic_division_invalid_rt.out
-Code: 10002 Message: invalid argument
+Code: 77050002 Message: invalid argument
 [exit 255]

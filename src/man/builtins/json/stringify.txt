@@ -13,7 +13,7 @@ DESCRIPTION
   emitted as null.
 
 ERRORS
-  ErrInvalidFormat (10003)
+  ErrInvalidFormat (77050003)
     Returned when a Json number cannot be represented as a valid JSON number,
     including non-finite Float values.
 

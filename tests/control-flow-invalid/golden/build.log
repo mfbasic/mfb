@@ -2,61 +2,61 @@ $ mfb build -ast tests/control-flow-invalid
    1 | FUNC main AS Integer
    2 |   FOR bad = "x" TO 3 : NEXT
      | ^
-tests/control-flow-invalid/src/main.mfb:2 error[TYPE_FOR_REQUIRES_NUMERIC]: FOR loop operands must be numeric
+tests/control-flow-invalid/src/main.mfb:2 error[2-203-0004 TYPE_FOR_REQUIRES_NUMERIC]: FOR loop operands must be numeric
                FOR loop start value has type String, expected numeric.
    1 | FUNC main AS Integer
    2 |   FOR bad = "x" TO 3 : NEXT
    3 |   FOR zero = 1 TO 3 STEP 0 : NEXT
      | ^
-tests/control-flow-invalid/src/main.mfb:3 error[TYPE_FOR_STEP_ZERO]: FOR loop step must not be zero
+tests/control-flow-invalid/src/main.mfb:3 error[2-203-0005 TYPE_FOR_STEP_ZERO]: FOR loop step must not be zero
                FOR loop STEP must not be zero.
    2 |   FOR bad = "x" TO 3 : NEXT
    3 |   FOR zero = 1 TO 3 STEP 0 : NEXT
    4 |   WHILE 1 : WEND
      | ^
-tests/control-flow-invalid/src/main.mfb:4 error[TYPE_CONDITION_REQUIRES_BOOLEAN]: control-flow condition must be Boolean
+tests/control-flow-invalid/src/main.mfb:4 error[2-203-0006 TYPE_CONDITION_REQUIRES_BOOLEAN]: control-flow condition must be Boolean
                WHILE condition has type Integer, expected Boolean.
    3 |   FOR zero = 1 TO 3 STEP 0 : NEXT
    4 |   WHILE 1 : WEND
    5 |   DO : LOOP UNTIL 1
      | ^
-tests/control-flow-invalid/src/main.mfb:5 error[TYPE_CONDITION_REQUIRES_BOOLEAN]: control-flow condition must be Boolean
+tests/control-flow-invalid/src/main.mfb:5 error[2-203-0006 TYPE_CONDITION_REQUIRES_BOOLEAN]: control-flow condition must be Boolean
                LOOP UNTIL condition has type Integer, expected Boolean.
    4 |   WHILE 1 : WEND
    5 |   DO : LOOP UNTIL 1
    6 |   DO WHILE "ready" : LOOP
      | ^
-tests/control-flow-invalid/src/main.mfb:6 error[TYPE_CONDITION_REQUIRES_BOOLEAN]: control-flow condition must be Boolean
+tests/control-flow-invalid/src/main.mfb:6 error[2-203-0006 TYPE_CONDITION_REQUIRES_BOOLEAN]: control-flow condition must be Boolean
                WHILE condition has type String, expected Boolean.
 [exit 1]
 $ mfb build -ir tests/control-flow-invalid
    1 | FUNC main AS Integer
    2 |   FOR bad = "x" TO 3 : NEXT
      | ^
-tests/control-flow-invalid/src/main.mfb:2 error[TYPE_FOR_REQUIRES_NUMERIC]: FOR loop operands must be numeric
+tests/control-flow-invalid/src/main.mfb:2 error[2-203-0004 TYPE_FOR_REQUIRES_NUMERIC]: FOR loop operands must be numeric
                FOR loop start value has type String, expected numeric.
    1 | FUNC main AS Integer
    2 |   FOR bad = "x" TO 3 : NEXT
    3 |   FOR zero = 1 TO 3 STEP 0 : NEXT
      | ^
-tests/control-flow-invalid/src/main.mfb:3 error[TYPE_FOR_STEP_ZERO]: FOR loop step must not be zero
+tests/control-flow-invalid/src/main.mfb:3 error[2-203-0005 TYPE_FOR_STEP_ZERO]: FOR loop step must not be zero
                FOR loop STEP must not be zero.
    2 |   FOR bad = "x" TO 3 : NEXT
    3 |   FOR zero = 1 TO 3 STEP 0 : NEXT
    4 |   WHILE 1 : WEND
      | ^
-tests/control-flow-invalid/src/main.mfb:4 error[TYPE_CONDITION_REQUIRES_BOOLEAN]: control-flow condition must be Boolean
+tests/control-flow-invalid/src/main.mfb:4 error[2-203-0006 TYPE_CONDITION_REQUIRES_BOOLEAN]: control-flow condition must be Boolean
                WHILE condition has type Integer, expected Boolean.
    3 |   FOR zero = 1 TO 3 STEP 0 : NEXT
    4 |   WHILE 1 : WEND
    5 |   DO : LOOP UNTIL 1
      | ^
-tests/control-flow-invalid/src/main.mfb:5 error[TYPE_CONDITION_REQUIRES_BOOLEAN]: control-flow condition must be Boolean
+tests/control-flow-invalid/src/main.mfb:5 error[2-203-0006 TYPE_CONDITION_REQUIRES_BOOLEAN]: control-flow condition must be Boolean
                LOOP UNTIL condition has type Integer, expected Boolean.
    4 |   WHILE 1 : WEND
    5 |   DO : LOOP UNTIL 1
    6 |   DO WHILE "ready" : LOOP
      | ^
-tests/control-flow-invalid/src/main.mfb:6 error[TYPE_CONDITION_REQUIRES_BOOLEAN]: control-flow condition must be Boolean
+tests/control-flow-invalid/src/main.mfb:6 error[2-203-0006 TYPE_CONDITION_REQUIRES_BOOLEAN]: control-flow condition must be Boolean
                WHILE condition has type String, expected Boolean.
 [exit 1]

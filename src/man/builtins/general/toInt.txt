@@ -33,11 +33,11 @@ OVERLOADS
     Converts a Fixed value to Integer by truncating toward zero.
 
 ERRORS
-  ErrInvalidFormat (10003)
+  ErrInvalidFormat (77050003)
     Returned when String input is malformed, or when a Float input is NaN or
     infinity at an import boundary.
 
-  ErrOverflow (10028)
+  ErrOverflow (77050010)
     Returned when the value is outside the Integer range.
 
   Other errors can propagate from evaluating value before toInt is called.

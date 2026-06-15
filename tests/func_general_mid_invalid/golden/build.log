@@ -2,119 +2,119 @@ $ mfb build -ast tests/func_general_mid_invalid
    1 | FUNC main AS Integer
    2 |   LET missing AS String = mid()
      | ^
-tests/func_general_mid_invalid/src/main.mfb:2 error[TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+tests/func_general_mid_invalid/src/main.mfb:2 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
                Call to `mid` has 0 argument(s), expected 3.
    1 | FUNC main AS Integer
    2 |   LET missing AS String = mid()
      | ^
-tests/func_general_mid_invalid/src/main.mfb:2 error[TYPE_UNKNOWN_VALUE]: value type could not be determined
+tests/func_general_mid_invalid/src/main.mfb:2 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `missing` does not have a known type.
    1 | FUNC main AS Integer
    2 |   LET missing AS String = mid()
    3 |   LET wrongValue AS String = mid(42, 0, 1)
      | ^
-tests/func_general_mid_invalid/src/main.mfb:3 error[TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+tests/func_general_mid_invalid/src/main.mfb:3 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
                Call to `mid` has argument type(s) (Integer, Integer, Integer), expected String, Integer, Integer or List OF T, Integer, Integer.
    1 | FUNC main AS Integer
    2 |   LET missing AS String = mid()
    3 |   LET wrongValue AS String = mid(42, 0, 1)
      | ^
-tests/func_general_mid_invalid/src/main.mfb:3 error[TYPE_UNKNOWN_VALUE]: value type could not be determined
+tests/func_general_mid_invalid/src/main.mfb:3 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `wrongValue` does not have a known type.
    2 |   LET missing AS String = mid()
    3 |   LET wrongValue AS String = mid(42, 0, 1)
    4 |   LET wrongStart AS String = mid("hello", "0", 1)
      | ^
-tests/func_general_mid_invalid/src/main.mfb:4 error[TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+tests/func_general_mid_invalid/src/main.mfb:4 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
                Call to `mid` has argument type(s) (String, String, Integer), expected String, Integer, Integer or List OF T, Integer, Integer.
    2 |   LET missing AS String = mid()
    3 |   LET wrongValue AS String = mid(42, 0, 1)
    4 |   LET wrongStart AS String = mid("hello", "0", 1)
      | ^
-tests/func_general_mid_invalid/src/main.mfb:4 error[TYPE_UNKNOWN_VALUE]: value type could not be determined
+tests/func_general_mid_invalid/src/main.mfb:4 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `wrongStart` does not have a known type.
    3 |   LET wrongValue AS String = mid(42, 0, 1)
    4 |   LET wrongStart AS String = mid("hello", "0", 1)
    5 |   LET wrongCount AS String = mid("hello", 0, "1")
      | ^
-tests/func_general_mid_invalid/src/main.mfb:5 error[TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+tests/func_general_mid_invalid/src/main.mfb:5 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
                Call to `mid` has argument type(s) (String, Integer, String), expected String, Integer, Integer or List OF T, Integer, Integer.
    3 |   LET wrongValue AS String = mid(42, 0, 1)
    4 |   LET wrongStart AS String = mid("hello", "0", 1)
    5 |   LET wrongCount AS String = mid("hello", 0, "1")
      | ^
-tests/func_general_mid_invalid/src/main.mfb:5 error[TYPE_UNKNOWN_VALUE]: value type could not be determined
+tests/func_general_mid_invalid/src/main.mfb:5 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `wrongCount` does not have a known type.
    4 |   LET wrongStart AS String = mid("hello", "0", 1)
    5 |   LET wrongCount AS String = mid("hello", 0, "1")
    6 |   LET tooMany AS String = mid("hello", 0, 1, 2)
      | ^
-tests/func_general_mid_invalid/src/main.mfb:6 error[TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+tests/func_general_mid_invalid/src/main.mfb:6 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
                Call to `mid` has 4 argument(s), expected 3.
    4 |   LET wrongStart AS String = mid("hello", "0", 1)
    5 |   LET wrongCount AS String = mid("hello", 0, "1")
    6 |   LET tooMany AS String = mid("hello", 0, 1, 2)
      | ^
-tests/func_general_mid_invalid/src/main.mfb:6 error[TYPE_UNKNOWN_VALUE]: value type could not be determined
+tests/func_general_mid_invalid/src/main.mfb:6 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `tooMany` does not have a known type.
 [exit 1]
 $ mfb build -ir tests/func_general_mid_invalid
    1 | FUNC main AS Integer
    2 |   LET missing AS String = mid()
      | ^
-tests/func_general_mid_invalid/src/main.mfb:2 error[TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+tests/func_general_mid_invalid/src/main.mfb:2 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
                Call to `mid` has 0 argument(s), expected 3.
    1 | FUNC main AS Integer
    2 |   LET missing AS String = mid()
      | ^
-tests/func_general_mid_invalid/src/main.mfb:2 error[TYPE_UNKNOWN_VALUE]: value type could not be determined
+tests/func_general_mid_invalid/src/main.mfb:2 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `missing` does not have a known type.
    1 | FUNC main AS Integer
    2 |   LET missing AS String = mid()
    3 |   LET wrongValue AS String = mid(42, 0, 1)
      | ^
-tests/func_general_mid_invalid/src/main.mfb:3 error[TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+tests/func_general_mid_invalid/src/main.mfb:3 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
                Call to `mid` has argument type(s) (Integer, Integer, Integer), expected String, Integer, Integer or List OF T, Integer, Integer.
    1 | FUNC main AS Integer
    2 |   LET missing AS String = mid()
    3 |   LET wrongValue AS String = mid(42, 0, 1)
      | ^
-tests/func_general_mid_invalid/src/main.mfb:3 error[TYPE_UNKNOWN_VALUE]: value type could not be determined
+tests/func_general_mid_invalid/src/main.mfb:3 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `wrongValue` does not have a known type.
    2 |   LET missing AS String = mid()
    3 |   LET wrongValue AS String = mid(42, 0, 1)
    4 |   LET wrongStart AS String = mid("hello", "0", 1)
      | ^
-tests/func_general_mid_invalid/src/main.mfb:4 error[TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+tests/func_general_mid_invalid/src/main.mfb:4 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
                Call to `mid` has argument type(s) (String, String, Integer), expected String, Integer, Integer or List OF T, Integer, Integer.
    2 |   LET missing AS String = mid()
    3 |   LET wrongValue AS String = mid(42, 0, 1)
    4 |   LET wrongStart AS String = mid("hello", "0", 1)
      | ^
-tests/func_general_mid_invalid/src/main.mfb:4 error[TYPE_UNKNOWN_VALUE]: value type could not be determined
+tests/func_general_mid_invalid/src/main.mfb:4 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `wrongStart` does not have a known type.
    3 |   LET wrongValue AS String = mid(42, 0, 1)
    4 |   LET wrongStart AS String = mid("hello", "0", 1)
    5 |   LET wrongCount AS String = mid("hello", 0, "1")
      | ^
-tests/func_general_mid_invalid/src/main.mfb:5 error[TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+tests/func_general_mid_invalid/src/main.mfb:5 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
                Call to `mid` has argument type(s) (String, Integer, String), expected String, Integer, Integer or List OF T, Integer, Integer.
    3 |   LET wrongValue AS String = mid(42, 0, 1)
    4 |   LET wrongStart AS String = mid("hello", "0", 1)
    5 |   LET wrongCount AS String = mid("hello", 0, "1")
      | ^
-tests/func_general_mid_invalid/src/main.mfb:5 error[TYPE_UNKNOWN_VALUE]: value type could not be determined
+tests/func_general_mid_invalid/src/main.mfb:5 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `wrongCount` does not have a known type.
    4 |   LET wrongStart AS String = mid("hello", "0", 1)
    5 |   LET wrongCount AS String = mid("hello", 0, "1")
    6 |   LET tooMany AS String = mid("hello", 0, 1, 2)
      | ^
-tests/func_general_mid_invalid/src/main.mfb:6 error[TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+tests/func_general_mid_invalid/src/main.mfb:6 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
                Call to `mid` has 4 argument(s), expected 3.
    4 |   LET wrongStart AS String = mid("hello", "0", 1)
    5 |   LET wrongCount AS String = mid("hello", 0, "1")
    6 |   LET tooMany AS String = mid("hello", 0, 1, 2)
      | ^
-tests/func_general_mid_invalid/src/main.mfb:6 error[TYPE_UNKNOWN_VALUE]: value type could not be determined
+tests/func_general_mid_invalid/src/main.mfb:6 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `tooMany` does not have a known type.
 [exit 1]

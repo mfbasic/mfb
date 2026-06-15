@@ -11,7 +11,7 @@ DESCRIPTION
   inboundLimit and outboundLimit bound the worker inbound and outbound queues.
   Omitting both limits uses 64 for each queue. Omitting outboundLimit uses 64.
 
-  Fails with ErrInvalidArgument (10002) when either queue limit is below 1.
+  Fails with ErrInvalidArgument (77050002) when either queue limit is below 1.
   Current-package functions, lambdas, closures, SUBs, non-isolated functions,
   and entry points without the leading Thread parameter are rejected at compile
   time.

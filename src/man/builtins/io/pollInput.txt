@@ -17,7 +17,7 @@ DESCRIPTION
   Standard input remains under the host terminal's normal line discipline. On
   canonical terminals, input may not become ready until the user submits a line.
 
-  Fails with ErrInputFailed (10020) on input polling failure.
+  Fails with ErrInputFailed (77020005) on input polling failure.
 
 EXAMPLES
   IF io::pollInput() THEN

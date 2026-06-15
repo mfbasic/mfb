@@ -7,10 +7,10 @@ SYNOPSIS
 DESCRIPTION
   Deletes an empty directory. The final path must name an actual directory.
 
-  Fails with ErrInvalidArgument (10002) for an empty path or embedded NUL,
-  ErrNotFound (10004) when the path does not exist, ErrAccessDenied (10013)
-  when deletion is denied, ErrDirectoryNotEmpty (10018) when the directory is
-  not empty, or ErrOutput (10015) for other host failures.
+  Fails with ErrInvalidArgument (77050002) for an empty path or embedded NUL,
+  ErrNotFound (77050004) when the path does not exist, ErrAccessDenied (77030003)
+  when deletion is denied, ErrResourceBusy (77030005) when the directory is
+  not empty, or ErrWriteFailed (77020002) for other host failures.
 
 EXAMPLES
   fs::deleteDirectory("target/example")

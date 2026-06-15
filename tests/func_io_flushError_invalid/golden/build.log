@@ -3,13 +3,13 @@ $ mfb build -ast tests/func_io_flushError_invalid
    3 | FUNC main AS Integer
    4 |   LET wrongType AS Nothing = io::flushError("x")
      | ^
-tests/func_io_flushError_invalid/src/main.mfb:4 error[TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+tests/func_io_flushError_invalid/src/main.mfb:4 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
                Call to `io.flushError` has 1 argument(s), expected 0.
    2 | 
    3 | FUNC main AS Integer
    4 |   LET wrongType AS Nothing = io::flushError("x")
      | ^
-tests/func_io_flushError_invalid/src/main.mfb:4 error[TYPE_UNKNOWN_VALUE]: value type could not be determined
+tests/func_io_flushError_invalid/src/main.mfb:4 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `wrongType` does not have a known type.
 [exit 1]
 $ mfb build -ir tests/func_io_flushError_invalid
@@ -17,12 +17,12 @@ $ mfb build -ir tests/func_io_flushError_invalid
    3 | FUNC main AS Integer
    4 |   LET wrongType AS Nothing = io::flushError("x")
      | ^
-tests/func_io_flushError_invalid/src/main.mfb:4 error[TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+tests/func_io_flushError_invalid/src/main.mfb:4 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
                Call to `io.flushError` has 1 argument(s), expected 0.
    2 | 
    3 | FUNC main AS Integer
    4 |   LET wrongType AS Nothing = io::flushError("x")
      | ^
-tests/func_io_flushError_invalid/src/main.mfb:4 error[TYPE_UNKNOWN_VALUE]: value type could not be determined
+tests/func_io_flushError_invalid/src/main.mfb:4 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `wrongType` does not have a known type.
 [exit 1]

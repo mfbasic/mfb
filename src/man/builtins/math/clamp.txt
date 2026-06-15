@@ -9,7 +9,7 @@ SYNOPSIS
 DESCRIPTION
   Restricts value to the inclusive range [low, high].
 
-  Fails with ErrInvalidArgument (10002) when low is greater than high.
+  Fails with ErrInvalidArgument (77050002) when low is greater than high.
 
 EXAMPLES
   LET value AS Integer = math::clamp(12, 0, 10)

@@ -8,9 +8,9 @@ DESCRIPTION
   Deletes the filesystem entry named by path. When the final component is a
   symlink, the symlink itself is deleted rather than its target.
 
-  Fails with ErrInvalidArgument (10002) for an empty path or embedded NUL,
-  ErrNotFound (10004) when the path does not exist, ErrAccessDenied (10013)
-  when deletion is denied, or ErrOutput (10015) for other host failures.
+  Fails with ErrInvalidArgument (77050002) for an empty path or embedded NUL,
+  ErrNotFound (77050004) when the path does not exist, ErrAccessDenied (77030003)
+  when deletion is denied, or ErrWriteFailed (77020002) for other host failures.
 
 EXAMPLES
   fs::deleteFile("target/output.txt")

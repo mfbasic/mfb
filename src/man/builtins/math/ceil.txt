@@ -8,7 +8,7 @@ SYNOPSIS
 DESCRIPTION
   Returns the smallest integer greater than or equal to value.
 
-  The Float overload fails with ErrOverflow (10028) when the result is outside
+  The Float overload fails with ErrOverflow (77050010) when the result is outside
   Integer range.
 
 EXAMPLES

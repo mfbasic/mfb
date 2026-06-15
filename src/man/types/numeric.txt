@@ -89,57 +89,57 @@ COMPARISONS
 
 INTEGER RULES
   Integer arithmetic is checked. Overflow in +, -, *, unary -, exponentiation
-  (^), and the minimum-integer MOD -1 case fails with ErrOverflow (10028).
+  (^), and the minimum-integer MOD -1 case fails with ErrOverflow (77050010).
 
   Integer operations never wrap.
 
 BYTE RULES
   Byte arithmetic that returns Byte is checked. Results above 255 fail with
-  ErrOverflow (10028). Results below 0 fail with ErrUnderflow (10031).
+  ErrOverflow (77050010). Results below 0 fail with ErrUnderflow (77050011).
 
   Byte operations never wrap. Runtime conversion to Byte uses toByte and fails
-  with ErrOverflow (10028) when outside 0 through 255.
+  with ErrOverflow (77050010) when outside 0 through 255.
 
 DIVISION AND MOD
   Integer / Integer is not integer division in the language specification; use
   the operator result table to determine the result type.
 
   MOD is defined only for Integer. a MOD b fails with ErrInvalidArgument
-  (10002) when b = 0. Otherwise the remainder has the same sign as a, and:
+  (77050002) when b = 0. Otherwise the remainder has the same sign as a, and:
 
     a = (truncTowardZero(a / b) * b) + (a MOD b)
 
-  Division by zero fails with ErrInvalidArgument (10002).
+  Division by zero fails with ErrInvalidArgument (77050002).
 
 EXPONENTIATION
   Integer exponentiation requires a non-negative Integer exponent. Negative
-  exponents fail with ErrInvalidArgument (10002). Overflow fails with
-  ErrOverflow (10028).
+  exponents fail with ErrInvalidArgument (77050002). Overflow fails with
+  ErrOverflow (77050010).
 
 FLOAT RULES
   Float uses IEEE 754 binary64 representation, but ordinary source cannot
   construct or import non-finite values successfully.
 
   Operations or math functions that would produce NaN or infinity fail instead:
-  invalid domains and division by zero fail with ErrInvalidArgument (10002), and
-  overflow to infinity fails with ErrOverflow (10028).
+  invalid domains and division by zero fail with ErrInvalidArgument (77050002), and
+  overflow to infinity fails with ErrOverflow (77050010).
 
   Imported native Float values that are already NaN or infinity are rejected at
-  the boundary with ErrInvalidFormat (10003).
+  the boundary with ErrInvalidFormat (77050003).
 
 FIXED RULES
   Fixed is deterministic binary fixed-point arithmetic, not exact decimal
   currency arithmetic. Most decimal fractions are rounded to binary fixed-point
   values.
 
-  Fixed overflow fails with ErrOverflow (10028). Divide-by-zero and invalid
-  numeric domains fail with ErrInvalidArgument (10002).
+  Fixed overflow fails with ErrOverflow (77050010). Divide-by-zero and invalid
+  numeric domains fail with ErrInvalidArgument (77050002).
 
 CONVERSIONS
-  Converting Float or Fixed to Integer or Byte fails with ErrOverflow (10028)
+  Converting Float or Fixed to Integer or Byte fails with ErrOverflow (77050010)
   when outside the destination range.
 
-  Converting text to a numeric type fails with ErrInvalidFormat (10003) when
+  Converting text to a numeric type fails with ErrInvalidFormat (77050003) when
   the text is malformed or names a non-finite value such as NaN or Infinity.
 
 SEE ALSO

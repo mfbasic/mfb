@@ -26,10 +26,10 @@ OVERLOADS
     Returns the first list index where the contiguous needle sublist appears.
 
 ERRORS
-  ErrNotFound (10004)
+  ErrNotFound (77050004)
     Returned when no match exists at or after start.
 
-  10001
+  77050001
     Returned when start is less than 0 or greater than len(value).
 
 TYPE CHECKING

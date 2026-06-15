@@ -9,7 +9,7 @@ DESCRIPTION
   Raises base to exponent.
 
   The Fixed overload rounds to the nearest Fixed value and fails with
-  ErrInvalidArgument (10002) for invalid domains and ErrOverflow (10028) on
+  ErrInvalidArgument (77050002) for invalid domains and ErrOverflow (77050010) on
   overflow.
 
 EXAMPLES

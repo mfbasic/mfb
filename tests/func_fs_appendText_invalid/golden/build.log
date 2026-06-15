@@ -3,49 +3,49 @@ $ mfb build -ast tests/func_fs_appendText_invalid
    3 | FUNC main AS Integer
    4 |   LET missing AS Nothing = fs::appendText()
      | ^
-tests/func_fs_appendText_invalid/src/main.mfb:4 error[TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+tests/func_fs_appendText_invalid/src/main.mfb:4 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
                Call to `fs.appendText` has 0 argument(s), expected 2.
    2 | 
    3 | FUNC main AS Integer
    4 |   LET missing AS Nothing = fs::appendText()
      | ^
-tests/func_fs_appendText_invalid/src/main.mfb:4 error[TYPE_UNKNOWN_VALUE]: value type could not be determined
+tests/func_fs_appendText_invalid/src/main.mfb:4 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `missing` does not have a known type.
    3 | FUNC main AS Integer
    4 |   LET missing AS Nothing = fs::appendText()
    5 |   LET wrongPath AS Nothing = fs::appendText(1, "x")
      | ^
-tests/func_fs_appendText_invalid/src/main.mfb:5 error[TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+tests/func_fs_appendText_invalid/src/main.mfb:5 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
                Call to `fs.appendText` has argument type(s) (Integer, String), expected String, String.
    3 | FUNC main AS Integer
    4 |   LET missing AS Nothing = fs::appendText()
    5 |   LET wrongPath AS Nothing = fs::appendText(1, "x")
      | ^
-tests/func_fs_appendText_invalid/src/main.mfb:5 error[TYPE_UNKNOWN_VALUE]: value type could not be determined
+tests/func_fs_appendText_invalid/src/main.mfb:5 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `wrongPath` does not have a known type.
    4 |   LET missing AS Nothing = fs::appendText()
    5 |   LET wrongPath AS Nothing = fs::appendText(1, "x")
    6 |   LET wrongValue AS Nothing = fs::appendText("a", 1)
      | ^
-tests/func_fs_appendText_invalid/src/main.mfb:6 error[TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+tests/func_fs_appendText_invalid/src/main.mfb:6 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
                Call to `fs.appendText` has argument type(s) (String, Integer), expected String, String.
    4 |   LET missing AS Nothing = fs::appendText()
    5 |   LET wrongPath AS Nothing = fs::appendText(1, "x")
    6 |   LET wrongValue AS Nothing = fs::appendText("a", 1)
      | ^
-tests/func_fs_appendText_invalid/src/main.mfb:6 error[TYPE_UNKNOWN_VALUE]: value type could not be determined
+tests/func_fs_appendText_invalid/src/main.mfb:6 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `wrongValue` does not have a known type.
    5 |   LET wrongPath AS Nothing = fs::appendText(1, "x")
    6 |   LET wrongValue AS Nothing = fs::appendText("a", 1)
    7 |   LET tooMany AS Nothing = fs::appendText("a", "b", "c")
      | ^
-tests/func_fs_appendText_invalid/src/main.mfb:7 error[TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+tests/func_fs_appendText_invalid/src/main.mfb:7 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
                Call to `fs.appendText` has 3 argument(s), expected 2.
    5 |   LET wrongPath AS Nothing = fs::appendText(1, "x")
    6 |   LET wrongValue AS Nothing = fs::appendText("a", 1)
    7 |   LET tooMany AS Nothing = fs::appendText("a", "b", "c")
      | ^
-tests/func_fs_appendText_invalid/src/main.mfb:7 error[TYPE_UNKNOWN_VALUE]: value type could not be determined
+tests/func_fs_appendText_invalid/src/main.mfb:7 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `tooMany` does not have a known type.
 [exit 1]
 $ mfb build -ir tests/func_fs_appendText_invalid
@@ -53,48 +53,48 @@ $ mfb build -ir tests/func_fs_appendText_invalid
    3 | FUNC main AS Integer
    4 |   LET missing AS Nothing = fs::appendText()
      | ^
-tests/func_fs_appendText_invalid/src/main.mfb:4 error[TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+tests/func_fs_appendText_invalid/src/main.mfb:4 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
                Call to `fs.appendText` has 0 argument(s), expected 2.
    2 | 
    3 | FUNC main AS Integer
    4 |   LET missing AS Nothing = fs::appendText()
      | ^
-tests/func_fs_appendText_invalid/src/main.mfb:4 error[TYPE_UNKNOWN_VALUE]: value type could not be determined
+tests/func_fs_appendText_invalid/src/main.mfb:4 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `missing` does not have a known type.
    3 | FUNC main AS Integer
    4 |   LET missing AS Nothing = fs::appendText()
    5 |   LET wrongPath AS Nothing = fs::appendText(1, "x")
      | ^
-tests/func_fs_appendText_invalid/src/main.mfb:5 error[TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+tests/func_fs_appendText_invalid/src/main.mfb:5 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
                Call to `fs.appendText` has argument type(s) (Integer, String), expected String, String.
    3 | FUNC main AS Integer
    4 |   LET missing AS Nothing = fs::appendText()
    5 |   LET wrongPath AS Nothing = fs::appendText(1, "x")
      | ^
-tests/func_fs_appendText_invalid/src/main.mfb:5 error[TYPE_UNKNOWN_VALUE]: value type could not be determined
+tests/func_fs_appendText_invalid/src/main.mfb:5 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `wrongPath` does not have a known type.
    4 |   LET missing AS Nothing = fs::appendText()
    5 |   LET wrongPath AS Nothing = fs::appendText(1, "x")
    6 |   LET wrongValue AS Nothing = fs::appendText("a", 1)
      | ^
-tests/func_fs_appendText_invalid/src/main.mfb:6 error[TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+tests/func_fs_appendText_invalid/src/main.mfb:6 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
                Call to `fs.appendText` has argument type(s) (String, Integer), expected String, String.
    4 |   LET missing AS Nothing = fs::appendText()
    5 |   LET wrongPath AS Nothing = fs::appendText(1, "x")
    6 |   LET wrongValue AS Nothing = fs::appendText("a", 1)
      | ^
-tests/func_fs_appendText_invalid/src/main.mfb:6 error[TYPE_UNKNOWN_VALUE]: value type could not be determined
+tests/func_fs_appendText_invalid/src/main.mfb:6 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `wrongValue` does not have a known type.
    5 |   LET wrongPath AS Nothing = fs::appendText(1, "x")
    6 |   LET wrongValue AS Nothing = fs::appendText("a", 1)
    7 |   LET tooMany AS Nothing = fs::appendText("a", "b", "c")
      | ^
-tests/func_fs_appendText_invalid/src/main.mfb:7 error[TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+tests/func_fs_appendText_invalid/src/main.mfb:7 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
                Call to `fs.appendText` has 3 argument(s), expected 2.
    5 |   LET wrongPath AS Nothing = fs::appendText(1, "x")
    6 |   LET wrongValue AS Nothing = fs::appendText("a", 1)
    7 |   LET tooMany AS Nothing = fs::appendText("a", "b", "c")
      | ^
-tests/func_fs_appendText_invalid/src/main.mfb:7 error[TYPE_UNKNOWN_VALUE]: value type could not be determined
+tests/func_fs_appendText_invalid/src/main.mfb:7 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `tooMany` does not have a known type.
 [exit 1]

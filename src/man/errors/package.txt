@@ -47,7 +47,7 @@ RESULT FLOW
 FAIL
   FAIL explicitly creates the current function's error result:
 
-    IF n < 0 THEN FAIL Error[10002, "negative"]
+    IF n < 0 THEN FAIL Error[77050002, "negative"]
 
   With a TRAP, FAIL transfers to that TRAP. Without a TRAP, FAIL returns
   Err(error) to the caller.
@@ -58,7 +58,7 @@ TRAP
 
     FUNC readAge(input AS String) AS Integer
       LET age = toInt(input)
-      IF age < 0 THEN FAIL Error[10002, "negative"]
+      IF age < 0 THEN FAIL Error[77050002, "negative"]
       RETURN age
 
       TRAP err

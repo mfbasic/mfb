@@ -31,11 +31,11 @@ OVERLOADS
     Converts a finite Float to the nearest representable Fixed value.
 
 ERRORS
-  ErrInvalidFormat (10003)
+  ErrInvalidFormat (77050003)
     Returned when String input is malformed or when Float input is NaN or
     infinity.
 
-  ErrOverflow (10028)
+  ErrOverflow (77050010)
     Returned when the value is outside the Fixed range.
 
   Other errors can propagate from evaluating value before toFixed is called.

@@ -8,5 +8,5 @@ $ mfb build tests/primitive-byte-bindings-overflow-rt
 Wrote executable to tests/primitive-byte-bindings-overflow-rt/primitive_byte_bindings_overflow_rt.out
 [exit 0]
 $ tests/primitive-byte-bindings-overflow-rt/primitive_byte_bindings_overflow_rt.out
-Code: 10028 Message: numeric overflow
+Code: 77050010 Message: numeric overflow
 [exit 255]

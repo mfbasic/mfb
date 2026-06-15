@@ -22,7 +22,7 @@ OVERLOADS
     Converts value to Byte when it is in range.
 
 ERRORS
-  ErrOverflow (10028)
+  ErrOverflow (77050010)
     Returned when value is less than 0 or greater than 255.
 
   Other errors can propagate from evaluating value before toByte is called.

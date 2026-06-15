@@ -8,7 +8,7 @@ DESCRIPTION
   Flushes standard output. The native runtime writes directly to the host
   standard-output stream and does not add an additional MFBASIC output buffer.
 
-  Fails with ErrOutput (10015) on output failure.
+  Fails with ErrWriteFailed (77020002) on output failure.
 
 EXAMPLES
   io::write("ready")

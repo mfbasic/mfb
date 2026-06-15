@@ -9,7 +9,7 @@ DESCRIPTION
   Returns the square root of value.
 
   The Fixed overload rounds to the nearest Fixed value. Both overloads fail
-  with ErrInvalidArgument (10002) for negative input.
+  with ErrInvalidArgument (77050002) for negative input.
 
 EXAMPLES
   LET value AS Float = math::sqrt(9.0)

@@ -3,7 +3,7 @@ $ mfb build -ast tests/json_read_invalid
    4 | 
    5 | FUNC main AS Integer
      | ^
-tests/json_read_invalid/src/main.mfb:5 error[TYPE_FUNC_MISSING_RETURN]: function is missing a return value
+tests/json_read_invalid/src/main.mfb:5 error[2-203-0032 TYPE_FUNC_MISSING_RETURN]: function is missing a return value
                FUNC `main` must return a Integer value.
 [exit 1]
 $ mfb build -ir tests/json_read_invalid
@@ -11,7 +11,7 @@ $ mfb build -ir tests/json_read_invalid
    4 | 
    5 | FUNC main AS Integer
      | ^
-tests/json_read_invalid/src/main.mfb:5 error[TYPE_FUNC_MISSING_RETURN]: function is missing a return value
+tests/json_read_invalid/src/main.mfb:5 error[2-203-0032 TYPE_FUNC_MISSING_RETURN]: function is missing a return value
                FUNC `main` must return a Integer value.
 [exit 1]
 $ mfb build tests/json_read_invalid
@@ -19,6 +19,6 @@ $ mfb build tests/json_read_invalid
    4 | 
    5 | FUNC main AS Integer
      | ^
-tests/json_read_invalid/src/main.mfb:5 error[TYPE_FUNC_MISSING_RETURN]: function is missing a return value
+tests/json_read_invalid/src/main.mfb:5 error[2-203-0032 TYPE_FUNC_MISSING_RETURN]: function is missing a return value
                FUNC `main` must return a Integer value.
 [exit 1]

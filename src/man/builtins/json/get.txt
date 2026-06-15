@@ -12,7 +12,7 @@ DESCRIPTION
   matched against an object key. An empty path returns value unchanged.
 
 ERRORS
-  ErrNotFound (10004)
+  ErrNotFound (77050004)
     Returned when any path element is absent or when traversal reaches a Json
     value that is not an object before the path is exhausted.
 

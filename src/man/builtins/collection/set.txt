@@ -27,7 +27,7 @@ OVERLOADS
     Returns a map with key set to item.
 
 ERRORS
-  10001
+  77050001
     Returned by the List overload when index is out of range.
 
   Other errors can propagate from evaluating arguments before set is called.

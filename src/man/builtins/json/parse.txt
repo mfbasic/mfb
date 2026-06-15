@@ -13,7 +13,7 @@ DESCRIPTION
   Object keys are read as String values. JSON null maps to Null[NOTHING].
 
 ERRORS
-  ErrInvalidFormat (10003)
+  ErrInvalidFormat (77050003)
     Returned when value is not valid JSON, contains an invalid escape sequence,
     or contains a malformed number.
 

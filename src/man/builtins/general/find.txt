@@ -21,10 +21,10 @@ OVERLOADS
     Returns the first scalar index where needle occurs in value.
 
 ERRORS
-  ErrNotFound (10004)
+  ErrNotFound (77050004)
     Returned when no match exists at or after start.
 
-  10001
+  77050001
     Returned when start is out of range.
 
   Other errors can propagate from evaluating value, needle, or start before find
