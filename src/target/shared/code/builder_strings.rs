@@ -511,10 +511,9 @@ impl CodeBuilder<'_> {
                 self.emit(abi::branch(&copy_new_string_loop));
                 self.emit(abi::label(&copy_new_string_done));
             }
-            other => {
-                return Err(format!(
-                    "native collection packed payload does not support type '{other}'"
-                ));
+            _ => {
+                self.emit(abi::load_u64("x24", abi::stack_pointer(), new_slot));
+                self.emit(abi::store_u64("x24", "x25", 0));
             }
         }
         self.emit(abi::branch(&copy_done_one));

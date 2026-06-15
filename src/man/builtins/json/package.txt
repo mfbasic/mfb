@@ -1,0 +1,35 @@
+NAME
+  json - JSON parsing, formatting, and object-path helpers
+
+SYNOPSIS
+  IMPORT json
+  json::parse(value)
+  json::stringify(value)
+  json::get(value, path)
+  json::getOr(value, path, defaultValue)
+
+DESCRIPTION
+  The json package provides a built-in Json union plus helpers for parsing
+  UTF-8 JSON text, formatting Json values, and reading nested object members by
+  key path.
+
+  The built-in Json type is:
+
+    UNION Json
+      Null(value AS Nothing)
+      Bool(value AS Boolean)
+      Num(value AS Float)
+      Str(value AS String)
+      Arr(items AS List OF Json)
+      Obj(fields AS Map OF String TO Json)
+    END UNION
+
+  json::get and json::getOr traverse only object members. Path elements are
+  String keys. Arrays are represented as Json values but are not indexed by
+  these helpers.
+
+SEE ALSO
+  mfb man json parse
+  mfb man json stringify
+  mfb man json get
+  mfb man json getOr

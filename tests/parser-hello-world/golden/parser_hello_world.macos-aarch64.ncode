@@ -144,6 +144,7 @@
     "params": [
     ],
     "stackSlots": [
+    { "name": "runtime_call_arg_0", "type": "runtime_call_arg", "offset": 8 }
     ],
     "instructions": [
     { "op": "label", "name": "entry" },
@@ -151,7 +152,9 @@
     { "op": "str_u64", "src": "x30", "base": "sp", "offset": "0" },
     { "op": "adrp", "dst": "x8", "symbol": "_mfb_str_0" },
     { "op": "add_pageoff", "dst": "x8", "src": "x8", "symbol": "_mfb_str_0" },
-    { "op": "mov", "dst": "x0", "src": "x8" },
+    { "op": "str_u64", "src": "x8", "base": "sp", "offset": "8" },
+    { "op": "ldr_u64", "dst": "x9", "base": "sp", "offset": "8" },
+    { "op": "mov", "dst": "x0", "src": "x9" },
     { "op": "bl", "target": "_mfb_rt_io_io_print" },
     { "op": "cmp_imm", "lhs": "x0", "rhs": "0" },
     { "op": "b.eq", "target": "runtime_call_ok_0" },

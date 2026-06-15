@@ -32,6 +32,7 @@ static PACKAGES: LazyLock<Vec<PackageDoc>> = LazyLock::new(|| {
         parse_math_package(),
         parse_fs_package(),
         parse_thread_package(),
+        parse_json_package(),
     ]
 });
 
@@ -253,6 +254,24 @@ fn parse_thread_package() -> PackageDoc {
     }
 }
 
+fn parse_json_package() -> PackageDoc {
+    let page = include_str!("builtins/json/package.txt");
+    let (name, summary) = parse_name_line(page).expect("json package NAME line");
+    let functions = generated::JSON_FUNCTION_PAGES
+        .iter()
+        .map(|(_, page)| parse_rendered_function_page(page))
+        .collect::<Vec<_>>()
+        .into_boxed_slice();
+
+    PackageDoc {
+        name,
+        summary,
+        usage: "mfb man json [function]",
+        functions: Box::leak(functions),
+        page: Some(page),
+    }
+}
+
 fn generated_pages(package_name: &str) -> Option<&'static [(&'static str, &'static str)]> {
     match package_name {
         "types" => Some(generated::TYPES_TOPIC_PAGES),
@@ -264,6 +283,7 @@ fn generated_pages(package_name: &str) -> Option<&'static [(&'static str, &'stat
         "math" => Some(generated::MATH_FUNCTION_PAGES),
         "fs" => Some(generated::FS_FUNCTION_PAGES),
         "thread" => Some(generated::THREAD_FUNCTION_PAGES),
+        "json" => Some(generated::JSON_FUNCTION_PAGES),
         _ => None,
     }
 }

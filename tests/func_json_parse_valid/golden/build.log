@@ -1,0 +1,16 @@
+$ mfb build -ast tests/func_json_parse_valid
+Wrote AST to tests/func_json_parse_valid/func_json_parse_valid.ast
+[exit 0]
+$ mfb build -ir tests/func_json_parse_valid
+Wrote IR to tests/func_json_parse_valid/func_json_parse_valid.ir
+[exit 0]
+$ mfb build tests/func_json_parse_valid
+Wrote executable to tests/func_json_parse_valid/func_json_parse_valid.out
+[exit 0]
+$ tests/func_json_parse_valid/func_json_parse_valid.out
+null
+"hi"
+"A😀"
+[true,false,null,{"x":"y"}]
+-1250
+[exit 0]

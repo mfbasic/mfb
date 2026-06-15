@@ -60,7 +60,8 @@ enum Flow {
 }
 
 pub fn check_project(project_dir: &Path, ast: &AstProject) -> Result<(), ()> {
-    let mut checker = TypeChecker::new(project_dir, ast);
+    let augmented = builtins::json::augmented_project(ast)?;
+    let mut checker = TypeChecker::new(project_dir, &augmented);
     checker.check();
     if checker.had_error {
         Err(())
@@ -2074,6 +2075,9 @@ impl<'a> TypeChecker<'a> {
         if builtins::io::is_io_call(callee) {
             return self.check_io_builtin_call(file, callee, arguments, locals, line);
         }
+        if builtins::json::is_json_call(callee) {
+            return self.check_json_builtin_call(file, callee, arguments, locals, line);
+        }
         if builtins::thread::is_thread_call(callee) {
             return self.check_thread_builtin_call(file, callee, arguments, locals, line);
         }
@@ -2122,6 +2126,60 @@ impl<'a> TypeChecker<'a> {
 
         let Some(resolved) = builtins::fs::resolve_call(callee, &arg_types) else {
             let expected = builtins::fs::expected_arguments(callee).unwrap_or("supported overload");
+            self.report(
+                "TYPE_CALL_ARGUMENT_MISMATCH",
+                &format!(
+                    "Call to `{callee}` has argument type(s) ({}), expected {expected}.",
+                    arg_types.join(", ")
+                ),
+                file,
+                line,
+            );
+            return Type::Unknown;
+        };
+
+        self.parse_type(&resolved.return_type)
+    }
+
+    fn check_json_builtin_call(
+        &mut self,
+        file: &AstFile,
+        callee: &str,
+        arguments: &[Expression],
+        locals: &HashMap<String, LocalInfo>,
+        line: usize,
+    ) -> Type {
+        let arg_types = arguments
+            .iter()
+            .map(|argument| {
+                let type_ = self.infer_expression(file, argument, locals, line);
+                self.type_name(&type_)
+            })
+            .collect::<Vec<_>>();
+
+        if let Some((min, max)) = builtins::json::arity(callee) {
+            if arguments.len() < min || arguments.len() > max {
+                let expected = if min == max {
+                    min.to_string()
+                } else {
+                    format!("{min} to {max}")
+                };
+                self.report(
+                    "TYPE_CALL_ARITY_MISMATCH",
+                    &format!(
+                        "Call to `{callee}` has {} argument(s), expected {expected}.",
+                        arguments.len()
+                    ),
+                    file,
+                    line,
+                );
+                return Type::Unknown;
+            }
+        }
+
+        let Some(resolved) = builtins::json::resolve_call(callee, &arg_types) else {
+            let expected =
+                builtins::json::expected_arguments(callee).unwrap_or("supported overload");
             self.report(
                 "TYPE_CALL_ARGUMENT_MISMATCH",
                 &format!(

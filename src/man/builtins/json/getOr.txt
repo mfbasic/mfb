@@ -1,0 +1,23 @@
+NAME
+  getOr - read a nested JSON object value or return a default
+
+SYNOPSIS
+  json::getOr(value AS Json, path AS List OF String, defaultValue AS Json) AS Json
+
+PACKAGE
+  json
+
+DESCRIPTION
+  json::getOr walks path through nested Json object members like json::get, but
+  returns defaultValue instead of failing when a key is absent or a non-object
+  value is encountered. An empty path returns value unchanged.
+
+ERRORS
+  json::getOr does not fail for missing paths. Errors can still propagate while
+  evaluating arguments before the function is called.
+
+EXAMPLES
+  LET enabled AS Json = json::getOr(doc, ["config", "enabled"], Bool[FALSE])
+
+SEE ALSO
+  get

@@ -178,6 +178,9 @@ pub fn lower_project_with_external_functions(
     entry: Option<EntryPoint>,
     external_function_types: &HashMap<String, String>,
 ) -> IrProject {
+    let augmented = builtins::json::augmented_project(ast)
+        .expect("built-in json package source must parse");
+    let ast = &augmented;
     let mut types = Vec::new();
     let mut functions = Vec::new();
     let function_returns = function_returns(ast);
@@ -709,6 +712,14 @@ fn expression_type(
                 return builtins::io::resolve_call(callee, &arg_types)
                     .map(|resolved| resolved.return_type.to_string());
             }
+            if builtins::json::is_json_call(callee) {
+                let arg_types = arguments
+                    .iter()
+                    .map(|argument| expression_type(argument, locals, context))
+                    .collect::<Option<Vec<_>>>()?;
+                return builtins::json::resolve_call(callee, &arg_types)
+                    .map(|resolved| resolved.return_type.to_string());
+            }
             if builtins::thread::is_thread_call(callee) {
                 let arg_types = arguments
                     .iter()
@@ -914,7 +925,9 @@ fn lower_expression_with_expected(
                     .collect()
             };
             IrValue::Call {
-                target: callee.clone(),
+                target: builtins::json::implementation_name(callee)
+                    .unwrap_or(callee)
+                    .to_string(),
                 args,
             }
         }

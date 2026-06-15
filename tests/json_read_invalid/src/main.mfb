@@ -1,0 +1,14 @@
+IMPORT fs
+IMPORT io
+IMPORT json
+
+FUNC main AS Integer
+  LET path AS String = "target/json_read_invalid.json"
+  fs::writeText(path, "{ bad json }")
+  io::print(json::stringify(json::parse(fs::readText(path))))
+  TRAP err
+    io::print("invalid")
+    fs::deleteFile(path)
+    RETURN 0
+  END TRAP
+END FUNC

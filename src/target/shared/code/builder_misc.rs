@@ -520,14 +520,20 @@ impl CodeBuilder<'_> {
         args: &[NirValue],
         return_type: Option<&str>,
     ) -> Result<ValueResult, String> {
-        let arg_values = args
-            .iter()
-            .map(|arg| self.lower_value(arg))
-            .collect::<Result<Vec<_>, _>>()?;
-        for (index, arg) in arg_values.iter().enumerate() {
+        let mut arg_values = Vec::new();
+        let mut arg_slots = Vec::new();
+        for arg in args {
+            let value = self.lower_value(arg)?;
+            let slot = self.allocate_stack_object("call_arg", 8);
+            self.emit(abi::store_u64(&value.location, abi::stack_pointer(), slot));
+            arg_values.push(value);
+            arg_slots.push(slot);
+        }
+        for (index, slot) in arg_slots.iter().enumerate() {
+            self.emit(abi::load_u64("x9", abi::stack_pointer(), *slot));
             self.emit(abi::move_register(
                 &abi::argument_register(index)?,
-                &arg.location,
+                "x9",
             ));
         }
         self.emit(abi::branch_link(symbol));
@@ -582,14 +588,20 @@ impl CodeBuilder<'_> {
         args: &[NirValue],
         result_type: &str,
     ) -> Result<ValueResult, String> {
-        let arg_values = args
-            .iter()
-            .map(|arg| self.lower_value(arg))
-            .collect::<Result<Vec<_>, _>>()?;
-        for (index, arg) in arg_values.iter().enumerate() {
+        let mut arg_values = Vec::new();
+        let mut arg_slots = Vec::new();
+        for arg in args {
+            let value = self.lower_value(arg)?;
+            let slot = self.allocate_stack_object("runtime_call_arg", 8);
+            self.emit(abi::store_u64(&value.location, abi::stack_pointer(), slot));
+            arg_values.push(value);
+            arg_slots.push(slot);
+        }
+        for (index, slot) in arg_slots.iter().enumerate() {
+            self.emit(abi::load_u64("x9", abi::stack_pointer(), *slot));
             self.emit(abi::move_register(
                 &abi::argument_register(index)?,
-                &arg.location,
+                "x9",
             ));
         }
         self.emit(abi::branch_link(symbol));
@@ -630,7 +642,12 @@ impl CodeBuilder<'_> {
     }
 
     pub(super) fn allocate_register(&mut self) -> Result<String, String> {
-        let register = abi::temporary_register(self.next_register)?;
+        let register = abi::temporary_register(self.next_register).map_err(|err| {
+            format!(
+                "{err} while lowering native function '{}'",
+                self.current_symbol
+            )
+        })?;
         self.next_register += 1;
         self.mark_register_used(&register);
         Ok(register)

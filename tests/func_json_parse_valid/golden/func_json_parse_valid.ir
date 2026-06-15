@@ -1,0 +1,1967 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "func_json_parse_valid",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  {
+    "kind": "union",
+    "visibility": "export",
+    "name": "Json",
+    "includes": [],
+    "variants": [
+    {
+      "name": "Null",
+      "fields": [
+      { "visibility": null, "name": "value", "type": "Nothing" }
+      ]
+    },
+    {
+      "name": "Bool",
+      "fields": [
+      { "visibility": null, "name": "value", "type": "Boolean" }
+      ]
+    },
+    {
+      "name": "Num",
+      "fields": [
+      { "visibility": null, "name": "value", "type": "Float" }
+      ]
+    },
+    {
+      "name": "Str",
+      "fields": [
+      { "visibility": null, "name": "value", "type": "String" }
+      ]
+    },
+    {
+      "name": "Arr",
+      "fields": [
+      { "visibility": null, "name": "items", "type": "List OF Json" }
+      ]
+    },
+    {
+      "name": "Obj",
+      "fields": [
+      { "visibility": null, "name": "fields", "type": "Map OF String TO Json" }
+      ]
+    }
+    ]
+  },
+  {
+    "kind": "type",
+    "visibility": "private",
+    "name": "__JsonNode",
+    "fields": [
+    { "visibility": null, "name": "value", "type": "Json" },
+    { "visibility": null, "name": "index", "type": "Integer" }
+    ]
+  },
+  {
+    "kind": "type",
+    "visibility": "private",
+    "name": "__JsonStringNode",
+    "fields": [
+    { "visibility": null, "name": "value", "type": "String" },
+    { "visibility": null, "name": "index", "type": "Integer" }
+    ]
+  }
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "__json_stringify", "args": [{ "kind": "call", "target": "__json_parse", "args": [{ "kind": "const", "type": "String", "value": " null " }] }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "__json_stringify", "args": [{ "kind": "call", "target": "__json_parse", "args": [{ "kind": "const", "type": "String", "value": "\"hi\"" }] }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "__json_stringify", "args": [{ "kind": "call", "target": "__json_parse", "args": [{ "kind": "const", "type": "String", "value": "\"\\u0041\\uD83D\\uDE00\"" }] }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "__json_stringify", "args": [{ "kind": "call", "target": "__json_parse", "args": [{ "kind": "const", "type": "String", "value": "[true,false,null,{\"x\":\"y\"}]" }] }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "__json_stringify", "args": [{ "kind": "call", "target": "__json_parse", "args": [{ "kind": "const", "type": "String", "value": "-12.5e+2" }] }] }] } },
+    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  },
+  {
+    "name": "__json_backspaceChar",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "String",
+    "body": [
+    { "op": "bind", "mutable": false, "name": "bytes", "type": "List OF Byte", "value": { "kind": "list", "type": "List OF Byte", "values": [{ "kind": "call", "target": "toByte", "args": [{ "kind": "const", "type": "Integer", "value": "8" }] }] } },
+    { "op": "return", "value": { "kind": "call", "target": "toString", "args": [{ "kind": "local", "name": "bytes" }] } }
+    ]
+  },
+  {
+    "name": "__json_formfeedChar",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "String",
+    "body": [
+    { "op": "bind", "mutable": false, "name": "bytes", "type": "List OF Byte", "value": { "kind": "list", "type": "List OF Byte", "values": [{ "kind": "call", "target": "toByte", "args": [{ "kind": "const", "type": "Integer", "value": "12" }] }] } },
+    { "op": "return", "value": { "kind": "call", "target": "toString", "args": [{ "kind": "local", "name": "bytes" }] } }
+    ]
+  },
+  {
+    "name": "__json_get",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    { "name": "value", "type": "Json", "default": null },
+    { "name": "path", "type": "List OF String", "default": null }
+    ],
+    "returns": "Json",
+    "body": [
+    { "op": "bind", "mutable": true, "name": "current", "type": "Json", "value": { "kind": "local", "name": "value" } },
+    {
+      "op": "forEach",
+      "name": "key",
+      "type": "String",
+      "iterable": { "kind": "local", "name": "path" },
+      "body": [
+      { "op": "bind", "mutable": true, "name": "nextValue", "type": "Json", "value": { "kind": "local", "name": "current" } },
+      { "op": "bind", "mutable": false, "name": "currentValue", "type": "Json", "value": { "kind": "local", "name": "current" } },
+      {
+        "op": "match",
+        "value": { "kind": "local", "name": "currentValue" },
+        "cases": [
+        {
+          "pattern": { "kind": "value", "value": { "kind": "local", "name": "Obj" } },
+          "body": [
+          { "op": "bind", "mutable": false, "name": "fields", "type": "Map OF String TO Json", "value": { "kind": "memberAccess", "target": { "kind": "local", "name": "currentValue" }, "member": "fields" } },
+          { "op": "assign", "name": "nextValue", "value": { "kind": "call", "target": "get", "args": [{ "kind": "local", "name": "fields" }, { "kind": "local", "name": "key" }] } }
+          ]
+        },
+        {
+          "pattern": { "kind": "else" },
+          "body": [
+          { "op": "fail", "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "10004" }, { "kind": "const", "type": "String", "value": "not found" }] } }
+          ]
+        }
+        ]
+      },
+      { "op": "assign", "name": "current", "value": { "kind": "local", "name": "nextValue" } }
+      ]
+    },
+    { "op": "return", "value": { "kind": "local", "name": "current" } }
+    ]
+  },
+  {
+    "name": "__json_getOr",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    { "name": "value", "type": "Json", "default": null },
+    { "name": "path", "type": "List OF String", "default": null },
+    { "name": "defaultValue", "type": "Json", "default": null }
+    ],
+    "returns": "Json",
+    "body": [
+    { "op": "bind", "mutable": true, "name": "current", "type": "Json", "value": { "kind": "local", "name": "value" } },
+    {
+      "op": "forEach",
+      "name": "key",
+      "type": "String",
+      "iterable": { "kind": "local", "name": "path" },
+      "body": [
+      { "op": "bind", "mutable": true, "name": "nextValue", "type": "Json", "value": { "kind": "local", "name": "current" } },
+      { "op": "bind", "mutable": false, "name": "currentValue", "type": "Json", "value": { "kind": "local", "name": "current" } },
+      {
+        "op": "match",
+        "value": { "kind": "local", "name": "currentValue" },
+        "cases": [
+        {
+          "pattern": { "kind": "value", "value": { "kind": "local", "name": "Obj" } },
+          "body": [
+          { "op": "bind", "mutable": false, "name": "fields", "type": "Map OF String TO Json", "value": { "kind": "memberAccess", "target": { "kind": "local", "name": "currentValue" }, "member": "fields" } },
+          {
+            "op": "if",
+            "condition": { "kind": "call", "target": "hasKey", "args": [{ "kind": "local", "name": "fields" }, { "kind": "local", "name": "key" }] },
+            "then": [
+            { "op": "assign", "name": "nextValue", "value": { "kind": "call", "target": "get", "args": [{ "kind": "local", "name": "fields" }, { "kind": "local", "name": "key" }] } }
+            ],
+            "else": [
+            { "op": "return", "value": { "kind": "local", "name": "defaultValue" } }
+            ]
+          }
+          ]
+        },
+        {
+          "pattern": { "kind": "else" },
+          "body": [
+          { "op": "return", "value": { "kind": "local", "name": "defaultValue" } }
+          ]
+        }
+        ]
+      },
+      { "op": "assign", "name": "current", "value": { "kind": "local", "name": "nextValue" } }
+      ]
+    },
+    { "op": "return", "value": { "kind": "local", "name": "current" } }
+    ]
+  },
+  {
+    "name": "__json_stringify",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    { "name": "value", "type": "Json", "default": null }
+    ],
+    "returns": "String",
+    "body": [
+    {
+      "op": "match",
+      "value": { "kind": "local", "name": "value" },
+      "cases": [
+      {
+        "pattern": { "kind": "value", "value": { "kind": "local", "name": "Null" } },
+        "body": [
+        { "op": "return", "value": { "kind": "const", "type": "String", "value": "null" } }
+        ]
+      },
+      {
+        "pattern": { "kind": "value", "value": { "kind": "local", "name": "Bool" } },
+        "body": [
+        {
+          "op": "if",
+          "condition": { "kind": "memberAccess", "target": { "kind": "local", "name": "value" }, "member": "value" },
+          "then": [
+          { "op": "return", "value": { "kind": "const", "type": "String", "value": "true" } }
+          ],
+          "else": [
+          ]
+        },
+        { "op": "return", "value": { "kind": "const", "type": "String", "value": "false" } }
+        ]
+      },
+      {
+        "pattern": { "kind": "value", "value": { "kind": "local", "name": "Num" } },
+        "body": [
+        { "op": "return", "value": { "kind": "call", "target": "__json_stringifyNumber", "args": [{ "kind": "memberAccess", "target": { "kind": "local", "name": "value" }, "member": "value" }] } }
+        ]
+      },
+      {
+        "pattern": { "kind": "value", "value": { "kind": "local", "name": "Str" } },
+        "body": [
+        { "op": "bind", "mutable": false, "name": "escaped", "type": "String", "value": { "kind": "call", "target": "__json_escapeString", "args": [{ "kind": "memberAccess", "target": { "kind": "local", "name": "value" }, "member": "value" }] } },
+        { "op": "bind", "mutable": false, "name": "withOpen", "type": "String", "value": { "kind": "binary", "op": "&", "left": { "kind": "const", "type": "String", "value": "\"" }, "right": { "kind": "local", "name": "escaped" } } },
+        { "op": "return", "value": { "kind": "binary", "op": "&", "left": { "kind": "local", "name": "withOpen" }, "right": { "kind": "const", "type": "String", "value": "\"" } } }
+        ]
+      },
+      {
+        "pattern": { "kind": "value", "value": { "kind": "local", "name": "Arr" } },
+        "body": [
+        { "op": "bind", "mutable": true, "name": "text", "type": "String", "value": { "kind": "const", "type": "String", "value": "[" } },
+        { "op": "bind", "mutable": true, "name": "first", "type": "Boolean", "value": { "kind": "const", "type": "Boolean", "value": "true" } },
+        {
+          "op": "forEach",
+          "name": "item",
+          "type": "Json",
+          "iterable": { "kind": "memberAccess", "target": { "kind": "local", "name": "value" }, "member": "items" },
+          "body": [
+          {
+            "op": "if",
+            "condition": { "kind": "local", "name": "first" },
+            "then": [
+            { "op": "assign", "name": "first", "value": { "kind": "const", "type": "Boolean", "value": "false" } }
+            ],
+            "else": [
+            { "op": "assign", "name": "text", "value": { "kind": "binary", "op": "&", "left": { "kind": "local", "name": "text" }, "right": { "kind": "const", "type": "String", "value": "," } } }
+            ]
+          },
+          { "op": "assign", "name": "text", "value": { "kind": "binary", "op": "&", "left": { "kind": "local", "name": "text" }, "right": { "kind": "call", "target": "__json_stringify", "args": [{ "kind": "local", "name": "item" }] } } }
+          ]
+        },
+        { "op": "return", "value": { "kind": "binary", "op": "&", "left": { "kind": "local", "name": "text" }, "right": { "kind": "const", "type": "String", "value": "]" } } }
+        ]
+      },
+      {
+        "pattern": { "kind": "value", "value": { "kind": "local", "name": "Obj" } },
+        "body": [
+        { "op": "bind", "mutable": true, "name": "text", "type": "String", "value": { "kind": "const", "type": "String", "value": "{" } },
+        { "op": "bind", "mutable": true, "name": "first", "type": "Boolean", "value": { "kind": "const", "type": "Boolean", "value": "true" } },
+        {
+          "op": "forEach",
+          "name": "entry",
+          "type": "MapEntry OF String TO Json",
+          "iterable": { "kind": "memberAccess", "target": { "kind": "local", "name": "value" }, "member": "fields" },
+          "body": [
+          {
+            "op": "if",
+            "condition": { "kind": "local", "name": "first" },
+            "then": [
+            { "op": "assign", "name": "first", "value": { "kind": "const", "type": "Boolean", "value": "false" } }
+            ],
+            "else": [
+            { "op": "assign", "name": "text", "value": { "kind": "binary", "op": "&", "left": { "kind": "local", "name": "text" }, "right": { "kind": "const", "type": "String", "value": "," } } }
+            ]
+          },
+          { "op": "bind", "mutable": false, "name": "escapedKey", "type": "String", "value": { "kind": "call", "target": "__json_escapeString", "args": [{ "kind": "memberAccess", "target": { "kind": "local", "name": "entry" }, "member": "key" }] } },
+          { "op": "bind", "mutable": false, "name": "keyText", "type": "String", "value": { "kind": "binary", "op": "&", "left": { "kind": "const", "type": "String", "value": "\"" }, "right": { "kind": "local", "name": "escapedKey" } } },
+          { "op": "bind", "mutable": false, "name": "labelText", "type": "String", "value": { "kind": "binary", "op": "&", "left": { "kind": "local", "name": "keyText" }, "right": { "kind": "const", "type": "String", "value": "\":" } } },
+          { "op": "bind", "mutable": false, "name": "valueText", "type": "String", "value": { "kind": "call", "target": "__json_stringify", "args": [{ "kind": "memberAccess", "target": { "kind": "local", "name": "entry" }, "member": "value" }] } },
+          { "op": "assign", "name": "text", "value": { "kind": "binary", "op": "&", "left": { "kind": "binary", "op": "&", "left": { "kind": "local", "name": "text" }, "right": { "kind": "local", "name": "labelText" } }, "right": { "kind": "local", "name": "valueText" } } }
+          ]
+        },
+        { "op": "return", "value": { "kind": "binary", "op": "&", "left": { "kind": "local", "name": "text" }, "right": { "kind": "const", "type": "String", "value": "}" } } }
+        ]
+      }
+      ]
+    }
+    ]
+  },
+  {
+    "name": "__json_stringifyNumber",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    { "name": "value", "type": "Float", "default": null }
+    ],
+    "returns": "String",
+    "body": [
+    { "op": "bind", "mutable": false, "name": "integerText", "type": "String", "value": { "kind": "call", "target": "toString", "args": [{ "kind": "local", "name": "value" }, { "kind": "call", "target": "toByte", "args": [{ "kind": "const", "type": "Integer", "value": "0" }] }] } },
+    {
+      "op": "if",
+      "condition": { "kind": "call", "target": "__json_isInvalidNumberText", "args": [{ "kind": "local", "name": "integerText" }] },
+      "then": [
+      { "op": "fail", "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "10003" }, { "kind": "const", "type": "String", "value": "invalid JSON format" }] } }
+      ],
+      "else": [
+      ]
+    },
+    {
+      "op": "if",
+      "condition": { "kind": "binary", "op": "=", "left": { "kind": "call", "target": "toFloat", "args": [{ "kind": "local", "name": "integerText" }] }, "right": { "kind": "local", "name": "value" } },
+      "then": [
+      { "op": "return", "value": { "kind": "local", "name": "integerText" } }
+      ],
+      "else": [
+      ]
+    },
+    { "op": "bind", "mutable": false, "name": "rendered", "type": "String", "value": { "kind": "call", "target": "toString", "args": [{ "kind": "local", "name": "value" }, { "kind": "call", "target": "toByte", "args": [{ "kind": "const", "type": "Integer", "value": "9" }] }] } },
+    {
+      "op": "if",
+      "condition": { "kind": "call", "target": "__json_isInvalidNumberText", "args": [{ "kind": "local", "name": "rendered" }] },
+      "then": [
+      { "op": "fail", "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "10003" }, { "kind": "const", "type": "String", "value": "invalid JSON format" }] } }
+      ],
+      "else": [
+      ]
+    },
+    { "op": "return", "value": { "kind": "call", "target": "__json_trimFloatText", "args": [{ "kind": "local", "name": "rendered" }] } }
+    ]
+  },
+  {
+    "name": "__json_isInvalidNumberText",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    { "name": "value", "type": "String", "default": null }
+    ],
+    "returns": "Boolean",
+    "body": [
+    {
+      "op": "if",
+      "condition": { "kind": "binary", "op": "=", "left": { "kind": "local", "name": "value" }, "right": { "kind": "const", "type": "String", "value": "nan" } },
+      "then": [
+      { "op": "return", "value": { "kind": "const", "type": "Boolean", "value": "true" } }
+      ],
+      "else": [
+      ]
+    },
+    {
+      "op": "if",
+      "condition": { "kind": "binary", "op": "=", "left": { "kind": "local", "name": "value" }, "right": { "kind": "const", "type": "String", "value": "-nan" } },
+      "then": [
+      { "op": "return", "value": { "kind": "const", "type": "Boolean", "value": "true" } }
+      ],
+      "else": [
+      ]
+    },
+    {
+      "op": "if",
+      "condition": { "kind": "binary", "op": "=", "left": { "kind": "local", "name": "value" }, "right": { "kind": "const", "type": "String", "value": "inf" } },
+      "then": [
+      { "op": "return", "value": { "kind": "const", "type": "Boolean", "value": "true" } }
+      ],
+      "else": [
+      ]
+    },
+    {
+      "op": "if",
+      "condition": { "kind": "binary", "op": "=", "left": { "kind": "local", "name": "value" }, "right": { "kind": "const", "type": "String", "value": "-inf" } },
+      "then": [
+      { "op": "return", "value": { "kind": "const", "type": "Boolean", "value": "true" } }
+      ],
+      "else": [
+      ]
+    },
+    { "op": "return", "value": { "kind": "const", "type": "Boolean", "value": "false" } }
+    ]
+  },
+  {
+    "name": "__json_trimFloatText",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    { "name": "value", "type": "String", "default": null }
+    ],
+    "returns": "String",
+    "body": [
+    {
+      "op": "if",
+      "condition": { "kind": "binary", "op": "=", "left": { "kind": "call", "target": "strings.contains", "args": [{ "kind": "local", "name": "value" }, { "kind": "const", "type": "String", "value": "." }] }, "right": { "kind": "const", "type": "Boolean", "value": "false" } },
+      "then": [
+      { "op": "return", "value": { "kind": "local", "name": "value" } }
+      ],
+      "else": [
+      ]
+    },
+    { "op": "return", "value": { "kind": "call", "target": "__json_trimFloatTextAt", "args": [{ "kind": "local", "name": "value" }, { "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "value" }] }] } }
+    ]
+  },
+  {
+    "name": "__json_trimFloatTextAt",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    { "name": "value", "type": "String", "default": null },
+    { "name": "endIndex", "type": "Integer", "default": null }
+    ],
+    "returns": "String",
+    "body": [
+    {
+      "op": "if",
+      "condition": { "kind": "binary", "op": "<=", "left": { "kind": "local", "name": "endIndex" }, "right": { "kind": "const", "type": "Integer", "value": "0" } },
+      "then": [
+      { "op": "return", "value": { "kind": "local", "name": "value" } }
+      ],
+      "else": [
+      ]
+    },
+    { "op": "bind", "mutable": false, "name": "last", "type": "String", "value": { "kind": "call", "target": "mid", "args": [{ "kind": "local", "name": "value" }, { "kind": "binary", "op": "-", "left": { "kind": "local", "name": "endIndex" }, "right": { "kind": "const", "type": "Integer", "value": "1" } }, { "kind": "const", "type": "Integer", "value": "1" }] } },
+    {
+      "op": "if",
+      "condition": { "kind": "binary", "op": "=", "left": { "kind": "local", "name": "last" }, "right": { "kind": "const", "type": "String", "value": "0" } },
+      "then": [
+      { "op": "return", "value": { "kind": "call", "target": "__json_trimFloatTextAt", "args": [{ "kind": "local", "name": "value" }, { "kind": "binary", "op": "-", "left": { "kind": "local", "name": "endIndex" }, "right": { "kind": "const", "type": "Integer", "value": "1" } }] } }
+      ],
+      "else": [
+      ]
+    },
+    {
+      "op": "if",
+      "condition": { "kind": "binary", "op": "=", "left": { "kind": "local", "name": "last" }, "right": { "kind": "const", "type": "String", "value": "." } },
+      "then": [
+      { "op": "return", "value": { "kind": "call", "target": "mid", "args": [{ "kind": "local", "name": "value" }, { "kind": "const", "type": "Integer", "value": "0" }, { "kind": "binary", "op": "-", "left": { "kind": "local", "name": "endIndex" }, "right": { "kind": "const", "type": "Integer", "value": "1" } }] } }
+      ],
+      "else": [
+      ]
+    },
+    { "op": "return", "value": { "kind": "call", "target": "mid", "args": [{ "kind": "local", "name": "value" }, { "kind": "const", "type": "Integer", "value": "0" }, { "kind": "local", "name": "endIndex" }] } }
+    ]
+  },
+  {
+    "name": "__json_escapeString",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    { "name": "value", "type": "String", "default": null }
+    ],
+    "returns": "String",
+    "body": [
+    { "op": "bind", "mutable": true, "name": "out", "type": "String", "value": { "kind": "const", "type": "String", "value": "" } },
+    {
+      "op": "forEach",
+      "name": "ch",
+      "type": "String",
+      "iterable": { "kind": "call", "target": "strings.graphemes", "args": [{ "kind": "local", "name": "value" }] },
+      "body": [
+      {
+        "op": "if",
+        "condition": { "kind": "binary", "op": "=", "left": { "kind": "local", "name": "ch" }, "right": { "kind": "const", "type": "String", "value": "\"" } },
+        "then": [
+        { "op": "assign", "name": "out", "value": { "kind": "binary", "op": "&", "left": { "kind": "local", "name": "out" }, "right": { "kind": "const", "type": "String", "value": "\\\"" } } }
+        ],
+        "else": [
+        {
+          "op": "if",
+          "condition": { "kind": "binary", "op": "=", "left": { "kind": "local", "name": "ch" }, "right": { "kind": "const", "type": "String", "value": "\\" } },
+          "then": [
+          { "op": "assign", "name": "out", "value": { "kind": "binary", "op": "&", "left": { "kind": "local", "name": "out" }, "right": { "kind": "const", "type": "String", "value": "\\\\" } } }
+          ],
+          "else": [
+          {
+            "op": "if",
+            "condition": { "kind": "binary", "op": "=", "left": { "kind": "local", "name": "ch" }, "right": { "kind": "const", "type": "String", "value": "/" } },
+            "then": [
+            { "op": "assign", "name": "out", "value": { "kind": "binary", "op": "&", "left": { "kind": "local", "name": "out" }, "right": { "kind": "const", "type": "String", "value": "\\/" } } }
+            ],
+            "else": [
+            {
+              "op": "if",
+              "condition": { "kind": "binary", "op": "=", "left": { "kind": "local", "name": "ch" }, "right": { "kind": "const", "type": "String", "value": "\n" } },
+              "then": [
+              { "op": "assign", "name": "out", "value": { "kind": "binary", "op": "&", "left": { "kind": "local", "name": "out" }, "right": { "kind": "const", "type": "String", "value": "\\n" } } }
+              ],
+              "else": [
+              {
+                "op": "if",
+                "condition": { "kind": "binary", "op": "=", "left": { "kind": "local", "name": "ch" }, "right": { "kind": "const", "type": "String", "value": "\t" } },
+                "then": [
+                { "op": "assign", "name": "out", "value": { "kind": "binary", "op": "&", "left": { "kind": "local", "name": "out" }, "right": { "kind": "const", "type": "String", "value": "\\t" } } }
+                ],
+                "else": [
+                {
+                  "op": "if",
+                  "condition": { "kind": "binary", "op": "=", "left": { "kind": "local", "name": "ch" }, "right": { "kind": "const", "type": "String", "value": "r" } },
+                  "then": [
+                  { "op": "assign", "name": "out", "value": { "kind": "binary", "op": "&", "left": { "kind": "local", "name": "out" }, "right": { "kind": "const", "type": "String", "value": "\\r" } } }
+                  ],
+                  "else": [
+                  {
+                    "op": "if",
+                    "condition": { "kind": "binary", "op": "=", "left": { "kind": "local", "name": "ch" }, "right": { "kind": "call", "target": "__json_backspaceChar", "args": [] } },
+                    "then": [
+                    { "op": "assign", "name": "out", "value": { "kind": "binary", "op": "&", "left": { "kind": "local", "name": "out" }, "right": { "kind": "const", "type": "String", "value": "\\b" } } }
+                    ],
+                    "else": [
+                    {
+                      "op": "if",
+                      "condition": { "kind": "binary", "op": "=", "left": { "kind": "local", "name": "ch" }, "right": { "kind": "call", "target": "__json_formfeedChar", "args": [] } },
+                      "then": [
+                      { "op": "assign", "name": "out", "value": { "kind": "binary", "op": "&", "left": { "kind": "local", "name": "out" }, "right": { "kind": "const", "type": "String", "value": "\\f" } } }
+                      ],
+                      "else": [
+                      { "op": "assign", "name": "out", "value": { "kind": "binary", "op": "&", "left": { "kind": "local", "name": "out" }, "right": { "kind": "local", "name": "ch" } } }
+                      ]
+                    }
+                    ]
+                  }
+                  ]
+                }
+                ]
+              }
+              ]
+            }
+            ]
+          }
+          ]
+        }
+        ]
+      }
+      ]
+    },
+    { "op": "return", "value": { "kind": "local", "name": "out" } }
+    ]
+  },
+  {
+    "name": "__json_parse",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    { "name": "value", "type": "String", "default": null }
+    ],
+    "returns": "Json",
+    "body": [
+    { "op": "bind", "mutable": false, "name": "chars", "type": "List OF String", "value": { "kind": "call", "target": "strings.graphemes", "args": [{ "kind": "local", "name": "value" }] } },
+    { "op": "bind", "mutable": false, "name": "parsed", "type": "__JsonNode", "value": { "kind": "call", "target": "__json_parseValue", "args": [{ "kind": "local", "name": "chars" }, { "kind": "call", "target": "__json_skipWhitespace", "args": [{ "kind": "local", "name": "chars" }, { "kind": "const", "type": "Integer", "value": "0" }] }] } },
+    { "op": "bind", "mutable": false, "name": "endIndex", "type": "Integer", "value": { "kind": "call", "target": "__json_skipWhitespace", "args": [{ "kind": "local", "name": "chars" }, { "kind": "memberAccess", "target": { "kind": "local", "name": "parsed" }, "member": "index" }] } },
+    {
+      "op": "if",
+      "condition": { "kind": "binary", "op": "<>", "left": { "kind": "local", "name": "endIndex" }, "right": { "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "chars" }] } },
+      "then": [
+      { "op": "fail", "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "10003" }, { "kind": "const", "type": "String", "value": "invalid JSON format" }] } }
+      ],
+      "else": [
+      ]
+    },
+    { "op": "return", "value": { "kind": "memberAccess", "target": { "kind": "local", "name": "parsed" }, "member": "value" } }
+    ]
+  },
+  {
+    "name": "__json_parseValue",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    { "name": "chars", "type": "List OF String", "default": null },
+    { "name": "index", "type": "Integer", "default": null }
+    ],
+    "returns": "__JsonNode",
+    "body": [
+    { "op": "bind", "mutable": false, "name": "nextIndex", "type": "Integer", "value": { "kind": "call", "target": "__json_skipWhitespace", "args": [{ "kind": "local", "name": "chars" }, { "kind": "local", "name": "index" }] } },
+    {
+      "op": "if",
+      "condition": { "kind": "binary", "op": ">=", "left": { "kind": "local", "name": "nextIndex" }, "right": { "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "chars" }] } },
+      "then": [
+      { "op": "fail", "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "10003" }, { "kind": "const", "type": "String", "value": "invalid JSON format" }] } }
+      ],
+      "else": [
+      ]
+    },
+    { "op": "bind", "mutable": false, "name": "ch", "type": "String", "value": { "kind": "call", "target": "get", "args": [{ "kind": "local", "name": "chars" }, { "kind": "local", "name": "nextIndex" }] } },
+    {
+      "op": "if",
+      "condition": { "kind": "binary", "op": "=", "left": { "kind": "local", "name": "ch" }, "right": { "kind": "const", "type": "String", "value": "n" } },
+      "then": [
+      { "op": "bind", "mutable": false, "name": "endIndex", "type": "Integer", "value": { "kind": "call", "target": "__json_expectLiteral", "args": [{ "kind": "local", "name": "chars" }, { "kind": "local", "name": "nextIndex" }, { "kind": "const", "type": "String", "value": "null" }] } },
+      { "op": "bind", "mutable": false, "name": "value", "type": "Json", "value": { "kind": "constructor", "type": "Null", "args": [{ "kind": "const", "type": "Nothing", "value": "NOTHING" }] } },
+      { "op": "return", "value": { "kind": "constructor", "type": "__JsonNode", "args": [{ "kind": "local", "name": "value" }, { "kind": "local", "name": "endIndex" }] } }
+      ],
+      "else": [
+      {
+        "op": "if",
+        "condition": { "kind": "binary", "op": "=", "left": { "kind": "local", "name": "ch" }, "right": { "kind": "const", "type": "String", "value": "t" } },
+        "then": [
+        { "op": "bind", "mutable": false, "name": "endIndex", "type": "Integer", "value": { "kind": "call", "target": "__json_expectLiteral", "args": [{ "kind": "local", "name": "chars" }, { "kind": "local", "name": "nextIndex" }, { "kind": "const", "type": "String", "value": "true" }] } },
+        { "op": "bind", "mutable": false, "name": "value", "type": "Json", "value": { "kind": "constructor", "type": "Bool", "args": [{ "kind": "const", "type": "Boolean", "value": "true" }] } },
+        { "op": "return", "value": { "kind": "constructor", "type": "__JsonNode", "args": [{ "kind": "local", "name": "value" }, { "kind": "local", "name": "endIndex" }] } }
+        ],
+        "else": [
+        {
+          "op": "if",
+          "condition": { "kind": "binary", "op": "=", "left": { "kind": "local", "name": "ch" }, "right": { "kind": "const", "type": "String", "value": "f" } },
+          "then": [
+          { "op": "bind", "mutable": false, "name": "endIndex", "type": "Integer", "value": { "kind": "call", "target": "__json_expectLiteral", "args": [{ "kind": "local", "name": "chars" }, { "kind": "local", "name": "nextIndex" }, { "kind": "const", "type": "String", "value": "false" }] } },
+          { "op": "bind", "mutable": false, "name": "value", "type": "Json", "value": { "kind": "constructor", "type": "Bool", "args": [{ "kind": "const", "type": "Boolean", "value": "false" }] } },
+          { "op": "return", "value": { "kind": "constructor", "type": "__JsonNode", "args": [{ "kind": "local", "name": "value" }, { "kind": "local", "name": "endIndex" }] } }
+          ],
+          "else": [
+          {
+            "op": "if",
+            "condition": { "kind": "binary", "op": "=", "left": { "kind": "local", "name": "ch" }, "right": { "kind": "const", "type": "String", "value": "\"" } },
+            "then": [
+            { "op": "bind", "mutable": false, "name": "parsed", "type": "__JsonStringNode", "value": { "kind": "call", "target": "__json_parseString", "args": [{ "kind": "local", "name": "chars" }, { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "nextIndex" }, "right": { "kind": "const", "type": "Integer", "value": "1" } }, { "kind": "const", "type": "String", "value": "" }] } },
+            { "op": "bind", "mutable": false, "name": "value", "type": "Json", "value": { "kind": "constructor", "type": "Str", "args": [{ "kind": "memberAccess", "target": { "kind": "local", "name": "parsed" }, "member": "value" }] } },
+            { "op": "return", "value": { "kind": "constructor", "type": "__JsonNode", "args": [{ "kind": "local", "name": "value" }, { "kind": "memberAccess", "target": { "kind": "local", "name": "parsed" }, "member": "index" }] } }
+            ],
+            "else": [
+            {
+              "op": "if",
+              "condition": { "kind": "binary", "op": "=", "left": { "kind": "local", "name": "ch" }, "right": { "kind": "const", "type": "String", "value": "[" } },
+              "then": [
+              { "op": "return", "value": { "kind": "call", "target": "__json_parseArray", "args": [{ "kind": "local", "name": "chars" }, { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "nextIndex" }, "right": { "kind": "const", "type": "Integer", "value": "1" } }] } }
+              ],
+              "else": [
+              {
+                "op": "if",
+                "condition": { "kind": "binary", "op": "=", "left": { "kind": "local", "name": "ch" }, "right": { "kind": "const", "type": "String", "value": "{" } },
+                "then": [
+                { "op": "return", "value": { "kind": "call", "target": "__json_parseObject", "args": [{ "kind": "local", "name": "chars" }, { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "nextIndex" }, "right": { "kind": "const", "type": "Integer", "value": "1" } }] } }
+                ],
+                "else": [
+                ]
+              }
+              ]
+            }
+            ]
+          }
+          ]
+        }
+        ]
+      }
+      ]
+    },
+    { "op": "return", "value": { "kind": "call", "target": "__json_parseNumber", "args": [{ "kind": "local", "name": "chars" }, { "kind": "local", "name": "nextIndex" }] } }
+    ]
+  },
+  {
+    "name": "__json_parseArray",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    { "name": "chars", "type": "List OF String", "default": null },
+    { "name": "index", "type": "Integer", "default": null }
+    ],
+    "returns": "__JsonNode",
+    "body": [
+    { "op": "bind", "mutable": false, "name": "nextIndex", "type": "Integer", "value": { "kind": "call", "target": "__json_skipWhitespace", "args": [{ "kind": "local", "name": "chars" }, { "kind": "local", "name": "index" }] } },
+    {
+      "op": "if",
+      "condition": { "kind": "binary", "op": ">=", "left": { "kind": "local", "name": "nextIndex" }, "right": { "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "chars" }] } },
+      "then": [
+      { "op": "fail", "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "10003" }, { "kind": "const", "type": "String", "value": "invalid JSON format" }] } }
+      ],
+      "else": [
+      ]
+    },
+    {
+      "op": "if",
+      "condition": { "kind": "binary", "op": "=", "left": { "kind": "call", "target": "get", "args": [{ "kind": "local", "name": "chars" }, { "kind": "local", "name": "nextIndex" }] }, "right": { "kind": "const", "type": "String", "value": "]" } },
+      "then": [
+      { "op": "bind", "mutable": false, "name": "emptyItems", "type": "List OF Json", "value": { "kind": "list", "type": "List OF Json", "values": [] } },
+      { "op": "bind", "mutable": false, "name": "value", "type": "Json", "value": { "kind": "constructor", "type": "Arr", "args": [{ "kind": "local", "name": "emptyItems" }] } },
+      { "op": "return", "value": { "kind": "constructor", "type": "__JsonNode", "args": [{ "kind": "local", "name": "value" }, { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "nextIndex" }, "right": { "kind": "const", "type": "Integer", "value": "1" } }] } }
+      ],
+      "else": [
+      ]
+    },
+    { "op": "return", "value": { "kind": "call", "target": "__json_parseArrayItems", "args": [{ "kind": "local", "name": "chars" }, { "kind": "local", "name": "nextIndex" }, { "kind": "list", "type": "List OF Json", "values": [] }] } }
+    ]
+  },
+  {
+    "name": "__json_parseArrayItems",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    { "name": "chars", "type": "List OF String", "default": null },
+    { "name": "index", "type": "Integer", "default": null },
+    { "name": "items", "type": "List OF Json", "default": null }
+    ],
+    "returns": "__JsonNode",
+    "body": [
+    { "op": "bind", "mutable": false, "name": "parsed", "type": "__JsonNode", "value": { "kind": "call", "target": "__json_parseValue", "args": [{ "kind": "local", "name": "chars" }, { "kind": "local", "name": "index" }] } },
+    { "op": "bind", "mutable": false, "name": "nextItems", "type": "List OF Json", "value": { "kind": "call", "target": "append", "args": [{ "kind": "local", "name": "items" }, { "kind": "memberAccess", "target": { "kind": "local", "name": "parsed" }, "member": "value" }] } },
+    { "op": "bind", "mutable": false, "name": "nextIndex", "type": "Integer", "value": { "kind": "call", "target": "__json_skipWhitespace", "args": [{ "kind": "local", "name": "chars" }, { "kind": "memberAccess", "target": { "kind": "local", "name": "parsed" }, "member": "index" }] } },
+    {
+      "op": "if",
+      "condition": { "kind": "binary", "op": ">=", "left": { "kind": "local", "name": "nextIndex" }, "right": { "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "chars" }] } },
+      "then": [
+      { "op": "fail", "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "10003" }, { "kind": "const", "type": "String", "value": "invalid JSON format" }] } }
+      ],
+      "else": [
+      ]
+    },
+    { "op": "bind", "mutable": false, "name": "ch", "type": "String", "value": { "kind": "call", "target": "get", "args": [{ "kind": "local", "name": "chars" }, { "kind": "local", "name": "nextIndex" }] } },
+    {
+      "op": "if",
+      "condition": { "kind": "binary", "op": "=", "left": { "kind": "local", "name": "ch" }, "right": { "kind": "const", "type": "String", "value": "," } },
+      "then": [
+      { "op": "return", "value": { "kind": "call", "target": "__json_parseArrayItems", "args": [{ "kind": "local", "name": "chars" }, { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "nextIndex" }, "right": { "kind": "const", "type": "Integer", "value": "1" } }, { "kind": "local", "name": "nextItems" }] } }
+      ],
+      "else": [
+      {
+        "op": "if",
+        "condition": { "kind": "binary", "op": "=", "left": { "kind": "local", "name": "ch" }, "right": { "kind": "const", "type": "String", "value": "]" } },
+        "then": [
+        { "op": "bind", "mutable": false, "name": "value", "type": "Json", "value": { "kind": "constructor", "type": "Arr", "args": [{ "kind": "local", "name": "nextItems" }] } },
+        { "op": "return", "value": { "kind": "constructor", "type": "__JsonNode", "args": [{ "kind": "local", "name": "value" }, { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "nextIndex" }, "right": { "kind": "const", "type": "Integer", "value": "1" } }] } }
+        ],
+        "else": [
+        ]
+      }
+      ]
+    },
+    { "op": "fail", "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "10003" }, { "kind": "const", "type": "String", "value": "invalid JSON format" }] } }
+    ]
+  },
+  {
+    "name": "__json_parseObject",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    { "name": "chars", "type": "List OF String", "default": null },
+    { "name": "index", "type": "Integer", "default": null }
+    ],
+    "returns": "__JsonNode",
+    "body": [
+    { "op": "bind", "mutable": false, "name": "nextIndex", "type": "Integer", "value": { "kind": "call", "target": "__json_skipWhitespace", "args": [{ "kind": "local", "name": "chars" }, { "kind": "local", "name": "index" }] } },
+    {
+      "op": "if",
+      "condition": { "kind": "binary", "op": ">=", "left": { "kind": "local", "name": "nextIndex" }, "right": { "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "chars" }] } },
+      "then": [
+      { "op": "fail", "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "10003" }, { "kind": "const", "type": "String", "value": "invalid JSON format" }] } }
+      ],
+      "else": [
+      ]
+    },
+    {
+      "op": "if",
+      "condition": { "kind": "binary", "op": "=", "left": { "kind": "call", "target": "get", "args": [{ "kind": "local", "name": "chars" }, { "kind": "local", "name": "nextIndex" }] }, "right": { "kind": "const", "type": "String", "value": "}" } },
+      "then": [
+      { "op": "bind", "mutable": false, "name": "emptyFields", "type": "Map OF String TO Json", "value": { "kind": "map", "type": "Map OF String TO Json", "entries": [] } },
+      { "op": "bind", "mutable": false, "name": "value", "type": "Json", "value": { "kind": "constructor", "type": "Obj", "args": [{ "kind": "local", "name": "emptyFields" }] } },
+      { "op": "return", "value": { "kind": "constructor", "type": "__JsonNode", "args": [{ "kind": "local", "name": "value" }, { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "nextIndex" }, "right": { "kind": "const", "type": "Integer", "value": "1" } }] } }
+      ],
+      "else": [
+      ]
+    },
+    { "op": "return", "value": { "kind": "call", "target": "__json_parseObjectItems", "args": [{ "kind": "local", "name": "chars" }, { "kind": "local", "name": "nextIndex" }, { "kind": "map", "type": "Map OF String TO Json", "entries": [] }] } }
+    ]
+  },
+  {
+    "name": "__json_parseObjectItems",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    { "name": "chars", "type": "List OF String", "default": null },
+    { "name": "index", "type": "Integer", "default": null },
+    { "name": "fields", "type": "Map OF String TO Json", "default": null }
+    ],
+    "returns": "__JsonNode",
+    "body": [
+    { "op": "bind", "mutable": false, "name": "nextIndex", "type": "Integer", "value": { "kind": "call", "target": "__json_skipWhitespace", "args": [{ "kind": "local", "name": "chars" }, { "kind": "local", "name": "index" }] } },
+    {
+      "op": "if",
+      "condition": { "kind": "binary", "op": ">=", "left": { "kind": "local", "name": "nextIndex" }, "right": { "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "chars" }] } },
+      "then": [
+      { "op": "fail", "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "10003" }, { "kind": "const", "type": "String", "value": "invalid JSON format" }] } }
+      ],
+      "else": [
+      ]
+    },
+    { "op": "bind", "mutable": false, "name": "quote", "type": "String", "value": { "kind": "call", "target": "get", "args": [{ "kind": "local", "name": "chars" }, { "kind": "local", "name": "nextIndex" }] } },
+    {
+      "op": "if",
+      "condition": { "kind": "binary", "op": "<>", "left": { "kind": "local", "name": "quote" }, "right": { "kind": "const", "type": "String", "value": "\"" } },
+      "then": [
+      { "op": "fail", "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "10003" }, { "kind": "const", "type": "String", "value": "invalid JSON format" }] } }
+      ],
+      "else": [
+      ]
+    },
+    { "op": "bind", "mutable": false, "name": "keyState", "type": "__JsonStringNode", "value": { "kind": "call", "target": "__json_parseString", "args": [{ "kind": "local", "name": "chars" }, { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "nextIndex" }, "right": { "kind": "const", "type": "Integer", "value": "1" } }, { "kind": "const", "type": "String", "value": "" }] } },
+    { "op": "bind", "mutable": false, "name": "colonIndex", "type": "Integer", "value": { "kind": "call", "target": "__json_skipWhitespace", "args": [{ "kind": "local", "name": "chars" }, { "kind": "memberAccess", "target": { "kind": "local", "name": "keyState" }, "member": "index" }] } },
+    {
+      "op": "if",
+      "condition": { "kind": "binary", "op": ">=", "left": { "kind": "local", "name": "colonIndex" }, "right": { "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "chars" }] } },
+      "then": [
+      { "op": "fail", "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "10003" }, { "kind": "const", "type": "String", "value": "invalid JSON format" }] } }
+      ],
+      "else": [
+      ]
+    },
+    { "op": "bind", "mutable": false, "name": "colon", "type": "String", "value": { "kind": "call", "target": "get", "args": [{ "kind": "local", "name": "chars" }, { "kind": "local", "name": "colonIndex" }] } },
+    {
+      "op": "if",
+      "condition": { "kind": "binary", "op": "<>", "left": { "kind": "local", "name": "colon" }, "right": { "kind": "const", "type": "String", "value": ":" } },
+      "then": [
+      { "op": "fail", "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "10003" }, { "kind": "const", "type": "String", "value": "invalid JSON format" }] } }
+      ],
+      "else": [
+      ]
+    },
+    { "op": "bind", "mutable": false, "name": "valueState", "type": "__JsonNode", "value": { "kind": "call", "target": "__json_parseValue", "args": [{ "kind": "local", "name": "chars" }, { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "colonIndex" }, "right": { "kind": "const", "type": "Integer", "value": "1" } }] } },
+    { "op": "bind", "mutable": false, "name": "nextFields", "type": "Map OF String TO Json", "value": { "kind": "call", "target": "set", "args": [{ "kind": "local", "name": "fields" }, { "kind": "memberAccess", "target": { "kind": "local", "name": "keyState" }, "member": "value" }, { "kind": "memberAccess", "target": { "kind": "local", "name": "valueState" }, "member": "value" }] } },
+    { "op": "bind", "mutable": false, "name": "afterValue", "type": "Integer", "value": { "kind": "call", "target": "__json_skipWhitespace", "args": [{ "kind": "local", "name": "chars" }, { "kind": "memberAccess", "target": { "kind": "local", "name": "valueState" }, "member": "index" }] } },
+    {
+      "op": "if",
+      "condition": { "kind": "binary", "op": ">=", "left": { "kind": "local", "name": "afterValue" }, "right": { "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "chars" }] } },
+      "then": [
+      { "op": "fail", "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "10003" }, { "kind": "const", "type": "String", "value": "invalid JSON format" }] } }
+      ],
+      "else": [
+      ]
+    },
+    { "op": "bind", "mutable": false, "name": "ch", "type": "String", "value": { "kind": "call", "target": "get", "args": [{ "kind": "local", "name": "chars" }, { "kind": "local", "name": "afterValue" }] } },
+    {
+      "op": "if",
+      "condition": { "kind": "binary", "op": "=", "left": { "kind": "local", "name": "ch" }, "right": { "kind": "const", "type": "String", "value": "," } },
+      "then": [
+      { "op": "return", "value": { "kind": "call", "target": "__json_parseObjectItems", "args": [{ "kind": "local", "name": "chars" }, { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "afterValue" }, "right": { "kind": "const", "type": "Integer", "value": "1" } }, { "kind": "local", "name": "nextFields" }] } }
+      ],
+      "else": [
+      {
+        "op": "if",
+        "condition": { "kind": "binary", "op": "=", "left": { "kind": "local", "name": "ch" }, "right": { "kind": "const", "type": "String", "value": "}" } },
+        "then": [
+        { "op": "bind", "mutable": false, "name": "value", "type": "Json", "value": { "kind": "constructor", "type": "Obj", "args": [{ "kind": "local", "name": "nextFields" }] } },
+        { "op": "return", "value": { "kind": "constructor", "type": "__JsonNode", "args": [{ "kind": "local", "name": "value" }, { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "afterValue" }, "right": { "kind": "const", "type": "Integer", "value": "1" } }] } }
+        ],
+        "else": [
+        ]
+      }
+      ]
+    },
+    { "op": "fail", "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "10003" }, { "kind": "const", "type": "String", "value": "invalid JSON format" }] } }
+    ]
+  },
+  {
+    "name": "__json_parseString",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    { "name": "chars", "type": "List OF String", "default": null },
+    { "name": "index", "type": "Integer", "default": null },
+    { "name": "current", "type": "String", "default": null }
+    ],
+    "returns": "__JsonStringNode",
+    "body": [
+    {
+      "op": "if",
+      "condition": { "kind": "binary", "op": ">=", "left": { "kind": "local", "name": "index" }, "right": { "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "chars" }] } },
+      "then": [
+      { "op": "fail", "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "10003" }, { "kind": "const", "type": "String", "value": "invalid JSON format" }] } }
+      ],
+      "else": [
+      ]
+    },
+    { "op": "bind", "mutable": false, "name": "ch", "type": "String", "value": { "kind": "call", "target": "get", "args": [{ "kind": "local", "name": "chars" }, { "kind": "local", "name": "index" }] } },
+    {
+      "op": "if",
+      "condition": { "kind": "binary", "op": "=", "left": { "kind": "local", "name": "ch" }, "right": { "kind": "const", "type": "String", "value": "\"" } },
+      "then": [
+      { "op": "return", "value": { "kind": "constructor", "type": "__JsonStringNode", "args": [{ "kind": "local", "name": "current" }, { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "index" }, "right": { "kind": "const", "type": "Integer", "value": "1" } }] } }
+      ],
+      "else": [
+      ]
+    },
+    {
+      "op": "if",
+      "condition": { "kind": "binary", "op": "=", "left": { "kind": "local", "name": "ch" }, "right": { "kind": "const", "type": "String", "value": "\\" } },
+      "then": [
+      {
+        "op": "if",
+        "condition": { "kind": "binary", "op": ">=", "left": { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "index" }, "right": { "kind": "const", "type": "Integer", "value": "1" } }, "right": { "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "chars" }] } },
+        "then": [
+        { "op": "fail", "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "10003" }, { "kind": "const", "type": "String", "value": "invalid JSON format" }] } }
+        ],
+        "else": [
+        ]
+      },
+      { "op": "bind", "mutable": false, "name": "escapeState", "type": "__JsonStringNode", "value": { "kind": "call", "target": "__json_parseEscape", "args": [{ "kind": "local", "name": "chars" }, { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "index" }, "right": { "kind": "const", "type": "Integer", "value": "1" } }] } },
+      { "op": "return", "value": { "kind": "call", "target": "__json_parseString", "args": [{ "kind": "local", "name": "chars" }, { "kind": "memberAccess", "target": { "kind": "local", "name": "escapeState" }, "member": "index" }, { "kind": "binary", "op": "&", "left": { "kind": "local", "name": "current" }, "right": { "kind": "memberAccess", "target": { "kind": "local", "name": "escapeState" }, "member": "value" } }] } }
+      ],
+      "else": [
+      ]
+    },
+    { "op": "return", "value": { "kind": "call", "target": "__json_parseString", "args": [{ "kind": "local", "name": "chars" }, { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "index" }, "right": { "kind": "const", "type": "Integer", "value": "1" } }, { "kind": "binary", "op": "&", "left": { "kind": "local", "name": "current" }, "right": { "kind": "local", "name": "ch" } }] } }
+    ]
+  },
+  {
+    "name": "__json_parseEscape",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    { "name": "chars", "type": "List OF String", "default": null },
+    { "name": "index", "type": "Integer", "default": null }
+    ],
+    "returns": "__JsonStringNode",
+    "body": [
+    {
+      "op": "if",
+      "condition": { "kind": "binary", "op": ">=", "left": { "kind": "local", "name": "index" }, "right": { "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "chars" }] } },
+      "then": [
+      { "op": "fail", "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "10003" }, { "kind": "const", "type": "String", "value": "invalid JSON format" }] } }
+      ],
+      "else": [
+      ]
+    },
+    { "op": "bind", "mutable": false, "name": "ch", "type": "String", "value": { "kind": "call", "target": "get", "args": [{ "kind": "local", "name": "chars" }, { "kind": "local", "name": "index" }] } },
+    {
+      "op": "if",
+      "condition": { "kind": "binary", "op": "=", "left": { "kind": "local", "name": "ch" }, "right": { "kind": "const", "type": "String", "value": "u" } },
+      "then": [
+      { "op": "return", "value": { "kind": "call", "target": "__json_parseUnicodeEscape", "args": [{ "kind": "local", "name": "chars" }, { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "index" }, "right": { "kind": "const", "type": "Integer", "value": "1" } }] } }
+      ],
+      "else": [
+      ]
+    },
+    { "op": "return", "value": { "kind": "constructor", "type": "__JsonStringNode", "args": [{ "kind": "call", "target": "__json_decodeEscape", "args": [{ "kind": "local", "name": "ch" }] }, { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "index" }, "right": { "kind": "const", "type": "Integer", "value": "1" } }] } }
+    ]
+  },
+  {
+    "name": "__json_decodeEscape",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    { "name": "ch", "type": "String", "default": null }
+    ],
+    "returns": "String",
+    "body": [
+    {
+      "op": "if",
+      "condition": { "kind": "binary", "op": "=", "left": { "kind": "local", "name": "ch" }, "right": { "kind": "const", "type": "String", "value": "\"" } },
+      "then": [
+      { "op": "return", "value": { "kind": "const", "type": "String", "value": "\"" } }
+      ],
+      "else": [
+      {
+        "op": "if",
+        "condition": { "kind": "binary", "op": "=", "left": { "kind": "local", "name": "ch" }, "right": { "kind": "const", "type": "String", "value": "\\" } },
+        "then": [
+        { "op": "return", "value": { "kind": "const", "type": "String", "value": "\\" } }
+        ],
+        "else": [
+        {
+          "op": "if",
+          "condition": { "kind": "binary", "op": "=", "left": { "kind": "local", "name": "ch" }, "right": { "kind": "const", "type": "String", "value": "/" } },
+          "then": [
+          { "op": "return", "value": { "kind": "const", "type": "String", "value": "/" } }
+          ],
+          "else": [
+          {
+            "op": "if",
+            "condition": { "kind": "binary", "op": "=", "left": { "kind": "local", "name": "ch" }, "right": { "kind": "const", "type": "String", "value": "b" } },
+            "then": [
+            { "op": "return", "value": { "kind": "call", "target": "__json_backspaceChar", "args": [] } }
+            ],
+            "else": [
+            {
+              "op": "if",
+              "condition": { "kind": "binary", "op": "=", "left": { "kind": "local", "name": "ch" }, "right": { "kind": "const", "type": "String", "value": "f" } },
+              "then": [
+              { "op": "return", "value": { "kind": "call", "target": "__json_formfeedChar", "args": [] } }
+              ],
+              "else": [
+              {
+                "op": "if",
+                "condition": { "kind": "binary", "op": "=", "left": { "kind": "local", "name": "ch" }, "right": { "kind": "const", "type": "String", "value": "n" } },
+                "then": [
+                { "op": "return", "value": { "kind": "const", "type": "String", "value": "\n" } }
+                ],
+                "else": [
+                {
+                  "op": "if",
+                  "condition": { "kind": "binary", "op": "=", "left": { "kind": "local", "name": "ch" }, "right": { "kind": "const", "type": "String", "value": "r" } },
+                  "then": [
+                  { "op": "return", "value": { "kind": "const", "type": "String", "value": "r" } }
+                  ],
+                  "else": [
+                  {
+                    "op": "if",
+                    "condition": { "kind": "binary", "op": "=", "left": { "kind": "local", "name": "ch" }, "right": { "kind": "const", "type": "String", "value": "t" } },
+                    "then": [
+                    { "op": "return", "value": { "kind": "const", "type": "String", "value": "\t" } }
+                    ],
+                    "else": [
+                    ]
+                  }
+                  ]
+                }
+                ]
+              }
+              ]
+            }
+            ]
+          }
+          ]
+        }
+        ]
+      }
+      ]
+    },
+    { "op": "fail", "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "10003" }, { "kind": "const", "type": "String", "value": "invalid JSON format" }] } }
+    ]
+  },
+  {
+    "name": "__json_parseUnicodeEscape",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    { "name": "chars", "type": "List OF String", "default": null },
+    { "name": "index", "type": "Integer", "default": null }
+    ],
+    "returns": "__JsonStringNode",
+    "body": [
+    { "op": "bind", "mutable": false, "name": "first", "type": "Integer", "value": { "kind": "call", "target": "__json_parseHexQuad", "args": [{ "kind": "local", "name": "chars" }, { "kind": "local", "name": "index" }] } },
+    {
+      "op": "if",
+      "condition": { "kind": "call", "target": "__json_isHighSurrogate", "args": [{ "kind": "local", "name": "first" }] },
+      "then": [
+      {
+        "op": "if",
+        "condition": { "kind": "binary", "op": ">=", "left": { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "index" }, "right": { "kind": "const", "type": "Integer", "value": "10" } }, "right": { "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "chars" }] } },
+        "then": [
+        { "op": "fail", "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "10003" }, { "kind": "const", "type": "String", "value": "invalid JSON format" }] } }
+        ],
+        "else": [
+        ]
+      },
+      {
+        "op": "if",
+        "condition": { "kind": "binary", "op": "<>", "left": { "kind": "call", "target": "get", "args": [{ "kind": "local", "name": "chars" }, { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "index" }, "right": { "kind": "const", "type": "Integer", "value": "4" } }] }, "right": { "kind": "const", "type": "String", "value": "\\" } },
+        "then": [
+        { "op": "fail", "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "10003" }, { "kind": "const", "type": "String", "value": "invalid JSON format" }] } }
+        ],
+        "else": [
+        ]
+      },
+      {
+        "op": "if",
+        "condition": { "kind": "binary", "op": "<>", "left": { "kind": "call", "target": "get", "args": [{ "kind": "local", "name": "chars" }, { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "index" }, "right": { "kind": "const", "type": "Integer", "value": "5" } }] }, "right": { "kind": "const", "type": "String", "value": "u" } },
+        "then": [
+        { "op": "fail", "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "10003" }, { "kind": "const", "type": "String", "value": "invalid JSON format" }] } }
+        ],
+        "else": [
+        ]
+      },
+      { "op": "bind", "mutable": false, "name": "second", "type": "Integer", "value": { "kind": "call", "target": "__json_parseHexQuad", "args": [{ "kind": "local", "name": "chars" }, { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "index" }, "right": { "kind": "const", "type": "Integer", "value": "6" } }] } },
+      {
+        "op": "if",
+        "condition": { "kind": "binary", "op": "=", "left": { "kind": "call", "target": "__json_isLowSurrogate", "args": [{ "kind": "local", "name": "second" }] }, "right": { "kind": "const", "type": "Boolean", "value": "false" } },
+        "then": [
+        { "op": "fail", "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "10003" }, { "kind": "const", "type": "String", "value": "invalid JSON format" }] } }
+        ],
+        "else": [
+        ]
+      },
+      { "op": "bind", "mutable": false, "name": "codePoint", "type": "Integer", "value": { "kind": "binary", "op": "+", "left": { "kind": "binary", "op": "+", "left": { "kind": "const", "type": "Integer", "value": "65536" }, "right": { "kind": "binary", "op": "*", "left": { "kind": "binary", "op": "-", "left": { "kind": "local", "name": "first" }, "right": { "kind": "const", "type": "Integer", "value": "55296" } }, "right": { "kind": "const", "type": "Integer", "value": "1024" } } }, "right": { "kind": "binary", "op": "-", "left": { "kind": "local", "name": "second" }, "right": { "kind": "const", "type": "Integer", "value": "56320" } } } },
+      { "op": "return", "value": { "kind": "constructor", "type": "__JsonStringNode", "args": [{ "kind": "call", "target": "__json_codePointToString", "args": [{ "kind": "local", "name": "codePoint" }] }, { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "index" }, "right": { "kind": "const", "type": "Integer", "value": "10" } }] } }
+      ],
+      "else": [
+      ]
+    },
+    {
+      "op": "if",
+      "condition": { "kind": "call", "target": "__json_isLowSurrogate", "args": [{ "kind": "local", "name": "first" }] },
+      "then": [
+      { "op": "fail", "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "10003" }, { "kind": "const", "type": "String", "value": "invalid JSON format" }] } }
+      ],
+      "else": [
+      ]
+    },
+    { "op": "return", "value": { "kind": "constructor", "type": "__JsonStringNode", "args": [{ "kind": "call", "target": "__json_codePointToString", "args": [{ "kind": "local", "name": "first" }] }, { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "index" }, "right": { "kind": "const", "type": "Integer", "value": "4" } }] } }
+    ]
+  },
+  {
+    "name": "__json_parseHexQuad",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    { "name": "chars", "type": "List OF String", "default": null },
+    { "name": "index", "type": "Integer", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    {
+      "op": "if",
+      "condition": { "kind": "binary", "op": ">=", "left": { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "index" }, "right": { "kind": "const", "type": "Integer", "value": "3" } }, "right": { "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "chars" }] } },
+      "then": [
+      { "op": "fail", "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "10003" }, { "kind": "const", "type": "String", "value": "invalid JSON format" }] } }
+      ],
+      "else": [
+      ]
+    },
+    { "op": "bind", "mutable": false, "name": "d0", "type": "Integer", "value": { "kind": "call", "target": "__json_hexValue", "args": [{ "kind": "call", "target": "get", "args": [{ "kind": "local", "name": "chars" }, { "kind": "local", "name": "index" }] }] } },
+    { "op": "bind", "mutable": false, "name": "d1", "type": "Integer", "value": { "kind": "call", "target": "__json_hexValue", "args": [{ "kind": "call", "target": "get", "args": [{ "kind": "local", "name": "chars" }, { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "index" }, "right": { "kind": "const", "type": "Integer", "value": "1" } }] }] } },
+    { "op": "bind", "mutable": false, "name": "d2", "type": "Integer", "value": { "kind": "call", "target": "__json_hexValue", "args": [{ "kind": "call", "target": "get", "args": [{ "kind": "local", "name": "chars" }, { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "index" }, "right": { "kind": "const", "type": "Integer", "value": "2" } }] }] } },
+    { "op": "bind", "mutable": false, "name": "d3", "type": "Integer", "value": { "kind": "call", "target": "__json_hexValue", "args": [{ "kind": "call", "target": "get", "args": [{ "kind": "local", "name": "chars" }, { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "index" }, "right": { "kind": "const", "type": "Integer", "value": "3" } }] }] } },
+    { "op": "return", "value": { "kind": "binary", "op": "+", "left": { "kind": "binary", "op": "+", "left": { "kind": "binary", "op": "+", "left": { "kind": "binary", "op": "*", "left": { "kind": "local", "name": "d0" }, "right": { "kind": "const", "type": "Integer", "value": "4096" } }, "right": { "kind": "binary", "op": "*", "left": { "kind": "local", "name": "d1" }, "right": { "kind": "const", "type": "Integer", "value": "256" } } }, "right": { "kind": "binary", "op": "*", "left": { "kind": "local", "name": "d2" }, "right": { "kind": "const", "type": "Integer", "value": "16" } } }, "right": { "kind": "local", "name": "d3" } } }
+    ]
+  },
+  {
+    "name": "__json_hexValue",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    { "name": "ch", "type": "String", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    {
+      "op": "if",
+      "condition": { "kind": "binary", "op": "=", "left": { "kind": "local", "name": "ch" }, "right": { "kind": "const", "type": "String", "value": "0" } },
+      "then": [
+      { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+      ],
+      "else": [
+      {
+        "op": "if",
+        "condition": { "kind": "binary", "op": "=", "left": { "kind": "local", "name": "ch" }, "right": { "kind": "const", "type": "String", "value": "1" } },
+        "then": [
+        { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "1" } }
+        ],
+        "else": [
+        {
+          "op": "if",
+          "condition": { "kind": "binary", "op": "=", "left": { "kind": "local", "name": "ch" }, "right": { "kind": "const", "type": "String", "value": "2" } },
+          "then": [
+          { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "2" } }
+          ],
+          "else": [
+          {
+            "op": "if",
+            "condition": { "kind": "binary", "op": "=", "left": { "kind": "local", "name": "ch" }, "right": { "kind": "const", "type": "String", "value": "3" } },
+            "then": [
+            { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "3" } }
+            ],
+            "else": [
+            {
+              "op": "if",
+              "condition": { "kind": "binary", "op": "=", "left": { "kind": "local", "name": "ch" }, "right": { "kind": "const", "type": "String", "value": "4" } },
+              "then": [
+              { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "4" } }
+              ],
+              "else": [
+              {
+                "op": "if",
+                "condition": { "kind": "binary", "op": "=", "left": { "kind": "local", "name": "ch" }, "right": { "kind": "const", "type": "String", "value": "5" } },
+                "then": [
+                { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "5" } }
+                ],
+                "else": [
+                {
+                  "op": "if",
+                  "condition": { "kind": "binary", "op": "=", "left": { "kind": "local", "name": "ch" }, "right": { "kind": "const", "type": "String", "value": "6" } },
+                  "then": [
+                  { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "6" } }
+                  ],
+                  "else": [
+                  {
+                    "op": "if",
+                    "condition": { "kind": "binary", "op": "=", "left": { "kind": "local", "name": "ch" }, "right": { "kind": "const", "type": "String", "value": "7" } },
+                    "then": [
+                    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "7" } }
+                    ],
+                    "else": [
+                    {
+                      "op": "if",
+                      "condition": { "kind": "binary", "op": "=", "left": { "kind": "local", "name": "ch" }, "right": { "kind": "const", "type": "String", "value": "8" } },
+                      "then": [
+                      { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "8" } }
+                      ],
+                      "else": [
+                      {
+                        "op": "if",
+                        "condition": { "kind": "binary", "op": "=", "left": { "kind": "local", "name": "ch" }, "right": { "kind": "const", "type": "String", "value": "9" } },
+                        "then": [
+                        { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "9" } }
+                        ],
+                        "else": [
+                        {
+                          "op": "if",
+                          "condition": { "kind": "binary", "op": "=", "left": { "kind": "local", "name": "ch" }, "right": { "kind": "const", "type": "String", "value": "A" } },
+                          "then": [
+                          { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "10" } }
+                          ],
+                          "else": [
+                          {
+                            "op": "if",
+                            "condition": { "kind": "binary", "op": "=", "left": { "kind": "local", "name": "ch" }, "right": { "kind": "const", "type": "String", "value": "B" } },
+                            "then": [
+                            { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "11" } }
+                            ],
+                            "else": [
+                            {
+                              "op": "if",
+                              "condition": { "kind": "binary", "op": "=", "left": { "kind": "local", "name": "ch" }, "right": { "kind": "const", "type": "String", "value": "C" } },
+                              "then": [
+                              { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "12" } }
+                              ],
+                              "else": [
+                              {
+                                "op": "if",
+                                "condition": { "kind": "binary", "op": "=", "left": { "kind": "local", "name": "ch" }, "right": { "kind": "const", "type": "String", "value": "D" } },
+                                "then": [
+                                { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "13" } }
+                                ],
+                                "else": [
+                                {
+                                  "op": "if",
+                                  "condition": { "kind": "binary", "op": "=", "left": { "kind": "local", "name": "ch" }, "right": { "kind": "const", "type": "String", "value": "E" } },
+                                  "then": [
+                                  { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "14" } }
+                                  ],
+                                  "else": [
+                                  {
+                                    "op": "if",
+                                    "condition": { "kind": "binary", "op": "=", "left": { "kind": "local", "name": "ch" }, "right": { "kind": "const", "type": "String", "value": "F" } },
+                                    "then": [
+                                    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "15" } }
+                                    ],
+                                    "else": [
+                                    {
+                                      "op": "if",
+                                      "condition": { "kind": "binary", "op": "=", "left": { "kind": "local", "name": "ch" }, "right": { "kind": "const", "type": "String", "value": "a" } },
+                                      "then": [
+                                      { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "10" } }
+                                      ],
+                                      "else": [
+                                      {
+                                        "op": "if",
+                                        "condition": { "kind": "binary", "op": "=", "left": { "kind": "local", "name": "ch" }, "right": { "kind": "const", "type": "String", "value": "b" } },
+                                        "then": [
+                                        { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "11" } }
+                                        ],
+                                        "else": [
+                                        {
+                                          "op": "if",
+                                          "condition": { "kind": "binary", "op": "=", "left": { "kind": "local", "name": "ch" }, "right": { "kind": "const", "type": "String", "value": "c" } },
+                                          "then": [
+                                          { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "12" } }
+                                          ],
+                                          "else": [
+                                          {
+                                            "op": "if",
+                                            "condition": { "kind": "binary", "op": "=", "left": { "kind": "local", "name": "ch" }, "right": { "kind": "const", "type": "String", "value": "d" } },
+                                            "then": [
+                                            { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "13" } }
+                                            ],
+                                            "else": [
+                                            {
+                                              "op": "if",
+                                              "condition": { "kind": "binary", "op": "=", "left": { "kind": "local", "name": "ch" }, "right": { "kind": "const", "type": "String", "value": "e" } },
+                                              "then": [
+                                              { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "14" } }
+                                              ],
+                                              "else": [
+                                              {
+                                                "op": "if",
+                                                "condition": { "kind": "binary", "op": "=", "left": { "kind": "local", "name": "ch" }, "right": { "kind": "const", "type": "String", "value": "f" } },
+                                                "then": [
+                                                { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "15" } }
+                                                ],
+                                                "else": [
+                                                ]
+                                              }
+                                              ]
+                                            }
+                                            ]
+                                          }
+                                          ]
+                                        }
+                                        ]
+                                      }
+                                      ]
+                                    }
+                                    ]
+                                  }
+                                  ]
+                                }
+                                ]
+                              }
+                              ]
+                            }
+                            ]
+                          }
+                          ]
+                        }
+                        ]
+                      }
+                      ]
+                    }
+                    ]
+                  }
+                  ]
+                }
+                ]
+              }
+              ]
+            }
+            ]
+          }
+          ]
+        }
+        ]
+      }
+      ]
+    },
+    { "op": "fail", "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "10003" }, { "kind": "const", "type": "String", "value": "invalid JSON format" }] } }
+    ]
+  },
+  {
+    "name": "__json_isHighSurrogate",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    { "name": "value", "type": "Integer", "default": null }
+    ],
+    "returns": "Boolean",
+    "body": [
+    { "op": "return", "value": { "kind": "binary", "op": "AND", "left": { "kind": "binary", "op": ">=", "left": { "kind": "local", "name": "value" }, "right": { "kind": "const", "type": "Integer", "value": "55296" } }, "right": { "kind": "binary", "op": "<=", "left": { "kind": "local", "name": "value" }, "right": { "kind": "const", "type": "Integer", "value": "56319" } } } }
+    ]
+  },
+  {
+    "name": "__json_isLowSurrogate",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    { "name": "value", "type": "Integer", "default": null }
+    ],
+    "returns": "Boolean",
+    "body": [
+    { "op": "return", "value": { "kind": "binary", "op": "AND", "left": { "kind": "binary", "op": ">=", "left": { "kind": "local", "name": "value" }, "right": { "kind": "const", "type": "Integer", "value": "56320" } }, "right": { "kind": "binary", "op": "<=", "left": { "kind": "local", "name": "value" }, "right": { "kind": "const", "type": "Integer", "value": "57343" } } } }
+    ]
+  },
+  {
+    "name": "__json_codePointToString",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    { "name": "value", "type": "Integer", "default": null }
+    ],
+    "returns": "String",
+    "body": [
+    {
+      "op": "if",
+      "condition": { "kind": "binary", "op": "<", "left": { "kind": "local", "name": "value" }, "right": { "kind": "const", "type": "Integer", "value": "0" } },
+      "then": [
+      { "op": "fail", "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "10003" }, { "kind": "const", "type": "String", "value": "invalid JSON format" }] } }
+      ],
+      "else": [
+      ]
+    },
+    {
+      "op": "if",
+      "condition": { "kind": "binary", "op": "<=", "left": { "kind": "local", "name": "value" }, "right": { "kind": "const", "type": "Integer", "value": "127" } },
+      "then": [
+      { "op": "bind", "mutable": false, "name": "bytes", "type": "List OF Byte", "value": { "kind": "list", "type": "List OF Byte", "values": [{ "kind": "call", "target": "toByte", "args": [{ "kind": "local", "name": "value" }] }] } },
+      { "op": "return", "value": { "kind": "call", "target": "toString", "args": [{ "kind": "local", "name": "bytes" }] } }
+      ],
+      "else": [
+      ]
+    },
+    {
+      "op": "if",
+      "condition": { "kind": "binary", "op": "<=", "left": { "kind": "local", "name": "value" }, "right": { "kind": "const", "type": "Integer", "value": "2047" } },
+      "then": [
+      { "op": "bind", "mutable": false, "name": "lead", "type": "Byte", "value": { "kind": "call", "target": "toByte", "args": [{ "kind": "binary", "op": "+", "left": { "kind": "const", "type": "Integer", "value": "192" }, "right": { "kind": "binary", "op": "/", "left": { "kind": "local", "name": "value" }, "right": { "kind": "const", "type": "Integer", "value": "64" } } }] } },
+      { "op": "bind", "mutable": false, "name": "tailValue", "type": "Integer", "value": { "kind": "binary", "op": "-", "left": { "kind": "local", "name": "value" }, "right": { "kind": "binary", "op": "*", "left": { "kind": "binary", "op": "/", "left": { "kind": "local", "name": "value" }, "right": { "kind": "const", "type": "Integer", "value": "64" } }, "right": { "kind": "const", "type": "Integer", "value": "64" } } } },
+      { "op": "bind", "mutable": false, "name": "tail", "type": "Byte", "value": { "kind": "call", "target": "toByte", "args": [{ "kind": "binary", "op": "+", "left": { "kind": "const", "type": "Integer", "value": "128" }, "right": { "kind": "local", "name": "tailValue" } }] } },
+      { "op": "bind", "mutable": false, "name": "bytes", "type": "List OF Byte", "value": { "kind": "list", "type": "List OF Byte", "values": [{ "kind": "local", "name": "lead" }, { "kind": "local", "name": "tail" }] } },
+      { "op": "return", "value": { "kind": "call", "target": "toString", "args": [{ "kind": "local", "name": "bytes" }] } }
+      ],
+      "else": [
+      ]
+    },
+    {
+      "op": "if",
+      "condition": { "kind": "binary", "op": "<=", "left": { "kind": "local", "name": "value" }, "right": { "kind": "const", "type": "Integer", "value": "65535" } },
+      "then": [
+      { "op": "bind", "mutable": false, "name": "lead", "type": "Byte", "value": { "kind": "call", "target": "toByte", "args": [{ "kind": "binary", "op": "+", "left": { "kind": "const", "type": "Integer", "value": "224" }, "right": { "kind": "binary", "op": "/", "left": { "kind": "local", "name": "value" }, "right": { "kind": "const", "type": "Integer", "value": "4096" } } }] } },
+      { "op": "bind", "mutable": false, "name": "rem1", "type": "Integer", "value": { "kind": "binary", "op": "-", "left": { "kind": "local", "name": "value" }, "right": { "kind": "binary", "op": "*", "left": { "kind": "binary", "op": "/", "left": { "kind": "local", "name": "value" }, "right": { "kind": "const", "type": "Integer", "value": "4096" } }, "right": { "kind": "const", "type": "Integer", "value": "4096" } } } },
+      { "op": "bind", "mutable": false, "name": "midValue", "type": "Integer", "value": { "kind": "binary", "op": "/", "left": { "kind": "local", "name": "rem1" }, "right": { "kind": "const", "type": "Integer", "value": "64" } } },
+      { "op": "bind", "mutable": false, "name": "tailValue", "type": "Integer", "value": { "kind": "binary", "op": "-", "left": { "kind": "local", "name": "rem1" }, "right": { "kind": "binary", "op": "*", "left": { "kind": "local", "name": "midValue" }, "right": { "kind": "const", "type": "Integer", "value": "64" } } } },
+      { "op": "bind", "mutable": false, "name": "middle", "type": "Byte", "value": { "kind": "call", "target": "toByte", "args": [{ "kind": "binary", "op": "+", "left": { "kind": "const", "type": "Integer", "value": "128" }, "right": { "kind": "local", "name": "midValue" } }] } },
+      { "op": "bind", "mutable": false, "name": "tail", "type": "Byte", "value": { "kind": "call", "target": "toByte", "args": [{ "kind": "binary", "op": "+", "left": { "kind": "const", "type": "Integer", "value": "128" }, "right": { "kind": "local", "name": "tailValue" } }] } },
+      { "op": "bind", "mutable": false, "name": "bytes", "type": "List OF Byte", "value": { "kind": "list", "type": "List OF Byte", "values": [{ "kind": "local", "name": "lead" }, { "kind": "local", "name": "middle" }, { "kind": "local", "name": "tail" }] } },
+      { "op": "return", "value": { "kind": "call", "target": "toString", "args": [{ "kind": "local", "name": "bytes" }] } }
+      ],
+      "else": [
+      ]
+    },
+    {
+      "op": "if",
+      "condition": { "kind": "binary", "op": "<=", "left": { "kind": "local", "name": "value" }, "right": { "kind": "const", "type": "Integer", "value": "1114111" } },
+      "then": [
+      { "op": "bind", "mutable": false, "name": "lead", "type": "Byte", "value": { "kind": "call", "target": "toByte", "args": [{ "kind": "binary", "op": "+", "left": { "kind": "const", "type": "Integer", "value": "240" }, "right": { "kind": "binary", "op": "/", "left": { "kind": "local", "name": "value" }, "right": { "kind": "const", "type": "Integer", "value": "262144" } } }] } },
+      { "op": "bind", "mutable": false, "name": "rem1", "type": "Integer", "value": { "kind": "binary", "op": "-", "left": { "kind": "local", "name": "value" }, "right": { "kind": "binary", "op": "*", "left": { "kind": "binary", "op": "/", "left": { "kind": "local", "name": "value" }, "right": { "kind": "const", "type": "Integer", "value": "262144" } }, "right": { "kind": "const", "type": "Integer", "value": "262144" } } } },
+      { "op": "bind", "mutable": false, "name": "nextValue", "type": "Integer", "value": { "kind": "binary", "op": "/", "left": { "kind": "local", "name": "rem1" }, "right": { "kind": "const", "type": "Integer", "value": "4096" } } },
+      { "op": "bind", "mutable": false, "name": "rem2", "type": "Integer", "value": { "kind": "binary", "op": "-", "left": { "kind": "local", "name": "rem1" }, "right": { "kind": "binary", "op": "*", "left": { "kind": "local", "name": "nextValue" }, "right": { "kind": "const", "type": "Integer", "value": "4096" } } } },
+      { "op": "bind", "mutable": false, "name": "next2Value", "type": "Integer", "value": { "kind": "binary", "op": "/", "left": { "kind": "local", "name": "rem2" }, "right": { "kind": "const", "type": "Integer", "value": "64" } } },
+      { "op": "bind", "mutable": false, "name": "tailValue", "type": "Integer", "value": { "kind": "binary", "op": "-", "left": { "kind": "local", "name": "rem2" }, "right": { "kind": "binary", "op": "*", "left": { "kind": "local", "name": "next2Value" }, "right": { "kind": "const", "type": "Integer", "value": "64" } } } },
+      { "op": "bind", "mutable": false, "name": "second", "type": "Byte", "value": { "kind": "call", "target": "toByte", "args": [{ "kind": "binary", "op": "+", "left": { "kind": "const", "type": "Integer", "value": "128" }, "right": { "kind": "local", "name": "nextValue" } }] } },
+      { "op": "bind", "mutable": false, "name": "third", "type": "Byte", "value": { "kind": "call", "target": "toByte", "args": [{ "kind": "binary", "op": "+", "left": { "kind": "const", "type": "Integer", "value": "128" }, "right": { "kind": "local", "name": "next2Value" } }] } },
+      { "op": "bind", "mutable": false, "name": "tail", "type": "Byte", "value": { "kind": "call", "target": "toByte", "args": [{ "kind": "binary", "op": "+", "left": { "kind": "const", "type": "Integer", "value": "128" }, "right": { "kind": "local", "name": "tailValue" } }] } },
+      { "op": "bind", "mutable": false, "name": "bytes", "type": "List OF Byte", "value": { "kind": "list", "type": "List OF Byte", "values": [{ "kind": "local", "name": "lead" }, { "kind": "local", "name": "second" }, { "kind": "local", "name": "third" }, { "kind": "local", "name": "tail" }] } },
+      { "op": "return", "value": { "kind": "call", "target": "toString", "args": [{ "kind": "local", "name": "bytes" }] } }
+      ],
+      "else": [
+      ]
+    },
+    { "op": "fail", "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "10003" }, { "kind": "const", "type": "String", "value": "invalid JSON format" }] } }
+    ]
+  },
+  {
+    "name": "__json_parseNumber",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    { "name": "chars", "type": "List OF String", "default": null },
+    { "name": "index", "type": "Integer", "default": null }
+    ],
+    "returns": "__JsonNode",
+    "body": [
+    { "op": "bind", "mutable": false, "name": "token", "type": "__JsonStringNode", "value": { "kind": "call", "target": "__json_collectNumber", "args": [{ "kind": "local", "name": "chars" }, { "kind": "local", "name": "index" }, { "kind": "const", "type": "String", "value": "" }] } },
+    {
+      "op": "if",
+      "condition": { "kind": "binary", "op": "=", "left": { "kind": "call", "target": "__json_validNumber", "args": [{ "kind": "memberAccess", "target": { "kind": "local", "name": "token" }, "member": "value" }] }, "right": { "kind": "const", "type": "Boolean", "value": "false" } },
+      "then": [
+      { "op": "fail", "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "10003" }, { "kind": "const", "type": "String", "value": "invalid JSON format" }] } }
+      ],
+      "else": [
+      ]
+    },
+    { "op": "bind", "mutable": false, "name": "numberValue", "type": "Float", "value": { "kind": "call", "target": "__json_toNumber", "args": [{ "kind": "memberAccess", "target": { "kind": "local", "name": "token" }, "member": "value" }] } },
+    { "op": "bind", "mutable": false, "name": "value", "type": "Json", "value": { "kind": "constructor", "type": "Num", "args": [{ "kind": "local", "name": "numberValue" }] } },
+    { "op": "return", "value": { "kind": "constructor", "type": "__JsonNode", "args": [{ "kind": "local", "name": "value" }, { "kind": "memberAccess", "target": { "kind": "local", "name": "token" }, "member": "index" }] } }
+    ]
+  },
+  {
+    "name": "__json_collectNumber",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    { "name": "chars", "type": "List OF String", "default": null },
+    { "name": "index", "type": "Integer", "default": null },
+    { "name": "current", "type": "String", "default": null }
+    ],
+    "returns": "__JsonStringNode",
+    "body": [
+    {
+      "op": "if",
+      "condition": { "kind": "binary", "op": ">=", "left": { "kind": "local", "name": "index" }, "right": { "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "chars" }] } },
+      "then": [
+      { "op": "return", "value": { "kind": "constructor", "type": "__JsonStringNode", "args": [{ "kind": "local", "name": "current" }, { "kind": "local", "name": "index" }] } }
+      ],
+      "else": [
+      ]
+    },
+    { "op": "bind", "mutable": false, "name": "ch", "type": "String", "value": { "kind": "call", "target": "get", "args": [{ "kind": "local", "name": "chars" }, { "kind": "local", "name": "index" }] } },
+    {
+      "op": "if",
+      "condition": { "kind": "binary", "op": "=", "left": { "kind": "local", "name": "ch" }, "right": { "kind": "const", "type": "String", "value": "," } },
+      "then": [
+      { "op": "return", "value": { "kind": "constructor", "type": "__JsonStringNode", "args": [{ "kind": "local", "name": "current" }, { "kind": "local", "name": "index" }] } }
+      ],
+      "else": [
+      ]
+    },
+    {
+      "op": "if",
+      "condition": { "kind": "binary", "op": "=", "left": { "kind": "local", "name": "ch" }, "right": { "kind": "const", "type": "String", "value": "]" } },
+      "then": [
+      { "op": "return", "value": { "kind": "constructor", "type": "__JsonStringNode", "args": [{ "kind": "local", "name": "current" }, { "kind": "local", "name": "index" }] } }
+      ],
+      "else": [
+      ]
+    },
+    {
+      "op": "if",
+      "condition": { "kind": "binary", "op": "=", "left": { "kind": "local", "name": "ch" }, "right": { "kind": "const", "type": "String", "value": "}" } },
+      "then": [
+      { "op": "return", "value": { "kind": "constructor", "type": "__JsonStringNode", "args": [{ "kind": "local", "name": "current" }, { "kind": "local", "name": "index" }] } }
+      ],
+      "else": [
+      ]
+    },
+    {
+      "op": "if",
+      "condition": { "kind": "call", "target": "__json_isWhitespace", "args": [{ "kind": "local", "name": "ch" }] },
+      "then": [
+      { "op": "return", "value": { "kind": "constructor", "type": "__JsonStringNode", "args": [{ "kind": "local", "name": "current" }, { "kind": "local", "name": "index" }] } }
+      ],
+      "else": [
+      ]
+    },
+    { "op": "return", "value": { "kind": "call", "target": "__json_collectNumber", "args": [{ "kind": "local", "name": "chars" }, { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "index" }, "right": { "kind": "const", "type": "Integer", "value": "1" } }, { "kind": "binary", "op": "&", "left": { "kind": "local", "name": "current" }, "right": { "kind": "local", "name": "ch" } }] } }
+    ]
+  },
+  {
+    "name": "__json_toNumber",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    { "name": "value", "type": "String", "default": null }
+    ],
+    "returns": "Float",
+    "body": [
+    { "op": "return", "value": { "kind": "call", "target": "toFloat", "args": [{ "kind": "local", "name": "value" }] } }
+    ]
+  },
+  {
+    "name": "__json_validNumber",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    { "name": "value", "type": "String", "default": null }
+    ],
+    "returns": "Boolean",
+    "body": [
+    { "op": "bind", "mutable": false, "name": "chars", "type": "List OF String", "value": { "kind": "call", "target": "strings.graphemes", "args": [{ "kind": "local", "name": "value" }] } },
+    { "op": "bind", "mutable": true, "name": "index", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    {
+      "op": "if",
+      "condition": { "kind": "binary", "op": "=", "left": { "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "chars" }] }, "right": { "kind": "const", "type": "Integer", "value": "0" } },
+      "then": [
+      { "op": "return", "value": { "kind": "const", "type": "Boolean", "value": "false" } }
+      ],
+      "else": [
+      ]
+    },
+    {
+      "op": "if",
+      "condition": { "kind": "binary", "op": "=", "left": { "kind": "call", "target": "get", "args": [{ "kind": "local", "name": "chars" }, { "kind": "local", "name": "index" }] }, "right": { "kind": "const", "type": "String", "value": "-" } },
+      "then": [
+      { "op": "assign", "name": "index", "value": { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "index" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } },
+      {
+        "op": "if",
+        "condition": { "kind": "binary", "op": ">=", "left": { "kind": "local", "name": "index" }, "right": { "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "chars" }] } },
+        "then": [
+        { "op": "return", "value": { "kind": "const", "type": "Boolean", "value": "false" } }
+        ],
+        "else": [
+        ]
+      }
+      ],
+      "else": [
+      ]
+    },
+    {
+      "op": "if",
+      "condition": { "kind": "binary", "op": "=", "left": { "kind": "call", "target": "get", "args": [{ "kind": "local", "name": "chars" }, { "kind": "local", "name": "index" }] }, "right": { "kind": "const", "type": "String", "value": "0" } },
+      "then": [
+      { "op": "assign", "name": "index", "value": { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "index" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+      ],
+      "else": [
+      { "op": "bind", "mutable": false, "name": "firstDigit", "type": "String", "value": { "kind": "call", "target": "get", "args": [{ "kind": "local", "name": "chars" }, { "kind": "local", "name": "index" }] } },
+      {
+        "op": "if",
+        "condition": { "kind": "call", "target": "__json_isNonZeroDigit", "args": [{ "kind": "local", "name": "firstDigit" }] },
+        "then": [
+        { "op": "assign", "name": "index", "value": { "kind": "call", "target": "__json_consumeDigits", "args": [{ "kind": "local", "name": "chars" }, { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "index" }, "right": { "kind": "const", "type": "Integer", "value": "1" } }] } }
+        ],
+        "else": [
+        { "op": "return", "value": { "kind": "const", "type": "Boolean", "value": "false" } }
+        ]
+      }
+      ]
+    },
+    {
+      "op": "if",
+      "condition": { "kind": "binary", "op": "<", "left": { "kind": "local", "name": "index" }, "right": { "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "chars" }] } },
+      "then": [
+      { "op": "bind", "mutable": false, "name": "decimalMark", "type": "String", "value": { "kind": "call", "target": "get", "args": [{ "kind": "local", "name": "chars" }, { "kind": "local", "name": "index" }] } },
+      {
+        "op": "if",
+        "condition": { "kind": "binary", "op": "=", "left": { "kind": "local", "name": "decimalMark" }, "right": { "kind": "const", "type": "String", "value": "." } },
+        "then": [
+        { "op": "assign", "name": "index", "value": { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "index" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } },
+        {
+          "op": "if",
+          "condition": { "kind": "binary", "op": ">=", "left": { "kind": "local", "name": "index" }, "right": { "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "chars" }] } },
+          "then": [
+          { "op": "return", "value": { "kind": "const", "type": "Boolean", "value": "false" } }
+          ],
+          "else": [
+          ]
+        },
+        { "op": "bind", "mutable": false, "name": "fractionalDigit", "type": "String", "value": { "kind": "call", "target": "get", "args": [{ "kind": "local", "name": "chars" }, { "kind": "local", "name": "index" }] } },
+        {
+          "op": "if",
+          "condition": { "kind": "binary", "op": "=", "left": { "kind": "call", "target": "__json_isDigit", "args": [{ "kind": "local", "name": "fractionalDigit" }] }, "right": { "kind": "const", "type": "Boolean", "value": "false" } },
+          "then": [
+          { "op": "return", "value": { "kind": "const", "type": "Boolean", "value": "false" } }
+          ],
+          "else": [
+          ]
+        },
+        { "op": "assign", "name": "index", "value": { "kind": "call", "target": "__json_consumeDigits", "args": [{ "kind": "local", "name": "chars" }, { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "index" }, "right": { "kind": "const", "type": "Integer", "value": "1" } }] } }
+        ],
+        "else": [
+        ]
+      }
+      ],
+      "else": [
+      ]
+    },
+    {
+      "op": "if",
+      "condition": { "kind": "binary", "op": "<", "left": { "kind": "local", "name": "index" }, "right": { "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "chars" }] } },
+      "then": [
+      { "op": "bind", "mutable": false, "name": "exponentMark", "type": "String", "value": { "kind": "call", "target": "get", "args": [{ "kind": "local", "name": "chars" }, { "kind": "local", "name": "index" }] } },
+      {
+        "op": "if",
+        "condition": { "kind": "binary", "op": "=", "left": { "kind": "local", "name": "exponentMark" }, "right": { "kind": "const", "type": "String", "value": "e" } },
+        "then": [
+        { "op": "assign", "name": "index", "value": { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "index" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } },
+        {
+          "op": "if",
+          "condition": { "kind": "binary", "op": "<", "left": { "kind": "local", "name": "index" }, "right": { "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "chars" }] } },
+          "then": [
+          { "op": "bind", "mutable": false, "name": "exponentSign", "type": "String", "value": { "kind": "call", "target": "get", "args": [{ "kind": "local", "name": "chars" }, { "kind": "local", "name": "index" }] } },
+          {
+            "op": "if",
+            "condition": { "kind": "binary", "op": "=", "left": { "kind": "local", "name": "exponentSign" }, "right": { "kind": "const", "type": "String", "value": "+" } },
+            "then": [
+            { "op": "assign", "name": "index", "value": { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "index" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+            ],
+            "else": [
+            {
+              "op": "if",
+              "condition": { "kind": "binary", "op": "=", "left": { "kind": "local", "name": "exponentSign" }, "right": { "kind": "const", "type": "String", "value": "-" } },
+              "then": [
+              { "op": "assign", "name": "index", "value": { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "index" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+              ],
+              "else": [
+              ]
+            }
+            ]
+          }
+          ],
+          "else": [
+          ]
+        },
+        {
+          "op": "if",
+          "condition": { "kind": "binary", "op": ">=", "left": { "kind": "local", "name": "index" }, "right": { "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "chars" }] } },
+          "then": [
+          { "op": "return", "value": { "kind": "const", "type": "Boolean", "value": "false" } }
+          ],
+          "else": [
+          ]
+        },
+        { "op": "bind", "mutable": false, "name": "exponentDigit", "type": "String", "value": { "kind": "call", "target": "get", "args": [{ "kind": "local", "name": "chars" }, { "kind": "local", "name": "index" }] } },
+        {
+          "op": "if",
+          "condition": { "kind": "binary", "op": "=", "left": { "kind": "call", "target": "__json_isDigit", "args": [{ "kind": "local", "name": "exponentDigit" }] }, "right": { "kind": "const", "type": "Boolean", "value": "false" } },
+          "then": [
+          { "op": "return", "value": { "kind": "const", "type": "Boolean", "value": "false" } }
+          ],
+          "else": [
+          ]
+        },
+        { "op": "assign", "name": "index", "value": { "kind": "call", "target": "__json_consumeDigits", "args": [{ "kind": "local", "name": "chars" }, { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "index" }, "right": { "kind": "const", "type": "Integer", "value": "1" } }] } }
+        ],
+        "else": [
+        {
+          "op": "if",
+          "condition": { "kind": "binary", "op": "=", "left": { "kind": "local", "name": "exponentMark" }, "right": { "kind": "const", "type": "String", "value": "E" } },
+          "then": [
+          { "op": "assign", "name": "index", "value": { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "index" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } },
+          {
+            "op": "if",
+            "condition": { "kind": "binary", "op": "<", "left": { "kind": "local", "name": "index" }, "right": { "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "chars" }] } },
+            "then": [
+            { "op": "bind", "mutable": false, "name": "exponentSign", "type": "String", "value": { "kind": "call", "target": "get", "args": [{ "kind": "local", "name": "chars" }, { "kind": "local", "name": "index" }] } },
+            {
+              "op": "if",
+              "condition": { "kind": "binary", "op": "=", "left": { "kind": "local", "name": "exponentSign" }, "right": { "kind": "const", "type": "String", "value": "+" } },
+              "then": [
+              { "op": "assign", "name": "index", "value": { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "index" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+              ],
+              "else": [
+              {
+                "op": "if",
+                "condition": { "kind": "binary", "op": "=", "left": { "kind": "local", "name": "exponentSign" }, "right": { "kind": "const", "type": "String", "value": "-" } },
+                "then": [
+                { "op": "assign", "name": "index", "value": { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "index" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+                ],
+                "else": [
+                ]
+              }
+              ]
+            }
+            ],
+            "else": [
+            ]
+          },
+          {
+            "op": "if",
+            "condition": { "kind": "binary", "op": ">=", "left": { "kind": "local", "name": "index" }, "right": { "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "chars" }] } },
+            "then": [
+            { "op": "return", "value": { "kind": "const", "type": "Boolean", "value": "false" } }
+            ],
+            "else": [
+            ]
+          },
+          { "op": "bind", "mutable": false, "name": "exponentDigit", "type": "String", "value": { "kind": "call", "target": "get", "args": [{ "kind": "local", "name": "chars" }, { "kind": "local", "name": "index" }] } },
+          {
+            "op": "if",
+            "condition": { "kind": "binary", "op": "=", "left": { "kind": "call", "target": "__json_isDigit", "args": [{ "kind": "local", "name": "exponentDigit" }] }, "right": { "kind": "const", "type": "Boolean", "value": "false" } },
+            "then": [
+            { "op": "return", "value": { "kind": "const", "type": "Boolean", "value": "false" } }
+            ],
+            "else": [
+            ]
+          },
+          { "op": "assign", "name": "index", "value": { "kind": "call", "target": "__json_consumeDigits", "args": [{ "kind": "local", "name": "chars" }, { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "index" }, "right": { "kind": "const", "type": "Integer", "value": "1" } }] } }
+          ],
+          "else": [
+          ]
+        }
+        ]
+      }
+      ],
+      "else": [
+      ]
+    },
+    { "op": "return", "value": { "kind": "binary", "op": "=", "left": { "kind": "local", "name": "index" }, "right": { "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "chars" }] } } }
+    ]
+  },
+  {
+    "name": "__json_consumeDigits",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    { "name": "chars", "type": "List OF String", "default": null },
+    { "name": "index", "type": "Integer", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    {
+      "op": "if",
+      "condition": { "kind": "binary", "op": ">=", "left": { "kind": "local", "name": "index" }, "right": { "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "chars" }] } },
+      "then": [
+      { "op": "return", "value": { "kind": "local", "name": "index" } }
+      ],
+      "else": [
+      ]
+    },
+    {
+      "op": "if",
+      "condition": { "kind": "call", "target": "__json_isDigit", "args": [{ "kind": "call", "target": "get", "args": [{ "kind": "local", "name": "chars" }, { "kind": "local", "name": "index" }] }] },
+      "then": [
+      { "op": "return", "value": { "kind": "call", "target": "__json_consumeDigits", "args": [{ "kind": "local", "name": "chars" }, { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "index" }, "right": { "kind": "const", "type": "Integer", "value": "1" } }] } }
+      ],
+      "else": [
+      ]
+    },
+    { "op": "return", "value": { "kind": "local", "name": "index" } }
+    ]
+  },
+  {
+    "name": "__json_expectLiteral",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    { "name": "chars", "type": "List OF String", "default": null },
+    { "name": "index", "type": "Integer", "default": null },
+    { "name": "literal", "type": "String", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "mutable": false, "name": "target", "type": "List OF String", "value": { "kind": "call", "target": "strings.graphemes", "args": [{ "kind": "local", "name": "literal" }] } },
+    { "op": "return", "value": { "kind": "call", "target": "__json_expectLiteralAt", "args": [{ "kind": "local", "name": "chars" }, { "kind": "local", "name": "index" }, { "kind": "local", "name": "target" }, { "kind": "const", "type": "Integer", "value": "0" }] } }
+    ]
+  },
+  {
+    "name": "__json_expectLiteralAt",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    { "name": "chars", "type": "List OF String", "default": null },
+    { "name": "index", "type": "Integer", "default": null },
+    { "name": "literal", "type": "List OF String", "default": null },
+    { "name": "offset", "type": "Integer", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    {
+      "op": "if",
+      "condition": { "kind": "binary", "op": "=", "left": { "kind": "local", "name": "offset" }, "right": { "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "literal" }] } },
+      "then": [
+      { "op": "return", "value": { "kind": "local", "name": "index" } }
+      ],
+      "else": [
+      ]
+    },
+    {
+      "op": "if",
+      "condition": { "kind": "binary", "op": ">=", "left": { "kind": "local", "name": "index" }, "right": { "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "chars" }] } },
+      "then": [
+      { "op": "fail", "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "10003" }, { "kind": "const", "type": "String", "value": "invalid JSON format" }] } }
+      ],
+      "else": [
+      ]
+    },
+    { "op": "bind", "mutable": false, "name": "actual", "type": "String", "value": { "kind": "call", "target": "get", "args": [{ "kind": "local", "name": "chars" }, { "kind": "local", "name": "index" }] } },
+    { "op": "bind", "mutable": false, "name": "expected", "type": "String", "value": { "kind": "call", "target": "get", "args": [{ "kind": "local", "name": "literal" }, { "kind": "local", "name": "offset" }] } },
+    {
+      "op": "if",
+      "condition": { "kind": "binary", "op": "<>", "left": { "kind": "local", "name": "actual" }, "right": { "kind": "local", "name": "expected" } },
+      "then": [
+      { "op": "fail", "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "10003" }, { "kind": "const", "type": "String", "value": "invalid JSON format" }] } }
+      ],
+      "else": [
+      ]
+    },
+    { "op": "return", "value": { "kind": "call", "target": "__json_expectLiteralAt", "args": [{ "kind": "local", "name": "chars" }, { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "index" }, "right": { "kind": "const", "type": "Integer", "value": "1" } }, { "kind": "local", "name": "literal" }, { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "offset" }, "right": { "kind": "const", "type": "Integer", "value": "1" } }] } }
+    ]
+  },
+  {
+    "name": "__json_skipWhitespace",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    { "name": "chars", "type": "List OF String", "default": null },
+    { "name": "index", "type": "Integer", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    {
+      "op": "if",
+      "condition": { "kind": "binary", "op": ">=", "left": { "kind": "local", "name": "index" }, "right": { "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "chars" }] } },
+      "then": [
+      { "op": "return", "value": { "kind": "local", "name": "index" } }
+      ],
+      "else": [
+      ]
+    },
+    {
+      "op": "if",
+      "condition": { "kind": "call", "target": "__json_isWhitespace", "args": [{ "kind": "call", "target": "get", "args": [{ "kind": "local", "name": "chars" }, { "kind": "local", "name": "index" }] }] },
+      "then": [
+      { "op": "return", "value": { "kind": "call", "target": "__json_skipWhitespace", "args": [{ "kind": "local", "name": "chars" }, { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "index" }, "right": { "kind": "const", "type": "Integer", "value": "1" } }] } }
+      ],
+      "else": [
+      ]
+    },
+    { "op": "return", "value": { "kind": "local", "name": "index" } }
+    ]
+  },
+  {
+    "name": "__json_isWhitespace",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    { "name": "ch", "type": "String", "default": null }
+    ],
+    "returns": "Boolean",
+    "body": [
+    {
+      "op": "if",
+      "condition": { "kind": "binary", "op": "=", "left": { "kind": "local", "name": "ch" }, "right": { "kind": "const", "type": "String", "value": " " } },
+      "then": [
+      { "op": "return", "value": { "kind": "const", "type": "Boolean", "value": "true" } }
+      ],
+      "else": [
+      ]
+    },
+    {
+      "op": "if",
+      "condition": { "kind": "binary", "op": "=", "left": { "kind": "local", "name": "ch" }, "right": { "kind": "const", "type": "String", "value": "\t" } },
+      "then": [
+      { "op": "return", "value": { "kind": "const", "type": "Boolean", "value": "true" } }
+      ],
+      "else": [
+      ]
+    },
+    {
+      "op": "if",
+      "condition": { "kind": "binary", "op": "=", "left": { "kind": "local", "name": "ch" }, "right": { "kind": "const", "type": "String", "value": "\n" } },
+      "then": [
+      { "op": "return", "value": { "kind": "const", "type": "Boolean", "value": "true" } }
+      ],
+      "else": [
+      ]
+    },
+    {
+      "op": "if",
+      "condition": { "kind": "binary", "op": "=", "left": { "kind": "local", "name": "ch" }, "right": { "kind": "const", "type": "String", "value": "r" } },
+      "then": [
+      { "op": "return", "value": { "kind": "const", "type": "Boolean", "value": "true" } }
+      ],
+      "else": [
+      ]
+    },
+    { "op": "return", "value": { "kind": "const", "type": "Boolean", "value": "false" } }
+    ]
+  },
+  {
+    "name": "__json_isDigit",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    { "name": "ch", "type": "String", "default": null }
+    ],
+    "returns": "Boolean",
+    "body": [
+    { "op": "return", "value": { "kind": "call", "target": "strings.contains", "args": [{ "kind": "const", "type": "String", "value": "0123456789" }, { "kind": "local", "name": "ch" }] } }
+    ]
+  },
+  {
+    "name": "__json_isNonZeroDigit",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    { "name": "ch", "type": "String", "default": null }
+    ],
+    "returns": "Boolean",
+    "body": [
+    { "op": "return", "value": { "kind": "call", "target": "strings.contains", "args": [{ "kind": "const", "type": "String", "value": "123456789" }, { "kind": "local", "name": "ch" }] } }
+    ]
+  }
+  ]
+}

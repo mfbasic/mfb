@@ -1,0 +1,17 @@
+IMPORT io
+IMPORT json
+
+FUNC showInvalid(value AS Json) AS Nothing
+  io::print(json::stringify(value))
+  RETURN NOTHING
+  TRAP err
+    io::print("invalid")
+    RETURN NOTHING
+  END TRAP
+END FUNC
+
+FUNC main AS Integer
+  showInvalid(Num[toFloat("inf")])
+  showInvalid(Num[toFloat("nan")])
+  RETURN 0
+END FUNC

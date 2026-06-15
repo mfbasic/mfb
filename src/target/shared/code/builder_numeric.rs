@@ -1,6 +1,90 @@
 use super::*;
 
 impl CodeBuilder<'_> {
+    pub(super) fn lower_boolean_binary(
+        &mut self,
+        op: &str,
+        left: &NirValue,
+        right: &NirValue,
+    ) -> Result<ValueResult, String> {
+        match op {
+            "AND" => self.lower_short_circuit_and(left, right),
+            "OR" => self.lower_short_circuit_or(left, right),
+            "XOR" => self.lower_boolean_xor(left, right),
+            other => Err(format!(
+                "native code plan does not lower boolean operator '{other}'"
+            )),
+        }
+    }
+
+    fn lower_short_circuit_and(
+        &mut self,
+        left: &NirValue,
+        right: &NirValue,
+    ) -> Result<ValueResult, String> {
+        let left = self.lower_value(left)?;
+        let result = self.allocate_register()?;
+        let right_label = self.label("bool_and_right");
+        let done_label = self.label("bool_and_done");
+        self.emit(abi::compare_immediate(&left.location, "0"));
+        self.emit(abi::branch_ne(&right_label));
+        self.emit(abi::move_immediate(&result, "Boolean", "false"));
+        self.emit(abi::branch(&done_label));
+        self.emit(abi::label(&right_label));
+        let right = self.lower_value(right)?;
+        self.emit(abi::move_register(&result, &right.location));
+        self.emit(abi::label(&done_label));
+        Ok(ValueResult {
+            type_: "Boolean".to_string(),
+            location: result,
+            text: format!("({} AND {})", left.text, right.text),
+        })
+    }
+
+    fn lower_short_circuit_or(
+        &mut self,
+        left: &NirValue,
+        right: &NirValue,
+    ) -> Result<ValueResult, String> {
+        let left = self.lower_value(left)?;
+        let result = self.allocate_register()?;
+        let right_label = self.label("bool_or_right");
+        let done_label = self.label("bool_or_done");
+        self.emit(abi::compare_immediate(&left.location, "0"));
+        self.emit(abi::branch_eq(&right_label));
+        self.emit(abi::move_immediate(&result, "Boolean", "true"));
+        self.emit(abi::branch(&done_label));
+        self.emit(abi::label(&right_label));
+        let right = self.lower_value(right)?;
+        self.emit(abi::move_register(&result, &right.location));
+        self.emit(abi::label(&done_label));
+        Ok(ValueResult {
+            type_: "Boolean".to_string(),
+            location: result,
+            text: format!("({} OR {})", left.text, right.text),
+        })
+    }
+
+    fn lower_boolean_xor(
+        &mut self,
+        left: &NirValue,
+        right: &NirValue,
+    ) -> Result<ValueResult, String> {
+        let left = self.lower_value(left)?;
+        let right = self.lower_value(right)?;
+        let result = self.allocate_register()?;
+        self.emit(abi::exclusive_or_registers(
+            &result,
+            &left.location,
+            &right.location,
+        ));
+        Ok(ValueResult {
+            type_: "Boolean".to_string(),
+            location: result,
+            text: format!("({} XOR {})", left.text, right.text),
+        })
+    }
+
     pub(super) fn lower_arithmetic_binary(
         &mut self,
         op: &str,
@@ -74,6 +158,16 @@ impl CodeBuilder<'_> {
         right: &NirValue,
     ) -> Result<ValueResult, String> {
         let left = self.lower_value(left)?;
+        if left.type_ == "String" {
+            let right = self.lower_value(right)?;
+            if right.type_ != "String" {
+                return Err(format!(
+                    "native code comparison requires matching String operands, got {} and {}",
+                    left.type_, right.type_
+                ));
+            }
+            return self.lower_string_comparison_binary(op, &left, &right);
+        }
         let left_slot = self.allocate_stack_object("cmp_left", 8);
         self.emit(abi::store_u64(
             &left.location,
@@ -122,6 +216,68 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&true_label));
         self.emit(abi::move_immediate(&result, "Boolean", "true"));
         self.emit(abi::label(&done_label));
+        Ok(ValueResult {
+            type_: "Boolean".to_string(),
+            location: result,
+            text: format!("({} {op} {})", left.text, right.text),
+        })
+    }
+
+    fn lower_string_comparison_binary(
+        &mut self,
+        op: &str,
+        left: &ValueResult,
+        right: &ValueResult,
+    ) -> Result<ValueResult, String> {
+        match op {
+            "=" | "<>" => {}
+            other => {
+                return Err(format!(
+                    "native code does not lower string comparison operator '{other}'"
+                ));
+            }
+        }
+
+        let result = self.allocate_register()?;
+        let loop_label = self.label("cmp_string_loop");
+        let equal_label = self.label("cmp_string_equal");
+        let not_equal_label = self.label("cmp_string_not_equal");
+        let done_label = self.label("cmp_string_done");
+
+        self.emit(abi::load_u64("x11", &left.location, 0));
+        self.emit(abi::load_u64("x12", &right.location, 0));
+        self.emit(abi::compare_registers("x11", "x12"));
+        self.emit(abi::branch_ne(&not_equal_label));
+        self.emit(abi::add_immediate("x13", &left.location, 8));
+        self.emit(abi::add_immediate("x14", &right.location, 8));
+        self.emit(abi::label(&loop_label));
+        self.emit(abi::compare_immediate("x11", "0"));
+        self.emit(abi::branch_eq(&equal_label));
+        self.emit(abi::load_u8("x15", "x13", 0));
+        self.emit(abi::load_u8("x16", "x14", 0));
+        self.emit(abi::compare_registers("x15", "x16"));
+        self.emit(abi::branch_ne(&not_equal_label));
+        self.emit(abi::add_immediate("x13", "x13", 1));
+        self.emit(abi::add_immediate("x14", "x14", 1));
+        self.emit(abi::subtract_immediate("x11", "x11", 1));
+        self.emit(abi::branch(&loop_label));
+
+        self.emit(abi::label(&equal_label));
+        self.emit(abi::move_immediate(
+            &result,
+            "Boolean",
+            if op == "=" { "true" } else { "false" },
+        ));
+        self.emit(abi::branch(&done_label));
+
+        self.emit(abi::label(&not_equal_label));
+        self.emit(abi::move_immediate(
+            &result,
+            "Boolean",
+            if op == "=" { "false" } else { "true" },
+        ));
+        self.emit(abi::label(&done_label));
+
         Ok(ValueResult {
             type_: "Boolean".to_string(),
             location: result,

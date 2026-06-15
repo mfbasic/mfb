@@ -1,0 +1,10 @@
+IMPORT json
+
+FUNC main AS Integer
+  LET value AS Json = Null[NOTHING]
+  LET missing AS Json = json::getOr()
+  LET wrongPath AS Json = json::getOr(value, TRUE, value)
+  LET wrongDefault AS Json = json::getOr(value, ["x"], "bad")
+  LET tooMany AS Json = json::getOr(value, ["x"], value, value)
+  RETURN 0
+END FUNC

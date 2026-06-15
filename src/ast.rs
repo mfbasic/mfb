@@ -302,25 +302,26 @@ pub fn write_ast(project_dir: &Path, ast: &AstProject) -> Result<PathBuf, String
     Ok(ast_path)
 }
 
+pub fn parse_source(path: &Path, relative_path: &str, contents: &str) -> Result<AstFile, ()> {
+    let tokens = lexer::lex(path, contents)?;
+    let ast_file = FileParser::new(path, tokens).parse()?;
+    Ok(AstFile {
+        path: relative_path.replace('\\', "/"),
+        imports: ast_file.imports,
+        items: ast_file.items,
+    })
+}
+
 fn parse_file(project_dir: &Path, path: &Path) -> Result<AstFile, ()> {
     let contents = fs::read_to_string(path).map_err(|err| {
         rules::show_diagnostic("MFB_SOURCE_READ_FAILED", &err.to_string(), path, 1, 1, 1);
     })?;
-
-    let tokens = lexer::lex(path, &contents)?;
-    let ast_file = FileParser::new(path, tokens).parse()?;
-
     let relative_path = path
         .strip_prefix(project_dir)
         .unwrap_or(path)
         .to_string_lossy()
         .replace('\\', "/");
-
-    Ok(AstFile {
-        path: relative_path,
-        imports: ast_file.imports,
-        items: ast_file.items,
-    })
+    parse_source(path, &relative_path, &contents)
 }
 
 fn source_roots(manifest: &HashMap<String, JsonValue>) -> Vec<String> {

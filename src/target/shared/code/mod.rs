@@ -117,6 +117,7 @@ const COLLECTION_TYPE_STRING: usize = 6;
 const COLLECTION_TYPE_BYTE: usize = 7;
 const COLLECTION_TYPE_LIST: usize = 20;
 const COLLECTION_TYPE_MAP: usize = 21;
+const COLLECTION_TYPE_OBJECT: usize = 22;
 const UNICODE_STAGE1_SYMBOL: &str = "_mfb_unicode_stage1";
 const UNICODE_STAGE2_SYMBOL: &str = "_mfb_unicode_stage2";
 const UNICODE_PROPERTIES_SYMBOL: &str = "_mfb_unicode_properties";
@@ -10070,6 +10071,7 @@ impl CollectionTypeLayout {
 
 fn collection_type_code(type_: &str) -> Option<usize> {
     match type_ {
+        "Nothing" => None,
         "Boolean" => Some(COLLECTION_TYPE_BOOLEAN),
         "Byte" => Some(COLLECTION_TYPE_BYTE),
         "Integer" => Some(COLLECTION_TYPE_INTEGER),
@@ -10078,7 +10080,7 @@ fn collection_type_code(type_: &str) -> Option<usize> {
         "String" => Some(COLLECTION_TYPE_STRING),
         _ if type_.starts_with("List OF ") => Some(COLLECTION_TYPE_LIST),
         _ if type_.starts_with("Map OF ") => Some(COLLECTION_TYPE_MAP),
-        _ => None,
+        _ => Some(COLLECTION_TYPE_OBJECT),
     }
 }
 

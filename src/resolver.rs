@@ -16,6 +16,7 @@ const BUILTIN_TYPES: &[&str] = &[
     "Fixed",
     "Float",
     "Integer",
+    "Json",
     "Nothing",
     "Result",
     "String",
@@ -28,7 +29,8 @@ pub fn resolve_project(
     manifest: &HashMap<String, JsonValue>,
     ast: &AstProject,
 ) -> Result<(), ()> {
-    let mut resolver = Resolver::new(project_dir, manifest, ast);
+    let augmented = builtins::json::augmented_project(ast)?;
+    let mut resolver = Resolver::new(project_dir, manifest, &augmented);
     resolver.resolve();
     if resolver.had_error {
         Err(())

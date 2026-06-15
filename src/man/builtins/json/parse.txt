@@ -1,0 +1,26 @@
+NAME
+  parse - parse UTF-8 JSON text into Json
+
+SYNOPSIS
+  json::parse(value AS String) AS Json
+
+PACKAGE
+  json
+
+DESCRIPTION
+  json::parse reads a complete JSON document from value and returns the
+  resulting Json union value. Leading and trailing JSON whitespace are allowed.
+  Object keys are read as String values. JSON null maps to Null[NOTHING].
+
+ERRORS
+  ErrInvalidFormat (10003)
+    Returned when value is not valid JSON, contains an invalid escape sequence,
+    or contains a malformed number.
+
+EXAMPLES
+  LET value AS Json = json::parse("{\"ok\":true,\"items\":[1,2,3]}")
+
+SEE ALSO
+  stringify
+  get
+  getOr

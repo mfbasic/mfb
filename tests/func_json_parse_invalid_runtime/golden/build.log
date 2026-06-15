@@ -1,0 +1,17 @@
+$ mfb build -ast tests/func_json_parse_invalid_runtime
+Wrote AST to tests/func_json_parse_invalid_runtime/func_json_parse_invalid_runtime.ast
+[exit 0]
+$ mfb build -ir tests/func_json_parse_invalid_runtime
+Wrote IR to tests/func_json_parse_invalid_runtime/func_json_parse_invalid_runtime.ir
+[exit 0]
+$ mfb build tests/func_json_parse_invalid_runtime
+Wrote executable to tests/func_json_parse_invalid_runtime/func_json_parse_invalid_runtime.out
+[exit 0]
+$ tests/func_json_parse_invalid_runtime/func_json_parse_invalid_runtime.out
+BEGIN
+"\uD83D"
+BEGIN
+01
+BEGIN
+true false
+[exit 0]

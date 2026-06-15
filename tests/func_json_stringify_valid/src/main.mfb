@@ -1,0 +1,24 @@
+IMPORT io
+IMPORT json
+
+FUNC backspaceChar AS String
+  LET bytes AS List OF Byte = [toByte(8)]
+  RETURN toString(bytes)
+END FUNC
+
+FUNC formfeedChar AS String
+  LET bytes AS List OF Byte = [toByte(12)]
+  RETURN toString(bytes)
+END FUNC
+
+FUNC main AS Integer
+  LET escaped AS String = "\"" & "\\" & "/" & "\n" & "\t" & "\r" & backspaceChar() & formfeedChar()
+  io::print(json::stringify(Null[NOTHING]))
+  io::print(json::stringify(Bool[TRUE]))
+  io::print(json::stringify(Bool[FALSE]))
+  io::print(json::stringify(Num[toFloat("-12.5")]))
+  io::print(json::stringify(Str[escaped]))
+  io::print(json::stringify(Arr[[]]))
+  io::print(json::stringify(Obj[Map OF String TO Json { "name" := Str["Ada"] }]))
+  RETURN 0
+END FUNC

@@ -1,0 +1,15 @@
+$ mfb build -ast tests/func_json_getOr_valid
+Wrote AST to tests/func_json_getOr_valid/func_json_getOr_valid.ast
+[exit 0]
+$ mfb build -ir tests/func_json_getOr_valid
+Wrote IR to tests/func_json_getOr_valid/func_json_getOr_valid.ir
+[exit 0]
+$ mfb build tests/func_json_getOr_valid
+Wrote executable to tests/func_json_getOr_valid/func_json_getOr_valid.out
+[exit 0]
+$ tests/func_json_getOr_valid/func_json_getOr_valid.out
+{"use\r":{"name":"Ada"},"flag":true}
+"Ada"
+"fallback"
+"fallback"
+[exit 0]

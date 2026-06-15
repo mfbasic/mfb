@@ -79,7 +79,16 @@ impl CodeBuilder<'_> {
                     if let Some(value) = value {
                         let result = self.lower_value(value)?;
                         if result.type_ != "Nothing" {
-                            self.emit(abi::move_register(RESULT_VALUE_REGISTER, &result.location));
+                            if self.inline_collection_payload_size(&result.type_).is_some() {
+                                let stable = self
+                                    .materialize_inline_value_in_arena(&result.type_, &result.location)?;
+                                self.emit(abi::move_register(RESULT_VALUE_REGISTER, &stable));
+                            } else {
+                                self.emit(abi::move_register(
+                                    RESULT_VALUE_REGISTER,
+                                    &result.location,
+                                ));
+                            }
                         }
                     }
                     self.emit(abi::move_immediate(
@@ -327,6 +336,7 @@ impl CodeBuilder<'_> {
                 constant: None,
             },
         );
+        self.clear_local_constants();
         self.lower_ops(body)?;
         if let Some(previous) = previous {
             self.locals.insert(name.to_string(), previous);

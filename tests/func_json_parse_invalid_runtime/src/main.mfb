@@ -1,0 +1,20 @@
+IMPORT io
+IMPORT json
+
+FUNC showInvalid(value AS String) AS Nothing
+  io::print("BEGIN")
+  io::print(value)
+  io::print(json::stringify(json::parse(value)))
+  RETURN NOTHING
+  TRAP err
+    io::print("invalid")
+    RETURN NOTHING
+  END TRAP
+END FUNC
+
+FUNC main AS Integer
+  showInvalid("\"\\uD83D\"")
+  showInvalid("01")
+  showInvalid("true false")
+  RETURN 0
+END FUNC

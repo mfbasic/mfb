@@ -1,0 +1,53 @@
+{
+  "project": "func_json_parse_invalid_runtime",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 },
+    { "module": "json", "line": 2 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "showInvalid",
+      "line": 4,
+      "params": [
+      { "name": "value", "type": "String", "default": null }
+      ],
+      "returnType": "Nothing",
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "BEGIN" }] }, "line": 5 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "identifier", "value": "value" }] }, "line": 6 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "json.stringify", "arguments": [{ "kind": "call", "callee": "json.parse", "arguments": [{ "kind": "identifier", "value": "value" }] }] }] }, "line": 7 },
+      { "kind": "return", "value": { "kind": "identifier", "value": "NOTHING" }, "line": 8 }
+      ],
+      "trap": {
+      "name": "err",
+      "line": 9,
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "invalid" }] }, "line": 10 },
+      { "kind": "return", "value": { "kind": "identifier", "value": "NOTHING" }, "line": 11 }
+      ]
+    }
+    },
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "main",
+      "line": 15,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "showInvalid", "arguments": [{ "kind": "string", "value": "\"\\uD83D\"" }] }, "line": 16 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "showInvalid", "arguments": [{ "kind": "string", "value": "01" }] }, "line": 17 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "showInvalid", "arguments": [{ "kind": "string", "value": "true false" }] }, "line": 18 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 19 }
+      ]
+    }
+    ]
+  }
+  ]
+}

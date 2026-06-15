@@ -1,6 +1,116 @@
 use super::*;
 
 impl CodeBuilder<'_> {
+    pub(super) fn inline_collection_payload_size(&self, type_: &str) -> Option<usize> {
+        if let Some(fields) = self.type_model.record_fields.get(type_) {
+            return Some(8 * fields.len());
+        }
+        if let Some(union_name) = self.type_model.union_variants.get(type_) {
+            return self.inline_collection_payload_size(union_name);
+        }
+        if self.type_model.union_names.contains(type_) {
+            let max_fields = self
+                .type_model
+                .union_variants
+                .iter()
+                .filter(|(_, union_name)| *union_name == type_)
+                .filter_map(|(variant, _)| self.type_model.union_variant_fields.get(variant))
+                .map(Vec::len)
+                .max()
+                .unwrap_or(0);
+            return Some(8 * (1 + max_fields));
+        }
+        None
+    }
+
+    fn is_pointer_collection_payload_type(&self, type_: &str) -> bool {
+        is_collection_type(type_)
+    }
+
+    fn emit_copy_bytes(&mut self, dst: &str, src: &str, len: &str, prefix: &str) {
+        let remaining = "x13";
+        let loop_label = self.label(&format!("{prefix}_loop"));
+        let done_label = self.label(&format!("{prefix}_done"));
+        self.emit(abi::move_register(remaining, len));
+        self.emit(abi::label(&loop_label));
+        self.emit(abi::compare_immediate(remaining, "0"));
+        self.emit(abi::branch_eq(&done_label));
+        self.emit(abi::load_u8("x14", src, 0));
+        self.emit(abi::store_u8("x14", dst, 0));
+        self.emit(abi::add_immediate(src, src, 1));
+        self.emit(abi::add_immediate(dst, dst, 1));
+        self.emit(abi::subtract_immediate(remaining, remaining, 1));
+        self.emit(abi::branch(&loop_label));
+        self.emit(abi::label(&done_label));
+    }
+
+    fn emit_compare_bytes_branch(
+        &mut self,
+        left: &str,
+        right: &str,
+        len: &str,
+        equal_label: &str,
+        not_equal_label: &str,
+        prefix: &str,
+    ) {
+        let remaining = "x5";
+        let loop_label = self.label(&format!("{prefix}_loop"));
+        self.emit(abi::move_register(remaining, len));
+        self.emit(abi::label(&loop_label));
+        self.emit(abi::compare_immediate(remaining, "0"));
+        self.emit(abi::branch_eq(equal_label));
+        self.emit(abi::load_u8("x6", left, 0));
+        self.emit(abi::load_u8("x7", right, 0));
+        self.emit(abi::compare_registers("x6", "x7"));
+        self.emit(abi::branch_ne(not_equal_label));
+        self.emit(abi::add_immediate(left, left, 1));
+        self.emit(abi::add_immediate(right, right, 1));
+        self.emit(abi::subtract_immediate(remaining, remaining, 1));
+        self.emit(abi::branch(&loop_label));
+    }
+
+    pub(super) fn materialize_inline_value_in_arena(
+        &mut self,
+        type_: &str,
+        source: &str,
+    ) -> Result<String, String> {
+        let size = self
+            .inline_collection_payload_size(type_)
+            .ok_or_else(|| format!("native inline type '{type_}' has no fixed storage size"))?;
+        let source_slot = self.allocate_stack_object("inline_value_source", 8);
+        let result_slot = self.allocate_stack_object("inline_value_result", 8);
+        let alloc_ok = self.label("inline_value_alloc_ok");
+        self.emit(abi::store_u64(source, abi::stack_pointer(), source_slot));
+        self.emit(abi::move_immediate(
+            abi::return_register(),
+            "Integer",
+            &size.to_string(),
+        ));
+        self.emit(abi::move_immediate("x1", "Integer", "8"));
+        self.emit(abi::branch_link(ARENA_ALLOC_SYMBOL));
+        self.relocations.push(CodeRelocation {
+            from: self.current_symbol.clone(),
+            to: ARENA_ALLOC_SYMBOL.to_string(),
+            kind: "branch26".to_string(),
+            binding: "internal".to_string(),
+            library: None,
+        });
+        self.emit(abi::compare_immediate(
+            abi::return_register(),
+            RESULT_OK_TAG,
+        ));
+        self.emit(abi::branch_eq(&alloc_ok));
+        self.emit_allocation_error_return()?;
+        self.emit(abi::label(&alloc_ok));
+        self.emit(abi::store_u64("x1", abi::stack_pointer(), result_slot));
+        self.emit(abi::load_u64("x9", abi::stack_pointer(), source_slot));
+        self.emit(abi::move_immediate("x13", "Integer", &size.to_string()));
+        self.emit_copy_bytes("x1", "x9", "x13", "inline_value_arena_copy");
+        let result = self.allocate_register()?;
+        self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
+        Ok(result)
+    }
+
     pub(super) fn lower_len(&mut self, value: &NirValue) -> Result<ValueResult, String> {
         let value = self.lower_value(value)?;
         if value.type_ == "String" {
@@ -342,6 +452,15 @@ impl CodeBuilder<'_> {
                 self.emit(abi::load_u64("x8", abi::stack_pointer(), payload.slot));
                 self.emit(abi::load_u64("x8", "x8", 0));
             }
+            other if self.is_pointer_collection_payload_type(other) => {
+                self.emit(abi::move_immediate("x8", "Integer", "8"));
+            }
+            other if self.inline_collection_payload_size(other).is_some() => {
+                let size = self
+                    .inline_collection_payload_size(other)
+                    .expect("guard ensures inline payload size exists");
+                self.emit(abi::move_immediate("x8", "Integer", &size.to_string()));
+            }
             other => {
                 return Err(format!(
                     "native collection packed payload does not support type '{other}'"
@@ -397,6 +516,15 @@ impl CodeBuilder<'_> {
                 self.emit(abi::subtract_immediate("x13", "x13", 1));
                 self.emit(abi::branch(&loop_label));
                 self.emit(abi::label(&done_label));
+            }
+            other if self.is_pointer_collection_payload_type(other) => {
+                self.emit(abi::load_u64("x12", abi::stack_pointer(), payload.slot));
+                self.emit(abi::store_u64("x12", "x10", 0));
+            }
+            other if self.inline_collection_payload_size(other).is_some() => {
+                self.emit(abi::load_u64("x12", abi::stack_pointer(), payload.slot));
+                self.emit(abi::load_u64("x13", abi::stack_pointer(), len_slot));
+                self.emit_copy_bytes("x10", "x12", "x13", "collection_copy_inline");
             }
             other => {
                 return Err(format!(
@@ -459,6 +587,12 @@ impl CodeBuilder<'_> {
                 Ok(result)
             }
             "String" => self.emit_materialize_string_from_bytes(&data, length_input),
+            other if self.is_pointer_collection_payload_type(other) => {
+                let result = self.allocate_register()?;
+                self.emit(abi::load_u64(&result, &data, 0));
+                Ok(result)
+            }
+            other if self.inline_collection_payload_size(other).is_some() => Ok(data),
             other => Err(format!(
                 "native collection packed payload does not support type '{other}'"
             )),
@@ -570,6 +704,23 @@ impl CodeBuilder<'_> {
                 self.emit(abi::subtract_immediate(&remaining, &remaining, 1));
                 self.emit(abi::branch(&loop_label));
             }
+            other if self.is_pointer_collection_payload_type(other) => {
+                let candidate = self.allocate_register()?;
+                self.emit(abi::load_u64(&candidate, &data, 0));
+                self.emit(abi::compare_registers(&candidate, value));
+                self.emit(abi::branch_eq(equal_label));
+                self.emit(abi::branch(not_equal_label));
+            }
+            other if self.inline_collection_payload_size(other).is_some() => {
+                self.emit_compare_bytes_branch(
+                    &data,
+                    value,
+                    length,
+                    equal_label,
+                    not_equal_label,
+                    "collection_inline_match",
+                );
+            }
             other => {
                 return Err(format!(
                     "native collection packed payload does not support type '{other}'"
@@ -624,6 +775,22 @@ impl CodeBuilder<'_> {
                 self.emit(abi::add_immediate("x4", "x4", 1));
                 self.emit(abi::subtract_immediate("x5", "x5", 1));
                 self.emit(abi::branch(&loop_label));
+            }
+            other if self.is_pointer_collection_payload_type(other) => {
+                self.emit(abi::load_u64("x6", "x2", 0));
+                self.emit(abi::compare_registers("x6", value));
+                self.emit(abi::branch_eq(equal_label));
+                self.emit(abi::branch(not_equal_label));
+            }
+            other if self.inline_collection_payload_size(other).is_some() => {
+                self.emit_compare_bytes_branch(
+                    "x2",
+                    value,
+                    length,
+                    equal_label,
+                    not_equal_label,
+                    "collection_inline_value_match",
+                );
             }
             other => {
                 return Err(format!(
@@ -685,6 +852,25 @@ impl CodeBuilder<'_> {
                 self.emit(abi::add_immediate("x4", "x4", 1));
                 self.emit(abi::subtract_immediate("x5", "x5", 1));
                 self.emit(abi::branch(&loop_label));
+            }
+            other if self.is_pointer_collection_payload_type(other) => {
+                self.emit(abi::load_u64("x6", "x2", 0));
+                self.emit(abi::load_u64("x7", "x4", 0));
+                self.emit(abi::compare_registers("x6", "x7"));
+                self.emit(abi::branch_eq(equal_label));
+                self.emit(abi::branch(not_equal_label));
+            }
+            other if self.inline_collection_payload_size(other).is_some() => {
+                self.emit(abi::compare_registers(left_length, right_length));
+                self.emit(abi::branch_ne(not_equal_label));
+                self.emit_compare_bytes_branch(
+                    "x2",
+                    "x4",
+                    left_length,
+                    equal_label,
+                    not_equal_label,
+                    "collection_inline_pair_match",
+                );
             }
             other => {
                 return Err(format!(

@@ -218,7 +218,7 @@ Recursive concrete unions are allowed:
 
 ```basic
 UNION Json
-  Null
+  Null(value AS Nothing)
   Bool(value AS Boolean)
   Num(value AS Float)
   Str(value AS String)

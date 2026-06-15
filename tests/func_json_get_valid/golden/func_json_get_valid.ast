@@ -1,0 +1,32 @@
+{
+  "project": "func_json_get_valid",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 },
+    { "module": "json", "line": 2 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "main",
+      "line": 4,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "value", "type": "Json", "value": { "kind": "call", "callee": "json.parse", "arguments": [{ "kind": "string", "value": "{\"user\":{\"name\":\"Ada\",\"meta\":{\"active\":true}},\"nothing\":null}" }] }, "line": 5 },
+      { "kind": "binding", "mutable": false, "name": "emptyPath", "type": "List OF String", "value": { "kind": "list", "values": [] }, "line": 6 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "json.stringify", "arguments": [{ "kind": "call", "callee": "json.get", "arguments": [{ "kind": "identifier", "value": "value" }, { "kind": "identifier", "value": "emptyPath" }] }] }] }, "line": 7 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "json.stringify", "arguments": [{ "kind": "call", "callee": "json.get", "arguments": [{ "kind": "identifier", "value": "value" }, { "kind": "list", "values": [{ "kind": "string", "value": "user" }, { "kind": "string", "value": "name" }] }] }] }] }, "line": 8 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "json.stringify", "arguments": [{ "kind": "call", "callee": "json.get", "arguments": [{ "kind": "identifier", "value": "value" }, { "kind": "list", "values": [{ "kind": "string", "value": "user" }, { "kind": "string", "value": "meta" }, { "kind": "string", "value": "active" }] }] }] }] }, "line": 9 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "json.stringify", "arguments": [{ "kind": "call", "callee": "json.get", "arguments": [{ "kind": "identifier", "value": "value" }, { "kind": "list", "values": [{ "kind": "string", "value": "nothing" }] }] }] }] }, "line": 10 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 11 }
+      ]
+    }
+    ]
+  }
+  ]
+}

@@ -1,0 +1,50 @@
+{
+  "project": "func_json_stringify_invalid_runtime",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 },
+    { "module": "json", "line": 2 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "showInvalid",
+      "line": 4,
+      "params": [
+      { "name": "value", "type": "Json", "default": null }
+      ],
+      "returnType": "Nothing",
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "json.stringify", "arguments": [{ "kind": "identifier", "value": "value" }] }] }, "line": 5 },
+      { "kind": "return", "value": { "kind": "identifier", "value": "NOTHING" }, "line": 6 }
+      ],
+      "trap": {
+      "name": "err",
+      "line": 7,
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "invalid" }] }, "line": 8 },
+      { "kind": "return", "value": { "kind": "identifier", "value": "NOTHING" }, "line": 9 }
+      ]
+    }
+    },
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "main",
+      "line": 13,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "showInvalid", "arguments": [{ "kind": "constructor", "type": "Num", "arguments": [{ "kind": "call", "callee": "toFloat", "arguments": [{ "kind": "string", "value": "inf" }] }] }] }, "line": 14 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "showInvalid", "arguments": [{ "kind": "constructor", "type": "Num", "arguments": [{ "kind": "call", "callee": "toFloat", "arguments": [{ "kind": "string", "value": "nan" }] }] }] }, "line": 15 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 16 }
+      ]
+    }
+    ]
+  }
+  ]
+}

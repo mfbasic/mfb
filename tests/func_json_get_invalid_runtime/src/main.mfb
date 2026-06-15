@@ -1,0 +1,18 @@
+IMPORT io
+IMPORT json
+
+FUNC showInvalid(value AS Json, path AS List OF String) AS Nothing
+  io::print(json::stringify(json::get(value, path)))
+  RETURN NOTHING
+  TRAP err
+    io::print("invalid")
+    RETURN NOTHING
+  END TRAP
+END FUNC
+
+FUNC main AS Integer
+  LET value AS Json = json::parse("{\"user\":{\"name\":\"Ada\"},\"flag\":true}")
+  showInvalid(value, ["user", "missing"])
+  showInvalid(value, ["flag", "x"])
+  RETURN 0
+END FUNC

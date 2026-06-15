@@ -1,0 +1,24 @@
+NAME
+  stringify - encode Json as compact JSON text
+
+SYNOPSIS
+  json::stringify(value AS Json) AS String
+
+PACKAGE
+  json
+
+DESCRIPTION
+  json::stringify converts a Json value to compact JSON text with no extra
+  indentation or spacing. Strings are escaped for JSON output. Null values are
+  emitted as null.
+
+ERRORS
+  ErrInvalidFormat (10003)
+    Returned when a Json number cannot be represented as a valid JSON number,
+    including non-finite Float values.
+
+EXAMPLES
+  LET text AS String = json::stringify(Obj[Map OF String TO Json { "name" := Str["Ada"] }])
+
+SEE ALSO
+  parse

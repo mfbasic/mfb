@@ -515,7 +515,7 @@ JSON functions live in the `json` package.
 
 ```basic
 UNION Json
-  Null
+  Null(value AS Nothing)
   Bool(value AS Boolean)
   Num(value AS Float)
   Str(value AS String)
