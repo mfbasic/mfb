@@ -338,6 +338,10 @@ impl Encoder {
                 reg(field(instruction, "dst")?)?,
                 reg(field(instruction, "src")?)?,
             ),
+            "fcmp_d" => self.emit_fcmp_d(
+                reg(field(instruction, "lhs")?)?,
+                reg(field(instruction, "rhs")?)?,
+            ),
             "fcmp_zero_d" => self.emit_fcmp_zero_d(reg(field(instruction, "src")?)?),
             "scvtf_d_from_x" => self.emit_scvtf_d_from_x(
                 reg(field(instruction, "dst")?)?,
@@ -587,6 +591,10 @@ impl Encoder {
 
     fn emit_fsqrt_d(&mut self, dd: u8, dn: u8) -> Result<(), String> {
         self.emit_word(0x1e61_c000 | ((dn as u32) << 5) | dd as u32)
+    }
+
+    fn emit_fcmp_d(&mut self, dn: u8, dm: u8) -> Result<(), String> {
+        self.emit_word(0x1e60_2000 | ((dm as u32) << 16) | ((dn as u32) << 5))
     }
 
     fn emit_fcmp_zero_d(&mut self, dn: u8) -> Result<(), String> {

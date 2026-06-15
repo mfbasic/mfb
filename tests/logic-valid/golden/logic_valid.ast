@@ -1,0 +1,62 @@
+{
+  "project": "logic_valid",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "markTrue",
+      "line": 3,
+      "params": [
+      { "name": "label", "type": "String", "default": null }
+      ],
+      "returnType": "Boolean",
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "identifier", "value": "label" }] }, "line": 4 },
+      { "kind": "return", "value": { "kind": "boolean", "value": true }, "line": 5 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "markFalse",
+      "line": 8,
+      "params": [
+      { "name": "label", "type": "String", "default": null }
+      ],
+      "returnType": "Boolean",
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "identifier", "value": "label" }] }, "line": 9 },
+      { "kind": "return", "value": { "kind": "boolean", "value": false }, "line": 10 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "main",
+      "line": 13,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "unary", "operator": "NOT", "operand": { "kind": "boolean", "value": false } }] }] }, "line": 14 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "AND", "left": { "kind": "boolean", "value": true }, "right": { "kind": "boolean", "value": true } }] }] }, "line": 15 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "OR", "left": { "kind": "boolean", "value": true }, "right": { "kind": "boolean", "value": false } }] }] }, "line": 16 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "XOR", "left": { "kind": "boolean", "value": true }, "right": { "kind": "boolean", "value": false } }] }] }, "line": 17 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "AND", "left": { "kind": "boolean", "value": false }, "right": { "kind": "call", "callee": "markTrue", "arguments": [{ "kind": "string", "value": "and-rhs" }] } }] }] }, "line": 18 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "OR", "left": { "kind": "boolean", "value": true }, "right": { "kind": "call", "callee": "markFalse", "arguments": [{ "kind": "string", "value": "or-rhs" }] } }] }] }, "line": 19 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "XOR", "left": { "kind": "boolean", "value": false }, "right": { "kind": "call", "callee": "markTrue", "arguments": [{ "kind": "string", "value": "xor-rhs" }] } }] }] }, "line": 20 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "AND", "left": { "kind": "unary", "operator": "NOT", "operand": { "kind": "boolean", "value": false } }, "right": { "kind": "boolean", "value": true } }] }] }, "line": 21 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "XOR", "left": { "kind": "binary", "operator": "OR", "left": { "kind": "boolean", "value": false }, "right": { "kind": "boolean", "value": true } }, "right": { "kind": "boolean", "value": false } }] }] }, "line": 22 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 23 }
+      ]
+    }
+    ]
+  }
+  ]
+}

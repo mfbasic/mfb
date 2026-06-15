@@ -1,0 +1,39 @@
+NAME
+  comparisons - comparison operators and operand rules
+
+SYNOPSIS
+  =  <>  <  >  <=  >=
+
+DESCRIPTION
+  MFBASIC comparison operators return Boolean.
+
+  Equality operators:
+
+    =   equal
+    <>  not equal
+
+  Ordering operators:
+
+    <   less than
+    >   greater than
+    <=  less than or equal
+    >=  greater than or equal
+
+RULES
+  = and <> accept numeric operands using the normal numeric promotion rules, or
+  any two compatible comparable operands such as Boolean or String.
+
+  <, >, <=, and >= require numeric operands.
+
+  Numeric comparisons promote Byte, Integer, Float, and Fixed using the same
+  rules as numeric arithmetic, but always produce Boolean.
+
+EXAMPLES
+  LET same AS Boolean = "Ada" = "Ada"
+  LET ordered AS Boolean = 1.5 < 2
+  LET mixed AS Boolean = 1 = toByte(1)
+
+SEE ALSO
+  types numeric
+  types logical
+  mfbasic

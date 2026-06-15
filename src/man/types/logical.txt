@@ -1,0 +1,35 @@
+NAME
+  logical - Boolean logical operators
+
+SYNOPSIS
+  NOT
+  AND
+  OR
+  XOR
+
+DESCRIPTION
+  MFBASIC logical operators work on Boolean operands and return Boolean.
+
+RULES
+  NOT is unary and requires one Boolean operand.
+
+  AND and OR short-circuit:
+  AND skips the right operand when the left operand is FALSE.
+  OR skips the right operand when the left operand is TRUE.
+
+  XOR evaluates both operands and returns TRUE when exactly one operand is
+  TRUE.
+
+PRECEDENCE
+  NOT has higher precedence than AND.
+  AND has higher precedence than OR and XOR.
+  XOR has the same precedence as OR.
+
+EXAMPLES
+  LET ready AS Boolean = NOT FALSE
+  LET allowed AS Boolean = isAdmin OR hasToken
+  LET changed AS Boolean = oldValue XOR newValue
+
+SEE ALSO
+  types comparisons
+  mfbasic

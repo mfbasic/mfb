@@ -158,6 +158,12 @@ impl CodeBuilder<'_> {
         right: &NirValue,
     ) -> Result<ValueResult, String> {
         let left = self.lower_value(left)?;
+        let left_slot = self.allocate_stack_object("cmp_left", 8);
+        self.emit(abi::store_u64(
+            &left.location,
+            abi::stack_pointer(),
+            left_slot,
+        ));
         if left.type_ == "String" {
             let right = self.lower_value(right)?;
             if right.type_ != "String" {
@@ -166,14 +172,70 @@ impl CodeBuilder<'_> {
                     left.type_, right.type_
                 ));
             }
+            let right_slot = self.allocate_stack_object("cmp_right", 8);
+            self.emit(abi::store_u64(
+                &right.location,
+                abi::stack_pointer(),
+                right_slot,
+            ));
+            self.reset_temporary_registers();
+            let left_register = self.allocate_register()?;
+            let right_register = self.allocate_register()?;
+            self.emit(abi::load_u64(
+                &left_register,
+                abi::stack_pointer(),
+                left_slot,
+            ));
+            self.emit(abi::load_u64(
+                &right_register,
+                abi::stack_pointer(),
+                right_slot,
+            ));
+            let left = ValueResult {
+                type_: left.type_,
+                location: left_register,
+                text: left.text,
+            };
+            let right = ValueResult {
+                type_: right.type_,
+                location: right_register,
+                text: right.text,
+            };
             return self.lower_string_comparison_binary(op, &left, &right);
         }
-        let left_slot = self.allocate_stack_object("cmp_left", 8);
-        self.emit(abi::store_u64(
-            &left.location,
-            abi::stack_pointer(),
-            left_slot,
-        ));
+        if matches!(left.type_.as_str(), "Byte" | "Integer" | "Fixed" | "Float") {
+            let right = self.lower_value(right)?;
+            let right_slot = self.allocate_stack_object("cmp_right", 8);
+            self.emit(abi::store_u64(
+                &right.location,
+                abi::stack_pointer(),
+                right_slot,
+            ));
+            self.reset_temporary_registers();
+            let left_register = self.allocate_register()?;
+            let right_register = self.allocate_register()?;
+            self.emit(abi::load_u64(
+                &left_register,
+                abi::stack_pointer(),
+                left_slot,
+            ));
+            self.emit(abi::load_u64(
+                &right_register,
+                abi::stack_pointer(),
+                right_slot,
+            ));
+            let left = ValueResult {
+                type_: left.type_,
+                location: left_register,
+                text: left.text,
+            };
+            let right = ValueResult {
+                type_: right.type_,
+                location: right_register,
+                text: right.text,
+            };
+            return self.lower_numeric_comparison_binary(op, &left, &right);
+        }
         let right = self.lower_value(right)?;
         let right_slot = self.allocate_stack_object("cmp_right", 8);
         self.emit(abi::store_u64(
@@ -198,6 +260,111 @@ impl CodeBuilder<'_> {
             right_slot,
         ));
         self.emit(abi::compare_registers(&left_register, &right_register));
+        match op {
+            "=" => self.emit(abi::branch_eq(&true_label)),
+            "<>" => self.emit(abi::branch_ne(&true_label)),
+            "<" => self.emit(abi::branch_lt(&true_label)),
+            ">" => self.emit(abi::branch_gt(&true_label)),
+            "<=" => self.emit(abi::branch_le(&true_label)),
+            ">=" => self.emit(abi::branch_ge(&true_label)),
+            other => {
+                return Err(format!(
+                    "native code plan does not lower comparison operator '{other}'"
+                ));
+            }
+        }
+        self.emit(abi::move_immediate(&result, "Boolean", "false"));
+        self.emit(abi::branch(&done_label));
+        self.emit(abi::label(&true_label));
+        self.emit(abi::move_immediate(&result, "Boolean", "true"));
+        self.emit(abi::label(&done_label));
+        Ok(ValueResult {
+            type_: "Boolean".to_string(),
+            location: result,
+            text: format!("({} {op} {})", left.text, right.text),
+        })
+    }
+
+    fn lower_numeric_comparison_binary(
+        &mut self,
+        op: &str,
+        left: &ValueResult,
+        right: &ValueResult,
+    ) -> Result<ValueResult, String> {
+        let left_slot = self.allocate_stack_object("cmp_left", 8);
+        let right_slot = self.allocate_stack_object("cmp_right", 8);
+        self.emit(abi::store_u64(&left.location, abi::stack_pointer(), left_slot));
+        self.emit(abi::store_u64(&right.location, abi::stack_pointer(), right_slot));
+
+        self.reset_temporary_registers();
+        let left_register = self.allocate_register()?;
+        let right_register = self.allocate_register()?;
+        self.emit(abi::load_u64(
+            &left_register,
+            abi::stack_pointer(),
+            left_slot,
+        ));
+        self.emit(abi::load_u64(
+            &right_register,
+            abi::stack_pointer(),
+            right_slot,
+        ));
+        let left = ValueResult {
+            type_: left.type_.clone(),
+            location: left_register,
+            text: left.text.clone(),
+        };
+        let right = ValueResult {
+            type_: right.type_.clone(),
+            location: right_register,
+            text: right.text.clone(),
+        };
+
+        let promoted = if left.type_ == "Float" || right.type_ == "Float" {
+            "Float".to_string()
+        } else if left.type_ == "Fixed" || right.type_ == "Fixed" {
+            "Fixed".to_string()
+        } else {
+            numeric_binary_result_type("+", &left.type_, &right.type_).to_string()
+        };
+        let result = self.allocate_register()?;
+        let true_label = self.label("cmp_true");
+        let done_label = self.label("cmp_done");
+
+        match promoted.as_str() {
+            "Byte" | "Integer" => {
+                self.emit(abi::compare_registers(&left.location, &right.location));
+            }
+            "Fixed" => {
+                let left_fixed = self.allocate_register()?;
+                let right_fixed = self.allocate_register()?;
+                let left_fixed_slot = self.allocate_stack_object("cmp_left_fixed", 8);
+                self.load_numeric_as_fixed(&left_fixed, &left)?;
+                self.emit(abi::store_u64(
+                    &left_fixed,
+                    abi::stack_pointer(),
+                    left_fixed_slot,
+                ));
+                self.load_numeric_as_fixed(&right_fixed, &right)?;
+                self.emit(abi::load_u64(
+                    &left_fixed,
+                    abi::stack_pointer(),
+                    left_fixed_slot,
+                ));
+                self.emit(abi::compare_registers(&left_fixed, &right_fixed));
+            }
+            "Float" => {
+                self.load_numeric_as_double("d0", &left)?;
+                self.load_numeric_as_double("d1", &right)?;
+                self.emit(abi::float_compare_d("d0", "d1"));
+            }
+            other => {
+                return Err(format!(
+                    "native code plan cannot lower numeric comparison result type '{other}'"
+                ));
+            }
+        }
+
         match op {
             "=" => self.emit(abi::branch_eq(&true_label)),
             "<>" => self.emit(abi::branch_ne(&true_label)),
@@ -731,6 +898,24 @@ impl CodeBuilder<'_> {
             other => {
                 return Err(format!(
                     "native Float arithmetic cannot load operand type '{other}'"
+                ));
+            }
+        }
+        Ok(())
+    }
+
+    pub(super) fn load_numeric_as_fixed(
+        &mut self,
+        dst: &str,
+        value: &ValueResult,
+    ) -> Result<(), String> {
+        match value.type_.as_str() {
+            "Fixed" => self.emit(abi::move_register(dst, &value.location)),
+            "Byte" | "Integer" => self.emit_integer_to_fixed_value(&value.location, dst)?,
+            "Float" => self.emit_float_bits_to_fixed_value(&value.location, dst)?,
+            other => {
+                return Err(format!(
+                    "native Fixed comparison cannot load operand type '{other}'"
                 ));
             }
         }

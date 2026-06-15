@@ -212,6 +212,16 @@ pub const RULES: &[Rule] = &[
         message: "binary operator operands have incompatible types",
     },
     Rule {
+        name: "TYPE_UNARY_OPERATOR_MISMATCH",
+        severity: Severity::Error,
+        message: "unary operator operand has an incompatible type",
+    },
+    Rule {
+        name: "TYPE_UNARY_OPERATOR_UNKNOWN",
+        severity: Severity::Error,
+        message: "unary operator is not recognized",
+    },
+    Rule {
         name: "TYPE_BINDING_MISMATCH",
         severity: Severity::Error,
         message: "binding initializer type does not match declared type",

@@ -1,0 +1,8 @@
+FUNC main AS Integer
+  LET badEq AS Boolean = 1 = "1"
+  LET badLt AS Boolean = "a" < "b"
+  LET badGt AS Boolean = TRUE > FALSE
+  LET badLe AS Boolean = [] <= []
+  LET badGe AS Boolean = Map OF String TO Integer {} >= Map OF String TO Integer {}
+  RETURN 0
+END FUNC

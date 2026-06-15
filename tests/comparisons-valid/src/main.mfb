@@ -1,0 +1,21 @@
+IMPORT io
+
+FUNC main AS Integer
+  io::print(toString(1 = 1))
+  io::print(toString(1 <> 2))
+  io::print(toString(1 < 2))
+  io::print(toString(2 > 1))
+  io::print(toString(2 <= 2))
+  io::print(toString(2 >= 2))
+
+  io::print(toString(1 = toByte(1)))
+  io::print(toString(1.5 < 2))
+  io::print(toString(2.0 >= 2))
+  io::print(toString(1.25 = toFixed("1.25")))
+
+  io::print(toString("Ada" = "Ada"))
+  io::print(toString("Ada" <> "Grace"))
+  io::print(toString(TRUE = TRUE))
+  io::print(toString(FALSE <> TRUE))
+  RETURN 0
+END FUNC

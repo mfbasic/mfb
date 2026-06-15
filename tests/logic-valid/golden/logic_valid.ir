@@ -1,0 +1,60 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "logic_valid",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "markTrue",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    { "name": "label", "type": "String", "default": null }
+    ],
+    "returns": "Boolean",
+    "body": [
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "local", "name": "label" }] } },
+    { "op": "return", "value": { "kind": "const", "type": "Boolean", "value": "true" } }
+    ]
+  },
+  {
+    "name": "markFalse",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    { "name": "label", "type": "String", "default": null }
+    ],
+    "returns": "Boolean",
+    "body": [
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "local", "name": "label" }] } },
+    { "op": "return", "value": { "kind": "const", "type": "Boolean", "value": "false" } }
+    ]
+  },
+  {
+    "name": "main",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "unary", "op": "NOT", "operand": { "kind": "const", "type": "Boolean", "value": "false" } }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "binary", "op": "AND", "left": { "kind": "const", "type": "Boolean", "value": "true" }, "right": { "kind": "const", "type": "Boolean", "value": "true" } }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "binary", "op": "OR", "left": { "kind": "const", "type": "Boolean", "value": "true" }, "right": { "kind": "const", "type": "Boolean", "value": "false" } }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "binary", "op": "XOR", "left": { "kind": "const", "type": "Boolean", "value": "true" }, "right": { "kind": "const", "type": "Boolean", "value": "false" } }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "binary", "op": "AND", "left": { "kind": "const", "type": "Boolean", "value": "false" }, "right": { "kind": "call", "target": "markTrue", "args": [{ "kind": "const", "type": "String", "value": "and-rhs" }] } }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "binary", "op": "OR", "left": { "kind": "const", "type": "Boolean", "value": "true" }, "right": { "kind": "call", "target": "markFalse", "args": [{ "kind": "const", "type": "String", "value": "or-rhs" }] } }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "binary", "op": "XOR", "left": { "kind": "const", "type": "Boolean", "value": "false" }, "right": { "kind": "call", "target": "markTrue", "args": [{ "kind": "const", "type": "String", "value": "xor-rhs" }] } }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "binary", "op": "AND", "left": { "kind": "unary", "op": "NOT", "operand": { "kind": "const", "type": "Boolean", "value": "false" } }, "right": { "kind": "const", "type": "Boolean", "value": "true" } }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "binary", "op": "XOR", "left": { "kind": "binary", "op": "OR", "left": { "kind": "const", "type": "Boolean", "value": "false" }, "right": { "kind": "const", "type": "Boolean", "value": "true" } }, "right": { "kind": "const", "type": "Boolean", "value": "false" } }] }] } },
+    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

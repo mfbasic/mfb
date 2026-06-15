@@ -1,0 +1,21 @@
+$ mfb build -ast tests/logic-valid
+Wrote AST to tests/logic-valid/logic_valid.ast
+[exit 0]
+$ mfb build -ir tests/logic-valid
+Wrote IR to tests/logic-valid/logic_valid.ir
+[exit 0]
+$ mfb build tests/logic-valid
+Wrote executable to tests/logic-valid/logic_valid.out
+[exit 0]
+$ tests/logic-valid/logic_valid.out
+TRUE
+TRUE
+TRUE
+TRUE
+FALSE
+TRUE
+xor-rhs
+FALSE
+TRUE
+TRUE
+[exit 0]

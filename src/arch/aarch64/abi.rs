@@ -410,6 +410,12 @@ pub(crate) fn float_sqrt_d(dst: &str, src: &str) -> CodeInstruction {
         .field("src", src)
 }
 
+pub(crate) fn float_compare_d(lhs: &str, rhs: &str) -> CodeInstruction {
+    CodeInstruction::new("fcmp_d")
+        .field("lhs", lhs)
+        .field("rhs", rhs)
+}
+
 pub(crate) fn float_compare_zero_d(src: &str) -> CodeInstruction {
     CodeInstruction::new("fcmp_zero_d").field("src", src)
 }

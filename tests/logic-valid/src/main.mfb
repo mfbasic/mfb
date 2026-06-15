@@ -1,0 +1,24 @@
+IMPORT io
+
+FUNC markTrue(label AS String) AS Boolean
+  io::print(label)
+  RETURN TRUE
+END FUNC
+
+FUNC markFalse(label AS String) AS Boolean
+  io::print(label)
+  RETURN FALSE
+END FUNC
+
+FUNC main AS Integer
+  io::print(toString(NOT FALSE))
+  io::print(toString(TRUE AND TRUE))
+  io::print(toString(TRUE OR FALSE))
+  io::print(toString(TRUE XOR FALSE))
+  io::print(toString(FALSE AND markTrue("and-rhs")))
+  io::print(toString(TRUE OR markFalse("or-rhs")))
+  io::print(toString(FALSE XOR markTrue("xor-rhs")))
+  io::print(toString(NOT FALSE AND TRUE))
+  io::print(toString(FALSE OR TRUE XOR FALSE))
+  RETURN 0
+END FUNC

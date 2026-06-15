@@ -1,0 +1,7 @@
+FUNC main AS Integer
+  LET badNot AS Boolean = NOT 1
+  LET badAnd AS Boolean = TRUE AND 1
+  LET badOr AS Boolean = "x" OR FALSE
+  LET badXor AS Boolean = FALSE XOR []
+  RETURN 0
+END FUNC

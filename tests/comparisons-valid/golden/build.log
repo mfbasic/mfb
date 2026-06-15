@@ -1,0 +1,25 @@
+$ mfb build -ast tests/comparisons-valid
+Wrote AST to tests/comparisons-valid/comparisons_valid.ast
+[exit 0]
+$ mfb build -ir tests/comparisons-valid
+Wrote IR to tests/comparisons-valid/comparisons_valid.ir
+[exit 0]
+$ mfb build tests/comparisons-valid
+Wrote executable to tests/comparisons-valid/comparisons_valid.out
+[exit 0]
+$ tests/comparisons-valid/comparisons_valid.out
+TRUE
+TRUE
+TRUE
+TRUE
+TRUE
+TRUE
+TRUE
+TRUE
+TRUE
+TRUE
+TRUE
+TRUE
+TRUE
+TRUE
+[exit 0]

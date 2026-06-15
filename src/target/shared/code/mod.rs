@@ -8858,6 +8858,7 @@ impl CodeInstruction {
             | CodeOp::FCvtmsXFromD
             | CodeOp::FCvtpsXFromD
             | CodeOp::FCvtasXFromD => &["dst", "src"],
+            CodeOp::FCmpD => &["lhs", "rhs"],
             CodeOp::FCmpZeroD => &["src"],
         };
         for name in required {
