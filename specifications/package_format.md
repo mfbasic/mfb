@@ -203,21 +203,27 @@ bits 4-15 = reserved optional flags
 bits 16-31 = reserved required flags
 ```
 
-If an implementation sees an unknown required flag, it must reject the package with `ErrPackageInvalid` or `ErrPackageVersion`.
+If an implementation sees an unknown required flag, it must reject the package before import or merge.
+
+Current compiler source of truth:
+
+- Package/container rejection currently comes from detailed package-reader diagnostics in `src/bytecode.rs`, `src/target/package_mfp/mod.rs`, and `src/main.rs`.
+- These failures are currently surfaced as descriptive `error: ...` strings such as invalid magic, invalid signature header, truncated signature, or unsupported bytecode/container version rather than through a single package rule code path.
 
 ## Container validation
 
 A reader must reject an `.mfp` package when:
 
-* `magic` does not match.
-* `containerMajor` is unsupported.
-* `bytecodeMajor` is unsupported.
-* `signatureType` is unknown.
-* `signatureLength` is invalid for the signature type.
+* `magic` does not match. The current compiler reports this as `package does not have the MFP package magic`.
+* `containerMajor` is unsupported. The current compiler reports this as `unsupported MFP container major version <n>`.
+* `bytecodeMajor` is unsupported. The current compiler reports this as `unsupported MFBC major version <n>`.
+* `signatureType` is unknown. The current compiler reports this as `unsupported .mfp signature type <n>`.
+* `signatureLength` is invalid for the signature type. The current compiler reports either `unsigned .mfp package must have zero signature length` or `Ed25519 .mfp package must have a 64 byte signature`.
 * The signature fails verification under the selected trust policy.
 * Any string length exceeds the implementation limit.
-* `bytecodeLength` does not exactly match the remaining byte count.
+* `bytecodeLength` does not exactly match the remaining byte count. The current compiler reports this as `invalid .mfp bytecode length`.
 * There are trailing bytes after `packageBytecode`.
+* The container header identity does not match the embedded bytecode manifest identity. The current compiler reports this as `MFP header identity does not match bytecode manifest identity`.
 * The bytecode manifest package name, ident, version, identKey, identFingerprint, or signingFingerprint do not match the header name, ident, version, identKey, identFingerprint, or signingFingerprint.
 
 Recommended limits:
@@ -1012,7 +1018,7 @@ NOT             dst, a
 CONCAT          dst, a, b
 ```
 
-Arithmetic instructions use MFBASIC checked semantics. If an operation fails, for example due to overflow or divide-by-zero, it creates an `Error` and routes to the active trap or returns `Err`. The existing error table already reserves `ErrOverflow` and related numeric diagnostics. 
+Arithmetic instructions use MFBASIC checked semantics. If an operation fails, for example due to overflow or divide-by-zero, it creates an `Error` and routes to the active trap or returns `Err`. In the current compiler/runtime source, numeric runtime errors use the same runtime codes documented in `specifications/error_codes.md`, for example `ErrOverflow = 77050010`.
 
 Short-circuiting `AND` and `OR` are normally compiled with branches rather than relying on the `AND`/`OR` opcodes.
 
@@ -1328,7 +1334,12 @@ Default rule: resources are not sendable to threads.
 
 The `.mfp` verifier runs before a package can be imported or merged.
 
-The verifier must reject malformed, unsafe, or incompatible packages with `ErrVerificationFailed`, `ErrPackageInvalid`, or `ErrPackageVersion` as appropriate. The current standard error table already reserves these toolchain diagnostics. 
+The verifier must reject malformed, unsafe, or incompatible packages before any package code runs.
+
+Current compiler source of truth:
+
+- Verification and package-read failures are currently surfaced as detailed package/container validation messages from the package reader and verifier implementation, not as a single emitted `rules.rs` diagnostic family.
+- The spec should therefore treat the concrete rejection conditions below as normative for current behavior, with message text such as invalid magic, unsupported version, invalid signature header, truncated section table, missing section, identity mismatch, or other malformed-container diagnostics.
 
 ## Container verifier
 
@@ -1486,7 +1497,7 @@ ADD        r2, r0, r1
 RETURN_OK  r2
 ```
 
-If `ADD` overflows, it creates `ErrOverflow` and routes to the trap or returns `Err`, depending on the function metadata.
+If `ADD` overflows, it creates `ErrOverflow` (`77050010`) and routes to the trap or returns `Err`, depending on the function metadata.
 
 ---
 
