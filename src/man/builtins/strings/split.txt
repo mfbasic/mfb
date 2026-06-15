@@ -17,3 +17,10 @@ EXAMPLES
       io::print(toString(len(parts)))
       RETURN 0
     END FUNC
+
+FIXME
+- Inconsistency 1: `src/man/builtins/strings/split.txt` documents “An empty delimiter is invalid,” and `src/unicode_backend.rs` / native lowering reject it, but `tests/func_string_split_invalid` does not cover that documented runtime-invalid case.
+
+Notes: Add a function-level invalid/runtime test for `strings::split("abc", "")` that proves the generated program rejects the empty delimiter observably. The signature and normal split behavior are otherwise consistent with `specifications/*` and `src/**`.
+
+Untested: empty delimiter at function/runtime level; empty input string; multi-character delimiter; delimiter longer than input.

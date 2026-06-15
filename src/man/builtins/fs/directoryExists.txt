@@ -14,3 +14,11 @@ DESCRIPTION
 EXAMPLES
   fs::directoryExists("data")
   fs::directoryExists("é日😀")
+
+FIXME
+- Inconsistency 1: Manual/spec/src say `fs::directoryExists` follows symlinks, including the final path component, but `tests/func_fs_directoryExists_valid` does not exercise a symlink to a directory or a symlink to a non-directory.
+- Inconsistency 2: Manual says non-directory filesystem entries return `FALSE`, but tests only cover a regular file; they do not cover other entry kinds such as a symlink to a file or other special entries.
+
+Notes: Keep the manual behavior. Add runtime coverage proving `stat`-style behavior: symlink to directory returns `TRUE`, symlink to file returns `FALSE`, and broken symlink returns `FALSE`. Optionally clarify the manual to match `specifications/standard_package.md` by saying symlinks are followed during traversal as well as in the final component.
+
+Untested: final-component symlink to directory, final-component symlink to file, broken symlink, intermediate symlink traversal, and non-regular/non-directory entries beyond ordinary files.

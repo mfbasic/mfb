@@ -9,3 +9,10 @@ DESCRIPTION
 
 EXAMPLES
   LET value AS Float = math::2pi
+
+FIXME
+- Inconsistency 1: `src/builtins/math.rs` still models `math.2pi` as a zero-argument math call via `is_math_call`, `resolve_call`, `expected_arguments`, and `arity`, while `src/man/builtins/math/2pi.txt` and `specifications/standard_package.md` define it as a `LET` constant.
+
+Notes: Resolve by keeping `math::2pi` constant-only: remove constants from math call dispatch/arity paths, or intentionally document and test callable constants. The spec/manual currently support the constant-only interpretation.
+
+Untested: No dedicated `tests/func_math_2pi_valid` or `tests/func_math_2pi_invalid` coverage exists. Existing aggregate valid coverage prints `math::2pi`; focused invalid coverage is missing for `math::2pi()` and `math::2pi(arg)`, assignment to incompatible types, and use without importing `math`.

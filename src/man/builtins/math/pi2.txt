@@ -9,3 +9,11 @@ DESCRIPTION
 
 EXAMPLES
   LET value AS Float = math::pi2
+
+FIXME
+- Inconsistency 1: `src/man/builtins/math/pi2.txt` and `specifications/standard_package.md` document `math::pi2` as a `Float` constant, but `src/builtins/math.rs` also accepts it through the zero-argument built-in call resolver. Bytecode lowering then has no `opcode_for` entry for `math.pi2`, so callable usage is inconsistently accepted before lowering and later fails as unsupported.
+- Inconsistency 2: Tests cover valid constant use only through broader math package tests. There are no dedicated `tests/func_math_pi2_valid/**` or `tests/func_math_pi2_invalid/**` directories for this documented built-in.
+
+Notes: Keep `math::pi2` as an identifier-only constant. Remove math constants, including `PI_2`, from callable built-in resolution paths or reject `math::pi2()` before IR/bytecode. Add dedicated valid and invalid fixtures for `pi2`.
+
+Untested: Dedicated valid assignment/use as `Float`; invalid call syntax `math::pi2()`; invalid argument call `math::pi2(1)`; invalid assignment to an incompatible type.

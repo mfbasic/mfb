@@ -16,3 +16,12 @@ DESCRIPTION
 SEE ALSO
   errors
   types
+
+FIXME
+- Inconsistency 1: `src/man/builtins/io/package.txt` synopsis lists only `io::print(value)` and `io::write(value)`, but `specifications/standard_package.md` and `src/builtins/io.rs` define the IO package as including `printError`, `writeError`, `flush`, `flushError`, `input`, `readLine`, `readChar`, `readByte`, `pollInput`, `isInputTerminal`, `isOutputTerminal`, `isErrorTerminal`, and `terminalSize`.
+- Inconsistency 2: The package description says IO provides standard input, standard error, and terminal inspection helpers, but the page does not name any of the input, stderr, flush, polling, terminal-detection, or terminal-size functions that implement that scope.
+- Inconsistency 3: `specifications/mfbasic.md` lists terminal and standard-stream IO built-ins but omits `io::pollInput`, while `specifications/standard_package.md`, `src/builtins/io.rs`, and `tests/func_io_pollInput_*` include it.
+
+Notes: Expand `src/man/builtins/io/package.txt` to summarize the full IO package surface using the signatures from `specifications/standard_package.md`. Also update `specifications/mfbasic.md` to include `io::pollInput` in its built-in IO list, or remove/justify it elsewhere if it is not intended to be part of the standard package.
+
+Untested: No `tests/func_io_input_valid|invalid`, `tests/func_io_readLine_valid|invalid`, `tests/func_io_readChar_valid|invalid`, `tests/func_io_readByte_valid|invalid`, `tests/func_io_isInputTerminal_valid|invalid`, `tests/func_io_isOutputTerminal_valid|invalid`, or `tests/func_io_isErrorTerminal_valid|invalid` directories were present. Existing IO tests also do not appear to cover IO failure/error-code behavior, EOF/invalid UTF-8 input cases, or terminal-size failure when stdout is not an interactive terminal.

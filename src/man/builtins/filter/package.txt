@@ -30,3 +30,10 @@ EXAMPLES
 SEE ALSO
   collection
   general
+
+FIXME
+- Inconsistency 1: `src/man/builtins/filter/package.txt` documents predicate helpers for ordinary conditionals and `MATCH` guards, but the focused tests only show direct calls and collection `filter(...)` predicate use. I found no test proving any filter predicate works in a `MATCH ... WHEN` guard.
+
+Notes: The manual, `specifications/standard_package.md`, and `src/builtins/general.rs` agree on the predicate set and overload families: `isEven`, `isOdd`, `isPositive`, `isNegative`, `isZero`, `isEmpty`, and `isNotEmpty`. Resolve the inconsistency by adding at least one valid runtime test that uses a filter predicate in a `MATCH` guard, or narrow the package manual if guard support is not intended.
+
+Untested: `MATCH` guard usage; error propagation from argument evaluation before predicate calls; `isEmpty`/`isNotEmpty` as predicates over `List OF List` and `List OF Map`; generic `Map` overloads beyond `Map OF String TO Integer`; Unicode scalar edge cases for string emptiness are not separately covered.

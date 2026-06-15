@@ -15,3 +15,10 @@ DESCRIPTION
 EXAMPLES
   thread::send(t, "next")
   thread::send(t, "next", 10)
+
+FIXME
+- Inconsistency 1: `src/man/builtins/thread/send.txt` says a positive `timeoutMs` waits up to that many milliseconds for queue space, and `specifications/threading.md` says the same. The implementation in `src/target/shared/code/mod.rs` `thread_queue_write_helper` checks whether the queue count is nonzero and immediately returns `ErrTimeout`; it never uses `x2` to wait or retry for positive timeouts.
+
+Notes: Implement real positive-timeout waiting in `thread_queue_write_helper` for `thread.send`, preserving `timeoutMs = 0` as non-blocking and negative timeout as `ErrInvalidArgument`. Alternatively, if non-blocking is the intended implementation, update both the manual and `specifications/threading.md`, but that would weaken the documented contract.
+
+Untested: positive timeout waiting for queue space; timeout expiration after waiting; `timeoutMs = 0` on a full inbound queue; negative timeout runtime error; send after cancellation; send after worker completion; send behavior while queue is full and the worker drains it before timeout.

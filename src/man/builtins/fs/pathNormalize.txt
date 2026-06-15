@@ -14,3 +14,11 @@ DESCRIPTION
 
 EXAMPLE
   io::print(fs::pathNormalize("target//a/./file.txt"))
+
+FIXME
+- Inconsistency 1: `src/man/builtins/fs/pathNormalize.txt` and `specifications/standard_package.md` say `..` removes the previous normal component when possible, but `src/target/shared/code/builder_fs_paths.rs` does not correctly update `out_len_slot` when popping a first path component. Cases like `fs::pathNormalize("a/..")` and `fs::pathNormalize("/a/..")` would leave the previous component in place instead of producing `.` and `/`.
+- Inconsistency 2: The same source path treats a leading previous `..` component as poppable when it is at the start of the output, so cases like `fs::pathNormalize("../..")` are inconsistent with the manual’s “previous normal component” wording.
+
+Notes: Fix `lower_fs_path_normalize` so `pop_previous` sets output length to `0` for relative first-component removal and `1` for absolute root removal, and so a previous component equal to `..` is preserved even when it starts at output index `0`.
+
+Untested: `a/..`, `/a/..`, `a/b/../..`, `../..`, `../../a`, `/a/b/../..`, root-only `/`, repeated root slashes `//`, and unresolved leading parent traversal with later components.

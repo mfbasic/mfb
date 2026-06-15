@@ -12,3 +12,10 @@ DESCRIPTION
 
 EXAMPLES
   LET value AS Float = math::cos(math::pi)
+
+FIXME
+- Inconsistency 1: `src/man/builtins/math/cos.txt` uses `math::pi` in its example, while `specifications/mfbasic.md` still lists and demonstrates `math::piFloat`. `specifications/standard_package.md`, `src/builtins/math.rs`, and tests use `math::pi`.
+
+Notes: Standardize the older `specifications/mfbasic.md` references on `math::pi`, matching the manual example, standard package spec, source, and tests. The `math::cos(Float)` and `math::cos(Fixed)` signatures and radians/nearest-Fixed behavior otherwise match the standard package spec and implementation.
+
+Untested: Fixed rounding is only covered by a result that prints as `-1.00`; add a nontrivial Fixed input that proves nearest-Fixed rounding. Additional edge coverage could include negative inputs, `pi/2` near-zero behavior, and return-type mismatch cases for assigning the Fixed overload to `Float` or the Float overload to `Fixed`.

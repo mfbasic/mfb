@@ -17,3 +17,11 @@ DESCRIPTION
 SEE ALSO
   errors
   types
+
+FIXME
+- Inconsistency 1: `tests/old/builtin-filesystem/src/main.mfb` calls `fs::createTempFile("target", "mfb-test-", ".tmp")`, but `src/man/builtins/fs/package.txt`, `src/builtins/fs.rs`, and current `tests/func_fs_createTempFile_*` support only `fs::createTempFile()` and `fs::createTempFile(directory AS String)`.
+- Inconsistency 2: The same old fixture uses `tests/builtin-filesystem/...` paths, while the fixture is under `tests/old/builtin-filesystem/...`, so it no longer matches the current test layout.
+
+Notes: Update or remove the stale `tests/old/builtin-filesystem` fixture/goldens. The current package manual’s package-level claims match the live fs builtin names and File resource type. `specifications/*` does not appear to contain an fs builtin specification to compare against.
+
+Untested: `USING` auto-close behavior in current `func_fs_*` tests; createTempFile collision/exclusive-create behavior, nonexistent or non-directory directory argument, empty directory string, permission-denied directory, repeated uniqueness, and read-back from the returned read/write handle.

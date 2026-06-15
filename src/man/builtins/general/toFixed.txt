@@ -60,3 +60,11 @@ SEE ALSO
   toInt
   toFloat
   isNumeric
+
+FIXME
+- Inconsistency 1: Manual/specs say `toFixed(String)` and `toFixed(Float)` round to the nearest representable `Fixed`, but `src/target/shared/code/builder_conversions.rs` lowers both through `fcvtzs_x_from_d`, which truncates toward zero after scaling by `2^32`.
+- Inconsistency 2: Manual says `String` input parses “decimal fixed-point text”, but the implementation and valid test accept exponent notation via `toFixed("1.25e2")`.
+
+Notes: Implement nearest-representable rounding for the String/Float native lowering, or change both manual and specs to document truncation if that is intended. Clarify the accepted String grammar in the manual/specs, including optional sign and exponent notation, or restrict implementation/tests to fixed-point-only decimal text.
+
+Untested: String/Float rounding just below/above half increments, negative rounding, exact min/max boundaries, lower-bound overflow, `Integer` overflow outside Fixed range, `Float` NaN/infinity, `Float` overflow, empty/whitespace strings, leading `+`, malformed exponent, and max fractional precision behavior.

@@ -59,3 +59,11 @@ SEE ALSO
   toInt
   toFixed
   isNumeric
+
+FIXME
+- Inconsistency 1: `src/arch/aarch64_old/mod.rs` lowers `toFloat(String)` by parsing the input as `Fixed` and then converting to `Float`, while the manual/spec say `toFloat(String)` parses Float text. This rejects valid Float syntax covered by tests, such as exponent notation (`"1.25e2"`), and limits parsing to fixed-style decimal text.
+- Inconsistency 2: the old AArch64 `toFloat(String)` path does not implement the documented `ErrOverflow (10028)` behavior for text that overflows to infinity; it uses the fixed parser, which has no Float overflow-to-infinity check and can produce fixed-parser behavior instead.
+
+Notes: Resolve by wiring old AArch64 `toFloat(String)` to the same decimal-to-binary64 parser and non-finite/overflow checks used by the shared native lowering, or remove/retire the stale old backend path if it is no longer supported. The manual, `specifications/standard_package.md`, shared native implementation, and focused `func_general_toFloat_*` tests otherwise agree.
+
+Untested: old AArch64 `toFloat(String)` exponent parsing; old AArch64 Float overflow error code; non-finite text variants such as `"NaN"`, `"Infinity"`, `"inf"`, and `"nan"` in dedicated `func_general_toFloat_*` tests; leading `+`; empty string; whitespace; malformed exponent; `.5` and `1.` forms; underflow/subnormal boundary behavior.

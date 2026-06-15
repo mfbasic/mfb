@@ -14,3 +14,11 @@ DESCRIPTION
 
 EXAMPLES
   fs::tempDirectory()
+
+FIXME
+- Inconsistency 1: Manual/spec say Linux returns `$TMPDIR` when set and non-empty, otherwise `/tmp`, but `src/target/linux_aarch64/code.rs` falls back to `/tmp` when `$TMPDIR` length is >= the fixed 4096-byte scratch buffer.
+- Inconsistency 2: Manual/spec say macOS returns `_confstr(_CS_DARWIN_USER_TEMP_DIR)`, but `src/target/macos_aarch64/code.rs` uses a fixed 4096-byte buffer and `src/target/shared/code/mod.rs` trusts the returned length after subtracting 1. If `_confstr` reports a required size larger than the buffer, the helper can copy beyond the populated buffer instead of retrying with the required size or failing cleanly.
+
+Notes: Resolve by making `fs::tempDirectory()` allocate based on the required platform result length, or document and intentionally test a defined max-length behavior. Linux should either return any non-empty `$TMPDIR` that fits MFB string limits or fail clearly if it cannot; silently returning `/tmp` contradicts the docs. macOS should call `_confstr` for required size, allocate enough space, then call again.
+
+Untested: Linux `$TMPDIR` set/non-empty, unset, empty, and overlong values; macOS `_confstr` oversized/truncation path; runtime execution for `tests/func_fs_tempDirectory_valid` appears absent from its golden log despite the test source printing runtime checks; `fs::createTempFile()` default directory equivalence to `fs::tempDirectory()` is not directly asserted.

@@ -46,3 +46,10 @@ SEE ALSO
   forEach
   filter
   reduce
+
+FIXME
+- Inconsistency 1: `src/man/builtins/collection/transform.txt` documents unconstrained `FUNC(T) AS U`, but `specifications/mfbasic.md` says `SUB` is not valid for `transform`; the implementation type resolver accepts `SUB(T)`/`FUNC(T) AS Nothing` and only fails later in native code generation with unsupported `List OF Nothing`.
+
+Notes: Resolve by making `transform` reject `Nothing` as callback return type during builtin type checking, then document that `f` must be value-producing. Add/update invalid tests for `transform(numbers, someSub)` or `FUNC(T) AS Nothing`.
+
+Untested: `SUB`/`FUNC(T) AS Nothing` rejection; wrong argument count; non-list first argument; non-function second argument; callback error propagation at runtime; output type mismatch; edge cases for non-Integer/String result element types and nested collection result types.

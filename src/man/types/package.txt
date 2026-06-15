@@ -142,3 +142,13 @@ SEE ALSO
   collection
   io
   thread
+
+FIXME
+- Inconsistency 1: `Thread OF Msg TO Out` is documented as exposing `t.result AS Result OF Out`, and the spec says the same, but native field lowering only handles map entries, records, and union variants. `src/typecheck.rs` accepts `t.result`; `src/target/shared/code/builder_misc.rs` would reject field access on `Thread OF ...` as not a record or variant.
+- Inconsistency 2: `Thread` handles are documented as not copyable or sendable, but the checked source paths do not enforce copyability/sendability for assignments, collection elements, thread message types, or thread start data. `src/typecheck.rs` assignment and call checking are type-compatible only, and `src/builtins/thread.rs` permits any matching `Msg`/`In` shape.
+- Inconsistency 3: `Map OF K TO V` is documented as requiring comparable `K`, but map literal/type checking does not reject non-comparable key types. `src/typecheck.rs` validates only key type compatibility against the declared map key type.
+- Inconsistency 4: List search helpers are documented as requiring comparable element types, but `src/builtins/general.rs` resolves `contains`, `find`, and `replace` by matching list element types only, without checking comparability.
+
+Notes: Implement real comparability and ownership predicates in type checking and apply them to map key declarations/literals, list search helper resolution, thread handle copies, thread message/start payload types, and collection element/value types. Either implement native lowering/runtime storage for `Thread.result`, or remove/narrow the manual/spec claim until `t.result` works at runtime.
+
+Untested: `t.result` compile-to-native/runtime behavior; copying a `Thread` into another binding; storing `Thread` in `List`/`Map`; using `Thread` as `Msg` or thread start data; maps with non-comparable keys such as `List`, `Map`, union, function, lambda, thread, or resource types; `contains`/`find`/`replace` on lists of non-comparable element types; `MapEntry` constructor/update rejection; `TerminalSize` unknown-field access.

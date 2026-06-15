@@ -13,3 +13,12 @@ DESCRIPTION
 EXAMPLES
   io::print("Hello")
   io::print("é日😀")
+
+FIXME
+- Inconsistency 1: `src/man/builtins/io/print.txt` documents failure as `ErrOutput (10015)`, but `specifications/standard_package.md` names error code `10015` as `ErrWriteFailed`.
+- Inconsistency 2: `specifications/plan-macos-app.md` documents `io::print(text AS String)`, while the manual and `specifications/standard_package.md` use `value AS String`.
+- Inconsistency 3: Native write helpers in `src/**` perform a single write for the value and a single write for the newline, then treat any non-negative return as success. Short writes can therefore produce incomplete output while still satisfying the call as `Ok`, contradicting the documented “writes value ... appends a newline” behavior.
+
+Notes: Standardize code `10015` naming, preferably to `ErrWriteFailed` if `standard_package.md` is canonical. Standardize the parameter name across specs/manuals. Update native output helpers to loop until all bytes are written, handle newline write separately but completely, and return `10015` on failed or non-progressing writes.
+
+Untested: output failure returning `10015`; short writes; zero-progress writes; newline write failure after value write; very large output under pipe/file redirection; macOS app transcript behavior for `io::print`; embedded newline/NUL/control-character strings.

@@ -9,3 +9,11 @@ DESCRIPTION
 
 EXAMPLES
   LET value AS Fixed = math::ln10Fixed
+
+FIXME
+- Inconsistency 1: `tests/old/builtin-math/src/main.mfb` references `math::ln10Fixed`, but the corresponding old golden outputs under `tests/old/builtin-math/golden/` contain no `ln10Fixed` entry and appear stale relative to that source.
+- Inconsistency 2: There is no dedicated `tests/func_math_ln10Fixed_valid/**` or `tests/func_math_ln10Fixed_invalid/**` coverage, even though `ln10Fixed` is documented and implemented as a zero-argument math constant.
+
+Notes: Regenerate or remove the stale `tests/old/builtin-math` golden fixtures so they match the test source. Add focused valid/invalid function test directories for `math::ln10Fixed`; valid should prove it resolves as `Fixed` and produces the rounded ln(10) value, invalid should reject calls with arguments and incompatible assignment/use.
+
+Untested: wrong argument count for `math::ln10Fixed`; incompatible assignment/type expectation such as assigning it to `Float`, `Integer`, or another non-`Fixed` type; dedicated runtime assertion for its printed/observable rounded fixed value outside the aggregate math package test.

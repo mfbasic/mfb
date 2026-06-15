@@ -35,3 +35,11 @@ SEE ALSO
   types logical
   types comparisons
   errors
+
+FIXME
+- Inconsistency 1: `src/man/flow/package.txt` says blocks “either use dedicated terminators ... or a single-line form separated with `:`”, but `specifications/mfbasic.md` defines inline `IF` as `IF expr THEN simpleStmt [ ELSE simpleStmt ]` without `:` separators, while colon-separated one-line loops still require terminators such as `NEXT`, `WEND`, or `LOOP UNTIL`.
+- Inconsistency 2: `src/man/flow/package.txt` describes `using` as “Resource-scoped blocks with automatic close behavior”, and the specs require deterministic close on scope exit including error exits, but `src/target/shared/code/builder_control.rs` emits the close call only after lowering the body. A `RETURN`, `FAIL`, or auto-propagated error inside the body can bypass that emitted close in native lowering.
+
+Notes: Tighten the package wording to distinguish inline `IF` from colon-separated block forms, or align parser/spec/manual behavior for inline forms. For `USING`, route all native exits from the body through cleanup, matching the bytecode cleanup model and the spec’s close precedence rules.
+
+Untested: inline `IF ... THEN ... ELSE ...`; invalid non-Boolean `IF` condition; `MATCH` guards/pattern lists if intended by spec; `USING` close on `RETURN`, `FAIL`, auto-propagated `Err`, and close failure precedence; invalid `USING` with non-resource values; current focused tests also do not cover `USING` at all outside old filesystem coverage.

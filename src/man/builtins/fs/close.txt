@@ -10,3 +10,10 @@ DESCRIPTION
 EXAMPLES
   LET f AS File = fs::openFile("data.txt")
   fs::close(f)
+
+FIXME
+- Inconsistency 1: `src/man/builtins/fs/close.txt` and `specifications/standard_package.md` say calling `fs::close` more than once on the same `File` is an error, while `specifications/mfbasic.md` says close operations consume the handle and the source binding is moved/cannot be used afterward. `src/typecheck.rs` does not enforce that move for `fs.close`; it only type-checks the call, so repeated `fs::close(f)` can reach the runtime helper instead of being rejected as use-after-move.
+
+Notes: Resolve by choosing one contract. Prefer the language spec: make `fs::close(file AS File)` consume the resource in type checking, reject later use of the binding, and update the manual to clarify that a second close through the same source binding is a compile-time use-after-move error; `ErrResourceClosed` remains for already-closed handles that reach runtime through cleanup/native paths. Alternatively, weaken `specifications/mfbasic.md` if runtime double-close errors are intended source behavior.
+
+Untested: double-close behavior/`ErrResourceClosed`; compile-time use-after-close/use-after-move; using `f` in `fs::readLine`, `fs::eof`, `fs::writeAll`, or another `fs::close` after close; interaction between explicit `fs::close` and `USING` cleanup; runtime close failure path.

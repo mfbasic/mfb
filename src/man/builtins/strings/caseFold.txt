@@ -15,3 +15,10 @@ EXAMPLES
       io::print(strings::caseFold("Straße"))
       RETURN 0
     END FUNC
+
+FIXME
+- Inconsistency 1: `src/man/builtins/strings/caseFold.txt` and `specifications/standard_package.md` say `strings::caseFold` applies Unicode case folding, but `src/arch/aarch64_old/mod.rs` lowers `NATIVE_OPCODE_STRING_CASE_FOLD` through ASCII-only byte lowercasing with fixed output length. This cannot produce Unicode folds such as `Straße -> strasse` or `K -> k`.
+
+Notes: Resolve by removing or disabling the stale `aarch64_old` lowering, or route `strings.caseFold` there through the shared Unicode/runtime helper used by the current backend. The manual/spec match the main Rust Unicode implementation.
+
+Untested: Runtime coverage does not appear to exercise `strings::caseFold` on the `src/arch/aarch64_old` native path, especially Unicode folds that expand length or map non-ASCII code points.

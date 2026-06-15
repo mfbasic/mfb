@@ -15,3 +15,10 @@ EXAMPLE
   IF fs::isWithin(root, candidate) THEN
     io::print("inside")
   END IF
+
+FIXME
+- Inconsistency 1: `src/man/builtins/fs/isWithin.txt` documents runtime rejection for non-existing paths and embedded NUL bytes, and `src/target/shared/code/mod.rs` implements those runtime error paths, but `tests/func_fs_isWithin_invalid` only covers compile-time arity/type errors. It does not validate the documented runtime failures.
+
+Notes: Add runtime invalid coverage for missing `base`, missing `child`, empty path if intended as invalid, and embedded NUL path handling, asserting the chosen error codes. Keep the existing compile-time invalid tests for arity/type checking.
+
+Untested: Symlink canonicalization; `.`/`..` normalization; missing base vs missing child; embedded NUL in base and child; empty base/child; permission/access-denied during canonicalization; root containment beyond the existing happy path; boundary cases with trailing separators.

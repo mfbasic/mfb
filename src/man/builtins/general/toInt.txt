@@ -70,3 +70,12 @@ SEE ALSO
   toFixed
   toByte
   isNumeric
+
+FIXME
+- Inconsistency 1: `tests/old/typecheck-builtin-general-mismatch/golden/build.log` expects `toInt(TRUE)` to report expected types `String, Float, or Fixed`, but the manual, `specifications/standard_package.md`, `src/builtins/general.rs`, and current `tests/func_general_toInt_invalid` include `Byte`.
+- Inconsistency 2: `src/arch/aarch64_old/mod.rs` converts `Fixed` to `Integer` with arithmetic right shift, which floors negative fixed values instead of truncating toward zero as documented.
+- Inconsistency 3: `src/arch/aarch64_old/mod.rs` converts `Float` to `Integer` with `fcvtzs` only, without the documented `ErrInvalidFormat` for NaN/infinity or `ErrOverflow` for out-of-range values.
+
+Notes: Update or remove the stale old golden so diagnostics include `Byte`. If `aarch64_old` remains supported, port the checked `toInt(Fixed)` and `toInt(Float)` behavior from the shared lowering path; otherwise remove/exclude that backend from the behavioral source of truth.
+
+Untested: direct `toInt(Float)` overflow/out-of-range; direct `toInt(Float)` NaN/infinity import-boundary handling; `toInt(Fixed)` near min/max and negative fractional truncation on every backend; string empty input, sign-only input, whitespace input, positive overflow with `+`, and negative underflow below `-9223372036854775808`.

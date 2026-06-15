@@ -10,3 +10,12 @@ DESCRIPTION
 
 EXAMPLES
   LET count AS Integer = thread::waitFor(t)
+
+FIXME
+- Inconsistency 1: The manual synopsis omits the generic template declaration shown in specs: `thread::waitFor OF Msg, Out(t AS Thread OF Msg TO Out) AS Out`.
+- Inconsistency 2: The specs state `thread::waitFor` may be called before or after draining outbound messages and returns the stored result; the manual only says it waits for the worker result and does not document the queue-draining interaction.
+- Inconsistency 3: The manual/spec document `Err` auto-propagation from the stored worker result, but the targeted tests do not cover a worker returning/failing with `Err` and `waitFor` propagating it.
+
+Notes: Update `src/man/builtins/thread/waitFor.txt` to include `OF Msg, Out` in the synopsis and mention that `waitFor` is independent of draining outbound messages. Add runtime coverage for a worker error result propagating through `thread::waitFor`.
+
+Untested: Worker `Err` result propagation; repeated `waitFor` on an already-completed thread; `waitFor` before draining remaining outbound messages; `waitFor` after draining outbound messages; compile-time return-type mismatch for `Out`.

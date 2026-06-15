@@ -11,3 +11,10 @@ DESCRIPTION
 
 EXAMPLES
   LET value AS Integer = math::min(2, 4)
+
+FIXME
+- Inconsistency 1: `src/builtins/math.rs` resolves `ABS | MIN | MAX` through `all_same_numeric(arg_types, 1, 2)`, so the shared resolver treats one-argument `math.min` as type-valid, while the manual page and `specifications/standard_package.md` define only two-argument overloads.
+
+Notes: Split `ABS` from `MIN | MAX` in `resolve_call`: keep `ABS` at exactly one numeric argument, and require `MIN | MAX` to use exactly two same-type numeric arguments. The arity table, manual page, specs, native lowering, and existing invalid test already expect two arguments.
+
+Untested: `math::min` with too many arguments; `Integer/Fixed` and `Float/Fixed` mixed arguments; invalid `Fixed` receiver/argument combinations; Fixed equal-value behavior; Fixed case where the second operand is smaller in the dedicated `func_math_min_valid` test; integer min/max boundary values; float special values such as NaN/infinity if the language can produce/import them.

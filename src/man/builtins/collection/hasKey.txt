@@ -33,3 +33,10 @@ SEE ALSO
   get
   getOr
   removeKey
+
+FIXME
+- Inconsistency 1: `tests/func_collection_hasKey_invalid` only covers a wrong key type, but the manual/spec signature also requires exactly two arguments and a `Map OF K TO V` first argument.
+
+Notes: Add invalid cases for wrong arity and non-map receiver. The manual, specifications, resolver, and native lowering otherwise agree on `hasKey OF K, V(value AS Map OF K TO V, key AS K) AS Boolean` returning `TRUE` for present keys and `FALSE` for missing keys.
+
+Untested: wrong argument count, non-map first argument, empty map miss, argument-evaluation error propagation before `hasKey` is called.

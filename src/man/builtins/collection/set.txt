@@ -49,3 +49,10 @@ SEE ALSO
   get
   append
   insert
+
+FIXME
+- Inconsistency 1: Tests do not fully cover the documented/type-resolved `set` overload contract. Existing invalid tests cover wrong list index type and wrong map key type, but not wrong argument count, wrong first argument type, wrong list item type, or wrong map value type.
+
+Notes: Manual, specs, resolver, and runtime lowering agree on the two overloads: `List OF T, Integer, T -> List OF T` and `Map OF K TO V, K, V -> Map OF K TO V`. Resolve the test inconsistency by adding focused invalid cases for arity, non-list/non-map receiver, list item type mismatch, and map value type mismatch.
+
+Untested: list negative index; list empty set; list last valid index; original list unchanged after set; original map unchanged after set; map overwrite preserving single key entry; map value type mismatch; wrong argument count; non-collection first argument; map key types beyond `String`/`Integer`; nested list/map element and value types.

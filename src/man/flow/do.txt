@@ -27,3 +27,10 @@ EXAMPLES
 SEE ALSO
   flow while
   flow for
+
+FIXME
+- Inconsistency 1: `specifications/mfbasic.md` grammar says `doStmt = "DO" block "LOOP" [ "UNTIL" expr ]`, which permits bare `DO ... LOOP`. `src/man/flow/do.txt` documents only `DO ... LOOP UNTIL condition`, and `src/ast.rs` rejects bare `DO ... LOOP` with `DO blocks must end with LOOP UNTIL <condition>.`
+
+Notes: Resolve by making the spec grammar match the implemented/manual behavior: remove the optional brackets so the post-test form is `"DO" block "LOOP" "UNTIL" expr`. If bare infinite `DO ... LOOP` is intended instead, update the manual and parser/runtime/tests to support it.
+
+Untested: Bare `DO ... LOOP` rejection is not covered. Malformed `DO` forms such as missing `LOOP`, missing `UNTIL` condition, or missing `DO WHILE` terminator are also not covered by the targeted control-flow tests.

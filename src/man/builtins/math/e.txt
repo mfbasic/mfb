@@ -9,3 +9,11 @@ DESCRIPTION
 
 EXAMPLES
   LET value AS Float = math::e
+
+FIXME
+- Inconsistency 1: `src/man/builtins/math/e.txt`, `specifications/standard_package.md`, `src/builtins/math.rs`, and current tests use `math::e`, but `specifications/mfbasic.md` lists the math constant as `math::eFloat`.
+- Inconsistency 2: The manual page presents `math::e AS Float` as a value, and `specifications/standard_package.md` says math constants are `LET` values, but `src/builtins/math.rs` also resolves `math.e` as a zero-argument call.
+
+Notes: Update `specifications/mfbasic.md` to list `math::e`. Either reject `math::e()` as a call so constants are value-only everywhere, or document callable constants consistently.
+
+Untested: No dedicated `tests/func_math_e_valid/**` or `tests/func_math_e_invalid/**` directories. Missing edge coverage for `math::e()` vs value-only usage, `math::e(1)`, assignment to incompatible types, and a dedicated valid runtime assertion for the constant value.

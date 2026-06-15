@@ -14,3 +14,11 @@ DESCRIPTION
 EXAMPLES
   fs::fileExists("data.txt")
   fs::fileExists("é日😀.txt")
+
+FIXME
+- Inconsistency 1: `src/man/builtins/fs/fileExists.txt` documents that the final path component is followed when it is a symlink, and `specifications/standard_package.md` says the same, but `tests/func_fs_fileExists_valid` has no symlink coverage.
+- Inconsistency 2: The manual says `fileExists` returns `FALSE` for “other non-regular filesystem entries,” but tests only cover a directory as the non-regular case.
+
+Notes: Add valid runtime cases for a symlink to a regular file returning `TRUE`, a symlink to a directory returning `FALSE`, and ideally a dangling symlink returning `FALSE`. Add at least one non-directory non-regular entry case where practical for the acceptance environment.
+
+Untested: final-component symlink to file, final-component symlink to directory, dangling symlink, and non-regular entries other than directories.

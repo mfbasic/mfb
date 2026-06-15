@@ -33,3 +33,11 @@ SEE ALSO
   mfb man json stringify
   mfb man json get
   mfb man json getOr
+
+FIXME
+- Inconsistency 1: `json::parse` is documented/spec’d as parsing JSON text, but `src/builtins/json_package.mfb` accepts unescaped control characters inside strings because `__json_parseString` appends any non-quote, non-backslash character. JSON requires U+0000 through U+001F to be escaped.
+- Inconsistency 2: `json::stringify` is spec’d to produce compact valid JSON text, but `__json_escapeString` only escapes selected controls (`\b`, `\f`, `\n`, `\r`, `\t`) and can emit other raw control characters, producing invalid JSON.
+
+Notes: Reject raw control characters in `__json_parseString`. Update `__json_escapeString` to escape all U+0000 through U+001F, likely as `\u00XX` for controls without short escapes.
+
+Untested: raw control characters in parsed strings; stringifying control characters other than backspace/formfeed/newline/carriage-return/tab; parse/stringify round trip for `\u0000` and other low control escapes.

@@ -12,3 +12,11 @@ DESCRIPTION
 
 EXAMPLES
   LET value AS Float = math::sin(math::pi)
+
+FIXME
+- Inconsistency 1: `src/man/builtins/math/sin.txt` example uses `math::pi`, and `specifications/standard_package.md`, `src/builtins/math.rs`, and tests support `math::pi`, but `specifications/mfbasic.md` lists `math::piFloat` instead of `math::pi`.
+- Inconsistency 2: `specifications/linker.md` says `math::sin` requires/imports the target math library symbol `sin`, and the shared native backends do that, but `src/arch/aarch64_old/mod.rs` lowers `MATH_SIN` through an inline polynomial approximation instead of the target math library symbol.
+
+Notes: Resolve inconsistency 1 by updating `specifications/mfbasic.md` to list `math::pi` or by changing the manual example and implementation/tests to the `piFloat` naming scheme. Resolve inconsistency 2 by either routing the old AArch64 `math::sin` path through the same libm import path or documenting/removing that legacy exception if `aarch64_old` is not a supported linker target.
+
+Untested: negative angles, large angle range reduction, `math::sin(math::pi)` in the dedicated `func_math_sin_valid` test, Fixed rounding near half-unit boundaries, Fixed negative inputs, Float/Fixed behavior for very large finite inputs, and native backend parity between shared libm lowering and `aarch64_old` inline lowering.

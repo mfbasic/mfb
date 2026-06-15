@@ -10,3 +10,10 @@ DESCRIPTION
 
 EXAMPLES
   io::print(fs::pathExtension("target/output.txt"))
+
+FIXME
+- Inconsistency 1: The specification for `fs::pathExtension` says it returns the extension “without accessing the filesystem,” but `src/man/builtins/fs/pathExtension.txt` omits that behavioral guarantee.
+
+Notes: Update the manual description to match `specifications/standard_package.md`, e.g. “Returns the final component's extension, including the leading dot when one is present, without accessing the filesystem.”
+
+Untested: trailing slash paths like `dir/file.txt/`; dotfile behavior like `.env`; trailing-dot names like `file.`; special final components `.` and `..`; paths whose directory components contain dots but final component does not; empty string input.

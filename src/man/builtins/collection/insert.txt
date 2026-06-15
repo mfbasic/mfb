@@ -38,3 +38,10 @@ SEE ALSO
   append
   prepend
   removeAt
+
+FIXME
+- Inconsistency 1: `specifications/memory_layouts.md` describes `insert` as appending payload data, shifting lookup entries, and incrementing `count`, which reads as an in-place mutation. The manual says `insert` returns a new list and does not mutate the original, and `src/target/shared/code/builder_collection_updates.rs` allocates a new result list and copies prefix/inserted/suffix entries.
+
+Notes: Resolve by updating `specifications/memory_layouts.md` to state that `insert` builds a new list allocation for the returned value, or explicitly clarify that the described entry/data writes apply to the newly constructed result, not the original list.
+
+Untested: negative index runtime error; inserting into an empty list at index `0`; wrong argument count; non-list first argument; wrong item type; original list remains unchanged after insert; element types beyond Integer/String, including records, unions, nested lists, and maps.

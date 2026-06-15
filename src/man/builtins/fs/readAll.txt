@@ -12,3 +12,11 @@ EXAMPLES
   USING f = fs::openFile("data.txt")
     LET value AS String = fs::readAll(f)
   END USING
+
+FIXME
+- Inconsistency 1: `specifications/standard_package.md` says `fs::readAll` fails with `10019` on invalid UTF-8, but `src/target/shared/code/mod.rs`’s `lower_fs_read_all_helper` reads raw bytes into a `String` buffer and returns success without UTF-8 validation.
+- Inconsistency 2: `src/man/builtins/fs/readAll.txt` documents UTF-8 text behavior but omits the specified failure modes from `specifications/standard_package.md`: `10014` on read failure and `10019` on invalid UTF-8.
+
+Notes: Add UTF-8 validation to `fs::readAll` before returning the `String`, mapping invalid encoding to `10019`, or change the spec/manual if raw byte strings are intended. Update the manual to state the same error codes as the specification.
+
+Untested: invalid UTF-8 content, read failure/error path, reading from a closed `File`, empty remaining content at EOF.

@@ -36,3 +36,10 @@ SEE ALSO
   insert
   removeKey
   set
+
+FIXME
+- Inconsistency 1: `specifications/memory_layouts.md` says `removeAt` shifts lookup entries left, decrements `count`, and may leave unreachable payload bytes until compaction, but `src/target/shared/code/builder_collection_updates.rs` allocates a new list and copies entries/payload around the removed element with a reduced data length. The manual says `removeAt` returns a new list, which matches `src`, not the memory-layout wording.
+
+Notes: Resolve by updating `specifications/memory_layouts.md` to describe immutable/new-list `removeAt` behavior, or clarify that the shift/dead-space description applies only to an optimized destructive `MUT` assignment-back path if such a path exists.
+
+Untested: negative index; removal from index `0`; empty-list removal; proof that the original list is not mutated; wrong argument count; non-list first argument; element types beyond `Integer` and `String`, including nested collections/records/unions.

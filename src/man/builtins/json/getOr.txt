@@ -21,3 +21,10 @@ EXAMPLES
 
 SEE ALSO
   get
+
+FIXME
+- Inconsistency 1: `src/man/builtins/json/getOr.txt` documents the first argument as `value AS Json`, but `tests/func_json_getOr_invalid` does not cover rejecting a non-`Json` first argument.
+
+Notes: Add an invalid case such as `json::getOr("bad", ["x"], Null[NOTHING])` and update the expected diagnostics/goldens. The documented signature, specifications, and implementation otherwise agree: `json::getOr(Json, List OF String, Json) AS Json`, empty path returns the original value, missing keys return the default, and traversal into a non-object returns the default.
+
+Untested: wrong first argument type; malformed/non-string path element if the language permits constructing one indirectly; runtime behavior with paths through arrays; runtime behavior where the default value is each `Json` variant, including `Null`, `Arr`, and `Obj`.

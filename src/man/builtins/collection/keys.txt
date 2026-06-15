@@ -34,3 +34,12 @@ SEE ALSO
   values
   hasKey
   len
+
+FIXME
+- Inconsistency 1: `keys` is documented and specified as returning keys in implementation-defined stable order, but `tests/func_collection_keys_valid` does not prove stability; it calls `keys` once per map only.
+- Inconsistency 2: `tests/func_collection_keys_valid/golden/func_collection_keys_valid.run` is empty even though the test source prints each returned key, so the test does not prove observable key contents at runtime.
+- Inconsistency 3: `tests/func_collection_keys_invalid` covers only `keys(List OF Integer)`, while the manual/source require exactly one `Map OF K TO V` argument.
+
+Notes: Specs and source match the manual signature and map-only behavior. Add runtime assertions/output for actual key contents, repeated `keys(sameMap)` order stability, and invalid cases for wrong arity and non-map argument types.
+
+Untested: Empty map; repeated stable order for the same unchanged map; correspondence with `values`/`FOR EACH` order; wrong argument count; non-map arguments beyond `List OF Integer`; additional key types beyond `String` and `Integer`; behavior after creating a changed map value.

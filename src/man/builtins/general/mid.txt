@@ -37,3 +37,10 @@ SEE ALSO
   find
   replace
   len
+
+FIXME
+- Inconsistency 1: `src/man/builtins/general/mid.txt` and `specifications/standard_package.md` define string `mid` indexes/counts as Unicode scalar indexes, but `src/arch/aarch64_old/mod.rs` implements `emit_general_mid` using string byte length, byte offsets, and byte copy count.
+
+Notes: Resolve by updating the old aarch64 `emit_general_mid` path to locate start/end by UTF-8 scalar boundaries like the shared native lowering and `src/unicode_backend.rs`, while preserving `10001` for negative or out-of-range start/count.
+
+Untested: old aarch64 runtime execution for non-ASCII `mid`; negative `count`; `start == len(value)` with positive `count`; empty-string valid/error boundaries; integer overflow in `start + count`.

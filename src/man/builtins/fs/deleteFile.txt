@@ -14,3 +14,13 @@ DESCRIPTION
 
 EXAMPLES
   fs::deleteFile("target/output.txt")
+
+FIXME
+- Inconsistency 1: `src/man/builtins/fs/deleteFile.txt` says missing paths fail with `ErrNotFound (10004)`, and `src/target/shared/code/mod.rs` maps `ENOENT` to `10004`, but `specifications/standard_package.md` says `fs::deleteFile` fails with `10011` when missing.
+- Inconsistency 2: The manual names generic host failure as `ErrOutput (10015)`, and source uses `ERR_OUTPUT_*`, but `specifications/standard_package.md` names error code `10015` as `ErrWriteFailed`.
+- Inconsistency 3: The manual says deletion-denied failures produce `ErrAccessDenied (10013)`, but the shared native helper only maps errno `13`/`EACCES` to access denied; denial cases that surface as `EPERM` fall through to `ErrOutput (10015)`.
+- Inconsistency 4: `src/arch/aarch64_old/mod.rs` routes `NATIVE_OPCODE_FS_DELETE_FILE` to `emit_fs_default_result`, which exits instead of deleting a file, while the manual/spec/source shared runtime describe real deletion behavior.
+
+Notes: Update `specifications/standard_package.md` to use the implemented missing-path code `ErrNotFound (10004)`, or change the runtime/manual to `ErrPathNotFound (10011)`. Standardize the canonical name for `10015` across docs/source. Map platform `EPERM` deletion failures to `ErrAccessDenied` if the manual is intended to cover all permission-denied unlink failures. Remove or properly wire the old AArch64 backend path if it remains reachable.
+
+Untested: missing path runtime error; empty path; embedded NUL; access denied including `EACCES` and `EPERM`; deleting a symlink deletes only the link and preserves the target; deleting a directory path; parent-directory missing; generic host failure/`ErrOutput`; old AArch64 backend behavior.

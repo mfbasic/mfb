@@ -11,3 +11,11 @@ DESCRIPTION
 
 EXAMPLES
   thread::cancel(t)
+
+FIXME
+- Inconsistency 1: `specifications/threading.md` requires runtime coverage for “running two threads and cancelling them cooperatively,” but `tests/thread-dual-cancel` cancels only after sending `"done"` and its `.run` output does not prove workers observed cancellation via `thread::isCancelled`.
+- Inconsistency 2: `src/man/builtins/thread/cancel.txt` says new sends fail after cancellation is requested, and `src/target/shared/code/mod.rs` implements that check, but no runtime test proves `thread::send` fails after `thread::cancel`.
+
+Notes: Add a runtime test where workers loop until `thread::isCancelled()` becomes `TRUE`, then return/emit an observable value. Add a send-after-cancel test that observes the expected failure, likely `ErrInterrupted`.
+
+Untested: cancellation observed by worker; send after cancel; cancel after worker completion; repeated cancel calls; cancellation with queued inbound/outbound messages still pending.

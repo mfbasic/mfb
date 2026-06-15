@@ -16,3 +16,10 @@ EXAMPLES
       io::print(toString(len(parts)))
       RETURN 0
     END FUNC
+
+FIXME
+- Inconsistency 1: `src/arch/aarch64_old/mod.rs` implements `strings::graphemes` as one list entry per UTF-8 byte with length `1`, which contradicts the manual/spec promise to split into Unicode extended grapheme clusters.
+
+Notes: Update the old AArch64 backend to use the same extended-grapheme segmentation as the shared/native implementation, or remove/disable that stale backend path if it is no longer supported. The manual and `specifications/standard_package.md` agree on the signature and behavior.
+
+Untested: Old AArch64 runtime behavior is only covered by ASCII-style usage. Edge cases needing coverage include non-ASCII scalar values, combining marks, ZWJ emoji sequences, regional-indicator flags, CRLF/control boundaries, Hangul syllable clusters, spacing marks, prepend characters, and Indic conjunct/GB9c sequences.

@@ -12,3 +12,11 @@ EXAMPLES
   USING f = fs::openFile("data.txt")
     io::print(toString(fs::eof(f)))
   END USING
+
+FIXME
+- Inconsistency 1: `src/man/builtins/fs/eof.txt` and `specifications/standard_package.md` describe only a Boolean result, but `src/target/shared/code/mod.rs` returns errors for a closed file handle and for seek failures.
+- Inconsistency 2: The spec says `TRUE` when “the next read would be at end of file,” while the runtime implementation determines EOF by seeking current position and file end. That is seek-position based behavior, not a general next-read probe.
+
+Notes: Resolve by documenting `fs::eof` failure cases in both the manual and spec, including closed handles and seek/read-position failures, or change the runtime if `fs::eof` is intended to be infallible for all `File` values. Clarify that EOF is determined from the current seek position against file length.
+
+Untested: empty file initial EOF, closed file error, seek failure/non-seekable file behavior, position preservation after `fs::eof`, EOF after `fs::readLine`, and behavior after file growth/truncation while the handle is open.

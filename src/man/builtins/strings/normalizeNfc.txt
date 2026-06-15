@@ -15,3 +15,10 @@ EXAMPLES
       io::print(strings::normalizeNfc("Café"))
       RETURN 0
     END FUNC
+
+FIXME
+- Inconsistency 1: `src/man/builtins/strings/normalizeNfc.txt` and `specifications/standard_package.md` say `strings::normalizeNfc` returns Unicode NFC-normalized text, but `src/arch/aarch64_old/mod.rs` handles `NATIVE_OPCODE_STRING_NORMALIZE_NFC` by copying the input unchanged.
+
+Notes: Resolve by wiring the old AArch64 backend to the real NFC implementation/runtime helper, or remove/exclude that backend if it is no longer supported. The shared Unicode implementation uses `value.nfc().collect()` and current focused valid tests show runtime NFC behavior for the default path.
+
+Untested: No focused runtime coverage appears to exercise the `aarch64_old` normalizeNfc path. Edge cases not explicitly covered include canonical combining-mark reordering and non-composing combining sequences that should remain valid NFC behavior.

@@ -36,3 +36,10 @@ FUNCTIONS
 
 SEE ALSO
   general
+
+FIXME
+- Inconsistency 1: `src/man/builtins/collection/package.txt` lists only `contains`, `get`, `getOr`, `find`, `len`, `mid`, and `replace`, but `specifications/mfbasic.md`, `specifications/standard_package.md`, `src/man/builtins/collection/*.txt`, and `src/target/shared/code/builder_values.rs` include additional collection helpers: `set`, `append`, `prepend`, `insert`, `removeAt`, `removeKey`, `keys`, `values`, `hasKey`, `forEach`, `transform`, `filter`, `reduce`, and `sum`.
+
+Notes: Update the package manual page’s `FUNCTIONS` section to include every collection helper documented and implemented for the collection package, with short one-line descriptions matching the individual manual pages/spec.
+
+Untested: No test appears to assert the `mfb man collection` package-page output or its completeness. The collection helper function directories themselves exist for valid/invalid coverage, but the overview manual list can drift without a test.

@@ -35,3 +35,11 @@ EXAMPLES
 SEE ALSO
   find
   filter
+
+FIXME
+- Inconsistency 1: `specifications/mfbasic.md` says `contains` requires comparable list element types, but `src/man/builtins/collection/contains.txt` and `specifications/standard_package.md` omit that requirement, and `src/builtins/general.rs` resolves `contains` by only checking `List OF T, T`.
+- Inconsistency 2: Source behavior appears to allow non-comparable element types through type checking for `contains`, while the spec says `List`, `Map`, unions, functions, lambdas, threads, and resource handles are not comparable.
+
+Notes: Resolve by choosing the intended contract. If `contains` should require comparable `T`, update the manual and standard package spec, add/enforce comparability in builtin resolution/type checking, and add invalid tests for non-comparable element types. If broad element support is intended, narrow or remove the comparable-type requirement from `specifications/mfbasic.md`.
+
+Untested: wrong argument count; non-list receiver such as `contains(1, 1)` or map receiver; non-comparable element rejection for `List OF List`, `List OF Map`, union/function/lambda/thread/resource; comparable record behavior; Byte, Boolean, Float, Fixed, Nothing, and enum list membership; invalid item type is covered only for `List OF Integer` with `String`.

@@ -12,3 +12,11 @@ EXAMPLES
   USING f = fs::openFile("target/output.txt", "write")
     fs::writeAll(f, "Hello")
   END USING
+
+FIXME
+- Inconsistency 1: `src/man/builtins/fs/writeAll.txt` describes host output failure but omits the `10015` write-failure code specified for `fs::writeAll` in `specifications/standard_package.md`.
+- Inconsistency 2: The runtime has an explicit closed-file error path returning `ErrResourceClosed`/`10017`, and `specifications/mfbasic.md` says native wrapper calls with closed resources fail with `ErrResourceClosed`, but the manual only says it writes to an open `File` and does not document closed-handle behavior.
+
+Notes: Update the manual to state that `fs::writeAll` fails with `ErrWriteFailed (10015)` on write failure, matching `standard_package.md`. Also document closed-handle behavior consistently with the resource model, or explicitly rely on shared resource documentation for calls made after close.
+
+Untested: content is not verified after the valid write, only file existence; empty string writes; write to a read-only handle; write after `fs::close`; runtime write failure/`10015`; closed-resource failure/`10017`; partial-write retry behavior; append-mode positioning; large strings; embedded NUL/control-character strings; invalid call with valid `File` plus non-`String`; invalid call with non-`File` plus correctly typed `String`.

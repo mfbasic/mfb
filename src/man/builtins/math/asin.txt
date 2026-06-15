@@ -13,3 +13,11 @@ DESCRIPTION
 
 EXAMPLES
   LET value AS Float = math::asin(0.5)
+
+FIXME
+- Inconsistency 1: `src/man/builtins/math/asin.txt` and `specifications/standard_package.md` promise `ErrInvalidArgument (10002)` for both overloads when input is outside `[-1.0, 1.0]`, but `tests/func_math_asin_invalid/src/main.mfb` only covers compile-time arity/type errors and does not test the documented runtime domain failure.
+- Inconsistency 2: The manual promises Fixed rounding behavior, but `tests/func_math_asin_valid/src/main.mfb` only checks `math::asin(toFixed("1.00"))`, whose result is exactly representable at printed precision; it does not prove nearest-Fixed rounding.
+
+Notes: Add runtime tests for Float and Fixed values just outside the domain, e.g. `1.1`, `-1.1`, `toFixed("1.1")`, and `toFixed("-1.1")`, asserting `ErrInvalidArgument (10002)`. Add Fixed valid cases with nontrivial rounded results and expected observable output.
+
+Untested: Float boundary inputs `-1.0` and `1.0`; Fixed boundary inputs `toFixed("-1.0")` and `toFixed("1.0")`; Float/Fixed values just outside both bounds; negative in-range values such as `-0.5`; Fixed nearest-rounding behavior for non-boundary values; return-type mismatch cases such as assigning Fixed overload result to Float.

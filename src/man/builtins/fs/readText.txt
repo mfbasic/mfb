@@ -11,3 +11,12 @@ DESCRIPTION
 
 EXAMPLES
   LET value AS String = fs::readText("data.txt")
+
+FIXME
+- Inconsistency 1: `fs::readText` is documented/spec’d as reading UTF-8 text and failing with `ErrEncoding (10019)` for invalid encoding, but `src/target/shared/code/mod.rs` returns the raw bytes as a `String` after reading without any UTF-8 validation.
+- Inconsistency 2: `specifications/standard_package.md` says `fs::readText` can fail with `10011`, `10012`, `10014`, or `10019`, but the source maps missing open failures to `ErrNotFound (10004)`, empty/embedded-NUL paths to `ErrInvalidArgument (10002)`, access denied to `ErrAccessDenied (10013)`, and other open errors to `ErrWriteFailed (10015)`.
+- Inconsistency 3: The manual says missing paths, invalid paths, read failures, and invalid encoding are reported as errors, but the existing `tests/func_fs_readText_invalid` only covers compile-time arity/type errors and does not validate those documented runtime errors.
+
+Notes: Fix `readText` to validate the loaded bytes as UTF-8 before returning and produce `ErrEncoding (10019)` on invalid byte sequences. Align the runtime error mapping for path/open failures with the spec, or update the spec/manual if the intended canonical errors are `ErrNotFound`, `ErrInvalidArgument`, `ErrAccessDenied`, etc. Add runtime invalid tests that assert the chosen error codes.
+
+Untested: missing path; empty path; embedded NUL path; invalid UTF-8 file contents; access denied/open failure; read/seek failure; empty file; symlink-following behavior; cleanup/close behavior on read errors.

@@ -11,3 +11,10 @@ DESCRIPTION
 
 EXAMPLE
   fs::writeTextAtomic("target/output.txt", "done")
+
+FIXME
+- Inconsistency 1: The manual omits spec-required behavior that `fs::writeTextAtomic` writes UTF-8 text, flushes the temporary file, and fails rather than falling back to a non-atomic replacement.
+
+Notes: Update `src/man/builtins/fs/writeTextAtomic.txt` to match `specifications/standard_package.md`: say it writes UTF-8 text to a temp file in the same directory, flushes it, then renames it atomically when supported, with no non-atomic fallback.
+
+Untested: Runtime failure edge cases: empty path, embedded NUL path, missing parent directory, permission denied, target is a directory, rename failure, fsync/write/close failure, and symlink replacement behavior.

@@ -48,3 +48,10 @@ SEE ALSO
   general len
   isEmpty
   isNotEmpty
+
+FIXME
+- Inconsistency 1: `src/man/builtins/collection/len.txt` labels the overloads as `PACKAGE collection`, but `specifications/standard_package.md` lists the `List` and `Map` `len` overloads under General, and `src/builtins/general.rs` resolves `len` as a general built-in accepting `String`, `List OF T`, or `Map OF K TO V`.
+
+Notes: Resolve the taxonomy by either documenting these overloads as part of general `len` with a collection-topic cross-reference, or updating the spec/source organization to expose a real collection package surface for `len`. Current source and diagnostics favor general `len` with collection overloads.
+
+Untested: `func_collection_len_invalid` only checks `len(Integer)`. Collection-specific invalid tests do not cover missing/too many arguments, Boolean, Byte, record, resource, thread, function, lambda, or qualified/packaged usage. Valid collection tests cover empty/non-empty `List OF Integer` and `Map OF String TO Integer`, but not other element/key/value types, nested collection values, or error propagation while evaluating the argument.

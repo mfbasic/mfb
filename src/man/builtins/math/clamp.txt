@@ -13,3 +13,10 @@ DESCRIPTION
 
 EXAMPLES
   LET value AS Integer = math::clamp(12, 0, 10)
+
+FIXME
+- Inconsistency 1: `src/man/builtins/math/clamp.txt` and `specifications/standard_package.md` say `math::clamp` fails with `ErrInvalidArgument (10002)` when `low > high`, but `src/arch/aarch64_old/mod.rs` `emit_math_clamp` does not validate `low > high`; it just clamps by comparing `value` to `low` and then `high`.
+
+Notes: Add the same bounds validation to `src/arch/aarch64_old/mod.rs` for Integer, Float, and Fixed before clamping, returning error `10002` when `low > high`, or remove/retire that backend path if it is no longer supported.
+
+Untested: `low > high` runtime failure for Integer, Float, and Fixed; `low == high`; boundary equality at `value == low` and `value == high`; Float below-low case; Fixed within-range, above-high, and equality cases.

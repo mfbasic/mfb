@@ -13,3 +13,10 @@ DESCRIPTION
 
 EXAMPLES
   LET value AS Float = math::log10(100.0)
+
+FIXME
+- Inconsistency 1: `src/man/builtins/math/log10.txt` documents `ErrInvalidArgument (10002)` for non-positive input, and `src/**` appears to implement that domain check, but `tests/func_math_log10_invalid` only covers compile-time arity/type errors and does not prove the documented runtime failure for `0` or negative values.
+
+Notes: Add runtime invalid tests for both overloads showing `math::log10(0.0)`, `math::log10(-1.0)`, `math::log10(toFixed("0.0"))`, and `math::log10(toFixed("-1.0"))` fail with `10002`.
+
+Untested: Float zero, Float negative, Fixed zero, Fixed negative, Fixed rounding for non-power-of-ten results.

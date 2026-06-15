@@ -35,3 +35,12 @@ EXAMPLES
 SEE ALSO
   flow match
   flow while
+
+FIXME
+- Inconsistency 1: `src/man/flow/if.txt` documents single-line `IF condition THEN statement` only, while `specifications/mfbasic.md` defines `inlineIfStmt = "IF" expr "THEN" simpleStmt [ "ELSE" simpleStmt ]` and shows `IF x > 0 THEN ... ELSE ...`.
+- Inconsistency 2: `src/ast.rs` does not implement the spec’s inline `ELSE`; after `THEN` it parses one statement and returns an `If` with an empty `else_body`, so inline `IF ... THEN ... ELSE ...` is not wired through.
+- Inconsistency 3: The manual says the single-line form runs one “statement”, while the spec restricts inline `IF` bodies to `simpleStmt`; `src/ast.rs` currently calls `parse_statement()`, which is broader than `simpleStmt`.
+
+Notes: Resolve by choosing the intended language behavior. If inline `ELSE` is intended, update `src/ast.rs`, update `src/man/flow/if.txt` synopsis/rules/examples, and add tests. If inline `ELSE` is not intended, remove it from `specifications/mfbasic.md`. Also align “statement” vs `simpleStmt` between the manual, spec, and parser.
+
+Untested: Inline `IF ... THEN ...`, inline `IF ... THEN ... ELSE ...`, rejection or acceptance of compound statements after inline `THEN`, non-Boolean `IF` conditions, non-Boolean `ELSEIF` conditions, missing `THEN`, missing `END IF`, `ELSEIF` after `ELSE`, and runtime execution of the documented branch behavior.

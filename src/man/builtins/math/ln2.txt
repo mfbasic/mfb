@@ -9,3 +9,10 @@ DESCRIPTION
 
 EXAMPLES
   LET value AS Float = math::ln2
+
+FIXME
+- Inconsistency 1: `src/man/builtins/math/ln2.txt` and `specifications/standard_package.md` define `math::ln2` as a `Float` constant/value, but `src/builtins/math.rs` also resolves it as a zero-argument built-in call via `resolve_call`, `expected_arguments`, and `arity`. That callable path is not fully implemented because `opcode_for` has no `LN_2` case.
+
+Notes: Resolve by making `math::ln2` value-only everywhere and rejecting `math::ln2()` during semantic/type checking. If callable constants are intended, document `math::ln2()` and implement backend/runtime lowering for it.
+
+Untested: Invalid coverage for `math::ln2()` call syntax, calls with arguments such as `math::ln2(1)`, and assigning `math::ln2` to a non-`Float` type.

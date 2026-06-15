@@ -33,3 +33,10 @@ EXAMPLES
 SEE ALSO
   append
   insert
+
+FIXME
+- Inconsistency 1: `tests/func_collection_prepend_valid/golden/func_collection_prepend_valid.run` is empty, but `tests/func_collection_prepend_valid/golden/build.log` records runtime output from the valid prepend test: `1`, `2`, `3`, `Ada`, `Grace`, with exit code `5`.
+
+Notes: The manual signature and behavior match `specifications/standard_package.md` and `src/builtins/general.rs`: `prepend OF T(value AS List OF T, item AS T) AS List OF T`, single-item prepend only. Resolve the test inconsistency by updating the `.run` golden to contain the observed stdout, or remove it if the acceptance harness intentionally uses `build.log` as the sole runtime oracle.
+
+Untested: empty-list prepend, proving the original list is not mutated, nested-list element prepend, non-Integer/String element types, wrong argument count, non-list first argument, and invalid receiver/context usage.

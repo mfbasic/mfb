@@ -11,3 +11,10 @@ DESCRIPTION
 
 EXAMPLES
   LET value AS Integer = math::max(2, 4)
+
+FIXME
+- Inconsistency 1: `src/man/builtins/math/max.txt` and `specifications/standard_package.md` document only two-argument overloads for `Integer`, `Float`, and `Fixed`, but `src/builtins/math.rs` resolves `math.max` through `all_same_numeric(arg_types, 1, 2)`, which internally treats a one-argument numeric call as a valid resolved overload. Public type checking currently rejects one argument via `arity`, so this is an implementation-layer inconsistency rather than observed user-facing behavior.
+
+Notes: Change `resolve_call` handling so `MAX` requires exactly two same-type numeric arguments. `ABS` can keep one argument; `MIN` likely needs the same audit/fix separately, but this review is limited to `max`.
+
+Untested: `math::max` with too many arguments; `Integer/Fixed` and `Float/Fixed` mixed arguments; `Fixed` equal-value behavior; `Fixed` case where the first operand is larger in the dedicated `func_math_max_valid` test; integer min/max boundary values; float special values such as NaN/infinity if the language can produce/import them.

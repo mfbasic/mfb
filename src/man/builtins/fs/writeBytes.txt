@@ -10,3 +10,12 @@ DESCRIPTION
 
 EXAMPLES
   fs::writeBytes("target/output.bin", [72, 105])
+
+FIXME
+- Inconsistency 1: `specifications/standard_package.md` says `fs::writeBytes` fails with `10012`, `10013`, or `10015`, but `src/target/shared/code/mod.rs` maps empty or embedded-NUL paths to `ErrInvalidArgument (10002)`, missing parent/open `ENOENT` to `ErrNotFound (10004)`, allocation failure to `ErrOutOfMemory (10010)`, access denial to `10013`, and write/sync/close failures to `10015`.
+- Inconsistency 2: `src/man/builtins/fs/writeBytes.txt` omits the spec-documented failure behavior entirely.
+- Inconsistency 3: The source opens `writeBytes` targets with normal write/create/truncate flags that follow final-component symlinks, but `specifications/standard_package.md` only documents symlink-following for `writeText`, `appendText`, and other non-byte functions, not `writeBytes`.
+
+Notes: Align the spec, manual, and implementation on the actual error contract. Either implement `ErrInvalidPath (10012)` for invalid filesystem paths and document all intended missing-parent behavior, or update the spec/manual to list the runtime errors the implementation actually emits. Add an explicit symlink-following statement for `fs::writeBytes` if current source behavior is intended.
+
+Untested: Runtime errors for missing parent path, empty path, embedded NUL/invalid path, access denied, directory-as-target, write/sync/close failure, symlink final component behavior, empty byte-list truncation, non-UTF/raw byte payloads verified through `readBytes`, and compile-time rejection of an incorrect byte-list element type with a valid path argument.

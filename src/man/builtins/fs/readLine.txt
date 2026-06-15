@@ -12,3 +12,11 @@ EXAMPLES
   USING f = fs::openFile("data.txt")
     LET line AS String = fs::readLine(f)
   END USING
+
+FIXME
+- Inconsistency 1: `src/man/builtins/fs/readLine.txt` documents EOF only as `Error`, but `specifications/standard_package.md` and `src/target/shared/code/mod.rs` define the concrete EOF failure as `ErrEndOfFile` code `10016`.
+- Inconsistency 2: The manual does not mention read failures, while `specifications/standard_package.md` specifies `ErrReadFailed` code `10014`, and the implementation maps seek/read errors to that code.
+
+Notes: Update the manual description to say `fs::readLine` fails with `10016` at EOF before any byte is read and `10014` on read/seek failure.
+
+Untested: CRLF trimming, empty-line return, EOF/error behavior after the final line has been consumed, EOF on an empty file, closed-file handle behavior, read/seek failure behavior, and final line without a trailing terminator.

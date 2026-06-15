@@ -13,3 +13,10 @@ DESCRIPTION
 
 EXAMPLES
   LET value AS Integer = math::ceil(3.25)
+
+FIXME
+- Inconsistency 1: `src/man/builtins/math/ceil.txt` and `specifications/standard_package.md` say `math::ceil(Float)` fails with `ErrOverflow (10028)` when the result is outside `Integer` range, but `src/target/shared/code/builder_math.rs` lowers `Float` with raw `fcvtps_x_from_d` and no explicit overflow check / `emit_overflow_return()` path. The old AArch64 path does the same.
+
+Notes: Keep the manual/spec behavior and add a real range check before the Float ceil conversion, following the existing Float-to-Integer overflow pattern in `builder_conversions.rs`; update old backend if it is still supported.
+
+Untested: `math::ceil(Float)` overflow above/below `Integer` range, Float boundary values near `Integer::MIN`/`Integer::MAX`, non-finite Float behavior if representable, and Fixed boundary/integral edge cases beyond ordinary positive/negative fractions.

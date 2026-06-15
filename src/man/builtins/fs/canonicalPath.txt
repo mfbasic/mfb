@@ -13,3 +13,10 @@ DESCRIPTION
 
 EXAMPLE
   LET full AS String = fs::canonicalPath("target/output.txt")
+
+FIXME
+- Inconsistency 1: Manual says “The path or required parent components must exist,” but `specifications/standard_package.md` and `src/target/shared/code/mod.rs` behavior require the full path to exist because `realpath` is called on the complete path.
+
+Notes: Change the manual sentence to “The path and required parent components must exist.” The implementation and standard package spec already match that behavior.
+
+Untested: Runtime failure for missing path/parent, embedded NUL rejection, empty string rejection, symlink resolution, permission-denied paths, symlink loops, and very long paths.

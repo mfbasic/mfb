@@ -13,3 +13,11 @@ DESCRIPTION
 
 EXAMPLES
   LET value AS Integer = math::floor(3.75)
+
+FIXME
+- Inconsistency 1: `src/man/builtins/math/floor.txt` and `specifications/standard_package.md` say `math::floor(Float)` fails with `ErrOverflow (10028)` when the floored result is outside `Integer` range, but `src/target/shared/code/builder_math.rs` lowers Float directly to `abi::float_floor_to_signed_x`, which emits AArch64 `fcvtms_x_from_d` with no explicit overflow check or `emit_overflow_return()` path. The old AArch64 path in `src/arch/aarch64_old/mod.rs` does the same.
+- Inconsistency 2: `tests/func_math_floor_valid` and `tests/func_math_floor_invalid` do not test the documented Float overflow failure, so the manual/spec overflow contract is not covered.
+
+Notes: Implement an explicit range check for `math::floor(Float)` before conversion and return `ErrOverflow (10028)` when the floored result would be outside `Integer` range; then add/update focused floor tests to prove that behavior.
+
+Untested: Float overflow above/below `Integer` range; Float boundary values at/near `Integer` min/max; non-finite Float inputs if the language can produce them; Fixed exact-integer and near-zero negative cases such as `-0.25`.

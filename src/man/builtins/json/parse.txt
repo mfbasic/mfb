@@ -24,3 +24,11 @@ SEE ALSO
   stringify
   get
   getOr
+
+FIXME
+- Inconsistency 1: `src/man/builtins/json/parse.txt` says malformed numbers fail, but `specifications/standard_package.md` specifically requires `json::parse` to reject non-finite numbers. A syntactically valid JSON number that overflows `Float` is not clearly documented by the manual.
+- Inconsistency 2: The manual/spec describe parsing valid JSON text, but `src/builtins/json_package.mfb` accepts unescaped control characters inside strings because `__json_parseString` appends any non-quote/non-backslash character. JSON strings must reject raw U+0000 through U+001F, including raw newline/tab/control bytes.
+
+Notes: Update the manual error text to mention non-finite numeric results. Fix `__json_parseString` to reject unescaped JSON control characters with `ErrInvalidFormat (10003)`, and add runtime invalid coverage for that behavior.
+
+Untested: non-finite numeric overflow such as `1e999`; raw control characters inside strings; invalid escape names; malformed Unicode hex; lone low surrogate; high surrogate not followed by low surrogate; empty input; unterminated string/array/object; trailing commas; malformed literals; object parse with duplicate keys; valid coverage for top-level `true`, `false`, object numbers, empty arrays, and empty objects.

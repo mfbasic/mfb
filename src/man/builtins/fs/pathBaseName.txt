@@ -9,3 +9,10 @@ DESCRIPTION
 
 EXAMPLES
   io::print(fs::pathBaseName("target/output.txt"))
+
+FIXME
+- Inconsistency 1: `src/man/builtins/fs/pathBaseName.txt` and `specifications/standard_package.md` say `fs::pathBaseName(path AS String) AS String` returns the final path component, but `src/arch/aarch64_old/mod.rs` routes `NATIVE_OPCODE_FS_PATH_BASE_NAME` to `emit_fs_default_result`, which exits instead of producing the basename.
+
+Notes: Implement real `fs.pathBaseName` lowering in `src/arch/aarch64_old/mod.rs` or remove that backend path from supported source/runtime paths. The shared target implementation in `src/target/shared/code/builder_fs_paths.rs` matches the documented behavior for the tested slash-separated cases.
+
+Untested: empty path, path with no separator, multiple trailing slashes, repeated separators, `"."`, `".."`, basename after `"/a//b"`, and non-slash separators such as backslash/drive-style paths.

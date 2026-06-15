@@ -12,3 +12,10 @@ DESCRIPTION
 
 EXAMPLES
   LET value AS Float = math::atan(1.0)
+
+FIXME
+- Inconsistency 1: `src/man/builtins/math/atan.txt` documents the Fixed overload as rounding the arc tangent to the nearest Fixed value, and `specifications/standard_package.md` agrees, but `tests/func_math_atan_valid/src/main.mfb` only tests `math::atan(fixedZero)`. That does not prove nonzero Fixed arc tangent calculation or rounding behavior.
+
+Notes: Add a valid runtime test for `math::atan(toFixed("1.0"))` or another nonzero Fixed input and assert the observable rounded output, matching the documented Fixed overload.
+
+Untested: nonzero Fixed result/rounding; negative Float and Fixed inputs; larger-magnitude inputs approaching +/-pi/2; Fixed assignment/result-context coverage beyond zero.

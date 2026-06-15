@@ -37,3 +37,10 @@ EXAMPLES
 SEE ALSO
   isOdd
   filter
+
+FIXME
+- Inconsistency 1: `src/man/builtins/filter/isEven.txt` says `isEven` is useful in `MATCH` guards, and `specifications/standard_package.md` also says filter predicates are intended for `MATCH` guards, but `src` does not implement `WHEN` match guards: `Keyword` has no `When`, `MatchCase` has no guard field, and match parsing accepts only `CASE` expression/`CASE ELSE`.
+
+Notes: Resolve by either implementing `MATCH ... CASE ... WHEN isEven(value)` support end to end in lexer/parser, AST, typecheck, IR/lowering/runtime as needed, then add runtime tests; or narrow the `isEven` manual and standard package spec to remove the `MATCH` guard claim until guards exist. Existing direct-call and `filter(..., isEven)` behavior matches the documented Integer-only signature.
+
+Untested: `isEven` in `MATCH` guards; Integer min/max parity; propagation from an argument expression that fails before `isEven`; invalid non-Integer types beyond `String` such as `Boolean`, `Float`, `Fixed`, lists, or maps.

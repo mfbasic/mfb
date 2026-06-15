@@ -11,3 +11,12 @@ DESCRIPTION
 EXAMPLES
   USING f = fs::openFileNoFollow("data.txt", "read")
   END USING
+
+FIXME
+- Inconsistency 1: `specifications/standard_package.md` says `fs::openFileNoFollow` fails with `ErrAccessDenied` when the final path component is a symlink, but `src/target/shared/code/mod.rs` maps only errno `13` to `ErrAccessDenied`; `O_NOFOLLOW` symlink failures normally return `ELOOP`, which currently falls through to `ErrOutput`.
+- Inconsistency 2: The spec says `openFileNoFollow` opens like `openFile`, and `openFile` is documented as supporting only `"read"`, `"write"`, and `"append"`, but the shared implementation accepts `"r"`, `"w"`, `"readWrite"`, `"rw"`, and `"a"` as well.
+- Inconsistency 3: `src/man/builtins/fs/openFileNoFollow.txt` does not document the specified symlink failure result or accepted modes, so it is less specific than `specifications/standard_package.md` and the implementation.
+
+Notes: Map platform `ELOOP` errno values from no-follow opens to `ErrAccessDenied`, or revise the spec if `ErrOutput` is intended. Align the manual/spec mode list with actual accepted modes, or restrict the implementation to the documented `openFile` modes.
+
+Untested: Two-argument overload; explicit modes `"read"`, `"r"`, `"write"`, `"w"`, `"append"`, `"a"`, `"readWrite"`, `"rw"`; invalid mode string; final symlink rejection and exact error code; intermediate symlink behavior; empty path; embedded NUL path; missing path; write/append/readWrite with no-follow; permission-denied path.

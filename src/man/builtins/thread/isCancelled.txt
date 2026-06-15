@@ -10,3 +10,11 @@ DESCRIPTION
 
 EXAMPLES
   LET cancelled AS Boolean = thread::isCancelled()
+
+FIXME
+- Inconsistency 1: `specifications/standard_package.md` says worker-side functions fail with `ErrInvalidArgument` outside a worker, and `thread::isCancelled` is documented there as worker-side. The manual only says it is a worker-side cancellation check and does not state the outside-worker error behavior.
+- Inconsistency 2: `src/target/shared/code/mod.rs` implements `thread.isCancelled` by directly reading `THREAD_OFFSET_CANCELLED` from `x20`, but unlike worker-only `receive`/`emit`, it does not validate that the call is actually running inside the current worker. A no-argument call outside a worker is accepted by `src/builtins/thread.rs`.
+
+Notes: Update the manual to document the outside-worker `ErrInvalidArgument` behavior, and update the implementation/type checking/runtime helper so `thread::isCancelled()` outside a worker fails consistently instead of reading an unvalidated thread context register.
+
+Untested: runtime behavior after parent cancellation; runtime behavior before cancellation inside a worker; no-arg `thread::isCancelled()` outside a worker; expected `ErrInvalidArgument` outside-worker edge case.

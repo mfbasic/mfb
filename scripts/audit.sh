@@ -4,11 +4,18 @@
 # Processes review_list.txt items using OpenAI Codex
 
 REVIEW_LIST="specifications/review_list.txt"
+REVIEW_MISSING="specifications/review_missing.txt"
 STATUS_LOG="specifications/review_status.log"
 MAX_CONCURRENT="${1:-5}"
+MISSING_CLEAN_STREAK_TARGET="${2:-3}"
 
 if ! [[ "$MAX_CONCURRENT" =~ ^[1-9][0-9]*$ ]]; then
     echo "Error: concurrency must be a positive integer"
+    exit 1
+fi
+
+if ! [[ "$MISSING_CLEAN_STREAK_TARGET" =~ ^[1-9][0-9]*$ ]]; then
+    echo "Error: phase 2 clean streak must be a positive integer"
     exit 1
 fi
 
@@ -19,6 +26,7 @@ if [ ! -f "$REVIEW_LIST" ]; then
 fi
 
 : > "$STATUS_LOG"
+touch "$REVIEW_MISSING"
 
 TMP_DIR=$(mktemp -d)
 request_stop() {
@@ -105,6 +113,57 @@ Untested: [methods/edge cases not covered]"
     echo "$?" >"$exit_file"
 }
 
+extract_codex_response() {
+    local response_file="$1"
+
+    awk '
+        BEGIN { last = 0 }
+        { lines[NR] = $0 }
+        tolower($0) ~ /codex/ { last = NR }
+        END {
+            if (last == 0) {
+                for (i = 1; i <= NR; i++) {
+                    print lines[i]
+                }
+            } else {
+                for (i = last + 1; i <= NR; i++) {
+                    print lines[i]
+                }
+            }
+        }
+    ' "$response_file"
+}
+
+dedupe_exact_duplicate_halves() {
+    awk '
+        {
+            lines[++count] = $0
+        }
+        END {
+            if (count % 2 == 0) {
+                half = count / 2
+                same = 1
+                for (i = 1; i <= half; i++) {
+                    if (lines[i] != lines[i + half]) {
+                        same = 0
+                        break
+                    }
+                }
+                if (same) {
+                    for (i = 1; i <= half; i++) {
+                        print lines[i]
+                    }
+                    exit
+                }
+            }
+
+            for (i = 1; i <= count; i++) {
+                print lines[i]
+            }
+        }
+    '
+}
+
 process_completed_review() {
     local job_key="$1"
     local line_num="$2"
@@ -122,22 +181,7 @@ process_completed_review() {
 
     exit_code=$(cat "$exit_file")
     raw_response=$(cat "$response_file")
-    response=$(printf '%s\n' "$raw_response" | awk '
-        BEGIN { last = 0 }
-        { lines[NR] = $0 }
-        tolower($0) ~ /codex/ { last = NR }
-        END {
-            if (last == 0) {
-                for (i = 1; i <= NR; i++) {
-                    print lines[i]
-                }
-            } else {
-                for (i = last + 1; i <= NR; i++) {
-                    print lines[i]
-                }
-            }
-        }
-    ')
+    response=$(extract_codex_response "$response_file")
 
     if [ "$exit_code" -ne 0 ]; then
         printf '%s [codex_exit]\n' "$item_name" >> "$STATUS_LOG"
@@ -160,33 +204,7 @@ process_completed_review() {
             return 1
         fi
 
-        deduped_fixme_body=$(printf '%s\n' "$fixme_body" | awk '
-            {
-                lines[++count] = $0
-            }
-            END {
-                if (count % 2 == 0) {
-                    half = count / 2
-                    same = 1
-                    for (i = 1; i <= half; i++) {
-                        if (lines[i] != lines[i + half]) {
-                            same = 0
-                            break
-                        }
-                    }
-                    if (same) {
-                        for (i = 1; i <= half; i++) {
-                            print lines[i]
-                        }
-                        exit
-                    }
-                }
-
-                for (i = 1; i <= count; i++) {
-                    print lines[i]
-                }
-            }
-        ')
+        deduped_fixme_body=$(printf '%s\n' "$fixme_body" | dedupe_exact_duplicate_halves)
 
         if [ -n "$deduped_fixme_body" ]; then
             fixme_body="$deduped_fixme_body"
@@ -240,6 +258,106 @@ render_progress() {
     RENDERED_PROGRESS=1
 }
 
+run_missing_review() {
+    local job_key="$1"
+    local response_file="$TMP_DIR/response.$job_key"
+    local exit_file="$TMP_DIR/exit.$job_key"
+    local prompt="Read all specifications/*
+Review all src/**
+
+REPORT:
+- Any specification requirements not implemented in compiler not already in specifications/review_missing.txt
+- How to resolve it
+
+If NO missing requirements found, respond with ONLY: \"No missing requirements found\"
+
+If missing requirements found, format as:
+
+REQUIREMENT: [title]
+SPECIFICATION: [specification file] @ [specification section]
+[description]
+[blank line]"
+
+    codex exec "$prompt" >"$response_file" 2>&1
+    echo "$?" >"$exit_file"
+}
+
+render_phase2_progress() {
+    local found_count="$1"
+    local clean_streak="$2"
+
+    if [ -n "$PHASE2_RENDERED" ]; then
+        printf '\033[2A'
+    fi
+
+    printf '\r\033[KPhase 2: missing requirements scan.\n'
+    printf '\r\033[KFound: %d\n' "$found_count"
+    printf '\r\033[KClean streak: %d/%d' "$clean_streak" "$MISSING_CLEAN_STREAK_TARGET"
+    PHASE2_RENDERED=1
+}
+
+process_missing_review() {
+    local job_key="$1"
+    local response_file="$TMP_DIR/response.$job_key"
+    local exit_file="$TMP_DIR/exit.$job_key"
+    local exit_code
+    local response
+    local normalized_response
+    local missing_body
+    local deduped_missing_body
+    local existing_contents
+    local appended_count
+
+    exit_code=$(cat "$exit_file")
+    response=$(extract_codex_response "$response_file")
+
+    if [ "$exit_code" -ne 0 ]; then
+        rm -f "$response_file" "$exit_file"
+        return 1
+    fi
+
+    normalized_response=$(printf '%s' "$response" | tr -d '\r' | sed -e '1{/^[[:space:]]*$/d;}' -e '${/^[[:space:]]*$/d;}')
+
+    if [ "$normalized_response" = "No missing requirements found" ]; then
+        rm -f "$response_file" "$exit_file"
+        return 0
+    fi
+
+    missing_body=$(printf '%s\n' "$normalized_response" | awk '
+        BEGIN { capture = 0 }
+        /^REQUIREMENT:/ { capture = 1 }
+        /^[[:space:]]*tokens used[[:space:]]*$/ { capture = 0 }
+        capture { print }
+    ')
+
+    if [ -z "$missing_body" ]; then
+        rm -f "$response_file" "$exit_file"
+        return 2
+    fi
+
+    deduped_missing_body=$(printf '%s\n' "$missing_body" | dedupe_exact_duplicate_halves)
+    if [ -n "$deduped_missing_body" ]; then
+        missing_body="$deduped_missing_body"
+    fi
+
+    appended_count=$(printf '%s\n' "$missing_body" | awk '
+        /^REQUIREMENT:/ { count++ }
+        END { print count + 0 }
+    ')
+
+    existing_contents=$(cat "$REVIEW_MISSING")
+    if [[ "$existing_contents" != *"$missing_body"* ]]; then
+        if [ -s "$REVIEW_MISSING" ]; then
+            printf '\n\n' >> "$REVIEW_MISSING"
+        fi
+        printf '%s\n' "$missing_body" >> "$REVIEW_MISSING"
+        PHASE2_FOUND_COUNT=$((PHASE2_FOUND_COUNT + appended_count))
+    fi
+
+    rm -f "$response_file" "$exit_file"
+    return 3
+}
+
 RENDERED_PROGRESS=
 TOTAL_TODOS=0
 TODO_LINES=()
@@ -252,114 +370,161 @@ TOTAL_TODOS="${#TODO_LINES[@]}"
 
 if [ "$TOTAL_TODOS" -eq 0 ]; then
     echo "✓ Phase 1 complete: All items marked [DONE]"
-    exit 0
-fi
-
-SLOT_COUNT="$MAX_CONCURRENT"
-if [ "$TOTAL_TODOS" -lt "$SLOT_COUNT" ]; then
-    SLOT_COUNT="$TOTAL_TODOS"
-fi
-
-PIDS=()
-JOB_KEYS=()
-LINE_NUMS=()
-ITEM_NAMES=()
-AGENT_LINES=()
-RUNNING=()
-CLEANED_UP=
-STOP_REQUESTED=0
-NEXT_TODO_INDEX=0
-ACTIVE_COUNT=0
-COMPLETED_COUNT=0
-QUEUED_COUNT="$TOTAL_TODOS"
-
-launch_review_for_slot() {
-    local slot="$1"
-    local todo_line
-    local line_num
-    local item_name
-    local job_key
-
-    if [ "$STOP_REQUESTED" -eq 1 ]; then
-        RUNNING[$slot]=0
-        AGENT_LINES[$slot]="[stopped]"
-        return
+else
+    SLOT_COUNT="$MAX_CONCURRENT"
+    if [ "$TOTAL_TODOS" -lt "$SLOT_COUNT" ]; then
+        SLOT_COUNT="$TOTAL_TODOS"
     fi
 
-    if [ "$NEXT_TODO_INDEX" -ge "$TOTAL_TODOS" ]; then
-        RUNNING[$slot]=0
-        AGENT_LINES[$slot]="[idle]"
-        return
-    fi
+    PIDS=()
+    JOB_KEYS=()
+    LINE_NUMS=()
+    ITEM_NAMES=()
+    AGENT_LINES=()
+    RUNNING=()
+    CLEANED_UP=
+    STOP_REQUESTED=0
+    NEXT_TODO_INDEX=0
+    ACTIVE_COUNT=0
+    COMPLETED_COUNT=0
+    QUEUED_COUNT="$TOTAL_TODOS"
 
-    todo_line="${TODO_LINES[$NEXT_TODO_INDEX]}"
-    line_num=$(echo "$todo_line" | cut -d: -f1)
-    item_name=$(echo "$todo_line" | cut -d: -f2- | sed 's/\[TODO\]//' | xargs)
-    job_key="slot${slot}_todo${NEXT_TODO_INDEX}"
+    launch_review_for_slot() {
+        local slot="$1"
+        local todo_line
+        local line_num
+        local item_name
+        local job_key
 
-    LINE_NUMS[$slot]="$line_num"
-    ITEM_NAMES[$slot]="$item_name"
-    JOB_KEYS[$slot]="$job_key"
-    AGENT_LINES[$slot]="$item_name"
-    RUNNING[$slot]=1
-    NEXT_TODO_INDEX=$((NEXT_TODO_INDEX + 1))
-    ACTIVE_COUNT=$((ACTIVE_COUNT + 1))
-    QUEUED_COUNT=$((TOTAL_TODOS - NEXT_TODO_INDEX))
+        if [ "$STOP_REQUESTED" -eq 1 ]; then
+            RUNNING[$slot]=0
+            AGENT_LINES[$slot]="[stopped]"
+            return
+        fi
 
-    run_review "$job_key" "$item_name" &
-    PIDS[$slot]=$!
-}
+        if [ "$NEXT_TODO_INDEX" -ge "$TOTAL_TODOS" ]; then
+            RUNNING[$slot]=0
+            AGENT_LINES[$slot]="[idle]"
+            return
+        fi
 
-for ((slot = 0; slot < SLOT_COUNT; slot++)); do
-    launch_review_for_slot "$slot"
-done
+        todo_line="${TODO_LINES[$NEXT_TODO_INDEX]}"
+        line_num=$(echo "$todo_line" | cut -d: -f1)
+        item_name=$(echo "$todo_line" | cut -d: -f2- | sed 's/\[TODO\]//' | xargs)
+        job_key="slot${slot}_todo${NEXT_TODO_INDEX}"
 
-render_progress "$ACTIVE_COUNT" "$QUEUED_COUNT"
+        LINE_NUMS[$slot]="$line_num"
+        ITEM_NAMES[$slot]="$item_name"
+        JOB_KEYS[$slot]="$job_key"
+        AGENT_LINES[$slot]="$item_name"
+        RUNNING[$slot]=1
+        NEXT_TODO_INDEX=$((NEXT_TODO_INDEX + 1))
+        ACTIVE_COUNT=$((ACTIVE_COUNT + 1))
+        QUEUED_COUNT=$((TOTAL_TODOS - NEXT_TODO_INDEX))
 
-while [ "$COMPLETED_COUNT" -lt "$TOTAL_TODOS" ]; do
-    if [ "$STOP_REQUESTED" -eq 1 ]; then
-        stop_running_reviews
-        break
-    fi
+        run_review "$job_key" "$item_name" &
+        PIDS[$slot]=$!
+    }
 
     for ((slot = 0; slot < SLOT_COUNT; slot++)); do
+        launch_review_for_slot "$slot"
+    done
+
+    render_progress "$ACTIVE_COUNT" "$QUEUED_COUNT"
+
+    while [ "$COMPLETED_COUNT" -lt "$TOTAL_TODOS" ]; do
         if [ "$STOP_REQUESTED" -eq 1 ]; then
             stop_running_reviews
-            break 2
+            break
         fi
 
-        if [ "${RUNNING[$slot]}" != "1" ]; then
-            continue
-        fi
-
-        if [ -f "$TMP_DIR/exit.${JOB_KEYS[$slot]}" ]; then
-            wait "${PIDS[$slot]}"
-
-            if ! process_completed_review "${JOB_KEYS[$slot]}" "${LINE_NUMS[$slot]}" "${ITEM_NAMES[$slot]}"; then
-                AGENT_LINES[$slot]="${ITEM_NAMES[$slot]} [failed]"
-            else
-                AGENT_LINES[$slot]="${ITEM_NAMES[$slot]} [done]"
+        for ((slot = 0; slot < SLOT_COUNT; slot++)); do
+            if [ "$STOP_REQUESTED" -eq 1 ]; then
+                stop_running_reviews
+                break 2
             fi
 
-            COMPLETED_COUNT=$((COMPLETED_COUNT + 1))
-            ACTIVE_COUNT=$((ACTIVE_COUNT - 1))
-            RUNNING[$slot]=0
-
-            if [ "$NEXT_TODO_INDEX" -lt "$TOTAL_TODOS" ]; then
-                launch_review_for_slot "$slot"
+            if [ "${RUNNING[$slot]}" != "1" ]; then
+                continue
             fi
 
-            render_progress "$ACTIVE_COUNT" "$QUEUED_COUNT"
+            if [ -f "$TMP_DIR/exit.${JOB_KEYS[$slot]}" ]; then
+                wait "${PIDS[$slot]}"
+
+                if ! process_completed_review "${JOB_KEYS[$slot]}" "${LINE_NUMS[$slot]}" "${ITEM_NAMES[$slot]}"; then
+                    AGENT_LINES[$slot]="${ITEM_NAMES[$slot]} [failed]"
+                else
+                    AGENT_LINES[$slot]="${ITEM_NAMES[$slot]} [done]"
+                fi
+
+                COMPLETED_COUNT=$((COMPLETED_COUNT + 1))
+                ACTIVE_COUNT=$((ACTIVE_COUNT - 1))
+                RUNNING[$slot]=0
+
+                if [ "$NEXT_TODO_INDEX" -lt "$TOTAL_TODOS" ]; then
+                    launch_review_for_slot "$slot"
+                fi
+
+                render_progress "$ACTIVE_COUNT" "$QUEUED_COUNT"
+            fi
+        done
+
+        if [ "$COMPLETED_COUNT" -lt "$TOTAL_TODOS" ]; then
+            sleep 0.2
         fi
     done
 
-    if [ "$COMPLETED_COUNT" -lt "$TOTAL_TODOS" ]; then
-        sleep 0.2
+    if [ "$STOP_REQUESTED" -eq 1 ]; then
+        exit 130
     fi
-done
+
+    echo
+    echo "✓ Phase 1 complete: All items marked [DONE]"
+fi
 
 if [ "$STOP_REQUESTED" -eq 1 ]; then
     exit 130
 fi
 
-echo "✓ Phase 1 complete: All items marked [DONE]"
+PHASE2_CLEAN_STREAK=0
+PHASE2_ATTEMPT=0
+PHASE2_FOUND_COUNT=0
+PHASE2_RENDERED=
+PIDS=()
+
+while [ "$PHASE2_CLEAN_STREAK" -lt "$MISSING_CLEAN_STREAK_TARGET" ]; do
+    if [ "$STOP_REQUESTED" -eq 1 ]; then
+        stop_running_reviews
+        exit 130
+    fi
+
+    PHASE2_ATTEMPT=$((PHASE2_ATTEMPT + 1))
+    PIDS=()
+    run_missing_review "phase2_$PHASE2_ATTEMPT" &
+    PIDS[0]=$!
+
+    render_phase2_progress "$PHASE2_FOUND_COUNT" "$PHASE2_CLEAN_STREAK"
+
+    while [ ! -f "$TMP_DIR/exit.phase2_$PHASE2_ATTEMPT" ]; do
+        if [ "$STOP_REQUESTED" -eq 1 ]; then
+            stop_running_reviews
+            exit 130
+        fi
+        sleep 0.2
+    done
+
+    wait "${PIDS[0]}"
+    process_missing_review "phase2_$PHASE2_ATTEMPT"
+    phase2_result="$?"
+
+    if [ "$phase2_result" -eq 0 ]; then
+        PHASE2_CLEAN_STREAK=$((PHASE2_CLEAN_STREAK + 1))
+    else
+        PHASE2_CLEAN_STREAK=0
+    fi
+
+    render_phase2_progress "$PHASE2_FOUND_COUNT" "$PHASE2_CLEAN_STREAK"
+done
+
+echo
+echo "✓ Phase 2 complete: $MISSING_CLEAN_STREAK_TARGET consecutive clean scans"

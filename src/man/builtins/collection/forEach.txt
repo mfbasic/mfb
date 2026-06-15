@@ -44,3 +44,11 @@ SEE ALSO
   transform
   filter
   reduce
+
+FIXME
+- Inconsistency 1: `forEach.txt` documents that callback errors auto-propagate and iteration stops, but `tests/func_collection_forEach_valid` only covers successful callbacks. No targeted test proves stop-on-error behavior.
+- Inconsistency 2: `forEach.txt` says `action` must accept one `T` and return `Nothing`, but `tests/func_collection_forEach_invalid` only covers a wrong callback parameter type.
+
+Notes: Add targeted `func_collection_forEach_valid` coverage for a callback that fails after earlier items and proves later items are not visited. Add invalid cases for wrong argument count, non-list first argument, non-function second argument, callback arity mismatch, and callback returning a non-`Nothing` value.
+
+Untested: empty list; lambda callback; callback failure propagation/short-circuit; wrong argument count; non-list receiver; non-function action; callback with wrong arity; callback returning non-`Nothing`.

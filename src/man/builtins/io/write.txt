@@ -13,3 +13,11 @@ DESCRIPTION
 EXAMPLES
   io::write("Hello")
   io::write("é日😀")
+
+FIXME
+- Inconsistency 1: `src/man/builtins/io/write.txt` documents failure as `ErrOutput (10015)`, but `specifications/standard_package.md` names error code `10015` as `ErrWriteFailed`.
+- Inconsistency 2: The manual/spec say `io::write` writes the full `value`, but `src/target/shared/code/mod.rs` emits one platform `write` call and treats any non-negative return as success. A short write can silently write only part of the string.
+
+Notes: Update the manual to use the canonical error name, likely `ErrWriteFailed (10015)`. Fix the runtime helper to loop until all UTF-8 bytes are written, and return `10015` on failed write.
+
+Untested: output failure/error-code behavior; partial/short writes; empty string output; very large string output.

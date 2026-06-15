@@ -14,3 +14,12 @@ DESCRIPTION
 
 EXAMPLES
   fs::deleteDirectory("target/example")
+
+FIXME
+- Inconsistency 1: `src/man/builtins/fs/deleteDirectory.txt` says missing paths fail with `ErrNotFound (10004)`, and `src/target/shared/code/mod.rs` maps `ENOENT` to `10004`, but `specifications/standard_package.md` says `fs::deleteDirectory` fails with `10011` when missing.
+- Inconsistency 2: The manual names `10018` as `ErrDirectoryNotEmpty`, and source uses `ERR_DIRECTORY_NOT_EMPTY_*`, but the standard error registry in `specifications/standard_package.md` names `10018` as `ErrResourceBusy`.
+- Inconsistency 3: The manual names generic host failure as `ErrOutput (10015)`, and source uses `ERR_OUTPUT_*`, but the standard error registry names `10015` as `ErrWriteFailed`.
+
+Notes: Standardize the canonical filesystem error names/codes across the manual, `standard_package.md`, and source. For missing paths, either update the spec to `ErrNotFound (10004)` or change the runtime/manual to `ErrPathNotFound (10011)`. For `10018` and `10015`, either add/rename registry entries to match the manual/source names or update the manual/source names/messages to the registry names.
+
+Untested: empty path; embedded NUL path; missing path runtime error code; non-empty directory runtime error code; deletion denied/access denied; path exists but is a regular file; symlink-to-directory behavior; parent path missing; generic host failure mapping.

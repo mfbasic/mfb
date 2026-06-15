@@ -22,3 +22,10 @@ EXAMPLES
 
 SEE ALSO
   parse
+
+FIXME
+- Inconsistency 1: The manual/spec promise compact JSON text/compact valid JSON text, but `src/builtins/json_package.mfb` only escapes `"`, `\`, `/`, newline, tab, carriage return, backspace, and form feed. Other JSON-forbidden C0 control characters can pass through unescaped in `Str[...]`, producing invalid JSON.
+
+Notes: Resolve by updating `__json_escapeString` to escape every U+0000 through U+001F character, preferably as `\u00XX` for controls without a named JSON escape. Keep the manual/spec wording as-is if implementation is fixed; otherwise the docs would need to weaken the “valid JSON” claim, which conflicts with the spec.
+
+Untested: Stringify of control characters other than `\n`, `\t`, `\r`, `\b`, and `\f`; nested arrays/objects; empty object; multiple object keys and stable object ordering; escaped object keys; negative infinity/negative NaN runtime errors; fractional rounding/large/small finite float rendering.

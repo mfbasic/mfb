@@ -28,3 +28,10 @@ EXAMPLES
 SEE ALSO
   flow forEach
   flow while
+
+FIXME
+- Inconsistency 1: `src/man/flow/for.txt` says `STEP must not be zero`, but `src/typecheck.rs` only rejects syntactic numeric literal zero via `numeric_literal_is_zero(step)`. A zero held in a variable, returned from a function, or produced by an expression is accepted and lowered in `src/ir.rs` with no runtime zero-step guard.
+
+Notes: Enforce the nonzero `STEP` contract for all step expressions. Either require compile-time constant validation and reject non-constant zero only when provable, or add a runtime check before the lowered loop starts that fails with a defined diagnostic/runtime error. Keep the manual as-is if zero is truly forbidden.
+
+Untested: nonliteral zero step, computed zero step such as `1 - 1`, function-returned zero step, default step behavior without explicit `STEP`, positive-step loop skipped when `start > end`, negative-step loop skipped when `start < end`, wrong end type, wrong step type, mixed numeric promotion behavior, and loop increment overflow.

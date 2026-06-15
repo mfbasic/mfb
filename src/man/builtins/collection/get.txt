@@ -51,3 +51,11 @@ SEE ALSO
   getOr
   set
   hasKey
+
+FIXME
+- Inconsistency 1: `tests/func_collection_get_invalid` covers only `get(List OF Integer, String)`. The manual/spec/source define two overloads, but tests do not cover wrong arity, non-collection receiver/context, or wrong map key type.
+- Inconsistency 2: Runtime error coverage only checks list index `3` on a 3-item list and missing map key. The documented list out-of-range behavior also includes negative indexes and empty-list reads, but those edges are untested.
+
+Notes: Manual, specifications, and source agree on signatures, return success types, and error codes: list `get` fails with `10001`; map `get` fails with `ErrNotFound (10004)`. Resolve by expanding dedicated `func_collection_get_invalid` and runtime error tests.
+
+Untested: `get()` arity too low, `get(value, key, extra)` arity too high, non-list/non-map receiver, wrong map key type, negative list index, empty-list index `0`.

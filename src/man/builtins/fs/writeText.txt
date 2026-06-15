@@ -10,3 +10,11 @@ DESCRIPTION
 
 EXAMPLES
   fs::writeText("target/output.txt", "Hello")
+
+FIXME
+- Inconsistency 1: `specifications/standard_package.md` says `fs::writeText` fails with `10012`, `10013`, or `10015`, but `src/target/shared/code/mod.rs` maps a missing parent path/open `ENOENT` to `10004`, embedded NUL paths to `10002`, allocation failure to `10010`, and generic open/write/sync/close failures to `10015`.
+- Inconsistency 2: The manual says writing stops when “the host reports an output failure,” but the implementation can also fail before writing during path validation, allocation, or open. The manual also omits the spec’s explicit symlink-following behavior.
+
+Notes: Align the spec, manual, and implementation on the actual error contract. Either update implementation to return the documented `10012` invalid-path behavior where appropriate, or update the spec/manual to list the actual possible runtime errors, including missing parent path behavior. Add the symlink-following note to the manual if that is intended user-facing behavior.
+
+Untested: Runtime errors for missing parent path, embedded NUL/invalid path, access denied, directory-as-target, write/sync/close failure, symlink final component behavior, empty string writes, and file creation when the target does not already exist.

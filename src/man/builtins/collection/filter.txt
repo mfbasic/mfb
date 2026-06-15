@@ -45,3 +45,11 @@ SEE ALSO
   transform
   reduce
   isEven
+
+FIXME
+- Inconsistency 1: The manual says `filter` propagates errors raised by `predicate`, but the focused tests do not cover a predicate that fails and prove the error/result is propagated at runtime.
+- Inconsistency 2: The manual says the original list is not mutated, but the focused valid test does not verify the source list remains unchanged after filtering.
+
+Notes: Add valid runtime coverage for a failing predicate and for source-list preservation after `filter`. The signature and behavior otherwise match `specifications/standard_package.md`, type checking, IR lowering, and native lowering.
+
+Untested: wrong argument count, non-list first argument, predicate parameter type mismatch, non-function predicate value, built-in predicates `isEmpty`/`isNotEmpty` with list/map element types, predicate error propagation, and source-list immutability.

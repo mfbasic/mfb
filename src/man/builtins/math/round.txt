@@ -13,3 +13,10 @@ DESCRIPTION
 
 EXAMPLES
   LET value AS Integer = math::round(3.5)
+
+FIXME
+- Inconsistency 1: `src/man/builtins/math/round.txt` and `specifications/standard_package.md` say `math::round(Float)` fails with `ErrOverflow (10028)` when the rounded result is outside `Integer` range, but `src/target/shared/code/builder_math.rs` lowers Float directly to `abi::float_round_to_signed_x`, which maps to AArch64 `fcvtas_x_from_d` without an explicit overflow check or `emit_overflow_return()` path.
+
+Notes: Add a Float range/invalid-result check around `math.round` before or after conversion, matching the existing overflow-return pattern used by conversions/math helpers, or revise the manual/spec if overflow is intentionally not reported. The manual/spec currently agree with each other; the mismatch is with the native lowering.
+
+Untested: Float overflow/out-of-range; Float infinities/NaN if representable; Fixed exact half cases such as `2.5` and `-2.5`; Float negative non-half cases near half boundaries; boundary values around minimum/maximum `Integer` after rounding.
