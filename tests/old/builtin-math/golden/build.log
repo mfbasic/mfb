@@ -1,9 +1,0 @@
-$ mfb build -ast tests/builtin-math
-Wrote AST to tests/builtin-math/builtin_math.ast
-[exit 0]
-$ mfb build -ir tests/builtin-math
-Wrote IR to tests/builtin-math/builtin_math.ir
-[exit 0]
-$ mfb build -bc tests/builtin-math
-Wrote bytecode hex to tests/builtin-math/builtin_math.hex
-[exit 0]

@@ -1,7 +1,0 @@
-{
-  "name": "type_variant_constructor_edges",
-  "version": "0.1.0",
-  "mfb": "0.1",
-  "kind": "executable",
-  "sources": [{ "root": "src" }]
-}

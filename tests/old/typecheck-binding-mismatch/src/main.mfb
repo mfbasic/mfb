@@ -1,3 +1,0 @@
-SUB main()
-  MUT x AS Integer = "x"
-END SUB

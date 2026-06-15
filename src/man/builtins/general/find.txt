@@ -57,8 +57,4 @@ SEE ALSO
   replace
 
 FIXME
-- Inconsistency 1: `src/man/builtins/general/find.txt` and `specifications/standard_package.md` say string `find` uses Unicode scalar indexes, but `src/arch/aarch64_old/mod.rs` stores string length as byte length and implements `emit_general_find` using byte offsets/index increments.
-
-Notes: If `src/arch/aarch64_old/mod.rs` is obsolete, remove it or clearly exclude it from supported runtime paths. If it is still supported, update `emit_general_find` to validate and return Unicode scalar indexes like `src/unicode_backend.rs` and the current shared native lowering.
-
-Untested: No focused runtime test appears to exercise the `aarch64_old` path for non-ASCII string `find`. Focused tests also do not cover negative `start`, `start == len` with an empty needle, or `start == len` with a non-empty needle.
+Untested: Non-ASCII string `find` does not appear to have focused runtime coverage. Focused tests also do not cover negative `start`, `start == len` with an empty needle, or `start == len` with a non-empty needle.

@@ -13,7 +13,7 @@ EXAMPLES
   LET message AS String = thread::read(t)
 
 FIXME
-- Inconsistency 1: `src/man/builtins/thread/read.txt` documents `thread::read` as a working runtime operation that reads the next worker outbound message and fails with `ErrNotFound` when none is available, matching `specifications/mfbasic.md`, `specifications/standard_package.md`, and `specifications/threading.md`; however `src/arch/aarch64_old/mod.rs` routes `NATIVE_OPCODE_THREAD_READ` to `emit_thread_default_result`, which terminates the compiler/process instead of implementing read behavior. The shared backend only declares/maps `_mfb_rt_thread_thread_read`; I found no concrete helper implementation in the focused thread-read paths.
+- Inconsistency 1: `src/man/builtins/thread/read.txt` documents `thread::read` as a working runtime operation that reads the next worker outbound message and fails with `ErrNotFound` when none is available, matching `specifications/mfbasic.md`, `specifications/standard_package.md`, and `specifications/threading.md`; however the shared backend only declares/maps `_mfb_rt_thread_thread_read`, and I found no concrete helper implementation in the focused thread-read paths.
 - Inconsistency 2: `tests/func_thread_read_valid` only validates AST/IR compilation. It does not execute a generated program, so it does not prove the manual/spec runtime behavior for reading outbound messages or `ErrNotFound`.
 
 Notes: Resolve by implementing `_mfb_rt_thread_thread_read` for supported runtime backends and replacing the default-result path with real outbound-queue dequeue behavior, including `ErrNotFound` when empty and preserving queued messages after worker completion. Add runtime `.run` coverage for observable successful reads and empty-queue failure behavior.

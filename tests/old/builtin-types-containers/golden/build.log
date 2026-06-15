@@ -1,9 +1,0 @@
-$ mfb build -ast tests/builtin-types-containers
-Wrote AST to tests/builtin-types-containers/builtin_types_containers.ast
-[exit 0]
-$ mfb build -ir tests/builtin-types-containers
-Wrote IR to tests/builtin-types-containers/builtin_types_containers.ir
-[exit 0]
-$ mfb build -bc tests/builtin-types-containers
-Wrote bytecode hex to tests/builtin-types-containers/builtin_types_containers.hex
-[exit 0]

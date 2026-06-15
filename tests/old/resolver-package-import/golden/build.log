@@ -1,6 +1,0 @@
-$ mfb build -ast tests/resolver-package-import
-Wrote AST to tests/resolver-package-import/resolver_package_import.ast
-[exit 0]
-$ mfb build -ir tests/resolver-package-import
-Wrote IR to tests/resolver-package-import/resolver_package_import.ir
-[exit 0]

@@ -1,3 +1,0 @@
-TYPE Person
-  name AS String
-END TYPE

@@ -1,9 +1,0 @@
-$ mfb build -ast tests/function-values
-Wrote AST to tests/function-values/function_values.ast
-[exit 0]
-$ mfb build -ir tests/function-values
-Wrote IR to tests/function-values/function_values.ir
-[exit 0]
-$ mfb build -bc tests/function-values
-Wrote bytecode hex to tests/function-values/function_values.hex
-[exit 0]

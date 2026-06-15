@@ -53,7 +53,6 @@ SEE ALSO
 FIXME
 - Inconsistency 1: `src/man/builtins/collection/find.txt` does not document the spec-required `T must be comparable` constraint for both list item and sublist overloads.
 - Inconsistency 2: `src/builtins/general.rs` resolves collection `find` by matching `List OF T`/`T` or `List OF T`/`List OF T` only; it does not enforce the `specifications/*` comparable-element requirement.
-- Inconsistency 3: `src/arch/aarch64_old/mod.rs` legacy `emit_collection_find` appears to implement only item search, treats `start > len(value)` as not found instead of `10001`, and does not implement the documented sublist overload.
 
 Notes: Update the manual type-checking section to state that `T` must be comparable. Add comparable-type validation to collection `find` resolution/type checking, or relax the specs if non-comparable list search is intended. Either remove/fix the legacy backend path or clearly exclude it from supported runtime behavior.
 

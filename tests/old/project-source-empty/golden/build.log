@@ -1,8 +1,0 @@
-$ mfb build -ast tests/project-source-empty
-tests/project-source-empty/src:1 error[MFB_SOURCE_EMPTY]: MFBASIC source root contains no source files
-               Source root `tests/project-source-empty/src` contains no .mfb files.
-[exit 1]
-$ mfb build -ir tests/project-source-empty
-tests/project-source-empty/src:1 error[MFB_SOURCE_EMPTY]: MFBASIC source root contains no source files
-               Source root `tests/project-source-empty/src` contains no .mfb files.
-[exit 1]

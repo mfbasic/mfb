@@ -1,3 +1,0 @@
-SUB main()
-  RETURN "x"
-END SUB

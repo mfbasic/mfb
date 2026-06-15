@@ -17,8 +17,6 @@ EXAMPLES
     END FUNC
 
 FIXME
-- Inconsistency 1: `src/man/builtins/strings/trimStart.txt` and `specifications/standard_package.md` document `strings::trimStart(value AS String) AS String` as removing leading Unicode whitespace, and the shared implementation/tests support that. However, `src/arch/aarch64_old/mod.rs` routes `NATIVE_OPCODE_STRING_TRIM_START` through `emit_string_trim`, which uses `emit_ascii_whitespace_flag`; that only recognizes ASCII space, tab, LF, CR, VT, and FF, so NBSP, U+3000, and other Unicode whitespace would not be trimmed on that backend.
+  None.
 
-Notes: Update the old AArch64 trim path to use the same Unicode whitespace definition as `src/unicode_backend.rs` / `src/target/shared/code/private/unicode.rs`, or remove/retire that backend path if it is no longer reachable. Keep the manual/spec wording unchanged because the current spec and shared implementation agree on Unicode whitespace.
-
-Untested: The dedicated `trimStart` tests cover current runtime behavior for ASCII space, tab, NBSP, U+3000, empty input, and invalid arity/type usage, but they do not appear to exercise the `src/arch/aarch64_old` trimStart path. Edge cases not directly covered include all-whitespace input, strings with no leading whitespace, newline/CR leading whitespace, and the full Unicode White_Space set.
+Untested: The dedicated `trimStart` tests cover current runtime behavior for ASCII space, tab, NBSP, U+3000, empty input, and invalid arity/type usage. Edge cases not directly covered include all-whitespace input, strings with no leading whitespace, newline/CR leading whitespace, and the full Unicode White_Space set.

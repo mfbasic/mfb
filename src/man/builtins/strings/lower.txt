@@ -17,8 +17,6 @@ EXAMPLES
     END FUNC
 
 FIXME
-- Inconsistency 1: `src/man/builtins/strings/lower.txt` says `strings::lower` uses Unicode case mapping, and `specifications/standard_package.md` agrees, but `src/arch/aarch64_old/mod.rs` lowers `NATIVE_OPCODE_STRING_LOWER` through `emit_string_case`, which only maps ASCII `A`-`Z` bytes to `a`-`z` and preserves output length.
+  None.
 
-Notes: Resolve by deleting the stale `src/arch/aarch64_old/mod.rs` backend if it is obsolete, or by wiring its `strings.lower` implementation to the same Unicode mapping/runtime helper used by the shared target code.
-
-Untested: old `aarch64_old` `strings.lower` runtime behavior for non-ASCII uppercase input, Unicode lowercase mappings that expand or combine code points, already-lowercase non-ASCII text, and context-sensitive lowercase cases such as Greek sigma if those are expected by “Unicode case mapping”.
+Untested: non-ASCII uppercase input, Unicode lowercase mappings that expand or combine code points, already-lowercase non-ASCII text, and context-sensitive lowercase cases such as Greek sigma if those are expected by “Unicode case mapping”.

@@ -15,8 +15,6 @@ EXAMPLES
   LET value AS Float = math::atan2(1.0, 1.0)
 
 FIXME
-- Inconsistency 1: `src/man/builtins/math/atan2.txt` and `specifications/standard_package.md` describe standard `atan2(y, x)` behavior with no failure case, but `src/arch/aarch64_old/mod.rs` treats `atan2(0, 0)` as `ERR_INVALID_ARGUMENT` in `emit_atan2_d`.
-
-Notes: Resolve by making the old AArch64 `atan2` path match standard `atan2(y, x)` semantics for zero-axis cases, especially `(0, 0)`, or update both the manual and specification if the intended language behavior is to reject `(0, 0)`. The current shared native lowering uses external `atan2`, so the old backend appears to be the outlier.
+  None.
 
 Untested: `math::atan2(0.0, 0.0)`, `math::atan2(toFixed("0.0"), toFixed("0.0"))`, negative/positive zero axis behavior, mixed `Float`/`Fixed` invalid case, and `Fixed` quadrant coverage beyond `(0, -1)`.

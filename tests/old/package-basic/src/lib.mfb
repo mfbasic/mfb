@@ -1,3 +1,0 @@
-FUNC answer() AS Integer
-  RETURN 42
-END FUNC

@@ -1,5 +1,0 @@
-IMPORT shape
-
-SUB main()
-  shape::draw()
-END SUB

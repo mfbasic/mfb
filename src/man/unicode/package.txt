@@ -34,14 +34,3 @@ SEE ALSO
     mfb man general len
     mfb man general find
     mfb man general mid
-
-FIXME
-- Inconsistency 1: `src/man/unicode/package.txt` and `specifications/standard_package.md` require string length/search/substring indexes to be Unicode scalar indexes, but `src/arch/aarch64_old/mod.rs` stores/uses string byte lengths for `len`, `find`, `mid`, and `strings::byteLen`.
-- Inconsistency 2: The manual/specs require Unicode whitespace behavior, but `src/arch/aarch64_old/mod.rs` trims only ASCII whitespace.
-- Inconsistency 3: The manual says `strings::upper`, `strings::lower`, and `strings::caseFold` use Unicode mappings and may expand length, but `src/arch/aarch64_old/mod.rs` performs ASCII byte-only case conversion with fixed output length.
-- Inconsistency 4: The manual says `strings::normalizeNfc` returns canonical NFC text, but `src/arch/aarch64_old/mod.rs` handles `NATIVE_OPCODE_STRING_NORMALIZE_NFC` by copying the input unchanged.
-- Inconsistency 5: The manual says `strings::graphemes` returns extended grapheme clusters, but `src/arch/aarch64_old/mod.rs` builds one list element per byte.
-
-Notes: If `src/arch/aarch64_old/mod.rs` is obsolete, remove it or exclude it from supported source paths. If it is still supported, wire it to the same Unicode scalar, whitespace, case mapping, NFC, and grapheme logic used by the current shared/native implementation.
-
-Untested: No runtime tests appear to exercise the `aarch64_old` path for Unicode scalar `len`/`find`/`mid`, non-ASCII whitespace trim, Unicode case expansion/case folding, NFC composition, or extended grapheme clusters. Negative `find` start is also not covered by the focused function tests reviewed.

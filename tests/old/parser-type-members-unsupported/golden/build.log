@@ -1,6 +1,0 @@
-$ mfb build -ast tests/parser-type-members-unsupported
-Wrote AST to tests/parser-type-members-unsupported/parser_type_members_unsupported.ast
-[exit 0]
-$ mfb build -ir tests/parser-type-members-unsupported
-Wrote IR to tests/parser-type-members-unsupported/parser_type_members_unsupported.ir
-[exit 0]

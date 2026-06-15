@@ -1,9 +1,0 @@
-IMPORT io
-
-FUNC total() AS Integer
-  RETURN 1 + 2 * 3
-END FUNC
-
-SUB main()
-  LET answer AS Integer = total()
-END SUB

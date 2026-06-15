@@ -1,9 +1,0 @@
-$ mfb build -ast tests/arena-runtime
-Wrote AST to tests/arena-runtime/arena_runtime.ast
-[exit 0]
-$ mfb build -ir tests/arena-runtime
-Wrote IR to tests/arena-runtime/arena_runtime.ir
-[exit 0]
-$ mfb build -bc tests/arena-runtime
-Wrote bytecode hex to tests/arena-runtime/arena_runtime.hex
-[exit 0]

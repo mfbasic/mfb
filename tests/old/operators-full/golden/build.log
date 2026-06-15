@@ -1,9 +1,0 @@
-$ mfb build -ast tests/operators-full
-Wrote AST to tests/operators-full/operators_full.ast
-[exit 0]
-$ mfb build -ir tests/operators-full
-Wrote IR to tests/operators-full/operators_full.ir
-[exit 0]
-$ mfb build -bc tests/operators-full
-Wrote bytecode hex to tests/operators-full/operators_full.hex
-[exit 0]

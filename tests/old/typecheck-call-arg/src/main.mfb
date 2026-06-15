@@ -1,7 +1,0 @@
-FUNC greet(name AS String) AS String
-  RETURN name
-END FUNC
-
-SUB main()
-  greet(1)
-END SUB

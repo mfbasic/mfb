@@ -42,8 +42,6 @@ SEE ALSO
     mfb man general replace
 
 FIXME
-- Inconsistency 1: `src/arch/aarch64_old/mod.rs` contains stale string-helper lowering inconsistent with the `strings` package/manual and specs: trim is ASCII-whitespace only, upper/lower/caseFold are ASCII byte mappings, normalizeNfc copies input unchanged, and graphemes splits by byte rather than extended grapheme cluster.
-
-Notes: The active registered native targets use `src/target/shared/code/builder_strings_package.rs`, which matches the documented/spec API. Resolve by deleting the unregistered `aarch64_old` backend or updating it to the shared Unicode implementation so `src/**` no longer contains contradictory behavior.
+  None.
 
 Untested: split with empty delimiter runtime error; startsWith/endsWith on empty value with empty prefix/suffix; broader Unicode whitespace set; NFC canonical reordering/blocker cases; grapheme variation selectors, skin tones, CRLF, and odd regional indicators.

@@ -557,11 +557,6 @@ SPECIFICATION: specifications/mfbasic.md @ §4.1 Primitives and specifications/s
 `sum(value AS List OF Float) AS Float` is implemented in native lowering with raw AArch64 floating-point addition and no finite-result check. The language requires Float arithmetic that produces NaN or infinity to fail with `ErrInvalidArgument` or `ErrOverflow`, so a Float sum can currently succeed with a non-finite result. Resolve by adding finite/overflow validation after each `float_add_d` in `lower_collection_sum`, returning `10028` for overflow to infinity and the appropriate invalid-domain error for NaN, then add runtime coverage for overflowing Float sums.
 
 
-REQUIREMENT: No placeholder/default-result runtime helper paths in backend/linker code
-SPECIFICATION: specifications/linker.md @ §8 Failure Rules
-The linker spec says missing linker/runtime support must fail rather than be satisfied with placeholder helpers, zero addresses, empty dependencies, or runtime “unsupported” fallbacks. `src/arch/aarch64_old/mod.rs` still routes many filesystem and thread native opcodes through `emit_fs_default_result` and `emit_thread_default_result`, which terminate the process instead of implementing the requested helper behavior or rejecting the backend before output. Resolve by removing/decommissioning the obsolete backend from supported compiler source paths, or by replacing those default-result paths with real filesystem/thread lowering and making unsupported opcodes fail during backend validation before executable generation.
-
-
 REQUIREMENT: Project `repository` field handling
 SPECIFICATION: specifications/project.md @ §4 Identity And Informational Fields
 The project spec defines `repository` as an optional string or object field, but `validate_project_manifest` does not validate either documented shape and package/audit metadata generation ignores it entirely. Existing `review_missing.txt` records the same issue for `author` object form, but not `repository`. Resolve by accepting and validating the documented URL string and object shape (`type`, `url`, optional `directory`), normalizing it for tooling/audit metadata, and deciding whether it should be copied into compiled package metadata or explicitly documented as source-manifest-only metadata.

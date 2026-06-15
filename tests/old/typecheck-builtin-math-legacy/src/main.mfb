@@ -1,7 +1,0 @@
-IMPORT math
-
-FUNC main AS Integer
-  LET pi AS Float = math::pi()
-  LET e AS Float = math::e()
-  RETURN 0
-END FUNC

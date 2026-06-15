@@ -1,3 +1,0 @@
-FUNC main() AS Result
-  RETURN "x"
-END FUNC

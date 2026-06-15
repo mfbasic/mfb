@@ -11,8 +11,4 @@ EXAMPLES
   io::print(fs::pathDirName("target/output.txt"))
 
 FIXME
-- Inconsistency 1: `src/man/builtins/fs/pathDirName.txt` and `specifications/standard_package.md` document `fs::pathDirName(path AS String) AS String` as returning the directory portion without filesystem access, and `src/target/shared/code/builder_fs_paths.rs` implements that behavior, but `src/arch/aarch64_old/mod.rs` routes `NATIVE_OPCODE_FS_PATH_DIR_NAME` to `emit_fs_default_result`, which exits instead of returning a dirname.
-
-Notes: Implement real `fs.pathDirName` lowering in the legacy AArch64 backend or remove/disable that backend path if it is no longer supported. Keep the manual/spec unchanged if the intended behavior is the shared backend behavior.
-
 Untested: No untested overloads found; the single `String -> String` overload is covered. Edge cases not covered include empty path, root-only `/`, trailing slashes such as `a/` and `/a/`, repeated slashes, directory-only inputs, `.`/`..` components, and execution through the legacy AArch64 backend path.

@@ -53,15 +53,6 @@ The compiler/runtime state is incomplete:
   `OPCODE_STRING_REGEX_MATCH`, `OPCODE_STRING_REGEX_FIND`,
   `OPCODE_STRING_REGEX_REPLACE`.
 
-There is also an important trap in the old backend:
-
-- `src/arch/aarch64_old/mod.rs` routes regex opcodes through existing
-  substring-style helpers (`emit_string_predicate`, `emit_general_find`,
-  `emit_general_replace`).
-
-That old path is not acceptable as a model because it can make regex appear
-implemented while silently behaving like plain substring search or replace.
-
 ## 3. Why Host `regcomp()` Alone Is Not Enough
 
 Using the platform's native regex API directly is the wrong default if the goal

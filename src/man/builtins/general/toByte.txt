@@ -45,8 +45,4 @@ SEE ALSO
   toString
 
 FIXME
-- Inconsistency 1: `src/arch/aarch64_old/mod.rs` implements `toByte` out-of-range failures with `ERR_INVALID_ARGUMENT` (`10002`) for values below `0` or above `255`, while the manual and specifications require `ErrOverflow` / `10028`.
-
-Notes: Change the old AArch64 `emit_general_to_byte` overflow branches to emit `ERR_OVERFLOW` instead of `ERR_INVALID_ARGUMENT`. The current shared native lowering and existing overflow golden for `toByte(256)` match the manual/spec.
-
-Untested: `toByte(-1)` is not covered; only the high overflow case `toByte(256)` is covered. The old AArch64 backend path’s `toByte` error code behavior does not appear covered by the dedicated function tests.
+Untested: `toByte(-1)` is not covered; only the high overflow case `toByte(256)` is covered.

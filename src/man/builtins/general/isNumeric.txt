@@ -43,8 +43,5 @@ SEE ALSO
 
 FIXME
 - Inconsistency 1: `src/target/shared/code/builder_conversions.rs` implements `isNumeric` by parsing to `Float` but does not run the overflow/non-finite check used by `toFloat`/`toFixed`. Values like very large exponent text can be accepted by `isNumeric` even though the documented “standard conversion functions” would reject overflow/non-finite numeric results.
-- Inconsistency 2: `src/arch/aarch64_old/mod.rs` has a separate `isNumeric` implementation that accepts only optional `-` followed by digits. That conflicts with the manual/spec behavior and the dedicated valid test cases for decimal/exponent forms such as `.5`, `-2.50`, and `1.25e2`.
 
-Notes: Resolve by making `isNumeric` share the same successful-parse criteria as the numeric string conversions, including rejecting overflow/non-finite results. Remove, update, or prove unreachable the old AArch64 implementation so every `src/**` path recognizes the same grammar.
-
-Untested: overflow/non-finite numeric text such as huge exponents; `NaN`/`Infinity`; empty string; sign-only strings; leading `+`; exponent sign forms; trailing/leading whitespace; fixed range boundaries; integer range boundaries; old AArch64 `isNumeric` behavior for decimal point and exponent forms.
+Untested: overflow/non-finite numeric text such as huge exponents; `NaN`/`Infinity`; empty string; sign-only strings; leading `+`; exponent sign forms; trailing/leading whitespace; fixed range boundaries; integer range boundaries.

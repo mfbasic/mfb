@@ -1,9 +1,0 @@
-$ mfb build -ast tests/function-overloads
-Wrote AST to tests/function-overloads/function_overloads.ast
-[exit 0]
-$ mfb build -ir tests/function-overloads
-Wrote IR to tests/function-overloads/function_overloads.ir
-[exit 0]
-$ mfb build -bc tests/function-overloads
-Wrote bytecode hex to tests/function-overloads/function_overloads.hex
-[exit 0]

@@ -1,3 +1,0 @@
-FUNC count() AS Integer
-  RETURN 1 + "x"
-END FUNC

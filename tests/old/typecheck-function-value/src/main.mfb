@@ -1,7 +1,0 @@
-FUNC count() AS Integer
-  RETURN 1
-END FUNC
-
-SUB main()
-  LET x AS Integer = count
-END SUB

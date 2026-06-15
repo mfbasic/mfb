@@ -16,8 +16,7 @@ EXAMPLES
 FIXME
 - Inconsistency 1: The man page says `thread::poll` waits up to `ms` milliseconds and returns only `TRUE`/`FALSE`, but the specs define negative timeouts as invalid and the source returns `ErrInvalidArgument` for `ms < 0`.
 - Inconsistency 2: The shared native helper implements positive `ms` as a fixed busy-loop count (`ms * 5000000`), not an actual millisecond timeout as documented by the man page and specs.
-- Inconsistency 3: `src/arch/aarch64_old/mod.rs` routes `NATIVE_OPCODE_THREAD_POLL` through `emit_thread_default_result`, which aborts the process instead of implementing the documented behavior.
 
-Notes: Update `src/man/builtins/thread/poll.txt` to document `ms = 0` non-blocking behavior and negative timeout failure. Replace the busy-loop timeout with real elapsed-time waiting or change the specs/man page if the unit is not actually milliseconds. Remove or implement the stale `aarch64_old` thread poll path so it cannot contradict the documented builtin.
+Notes: Update `src/man/builtins/thread/poll.txt` to document `ms = 0` non-blocking behavior and negative timeout failure. Replace the busy-loop timeout with real elapsed-time waiting or change the specs/man page if the unit is not actually milliseconds.
 
-Untested: Negative timeout failure; `ms = 0` returning `FALSE` on an empty outbound queue; positive timeout expiring with `FALSE`; `TRUE` result being asserted before `thread::read`; behavior after worker completion and outbound queue drained; old aarch64 backend behavior.
+Untested: Negative timeout failure; `ms = 0` returning `FALSE` on an empty outbound queue; positive timeout expiring with `FALSE`; `TRUE` result being asserted before `thread::read`; behavior after worker completion and outbound queue drained.

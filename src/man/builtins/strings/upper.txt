@@ -17,8 +17,6 @@ EXAMPLES
     END FUNC
 
 FIXME
-- Inconsistency 1: `src/man/builtins/strings/upper.txt` and `specifications/standard_package.md` define `strings::upper` as Unicode case mapping, but `src/arch/aarch64_old/mod.rs` implements `NATIVE_OPCODE_STRING_UPPER` as bytewise ASCII-only `a-z` to `A-Z` and allocates/copies by original byte length. This fails Unicode mappings such as `straße -> STRASSE`.
+  None.
 
-Notes: Resolve by updating the old AArch64 string case mapping path to use the same Unicode mapping tables/helpers as the shared backend, including output-length expansion, or remove/disable that backend path if it is obsolete.
-
-Untested: Dedicated tests cover the default runtime path for empty, ASCII, Unicode expansion, non-Latin text, emoji, combining mark, and invalid arity/type cases. The old AArch64 backend path is not covered for Unicode/non-ASCII uppercase expansion.
+Untested: Dedicated tests cover the default runtime path for empty, ASCII, Unicode expansion, non-Latin text, emoji, combining mark, and invalid arity/type cases. Focused coverage for additional Unicode/non-ASCII uppercase expansion cases is still limited.

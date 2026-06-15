@@ -24,8 +24,6 @@ EXAMPLE
   END USING
 
 FIXME
-- Inconsistency 1: `tests/old/builtin-filesystem/src/main.mfb` and its goldens still call `fs::createTempFile("target", "mfb-test-", ".tmp")`, but the manual, specifications, and live builtin resolver support only `fs::createTempFile()` and `fs::createTempFile(directory AS String)`.
-
-Notes: Update or remove the stale `tests/old/builtin-filesystem` fixture/goldens so it uses the one-argument directory overload, or explicitly archive it outside `tests/**` if it is not expected to match current behavior.
+  None.
 
 Untested: no-argument temp file location/name, repeated calls proving uniqueness, collision/exclusive-create behavior, nonexistent directory, directory argument that is a file, empty directory string, embedded NUL in directory, permission-denied directory, and read-back from the returned read/write handle.

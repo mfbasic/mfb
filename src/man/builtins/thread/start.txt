@@ -21,8 +21,6 @@ EXAMPLES
   LET small AS Thread OF String TO Integer = thread::start(workers::worker, "input", 1, 1)
 
 FIXME
-- Inconsistency 1: `src/man/builtins/thread/start.txt`, `specifications/*`, and the shared native helper describe `thread::start` as a working runtime feature, but `src/arch/aarch64_old/mod.rs` routes `NATIVE_OPCODE_THREAD_START` to `emit_thread_default_result`, which aborts the process instead of starting a thread.
+  None.
 
-Notes: Either remove/decommission the old AArch64 backend path so it is not part of supported `src/**`, or implement `thread::start` there with the same behavior as the shared helper, including queue-limit validation and real thread creation.
-
-Untested: `thread::start(..., 0, 1)` and `thread::start(..., 1, 0)` returning `ErrInvalidArgument`; negative inbound/outbound limits; wrong limit types; too many arguments; lambdas/closures specifically as entry points; runtime proof that omitted limits become `64`; runtime proof that one omitted outbound limit becomes `64`; fresh package instance isolation across multiple starts; old AArch64 backend runtime behavior.
+Untested: `thread::start(..., 0, 1)` and `thread::start(..., 1, 0)` returning `ErrInvalidArgument`; negative inbound/outbound limits; wrong limit types; too many arguments; lambdas/closures specifically as entry points; runtime proof that omitted limits become `64`; runtime proof that one omitted outbound limit becomes `64`; fresh package instance isolation across multiple starts.

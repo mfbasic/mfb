@@ -1,9 +1,0 @@
-IMPORT thread
-
-EXPORT ISOLATED FUNC worker(seed AS String) AS Integer
-  RETURN len(seed)
-END FUNC
-
-SUB main()
-  thread::start(worker, "abc")
-END SUB

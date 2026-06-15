@@ -1,5 +1,0 @@
-IMPORT io
-
-SUB main()
-  io::print(message)
-END SUB

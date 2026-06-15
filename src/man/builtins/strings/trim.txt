@@ -17,8 +17,6 @@ EXAMPLES
     END FUNC
 
 FIXME
-- Inconsistency 1: `src/man/builtins/strings/trim.txt` and `specifications/standard_package.md` specify leading and trailing Unicode whitespace, but `src/arch/aarch64_old/mod.rs` trims only ASCII whitespace in its `emit_string_trim` path via `emit_ascii_whitespace_flag`.
+  None.
 
-Notes: Resolve by either removing/excluding the obsolete `aarch64_old` path from supported source/runtime paths, or updating it to use the same Unicode whitespace handling as the shared/native implementation. The current shared implementation and focused `func_string_trim` tests align with the manual for space, tab, NBSP, ideographic space, empty string, and all-whitespace string.
-
-Untested: old AArch64 runtime behavior for non-ASCII Unicode whitespace such as NBSP, OGHAM space mark, U+2000..U+200A spaces, line/paragraph separators, narrow no-break space, medium mathematical space, and ideographic space; mixed leading/trailing multi-byte whitespace around multi-byte non-whitespace on that backend.
+Untested: non-ASCII Unicode whitespace such as NBSP, OGHAM space mark, U+2000..U+200A spaces, line/paragraph separators, narrow no-break space, medium mathematical space, and ideographic space; mixed leading/trailing multi-byte whitespace around multi-byte non-whitespace.

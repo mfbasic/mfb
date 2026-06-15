@@ -17,8 +17,7 @@ EXAMPLES
 
 FIXME
 - Inconsistency 1: `src/man/builtins/math/pow.txt` documents `ErrInvalidArgument`/`ErrOverflow` only for the Fixed overload, but `specifications/standard_package.md` says Float math functions also reject NaN results as `ErrInvalidArgument` and infinity as `ErrOverflow`; `src/target/shared/code/builder_math.rs` implements that finite-result check for Float `math::pow`.
-- Inconsistency 2: `src/arch/aarch64_old/mod.rs` implements `math.pow` via `log(base) * exponent` and requires a positive base, which rejects finite cases implied by the manual/spec/current shared lowering such as `math::pow(0.0, 2.0)` and `math::pow(-2.0, 3.0)`.
 
-Notes: Update the manual to explicitly document Float `math::pow` finite-result error behavior, or change the spec/src if Float `pow` is intended to expose platform NaN/infinity. Align or remove the old AArch64 `math.pow` lowering; if retained, it should use the same platform `pow` semantics and result checks as the shared lowering.
+Notes: Update the manual to explicitly document Float `math::pow` finite-result error behavior, or change the spec/src if Float `pow` is intended to expose platform NaN/infinity.
 
-Untested: Float invalid-domain result such as negative base with fractional exponent; Float overflow/infinity result; zero base with positive exponent; negative base with whole exponent; Fixed invalid-domain result; Fixed overflow; Fixed fractional exponent rounding; Fixed negative exponent; old AArch64 `math.pow` behavior.
+Untested: Float invalid-domain result such as negative base with fractional exponent; Float overflow/infinity result; zero base with positive exponent; negative base with whole exponent; Fixed invalid-domain result; Fixed overflow; Fixed fractional exponent rounding; Fixed negative exponent.

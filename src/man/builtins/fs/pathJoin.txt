@@ -13,7 +13,6 @@ EXAMPLES
 
 FIXME
 - Inconsistency 1: `src/man/builtins/fs/pathJoin.txt` says `pathJoin` joins components with the POSIX separator used by current native targets, while `specifications/standard_package.md` says it uses the host platform’s separator and normal separator rules. `src/target/shared/code/builder_fs_paths.rs` hardcodes `"/"` and delegates to `strings.join`, so it does not implement host-specific separators or normal path separator rules.
-- Inconsistency 2: `src/arch/aarch64_old/mod.rs` routes `NATIVE_OPCODE_FS_PATH_JOIN` to `emit_fs_default_result`, which exits instead of returning a joined path, while the manual/spec/shared source/tests describe working `fs::pathJoin`.
 
 Notes: Resolve by choosing the intended contract. If `pathJoin` is meant to be POSIX-only string joining on current supported targets, update `specifications/standard_package.md` to match and remove “host platform” / “normal separator rules.” If it is meant to follow host path semantics, update the shared implementation and tests accordingly. Implement real `pathJoin` support in the legacy AArch64 backend or remove/disable that backend path if unsupported.
 

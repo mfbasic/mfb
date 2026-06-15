@@ -1,3 +1,0 @@
-FUNC greet(a AS String = "x", b AS String) AS String
-  RETURN a
-END FUNC

@@ -46,10 +46,3 @@ SEE ALSO
   isPositive
   isZero
   filter
-
-FIXME
-- Inconsistency 1: `src/arch/aarch64_old/mod.rs` lowers `BUILTIN_FUNCTION_IS_NEGATIVE_FIXED` through `emit_float_bits_negative_check`, treating `Fixed` like Float bit patterns. The manual and `specifications/standard_package.md` define `isNegative(Fixed)` as `TRUE` when the fixed-point value is `< 0.0`; other code paths treat `Fixed` as signed 32/32 raw integer data.
-
-Notes: Resolve by lowering `isNegative(Fixed)` with signed fixed-point comparison against zero, matching `src/target/shared/code/builder_conversions.rs`, instead of using Float sign/magnitude bit checks. Keep Float on the existing Float path.
-
-Untested: Direct `isNegative(Fixed)` zero and positive cases are not directly exercised; `0.000` and `2.500` calls in the valid test infer as Float. `isNegative(Fixed)` is only directly tested for a negative value and indirectly through `filter(List OF Fixed, isNegative)`. `isNegative` as a `MATCH` guard is also untested.

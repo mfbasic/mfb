@@ -1,9 +1,0 @@
-$ mfb build -ast tests/builtin-general
-Wrote AST to tests/builtin-general/builtin_general.ast
-[exit 0]
-$ mfb build -ir tests/builtin-general
-Wrote IR to tests/builtin-general/builtin_general.ir
-[exit 0]
-$ mfb build -bc tests/builtin-general
-Wrote bytecode hex to tests/builtin-general/builtin_general.hex
-[exit 0]

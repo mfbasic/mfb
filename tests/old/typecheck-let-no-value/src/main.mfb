@@ -1,3 +1,0 @@
-SUB main()
-  LET x AS Integer
-END SUB
