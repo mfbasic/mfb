@@ -143,7 +143,7 @@ Template parameters may appear only on `TYPE`, `UNION`, and `FUNC` declarations,
 SPECIFICATION: specifications/project.md @ §5 Project Kind
 When `kind` is omitted, the spec requires the tool to infer `executable` only when the selected source package contains a valid entry point, and infer `package` otherwise. The compiler currently defaults omitted `kind` to `executable`, so a package-style project without `"kind": "package"` fails entry-point validation instead of building as a package. Resolve by requiring `kind` in the package.json, update the spec and compiler.
 
-REQUIREMENT: Inline `IF ... THEN ... ELSE`
+[FIXED] REQUIREMENT: Inline `IF ... THEN ... ELSE`
 SPECIFICATION: specifications/mfbasic.md @ §10 Control Flow and §19 Grammar (`inlineIfStmt`)
 The grammar and examples allow `IF expr THEN simpleStmt ELSE simpleStmt`, but `parse_if_statement` parses only one statement after inline `THEN` and returns an `If` with an empty `else_body`; an inline `ELSE` is not consumed or lowered. Resolve by parsing the optional inline `ELSE` branch, restricting inline branches to `simpleStmt` as specified, and adding typecheck/IR/native/runtime tests for both taken branches and invalid compound inline bodies.
 

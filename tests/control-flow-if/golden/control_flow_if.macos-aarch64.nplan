@@ -4,11 +4,12 @@
   "target": "macos-aarch64",
   "project": "control_flow_if",
   "entrySymbol": "_mfb_fn_main",
-  "runtimeSymbols": [],
+  "runtimeSymbols": ["_mfb_rt_io_io_print"],
   "externalSymbols": [],
   "platformImports": [
   { "library": "libSystem", "symbol": "_exit", "requiredBy": "_main" },
-  { "library": "libSystem", "symbol": "_write", "requiredBy": "_main" }
+  { "library": "libSystem", "symbol": "_write", "requiredBy": "_main" },
+  { "library": "libSystem", "symbol": "_write", "requiredBy": "_mfb_rt_io_io_print" }
   ],
   "functions": [
   {
@@ -86,21 +87,60 @@
     ]
   },
   {
+    "name": "inlineIfElse",
+    "symbol": "_mfb_fn_inlineIfElse",
+    "returns": { "name": "Integer", "class": "integer", "size": 8, "align": 8 },
+    "params": [
+    { "name": "flag", "storage": { "name": "Boolean", "class": "boolean", "size": 1, "align": 1 } }
+    ],
+    "localSlots": [
+    ],
+    "labels": [
+    { "name": "if_else_0", "kind": "ifElse" },
+    { "name": "if_end_1", "kind": "ifEnd" }
+    ],
+    "operations": ["branchIfFalse local flag -> if_else_0", "return Integer(4)", "branch -> if_end_1", "label if_else_0", "return Integer(5)", "label if_end_1"],
+    "calls": [
+    ]
+  },
+  {
+    "name": "inlineIfAssign",
+    "symbol": "_mfb_fn_inlineIfAssign",
+    "returns": { "name": "Integer", "class": "integer", "size": 8, "align": 8 },
+    "params": [
+    { "name": "flag", "storage": { "name": "Boolean", "class": "boolean", "size": 1, "align": 1 } }
+    ],
+    "localSlots": [
+    { "name": "result", "storage": { "name": "Integer", "class": "integer", "size": 8, "align": 8 }, "offset": -8, "mutable": true }
+    ],
+    "labels": [
+    { "name": "if_else_0", "kind": "ifElse" },
+    { "name": "if_end_1", "kind": "ifEnd" }
+    ],
+    "operations": ["bind mutable result AS Integer = Integer(0)", "branchIfFalse local flag -> if_else_0", "assign result = Integer(6)", "branch -> if_end_1", "label if_else_0", "assign result = Integer(7)", "label if_end_1", "return local result"],
+    "calls": [
+    ]
+  },
+  {
     "name": "main",
     "symbol": "_mfb_fn_main",
     "returns": { "name": "Integer", "class": "integer", "size": 8, "align": 8 },
     "params": [
     ],
     "localSlots": [
+    { "name": "total", "storage": { "name": "Integer", "class": "integer", "size": 8, "align": 8 }, "offset": -8, "mutable": false }
     ],
     "labels": [
     ],
-    "operations": ["return (((call ifOnly(Boolean(false)) + call ifElse(Boolean(true))) + call ifElseIf(Boolean(false), Boolean(true))) + call ifElseIfElse(Boolean(false), Boolean(false)))"],
+    "operations": ["bind immutable total AS Integer = (((((((call ifOnly(Boolean(false)) + call ifElse(Boolean(true))) + call ifElseIf(Boolean(false), Boolean(true))) + call ifElseIfElse(Boolean(false), Boolean(false))) + call inlineIfElse(Boolean(true))) + call inlineIfElse(Boolean(false))) + call inlineIfAssign(Boolean(true))) + call inlineIfAssign(Boolean(false)))", "eval runtimeCall io io.print(call toString(local total))", "return Integer(0)"],
     "calls": [
     { "target": "ifOnly", "symbol": "_mfb_fn_ifOnly", "kind": "local", "stringLiterals": [] },
     { "target": "ifElse", "symbol": "_mfb_fn_ifElse", "kind": "local", "stringLiterals": [] },
     { "target": "ifElseIf", "symbol": "_mfb_fn_ifElseIf", "kind": "local", "stringLiterals": [] },
-    { "target": "ifElseIfElse", "symbol": "_mfb_fn_ifElseIfElse", "kind": "local", "stringLiterals": [] }
+    { "target": "ifElseIfElse", "symbol": "_mfb_fn_ifElseIfElse", "kind": "local", "stringLiterals": [] },
+    { "target": "inlineIfElse", "symbol": "_mfb_fn_inlineIfElse", "kind": "local", "stringLiterals": [] },
+    { "target": "inlineIfAssign", "symbol": "_mfb_fn_inlineIfAssign", "kind": "local", "stringLiterals": [] },
+    { "target": "io.print", "symbol": "_mfb_rt_io_io_print", "kind": "runtime", "stringLiterals": [] }
     ]
   }
   ]

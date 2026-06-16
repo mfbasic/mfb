@@ -1,3 +1,5 @@
+IMPORT io
+
 FUNC ifOnly(flag AS Boolean) AS Integer
   IF flag THEN
     RETURN 1
@@ -32,6 +34,18 @@ FUNC ifElseIfElse(first AS Boolean, second AS Boolean) AS Integer
   END IF
 END FUNC
 
+FUNC inlineIfElse(flag AS Boolean) AS Integer
+  IF flag THEN RETURN 4 ELSE RETURN 5
+END FUNC
+
+FUNC inlineIfAssign(flag AS Boolean) AS Integer
+  MUT result AS Integer = 0
+  IF flag THEN result = 6 ELSE result = 7
+  RETURN result
+END FUNC
+
 FUNC main() AS Integer
-  RETURN ifOnly(FALSE) + ifElse(TRUE) + ifElseIf(FALSE, TRUE) + ifElseIfElse(FALSE, FALSE)
+  LET total AS Integer = ifOnly(FALSE) + ifElse(TRUE) + ifElseIf(FALSE, TRUE) + ifElseIfElse(FALSE, FALSE) + inlineIfElse(TRUE) + inlineIfElse(FALSE) + inlineIfAssign(TRUE) + inlineIfAssign(FALSE)
+  io::print(toString(total))
+  RETURN 0
 END FUNC

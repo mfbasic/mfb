@@ -1175,6 +1175,26 @@ impl<'a> FileParser<'a> {
             return self.parse_do_statement();
         }
 
+        self.parse_simple_statement(false)
+    }
+
+    fn parse_simple_statement(&mut self, allow_else_terminator: bool) -> Option<Statement> {
+        if self.check_keyword(Keyword::If)
+            || self.check_keyword(Keyword::Match)
+            || self.check_keyword(Keyword::Using)
+            || self.check_keyword(Keyword::For)
+            || self.check_keyword(Keyword::While)
+            || self.check_keyword(Keyword::Do)
+        {
+            let token = self.peek().clone();
+            self.report(
+                "MFB_PARSE_UNEXPECTED_TOKEN",
+                "Inline IF branches must use a simple statement.",
+                &token,
+            );
+            return None;
+        }
+
         if self.check_keyword(Keyword::Let) || self.check_keyword(Keyword::Mut) {
             let keyword = self.advance().clone();
             let mutable = matches!(keyword.kind, TokenKind::Keyword(Keyword::Mut));
@@ -1189,7 +1209,10 @@ impl<'a> FileParser<'a> {
             } else {
                 None
             };
-            self.consume_statement_end("Expected end of statement after binding.");
+            self.consume_simple_statement_end(
+                "Expected end of statement after binding.",
+                allow_else_terminator,
+            );
             return Some(Statement::Let {
                 mutable,
                 name,
@@ -1201,12 +1224,17 @@ impl<'a> FileParser<'a> {
 
         if self.match_keyword(Keyword::Return) {
             let token = self.previous().clone();
-            let value = if self.is_statement_end() {
+            let value = if self.is_statement_end()
+                || (allow_else_terminator && self.check_keyword(Keyword::Else))
+            {
                 None
             } else {
                 self.parse_expression()
             };
-            self.consume_statement_end("Expected end of statement after RETURN.");
+            self.consume_simple_statement_end(
+                "Expected end of statement after RETURN.",
+                allow_else_terminator,
+            );
             return Some(Statement::Return {
                 value,
                 line: token.line,
@@ -1216,7 +1244,10 @@ impl<'a> FileParser<'a> {
         if self.match_keyword(Keyword::Fail) {
             let token = self.previous().clone();
             let error = self.parse_expression()?;
-            self.consume_statement_end("Expected end of statement after FAIL.");
+            self.consume_simple_statement_end(
+                "Expected end of statement after FAIL.",
+                allow_else_terminator,
+            );
             return Some(Statement::Fail {
                 error,
                 line: token.line,
@@ -1225,7 +1256,10 @@ impl<'a> FileParser<'a> {
 
         if self.match_keyword(Keyword::Propagate) {
             let token = self.previous().clone();
-            self.consume_statement_end("Expected end of statement after PROPAGATE.");
+            self.consume_simple_statement_end(
+                "Expected end of statement after PROPAGATE.",
+                allow_else_terminator,
+            );
             return Some(Statement::Propagate { line: token.line });
         }
 
@@ -1238,7 +1272,10 @@ impl<'a> FileParser<'a> {
                 let token = self.advance().clone();
                 self.advance();
                 let value = self.parse_expression()?;
-                self.consume_statement_end("Expected end of statement after assignment.");
+                self.consume_simple_statement_end(
+                    "Expected end of statement after assignment.",
+                    allow_else_terminator,
+                );
                 return Some(Statement::Assign {
                     name,
                     value,
@@ -1257,7 +1294,10 @@ impl<'a> FileParser<'a> {
             );
             return None;
         }
-        self.consume_statement_end("Expected end of statement after expression.");
+        self.consume_simple_statement_end(
+            "Expected end of statement after expression.",
+            allow_else_terminator,
+        );
         Some(Statement::Expression {
             expression: expression.expect("checked expression"),
             line: token.line,
@@ -1272,11 +1312,16 @@ impl<'a> FileParser<'a> {
         }
 
         if !self.is_statement_end() {
-            let then_body = vec![self.parse_statement()?];
+            let then_body = vec![self.parse_simple_statement(true)?];
+            let else_body = if self.match_keyword(Keyword::Else) {
+                vec![self.parse_simple_statement(false)?]
+            } else {
+                Vec::new()
+            };
             return Some(Statement::If {
                 condition,
                 then_body,
-                else_body: Vec::new(),
+                else_body,
                 line: token.line,
             });
         }
@@ -2329,6 +2374,19 @@ impl<'a> FileParser<'a> {
             self.report("MFB_PARSE_UNEXPECTED_TOKEN", detail, &token);
             false
         }
+    }
+
+    fn consume_simple_statement_end(&mut self, detail: &str, allow_else_terminator: bool) -> bool {
+        if self.is_statement_end() {
+            self.skip_separators();
+            return true;
+        }
+        if allow_else_terminator && self.check_keyword(Keyword::Else) {
+            return true;
+        }
+        let token = self.peek().clone();
+        self.report("MFB_PARSE_UNEXPECTED_TOKEN", detail, &token);
+        false
     }
 
     fn skip_separators(&mut self) {

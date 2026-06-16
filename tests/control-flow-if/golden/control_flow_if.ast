@@ -4,13 +4,14 @@
   {
     "path": "src/main.mfb",
     "imports": [
+    { "module": "io", "line": 1 }
     ],
     "items": [
     {
       "kind": "func",
       "visibility": "private",
       "name": "ifOnly",
-      "line": 1,
+      "line": 3,
       "params": [
       { "name": "flag", "type": "Boolean", "default": null }
       ],
@@ -19,21 +20,21 @@
       {
         "kind": "if",
         "condition": { "kind": "identifier", "value": "flag" },
-        "line": 2,
+        "line": 4,
         "then": [
-        { "kind": "return", "value": { "kind": "number", "value": "1" }, "line": 3 }
+        { "kind": "return", "value": { "kind": "number", "value": "1" }, "line": 5 }
         ],
         "else": [
         ]
       },
-      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 5 }
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 7 }
       ]
     },
     {
       "kind": "func",
       "visibility": "private",
       "name": "ifElse",
-      "line": 8,
+      "line": 10,
       "params": [
       { "name": "flag", "type": "Boolean", "default": null }
       ],
@@ -42,12 +43,12 @@
       {
         "kind": "if",
         "condition": { "kind": "identifier", "value": "flag" },
-        "line": 9,
+        "line": 11,
         "then": [
-        { "kind": "return", "value": { "kind": "number", "value": "1" }, "line": 10 }
+        { "kind": "return", "value": { "kind": "number", "value": "1" }, "line": 12 }
         ],
         "else": [
-        { "kind": "return", "value": { "kind": "number", "value": "2" }, "line": 12 }
+        { "kind": "return", "value": { "kind": "number", "value": "2" }, "line": 14 }
         ]
       }
       ]
@@ -56,7 +57,7 @@
       "kind": "func",
       "visibility": "private",
       "name": "ifElseIf",
-      "line": 16,
+      "line": 18,
       "params": [
       { "name": "first", "type": "Boolean", "default": null },
       { "name": "second", "type": "Boolean", "default": null }
@@ -66,31 +67,31 @@
       {
         "kind": "if",
         "condition": { "kind": "identifier", "value": "first" },
-        "line": 17,
+        "line": 19,
         "then": [
-        { "kind": "return", "value": { "kind": "number", "value": "1" }, "line": 18 }
+        { "kind": "return", "value": { "kind": "number", "value": "1" }, "line": 20 }
         ],
         "else": [
         {
           "kind": "if",
           "condition": { "kind": "identifier", "value": "second" },
-          "line": 19,
+          "line": 21,
           "then": [
-          { "kind": "return", "value": { "kind": "number", "value": "2" }, "line": 20 }
+          { "kind": "return", "value": { "kind": "number", "value": "2" }, "line": 22 }
           ],
           "else": [
           ]
         }
         ]
       },
-      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 22 }
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 24 }
       ]
     },
     {
       "kind": "func",
       "visibility": "private",
       "name": "ifElseIfElse",
-      "line": 25,
+      "line": 27,
       "params": [
       { "name": "first", "type": "Boolean", "default": null },
       { "name": "second", "type": "Boolean", "default": null }
@@ -100,20 +101,20 @@
       {
         "kind": "if",
         "condition": { "kind": "identifier", "value": "first" },
-        "line": 26,
+        "line": 28,
         "then": [
-        { "kind": "return", "value": { "kind": "number", "value": "1" }, "line": 27 }
+        { "kind": "return", "value": { "kind": "number", "value": "1" }, "line": 29 }
         ],
         "else": [
         {
           "kind": "if",
           "condition": { "kind": "identifier", "value": "second" },
-          "line": 28,
+          "line": 30,
           "then": [
-          { "kind": "return", "value": { "kind": "number", "value": "2" }, "line": 29 }
+          { "kind": "return", "value": { "kind": "number", "value": "2" }, "line": 31 }
           ],
           "else": [
-          { "kind": "return", "value": { "kind": "number", "value": "3" }, "line": 31 }
+          { "kind": "return", "value": { "kind": "number", "value": "3" }, "line": 33 }
           ]
         }
         ]
@@ -123,13 +124,63 @@
     {
       "kind": "func",
       "visibility": "private",
+      "name": "inlineIfElse",
+      "line": 37,
+      "params": [
+      { "name": "flag", "type": "Boolean", "default": null }
+      ],
+      "returnType": "Integer",
+      "body": [
+      {
+        "kind": "if",
+        "condition": { "kind": "identifier", "value": "flag" },
+        "line": 38,
+        "then": [
+        { "kind": "return", "value": { "kind": "number", "value": "4" }, "line": 38 }
+        ],
+        "else": [
+        { "kind": "return", "value": { "kind": "number", "value": "5" }, "line": 38 }
+        ]
+      }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "inlineIfAssign",
+      "line": 41,
+      "params": [
+      { "name": "flag", "type": "Boolean", "default": null }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": true, "name": "result", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 42 },
+      {
+        "kind": "if",
+        "condition": { "kind": "identifier", "value": "flag" },
+        "line": 43,
+        "then": [
+        { "kind": "assignment", "name": "result", "value": { "kind": "number", "value": "6" }, "line": 43 }
+        ],
+        "else": [
+        { "kind": "assignment", "name": "result", "value": { "kind": "number", "value": "7" }, "line": 43 }
+        ]
+      },
+      { "kind": "return", "value": { "kind": "identifier", "value": "result" }, "line": 44 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "private",
       "name": "main",
-      "line": 35,
+      "line": 47,
       "params": [
       ],
       "returnType": "Integer",
       "body": [
-      { "kind": "return", "value": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "call", "callee": "ifOnly", "arguments": [{ "kind": "boolean", "value": false }] }, "right": { "kind": "call", "callee": "ifElse", "arguments": [{ "kind": "boolean", "value": true }] } }, "right": { "kind": "call", "callee": "ifElseIf", "arguments": [{ "kind": "boolean", "value": false }, { "kind": "boolean", "value": true }] } }, "right": { "kind": "call", "callee": "ifElseIfElse", "arguments": [{ "kind": "boolean", "value": false }, { "kind": "boolean", "value": false }] } }, "line": 36 }
+      { "kind": "binding", "mutable": false, "name": "total", "type": "Integer", "value": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "call", "callee": "ifOnly", "arguments": [{ "kind": "boolean", "value": false }] }, "right": { "kind": "call", "callee": "ifElse", "arguments": [{ "kind": "boolean", "value": true }] } }, "right": { "kind": "call", "callee": "ifElseIf", "arguments": [{ "kind": "boolean", "value": false }, { "kind": "boolean", "value": true }] } }, "right": { "kind": "call", "callee": "ifElseIfElse", "arguments": [{ "kind": "boolean", "value": false }, { "kind": "boolean", "value": false }] } }, "right": { "kind": "call", "callee": "inlineIfElse", "arguments": [{ "kind": "boolean", "value": true }] } }, "right": { "kind": "call", "callee": "inlineIfElse", "arguments": [{ "kind": "boolean", "value": false }] } }, "right": { "kind": "call", "callee": "inlineIfAssign", "arguments": [{ "kind": "boolean", "value": true }] } }, "right": { "kind": "call", "callee": "inlineIfAssign", "arguments": [{ "kind": "boolean", "value": false }] } }, "line": 48 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "total" }] }] }, "line": 49 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 50 }
       ]
     }
     ]

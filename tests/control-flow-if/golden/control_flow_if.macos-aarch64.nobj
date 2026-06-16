@@ -24,8 +24,8 @@
   { "name": "__LINKEDIT", "vmAddress": 4295000064, "vmSize": 4096, "fileOffset": 32768, "fileSize": 4096, "maxProtection": "read", "initialProtection": "read" }
   ],
   "sections": [
-  { "segment": "__TEXT", "section": "__text", "kind": "code", "vmAddress": 4294983680, "fileOffset": 16384, "size": 156, "align": 4 },
-  { "segment": "__TEXT", "section": "__cstring", "kind": "cstring", "vmAddress": 4294983840, "fileOffset": 16544, "size": 0, "align": 1 },
+  { "segment": "__TEXT", "section": "__text", "kind": "code", "vmAddress": 4294983680, "fileOffset": 16384, "size": 252, "align": 4 },
+  { "segment": "__TEXT", "section": "__cstring", "kind": "cstring", "vmAddress": 4294983936, "fileOffset": 16640, "size": 0, "align": 1 },
   { "segment": "__LINKEDIT", "section": null, "kind": "linkedit", "vmAddress": 4295000064, "fileOffset": 32768, "size": 4096, "align": 1 }
   ],
   "codeUnits": [
@@ -34,11 +34,14 @@
   { "symbol": "_mfb_fn_ifElse", "section": "__TEXT,__text", "offset": 40, "plannedSize": 24, "operations": ["branchIfFalse local flag -> if_else_0", "return Integer(1)", "branch -> if_end_1", "label if_else_0", "return Integer(2)", "label if_end_1"], "calls": [], "dataRefs": [] },
   { "symbol": "_mfb_fn_ifElseIf", "section": "__TEXT,__text", "offset": 64, "plannedSize": 44, "operations": ["branchIfFalse local first -> if_else_0", "return Integer(1)", "branch -> if_end_1", "label if_else_0", "branchIfFalse local second -> if_else_2", "return Integer(2)", "branch -> if_end_3", "label if_else_2", "label if_end_3", "label if_end_1", "return Integer(0)"], "calls": [], "dataRefs": [] },
   { "symbol": "_mfb_fn_ifElseIfElse", "section": "__TEXT,__text", "offset": 108, "plannedSize": 44, "operations": ["branchIfFalse local first -> if_else_0", "return Integer(1)", "branch -> if_end_1", "label if_else_0", "branchIfFalse local second -> if_else_2", "return Integer(2)", "branch -> if_end_3", "label if_else_2", "return Integer(3)", "label if_end_3", "label if_end_1"], "calls": [], "dataRefs": [] },
-  { "symbol": "_mfb_fn_main", "section": "__TEXT,__text", "offset": 152, "plannedSize": 4, "operations": ["return (((call ifOnly(Boolean(false)) + call ifElse(Boolean(true))) + call ifElseIf(Boolean(false), Boolean(true))) + call ifElseIfElse(Boolean(false), Boolean(false)))"], "calls": ["_mfb_fn_ifOnly", "_mfb_fn_ifElse", "_mfb_fn_ifElseIf", "_mfb_fn_ifElseIfElse"], "dataRefs": [] }
+  { "symbol": "_mfb_fn_inlineIfElse", "section": "__TEXT,__text", "offset": 152, "plannedSize": 24, "operations": ["branchIfFalse local flag -> if_else_0", "return Integer(4)", "branch -> if_end_1", "label if_else_0", "return Integer(5)", "label if_end_1"], "calls": [], "dataRefs": [] },
+  { "symbol": "_mfb_fn_inlineIfAssign", "section": "__TEXT,__text", "offset": 176, "plannedSize": 32, "operations": ["bind mutable result AS Integer = Integer(0)", "branchIfFalse local flag -> if_else_0", "assign result = Integer(6)", "branch -> if_end_1", "label if_else_0", "assign result = Integer(7)", "label if_end_1", "return local result"], "calls": [], "dataRefs": [] },
+  { "symbol": "_mfb_fn_main", "section": "__TEXT,__text", "offset": 208, "plannedSize": 12, "operations": ["bind immutable total AS Integer = (((((((call ifOnly(Boolean(false)) + call ifElse(Boolean(true))) + call ifElseIf(Boolean(false), Boolean(true))) + call ifElseIfElse(Boolean(false), Boolean(false))) + call inlineIfElse(Boolean(true))) + call inlineIfElse(Boolean(false))) + call inlineIfAssign(Boolean(true))) + call inlineIfAssign(Boolean(false)))", "eval runtimeCall io io.print(call toString(local total))", "return Integer(0)"], "calls": ["_mfb_fn_ifOnly", "_mfb_fn_ifElse", "_mfb_fn_ifElseIf", "_mfb_fn_ifElseIfElse", "_mfb_fn_inlineIfElse", "_mfb_fn_inlineIfAssign", "_mfb_rt_io_io_print"], "dataRefs": [] },
+  { "symbol": "_mfb_rt_io_io_print", "section": "__TEXT,__text", "offset": 220, "plannedSize": 32, "operations": ["execute runtime helper"], "calls": ["_write"], "dataRefs": [] }
   ],
   "dataUnits": [
   ],
-  "definedSymbols": ["_main", "_mfb_fn_ifOnly", "_mfb_fn_ifElse", "_mfb_fn_ifElseIf", "_mfb_fn_ifElseIfElse", "_mfb_fn_main"],
+  "definedSymbols": ["_main", "_mfb_fn_ifOnly", "_mfb_fn_ifElse", "_mfb_fn_ifElseIf", "_mfb_fn_ifElseIfElse", "_mfb_fn_inlineIfElse", "_mfb_fn_inlineIfAssign", "_mfb_fn_main", "_mfb_rt_io_io_print"],
   "importedSymbols": [
   { "library": "libSystem", "symbol": "_exit" },
   { "library": "libSystem", "symbol": "_write" }
@@ -50,21 +53,27 @@
   { "name": "_mfb_fn_ifElse", "kind": "defined", "section": "__TEXT,__text", "value": 40, "stringTableOffset": 22 },
   { "name": "_mfb_fn_ifElseIf", "kind": "defined", "section": "__TEXT,__text", "value": 64, "stringTableOffset": 37 },
   { "name": "_mfb_fn_ifElseIfElse", "kind": "defined", "section": "__TEXT,__text", "value": 108, "stringTableOffset": 54 },
-  { "name": "_mfb_fn_main", "kind": "defined", "section": "__TEXT,__text", "value": 152, "stringTableOffset": 75 },
-  { "name": "_exit", "kind": "imported", "section": null, "value": null, "stringTableOffset": 88 },
-  { "name": "_write", "kind": "imported", "section": null, "value": null, "stringTableOffset": 94 }
+  { "name": "_mfb_fn_inlineIfElse", "kind": "defined", "section": "__TEXT,__text", "value": 152, "stringTableOffset": 75 },
+  { "name": "_mfb_fn_inlineIfAssign", "kind": "defined", "section": "__TEXT,__text", "value": 176, "stringTableOffset": 96 },
+  { "name": "_mfb_fn_main", "kind": "defined", "section": "__TEXT,__text", "value": 208, "stringTableOffset": 119 },
+  { "name": "_mfb_rt_io_io_print", "kind": "defined", "section": "__TEXT,__text", "value": 220, "stringTableOffset": 132 },
+  { "name": "_exit", "kind": "imported", "section": null, "value": null, "stringTableOffset": 152 },
+  { "name": "_write", "kind": "imported", "section": null, "value": null, "stringTableOffset": 158 }
   ],
   "stringTable": {
-    "size": 101,
+    "size": 165,
     "entries": [
     { "value": "_main", "offset": 1 },
     { "value": "_mfb_fn_ifOnly", "offset": 7 },
     { "value": "_mfb_fn_ifElse", "offset": 22 },
     { "value": "_mfb_fn_ifElseIf", "offset": 37 },
     { "value": "_mfb_fn_ifElseIfElse", "offset": 54 },
-    { "value": "_mfb_fn_main", "offset": 75 },
-    { "value": "_exit", "offset": 88 },
-    { "value": "_write", "offset": 94 }
+    { "value": "_mfb_fn_inlineIfElse", "offset": 75 },
+    { "value": "_mfb_fn_inlineIfAssign", "offset": 96 },
+    { "value": "_mfb_fn_main", "offset": 119 },
+    { "value": "_mfb_rt_io_io_print", "offset": 132 },
+    { "value": "_exit", "offset": 152 },
+    { "value": "_write", "offset": 158 }
     ]
   },
   "relocations": [
@@ -73,7 +82,11 @@
   { "from": "_mfb_fn_main", "to": "_mfb_fn_ifElse", "kind": "internalCall", "section": "__TEXT,__text" },
   { "from": "_mfb_fn_main", "to": "_mfb_fn_ifElseIf", "kind": "internalCall", "section": "__TEXT,__text" },
   { "from": "_mfb_fn_main", "to": "_mfb_fn_ifElseIfElse", "kind": "internalCall", "section": "__TEXT,__text" },
+  { "from": "_mfb_fn_main", "to": "_mfb_fn_inlineIfElse", "kind": "internalCall", "section": "__TEXT,__text" },
+  { "from": "_mfb_fn_main", "to": "_mfb_fn_inlineIfAssign", "kind": "internalCall", "section": "__TEXT,__text" },
+  { "from": "_mfb_fn_main", "to": "_mfb_rt_io_io_print", "kind": "internalCall", "section": "__TEXT,__text" },
   { "from": "_main", "to": "_exit", "kind": "externalCall", "section": "__TEXT,__text" },
-  { "from": "_main", "to": "_write", "kind": "externalCall", "section": "__TEXT,__text" }
+  { "from": "_main", "to": "_write", "kind": "externalCall", "section": "__TEXT,__text" },
+  { "from": "_mfb_rt_io_io_print", "to": "_write", "kind": "externalCall", "section": "__TEXT,__text" }
   ]
 }
