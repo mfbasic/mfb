@@ -1,6 +1,6 @@
 # MFBASIC Compiler Architecture
 
-Last updated: 2026-06-12 22:22:47 HST
+Last updated: 2026-06-16 HST
 
 This document describes how the current compiler implementation moves an
 MFBASIC project from source files to either a native executable or a compiled
@@ -161,8 +161,12 @@ The resolver has two jobs:
    expressions.
 
 The resolver knows built-in type names such as `Boolean`, `Byte`, `Error`,
-`Fixed`, `Float`, `Integer`, `Nothing`, `Result`, `String`, `TerminalSize`,
-and `FileHandle`.
+`Fixed`, `Float`, `Integer`, `Json`, `Nothing`, `Result`, `String`,
+`TerminalSize`, and `FileHandle`.
+
+Before resolving, the resolver calls `builtins::json::augmented_project` to
+expand `Json`-typed declarations into the augmented AST used for the rest of
+resolution.
 
 It also reads declared package dependencies from the manifest and uses those to
 validate imported package roots. For source imports, it detects duplicate
@@ -258,11 +262,12 @@ The type model includes primitive and compound forms:
 - `Integer`
 - `List<T>`
 - `Map<K, V>`
-- function values
+- function values (with parameter types, return type, and isolated flag)
 - `Nothing`
 - `Result<T>`
 - `String`
 - `Thread<T, E>`
+- `ThreadWorker<T, E>`
 - user-defined types
 
 Type checking is the last front-end validation pass before lowering to IR.
@@ -342,22 +347,32 @@ The main IR operation forms are:
 - `Eval`
 - `If`
 - `Match`
+- `While`
 - `ForEach`
 - `Using`
+- `Trap`
 
 The main IR value forms are:
 
-- constants
-- local references
-- function references
-- calls
-- constructors
-- record updates
-- list literals
-- map literals
-- member access
-- binary expressions
-- unary expressions
+- `Const` — typed literal constants
+- `Local` — local variable references
+- `FunctionRef` — references to named functions
+- `Closure` — closure values with a name, type, and captured variable list
+- `Capture` — reference to a captured variable by index inside a closure body
+- `Call` — calls to functions that return a plain value
+- `CallResult` — calls to functions that return `Result<T>`
+- `Constructor` — record/struct constructors
+- `UnionWrap` — wrapping a value as a specific union member
+- `UnionExtract` — extracting the inner value from a union member
+- `ResultIsOk` — testing whether a `Result` value is the success case
+- `ResultValue` — extracting the success value from a `Result`
+- `ResultError` — extracting the error value from a `Result`
+- `WithUpdate` — record update expressions
+- `ListLiteral` — list literal values
+- `MapLiteral` — map literal values
+- `MemberAccess` — member field access
+- `Binary` — binary operator expressions
+- `Unary` — unary operator expressions
 
 `mfb build -ir` serializes this representation to `<project>.ir`.
 
@@ -433,6 +448,10 @@ The current package writer emits an unsigned MFP container:
 - signature length: zero
 - pre-release flag set when the version contains `-`
 
+*NOTE: `package_format.md` specifies a `signatureType` field that allows
+signed containers. The current writer always emits `signatureType = 0` and
+`signatureLength = 0`.*
+
 The package payload must start with `MFBC`. Metadata string lengths are checked
 before writing.
 
@@ -496,10 +515,31 @@ which helper families are needed:
 - `strings`
 - `thread`
 
-The current native backend capability set is much narrower than the source and
-bytecode built-in surface. The reviewed backend capabilities currently list
-only `io.print` as a supported native runtime call. `validate_capabilities`
-rejects native builds that require unsupported runtime calls.
+`validate_capabilities` rejects native builds that require runtime calls not
+listed in the backend capability set. Both `macos-aarch64` and
+`linux-aarch64` currently declare the same set of supported native runtime
+calls:
+
+- All `io.*` calls: `io.print`, `io.write`, `io.flush`, `io.printError`,
+  `io.writeError`, `io.flushError`, `io.input`, `io.readLine`, `io.readChar`,
+  `io.readByte`, `io.pollInput`, `io.isInputTerminal`, `io.isOutputTerminal`,
+  `io.isErrorTerminal`, `io.terminalSize`
+- Most `fs.*` calls: `fs.open`, `fs.openFile`, `fs.openFileNoFollow`,
+  `fs.createTempFile`, `fs.close`, `fs.readLine`, `fs.readAll`,
+  `fs.readAllBytes`, `fs.writeAll`, `fs.writeAllBytes`, `fs.readText`,
+  `fs.readBytes`, `fs.writeText`, `fs.writeTextAtomic`, `fs.writeBytes`,
+  `fs.writeBytesAtomic`, `fs.appendText`, `fs.appendBytes`, `fs.eof`,
+  `fs.fileExists`, `fs.directoryExists`, `fs.exists`, `fs.canonicalPath`,
+  `fs.isWithin`, `fs.deleteFile`, `fs.createDirectory`,
+  `fs.createDirectories`, `fs.deleteDirectory`, `fs.listDirectory`,
+  `fs.currentDirectory`, `fs.tempDirectory`, `fs.setCurrentDirectory`
+- All `thread.*` calls: `thread.start`, `thread.isRunning`, `thread.waitFor`,
+  `thread.cancel`, `thread.send`, `thread.poll`, `thread.receive`,
+  `thread.isCancelled`
+
+`math` and `strings` operations are not listed as runtime helper calls because
+they are code-generated inline rather than dispatched through external runtime
+helpers.
 
 ### 12.3 Native Validation
 
@@ -643,12 +683,19 @@ macOS output:
 - Supports imports from `libSystem`.
 - Emits import stubs when platform imports are present.
 - Adds an ad hoc code signature.
+- Writes a single `<project>.out`.
 
 Linux output:
 
-- Encodes a minimal ELF executable.
-- Expects syscall-only runtime behavior and rejects external imports.
-- Writes a loadable image with text followed by data.
+- Emits two output files, one per flavor: `<project>-glibc.out` and
+  `<project>-musl.out`.
+- When external imports are present, encodes a dynamic ELF executable with
+  import stubs and a PLT/GOT; when there are no imports, encodes a static ELF.
+- The glibc flavor links against `libc.so.6`, `libm.so.6`, and
+  `libpthread.so.0`. The musl flavor links against `libc.musl-aarch64.so.1`
+  (which bundles pthread).
+- `LinuxFlavor` (`src/os/linux/flavor.rs`) selects interpreter path and
+  `DT_NEEDED` entries per flavor.
 
 ## 13. Source-To-Executable End-To-End Flow
 
@@ -678,13 +725,17 @@ For an executable project, `mfb build` performs this sequence:
 22. Encode AArch64 text, data, symbols, relocations, and imports.
 23. Link/write the OS executable container.
 24. Mark the output executable.
-25. Print the output path.
+25. Print the output path(s).
 
 The default output file is:
 
 ```text
-<project>/<project-name>.out
+<project>/<project-name>.out          (macOS)
+<project>/<project-name>-glibc.out    (Linux)
+<project>/<project-name>-musl.out     (Linux)
 ```
+
+Linux builds always emit both flavor outputs in a single `mfb build` run.
 
 ## 14. Source-To-Package End-To-End Flow
 
@@ -728,7 +779,9 @@ bytecode inspection.
 | `<name>.nplan` | `mfb build -nplan` | `src/target/shared/plan.rs` | Native function/storage/call plan. |
 | `<name>.nobj` | `mfb build -nobj` | `src/os/*/object.rs` | OS object/container layout plan. |
 | `<name>.ncode` | `mfb build -ncode` | `src/target/shared/code.rs` | AArch64 code-generation plan. |
-| `<name>.out` | `mfb build` executable | `src/os/*/link.rs` | Native executable. |
+| `<name>.out` | `mfb build` executable (macOS) | `src/os/macos/link.rs` | Native executable (Mach-O). |
+| `<name>-glibc.out` | `mfb build` executable (Linux) | `src/os/linux/link.rs` | Native executable (ELF, glibc). |
+| `<name>-musl.out` | `mfb build` executable (Linux) | `src/os/linux/link.rs` | Native executable (ELF, musl). |
 | `<name>.mfp` | `mfb build` package | `src/target/package_mfp` | Compiled MFB package. |
 
 ## 16. Module Map
@@ -743,19 +796,31 @@ bytecode inspection.
 | `src/typecheck.rs` | Type system, expression checking, flow validation. |
 | `src/ir.rs` | Shared compiler IR and AST-to-IR lowering. |
 | `src/bytecode.rs` | MFBC bytecode lowering, encoding, decoding, package ABI inspection. |
-| `src/builtins/*` | Built-in package signatures and validation helpers. |
+| `src/builtins/mod.rs` | Built-in package dispatch and parameter name tables. |
+| `src/builtins/fs.rs` | Filesystem built-in signatures and validation. |
+| `src/builtins/general.rs` | General and collection built-in signatures. |
+| `src/builtins/io.rs` | IO built-in signatures and validation. |
+| `src/builtins/json.rs` | JSON built-in type and call signatures. |
+| `src/builtins/math.rs` | Math built-in signatures and constants. |
+| `src/builtins/strings.rs` | String built-in signatures. |
+| `src/builtins/thread.rs` | Thread built-in type and call signatures. |
+| `src/unicode_backend.rs` | Unicode normalization and grapheme code generation. |
+| `src/unicode_runtime_tables.rs` | Compile-time Unicode lookup tables embedded in generated code. |
 | `src/target.rs` | Target parsing, backend registry, backend dispatch. |
+| `src/target/shared/lower.rs` | Shared IR-to-NIR lowering pass. |
 | `src/target/shared/nir.rs` | Native IR and import/runtime-call lowering. |
 | `src/target/shared/runtime.rs` | Runtime helper discovery and helper ABI metadata. |
 | `src/target/shared/validate.rs` | Native target, NIR, capability, and plan validation. |
 | `src/target/shared/plan.rs` | Shared native plan lowering. |
-| `src/target/shared/code.rs` | Shared native code-plan lowering. |
+| `src/target/shared/code/` | Shared native code-plan lowering (directory module with builder submodules). |
 | `src/target/macos_aarch64/*` | macOS aarch64 backend wrappers and platform behavior. |
 | `src/target/linux_aarch64/*` | Linux aarch64 backend wrappers and platform behavior. |
 | `src/target/package_mfp` | MFP package container writer. |
 | `src/arch/aarch64/*` | AArch64 ABI, operations, and binary instruction encoding. |
 | `src/os/macos/*` | Mach-O object planning and executable writing. |
-| `src/os/linux/*` | ELF object planning and executable writing. |
+| `src/os/linux/flavor.rs` | Linux flavor enumeration (glibc/musl) and suffix/interpreter selection. |
+| `src/os/linux/link.rs` | ELF object planning and executable writing. |
+| `src/os/linux/object.rs` | ELF container layout planning. |
 | `src/man/*` | Built-in package/function help text. |
 | `src/rules.rs` | Diagnostic display support. |
 | `src/numeric.rs` | Numeric parsing and representation helpers. |
@@ -766,18 +831,21 @@ The following boundaries are important when extending the compiler:
 
 - Native executable support is target-limited to `macos-aarch64` and
   `linux-aarch64`.
-- Native runtime-call support is much smaller than the language and bytecode
-  built-in surface. The reviewed backend capability declarations currently
-  support `io.print` only.
+- Native runtime-call support covers `io.*`, `fs.*`, and `thread.*` built-ins.
+  `math` and `strings` operations are code-generated inline and do not go
+  through the runtime-helper capability gate. `json` built-ins have no native
+  backend support and are bytecode-only.
 - `target/shared/validate.rs::validate_project` is currently a no-op, so target
   project-level checks must be implemented elsewhere or added there.
 - Manifest source `include` and `exclude` patterns are not currently enforced
   by source discovery.
-- Package signing is specified in `package_format.md`, but the current package
-  writer emits unsigned containers.
+- *NOTE: `package_format.md` specifies that packages may carry a cryptographic
+  signature. The current package writer always emits unsigned containers with
+  `signatureType = 0` and `signatureLength = 0`.*
 - `mfb pkg add` currently supports only absolute `file://` package URLs.
-- Linux executable writing rejects external imports and expects syscall-only
-  runtime behavior.
+- Linux builds emit two output files per build (`-glibc.out` and `-musl.out`).
+  The glibc flavor links `libpthread.so.0` separately; musl bundles pthread in
+  `libc.musl-aarch64.so.1`.
 - macOS executable writing supports `libSystem` imports only.
 
 These boundaries should be treated as implementation facts, not necessarily
