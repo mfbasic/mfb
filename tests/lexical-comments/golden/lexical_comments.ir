@@ -1,0 +1,30 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "lexical_comments",
+  "entry": {
+    "name": "main",
+    "returns": "Nothing",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "visibility": "private",
+    "kind": "sub",
+    "params": [
+    ],
+    "returns": "Nothing",
+    "body": [
+    { "op": "bind", "mutable": false, "name": "remembered", "type": "String", "value": { "kind": "const", "type": "String", "value": "ordinary rem identifier" } },
+    { "op": "bind", "mutable": false, "name": "premium", "type": "String", "value": { "kind": "local", "name": "remembered" } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "local", "name": "premium" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "rem comment after colon" }] } },
+    { "op": "bind", "mutable": false, "name": "value", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "1" } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "local", "name": "value" }] }] } }
+    ]
+  }
+  ]
+}

@@ -340,12 +340,7 @@ impl Lexer<'_> {
             self.advance();
         }
 
-        if value.eq_ignore_ascii_case("REM")
-            && self
-                .tokens
-                .last()
-                .is_none_or(|token| matches!(token.kind, TokenKind::Newline))
-        {
+        if value.eq_ignore_ascii_case("REM") && self.is_statement_start() {
             self.skip_line_comment();
             return;
         }
@@ -389,6 +384,12 @@ impl Lexer<'_> {
         while !self.is_at_end() && self.peek() != '\n' {
             self.advance();
         }
+    }
+
+    fn is_statement_start(&self) -> bool {
+        self.tokens
+            .last()
+            .is_none_or(|token| matches!(token.kind, TokenKind::Newline | TokenKind::Colon))
     }
 
     fn push_and_advance(&mut self, kind: TokenKind) {
@@ -578,6 +579,72 @@ mod tests {
                 &TokenKind::LParen,
                 &TokenKind::Identifier("_".to_string()),
                 &TokenKind::RParen,
+                &TokenKind::Newline,
+                &TokenKind::Eof,
+            ]
+        );
+    }
+
+    #[test]
+    fn apostrophe_comments_skip_to_newline() {
+        let tokens = lex(Path::new("main.mfb"), "' ignored\nLET value = 1\n").expect("lex source");
+
+        assert_eq!(
+            tokens.iter().map(|token| &token.kind).collect::<Vec<_>>(),
+            vec![
+                &TokenKind::Newline,
+                &TokenKind::Keyword(Keyword::Let),
+                &TokenKind::Identifier("value".to_string()),
+                &TokenKind::Equal,
+                &TokenKind::Number("1".to_string()),
+                &TokenKind::Newline,
+                &TokenKind::Eof,
+            ]
+        );
+    }
+
+    #[test]
+    fn rem_comments_skip_to_newline_at_statement_start() {
+        let tokens = lex(
+            Path::new("main.mfb"),
+            "rEm ignored\nLET value = 1 : REM also ignored\nLET other = 2\n",
+        )
+        .expect("lex source");
+
+        assert_eq!(
+            tokens.iter().map(|token| &token.kind).collect::<Vec<_>>(),
+            vec![
+                &TokenKind::Newline,
+                &TokenKind::Keyword(Keyword::Let),
+                &TokenKind::Identifier("value".to_string()),
+                &TokenKind::Equal,
+                &TokenKind::Number("1".to_string()),
+                &TokenKind::Colon,
+                &TokenKind::Newline,
+                &TokenKind::Keyword(Keyword::Let),
+                &TokenKind::Identifier("other".to_string()),
+                &TokenKind::Equal,
+                &TokenKind::Number("2".to_string()),
+                &TokenKind::Newline,
+                &TokenKind::Eof,
+            ]
+        );
+    }
+
+    #[test]
+    fn identifiers_containing_rem_remain_identifiers() {
+        let tokens =
+            lex(Path::new("main.mfb"), "LET premium = remember + REMvalue\n").expect("lex source");
+
+        assert_eq!(
+            tokens.iter().map(|token| &token.kind).collect::<Vec<_>>(),
+            vec![
+                &TokenKind::Keyword(Keyword::Let),
+                &TokenKind::Identifier("premium".to_string()),
+                &TokenKind::Equal,
+                &TokenKind::Identifier("remember".to_string()),
+                &TokenKind::Plus,
+                &TokenKind::Identifier("REMvalue".to_string()),
                 &TokenKind::Newline,
                 &TokenKind::Eof,
             ]

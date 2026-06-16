@@ -1,0 +1,30 @@
+{
+  "project": "lexical_comments",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 }
+    ],
+    "items": [
+    {
+      "kind": "sub",
+      "visibility": "private",
+      "name": "main",
+      "line": 6,
+      "params": [
+      ],
+      "returnType": null,
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "remembered", "type": "String", "value": { "kind": "string", "value": "ordinary rem identifier" }, "line": 8 },
+      { "kind": "binding", "mutable": false, "name": "premium", "type": "String", "value": { "kind": "identifier", "value": "remembered" }, "line": 9 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "identifier", "value": "premium" }] }, "line": 10 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "rem comment after colon" }] }, "line": 11 },
+      { "kind": "binding", "mutable": false, "name": "value", "type": "Integer", "value": { "kind": "number", "value": "1" }, "line": 12 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "value" }] }] }, "line": 13 }
+      ]
+    }
+    ]
+  }
+  ]
+}

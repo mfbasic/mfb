@@ -182,7 +182,7 @@ SPECIFICATION: specifications/project.md @ §4 Identity And Informational Fields
 The project spec allows `author` to be either a string or an object, but `validate_project_manifest` only accepts a string and rejects an object form. Resolve by accepting the documented object shape, validating its supported fields, and defining how it is normalized or copied into package metadata/header fields.
 
 
-REQUIREMENT: `REM` line comments
+[FIXED] REQUIREMENT: `REM` line comments
 SPECIFICATION: specifications/mfbasic.md @ §2 Lexical Structure
 The lexer implements apostrophe comments but treats `REM` as an identifier because `Keyword` has no `Rem` token and `lex_identifier_or_keyword` does not skip the rest of the line. Source using `REM` comments will be parsed as code. Resolve by recognizing `REM` case-insensitively as a line-comment introducer in the lexer, with tests proving apostrophe comments, `REM` comments, and ordinary identifiers containing `rem` still behave correctly.
 
