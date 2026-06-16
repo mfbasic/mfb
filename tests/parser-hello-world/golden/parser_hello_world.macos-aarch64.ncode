@@ -33,7 +33,7 @@
     ],
     "instructions": [
     { "op": "label", "name": "entry" },
-    { "op": "sub_sp", "imm": "64" },
+    { "op": "sub_sp", "imm": "112" },
     { "op": "add_imm", "dst": "x19", "src": "sp", "imm": "0" },
     { "op": "str_u64", "src": "x31", "base": "x19", "offset": "0" },
     { "op": "str_u64", "src": "x31", "base": "x19", "offset": "8" },

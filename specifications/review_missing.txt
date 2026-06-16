@@ -110,7 +110,7 @@ The grammar allows `DO` blocks ending in `LOOP` with optional `UNTIL expr`, but 
 SPECIFICATION: specifications/mfbasic.md @ §18 Built-in Functions and §20.1 Package Layering Example
 `mfbasic.md` lists and demonstrates `math::piFloat` and `math::eFloat`, but the compiler exports `math::pi` and `math::e` and rejects the `*Float` names. Resolve by updating `mfbasic.md` to match `standard_package.md` and the current compiler names.
 
-REQUIREMENT: Executable entry runtime contract
+[FIXED] REQUIREMENT: Executable entry runtime contract
 SPECIFICATION: specifications/mfbasic.md @ §8.7 Program entry point
 The compiler validates a single entry shape, but the native entry wrapper does not implement the full runtime contract: `accepts_args` is carried into IR/NIR/bytecode but `_main` calls the language entry without constructing or passing the `List OF String` argument vector; multiple matching entry declarations are not rejected because validation returns after the first match; and `FUNC ... AS Integer` success values are passed directly to `_exit` without rejecting/failing values outside the host exit-code range. Resolve by detecting duplicate entry declarations during entry validation, materializing `argv` into an owned `List OF String` for entries that accept args, passing it to the language entry, and validating integer exit codes before calling the platform exit routine.
 

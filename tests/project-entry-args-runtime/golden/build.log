@@ -1,0 +1,13 @@
+$ mfb build -ast tests/project-entry-args-runtime
+Wrote AST to tests/project-entry-args-runtime/project_entry_args_runtime.ast
+[exit 0]
+$ mfb build -ir tests/project-entry-args-runtime
+Wrote IR to tests/project-entry-args-runtime/project_entry_args_runtime.ir
+[exit 0]
+$ mfb build tests/project-entry-args-runtime
+Wrote executable to tests/project-entry-args-runtime/project_entry_args_runtime.out
+[exit 0]
+$ tests/project-entry-args-runtime/project_entry_args_runtime.out
+1
+tests/project-entry-args-runtime/project_entry_args_runtime.out
+[exit 0]

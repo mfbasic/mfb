@@ -1063,6 +1063,7 @@ fn validate_entry_point(
     }
 
     let entry = entry_point(manifest);
+    let mut matches = Vec::new();
 
     for file in &ast.files {
         for item in &file.items {
@@ -1134,12 +1135,37 @@ fn validate_entry_point(
                 return Err(());
             }
 
-            return Ok(Some(ir::EntryPoint {
-                name: entry.to_string(),
-                returns: returns.to_string(),
+            matches.push((
+                file.path.clone(),
+                function.line,
+                entry.to_string(),
+                returns.to_string(),
                 accepts_args,
-            }));
+            ));
         }
+    }
+
+    if matches.len() > 1 {
+        let (path, line, _, _, _) = &matches[1];
+        rules::show_diagnostic(
+            "PROJECT_ENTRY_INVALID",
+            &format!(
+                "Executable project must declare exactly one entry point named `{entry}`; found multiple matching declarations."
+            ),
+            &project_dir.join(path),
+            *line,
+            1,
+            1,
+        );
+        return Err(());
+    }
+
+    if let Some((_, _, name, returns, accepts_args)) = matches.pop() {
+        return Ok(Some(ir::EntryPoint {
+            name,
+            returns,
+            accepts_args,
+        }));
     }
 
     rules::show_diagnostic(
@@ -2430,6 +2456,35 @@ mod tests {
                 status: PackageVerifyStatus::Ok,
             }
         );
+
+        fs::remove_dir_all(root).expect("remove temp dir");
+    }
+
+    #[test]
+    fn validate_entry_point_rejects_multiple_matching_declarations() {
+        let root = test_temp_dir("validate_entry_point_rejects_multiple_matching_declarations");
+        let project_dir = root.join("app");
+        let src_dir = project_dir.join("src");
+        fs::create_dir_all(&src_dir).expect("src dir");
+        fs::write(
+            project_dir.join("project.json"),
+            project_manifest(&project_dir),
+        )
+        .expect("project manifest");
+        fs::write(src_dir.join("main_a.mfb"), "SUB main()\nEND SUB\n").expect("main_a");
+        fs::write(
+            src_dir.join("main_b.mfb"),
+            "FUNC main(args AS List OF String) AS Integer\n  RETURN 0\nEND FUNC\n",
+        )
+        .expect("main_b");
+
+        let manifest_contents =
+            fs::read_to_string(project_dir.join("project.json")).expect("manifest contents");
+        let manifest = parse_project_json(&manifest_contents, &project_dir.join("project.json"))
+            .expect("manifest");
+        let ast = ast::parse_project("app", &project_dir, &manifest).expect("ast");
+
+        assert!(validate_entry_point(&project_dir, &manifest, &ast).is_err());
 
         fs::remove_dir_all(root).expect("remove temp dir");
     }

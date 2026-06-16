@@ -10,4 +10,5 @@ Wrote executable to tests/types-union/types_union.out
 $ tests/types-union/types_union.out
 Shape
 ExtraShape
-[exit 133]
+Code: 77050010 Message: numeric overflow
+[exit 255]

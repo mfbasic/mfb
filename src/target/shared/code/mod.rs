@@ -70,7 +70,13 @@ const CLOSURE_ENV_REGISTER: &str = "x28";
 const CLOSURE_OBJECT_SIZE: usize = 16;
 const CLOSURE_OFFSET_CODE: usize = 0;
 const CLOSURE_OFFSET_ENV: usize = 8;
+const ENTRY_STACK_SIZE: usize = 112;
 const ARENA_STATE_SIZE: usize = 64;
+const ENTRY_ARGC_OFFSET: usize = ARENA_STATE_SIZE;
+const ENTRY_ARGV_OFFSET: usize = ENTRY_ARGC_OFFSET + 8;
+const ENTRY_ARGS_LIST_OFFSET: usize = ENTRY_ARGV_OFFSET + 8;
+const ENTRY_ARGS_DATA_LENGTH_OFFSET: usize = ENTRY_ARGS_LIST_OFFSET + 8;
+const ENTRY_ARGS_COUNT_SAVED_OFFSET: usize = ENTRY_ARGS_DATA_LENGTH_OFFSET + 8;
 const ARENA_DEFAULT_BLOCK_SIZE: u64 = 4096;
 const ARENA_BLOCK_HEADER_SIZE: usize = 32;
 const ERR_INVALID_ARGUMENT_CODE: &str = "77050002";
@@ -600,6 +606,7 @@ pub(crate) fn lower_module_for_platform(
         code_functions.push(lower_program_entry(
             &entry_symbol,
             &entry.returns,
+            entry.accepts_args,
             &platform_imports,
             platform,
             skip_entry_arena_destroy,
@@ -975,29 +982,43 @@ fn expanded_nir_union_variants<'a>(
 fn lower_program_entry(
     language_entry_symbol: &str,
     language_entry_returns: &str,
+    language_entry_accepts_args: bool,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
     skip_arena_destroy: bool,
 ) -> Result<CodeFunction, String> {
     let mut instructions = vec![
         abi::label("entry"),
-        abi::subtract_stack(ARENA_STATE_SIZE),
+        abi::subtract_stack(ENTRY_STACK_SIZE),
         abi::add_immediate(ARENA_STATE_REGISTER, abi::stack_pointer(), 0),
         abi::store_u64("x31", ARENA_STATE_REGISTER, 0),
         abi::store_u64("x31", ARENA_STATE_REGISTER, 8),
         abi::store_u64("x31", ARENA_STATE_REGISTER, 16),
         abi::store_u64("x31", ARENA_STATE_REGISTER, 24),
-        abi::branch_link(language_entry_symbol),
     ];
-    let mut relocations = vec![CodeRelocation {
+    let mut relocations = Vec::new();
+    let error_label = "entry_error";
+    let exit_label = "entry_exit";
+    if language_entry_accepts_args {
+        instructions.extend([
+            abi::store_u64("x0", abi::stack_pointer(), ENTRY_ARGC_OFFSET),
+            abi::store_u64("x1", abi::stack_pointer(), ENTRY_ARGV_OFFSET),
+        ]);
+        emit_entry_args_list_materialization(
+            error_label,
+            &mut instructions,
+            &mut relocations,
+        );
+        instructions.push(abi::load_u64("x0", abi::stack_pointer(), ENTRY_ARGS_LIST_OFFSET));
+    }
+    instructions.push(abi::branch_link(language_entry_symbol));
+    relocations.push(CodeRelocation {
         from: "_main".to_string(),
         to: language_entry_symbol.to_string(),
         kind: "branch26".to_string(),
         binding: "internal".to_string(),
         library: None,
-    }];
-    let error_label = "entry_error";
-    let exit_label = "entry_exit";
+    });
     instructions.extend([
         abi::compare_immediate(RESULT_TAG_REGISTER, RESULT_OK_TAG),
         abi::branch_ne(error_label),
@@ -1009,8 +1030,26 @@ fn lower_program_entry(
             abi::return_register(),
             RESULT_VALUE_REGISTER,
         ));
+        instructions.extend([
+            abi::compare_immediate(abi::return_register(), "255"),
+            abi::branch_hi("entry_exit_range_error"),
+        ]);
     }
     instructions.push(abi::branch(exit_label));
+    if language_entry_returns == "Integer" {
+        instructions.extend([
+            abi::label("entry_exit_range_error"),
+            abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_OVERFLOW_CODE),
+            abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
+        ]);
+        push_error_message_address(
+            "_main",
+            ERR_OVERFLOW_SYMBOL,
+            &mut instructions,
+            &mut relocations,
+        );
+        instructions.push(abi::branch(error_label));
+    }
     instructions.extend([
         abi::label(error_label),
         abi::store_u64(RESULT_VALUE_REGISTER, ARENA_STATE_REGISTER, 32),
@@ -1096,6 +1135,123 @@ fn lower_program_entry(
         instructions,
         relocations,
     })
+}
+
+fn emit_entry_args_list_materialization(
+    error_label: &str,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+) {
+    instructions.extend([
+        abi::load_u64("x20", abi::stack_pointer(), ENTRY_ARGC_OFFSET),
+        abi::load_u64("x21", abi::stack_pointer(), ENTRY_ARGV_OFFSET),
+        abi::move_immediate("x22", "Integer", "0"),
+        abi::move_immediate("x23", "Integer", "0"),
+        abi::label("entry_args_count_loop"),
+        abi::compare_registers("x23", "x20"),
+        abi::branch_eq("entry_args_count_done"),
+        abi::load_u64("x24", "x21", 0),
+        abi::move_register("x25", "x24"),
+        abi::move_immediate("x26", "Integer", "0"),
+        abi::label("entry_args_count_len_loop"),
+        abi::load_u8("x27", "x25", 0),
+        abi::compare_immediate("x27", "0"),
+        abi::branch_eq("entry_args_count_len_done"),
+        abi::add_immediate("x26", "x26", 1),
+        abi::add_immediate("x25", "x25", 1),
+        abi::branch("entry_args_count_len_loop"),
+        abi::label("entry_args_count_len_done"),
+        abi::add_registers("x22", "x22", "x26"),
+        abi::add_immediate("x21", "x21", 8),
+        abi::add_immediate("x23", "x23", 1),
+        abi::branch("entry_args_count_loop"),
+        abi::label("entry_args_count_done"),
+        abi::move_immediate("x24", "Integer", &COLLECTION_ENTRY_SIZE.to_string()),
+        abi::multiply_registers("x25", "x20", "x24"),
+        abi::add_registers("x25", "x25", "x22"),
+        abi::store_u64("x22", abi::stack_pointer(), ENTRY_ARGS_DATA_LENGTH_OFFSET),
+        abi::store_u64("x20", abi::stack_pointer(), ENTRY_ARGS_COUNT_SAVED_OFFSET),
+        abi::add_immediate(abi::return_register(), "x25", COLLECTION_HEADER_SIZE),
+        abi::move_immediate("x1", "Integer", "8"),
+        abi::branch_link(ARENA_ALLOC_SYMBOL),
+    ]);
+    relocations.push(CodeRelocation {
+        from: "_main".to_string(),
+        to: ARENA_ALLOC_SYMBOL.to_string(),
+        kind: "branch26".to_string(),
+        binding: "internal".to_string(),
+        library: None,
+    });
+    instructions.extend([
+        abi::compare_immediate(abi::return_register(), RESULT_OK_TAG),
+        abi::branch_eq("entry_args_alloc_ok"),
+        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_OUT_OF_MEMORY_CODE),
+        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
+    ]);
+    push_error_message_address("_main", ERR_ALLOCATION_SYMBOL, instructions, relocations);
+    instructions.extend([
+        abi::branch(error_label),
+        abi::label("entry_args_alloc_ok"),
+        abi::store_u64("x1", abi::stack_pointer(), ENTRY_ARGS_LIST_OFFSET),
+        abi::load_u64("x22", abi::stack_pointer(), ENTRY_ARGS_DATA_LENGTH_OFFSET),
+        abi::load_u64("x20", abi::stack_pointer(), ENTRY_ARGS_COUNT_SAVED_OFFSET),
+        abi::move_immediate("x8", "Byte", &COLLECTION_KIND_LIST.to_string()),
+        abi::store_u8("x8", "x1", COLLECTION_OFFSET_KIND),
+        abi::move_immediate("x8", "Byte", &COLLECTION_TYPE_NONE.to_string()),
+        abi::store_u8("x8", "x1", COLLECTION_OFFSET_KEY_TYPE),
+        abi::move_immediate("x8", "Byte", &COLLECTION_TYPE_STRING.to_string()),
+        abi::store_u8("x8", "x1", COLLECTION_OFFSET_VALUE_TYPE),
+        abi::move_immediate("x8", "Byte", "1"),
+        abi::store_u8("x8", "x1", COLLECTION_OFFSET_FLAGS_VERSION),
+        abi::store_u64("x20", "x1", COLLECTION_OFFSET_COUNT),
+        abi::store_u64("x20", "x1", COLLECTION_OFFSET_CAPACITY),
+        abi::store_u64("x22", "x1", COLLECTION_OFFSET_DATA_LENGTH),
+        abi::store_u64("x22", "x1", COLLECTION_OFFSET_DATA_CAPACITY),
+        abi::add_immediate("x23", "x1", COLLECTION_HEADER_SIZE),
+        abi::move_immediate("x24", "Integer", &COLLECTION_ENTRY_SIZE.to_string()),
+        abi::multiply_registers("x25", "x20", "x24"),
+        abi::add_registers("x24", "x23", "x25"),
+        abi::move_immediate("x25", "Integer", "0"),
+        abi::load_u64("x21", abi::stack_pointer(), ENTRY_ARGV_OFFSET),
+        abi::move_immediate("x26", "Integer", "0"),
+        abi::label("entry_args_fill_loop"),
+        abi::compare_registers("x26", "x20"),
+        abi::branch_eq("entry_args_fill_done"),
+        abi::load_u64("x27", "x21", 0),
+        abi::move_register("x28", "x27"),
+        abi::move_immediate("x9", "Integer", "0"),
+        abi::label("entry_args_fill_len_loop"),
+        abi::load_u8("x10", "x28", 0),
+        abi::compare_immediate("x10", "0"),
+        abi::branch_eq("entry_args_fill_len_done"),
+        abi::add_immediate("x9", "x9", 1),
+        abi::add_immediate("x28", "x28", 1),
+        abi::branch("entry_args_fill_len_loop"),
+        abi::label("entry_args_fill_len_done"),
+        abi::move_immediate("x11", "Byte", &COLLECTION_ENTRY_FLAG_USED.to_string()),
+        abi::store_u8("x11", "x23", COLLECTION_ENTRY_OFFSET_FLAGS),
+        abi::store_u64("x31", "x23", COLLECTION_ENTRY_OFFSET_KEY_OFFSET),
+        abi::store_u64("x31", "x23", COLLECTION_ENTRY_OFFSET_KEY_LENGTH),
+        abi::store_u64("x25", "x23", COLLECTION_ENTRY_OFFSET_VALUE_OFFSET),
+        abi::store_u64("x9", "x23", COLLECTION_ENTRY_OFFSET_VALUE_LENGTH),
+        abi::move_immediate("x11", "Integer", "0"),
+        abi::label("entry_args_copy_loop"),
+        abi::compare_registers("x11", "x9"),
+        abi::branch_eq("entry_args_copy_done"),
+        abi::load_u8("x12", "x27", 0),
+        abi::store_u8("x12", "x24", 0),
+        abi::add_immediate("x27", "x27", 1),
+        abi::add_immediate("x24", "x24", 1),
+        abi::add_immediate("x11", "x11", 1),
+        abi::branch("entry_args_copy_loop"),
+        abi::label("entry_args_copy_done"),
+        abi::add_registers("x25", "x25", "x9"),
+        abi::add_immediate("x23", "x23", COLLECTION_ENTRY_SIZE),
+        abi::add_immediate("x21", "x21", 8),
+        abi::add_immediate("x26", "x26", 1),
+        abi::branch("entry_args_fill_loop"),
+        abi::label("entry_args_fill_done"),
+    ]);
 }
 
 fn lower_arena_alloc(platform: &dyn CodegenPlatform) -> Result<CodeFunction, String> {
