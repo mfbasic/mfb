@@ -523,6 +523,7 @@ JSON functions live in the `json` package.
 
 ```basic
 TYPE JsonNull
+  value AS Nothing
 END TYPE
 
 TYPE JsonBool

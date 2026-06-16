@@ -35,6 +35,12 @@ tests/func_json_stringify_invalid/src/main.mfb:6 error[2-203-0022 TYPE_CALL_ARIT
      | ^
 tests/func_json_stringify_invalid/src/main.mfb:6 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `tooMany` does not have a known type.
+   5 |   LET wrongType AS String = json::stringify("x")
+   6 |   LET tooMany AS String = json::stringify(JsonNull[NOTHING], JsonNull[NOTHING])
+   7 |   LET oldNullShape AS Json = JsonNull[]
+     | ^
+tests/func_json_stringify_invalid/src/main.mfb:7 error[2-203-0024 TYPE_CONSTRUCTOR_ARITY_MISMATCH]: constructor has the wrong number of arguments
+               Constructor `JsonNull` has 0 argument(s), expected 1.
 [exit 1]
 $ mfb build -ir tests/func_json_stringify_invalid
    2 | 
@@ -73,4 +79,10 @@ tests/func_json_stringify_invalid/src/main.mfb:6 error[2-203-0022 TYPE_CALL_ARIT
      | ^
 tests/func_json_stringify_invalid/src/main.mfb:6 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `tooMany` does not have a known type.
+   5 |   LET wrongType AS String = json::stringify("x")
+   6 |   LET tooMany AS String = json::stringify(JsonNull[NOTHING], JsonNull[NOTHING])
+   7 |   LET oldNullShape AS Json = JsonNull[]
+     | ^
+tests/func_json_stringify_invalid/src/main.mfb:7 error[2-203-0024 TYPE_CONSTRUCTOR_ARITY_MISMATCH]: constructor has the wrong number of arguments
+               Constructor `JsonNull` has 0 argument(s), expected 1.
 [exit 1]

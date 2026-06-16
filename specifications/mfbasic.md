@@ -237,6 +237,7 @@ Recursive concrete unions are allowed by defining recursive member types:
 
 ```basic
 TYPE JsonNull
+  value AS Nothing
 END TYPE
 
 TYPE JsonBool

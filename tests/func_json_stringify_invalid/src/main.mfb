@@ -4,5 +4,6 @@ FUNC main AS Integer
   LET missing AS String = json::stringify()
   LET wrongType AS String = json::stringify("x")
   LET tooMany AS String = json::stringify(JsonNull[NOTHING], JsonNull[NOTHING])
+  LET oldNullShape AS Json = JsonNull[]
   RETURN 0
 END FUNC

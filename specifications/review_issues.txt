@@ -44,8 +44,9 @@ RECOMMENDED: CODE CHANGE
 REQUIREMENT: JSON JsonNull shape
 SPECIFICATION: standard_package.md @ §12 Built-in JSON Package
 GROUP: json
+STATUS: Completed
 RECOMMENDED: CODE CHANGE
-The spec defines `JsonNull` as an empty record, but `src/builtins/json_package.mfb` implements it with `value AS Nothing`. This changes constructor shape and public API. Resolve by making `JsonNull` empty, or if the implementation requires a payload, update all JSON specs and examples consistently.
+The spec defines `JsonNull` as an empty record, but `src/builtins/json_package.mfb` implements it with `value AS Nothing`. This changes constructor shape and public API. Resolve by making by implementing it with `value AS Nothing`. Update all specs.
 
 
 === language ===
@@ -169,6 +170,18 @@ SPECIFICATION: specifications/mfbasic.md @ §6 Functions
 GROUP: language
 RECOMMENDED: CODE CHANGE
 `mfbasic.md` requires recursion and call-stack exhaustion to fail with `ErrOutOfMemory` or a specific runtime error instead of undefined behavior. Native lowering emits ordinary direct and indirect calls for user, package, and function-value calls without managed recursion-depth or stack-budget checks, and no runtime path maps stack overflow into an MFBASIC `Error`; deep recursion can therefore exhaust the host stack and crash. Resolve by adding call-depth or stack-budget accounting around generated calls, returning `ErrOutOfMemory` (`77010001`) or a documented runtime error through the normal `Result` path before the host stack is exhausted, then add a runtime test proving deep recursion errors observably rather than crashing.
+
+REQUIREMENT: Non-entry function declarations must include parameter parentheses
+SPECIFICATION: mfbasic.md @ §6 Functions; §8.7 Program entry point; §19 Grammar
+GROUP: language
+RECOMMENDED: CODE CHANGE
+The grammar requires `FUNC ident(...) AS type` and `SUB ident(...)`, while §8.7 only makes empty parentheses optional for zero-argument executable entry points. `src/ast.rs` accepts missing parameter lists for any `FUNC` or `SUB`, so non-entry declarations like `SUB helper` compile. Resolve by requiring `(`...`)` on all function declarations except the selected zero-argument entry point, or by explicitly broadening the spec if all zero-argument functions should allow omitted parentheses.
+
+REQUIREMENT: Imports must appear before declarations
+SPECIFICATION: mfbasic.md @ §19 Grammar
+GROUP: language
+RECOMMENDED: CODE CHANGE
+The grammar defines `program = { import | linkDecl } { declaration }`, so imports are a leading top-level section before declarations. `src/ast.rs` accepts `IMPORT` anywhere in the top-level loop, including after function/type declarations. Resolve by tracking when the parser has consumed the first declaration and rejecting subsequent `IMPORT` statements with a parse diagnostic, while preserving leading imports before declarations.
 
 
 === tooling ===
