@@ -746,17 +746,19 @@ Precedence, highest to lowest:
 | 3          | Unary `-` |
 | 4          | Exponentiation: `^` |
 | 5          | Multiplication, division, modulo: `*`, `/`, `MOD`, `DIV` |
-| 6          | Addition, subtraction, string concatenation: `+`, `-`, `&` |
-| 7          | Comparisons: `=`, `<>`, `<`, `>`, `<=`, `>=` |
-| 8          | `NOT` |
-| 9          | `AND` |
-| 10         | `OR`, `XOR` |
-| 11         | Pipeline: `|>` |
+| 6          | Addition, subtraction: `+`, `-` |
+| 7          | String concatenation: `&` |
+| 8          | Comparisons: `=`, `<>`, `<`, `>`, `<=`, `>=` |
+| 9          | `NOT` |
+| 10         | `AND` |
+| 11         | `OR`, `XOR` |
+| 12         | Pipeline: `|>` |
 
 `XOR` has the same precedence as `OR` and evaluates both operands.
 
 Operator edge cases:
 
+- `&` has lower precedence than `+` and `-`, so `a & b + c` parses as `a & (b + c)`.
 - `^` is right-associative: `2 ^ 3 ^ 2` parses as `2 ^ (3 ^ 2)`.
 - Unary `-` has higher precedence than `^` in MFBASIC, so `-2^2` parses as `(-2) ^ 2`. Write `-(2 ^ 2)` when the negation should apply after exponentiation.
 - Checked numeric failures from operators are ordinary `Err` results and therefore auto-propagate unless handled by `MATCH` or `TRAP`.

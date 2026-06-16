@@ -1,0 +1,27 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "arithmetic_concat_precedence_valid",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "mutable": false, "name": "result", "type": "String", "value": { "kind": "binary", "op": "&", "left": { "kind": "const", "type": "String", "value": "a" }, "right": { "kind": "call", "target": "toString", "args": [{ "kind": "binary", "op": "+", "left": { "kind": "const", "type": "Integer", "value": "1" }, "right": { "kind": "const", "type": "Integer", "value": "2" } }] } } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "local", "name": "result" }] } },
+    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

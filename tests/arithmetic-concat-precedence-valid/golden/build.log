@@ -1,0 +1,12 @@
+$ mfb build -ast tests/arithmetic-concat-precedence-valid
+Wrote AST to tests/arithmetic-concat-precedence-valid/arithmetic_concat_precedence_valid.ast
+[exit 0]
+$ mfb build -ir tests/arithmetic-concat-precedence-valid
+Wrote IR to tests/arithmetic-concat-precedence-valid/arithmetic_concat_precedence_valid.ir
+[exit 0]
+$ mfb build tests/arithmetic-concat-precedence-valid
+Wrote executable to tests/arithmetic-concat-precedence-valid/arithmetic_concat_precedence_valid.out
+[exit 0]
+$ tests/arithmetic-concat-precedence-valid/arithmetic_concat_precedence_valid.out
+a3
+[exit 0]

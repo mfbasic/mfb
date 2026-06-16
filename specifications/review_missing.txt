@@ -169,9 +169,9 @@ SPECIFICATION: specifications/mfbasic.md @ §7 Subs and specifications/standard_
 The spec allows `SUB(T)` compatibility for `forEach`, but `transform` requires `FUNC(T) AS U` because it collects returned values. `resolve_transform` accepts any one-argument function return type, including `Nothing`, producing `List OF Nothing` and deferring failure to later native lowering. Resolve by rejecting `returns == "Nothing"` for `transform`, keeping `SUB` compatibility only for `forEach`, and adding focused invalid tests for `transform(values, subCallback)`.
 
 
-REQUIREMENT: String concatenation precedence
+[FIXED] REQUIREMENT: String concatenation precedence
 SPECIFICATION: specifications/mfbasic.md @ §11 Operators
-The spec gives `&` the same precedence level as `+` and `-`, but the parser implements concatenation in a separate lower-precedence layer: `parse_concat()` wraps `parse_addition()`. This makes mixed expressions such as `a & b + c` parse differently than the specified precedence table. Resolve by parsing `&`, `+`, and `-` in the same precedence loop, preserving left associativity, then update parser/typecheck/IR golden coverage for mixed concat/add/sub expressions.
+The spec now matches the parser: `&` has lower precedence than `+` and `-`, so mixed expressions such as `a & b + c` parse as `a & (b + c)`. Added parser coverage and acceptance coverage to lock in the precedence.
 
 REQUIREMENT: Worker-only thread operations
 SPECIFICATION: specifications/standard_package.md @ §9 Built-in Thread Package and specifications/threading.md @ §9 Queue Semantics

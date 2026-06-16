@@ -3527,6 +3527,50 @@ mod tests {
     }
 
     #[test]
+    fn string_concat_has_lower_precedence_than_addition() {
+        let file = parse_source(
+            Path::new("main.mfb"),
+            "main.mfb",
+            "FUNC main AS String\n  RETURN a & b + c\nEND FUNC\n",
+        )
+        .expect("parse source");
+
+        let Item::Function(function) = &file.items[0] else {
+            panic!("expected function item");
+        };
+        let Statement::Return {
+            value: Some(expression),
+            ..
+        } = &function.body[0]
+        else {
+            panic!("expected return expression");
+        };
+
+        let Expression::Binary {
+            left,
+            operator,
+            right,
+        } = expression
+        else {
+            panic!("expected binary expression");
+        };
+        assert_eq!(operator, "&");
+        assert!(matches!(&**left, Expression::Identifier(name) if name == "a"));
+
+        let Expression::Binary {
+            left: add_left,
+            operator: add_operator,
+            right: add_right,
+        } = &**right
+        else {
+            panic!("expected addition on concat right side");
+        };
+        assert_eq!(add_operator, "+");
+        assert!(matches!(&**add_left, Expression::Identifier(name) if name == "b"));
+        assert!(matches!(&**add_right, Expression::Identifier(name) if name == "c"));
+    }
+
+    #[test]
     fn file_root_ignores_include_patterns() {
         let root = test_temp_dir("file_root_ignores_include_patterns");
         let project_dir = root.join("project");
