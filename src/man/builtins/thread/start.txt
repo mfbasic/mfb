@@ -2,19 +2,20 @@ NAME
   start - start an imported isolated worker function
 
 SYNOPSIS
-  thread::start(f AS ISOLATED FUNC(Thread OF Msg TO Out, In) AS Out, data AS In, inboundLimit AS Integer = 64, outboundLimit AS Integer = 64) AS Thread OF Msg TO Out
+  thread::start(f AS ISOLATED FUNC(ThreadWorker OF Msg TO Out, In) AS Out, data AS In, inboundLimit AS Integer = 64, outboundLimit AS Integer = 64) AS Thread OF Msg TO Out
 
 DESCRIPTION
   Starts exported isolated function f from an imported package in a fresh
-  package instance. The worker receives its Thread handle and data argument.
+  package instance. The worker receives its ThreadWorker handle and data
+  argument.
 
   inboundLimit and outboundLimit bound the worker inbound and outbound queues.
   Omitting both limits uses 64 for each queue. Omitting outboundLimit uses 64.
 
   Fails with ErrInvalidArgument (77050002) when either queue limit is below 1.
   Current-package functions, lambdas, closures, SUBs, non-isolated functions,
-  and entry points without the leading Thread parameter are rejected at compile
-  time.
+  and entry points without the leading ThreadWorker parameter are rejected at
+  compile time.
 
 EXAMPLES
   LET t AS Thread OF String TO Integer = thread::start(workers::worker, "input")

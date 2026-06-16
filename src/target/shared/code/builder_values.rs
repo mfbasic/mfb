@@ -587,9 +587,7 @@ impl CodeBuilder<'_> {
                             value: "64".to_string(),
                         });
                     }
-                } else if matches!(target.as_str(), "thread.send" | "thread.emit")
-                    && helper_args.len() == 2
-                {
+                } else if target == "thread.send" && helper_args.len() == 2 {
                     helper_args.push(NirValue::Const {
                         type_: "Integer".to_string(),
                         value: "0".to_string(),
@@ -604,9 +602,42 @@ impl CodeBuilder<'_> {
                     .thread_runtime_return_type(target, &helper_args)
                     .or_else(|| builtins::call_return_type_name(target).map(str::to_string))
                     .ok_or_else(|| format!("native runtime call '{target}' has no return type"))?;
+                let runtime_target = match target.as_str() {
+                    "thread.send" => {
+                        let handle = self
+                            .static_type_name(helper_args.first().ok_or_else(|| {
+                                "native runtime thread.send missing handle argument".to_string()
+                            })?)
+                            .ok_or_else(|| {
+                                "native runtime thread.send handle has unknown type".to_string()
+                            })?;
+                        if builtins::thread::is_worker_thread_type(&handle) {
+                            "thread.emit"
+                        } else {
+                            "thread.send"
+                        }
+                    }
+                    "thread.receive" => {
+                        let handle = self
+                            .static_type_name(helper_args.first().ok_or_else(|| {
+                                "native runtime thread.receive missing handle argument"
+                                    .to_string()
+                            })?)
+                            .ok_or_else(|| {
+                                "native runtime thread.receive handle has unknown type"
+                                    .to_string()
+                            })?;
+                        if builtins::thread::is_worker_thread_type(&handle) {
+                            "thread.receive"
+                        } else {
+                            "thread.read"
+                        }
+                    }
+                    _ => target,
+                };
                 self.emit_runtime_helper_call(
-                    target,
-                    &runtime::symbol_for_call(*helper, target),
+                    runtime_target,
+                    &runtime::symbol_for_call(*helper, runtime_target),
                     &helper_args,
                     &result_type,
                 )

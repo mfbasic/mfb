@@ -8,10 +8,10 @@ $ mfb build tests/thread-dual-cancel
 Wrote executable to tests/thread-dual-cancel/thread_dual_cancel.out
 [exit 0]
 $ tests/thread-dual-cancel/thread_dual_cancel.out
-count:1
-letter:A
-count:2
-letter:B
-count:3
-letter:C
+thread file line 1
+thread file line 2
+
+readText line A
+readText line B
+
 [exit 0]

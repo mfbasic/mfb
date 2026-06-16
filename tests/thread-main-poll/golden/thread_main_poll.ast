@@ -20,18 +20,18 @@
       "body": [
       { "kind": "binding", "mutable": false, "name": "t", "type": "Thread OF String TO Integer", "value": { "kind": "call", "callee": "thread.start", "arguments": [{ "kind": "identifier", "value": "thread_runtime_workers.emitToMain" }, { "kind": "string", "value": "start" }] }, "line": 6 },
       { "kind": "binding", "mutable": false, "name": "hasReady", "type": "Boolean", "value": { "kind": "call", "callee": "thread.poll", "arguments": [{ "kind": "identifier", "value": "t" }, { "kind": "number", "value": "10" }] }, "line": 7 },
-      { "kind": "binding", "mutable": false, "name": "ready", "type": "String", "value": { "kind": "call", "callee": "thread.read", "arguments": [{ "kind": "identifier", "value": "t" }] }, "line": 8 },
+      { "kind": "binding", "mutable": false, "name": "ready", "type": "String", "value": { "kind": "call", "callee": "thread.receive", "arguments": [{ "kind": "identifier", "value": "t" }] }, "line": 8 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "identifier", "value": "ready" }] }, "line": 9 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "thread.send", "arguments": [{ "kind": "identifier", "value": "t" }, { "kind": "string", "value": "one" }] }, "line": 10 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "thread.send", "arguments": [{ "kind": "identifier", "value": "t" }, { "kind": "string", "value": "ack1" }] }, "line": 10 },
       { "kind": "binding", "mutable": false, "name": "hasSteady", "type": "Boolean", "value": { "kind": "call", "callee": "thread.poll", "arguments": [{ "kind": "identifier", "value": "t" }, { "kind": "number", "value": "10" }] }, "line": 11 },
-      { "kind": "binding", "mutable": false, "name": "steady", "type": "String", "value": { "kind": "call", "callee": "thread.read", "arguments": [{ "kind": "identifier", "value": "t" }] }, "line": 12 },
+      { "kind": "binding", "mutable": false, "name": "steady", "type": "String", "value": { "kind": "call", "callee": "thread.receive", "arguments": [{ "kind": "identifier", "value": "t" }] }, "line": 12 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "identifier", "value": "steady" }] }, "line": 13 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "thread.send", "arguments": [{ "kind": "identifier", "value": "t" }, { "kind": "string", "value": "two" }] }, "line": 14 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "thread.send", "arguments": [{ "kind": "identifier", "value": "t" }, { "kind": "string", "value": "ack2" }] }, "line": 14 },
       { "kind": "binding", "mutable": false, "name": "hasGo", "type": "Boolean", "value": { "kind": "call", "callee": "thread.poll", "arguments": [{ "kind": "identifier", "value": "t" }, { "kind": "number", "value": "10" }] }, "line": 15 },
-      { "kind": "binding", "mutable": false, "name": "go", "type": "String", "value": { "kind": "call", "callee": "thread.read", "arguments": [{ "kind": "identifier", "value": "t" }] }, "line": 16 },
+      { "kind": "binding", "mutable": false, "name": "go", "type": "String", "value": { "kind": "call", "callee": "thread.receive", "arguments": [{ "kind": "identifier", "value": "t" }] }, "line": 16 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "identifier", "value": "go" }] }, "line": 17 },
       { "kind": "binding", "mutable": false, "name": "result", "type": "Integer", "value": { "kind": "call", "callee": "thread.waitFor", "arguments": [{ "kind": "identifier", "value": "t" }] }, "line": 18 },
-      { "kind": "return", "value": { "kind": "binary", "operator": "-", "left": { "kind": "identifier", "value": "result" }, "right": { "kind": "number", "value": "6" } }, "line": 19 }
+      { "kind": "return", "value": { "kind": "identifier", "value": "result" }, "line": 19 }
       ]
     }
     ]

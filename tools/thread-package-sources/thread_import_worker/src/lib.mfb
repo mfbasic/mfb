@@ -1,0 +1,7 @@
+IMPORT io
+IMPORT thread
+
+EXPORT ISOLATED FUNC callImpPrint(t AS ThreadWorker OF String TO Integer, seed AS String) AS Integer
+  io::print(seed)
+  RETURN 0
+END FUNC

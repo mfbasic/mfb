@@ -1,3 +1,4 @@
+IMPORT io
 IMPORT thread
 IMPORT thread_runtime_workers
 
@@ -5,11 +6,13 @@ FUNC main AS Integer
   LET t AS Thread OF String TO Integer = thread::start(thread_runtime_workers::printReceived, "start")
   thread::send(t, "alpha")
   LET hasAck1 AS Boolean = thread::poll(t, 10)
-  LET ack1 AS String = thread::read(t)
+  LET ack1 AS String = thread::receive(t)
   thread::send(t, "beta")
   LET hasAck2 AS Boolean = thread::poll(t, 10)
-  LET ack2 AS String = thread::read(t)
+  LET ack2 AS String = thread::receive(t)
   thread::send(t, "gamma")
+  LET hasAck3 AS Boolean = thread::poll(t, 10)
+  LET ack3 AS String = thread::receive(t)
   LET result AS Integer = thread::waitFor(t)
   RETURN result
 END FUNC

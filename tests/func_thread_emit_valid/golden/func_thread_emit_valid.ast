@@ -13,14 +13,14 @@
       "name": "worker",
       "line": 3,
       "params": [
-      { "name": "t", "type": "Thread OF String TO Integer", "default": null },
+      { "name": "t", "type": "ThreadWorker OF String TO Integer", "default": null },
       { "name": "seed", "type": "String", "default": null }
       ],
       "returnType": "Integer",
       "body": [
-      { "kind": "expression", "expression": { "kind": "call", "callee": "thread.emit", "arguments": [{ "kind": "identifier", "value": "t" }, { "kind": "identifier", "value": "seed" }] }, "line": 4 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "thread.emit", "arguments": [{ "kind": "identifier", "value": "t" }, { "kind": "string", "value": "immediate" }, { "kind": "number", "value": "0" }] }, "line": 5 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "thread.emit", "arguments": [{ "kind": "identifier", "value": "t" }, { "kind": "string", "value": "timed" }, { "kind": "number", "value": "1" }] }, "line": 6 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "thread.send", "arguments": [{ "kind": "identifier", "value": "t" }, { "kind": "identifier", "value": "seed" }] }, "line": 4 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "thread.send", "arguments": [{ "kind": "identifier", "value": "t" }, { "kind": "string", "value": "immediate" }, { "kind": "number", "value": "0" }] }, "line": 5 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "thread.send", "arguments": [{ "kind": "identifier", "value": "t" }, { "kind": "string", "value": "timed" }, { "kind": "number", "value": "1" }] }, "line": 6 },
       { "kind": "return", "value": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "seed" }] }, "line": 7 }
       ]
     },

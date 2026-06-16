@@ -98,8 +98,14 @@ CONTAINERS
 CONCURRENCY
   Thread OF Msg TO Out
     An opaque handle to an isolated worker thread. Msg is the message type used
-    with thread send/read operations. Out is the worker entry function's success
-    type. Thread handles are not copyable or sendable.
+    with parent-side thread send/receive operations. Out is the worker entry
+    function's success type. Thread handles are not copyable or sendable.
+
+  ThreadWorker OF Msg TO Out
+    An opaque handle to the worker-side view of the same thread. Msg is the
+    message type used with worker-side thread send/receive operations. Out is
+    the worker entry function's success type. ThreadWorker handles are not
+    copyable or sendable.
 
 PACKAGE TYPES
   TerminalSize

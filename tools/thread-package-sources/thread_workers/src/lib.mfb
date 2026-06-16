@@ -1,0 +1,22 @@
+IMPORT thread
+
+EXPORT ISOLATED FUNC echoText(t AS ThreadWorker OF String TO Integer, seed AS String) AS Integer
+  LET message AS String = thread::receive(t)
+  thread::send(t, message)
+  RETURN len(seed)
+END FUNC
+
+EXPORT ISOLATED FUNC noMessages(t AS ThreadWorker OF Nothing TO Integer, seed AS Integer) AS Integer
+  RETURN seed
+END FUNC
+
+EXPORT FUNC plain(seed AS String) AS Integer
+  RETURN len(seed)
+END FUNC
+
+EXPORT SUB helper(seed AS String)
+END SUB
+
+EXPORT ISOLATED FUNC badNoHandle(seed AS String) AS Integer
+  RETURN len(seed)
+END FUNC

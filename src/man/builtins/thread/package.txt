@@ -8,17 +8,18 @@ SYNOPSIS
 
 DESCRIPTION
   The thread package starts exported ISOLATED FUNC entry points from imported
-  packages in fresh package instances. Thread values carry an inbound message
-  queue, an outbound message queue, cancellation state, and the worker result.
+  packages in fresh package instances. Parent code holds Thread values. Worker
+  code holds ThreadWorker values. Together they carry an inbound message queue,
+  an outbound message queue, cancellation state, and the worker result.
 
   Worker entry points must have the shape:
 
-    ISOLATED FUNC(Thread OF Msg TO Out, In) AS Out
+    ISOLATED FUNC(ThreadWorker OF Msg TO Out, In) AS Out
 
   The entry point must be an exported function from an imported package.
   Lambdas, closures, SUBs, non-isolated functions, current-package functions,
-  and functions without the leading Thread parameter are rejected at compile
-  time.
+  and functions without the leading ThreadWorker parameter are rejected at
+  compile time.
 
 SEE ALSO
   errors

@@ -5,16 +5,16 @@ IMPORT thread_runtime_workers
 FUNC main AS Integer
   LET t AS Thread OF String TO Integer = thread::start(thread_runtime_workers::emitToMain, "start")
   LET hasReady AS Boolean = thread::poll(t, 10)
-  LET ready AS String = thread::read(t)
+  LET ready AS String = thread::receive(t)
   io::print(ready)
-  thread::send(t, "one")
+  thread::send(t, "ack1")
   LET hasSteady AS Boolean = thread::poll(t, 10)
-  LET steady AS String = thread::read(t)
+  LET steady AS String = thread::receive(t)
   io::print(steady)
-  thread::send(t, "two")
+  thread::send(t, "ack2")
   LET hasGo AS Boolean = thread::poll(t, 10)
-  LET go AS String = thread::read(t)
+  LET go AS String = thread::receive(t)
   io::print(go)
   LET result AS Integer = thread::waitFor(t)
-  RETURN result - 6
+  RETURN result
 END FUNC

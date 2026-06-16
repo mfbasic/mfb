@@ -15,7 +15,7 @@
     "visibility": "export",
     "kind": "func",
     "params": [
-    { "name": "t", "type": "Thread OF String TO Integer", "default": null },
+    { "name": "t", "type": "ThreadWorker OF String TO Integer", "default": null },
     { "name": "seed", "type": "String", "default": null }
     ],
     "returns": "Integer",

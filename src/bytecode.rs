@@ -492,6 +492,7 @@ pub enum NativePackageTypeInfo {
     Map { key_type: u32, value_type: u32 },
     Result { success_type: u32 },
     Thread { message_type: u32, output_type: u32 },
+    ThreadWorker { message_type: u32, output_type: u32 },
     Function,
     Resource,
 }
@@ -1540,6 +1541,11 @@ fn decode_type_name(
             let key = read_payload_type(payload, 0, raw, strings, decoded)?;
             let value = read_payload_type(payload, 4, raw, strings, decoded)?;
             format!("MapEntry OF {key} TO {value}")
+        }
+        10 => {
+            let message = read_payload_type(payload, 0, raw, strings, decoded)?;
+            let output = read_payload_type(payload, 4, raw, strings, decoded)?;
+            format!("ThreadWorker OF {message} TO {output}")
         }
         _ => string_at(strings, *name)?.to_string(),
     };
@@ -2748,6 +2754,10 @@ fn native_package_type_info(
                     },
                 ])
             }
+            10 => NativePackageTypeInfo::ThreadWorker {
+                message_type: checked_u32_at(&entry.payload, 0)?,
+                output_type: checked_u32_at(&entry.payload, 4)?,
+            },
             _ => NativePackageTypeInfo::Resource,
         };
         info.insert(type_id, type_info);
@@ -5273,12 +5283,21 @@ impl TypeTable {
                 self.result_type(strings, success)
             }
             name if name.starts_with("Thread OF ") => {
-                if let Some((message, output)) = builtins::thread::thread_parts(name) {
+                if let Some((_, message, output)) = builtins::thread::thread_parts(name) {
                     let message = self.type_id(strings, message);
                     let output = self.type_id(strings, output);
                     self.thread_type(strings, message, output)
                 } else {
                     self.add_entry(strings, "", name, 7, Vec::new())
+                }
+            }
+            name if name.starts_with("ThreadWorker OF ") => {
+                if let Some((_, message, output)) = builtins::thread::thread_parts(name) {
+                    let message = self.type_id(strings, message);
+                    let output = self.type_id(strings, output);
+                    self.thread_worker_type(strings, message, output)
+                } else {
+                    self.add_entry(strings, "", name, 10, Vec::new())
                 }
             }
             name if name.starts_with("FUNC(") => self.function_type(strings, name),
@@ -5403,6 +5422,23 @@ impl TypeTable {
         put_u32(&mut payload, message_type);
         put_u32(&mut payload, output_type);
         self.add_entry(strings, "thread", &name, 7, payload)
+    }
+
+    fn thread_worker_type(
+        &mut self,
+        strings: &mut StringPool,
+        message_type: u32,
+        output_type: u32,
+    ) -> u32 {
+        let name = format!("ThreadWorker#{message_type}#{output_type}");
+        if let Some(id) = self.ids.get(&name) {
+            return *id;
+        }
+
+        let mut payload = Vec::new();
+        put_u32(&mut payload, message_type);
+        put_u32(&mut payload, output_type);
+        self.add_entry(strings, "thread", &name, 10, payload)
     }
 
     fn add_entry(

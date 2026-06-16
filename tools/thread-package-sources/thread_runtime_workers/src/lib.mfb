@@ -1,0 +1,70 @@
+IMPORT fs
+IMPORT io
+IMPORT strings
+IMPORT thread
+
+EXPORT ISOLATED FUNC printNumbers(t AS ThreadWorker OF String TO Integer, seed AS String) AS Integer
+  io::print("1")
+  io::print("2")
+  io::print("3")
+  io::print("4")
+  io::print("5")
+  io::print("6")
+  io::print("7")
+  io::print("8")
+  io::print("9")
+  io::print("10")
+  RETURN 0
+END FUNC
+
+EXPORT ISOLATED FUNC printReceived(t AS ThreadWorker OF String TO Integer, seed AS String) AS Integer
+  LET first AS String = thread::receive(t, 10)
+  io::print(first)
+  thread::send(t, "ack1")
+  LET second AS String = thread::receive(t, 10)
+  io::print(second)
+  thread::send(t, "ack2")
+  LET third AS String = thread::receive(t, 10)
+  io::print(third)
+  thread::send(t, "ack3")
+  RETURN 0
+END FUNC
+
+EXPORT ISOLATED FUNC countWorker(t AS ThreadWorker OF String TO Integer, seed AS String) AS Integer
+  thread::send(t, "1")
+  LET next1 AS String = thread::receive(t)
+  thread::send(t, "2")
+  LET next2 AS String = thread::receive(t)
+  thread::send(t, "3")
+  RETURN 3
+END FUNC
+
+EXPORT ISOLATED FUNC alphabetWorker(t AS ThreadWorker OF String TO Integer, seed AS String) AS Integer
+  thread::send(t, "A")
+  LET next1 AS String = thread::receive(t)
+  thread::send(t, "B")
+  LET next2 AS String = thread::receive(t)
+  thread::send(t, "C")
+  RETURN 3
+END FUNC
+
+EXPORT ISOLATED FUNC emitToMain(t AS ThreadWorker OF String TO Integer, seed AS String) AS Integer
+  thread::send(t, "ready")
+  LET readyAck AS String = thread::receive(t, 10)
+  thread::send(t, "steady")
+  LET steadyAck AS String = thread::receive(t, 10)
+  thread::send(t, "go")
+  RETURN 0
+END FUNC
+
+EXPORT ISOLATED FUNC readFileText(t AS ThreadWorker OF String TO String, path AS String) AS String
+  RETURN fs::readAll(fs::openFile(path))
+END FUNC
+
+EXPORT ISOLATED FUNC readTextPath(t AS ThreadWorker OF String TO String, path AS String) AS String
+  RETURN fs::readText(path)
+END FUNC
+
+EXPORT ISOLATED FUNC splitLines(t AS ThreadWorker OF String TO List OF String, content AS String) AS List OF String
+  RETURN strings::split(content, "\n")
+END FUNC

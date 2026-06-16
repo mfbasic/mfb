@@ -173,10 +173,6 @@ The spec allows `SUB(T)` compatibility for `forEach`, but `transform` requires `
 SPECIFICATION: specifications/mfbasic.md @ §11 Operators
 The spec now matches the parser: `&` has lower precedence than `+` and `-`, so mixed expressions such as `a & b + c` parse as `a & (b + c)`. Added parser coverage and acceptance coverage to lock in the precedence.
 
-REQUIREMENT: Worker-only thread operations
-SPECIFICATION: specifications/standard_package.md @ §9 Built-in Thread Package and specifications/threading.md @ §9 Queue Semantics
-`thread::receive`, `thread::emit`, and `thread::isCancelled` are worker-side operations. The compiler accepts them in ordinary parent code, and existing focused tests treat parent-context `thread::receive`, `thread::emit`, and `thread::isCancelled` calls as valid. Runtime lowering partially checks `receive`/`emit` against the current worker handle, but `thread::isCancelled` dereferences the worker register directly and has no outside-worker error path. Resolve by tracking worker-thread context during typechecking or by emitting complete runtime context checks for all worker-only helpers, returning `ErrInvalidArgument` outside a worker, and updating valid/invalid/runtime tests accordingly.
-
 REQUIREMENT: Package bytecode `io::flushError` dispatch
 SPECIFICATION: specifications/standard_package.md @ §7 Built-in IO Package and specifications/linker.md @ §7 Package Linking
 The source bytecode lowerer records the file descriptor operand for `io::flush` versus `io::flushError`, but package native helper dispatch maps every `NATIVE_OPCODE_IO_FLUSH` to `_mfb_rt_io_io_flush` and ignores the fd operand. Imported package bytecode that calls `io::flushError` will therefore be linked as stdout flush behavior instead of stderr flush behavior. Resolve by making package runtime-symbol selection inspect the flush fd operand and choose `_mfb_rt_io_io_flushError` for fd `2`, plus reject invalid operands and add package-linking coverage.

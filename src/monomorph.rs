@@ -896,14 +896,12 @@ impl<'a> Monomorphizer<'a> {
                 );
             }
         }
-        if let Some(rest) = type_name.strip_prefix("Thread OF ") {
-            if let Some((message, output)) = split_top_level_to(rest) {
-                return format!(
-                    "Thread OF {} TO {}",
-                    self.concrete_type_name(&message, substitutions),
-                    self.concrete_type_name(&output, substitutions)
-                );
-            }
+        if let Some((kind, message, output)) = crate::builtins::thread::thread_parts(type_name) {
+            return format!(
+                "{kind} OF {} TO {}",
+                self.concrete_type_name(message, substitutions),
+                self.concrete_type_name(output, substitutions)
+            );
         }
         if let Some((name, args)) = user_template_parts(type_name) {
             let args = args
@@ -940,14 +938,12 @@ impl<'a> Monomorphizer<'a> {
                 );
             }
         }
-        if let Some(rest) = type_name.strip_prefix("Thread OF ") {
-            if let Some((message, output)) = split_top_level_to(rest) {
-                return format!(
-                    "Thread OF {} TO {}",
-                    self.template_view_type(&message),
-                    self.template_view_type(&output)
-                );
-            }
+        if let Some((kind, message, output)) = crate::builtins::thread::thread_parts(type_name) {
+            return format!(
+                "{kind} OF {} TO {}",
+                self.template_view_type(message),
+                self.template_view_type(output)
+            );
         }
         if let Some((name, args)) = self.type_instantiations.get(type_name) {
             let args = args
@@ -1212,18 +1208,17 @@ fn unify_type(
         return unify_type(&pattern_key, &actual_key, params, substitutions)
             && unify_type(&pattern_value, &actual_value, params, substitutions);
     }
-    if let Some(pattern_rest) = pattern.strip_prefix("Thread OF ") {
-        let Some(actual_rest) = actual.strip_prefix("Thread OF ") else {
+    if let Some((pattern_kind, pattern_message, pattern_output)) =
+        crate::builtins::thread::thread_parts(pattern)
+    {
+        let Some((actual_kind, actual_message, actual_output)) =
+            crate::builtins::thread::thread_parts(actual)
+        else {
             return false;
         };
-        let Some((pattern_message, pattern_output)) = split_top_level_to(pattern_rest) else {
-            return false;
-        };
-        let Some((actual_message, actual_output)) = split_top_level_to(actual_rest) else {
-            return false;
-        };
-        return unify_type(&pattern_message, &actual_message, params, substitutions)
-            && unify_type(&pattern_output, &actual_output, params, substitutions);
+        return pattern_kind == actual_kind
+            && unify_type(pattern_message, actual_message, params, substitutions)
+            && unify_type(pattern_output, actual_output, params, substitutions);
     }
     if let (Some((pattern_name, pattern_args)), Some((actual_name, actual_args))) =
         (user_template_parts(pattern), user_template_parts(actual))
@@ -1245,6 +1240,7 @@ fn user_template_parts(type_name: &str) -> Option<(String, Vec<String>)> {
         || type_name.starts_with("MapEntry OF ")
         || type_name.starts_with("Result OF ")
         || type_name.starts_with("Thread OF ")
+        || type_name.starts_with("ThreadWorker OF ")
         || type_name.starts_with("FUNC(")
         || type_name.starts_with("ISOLATED FUNC(")
     {
@@ -1285,14 +1281,12 @@ fn substitute_type_params(type_name: &str, substitutions: &HashMap<String, Strin
             );
         }
     }
-    if let Some(rest) = type_name.strip_prefix("Thread OF ") {
-        if let Some((message, output)) = split_top_level_to(rest) {
-            return format!(
-                "Thread OF {} TO {}",
-                substitute_type_params(&message, substitutions),
-                substitute_type_params(&output, substitutions)
-            );
-        }
+    if let Some((kind, message, output)) = crate::builtins::thread::thread_parts(type_name) {
+        return format!(
+            "{kind} OF {} TO {}",
+            substitute_type_params(message, substitutions),
+            substitute_type_params(output, substitutions)
+        );
     }
     if let Some((name, args)) = user_template_parts(type_name) {
         let args = args

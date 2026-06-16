@@ -35,7 +35,7 @@ The model has these requirements:
 Thread entry points have this shape:
 
 ```text
-EXPORT ISOLATED FUNC worker(t AS Thread OF Msg TO Out, input AS In) AS Out
+EXPORT ISOLATED FUNC worker(t AS ThreadWorker OF Msg TO Out, input AS In) AS Out
   ...
 END FUNC
 ```
@@ -44,7 +44,7 @@ END FUNC
 
 ```text
 thread::start OF In, Msg, Out(
-  f AS ISOLATED FUNC(Thread OF Msg TO Out, In) AS Out,
+  f AS ISOLATED FUNC(ThreadWorker OF Msg TO Out, In) AS Out,
   data AS In,
   inboundLimit AS Integer = 64,
   outboundLimit AS Integer = 64
@@ -58,12 +58,12 @@ The compiler rejects:
 - Non-isolated functions.
 - Current-package functions.
 - Functions that are not exported from an imported package.
-- Functions whose first parameter is not `Thread OF Msg TO Out`.
+- Functions whose first parameter is not `ThreadWorker OF Msg TO Out`.
 - Functions whose return type does not match `Out`.
 
-`Msg` is the message type used by `thread::send`, `thread::receive`,
-`thread::emit`, `thread::poll`, and `thread::read`. `Out` is the worker success
-type. `In` is the input value type passed to `thread::start`.
+`Msg` is the message type used by `thread::send`, `thread::receive`, and
+`thread::poll`. `Out` is the worker success type. `In` is the input value type
+passed to `thread::start`.
 
 ## 3. Isolation
 
@@ -192,9 +192,7 @@ _mfb_rt_thread_thread_waitFor
 _mfb_rt_thread_thread_cancel
 _mfb_rt_thread_thread_send
 _mfb_rt_thread_thread_poll
-_mfb_rt_thread_thread_read
 _mfb_rt_thread_thread_receive
-_mfb_rt_thread_thread_emit
 _mfb_rt_thread_thread_isCancelled
 _mfb_rt_thread_trampoline
 ```
@@ -259,10 +257,11 @@ contract.
 
 Each thread has:
 
-- An inbound queue: parent sends with `thread::send`; worker receives with
-  `thread::receive`.
-- An outbound queue: worker sends with `thread::emit`; parent observes with
-  `thread::poll` and reads with `thread::read`.
+- An inbound queue: parent sends with `thread::send(Thread, ...)`; worker
+  receives with `thread::receive(ThreadWorker, ...)`.
+- An outbound queue: worker sends with `thread::send(ThreadWorker, ...)`;
+  parent observes with `thread::poll` and reads with
+  `thread::receive(Thread, ...)`.
 
 `thread::start` rejects queue limits below `1`.
 
@@ -273,7 +272,7 @@ Cancellation is cooperative:
 
 - `thread::cancel` sets the cancellation flag.
 - New sends fail after cancellation is requested.
-- The worker observes cancellation with `thread::isCancelled`.
+- The worker observes cancellation with `thread::isCancelled(t)`.
 - The runtime does not forcibly kill the worker as normal cancellation behavior.
 
 When the worker completes:

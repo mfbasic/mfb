@@ -1234,6 +1234,7 @@ fn is_reference_type(type_: &str) -> bool {
         || type_.starts_with("MapEntry OF ")
         || type_.starts_with("Result OF ")
         || type_.starts_with("Thread OF ")
+        || type_.starts_with("ThreadWorker OF ")
         || type_.starts_with("FUNC(")
         || type_.starts_with("ISOLATED FUNC(")
         || matches!(type_, "File" | "FileHandle" | "DirHandle")

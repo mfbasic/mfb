@@ -11,6 +11,7 @@ use std::collections::HashMap;
 const PACKAGE: &str = "thread";
 
 pub(crate) const THREAD_TYPE: &str = "Thread";
+pub(crate) const THREAD_WORKER_TYPE: &str = "ThreadWorker";
 
 const START: &str = "thread.start";
 const IS_RUNNING: &str = "thread.isRunning";
@@ -18,9 +19,7 @@ const WAIT_FOR: &str = "thread.waitFor";
 const CANCEL: &str = "thread.cancel";
 const SEND: &str = "thread.send";
 const POLL: &str = "thread.poll";
-const READ: &str = "thread.read";
 const RECEIVE: &str = "thread.receive";
-const EMIT: &str = "thread.emit";
 const IS_CANCELLED: &str = "thread.isCancelled";
 
 #[derive(Clone)]
@@ -31,22 +30,27 @@ pub(crate) struct ResolvedCall<'a> {
 pub(crate) fn is_thread_call(name: &str) -> bool {
     matches!(
         name,
-        START | IS_RUNNING | WAIT_FOR | CANCEL | SEND | POLL | READ | RECEIVE | EMIT | IS_CANCELLED
+        START | IS_RUNNING | WAIT_FOR | CANCEL | SEND | POLL | RECEIVE | IS_CANCELLED
     )
 }
 
 pub(crate) fn is_builtin_type(name: &str) -> bool {
-    name == THREAD_TYPE || name.starts_with("Thread OF ")
+    name == THREAD_TYPE
+        || name == THREAD_WORKER_TYPE
+        || name.starts_with("Thread OF ")
+        || name.starts_with("ThreadWorker OF ")
 }
 
 pub(crate) fn resolve_call<'a>(name: &str, arg_types: &'a [String]) -> Option<ResolvedCall<'a>> {
     let return_type = match name {
         START if matches_start(arg_types) => Cow::Owned(start_thread_type(&arg_types[0])?),
-        IS_RUNNING if arg_types.len() == 1 && is_thread_type(&arg_types[0]) => {
+        IS_RUNNING if arg_types.len() == 1 && is_parent_thread_type(&arg_types[0]) => {
             Cow::Borrowed("Boolean")
         }
         WAIT_FOR if arg_types.len() == 1 => thread_output(&arg_types[0]).map(Cow::Borrowed)?,
-        CANCEL if arg_types.len() == 1 && is_thread_type(&arg_types[0]) => Cow::Borrowed("Nothing"),
+        CANCEL if arg_types.len() == 1 && is_parent_thread_type(&arg_types[0]) => {
+            Cow::Borrowed("Nothing")
+        }
         SEND if (arg_types.len() == 2 || arg_types.len() == 3)
             && is_thread_type(&arg_types[0])
             && thread_message(&arg_types[0])
@@ -56,12 +60,11 @@ pub(crate) fn resolve_call<'a>(name: &str, arg_types: &'a [String]) -> Option<Re
             Cow::Borrowed("Nothing")
         }
         POLL if arg_types.len() == 2
-            && is_thread_type(&arg_types[0])
+            && is_parent_thread_type(&arg_types[0])
             && arg_types[1] == "Integer" =>
         {
             Cow::Borrowed("Boolean")
         }
-        READ if arg_types.len() == 1 => thread_message(&arg_types[0]).map(Cow::Borrowed)?,
         RECEIVE
             if (arg_types.len() == 1 || arg_types.len() == 2)
                 && is_thread_type(&arg_types[0])
@@ -69,15 +72,9 @@ pub(crate) fn resolve_call<'a>(name: &str, arg_types: &'a [String]) -> Option<Re
         {
             thread_message(&arg_types[0]).map(Cow::Borrowed)?
         }
-        EMIT if (arg_types.len() == 2 || arg_types.len() == 3)
-            && is_thread_type(&arg_types[0])
-            && thread_message(&arg_types[0])
-                .is_some_and(|message| message == "Unknown" || message == arg_types[1])
-            && arg_types.get(2).is_none_or(|timeout| timeout == "Integer") =>
-        {
-            Cow::Borrowed("Nothing")
+        IS_CANCELLED if arg_types.len() == 1 && is_worker_thread_type(&arg_types[0]) => {
+            Cow::Borrowed("Boolean")
         }
-        IS_CANCELLED if arg_types.is_empty() => Cow::Borrowed("Boolean"),
         _ => return None,
     };
     Some(ResolvedCall { return_type })
@@ -85,13 +82,12 @@ pub(crate) fn resolve_call<'a>(name: &str, arg_types: &'a [String]) -> Option<Re
 
 pub(crate) fn expected_arguments(name: &str) -> Option<&'static str> {
     match name {
-        START => Some("ISOLATED FUNC(Thread OF Msg TO Out, In) AS Out, In, Integer, Integer"),
-        IS_RUNNING | WAIT_FOR | CANCEL | READ => Some("Thread OF Msg TO Out"),
-        SEND => Some("Thread OF Msg TO Out, Msg, Integer"),
+        START => Some("ISOLATED FUNC(ThreadWorker OF Msg TO Out, In) AS Out, In, Integer, Integer"),
+        IS_RUNNING | WAIT_FOR | CANCEL => Some("Thread OF Msg TO Out"),
+        SEND => Some("Thread OF Msg TO Out or ThreadWorker OF Msg TO Out, Msg, Integer"),
         POLL => Some("Thread OF Msg TO Out, Integer"),
-        RECEIVE => Some("Thread OF Msg TO Out, Integer"),
-        EMIT => Some("Thread OF Msg TO Out, Msg, Integer"),
-        IS_CANCELLED => Some("no arguments"),
+        RECEIVE => Some("Thread OF Msg TO Out or ThreadWorker OF Msg TO Out, Integer"),
+        IS_CANCELLED => Some("ThreadWorker OF Msg TO Out"),
         _ => None,
     }
 }
@@ -99,12 +95,10 @@ pub(crate) fn expected_arguments(name: &str) -> Option<&'static str> {
 pub(crate) fn arity(name: &str) -> Option<(usize, usize)> {
     match name {
         START => Some((2, 4)),
-        IS_RUNNING | WAIT_FOR | CANCEL | READ => Some((1, 1)),
+        IS_RUNNING | WAIT_FOR | CANCEL | IS_CANCELLED => Some((1, 1)),
         SEND => Some((2, 3)),
         POLL => Some((2, 2)),
         RECEIVE => Some((1, 2)),
-        EMIT => Some((2, 3)),
-        IS_CANCELLED => Some((0, 0)),
         _ => None,
     }
 }
@@ -128,7 +122,7 @@ pub(crate) fn lower_bytecode_call(
         START if lowered.len() == 3 => {
             lowered.push(lowerer.push_integer_const(64)?);
         }
-        SEND | RECEIVE | EMIT if lowered.len() == arity(name).map(|(min, _)| min).unwrap_or(0) => {
+        SEND | RECEIVE if lowered.len() == arity(name).map(|(min, _)| min).unwrap_or(0) => {
             lowered.push(lowerer.push_integer_const(0)?);
         }
         _ => {}
@@ -147,27 +141,38 @@ pub(crate) fn lower_bytecode_call(
 
     let dst_type_id = primitive_type_id(&resolved.return_type)
         .unwrap_or_else(|| lowerer.type_id(&resolved.return_type));
+    let opcode = opcode_for(name, &arg_types)?;
     let dst = lowerer.add_register(dst_type_id, 0);
     let mut operands = vec![dst];
     operands.extend(lowered.iter().map(|slot| slot.register));
-    lowerer.push(opcode_for(name)?, operands);
+    lowerer.push(opcode, operands);
     Ok(ValueSlot {
         register: dst,
         type_name: resolved.return_type.into_owned(),
     })
 }
 
-fn opcode_for(name: &str) -> Result<u16, String> {
+fn opcode_for(name: &str, arg_types: &[String]) -> Result<u16, String> {
     match name {
         START => Ok(OPCODE_THREAD_START),
         IS_RUNNING => Ok(OPCODE_THREAD_IS_RUNNING),
         WAIT_FOR => Ok(OPCODE_THREAD_WAIT_FOR),
         CANCEL => Ok(OPCODE_THREAD_CANCEL),
-        SEND => Ok(OPCODE_THREAD_SEND),
+        SEND => {
+            if is_worker_thread_type(arg_types.first().map(String::as_str).unwrap_or_default()) {
+                Ok(OPCODE_THREAD_EMIT)
+            } else {
+                Ok(OPCODE_THREAD_SEND)
+            }
+        }
         POLL => Ok(OPCODE_THREAD_POLL),
-        READ => Ok(OPCODE_THREAD_READ),
-        RECEIVE => Ok(OPCODE_THREAD_RECEIVE),
-        EMIT => Ok(OPCODE_THREAD_EMIT),
+        RECEIVE => {
+            if is_worker_thread_type(arg_types.first().map(String::as_str).unwrap_or_default()) {
+                Ok(OPCODE_THREAD_RECEIVE)
+            } else {
+                Ok(OPCODE_THREAD_READ)
+            }
+        }
         IS_CANCELLED => Ok(OPCODE_THREAD_IS_CANCELLED),
         _ => Err(format!("unsupported {PACKAGE} built-in `{name}`")),
     }
@@ -181,7 +186,7 @@ fn matches_start(arg_types: &[String]) -> bool {
         return false;
     };
     params.len() == 2
-        && is_thread_type(&params[0])
+        && is_worker_thread_type(&params[0])
         && thread_output(&params[0]).is_some_and(|output| {
             function_output(&arg_types[0]).is_some_and(|function_output| output == function_output)
         })
@@ -191,7 +196,9 @@ fn matches_start(arg_types: &[String]) -> bool {
 }
 
 fn start_thread_type(name: &str) -> Option<String> {
-    function_params(name)?.first().cloned()
+    let worker = function_params(name)?.first()?.clone();
+    let (_, message, output) = thread_parts(&worker)?;
+    Some(format!("Thread OF {message} TO {output}"))
 }
 
 fn function_params(name: &str) -> Option<Vec<String>> {
@@ -209,16 +216,30 @@ pub(crate) fn is_thread_type(name: &str) -> bool {
     thread_parts(name).is_some()
 }
 
+pub(crate) fn is_parent_thread_type(name: &str) -> bool {
+    thread_parts(name).is_some_and(|(kind, _, _)| kind == THREAD_TYPE)
+}
+
+pub(crate) fn is_worker_thread_type(name: &str) -> bool {
+    thread_parts(name).is_some_and(|(kind, _, _)| kind == THREAD_WORKER_TYPE)
+}
+
 pub(crate) fn thread_message(name: &str) -> Option<&str> {
-    thread_parts(name).map(|(message, _)| message)
+    thread_parts(name).map(|(_, message, _)| message)
 }
 
 pub(crate) fn thread_output(name: &str) -> Option<&str> {
-    thread_parts(name).map(|(_, output)| output)
+    thread_parts(name).map(|(_, _, output)| output)
 }
 
-pub(crate) fn thread_parts(name: &str) -> Option<(&str, &str)> {
-    name.strip_prefix("Thread OF ")?.split_once(" TO ")
+pub(crate) fn thread_parts(name: &str) -> Option<(&str, &str, &str)> {
+    if let Some(rest) = name.strip_prefix("Thread OF ") {
+        let (message, output) = rest.split_once(" TO ")?;
+        return Some((THREAD_TYPE, message, output));
+    }
+    let rest = name.strip_prefix("ThreadWorker OF ")?;
+    let (message, output) = rest.split_once(" TO ")?;
+    Some((THREAD_WORKER_TYPE, message, output))
 }
 
 fn split_top_level_types(params: &str) -> Vec<String> {

@@ -706,6 +706,24 @@ pub(crate) fn lower_module_for_platform(
     {
         runtime_symbols.push("_mfb_rt_fs_fs_writeBytes".to_string());
     }
+    if runtime_symbols
+        .iter()
+        .any(|symbol| symbol == "_mfb_rt_thread_thread_receive")
+        && !runtime_symbols
+            .iter()
+            .any(|symbol| symbol == "_mfb_rt_thread_thread_read")
+    {
+        runtime_symbols.push("_mfb_rt_thread_thread_read".to_string());
+    }
+    if runtime_symbols
+        .iter()
+        .any(|symbol| symbol == "_mfb_rt_thread_thread_send")
+        && !runtime_symbols
+            .iter()
+            .any(|symbol| symbol == "_mfb_rt_thread_thread_emit")
+    {
+        runtime_symbols.push("_mfb_rt_thread_thread_emit".to_string());
+    }
     for symbol in &runtime_symbols {
         code_functions.push(lower_runtime_helper(symbol, &platform_imports, platform)?);
     }
@@ -2477,6 +2495,7 @@ fn package_collection_type_code(
         | Some(bytecode::NativePackageTypeInfo::Union) => Ok(COLLECTION_TYPE_OBJECT),
         Some(bytecode::NativePackageTypeInfo::Result { .. })
         | Some(bytecode::NativePackageTypeInfo::Thread { .. })
+        | Some(bytecode::NativePackageTypeInfo::ThreadWorker { .. })
         | Some(bytecode::NativePackageTypeInfo::Function)
         | Some(bytecode::NativePackageTypeInfo::Resource) => Err(format!(
             "package export '{}' collection payload type id {type_id} is not supported",
@@ -2655,6 +2674,7 @@ fn emit_package_default_value(
         | Some(bytecode::NativePackageTypeInfo::Union)
         | Some(bytecode::NativePackageTypeInfo::Result { .. })
         | Some(bytecode::NativePackageTypeInfo::Thread { .. })
+        | Some(bytecode::NativePackageTypeInfo::ThreadWorker { .. })
         | Some(bytecode::NativePackageTypeInfo::Function)
         | Some(bytecode::NativePackageTypeInfo::Resource) => Err(format!(
             "package export '{}' cannot materialize default value for type id {type_id}",

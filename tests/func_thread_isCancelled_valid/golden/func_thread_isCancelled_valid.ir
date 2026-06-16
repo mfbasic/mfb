@@ -15,13 +15,13 @@
     "visibility": "export",
     "kind": "func",
     "params": [
-    { "name": "t", "type": "Thread OF Nothing TO Integer", "default": null },
+    { "name": "t", "type": "ThreadWorker OF Nothing TO Integer", "default": null },
     { "name": "seed", "type": "Integer", "default": null }
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "mutable": false, "name": "first", "type": "Boolean", "value": { "kind": "call", "target": "thread.isCancelled", "args": [] } },
-    { "op": "bind", "mutable": false, "name": "second", "type": "Boolean", "value": { "kind": "call", "target": "thread.isCancelled", "args": [] } },
+    { "op": "bind", "mutable": false, "name": "first", "type": "Boolean", "value": { "kind": "call", "target": "thread.isCancelled", "args": [{ "kind": "local", "name": "t" }] } },
+    { "op": "bind", "mutable": false, "name": "second", "type": "Boolean", "value": { "kind": "call", "target": "thread.isCancelled", "args": [{ "kind": "local", "name": "t" }] } },
     { "op": "return", "value": { "kind": "local", "name": "seed" } }
     ]
   },

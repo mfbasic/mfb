@@ -3,39 +3,12 @@ IMPORT thread
 IMPORT thread_runtime_workers
 
 FUNC main AS Integer
-  LET counts AS Thread OF String TO Integer = thread::start(thread_runtime_workers::countWorker, "count")
-  LET letters AS Thread OF String TO Integer = thread::start(thread_runtime_workers::alphabetWorker, "alpha")
+  LET left AS Thread OF String TO String = thread::start(thread_runtime_workers::readFileText, "tests/thread-fs-read-return/data/input.txt")
+  LET right AS Thread OF String TO String = thread::start(thread_runtime_workers::readTextPath, "tests/thread-fs-readtext-return/data/input.txt")
 
-  LET hasCount1 AS Boolean = thread::poll(counts, 10)
-  LET count1 AS String = thread::read(counts)
-  io::print("count:" & count1)
-  thread::send(counts, "next")
-  LET hasLetter1 AS Boolean = thread::poll(letters, 10)
-  LET letter1 AS String = thread::read(letters)
-  io::print("letter:" & letter1)
-  thread::send(letters, "next")
-
-  LET hasCount2 AS Boolean = thread::poll(counts, 10)
-  LET count2 AS String = thread::read(counts)
-  io::print("count:" & count2)
-  thread::send(counts, "next")
-  LET hasLetter2 AS Boolean = thread::poll(letters, 10)
-  LET letter2 AS String = thread::read(letters)
-  io::print("letter:" & letter2)
-  thread::send(letters, "next")
-
-  LET hasCount3 AS Boolean = thread::poll(counts, 10)
-  LET count3 AS String = thread::read(counts)
-  io::print("count:" & count3)
-  LET hasLetter3 AS Boolean = thread::poll(letters, 10)
-  LET letter3 AS String = thread::read(letters)
-  io::print("letter:" & letter3)
-
-  thread::send(counts, "done")
-  thread::send(letters, "done")
-  thread::cancel(counts)
-  thread::cancel(letters)
-  LET countResult AS Integer = thread::waitFor(counts)
-  LET letterResult AS Integer = thread::waitFor(letters)
-  RETURN countResult - letterResult
+  LET leftText AS String = thread::waitFor(left)
+  LET rightText AS String = thread::waitFor(right)
+  io::print(leftText)
+  io::print(rightText)
+  RETURN 0
 END FUNC

@@ -345,9 +345,10 @@ Runtime collection storage is specified in `specifications/memory_layouts.md`.
 
 ```basic
 Thread OF Msg TO Out                 ' isolated running or completed thread
+ThreadWorker OF Msg TO Out           ' worker-side view of the same thread
 ```
 
-`Thread` is a built-in template for opaque handles to running or completed package instances. `Msg` is the message type used by `thread::send` and `thread::read`; `Out` is the thread entry function's success type. A completed thread exposes `result AS Result OF Out` for field access as `t.result`.
+`Thread` and `ThreadWorker` are built-in templates for opaque handles to the same underlying package worker. `Thread` is the parent-side handle. `ThreadWorker` is the worker-side handle passed into the thread entry function. `Msg` is the message type used by `thread::send` and `thread::receive`; `Out` is the thread entry function's success type. A completed parent `Thread` exposes `result AS Result OF Out` for field access as `t.result`.
 
 ### 4.9 Type Inference
 
@@ -1059,13 +1060,13 @@ IMPORT workers
 IMPORT thread
 
 ' workers/jobs.mfb
-' EXPORT ISOLATED FUNC parseFile(thread AS Thread OF Nothing TO Integer, path AS String) AS Integer
+' EXPORT ISOLATED FUNC parseFile(worker AS ThreadWorker OF String TO Integer, path AS String) AS Integer
 
 LET t = thread::start(workers::parseFile, "data.csv")
 
 WHILE thread::isRunning(t)
   IF thread::poll(t, 10) THEN
-    LET message = thread::read(t)
+    LET message = thread::receive(t)
     io::print(message)
   END IF
 WEND
@@ -1076,7 +1077,7 @@ io::print("Parsed " & toString(count) & " records")
 
 Rules:
 
-- A thread entry point must have type `ISOLATED FUNC(Thread OF Msg TO Out, In) AS Out`. The thread handle is passed as the first argument by the runtime when the worker starts.
+- A thread entry point must have type `ISOLATED FUNC(ThreadWorker OF Msg TO Out, In) AS Out`. The worker handle is passed as the first argument by the runtime when the worker starts.
 - A thread entry point must be an exported `ISOLATED FUNC` from an imported package. Starting a function from the current package is a compile error.
 - A thread entry point must not be a `SUB`.
 - A thread entry point must not be a closure or lambda. It must be a named package function.
@@ -1090,27 +1091,27 @@ Rules:
 The `thread` package exposes:
 
 ```basic
-thread::start OF In, Msg, Out(f AS ISOLATED FUNC(Thread OF Msg TO Out, In) AS Out, data AS In, inboundLimit AS Integer = 64, outboundLimit AS Integer = 64) AS Thread OF Msg TO Out
+thread::start OF In, Msg, Out(f AS ISOLATED FUNC(ThreadWorker OF Msg TO Out, In) AS Out, data AS In, inboundLimit AS Integer = 64, outboundLimit AS Integer = 64) AS Thread OF Msg TO Out
 thread::isRunning OF Msg, Out(t AS Thread OF Msg TO Out) AS Boolean
 thread::waitFor OF Msg, Out(t AS Thread OF Msg TO Out) AS Out
 thread::cancel OF Msg, Out(t AS Thread OF Msg TO Out) AS Nothing
 thread::send OF Msg, Out(t AS Thread OF Msg TO Out, data AS Msg, timeoutMs AS Integer = 0) AS Nothing
 thread::poll OF Msg, Out(t AS Thread OF Msg TO Out, ms AS Integer) AS Boolean
-thread::read OF Msg, Out(t AS Thread OF Msg TO Out) AS Msg
 thread::receive OF Msg, Out(t AS Thread OF Msg TO Out, timeoutMs AS Integer = 0) AS Msg
-thread::emit OF Msg, Out(t AS Thread OF Msg TO Out, data AS Msg, timeoutMs AS Integer = 0) AS Nothing
-thread::isCancelled() AS Boolean
+thread::send OF Msg, Out(t AS ThreadWorker OF Msg TO Out, data AS Msg, timeoutMs AS Integer = 0) AS Nothing
+thread::receive OF Msg, Out(t AS ThreadWorker OF Msg TO Out, timeoutMs AS Integer = 0) AS Msg
+thread::isCancelled OF Msg, Out(t AS ThreadWorker OF Msg TO Out) AS Boolean
 ```
 
-Thread functions are ordinary built-in templates. Their `Msg` and `Out` parameters are resolved by the template rules in §3 from argument types and expected result types. `thread::start` gets `Msg` and `Out` from the started function's first `Thread OF Msg TO Out` parameter, and gets `In` from the started function's second parameter and the `data` argument. If a thread does not exchange messages, `Msg` may be `Nothing`.
+Thread functions are ordinary built-in templates. Their `Msg` and `Out` parameters are resolved by the template rules in §3 from argument types and expected result types. `thread::start` gets `Msg` and `Out` from the started function's first `ThreadWorker OF Msg TO Out` parameter, and gets `In` from the started function's second parameter and the `data` argument. If a thread does not exchange messages, `Msg` may be `Nothing`.
 
-Each thread has a bounded inbound queue and bounded outbound queue. `thread::start` rejects limits less than `1` with `ErrInvalidArgument`. `thread::send` sends a value to the worker's inbound queue; `thread::receive` reads from that queue through the worker's thread handle and is valid only inside the running worker. `thread::emit` sends through the worker's thread handle to the parent-visible outbound queue and is valid only inside the running worker. `thread::poll` waits up to `ms` milliseconds for an outbound message from the worker and returns `TRUE` when `thread::read` can read without blocking. `thread::read` reads the next outbound message. Reading with no available message fails with `ErrNotFound`.
+Each thread has a bounded inbound queue and bounded outbound queue. `thread::start` rejects limits less than `1` with `ErrInvalidArgument`. `thread::send(Thread, ...)` sends a value to the worker inbound queue. `thread::receive(ThreadWorker, ...)` reads from that inbound queue and is valid only inside the running worker. `thread::send(ThreadWorker, ...)` sends to the parent-visible outbound queue. `thread::poll` waits up to `ms` milliseconds for an outbound message from the worker and returns `TRUE` when `thread::receive(Thread, ...)` can read without blocking. `thread::receive(Thread, ...)` reads the next outbound message. Reading with no available message fails with `ErrNotFound`.
 
 For queue operations, `timeoutMs = 0` means do not wait. A positive timeout waits up to that many milliseconds for space or data. Sending to a full queue or receiving from an empty queue after the timeout fails with `ErrTimeout`. Negative timeouts are invalid.
 
-`thread::cancel` requests cooperative cancellation. It does not kill the worker immediately. The worker observes cancellation with `thread::isCancelled()` and should return or fail promptly. After cancellation is requested, new `thread::send` calls fail with `ErrInterrupted`; unread inbound messages may be discarded. Outbound messages already emitted remain readable until drained.
+`thread::cancel` requests cooperative cancellation. It does not kill the worker immediately. The worker observes cancellation with `thread::isCancelled(t)` and should return or fail promptly. After cancellation is requested, new parent-side `thread::send` calls fail with `ErrInterrupted`; unread inbound messages may be discarded. Outbound messages already sent by the worker remain readable until drained.
 
-When a thread ends, its inbound queue is closed and further sends fail. Its outbound queue remains readable until drained; after it is empty, `thread::poll` returns `FALSE` and `thread::read` fails with `ErrNotFound`. `thread::waitFor` may be called before or after draining messages and returns the stored result. Dropping a completed `Thread` handle releases all remaining queued messages. Dropping a running `Thread` handle requests cancellation and detaches the worker; the runtime must reclaim the worker when it exits, preventing zombie threads.
+When a thread ends, its inbound queue is closed and further parent-side sends fail. Its outbound queue remains readable until drained; after it is empty, `thread::poll` returns `FALSE` and `thread::receive(Thread, ...)` fails with `ErrNotFound`. `thread::waitFor` may be called before or after draining messages and returns the stored result. Dropping a completed `Thread` handle releases all remaining queued messages. Dropping a running `Thread` handle requests cancellation and detaches the worker; the runtime must reclaim the worker when it exits, preventing zombie threads.
 
 ---
 
@@ -1246,7 +1247,7 @@ Network: `net::lookup`, `net::connectTcp`, `net::listenTcp`, `net::accept`, `net
 Strings: `len`, `find`, `mid`, `replace`, `strings::trim`, `strings::trimStart`, `strings::trimEnd`, `strings::upper`, `strings::lower`, `strings::caseFold`, `strings::normalizeNfc`, `strings::graphemes`, `strings::startsWith`, `strings::endsWith`, `strings::contains`, `strings::split`, `strings::join`, `strings::byteLen`, `toString`, `toInt`, `toFloat`, `toFixed`, `toByte`, `isNumeric`, `&`.
 Regex: `regex::match`, `regex::find`, `regex::replace`.
 Collections: `forEach`, `transform`, `filter`, `reduce`, `sum`, `get`, `getOr`, `find`, `mid`, `replace`, `set`, `append`, `prepend`, `insert`, `removeAt`, `removeKey`, `keys`, `values`, `hasKey`, `contains`, `len`.
-Threads: `thread::start`, `thread::isRunning`, `thread::waitFor`, `thread::cancel`, `thread::send`, `thread::poll`, `thread::read`, `thread::receive`, `thread::emit`, `thread::isCancelled`.
+Threads: `thread::start`, `thread::isRunning`, `thread::waitFor`, `thread::cancel`, `thread::send`, `thread::poll`, `thread::receive`, `thread::isCancelled`.
 Math: `math::pi`, `math::piFixed`, `math::e`, `math::eFixed`, `math::abs`, `math::min`, `math::max`, `math::clamp`, `math::floor`, `math::ceil`, `math::round`, `math::sqrt`, `math::pow`, `math::exp`, `math::log`, `math::log10`, `math::sin`, `math::cos`, `math::tan`, `math::asin`, `math::acos`, `math::atan`, `math::atan2`.
 JSON: `json::parse`, `json::stringify`, `json::get`, `json::getOr`.
 Error codes: `errorCode::ErrInvalidArgument`, `errorCode::ErrNotFound`, and the other constants listed in the built-in error-code registry.

@@ -1,8 +1,8 @@
 IMPORT thread
 
-EXPORT ISOLATED FUNC worker(t AS Thread OF Nothing TO Integer, seed AS Integer) AS Integer
-  LET first AS Boolean = thread::isCancelled()
-  LET second AS Boolean = thread::isCancelled()
+EXPORT ISOLATED FUNC worker(t AS ThreadWorker OF Nothing TO Integer, seed AS Integer) AS Integer
+  LET first AS Boolean = thread::isCancelled(t)
+  LET second AS Boolean = thread::isCancelled(t)
   RETURN seed
 END FUNC
 

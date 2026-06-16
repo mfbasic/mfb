@@ -16,7 +16,7 @@ tests/func_thread_receive_invalid/src/main.mfb:6 error[2-203-0043 TYPE_UNKNOWN_V
    7 |   LET wrongThread AS String = thread::receive(1)
      | ^
 tests/func_thread_receive_invalid/src/main.mfb:7 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
-               Call to `thread.receive` has argument type(s) (Integer), expected Thread OF Msg TO Out, Integer.
+               Call to `thread.receive` has argument type(s) (Integer), expected Thread OF Msg TO Out or ThreadWorker OF Msg TO Out, Integer.
    5 |   LET t AS Thread OF String TO Integer = thread::start(thread_workers::echoText, "a", 1, 1)
    6 |   LET missing AS String = thread::receive()
    7 |   LET wrongThread AS String = thread::receive(1)
@@ -28,7 +28,7 @@ tests/func_thread_receive_invalid/src/main.mfb:7 error[2-203-0043 TYPE_UNKNOWN_V
    8 |   LET wrongTimeout AS String = thread::receive(t, "bad")
      | ^
 tests/func_thread_receive_invalid/src/main.mfb:8 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
-               Call to `thread.receive` has argument type(s) (Thread OF String TO Integer, String), expected Thread OF Msg TO Out, Integer.
+               Call to `thread.receive` has argument type(s) (Thread OF String TO Integer, String), expected Thread OF Msg TO Out or ThreadWorker OF Msg TO Out, Integer.
    6 |   LET missing AS String = thread::receive()
    7 |   LET wrongThread AS String = thread::receive(1)
    8 |   LET wrongTimeout AS String = thread::receive(t, "bad")
@@ -66,7 +66,7 @@ tests/func_thread_receive_invalid/src/main.mfb:6 error[2-203-0043 TYPE_UNKNOWN_V
    7 |   LET wrongThread AS String = thread::receive(1)
      | ^
 tests/func_thread_receive_invalid/src/main.mfb:7 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
-               Call to `thread.receive` has argument type(s) (Integer), expected Thread OF Msg TO Out, Integer.
+               Call to `thread.receive` has argument type(s) (Integer), expected Thread OF Msg TO Out or ThreadWorker OF Msg TO Out, Integer.
    5 |   LET t AS Thread OF String TO Integer = thread::start(thread_workers::echoText, "a", 1, 1)
    6 |   LET missing AS String = thread::receive()
    7 |   LET wrongThread AS String = thread::receive(1)
@@ -78,7 +78,7 @@ tests/func_thread_receive_invalid/src/main.mfb:7 error[2-203-0043 TYPE_UNKNOWN_V
    8 |   LET wrongTimeout AS String = thread::receive(t, "bad")
      | ^
 tests/func_thread_receive_invalid/src/main.mfb:8 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
-               Call to `thread.receive` has argument type(s) (Thread OF String TO Integer, String), expected Thread OF Msg TO Out, Integer.
+               Call to `thread.receive` has argument type(s) (Thread OF String TO Integer, String), expected Thread OF Msg TO Out or ThreadWorker OF Msg TO Out, Integer.
    6 |   LET missing AS String = thread::receive()
    7 |   LET wrongThread AS String = thread::receive(1)
    8 |   LET wrongTimeout AS String = thread::receive(t, "bad")

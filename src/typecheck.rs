@@ -31,6 +31,7 @@ enum Type {
     Result(Box<Type>),
     String,
     Thread(Box<Type>, Box<Type>),
+    ThreadWorker(Box<Type>, Box<Type>),
     User(String),
     Unknown,
 }
@@ -332,7 +333,7 @@ impl<'a> TypeChecker<'a> {
                     seen,
                 );
             }
-            Type::Thread(message, output) => {
+            Type::Thread(message, output) | Type::ThreadWorker(message, output) => {
                 self.validate_package_metadata_type(
                     file,
                     line,
@@ -3803,13 +3804,17 @@ impl<'a> TypeChecker<'a> {
         if let Some(success) = name.strip_prefix("Result OF ") {
             return Type::Result(Box::new(self.parse_type(success)));
         }
-        if let Some(rest) = name.strip_prefix("Thread OF ") {
-            if let Some((message, output)) = rest.split_once(" TO ") {
-                return Type::Thread(
+        if let Some((kind, message, output)) = builtins::thread::thread_parts(name) {
+            if kind == builtins::thread::THREAD_WORKER_TYPE {
+                return Type::ThreadWorker(
                     Box::new(self.parse_type(message)),
                     Box::new(self.parse_type(output)),
                 );
             }
+                return Type::Thread(
+                    Box::new(self.parse_type(message)),
+                    Box::new(self.parse_type(output)),
+                );
         }
         if let Some(rest) = name.strip_prefix("Map OF ") {
             if let Some((key, value)) = rest.split_once(" TO ") {
@@ -3870,6 +3875,13 @@ impl<'a> TypeChecker<'a> {
             (
                 Type::Thread(expected_message, expected_output),
                 Type::Thread(actual_message, actual_output),
+            ) => {
+                self.compatible(expected_message, actual_message)
+                    && self.compatible(expected_output, actual_output)
+            }
+            (
+                Type::ThreadWorker(expected_message, expected_output),
+                Type::ThreadWorker(actual_message, actual_output),
             ) => {
                 self.compatible(expected_message, actual_message)
                     && self.compatible(expected_output, actual_output)
@@ -3967,7 +3979,8 @@ impl<'a> TypeChecker<'a> {
             | Type::Map(_, _)
             | Type::Function { .. }
             | Type::Result(_)
-            | Type::Thread(_, _) => false,
+            | Type::Thread(_, _)
+            | Type::ThreadWorker(_, _) => false,
             Type::User(name) => {
                 if builtins::is_resource_type(name) || !seen.insert(name.clone()) {
                     return false;
@@ -4019,8 +4032,8 @@ impl<'a> TypeChecker<'a> {
 
     fn thread_argument_mode(&self, callee: &str, index: usize) -> ExprMode {
         match (callee, index) {
-            ("thread.start", 1) | ("thread.send", 1) | ("thread.emit", 1) => ExprMode::Transfer,
-            ("thread.start", _) | ("thread.send", _) | ("thread.emit", _) => ExprMode::Borrow,
+            ("thread.start", 1) | ("thread.send", 1) => ExprMode::Transfer,
+            ("thread.start", _) | ("thread.send", _) => ExprMode::Borrow,
             _ => ExprMode::Borrow,
         }
     }
@@ -4074,7 +4087,7 @@ impl<'a> TypeChecker<'a> {
         seen: &mut HashSet<String>,
     ) -> bool {
         match type_ {
-            Type::Thread(_, _) => true,
+            Type::Thread(_, _) | Type::ThreadWorker(_, _) => true,
             Type::User(name) if builtins::is_resource_type(name) => true,
             Type::List(element) => self.contains_resource_or_thread_with_seen(element, seen),
             Type::Map(key, value) => {
@@ -4150,7 +4163,10 @@ impl<'a> TypeChecker<'a> {
                 self.is_defaultable_type_with_seen(key, seen)
                     && self.is_defaultable_type_with_seen(value, seen)
             }
-            Type::Function { .. } | Type::Result(_) | Type::Thread(_, _) => false,
+            Type::Function { .. }
+            | Type::Result(_)
+            | Type::Thread(_, _)
+            | Type::ThreadWorker(_, _) => false,
             Type::User(name) => {
                 if builtins::is_resource_type(name) {
                     return false;
@@ -4192,7 +4208,7 @@ impl<'a> TypeChecker<'a> {
             }
             Type::Result(success) => self.is_copyable_type_with_seen(success, seen),
             Type::Function { .. } => true,
-            Type::Thread(_, _) => false,
+            Type::Thread(_, _) | Type::ThreadWorker(_, _) => false,
             Type::User(name) => {
                 if builtins::is_resource_type(name) {
                     return false;
@@ -4259,7 +4275,7 @@ impl<'a> TypeChecker<'a> {
                 self.check_type_reference(file, return_type, line);
             }
             Type::Result(success) => self.check_type_reference(file, success, line),
-            Type::Thread(message, output) => {
+            Type::Thread(message, output) | Type::ThreadWorker(message, output) => {
                 self.check_type_reference(file, message, line);
                 self.check_type_reference(file, output, line);
             }
@@ -4327,6 +4343,13 @@ impl<'a> TypeChecker<'a> {
             Type::Thread(message, output) => {
                 format!(
                     "Thread OF {} TO {}",
+                    self.type_name(message),
+                    self.type_name(output)
+                )
+            }
+            Type::ThreadWorker(message, output) => {
+                format!(
+                    "ThreadWorker OF {} TO {}",
                     self.type_name(message),
                     self.type_name(output)
                 )

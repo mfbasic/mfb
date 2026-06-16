@@ -882,7 +882,7 @@ pub(crate) const FS_IS_WITHIN_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
 const THREAD_START_PARAMS: &[RuntimeAbiParam] = &[
     RuntimeAbiParam {
         name: "f",
-        type_: "ISOLATED FUNC(Thread OF Msg TO Out, In) AS Out",
+        type_: "ISOLATED FUNC(ThreadWorker OF Msg TO Out, In) AS Out",
         location: "x0",
     },
     RuntimeAbiParam {
@@ -942,6 +942,19 @@ const THREAD_POLL_PARAMS: &[RuntimeAbiParam] = &[
 const THREAD_RECEIVE_PARAMS: &[RuntimeAbiParam] = &[
     RuntimeAbiParam {
         name: "t",
+        type_: "ThreadWorker OF Msg TO Out",
+        location: "x0",
+    },
+    RuntimeAbiParam {
+        name: "timeoutMs",
+        type_: "Integer",
+        location: "x1",
+    },
+];
+
+const THREAD_PARENT_RECEIVE_PARAMS: &[RuntimeAbiParam] = &[
+    RuntimeAbiParam {
+        name: "t",
         type_: "Thread OF Msg TO Out",
         location: "x0",
     },
@@ -949,6 +962,24 @@ const THREAD_RECEIVE_PARAMS: &[RuntimeAbiParam] = &[
         name: "timeoutMs",
         type_: "Integer",
         location: "x1",
+    },
+];
+
+const THREAD_WORKER_SEND_PARAMS: &[RuntimeAbiParam] = &[
+    RuntimeAbiParam {
+        name: "t",
+        type_: "ThreadWorker OF Msg TO Out",
+        location: "x0",
+    },
+    RuntimeAbiParam {
+        name: "data",
+        type_: "Msg",
+        location: "x1",
+    },
+    RuntimeAbiParam {
+        name: "timeoutMs",
+        type_: "Integer",
+        location: "x2",
     },
 ];
 
@@ -1034,7 +1065,7 @@ pub(crate) const THREAD_RECEIVE_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
     call: "thread.receive",
     symbol: "_mfb_rt_thread_thread_receive",
     abi: RuntimeHelperAbi {
-        params: THREAD_RECEIVE_PARAMS,
+        params: THREAD_PARENT_RECEIVE_PARAMS,
         returns: "Msg",
         clobbers: abi::IO_PRINT_CLOBBERS,
     },
@@ -1045,7 +1076,7 @@ pub(crate) const THREAD_EMIT_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
     call: "thread.emit",
     symbol: "_mfb_rt_thread_thread_emit",
     abi: RuntimeHelperAbi {
-        params: THREAD_SEND_PARAMS,
+        params: THREAD_WORKER_SEND_PARAMS,
         returns: "Nothing",
         clobbers: abi::IO_PRINT_CLOBBERS,
     },
@@ -1056,7 +1087,7 @@ pub(crate) const THREAD_IS_CANCELLED_SPEC: RuntimeHelperSpec = RuntimeHelperSpec
     call: "thread.isCancelled",
     symbol: "_mfb_rt_thread_thread_isCancelled",
     abi: RuntimeHelperAbi {
-        params: &[],
+        params: THREAD_RECEIVE_PARAMS,
         returns: "Boolean",
         clobbers: abi::IO_PRINT_CLOBBERS,
     },

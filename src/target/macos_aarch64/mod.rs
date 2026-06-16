@@ -82,9 +82,7 @@ impl NativeBackend for Backend {
                 "thread.cancel",
                 "thread.send",
                 "thread.poll",
-                "thread.read",
                 "thread.receive",
-                "thread.emit",
                 "thread.isCancelled",
             ],
         }

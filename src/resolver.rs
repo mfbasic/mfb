@@ -853,12 +853,10 @@ impl<'a> Resolver<'a> {
             self.resolve_type_name(file, success, line, imports);
             return;
         }
-        if let Some(rest) = type_name.strip_prefix("Thread OF ") {
-            if let Some((message, output)) = rest.split_once(" TO ") {
-                self.resolve_type_name(file, message, line, imports);
-                self.resolve_type_name(file, output, line, imports);
-                return;
-            }
+        if let Some((_, message, output)) = crate::builtins::thread::thread_parts(type_name) {
+            self.resolve_type_name(file, message, line, imports);
+            self.resolve_type_name(file, output, line, imports);
+            return;
         }
         if let Some(rest) = type_name.strip_prefix("Map OF ") {
             if let Some((key, value)) = rest.split_once(" TO ") {

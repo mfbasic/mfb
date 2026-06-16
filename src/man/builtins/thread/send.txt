@@ -1,12 +1,15 @@
 NAME
-  send - send a message to a worker
+  send - send a message through a thread handle
 
 SYNOPSIS
   thread::send(t AS Thread OF Msg TO Out, data AS Msg, timeoutMs AS Integer = 0) AS Nothing
+  thread::send(t AS ThreadWorker OF Msg TO Out, data AS Msg, timeoutMs AS Integer = 0) AS Nothing
 
 DESCRIPTION
-  Sends data to the worker inbound queue. timeoutMs = 0 does not wait for queue
-  space. A positive timeout waits up to that many milliseconds.
+  Sends data through the queue selected by the handle type. Thread writes to
+  the worker inbound queue. ThreadWorker writes to the parent-visible outbound
+  queue. timeoutMs = 0 does not wait for queue space. A positive timeout waits
+  up to that many milliseconds.
 
   Fails with ErrInterrupted when the thread has ended or cancellation was
   requested. Fails with ErrTimeout when the timeout expires. Invalid timeout

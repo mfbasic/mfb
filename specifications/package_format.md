@@ -585,10 +585,11 @@ Type kinds:
 7  = Thread OF Msg TO Out
 8  = function type
 9  = native resource
-10 = standard resource
+10 = ThreadWorker OF Msg TO Out
+11 = standard resource
 ```
 
-There are no open template declarations in package bytecode. `List`, `Map`, `Result`, and `Thread` are compiler-owned templates, user templates are expanded by the source compiler, and the type table stores only concrete instantiations such as `List OF Integer`, `Result OF Vec3`, or a user-defined `Stack OF String`.
+There are no open template declarations in package bytecode. `List`, `Map`, `Result`, `Thread`, and `ThreadWorker` are compiler-owned templates, user templates are expanded by the source compiler, and the type table stores only concrete instantiations such as `List OF Integer`, `Result OF Vec3`, `ThreadWorker OF String TO Integer`, or a user-defined `Stack OF String`.
 
 ## Record payload
 
@@ -646,6 +647,13 @@ successType     typeId
 The error member type is always built-in `Error`. The success member `Ok OF T` is compiler-owned and is not emitted as a user-constructible open declaration.
 
 ## `Thread OF Msg TO Out` payload
+
+```text
+messageType     typeId
+outputType      typeId
+```
+
+## `ThreadWorker OF Msg TO Out` payload
 
 ```text
 messageType     typeId

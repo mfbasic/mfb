@@ -16,7 +16,7 @@ tests/func_thread_send_invalid/src/main.mfb:6 error[2-203-0043 TYPE_UNKNOWN_VALU
    7 |   LET wrongMessage AS Nothing = thread::send(t, 1)
      | ^
 tests/func_thread_send_invalid/src/main.mfb:7 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
-               Call to `thread.send` has argument type(s) (Thread OF String TO Integer, Integer), expected Thread OF Msg TO Out, Msg, Integer.
+               Call to `thread.send` has argument type(s) (Thread OF String TO Integer, Integer), expected Thread OF Msg TO Out or ThreadWorker OF Msg TO Out, Msg, Integer.
    5 |   LET t AS Thread OF String TO Integer = thread::start(thread_workers::echoText, "a", 1, 1)
    6 |   LET missing AS Nothing = thread::send()
    7 |   LET wrongMessage AS Nothing = thread::send(t, 1)
@@ -28,7 +28,7 @@ tests/func_thread_send_invalid/src/main.mfb:7 error[2-203-0043 TYPE_UNKNOWN_VALU
    8 |   LET wrongTimeout AS Nothing = thread::send(t, "b", "bad")
      | ^
 tests/func_thread_send_invalid/src/main.mfb:8 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
-               Call to `thread.send` has argument type(s) (Thread OF String TO Integer, String, String), expected Thread OF Msg TO Out, Msg, Integer.
+               Call to `thread.send` has argument type(s) (Thread OF String TO Integer, String, String), expected Thread OF Msg TO Out or ThreadWorker OF Msg TO Out, Msg, Integer.
    6 |   LET missing AS Nothing = thread::send()
    7 |   LET wrongMessage AS Nothing = thread::send(t, 1)
    8 |   LET wrongTimeout AS Nothing = thread::send(t, "b", "bad")
@@ -66,7 +66,7 @@ tests/func_thread_send_invalid/src/main.mfb:6 error[2-203-0043 TYPE_UNKNOWN_VALU
    7 |   LET wrongMessage AS Nothing = thread::send(t, 1)
      | ^
 tests/func_thread_send_invalid/src/main.mfb:7 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
-               Call to `thread.send` has argument type(s) (Thread OF String TO Integer, Integer), expected Thread OF Msg TO Out, Msg, Integer.
+               Call to `thread.send` has argument type(s) (Thread OF String TO Integer, Integer), expected Thread OF Msg TO Out or ThreadWorker OF Msg TO Out, Msg, Integer.
    5 |   LET t AS Thread OF String TO Integer = thread::start(thread_workers::echoText, "a", 1, 1)
    6 |   LET missing AS Nothing = thread::send()
    7 |   LET wrongMessage AS Nothing = thread::send(t, 1)
@@ -78,7 +78,7 @@ tests/func_thread_send_invalid/src/main.mfb:7 error[2-203-0043 TYPE_UNKNOWN_VALU
    8 |   LET wrongTimeout AS Nothing = thread::send(t, "b", "bad")
      | ^
 tests/func_thread_send_invalid/src/main.mfb:8 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
-               Call to `thread.send` has argument type(s) (Thread OF String TO Integer, String, String), expected Thread OF Msg TO Out, Msg, Integer.
+               Call to `thread.send` has argument type(s) (Thread OF String TO Integer, String, String), expected Thread OF Msg TO Out or ThreadWorker OF Msg TO Out, Msg, Integer.
    6 |   LET missing AS Nothing = thread::send()
    7 |   LET wrongMessage AS Nothing = thread::send(t, 1)
    8 |   LET wrongTimeout AS Nothing = thread::send(t, "b", "bad")

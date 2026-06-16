@@ -40,7 +40,7 @@ tests/func_thread_start_invalid/src/main.mfb:11 error[2-203-0043 TYPE_UNKNOWN_VA
   12 |   LET badStart AS Thread OF String TO Integer = thread::start(thread_workers::badNoHandle, "a")
      | ^
 tests/func_thread_start_invalid/src/main.mfb:12 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
-               Call to `thread.start` has argument type(s) (ISOLATED FUNC(String) AS Integer, String), expected ISOLATED FUNC(Thread OF Msg TO Out, In) AS Out, In, Integer, Integer.
+               Call to `thread.start` has argument type(s) (ISOLATED FUNC(String) AS Integer, String), expected ISOLATED FUNC(ThreadWorker OF Msg TO Out, In) AS Out, In, Integer, Integer.
   10 |   LET plainStart AS Thread OF String TO Integer = thread::start(thread_workers::plain, "a")
   11 |   LET subStart AS Thread OF String TO Integer = thread::start(thread_workers::helper, "a")
   12 |   LET badStart AS Thread OF String TO Integer = thread::start(thread_workers::badNoHandle, "a")
@@ -52,7 +52,7 @@ tests/func_thread_start_invalid/src/main.mfb:12 error[2-203-0043 TYPE_UNKNOWN_VA
   13 |   LET wrongData AS Thread OF String TO Integer = thread::start(thread_workers::echoText, 1)
      | ^
 tests/func_thread_start_invalid/src/main.mfb:13 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
-               Call to `thread.start` has argument type(s) (ISOLATED FUNC(Thread OF String TO Integer, String) AS Integer, Integer), expected ISOLATED FUNC(Thread OF Msg TO Out, In) AS Out, In, Integer, Integer.
+               Call to `thread.start` has argument type(s) (ISOLATED FUNC(ThreadWorker OF String TO Integer, String) AS Integer, Integer), expected ISOLATED FUNC(ThreadWorker OF Msg TO Out, In) AS Out, In, Integer, Integer.
   11 |   LET subStart AS Thread OF String TO Integer = thread::start(thread_workers::helper, "a")
   12 |   LET badStart AS Thread OF String TO Integer = thread::start(thread_workers::badNoHandle, "a")
   13 |   LET wrongData AS Thread OF String TO Integer = thread::start(thread_workers::echoText, 1)
@@ -114,7 +114,7 @@ tests/func_thread_start_invalid/src/main.mfb:11 error[2-203-0043 TYPE_UNKNOWN_VA
   12 |   LET badStart AS Thread OF String TO Integer = thread::start(thread_workers::badNoHandle, "a")
      | ^
 tests/func_thread_start_invalid/src/main.mfb:12 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
-               Call to `thread.start` has argument type(s) (ISOLATED FUNC(String) AS Integer, String), expected ISOLATED FUNC(Thread OF Msg TO Out, In) AS Out, In, Integer, Integer.
+               Call to `thread.start` has argument type(s) (ISOLATED FUNC(String) AS Integer, String), expected ISOLATED FUNC(ThreadWorker OF Msg TO Out, In) AS Out, In, Integer, Integer.
   10 |   LET plainStart AS Thread OF String TO Integer = thread::start(thread_workers::plain, "a")
   11 |   LET subStart AS Thread OF String TO Integer = thread::start(thread_workers::helper, "a")
   12 |   LET badStart AS Thread OF String TO Integer = thread::start(thread_workers::badNoHandle, "a")
@@ -126,7 +126,7 @@ tests/func_thread_start_invalid/src/main.mfb:12 error[2-203-0043 TYPE_UNKNOWN_VA
   13 |   LET wrongData AS Thread OF String TO Integer = thread::start(thread_workers::echoText, 1)
      | ^
 tests/func_thread_start_invalid/src/main.mfb:13 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
-               Call to `thread.start` has argument type(s) (ISOLATED FUNC(Thread OF String TO Integer, String) AS Integer, Integer), expected ISOLATED FUNC(Thread OF Msg TO Out, In) AS Out, In, Integer, Integer.
+               Call to `thread.start` has argument type(s) (ISOLATED FUNC(ThreadWorker OF String TO Integer, String) AS Integer, Integer), expected ISOLATED FUNC(ThreadWorker OF Msg TO Out, In) AS Out, In, Integer, Integer.
   11 |   LET subStart AS Thread OF String TO Integer = thread::start(thread_workers::helper, "a")
   12 |   LET badStart AS Thread OF String TO Integer = thread::start(thread_workers::badNoHandle, "a")
   13 |   LET wrongData AS Thread OF String TO Integer = thread::start(thread_workers::echoText, 1)

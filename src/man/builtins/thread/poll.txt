@@ -6,7 +6,7 @@ SYNOPSIS
 
 DESCRIPTION
   Waits up to ms milliseconds for an outbound message from the worker. Returns
-  TRUE when thread::read can read without blocking and FALSE when no message is
+  TRUE when thread::receive can read without blocking and FALSE when no message is
   available before the timeout expires.
 
 EXAMPLES

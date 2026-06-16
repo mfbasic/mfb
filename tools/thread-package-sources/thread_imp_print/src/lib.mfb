@@ -1,0 +1,5 @@
+IMPORT io
+
+EXPORT SUB printLine(message AS String)
+  io::print(message)
+END SUB

@@ -638,12 +638,12 @@ impl CodeBuilder<'_> {
             "thread.isRunning" | "thread.poll" | "thread.isCancelled" => {
                 Some("Boolean".to_string())
             }
-            "thread.cancel" | "thread.send" | "thread.emit" => Some("Nothing".to_string()),
+            "thread.cancel" | "thread.send" => Some("Nothing".to_string()),
             "thread.waitFor" => {
                 let thread_type = self.static_type_name(args.first()?)?;
                 builtins::thread::thread_output(&thread_type).map(str::to_string)
             }
-            "thread.read" | "thread.receive" => {
+            "thread.receive" => {
                 let thread_type = self.static_type_name(args.first()?)?;
                 builtins::thread::thread_message(&thread_type).map(str::to_string)
             }

@@ -13,13 +13,13 @@
       "name": "worker",
       "line": 3,
       "params": [
-      { "name": "t", "type": "Thread OF Nothing TO Integer", "default": null },
+      { "name": "t", "type": "ThreadWorker OF Nothing TO Integer", "default": null },
       { "name": "seed", "type": "Integer", "default": null }
       ],
       "returnType": "Integer",
       "body": [
-      { "kind": "binding", "mutable": false, "name": "first", "type": "Boolean", "value": { "kind": "call", "callee": "thread.isCancelled", "arguments": [] }, "line": 4 },
-      { "kind": "binding", "mutable": false, "name": "second", "type": "Boolean", "value": { "kind": "call", "callee": "thread.isCancelled", "arguments": [] }, "line": 5 },
+      { "kind": "binding", "mutable": false, "name": "first", "type": "Boolean", "value": { "kind": "call", "callee": "thread.isCancelled", "arguments": [{ "kind": "identifier", "value": "t" }] }, "line": 4 },
+      { "kind": "binding", "mutable": false, "name": "second", "type": "Boolean", "value": { "kind": "call", "callee": "thread.isCancelled", "arguments": [{ "kind": "identifier", "value": "t" }] }, "line": 5 },
       { "kind": "return", "value": { "kind": "identifier", "value": "seed" }, "line": 6 }
       ]
     },

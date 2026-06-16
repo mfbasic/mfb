@@ -18,7 +18,7 @@
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "mutable": false, "name": "t", "type": "Thread OF String TO String", "value": { "kind": "call", "target": "thread.start", "args": [{ "kind": "functionRef", "name": "thread_runtime_workers.readFileText", "type": "ISOLATED FUNC(Thread OF String TO String, String) AS String" }, { "kind": "const", "type": "String", "value": "tests/thread-fs-read-return/data/input.txt" }] } },
+    { "op": "bind", "mutable": false, "name": "t", "type": "Thread OF String TO String", "value": { "kind": "call", "target": "thread.start", "args": [{ "kind": "functionRef", "name": "thread_runtime_workers.readFileText", "type": "ISOLATED FUNC(ThreadWorker OF String TO String, String) AS String" }, { "kind": "const", "type": "String", "value": "tests/thread-fs-read-return/data/input.txt" }] } },
     { "op": "bind", "mutable": false, "name": "content", "type": "String", "value": { "kind": "call", "target": "thread.waitFor", "args": [{ "kind": "local", "name": "t" }] } },
     { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "local", "name": "content" }] } },
     { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
