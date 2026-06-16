@@ -74,7 +74,7 @@ REQUIREMENT: Registry-backed package add/resolution
 SPECIFICATION: specifications/repository.md @ §1 Naming & Identity Model and §8 Dependency Version Resolution
 `mfb pkg add` only supports absolute `file://` `.mfp` URLs, while the registry design requires adding by package name or `<owner>#package[@version]`, resolving ABI-compatible versions, fetching by content hash, honoring release states, and writing lockfile entries. Resolve by implementing registry source configuration, signed index/log verification, ABI-index resolution, content-addressed fetch/cache, and deterministic lockfile writes.
 
-REQUIREMENT: Lexical line continuation
+[FIXED] REQUIREMENT: Lexical line continuation
 SPECIFICATION: specifications/mfbasic.md @ §2 Lexical Structure
 The spec allows trailing `_` to continue a statement onto the next line, but the lexer treats `_` as an identifier and always emits the newline. Resolve by teaching the lexer to recognize `_` only when it is the trailing non-whitespace character before a newline, suppress the newline token, and keep ordinary `_` identifiers available for pipeline placeholders.
 

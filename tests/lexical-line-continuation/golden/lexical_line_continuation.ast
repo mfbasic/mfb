@@ -1,0 +1,29 @@
+{
+  "project": "lexical_line_continuation",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 }
+    ],
+    "items": [
+    {
+      "kind": "sub",
+      "visibility": "private",
+      "name": "main",
+      "line": 3,
+      "params": [
+      ],
+      "returnType": null,
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "msg", "type": "String", "value": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "hello " }, "right": { "kind": "string", "value": "world" } }, "line": 4 },
+      { "kind": "binding", "mutable": false, "name": "nums", "type": "List OF Integer", "value": { "kind": "list", "values": [{ "kind": "number", "value": "1" }, { "kind": "number", "value": "2" }, { "kind": "number", "value": "3" }] }, "line": 6 },
+      { "kind": "binding", "mutable": false, "name": "total", "type": "Integer", "value": { "kind": "call", "callee": "sum", "arguments": [{ "kind": "identifier", "value": "nums" }] }, "line": 7 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "identifier", "value": "msg" }] }, "line": 8 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "total" }] }] }, "line": 9 }
+      ]
+    }
+    ]
+  }
+  ]
+}

@@ -140,7 +140,12 @@ impl Lexer<'_> {
                 '\'' => self.skip_line_comment(),
                 '"' => self.lex_string(),
                 '0'..='9' => self.lex_number(),
-                'A'..='Z' | 'a'..='z' | '_' => self.lex_identifier_or_keyword(),
+                'A'..='Z' | 'a'..='z' => self.lex_identifier_or_keyword(),
+                '_' => {
+                    if !self.lex_line_continuation() {
+                        self.lex_identifier_or_keyword();
+                    }
+                }
                 '.' => self.push_and_advance(TokenKind::Dot),
                 ',' => self.push_and_advance(TokenKind::Comma),
                 ':' => {
@@ -356,6 +361,30 @@ impl Lexer<'_> {
         });
     }
 
+    fn lex_line_continuation(&mut self) -> bool {
+        if self.peek() != '_' {
+            return false;
+        }
+
+        let mut lookahead = self.index + 1;
+        while let Some(ch) = self.chars.get(lookahead).copied() {
+            match ch {
+                ' ' | '\t' | '\r' => lookahead += 1,
+                '\n' => {
+                    self.advance();
+                    while self.index < lookahead {
+                        self.advance();
+                    }
+                    self.advance_line();
+                    return true;
+                }
+                _ => return false,
+            }
+        }
+
+        false
+    }
+
     fn skip_line_comment(&mut self) {
         while !self.is_at_end() && self.peek() != '\n' {
             self.advance();
@@ -509,4 +538,49 @@ fn keyword(value: &str) -> Option<Keyword> {
 
 fn is_identifier_continue(ch: char) -> bool {
     ch.is_ascii_alphanumeric() || ch == '_'
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn trailing_underscore_continues_line_without_newline_token() {
+        let tokens = lex(
+            Path::new("main.mfb"),
+            "LET msg = \"hello \" & _\n          \"world\"\n",
+        )
+        .expect("lex source");
+
+        assert_eq!(
+            tokens.iter().map(|token| &token.kind).collect::<Vec<_>>(),
+            vec![
+                &TokenKind::Keyword(Keyword::Let),
+                &TokenKind::Identifier("msg".to_string()),
+                &TokenKind::Equal,
+                &TokenKind::String("hello ".to_string()),
+                &TokenKind::Ampersand,
+                &TokenKind::String("world".to_string()),
+                &TokenKind::Newline,
+                &TokenKind::Eof,
+            ]
+        );
+    }
+
+    #[test]
+    fn underscore_identifier_remains_available_when_not_trailing() {
+        let tokens = lex(Path::new("main.mfb"), "sum(_)\n").expect("lex source");
+
+        assert_eq!(
+            tokens.iter().map(|token| &token.kind).collect::<Vec<_>>(),
+            vec![
+                &TokenKind::Identifier("sum".to_string()),
+                &TokenKind::LParen,
+                &TokenKind::Identifier("_".to_string()),
+                &TokenKind::RParen,
+                &TokenKind::Newline,
+                &TokenKind::Eof,
+            ]
+        );
+    }
 }
