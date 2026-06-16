@@ -192,6 +192,8 @@ These codes correspond to `src/rules.rs` and are emitted directly by the compile
 | `2-203-0055` | `TYPE_USE_AFTER_MOVE` | error | `binding is used after move` |
 | `2-203-0056` | `TYPE_COLLECTION_OWNERSHIP_VIOLATION` | error | `ordinary collections cannot store resource or thread ownership` |
 | `2-203-0057` | `TYPE_DOUBLE_DROP_PATH` | error | `control flow could drop the same owned value more than once` |
+| `2-203-0058` | `TYPE_DUPLICATE_ARGUMENT_NAME` | error | `call argument is supplied more than once` |
+| `2-203-0059` | `TYPE_UNKNOWN_ARGUMENT_NAME` | error | `call argument name does not match any parameter` |
 
 ## Toolchain and Package Diagnostics
 

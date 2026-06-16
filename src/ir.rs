@@ -1,6 +1,7 @@
 use crate::ast::{
-    AstProject, ConstructorArg, EnumMember, Expression, Function, FunctionKind, Item, MatchCase,
-    MatchPattern, Param, Statement, TypeDecl, TypeDeclKind, TypeField, UnionVariant, Visibility,
+    AstProject, CallArg, ConstructorArg, EnumMember, Expression, Function, FunctionKind, Item,
+    MatchCase, MatchPattern, Param, Statement, TypeDecl, TypeDeclKind, TypeField, UnionVariant,
+    Visibility,
 };
 use crate::builtins;
 use crate::json_string;
@@ -214,14 +215,22 @@ pub(crate) struct IrRecordUpdate {
     pub(crate) value: IrValue,
 }
 
+#[derive(Clone)]
+pub struct ExternalFunctionParam {
+    pub name: String,
+    pub type_: String,
+    pub has_default: bool,
+}
+
 pub fn lower_project(ast: &AstProject, entry: Option<EntryPoint>) -> IrProject {
-    lower_project_with_external_functions(ast, entry, &HashMap::new())
+    lower_project_with_external_functions(ast, entry, &HashMap::new(), &HashMap::new())
 }
 
 pub fn lower_project_with_external_functions(
     ast: &AstProject,
     entry: Option<EntryPoint>,
     external_function_types: &HashMap<String, String>,
+    external_function_params: &HashMap<String, Vec<ExternalFunctionParam>>,
 ) -> IrProject {
     let augmented = builtins::json::augmented_project(ast)
         .expect("built-in json package source must parse");
@@ -230,7 +239,22 @@ pub fn lower_project_with_external_functions(
     let mut functions = Vec::new();
     let mut function_returns = function_returns(ast);
     let mut function_types = function_types(ast);
+    let mut function_params = function_params(ast);
     function_types.extend(external_function_types.clone());
+    for (name, params) in external_function_params {
+        function_params.insert(
+            name.clone(),
+            params
+                .iter()
+                .map(|param| CallParam {
+                    name: param.name.clone(),
+                    type_: param.type_.clone(),
+                    default: None,
+                    has_default: param.has_default,
+                })
+                .collect(),
+        );
+    }
     for (name, type_) in external_function_types {
         if let Some(return_type) = function_return_from_type(type_) {
             function_returns.insert(name.clone(), return_type);
@@ -240,6 +264,7 @@ pub fn lower_project_with_external_functions(
     let mut context = LowerContext {
         function_returns: &function_returns,
         function_types: &function_types,
+        function_params: &function_params,
         type_index: &type_index,
         current_imports: HashMap::new(),
         lambdas: Vec::new(),
@@ -394,11 +419,20 @@ fn lower_param(
 struct LowerContext<'a> {
     function_returns: &'a HashMap<String, String>,
     function_types: &'a HashMap<String, String>,
+    function_params: &'a HashMap<String, Vec<CallParam>>,
     type_index: &'a TypeIndex,
     current_imports: HashMap<String, String>,
     lambdas: Vec<IrFunction>,
     next_lambda_id: usize,
     next_temp_id: usize,
+}
+
+#[derive(Clone)]
+struct CallParam {
+    name: String,
+    type_: String,
+    default: Option<Expression>,
+    has_default: bool,
 }
 
 #[derive(Clone)]
@@ -854,9 +888,10 @@ fn lower_match_expression(
 ) -> IrValue {
     if matched_type.starts_with("Result OF ") {
         if let Expression::Call { callee, arguments } = expression {
-            let args = if callee == "filter" && arguments.len() == 2 {
-                if let Expression::Identifier(predicate) = &arguments[1] {
-                    let predicate_type = expression_type(&arguments[0], locals, context).and_then(
+            let normalized_builtin = normalize_builtin_call_arguments(callee, arguments);
+            let args = if callee == "filter" && normalized_builtin.len() == 2 {
+                if let Expression::Identifier(predicate) = normalized_builtin[1] {
+                    let predicate_type = expression_type(normalized_builtin[0], locals, context).and_then(
                         |collection_type| {
                             collection_type
                                 .strip_prefix("List OF ")
@@ -867,26 +902,52 @@ fn lower_match_expression(
                     );
                     if let Some(predicate_type) = predicate_type {
                         vec![
-                            lower_expression(&arguments[0], locals, context),
+                            lower_expression(normalized_builtin[0], locals, context),
                             IrValue::FunctionRef {
                                 name: predicate.clone(),
                                 type_: predicate_type,
                             },
                         ]
                     } else {
-                        arguments
+                        normalized_builtin
                             .iter()
                             .map(|argument| lower_expression(argument, locals, context))
                             .collect()
                     }
                 } else {
-                    arguments
+                    normalized_builtin
                         .iter()
                         .map(|argument| lower_expression(argument, locals, context))
                         .collect()
                 }
+            } else if context.function_params.contains_key(callee)
+                || context
+                    .function_params
+                    .contains_key(&canonical_import_name(callee, context))
+            {
+                normalize_local_call_arguments(callee, arguments, context)
+                    .into_iter()
+                    .enumerate()
+                    .filter_map(|(index, argument)| {
+                        let expected = call_argument_expected_type(
+                            callee,
+                            index,
+                            arguments,
+                            locals,
+                            context,
+                        );
+                        argument.map(|argument| {
+                            lower_expression_with_expected(
+                                argument,
+                                expected.as_deref(),
+                                locals,
+                                context,
+                            )
+                        })
+                    })
+                    .collect()
             } else {
-                arguments
+                normalized_builtin
                     .iter()
                     .enumerate()
                     .map(|(index, argument)| {
@@ -992,6 +1053,33 @@ fn function_types(ast: &AstProject) -> HashMap<String, String> {
     types
 }
 
+fn function_params(ast: &AstProject) -> HashMap<String, Vec<CallParam>> {
+    let mut params = HashMap::new();
+    for file in &ast.files {
+        for item in &file.items {
+            if let Item::Function(function) = item {
+                params.insert(
+                    function.name.clone(),
+                    function
+                        .params
+                        .iter()
+                        .map(|param| CallParam {
+                            name: param.name.clone(),
+                            type_: param
+                                .type_name
+                                .clone()
+                                .expect("typecheck requires parameter type before IR lowering"),
+                            default: param.default.clone(),
+                            has_default: param.default.is_some(),
+                        })
+                        .collect(),
+                );
+            }
+        }
+    }
+    params
+}
+
 fn expression_type(
     expression: &Expression,
     locals: &HashMap<String, String>,
@@ -1075,10 +1163,11 @@ fn expression_type(
         Expression::Call { callee, arguments } => {
             let canonical_callee = canonical_import_name(callee, context);
             if builtins::general::is_general_call(&canonical_callee) {
-                if callee == "filter" && arguments.len() == 2 {
-                    if let Expression::Identifier(predicate) = &arguments[1] {
+                let normalized = normalize_builtin_call_arguments(canonical_callee.as_str(), arguments);
+                if callee == "filter" && normalized.len() == 2 {
+                    if let Expression::Identifier(predicate) = normalized[1] {
                         if let Some(collection_type) =
-                            expression_type(&arguments[0], locals, context)
+                            expression_type(normalized[0], locals, context)
                         {
                             if let Some(predicate_type) = collection_type
                                 .strip_prefix("List OF ")
@@ -1093,7 +1182,7 @@ fn expression_type(
                         }
                     }
                 }
-                let arg_types = arguments
+                let arg_types = normalized
                     .iter()
                     .map(|argument| expression_type(argument, locals, context))
                     .collect::<Option<Vec<_>>>()?;
@@ -1101,7 +1190,7 @@ fn expression_type(
                     .map(|resolved| resolved.return_type.to_string());
             }
             if builtins::strings::is_strings_call(&canonical_callee) {
-                let arg_types = arguments
+                let arg_types = normalize_builtin_call_arguments(canonical_callee.as_str(), arguments)
                     .iter()
                     .map(|argument| expression_type(argument, locals, context))
                     .collect::<Option<Vec<_>>>()?;
@@ -1109,7 +1198,7 @@ fn expression_type(
                     .map(|resolved| resolved.return_type.to_string());
             }
             if builtins::math::is_math_call(&canonical_callee) {
-                let arg_types = arguments
+                let arg_types = normalize_builtin_call_arguments(canonical_callee.as_str(), arguments)
                     .iter()
                     .map(|argument| expression_type(argument, locals, context))
                     .collect::<Option<Vec<_>>>()?;
@@ -1117,7 +1206,7 @@ fn expression_type(
                     .map(|resolved| resolved.return_type.to_string());
             }
             if builtins::fs::is_fs_call(&canonical_callee) {
-                let arg_types = arguments
+                let arg_types = normalize_builtin_call_arguments(canonical_callee.as_str(), arguments)
                     .iter()
                     .map(|argument| expression_type(argument, locals, context))
                     .collect::<Option<Vec<_>>>()?;
@@ -1125,7 +1214,7 @@ fn expression_type(
                     .map(|resolved| resolved.return_type.to_string());
             }
             if builtins::io::is_io_call(&canonical_callee) {
-                let arg_types = arguments
+                let arg_types = normalize_builtin_call_arguments(canonical_callee.as_str(), arguments)
                     .iter()
                     .map(|argument| expression_type(argument, locals, context))
                     .collect::<Option<Vec<_>>>()?;
@@ -1133,7 +1222,7 @@ fn expression_type(
                     .map(|resolved| resolved.return_type.to_string());
             }
             if builtins::json::is_json_call(&canonical_callee) {
-                let arg_types = arguments
+                let arg_types = normalize_builtin_call_arguments(canonical_callee.as_str(), arguments)
                     .iter()
                     .map(|argument| expression_type(argument, locals, context))
                     .collect::<Option<Vec<_>>>()?;
@@ -1141,7 +1230,7 @@ fn expression_type(
                     .map(|resolved| resolved.return_type.to_string());
             }
             if builtins::thread::is_thread_call(&canonical_callee) {
-                let arg_types = arguments
+                let arg_types = normalize_builtin_call_arguments(canonical_callee.as_str(), arguments)
                     .iter()
                     .map(|argument| expression_type(argument, locals, context))
                     .collect::<Option<Vec<_>>>()?;
@@ -1234,7 +1323,7 @@ fn canonical_import_name(name: &str, context: &LowerContext<'_>) -> String {
 fn call_argument_expected_type(
     callee: &str,
     index: usize,
-    arguments: &[Expression],
+    arguments: &[CallArg],
     locals: &HashMap<String, String>,
     context: &LowerContext<'_>,
 ) -> Option<String> {
@@ -1246,12 +1335,16 @@ fn call_argument_expected_type(
         return params.get(index).cloned();
     }
     context
-        .function_types
+        .function_params
         .get(callee)
-        .or_else(|| context.function_types.get(&canonical_callee))
-        .or_else(|| locals.get(callee))
-        .and_then(|type_| function_param_types_from_type(type_))
-        .and_then(|params| params.get(index).cloned())
+        .or_else(|| context.function_params.get(&canonical_callee))
+        .and_then(|params| params.get(index).map(|param| param.type_.clone()))
+        .or_else(|| {
+            locals
+                .get(callee)
+                .and_then(|type_| function_param_types_from_type(type_))
+                .and_then(|params| params.get(index).cloned())
+        })
 }
 
 fn builtin_argument_types(callee: &str) -> Option<Vec<String>> {
@@ -1267,6 +1360,85 @@ fn builtin_argument_types(callee: &str) -> Option<Vec<String>> {
         return None;
     }
     Some(params)
+}
+
+fn normalize_builtin_call_arguments<'a>(
+    callee: &str,
+    arguments: &'a [CallArg],
+) -> Vec<&'a Expression> {
+    if !arguments
+        .iter()
+        .any(|argument| matches!(argument, CallArg::Named { .. }))
+    {
+        return arguments.iter().map(call_arg_value).collect();
+    }
+    let Some(param_names) = builtins::call_param_names(callee) else {
+        return arguments.iter().map(call_arg_value).collect();
+    };
+    let mut ordered = vec![None; param_names.len()];
+    let mut next_positional = 0usize;
+    let mut extras = Vec::new();
+    for argument in arguments {
+        match argument {
+            CallArg::Positional(value) => {
+                while next_positional < ordered.len() && ordered[next_positional].is_some() {
+                    next_positional += 1;
+                }
+                if next_positional < ordered.len() {
+                    ordered[next_positional] = Some(value);
+                    next_positional += 1;
+                } else {
+                    extras.push(value);
+                }
+            }
+            CallArg::Named { name, value, .. } => {
+                if let Some(index) = param_names.iter().position(|param| param == name) {
+                    ordered[index] = Some(value);
+                }
+            }
+        }
+    }
+    let mut normalized = ordered.into_iter().flatten().collect::<Vec<_>>();
+    normalized.extend(extras);
+    normalized
+}
+
+fn normalize_local_call_arguments<'a>(
+    callee: &str,
+    arguments: &'a [CallArg],
+    context: &LowerContext<'_>,
+) -> Vec<Option<&'a Expression>> {
+    let Some(params) = context.function_params.get(callee) else {
+        return arguments.iter().map(|argument| Some(call_arg_value(argument))).collect();
+    };
+    let mut ordered = vec![None; params.len()];
+    let mut next_positional = 0usize;
+    for argument in arguments {
+        match argument {
+            CallArg::Positional(value) => {
+                while next_positional < ordered.len() && ordered[next_positional].is_some() {
+                    next_positional += 1;
+                }
+                if next_positional < ordered.len() {
+                    ordered[next_positional] = Some(value);
+                    next_positional += 1;
+                }
+            }
+            CallArg::Named { name, value, .. } => {
+                if let Some(index) = params.iter().position(|param| param.name == *name) {
+                    ordered[index] = Some(value);
+                }
+            }
+        }
+    }
+    ordered
+}
+
+fn call_arg_value(argument: &CallArg) -> &Expression {
+    match argument {
+        CallArg::Positional(value) => value,
+        CallArg::Named { value, .. } => value,
+    }
 }
 
 fn uses_generic_placeholder(type_: &str) -> bool {
@@ -1346,9 +1518,10 @@ fn lower_expression_with_expected(
         }
         Expression::Call { callee, arguments } => {
             let canonical_callee = canonical_import_name(callee, context);
-            let args = if callee == "filter" && arguments.len() == 2 {
-                if let Expression::Identifier(predicate) = &arguments[1] {
-                    let predicate_type = expression_type(&arguments[0], locals, context).and_then(
+            let normalized_builtin = normalize_builtin_call_arguments(canonical_callee.as_str(), arguments);
+            let args = if callee == "filter" && normalized_builtin.len() == 2 {
+                if let Expression::Identifier(predicate) = normalized_builtin[1] {
+                    let predicate_type = expression_type(normalized_builtin[0], locals, context).and_then(
                         |collection_type| {
                             collection_type
                                 .strip_prefix("List OF ")
@@ -1359,26 +1532,62 @@ fn lower_expression_with_expected(
                     );
                     if let Some(predicate_type) = predicate_type {
                         vec![
-                            lower_expression(&arguments[0], locals, context),
+                            lower_expression(normalized_builtin[0], locals, context),
                             IrValue::FunctionRef {
                                 name: predicate.clone(),
                                 type_: predicate_type,
                             },
                         ]
                     } else {
-                        arguments
+                        normalized_builtin
                             .iter()
                             .map(|argument| lower_expression(argument, locals, context))
                             .collect()
                     }
                 } else {
-                    arguments
+                    normalized_builtin
                         .iter()
                         .map(|argument| lower_expression(argument, locals, context))
                         .collect()
                 }
+            } else if context.function_params.contains_key(callee)
+                || context
+                    .function_params
+                    .contains_key(&canonical_callee)
+            {
+                let params = context
+                    .function_params
+                    .get(callee)
+                    .or_else(|| context.function_params.get(&canonical_callee))
+                    .expect("checked function params presence above");
+                normalize_local_call_arguments(callee, arguments, context)
+                    .into_iter()
+                    .enumerate()
+                    .filter_map(|(index, argument)| {
+                        let expected =
+                            call_argument_expected_type(callee, index, arguments, locals, context);
+                        match argument {
+                            Some(argument) => Some(lower_expression_with_expected(
+                                argument,
+                                expected.as_deref(),
+                                locals,
+                                context,
+                            )),
+                            None => params.get(index).and_then(|param| {
+                                param.default.as_ref().map(|default| {
+                                    lower_expression_with_expected(
+                                        default,
+                                        Some(&param.type_),
+                                        locals,
+                                        context,
+                                    )
+                                })
+                            }),
+                        }
+                    })
+                    .collect()
             } else {
-                arguments
+                normalized_builtin
                     .iter()
                     .enumerate()
                     .map(|(index, argument)| {
@@ -1687,7 +1896,13 @@ fn collect_captured_locals(
                 }
             }
             for argument in arguments {
-                collect_captured_locals(argument, outer_locals, local_names, seen, captures);
+                collect_captured_locals(
+                    call_arg_value(argument),
+                    outer_locals,
+                    local_names,
+                    seen,
+                    captures,
+                );
             }
         }
         Expression::Lambda { .. } => {}

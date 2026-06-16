@@ -78,9 +78,9 @@ SPECIFICATION: specifications/repository.md @ §1 Naming & Identity Model and §
 SPECIFICATION: specifications/mfbasic.md @ §2 Lexical Structure
 The spec allows trailing `_` to continue a statement onto the next line, but the lexer treats `_` as an identifier and always emits the newline. Resolve by teaching the lexer to recognize `_` only when it is the trailing non-whitespace character before a newline, suppress the newline token, and keep ordinary `_` identifiers available for pipeline placeholders.
 
-REQUIREMENT: Named call arguments
+[FIXED] REQUIREMENT: Named call arguments
 SPECIFICATION: specifications/mfbasic.md @ §6 Functions
-Function calls are specified to support named arguments like `greet("Ada", greeting := "Hi")`, but call parsing only accepts positional expressions; `:=` is only handled for constructors and `WITH` updates. Resolve by adding named call-argument AST nodes, parser support, duplicate/unknown argument diagnostics, default-argument filling by parameter name, and IR/bytecode/native lowering in declaration order.
+Function calls now support named arguments like `greet("Ada", greeting := "Hi")` across source functions, built-ins, and imported package exports. Call parsing accepts `:=` in argument lists, duplicate/unknown names have dedicated diagnostics, omitted defaults are filled by parameter name, and IR/bytecode/native lowering preserves declaration order.
 
 REQUIREMENT: Default-value eligibility for uninitialized `MUT`
 SPECIFICATION: specifications/mfbasic.md @ §4.10 Default Values

@@ -1,0 +1,43 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "project_entry_func_named_args_valid",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "greet",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    { "name": "name", "type": "String", "default": null },
+    { "name": "greeting", "type": "String", "default": { "kind": "const", "type": "String", "value": "Hello" } },
+    { "name": "punctuation", "type": "String", "default": { "kind": "const", "type": "String", "value": "!" } }
+    ],
+    "returns": "String",
+    "body": [
+    { "op": "return", "value": { "kind": "binary", "op": "&", "left": { "kind": "binary", "op": "&", "left": { "kind": "binary", "op": "&", "left": { "kind": "local", "name": "greeting" }, "right": { "kind": "const", "type": "String", "value": ", " } }, "right": { "kind": "local", "name": "name" } }, "right": { "kind": "local", "name": "punctuation" } } }
+    ]
+  },
+  {
+    "name": "main",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "mutable": false, "name": "first", "type": "String", "value": { "kind": "call", "target": "greet", "args": [{ "kind": "const", "type": "String", "value": "Ada" }, { "kind": "const", "type": "String", "value": "Hi" }, { "kind": "const", "type": "String", "value": "!" }] } },
+    { "op": "bind", "mutable": false, "name": "second", "type": "String", "value": { "kind": "call", "target": "greet", "args": [{ "kind": "const", "type": "String", "value": "Grace" }, { "kind": "const", "type": "String", "value": "Welcome" }, { "kind": "const", "type": "String", "value": "?" }] } },
+    { "op": "bind", "mutable": false, "name": "combined", "type": "String", "value": { "kind": "call", "target": "strings.join", "args": [{ "kind": "list", "type": "List OF String", "values": [{ "kind": "local", "name": "first" }, { "kind": "local", "name": "second" }] }, { "kind": "const", "type": "String", "value": " | " }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "local", "name": "combined" }] } },
+    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

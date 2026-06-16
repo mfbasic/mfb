@@ -139,6 +139,16 @@ pub struct Param {
 }
 
 #[derive(Clone, Debug)]
+pub enum CallArg {
+    Positional(Expression),
+    Named {
+        name: String,
+        value: Expression,
+        line: usize,
+    },
+}
+
+#[derive(Clone, Debug)]
 pub enum ConstructorArg {
     Positional(Expression),
     Named {
@@ -262,7 +272,7 @@ pub enum Expression {
     },
     Call {
         callee: String,
-        arguments: Vec<Expression>,
+        arguments: Vec<CallArg>,
     },
     Lambda {
         params: Vec<Param>,
@@ -1841,11 +1851,27 @@ impl<'a> FileParser<'a> {
         Some(expression)
     }
 
-    fn parse_argument_list(&mut self, closing: TokenKind) -> Option<Vec<Expression>> {
+    fn parse_argument_list(&mut self, closing: TokenKind) -> Option<Vec<CallArg>> {
         let mut arguments = Vec::new();
         if !self.check_kind(&closing) {
             loop {
-                arguments.push(self.parse_expression()?);
+                if matches!(self.peek().kind, TokenKind::Identifier(_))
+                    && self
+                        .peek_next()
+                        .is_some_and(|token| matches!(token.kind, TokenKind::ColonEqual))
+                {
+                    let line = self.peek().line;
+                    let name =
+                        self.consume_identifier("Call argument name must be an identifier.")?;
+                    self.consume_kind(
+                        TokenKind::ColonEqual,
+                        "Expected `:=` between call argument name and value.",
+                    );
+                    let value = self.parse_expression()?;
+                    arguments.push(CallArg::Named { name, value, line });
+                } else {
+                    arguments.push(CallArg::Positional(self.parse_expression()?));
+                }
                 if !self.match_kind(TokenKind::Comma) {
                     break;
                 }
@@ -3180,6 +3206,19 @@ impl ToAstJson for Expression {
     }
 }
 
+impl CallArg {
+    fn to_json(&self, _indent: usize) -> String {
+        match self {
+            CallArg::Positional(value) => value.to_json(0),
+            CallArg::Named { name, value, .. } => format!(
+                "{{ \"kind\": \"named\", \"name\": {}, \"value\": {} }}",
+                json_string(name),
+                value.to_json(0)
+            ),
+        }
+    }
+}
+
 impl ConstructorArg {
     fn to_json(&self, _indent: usize) -> String {
         match self {
@@ -3242,7 +3281,7 @@ fn contains_placeholder(expression: &Expression) -> bool {
             contains_placeholder(left) || contains_placeholder(right)
         }
         Expression::Unary { operand, .. } => contains_placeholder(operand),
-        Expression::Call { arguments, .. } => arguments.iter().any(contains_placeholder),
+        Expression::Call { arguments, .. } => arguments.iter().any(call_arg_contains_placeholder),
         Expression::Constructor { arguments, .. } => {
             arguments.iter().any(constructor_arg_contains_placeholder)
         }
@@ -3269,6 +3308,13 @@ fn constructor_arg_contains_placeholder(argument: &ConstructorArg) -> bool {
     }
 }
 
+fn call_arg_contains_placeholder(argument: &CallArg) -> bool {
+    match argument {
+        CallArg::Positional(value) => contains_placeholder(value),
+        CallArg::Named { value, .. } => contains_placeholder(value),
+    }
+}
+
 fn substitute_placeholder(expression: Expression, input: &Expression) -> Expression {
     match expression {
         Expression::Identifier(value) if value == "_" => input.clone(),
@@ -3289,7 +3335,7 @@ fn substitute_placeholder(expression: Expression, input: &Expression) -> Express
             callee,
             arguments: arguments
                 .into_iter()
-                .map(|argument| substitute_placeholder(argument, input))
+                .map(|argument| substitute_placeholder_call_arg(argument, input))
                 .collect(),
         },
         Expression::Lambda { params, body } => Expression::Lambda {
@@ -3357,6 +3403,17 @@ fn substitute_placeholder_constructor_arg(
             ConstructorArg::Positional(substitute_placeholder(value, input))
         }
         ConstructorArg::Named { name, value, line } => ConstructorArg::Named {
+            name,
+            value: substitute_placeholder(value, input),
+            line,
+        },
+    }
+}
+
+fn substitute_placeholder_call_arg(argument: CallArg, input: &Expression) -> CallArg {
+    match argument {
+        CallArg::Positional(value) => CallArg::Positional(substitute_placeholder(value, input)),
+        CallArg::Named { name, value, line } => CallArg::Named {
             name,
             value: substitute_placeholder(value, input),
             line,

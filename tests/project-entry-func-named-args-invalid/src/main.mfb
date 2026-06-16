@@ -1,0 +1,9 @@
+FUNC greet(name AS String, greeting AS String = "Hello") AS String
+  RETURN greeting & ", " & name
+END FUNC
+
+FUNC main AS Integer
+  LET duplicate = greet(name := "Ada", name := "Grace")
+  LET unknown = greet(person := "Ada")
+  RETURN len(duplicate) + len(unknown)
+END FUNC

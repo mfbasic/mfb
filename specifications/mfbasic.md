@@ -435,7 +435,7 @@ END SUB
 
 - **Every function returns `Result`.** `FUNC F(...) AS T` has effective type `Result OF T`. A `SUB` returns `Result OF Nothing` (see §7).
 - **Default args** allowed (trailing).
-- **Named args** at call site: `greet("Ada", greeting := "Hi")`.
+- **Named args** at call site: `greet("Ada", greeting := "Hi")`. Named arguments bind by parameter name, may be mixed with positional arguments, and are evaluated/lowered in declaration order after omitted default parameters are filled.
 - **Parameter passing**: arguments are passed as owned values under the memory model (§14). Copyable values are copied when they remain needed by the caller; movable values are moved when ownership can be transferred. Containers own their contents, so passing a container never passes an aliasable reference.
 - **Resource parameters**: a parameter whose type is a `RESOURCE` is handled by compiler-known resource rules (§15). Ordinary resource operations borrow the handle for the duration of the call; close operations consume it. MFBASIC source does not add `BORROW` or `MOVE` parameter keywords.
 - **Collection boundaries freeze mutable buffers.** When a `MUT` collection is passed to a function or returned from a function, it crosses the boundary as an immutable, owned collection value (§14). The compiler may move or freeze the existing buffer when ownership permits; the semantic guarantee is that no caller and callee can secretly share a mutable collection.

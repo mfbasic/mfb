@@ -46,6 +46,13 @@ fn constructor_arg_value(argument: &ConstructorArg) -> &Expression {
     }
 }
 
+fn call_arg_value(argument: &crate::ast::CallArg) -> &Expression {
+    match argument {
+        crate::ast::CallArg::Positional(value) => value,
+        crate::ast::CallArg::Named { value, .. } => value,
+    }
+}
+
 struct Resolver<'a> {
     project_dir: &'a Path,
     ast: &'a AstProject,
@@ -698,7 +705,7 @@ impl<'a> Resolver<'a> {
             Expression::Call { callee, arguments } => {
                 self.resolve_callable(file, callee, line, imports, locals);
                 for argument in arguments {
-                    self.resolve_expression(file, argument, line, imports, locals);
+                    self.resolve_expression(file, call_arg_value(argument), line, imports, locals);
                 }
             }
             Expression::Lambda { params, body } => {

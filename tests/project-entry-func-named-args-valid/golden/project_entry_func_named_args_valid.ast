@@ -1,0 +1,45 @@
+{
+  "project": "project_entry_func_named_args_valid",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 },
+    { "module": "strings", "line": 2 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "greet",
+      "line": 4,
+      "params": [
+      { "name": "name", "type": "String", "default": null },
+      { "name": "greeting", "type": "String", "default": { "kind": "string", "value": "Hello" } },
+      { "name": "punctuation", "type": "String", "default": { "kind": "string", "value": "!" } }
+      ],
+      "returnType": "String",
+      "body": [
+      { "kind": "return", "value": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "greeting" }, "right": { "kind": "string", "value": ", " } }, "right": { "kind": "identifier", "value": "name" } }, "right": { "kind": "identifier", "value": "punctuation" } }, "line": 5 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "main",
+      "line": 8,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "first", "type": null, "value": { "kind": "call", "callee": "greet", "arguments": [{ "kind": "named", "name": "greeting", "value": { "kind": "string", "value": "Hi" } }, { "kind": "named", "name": "name", "value": { "kind": "string", "value": "Ada" } }] }, "line": 9 },
+      { "kind": "binding", "mutable": false, "name": "second", "type": null, "value": { "kind": "call", "callee": "greet", "arguments": [{ "kind": "string", "value": "Grace" }, { "kind": "named", "name": "punctuation", "value": { "kind": "string", "value": "?" } }, { "kind": "named", "name": "greeting", "value": { "kind": "string", "value": "Welcome" } }] }, "line": 10 },
+      { "kind": "binding", "mutable": false, "name": "combined", "type": null, "value": { "kind": "call", "callee": "strings.join", "arguments": [{ "kind": "named", "name": "separator", "value": { "kind": "string", "value": " | " } }, { "kind": "named", "name": "values", "value": { "kind": "list", "values": [{ "kind": "identifier", "value": "first" }, { "kind": "identifier", "value": "second" }] } }] }, "line": 11 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "identifier", "value": "combined" }] }, "line": 12 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 13 }
+      ]
+    }
+    ]
+  }
+  ]
+}

@@ -337,6 +337,7 @@ pub enum BytecodeExportKind {
 
 #[derive(Clone)]
 pub struct BytecodeExportParam {
+    pub name: String,
     pub type_: String,
     pub has_default: bool,
 }
@@ -996,6 +997,8 @@ fn package_exports(package: &PackageBytecode) -> Result<Vec<BytecodeExport>, Str
                     .iter()
                     .map(|param| {
                         Ok::<BytecodeExportParam, String>(BytecodeExportParam {
+                            name: string_at(&package.project.strings.values, param.name)?
+                                .to_string(),
                             type_: type_name(&type_names, param.type_id)?.to_string(),
                             has_default: param.flags & 1 != 0,
                         })

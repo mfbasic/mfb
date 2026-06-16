@@ -1,0 +1,14 @@
+IMPORT io
+IMPORT strings
+
+FUNC greet(name AS String, greeting AS String = "Hello", punctuation AS String = "!") AS String
+  RETURN greeting & ", " & name & punctuation
+END FUNC
+
+FUNC main AS Integer
+  LET first = greet(greeting := "Hi", name := "Ada")
+  LET second = greet("Grace", punctuation := "?", greeting := "Welcome")
+  LET combined = strings::join(separator := " | ", values := [first, second])
+  io::print(combined)
+  RETURN 0
+END FUNC

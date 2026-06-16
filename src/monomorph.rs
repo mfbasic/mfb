@@ -1,6 +1,6 @@
 use crate::ast::{
-    AstFile, AstProject, ConstructorArg, Expression, Function, Item, MatchCase, MatchPattern,
-    RecordUpdate, Statement, TypeDecl, TypeDeclKind, TypeField, UnionVariant,
+    AstFile, AstProject, CallArg, ConstructorArg, Expression, Function, Item, MatchCase,
+    MatchPattern, RecordUpdate, Statement, TypeDecl, TypeDeclKind, TypeField, UnionVariant,
 };
 use crate::numeric;
 use crate::rules;
@@ -653,13 +653,26 @@ impl<'a> Monomorphizer<'a> {
             Expression::Call { callee, arguments } => {
                 let lowered_args = arguments
                     .iter()
-                    .map(|argument| {
-                        self.lower_expression(argument, substitutions, context, None, line)
+                    .map(|argument| match argument {
+                        CallArg::Positional(value) => CallArg::Positional(
+                            self.lower_expression(value, substitutions, context, None, line),
+                        ),
+                        CallArg::Named { name, value, line } => CallArg::Named {
+                            name: name.clone(),
+                            value: self.lower_expression(
+                                value,
+                                substitutions,
+                                context,
+                                None,
+                                *line,
+                            ),
+                            line: *line,
+                        },
                     })
                     .collect::<Vec<_>>();
                 let arg_types = lowered_args
                     .iter()
-                    .filter_map(|argument| self.expression_type(argument, context))
+                    .filter_map(|argument| self.expression_type(call_arg_value(argument), context))
                     .collect::<Vec<_>>();
                 let target = self
                     .instantiate_function(callee, &arg_types, line)
@@ -1132,6 +1145,13 @@ impl<'a> Monomorphizer<'a> {
             .map(|file| self.project_dir.join(&file.path))
             .unwrap_or_else(|| self.project_dir.join("src/main.mfb"));
         rules::show_diagnostic(rule, detail, &path, line, 1, 1);
+    }
+}
+
+fn call_arg_value(argument: &CallArg) -> &Expression {
+    match argument {
+        CallArg::Positional(value) => value,
+        CallArg::Named { value, .. } => value,
     }
 }
 

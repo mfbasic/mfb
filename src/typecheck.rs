@@ -1,6 +1,6 @@
 use crate::ast::{
-    AstFile, AstProject, ConstructorArg, Expression, Function, FunctionKind, Item, MatchPattern,
-    RecordUpdate, Statement, TypeDecl, TypeDeclKind, TypeField, Visibility,
+    AstFile, AstProject, CallArg, ConstructorArg, Expression, Function, FunctionKind, Item,
+    MatchPattern, RecordUpdate, Statement, TypeDecl, TypeDeclKind, TypeField, Visibility,
 };
 use crate::builtins;
 use crate::bytecode::{
@@ -74,6 +74,7 @@ struct FunctionSig {
 
 #[derive(Clone)]
 struct ParamSig {
+    name: String,
     type_: Type,
     has_default: bool,
 }
@@ -382,6 +383,7 @@ impl<'a> TypeChecker<'a> {
                         .params
                         .iter()
                         .map(|param| ParamSig {
+                            name: param.name.clone(),
                             type_: param
                                 .type_name
                                 .as_deref()
@@ -439,6 +441,7 @@ impl<'a> TypeChecker<'a> {
                                 .params
                                 .into_iter()
                                 .map(|param| ParamSig {
+                                    name: param.name,
                                     type_: self.parse_type(&param.type_),
                                     has_default: param.has_default,
                                 })
@@ -1472,7 +1475,13 @@ impl<'a> TypeChecker<'a> {
                         line,
                     );
                     for argument in arguments {
-                        self.infer_expression(file, argument, locals, line, ExprMode::Read);
+                        self.infer_expression(
+                            file,
+                            call_arg_value(argument),
+                            locals,
+                            line,
+                            ExprMode::Read,
+                        );
                     }
                     return self.parse_type(
                         builtins::math::constant_type_name(&canonical_callee).unwrap_or("Unknown"),
@@ -1501,7 +1510,13 @@ impl<'a> TypeChecker<'a> {
 
                 if callee.contains('.') {
                     for argument in arguments {
-                        self.infer_expression(file, argument, locals, line, ExprMode::Read);
+                        self.infer_expression(
+                            file,
+                            call_arg_value(argument),
+                            locals,
+                            line,
+                            ExprMode::Read,
+                        );
                     }
                     return Type::Unknown;
                 }
@@ -1548,7 +1563,13 @@ impl<'a> TypeChecker<'a> {
                     line,
                 );
                 for argument in arguments {
-                    self.infer_expression(file, argument, locals, line, ExprMode::Read);
+                    self.infer_expression(
+                        file,
+                        call_arg_value(argument),
+                        locals,
+                        line,
+                        ExprMode::Read,
+                    );
                 }
                 return self.parse_type(
                     builtins::math::constant_type_name(&canonical_callee).unwrap_or("Unknown"),
@@ -2410,26 +2431,23 @@ impl<'a> TypeChecker<'a> {
         file: &AstFile,
         callee: &str,
         sig: &FunctionSig,
-        arguments: &[Expression],
+        arguments: &[CallArg],
         locals: &mut HashMap<String, LocalInfo>,
         line: usize,
     ) {
-        let required = sig.params.iter().filter(|param| !param.has_default).count();
-        if arguments.len() < required || arguments.len() > sig.params.len() {
-            self.report(
-                "TYPE_CALL_ARITY_MISMATCH",
-                &format!(
-                    "Call to `{callee}` has {} argument(s), expected {} to {}.",
-                    arguments.len(),
-                    required,
-                    sig.params.len()
-                ),
-                file,
-                line,
-            );
-        }
+        let arguments = self.normalize_named_arguments(
+            file,
+            callee,
+            arguments,
+            &sig.params,
+            line,
+            false,
+        );
 
         for (index, argument) in arguments.iter().enumerate() {
+            let Some(argument) = argument else {
+                continue;
+            };
             let actual = self.infer_expression(
                 file,
                 argument,
@@ -2465,7 +2483,7 @@ impl<'a> TypeChecker<'a> {
         file: &AstFile,
         callee: &str,
         type_: &Type,
-        arguments: &[Expression],
+        arguments: &[CallArg],
         locals: &mut HashMap<String, LocalInfo>,
         line: usize,
     ) -> Type {
@@ -2482,10 +2500,27 @@ impl<'a> TypeChecker<'a> {
                 line,
             );
             for argument in arguments {
-                self.infer_expression(file, argument, locals, line, ExprMode::Read);
+                self.infer_expression(
+                    file,
+                    call_arg_value(argument),
+                    locals,
+                    line,
+                    ExprMode::Read,
+                );
             }
             return Type::Unknown;
         };
+
+        if arguments.iter().any(|argument| matches!(argument, CallArg::Named { .. })) {
+            self.report(
+                "TYPE_CALL_ARGUMENT_MISMATCH",
+                &format!(
+                    "Call to function value `{callee}` cannot use named arguments because the callable type does not preserve parameter names."
+                ),
+                file,
+                line,
+            );
+        }
 
         if arguments.len() != params.len() {
             self.report(
@@ -2501,6 +2536,7 @@ impl<'a> TypeChecker<'a> {
         }
 
         for (index, argument) in arguments.iter().enumerate() {
+            let argument = call_arg_value(argument);
             let actual = self.infer_expression(
                 file,
                 argument,
@@ -2627,12 +2663,19 @@ impl<'a> TypeChecker<'a> {
         file: &AstFile,
         display_callee: &str,
         callee: &str,
-        arguments: &[Expression],
+        arguments: &[CallArg],
         locals: &mut HashMap<String, LocalInfo>,
         line: usize,
     ) -> Type {
         if builtins::general::is_general_call(callee) {
-            return self.check_general_builtin_call(file, display_callee, callee, arguments, locals, line);
+            return self.check_general_builtin_call(
+                file,
+                display_callee,
+                callee,
+                arguments,
+                locals,
+                line,
+            );
         }
         if builtins::strings::is_strings_call(callee) {
             return self.check_strings_builtin_call(file, display_callee, callee, arguments, locals, line);
@@ -2654,7 +2697,7 @@ impl<'a> TypeChecker<'a> {
         }
 
         for argument in arguments {
-            self.infer_expression(file, argument, locals, line, ExprMode::Read);
+            self.infer_expression(file, call_arg_value(argument), locals, line, ExprMode::Read);
         }
         Type::Unknown
     }
@@ -2664,10 +2707,17 @@ impl<'a> TypeChecker<'a> {
         file: &AstFile,
         display_callee: &str,
         callee: &str,
-        arguments: &[Expression],
+        arguments: &[CallArg],
         locals: &mut HashMap<String, LocalInfo>,
         line: usize,
     ) -> Type {
+        let arguments = self.normalize_builtin_call_arguments(
+            file,
+            display_callee,
+            callee,
+            arguments,
+            line,
+        );
         let arg_types = arguments
             .iter()
             .enumerate()
@@ -2724,10 +2774,17 @@ impl<'a> TypeChecker<'a> {
         file: &AstFile,
         display_callee: &str,
         callee: &str,
-        arguments: &[Expression],
+        arguments: &[CallArg],
         locals: &mut HashMap<String, LocalInfo>,
         line: usize,
     ) -> Type {
+        let arguments = self.normalize_builtin_call_arguments(
+            file,
+            display_callee,
+            callee,
+            arguments,
+            line,
+        );
         let arg_types = arguments
             .iter()
             .map(|argument| {
@@ -2779,10 +2836,17 @@ impl<'a> TypeChecker<'a> {
         file: &AstFile,
         display_callee: &str,
         callee: &str,
-        arguments: &[Expression],
+        arguments: &[CallArg],
         locals: &mut HashMap<String, LocalInfo>,
         line: usize,
     ) -> Type {
+        let arguments = self.normalize_builtin_call_arguments(
+            file,
+            display_callee,
+            callee,
+            arguments,
+            line,
+        );
         let arg_types = arguments
             .iter()
             .map(|argument| {
@@ -2837,10 +2901,17 @@ impl<'a> TypeChecker<'a> {
         file: &AstFile,
         display_callee: &str,
         callee: &str,
-        arguments: &[Expression],
+        arguments: &[CallArg],
         locals: &mut HashMap<String, LocalInfo>,
         line: usize,
     ) -> Type {
+        let arguments = self.normalize_builtin_call_arguments(
+            file,
+            display_callee,
+            callee,
+            arguments,
+            line,
+        );
         let arg_types = arguments
             .iter()
             .enumerate()
@@ -2925,10 +2996,17 @@ impl<'a> TypeChecker<'a> {
         file: &AstFile,
         display_callee: &str,
         callee: &str,
-        arguments: &[Expression],
+        arguments: &[CallArg],
         locals: &mut HashMap<String, LocalInfo>,
         line: usize,
     ) -> Type {
+        let arguments = self.normalize_builtin_call_arguments(
+            file,
+            display_callee,
+            callee,
+            arguments,
+            line,
+        );
         let arg_types = arguments
             .iter()
             .map(|argument| {
@@ -2980,10 +3058,17 @@ impl<'a> TypeChecker<'a> {
         file: &AstFile,
         display_callee: &str,
         callee: &str,
-        arguments: &[Expression],
+        arguments: &[CallArg],
         locals: &mut HashMap<String, LocalInfo>,
         line: usize,
     ) -> Type {
+        let arguments = self.normalize_builtin_call_arguments(
+            file,
+            display_callee,
+            callee,
+            arguments,
+            line,
+        );
         let arg_types = arguments
             .iter()
             .map(|argument| {
@@ -3035,10 +3120,17 @@ impl<'a> TypeChecker<'a> {
         file: &AstFile,
         display_callee: &str,
         callee: &str,
-        arguments: &[Expression],
+        arguments: &[CallArg],
         locals: &mut HashMap<String, LocalInfo>,
         line: usize,
     ) -> Type {
+        let arguments = self.normalize_builtin_call_arguments(
+            file,
+            display_callee,
+            callee,
+            arguments,
+            line,
+        );
         if callee == "filter" && arguments.len() == 2 {
             if let Expression::Identifier(predicate) = &arguments[1] {
                 if builtins::general::builtin_function_id(predicate).is_some() {
@@ -3138,6 +3230,164 @@ impl<'a> TypeChecker<'a> {
         };
 
         self.parse_type(&resolved.return_type)
+    }
+
+    fn normalize_builtin_call_arguments(
+        &mut self,
+        file: &AstFile,
+        display_callee: &str,
+        callee: &str,
+        arguments: &[CallArg],
+        _line: usize,
+    ) -> Vec<Expression> {
+        if !arguments
+            .iter()
+            .any(|argument| matches!(argument, CallArg::Named { .. }))
+        {
+            return arguments
+                .iter()
+                .map(|argument| call_arg_value(argument).clone())
+                .collect();
+        }
+        let Some(param_names) = builtins::call_param_names(callee) else {
+            return arguments
+                .iter()
+                .map(|argument| call_arg_value(argument).clone())
+                .collect();
+        };
+        let mut ordered = vec![None; param_names.len()];
+        let mut next_positional = 0usize;
+        let mut extras = Vec::new();
+        for argument in arguments {
+            match argument {
+                CallArg::Positional(value) => {
+                    while next_positional < ordered.len() && ordered[next_positional].is_some() {
+                        next_positional += 1;
+                    }
+                    if next_positional < ordered.len() {
+                        ordered[next_positional] = Some(value.clone());
+                        next_positional += 1;
+                    } else {
+                        extras.push(value.clone());
+                    }
+                }
+                CallArg::Named { name, value, line } => {
+                    let Some(index) = param_names.iter().position(|param| param == name) else {
+                        self.report(
+                            "TYPE_UNKNOWN_ARGUMENT_NAME",
+                            &format!(
+                                "Call to `{display_callee}` does not have a parameter named `{name}`."
+                            ),
+                            file,
+                            *line,
+                        );
+                        continue;
+                    };
+                    if ordered[index].is_some() {
+                        self.report(
+                            "TYPE_DUPLICATE_ARGUMENT_NAME",
+                            &format!(
+                                "Call to `{display_callee}` supplies parameter `{name}` more than once."
+                            ),
+                            file,
+                            *line,
+                        );
+                        continue;
+                    }
+                    ordered[index] = Some(value.clone());
+                }
+            }
+        }
+        let mut normalized = ordered.into_iter().flatten().collect::<Vec<_>>();
+        normalized.extend(extras);
+        normalized
+    }
+
+    fn normalize_named_arguments(
+        &mut self,
+        file: &AstFile,
+        callee: &str,
+        arguments: &[CallArg],
+        params: &[ParamSig],
+        line: usize,
+        allow_trailing_omission: bool,
+    ) -> Vec<Option<Expression>> {
+        let mut ordered = vec![None; params.len()];
+        let mut next_positional = 0usize;
+        let mut supplied = 0usize;
+        let mut arity_error = false;
+
+        for argument in arguments {
+            match argument {
+                CallArg::Positional(value) => {
+                    while next_positional < ordered.len() && ordered[next_positional].is_some() {
+                        next_positional += 1;
+                    }
+                    if next_positional >= ordered.len() {
+                        arity_error = true;
+                        continue;
+                    }
+                    ordered[next_positional] = Some(value.clone());
+                    next_positional += 1;
+                    supplied += 1;
+                }
+                CallArg::Named { name, value, line } => {
+                    let Some(index) = params.iter().position(|param| param.name == *name) else {
+                        self.report(
+                            "TYPE_UNKNOWN_ARGUMENT_NAME",
+                            &format!("Call to `{callee}` does not have a parameter named `{name}`."),
+                            file,
+                            *line,
+                        );
+                        continue;
+                    };
+                    if ordered[index].is_some() {
+                        self.report(
+                            "TYPE_DUPLICATE_ARGUMENT_NAME",
+                            &format!("Call to `{callee}` supplies parameter `{name}` more than once."),
+                            file,
+                            *line,
+                        );
+                        continue;
+                    }
+                    ordered[index] = Some(value.clone());
+                    supplied += 1;
+                }
+            }
+        }
+
+        let required = params.iter().filter(|param| !param.has_default).count();
+        let missing_required = ordered
+            .iter()
+            .zip(params.iter())
+            .any(|(argument, param)| argument.is_none() && !param.has_default);
+        let max_supplied = ordered
+            .iter()
+            .rposition(Option::is_some)
+            .map(|index| index + 1)
+            .unwrap_or(0);
+        let has_internal_gap = allow_trailing_omission
+            && ordered
+                .iter()
+                .zip(params.iter())
+                .take(max_supplied)
+                .any(|(argument, param)| argument.is_none() && !param.has_default);
+
+        if arity_error || supplied < required || supplied > params.len() || missing_required || has_internal_gap {
+            self.report(
+                "TYPE_CALL_ARITY_MISMATCH",
+                &format!(
+                    "Call to `{callee}` has {} argument(s), expected {} to {}.",
+                    supplied,
+                    required,
+                    params.len()
+                ),
+                file,
+                line,
+            );
+        }
+
+        ordered
     }
 
     fn parse_type(&self, name: &str) -> Type {
@@ -3809,7 +4059,13 @@ fn collect_captured_locals(
                 }
             }
             for argument in arguments {
-                collect_captured_locals(argument, outer_locals, local_names, seen, captures);
+                collect_captured_locals(
+                    call_arg_value(argument),
+                    outer_locals,
+                    local_names,
+                    seen,
+                    captures,
+                );
             }
         }
         Expression::Lambda { .. } => {}
@@ -3859,6 +4115,13 @@ fn constructor_arg_value(argument: &ConstructorArg) -> &Expression {
     match argument {
         ConstructorArg::Positional(value) => value,
         ConstructorArg::Named { value, .. } => value,
+    }
+}
+
+fn call_arg_value(argument: &CallArg) -> &Expression {
+    match argument {
+        CallArg::Positional(value) => value,
+        CallArg::Named { value, .. } => value,
     }
 }
 

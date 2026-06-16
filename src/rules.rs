@@ -604,6 +604,18 @@ pub const RULES: &[Rule] = &[
         message: "control flow could drop the same owned value more than once",
     },
     Rule {
+        code: "2-203-0058",
+        name: "TYPE_DUPLICATE_ARGUMENT_NAME",
+        severity: Severity::Error,
+        message: "call argument is supplied more than once",
+    },
+    Rule {
+        code: "2-203-0059",
+        name: "TYPE_UNKNOWN_ARGUMENT_NAME",
+        severity: Severity::Error,
+        message: "call argument name does not match any parameter",
+    },
+    Rule {
         code: "2-200-0011",
         name: "PROJECT_ENTRY_INVALID",
         severity: Severity::Error,

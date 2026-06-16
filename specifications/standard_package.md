@@ -1,5 +1,7 @@
 # ⟪MFBASIC⟫ — Standard Package
 
+Standard-package functions follow the language call rules in `mfbasic.md`: positional and named call arguments are both valid, named arguments bind by declared parameter name, and omitted trailing defaults are filled before lowering.
+
 ## 1. Built-in Types
 
 These types are always in scope. They do not require `IMPORT`.

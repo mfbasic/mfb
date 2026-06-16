@@ -249,7 +249,8 @@ fn build_project(options: &BuildOptions) -> Result<(), ()> {
                     installed_package_files(&options.location, &manifest).map_err(|err| {
                         eprintln!("error: {err}");
                     })?;
-                let external_functions = external_package_function_types_from_files(&packages)
+                let (external_functions, external_params) =
+                    external_package_function_types_from_files(&packages)
                     .map_err(|err| {
                         eprintln!("error: {err}");
                     })?;
@@ -257,6 +258,7 @@ fn build_project(options: &BuildOptions) -> Result<(), ()> {
                     &concrete_ast,
                     entry.clone(),
                     &external_functions,
+                    &external_params,
                 );
                 let executable_paths =
                     target::write_executable(&options.location, &ir, &target, &packages).map_err(
@@ -272,7 +274,8 @@ fn build_project(options: &BuildOptions) -> Result<(), ()> {
                     installed_package_files(&options.location, &manifest).map_err(|err| {
                         eprintln!("error: {err}");
                     })?;
-                let external_functions = external_package_function_types_from_files(&packages)
+                let (external_functions, external_params) =
+                    external_package_function_types_from_files(&packages)
                     .map_err(|err| {
                         eprintln!("error: {err}");
                     })?;
@@ -280,6 +283,7 @@ fn build_project(options: &BuildOptions) -> Result<(), ()> {
                     &concrete_ast,
                     entry.clone(),
                     &external_functions,
+                    &external_params,
                 );
                 let metadata = package_metadata(&manifest);
                 let package_path =
@@ -303,11 +307,13 @@ fn build_project(options: &BuildOptions) -> Result<(), ()> {
             println!("Wrote AST to {}", ast_path.display());
         }
         BuildOutput::Ir => {
-            let external_functions = external_package_function_types(&options.location, &manifest);
+            let (external_functions, external_params) =
+                external_package_function_types(&options.location, &manifest);
             let ir = ir::lower_project_with_external_functions(
                 &concrete_ast,
                 entry.clone(),
                 &external_functions,
+                &external_params,
             );
             let ir_path = ir::write_ir(&options.location, &ir).map_err(|err| {
                 eprintln!("error: {err}");
@@ -319,7 +325,8 @@ fn build_project(options: &BuildOptions) -> Result<(), ()> {
                 installed_package_files(&options.location, &manifest).map_err(|err| {
                     eprintln!("error: {err}");
                 })?;
-            let external_functions = external_package_function_types_from_files(&packages)
+            let (external_functions, external_params) =
+                external_package_function_types_from_files(&packages)
                 .map_err(|err| {
                     eprintln!("error: {err}");
                 })?;
@@ -327,6 +334,7 @@ fn build_project(options: &BuildOptions) -> Result<(), ()> {
                 &concrete_ast,
                 entry.clone(),
                 &external_functions,
+                &external_params,
             );
             let version = manifest
                 .get("version")
@@ -355,7 +363,8 @@ fn build_project(options: &BuildOptions) -> Result<(), ()> {
                 installed_package_files(&options.location, &manifest).map_err(|err| {
                     eprintln!("error: {err}");
                 })?;
-            let external_functions = external_package_function_types_from_files(&packages)
+            let (external_functions, external_params) =
+                external_package_function_types_from_files(&packages)
                 .map_err(|err| {
                     eprintln!("error: {err}");
                 })?;
@@ -363,6 +372,7 @@ fn build_project(options: &BuildOptions) -> Result<(), ()> {
                 &concrete_ast,
                 entry,
                 &external_functions,
+                &external_params,
             );
             let nir_path = match target::write_nir(&options.location, &ir, &target, &packages) {
                 Ok(path) => path,
@@ -386,7 +396,8 @@ fn build_project(options: &BuildOptions) -> Result<(), ()> {
                 installed_package_files(&options.location, &manifest).map_err(|err| {
                     eprintln!("error: {err}");
                 })?;
-            let external_functions = external_package_function_types_from_files(&packages)
+            let (external_functions, external_params) =
+                external_package_function_types_from_files(&packages)
                 .map_err(|err| {
                     eprintln!("error: {err}");
                 })?;
@@ -394,6 +405,7 @@ fn build_project(options: &BuildOptions) -> Result<(), ()> {
                 &concrete_ast,
                 entry,
                 &external_functions,
+                &external_params,
             );
             let plan_path =
                 match target::write_native_plan(&options.location, &ir, &target, &packages) {
@@ -418,7 +430,8 @@ fn build_project(options: &BuildOptions) -> Result<(), ()> {
                 installed_package_files(&options.location, &manifest).map_err(|err| {
                     eprintln!("error: {err}");
                 })?;
-            let external_functions = external_package_function_types_from_files(&packages)
+            let (external_functions, external_params) =
+                external_package_function_types_from_files(&packages)
                 .map_err(|err| {
                     eprintln!("error: {err}");
                 })?;
@@ -426,6 +439,7 @@ fn build_project(options: &BuildOptions) -> Result<(), ()> {
                 &concrete_ast,
                 entry,
                 &external_functions,
+                &external_params,
             );
             let object_path = match target::write_native_object_plan(
                 &options.location,
@@ -454,7 +468,8 @@ fn build_project(options: &BuildOptions) -> Result<(), ()> {
                 installed_package_files(&options.location, &manifest).map_err(|err| {
                     eprintln!("error: {err}");
                 })?;
-            let external_functions = external_package_function_types_from_files(&packages)
+            let (external_functions, external_params) =
+                external_package_function_types_from_files(&packages)
                 .map_err(|err| {
                     eprintln!("error: {err}");
                 })?;
@@ -462,6 +477,7 @@ fn build_project(options: &BuildOptions) -> Result<(), ()> {
                 &concrete_ast,
                 entry,
                 &external_functions,
+                &external_params,
             );
             let code_path =
                 match target::write_native_code_plan(&options.location, &ir, &target, &packages) {
@@ -1741,33 +1757,57 @@ fn installed_package_files(
 fn external_package_function_types(
     project_dir: &Path,
     manifest: &HashMap<String, JsonValue>,
-) -> HashMap<String, String> {
+) -> (
+    HashMap<String, String>,
+    HashMap<String, Vec<ir::ExternalFunctionParam>>,
+) {
     let Ok(packages) = installed_package_files(project_dir, manifest) else {
-        return HashMap::new();
+        return (HashMap::new(), HashMap::new());
     };
     external_package_function_types_from_files_lossy(&packages)
 }
 
 fn external_package_function_types_from_files(
     packages: &[PathBuf],
-) -> Result<HashMap<String, String>, String> {
+) -> Result<
+    (
+        HashMap<String, String>,
+        HashMap<String, Vec<ir::ExternalFunctionParam>>,
+    ),
+    String,
+> {
     let mut functions = HashMap::new();
+    let mut params = HashMap::new();
     for package in packages {
         let header = read_mfp_header(package)?;
         for export in bytecode::read_package_exports(package)? {
-            functions.insert(
-                format!("{}.{}", header.name, export.name),
-                package_export_function_type(&export),
+            let name = format!("{}.{}", header.name, export.name);
+            functions.insert(name.clone(), package_export_function_type(&export));
+            params.insert(
+                name,
+                export
+                    .params
+                    .iter()
+                    .map(|param| ir::ExternalFunctionParam {
+                        name: param.name.clone(),
+                        type_: param.type_.clone(),
+                        has_default: param.has_default,
+                    })
+                    .collect(),
             );
         }
     }
-    Ok(functions)
+    Ok((functions, params))
 }
 
 fn external_package_function_types_from_files_lossy(
     packages: &[PathBuf],
-) -> HashMap<String, String> {
+) -> (
+    HashMap<String, String>,
+    HashMap<String, Vec<ir::ExternalFunctionParam>>,
+) {
     let mut functions = HashMap::new();
+    let mut params = HashMap::new();
     for package in packages {
         let Ok(header) = read_mfp_header(package) else {
             continue;
@@ -1776,13 +1816,23 @@ fn external_package_function_types_from_files_lossy(
             continue;
         };
         for export in exports {
-            functions.insert(
-                format!("{}.{}", header.name, export.name),
-                package_export_function_type(&export),
+            let name = format!("{}.{}", header.name, export.name);
+            functions.insert(name.clone(), package_export_function_type(&export));
+            params.insert(
+                name,
+                export
+                    .params
+                    .iter()
+                    .map(|param| ir::ExternalFunctionParam {
+                        name: param.name.clone(),
+                        type_: param.type_.clone(),
+                        has_default: param.has_default,
+                    })
+                    .collect(),
             );
         }
     }
-    functions
+    (functions, params)
 }
 
 fn package_export_function_type(export: &bytecode::BytecodeExport) -> String {
