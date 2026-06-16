@@ -1,9 +1,8 @@
-FUNC label(value AS String) AS String
-  RETURN value
-END FUNC
+SUB visit(value AS Integer)
+END SUB
 
 FUNC main AS Integer
   LET numbers AS List OF Integer = [1, 2, 3]
-  LET labels AS List OF String = transform(numbers, label)
-  RETURN len(labels)
+  LET values = transform(numbers, visit)
+  RETURN 0
 END FUNC

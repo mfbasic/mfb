@@ -1,28 +1,28 @@
 $ mfb build -ast tests/func_collection_transform_invalid
-   5 | FUNC main AS Integer
-   6 |   LET numbers AS List OF Integer = [1, 2, 3]
-   7 |   LET labels AS List OF String = transform(numbers, label)
+   4 | FUNC main AS Integer
+   5 |   LET numbers AS List OF Integer = [1, 2, 3]
+   6 |   LET values = transform(numbers, visit)
      | ^
-tests/func_collection_transform_invalid/src/main.mfb:7 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
-               Call to `transform` has argument type(s) (List OF Integer, FUNC(String) AS String), expected List OF T, FUNC(T) AS U.
-   5 | FUNC main AS Integer
-   6 |   LET numbers AS List OF Integer = [1, 2, 3]
-   7 |   LET labels AS List OF String = transform(numbers, label)
+tests/func_collection_transform_invalid/src/main.mfb:6 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `transform` has argument type(s) (List OF Integer, FUNC(Integer) AS Nothing), expected List OF T, FUNC(T) AS U.
+   4 | FUNC main AS Integer
+   5 |   LET numbers AS List OF Integer = [1, 2, 3]
+   6 |   LET values = transform(numbers, visit)
      | ^
-tests/func_collection_transform_invalid/src/main.mfb:7 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
-               Initializer for binding `labels` does not have a known type.
+tests/func_collection_transform_invalid/src/main.mfb:6 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `values` does not have a known type.
 [exit 1]
 $ mfb build -ir tests/func_collection_transform_invalid
-   5 | FUNC main AS Integer
-   6 |   LET numbers AS List OF Integer = [1, 2, 3]
-   7 |   LET labels AS List OF String = transform(numbers, label)
+   4 | FUNC main AS Integer
+   5 |   LET numbers AS List OF Integer = [1, 2, 3]
+   6 |   LET values = transform(numbers, visit)
      | ^
-tests/func_collection_transform_invalid/src/main.mfb:7 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
-               Call to `transform` has argument type(s) (List OF Integer, FUNC(String) AS String), expected List OF T, FUNC(T) AS U.
-   5 | FUNC main AS Integer
-   6 |   LET numbers AS List OF Integer = [1, 2, 3]
-   7 |   LET labels AS List OF String = transform(numbers, label)
+tests/func_collection_transform_invalid/src/main.mfb:6 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `transform` has argument type(s) (List OF Integer, FUNC(Integer) AS Nothing), expected List OF T, FUNC(T) AS U.
+   4 | FUNC main AS Integer
+   5 |   LET numbers AS List OF Integer = [1, 2, 3]
+   6 |   LET values = transform(numbers, visit)
      | ^
-tests/func_collection_transform_invalid/src/main.mfb:7 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
-               Initializer for binding `labels` does not have a known type.
+tests/func_collection_transform_invalid/src/main.mfb:6 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `values` does not have a known type.
 [exit 1]

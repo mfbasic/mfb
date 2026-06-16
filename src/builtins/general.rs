@@ -622,7 +622,7 @@ fn resolve_transform<'a>(arg_types: &'a [String]) -> Option<ResolvedCall<'a>> {
     }
     let element = list_element(&arg_types[0])?;
     let (params, returns) = function_parts(&arg_types[1])?;
-    (params.len() == 1 && params[0] == element).then_some(ResolvedCall {
+    (params.len() == 1 && params[0] == element && returns != "Nothing").then_some(ResolvedCall {
         return_type: Cow::Owned(format!("List OF {returns}")),
     })
 }

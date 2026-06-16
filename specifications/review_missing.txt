@@ -164,7 +164,7 @@ REQUIREMENT: Filesystem text reads must reject invalid UTF-8
 SPECIFICATION: specifications/standard_package.md @ §8 Built-in Filesystem Package
 `fs::readText` and `fs::readAll` are specified to return text and fail with `10019` on invalid UTF-8. The shared native helpers read raw bytes into `String` storage and return success without validating UTF-8. Resolve by adding a shared UTF-8 validation pass before returning text from path and file-handle text reads, mapping invalid sequences to `ErrEncoding` (`10019`), and covering invalid-byte runtime tests.
 
-REQUIREMENT: `transform` must reject `SUB`/`Nothing` callbacks
+[FIXED] REQUIREMENT: `transform` must reject `SUB`/`Nothing` callbacks
 SPECIFICATION: specifications/mfbasic.md @ §7 Subs and specifications/standard_package.md @ §3.2 Collections
 The spec allows `SUB(T)` compatibility for `forEach`, but `transform` requires `FUNC(T) AS U` because it collects returned values. `resolve_transform` accepts any one-argument function return type, including `Nothing`, producing `List OF Nothing` and deferring failure to later native lowering. Resolve by rejecting `returns == "Nothing"` for `transform`, keeping `SUB` compatibility only for `forEach`, and adding focused invalid tests for `transform(values, subCallback)`.
 
