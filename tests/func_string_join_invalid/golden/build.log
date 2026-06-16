@@ -47,6 +47,24 @@ tests/func_string_join_invalid/src/main.mfb:7 error[2-203-0022 TYPE_CALL_ARITY_M
      | ^
 tests/func_string_join_invalid/src/main.mfb:7 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `tooMany` does not have a known type.
+   6 |   LET wrongDelimiter AS String = strings::join(["a"], 1)
+   7 |   LET tooMany AS String = strings::join(["a"], ",", ";")
+   8 |   LET badName AS String = strings::join(items := ["a"], delimiter := ",")
+     | ^
+tests/func_string_join_invalid/src/main.mfb:8 error[2-203-0059 TYPE_UNKNOWN_ARGUMENT_NAME]: call argument name does not match any parameter
+               Call to `strings.join` does not have a parameter named `items`.
+   6 |   LET wrongDelimiter AS String = strings::join(["a"], 1)
+   7 |   LET tooMany AS String = strings::join(["a"], ",", ";")
+   8 |   LET badName AS String = strings::join(items := ["a"], delimiter := ",")
+     | ^
+tests/func_string_join_invalid/src/main.mfb:8 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+               Call to `strings.join` has 1 argument(s), expected 2.
+   6 |   LET wrongDelimiter AS String = strings::join(["a"], 1)
+   7 |   LET tooMany AS String = strings::join(["a"], ",", ";")
+   8 |   LET badName AS String = strings::join(items := ["a"], delimiter := ",")
+     | ^
+tests/func_string_join_invalid/src/main.mfb:8 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `badName` does not have a known type.
 [exit 1]
 $ mfb build -ir tests/func_string_join_invalid
    2 | 
@@ -97,4 +115,22 @@ tests/func_string_join_invalid/src/main.mfb:7 error[2-203-0022 TYPE_CALL_ARITY_M
      | ^
 tests/func_string_join_invalid/src/main.mfb:7 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `tooMany` does not have a known type.
+   6 |   LET wrongDelimiter AS String = strings::join(["a"], 1)
+   7 |   LET tooMany AS String = strings::join(["a"], ",", ";")
+   8 |   LET badName AS String = strings::join(items := ["a"], delimiter := ",")
+     | ^
+tests/func_string_join_invalid/src/main.mfb:8 error[2-203-0059 TYPE_UNKNOWN_ARGUMENT_NAME]: call argument name does not match any parameter
+               Call to `strings.join` does not have a parameter named `items`.
+   6 |   LET wrongDelimiter AS String = strings::join(["a"], 1)
+   7 |   LET tooMany AS String = strings::join(["a"], ",", ";")
+   8 |   LET badName AS String = strings::join(items := ["a"], delimiter := ",")
+     | ^
+tests/func_string_join_invalid/src/main.mfb:8 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+               Call to `strings.join` has 1 argument(s), expected 2.
+   6 |   LET wrongDelimiter AS String = strings::join(["a"], 1)
+   7 |   LET tooMany AS String = strings::join(["a"], ",", ";")
+   8 |   LET badName AS String = strings::join(items := ["a"], delimiter := ",")
+     | ^
+tests/func_string_join_invalid/src/main.mfb:8 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `badName` does not have a known type.
 [exit 1]

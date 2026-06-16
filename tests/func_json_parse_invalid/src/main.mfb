@@ -4,5 +4,6 @@ FUNC main AS Integer
   LET missing AS Json = json::parse()
   LET wrongType AS Json = json::parse(TRUE)
   LET tooMany AS Json = json::parse("{}", "{}")
+  LET badName AS Json = json::parse(textValue := "{}")
   RETURN 0
 END FUNC

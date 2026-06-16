@@ -3634,7 +3634,7 @@ impl<'a> TypeChecker<'a> {
         display_callee: &str,
         callee: &str,
         arguments: &[CallArg],
-        _line: usize,
+        line: usize,
     ) -> Vec<Expression> {
         if !arguments
             .iter()
@@ -3654,6 +3654,7 @@ impl<'a> TypeChecker<'a> {
         let mut ordered = vec![None; param_names.len()];
         let mut next_positional = 0usize;
         let mut extras = Vec::new();
+        let mut saw_unknown_named = false;
         for argument in arguments {
             match argument {
                 CallArg::Positional(value) => {
@@ -3668,7 +3669,10 @@ impl<'a> TypeChecker<'a> {
                     }
                 }
                 CallArg::Named { name, value, line } => {
-                    let Some(index) = param_names.iter().position(|param| param == name) else {
+                    let Some(index) = param_names
+                        .iter()
+                        .position(|aliases| aliases.iter().any(|alias| alias == name))
+                    else {
                         self.report(
                             "TYPE_UNKNOWN_ARGUMENT_NAME",
                             &format!(
@@ -3677,13 +3681,15 @@ impl<'a> TypeChecker<'a> {
                             file,
                             *line,
                         );
+                        saw_unknown_named = true;
                         continue;
                     };
                     if ordered[index].is_some() {
                         self.report(
                             "TYPE_DUPLICATE_ARGUMENT_NAME",
                             &format!(
-                                "Call to `{display_callee}` supplies parameter `{name}` more than once."
+                                "Call to `{display_callee}` supplies parameter `{}` more than once.",
+                                param_names[index][0]
                             ),
                             file,
                             *line,
@@ -3691,6 +3697,27 @@ impl<'a> TypeChecker<'a> {
                         continue;
                     }
                     ordered[index] = Some(value.clone());
+                }
+            }
+        }
+        if !saw_unknown_named {
+            for (index, aliases) in param_names.iter().enumerate() {
+                if ordered[index].is_none()
+                    && ordered
+                        .iter()
+                        .skip(index + 1)
+                        .any(|argument| argument.is_some())
+                {
+                    self.report(
+                        "TYPE_CALL_ARITY_MISMATCH",
+                        &format!(
+                            "Call to `{display_callee}` omits parameter `{}` before a later supplied argument.",
+                            aliases[0]
+                        ),
+                        file,
+                        line,
+                    );
+                    break;
                 }
             }
         }

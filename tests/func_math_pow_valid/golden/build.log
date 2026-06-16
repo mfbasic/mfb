@@ -9,6 +9,7 @@ Wrote executable to tests/func_math_pow_valid/func_math_pow_valid.out
 [exit 0]
 $ tests/func_math_pow_valid/func_math_pow_valid.out
 8.00
+16.00
 2.00
 2.25
 [exit 0]

@@ -12,5 +12,7 @@ FUNC main AS Integer
   LET badStart AS Thread OF String TO Integer = thread::start(thread_workers::badNoHandle, "a")
   LET wrongData AS Thread OF String TO Integer = thread::start(thread_workers::echoText, 1)
   LET missing AS Thread OF String TO Integer = thread::start()
+  LET badName AS Thread OF String TO Integer = thread::start(worker := thread_workers::echoText, data := "a")
+  LET skippedInbound AS Thread OF String TO Integer = thread::start(f := thread_workers::echoText, data := "a", outboundLimit := 1)
   RETURN 0
 END FUNC

@@ -11,6 +11,24 @@ tests/func_collection_getOr_invalid/src/main.mfb:3 error[2-203-0021 TYPE_CALL_AR
      | ^
 tests/func_collection_getOr_invalid/src/main.mfb:3 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `value` does not have a known type.
+   2 |   LET numbers AS List OF Integer = [1, 2, 3]
+   3 |   LET value AS Integer = getOr(numbers, 1, "missing")
+   4 |   LET badName AS Integer = getOr(value := numbers, index := 1, fallbackValue := 0)
+     | ^
+tests/func_collection_getOr_invalid/src/main.mfb:4 error[2-203-0059 TYPE_UNKNOWN_ARGUMENT_NAME]: call argument name does not match any parameter
+               Call to `getOr` does not have a parameter named `fallbackValue`.
+   2 |   LET numbers AS List OF Integer = [1, 2, 3]
+   3 |   LET value AS Integer = getOr(numbers, 1, "missing")
+   4 |   LET badName AS Integer = getOr(value := numbers, index := 1, fallbackValue := 0)
+     | ^
+tests/func_collection_getOr_invalid/src/main.mfb:4 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+               Call to `getOr` has 2 argument(s), expected 3.
+   2 |   LET numbers AS List OF Integer = [1, 2, 3]
+   3 |   LET value AS Integer = getOr(numbers, 1, "missing")
+   4 |   LET badName AS Integer = getOr(value := numbers, index := 1, fallbackValue := 0)
+     | ^
+tests/func_collection_getOr_invalid/src/main.mfb:4 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `badName` does not have a known type.
 [exit 1]
 $ mfb build -ir tests/func_collection_getOr_invalid
    1 | FUNC main AS Integer
@@ -25,4 +43,22 @@ tests/func_collection_getOr_invalid/src/main.mfb:3 error[2-203-0021 TYPE_CALL_AR
      | ^
 tests/func_collection_getOr_invalid/src/main.mfb:3 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `value` does not have a known type.
+   2 |   LET numbers AS List OF Integer = [1, 2, 3]
+   3 |   LET value AS Integer = getOr(numbers, 1, "missing")
+   4 |   LET badName AS Integer = getOr(value := numbers, index := 1, fallbackValue := 0)
+     | ^
+tests/func_collection_getOr_invalid/src/main.mfb:4 error[2-203-0059 TYPE_UNKNOWN_ARGUMENT_NAME]: call argument name does not match any parameter
+               Call to `getOr` does not have a parameter named `fallbackValue`.
+   2 |   LET numbers AS List OF Integer = [1, 2, 3]
+   3 |   LET value AS Integer = getOr(numbers, 1, "missing")
+   4 |   LET badName AS Integer = getOr(value := numbers, index := 1, fallbackValue := 0)
+     | ^
+tests/func_collection_getOr_invalid/src/main.mfb:4 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+               Call to `getOr` has 2 argument(s), expected 3.
+   2 |   LET numbers AS List OF Integer = [1, 2, 3]
+   3 |   LET value AS Integer = getOr(numbers, 1, "missing")
+   4 |   LET badName AS Integer = getOr(value := numbers, index := 1, fallbackValue := 0)
+     | ^
+tests/func_collection_getOr_invalid/src/main.mfb:4 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `badName` does not have a known type.
 [exit 1]

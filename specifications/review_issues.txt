@@ -54,6 +54,7 @@ The spec defines `JsonNull` as an empty record, but `src/builtins/json_package.m
 REQUIREMENT: Standard-package named arguments
 SPECIFICATION: standard_package.md @ opening call-rules paragraph
 GROUP: language
+STATUS: Completed
 RECOMMENDED: CODE CHANGE
 The spec says standard-package functions support normal positional/named call arguments and trailing defaults, but builtin parameter metadata is incomplete or inconsistent. Examples: `json::parse` is registered with parameter `text` while the spec names it `value`; `thread::start` only exposes `entry` despite four parameters; several `io` functions are missing from `call_param_names`. Resolve by aligning every builtin’s parameter-name table with the spec and adding named-argument tests for each builtin package.
 
@@ -239,6 +240,12 @@ SPECIFICATION: project.md @ §9 Targets And Build Metadata
 GROUP: tooling
 RECOMMENDED: CODE CHANGE
 `project.json` defines `targets` as requested build targets such as `native`, `bytecode`, or platform triples, but `src/main.rs` ignores the manifest field entirely. `mfb build` always emits the primary artifact for `kind` using the CLI/default host target, so a manifest requesting only `bytecode`, a specific platform triple, or multiple targets has no effect. Resolve by parsing and validating `targets`, mapping entries to build outputs/target triples, rejecting unsupported targets, defining CLI override precedence, and adding manifest/build tests for `native`, `bytecode`, explicit platform triples, and invalid target values.
+
+REQUIREMENT: Project metadata string fields
+SPECIFICATION: project.md @ §4 Identity And Informational Fields; §11 Validation
+GROUP: tooling
+RECOMMENDED: CODE CHANGE
+`project.md` documents `description` and `license` as known optional string metadata fields, while unknown top-level fields are the only ones tools may ignore by default. `src/main.rs` validates optional `entry`, `author`, and `url`, but does not validate `description` or `license`, so malformed known metadata such as arrays, objects, or numbers is accepted silently. Resolve by adding optional string validation for `description` and `license` during manifest validation, with manifest tests covering valid strings and invalid non-string values.
 
 
 === registry ===

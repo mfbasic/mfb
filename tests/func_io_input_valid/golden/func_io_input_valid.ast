@@ -21,7 +21,7 @@
         "condition": { "kind": "boolean", "value": false },
         "line": 4,
         "then": [
-        { "kind": "return", "value": { "kind": "binary", "operator": "+", "left": { "kind": "call", "callee": "len", "arguments": [{ "kind": "call", "callee": "io.input", "arguments": [] }] }, "right": { "kind": "call", "callee": "len", "arguments": [{ "kind": "call", "callee": "io.input", "arguments": [{ "kind": "string", "value": "name> " }] }] } }, "line": 5 }
+        { "kind": "return", "value": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "call", "callee": "len", "arguments": [{ "kind": "call", "callee": "io.input", "arguments": [] }] }, "right": { "kind": "call", "callee": "len", "arguments": [{ "kind": "call", "callee": "io.input", "arguments": [{ "kind": "string", "value": "name> " }] }] } }, "right": { "kind": "call", "callee": "len", "arguments": [{ "kind": "call", "callee": "io.input", "arguments": [{ "kind": "named", "name": "prompt", "value": { "kind": "string", "value": "name> " } }] }] } }, "line": 5 }
         ],
         "else": [
         ]

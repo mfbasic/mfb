@@ -20,6 +20,7 @@
     "body": [
     { "op": "bind", "mutable": false, "name": "text", "type": "String", "value": { "kind": "const", "type": "String", "value": "hello" } },
     { "op": "bind", "mutable": false, "name": "simple", "type": "String", "value": { "kind": "call", "target": "replace", "args": [{ "kind": "local", "name": "text" }, { "kind": "const", "type": "String", "value": "l" }, { "kind": "const", "type": "String", "value": "x" }] } },
+    { "op": "bind", "mutable": false, "name": "named", "type": "String", "value": { "kind": "call", "target": "replace", "args": [{ "kind": "local", "name": "text" }, { "kind": "const", "type": "String", "value": "l" }, { "kind": "const", "type": "String", "value": "q" }] } },
     { "op": "bind", "mutable": false, "name": "nonOverlap", "type": "String", "value": { "kind": "call", "target": "replace", "args": [{ "kind": "const", "type": "String", "value": "aaaa" }, { "kind": "const", "type": "String", "value": "aa" }, { "kind": "const", "type": "String", "value": "b" }] } },
     { "op": "bind", "mutable": false, "name": "deleteMatch", "type": "String", "value": { "kind": "call", "target": "replace", "args": [{ "kind": "const", "type": "String", "value": "banana" }, { "kind": "const", "type": "String", "value": "na" }, { "kind": "const", "type": "String", "value": "" }] } },
     { "op": "bind", "mutable": false, "name": "unicode", "type": "String", "value": { "kind": "call", "target": "replace", "args": [{ "kind": "const", "type": "String", "value": "aé日é" }, { "kind": "const", "type": "String", "value": "é" }, { "kind": "const", "type": "String", "value": "E" }] } },
@@ -28,6 +29,7 @@
     { "op": "bind", "mutable": false, "name": "emptyOld", "type": "String", "value": { "kind": "call", "target": "replace", "args": [{ "kind": "const", "type": "String", "value": "hi" }, { "kind": "const", "type": "String", "value": "" }, { "kind": "const", "type": "String", "value": "x" }] } },
     { "op": "bind", "mutable": false, "name": "overlapCandidate", "type": "String", "value": { "kind": "call", "target": "replace", "args": [{ "kind": "const", "type": "String", "value": "ababa" }, { "kind": "const", "type": "String", "value": "aba" }, { "kind": "const", "type": "String", "value": "x" }] } },
     { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "local", "name": "simple" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "local", "name": "named" }] } },
     { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "local", "name": "nonOverlap" }] } },
     { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "local", "name": "deleteMatch" }] } },
     { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "local", "name": "unicode" }] } },
@@ -36,6 +38,7 @@
     { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "local", "name": "emptyOld" }] } },
     { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "local", "name": "overlapCandidate" }] } },
     { "op": "bind", "mutable": false, "name": "simpleLen", "type": "Integer", "value": { "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "simple" }] } },
+    { "op": "bind", "mutable": false, "name": "namedLen", "type": "Integer", "value": { "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "named" }] } },
     { "op": "bind", "mutable": false, "name": "nonOverlapLen", "type": "Integer", "value": { "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "nonOverlap" }] } },
     { "op": "bind", "mutable": false, "name": "deleteLen", "type": "Integer", "value": { "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "deleteMatch" }] } },
     { "op": "bind", "mutable": false, "name": "unicodeLen", "type": "Integer", "value": { "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "unicode" }] } },
@@ -43,7 +46,7 @@
     { "op": "bind", "mutable": false, "name": "oldTooLongLen", "type": "Integer", "value": { "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "oldTooLong" }] } },
     { "op": "bind", "mutable": false, "name": "emptyOldLen", "type": "Integer", "value": { "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "emptyOld" }] } },
     { "op": "bind", "mutable": false, "name": "overlapLen", "type": "Integer", "value": { "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "overlapCandidate" }] } },
-    { "op": "return", "value": { "kind": "binary", "op": "+", "left": { "kind": "binary", "op": "+", "left": { "kind": "binary", "op": "+", "left": { "kind": "binary", "op": "+", "left": { "kind": "binary", "op": "+", "left": { "kind": "binary", "op": "+", "left": { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "simpleLen" }, "right": { "kind": "local", "name": "nonOverlapLen" } }, "right": { "kind": "local", "name": "deleteLen" } }, "right": { "kind": "local", "name": "unicodeLen" } }, "right": { "kind": "local", "name": "noMatchLen" } }, "right": { "kind": "local", "name": "oldTooLongLen" } }, "right": { "kind": "local", "name": "emptyOldLen" } }, "right": { "kind": "local", "name": "overlapLen" } } }
+    { "op": "return", "value": { "kind": "binary", "op": "+", "left": { "kind": "binary", "op": "+", "left": { "kind": "binary", "op": "+", "left": { "kind": "binary", "op": "+", "left": { "kind": "binary", "op": "+", "left": { "kind": "binary", "op": "+", "left": { "kind": "binary", "op": "+", "left": { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "simpleLen" }, "right": { "kind": "local", "name": "namedLen" } }, "right": { "kind": "local", "name": "nonOverlapLen" } }, "right": { "kind": "local", "name": "deleteLen" } }, "right": { "kind": "local", "name": "unicodeLen" } }, "right": { "kind": "local", "name": "noMatchLen" } }, "right": { "kind": "local", "name": "oldTooLongLen" } }, "right": { "kind": "local", "name": "emptyOldLen" } }, "right": { "kind": "local", "name": "overlapLen" } } }
     ]
   }
   ]

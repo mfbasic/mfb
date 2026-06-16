@@ -11,6 +11,7 @@ $ tests/func_string_join_valid/func_string_join_valid.out
 []
 Hello
 Hello World
+left/right
 abc
 😀|é|wide
 left--right

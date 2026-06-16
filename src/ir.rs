@@ -1394,7 +1394,10 @@ fn normalize_builtin_call_arguments<'a>(
                 }
             }
             CallArg::Named { name, value, .. } => {
-                if let Some(index) = param_names.iter().position(|param| param == name) {
+                if let Some(index) = param_names
+                    .iter()
+                    .position(|aliases| aliases.iter().any(|alias| alias == name))
+                {
                     ordered[index] = Some(value);
                 }
             }

@@ -47,6 +47,24 @@ tests/func_fs_openFile_invalid/src/main.mfb:7 error[2-203-0022 TYPE_CALL_ARITY_M
      | ^
 tests/func_fs_openFile_invalid/src/main.mfb:7 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `tooMany` does not have a known type.
+   6 |   LET wrongMode AS File = fs::openFile("a", 1)
+   7 |   LET tooMany AS File = fs::openFile("a", "read", "x")
+   8 |   LET badName AS File = fs::openFile(file := "a")
+     | ^
+tests/func_fs_openFile_invalid/src/main.mfb:8 error[2-203-0059 TYPE_UNKNOWN_ARGUMENT_NAME]: call argument name does not match any parameter
+               Call to `fs.openFile` does not have a parameter named `file`.
+   6 |   LET wrongMode AS File = fs::openFile("a", 1)
+   7 |   LET tooMany AS File = fs::openFile("a", "read", "x")
+   8 |   LET badName AS File = fs::openFile(file := "a")
+     | ^
+tests/func_fs_openFile_invalid/src/main.mfb:8 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+               Call to `fs.openFile` has 0 argument(s), expected 1 to 2.
+   6 |   LET wrongMode AS File = fs::openFile("a", 1)
+   7 |   LET tooMany AS File = fs::openFile("a", "read", "x")
+   8 |   LET badName AS File = fs::openFile(file := "a")
+     | ^
+tests/func_fs_openFile_invalid/src/main.mfb:8 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `badName` does not have a known type.
 [exit 1]
 $ mfb build -ir tests/func_fs_openFile_invalid
    2 | 
@@ -97,4 +115,22 @@ tests/func_fs_openFile_invalid/src/main.mfb:7 error[2-203-0022 TYPE_CALL_ARITY_M
      | ^
 tests/func_fs_openFile_invalid/src/main.mfb:7 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `tooMany` does not have a known type.
+   6 |   LET wrongMode AS File = fs::openFile("a", 1)
+   7 |   LET tooMany AS File = fs::openFile("a", "read", "x")
+   8 |   LET badName AS File = fs::openFile(file := "a")
+     | ^
+tests/func_fs_openFile_invalid/src/main.mfb:8 error[2-203-0059 TYPE_UNKNOWN_ARGUMENT_NAME]: call argument name does not match any parameter
+               Call to `fs.openFile` does not have a parameter named `file`.
+   6 |   LET wrongMode AS File = fs::openFile("a", 1)
+   7 |   LET tooMany AS File = fs::openFile("a", "read", "x")
+   8 |   LET badName AS File = fs::openFile(file := "a")
+     | ^
+tests/func_fs_openFile_invalid/src/main.mfb:8 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+               Call to `fs.openFile` has 0 argument(s), expected 1 to 2.
+   6 |   LET wrongMode AS File = fs::openFile("a", 1)
+   7 |   LET tooMany AS File = fs::openFile("a", "read", "x")
+   8 |   LET badName AS File = fs::openFile(file := "a")
+     | ^
+tests/func_fs_openFile_invalid/src/main.mfb:8 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `badName` does not have a known type.
 [exit 1]

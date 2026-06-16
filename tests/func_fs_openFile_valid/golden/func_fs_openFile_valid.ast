@@ -31,7 +31,7 @@
         "else": [
         ]
       },
-      { "kind": "binding", "mutable": false, "name": "w", "type": "File", "value": { "kind": "call", "callee": "fs.openFile", "arguments": [{ "kind": "identifier", "value": "out" }, { "kind": "string", "value": "write" }] }, "line": 12 },
+      { "kind": "binding", "mutable": false, "name": "w", "type": "File", "value": { "kind": "call", "callee": "fs.openFile", "arguments": [{ "kind": "named", "name": "path", "value": { "kind": "identifier", "value": "out" } }, { "kind": "named", "name": "mode", "value": { "kind": "string", "value": "write" } }] }, "line": 12 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "fs.close", "arguments": [{ "kind": "identifier", "value": "w" }] }, "line": 13 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "fs.fileExists", "arguments": [{ "kind": "identifier", "value": "out" }] }] }] }, "line": 14 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "fs.deleteFile", "arguments": [{ "kind": "identifier", "value": "out" }] }, "line": 15 },

@@ -65,7 +65,8 @@
       { "kind": "expression", "expression": { "kind": "call", "callee": "printStringByteLen", "arguments": [{ "kind": "call", "callee": "json.parse", "arguments": [{ "kind": "string", "value": "\"\\u001F\"" }] }] }, "line": 24 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "json.stringify", "arguments": [{ "kind": "call", "callee": "json.parse", "arguments": [{ "kind": "string", "value": "[true,false,null,{\"x\":\"y\"}]" }] }] }] }, "line": 25 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "json.stringify", "arguments": [{ "kind": "call", "callee": "json.parse", "arguments": [{ "kind": "string", "value": "-12.5e+2" }] }] }] }, "line": 26 },
-      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 27 }
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "json.stringify", "arguments": [{ "kind": "call", "callee": "json.parse", "arguments": [{ "kind": "named", "name": "value", "value": { "kind": "string", "value": "{\"named\":true}" } }] }] }] }, "line": 27 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 28 }
       ]
     }
     ]

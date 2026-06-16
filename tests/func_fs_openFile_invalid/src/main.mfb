@@ -5,5 +5,6 @@ FUNC main AS Integer
   LET wrongPath AS File = fs::openFile(1)
   LET wrongMode AS File = fs::openFile("a", 1)
   LET tooMany AS File = fs::openFile("a", "read", "x")
+  LET badName AS File = fs::openFile(file := "a")
   RETURN 0
 END FUNC

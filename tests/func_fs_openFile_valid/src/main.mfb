@@ -9,7 +9,7 @@ FUNC main AS Integer
   IF fs::fileExists(out) THEN
     fs::deleteFile(out)
   END IF
-  LET w AS File = fs::openFile(out, "write")
+  LET w AS File = fs::openFile(path := out, mode := "write")
   fs::close(w)
   io::print(toString(fs::fileExists(out)))
   fs::deleteFile(out)

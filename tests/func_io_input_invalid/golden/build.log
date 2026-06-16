@@ -23,6 +23,12 @@ tests/func_io_input_invalid/src/main.mfb:5 error[2-203-0022 TYPE_CALL_ARITY_MISM
      | ^
 tests/func_io_input_invalid/src/main.mfb:5 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `tooMany` does not have a known type.
+   4 |   LET wrongType AS String = io::input(1)
+   5 |   LET tooMany AS String = io::input("a", "b")
+   6 |   LET badName AS String = io::input(message := "a")
+     | ^
+tests/func_io_input_invalid/src/main.mfb:6 error[2-203-0059 TYPE_UNKNOWN_ARGUMENT_NAME]: call argument name does not match any parameter
+               Call to `io.input` does not have a parameter named `message`.
 [exit 1]
 $ mfb build -ir tests/func_io_input_invalid
    2 | 
@@ -49,4 +55,10 @@ tests/func_io_input_invalid/src/main.mfb:5 error[2-203-0022 TYPE_CALL_ARITY_MISM
      | ^
 tests/func_io_input_invalid/src/main.mfb:5 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `tooMany` does not have a known type.
+   4 |   LET wrongType AS String = io::input(1)
+   5 |   LET tooMany AS String = io::input("a", "b")
+   6 |   LET badName AS String = io::input(message := "a")
+     | ^
+tests/func_io_input_invalid/src/main.mfb:6 error[2-203-0059 TYPE_UNKNOWN_ARGUMENT_NAME]: call argument name does not match any parameter
+               Call to `io.input` does not have a parameter named `message`.
 [exit 1]

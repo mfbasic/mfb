@@ -57,6 +57,24 @@ tests/func_general_replace_invalid/src/main.mfb:6 error[2-203-0022 TYPE_CALL_ARI
      | ^
 tests/func_general_replace_invalid/src/main.mfb:6 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `tooMany` does not have a known type.
+   5 |   LET wrongNew AS String = replace("hello", "l", 1)
+   6 |   LET tooMany AS String = replace("hello", "l", "x", "extra")
+   7 |   LET badName AS String = replace(source := "hello", old := "l", new := "x")
+     | ^
+tests/func_general_replace_invalid/src/main.mfb:7 error[2-203-0059 TYPE_UNKNOWN_ARGUMENT_NAME]: call argument name does not match any parameter
+               Call to `replace` does not have a parameter named `source`.
+   5 |   LET wrongNew AS String = replace("hello", "l", 1)
+   6 |   LET tooMany AS String = replace("hello", "l", "x", "extra")
+   7 |   LET badName AS String = replace(source := "hello", old := "l", new := "x")
+     | ^
+tests/func_general_replace_invalid/src/main.mfb:7 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+               Call to `replace` has 2 argument(s), expected 3.
+   5 |   LET wrongNew AS String = replace("hello", "l", 1)
+   6 |   LET tooMany AS String = replace("hello", "l", "x", "extra")
+   7 |   LET badName AS String = replace(source := "hello", old := "l", new := "x")
+     | ^
+tests/func_general_replace_invalid/src/main.mfb:7 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `badName` does not have a known type.
 [exit 1]
 $ mfb build -ir tests/func_general_replace_invalid
    1 | FUNC main AS Integer
@@ -117,4 +135,22 @@ tests/func_general_replace_invalid/src/main.mfb:6 error[2-203-0022 TYPE_CALL_ARI
      | ^
 tests/func_general_replace_invalid/src/main.mfb:6 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `tooMany` does not have a known type.
+   5 |   LET wrongNew AS String = replace("hello", "l", 1)
+   6 |   LET tooMany AS String = replace("hello", "l", "x", "extra")
+   7 |   LET badName AS String = replace(source := "hello", old := "l", new := "x")
+     | ^
+tests/func_general_replace_invalid/src/main.mfb:7 error[2-203-0059 TYPE_UNKNOWN_ARGUMENT_NAME]: call argument name does not match any parameter
+               Call to `replace` does not have a parameter named `source`.
+   5 |   LET wrongNew AS String = replace("hello", "l", 1)
+   6 |   LET tooMany AS String = replace("hello", "l", "x", "extra")
+   7 |   LET badName AS String = replace(source := "hello", old := "l", new := "x")
+     | ^
+tests/func_general_replace_invalid/src/main.mfb:7 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+               Call to `replace` has 2 argument(s), expected 3.
+   5 |   LET wrongNew AS String = replace("hello", "l", 1)
+   6 |   LET tooMany AS String = replace("hello", "l", "x", "extra")
+   7 |   LET badName AS String = replace(source := "hello", old := "l", new := "x")
+     | ^
+tests/func_general_replace_invalid/src/main.mfb:7 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `badName` does not have a known type.
 [exit 1]

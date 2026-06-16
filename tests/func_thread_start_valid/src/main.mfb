@@ -6,5 +6,7 @@ FUNC main AS Integer
   LET t2 AS Thread OF String TO Integer = thread::start(thread_workers::echoText, "b", 1)
   LET t3 AS Thread OF String TO Integer = thread::start(thread_workers::echoText, "c", 1, 1)
   LET t4 AS Thread OF Nothing TO Integer = thread::start(thread_workers::noMessages, 41, 1, 1)
+  LET t5 AS Thread OF String TO Integer = thread::start(f := thread_workers::echoText, data := "d")
+  LET t6 AS Thread OF String TO Integer = thread::start(data := "e", f := thread_workers::echoText, outboundLimit := 1, inboundLimit := 1)
   RETURN 0
 END FUNC

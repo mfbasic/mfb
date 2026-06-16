@@ -173,6 +173,7 @@
     { "op": "eval", "value": { "kind": "call", "target": "printStringByteLen", "args": [{ "kind": "call", "target": "__json_parse", "args": [{ "kind": "const", "type": "String", "value": "\"\\u001F\"" }] }] } },
     { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "__json_stringify", "args": [{ "kind": "call", "target": "__json_parse", "args": [{ "kind": "const", "type": "String", "value": "[true,false,null,{\"x\":\"y\"}]" }] }] }] } },
     { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "__json_stringify", "args": [{ "kind": "call", "target": "__json_parse", "args": [{ "kind": "const", "type": "String", "value": "-12.5e+2" }] }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "__json_stringify", "args": [{ "kind": "call", "target": "__json_parse", "args": [{ "kind": "const", "type": "String", "value": "{\"named\":true}" }] }] }] } },
     { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
     ]
   },

@@ -3,6 +3,7 @@ IMPORT io
 FUNC main AS Integer
   LET text AS String = "hello"
   LET simple AS String = replace(text, "l", "x")
+  LET named AS String = replace(value := text, old := "l", new := "q")
   LET nonOverlap AS String = replace("aaaa", "aa", "b")
   LET deleteMatch AS String = replace("banana", "na", "")
   LET unicode AS String = replace("aé日é", "é", "E")
@@ -12,6 +13,7 @@ FUNC main AS Integer
   LET overlapCandidate AS String = replace("ababa", "aba", "x")
 
   io::print(simple)
+  io::print(named)
   io::print(nonOverlap)
   io::print(deleteMatch)
   io::print(unicode)
@@ -21,6 +23,7 @@ FUNC main AS Integer
   io::print(overlapCandidate)
 
   LET simpleLen AS Integer = len(simple)
+  LET namedLen AS Integer = len(named)
   LET nonOverlapLen AS Integer = len(nonOverlap)
   LET deleteLen AS Integer = len(deleteMatch)
   LET unicodeLen AS Integer = len(unicode)
@@ -29,5 +32,5 @@ FUNC main AS Integer
   LET emptyOldLen AS Integer = len(emptyOld)
   LET overlapLen AS Integer = len(overlapCandidate)
 
-  RETURN simpleLen + nonOverlapLen + deleteLen + unicodeLen + noMatchLen + oldTooLongLen + emptyOldLen + overlapLen
+  RETURN simpleLen + namedLen + nonOverlapLen + deleteLen + unicodeLen + noMatchLen + oldTooLongLen + emptyOldLen + overlapLen
 END FUNC

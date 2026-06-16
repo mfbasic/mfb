@@ -47,6 +47,24 @@ tests/func_math_pow_invalid/src/main.mfb:7 error[2-203-0022 TYPE_CALL_ARITY_MISM
      | ^
 tests/func_math_pow_invalid/src/main.mfb:7 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `tooMany` does not have a known type.
+   6 |   LET wrongType AS Float = math::pow("x", "y")
+   7 |   LET tooMany AS Float = math::pow(2.0, 3.0, 4.0)
+   8 |   LET badName AS Float = math::pow(powerBase := 2.0, exponent := 3.0)
+     | ^
+tests/func_math_pow_invalid/src/main.mfb:8 error[2-203-0059 TYPE_UNKNOWN_ARGUMENT_NAME]: call argument name does not match any parameter
+               Call to `math.pow` does not have a parameter named `powerBase`.
+   6 |   LET wrongType AS Float = math::pow("x", "y")
+   7 |   LET tooMany AS Float = math::pow(2.0, 3.0, 4.0)
+   8 |   LET badName AS Float = math::pow(powerBase := 2.0, exponent := 3.0)
+     | ^
+tests/func_math_pow_invalid/src/main.mfb:8 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+               Call to `math.pow` has 1 argument(s), expected 2.
+   6 |   LET wrongType AS Float = math::pow("x", "y")
+   7 |   LET tooMany AS Float = math::pow(2.0, 3.0, 4.0)
+   8 |   LET badName AS Float = math::pow(powerBase := 2.0, exponent := 3.0)
+     | ^
+tests/func_math_pow_invalid/src/main.mfb:8 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `badName` does not have a known type.
 [exit 1]
 $ mfb build -ir tests/func_math_pow_invalid
    2 | 
@@ -97,4 +115,22 @@ tests/func_math_pow_invalid/src/main.mfb:7 error[2-203-0022 TYPE_CALL_ARITY_MISM
      | ^
 tests/func_math_pow_invalid/src/main.mfb:7 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `tooMany` does not have a known type.
+   6 |   LET wrongType AS Float = math::pow("x", "y")
+   7 |   LET tooMany AS Float = math::pow(2.0, 3.0, 4.0)
+   8 |   LET badName AS Float = math::pow(powerBase := 2.0, exponent := 3.0)
+     | ^
+tests/func_math_pow_invalid/src/main.mfb:8 error[2-203-0059 TYPE_UNKNOWN_ARGUMENT_NAME]: call argument name does not match any parameter
+               Call to `math.pow` does not have a parameter named `powerBase`.
+   6 |   LET wrongType AS Float = math::pow("x", "y")
+   7 |   LET tooMany AS Float = math::pow(2.0, 3.0, 4.0)
+   8 |   LET badName AS Float = math::pow(powerBase := 2.0, exponent := 3.0)
+     | ^
+tests/func_math_pow_invalid/src/main.mfb:8 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+               Call to `math.pow` has 1 argument(s), expected 2.
+   6 |   LET wrongType AS Float = math::pow("x", "y")
+   7 |   LET tooMany AS Float = math::pow(2.0, 3.0, 4.0)
+   8 |   LET badName AS Float = math::pow(powerBase := 2.0, exponent := 3.0)
+     | ^
+tests/func_math_pow_invalid/src/main.mfb:8 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `badName` does not have a known type.
 [exit 1]

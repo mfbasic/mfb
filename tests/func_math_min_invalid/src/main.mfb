@@ -4,5 +4,6 @@ FUNC main AS Integer
   LET missing AS Integer = math::min(1)
   LET mixed AS Float = math::min(1, 2.0)
   LET wrongType AS Integer = math::min("x", "y")
+  LET badName AS Integer = math::min(low := 1, b := 2)
   RETURN 0
 END FUNC

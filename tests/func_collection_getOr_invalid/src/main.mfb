@@ -1,5 +1,6 @@
 FUNC main AS Integer
   LET numbers AS List OF Integer = [1, 2, 3]
   LET value AS Integer = getOr(numbers, 1, "missing")
+  LET badName AS Integer = getOr(value := numbers, index := 1, fallbackValue := 0)
   RETURN value
 END FUNC

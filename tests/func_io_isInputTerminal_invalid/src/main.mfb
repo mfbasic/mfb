@@ -2,5 +2,6 @@ IMPORT io
 
 FUNC main AS Integer
   LET wrongType AS Boolean = io::isInputTerminal(1)
+  LET badName AS Boolean = io::isInputTerminal(value := 1)
   RETURN 0
 END FUNC

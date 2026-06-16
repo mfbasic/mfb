@@ -3,5 +3,6 @@ IMPORT io
 FUNC main AS Integer
   LET wrongType AS String = io::input(1)
   LET tooMany AS String = io::input("a", "b")
+  LET badName AS String = io::input(message := "a")
   RETURN 0
 END FUNC

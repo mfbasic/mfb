@@ -35,6 +35,24 @@ tests/func_math_min_invalid/src/main.mfb:6 error[2-203-0021 TYPE_CALL_ARGUMENT_M
      | ^
 tests/func_math_min_invalid/src/main.mfb:6 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `wrongType` does not have a known type.
+   5 |   LET mixed AS Float = math::min(1, 2.0)
+   6 |   LET wrongType AS Integer = math::min("x", "y")
+   7 |   LET badName AS Integer = math::min(low := 1, b := 2)
+     | ^
+tests/func_math_min_invalid/src/main.mfb:7 error[2-203-0059 TYPE_UNKNOWN_ARGUMENT_NAME]: call argument name does not match any parameter
+               Call to `math.min` does not have a parameter named `low`.
+   5 |   LET mixed AS Float = math::min(1, 2.0)
+   6 |   LET wrongType AS Integer = math::min("x", "y")
+   7 |   LET badName AS Integer = math::min(low := 1, b := 2)
+     | ^
+tests/func_math_min_invalid/src/main.mfb:7 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+               Call to `math.min` has 1 argument(s), expected 2.
+   5 |   LET mixed AS Float = math::min(1, 2.0)
+   6 |   LET wrongType AS Integer = math::min("x", "y")
+   7 |   LET badName AS Integer = math::min(low := 1, b := 2)
+     | ^
+tests/func_math_min_invalid/src/main.mfb:7 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `badName` does not have a known type.
 [exit 1]
 $ mfb build -ir tests/func_math_min_invalid
    2 | 
@@ -73,4 +91,22 @@ tests/func_math_min_invalid/src/main.mfb:6 error[2-203-0021 TYPE_CALL_ARGUMENT_M
      | ^
 tests/func_math_min_invalid/src/main.mfb:6 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `wrongType` does not have a known type.
+   5 |   LET mixed AS Float = math::min(1, 2.0)
+   6 |   LET wrongType AS Integer = math::min("x", "y")
+   7 |   LET badName AS Integer = math::min(low := 1, b := 2)
+     | ^
+tests/func_math_min_invalid/src/main.mfb:7 error[2-203-0059 TYPE_UNKNOWN_ARGUMENT_NAME]: call argument name does not match any parameter
+               Call to `math.min` does not have a parameter named `low`.
+   5 |   LET mixed AS Float = math::min(1, 2.0)
+   6 |   LET wrongType AS Integer = math::min("x", "y")
+   7 |   LET badName AS Integer = math::min(low := 1, b := 2)
+     | ^
+tests/func_math_min_invalid/src/main.mfb:7 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+               Call to `math.min` has 1 argument(s), expected 2.
+   5 |   LET mixed AS Float = math::min(1, 2.0)
+   6 |   LET wrongType AS Integer = math::min("x", "y")
+   7 |   LET badName AS Integer = math::min(low := 1, b := 2)
+     | ^
+tests/func_math_min_invalid/src/main.mfb:7 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `badName` does not have a known type.
 [exit 1]

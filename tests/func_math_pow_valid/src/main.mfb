@@ -6,6 +6,7 @@ FUNC main AS Integer
   LET fixedBase AS Fixed = toFixed("1.50")
   LET fixedExponent AS Fixed = toFixed("2.00")
   io::print(toString(math::pow(2.0, 3.0), p))
+  io::print(toString(math::pow(exponent := 4.0, base := 2.0), p))
   io::print(toString(math::pow(4.0, 0.5), p))
   io::print(toString(math::pow(fixedBase, fixedExponent), p))
   RETURN 0

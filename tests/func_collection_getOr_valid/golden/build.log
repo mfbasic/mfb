@@ -11,7 +11,9 @@ $ tests/func_collection_getOr_valid/func_collection_getOr_valid.out
 10
 -2
 -3
+20
 36
 7
+8
 two
-[exit 48]
+[exit 76]
