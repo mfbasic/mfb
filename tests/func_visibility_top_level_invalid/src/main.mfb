@@ -1,0 +1,4 @@
+FUNC main AS Integer
+  secretTrace()
+  RETURN secretValue()
+END FUNC

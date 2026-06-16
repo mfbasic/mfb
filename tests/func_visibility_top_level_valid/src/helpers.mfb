@@ -1,0 +1,25 @@
+IMPORT io
+
+PRIVATE FUNC privateDouble(value AS Integer) AS Integer
+  RETURN value * 2
+END FUNC
+
+PACKAGE FUNC packageValue(value AS Integer) AS Integer
+  RETURN privateDouble(value) + 1
+END FUNC
+
+EXPORT FUNC exportValue(value AS Integer) AS Integer
+  RETURN value + 3
+END FUNC
+
+PRIVATE SUB privateTrace(value AS Integer)
+  io::print("private=" & toString(value))
+END SUB
+
+PACKAGE SUB packageTrace(value AS Integer)
+  privateTrace(value)
+END SUB
+
+EXPORT SUB exportTrace(value AS Integer)
+  io::print("export=" & toString(value))
+END SUB

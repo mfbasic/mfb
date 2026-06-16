@@ -70,6 +70,8 @@ struct FunctionSig {
     return_type: Type,
     isolated: bool,
     imported_package_export: bool,
+    visibility: Visibility,
+    owner_file_path: String,
 }
 
 #[derive(Clone)]
@@ -106,7 +108,7 @@ pub fn check_project(project_dir: &Path, ast: &AstProject) -> Result<(), ()> {
 struct TypeChecker<'a> {
     project_dir: &'a Path,
     ast: &'a AstProject,
-    functions: HashMap<String, FunctionSig>,
+    functions: HashMap<String, Vec<FunctionSig>>,
     user_types: HashSet<String>,
     user_type_kinds: HashMap<String, TypeDeclKind>,
     type_infos: HashMap<String, TypeInfo>,
@@ -455,6 +457,8 @@ impl<'a> TypeChecker<'a> {
                         return_type: self.parse_type(&export.return_type),
                         isolated: export.isolated,
                         imported_package_export: true,
+                        visibility: Visibility::Export,
+                        owner_file_path: package_file.display().to_string(),
                     };
                     self.validate_imported_function_signature(
                         file,
@@ -464,7 +468,9 @@ impl<'a> TypeChecker<'a> {
                         &sig,
                     );
                     self.functions
-                        .insert(format!("{binding}.{}", export.name), sig);
+                        .entry(format!("{binding}.{}", export.name))
+                        .or_default()
+                        .push(sig);
                 }
             }
         }
@@ -675,16 +681,18 @@ impl<'a> TypeChecker<'a> {
                             has_default: param.default.is_some(),
                         })
                         .collect();
-                    self.functions.insert(
-                        function.name.clone(),
-                        FunctionSig {
+                    self.functions
+                        .entry(function.name.clone())
+                        .or_default()
+                        .push(FunctionSig {
                             kind: function.kind.clone(),
                             params,
                             return_type,
                             isolated: function.isolated,
                             imported_package_export: false,
-                        },
-                    );
+                            visibility: function.visibility,
+                            owner_file_path: file.path.clone(),
+                        });
                 }
             }
         }
@@ -699,6 +707,73 @@ impl<'a> TypeChecker<'a> {
             return name.to_string();
         };
         format!("{package}.{rest}")
+    }
+
+    fn visible_function_sigs<'b>(&'b self, file: &AstFile, name: &str) -> Vec<&'b FunctionSig> {
+        self.functions
+            .get(name)
+            .into_iter()
+            .flatten()
+            .filter(|sig| self.visible_from(file, sig.visibility, &sig.owner_file_path))
+            .collect()
+    }
+
+    fn lookup_visible_function<'b>(&'b self, file: &AstFile, name: &str) -> Option<&'b FunctionSig> {
+        let visible = self.visible_function_sigs(file, name);
+        if visible.len() == 1 {
+            return visible.into_iter().next();
+        }
+        visible.into_iter().last()
+    }
+
+    fn lookup_visible_call_sig<'b>(
+        &'b self,
+        file: &AstFile,
+        name: &str,
+        arguments: &[CallArg],
+    ) -> Option<&'b FunctionSig> {
+        let visible = self.visible_function_sigs(file, name);
+        if visible.len() <= 1 {
+            return visible.into_iter().next();
+        }
+
+        let matching = visible
+            .into_iter()
+            .filter(|sig| self.call_shape_matches_sig(arguments, sig))
+            .collect::<Vec<_>>();
+        if matching.len() == 1 {
+            return matching.into_iter().next();
+        }
+        matching.into_iter().last()
+    }
+
+    fn call_shape_matches_sig(&self, arguments: &[CallArg], sig: &FunctionSig) -> bool {
+        let positional = arguments
+            .iter()
+            .take_while(|argument| matches!(argument, CallArg::Positional(_)))
+            .count();
+        if positional > sig.params.len() {
+            return false;
+        }
+
+        let required = sig.params.iter().filter(|param| !param.has_default).count();
+        if arguments.len() < required || arguments.len() > sig.params.len() {
+            return false;
+        }
+
+        let mut seen = HashSet::new();
+        for argument in arguments {
+            let CallArg::Named { name, .. } = argument else {
+                continue;
+            };
+            if !seen.insert(name) {
+                return false;
+            }
+            if !sig.params.iter().any(|param| param.name == *name) {
+                return false;
+            }
+        }
+        true
     }
 
     fn check(&mut self) {
@@ -1677,10 +1752,12 @@ impl<'a> TypeChecker<'a> {
                         }
                         local.type_
                     } else {
-                        self.functions
-                            .get(name)
+                        self.lookup_visible_function(file, name)
                             .map(function_type)
-                            .or_else(|| self.functions.get(&canonical_name).map(function_type))
+                            .or_else(|| {
+                                self.lookup_visible_function(file, &canonical_name)
+                                    .map(function_type)
+                            })
                             .unwrap_or(Type::Unknown)
                     }
                 }
@@ -1759,10 +1836,12 @@ impl<'a> TypeChecker<'a> {
                 }
 
                 if let Some(sig) = self
-                    .functions
-                    .get(callee)
+                    .lookup_visible_call_sig(file, callee, arguments)
                     .cloned()
-                    .or_else(|| self.functions.get(&canonical_callee).cloned())
+                    .or_else(|| {
+                        self.lookup_visible_call_sig(file, &canonical_callee, arguments)
+                            .cloned()
+                    })
                 {
                     self.check_call(file, callee, &sig, arguments, locals, line);
                     return sig.return_type;
@@ -1847,10 +1926,12 @@ impl<'a> TypeChecker<'a> {
                 return Type::Result(Box::new(success));
             }
             if let Some(sig) = self
-                .functions
-                .get(callee)
+                .lookup_visible_call_sig(file, callee, arguments)
                 .cloned()
-                .or_else(|| self.functions.get(&canonical_callee).cloned())
+                .or_else(|| {
+                    self.lookup_visible_call_sig(file, &canonical_callee, arguments)
+                        .cloned()
+                })
             {
                 self.check_call(file, callee, &sig, arguments, locals, line);
                 return Type::Result(Box::new(sig.return_type));
@@ -3215,9 +3296,8 @@ impl<'a> TypeChecker<'a> {
             let valid_entry = match arguments.first() {
                 Some(Expression::Identifier(name)) => {
                     let canonical_name = self.canonical_import_name(file, name);
-                    self.functions
-                        .get(name)
-                        .or_else(|| self.functions.get(&canonical_name))
+                    self.lookup_visible_function(file, name)
+                        .or_else(|| self.lookup_visible_function(file, &canonical_name))
                         .is_some_and(|sig| {
                             sig.imported_package_export
                                 && matches!(sig.kind, FunctionKind::Func)

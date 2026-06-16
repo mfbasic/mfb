@@ -797,7 +797,7 @@ impl<'a> Resolver<'a> {
             return;
         } else if locals.contains_key(callee) {
             return;
-        } else if !self.functions.contains_key(callee) {
+        } else if !self.function_visible_in_file(file, callee) {
             self.report(
                 "SYMBOL_UNKNOWN_IDENTIFIER",
                 &format!("Callable `{callee}` is not a top-level function."),
@@ -818,7 +818,7 @@ impl<'a> Resolver<'a> {
         if name.contains('.') {
             self.resolve_package_qualified_name(file, name, line, imports);
         } else if !locals.contains_key(name)
-            && !self.functions.contains_key(name)
+            && !self.function_visible_in_file(file, name)
             && !builtins::general::is_general_call(name)
         {
             self.report(
@@ -956,18 +956,28 @@ impl<'a> Resolver<'a> {
     }
 
     fn top_level_visible_in_file(&self, file: &AstFile, name: &str) -> bool {
-        self.top_levels.get(name).is_some_and(|symbol| {
-            !matches!(symbol.visibility, Visibility::Private) || symbol.file_path == file.path
-        })
+        self.top_levels
+            .get(name)
+            .is_some_and(|symbol| self.visible_from(file, symbol.visibility, &symbol.file_path))
     }
 
     fn function_visible_in_file(&self, file: &AstFile, name: &str) -> bool {
         self.functions.get(name).is_some_and(|functions| {
             functions.iter().any(|function| {
-                !matches!(function.symbol.visibility, Visibility::Private)
-                    || function.symbol.file_path == file.path
+                self.visible_from(
+                    file,
+                    function.symbol.visibility,
+                    &function.symbol.file_path,
+                )
             })
         })
+    }
+
+    fn visible_from(&self, file: &AstFile, visibility: Visibility, owner_file_path: &str) -> bool {
+        match visibility {
+            Visibility::Export | Visibility::Package => true,
+            Visibility::Private => file.path == owner_file_path,
+        }
     }
 
     fn report(&mut self, rule: &str, detail: &str, file: &AstFile, line: usize) {

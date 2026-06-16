@@ -1,0 +1,100 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "func_visibility_top_level_valid",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "privateDouble",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    { "name": "value", "type": "Integer", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "return", "value": { "kind": "binary", "op": "*", "left": { "kind": "local", "name": "value" }, "right": { "kind": "const", "type": "Integer", "value": "2" } } }
+    ]
+  },
+  {
+    "name": "packageValue",
+    "visibility": "package",
+    "kind": "func",
+    "params": [
+    { "name": "value", "type": "Integer", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "return", "value": { "kind": "binary", "op": "+", "left": { "kind": "call", "target": "privateDouble", "args": [{ "kind": "local", "name": "value" }] }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+    ]
+  },
+  {
+    "name": "exportValue",
+    "visibility": "export",
+    "kind": "func",
+    "params": [
+    { "name": "value", "type": "Integer", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "return", "value": { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "value" }, "right": { "kind": "const", "type": "Integer", "value": "3" } } }
+    ]
+  },
+  {
+    "name": "privateTrace",
+    "visibility": "private",
+    "kind": "sub",
+    "params": [
+    { "name": "value", "type": "Integer", "default": null }
+    ],
+    "returns": "Nothing",
+    "body": [
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "binary", "op": "&", "left": { "kind": "const", "type": "String", "value": "private=" }, "right": { "kind": "call", "target": "toString", "args": [{ "kind": "local", "name": "value" }] } }] } }
+    ]
+  },
+  {
+    "name": "packageTrace",
+    "visibility": "package",
+    "kind": "sub",
+    "params": [
+    { "name": "value", "type": "Integer", "default": null }
+    ],
+    "returns": "Nothing",
+    "body": [
+    { "op": "eval", "value": { "kind": "call", "target": "privateTrace", "args": [{ "kind": "local", "name": "value" }] } }
+    ]
+  },
+  {
+    "name": "exportTrace",
+    "visibility": "export",
+    "kind": "sub",
+    "params": [
+    { "name": "value", "type": "Integer", "default": null }
+    ],
+    "returns": "Nothing",
+    "body": [
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "binary", "op": "&", "left": { "kind": "const", "type": "String", "value": "export=" }, "right": { "kind": "call", "target": "toString", "args": [{ "kind": "local", "name": "value" }] } }] } }
+    ]
+  },
+  {
+    "name": "main",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "eval", "value": { "kind": "call", "target": "packageTrace", "args": [{ "kind": "const", "type": "Integer", "value": "7" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "exportTrace", "args": [{ "kind": "const", "type": "Integer", "value": "11" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "binary", "op": "&", "left": { "kind": "const", "type": "String", "value": "value=" }, "right": { "kind": "call", "target": "toString", "args": [{ "kind": "binary", "op": "+", "left": { "kind": "call", "target": "packageValue", "args": [{ "kind": "const", "type": "Integer", "value": "5" }] }, "right": { "kind": "call", "target": "exportValue", "args": [{ "kind": "const", "type": "Integer", "value": "13" }] } }] } }] } },
+    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

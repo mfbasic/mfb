@@ -129,24 +129,19 @@ SPECIFICATION: specifications/mfbasic.md @ §13 Modules & Packages
 The resolver can validate a dependency source package manifest at `<project_root>/packages/packageName/project.json` or `local:///.../project.json`, but the build pipeline still requires dependencies to exist as `<project_root>/packages/packageName.mfp` before bytecode merging. Source package imports are therefore accepted during resolution but cannot be compiled, typechecked, lowered, merged, or linked as specified. Resolve by adding dependency graph loading for source package projects, compiling source dependencies in dependency order, detecting import cycles across source and `.mfp` packages, exposing their exported functions/types/constructors to importers, and feeding their IR/bytecode into package or executable builds.
 
 
-REQUIREMENT: Top-level function visibility
+[FIXED] REQUIREMENT: Top-level function visibility
 SPECIFICATION: specifications/mfbasic.md @ §13 Modules & Packages
 `PRIVATE` top-level `FUNC` and `SUB` declarations are specified as file-local, but the typechecker stores callable signatures by name without declaration visibility or owner file and resolves calls from any file in the package. This makes private functions callable outside their declaring file. Resolve by carrying visibility and owner file path in function symbols/signatures, checking `PRIVATE`/`PACKAGE`/`EXPORT` visibility during resolver and typecheck call resolution, and adding valid/invalid cross-file visibility tests.
 
 
-REQUIREMENT: Union included variant name conflicts
-SPECIFICATION: specifications/mfbasic.md @ §4.3 Unions
-The spec requires variant name conflicts introduced by `UNION ... INCLUDES ...` to be compile-time errors. The resolver only checks duplicate variants declared directly inside the same union, and the typechecker expands included variants without rejecting conflicts between included variants and local variants or between multiple included unions. Resolve by validating the fully expanded variant set for every union, reporting duplicate variant names with source locations, and rejecting ambiguous constructors/matches before typechecking and lowering.
-
-
-REQUIREMENT: Template parameters disallowed on `SUB`
+[FIXED] REQUIREMENT: Template parameters disallowed on `SUB`
 SPECIFICATION: specifications/mfbasic.md @ §3 Templates
-Template parameters may appear only on `TYPE`, `UNION`, and `FUNC` declarations, but the parser accepts `OF ...` template parameters on both `FUNC` and `SUB` because it parses template parameters for all function-like declarations. Resolve by rejecting `SUB ... OF ...` in parsing or resolver validation with an invalid-template diagnostic, while keeping `FUNC` templates valid and adding focused invalid coverage for templated `SUB` declarations.
+Template parameters may appear only on `TYPE`, `UNION`, and `FUNC` declarations, but the parser accepts `OF ...` template parameters on both `FUNC` and `SUB` because it parses template parameters for all function-like declarations. Resolve update the spec to allow templates with SUBs.
 
 
 REQUIREMENT: Project kind inference
 SPECIFICATION: specifications/project.md @ §5 Project Kind
-When `kind` is omitted, the spec requires the tool to infer `executable` only when the selected source package contains a valid entry point, and infer `package` otherwise. The compiler currently defaults omitted `kind` to `executable`, so a package-style project without `"kind": "package"` fails entry-point validation instead of building as a package. Resolve by scanning selected sources for the configured/default entry shape before entry validation, deriving the effective kind from that scan, warning on ambiguity, and using that effective kind throughout build/output selection.
+When `kind` is omitted, the spec requires the tool to infer `executable` only when the selected source package contains a valid entry point, and infer `package` otherwise. The compiler currently defaults omitted `kind` to `executable`, so a package-style project without `"kind": "package"` fails entry-point validation instead of building as a package. Resolve by requiring `kind` in the package.json, update the spec and compiler.
 
 REQUIREMENT: Directory package namespaces and `PACKAGE` visibility
 SPECIFICATION: specifications/mfbasic.md @ §13 Modules & Packages

@@ -1,0 +1,8 @@
+IMPORT io
+
+FUNC main AS Integer
+  packageTrace(7)
+  exportTrace(11)
+  io::print("value=" & toString(packageValue(5) + exportValue(13)))
+  RETURN 0
+END FUNC
