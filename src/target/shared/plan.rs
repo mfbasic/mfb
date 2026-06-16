@@ -468,7 +468,7 @@ fn collect_platform_imports_from_value(
                 collect_platform_imports_from_value(platform, required_by, arg, imports);
             }
         }
-        NirValue::Call { target, args } => {
+        NirValue::Call { target, args } | NirValue::CallResult { target, args } => {
             for import in platform.native_call_imports(target, required_by) {
                 push_platform_import(imports, import);
             }
@@ -480,6 +480,13 @@ fn collect_platform_imports_from_value(
             for arg in args {
                 collect_platform_imports_from_value(platform, required_by, arg, imports);
             }
+        }
+        NirValue::UnionWrap { value, .. }
+        | NirValue::UnionExtract { value, .. }
+        | NirValue::ResultIsOk { value }
+        | NirValue::ResultValue { value }
+        | NirValue::ResultError { value } => {
+            collect_platform_imports_from_value(platform, required_by, value, imports);
         }
         NirValue::WithUpdate {
             target, updates, ..
@@ -638,10 +645,19 @@ fn collect_runtime_symbols_from_value(
                 collect_runtime_symbols_from_value(arg, symbols, constants);
             }
         }
-        NirValue::Call { args, .. } | NirValue::Constructor { args, .. } => {
+        NirValue::Call { args, .. }
+        | NirValue::CallResult { args, .. }
+        | NirValue::Constructor { args, .. } => {
             for arg in args {
                 collect_runtime_symbols_from_value(arg, symbols, constants);
             }
+        }
+        NirValue::UnionWrap { value, .. }
+        | NirValue::UnionExtract { value, .. }
+        | NirValue::ResultIsOk { value }
+        | NirValue::ResultValue { value }
+        | NirValue::ResultError { value } => {
+            collect_runtime_symbols_from_value(value, symbols, constants);
         }
         NirValue::WithUpdate {
             target, updates, ..
@@ -961,14 +977,16 @@ impl FunctionPlanBuilder<'_> {
         if native_static_string_value(value, &self.constants).is_some() {
             return Ok(());
         }
-        if let NirValue::RuntimeCall { target, args, .. } | NirValue::Call { target, args } = value
+        if let NirValue::RuntimeCall { target, args, .. }
+        | NirValue::Call { target, args }
+        | NirValue::CallResult { target, args } = value
         {
             if native_static_graphemes_value(target, args, &self.constants).is_some() {
                 return Ok(());
             }
         }
         match value {
-            NirValue::Call { target, args } => {
+            NirValue::Call { target, args } | NirValue::CallResult { target, args } => {
                 for arg in args {
                     self.lower_value(arg)?;
                 }
@@ -998,6 +1016,13 @@ impl FunctionPlanBuilder<'_> {
                 for arg in args {
                     self.lower_value(arg)?;
                 }
+            }
+            NirValue::UnionWrap { value, .. }
+            | NirValue::UnionExtract { value, .. }
+            | NirValue::ResultIsOk { value }
+            | NirValue::ResultValue { value }
+            | NirValue::ResultError { value } => {
+                self.lower_value(value)?;
             }
             NirValue::WithUpdate {
                 target, updates, ..
@@ -1156,6 +1181,7 @@ fn storage_for_type(
 
 fn is_reference_type(type_: &str) -> bool {
     type_ == "String"
+        || type_ == "Error"
         || type_.starts_with("List OF ")
         || type_.starts_with("Map OF ")
         || type_.starts_with("MapEntry OF ")
@@ -1212,6 +1238,14 @@ fn describe_value(value: &NirValue) -> String {
                 .join(", ");
             format!("call {target}({args})")
         }
+        NirValue::CallResult { target, args } => {
+            let args = args
+                .iter()
+                .map(describe_value)
+                .collect::<Vec<_>>()
+                .join(", ");
+            format!("callResult {target}({args})")
+        }
         NirValue::RuntimeCall {
             helper,
             target,
@@ -1231,6 +1265,26 @@ fn describe_value(value: &NirValue) -> String {
                 .collect::<Vec<_>>()
                 .join(", ");
             format!("construct {type_}({args})")
+        }
+        NirValue::UnionWrap {
+            union_type,
+            member_type,
+            value,
+        } => format!(
+            "wrap {member_type} as {union_type} ({})",
+            describe_value(value)
+        ),
+        NirValue::UnionExtract { type_, value } => {
+            format!("extract {type_} ({})", describe_value(value))
+        }
+        NirValue::ResultIsOk { value } => {
+            format!("resultIsOk ({})", describe_value(value))
+        }
+        NirValue::ResultValue { value } => {
+            format!("resultValue ({})", describe_value(value))
+        }
+        NirValue::ResultError { value } => {
+            format!("resultError ({})", describe_value(value))
         }
         NirValue::WithUpdate {
             type_,
@@ -1281,6 +1335,11 @@ fn describe_match_pattern(pattern: &super::nir::NirMatchPattern) -> String {
         super::nir::NirMatchPattern::Else => "else".to_string(),
         super::nir::NirMatchPattern::Value(NirValue::Local(name)) => name.clone(),
         super::nir::NirMatchPattern::Value(value) => describe_value(value),
+        super::nir::NirMatchPattern::OneOf(values) => values
+            .iter()
+            .map(describe_value)
+            .collect::<Vec<_>>()
+            .join(", "),
     }
 }
 
@@ -1292,11 +1351,19 @@ fn collect_string_literals(value: &NirValue, literals: &mut Vec<String>) {
             }
         }
         NirValue::Call { args, .. }
+        | NirValue::CallResult { args, .. }
         | NirValue::RuntimeCall { args, .. }
         | NirValue::Constructor { args, .. } => {
             for arg in args {
                 collect_string_literals(arg, literals);
             }
+        }
+        NirValue::UnionWrap { value, .. }
+        | NirValue::UnionExtract { value, .. }
+        | NirValue::ResultIsOk { value }
+        | NirValue::ResultValue { value }
+        | NirValue::ResultError { value } => {
+            collect_string_literals(value, literals)
         }
         NirValue::WithUpdate {
             target, updates, ..

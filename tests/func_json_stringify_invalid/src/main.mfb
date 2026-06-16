@@ -3,6 +3,6 @@ IMPORT json
 FUNC main AS Integer
   LET missing AS String = json::stringify()
   LET wrongType AS String = json::stringify("x")
-  LET tooMany AS String = json::stringify(Null[NOTHING], Null[NOTHING])
+  LET tooMany AS String = json::stringify(JsonNull[NOTHING], JsonNull[NOTHING])
   RETURN 0
 END FUNC

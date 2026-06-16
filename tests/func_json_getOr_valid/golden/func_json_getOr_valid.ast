@@ -18,7 +18,7 @@
       "returnType": "Integer",
       "body": [
       { "kind": "binding", "mutable": false, "name": "value", "type": "Json", "value": { "kind": "call", "callee": "json.parse", "arguments": [{ "kind": "string", "value": "{\"user\":{\"name\":\"Ada\"},\"flag\":true}" }] }, "line": 5 },
-      { "kind": "binding", "mutable": false, "name": "fallback", "type": "Json", "value": { "kind": "constructor", "type": "Str", "arguments": [{ "kind": "string", "value": "fallback" }] }, "line": 6 },
+      { "kind": "binding", "mutable": false, "name": "fallback", "type": "Json", "value": { "kind": "constructor", "type": "JsonStr", "arguments": [{ "kind": "string", "value": "fallback" }] }, "line": 6 },
       { "kind": "binding", "mutable": false, "name": "emptyPath", "type": "List OF String", "value": { "kind": "list", "values": [] }, "line": 7 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "json.stringify", "arguments": [{ "kind": "call", "callee": "json.getOr", "arguments": [{ "kind": "identifier", "value": "value" }, { "kind": "identifier", "value": "emptyPath" }, { "kind": "identifier", "value": "fallback" }] }] }] }, "line": 8 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "json.stringify", "arguments": [{ "kind": "call", "callee": "json.getOr", "arguments": [{ "kind": "identifier", "value": "value" }, { "kind": "list", "values": [{ "kind": "string", "value": "user" }, { "kind": "string", "value": "name" }] }, { "kind": "identifier", "value": "fallback" }] }] }] }, "line": 9 },

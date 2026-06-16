@@ -130,12 +130,14 @@ pub(crate) enum NirOp {
 
 pub(crate) struct NirMatchCase {
     pub(crate) pattern: NirMatchPattern,
+    pub(crate) guard: Option<NirValue>,
     pub(crate) body: Vec<NirOp>,
 }
 
 pub(crate) enum NirMatchPattern {
     Else,
     Value(NirValue),
+    OneOf(Vec<NirValue>),
 }
 
 #[derive(Clone)]
@@ -153,6 +155,10 @@ pub(crate) enum NirValue {
         target: String,
         args: Vec<NirValue>,
     },
+    CallResult {
+        target: String,
+        args: Vec<NirValue>,
+    },
     RuntimeCall {
         helper: RuntimeHelper,
         target: String,
@@ -161,6 +167,24 @@ pub(crate) enum NirValue {
     Constructor {
         type_: String,
         args: Vec<NirValue>,
+    },
+    UnionWrap {
+        union_type: String,
+        member_type: String,
+        value: Box<NirValue>,
+    },
+    UnionExtract {
+        type_: String,
+        value: Box<NirValue>,
+    },
+    ResultIsOk {
+        value: Box<NirValue>,
+    },
+    ResultValue {
+        value: Box<NirValue>,
+    },
+    ResultError {
+        value: Box<NirValue>,
     },
     WithUpdate {
         type_: String,
@@ -409,6 +433,7 @@ fn lower_op(op: &IrOp) -> NirOp {
 fn lower_match_case(case: &IrMatchCase) -> NirMatchCase {
     NirMatchCase {
         pattern: lower_match_pattern(&case.pattern),
+        guard: case.guard.as_ref().map(lower_value),
         body: lower_ops(&case.body),
     }
 }
@@ -417,6 +442,9 @@ fn lower_match_pattern(pattern: &IrMatchPattern) -> NirMatchPattern {
     match pattern {
         IrMatchPattern::Else => NirMatchPattern::Else,
         IrMatchPattern::Value(value) => NirMatchPattern::Value(lower_value(value)),
+        IrMatchPattern::OneOf(values) => {
+            NirMatchPattern::OneOf(values.iter().map(lower_value).collect())
+        }
     }
 }
 
@@ -467,9 +495,35 @@ fn lower_value(value: &IrValue) -> NirValue {
                 }
             }
         }
+        IrValue::CallResult { target, args } => NirValue::CallResult {
+            target: target.clone(),
+            args: args.iter().map(lower_value).collect(),
+        },
         IrValue::Constructor { type_, args } => NirValue::Constructor {
             type_: type_.clone(),
             args: args.iter().map(lower_value).collect(),
+        },
+        IrValue::UnionWrap {
+            union_type,
+            member_type,
+            value,
+        } => NirValue::UnionWrap {
+            union_type: union_type.clone(),
+            member_type: member_type.clone(),
+            value: Box::new(lower_value(value)),
+        },
+        IrValue::UnionExtract { type_, value } => NirValue::UnionExtract {
+            type_: type_.clone(),
+            value: Box::new(lower_value(value)),
+        },
+        IrValue::ResultIsOk { value } => NirValue::ResultIsOk {
+            value: Box::new(lower_value(value)),
+        },
+        IrValue::ResultValue { value } => NirValue::ResultValue {
+            value: Box::new(lower_value(value)),
+        },
+        IrValue::ResultError { value } => NirValue::ResultError {
+            value: Box::new(lower_value(value)),
         },
         IrValue::WithUpdate {
             type_,
@@ -981,12 +1035,18 @@ impl ToNirJson for NirMatchCase {
             concat!(
                 "\n{}{{\n",
                 "{}  \"pattern\": {},\n",
+                "{}  \"guard\": {},\n",
                 "{}  \"body\": [{}\n{}  ]\n",
                 "{}}}"
             ),
             pad,
             pad,
             self.pattern.to_json(indent),
+            pad,
+            self.guard
+                .as_ref()
+                .map(|guard| guard.to_json(indent))
+                .unwrap_or_else(|| "null".to_string()),
             pad,
             join_json(&self.body, indent + 2),
             pad,
@@ -1005,6 +1065,14 @@ impl ToNirJson for NirMatchPattern {
                     value.to_json(indent)
                 )
             }
+            NirMatchPattern::OneOf(values) => format!(
+                "{{ \"kind\": \"oneOf\", \"values\": [{}] }}",
+                values
+                    .iter()
+                    .map(|value| value.to_json(indent))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
         }
     }
 }
@@ -1030,6 +1098,11 @@ impl ToNirJson for NirValue {
                 json_string(target),
                 join_values(args)
             ),
+            NirValue::CallResult { target, args } => format!(
+                "{{ \"kind\": \"callResult\", \"target\": {}, \"args\": [{}] }}",
+                json_string(target),
+                join_values(args)
+            ),
             NirValue::RuntimeCall {
                 helper,
                 target,
@@ -1044,6 +1117,33 @@ impl ToNirJson for NirValue {
                 "{{ \"kind\": \"constructor\", \"type\": {}, \"args\": [{}] }}",
                 json_string(type_),
                 join_values(args)
+            ),
+            NirValue::UnionWrap {
+                union_type,
+                member_type,
+                value,
+            } => format!(
+                "{{ \"kind\": \"unionWrap\", \"union\": {}, \"member\": {}, \"value\": {} }}",
+                json_string(union_type),
+                json_string(member_type),
+                value.to_json(0)
+            ),
+            NirValue::UnionExtract { type_, value } => format!(
+                "{{ \"kind\": \"unionExtract\", \"type\": {}, \"value\": {} }}",
+                json_string(type_),
+                value.to_json(0)
+            ),
+            NirValue::ResultIsOk { value } => format!(
+                "{{ \"kind\": \"resultIsOk\", \"value\": {} }}",
+                value.to_json(0)
+            ),
+            NirValue::ResultValue { value } => format!(
+                "{{ \"kind\": \"resultValue\", \"value\": {} }}",
+                value.to_json(0)
+            ),
+            NirValue::ResultError { value } => format!(
+                "{{ \"kind\": \"resultError\", \"value\": {} }}",
+                value.to_json(0)
             ),
             NirValue::WithUpdate {
                 type_,

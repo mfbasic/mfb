@@ -1,0 +1,14 @@
+FUNC bucket(value AS Integer) AS Integer
+  MATCH value
+    CASE 1, 2, 3
+      RETURN 10
+    CASE 8, 9
+      RETURN 20
+    CASE ELSE
+      RETURN 30
+  END MATCH
+END FUNC
+
+FUNC main() AS Integer
+  RETURN bucket(2) + bucket(9) + bucket(99)
+END FUNC

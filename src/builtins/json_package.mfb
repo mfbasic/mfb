@@ -1,12 +1,36 @@
 IMPORT strings
 
+EXPORT TYPE JsonNull
+  value AS Nothing
+END TYPE
+
+EXPORT TYPE JsonBool
+  value AS Boolean
+END TYPE
+
+EXPORT TYPE JsonNum
+  value AS Float
+END TYPE
+
+EXPORT TYPE JsonStr
+  value AS String
+END TYPE
+
+EXPORT TYPE JsonArr
+  items AS List OF Json
+END TYPE
+
+EXPORT TYPE JsonObj
+  fields AS Map OF String TO Json
+END TYPE
+
 EXPORT UNION Json
-  Null(value AS Nothing)
-  Bool(value AS Boolean)
-  Num(value AS Float)
-  Str(value AS String)
-  Arr(items AS List OF Json)
-  Obj(fields AS Map OF String TO Json)
+  JsonNull
+  JsonBool
+  JsonNum
+  JsonStr
+  JsonArr
+  JsonObj
 END UNION
 
 TYPE __JsonNode
@@ -35,9 +59,8 @@ FUNC __json_get(value AS Json, path AS List OF String) AS Json
     MUT nextValue AS Json = current
     LET currentValue AS Json = current
     MATCH currentValue
-      CASE Obj
-        LET fields AS Map OF String TO Json = currentValue.fields
-        nextValue = get(fields, key)
+      CASE JsonObj(obj)
+        nextValue = get(obj.fields, key)
       CASE ELSE
         FAIL Error[77050004, "not found"]
     END MATCH
@@ -52,10 +75,9 @@ FUNC __json_getOr(value AS Json, path AS List OF String, defaultValue AS Json) A
     MUT nextValue AS Json = current
     LET currentValue AS Json = current
     MATCH currentValue
-      CASE Obj
-        LET fields AS Map OF String TO Json = currentValue.fields
-        IF hasKey(fields, key) THEN
-          nextValue = get(fields, key)
+      CASE JsonObj(obj)
+        IF hasKey(obj.fields, key) THEN
+          nextValue = get(obj.fields, key)
         ELSE
           RETURN defaultValue
         END IF
@@ -69,23 +91,23 @@ END FUNC
 
 FUNC __json_stringify(value AS Json) AS String
   MATCH value
-    CASE Null
+    CASE JsonNull(nullValue)
       RETURN "null"
-    CASE Bool
-      IF value.value THEN
+    CASE JsonBool(boolValue)
+      IF boolValue.value THEN
         RETURN "true"
       END IF
       RETURN "false"
-    CASE Num
-      RETURN __json_stringifyNumber(value.value)
-    CASE Str
-      LET escaped AS String = __json_escapeString(value.value)
+    CASE JsonNum(numValue)
+      RETURN __json_stringifyNumber(numValue.value)
+    CASE JsonStr(strValue)
+      LET escaped AS String = __json_escapeString(strValue.value)
       LET withOpen AS String = "\"" & escaped
       RETURN withOpen & "\""
-    CASE Arr
+    CASE JsonArr(arrValue)
       MUT text AS String = "["
       MUT first AS Boolean = TRUE
-      FOR EACH item IN value.items
+      FOR EACH item IN arrValue.items
         IF first THEN
           first = FALSE
         ELSE
@@ -94,10 +116,10 @@ FUNC __json_stringify(value AS Json) AS String
         text = text & __json_stringify(item)
       NEXT
       RETURN text & "]"
-    CASE Obj
+    CASE JsonObj(objValue)
       MUT text AS String = "{"
       MUT first AS Boolean = TRUE
-      FOR EACH entry IN value.fields
+      FOR EACH entry IN objValue.fields
         IF first THEN
           first = FALSE
         ELSE
@@ -210,19 +232,19 @@ FUNC __json_parseValue(chars AS List OF String, index AS Integer) AS __JsonNode
   LET ch AS String = get(chars, nextIndex)
   IF ch = "n" THEN
     LET endIndex AS Integer = __json_expectLiteral(chars, nextIndex, "null")
-    LET value AS Json = Null[NOTHING]
+    LET value AS Json = JsonNull[NOTHING]
     RETURN __JsonNode[value, endIndex]
   ELSEIF ch = "t" THEN
     LET endIndex AS Integer = __json_expectLiteral(chars, nextIndex, "true")
-    LET value AS Json = Bool[TRUE]
+    LET value AS Json = JsonBool[TRUE]
     RETURN __JsonNode[value, endIndex]
   ELSEIF ch = "f" THEN
     LET endIndex AS Integer = __json_expectLiteral(chars, nextIndex, "false")
-    LET value AS Json = Bool[FALSE]
+    LET value AS Json = JsonBool[FALSE]
     RETURN __JsonNode[value, endIndex]
   ELSEIF ch = "\"" THEN
     LET parsed AS __JsonStringNode = __json_parseString(chars, nextIndex + 1, "")
-    LET value AS Json = Str[parsed.value]
+    LET value AS Json = JsonStr[parsed.value]
     RETURN __JsonNode[value, parsed.index]
   ELSEIF ch = "[" THEN
     RETURN __json_parseArray(chars, nextIndex + 1)
@@ -240,7 +262,7 @@ FUNC __json_parseArray(chars AS List OF String, index AS Integer) AS __JsonNode
   END IF
   IF get(chars, nextIndex) = "]" THEN
     LET emptyItems AS List OF Json = []
-    LET value AS Json = Arr[emptyItems]
+    LET value AS Json = JsonArr[emptyItems]
     RETURN __JsonNode[value, nextIndex + 1]
   END IF
   RETURN __json_parseArrayItems(chars, nextIndex, [])
@@ -258,7 +280,7 @@ FUNC __json_parseArrayItems(chars AS List OF String, index AS Integer, items AS 
   IF ch = "," THEN
     RETURN __json_parseArrayItems(chars, nextIndex + 1, nextItems)
   ELSEIF ch = "]" THEN
-    LET value AS Json = Arr[nextItems]
+    LET value AS Json = JsonArr[nextItems]
     RETURN __JsonNode[value, nextIndex + 1]
   END IF
 
@@ -272,7 +294,7 @@ FUNC __json_parseObject(chars AS List OF String, index AS Integer) AS __JsonNode
   END IF
   IF get(chars, nextIndex) = "}" THEN
     LET emptyFields AS Map OF String TO Json = Map OF String TO Json {}
-    LET value AS Json = Obj[emptyFields]
+    LET value AS Json = JsonObj[emptyFields]
     RETURN __JsonNode[value, nextIndex + 1]
   END IF
   RETURN __json_parseObjectItems(chars, nextIndex, Map OF String TO Json {})
@@ -309,7 +331,7 @@ FUNC __json_parseObjectItems(chars AS List OF String, index AS Integer, fields A
   IF ch = "," THEN
     RETURN __json_parseObjectItems(chars, afterValue + 1, nextFields)
   ELSEIF ch = "}" THEN
-    LET value AS Json = Obj[nextFields]
+    LET value AS Json = JsonObj[nextFields]
     RETURN __JsonNode[value, afterValue + 1]
   END IF
 
@@ -510,7 +532,7 @@ FUNC __json_parseNumber(chars AS List OF String, index AS Integer) AS __JsonNode
     FAIL Error[77050003, "invalid JSON format"]
   END IF
   LET numberValue AS Float = __json_toNumber(token.value)
-  LET value AS Json = Num[numberValue]
+  LET value AS Json = JsonNum[numberValue]
   RETURN __JsonNode[value, token.index]
 END FUNC
 

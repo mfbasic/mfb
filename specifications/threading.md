@@ -24,7 +24,7 @@ The model has these requirements:
 - The worker runs in a native OS thread.
 - The worker receives its own thread handle and one input value.
 - The parent communicates with the worker through bounded typed queues.
-- The worker result is stored as `Result OF Out`.
+- The worker result is stored as `Result OF Out`, with success exposed only through `MATCH` on the raw result and errors carried by public `Error` values.
 - Package imports used by the worker must work inside the worker thread exactly
   as they work outside a thread.
 - Native code generation must resolve all worker and package calls at link time;
@@ -170,12 +170,12 @@ Native package export lowering must support at least:
 - Built-in runtime helper calls used by package bytecode.
 - `CALL_RESULT` to another package export.
 - `UNWRAP_RESULT` after a package call.
-- Return of `Ok(value)` or `Err(error)` using the native result ABI.
+- Return of the success member carrying `value` or the error member carrying `error` using the native result ABI.
 
 For package-to-package calls, native lowering loads bytecode argument registers
 into ABI argument registers, branches to the resolved `_mfb_pkg_*` symbol,
-checks the returned result tag, propagates `Err` immediately, and stores the
-returned value for `Ok`.
+checks the returned result tag, propagates the error member immediately, and stores the
+returned value for the success member.
 
 For `Nothing` results, the destination value is initialized to the canonical
 zero value.
@@ -413,7 +413,7 @@ the control block. `thread::waitFor` reads that stored result and behaves like a
 normal fallible call:
 
 - `Ok(value)` returns `value`.
-- `Err(error)` propagates as the caller's error.
+- `Error(error)` propagates as the caller's error.
 
 Package bridge lowering must preserve the same behavior for calls made inside a
 worker. If a worker calls an imported package function and that function returns

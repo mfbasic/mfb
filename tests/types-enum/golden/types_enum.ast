@@ -44,21 +44,24 @@
         "line": 12,
         "cases": [
         {
-          "pattern": { "kind": "expression", "expression": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "Color" }, "member": "Red" } },
+          "pattern": { "kind": "literal", "expression": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "Color" }, "member": "Red" } },
+          "guard": null,
           "line": 13,
           "body": [
           { "kind": "return", "value": { "kind": "number", "value": "1" }, "line": 14 }
           ]
         },
         {
-          "pattern": { "kind": "expression", "expression": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "Color" }, "member": "Green" } },
+          "pattern": { "kind": "literal", "expression": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "Color" }, "member": "Green" } },
+          "guard": null,
           "line": 15,
           "body": [
           { "kind": "return", "value": { "kind": "number", "value": "2" }, "line": 16 }
           ]
         },
         {
-          "pattern": { "kind": "expression", "expression": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "Color" }, "member": "Blue" } },
+          "pattern": { "kind": "literal", "expression": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "Color" }, "member": "Blue" } },
+          "guard": null,
           "line": 17,
           "body": [
           { "kind": "return", "value": { "kind": "number", "value": "3" }, "line": 18 }
@@ -84,7 +87,8 @@
         "line": 23,
         "cases": [
         {
-          "pattern": { "kind": "expression", "expression": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "Color" }, "member": "Red" } },
+          "pattern": { "kind": "literal", "expression": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "Color" }, "member": "Red" } },
+          "guard": null,
           "line": 24,
           "body": [
           { "kind": "return", "value": { "kind": "number", "value": "10" }, "line": 25 }
@@ -92,6 +96,7 @@
         },
         {
           "pattern": { "kind": "else" },
+          "guard": null,
           "line": 26,
           "body": [
           { "kind": "return", "value": { "kind": "number", "value": "20" }, "line": 27 }
@@ -117,14 +122,16 @@
         "line": 32,
         "cases": [
         {
-          "pattern": { "kind": "expression", "expression": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "Mode" }, "member": "Idle" } },
+          "pattern": { "kind": "literal", "expression": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "Mode" }, "member": "Idle" } },
+          "guard": null,
           "line": 33,
           "body": [
           { "kind": "return", "value": { "kind": "number", "value": "30" }, "line": 34 }
           ]
         },
         {
-          "pattern": { "kind": "expression", "expression": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "Mode" }, "member": "Running" } },
+          "pattern": { "kind": "literal", "expression": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "Mode" }, "member": "Running" } },
+          "guard": null,
           "line": 35,
           "body": [
           { "kind": "return", "value": { "kind": "number", "value": "40" }, "line": 36 }

@@ -125,6 +125,9 @@ const OPCODE_CALL_RESULT: u16 = 60;
 const OPCODE_UNWRAP_RESULT: u16 = 61;
 const OPCODE_LOAD_FUNCTION: u16 = 62;
 const OPCODE_CALL_VALUE_RESULT: u16 = 63;
+const OPCODE_RESULT_IS_OK: u16 = 64;
+const OPCODE_RESULT_VALUE: u16 = 65;
+const OPCODE_RESULT_ERROR: u16 = 66;
 const OPCODE_RETURN_OK: u16 = 70;
 const OPCODE_RETURN_ERR: u16 = 71;
 const OPCODE_CONSTRUCT_RECORD: u16 = 80;
@@ -553,6 +556,9 @@ pub const NATIVE_OPCODE_THREAD_EMIT: u16 = OPCODE_THREAD_EMIT;
 pub const NATIVE_OPCODE_THREAD_IS_CANCELLED: u16 = OPCODE_THREAD_IS_CANCELLED;
 pub const NATIVE_OPCODE_CALL_RESULT: u16 = OPCODE_CALL_RESULT;
 pub const NATIVE_OPCODE_UNWRAP_RESULT: u16 = OPCODE_UNWRAP_RESULT;
+pub const NATIVE_OPCODE_RESULT_IS_OK: u16 = OPCODE_RESULT_IS_OK;
+pub const NATIVE_OPCODE_RESULT_VALUE: u16 = OPCODE_RESULT_VALUE;
+pub const NATIVE_OPCODE_RESULT_ERROR: u16 = OPCODE_RESULT_ERROR;
 pub const NATIVE_OPCODE_LOAD_FUNCTION: u16 = OPCODE_LOAD_FUNCTION;
 pub const NATIVE_OPCODE_CALL_VALUE_RESULT: u16 = OPCODE_CALL_VALUE_RESULT;
 pub const NATIVE_OPCODE_RETURN_OK: u16 = OPCODE_RETURN_OK;
@@ -3394,9 +3400,16 @@ fn value_uses_resource_type(value: &IrValue) -> bool {
         | IrValue::Constructor { type_, .. }
         | IrValue::ListLiteral { type_, .. }
         | IrValue::MapLiteral { type_, .. } => is_resource_type_name(type_),
-        IrValue::Call { target, args } => {
+        IrValue::Call { target, args } | IrValue::CallResult { target, args } => {
             builtins::call_return_type_name(target).is_some_and(is_resource_type_name)
                 || args.iter().any(value_uses_resource_type)
+        }
+        IrValue::UnionWrap { value, .. }
+        | IrValue::UnionExtract { value, .. }
+        | IrValue::ResultIsOk { value }
+        | IrValue::ResultValue { value }
+        | IrValue::ResultError { value } => {
+            value_uses_resource_type(value)
         }
         IrValue::MemberAccess { target, .. } => value_uses_resource_type(target),
         IrValue::WithUpdate {
@@ -3776,16 +3789,46 @@ impl<'a> FunctionBuilder<'a> {
     ) -> Result<Vec<usize>, String> {
         let mut end_jumps = Vec::new();
         for case in cases {
+            let mut case_locals = locals.clone();
+            let mut body_start = 0;
+            while let Some(IrOp::Bind {
+                name,
+                type_,
+                value: Some(IrValue::UnionExtract { .. }),
+                ..
+            }) = case.body.get(body_start)
+            {
+                self.lower_ops(&case.body[body_start..body_start + 1], &mut case_locals)?;
+                let slot = case_locals.get(name).cloned().unwrap_or(ValueSlot {
+                    register: 0,
+                    type_name: type_.clone(),
+                });
+                case_locals.insert(name.clone(), slot);
+                body_start += 1;
+            }
             let next_jump = match &case.pattern {
                 IrMatchPattern::Else => None,
                 IrMatchPattern::Value(pattern) => {
-                    let matched_case = self.lower_match_pattern(matched, pattern, locals)?;
+                    let matched_case = self.lower_match_pattern(matched, pattern, &case_locals)?;
+                    Some(self.push_jump(OPCODE_BRANCH_IF_FALSE, vec![matched_case.register]))
+                }
+                IrMatchPattern::OneOf(patterns) => {
+                    let matched_case =
+                        self.lower_match_pattern_one_of(matched, patterns, &case_locals)?;
                     Some(self.push_jump(OPCODE_BRANCH_IF_FALSE, vec![matched_case.register]))
                 }
             };
-            let mut case_locals = locals.clone();
-            self.lower_ops(&case.body, &mut case_locals)?;
+            let guard_jump = if let Some(guard) = &case.guard {
+                let guard = self.lower_value(guard, &case_locals)?;
+                Some(self.push_jump(OPCODE_BRANCH_IF_FALSE, vec![guard.register]))
+            } else {
+                None
+            };
+            self.lower_ops(&case.body[body_start..], &mut case_locals)?;
             end_jumps.push(self.push_jump(OPCODE_BRANCH, Vec::new()));
+            if let Some(jump) = guard_jump {
+                self.patch_jump(jump);
+            }
             if let Some(jump) = next_jump {
                 self.patch_jump(jump);
             }
@@ -3812,10 +3855,58 @@ impl<'a> FunctionBuilder<'a> {
                     type_name: "Boolean".to_string(),
                 });
             }
+            if matched.type_name.starts_with("Result OF ") {
+                let dst = self.add_register(TYPE_BOOLEAN, 0);
+                match name.as_str() {
+                    "Ok" => self.push(OPCODE_RESULT_IS_OK, vec![dst, matched.register]),
+                    "Error" => {
+                        self.push(OPCODE_RESULT_IS_OK, vec![dst, matched.register]);
+                        self.push(OPCODE_NOT, vec![dst, dst]);
+                    }
+                    _ => {}
+                }
+                if matches!(name.as_str(), "Ok" | "Error") {
+                    return Ok(ValueSlot {
+                        register: dst,
+                        type_name: "Boolean".to_string(),
+                    });
+                }
+            }
         }
 
         let pattern = self.lower_value(pattern, locals)?;
         Ok(self.push_equal(matched.register, pattern.register))
+    }
+
+    fn lower_match_pattern_one_of(
+        &mut self,
+        matched: &ValueSlot,
+        patterns: &[IrValue],
+        locals: &HashMap<String, ValueSlot>,
+    ) -> Result<ValueSlot, String> {
+        let dst = self.add_register(TYPE_BOOLEAN, 0);
+        self.push(OPCODE_LOAD_DEFAULT, vec![dst, TYPE_BOOLEAN]);
+        let mut end_jumps = Vec::new();
+        for pattern in patterns {
+            let equal = self.lower_match_pattern(matched, pattern, locals)?;
+            let next_jump = self.push_jump(OPCODE_BRANCH_IF_FALSE, vec![equal.register]);
+            let true_reg = self.add_register(TYPE_BOOLEAN, 0);
+            let true_const = self.const_id(&IrValue::Const {
+                type_: "Boolean".to_string(),
+                value: "true".to_string(),
+            })?;
+            self.push(OPCODE_LOAD_CONST, vec![true_reg, true_const]);
+            self.push_move_like(TYPE_BOOLEAN, dst, true_reg);
+            end_jumps.push(self.push_jump(OPCODE_BRANCH, Vec::new()));
+            self.patch_jump(next_jump);
+        }
+        for jump in end_jumps {
+            self.patch_jump(jump);
+        }
+        Ok(ValueSlot {
+            register: dst,
+            type_name: "Boolean".to_string(),
+        })
     }
 
     fn lower_value(
@@ -3928,6 +4019,53 @@ impl<'a> FunctionBuilder<'a> {
                     type_name: return_type_name,
                 })
             }
+            IrValue::CallResult { target, args } => {
+                if let Some(callee) = locals.get(target) {
+                    if callee.type_name.starts_with("FUNC(") {
+                        let callee = callee.clone();
+                        let return_type_name = function_return_from_type(&callee.type_name)
+                            .ok_or_else(|| {
+                                format!(
+                                    "function value `{target}` has invalid type `{}`",
+                                    callee.type_name
+                                )
+                            })?;
+                        let return_type = self.type_id(&return_type_name);
+                        let result_type = self.types.result_type(self.strings, return_type);
+                        let result_register = self.add_register(result_type, 0);
+                        let mut operands = vec![result_register, callee.register];
+                        for arg in args {
+                            operands.push(self.lower_value(arg, locals)?.register);
+                        }
+                        self.push(OPCODE_CALL_VALUE_RESULT, operands);
+                        return Ok(ValueSlot {
+                            register: result_register,
+                            type_name: format!("Result OF {return_type_name}"),
+                        });
+                    }
+                }
+
+                let function_id = *self
+                    .function_ids
+                    .get(target)
+                    .ok_or_else(|| format!("IR references unknown function `{target}`"))?;
+                if self.external_function_abi_hashes.contains_key(target) {
+                    self.used_imported_functions.insert(target.clone());
+                }
+                let return_type = self.call_return_type(target)?;
+                let return_type_name = self.call_return_type_name(target)?.to_string();
+                let result_type = self.types.result_type(self.strings, return_type);
+                let result_register = self.add_register(result_type, 0);
+                let mut operands = vec![result_register, function_id];
+                for arg in args {
+                    operands.push(self.lower_value(arg, locals)?.register);
+                }
+                self.push(OPCODE_CALL_RESULT, operands);
+                Ok(ValueSlot {
+                    register: result_register,
+                    type_name: format!("Result OF {return_type_name}"),
+                })
+            }
             IrValue::Binary { op, left, right } => {
                 if op == "AND" {
                     return self.lower_short_circuit_and(left, right, locals);
@@ -4007,6 +4145,117 @@ impl<'a> FunctionBuilder<'a> {
                     _ => Err(format!("unsupported IR unary operator `{op}`")),
                 }
             }
+            IrValue::UnionWrap {
+                union_type,
+                member_type,
+                value,
+            } => {
+                let wrapped = self.lower_value(value, locals)?;
+                let record = self
+                    .type_model
+                    .records
+                    .get(member_type)
+                    .cloned()
+                    .ok_or_else(|| format!("IR union wrap member `{member_type}` is not a record"))?;
+                let variant = self
+                    .type_model
+                    .variants
+                    .get(member_type)
+                    .cloned()
+                    .ok_or_else(|| format!("IR union wrap member `{member_type}` is not a union member"))?;
+                if variant.union_name != *union_type {
+                    return Err(format!(
+                        "IR union wrap expected `{union_type}`, got member of `{}`",
+                        variant.union_name
+                    ));
+                }
+                let union_type_id = self.type_id(union_type);
+                let dst = self.add_register(union_type_id, 0);
+                let variant_name = self.strings.intern(member_type);
+                let mut field_registers = Vec::new();
+                for field in &record.fields {
+                    let field_type = self.type_id(&field.type_name);
+                    let field_register = self.add_register(field_type, 0);
+                    let field_name = self.strings.intern(&field.name);
+                    self.push(
+                        OPCODE_LOAD_FIELD,
+                        vec![field_register, wrapped.register, field_name],
+                    );
+                    field_registers.push(field_register);
+                }
+                let mut operands = vec![dst, union_type_id, variant_name];
+                operands.extend(field_registers);
+                self.push(OPCODE_CONSTRUCT_VARIANT, operands);
+                Ok(ValueSlot {
+                    register: dst,
+                    type_name: union_type.clone(),
+                })
+            }
+            IrValue::UnionExtract { type_, value } => {
+                let extracted = self.lower_value(value, locals)?;
+                let record = self
+                    .type_model
+                    .records
+                    .get(type_)
+                    .cloned()
+                    .ok_or_else(|| format!("IR union extract target `{type_}` is not a record"))?;
+                let type_id = self.type_id(type_);
+                let dst = self.add_register(type_id, 0);
+                let mut operands = vec![dst, type_id];
+                for field in &record.fields {
+                    let field_type = self.type_id(&field.type_name);
+                    let field_register = self.add_register(field_type, 0);
+                    let field_name = self.strings.intern(&field.name);
+                    self.push(
+                        OPCODE_LOAD_FIELD,
+                        vec![field_register, extracted.register, field_name],
+                    );
+                    operands.push(field_register);
+                }
+                self.push(OPCODE_CONSTRUCT_RECORD, operands);
+                Ok(ValueSlot {
+                    register: dst,
+                    type_name: type_.clone(),
+                })
+            }
+            IrValue::ResultIsOk { value } => {
+                let result = self.lower_value(value, locals)?;
+                let dst = self.add_register(TYPE_BOOLEAN, 0);
+                self.push(OPCODE_RESULT_IS_OK, vec![dst, result.register]);
+                Ok(ValueSlot {
+                    register: dst,
+                    type_name: "Boolean".to_string(),
+                })
+            }
+            IrValue::ResultValue { value } => {
+                let result = self.lower_value(value, locals)?;
+                let success_type = result
+                    .type_name
+                    .strip_prefix("Result OF ")
+                    .ok_or_else(|| {
+                        format!(
+                            "RESULT_VALUE requires a raw Result register, got `{}`",
+                            result.type_name
+                        )
+                    })?
+                    .to_string();
+                let type_id = self.type_id(&success_type);
+                let dst = self.add_register(type_id, 0);
+                self.push(OPCODE_RESULT_VALUE, vec![dst, result.register]);
+                Ok(ValueSlot {
+                    register: dst,
+                    type_name: success_type,
+                })
+            }
+            IrValue::ResultError { value } => {
+                let result = self.lower_value(value, locals)?;
+                let dst = self.add_register(TYPE_ERROR, 0);
+                self.push(OPCODE_RESULT_ERROR, vec![dst, result.register]);
+                Ok(ValueSlot {
+                    register: dst,
+                    type_name: "Error".to_string(),
+                })
+            }
             IrValue::Constructor { type_, args } => {
                 if type_ == "Ok" {
                     let success = args
@@ -4022,20 +4271,6 @@ impl<'a> FunctionBuilder<'a> {
                     return Ok(ValueSlot {
                         register: dst,
                         type_name: format!("Result OF {}", success.type_name),
-                    });
-                }
-
-                if type_ == "Err" {
-                    let error = args
-                        .first()
-                        .ok_or_else(|| "IR Err constructor is missing error value".to_string())?;
-                    self.lower_value(error, locals)?;
-                    let result_type = self.type_id("Result OF Unknown");
-                    let dst = self.add_register(result_type, 0);
-                    self.push(OPCODE_LOAD_DEFAULT, vec![dst, result_type]);
-                    return Ok(ValueSlot {
-                        register: dst,
-                        type_name: "Result OF Unknown".to_string(),
                     });
                 }
 

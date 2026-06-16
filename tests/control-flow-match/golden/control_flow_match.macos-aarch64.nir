@@ -19,6 +19,22 @@
     ]
   },
   {
+    "kind": "type",
+    "visibility": "private",
+    "name": "Circle",
+    "fields": [
+    { "visibility": null, "name": "radius", "type": "Integer" }
+    ]
+  },
+  {
+    "kind": "type",
+    "visibility": "private",
+    "name": "Point",
+    "fields": [
+    { "visibility": null, "name": "value", "type": "Nothing" }
+    ]
+  },
+  {
     "kind": "union",
     "visibility": "private",
     "name": "Shape",
@@ -33,6 +49,7 @@
     {
       "name": "Point",
       "fields": [
+      { "visibility": null, "name": "value", "type": "Nothing" }
       ]
     }
     ]
@@ -52,18 +69,21 @@
     ],
     "returns": "Integer",
     "body": [
+    { "op": "bind", "mutable": false, "name": "$match0", "type": "Color", "value": { "kind": "local", "name": "color" } },
     {
       "op": "match",
-      "value": { "kind": "local", "name": "color" },
+      "value": { "kind": "local", "name": "$match0" },
       "cases": [
       {
         "pattern": { "kind": "value", "value": { "kind": "memberAccess", "target": { "kind": "local", "name": "Color" }, "member": "Red" } },
+        "guard": null,
         "body": [
         { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "1" } }
         ]
       },
       {
         "pattern": { "kind": "value", "value": { "kind": "memberAccess", "target": { "kind": "local", "name": "Color" }, "member": "Blue" } },
+        "guard": null,
         "body": [
         { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "2" } }
         ]
@@ -82,18 +102,21 @@
     ],
     "returns": "Integer",
     "body": [
+    { "op": "bind", "mutable": false, "name": "$match1", "type": "Color", "value": { "kind": "local", "name": "color" } },
     {
       "op": "match",
-      "value": { "kind": "local", "name": "color" },
+      "value": { "kind": "local", "name": "$match1" },
       "cases": [
       {
         "pattern": { "kind": "value", "value": { "kind": "memberAccess", "target": { "kind": "local", "name": "Color" }, "member": "Red" } },
+        "guard": null,
         "body": [
         { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "1" } }
         ]
       },
       {
         "pattern": { "kind": "else" },
+        "guard": null,
         "body": [
         { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "2" } }
         ]
@@ -112,19 +135,24 @@
     ],
     "returns": "Integer",
     "body": [
+    { "op": "bind", "mutable": false, "name": "$match2", "type": "Shape", "value": { "kind": "local", "name": "shape" } },
     {
       "op": "match",
-      "value": { "kind": "local", "name": "shape" },
+      "value": { "kind": "local", "name": "$match2" },
       "cases": [
       {
         "pattern": { "kind": "value", "value": { "kind": "local", "name": "Circle" } },
+        "guard": null,
         "body": [
+        { "op": "bind", "mutable": false, "name": "circle", "type": "Circle", "value": { "kind": "unionExtract", "type": "Circle", "value": { "kind": "local", "name": "$match2" } } },
         { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "10" } }
         ]
       },
       {
         "pattern": { "kind": "value", "value": { "kind": "local", "name": "Point" } },
+        "guard": null,
         "body": [
+        { "op": "bind", "mutable": false, "name": "point", "type": "Point", "value": { "kind": "unionExtract", "type": "Point", "value": { "kind": "local", "name": "$match2" } } },
         { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "20" } }
         ]
       }
@@ -142,18 +170,22 @@
     ],
     "returns": "Integer",
     "body": [
+    { "op": "bind", "mutable": false, "name": "$match3", "type": "Shape", "value": { "kind": "local", "name": "shape" } },
     {
       "op": "match",
-      "value": { "kind": "local", "name": "shape" },
+      "value": { "kind": "local", "name": "$match3" },
       "cases": [
       {
         "pattern": { "kind": "value", "value": { "kind": "local", "name": "Circle" } },
+        "guard": null,
         "body": [
+        { "op": "bind", "mutable": false, "name": "circle", "type": "Circle", "value": { "kind": "unionExtract", "type": "Circle", "value": { "kind": "local", "name": "$match3" } } },
         { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "10" } }
         ]
       },
       {
         "pattern": { "kind": "else" },
+        "guard": null,
         "body": [
         { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "20" } }
         ]
@@ -171,7 +203,7 @@
     ],
     "returns": "Integer",
     "body": [
-    { "op": "return", "value": { "kind": "binary", "op": "+", "left": { "kind": "binary", "op": "+", "left": { "kind": "binary", "op": "+", "left": { "kind": "call", "target": "enumAll", "args": [{ "kind": "memberAccess", "target": { "kind": "local", "name": "Color" }, "member": "Blue" }] }, "right": { "kind": "call", "target": "enumPartialWithElse", "args": [{ "kind": "memberAccess", "target": { "kind": "local", "name": "Color" }, "member": "Blue" }] } }, "right": { "kind": "call", "target": "unionAll", "args": [{ "kind": "constructor", "type": "Point", "args": [] }] } }, "right": { "kind": "call", "target": "unionPartialWithElse", "args": [{ "kind": "constructor", "type": "Circle", "args": [{ "kind": "const", "type": "Integer", "value": "1" }] }] } } }
+    { "op": "return", "value": { "kind": "binary", "op": "+", "left": { "kind": "binary", "op": "+", "left": { "kind": "binary", "op": "+", "left": { "kind": "call", "target": "enumAll", "args": [{ "kind": "memberAccess", "target": { "kind": "local", "name": "Color" }, "member": "Blue" }] }, "right": { "kind": "call", "target": "enumPartialWithElse", "args": [{ "kind": "memberAccess", "target": { "kind": "local", "name": "Color" }, "member": "Blue" }] } }, "right": { "kind": "call", "target": "unionAll", "args": [{ "kind": "unionWrap", "union": "Shape", "member": "Point", "value": { "kind": "constructor", "type": "Point", "args": [{ "kind": "const", "type": "Nothing", "value": "NOTHING" }] } }] } }, "right": { "kind": "call", "target": "unionPartialWithElse", "args": [{ "kind": "unionWrap", "union": "Shape", "member": "Circle", "value": { "kind": "constructor", "type": "Circle", "args": [{ "kind": "const", "type": "Integer", "value": "1" }] } }] } } }
     ]
   }
   ]

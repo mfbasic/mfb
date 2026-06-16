@@ -1,7 +1,7 @@
 IMPORT json
 
 FUNC main AS Integer
-  LET value AS Json = Null[NOTHING]
+  LET value AS Json = JsonNull[NOTHING]
   LET missing AS Json = json::get()
   LET wrongPath AS Json = json::get(value, ["x"], "bad")
   LET wrongType AS Json = json::get("bad", ["x"])

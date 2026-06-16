@@ -197,6 +197,104 @@ impl CodeBuilder<'_> {
                     .unwrap_or_else(|| target.to_string());
                 self.emit_call(target, &symbol, args, None)
             }
+            NirValue::CallResult { target, args } => {
+                let symbol = self
+                    .function_symbols
+                    .get(target)
+                    .cloned()
+                    .unwrap_or_else(|| target.to_string());
+                let success_type = self
+                    .functions
+                    .get(target)
+                    .map(|function| function.returns.clone())
+                    .or_else(|| self.package_return_types.get(target).cloned())
+                    .or_else(|| builtins::call_return_type_name(target).map(str::to_string))
+                    .ok_or_else(|| format!("native raw result call '{target}' has no return type"))?;
+                let tag_slot = self.allocate_stack_object("raw_result_tag", 8);
+                let value_slot = self.allocate_stack_object("raw_result_value", 8);
+                let message_slot = self.allocate_stack_object("raw_result_message", 8);
+                let payload_slot = self.allocate_stack_object("raw_result_payload", 8);
+                let alloc_ok = self.label("result_construct_alloc_ok");
+                let error_alloc_ok = self.label("result_error_alloc_ok");
+                let wrap_error_label = self.label("result_wrap_error");
+                let have_payload_label = self.label("result_have_payload");
+                let result_slot = self.allocate_stack_object("raw_result", 8);
+                self.emit_call(target, &symbol, args, Some(&success_type))?;
+                self.emit(abi::store_u64(
+                    RESULT_TAG_REGISTER,
+                    abi::stack_pointer(),
+                    tag_slot,
+                ));
+                self.emit(abi::store_u64(
+                    RESULT_VALUE_REGISTER,
+                    abi::stack_pointer(),
+                    value_slot,
+                ));
+                self.emit(abi::store_u64(
+                    RESULT_ERROR_MESSAGE_REGISTER,
+                    abi::stack_pointer(),
+                    message_slot,
+                ));
+                self.emit(abi::load_u64("x9", abi::stack_pointer(), tag_slot));
+                self.emit(abi::compare_immediate("x9", RESULT_OK_TAG));
+                self.emit(abi::branch_ne(&wrap_error_label));
+                self.emit(abi::load_u64("x9", abi::stack_pointer(), value_slot));
+                self.emit(abi::store_u64("x9", abi::stack_pointer(), payload_slot));
+                self.emit(abi::branch(&have_payload_label));
+                self.emit(abi::label(&wrap_error_label));
+                self.emit(abi::move_immediate(abi::return_register(), "Integer", "16"));
+                self.emit(abi::move_immediate("x1", "Integer", "8"));
+                self.emit(abi::branch_link(ARENA_ALLOC_SYMBOL));
+                self.relocations.push(CodeRelocation {
+                    from: self.current_symbol.clone(),
+                    to: ARENA_ALLOC_SYMBOL.to_string(),
+                    kind: "branch26".to_string(),
+                    binding: "internal".to_string(),
+                    library: None,
+                });
+                self.emit(abi::compare_immediate(
+                    abi::return_register(),
+                    RESULT_OK_TAG,
+                ));
+                self.emit(abi::branch_eq(&error_alloc_ok));
+                self.emit_allocation_error_return()?;
+                self.emit(abi::label(&error_alloc_ok));
+                self.emit(abi::load_u64("x9", abi::stack_pointer(), value_slot));
+                self.emit(abi::store_u64("x9", "x1", 0));
+                self.emit(abi::load_u64("x9", abi::stack_pointer(), message_slot));
+                self.emit(abi::store_u64("x9", "x1", 8));
+                self.emit(abi::store_u64("x1", abi::stack_pointer(), payload_slot));
+                self.emit(abi::label(&have_payload_label));
+                self.emit(abi::move_immediate(abi::return_register(), "Integer", "16"));
+                self.emit(abi::move_immediate("x1", "Integer", "8"));
+                self.emit(abi::branch_link(ARENA_ALLOC_SYMBOL));
+                self.relocations.push(CodeRelocation {
+                    from: self.current_symbol.clone(),
+                    to: ARENA_ALLOC_SYMBOL.to_string(),
+                    kind: "branch26".to_string(),
+                    binding: "internal".to_string(),
+                    library: None,
+                });
+                self.emit(abi::compare_immediate(
+                    abi::return_register(),
+                    RESULT_OK_TAG,
+                ));
+                self.emit(abi::branch_eq(&alloc_ok));
+                self.emit_allocation_error_return()?;
+                self.emit(abi::label(&alloc_ok));
+                self.emit(abi::store_u64("x1", abi::stack_pointer(), result_slot));
+                self.emit(abi::load_u64("x9", abi::stack_pointer(), tag_slot));
+                self.emit(abi::store_u64("x9", "x1", 0));
+                self.emit(abi::load_u64("x9", abi::stack_pointer(), payload_slot));
+                self.emit(abi::store_u64("x9", "x1", 8));
+                let register = self.allocate_register()?;
+                self.emit(abi::load_u64(&register, abi::stack_pointer(), result_slot));
+                Ok(ValueResult {
+                    type_: format!("Result OF {success_type}"),
+                    location: register,
+                    text: format!("callResult {target}"),
+                })
+            }
             NirValue::RuntimeCall {
                 helper,
                 target,
@@ -403,6 +501,212 @@ impl CodeBuilder<'_> {
                     type_: union_name,
                     location: register,
                     text: format!("construct {type_}({})", join_texts(&arg_values)),
+                })
+            }
+            NirValue::UnionWrap {
+                union_type,
+                member_type,
+                value,
+            } => {
+                let wrapped = self.lower_value(value)?;
+                let wrapped_slot = self.allocate_stack_object("union_wrap_source", 8);
+                self.emit(abi::store_u64(
+                    &wrapped.location,
+                    abi::stack_pointer(),
+                    wrapped_slot,
+                ));
+                let fields = self
+                    .type_model
+                    .record_fields
+                    .get(member_type)
+                    .cloned()
+                    .ok_or_else(|| {
+                        format!("native code union wrap member '{member_type}' is not a record")
+                    })?;
+                let tag = self
+                    .type_model
+                    .union_variant_tags
+                    .get(member_type)
+                    .copied()
+                    .ok_or_else(|| {
+                        format!("native code union variant '{member_type}' does not resolve")
+                    })?;
+                let union_size = self
+                    .type_model
+                    .union_variants
+                    .iter()
+                    .filter(|(_, candidate_union)| *candidate_union == union_type)
+                    .filter_map(|(variant, _)| self.type_model.union_variant_fields.get(variant))
+                    .map(Vec::len)
+                    .max()
+                    .map(|max_fields| 8 * (1 + max_fields))
+                    .unwrap_or(8 * (fields.len() + 1));
+                let result_slot = self.allocate_stack_object("union_result", 8);
+                let alloc_ok = self.label("union_construct_alloc_ok");
+                self.emit(abi::move_immediate(
+                    abi::return_register(),
+                    "Integer",
+                    &union_size.to_string(),
+                ));
+                self.emit(abi::move_immediate("x1", "Integer", "8"));
+                self.emit(abi::branch_link(ARENA_ALLOC_SYMBOL));
+                self.relocations.push(CodeRelocation {
+                    from: self.current_symbol.clone(),
+                    to: ARENA_ALLOC_SYMBOL.to_string(),
+                    kind: "branch26".to_string(),
+                    binding: "internal".to_string(),
+                    library: None,
+                });
+                self.emit(abi::compare_immediate(
+                    abi::return_register(),
+                    RESULT_OK_TAG,
+                ));
+                self.emit(abi::branch_eq(&alloc_ok));
+                self.emit_allocation_error_return()?;
+                self.emit(abi::label(&alloc_ok));
+                self.emit(abi::store_u64("x1", abi::stack_pointer(), result_slot));
+                let zero_register = self.allocate_register()?;
+                self.emit(abi::move_immediate(&zero_register, "Integer", "0"));
+                for offset in (0..union_size).step_by(8) {
+                    self.emit(abi::store_u64(&zero_register, "x1", offset));
+                }
+                let tag_register = self.allocate_register()?;
+                self.emit(abi::move_immediate(
+                    &tag_register,
+                    "UnionTag",
+                    &tag.to_string(),
+                ));
+                self.emit(abi::store_u64(&tag_register, "x1", 0));
+                for (index, _) in fields.iter().enumerate() {
+                    self.emit(abi::load_u64("x11", abi::stack_pointer(), wrapped_slot));
+                    self.emit(abi::load_u64(
+                        "x9",
+                        "x11",
+                        8 * index,
+                    ));
+                    self.emit(abi::load_u64("x10", abi::stack_pointer(), result_slot));
+                    self.emit(abi::store_u64(
+                        "x9",
+                        "x10",
+                        8 * (index + 1),
+                    ));
+                }
+                let register = self.allocate_register()?;
+                self.emit(abi::load_u64(&register, abi::stack_pointer(), result_slot));
+                Ok(ValueResult {
+                    type_: union_type.clone(),
+                    location: register,
+                    text: format!("wrap {member_type} as {union_type}"),
+                })
+            }
+            NirValue::UnionExtract { type_, value } => {
+                let fields = self
+                    .type_model
+                    .record_fields
+                    .get(type_)
+                    .cloned()
+                    .ok_or_else(|| {
+                        format!("native code union extract target '{type_}' is not a record")
+                    })?;
+                let source = self.lower_value(value)?;
+                let source_slot = self.allocate_stack_object("union_extract_source", 8);
+                self.emit(abi::store_u64(
+                    &source.location,
+                    abi::stack_pointer(),
+                    source_slot,
+                ));
+                let result_slot = self.allocate_stack_object("union_extract_result", 8);
+                let alloc_ok = self.label("union_extract_alloc_ok");
+                self.emit(abi::move_immediate(
+                    abi::return_register(),
+                    "Integer",
+                    &(8 * fields.len()).to_string(),
+                ));
+                self.emit(abi::move_immediate("x1", "Integer", "8"));
+                self.emit(abi::branch_link(ARENA_ALLOC_SYMBOL));
+                self.relocations.push(CodeRelocation {
+                    from: self.current_symbol.clone(),
+                    to: ARENA_ALLOC_SYMBOL.to_string(),
+                    kind: "branch26".to_string(),
+                    binding: "internal".to_string(),
+                    library: None,
+                });
+                self.emit(abi::compare_immediate(
+                    abi::return_register(),
+                    RESULT_OK_TAG,
+                ));
+                self.emit(abi::branch_eq(&alloc_ok));
+                self.emit_allocation_error_return()?;
+                self.emit(abi::label(&alloc_ok));
+                self.emit(abi::store_u64("x1", abi::stack_pointer(), result_slot));
+                for (index, _) in fields.iter().enumerate() {
+                    self.emit(abi::load_u64("x11", abi::stack_pointer(), source_slot));
+                    self.emit(abi::load_u64(
+                        "x9",
+                        "x11",
+                        8 * (index + 1),
+                    ));
+                    self.emit(abi::store_u64(
+                        "x9",
+                        "x1",
+                        8 * index,
+                    ));
+                }
+                let register = self.allocate_register()?;
+                self.emit(abi::load_u64(&register, abi::stack_pointer(), result_slot));
+                Ok(ValueResult {
+                    type_: type_.clone(),
+                    location: register,
+                    text: format!("extract {type_} from {}", source.text),
+                })
+            }
+            NirValue::ResultIsOk { value } => {
+                let result = self.lower_value(value)?;
+                let register = self.allocate_register()?;
+                let ok_label = self.label("result_is_ok_true");
+                let end_label = self.label("result_is_ok_end");
+                self.emit(abi::load_u64("x9", &result.location, 0));
+                self.emit(abi::compare_immediate("x9", RESULT_OK_TAG));
+                self.emit(abi::branch_eq(&ok_label));
+                self.emit(abi::move_immediate(&register, "Boolean", "0"));
+                self.emit(abi::branch(&end_label));
+                self.emit(abi::label(&ok_label));
+                self.emit(abi::move_immediate(&register, "Boolean", "1"));
+                self.emit(abi::label(&end_label));
+                Ok(ValueResult {
+                    type_: "Boolean".to_string(),
+                    location: register,
+                    text: "resultIsOk".to_string(),
+                })
+            }
+            NirValue::ResultValue { value } => {
+                let result = self.lower_value(value)?;
+                let type_ = result
+                    .type_
+                    .strip_prefix("Result OF ")
+                    .ok_or_else(|| {
+                        format!(
+                            "native RESULT_VALUE requires raw Result input, got `{}`",
+                            result.type_
+                        )
+                    })?
+                    .to_string();
+                let register = self.allocate_register()?;
+                self.emit(abi::load_u64(&register, &result.location, 8));
+                Ok(ValueResult {
+                    type_,
+                    location: register,
+                    text: "resultValue".to_string(),
+                })
+            }
+            NirValue::ResultError { value } => {
+                let result = self.lower_value(value)?;
+                let register = self.allocate_register()?;
+                self.emit(abi::load_u64(&register, &result.location, 8));
+                Ok(ValueResult {
+                    type_: "Error".to_string(),
+                    location: register,
+                    text: "resultError".to_string(),
                 })
             }
             NirValue::WithUpdate {

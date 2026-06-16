@@ -14,6 +14,31 @@
     ]
   },
   {
+    "kind": "type",
+    "visibility": "export",
+    "name": "Circle",
+    "fields": [
+    { "visibility": null, "name": "radius", "type": "Float" }
+    ]
+  },
+  {
+    "kind": "type",
+    "visibility": "export",
+    "name": "Rectangle",
+    "fields": [
+    { "visibility": null, "name": "width", "type": "Float" },
+    { "visibility": null, "name": "height", "type": "Float" }
+    ]
+  },
+  {
+    "kind": "type",
+    "visibility": "export",
+    "name": "PointShape",
+    "fields": [
+    { "visibility": null, "name": "point", "type": "Point" }
+    ]
+  },
+  {
     "kind": "enum",
     "visibility": "export",
     "name": "ShapeKind",
@@ -61,25 +86,32 @@
     ],
     "returns": "ShapeKind",
     "body": [
+    { "op": "bind", "mutable": false, "name": "$match0", "type": "Shape", "value": { "kind": "local", "name": "shape" } },
     {
       "op": "match",
-      "value": { "kind": "local", "name": "shape" },
+      "value": { "kind": "local", "name": "$match0" },
       "cases": [
       {
         "pattern": { "kind": "value", "value": { "kind": "local", "name": "Circle" } },
+        "guard": null,
         "body": [
+        { "op": "bind", "mutable": false, "name": "circle", "type": "Circle", "value": { "kind": "unionExtract", "type": "Circle", "value": { "kind": "local", "name": "$match0" } } },
         { "op": "return", "value": { "kind": "memberAccess", "target": { "kind": "local", "name": "ShapeKind" }, "member": "Circle" } }
         ]
       },
       {
         "pattern": { "kind": "value", "value": { "kind": "local", "name": "Rectangle" } },
+        "guard": null,
         "body": [
+        { "op": "bind", "mutable": false, "name": "rectangle", "type": "Rectangle", "value": { "kind": "unionExtract", "type": "Rectangle", "value": { "kind": "local", "name": "$match0" } } },
         { "op": "return", "value": { "kind": "memberAccess", "target": { "kind": "local", "name": "ShapeKind" }, "member": "Rectangle" } }
         ]
       },
       {
         "pattern": { "kind": "value", "value": { "kind": "local", "name": "PointShape" } },
+        "guard": null,
         "body": [
+        { "op": "bind", "mutable": false, "name": "pointShape", "type": "PointShape", "value": { "kind": "unionExtract", "type": "PointShape", "value": { "kind": "local", "name": "$match0" } } },
         { "op": "return", "value": { "kind": "memberAccess", "target": { "kind": "local", "name": "ShapeKind" }, "member": "PointShape" } }
         ]
       }

@@ -38,24 +38,28 @@
     ],
     "returns": "Integer",
     "body": [
+    { "op": "bind", "mutable": false, "name": "$match0", "type": "Color", "value": { "kind": "local", "name": "color" } },
     {
       "op": "match",
-      "value": { "kind": "local", "name": "color" },
+      "value": { "kind": "local", "name": "$match0" },
       "cases": [
       {
         "pattern": { "kind": "value", "value": { "kind": "memberAccess", "target": { "kind": "local", "name": "Color" }, "member": "Red" } },
+        "guard": null,
         "body": [
         { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "1" } }
         ]
       },
       {
         "pattern": { "kind": "value", "value": { "kind": "memberAccess", "target": { "kind": "local", "name": "Color" }, "member": "Green" } },
+        "guard": null,
         "body": [
         { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "2" } }
         ]
       },
       {
         "pattern": { "kind": "value", "value": { "kind": "memberAccess", "target": { "kind": "local", "name": "Color" }, "member": "Blue" } },
+        "guard": null,
         "body": [
         { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "3" } }
         ]
@@ -73,18 +77,21 @@
     ],
     "returns": "Integer",
     "body": [
+    { "op": "bind", "mutable": false, "name": "$match1", "type": "Color", "value": { "kind": "local", "name": "color" } },
     {
       "op": "match",
-      "value": { "kind": "local", "name": "color" },
+      "value": { "kind": "local", "name": "$match1" },
       "cases": [
       {
         "pattern": { "kind": "value", "value": { "kind": "memberAccess", "target": { "kind": "local", "name": "Color" }, "member": "Red" } },
+        "guard": null,
         "body": [
         { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "10" } }
         ]
       },
       {
         "pattern": { "kind": "else" },
+        "guard": null,
         "body": [
         { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "20" } }
         ]
@@ -102,18 +109,21 @@
     ],
     "returns": "Integer",
     "body": [
+    { "op": "bind", "mutable": false, "name": "$match2", "type": "Mode", "value": { "kind": "local", "name": "mode" } },
     {
       "op": "match",
-      "value": { "kind": "local", "name": "mode" },
+      "value": { "kind": "local", "name": "$match2" },
       "cases": [
       {
         "pattern": { "kind": "value", "value": { "kind": "memberAccess", "target": { "kind": "local", "name": "Mode" }, "member": "Idle" } },
+        "guard": null,
         "body": [
         { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "30" } }
         ]
       },
       {
         "pattern": { "kind": "value", "value": { "kind": "memberAccess", "target": { "kind": "local", "name": "Mode" }, "member": "Running" } },
+        "guard": null,
         "body": [
         { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "40" } }
         ]

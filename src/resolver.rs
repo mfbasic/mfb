@@ -53,7 +53,6 @@ struct Resolver<'a> {
     top_levels: HashMap<String, Symbol>,
     functions: HashMap<String, Vec<FunctionSymbol>>,
     types: HashSet<String>,
-    variant_constructors: HashSet<String>,
     active_template_params: HashSet<String>,
     had_error: bool,
 }
@@ -86,7 +85,6 @@ impl<'a> Resolver<'a> {
                 .iter()
                 .map(|name| (*name).to_string())
                 .collect(),
-            variant_constructors: HashSet::new(),
             active_template_params: HashSet::new(),
             had_error: false,
         };
@@ -104,9 +102,6 @@ impl<'a> Resolver<'a> {
                     Item::Type(type_decl) => {
                         if self.insert_top_level(file, &type_decl.name, type_decl.line) {
                             self.types.insert(type_decl.name.clone());
-                            for variant in &type_decl.variants {
-                                self.variant_constructors.insert(variant.name.clone());
-                            }
                         }
                     }
                 }
@@ -286,29 +281,14 @@ impl<'a> Resolver<'a> {
                         self.report(
                             "TYPE_DUPLICATE_VARIANT",
                             &format!(
-                                "Variant `{}` in UNION `{}` was already declared on line {}.",
+                                "Member type `{}` in UNION `{}` was already declared on line {}.",
                                 variant.name, type_decl.name, previous
                             ),
                             file,
                             variant.line,
                         );
                     }
-
-                    let mut fields = HashMap::new();
-                    for field in &variant.fields {
-                        self.resolve_member_field(file, field, imports);
-                        if let Some(previous) = fields.insert(field.name.clone(), field.line) {
-                            self.report(
-                                "TYPE_DUPLICATE_FIELD",
-                                &format!(
-                                    "Field `{}` in variant `{}` was already declared on line {}.",
-                                    field.name, variant.name, previous
-                                ),
-                                file,
-                                field.line,
-                            );
-                        }
-                    }
+                    self.resolve_type_name(file, &variant.name, variant.line, imports);
                 }
             }
             TypeDeclKind::Enum => {
@@ -486,10 +466,31 @@ impl<'a> Resolver<'a> {
             } => {
                 self.resolve_expression(file, expression, *line, imports, locals);
                 for case in cases {
-                    if let MatchPattern::Expression(pattern) = &case.pattern {
-                        self.resolve_match_pattern(file, pattern, case.line, imports, locals);
+                    self.resolve_match_pattern(file, &case.pattern, case.line, imports, locals);
+                    if let Some(guard) = &case.guard {
+                        let mut guard_locals = locals.clone();
+                        if let MatchPattern::Union { binding, .. } = &case.pattern {
+                            guard_locals.insert(
+                                binding.clone(),
+                                Symbol {
+                                    file_path: file.path.clone(),
+                                    line: case.line,
+                                },
+                            );
+                        }
+                        self.resolve_expression(file, guard, case.line, imports, &guard_locals);
                     }
-                    self.resolve_nested_block(file, &case.body, imports, locals);
+                    let mut case_locals = locals.clone();
+                    if let MatchPattern::Union { binding, .. } = &case.pattern {
+                        case_locals.insert(
+                            binding.clone(),
+                            Symbol {
+                                file_path: file.path.clone(),
+                                line: case.line,
+                            },
+                        );
+                    }
+                    self.resolve_block(file, &case.body, imports, &mut case_locals);
                 }
             }
             Statement::For {
@@ -612,14 +613,26 @@ impl<'a> Resolver<'a> {
     fn resolve_match_pattern(
         &mut self,
         file: &AstFile,
-        pattern: &Expression,
+        pattern: &MatchPattern,
         line: usize,
         imports: &HashSet<String>,
         locals: &HashMap<String, Symbol>,
     ) {
         match pattern {
-            Expression::Identifier(name) if self.variant_constructors.contains(name) => {}
-            _ => self.resolve_expression(file, pattern, line, imports, locals),
+            MatchPattern::Else => {}
+            MatchPattern::Literal(pattern) => {
+                self.resolve_expression(file, pattern, line, imports, locals);
+            }
+            MatchPattern::Union { type_name, .. } => {
+                if type_name != "Ok" {
+                    self.resolve_type_name(file, type_name, line, imports);
+                }
+            }
+            MatchPattern::OneOf(patterns) => {
+                for pattern in patterns {
+                    self.resolve_expression(file, pattern, line, imports, locals);
+                }
+            }
         }
     }
 
@@ -669,9 +682,7 @@ impl<'a> Resolver<'a> {
                 type_name,
                 arguments,
             } => {
-                if !matches!(type_name.as_str(), "Error" | "Ok" | "Err")
-                    && !self.variant_constructors.contains(type_name)
-                {
+                if !matches!(type_name.as_str(), "Error" | "Ok" | "Err") {
                     self.resolve_type_name(file, type_name, line, imports);
                 }
                 for argument in arguments {

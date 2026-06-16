@@ -16,7 +16,10 @@ pub(crate) struct ResolvedCall<'a> {
 }
 
 pub(crate) fn is_builtin_type(name: &str) -> bool {
-    name == "Json"
+    matches!(
+        name,
+        "Json" | "JsonNull" | "JsonBool" | "JsonNum" | "JsonStr" | "JsonArr" | "JsonObj"
+    )
 }
 
 pub(crate) fn is_json_call(name: &str) -> bool {
@@ -34,9 +37,20 @@ pub(crate) fn call_return_type_name(name: &str) -> Option<&'static str> {
 pub(crate) fn resolve_call<'a>(name: &str, arg_types: &'a [String]) -> Option<ResolvedCall<'a>> {
     let return_type = match name {
         PARSE if exact(arg_types, &["String"]) => Cow::Borrowed("Json"),
-        STRINGIFY if exact(arg_types, &["Json"]) => Cow::Borrowed("String"),
-        GET if exact(arg_types, &["Json", "List OF String"]) => Cow::Borrowed("Json"),
-        GET_OR if exact(arg_types, &["Json", "List OF String", "Json"]) => Cow::Borrowed("Json"),
+        STRINGIFY if arg_types.len() == 1 && is_json_value_type(&arg_types[0]) => {
+            Cow::Borrowed("String")
+        }
+        GET if arg_types.len() == 2 && is_json_value_type(&arg_types[0]) && arg_types[1] == "List OF String" => {
+            Cow::Borrowed("Json")
+        }
+        GET_OR
+            if arg_types.len() == 3
+                && is_json_value_type(&arg_types[0])
+                && arg_types[1] == "List OF String"
+                && is_json_value_type(&arg_types[2]) =>
+        {
+            Cow::Borrowed("Json")
+        }
         _ => return None,
     };
     Some(ResolvedCall { return_type })
@@ -105,4 +119,11 @@ fn exact(arg_types: &[String], expected: &[&str]) -> bool {
             .iter()
             .zip(expected.iter())
             .all(|(actual, expected)| actual == expected)
+}
+
+fn is_json_value_type(type_name: &str) -> bool {
+    matches!(
+        type_name,
+        "Json" | "JsonNull" | "JsonBool" | "JsonNum" | "JsonStr" | "JsonArr" | "JsonObj"
+    )
 }

@@ -23,6 +23,22 @@
     ]
   },
   {
+    "kind": "type",
+    "visibility": "export",
+    "name": "Success",
+    "fields": [
+    { "visibility": null, "name": "value", "type": "Integer" }
+    ]
+  },
+  {
+    "kind": "type",
+    "visibility": "export",
+    "name": "Failure",
+    "fields": [
+    { "visibility": null, "name": "message", "type": "String" }
+    ]
+  },
+  {
     "kind": "union",
     "visibility": "export",
     "name": "WorkResult",

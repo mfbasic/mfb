@@ -17,52 +17,61 @@
       ]
     },
     {
+      "kind": "type",
+      "visibility": "export",
+      "name": "Circle",
+      "line": 6,
+      "fields": [
+      { "visibility": null, "name": "radius", "type": "Float", "line": 7 }
+      ]
+    },
+    {
+      "kind": "type",
+      "visibility": "export",
+      "name": "Rectangle",
+      "line": 10,
+      "fields": [
+      { "visibility": null, "name": "width", "type": "Float", "line": 11 },
+      { "visibility": null, "name": "height", "type": "Float", "line": 12 }
+      ]
+    },
+    {
+      "kind": "type",
+      "visibility": "export",
+      "name": "PointShape",
+      "line": 15,
+      "fields": [
+      { "visibility": null, "name": "point", "type": "Point", "line": 16 }
+      ]
+    },
+    {
       "kind": "enum",
       "visibility": "export",
       "name": "ShapeKind",
-      "line": 6,
+      "line": 19,
       "members": [
-      { "name": "Circle", "line": 7 },
-      { "name": "Rectangle", "line": 7 },
-      { "name": "PointShape", "line": 7 }
+      { "name": "Circle", "line": 20 },
+      { "name": "Rectangle", "line": 20 },
+      { "name": "PointShape", "line": 20 }
       ]
     },
     {
       "kind": "union",
       "visibility": "export",
       "name": "Shape",
-      "line": 10,
+      "line": 23,
       "includes": [],
       "variants": [
-      {
-        "name": "Circle",
-        "line": 11,
-        "fields": [
-        { "visibility": null, "name": "radius", "type": "Float", "line": 11 }
-        ]
-      },
-      {
-        "name": "Rectangle",
-        "line": 12,
-        "fields": [
-        { "visibility": null, "name": "width", "type": "Float", "line": 12 },
-        { "visibility": null, "name": "height", "type": "Float", "line": 12 }
-        ]
-      },
-      {
-        "name": "PointShape",
-        "line": 13,
-        "fields": [
-        { "visibility": null, "name": "point", "type": "Point", "line": 13 }
-        ]
-      }
+      { "name": "Circle", "line": 24 },
+      { "name": "Rectangle", "line": 25 },
+      { "name": "PointShape", "line": 26 }
       ]
     },
     {
       "kind": "func",
       "visibility": "export",
       "name": "shapeKind",
-      "line": 16,
+      "line": 29,
       "params": [
       { "name": "shape", "type": "Shape", "default": null }
       ],
@@ -71,27 +80,30 @@
       {
         "kind": "match",
         "expression": { "kind": "identifier", "value": "shape" },
-        "line": 17,
+        "line": 30,
         "cases": [
         {
-          "pattern": { "kind": "expression", "expression": { "kind": "identifier", "value": "Circle" } },
-          "line": 18,
+          "pattern": { "kind": "union", "type": "Circle", "binding": "circle" },
+          "guard": null,
+          "line": 31,
           "body": [
-          { "kind": "return", "value": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "ShapeKind" }, "member": "Circle" }, "line": 19 }
+          { "kind": "return", "value": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "ShapeKind" }, "member": "Circle" }, "line": 32 }
           ]
         },
         {
-          "pattern": { "kind": "expression", "expression": { "kind": "identifier", "value": "Rectangle" } },
-          "line": 20,
+          "pattern": { "kind": "union", "type": "Rectangle", "binding": "rectangle" },
+          "guard": null,
+          "line": 33,
           "body": [
-          { "kind": "return", "value": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "ShapeKind" }, "member": "Rectangle" }, "line": 21 }
+          { "kind": "return", "value": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "ShapeKind" }, "member": "Rectangle" }, "line": 34 }
           ]
         },
         {
-          "pattern": { "kind": "expression", "expression": { "kind": "identifier", "value": "PointShape" } },
-          "line": 22,
+          "pattern": { "kind": "union", "type": "PointShape", "binding": "pointShape" },
+          "guard": null,
+          "line": 35,
           "body": [
-          { "kind": "return", "value": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "ShapeKind" }, "member": "PointShape" }, "line": 23 }
+          { "kind": "return", "value": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "ShapeKind" }, "member": "PointShape" }, "line": 36 }
           ]
         }
         ]
@@ -102,7 +114,7 @@
       "kind": "sub",
       "visibility": "export",
       "name": "translate",
-      "line": 27,
+      "line": 40,
       "params": [
       { "name": "point", "type": "Point", "default": null },
       { "name": "dx", "type": "Float", "default": null },
@@ -110,8 +122,8 @@
       ],
       "returnType": null,
       "body": [
-      { "kind": "binding", "mutable": false, "name": "nextX", "type": null, "value": { "kind": "binary", "operator": "+", "left": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "point" }, "member": "x" }, "right": { "kind": "identifier", "value": "dx" } }, "line": 28 },
-      { "kind": "binding", "mutable": false, "name": "nextY", "type": null, "value": { "kind": "binary", "operator": "+", "left": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "point" }, "member": "y" }, "right": { "kind": "identifier", "value": "dy" } }, "line": 29 }
+      { "kind": "binding", "mutable": false, "name": "nextX", "type": null, "value": { "kind": "binary", "operator": "+", "left": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "point" }, "member": "x" }, "right": { "kind": "identifier", "value": "dx" } }, "line": 41 },
+      { "kind": "binding", "mutable": false, "name": "nextY", "type": null, "value": { "kind": "binary", "operator": "+", "left": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "point" }, "member": "y" }, "right": { "kind": "identifier", "value": "dy" } }, "line": 42 }
       ]
     }
     ]

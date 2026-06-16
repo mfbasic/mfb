@@ -92,7 +92,7 @@ Exported templates in source packages are instantiated by the importing compilat
 | `String` | UTF-8, immutable |
 | `Byte` | unsigned 8-bit |
 
-`Fixed` is a binary fixed-point number stored as a signed 32-bit integer part and a 32-bit fractional part. Its range is approximately `-2147483648.0` through `2147483647.9999999998`, with a resolution of `1 / 2^32`. Fixed-point arithmetic is deterministic across targets, but it is not exact decimal currency arithmetic because most decimal fractions are rounded to binary fixed-point values. Overflow produces `Err(Error[77050010, ...])`; divide-by-zero and invalid numeric domains produce `Err(Error[77050002, ...])`.
+`Fixed` is a binary fixed-point number stored as a signed 32-bit integer part and a 32-bit fractional part. Its range is approximately `-2147483648.0` through `2147483647.9999999998`, with a resolution of `1 / 2^32`. Fixed-point arithmetic is deterministic across targets, but it is not exact decimal currency arithmetic because most decimal fractions are rounded to binary fixed-point values. Overflow produces an error result carrying `Error[77050010, ...]`; divide-by-zero and invalid numeric domains produce an error result carrying `Error[77050002, ...]`.
 
 The name `Fixed` is retained for deterministic binary fixed-point arithmetic. A future exact base-10 financial type, if added, should use a distinct name such as `Decimal` and must specify decimal scale, rounding, and overflow rules separately.
 
@@ -161,104 +161,134 @@ Field access uses `.`: `value.fieldName`. It is compile-time checked, and the ri
 
 Record fields may have visibility. A public field can be read, constructed, and updated anywhere the record type is visible. A `PACKAGE` field can be used only by files in the declaring package. A `PRIVATE` field can be used only in the declaring source file. Outside code that cannot see a field also cannot set it in a constructor, read it with `.`, or update it with `WITH`; such records are opaque across that boundary and must be constructed or modified through exported package functions.
 
-Constructors use square brackets: `TypeName[...]` or `VariantName[...]`. Brackets are never used for indexing, so constructor syntax does not conflict with collection access.
+Constructors use square brackets: `TypeName[...]`. Brackets are never used for indexing, so constructor syntax does not conflict with collection access.
 
-List literals use bare square brackets, such as `[1, 2, 3]`, and are parsed separately from constructors. A constructor always begins with a type or variant name before the opening bracket.
+List literals use bare square brackets, such as `[1, 2, 3]`, and are parsed separately from constructors. A constructor always begins with a visible type name before the opening bracket.
 
 `WITH value { field := expr, ... }` creates a copy of a record with the named fields replaced. The original value is unchanged.
 
 ### 4.3 Unions (sum types)
 
-User-defined unions are concrete sum types unless declared as templates with `OF`. They may contain payload fields, including fields whose types are built-in or user-defined template instantiations.
+User-defined unions are closed sums over existing concrete member types. A union declaration does not define payload fields inline; it names concrete `TYPE` declarations that already exist and groups them into one closed domain.
 
 ```basic
+TYPE Circle
+  radius AS Float
+END TYPE
+
+TYPE Rect
+  w AS Float
+  h AS Float
+END TYPE
+
+TYPE Point
+END TYPE
+
 UNION Shape
-  Circle(radius AS Float)
-  Rect(w AS Float, h AS Float)
+  Circle
+  Rect
   Point
 END UNION
 
-LET s = Circle[2.0]
+LET s AS Shape = Circle[radius := 2.0]
 ```
 
-A union may include the variants of another concrete union:
+A union may include the members of another concrete union:
 
 ```basic
 IMPORT shape
 
+TYPE Triangle
+  a AS Float
+  b AS Float
+  c AS Float
+END TYPE
+
 UNION ExtraShape INCLUDES shape::Shape
-  Triangle(a AS Float, b AS Float, c AS Float)
+  Triangle
 END UNION
 
-LET c = Circle[10.0]                     ' variant included from shape::Shape
-LET t = Triangle[3.0, 4.0, 5.0]
+LET c AS ExtraShape = Circle[radius := 10.0]   ' member included from shape::Shape
+LET t AS ExtraShape = Triangle[a := 3.0, b := 4.0, c := 5.0]
 ```
 
-`INCLUDES` creates a new closed union whose variant set is the included union's variants plus the variants declared locally. It does not modify the included union, does not create subtyping, and does not make `ExtraShape` accepted where `shape::Shape` is expected. This is package layering, not polymorphism: the new package owns the larger domain and the free functions that operate on it.
+`INCLUDES` creates a new closed union whose member set is the included union's members plus the members declared locally. It does not modify the included union, does not create subtyping, and does not make `ExtraShape` accepted where `shape::Shape` is expected. This is package layering, not polymorphism: the new package owns the larger domain and the free functions that operate on it.
 
-A package may extend a closed domain by defining a new union that includes another package's union variants, then forwarding or wrapping the included domain's operations through its own package functions:
+A package may extend a closed domain by defining a new union that includes another package's union members, then forwarding or wrapping the included domain's operations through its own package functions:
 
 ```basic
 FUNC area(s AS ExtraShape) AS Float
   MATCH s
-    CASE Triangle
-      RETURN triangleArea(s.a, s.b, s.c)
+    CASE Triangle(t)
+      RETURN triangleArea(t.a, t.b, t.c)
 
     CASE ELSE
-      RETURN shape::area(s)
+      FAIL Error[77050004, "shape member not handled"]
   END MATCH
 END FUNC
 ```
 
-Included variants are reintroduced as variants of the new union for construction and matching. In the declaring package they are addressed like local variants; importers address them through the declaring package namespace, such as `extras::Circle[10.0]`. Variant name conflicts are compile-time errors.
+Included members are reintroduced as members of the new union for construction and matching. In the declaring package they are addressed like local types; importers address them through the declaring package namespace, such as `extras::Circle[radius := 10.0]`. Member name conflicts are compile-time errors.
 
-When matching a union that includes another union, variant cases narrow the matched value. In `CASE Triangle`, the scrutinee is known to be the `Triangle` variant, so its payload fields are available through normal field access such as `s.a`. If a `CASE ELSE` covers only variants included from one union, the scrutinee is narrowed to that included union in the `CASE ELSE` body, so forwarding calls such as `shape::area(s)` are valid there.
-
-Recursive concrete unions are allowed:
+Recursive concrete unions are allowed by defining recursive member types:
 
 ```basic
+TYPE JsonNull
+END TYPE
+
+TYPE JsonBool
+  value AS Boolean
+END TYPE
+
+TYPE JsonNum
+  value AS Float
+END TYPE
+
+TYPE JsonStr
+  value AS String
+END TYPE
+
+TYPE JsonArr
+  items AS List OF Json
+END TYPE
+
+TYPE JsonObj
+  fields AS Map OF String TO Json
+END TYPE
+
 UNION Json
-  Null(value AS Nothing)
-  Bool(value AS Boolean)
-  Num(value AS Float)
-  Str(value AS String)
-  Arr(items AS List OF Json)
-  Obj(fields AS Map OF String TO Json)
+  JsonNull
+  JsonBool
+  JsonNum
+  JsonStr
+  JsonArr
+  JsonObj
 END UNION
 ```
 
-Templates can define reusable closed union shapes:
-
-```basic
-UNION Option OF T
-  Some(value AS T)
-  None
-END UNION
-```
-
-A non-template user-defined union introduces one concrete type name, even when it includes another union. A template union such as `Option OF T` introduces no runtime open type; each used instantiation, such as `Option OF Integer`, is compiled as a concrete union.
+A non-template user-defined union introduces one concrete type name, even when it includes another union.
 
 ### 4.4 `Result`, `Error`, and absence (built in)
 
-The error model is built on two built-in types:
+The error model is built on two built-in public types and one compiler-owned private success member type:
 
 ```basic
 TYPE Error
   code    AS Integer
   message AS String
 END TYPE
-
-UNION Result OF T
-  Ok(value AS T)
-  Err(error AS Error)
-END UNION
 ```
 
-The `Result OF T` shape above is compiler-owned notation. `Result` is a built-in template whose concrete instantiations are produced by the compiler.
+`Result OF T` is compiler-owned notation for a built-in union with two members:
+
+- private compiler-owned `Ok OF T`
+- public `Error`
+
+Users may construct `Error[...]`, but may not construct `Result` or `Ok` directly. `Result` concrete instantiations are produced by the compiler.
 
 - **Every function returns `Result OF T`** where `T` is the declared return type.
-- The error payload is **always** the single `Error` type — no per-function error types, no coercion.
-- There is no built-in `Option`/`Maybe`. Absence is represented by `Err(Error[code, message])`; use semantic error-code constants such as `errorCode::ErrNotFound` for not found.
+- The error member is **always** the single public `Error` type — no per-function error types, no coercion.
+- There is no built-in `Option`/`Maybe`. Absence is represented by `Error[code, message]` carried through `Result`; use semantic error-code constants such as `errorCode::ErrNotFound` for not found.
 - `Result` is rarely written by hand; it is produced and consumed implicitly (see §8).
 
 ### 4.5 Enums
@@ -452,8 +482,8 @@ forEach(nums, printItem)
 
 ```basic
 MATCH fs::writeAll(f, "done")
-  CASE Ok(NOTHING) : io::print("saved")
-  CASE Err(e)      : io::print(e.message)
+  CASE Ok(v)       : io::print("saved")
+  CASE Error(e)    : io::print(e.message)
 END MATCH
 ```
 
@@ -469,7 +499,7 @@ Every function returns `Result`. At a call site, a call **auto-unwraps** to its 
 
 ```basic
 LET x = toFloat(input)    ' if Ok(v): x = v
-                            ' if Err(e): jump to TRAP, or return Err(e)
+                            ' if Error(e): jump to TRAP, or return an error result carrying e
 ```
 
 There is **no `TRY` keyword and no `GOTO`**. Propagation is the default behavior of calling a function.
@@ -486,7 +516,7 @@ Use `FAIL` to fail explicitly with an `Error`:
 IF n < 0 THEN FAIL Error[77050002, "negative"]
 ```
 
-`FAIL e` routes to the enclosing `TRAP`; with no trap, the function returns `Err(e)`.
+`FAIL e` routes to the enclosing `TRAP`; with no trap, the function returns an error result carrying `e`.
 
 ### 8.3 The `TRAP` block
 
@@ -510,8 +540,8 @@ Trap outcomes:
 | Statement | Meaning | Produces |
 |-----------|---------|----------|
 | `RETURN v` | function succeeds | `Ok(v)` |
-| `PROPAGATE` | re-propagate the current `err` | `Err(err)` |
-| `FAIL e2` | replace/wrap the error | `Err(e2)` |
+| `PROPAGATE` | re-propagate the current `err` | error result carrying `err` |
+| `FAIL e2` | replace/wrap the error | error result carrying `e2` |
 
 There is no trap resume operation. Once control enters a `TRAP`, the failed expression is abandoned. A trap may convert the error into the function's final success value with `RETURN`, rethrow the same error with `PROPAGATE`, or replace it with `FAIL`.
 
@@ -533,8 +563,8 @@ To handle an error at the call site instead of auto-propagating, make the call t
 
 ```basic
 MATCH fs::openFile(path)
-  CASE Ok(f)  : LET line = fs::readLine(f)
-  CASE Err(e) : io::print("could not open: " & e.message)
+  CASE Ok(f)     : LET line = fs::readLine(f)
+  CASE Error(e)  : io::print("could not open: " & e.message)
 END MATCH
 ```
 
@@ -547,8 +577,8 @@ IMPORT errorCode
 
 MATCH getUser(id)
   CASE Ok(user) : io::print("Found")
-  CASE Err(e) WHEN e.code = errorCode::ErrNotFound : io::print("User does not exist")
-  CASE Err(e) : FAIL e
+  CASE Error(e) WHEN e.code = errorCode::ErrNotFound : io::print("User does not exist")
+  CASE Error(e) : FAIL e
 END MATCH
 ```
 
@@ -597,7 +627,7 @@ Process result mapping:
 |---------------|------------------|
 | `SUB` returns `Ok(NOTHING)` | Exit code `0`. |
 | `FUNC ... AS Integer` returns `Ok(n)` | Exit code `n`. Implementations must reject or fail values outside the host process exit-code range. |
-| Entry returns uncaught `Err(err)` | Write `Code: <err.code> Message: <err.message>` to stderr and exit with code `255`. |
+| Entry returns an uncaught error result carrying `err` | Write `Code: <err.code> Message: <err.message>` to stderr and exit with code `255`. |
 
 Environment access outside command-line arguments is outside the core language specification and may be provided by a future standard package.
 
@@ -607,19 +637,19 @@ Environment access outside command-line arguments is outside the core language s
 FUNC f(a AS A) AS T            =>   FUNC f(a AS A) AS Result OF T
 
   call g(x)        =>  MATCH g(x)
-                         CASE Ok(v)  : v
-                         CASE Err(e) : bind err = e ; jump __trap
-                                       (no trap => RETURN Err(e))
+                         CASE Ok(v)    : v
+                         CASE Error(e) : bind err = e ; jump __trap
+                                       (no trap => RETURN error result carrying e)
                        END MATCH
 
   FAIL e           =>  bind err = e ; jump __trap
-                       (no trap => RETURN Err(e))
+                       (no trap => RETURN error result carrying e)
 
   RETURN v         =>  RETURN Ok(v)          (body or trap)
 
   __trap:
-    PROPAGATE      =>  RETURN Err(err)
-    FAIL e2        =>  RETURN Err(e2)
+    PROPAGATE      =>  RETURN error result carrying err
+    FAIL e2        =>  RETURN error result carrying e2
     RETURN v       =>  RETURN Ok(v)
 ```
 
@@ -629,14 +659,14 @@ A call used as a `MATCH` scrutinee is **not** rewritten — the raw `Result` is 
 
 ## 9. Pattern Matching
 
-`MATCH` destructures unions and matches literals; exhaustiveness is checked at compile time.
+`MATCH` binds concrete union member values, matches raw `Result` calls, and matches literals; exhaustiveness is checked at compile time.
 
 ```basic
 FUNC area(s AS Shape) AS Float
   MATCH s
-    CASE Circle(r)  : RETURN 3.14159 * r * r
-    CASE Rect(w, h) : RETURN w * h
-    CASE Point      : RETURN 0.0
+    CASE Circle(c) : RETURN 3.14159 * c.radius * c.radius
+    CASE Rect(r)   : RETURN r.w * r.h
+    CASE Point(p)  : RETURN 0.0
   END MATCH
 END FUNC
 ```
@@ -651,14 +681,15 @@ MATCH grade
 END MATCH
 ```
 
-- Bind variant fields by position or name.
-- `CASE Variant` may match a variant without destructuring its payload. Inside that case body, the matched scrutinee is narrowed to that variant, so payload fields may be read with `value.field`.
+- If the scrutinee type is a union type, each non-`ELSE` union case must bind one local: `CASE MemberType(binding)`.
+- The scrutinee keeps its declared union type. The bound case local has the concrete member type.
 - Literal patterns and comma-separated literal lists.
-- `NOTHING`, `TRUE`, `FALSE`, strings, and numbers are literal patterns. A bare identifier in a union match resolves to a variant name when the scrutinee type has that variant; otherwise use `CASE ELSE` for a catch-all.
+- `NOTHING`, `TRUE`, `FALSE`, strings, and numbers are literal patterns.
 - Enum matches use qualified enum member patterns such as `Color.Red`.
-- Guards: `CASE Rect(w, h) WHEN w = h : ...`.
-- `CASE ELSE` for a catch-all.
-- **Exhaustiveness**: unions must cover all variants. Open types (`Integer`, `String`, etc.) require a `CASE ELSE` or it is a compile error.
+- Guards: `CASE Rect(r) WHEN r.w = r.h : ...`.
+- If the scrutinee is a direct call expression, `MATCH` sees the raw `Result`, so `CASE Ok(v)` and `CASE Error(e)` match the `Result` members.
+- `CASE ELSE` is the catch-all fallback.
+- **Exhaustiveness**: unions must cover all member types. Open types (`Integer`, `String`, etc.) require a `CASE ELSE` or it is a compile error.
 - A call as the scrutinee captures its `Result` (see §8.4).
 
 ---
@@ -752,7 +783,7 @@ MUT pts AS List OF Vec3 = []
 pts = append(pts, v)                            ' in-place append on the mutable buffer
 ```
 
-- `get` returns `Result` (missing key / out-of-range index → `Err`) and therefore auto-propagates. Use `getOr(coll, key, default)` for the common defaulted read.
+- `get` returns `Result` (missing key / out-of-range index yields an error result carrying `Error`) and therefore auto-propagates. Use `getOr(coll, key, default)` for the common defaulted read.
 - A collection bound with `LET` is an immutable snapshot. Update functions such as `append` and `set` may read it and produce a new collection value, but assigning back to the same `LET` binding or otherwise modifying it is a compile-time error.
 - A collection bound with `MUT` is a locally mutable buffer. When the result of an update function is assigned back to the same `MUT` binding, such as `pts = append(pts, v)`, the compiler performs the update destructively in place instead of allocating a replacement collection.
 - Update helpers are semantically pure functions. `append(pts, v)` by itself computes and discards a result; it has no lasting effect unless the result is assigned, returned, passed, or otherwise consumed. Destructive update is an optimization only for the assignment-back-to-the-same-`MUT` pattern.
@@ -788,7 +819,7 @@ Visibility:
 
 Top-level `LET`, `MUT`, `FUNC`, `SUB`, `TYPE`, `UNION`, and `ENUM` may use `PRIVATE`, `PACKAGE`, or `EXPORT`. Fields in `TYPE` declarations may also use `PRIVATE`, `PACKAGE`, or `EXPORT`; omitted field visibility defaults to the containing type's visibility, capped at `PACKAGE` for non-exported types.
 
-Only exported top-level `FUNC` declarations may use `ISOLATED`. Imported package record and variant constructors are addressed as `package::identifier` when constructing values, but constructors for records with hidden fields are callable only from scopes that can see every required field.
+Only exported top-level `FUNC` declarations may use `ISOLATED`. Imported package constructors are addressed as `package::identifier` when constructing values, but constructors for records with hidden fields are callable only from scopes that can see every required field.
 
 Exported top-level `MUT` is allowed only when written explicitly as `EXPORT MUT`; it is package state visible to importers and must be surfaced by audit tooling. A top-level `MUT` without `EXPORT` is private or package-local according to its visibility annotation and remains discouraged for shared state.
 
@@ -930,10 +961,10 @@ Arena-backed values use a 32-byte object header followed by payload bytes:
 | `0` | kind tag (`String`, `List`, `Map`, `Record`, `Variant`, or future runtime object) |
 | `8` | logical length or field count |
 | `16` | capacity or payload byte length |
-| `24` | auxiliary tag, such as a variant member id |
+| `24` | auxiliary tag, such as a union member id |
 | `32` | payload start, aligned at least to 8 bytes |
 
-Value slots are three machine words. Heap-backed slots store the object pointer in word 0, logical length or scalar metadata in word 1, and auxiliary metadata in word 2. Strings store UTF-8 bytes in the object payload. Lists and maps store owned value slots in payload order; maps store key/value slot pairs. Records store field slots in declaration order. Variants store the active variant id in the header auxiliary field and payload fields in variant declaration order.
+Value slots are three machine words. Heap-backed slots store the object pointer in word 0, logical length or scalar metadata in word 1, and auxiliary metadata in word 2. Strings store UTF-8 bytes in the object payload. Lists and maps store owned value slots in payload order; maps store key/value slot pairs. Records store field slots in declaration order. Union values store the active member id in the header auxiliary field and the contained member value in the payload.
 
 Copy and move of arena-backed values are slot copies in the current native backend because arena objects are immutable after construction. Drop is a no-op for individual arena values; all arena blocks are released at package-instance shutdown. Returning a heap-backed value copies the slot into the caller-visible result, so returned values never point into the callee stack frame.
 
@@ -963,7 +994,7 @@ No two live mutable bindings may refer to the same collection buffer. A `MUT` co
 
 ### 14.7 Drop order
 
-At normal scope exit, `RETURN`, `FAIL`, `PROPAGATE`, or auto-propagated `Err`, live bindings are dropped in reverse declaration order within each scope. Nested scopes drop before enclosing scopes continue. Record fields drop in declaration order. Union payload fields drop in declaration order for the active variant. List elements drop from highest index to lowest. Map entries drop in implementation-defined storage order; programs must not depend on map drop order.
+At normal scope exit, `RETURN`, `FAIL`, `PROPAGATE`, or auto-propagated errors, live bindings are dropped in reverse declaration order within each scope. Nested scopes drop before enclosing scopes continue. Record fields drop in declaration order. Union member values drop according to the active member's record layout. List elements drop from highest index to lowest. Map entries drop in implementation-defined storage order; programs must not depend on map drop order.
 
 Moved-from bindings are not dropped. Frozen buffers are dropped as immutable collection values by their final owner.
 
@@ -1049,7 +1080,7 @@ Rules:
 - Thread arguments and messages are copied, moved, or frozen when they enter a thread. Values read from a thread are copied, moved, or frozen when they leave the thread. No sender and receiver can observe or mutate the same live value.
 - Opaque resource handles, including `File`, socket handles, and `Thread`, are not sendable.
 - A thread's top-level `MUT` state is private to that thread's package instance.
-- If the thread entry function returns `Ok(v)`, the thread's stored result becomes `Ok(v)`. If it fails with `Err(e)`, including through auto-propagation, the thread's stored result becomes `Err(e)`.
+- If the thread entry function returns `Ok(v)`, the thread's stored result becomes the success member with payload `v`. If it fails with `Error(e)`, including through auto-propagation, the thread's stored result becomes the error member carrying `e`.
 - The `Thread` value keeps the completed result after the thread ends. `thread::waitFor(t)` waits until completion and returns `t.result`, auto-unwrapping or auto-propagating like any other function call.
 
 The `thread` package exposes:
@@ -1275,10 +1306,10 @@ funcType       = [ "ISOLATED" ] "FUNC" "(" [ typeList ] ")" "AS" type ;
 
 typeDecl       = declVis "TYPE" ident [ templateParams ] { field } "END" "TYPE" ;
 field          = declVis ident "AS" type ;
-unionDecl      = declVis "UNION" ident [ templateParams ] [ unionIncludes ] { variant } "END" "UNION" ;
+unionDecl      = declVis "UNION" ident [ templateParams ] [ unionIncludes ] { unionMember } "END" "UNION" ;
 unionIncludes  = "INCLUDES" unionName { "," unionName } ;
 unionName      = ident | qualifiedIdent ;
-variant        = ident [ "(" params ")" ] ;
+unionMember    = ident | qualifiedIdent ;
 enumDecl       = declVis "ENUM" ident identlist "END" "ENUM" ;
 identlist      = ident { "," ident } ;
 
@@ -1322,9 +1353,8 @@ matchStmt      = "MATCH" expr { caseClause } "END" "MATCH" ;
 caseClause     = "CASE" patternList [ "WHEN" expr ] ":" block
                | "CASE" "ELSE" ":" block ;
 patternList    = pattern { "," pattern } ;
-pattern        = enumMember | ident [ "(" patternFields ")" ] | literal ;
-patternFields  = patternField { "," patternField } ;
-patternField   = [ ident ":=" ] pattern ;
+pattern        = enumMember | unionPattern | literal ;
+unionPattern   = (ident | qualifiedIdent) "(" ident ")" ;
 
 expr           = orExpr { "|>" pipeTail } ;
 pipeTail       = (ident | qualifiedIdent) "(" [ pipeArgList ] ")" ;
@@ -1428,18 +1458,27 @@ Package layering lets one package define a larger closed domain from another pac
 ' shape/shapes.mfb
 IMPORT math
 
+TYPE Circle
+  radius AS Float
+END TYPE
+
+TYPE Rect
+  w AS Float
+  h AS Float
+END TYPE
+
 UNION Shape
-  Circle(radius AS Float)
-  Rect(w AS Float, h AS Float)
+  Circle
+  Rect
 END UNION
 
 EXPORT FUNC area(s AS Shape) AS Float
   MATCH s
-    CASE Circle(r)
-      RETURN math::piFloat * r * r
+    CASE Circle(c)
+      RETURN math::piFloat * c.radius * c.radius
 
-    CASE Rect(w, h)
-      RETURN w * h
+    CASE Rect(r)
+      RETURN r.w * r.h
   END MATCH
 END FUNC
 ```
@@ -1449,17 +1488,23 @@ END FUNC
 IMPORT math
 IMPORT shape
 
+TYPE Triangle
+  a AS Float
+  b AS Float
+  c AS Float
+END TYPE
+
 UNION ExtraShape INCLUDES shape::Shape
-  Triangle(a AS Float, b AS Float, c AS Float)
+  Triangle
 END UNION
 
 EXPORT FUNC area(s AS ExtraShape) AS Float
   MATCH s
-    CASE Triangle
-      RETURN triangleArea(s.a, s.b, s.c)
+    CASE Triangle(t)
+      RETURN triangleArea(t.a, t.b, t.c)
 
     CASE ELSE
-      RETURN shape::area(s)
+      FAIL Error[77050004, "shape member not handled"]
   END MATCH
 END FUNC
 
@@ -1476,15 +1521,15 @@ IMPORT extraShape
 IMPORT io
 
 SUB main()
-  LET s = extraShape::Circle[10.0]
-  LET t = extraShape::Triangle[3.0, 4.0, 5.0]
+  LET s AS extraShape::ExtraShape = extraShape::Circle[radius := 10.0]
+  LET t AS extraShape::ExtraShape = extraShape::Triangle[a := 3.0, b := 4.0, c := 5.0]
 
   io::print(toString(extraShape::area(s)))
   io::print(toString(extraShape::area(t)))
 END SUB
 ```
 
-The resulting model is `extraShape = shape + extraShape additions`, but the type system remains closed and explicit: `shape::Shape` is not a base class, `ExtraShape` is not a subtype, there is no virtual dispatch, and no package can retroactively add variants to another package's union.
+The resulting model is `extraShape = shape + extraShape additions`, but the type system remains closed and explicit: `shape::Shape` is not a base class, `ExtraShape` is not a subtype, there is no virtual dispatch, and no package can retroactively add member types to another package's union.
 
 ---
 
@@ -1520,7 +1565,7 @@ The verifier must check:
 - Package metadata is well-formed, uses a supported bytecode/package version, satisfies the resolved manifest and lockfile entries, and matches the bytecode body.
 - The package signature, hash, or trust record is valid when the build mode requires signed or locked dependencies.
 - Public API metadata is consistent with bytecode definitions, including exported names, type shapes, function signatures, ownership properties, and native-link declarations.
-- Bytecode instructions are type-correct at every program point. Operand types, result types, call signatures, record fields, union variants, collection element types, and `Result` handling must match the typed metadata.
+- Bytecode instructions are type-correct at every program point. Operand types, result types, call signatures, record fields, union member types, collection element types, and `Result` handling must match the typed metadata.
 - Stack slots, registers, temporaries, locals, and return slots are definitely initialized before read and are not read after move.
 - Resource ownership is linear. A resource handle has one owner, is not copied, is not stored in ordinary collections, is not sent to threads, and is closed or moved exactly once on every control-flow path.
 - Drop and cleanup paths are valid. The verifier rejects double-drop, missing-drop, and use-after-drop paths.
@@ -1568,6 +1613,6 @@ mfb lsp
 
 `mfb fmt` applies the standard formatter. `--check` exits with a toolchain diagnostic when formatting would change files.
 
-`mfb test` discovers exported or private zero-argument `SUB` declarations whose names start with `test` in files included by the `project.json` test source entries. A test succeeds when it returns `Ok(NOTHING)` and fails when it returns `Err`. Test builds use the same package resolver, verifier, resource rules, and audit metadata as executable builds.
+`mfb test` discovers exported or private zero-argument `SUB` declarations whose names start with `test` in files included by the `project.json` test source entries. A test succeeds when it returns `Ok(NOTHING)` and fails when it returns an error result. Test builds use the same package resolver, verifier, resource rules, and audit metadata as executable builds.
 
 `mfb lsp` starts the language-server protocol implementation. It must expose diagnostics for fallible calls, auto-propagation paths, `TRAP` recovery, resource moves/use-after-move, unsafe or invalid native links, permissions, package-version conflicts, lockfile mismatches, dense security-sensitive lines, and identifier near-collisions.

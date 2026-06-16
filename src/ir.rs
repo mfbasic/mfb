@@ -33,12 +33,14 @@ pub(crate) struct IrType {
     pub(crate) members: Vec<IrEnumMember>,
 }
 
+#[derive(Clone)]
 pub(crate) struct IrField {
     pub(crate) visibility: Option<String>,
     pub(crate) name: String,
     pub(crate) type_: String,
 }
 
+#[derive(Clone)]
 pub(crate) struct IrVariant {
     pub(crate) name: String,
     pub(crate) fields: Vec<IrField>,
@@ -114,12 +116,14 @@ pub(crate) enum IrOp {
 
 pub(crate) struct IrMatchCase {
     pub(crate) pattern: IrMatchPattern,
+    pub(crate) guard: Option<IrValue>,
     pub(crate) body: Vec<IrOp>,
 }
 
 pub(crate) enum IrMatchPattern {
     Else,
     Value(IrValue),
+    OneOf(Vec<IrValue>),
 }
 
 #[derive(Clone)]
@@ -137,9 +141,31 @@ pub(crate) enum IrValue {
         target: String,
         args: Vec<IrValue>,
     },
+    CallResult {
+        target: String,
+        args: Vec<IrValue>,
+    },
     Constructor {
         type_: String,
         args: Vec<IrValue>,
+    },
+    UnionWrap {
+        union_type: String,
+        member_type: String,
+        value: Box<IrValue>,
+    },
+    UnionExtract {
+        type_: String,
+        value: Box<IrValue>,
+    },
+    ResultIsOk {
+        value: Box<IrValue>,
+    },
+    ResultValue {
+        value: Box<IrValue>,
+    },
+    ResultError {
+        value: Box<IrValue>,
     },
     WithUpdate {
         type_: String,
@@ -206,7 +232,7 @@ pub fn lower_project_with_external_functions(
         for item in &file.items {
             match item {
                 Item::Function(function) => functions.push(lower_function(function, &mut context)),
-                Item::Type(type_decl) => types.push(lower_type(type_decl)),
+                Item::Type(type_decl) => types.push(lower_type(type_decl, &type_index)),
             }
         }
     }
@@ -227,7 +253,7 @@ pub fn write_ir(project_dir: &Path, ir: &IrProject) -> Result<PathBuf, String> {
     Ok(ir_path)
 }
 
-fn lower_type(type_decl: &TypeDecl) -> IrType {
+fn lower_type(type_decl: &TypeDecl, type_index: &TypeIndex) -> IrType {
     let kind = match type_decl.kind {
         TypeDeclKind::Type => "type",
         TypeDeclKind::Union => "union",
@@ -239,7 +265,11 @@ fn lower_type(type_decl: &TypeDecl) -> IrType {
         name: type_decl.name.clone(),
         fields: type_decl.fields.iter().map(lower_field).collect(),
         includes: type_decl.includes.clone(),
-        variants: type_decl.variants.iter().map(lower_variant).collect(),
+        variants: type_decl
+            .variants
+            .iter()
+            .map(|variant| lower_variant(variant, type_index))
+            .collect(),
         members: type_decl.members.iter().map(lower_enum_member).collect(),
     }
 }
@@ -252,10 +282,14 @@ fn lower_field(field: &TypeField) -> IrField {
     }
 }
 
-fn lower_variant(variant: &UnionVariant) -> IrVariant {
+fn lower_variant(variant: &UnionVariant, type_index: &TypeIndex) -> IrVariant {
     IrVariant {
         name: variant.name.clone(),
-        fields: variant.fields.iter().map(lower_field).collect(),
+        fields: type_index
+            .records
+            .get(&variant.name)
+            .cloned()
+            .unwrap_or_default(),
     }
 }
 
@@ -412,13 +446,47 @@ fn lower_statement(
         }],
         Statement::Match {
             expression, cases, ..
-        } => vec![IrOp::Match {
-            value: lower_expression(expression, locals, context),
-            cases: cases
-                .iter()
-                .map(|case| lower_match_case(case, expression, locals, context))
-                .collect(),
-        }],
+        } => {
+            let matched_type = match_expression_type(expression, locals, context)
+                .expect("typecheck requires MATCH scrutinee type before IR lowering");
+            let matched_name = make_temp_local_name(context, "match");
+            let mut ops = vec![IrOp::Bind {
+                mutable: false,
+                name: matched_name.clone(),
+                type_: matched_type.clone(),
+                value: Some(lower_match_expression(
+                    expression,
+                    &matched_type,
+                    locals,
+                    context,
+                )),
+            }];
+            let mut match_locals = locals.clone();
+            match_locals.insert(matched_name.clone(), matched_type);
+            let match_value = if match_locals[&matched_name].starts_with("Result OF ") {
+                let match_flag_name = make_temp_local_name(context, "match_ok");
+                ops.push(IrOp::Bind {
+                    mutable: false,
+                    name: match_flag_name.clone(),
+                    type_: "Boolean".to_string(),
+                    value: Some(IrValue::ResultIsOk {
+                        value: Box::new(IrValue::Local(matched_name.clone())),
+                    }),
+                });
+                match_locals.insert(match_flag_name.clone(), "Boolean".to_string());
+                IrValue::Local(match_flag_name)
+            } else {
+                IrValue::Local(matched_name.clone())
+            };
+            ops.push(IrOp::Match {
+                value: match_value,
+                cases: cases
+                    .iter()
+                    .map(|case| lower_match_case(case, &matched_name, &match_locals, context))
+                    .collect(),
+            });
+            ops
+        }
         Statement::For {
             name,
             start,
@@ -655,43 +723,192 @@ fn parse_map_entry_type(type_: &str) -> Option<(String, String)> {
 
 fn lower_match_case(
     case: &MatchCase,
-    matched_expression: &Expression,
+    matched_local: &str,
     locals: &HashMap<String, String>,
     context: &mut LowerContext<'_>,
 ) -> IrMatchCase {
+    let matched_type = locals
+        .get(matched_local)
+        .cloned()
+        .expect("typecheck requires MATCH local type before IR lowering");
     let pattern = match &case.pattern {
         MatchPattern::Else => IrMatchPattern::Else,
-        MatchPattern::Expression(expression) => {
+        MatchPattern::Literal(expression) => {
             IrMatchPattern::Value(lower_expression(expression, locals, context))
         }
+        MatchPattern::Union { type_name, .. } if matched_type.starts_with("Result OF ") => {
+            let matched = match type_name.as_str() {
+                "Ok" => "true",
+                "Error" => "false",
+                _ => "false",
+            };
+            IrMatchPattern::Value(IrValue::Const {
+                type_: "Boolean".to_string(),
+                value: matched.to_string(),
+            })
+        }
+        MatchPattern::Union { type_name, .. } => {
+            IrMatchPattern::Value(IrValue::Local(type_name.clone()))
+        }
+        MatchPattern::OneOf(expressions) => IrMatchPattern::OneOf(
+            expressions
+                .iter()
+                .map(|expression| lower_expression(expression, locals, context))
+                .collect(),
+        ),
     };
     let mut case_locals = locals.clone();
-    if let Some((local, variant)) = match_case_narrowing(matched_expression, &case.pattern, context)
+    let mut body = Vec::new();
+    if let Some((binding, binding_type, value)) =
+        match_case_binding(&case.pattern, matched_local, &matched_type)
     {
-        case_locals.insert(local, variant);
+        case_locals.insert(binding.clone(), binding_type.clone());
+        body.push(IrOp::Bind {
+            mutable: false,
+            name: binding,
+            type_: binding_type,
+            value: Some(value),
+        });
     }
+    body.extend(lower_statement_block(&case.body, &case_locals, context));
     IrMatchCase {
         pattern,
-        body: lower_statement_block(&case.body, &case_locals, context),
+        guard: case
+            .guard
+            .as_ref()
+            .map(|guard| lower_expression(guard, &case_locals, context)),
+        body,
     }
 }
 
-fn match_case_narrowing(
-    expression: &Expression,
+fn match_case_binding(
     pattern: &MatchPattern,
-    context: &LowerContext<'_>,
-) -> Option<(String, String)> {
-    let Expression::Identifier(local) = expression else {
-        return None;
-    };
-    let MatchPattern::Expression(Expression::Identifier(variant)) = pattern else {
-        return None;
-    };
-    if context.type_index.variant_fields.contains_key(variant) {
-        Some((local.clone(), variant.clone()))
-    } else {
-        None
+    matched_local: &str,
+    matched_type: &str,
+) -> Option<(String, String, IrValue)> {
+    match pattern {
+        MatchPattern::Union { type_name, binding } => {
+            if let Some(success) = matched_type.strip_prefix("Result OF ") {
+                return match type_name.as_str() {
+                    "Ok" => Some((
+                        binding.clone(),
+                        success.to_string(),
+                        IrValue::ResultValue {
+                            value: Box::new(IrValue::Local(matched_local.to_string())),
+                        },
+                    )),
+                    "Error" => Some((
+                        binding.clone(),
+                        "Error".to_string(),
+                        IrValue::ResultError {
+                            value: Box::new(IrValue::Local(matched_local.to_string())),
+                        },
+                    )),
+                    _ => None,
+                };
+            }
+            Some((
+                binding.clone(),
+                type_name.clone(),
+                IrValue::UnionExtract {
+                    type_: type_name.clone(),
+                    value: Box::new(IrValue::Local(matched_local.to_string())),
+                },
+            ))
+        }
+        _ => None,
     }
+}
+
+fn lower_match_expression(
+    expression: &Expression,
+    matched_type: &str,
+    locals: &HashMap<String, String>,
+    context: &mut LowerContext<'_>,
+) -> IrValue {
+    if matched_type.starts_with("Result OF ") {
+        if let Expression::Call { callee, arguments } = expression {
+            let args = if callee == "filter" && arguments.len() == 2 {
+                if let Expression::Identifier(predicate) = &arguments[1] {
+                    let predicate_type = expression_type(&arguments[0], locals, context).and_then(
+                        |collection_type| {
+                            collection_type
+                                .strip_prefix("List OF ")
+                                .and_then(|element| {
+                                    builtins::general::filter_predicate_type(predicate, element)
+                                })
+                        },
+                    );
+                    if let Some(predicate_type) = predicate_type {
+                        vec![
+                            lower_expression(&arguments[0], locals, context),
+                            IrValue::FunctionRef {
+                                name: predicate.clone(),
+                                type_: predicate_type,
+                            },
+                        ]
+                    } else {
+                        arguments
+                            .iter()
+                            .map(|argument| lower_expression(argument, locals, context))
+                            .collect()
+                    }
+                } else {
+                    arguments
+                        .iter()
+                        .map(|argument| lower_expression(argument, locals, context))
+                        .collect()
+                }
+            } else {
+                arguments
+                    .iter()
+                    .enumerate()
+                    .map(|(index, argument)| {
+                        let expected =
+                            call_argument_expected_type(callee, index, arguments, locals, context);
+                        lower_expression_with_expected(
+                            argument,
+                            expected.as_deref(),
+                            locals,
+                            context,
+                        )
+                    })
+                    .collect()
+            };
+            return IrValue::CallResult {
+                target: builtins::json::implementation_name(callee)
+                    .unwrap_or(callee)
+                    .to_string(),
+                args,
+            };
+        }
+    }
+    lower_expression_with_expected(expression, Some(matched_type), locals, context)
+}
+
+fn match_expression_type(
+    expression: &Expression,
+    locals: &HashMap<String, String>,
+    context: &LowerContext<'_>,
+) -> Option<String> {
+    if let Expression::Call { callee, .. } = expression {
+        return builtins::call_return_type_name(callee)
+            .map(|success| format!("Result OF {success}"))
+            .or_else(|| {
+                context
+                    .function_returns
+                    .get(callee)
+                    .cloned()
+                    .map(|success| format!("Result OF {success}"))
+            })
+            .or_else(|| {
+                locals
+                    .get(callee)
+                    .and_then(|type_| function_return_from_type(type_))
+                    .map(|success| format!("Result OF {success}"))
+            });
+    }
+    expression_type(expression, locals, context)
 }
 
 fn function_returns(ast: &AstProject) -> HashMap<String, String> {
@@ -803,6 +1020,13 @@ fn expression_type(
                 if let Some(output) = builtins::thread::thread_output(&target_type) {
                     return Some(format!("Result OF {output}"));
                 }
+            }
+            if target_type == "Error" {
+                return match member.as_str() {
+                    "code" => Some("Integer".to_string()),
+                    "message" => Some("String".to_string()),
+                    _ => None,
+                };
             }
             if let Some((key_type, value_type)) = parse_map_entry_type(&target_type) {
                 return match member.as_str() {
@@ -970,12 +1194,40 @@ fn call_argument_expected_type(
     if callee == "toString" && index == 1 && arguments.len() == 2 {
         return Some("Byte".to_string());
     }
+    if let Some(params) = builtin_argument_types(callee) {
+        return params.get(index).cloned();
+    }
     context
         .function_types
         .get(callee)
         .or_else(|| locals.get(callee))
         .and_then(|type_| function_param_types_from_type(type_))
         .and_then(|params| params.get(index).cloned())
+}
+
+fn builtin_argument_types(callee: &str) -> Option<Vec<String>> {
+    let expected = builtins::general::expected_arguments(callee)
+        .or_else(|| builtins::strings::expected_arguments(callee))
+        .or_else(|| builtins::math::expected_arguments(callee))
+        .or_else(|| builtins::fs::expected_arguments(callee))
+        .or_else(|| builtins::io::expected_arguments(callee))
+        .or_else(|| builtins::json::expected_arguments(callee))
+        .or_else(|| builtins::thread::expected_arguments(callee))?;
+    let params = expected.split(", ").map(str::to_string).collect::<Vec<_>>();
+    if params.iter().any(|param| uses_generic_placeholder(param)) {
+        return None;
+    }
+    Some(params)
+}
+
+fn uses_generic_placeholder(type_: &str) -> bool {
+    matches!(type_, "T" | "K" | "V")
+        || type_.contains(" OF T")
+        || type_.contains(" OF K")
+        || type_.contains(" OF V")
+        || type_.contains(" TO T")
+        || type_.contains(" TO K")
+        || type_.contains(" TO V")
 }
 
 fn lower_expression(
@@ -1027,14 +1279,15 @@ fn lower_expression_with_expected(
             IrValue::Const { type_, value }
         }
         Expression::Identifier(value) => {
-            if let Some(type_) = context.function_types.get(value) {
+            let base = if let Some(type_) = context.function_types.get(value) {
                 IrValue::FunctionRef {
                     name: value.clone(),
                     type_: type_.clone(),
                 }
             } else {
                 IrValue::Local(value.clone())
-            }
+            };
+            wrap_union_value(base, expression, expected, locals, context)
         }
         Expression::Call { callee, arguments } => {
             let args = if callee == "filter" && arguments.len() == 2 {
@@ -1146,10 +1399,11 @@ fn lower_expression_with_expected(
                 .records
                 .get(type_name)
                 .or_else(|| context.type_index.variant_fields.get(type_name));
-            IrValue::Constructor {
+            let base = IrValue::Constructor {
                 type_: type_name.clone(),
                 args: lower_constructor_args(arguments, fields, locals, context),
-            }
+            };
+            wrap_union_value(base, expression, expected, locals, context)
         }
         Expression::WithUpdate { target, updates } => {
             let type_ = expression_type(target, locals, context)
@@ -1189,18 +1443,28 @@ fn lower_expression_with_expected(
             key_type,
             value_type,
             entries,
-        } => IrValue::MapLiteral {
-            type_: format!("Map OF {key_type} TO {value_type}"),
-            entries: entries
-                .iter()
-                .map(|(key, value)| {
-                    (
-                        lower_expression(key, locals, context),
-                        lower_expression(value, locals, context),
-                    )
-                })
-                .collect(),
-        },
+        } => {
+            let expected_map = expected.and_then(parse_map_type);
+            let expected_key = expected_map.as_ref().map(|(key, _)| key.as_str());
+            let expected_value = expected_map.as_ref().map(|(_, value)| value.as_str());
+            IrValue::MapLiteral {
+                type_: format!("Map OF {key_type} TO {value_type}"),
+                entries: entries
+                    .iter()
+                    .map(|(key, value)| {
+                        (
+                            lower_expression_with_expected(key, expected_key, locals, context),
+                            lower_expression_with_expected(
+                                value,
+                                expected_value,
+                                locals,
+                                context,
+                            ),
+                        )
+                    })
+                    .collect(),
+            }
+        }
         Expression::MemberAccess { target, member } => IrValue::MemberAccess {
             target: Box::new(lower_expression(target, locals, context)),
             member: member.clone(),
@@ -1219,6 +1483,29 @@ fn lower_expression_with_expected(
             operand: Box::new(lower_expression(operand, locals, context)),
         },
     }
+}
+
+fn wrap_union_value(
+    base: IrValue,
+    expression: &Expression,
+    expected: Option<&str>,
+    locals: &HashMap<String, String>,
+    context: &LowerContext<'_>,
+) -> IrValue {
+    let Some(union_type) = expected else {
+        return base;
+    };
+    let Some(actual_type) = expression_type(expression, locals, context) else {
+        return base;
+    };
+    if context.type_index.variants.get(&actual_type) == Some(&union_type.to_string()) {
+        return IrValue::UnionWrap {
+            union_type: union_type.to_string(),
+            member_type: actual_type,
+            value: Box::new(base),
+        };
+    }
+    base
 }
 
 fn lower_constructor_args(
@@ -1336,7 +1623,7 @@ impl TypeIndex {
                             variants.insert(variant.name.clone(), type_decl.name.clone());
                             variant_fields.insert(
                                 variant.name.clone(),
-                                variant.fields.iter().map(lower_field).collect(),
+                                records.get(&variant.name).cloned().unwrap_or_default(),
                             );
                         }
                     }
@@ -1364,7 +1651,7 @@ impl TypeIndex {
     fn constructor_result(&self, name: &str) -> Option<String> {
         if name == "Error" {
             Some("Error".to_string())
-        } else if name == "Ok" || name == "Err" {
+        } else if name == "Ok" {
             Some("Result OF Unknown".to_string())
         } else if self.records.contains_key(name) {
             Some(name.to_string())
@@ -1822,12 +2109,18 @@ impl ToIrJson for IrMatchCase {
             concat!(
                 "\n{}{{\n",
                 "{}  \"pattern\": {},\n",
+                "{}  \"guard\": {},\n",
                 "{}  \"body\": [{}\n{}  ]\n",
                 "{}}}"
             ),
             pad,
             pad,
             self.pattern.to_json(indent),
+            pad,
+            self.guard
+                .as_ref()
+                .map(|guard| guard.to_json(indent))
+                .unwrap_or_else(|| "null".to_string()),
             pad,
             join_json(&self.body, indent + 2),
             pad,
@@ -1846,6 +2139,14 @@ impl ToIrJson for IrMatchPattern {
                     value.to_json(indent)
                 )
             }
+            IrMatchPattern::OneOf(values) => format!(
+                "{{ \"kind\": \"oneOf\", \"values\": [{}] }}",
+                values
+                    .iter()
+                    .map(|value| value.to_json(indent))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
         }
     }
 }
@@ -1882,6 +2183,18 @@ impl ToIrJson for IrValue {
                     args
                 )
             }
+            IrValue::CallResult { target, args } => {
+                let args = args
+                    .iter()
+                    .map(|arg| arg.to_json(0))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                format!(
+                    "{{ \"kind\": \"callResult\", \"target\": {}, \"args\": [{}] }}",
+                    json_string(target),
+                    args
+                )
+            }
             IrValue::Constructor { type_, args } => {
                 let args = args
                     .iter()
@@ -1894,6 +2207,33 @@ impl ToIrJson for IrValue {
                     args
                 )
             }
+            IrValue::UnionWrap {
+                union_type,
+                member_type,
+                value,
+            } => format!(
+                "{{ \"kind\": \"unionWrap\", \"union\": {}, \"member\": {}, \"value\": {} }}",
+                json_string(union_type),
+                json_string(member_type),
+                value.to_json(0)
+            ),
+            IrValue::UnionExtract { type_, value } => format!(
+                "{{ \"kind\": \"unionExtract\", \"type\": {}, \"value\": {} }}",
+                json_string(type_),
+                value.to_json(0)
+            ),
+            IrValue::ResultIsOk { value } => format!(
+                "{{ \"kind\": \"resultIsOk\", \"value\": {} }}",
+                value.to_json(0)
+            ),
+            IrValue::ResultValue { value } => format!(
+                "{{ \"kind\": \"resultValue\", \"value\": {} }}",
+                value.to_json(0)
+            ),
+            IrValue::ResultError { value } => format!(
+                "{{ \"kind\": \"resultError\", \"value\": {} }}",
+                value.to_json(0)
+            ),
             IrValue::WithUpdate {
                 type_,
                 target,

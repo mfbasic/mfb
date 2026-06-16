@@ -1,0 +1,54 @@
+TYPE Circle
+  radius AS Integer
+END TYPE
+
+TYPE Rect
+  width AS Integer
+  height AS Integer
+END TYPE
+
+UNION Shape
+  Circle
+  Rect
+END UNION
+
+FUNC parsePositive(value AS Integer) AS Integer
+  IF value < 0 THEN FAIL Error[100, "negative"]
+  RETURN value + 1
+END FUNC
+
+FUNC main() AS Integer
+  MUT total AS Integer = 0
+  LET firstShape AS Shape = Circle[5]
+  LET secondShape AS Shape = Rect[10, 20]
+
+  MATCH firstShape
+    CASE Circle(circle)
+      total = total + circle.radius
+    CASE Rect(rect)
+      total = total + rect.width + rect.height
+  END MATCH
+
+  MATCH secondShape
+    CASE Circle(circle)
+      total = total + circle.radius
+    CASE Rect(rect)
+      total = total + rect.width + rect.height
+  END MATCH
+
+  MATCH parsePositive(9)
+    CASE Ok(value)
+      total = total + value
+    CASE Error(err)
+      total = total + err.code
+  END MATCH
+
+  MATCH parsePositive(-1)
+    CASE Ok(value)
+      total = total + value
+    CASE Error(err)
+      total = total + err.code
+  END MATCH
+
+  RETURN total
+END FUNC

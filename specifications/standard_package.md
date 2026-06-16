@@ -14,7 +14,7 @@ These types are always in scope. They do not require `IMPORT`.
 | `Byte` | Unsigned 8-bit integer. |
 | `Nothing` | Unit type with the single value `NOTHING`. |
 | `Error` | Standard error payload: `Error[code AS Integer, message AS String]`. |
-| `Result OF T` | Standard success/error union: `Ok(value AS T)` or `Err(error AS Error)`. |
+| `Result OF T` | Standard success/error union: private `Ok OF T` or public `Error`. |
 | `MapEntry OF K TO V` | Standard map iteration entry: `MapEntry[key AS K, value AS V]`. |
 | `Thread OF Msg TO Out` | Opaque handle to an isolated thread with message type `Msg` and result type `Out`. |
 
@@ -25,14 +25,9 @@ TYPE Error
   code    AS Integer
   message AS String
 END TYPE
-
-UNION Result OF T
-  Ok(value AS T)
-  Err(error AS Error)
-END UNION
 ```
 
-The `Result OF T` declaration is compiler-owned notation. It describes the built-in `Result` template; concrete uses are monomorphized before bytecode generation.
+`Result OF T` is compiler-owned notation. It describes the built-in `Result` template with a private success member `Ok OF T` and a public error member `Error`; concrete uses are monomorphized before bytecode generation. Users may construct `Error[...]`, but may not construct `Result` or `Ok` directly.
 
 `MapEntry OF K TO V` is a compiler-owned record shape produced by iterating a `Map OF K TO V`. It has public read-only fields:
 
@@ -145,8 +140,8 @@ IMPORT errorCode
 
 MATCH find(parts, "=")
   CASE Ok(i) : io::print("separator at " & toString(i))
-  CASE Err(e) WHEN e.code = errorCode::ErrNotFound : io::print("separator not found")
-  CASE Err(e) : FAIL e
+  CASE Error(e) WHEN e.code = errorCode::ErrNotFound : io::print("separator not found")
+  CASE Error(e) : FAIL e
 END MATCH
 ```
 
@@ -521,13 +516,36 @@ Secure defaults are mandatory:
 JSON functions live in the `json` package.
 
 ```basic
+TYPE JsonNull
+END TYPE
+
+TYPE JsonBool
+  value AS Boolean
+END TYPE
+
+TYPE JsonNum
+  value AS Float
+END TYPE
+
+TYPE JsonStr
+  value AS String
+END TYPE
+
+TYPE JsonArr
+  items AS List OF Json
+END TYPE
+
+TYPE JsonObj
+  fields AS Map OF String TO Json
+END TYPE
+
 UNION Json
-  Null(value AS Nothing)
-  Bool(value AS Boolean)
-  Num(value AS Float)
-  Str(value AS String)
-  Arr(items AS List OF Json)
-  Obj(fields AS Map OF String TO Json)
+  JsonNull
+  JsonBool
+  JsonNum
+  JsonStr
+  JsonArr
+  JsonObj
 END UNION
 ```
 

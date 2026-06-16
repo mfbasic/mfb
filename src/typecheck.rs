@@ -77,7 +77,6 @@ struct TypeChecker<'a> {
     user_types: HashSet<String>,
     user_type_kinds: HashMap<String, TypeDeclKind>,
     type_infos: HashMap<String, TypeInfo>,
-    variant_constructors: HashMap<String, Vec<VariantConstructor>>,
     had_error: bool,
 }
 
@@ -116,7 +115,6 @@ impl<'a> TypeChecker<'a> {
             user_types: HashSet::new(),
             user_type_kinds: HashMap::new(),
             type_infos: HashMap::new(),
-            variant_constructors: HashMap::new(),
             had_error: false,
         };
         checker.collect_types();
@@ -160,14 +158,6 @@ impl<'a> TypeChecker<'a> {
             }
         }
 
-        for info in self.type_infos.values() {
-            for variant in &info.variants {
-                self.variant_constructors
-                    .entry(variant_name_key(variant))
-                    .or_default()
-                    .push(variant.clone());
-            }
-        }
     }
 
     fn expanded_union_variants(
@@ -202,7 +192,16 @@ impl<'a> TypeChecker<'a> {
             }
         }
         if let Some(info) = self.type_infos.get(union_name) {
-            variants.extend(info.variants.clone());
+            variants.extend(info.variants.iter().map(|variant| {
+                let mut expanded = variant.clone();
+                expanded.fields = self
+                    .type_infos
+                    .get(&variant.name)
+                    .filter(|member| matches!(member.kind, TypeDeclKind::Type))
+                    .map(|member| member.fields.clone())
+                    .unwrap_or_default();
+                expanded
+            }));
         }
         visiting.remove(union_name);
         variants
@@ -222,11 +221,7 @@ impl<'a> TypeChecker<'a> {
                 union_name: type_decl.name.clone(),
                 visibility: type_decl.visibility,
                 file_path: file.path.clone(),
-                fields: variant
-                    .fields
-                    .iter()
-                    .map(|field| self.field_info(field, Visibility::Export))
-                    .collect(),
+                fields: Vec::new(),
             })
             .collect();
         let members = type_decl
@@ -384,9 +379,20 @@ impl<'a> TypeChecker<'a> {
                 }
 
                 for variant in &type_decl.variants {
-                    for field in &variant.fields {
-                        let type_ = self.parse_type(&field.type_name);
-                        self.check_type_reference(file, &type_, field.line);
+                    let type_ = self.parse_type(&variant.name);
+                    self.check_type_reference(file, &type_, variant.line);
+                    if let Some(kind) = self.user_type_kinds.get(&variant.name) {
+                        if !matches!(kind, TypeDeclKind::Type) {
+                            self.report(
+                                "TYPE_UNION_MEMBER_REQUIRES_TYPE",
+                                &format!(
+                                    "UNION `{}` member `{}` must be a concrete TYPE.",
+                                    type_decl.name, variant.name
+                                ),
+                                file,
+                                variant.line,
+                            );
+                        }
                     }
                 }
             }
@@ -821,48 +827,38 @@ impl<'a> TypeChecker<'a> {
                 cases,
                 line,
             } => {
-                let matched_type = self.infer_expression(file, expression, locals, *line);
+                let matched_type = self.infer_match_scrutinee(file, expression, locals, *line);
                 let mut has_else = false;
                 let mut all_return = !cases.is_empty();
                 let mut covered_cases = HashSet::new();
                 for case in cases {
-                    match &case.pattern {
-                        MatchPattern::Else => has_else = true,
-                        MatchPattern::Expression(pattern) => {
-                            if let Some(name) = self.match_case_name(pattern) {
-                                covered_cases.insert(name);
-                            }
-                            let pattern_type =
-                                self.infer_match_pattern(file, pattern, locals, case.line);
-                            if !self.expression_compatible(
-                                &matched_type,
-                                &pattern_type,
-                                Some(pattern),
-                            ) {
-                                self.report(
-                                    "TYPE_MATCH_PATTERN_MISMATCH",
-                                    &format!(
-                                        "CASE pattern has type {}, expected {}.",
-                                        self.type_name(&pattern_type),
-                                        self.type_name(&matched_type)
-                                    ),
-                                    file,
-                                    case.line,
-                                );
-                            }
-                        }
+                    if matches!(case.pattern, MatchPattern::Else) {
+                        has_else = true;
+                    } else if let Some(name) = self.match_case_name(&case.pattern) {
+                        covered_cases.insert(name);
                     }
                     let mut case_locals = locals.clone();
-                    if let Some((local_name, variant_name)) =
-                        self.match_case_narrowing(expression, &case.pattern)
-                    {
-                        case_locals.insert(
-                            local_name,
-                            LocalInfo {
-                                type_: Type::User(variant_name),
-                                mutable: false,
-                            },
-                        );
+                    self.check_match_pattern(
+                        file,
+                        &case.pattern,
+                        &matched_type,
+                        &mut case_locals,
+                        case.line,
+                    );
+                    if let Some(guard) = &case.guard {
+                        let guard_type =
+                            self.infer_expression(file, guard, &case_locals, case.line);
+                        if !self.expression_compatible(&Type::Boolean, &guard_type, Some(guard)) {
+                            self.report(
+                                "TYPE_CONDITION_REQUIRES_BOOLEAN",
+                                &format!(
+                                    "WHEN guard has type {}, expected Boolean.",
+                                    self.type_name(&guard_type)
+                                ),
+                                file,
+                                case.line,
+                            );
+                        }
                     }
                     let case_flow =
                         self.check_block(file, &case.body, expected_return, &mut case_locals);
@@ -1169,55 +1165,154 @@ impl<'a> TypeChecker<'a> {
         }
     }
 
-    fn infer_match_pattern(
+    fn infer_match_scrutinee(
         &mut self,
         file: &AstFile,
-        pattern: &Expression,
+        expression: &Expression,
         locals: &HashMap<String, LocalInfo>,
         line: usize,
     ) -> Type {
-        if let Expression::Identifier(name) = pattern {
-            if let Some(variants) = self.variant_constructors.get(name).cloned() {
-                if variants.len() == 1 {
-                    return Type::User(variants[0].union_name.clone());
-                }
+        if let Expression::Call { callee, arguments } = expression {
+            if builtins::is_builtin_call(callee) {
+                let success = self.check_builtin_call(file, callee, arguments, locals, line);
+                return Type::Result(Box::new(success));
+            }
+            if let Some(sig) = self.functions.get(callee).cloned() {
+                self.check_call(file, callee, &sig, arguments, locals, line);
+                return Type::Result(Box::new(sig.return_type));
+            }
+            if let Some(local) = locals.get(callee).cloned() {
+                let success = self.check_function_value_call(
+                    file,
+                    callee,
+                    &local.type_,
+                    arguments,
+                    locals,
+                    line,
+                );
+                return Type::Result(Box::new(success));
             }
         }
-        self.infer_expression(file, pattern, locals, line)
+        self.infer_expression(file, expression, locals, line)
     }
 
-    fn match_case_name(&self, pattern: &Expression) -> Option<String> {
+    fn check_match_pattern(
+        &mut self,
+        file: &AstFile,
+        pattern: &MatchPattern,
+        matched_type: &Type,
+        case_locals: &mut HashMap<String, LocalInfo>,
+        line: usize,
+    ) {
         match pattern {
-            Expression::Identifier(name) => Some(name.clone()),
-            Expression::MemberAccess { target, member } => {
-                if let Expression::Identifier(type_name) = target.as_ref() {
-                    return Some(format!("{type_name}::{member}"));
+            MatchPattern::Else => {}
+            MatchPattern::Literal(expression) => {
+                let pattern_type = self.infer_expression(file, expression, case_locals, line);
+                if !self.expression_compatible(matched_type, &pattern_type, Some(expression)) {
+                    self.report(
+                        "TYPE_MATCH_PATTERN_MISMATCH",
+                        &format!(
+                            "CASE pattern has type {}, expected {}.",
+                            self.type_name(&pattern_type),
+                            self.type_name(matched_type)
+                        ),
+                        file,
+                        line,
+                    );
                 }
-                None
+            }
+            MatchPattern::OneOf(expressions) => {
+                for expression in expressions {
+                    self.check_match_pattern(
+                        file,
+                        &MatchPattern::Literal(expression.clone()),
+                        matched_type,
+                        case_locals,
+                        line,
+                    );
+                }
+            }
+            MatchPattern::Union { type_name, binding } => match matched_type {
+                Type::User(union_name) => {
+                    let Some(info) = self.type_infos.get(union_name) else {
+                        return;
+                    };
+                    if !matches!(info.kind, TypeDeclKind::Union)
+                        || !info.variants.iter().any(|variant| variant.name == *type_name)
+                    {
+                        self.report(
+                            "TYPE_MATCH_PATTERN_MISMATCH",
+                            &format!(
+                                "CASE `{type_name}` is not a member of UNION `{union_name}`."
+                            ),
+                            file,
+                            line,
+                        );
+                        return;
+                    }
+                    case_locals.insert(
+                        binding.clone(),
+                        LocalInfo {
+                            type_: Type::User(type_name.clone()),
+                            mutable: false,
+                        },
+                    );
+                }
+                Type::Result(success) => {
+                    let binding_type = match type_name.as_str() {
+                        "Ok" => *success.clone(),
+                        "Error" => Type::Error,
+                        _ => {
+                            self.report(
+                                "TYPE_MATCH_PATTERN_MISMATCH",
+                                &format!(
+                                    "CASE `{type_name}` is not valid when matching a Result."
+                                ),
+                                file,
+                                line,
+                            );
+                            return;
+                        }
+                    };
+                    case_locals.insert(
+                        binding.clone(),
+                        LocalInfo {
+                            type_: binding_type,
+                            mutable: false,
+                        },
+                    );
+                }
+                _ => self.report(
+                    "TYPE_MATCH_PATTERN_MISMATCH",
+                    &format!(
+                        "CASE `{type_name}` requires a UNION or direct call Result, got {}.",
+                        self.type_name(matched_type)
+                    ),
+                    file,
+                    line,
+                ),
+            },
+        }
+    }
+
+    fn match_case_name(&self, pattern: &MatchPattern) -> Option<String> {
+        match pattern {
+            MatchPattern::Union { type_name, .. } => Some(type_name.clone()),
+            MatchPattern::Literal(Expression::MemberAccess { target, member }) => {
+                if let Expression::Identifier(type_name) = target.as_ref() {
+                    Some(format!("{type_name}::{member}"))
+                } else {
+                    None
+                }
             }
             _ => None,
         }
     }
 
-    fn match_case_narrowing(
-        &self,
-        expression: &Expression,
-        pattern: &MatchPattern,
-    ) -> Option<(String, String)> {
-        let Expression::Identifier(local_name) = expression else {
-            return None;
-        };
-        let MatchPattern::Expression(Expression::Identifier(variant_name)) = pattern else {
-            return None;
-        };
-        if self.variant_constructors.contains_key(variant_name) {
-            Some((local_name.clone(), variant_name.clone()))
-        } else {
-            None
-        }
-    }
-
     fn match_is_exhaustive(&self, matched_type: &Type, covered_cases: &HashSet<String>) -> bool {
+        if matches!(matched_type, Type::Result(_)) {
+            return covered_cases.contains("Ok") && covered_cases.contains("Error");
+        }
         let Type::User(type_name) = matched_type else {
             return false;
         };
@@ -1317,7 +1412,7 @@ impl<'a> TypeChecker<'a> {
         arguments: &[ConstructorArg],
         locals: &HashMap<String, LocalInfo>,
         line: usize,
-        expected: Option<&Type>,
+        _expected: Option<&Type>,
     ) -> Type {
         if type_name == "Error" {
             let fields = vec![
@@ -1354,35 +1449,6 @@ impl<'a> TypeChecker<'a> {
             let success =
                 self.infer_expression(file, constructor_arg_value(&arguments[0]), locals, line);
             return Type::Result(Box::new(success));
-        }
-
-        if type_name == "Err" {
-            if arguments.len() != 1 {
-                self.report(
-                    "TYPE_CONSTRUCTOR_ARITY_MISMATCH",
-                    &format!(
-                        "Constructor `Err` has {} argument(s), expected 1.",
-                        arguments.len()
-                    ),
-                    file,
-                    line,
-                );
-                return Type::Unknown;
-            }
-            let actual =
-                self.infer_expression(file, constructor_arg_value(&arguments[0]), locals, line);
-            if !self.compatible(&Type::Error, &actual) {
-                self.report(
-                    "TYPE_CONSTRUCTOR_ARGUMENT_MISMATCH",
-                    &format!(
-                        "Argument 1 for `Err` has type {}, expected Error.",
-                        self.type_name(&actual)
-                    ),
-                    file,
-                    line,
-                );
-            }
-            return Type::Result(Box::new(Type::Unknown));
         }
 
         if read_only_record_type(type_name) {
@@ -1430,49 +1496,6 @@ impl<'a> TypeChecker<'a> {
                 line,
             );
             return Type::User(type_name.to_string());
-        }
-
-        if let Some(variants) = self.variant_constructors.get(type_name).cloned() {
-            let selected = expected.and_then(|expected| {
-                let Type::User(expected_name) = expected else {
-                    return None;
-                };
-                variants
-                    .iter()
-                    .find(|variant| &variant.union_name == expected_name)
-                    .cloned()
-            });
-            if variants.len() > 1 && selected.is_none() {
-                self.report(
-                    "TYPE_VARIANT_CONSTRUCTOR_AMBIGUOUS",
-                    &format!(
-                        "Variant constructor `{type_name}` is declared by more than one UNION."
-                    ),
-                    file,
-                    line,
-                );
-                return Type::Unknown;
-            }
-            let variant = selected.as_ref().unwrap_or(&variants[0]);
-            if !self.visible_from(file, variant.visibility, &variant.file_path) {
-                self.report(
-                    "TYPE_MEMBER_NOT_VISIBLE",
-                    &format!("Variant constructor `{type_name}` is not visible from this file."),
-                    file,
-                    line,
-                );
-                return Type::Unknown;
-            }
-            self.check_constructor_arguments(
-                file,
-                type_name,
-                &variant.fields,
-                &variant.file_path,
-                arguments,
-                locals,
-                line,
-            );
-            return Type::User(variant.union_name.clone());
         }
 
         for argument in arguments {
@@ -1631,6 +1654,21 @@ impl<'a> TypeChecker<'a> {
             );
             return Type::Unknown;
         }
+        if matches!(target_type, Type::Error) {
+            return match member {
+                "code" => Type::Integer,
+                "message" => Type::String,
+                _ => {
+                    self.report(
+                        "TYPE_UNKNOWN_FIELD",
+                        &format!("Error value has no field `{member}`."),
+                        file,
+                        line,
+                    );
+                    Type::Unknown
+                }
+            };
+        }
         let Type::User(type_name) = target_type else {
             self.report(
                 "TYPE_FIELD_ACCESS_REQUIRES_RECORD",
@@ -1661,22 +1699,6 @@ impl<'a> TypeChecker<'a> {
             }
         }
         let Some(info) = self.type_infos.get(&type_name).cloned() else {
-            if let Some(variants) = self.variant_constructors.get(&type_name).cloned() {
-                if let Some(field) = variants
-                    .first()
-                    .and_then(|variant| variant.fields.iter().find(|field| field.name == member))
-                    .cloned()
-                {
-                    return field.type_;
-                }
-                self.report(
-                    "TYPE_UNKNOWN_FIELD",
-                    &format!("Variant `{type_name}` has no field `{member}`."),
-                    file,
-                    line,
-                );
-                return Type::Unknown;
-            }
             if let Some(field_type) = builtins::io::builtin_type_fields(&type_name)
                 .and_then(|fields| fields.iter().find(|(name, _)| *name == member))
                 .map(|(_, type_name)| self.parse_type(type_name))
@@ -2736,6 +2758,16 @@ impl<'a> TypeChecker<'a> {
                         .all(|(expected, actual)| self.compatible(expected, actual))
                     && self.compatible(expected_return, actual_return)
             }
+            (Type::User(expected_name), Type::User(actual_name)) => {
+                expected_name == actual_name
+                    || self
+                        .type_infos
+                        .get(expected_name)
+                        .is_some_and(|info| {
+                            matches!(info.kind, TypeDeclKind::Union)
+                                && info.variants.iter().any(|variant| variant.name == *actual_name)
+                        })
+            }
             _ => expected == actual,
         }
     }
@@ -3234,8 +3266,4 @@ fn numeric_type_name(type_: &Type) -> Option<&'static str> {
 
 fn read_only_record_type(type_name: &str) -> bool {
     type_name == builtins::io::TERMINAL_SIZE_TYPE || type_name.starts_with("MapEntry OF ")
-}
-
-fn variant_name_key(variant: &VariantConstructor) -> String {
-    variant.name.clone()
 }

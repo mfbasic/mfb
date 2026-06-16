@@ -9,9 +9,17 @@ EXPORT ENUM WorkStatus
   Pending, Complete
 END ENUM
 
+EXPORT TYPE Success
+  value AS Integer
+END TYPE
+
+EXPORT TYPE Failure
+  message AS String
+END TYPE
+
 EXPORT UNION WorkResult
-  Success(value AS Integer)
-  Failure(message AS String)
+  Success
+  Failure
 END UNION
 
 EXPORT ISOLATED FUNC worker(seed AS String) AS Integer

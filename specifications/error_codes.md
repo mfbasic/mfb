@@ -162,7 +162,7 @@ These codes correspond to `src/rules.rs` and are emitted directly by the compile
 | `2-203-0027` | `TYPE_DEFAULT_VALUE_MISMATCH` | error | `default parameter value has the wrong type` |
 | `2-203-0028` | `TYPE_DUPLICATE_ENUM_MEMBER` | error | `enum member is declared more than once` |
 | `2-203-0029` | `TYPE_DUPLICATE_FIELD` | error | `type field is declared more than once` |
-| `2-203-0030` | `TYPE_DUPLICATE_VARIANT` | error | `union variant is declared more than once` |
+| `2-203-0030` | `TYPE_DUPLICATE_VARIANT` | error | `union member type is declared more than once` |
 | `2-203-0031` | `TYPE_ENUM_REQUIRES_MEMBER` | error | `enum must declare at least one member` |
 | `2-203-0032` | `TYPE_FUNC_MISSING_RETURN` | error | `function is missing a return value` |
 | `2-203-0033` | `TYPE_FUNC_REQUIRES_RETURN_TYPE` | error | `FUNC must declare a return type` |
@@ -179,7 +179,7 @@ These codes correspond to `src/rules.rs` and are emitted directly by the compile
 | `2-203-0044` | `TYPE_UNKNOWN_ENUM_MEMBER` | error | `enum member does not exist` |
 | `2-203-0045` | `TYPE_UNKNOWN_FIELD` | error | `record field does not exist` |
 | `2-203-0046` | `TYPE_UNION_INCLUDE_REQUIRES_UNION` | error | `union includes must name union types` |
-| `2-203-0047` | `TYPE_VARIANT_CONSTRUCTOR_AMBIGUOUS` | error | `variant constructor name is ambiguous` |
+| `2-203-0047` | `TYPE_VARIANT_CONSTRUCTOR_AMBIGUOUS` | error | `union member constructor name is ambiguous` |
 | `2-203-0048` | `TYPE_ASSIGN_REQUIRES_MUT` | error | `assignment target must be mutable` |
 | `2-203-0049` | `TYPE_MATCH_PATTERN_MISMATCH` | error | `match pattern type does not match the scrutinee type` |
 | `2-203-0050` | `TYPE_FOR_EACH_REQUIRES_COLLECTION` | error | `FOR EACH source must be a List or Map` |

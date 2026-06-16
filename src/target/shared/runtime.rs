@@ -1306,7 +1306,7 @@ fn push_op_helpers(ops: &[IrOp], helpers: &mut Vec<RuntimeHelper>) {
 
 fn push_value_helpers(value: &IrValue, helpers: &mut Vec<RuntimeHelper>) {
     match value {
-        IrValue::Call { target, args } => {
+        IrValue::Call { target, args } | IrValue::CallResult { target, args } => {
             if !is_native_direct_call(target) {
                 if let Some(helper) = helper_for_call(target) {
                     push_unique(helpers, helper);
@@ -1326,6 +1326,13 @@ fn push_value_helpers(value: &IrValue, helpers: &mut Vec<RuntimeHelper>) {
             for arg in args {
                 push_value_helpers(arg, helpers);
             }
+        }
+        IrValue::UnionWrap { value, .. }
+        | IrValue::UnionExtract { value, .. }
+        | IrValue::ResultIsOk { value }
+        | IrValue::ResultValue { value }
+        | IrValue::ResultError { value } => {
+            push_value_helpers(value, helpers);
         }
         IrValue::WithUpdate {
             target, updates, ..

@@ -1,0 +1,64 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "control_flow_match_else",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "bucket",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    { "name": "value", "type": "Integer", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "mutable": false, "name": "$match0", "type": "Integer", "value": { "kind": "local", "name": "value" } },
+    {
+      "op": "match",
+      "value": { "kind": "local", "name": "$match0" },
+      "cases": [
+      {
+        "pattern": { "kind": "oneOf", "values": [{ "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "2" }, { "kind": "const", "type": "Integer", "value": "3" }] },
+        "guard": null,
+        "body": [
+        { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "10" } }
+        ]
+      },
+      {
+        "pattern": { "kind": "oneOf", "values": [{ "kind": "const", "type": "Integer", "value": "8" }, { "kind": "const", "type": "Integer", "value": "9" }] },
+        "guard": null,
+        "body": [
+        { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "20" } }
+        ]
+      },
+      {
+        "pattern": { "kind": "else" },
+        "guard": null,
+        "body": [
+        { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "30" } }
+        ]
+      }
+      ]
+    }
+    ]
+  },
+  {
+    "name": "main",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "return", "value": { "kind": "binary", "op": "+", "left": { "kind": "binary", "op": "+", "left": { "kind": "call", "target": "bucket", "args": [{ "kind": "const", "type": "Integer", "value": "2" }] }, "right": { "kind": "call", "target": "bucket", "args": [{ "kind": "const", "type": "Integer", "value": "9" }] } }, "right": { "kind": "call", "target": "bucket", "args": [{ "kind": "const", "type": "Integer", "value": "99" }] } } }
+    ]
+  }
+  ]
+}

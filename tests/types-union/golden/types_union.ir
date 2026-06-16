@@ -9,6 +9,41 @@
   },
   "types": [
   {
+    "kind": "type",
+    "visibility": "private",
+    "name": "Circle",
+    "fields": [
+    { "visibility": null, "name": "radius", "type": "Integer" }
+    ]
+  },
+  {
+    "kind": "type",
+    "visibility": "private",
+    "name": "Rect",
+    "fields": [
+    { "visibility": null, "name": "w", "type": "Integer" },
+    { "visibility": null, "name": "h", "type": "Integer" }
+    ]
+  },
+  {
+    "kind": "type",
+    "visibility": "private",
+    "name": "Point",
+    "fields": [
+    { "visibility": null, "name": "value", "type": "Nothing" }
+    ]
+  },
+  {
+    "kind": "type",
+    "visibility": "private",
+    "name": "Triangle",
+    "fields": [
+    { "visibility": null, "name": "a", "type": "Integer" },
+    { "visibility": null, "name": "b", "type": "Integer" },
+    { "visibility": null, "name": "c", "type": "Integer" }
+    ]
+  },
+  {
     "kind": "union",
     "visibility": "private",
     "name": "Shape",
@@ -30,6 +65,7 @@
     {
       "name": "Point",
       "fields": [
+      { "visibility": null, "name": "value", "type": "Nothing" }
       ]
     }
     ]
@@ -61,25 +97,32 @@
     ],
     "returns": "Integer",
     "body": [
+    { "op": "bind", "mutable": false, "name": "$match0", "type": "Shape", "value": { "kind": "local", "name": "s" } },
     {
       "op": "match",
-      "value": { "kind": "local", "name": "s" },
+      "value": { "kind": "local", "name": "$match0" },
       "cases": [
       {
         "pattern": { "kind": "value", "value": { "kind": "local", "name": "Circle" } },
+        "guard": null,
         "body": [
-        { "op": "return", "value": { "kind": "memberAccess", "target": { "kind": "local", "name": "s" }, "member": "radius" } }
+        { "op": "bind", "mutable": false, "name": "circle", "type": "Circle", "value": { "kind": "unionExtract", "type": "Circle", "value": { "kind": "local", "name": "$match0" } } },
+        { "op": "return", "value": { "kind": "memberAccess", "target": { "kind": "local", "name": "circle" }, "member": "radius" } }
         ]
       },
       {
         "pattern": { "kind": "value", "value": { "kind": "local", "name": "Rect" } },
+        "guard": null,
         "body": [
-        { "op": "return", "value": { "kind": "binary", "op": "+", "left": { "kind": "memberAccess", "target": { "kind": "local", "name": "s" }, "member": "w" }, "right": { "kind": "memberAccess", "target": { "kind": "local", "name": "s" }, "member": "h" } } }
+        { "op": "bind", "mutable": false, "name": "rect", "type": "Rect", "value": { "kind": "unionExtract", "type": "Rect", "value": { "kind": "local", "name": "$match0" } } },
+        { "op": "return", "value": { "kind": "binary", "op": "+", "left": { "kind": "memberAccess", "target": { "kind": "local", "name": "rect" }, "member": "w" }, "right": { "kind": "memberAccess", "target": { "kind": "local", "name": "rect" }, "member": "h" } } }
         ]
       },
       {
         "pattern": { "kind": "value", "value": { "kind": "local", "name": "Point" } },
+        "guard": null,
         "body": [
+        { "op": "bind", "mutable": false, "name": "point", "type": "Point", "value": { "kind": "unionExtract", "type": "Point", "value": { "kind": "local", "name": "$match0" } } },
         { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "1" } }
         ]
       }
@@ -96,32 +139,41 @@
     ],
     "returns": "Integer",
     "body": [
+    { "op": "bind", "mutable": false, "name": "$match1", "type": "ExtraShape", "value": { "kind": "local", "name": "s" } },
     {
       "op": "match",
-      "value": { "kind": "local", "name": "s" },
+      "value": { "kind": "local", "name": "$match1" },
       "cases": [
       {
         "pattern": { "kind": "value", "value": { "kind": "local", "name": "Circle" } },
+        "guard": null,
         "body": [
-        { "op": "return", "value": { "kind": "binary", "op": "+", "left": { "kind": "memberAccess", "target": { "kind": "local", "name": "s" }, "member": "radius" }, "right": { "kind": "const", "type": "Integer", "value": "100" } } }
+        { "op": "bind", "mutable": false, "name": "circle", "type": "Circle", "value": { "kind": "unionExtract", "type": "Circle", "value": { "kind": "local", "name": "$match1" } } },
+        { "op": "return", "value": { "kind": "binary", "op": "+", "left": { "kind": "memberAccess", "target": { "kind": "local", "name": "circle" }, "member": "radius" }, "right": { "kind": "const", "type": "Integer", "value": "100" } } }
         ]
       },
       {
         "pattern": { "kind": "value", "value": { "kind": "local", "name": "Rect" } },
+        "guard": null,
         "body": [
-        { "op": "return", "value": { "kind": "binary", "op": "+", "left": { "kind": "binary", "op": "+", "left": { "kind": "memberAccess", "target": { "kind": "local", "name": "s" }, "member": "w" }, "right": { "kind": "memberAccess", "target": { "kind": "local", "name": "s" }, "member": "h" } }, "right": { "kind": "const", "type": "Integer", "value": "200" } } }
+        { "op": "bind", "mutable": false, "name": "rect", "type": "Rect", "value": { "kind": "unionExtract", "type": "Rect", "value": { "kind": "local", "name": "$match1" } } },
+        { "op": "return", "value": { "kind": "binary", "op": "+", "left": { "kind": "binary", "op": "+", "left": { "kind": "memberAccess", "target": { "kind": "local", "name": "rect" }, "member": "w" }, "right": { "kind": "memberAccess", "target": { "kind": "local", "name": "rect" }, "member": "h" } }, "right": { "kind": "const", "type": "Integer", "value": "200" } } }
         ]
       },
       {
         "pattern": { "kind": "value", "value": { "kind": "local", "name": "Point" } },
+        "guard": null,
         "body": [
+        { "op": "bind", "mutable": false, "name": "point", "type": "Point", "value": { "kind": "unionExtract", "type": "Point", "value": { "kind": "local", "name": "$match1" } } },
         { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "300" } }
         ]
       },
       {
         "pattern": { "kind": "value", "value": { "kind": "local", "name": "Triangle" } },
+        "guard": null,
         "body": [
-        { "op": "return", "value": { "kind": "binary", "op": "+", "left": { "kind": "binary", "op": "+", "left": { "kind": "memberAccess", "target": { "kind": "local", "name": "s" }, "member": "a" }, "right": { "kind": "memberAccess", "target": { "kind": "local", "name": "s" }, "member": "b" } }, "right": { "kind": "memberAccess", "target": { "kind": "local", "name": "s" }, "member": "c" } } }
+        { "op": "bind", "mutable": false, "name": "triangle", "type": "Triangle", "value": { "kind": "unionExtract", "type": "Triangle", "value": { "kind": "local", "name": "$match1" } } },
+        { "op": "return", "value": { "kind": "binary", "op": "+", "left": { "kind": "binary", "op": "+", "left": { "kind": "memberAccess", "target": { "kind": "local", "name": "triangle" }, "member": "a" }, "right": { "kind": "memberAccess", "target": { "kind": "local", "name": "triangle" }, "member": "b" } }, "right": { "kind": "memberAccess", "target": { "kind": "local", "name": "triangle" }, "member": "c" } } }
         ]
       }
       ]
@@ -138,11 +190,11 @@
     "body": [
     { "op": "bind", "mutable": false, "name": "circle", "type": "Shape", "value": { "kind": "constructor", "type": "Circle", "args": [{ "kind": "const", "type": "Integer", "value": "5" }] } },
     { "op": "bind", "mutable": false, "name": "rect", "type": "Shape", "value": { "kind": "constructor", "type": "Rect", "args": [{ "kind": "const", "type": "Integer", "value": "2" }, { "kind": "const", "type": "Integer", "value": "3" }] } },
-    { "op": "bind", "mutable": false, "name": "point", "type": "Shape", "value": { "kind": "constructor", "type": "Point", "args": [] } },
-    { "op": "bind", "mutable": false, "name": "extraCircle", "type": "ExtraShape", "value": { "kind": "constructor", "type": "Circle", "args": [{ "kind": "const", "type": "Integer", "value": "7" }] } },
-    { "op": "bind", "mutable": false, "name": "extraRect", "type": "ExtraShape", "value": { "kind": "constructor", "type": "Rect", "args": [{ "kind": "const", "type": "Integer", "value": "4" }, { "kind": "const", "type": "Integer", "value": "5" }] } },
-    { "op": "bind", "mutable": false, "name": "extraPoint", "type": "ExtraShape", "value": { "kind": "constructor", "type": "Point", "args": [] } },
-    { "op": "bind", "mutable": false, "name": "triangle", "type": "ExtraShape", "value": { "kind": "constructor", "type": "Triangle", "args": [{ "kind": "const", "type": "Integer", "value": "6" }, { "kind": "const", "type": "Integer", "value": "7" }, { "kind": "const", "type": "Integer", "value": "8" }] } },
+    { "op": "bind", "mutable": false, "name": "point", "type": "Shape", "value": { "kind": "constructor", "type": "Point", "args": [{ "kind": "const", "type": "Nothing", "value": "NOTHING" }] } },
+    { "op": "bind", "mutable": false, "name": "extraCircle", "type": "ExtraShape", "value": { "kind": "unionWrap", "union": "ExtraShape", "member": "Circle", "value": { "kind": "constructor", "type": "Circle", "args": [{ "kind": "const", "type": "Integer", "value": "7" }] } } },
+    { "op": "bind", "mutable": false, "name": "extraRect", "type": "ExtraShape", "value": { "kind": "unionWrap", "union": "ExtraShape", "member": "Rect", "value": { "kind": "constructor", "type": "Rect", "args": [{ "kind": "const", "type": "Integer", "value": "4" }, { "kind": "const", "type": "Integer", "value": "5" }] } } },
+    { "op": "bind", "mutable": false, "name": "extraPoint", "type": "ExtraShape", "value": { "kind": "unionWrap", "union": "ExtraShape", "member": "Point", "value": { "kind": "constructor", "type": "Point", "args": [{ "kind": "const", "type": "Nothing", "value": "NOTHING" }] } } },
+    { "op": "bind", "mutable": false, "name": "triangle", "type": "ExtraShape", "value": { "kind": "unionWrap", "union": "ExtraShape", "member": "Triangle", "value": { "kind": "constructor", "type": "Triangle", "args": [{ "kind": "const", "type": "Integer", "value": "6" }, { "kind": "const", "type": "Integer", "value": "7" }, { "kind": "const", "type": "Integer", "value": "8" }] } } },
     { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "typeName", "args": [{ "kind": "local", "name": "circle" }] }] } },
     { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "typeName", "args": [{ "kind": "local", "name": "extraCircle" }] }] } },
     { "op": "bind", "mutable": false, "name": "a", "type": "Integer", "value": { "kind": "call", "target": "shapeScore", "args": [{ "kind": "local", "name": "circle" }] } },

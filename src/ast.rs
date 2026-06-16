@@ -62,7 +62,6 @@ pub struct TypeField {
 #[derive(Clone, Debug)]
 pub struct UnionVariant {
     pub name: String,
-    pub fields: Vec<TypeField>,
     pub line: usize,
 }
 
@@ -206,6 +205,7 @@ pub enum Statement {
 #[derive(Clone, Debug)]
 pub struct MatchCase {
     pub pattern: MatchPattern,
+    pub guard: Option<Expression>,
     pub body: Vec<Statement>,
     pub line: usize,
 }
@@ -213,7 +213,12 @@ pub struct MatchCase {
 #[derive(Clone, Debug)]
 pub enum MatchPattern {
     Else,
-    Expression(Expression),
+    Literal(Expression),
+    Union {
+        type_name: String,
+        binding: String,
+    },
+    OneOf(Vec<Expression>),
 }
 
 #[derive(Clone, Debug)]
@@ -752,56 +757,9 @@ impl<'a> FileParser<'a> {
 
     fn parse_union_variant(&mut self) -> Option<UnionVariant> {
         let line = self.peek().line;
-        let name = self.consume_identifier("Union variant name must be an identifier.")?;
-        let fields = if self.match_kind(TokenKind::LParen) {
-            let fields = self.parse_variant_fields();
-            if !self.consume_kind(
-                TokenKind::RParen,
-                "Union variant payload must close with `)`.",
-            ) {
-                return None;
-            }
-            fields
-        } else {
-            Vec::new()
-        };
-        self.consume_statement_end("Expected end of statement after union variant.");
-        Some(UnionVariant { name, fields, line })
-    }
-
-    fn parse_variant_fields(&mut self) -> Vec<TypeField> {
-        let mut fields = Vec::new();
-        if self.check_kind(&TokenKind::RParen) {
-            return fields;
-        }
-
-        loop {
-            let line = self.peek().line;
-            let Some(name) = self.consume_identifier("Variant field name must be an identifier.")
-            else {
-                self.synchronize();
-                return fields;
-            };
-            if !self.consume_keyword(Keyword::As, "Variant fields must include an `AS` type.") {
-                self.synchronize();
-                return fields;
-            }
-            let Some(type_name) = self.parse_type_name() else {
-                self.synchronize();
-                return fields;
-            };
-            fields.push(TypeField {
-                visibility: None,
-                name,
-                type_name,
-                line,
-            });
-            if !self.match_kind(TokenKind::Comma) {
-                break;
-            }
-        }
-
-        fields
+        let name = self.parse_qualified_name("Union member type must be a type name.")?;
+        self.consume_statement_end("Expected end of statement after union member type.");
+        Some(UnionVariant { name, line })
     }
 
     fn parse_enum_members(&mut self) -> Vec<EnumMember> {
@@ -1068,7 +1026,12 @@ impl<'a> FileParser<'a> {
             let pattern = if self.match_keyword(Keyword::Else) {
                 MatchPattern::Else
             } else {
-                MatchPattern::Expression(self.parse_expression()?)
+                self.parse_match_pattern()?
+            };
+            let guard = if self.match_keyword(Keyword::When) {
+                Some(self.parse_expression()?)
+            } else {
+                None
             };
             self.consume_statement_end("Expected end of statement after CASE pattern.");
             self.skip_separators();
@@ -1076,6 +1039,7 @@ impl<'a> FileParser<'a> {
                 self.parse_statement_block(&[BlockTerminator::Case, BlockTerminator::EndMatch]);
             cases.push(MatchCase {
                 pattern,
+                guard,
                 body,
                 line: case_token.line,
             });
@@ -1090,6 +1054,54 @@ impl<'a> FileParser<'a> {
             cases,
             line: token.line,
         })
+    }
+
+    fn parse_match_pattern(&mut self) -> Option<MatchPattern> {
+        if let Some(type_name) = self.try_parse_union_case_type() {
+            if !self.consume_kind(
+                TokenKind::LParen,
+                "Union CASE patterns must bind one local with `(`.",
+            ) {
+                return None;
+            }
+            let binding =
+                self.consume_identifier("Union CASE patterns must bind a local identifier.")?;
+            if !self.consume_kind(
+                TokenKind::RParen,
+                "Union CASE pattern binding must close with `)`.",
+            ) {
+                return None;
+            }
+            return Some(MatchPattern::Union { type_name, binding });
+        }
+
+        let first = self.parse_expression()?;
+        if !self.match_kind(TokenKind::Comma) {
+            return Some(MatchPattern::Literal(first));
+        }
+
+        let mut patterns = vec![first];
+        loop {
+            patterns.push(self.parse_expression()?);
+            if !self.match_kind(TokenKind::Comma) {
+                break;
+            }
+        }
+        Some(MatchPattern::OneOf(patterns))
+    }
+
+    fn try_parse_union_case_type(&mut self) -> Option<String> {
+        if !matches!(self.peek().kind, TokenKind::Identifier(_)) {
+            return None;
+        }
+        let saved = self.current;
+        let name = self.parse_qualified_name("")?;
+        if self.check_kind(&TokenKind::LParen) {
+            Some(name)
+        } else {
+            self.current = saved;
+            None
+        }
     }
 
     fn parse_using_statement(&mut self) -> Option<Statement> {
@@ -2240,22 +2252,10 @@ impl ToAstJson for UnionVariant {
     fn to_json(&self, indent: usize) -> String {
         let pad = " ".repeat(indent);
         format!(
-            concat!(
-                "\n{}{{\n",
-                "{}  \"name\": {},\n",
-                "{}  \"line\": {},\n",
-                "{}  \"fields\": [{}\n{}  ]\n",
-                "{}}}"
-            ),
-            pad,
+            "\n{}{{ \"name\": {}, \"line\": {} }}",
             pad,
             json_string(&self.name),
-            pad,
-            self.line,
-            pad,
-            join_indented(&self.fields, indent + 2),
-            pad,
-            pad
+            self.line
         )
     }
 }
@@ -2658,10 +2658,16 @@ impl ToAstJson for Statement {
 impl ToAstJson for MatchCase {
     fn to_json(&self, indent: usize) -> String {
         let pad = " ".repeat(indent);
+        let guard = self
+            .guard
+            .as_ref()
+            .map(|guard| guard.to_json(indent))
+            .unwrap_or_else(|| "null".to_string());
         format!(
             concat!(
                 "\n{}{{\n",
                 "{}  \"pattern\": {},\n",
+                "{}  \"guard\": {},\n",
                 "{}  \"line\": {},\n",
                 "{}  \"body\": [{}\n{}  ]\n",
                 "{}}}"
@@ -2669,6 +2675,8 @@ impl ToAstJson for MatchCase {
             pad,
             pad,
             self.pattern.to_json(indent),
+            pad,
+            guard,
             pad,
             self.line,
             pad,
@@ -2683,12 +2691,25 @@ impl ToAstJson for MatchPattern {
     fn to_json(&self, indent: usize) -> String {
         match self {
             MatchPattern::Else => "{ \"kind\": \"else\" }".to_string(),
-            MatchPattern::Expression(expression) => {
+            MatchPattern::Literal(expression) => {
                 format!(
-                    "{{ \"kind\": \"expression\", \"expression\": {} }}",
+                    "{{ \"kind\": \"literal\", \"expression\": {} }}",
                     expression.to_json(indent)
                 )
             }
+            MatchPattern::Union { type_name, binding } => format!(
+                "{{ \"kind\": \"union\", \"type\": {}, \"binding\": {} }}",
+                json_string(type_name),
+                json_string(binding)
+            ),
+            MatchPattern::OneOf(expressions) => format!(
+                "{{ \"kind\": \"oneOf\", \"patterns\": [{}] }}",
+                expressions
+                    .iter()
+                    .map(|expression| expression.to_json(indent))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
         }
     }
 }

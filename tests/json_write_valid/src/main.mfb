@@ -4,7 +4,7 @@ IMPORT json
 
 FUNC main AS Integer
   LET path AS String = "target/json_write_valid.json"
-  LET value AS Json = Obj[Map OF String TO Json { "name" := Str["Ada"], "enabled" := Bool[TRUE] }]
+  LET value AS Json = JsonObj[Map OF String TO Json { "name" := JsonStr["Ada"], "enabled" := JsonBool[TRUE] }]
   LET text AS String = json::stringify(value)
   fs::writeText(path, text)
   io::print(fs::readText(path))

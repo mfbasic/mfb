@@ -241,7 +241,7 @@ The type checker builds indices for:
 - User-defined types.
 - Type kinds.
 - Type fields.
-- Union variants.
+- Union member types.
 - Enum members.
 
 It then validates declarations, statement flow, expression types, mutability,

@@ -234,10 +234,19 @@ fn collect_runtime_calls_from_value(
                 collect_runtime_calls_from_value(arg, calls, constants);
             }
         }
-        NirValue::Call { args, .. } | NirValue::Constructor { args, .. } => {
+        NirValue::Call { args, .. }
+        | NirValue::CallResult { args, .. }
+        | NirValue::Constructor { args, .. } => {
             for arg in args {
                 collect_runtime_calls_from_value(arg, calls, constants);
             }
+        }
+        NirValue::UnionWrap { value, .. }
+        | NirValue::UnionExtract { value, .. }
+        | NirValue::ResultIsOk { value }
+        | NirValue::ResultValue { value }
+        | NirValue::ResultError { value } => {
+            collect_runtime_calls_from_value(value, calls, constants);
         }
         NirValue::WithUpdate {
             target, updates, ..
@@ -706,10 +715,53 @@ fn validate_ops(
                                 used_helpers,
                             )?;
                         }
+                        NirMatchPattern::OneOf(values) => {
+                            for value in values {
+                                validate_value(
+                                    value,
+                                    locals,
+                                    function_names,
+                                    import_names,
+                                    type_value_names,
+                                    used_helpers,
+                                )?;
+                            }
+                        }
                     }
-                    let mut case_locals = locals.clone();
+                    let mut guard_locals = locals.clone();
+                    let mut body_start = 0;
+                    for op in &case.body {
+                        let NirOp::Bind {
+                            name,
+                            type_,
+                            value: Some(NirValue::UnionExtract { .. }),
+                            ..
+                        } = op
+                        else {
+                            break;
+                        };
+                        guard_locals.insert(
+                            name.clone(),
+                            LocalBinding {
+                                type_: type_.clone(),
+                                mutable: false,
+                            },
+                        );
+                        body_start += 1;
+                    }
+                    if let Some(guard) = &case.guard {
+                        validate_value(
+                            guard,
+                            &guard_locals,
+                            function_names,
+                            import_names,
+                            type_value_names,
+                            used_helpers,
+                        )?;
+                    }
+                    let mut case_locals = guard_locals;
                     validate_ops(
-                        &case.body,
+                        &case.body[body_start..],
                         &mut case_locals,
                         function_names,
                         import_names,
@@ -825,7 +877,10 @@ fn validate_value(
     match value {
         NirValue::Const { type_, .. } => validate_type_name(type_),
         NirValue::Local(name) => {
-            if locals.contains_key(name) || type_value_names.constructors.contains(name) {
+            if locals.contains_key(name)
+                || type_value_names.constructors.contains(name)
+                || matches!(name.as_str(), "Ok" | "Error")
+            {
                 Ok(())
             } else {
                 Err(format!("NIR local reference '{name}' does not resolve"))
@@ -842,7 +897,7 @@ fn validate_value(
                 Err(format!("NIR function reference '{name}' does not resolve"))
             }
         }
-        NirValue::Call { target, args } => {
+        NirValue::Call { target, args } | NirValue::CallResult { target, args } => {
             for arg in args {
                 validate_value(
                     arg,
@@ -938,6 +993,43 @@ fn validate_value(
             }
             Ok(())
         }
+        NirValue::UnionWrap {
+            union_type,
+            member_type,
+            value,
+        } => {
+            validate_type_name(union_type)?;
+            validate_type_name(member_type)?;
+            validate_value(
+                value,
+                locals,
+                function_names,
+                import_names,
+                type_value_names,
+                used_helpers,
+            )
+        }
+        NirValue::UnionExtract { type_, value } => {
+            validate_type_name(type_)?;
+            validate_value(
+                value,
+                locals,
+                function_names,
+                import_names,
+                type_value_names,
+                used_helpers,
+            )
+        }
+        NirValue::ResultIsOk { value }
+        | NirValue::ResultValue { value }
+        | NirValue::ResultError { value } => validate_value(
+            value,
+            locals,
+            function_names,
+            import_names,
+            type_value_names,
+            used_helpers,
+        ),
         NirValue::WithUpdate {
             type_,
             target,

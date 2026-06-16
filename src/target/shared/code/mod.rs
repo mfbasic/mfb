@@ -1630,11 +1630,19 @@ fn collect_package_function_refs_in_value(
             }
         }
         NirValue::Call { args, .. }
+        | NirValue::CallResult { args, .. }
         | NirValue::RuntimeCall { args, .. }
         | NirValue::Constructor { args, .. } => {
             for arg in args {
                 collect_package_function_refs_in_value(arg, package_import_symbols, symbols);
             }
+        }
+        NirValue::UnionWrap { value, .. }
+        | NirValue::UnionExtract { value, .. }
+        | NirValue::ResultIsOk { value }
+        | NirValue::ResultValue { value }
+        | NirValue::ResultError { value } => {
+            collect_package_function_refs_in_value(value, package_import_symbols, symbols);
         }
         NirValue::WithUpdate {
             target, updates, ..
@@ -9305,10 +9313,18 @@ fn ops_use_call(ops: &[NirOp], target: &str) -> bool {
 fn value_uses_call(value: &NirValue, target: &str) -> bool {
     match value {
         NirValue::Call { target: call, args }
+        | NirValue::CallResult { target: call, args }
         | NirValue::RuntimeCall {
             target: call, args, ..
         } => call == target || args.iter().any(|arg| value_uses_call(arg, target)),
         NirValue::Constructor { args, .. } => args.iter().any(|arg| value_uses_call(arg, target)),
+        NirValue::UnionWrap { value, .. }
+        | NirValue::UnionExtract { value, .. }
+        | NirValue::ResultIsOk { value }
+        | NirValue::ResultValue { value }
+        | NirValue::ResultError { value } => {
+            value_uses_call(value, target)
+        }
         NirValue::WithUpdate {
             target: updated,
             updates,
@@ -9366,7 +9382,9 @@ fn ops_use_type_name(ops: &[NirOp]) -> bool {
 
 fn value_uses_type_name(value: &NirValue) -> bool {
     let direct = match value {
-        NirValue::Call { target, .. } | NirValue::RuntimeCall { target, .. } => {
+        NirValue::Call { target, .. }
+        | NirValue::CallResult { target, .. }
+        | NirValue::RuntimeCall { target, .. } => {
             target == "typeName"
         }
         _ => false,
@@ -9374,8 +9392,24 @@ fn value_uses_type_name(value: &NirValue) -> bool {
     direct
         || match value {
             NirValue::Call { args, .. }
+            | NirValue::CallResult { args, .. }
             | NirValue::RuntimeCall { args, .. }
             | NirValue::Constructor { args, .. } => args.iter().any(value_uses_type_name),
+            NirValue::UnionWrap {
+                union_type,
+                member_type,
+                value,
+            } => {
+                let _ = (union_type, member_type);
+                value_uses_type_name(value)
+            }
+            NirValue::UnionExtract { type_, value } => {
+                let _ = type_;
+                value_uses_type_name(value)
+            }
+            NirValue::ResultIsOk { value }
+            | NirValue::ResultValue { value }
+            | NirValue::ResultError { value } => value_uses_type_name(value),
             NirValue::WithUpdate {
                 target, updates, ..
             } => {
@@ -9494,15 +9528,36 @@ fn collect_type_name_values_from_value(value: &NirValue, values: &mut Vec<String
         | NirValue::MapLiteral { type_, .. } => {
             push_string_value(values, type_.clone());
         }
+        NirValue::UnionWrap {
+            union_type,
+            member_type,
+            value,
+        } => {
+            push_string_value(values, union_type.clone());
+            push_string_value(values, member_type.clone());
+            collect_type_name_values_from_value(value, values);
+        }
+        NirValue::UnionExtract { type_, value } => {
+            push_string_value(values, type_.clone());
+            collect_type_name_values_from_value(value, values);
+        }
         _ => {}
     }
     match value {
         NirValue::Call { args, .. }
+        | NirValue::CallResult { args, .. }
         | NirValue::RuntimeCall { args, .. }
         | NirValue::Constructor { args, .. } => {
             for arg in args {
                 collect_type_name_values_from_value(arg, values);
             }
+        }
+        NirValue::UnionWrap { value, .. }
+        | NirValue::UnionExtract { value, .. }
+        | NirValue::ResultIsOk { value }
+        | NirValue::ResultValue { value }
+        | NirValue::ResultError { value } => {
+            collect_type_name_values_from_value(value, values)
         }
         NirValue::WithUpdate {
             type_,
@@ -9695,7 +9750,9 @@ fn value_uses_unicode_runtime_tables(
     types: &HashMap<String, String>,
 ) -> bool {
     match value {
-        NirValue::Call { target, args } | NirValue::RuntimeCall { target, args, .. } => {
+        NirValue::Call { target, args }
+        | NirValue::CallResult { target, args }
+        | NirValue::RuntimeCall { target, args, .. } => {
             matches!(
                 target.as_str(),
                 "strings.upper"
@@ -9711,6 +9768,13 @@ fn value_uses_unicode_runtime_tables(
         NirValue::Constructor { args, .. } => args
             .iter()
             .any(|arg| value_uses_unicode_runtime_tables(arg, constants, types)),
+        NirValue::UnionWrap { value, .. }
+        | NirValue::UnionExtract { value, .. }
+        | NirValue::ResultIsOk { value }
+        | NirValue::ResultValue { value }
+        | NirValue::ResultError { value } => {
+            value_uses_unicode_runtime_tables(value, constants, types)
+        }
         NirValue::WithUpdate {
             target, updates, ..
         } => {
@@ -10028,7 +10092,9 @@ fn collect_string_values_from_value(
     if let Some(value) = static_string_value_with_constants(value, constants, types) {
         push_string_value(values, value);
     }
-    if let NirValue::Call { target, args } | NirValue::RuntimeCall { target, args, .. } = value {
+    if let NirValue::Call { target, args }
+    | NirValue::CallResult { target, args }
+    | NirValue::RuntimeCall { target, args, .. } = value {
         if target == "strings.graphemes" && args.len() == 1 {
             if let Some(value) = static_string_value_with_constants(&args[0], constants, types) {
                 for grapheme in crate::unicode_backend::graphemes(&value) {
@@ -10052,11 +10118,19 @@ fn collect_string_values_from_value(
             push_string_value(values, value.clone());
         }
         NirValue::Call { args, .. }
+        | NirValue::CallResult { args, .. }
         | NirValue::RuntimeCall { args, .. }
         | NirValue::Constructor { args, .. } => {
             for arg in args {
                 collect_string_values_from_value(arg, values, constants, types);
             }
+        }
+        NirValue::UnionWrap { value, .. }
+        | NirValue::UnionExtract { value, .. }
+        | NirValue::ResultIsOk { value }
+        | NirValue::ResultValue { value }
+        | NirValue::ResultError { value } => {
+            collect_string_values_from_value(value, values, constants, types)
         }
         NirValue::WithUpdate {
             target, updates, ..
@@ -10130,7 +10204,9 @@ fn value_may_return_invalid_format(
     types: &HashMap<String, String>,
 ) -> bool {
     (match value {
-        NirValue::Call { target, args } | NirValue::RuntimeCall { target, args, .. } => {
+        NirValue::Call { target, args }
+        | NirValue::CallResult { target, args }
+        | NirValue::RuntimeCall { target, args, .. } => {
             match target.as_str() {
                 "toInt" if args.len() == 1 => {
                     static_type_name_with_types(&args[0], types).as_deref() != Some("Byte")
@@ -10142,10 +10218,18 @@ fn value_may_return_invalid_format(
         _ => false,
     }) || match value {
         NirValue::Call { args, .. }
+        | NirValue::CallResult { args, .. }
         | NirValue::RuntimeCall { args, .. }
         | NirValue::Constructor { args, .. } => args
             .iter()
             .any(|arg| value_may_return_invalid_format(arg, constants, types)),
+        NirValue::UnionWrap { value, .. }
+        | NirValue::UnionExtract { value, .. }
+        | NirValue::ResultIsOk { value }
+        | NirValue::ResultValue { value }
+        | NirValue::ResultError { value } => {
+            value_may_return_invalid_format(value, constants, types)
+        }
         NirValue::WithUpdate {
             target, updates, ..
         } => {
@@ -10201,7 +10285,9 @@ fn local_constant_value_with_constants(
                 value,
             })
         }
-        NirValue::Call { target, args } | NirValue::RuntimeCall { target, args, .. }
+        NirValue::Call { target, args }
+        | NirValue::CallResult { target, args }
+        | NirValue::RuntimeCall { target, args, .. }
             if target == "typeName" && args.len() == 1 =>
         {
             static_type_name_with_types(&args[0], types).map(|value| NirValue::Const {
@@ -10209,7 +10295,9 @@ fn local_constant_value_with_constants(
                 value,
             })
         }
-        NirValue::Call { target, args } | NirValue::RuntimeCall { target, args, .. }
+        NirValue::Call { target, args }
+        | NirValue::CallResult { target, args }
+        | NirValue::RuntimeCall { target, args, .. }
             if strings_package_static_string_value(target, args, constants, types).is_some() =>
         {
             strings_package_static_string_value(target, args, constants, types).map(|value| {
@@ -10247,12 +10335,16 @@ fn static_string_value_with_constants(
         NirValue::RuntimeCall { target, args, .. } if target == "toString" && args.len() == 1 => {
             static_primitive_text_with_constants(&args[0], constants)
         }
-        NirValue::Call { target, args } | NirValue::RuntimeCall { target, args, .. }
+        NirValue::Call { target, args }
+        | NirValue::CallResult { target, args }
+        | NirValue::RuntimeCall { target, args, .. }
             if target == "typeName" && args.len() == 1 =>
         {
             static_type_name_with_types(&args[0], types)
         }
-        NirValue::Call { target, args } | NirValue::RuntimeCall { target, args, .. } => {
+        NirValue::Call { target, args }
+        | NirValue::CallResult { target, args }
+        | NirValue::RuntimeCall { target, args, .. } => {
             strings_package_static_string_value(target, args, constants, types)
         }
         NirValue::Binary { op, left, right } if op == "&" => {
@@ -10296,7 +10388,11 @@ fn static_type_name_with_types(
         | NirValue::WithUpdate { type_, .. }
         | NirValue::ListLiteral { type_, .. }
         | NirValue::MapLiteral { type_, .. } => Some(type_.clone()),
-        NirValue::Call { target, .. } | NirValue::RuntimeCall { target, .. } => {
+        NirValue::UnionWrap { union_type, .. } => Some(union_type.clone()),
+        NirValue::UnionExtract { type_, .. } => Some(type_.clone()),
+        NirValue::Call { target, .. }
+        | NirValue::CallResult { target, .. }
+        | NirValue::RuntimeCall { target, .. } => {
             match target.as_str() {
                 "replace" | "typeName" | "toString" => Some("String".to_string()),
                 "find" | "len" | "toInt" => Some("Integer".to_string()),
@@ -10321,6 +10417,11 @@ fn static_type_name_with_types(
                 _ => None,
             }
         }
+        NirValue::ResultIsOk { .. } => Some("Boolean".to_string()),
+        NirValue::ResultValue { value } => static_type_name_with_types(value, types)
+            .and_then(|type_| type_.strip_prefix("Result OF ").map(str::to_string))
+            .or_else(|| static_type_name_with_types(value, types)),
+        NirValue::ResultError { .. } => Some("Error".to_string()),
         NirValue::Binary { op, left, right } => {
             if matches!(
                 op.as_str(),
@@ -10506,7 +10607,9 @@ fn collect_builtin_function_refs_in_value(
                 }
             }
         }
-        NirValue::Call { args, .. } | NirValue::RuntimeCall { args, .. } => {
+        NirValue::Call { args, .. }
+        | NirValue::CallResult { args, .. }
+        | NirValue::RuntimeCall { args, .. } => {
             for arg in args {
                 collect_builtin_function_refs_in_value(arg, refs, seen);
             }
@@ -10515,6 +10618,13 @@ fn collect_builtin_function_refs_in_value(
             for value in args {
                 collect_builtin_function_refs_in_value(value, refs, seen);
             }
+        }
+        NirValue::UnionWrap { value, .. }
+        | NirValue::UnionExtract { value, .. }
+        | NirValue::ResultIsOk { value }
+        | NirValue::ResultValue { value }
+        | NirValue::ResultError { value } => {
+            collect_builtin_function_refs_in_value(value, refs, seen);
         }
         NirValue::WithUpdate {
             target, updates, ..

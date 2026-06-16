@@ -9,8 +9,16 @@ EXPORT ENUM Color
   Red, Green, Blue
 END ENUM
 
+EXPORT TYPE Number
+  value AS Integer
+END TYPE
+
+EXPORT TYPE Missing
+  value AS Nothing
+END TYPE
+
 EXPORT UNION MaybeNumber
-  Number(value AS Integer)
+  Number
   Missing
 END UNION
 

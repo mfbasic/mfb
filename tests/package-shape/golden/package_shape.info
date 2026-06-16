@@ -15,8 +15,8 @@ Container:
   flags: 0x00000000
   signature type: unsigned
   signature length: 0
-  content hash: 515c1725687a5423bcbe5d74d7dec65835efb6d96c5383daf84c6a49a333d265
-  bytecode length: 1821
+  content hash: c775776978b65866c1afbd7e33a0b7c814a8e626a51fdd1bd4b971f75ae204ff
+  bytecode length: 2351
 
 Manifest:
   name: package_shape
@@ -30,12 +30,12 @@ Manifest:
 
 Bytecode:
   ABI format version: 1
-  types: 3
+  types: 6
   constants: 0
   resources: 0
   functions: 2
   imports: 0
-  exports: 5
+  exports: 8
 
 Exports:
   FUNC shapeKind
@@ -44,6 +44,12 @@ Exports:
     sigHash: 3bccdaa713c3df0f943ff69275a6a7854eebb5df3b7f34d8e6b7270fa8d94ab2
   TYPE Point
     sigHash: 4abca39216e8e74193d4ff7d28693854e618fea7f13783bc3c6951a876273bce
+  TYPE Circle
+    sigHash: ee92089c08a059423b00eca219919808e7c08fdcddbe29bc24aacc4b48d09ece
+  TYPE Rectangle
+    sigHash: 0cab9720f06fca858f8a5ec83243ee34b558ae9791304cb46efd3f35df10672c
+  TYPE PointShape
+    sigHash: 7b7571e5883368f1b4794754becb3ba79fa50885ae675991322f68d5c86a8939
   ENUM ShapeKind
     sigHash: e5c57d1d2ef5e8d47ca8a9bcfdd47c7c0df55cf7752e8b51de1c04f8c2242f71
   UNION Shape

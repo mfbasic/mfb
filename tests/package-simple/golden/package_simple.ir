@@ -24,6 +24,22 @@
     ]
   },
   {
+    "kind": "type",
+    "visibility": "export",
+    "name": "Number",
+    "fields": [
+    { "visibility": null, "name": "value", "type": "Integer" }
+    ]
+  },
+  {
+    "kind": "type",
+    "visibility": "export",
+    "name": "Missing",
+    "fields": [
+    { "visibility": null, "name": "value", "type": "Nothing" }
+    ]
+  },
+  {
     "kind": "union",
     "visibility": "export",
     "name": "MaybeNumber",
@@ -38,6 +54,7 @@
     {
       "name": "Missing",
       "fields": [
+      { "visibility": null, "name": "value", "type": "Nothing" }
       ]
     }
     ]

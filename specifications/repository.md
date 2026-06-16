@@ -370,7 +370,7 @@ ABI v1 covers all caller-visible exported surface, including:
 
 - exported functions and subs;
 - exported record field names, types, order, mutability, and defaults;
-- exported union variant names, tags, fields, field order, and defaults;
+- exported union member identities, tags, order, and defaults;
 - exported enum member names and ordinals/discriminants;
 - exported constants and their types and compile-time-visible values;
 - exported global `LET`/`MUT` shape, including mutability and declared type;

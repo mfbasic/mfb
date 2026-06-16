@@ -3,23 +3,36 @@ EXPORT TYPE Point
   y AS Float
 END TYPE
 
+EXPORT TYPE Circle
+  radius AS Float
+END TYPE
+
+EXPORT TYPE Rectangle
+  width AS Float
+  height AS Float
+END TYPE
+
+EXPORT TYPE PointShape
+  point AS Point
+END TYPE
+
 EXPORT ENUM ShapeKind
   Circle, Rectangle, PointShape
 END ENUM
 
 EXPORT UNION Shape
-  Circle(radius AS Float)
-  Rectangle(width AS Float, height AS Float)
-  PointShape(point AS Point)
+  Circle
+  Rectangle
+  PointShape
 END UNION
 
 EXPORT FUNC shapeKind(shape AS Shape) AS ShapeKind
   MATCH shape
-    CASE Circle
+    CASE Circle(circle)
       RETURN ShapeKind.Circle
-    CASE Rectangle
+    CASE Rectangle(rectangle)
       RETURN ShapeKind.Rectangle
-    CASE PointShape
+    CASE PointShape(pointShape)
       RETURN ShapeKind.PointShape
   END MATCH
 END FUNC

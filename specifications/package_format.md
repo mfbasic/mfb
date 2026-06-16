@@ -398,7 +398,7 @@ bit 1 = entry accepts command-line args as List OF String
 bit 2 = entry is FUNC returning Integer
 ```
 
-The executable runtime maps `SUB` entry success to process exit code `0`, `FUNC ... AS Integer` entry success to the returned integer value, and uncaught entry `Err(error)` to stderr output of `error.message` plus process exit code `error.code`. When args are accepted, argument element zero is the program name as invoked by the host.
+The executable runtime maps `SUB` entry success to process exit code `0`, `FUNC ... AS Integer` entry success to the returned integer value, and an uncaught entry error result carrying `error` to stderr output of `error.message` plus process exit code `error.code`. When args are accepted, argument element zero is the program name as invoked by the host.
 
 The manifest is the signed source of truth. The container header duplicates identity fields only so package managers can scan files without parsing every table.
 
@@ -458,7 +458,7 @@ Export kinds:
 5 = type
 6 = union
 7 = enum
-8 = variant constructor
+8 = union member constructor
 9 = record constructor
 10 = native wrapper function
 ```
@@ -515,7 +515,7 @@ For exported `FUNC`, `SUB`, and native wrapper functions, the hash input include
 
 For exported record types, the hash input includes the record name, type parameters if any, field count, field order, field names, field types, visibility/export flags, mutability, default presence, and default constant values. Reordering exported fields is ABI-significant.
 
-For exported union types, the hash input includes the union name, type parameters if any, variant count, variant order or explicit tags, variant names, and each variant's exported field names, types, order, defaults, and ownership annotations.
+For exported union types, the hash input includes the union name, type parameters if any, member count, member order or explicit tags, and each member type's exported identity.
 
 For exported enum types, the hash input includes the enum name, member count, member order, member names, and explicit ordinals/discriminants. Changing an exported ordinal is ABI-significant.
 
@@ -604,18 +604,13 @@ repeated fieldCount times:
 ## Union payload
 
 ```text
-variantCount    u32
+memberCount     u32
 
-repeated variantCount times:
-  variantName   stringId
-  fieldCount    u32
-
-  repeated fieldCount times:
-    fieldName   stringId
-    fieldType   typeId
+repeated memberCount times:
+  memberType    typeId
 ```
 
-Included variants from `UNION ... INCLUDES ...` are stored as variants of the resulting concrete union. There is no subtype relation.
+Included members from `UNION ... INCLUDES ...` are stored as members of the resulting concrete union. There is no subtype relation.
 
 ## Enum payload
 
@@ -648,7 +643,7 @@ The verifier must reject a `Map` whose key type is not comparable.
 successType     typeId
 ```
 
-The error type is always built-in `Error`.
+The error member type is always built-in `Error`. The success member `Ok OF T` is compiler-owned and is not emitted as a user-constructible open declaration.
 
 ## `Thread OF Msg TO Out` payload
 
@@ -853,7 +848,7 @@ reserved        u16
 operands        u32[operandCount]
 ```
 
-All large values are loaded from the constant pool. Operands are indexes into registers, constants, types, fields, variants, functions, globals, or instruction targets depending on the opcode.
+All large values are loaded from the constant pool. Operands are indexes into registers, constants, types, fields, union members, functions, globals, or instruction targets depending on the opcode.
 
 This format is intentionally simple and verifier-friendly. A future compact encoding may be added under a new `bytecodeMajor` or `bytecodeMinor`.
 
@@ -965,12 +960,12 @@ WITH_FIELD      dst, src, fieldIndex, value
 ## Unions
 
 ```text
-MAKE_VARIANT        dst, unionTypeId, variantIndex, fieldReg...
-VARIANT_TAG         dst, src
-GET_VARIANT_FIELD   dst, src, variantIndex, fieldIndex
+MAKE_MEMBER         dst, unionTypeId, memberIndex, valueReg
+MEMBER_TAG          dst, src
+GET_MEMBER_VALUE    dst, src, memberIndex
 ```
 
-`GET_VARIANT_FIELD` is valid only on control-flow paths where the verifier knows the variant tag matches, or immediately after a checked branch.
+`GET_MEMBER_VALUE` is valid only on control-flow paths where the verifier knows the active union member matches, or immediately after a checked branch.
 
 ## Enums
 
@@ -1068,7 +1063,7 @@ Source direct `MATCH`:
 ```basic
 MATCH toInt(s)
   CASE Ok(n)  : ...
-  CASE Err(e) : ...
+  CASE Error(e) : ...
 END MATCH
 ```
 
@@ -1101,11 +1096,11 @@ RETURN_ERR      errorReg
 
 Rules:
 
-* `RETURN_OK` returns `Ok(value)`.
-* `RETURN_ERR` returns `Err(error)`.
-* `FAIL` transfers to the function trap if one exists; otherwise it returns `Err(error)`.
+* `RETURN_OK` returns the success member carrying `value`.
+* `RETURN_ERR` returns the error member carrying `error`.
+* `FAIL` transfers to the function trap if one exists; otherwise it returns the error member carrying `error`.
 * `PROPAGATE` is valid only in trap code.
-* `UNWRAP_RESULT` behaves like `FAIL` when the result is `Err`.
+* `UNWRAP_RESULT` behaves like `FAIL` when the result is the error member.
 
 The function table’s `trapPc` gives the single bottom trap entry point.
 
@@ -1375,7 +1370,7 @@ The type verifier checks:
 * No open template declarations exist.
 * Template instantiations are concrete.
 * `Map` keys are comparable.
-* Union variant indexes are valid.
+* Union member indexes are valid.
 * Record field indexes are valid.
 * Function types have valid parameter and return types.
 * `CPtr` does not appear in ordinary MFBASIC type signatures.

@@ -1,46 +1,65 @@
 IMPORT io
 
+TYPE Circle
+  radius AS Integer
+END TYPE
+
+TYPE Rect
+  w AS Integer
+  h AS Integer
+END TYPE
+
+TYPE Point
+  value AS Nothing
+END TYPE
+
+TYPE Triangle
+  a AS Integer
+  b AS Integer
+  c AS Integer
+END TYPE
+
 UNION Shape
-  Circle(radius AS Integer)
-  Rect(w AS Integer, h AS Integer)
+  Circle
+  Rect
   Point
 END UNION
 
 UNION ExtraShape INCLUDES Shape
-  Triangle(a AS Integer, b AS Integer, c AS Integer)
+  Triangle
 END UNION
 
 FUNC shapeScore(s AS Shape) AS Integer
   MATCH s
-    CASE Circle
-      RETURN s.radius
-    CASE Rect
-      RETURN s.w + s.h
-    CASE Point
+    CASE Circle(circle)
+      RETURN circle.radius
+    CASE Rect(rect)
+      RETURN rect.w + rect.h
+    CASE Point(point)
       RETURN 1
   END MATCH
 END FUNC
 
 FUNC extraScore(s AS ExtraShape) AS Integer
   MATCH s
-    CASE Circle
-      RETURN s.radius + 100
-    CASE Rect
-      RETURN s.w + s.h + 200
-    CASE Point
+    CASE Circle(circle)
+      RETURN circle.radius + 100
+    CASE Rect(rect)
+      RETURN rect.w + rect.h + 200
+    CASE Point(point)
       RETURN 300
-    CASE Triangle
-      RETURN s.a + s.b + s.c
+    CASE Triangle(triangle)
+      RETURN triangle.a + triangle.b + triangle.c
   END MATCH
 END FUNC
 
 FUNC main AS Integer
   LET circle AS Shape = Circle[5]
   LET rect AS Shape = Rect[2, 3]
-  LET point AS Shape = Point[]
+  LET point AS Shape = Point[NOTHING]
   LET extraCircle AS ExtraShape = Circle[7]
   LET extraRect AS ExtraShape = Rect[4, 5]
-  LET extraPoint AS ExtraShape = Point[]
+  LET extraPoint AS ExtraShape = Point[NOTHING]
   LET triangle AS ExtraShape = Triangle[6, 7, 8]
 
   io::print(typeName(circle))

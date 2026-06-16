@@ -73,6 +73,14 @@ impl CodeBuilder<'_> {
                     ));
                 };
                 (index, field_type, 8)
+            } else if target_value.type_ == "Error" {
+                match member {
+                    "code" => (0, "Integer".to_string(), 0),
+                    "message" => (1, "String".to_string(), 0),
+                    _ => {
+                        return Err(format!("native code Error has no field '{member}'"));
+                    }
+                }
             } else {
                 return Err(format!(
                     "native code field access target '{}' is not a record or variant",
@@ -381,7 +389,17 @@ impl CodeBuilder<'_> {
             | NirValue::WithUpdate { type_, .. }
             | NirValue::ListLiteral { type_, .. }
             | NirValue::MapLiteral { type_, .. } => Some(type_.clone()),
-            NirValue::Call { target, args } | NirValue::RuntimeCall { target, args, .. } => {
+            NirValue::UnionWrap { union_type, .. } => Some(union_type.clone()),
+            NirValue::UnionExtract { type_, .. } => Some(type_.clone()),
+            NirValue::ResultIsOk { .. } => Some("Boolean".to_string()),
+            NirValue::ResultValue { value } => self
+                .static_type_name(value)
+                .and_then(|type_| type_.strip_prefix("Result OF ").map(str::to_string))
+                .or_else(|| self.static_type_name(value)),
+            NirValue::ResultError { .. } => Some("Error".to_string()),
+            NirValue::Call { target, args }
+            | NirValue::CallResult { target, args }
+            | NirValue::RuntimeCall { target, args, .. } => {
                 match target.as_str() {
                     "replace" | "typeName" | "toString" => Some("String".to_string()),
                     "find" | "len" | "toInt" => Some("Integer".to_string()),
@@ -503,11 +521,9 @@ impl CodeBuilder<'_> {
                 self.emit(abi::branch_eq(label));
             }
             _ => {
-                let _ = (matched, pattern, label);
-                return Err(
-                    "native code plan does not lower non-enum/non-union match comparisons yet"
-                        .to_string(),
-                );
+                let pattern = self.lower_value(pattern)?;
+                self.emit(abi::compare_registers(&matched.location, &pattern.location));
+                self.emit(abi::branch_eq(label));
             }
         }
         Ok(())

@@ -39,8 +39,8 @@
       ],
       "returnType": "Integer",
       "body": [
-      { "kind": "expression", "expression": { "kind": "call", "callee": "showInvalid", "arguments": [{ "kind": "constructor", "type": "Num", "arguments": [{ "kind": "call", "callee": "toFloat", "arguments": [{ "kind": "string", "value": "inf" }] }] }] }, "line": 14 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "showInvalid", "arguments": [{ "kind": "constructor", "type": "Num", "arguments": [{ "kind": "call", "callee": "toFloat", "arguments": [{ "kind": "string", "value": "nan" }] }] }] }, "line": 15 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "showInvalid", "arguments": [{ "kind": "constructor", "type": "JsonNum", "arguments": [{ "kind": "call", "callee": "toFloat", "arguments": [{ "kind": "string", "value": "inf" }] }] }] }, "line": 14 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "showInvalid", "arguments": [{ "kind": "constructor", "type": "JsonNum", "arguments": [{ "kind": "call", "callee": "toFloat", "arguments": [{ "kind": "string", "value": "nan" }] }] }] }, "line": 15 },
       { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 16 }
       ]
     }

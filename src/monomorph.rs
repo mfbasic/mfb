@@ -38,7 +38,6 @@ struct FunctionContext {
     function_returns: HashMap<String, String>,
     function_types: HashMap<String, String>,
     record_fields: HashMap<String, Vec<TypeField>>,
-    variant_unions: HashMap<String, String>,
 }
 
 impl<'a> Monomorphizer<'a> {
@@ -193,15 +192,6 @@ impl<'a> Monomorphizer<'a> {
         substitutions: &HashMap<String, String>,
         concrete_name: Option<String>,
     ) -> TypeDecl {
-        let template_args = (!type_decl.template_params.is_empty())
-            .then(|| {
-                type_decl
-                    .template_params
-                    .iter()
-                    .map(|param| substitutions.get(param).cloned())
-                    .collect::<Option<Vec<_>>>()
-            })
-            .flatten();
         if let Some(name) = concrete_name {
             type_decl.name = name;
         }
@@ -220,15 +210,7 @@ impl<'a> Monomorphizer<'a> {
             .variants
             .iter()
             .map(|variant| UnionVariant {
-                name: template_args
-                    .as_ref()
-                    .map(|args| mangle_name(&variant.name, args))
-                    .unwrap_or_else(|| variant.name.clone()),
-                fields: variant
-                    .fields
-                    .iter()
-                    .map(|field| self.lower_field(field, substitutions))
-                    .collect(),
+                name: self.concrete_type_name(&variant.name, substitutions),
                 line: variant.line,
             })
             .collect();
@@ -490,25 +472,66 @@ impl<'a> Monomorphizer<'a> {
                 expression: self.lower_expression(expression, substitutions, context, None, *line),
                 cases: cases
                     .iter()
-                    .map(|case| MatchCase {
-                        pattern: match &case.pattern {
-                            MatchPattern::Else => MatchPattern::Else,
-                            MatchPattern::Expression(expression) => {
-                                MatchPattern::Expression(self.lower_expression(
-                                    expression,
+                    .map(|case| {
+                        let mut case_context = context.clone();
+                        if let MatchPattern::Union { binding, type_name } = &case.pattern {
+                            case_context.locals.insert(
+                                binding.clone(),
+                                self.concrete_type_name(type_name, substitutions),
+                            );
+                        }
+                        MatchCase {
+                            pattern: match &case.pattern {
+                                MatchPattern::Else => MatchPattern::Else,
+                                MatchPattern::Literal(expression) => MatchPattern::Literal(
+                                    self.lower_expression(
+                                        expression,
+                                        substitutions,
+                                        &mut case_context,
+                                        None,
+                                        case.line,
+                                    ),
+                                ),
+                                MatchPattern::Union { type_name, binding } => {
+                                    MatchPattern::Union {
+                                        type_name: self.concrete_type_name(
+                                            type_name,
+                                            substitutions,
+                                        ),
+                                        binding: binding.clone(),
+                                    }
+                                }
+                                MatchPattern::OneOf(expressions) => MatchPattern::OneOf(
+                                    expressions
+                                        .iter()
+                                        .map(|expression| {
+                                            self.lower_expression(
+                                                expression,
+                                                substitutions,
+                                                &mut case_context,
+                                                None,
+                                                case.line,
+                                            )
+                                        })
+                                        .collect(),
+                                ),
+                            },
+                            guard: case.guard.as_ref().map(|guard| {
+                                self.lower_expression(
+                                    guard,
                                     substitutions,
-                                    context,
+                                    &mut case_context,
                                     None,
                                     case.line,
-                                ))
-                            }
-                        },
-                        body: self.lower_statements(
-                            &case.body,
-                            substitutions,
-                            &mut context.clone(),
-                        ),
-                        line: case.line,
+                                )
+                            }),
+                            body: self.lower_statements(
+                                &case.body,
+                                substitutions,
+                                &mut case_context,
+                            ),
+                            line: case.line,
+                        }
                     })
                     .collect(),
                 line: *line,
@@ -666,19 +689,6 @@ impl<'a> Monomorphizer<'a> {
                 {
                     if expected_name == *type_name {
                         concrete_type = Some(self.instantiate_type(&expected_name, &expected_args));
-                    } else if self
-                        .type_templates
-                        .get(&expected_name)
-                        .is_some_and(|template| {
-                            matches!(template.kind, TypeDeclKind::Union)
-                                && template
-                                    .variants
-                                    .iter()
-                                    .any(|variant| variant.name == *type_name)
-                        })
-                    {
-                        self.instantiate_type(&expected_name, &expected_args);
-                        concrete_type = Some(mangle_name(type_name, &expected_args));
                     }
                 }
                 if concrete_type.is_none() && self.type_templates.contains_key(type_name) {
@@ -688,12 +698,7 @@ impl<'a> Monomorphizer<'a> {
                     let mut inferred = HashMap::new();
                     let fields = match template.kind {
                         TypeDeclKind::Type => template.fields.clone(),
-                        TypeDeclKind::Union => template
-                            .variants
-                            .iter()
-                            .find(|variant| variant.name == *type_name)
-                            .map(|variant| variant.fields.clone())
-                            .unwrap_or_default(),
+                        TypeDeclKind::Union => Vec::new(),
                         TypeDeclKind::Enum => Vec::new(),
                     };
                     for (field, argument) in fields.iter().zip(lowered_args.iter()) {
@@ -715,32 +720,6 @@ impl<'a> Monomorphizer<'a> {
                         .collect::<Option<Vec<_>>>();
                     if let Some(args) = args {
                         concrete_type = Some(self.instantiate_type(type_name, &args));
-                    }
-                }
-                if concrete_type.is_none() {
-                    if let Some((template, fields)) = self.variant_template(type_name) {
-                        let mut inferred = HashMap::new();
-                        for (field, argument) in fields.iter().zip(lowered_args.iter()) {
-                            if let Some(actual) =
-                                self.expression_type(constructor_arg_value(argument), context)
-                            {
-                                unify_type(
-                                    &field.type_name,
-                                    &actual,
-                                    &template.template_params,
-                                    &mut inferred,
-                                );
-                            }
-                        }
-                        let args = template
-                            .template_params
-                            .iter()
-                            .map(|param| inferred.get(param).cloned())
-                            .collect::<Option<Vec<_>>>();
-                        if let Some(args) = args {
-                            self.instantiate_type(&template.name, &args);
-                            concrete_type = Some(mangle_name(type_name, &args));
-                        }
                     }
                 }
                 Expression::Constructor {
@@ -1011,13 +990,6 @@ impl<'a> Monomorphizer<'a> {
                     .record_fields
                     .insert(name.clone(), type_decl.fields.clone());
             }
-            if matches!(type_decl.kind, TypeDeclKind::Union) {
-                for variant in &type_decl.variants {
-                    context
-                        .variant_unions
-                        .insert(variant.name.clone(), name.clone());
-                }
-            }
         }
         context
     }
@@ -1056,19 +1028,6 @@ impl<'a> Monomorphizer<'a> {
         );
     }
 
-    fn variant_template(&self, variant_name: &str) -> Option<(TypeDecl, Vec<TypeField>)> {
-        self.type_templates.values().find_map(|type_decl| {
-            if !matches!(type_decl.kind, TypeDeclKind::Union) {
-                return None;
-            }
-            type_decl
-                .variants
-                .iter()
-                .find(|variant| variant.name == variant_name)
-                .map(|variant| (type_decl.clone(), variant.fields.clone()))
-        })
-    }
-
     fn expression_type(
         &self,
         expression: &Expression,
@@ -1091,12 +1050,12 @@ impl<'a> Monomorphizer<'a> {
             Expression::Constructor { type_name, .. } => {
                 if type_name == "Error" {
                     Some("Error".to_string())
-                } else if type_name == "Ok" || type_name == "Err" {
+                } else if type_name == "Ok" {
                     Some("Result OF Unknown".to_string())
                 } else if context.record_fields.contains_key(type_name) {
                     Some(type_name.clone())
                 } else {
-                    context.variant_unions.get(type_name).cloned()
+                    None
                 }
             }
             Expression::WithUpdate { target, .. } => self.expression_type(target, context),
@@ -1183,7 +1142,6 @@ impl Clone for FunctionContext {
             function_returns: self.function_returns.clone(),
             function_types: self.function_types.clone(),
             record_fields: self.record_fields.clone(),
-            variant_unions: self.variant_unions.clone(),
         }
     }
 }

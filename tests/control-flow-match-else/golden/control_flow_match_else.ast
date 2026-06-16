@@ -1,0 +1,67 @@
+{
+  "project": "control_flow_match_else",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "bucket",
+      "line": 1,
+      "params": [
+      { "name": "value", "type": "Integer", "default": null }
+      ],
+      "returnType": "Integer",
+      "body": [
+      {
+        "kind": "match",
+        "expression": { "kind": "identifier", "value": "value" },
+        "line": 2,
+        "cases": [
+        {
+          "pattern": { "kind": "oneOf", "patterns": [{ "kind": "number", "value": "1" }, { "kind": "number", "value": "2" }, { "kind": "number", "value": "3" }] },
+          "guard": null,
+          "line": 3,
+          "body": [
+          { "kind": "return", "value": { "kind": "number", "value": "10" }, "line": 4 }
+          ]
+        },
+        {
+          "pattern": { "kind": "oneOf", "patterns": [{ "kind": "number", "value": "8" }, { "kind": "number", "value": "9" }] },
+          "guard": null,
+          "line": 5,
+          "body": [
+          { "kind": "return", "value": { "kind": "number", "value": "20" }, "line": 6 }
+          ]
+        },
+        {
+          "pattern": { "kind": "else" },
+          "guard": null,
+          "line": 7,
+          "body": [
+          { "kind": "return", "value": { "kind": "number", "value": "30" }, "line": 8 }
+          ]
+        }
+        ]
+      }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "main",
+      "line": 12,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "return", "value": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "call", "callee": "bucket", "arguments": [{ "kind": "number", "value": "2" }] }, "right": { "kind": "call", "callee": "bucket", "arguments": [{ "kind": "number", "value": "9" }] } }, "right": { "kind": "call", "callee": "bucket", "arguments": [{ "kind": "number", "value": "99" }] } }, "line": 13 }
+      ]
+    }
+    ]
+  }
+  ]
+}

@@ -8,58 +8,71 @@
     ],
     "items": [
     {
+      "kind": "type",
+      "visibility": "private",
+      "name": "Circle",
+      "line": 3,
+      "fields": [
+      { "visibility": null, "name": "radius", "type": "Integer", "line": 4 }
+      ]
+    },
+    {
+      "kind": "type",
+      "visibility": "private",
+      "name": "Rect",
+      "line": 7,
+      "fields": [
+      { "visibility": null, "name": "w", "type": "Integer", "line": 8 },
+      { "visibility": null, "name": "h", "type": "Integer", "line": 9 }
+      ]
+    },
+    {
+      "kind": "type",
+      "visibility": "private",
+      "name": "Point",
+      "line": 12,
+      "fields": [
+      { "visibility": null, "name": "value", "type": "Nothing", "line": 13 }
+      ]
+    },
+    {
+      "kind": "type",
+      "visibility": "private",
+      "name": "Triangle",
+      "line": 16,
+      "fields": [
+      { "visibility": null, "name": "a", "type": "Integer", "line": 17 },
+      { "visibility": null, "name": "b", "type": "Integer", "line": 18 },
+      { "visibility": null, "name": "c", "type": "Integer", "line": 19 }
+      ]
+    },
+    {
       "kind": "union",
       "visibility": "private",
       "name": "Shape",
-      "line": 3,
+      "line": 22,
       "includes": [],
       "variants": [
-      {
-        "name": "Circle",
-        "line": 4,
-        "fields": [
-        { "visibility": null, "name": "radius", "type": "Integer", "line": 4 }
-        ]
-      },
-      {
-        "name": "Rect",
-        "line": 5,
-        "fields": [
-        { "visibility": null, "name": "w", "type": "Integer", "line": 5 },
-        { "visibility": null, "name": "h", "type": "Integer", "line": 5 }
-        ]
-      },
-      {
-        "name": "Point",
-        "line": 6,
-        "fields": [
-        ]
-      }
+      { "name": "Circle", "line": 23 },
+      { "name": "Rect", "line": 24 },
+      { "name": "Point", "line": 25 }
       ]
     },
     {
       "kind": "union",
       "visibility": "private",
       "name": "ExtraShape",
-      "line": 9,
+      "line": 28,
       "includes": ["Shape"],
       "variants": [
-      {
-        "name": "Triangle",
-        "line": 10,
-        "fields": [
-        { "visibility": null, "name": "a", "type": "Integer", "line": 10 },
-        { "visibility": null, "name": "b", "type": "Integer", "line": 10 },
-        { "visibility": null, "name": "c", "type": "Integer", "line": 10 }
-        ]
-      }
+      { "name": "Triangle", "line": 29 }
       ]
     },
     {
       "kind": "func",
       "visibility": "private",
       "name": "shapeScore",
-      "line": 13,
+      "line": 32,
       "params": [
       { "name": "s", "type": "Shape", "default": null }
       ],
@@ -68,27 +81,30 @@
       {
         "kind": "match",
         "expression": { "kind": "identifier", "value": "s" },
-        "line": 14,
+        "line": 33,
         "cases": [
         {
-          "pattern": { "kind": "expression", "expression": { "kind": "identifier", "value": "Circle" } },
-          "line": 15,
+          "pattern": { "kind": "union", "type": "Circle", "binding": "circle" },
+          "guard": null,
+          "line": 34,
           "body": [
-          { "kind": "return", "value": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "s" }, "member": "radius" }, "line": 16 }
+          { "kind": "return", "value": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "circle" }, "member": "radius" }, "line": 35 }
           ]
         },
         {
-          "pattern": { "kind": "expression", "expression": { "kind": "identifier", "value": "Rect" } },
-          "line": 17,
+          "pattern": { "kind": "union", "type": "Rect", "binding": "rect" },
+          "guard": null,
+          "line": 36,
           "body": [
-          { "kind": "return", "value": { "kind": "binary", "operator": "+", "left": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "s" }, "member": "w" }, "right": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "s" }, "member": "h" } }, "line": 18 }
+          { "kind": "return", "value": { "kind": "binary", "operator": "+", "left": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "rect" }, "member": "w" }, "right": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "rect" }, "member": "h" } }, "line": 37 }
           ]
         },
         {
-          "pattern": { "kind": "expression", "expression": { "kind": "identifier", "value": "Point" } },
-          "line": 19,
+          "pattern": { "kind": "union", "type": "Point", "binding": "point" },
+          "guard": null,
+          "line": 38,
           "body": [
-          { "kind": "return", "value": { "kind": "number", "value": "1" }, "line": 20 }
+          { "kind": "return", "value": { "kind": "number", "value": "1" }, "line": 39 }
           ]
         }
         ]
@@ -99,7 +115,7 @@
       "kind": "func",
       "visibility": "private",
       "name": "extraScore",
-      "line": 24,
+      "line": 43,
       "params": [
       { "name": "s", "type": "ExtraShape", "default": null }
       ],
@@ -108,34 +124,38 @@
       {
         "kind": "match",
         "expression": { "kind": "identifier", "value": "s" },
-        "line": 25,
+        "line": 44,
         "cases": [
         {
-          "pattern": { "kind": "expression", "expression": { "kind": "identifier", "value": "Circle" } },
-          "line": 26,
+          "pattern": { "kind": "union", "type": "Circle", "binding": "circle" },
+          "guard": null,
+          "line": 45,
           "body": [
-          { "kind": "return", "value": { "kind": "binary", "operator": "+", "left": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "s" }, "member": "radius" }, "right": { "kind": "number", "value": "100" } }, "line": 27 }
+          { "kind": "return", "value": { "kind": "binary", "operator": "+", "left": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "circle" }, "member": "radius" }, "right": { "kind": "number", "value": "100" } }, "line": 46 }
           ]
         },
         {
-          "pattern": { "kind": "expression", "expression": { "kind": "identifier", "value": "Rect" } },
-          "line": 28,
+          "pattern": { "kind": "union", "type": "Rect", "binding": "rect" },
+          "guard": null,
+          "line": 47,
           "body": [
-          { "kind": "return", "value": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "s" }, "member": "w" }, "right": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "s" }, "member": "h" } }, "right": { "kind": "number", "value": "200" } }, "line": 29 }
+          { "kind": "return", "value": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "rect" }, "member": "w" }, "right": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "rect" }, "member": "h" } }, "right": { "kind": "number", "value": "200" } }, "line": 48 }
           ]
         },
         {
-          "pattern": { "kind": "expression", "expression": { "kind": "identifier", "value": "Point" } },
-          "line": 30,
+          "pattern": { "kind": "union", "type": "Point", "binding": "point" },
+          "guard": null,
+          "line": 49,
           "body": [
-          { "kind": "return", "value": { "kind": "number", "value": "300" }, "line": 31 }
+          { "kind": "return", "value": { "kind": "number", "value": "300" }, "line": 50 }
           ]
         },
         {
-          "pattern": { "kind": "expression", "expression": { "kind": "identifier", "value": "Triangle" } },
-          "line": 32,
+          "pattern": { "kind": "union", "type": "Triangle", "binding": "triangle" },
+          "guard": null,
+          "line": 51,
           "body": [
-          { "kind": "return", "value": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "s" }, "member": "a" }, "right": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "s" }, "member": "b" } }, "right": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "s" }, "member": "c" } }, "line": 33 }
+          { "kind": "return", "value": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "triangle" }, "member": "a" }, "right": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "triangle" }, "member": "b" } }, "right": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "triangle" }, "member": "c" } }, "line": 52 }
           ]
         }
         ]
@@ -146,28 +166,28 @@
       "kind": "func",
       "visibility": "private",
       "name": "main",
-      "line": 37,
+      "line": 56,
       "params": [
       ],
       "returnType": "Integer",
       "body": [
-      { "kind": "binding", "mutable": false, "name": "circle", "type": "Shape", "value": { "kind": "constructor", "type": "Circle", "arguments": [{ "kind": "number", "value": "5" }] }, "line": 38 },
-      { "kind": "binding", "mutable": false, "name": "rect", "type": "Shape", "value": { "kind": "constructor", "type": "Rect", "arguments": [{ "kind": "number", "value": "2" }, { "kind": "number", "value": "3" }] }, "line": 39 },
-      { "kind": "binding", "mutable": false, "name": "point", "type": "Shape", "value": { "kind": "constructor", "type": "Point", "arguments": [] }, "line": 40 },
-      { "kind": "binding", "mutable": false, "name": "extraCircle", "type": "ExtraShape", "value": { "kind": "constructor", "type": "Circle", "arguments": [{ "kind": "number", "value": "7" }] }, "line": 41 },
-      { "kind": "binding", "mutable": false, "name": "extraRect", "type": "ExtraShape", "value": { "kind": "constructor", "type": "Rect", "arguments": [{ "kind": "number", "value": "4" }, { "kind": "number", "value": "5" }] }, "line": 42 },
-      { "kind": "binding", "mutable": false, "name": "extraPoint", "type": "ExtraShape", "value": { "kind": "constructor", "type": "Point", "arguments": [] }, "line": 43 },
-      { "kind": "binding", "mutable": false, "name": "triangle", "type": "ExtraShape", "value": { "kind": "constructor", "type": "Triangle", "arguments": [{ "kind": "number", "value": "6" }, { "kind": "number", "value": "7" }, { "kind": "number", "value": "8" }] }, "line": 44 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "typeName", "arguments": [{ "kind": "identifier", "value": "circle" }] }] }, "line": 46 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "typeName", "arguments": [{ "kind": "identifier", "value": "extraCircle" }] }] }, "line": 47 },
-      { "kind": "binding", "mutable": false, "name": "a", "type": "Integer", "value": { "kind": "call", "callee": "shapeScore", "arguments": [{ "kind": "identifier", "value": "circle" }] }, "line": 48 },
-      { "kind": "binding", "mutable": false, "name": "b", "type": "Integer", "value": { "kind": "call", "callee": "shapeScore", "arguments": [{ "kind": "identifier", "value": "rect" }] }, "line": 49 },
-      { "kind": "binding", "mutable": false, "name": "c", "type": "Integer", "value": { "kind": "call", "callee": "shapeScore", "arguments": [{ "kind": "identifier", "value": "point" }] }, "line": 50 },
-      { "kind": "binding", "mutable": false, "name": "d", "type": "Integer", "value": { "kind": "call", "callee": "extraScore", "arguments": [{ "kind": "identifier", "value": "extraCircle" }] }, "line": 51 },
-      { "kind": "binding", "mutable": false, "name": "e", "type": "Integer", "value": { "kind": "call", "callee": "extraScore", "arguments": [{ "kind": "identifier", "value": "extraRect" }] }, "line": 52 },
-      { "kind": "binding", "mutable": false, "name": "f", "type": "Integer", "value": { "kind": "call", "callee": "extraScore", "arguments": [{ "kind": "identifier", "value": "extraPoint" }] }, "line": 53 },
-      { "kind": "binding", "mutable": false, "name": "g", "type": "Integer", "value": { "kind": "call", "callee": "extraScore", "arguments": [{ "kind": "identifier", "value": "triangle" }] }, "line": 54 },
-      { "kind": "return", "value": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "a" }, "right": { "kind": "identifier", "value": "b" } }, "right": { "kind": "identifier", "value": "c" } }, "right": { "kind": "identifier", "value": "d" } }, "right": { "kind": "identifier", "value": "e" } }, "right": { "kind": "identifier", "value": "f" } }, "right": { "kind": "identifier", "value": "g" } }, "line": 55 }
+      { "kind": "binding", "mutable": false, "name": "circle", "type": "Shape", "value": { "kind": "constructor", "type": "Circle", "arguments": [{ "kind": "number", "value": "5" }] }, "line": 57 },
+      { "kind": "binding", "mutable": false, "name": "rect", "type": "Shape", "value": { "kind": "constructor", "type": "Rect", "arguments": [{ "kind": "number", "value": "2" }, { "kind": "number", "value": "3" }] }, "line": 58 },
+      { "kind": "binding", "mutable": false, "name": "point", "type": "Shape", "value": { "kind": "constructor", "type": "Point", "arguments": [{ "kind": "identifier", "value": "NOTHING" }] }, "line": 59 },
+      { "kind": "binding", "mutable": false, "name": "extraCircle", "type": "ExtraShape", "value": { "kind": "constructor", "type": "Circle", "arguments": [{ "kind": "number", "value": "7" }] }, "line": 60 },
+      { "kind": "binding", "mutable": false, "name": "extraRect", "type": "ExtraShape", "value": { "kind": "constructor", "type": "Rect", "arguments": [{ "kind": "number", "value": "4" }, { "kind": "number", "value": "5" }] }, "line": 61 },
+      { "kind": "binding", "mutable": false, "name": "extraPoint", "type": "ExtraShape", "value": { "kind": "constructor", "type": "Point", "arguments": [{ "kind": "identifier", "value": "NOTHING" }] }, "line": 62 },
+      { "kind": "binding", "mutable": false, "name": "triangle", "type": "ExtraShape", "value": { "kind": "constructor", "type": "Triangle", "arguments": [{ "kind": "number", "value": "6" }, { "kind": "number", "value": "7" }, { "kind": "number", "value": "8" }] }, "line": 63 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "typeName", "arguments": [{ "kind": "identifier", "value": "circle" }] }] }, "line": 65 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "typeName", "arguments": [{ "kind": "identifier", "value": "extraCircle" }] }] }, "line": 66 },
+      { "kind": "binding", "mutable": false, "name": "a", "type": "Integer", "value": { "kind": "call", "callee": "shapeScore", "arguments": [{ "kind": "identifier", "value": "circle" }] }, "line": 67 },
+      { "kind": "binding", "mutable": false, "name": "b", "type": "Integer", "value": { "kind": "call", "callee": "shapeScore", "arguments": [{ "kind": "identifier", "value": "rect" }] }, "line": 68 },
+      { "kind": "binding", "mutable": false, "name": "c", "type": "Integer", "value": { "kind": "call", "callee": "shapeScore", "arguments": [{ "kind": "identifier", "value": "point" }] }, "line": 69 },
+      { "kind": "binding", "mutable": false, "name": "d", "type": "Integer", "value": { "kind": "call", "callee": "extraScore", "arguments": [{ "kind": "identifier", "value": "extraCircle" }] }, "line": 70 },
+      { "kind": "binding", "mutable": false, "name": "e", "type": "Integer", "value": { "kind": "call", "callee": "extraScore", "arguments": [{ "kind": "identifier", "value": "extraRect" }] }, "line": 71 },
+      { "kind": "binding", "mutable": false, "name": "f", "type": "Integer", "value": { "kind": "call", "callee": "extraScore", "arguments": [{ "kind": "identifier", "value": "extraPoint" }] }, "line": 72 },
+      { "kind": "binding", "mutable": false, "name": "g", "type": "Integer", "value": { "kind": "call", "callee": "extraScore", "arguments": [{ "kind": "identifier", "value": "triangle" }] }, "line": 73 },
+      { "kind": "return", "value": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "a" }, "right": { "kind": "identifier", "value": "b" } }, "right": { "kind": "identifier", "value": "c" } }, "right": { "kind": "identifier", "value": "d" } }, "right": { "kind": "identifier", "value": "e" } }, "right": { "kind": "identifier", "value": "f" } }, "right": { "kind": "identifier", "value": "g" } }, "line": 74 }
       ]
     }
     ]

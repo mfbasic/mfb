@@ -15,8 +15,8 @@ Container:
   flags: 0x00000000
   signature type: unsigned
   signature length: 0
-  content hash: ddb1349b4d33694e6ef111245bd3a3fb63b0563dd2601c64f58b0f20dea66c03
-  bytecode length: 1922
+  content hash: cb497e5f5048a6e1572f7b202508f1341ad63ae6d1f66788d9c8581dd28e2ed0
+  bytecode length: 2078
 
 Manifest:
   name: package_simple
@@ -30,12 +30,12 @@ Manifest:
 
 Bytecode:
   ABI format version: 1
-  types: 3
+  types: 5
   constants: 1
   resources: 0
   functions: 5
   imports: 0
-  exports: 8
+  exports: 10
 
 Exports:
   FUNC score$
@@ -52,8 +52,12 @@ Exports:
     sigHash: da95cb2dd7cf9cac6a665ed1e1858fa9a46bbb940a0f01139c49a1586c55b52e
   ENUM Color
     sigHash: f506a215076273557bbf08998d73af7fb651488abbd49b12517ce61b2eb58485
+  TYPE Number
+    sigHash: 6fa7861ccd24c28d72509fe8dd73d6e04416eaa0591cb93b272332edd0272717
+  TYPE Missing
+    sigHash: 6f56a0627bf6e66bd79e17e6ba8bfd9853a637e284cdc465fc2f0590dcea5780
   UNION MaybeNumber
-    sigHash: 3fe4fc2f3685bd82132c1bb154efcf020547aa8c918b6a14fca61f6f32bcf5e2
+    sigHash: 60b0186ae18a2256be8ae9c563857b93b4c8178bfcfafa034449f0b2d43a6007
 
 Imports:
   <none>

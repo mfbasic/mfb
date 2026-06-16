@@ -28,46 +28,52 @@
       ]
     },
     {
+      "kind": "type",
+      "visibility": "export",
+      "name": "Success",
+      "line": 12,
+      "fields": [
+      { "visibility": null, "name": "value", "type": "Integer", "line": 13 }
+      ]
+    },
+    {
+      "kind": "type",
+      "visibility": "export",
+      "name": "Failure",
+      "line": 16,
+      "fields": [
+      { "visibility": null, "name": "message", "type": "String", "line": 17 }
+      ]
+    },
+    {
       "kind": "union",
       "visibility": "export",
       "name": "WorkResult",
-      "line": 12,
+      "line": 20,
       "includes": [],
       "variants": [
-      {
-        "name": "Success",
-        "line": 13,
-        "fields": [
-        { "visibility": null, "name": "value", "type": "Integer", "line": 13 }
-        ]
-      },
-      {
-        "name": "Failure",
-        "line": 14,
-        "fields": [
-        { "visibility": null, "name": "message", "type": "String", "line": 14 }
-        ]
-      }
+      { "name": "Success", "line": 21 },
+      { "name": "Failure", "line": 22 }
       ]
     },
     {
       "kind": "func",
       "visibility": "export",
       "name": "worker",
-      "line": 17,
+      "line": 25,
       "params": [
       { "name": "seed", "type": "String", "default": null }
       ],
       "returnType": "Integer",
       "body": [
-      { "kind": "return", "value": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "seed" }] }, "line": 18 }
+      { "kind": "return", "value": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "seed" }] }, "line": 26 }
       ]
     },
     {
       "kind": "func",
       "visibility": "export",
       "name": "status",
-      "line": 21,
+      "line": 29,
       "params": [
       { "name": "done", "type": "Boolean", "default": null }
       ],
@@ -76,12 +82,12 @@
       {
         "kind": "if",
         "condition": { "kind": "identifier", "value": "done" },
-        "line": 22,
+        "line": 30,
         "then": [
-        { "kind": "return", "value": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "WorkStatus" }, "member": "Complete" }, "line": 23 }
+        { "kind": "return", "value": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "WorkStatus" }, "member": "Complete" }, "line": 31 }
         ],
         "else": [
-        { "kind": "return", "value": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "WorkStatus" }, "member": "Pending" }, "line": 25 }
+        { "kind": "return", "value": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "WorkStatus" }, "member": "Pending" }, "line": 33 }
         ]
       }
       ]
