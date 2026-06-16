@@ -1,0 +1,47 @@
+{
+  "project": "func_io_input_valid",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "compileInput",
+      "line": 3,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      {
+        "kind": "if",
+        "condition": { "kind": "boolean", "value": false },
+        "line": 4,
+        "then": [
+        { "kind": "return", "value": { "kind": "binary", "operator": "+", "left": { "kind": "call", "callee": "len", "arguments": [{ "kind": "call", "callee": "io.input", "arguments": [] }] }, "right": { "kind": "call", "callee": "len", "arguments": [{ "kind": "call", "callee": "io.input", "arguments": [{ "kind": "string", "value": "name> " }] }] } }, "line": 5 }
+        ],
+        "else": [
+        ]
+      },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 8 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "main",
+      "line": 11,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "return", "value": { "kind": "call", "callee": "compileInput", "arguments": [] }, "line": 12 }
+      ]
+    }
+    ]
+  }
+  ]
+}

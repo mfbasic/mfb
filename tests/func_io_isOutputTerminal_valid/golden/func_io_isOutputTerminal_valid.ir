@@ -1,0 +1,28 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "func_io_isOutputTerminal_valid",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "mutable": false, "name": "a", "type": "Boolean", "value": { "kind": "call", "target": "io.isOutputTerminal", "args": [] } },
+    { "op": "bind", "mutable": true, "name": "b", "type": "Boolean", "value": { "kind": "call", "target": "io.isOutputTerminal", "args": [] } },
+    { "op": "assign", "name": "b", "value": { "kind": "local", "name": "a" } },
+    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

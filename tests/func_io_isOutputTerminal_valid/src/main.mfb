@@ -1,0 +1,8 @@
+IMPORT io
+
+FUNC main AS Integer
+  LET a AS Boolean = io::isOutputTerminal()
+  MUT b AS Boolean = io::isOutputTerminal()
+  b = a
+  RETURN 0
+END FUNC

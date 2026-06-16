@@ -1,0 +1,28 @@
+{
+  "project": "func_io_isOutputTerminal_valid",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "main",
+      "line": 3,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "a", "type": "Boolean", "value": { "kind": "call", "callee": "io.isOutputTerminal", "arguments": [] }, "line": 4 },
+      { "kind": "binding", "mutable": true, "name": "b", "type": "Boolean", "value": { "kind": "call", "callee": "io.isOutputTerminal", "arguments": [] }, "line": 5 },
+      { "kind": "assignment", "name": "b", "value": { "kind": "identifier", "value": "a" }, "line": 6 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 7 }
+      ]
+    }
+    ]
+  }
+  ]
+}

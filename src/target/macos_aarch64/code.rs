@@ -101,6 +101,27 @@ impl code::CodegenPlatform for Platform {
         Ok(())
     }
 
+    fn emit_is_terminal(
+        &self,
+        from: &str,
+        platform_imports: &HashMap<String, String>,
+        instructions: &mut Vec<CodeInstruction>,
+        relocations: &mut Vec<CodeRelocation>,
+    ) -> Result<(), String> {
+        emit_libsystem_call(from, "_isatty", platform_imports, instructions, relocations)
+    }
+
+    fn emit_terminal_size(
+        &self,
+        from: &str,
+        platform_imports: &HashMap<String, String>,
+        instructions: &mut Vec<CodeInstruction>,
+        relocations: &mut Vec<CodeRelocation>,
+    ) -> Result<(), String> {
+        instructions.push(abi::store_u64("x2", abi::stack_pointer(), 0));
+        emit_libsystem_call(from, "_ioctl", platform_imports, instructions, relocations)
+    }
+
     fn emit_path_exists(
         &self,
         from: &str,

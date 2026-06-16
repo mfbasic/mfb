@@ -71,7 +71,14 @@ impl code::CodegenPlatform for Platform {
             "io.print" | "io.write" | "io.printError" | "io.writeError" => {
                 vec![self.libc_import("write")]
             }
+            "io.input" | "io.readLine" | "io.readChar" | "io.readByte" => {
+                vec![self.libc_import("read")]
+            }
             "io.pollInput" => vec![self.libc_import("poll")],
+            "io.isInputTerminal" | "io.isOutputTerminal" | "io.isErrorTerminal" => {
+                vec![self.libc_import("isatty")]
+            }
+            "io.terminalSize" => vec![self.libc_import("ioctl")],
             "fs.exists" => vec![self.libc_import("access")],
             "fs.fileExists" | "fs.directoryExists" => vec![self.libc_import("stat")],
             "fs.currentDirectory" => vec![self.libc_import("getcwd")],
@@ -195,6 +202,28 @@ impl code::CodegenPlatform for Platform {
         relocations: &mut Vec<CodeRelocation>,
     ) -> Result<(), String> {
         emit_linux_c_call(from, "poll", platform_imports, instructions, relocations)?;
+        Ok(())
+    }
+
+    fn emit_is_terminal(
+        &self,
+        from: &str,
+        platform_imports: &HashMap<String, String>,
+        instructions: &mut Vec<CodeInstruction>,
+        relocations: &mut Vec<CodeRelocation>,
+    ) -> Result<(), String> {
+        emit_linux_c_call(from, "isatty", platform_imports, instructions, relocations)?;
+        Ok(())
+    }
+
+    fn emit_terminal_size(
+        &self,
+        from: &str,
+        platform_imports: &HashMap<String, String>,
+        instructions: &mut Vec<CodeInstruction>,
+        relocations: &mut Vec<CodeRelocation>,
+    ) -> Result<(), String> {
+        emit_linux_c_call(from, "ioctl", platform_imports, instructions, relocations)?;
         Ok(())
     }
 

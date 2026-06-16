@@ -1,0 +1,48 @@
+{
+  "project": "func_io_readByte_valid",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "compileReadByte",
+      "line": 3,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      {
+        "kind": "if",
+        "condition": { "kind": "boolean", "value": false },
+        "line": 4,
+        "then": [
+        { "kind": "binding", "mutable": false, "name": "value", "type": "Byte", "value": { "kind": "call", "callee": "io.readByte", "arguments": [] }, "line": 5 },
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "value" }] }] }, "line": 6 }
+        ],
+        "else": [
+        ]
+      },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 9 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "main",
+      "line": 12,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "return", "value": { "kind": "call", "callee": "compileReadByte", "arguments": [] }, "line": 13 }
+      ]
+    }
+    ]
+  }
+  ]
+}

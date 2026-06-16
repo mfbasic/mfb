@@ -1,0 +1,7 @@
+IMPORT io
+
+FUNC main AS Integer
+  LET wrongType AS Byte = io::readByte(1)
+  LET tooMany AS Byte = io::readByte(1, 2)
+  RETURN 0
+END FUNC

@@ -1,0 +1,6 @@
+IMPORT io
+
+FUNC main AS Integer
+  LET wrongType AS Boolean = io::isOutputTerminal(1)
+  RETURN 0
+END FUNC

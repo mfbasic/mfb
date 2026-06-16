@@ -66,7 +66,14 @@ impl plan::NativePlanPlatform for Platform {
             "io.print" | "io.write" | "io.printError" | "io.writeError" => {
                 vec![self.libc_import("write", spec.symbol)]
             }
+            "io.input" | "io.readLine" | "io.readChar" | "io.readByte" => {
+                vec![self.libc_import("read", spec.symbol)]
+            }
             "io.pollInput" => vec![self.libc_import("poll", spec.symbol)],
+            "io.isInputTerminal" | "io.isOutputTerminal" | "io.isErrorTerminal" => {
+                vec![self.libc_import("isatty", spec.symbol)]
+            }
+            "io.terminalSize" => vec![self.libc_import("ioctl", spec.symbol)],
             "fs.exists" => vec![self.libc_import("access", spec.symbol)],
             "fs.fileExists" | "fs.directoryExists" => vec![self.libc_import("stat", spec.symbol)],
             "fs.currentDirectory" => vec![self.libc_import("getcwd", spec.symbol)],

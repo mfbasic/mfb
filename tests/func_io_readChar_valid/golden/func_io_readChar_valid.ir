@@ -1,0 +1,45 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "func_io_readChar_valid",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "compileReadChar",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    {
+      "op": "if",
+      "condition": { "kind": "const", "type": "Boolean", "value": "false" },
+      "then": [
+      { "op": "return", "value": { "kind": "call", "target": "len", "args": [{ "kind": "call", "target": "io.readChar", "args": [] }] } }
+      ],
+      "else": [
+      ]
+    },
+    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  },
+  {
+    "name": "main",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "return", "value": { "kind": "call", "target": "compileReadChar", "args": [] } }
+    ]
+  }
+  ]
+}

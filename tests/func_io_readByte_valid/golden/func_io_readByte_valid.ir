@@ -1,0 +1,46 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "func_io_readByte_valid",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "compileReadByte",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    {
+      "op": "if",
+      "condition": { "kind": "const", "type": "Boolean", "value": "false" },
+      "then": [
+      { "op": "bind", "mutable": false, "name": "value", "type": "Byte", "value": { "kind": "call", "target": "io.readByte", "args": [] } },
+      { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "local", "name": "value" }] }] } }
+      ],
+      "else": [
+      ]
+    },
+    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  },
+  {
+    "name": "main",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "return", "value": { "kind": "call", "target": "compileReadByte", "args": [] } }
+    ]
+  }
+  ]
+}

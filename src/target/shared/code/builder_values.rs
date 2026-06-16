@@ -570,7 +570,12 @@ impl CodeBuilder<'_> {
                     });
                 }
                 let mut helper_args = args.clone();
-                if target == "io.pollInput" && helper_args.is_empty() {
+                if target == "io.input" && helper_args.is_empty() {
+                    helper_args.push(NirValue::Const {
+                        type_: "String".to_string(),
+                        value: String::new(),
+                    });
+                } else if target == "io.pollInput" && helper_args.is_empty() {
                     helper_args.push(NirValue::Const {
                         type_: "Integer".to_string(),
                         value: "0".to_string(),

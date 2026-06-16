@@ -54,6 +54,18 @@ impl plan::NativePlanPlatform for Platform {
                 symbol: "_poll".to_string(),
                 required_by: spec.symbol.to_string(),
             }],
+            "io.isInputTerminal" | "io.isOutputTerminal" | "io.isErrorTerminal" => {
+                vec![PlatformImport {
+                    library: "libSystem".to_string(),
+                    symbol: "_isatty".to_string(),
+                    required_by: spec.symbol.to_string(),
+                }]
+            }
+            "io.terminalSize" => vec![PlatformImport {
+                library: "libSystem".to_string(),
+                symbol: "_ioctl".to_string(),
+                required_by: spec.symbol.to_string(),
+            }],
             "fs.exists" => vec![PlatformImport {
                 library: "libSystem".to_string(),
                 symbol: "_access".to_string(),

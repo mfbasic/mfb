@@ -1,0 +1,14 @@
+IMPORT io
+
+FUNC compileReadByte AS Integer
+  IF FALSE THEN
+    LET value AS Byte = io::readByte()
+    io::print(toString(value))
+  END IF
+
+  RETURN 0
+END FUNC
+
+FUNC main AS Integer
+  RETURN compileReadByte()
+END FUNC

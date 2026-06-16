@@ -1,0 +1,13 @@
+IMPORT io
+
+FUNC compileReadChar AS Integer
+  IF FALSE THEN
+    RETURN len(io::readChar())
+  END IF
+
+  RETURN 0
+END FUNC
+
+FUNC main AS Integer
+  RETURN compileReadChar()
+END FUNC
