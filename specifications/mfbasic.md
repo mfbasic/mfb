@@ -806,16 +806,11 @@ The native collection memory layout is specified in `specifications/memory_layou
 
 ## 13. Modules & Packages
 
-**Directory = package.** Each `.mfb` source file contributes to the package namespace.
-
-```text
-mathstuff/
-  vectors.mfb
-  matrices.mfb
-geometry/
-  shapes.mfb
-main.mfb
-```
+**Project source = one package.** The `.mfb` files selected by the current
+project's `project.json` together form that project's source package.
+Directories inside a source root do not create package boundaries or package
+namespaces. Additional packages are introduced only through the importing
+project's `project.json` `packages` array.
 
 Visibility:
 - `PRIVATE` (default) — file-local.
@@ -831,11 +826,11 @@ Exported top-level `MUT` is allowed only when written explicitly as `EXPORT MUT`
 Double-colon notation is reserved for package access. Dot notation is reserved for field access into data values and enum members:
 
 ```basic
-IMPORT geometry
+IMPORT shapes
 IMPORT longPackageName AS shortName
 
-LET s = geometry::Circle[2.0]
-io::print(toString(geometry::area(s)))
+LET s = shapes::Circle[2.0]
+io::print(toString(shapes::area(s)))
 io::print(toString(s.radius))
 ```
 
@@ -849,7 +844,7 @@ Rules:
 - An import alias must not conflict with another imported package name or alias, a top-level declaration visible in the file, or a built-in package name such as `io`, `math`, `thread`, or `errorCode`.
 
 ```basic
-' geometry/shapes.mfb
+' shapes package source
 EXPORT FUNC area(s AS Shape) AS Float
 EXPORT ISOLATED FUNC worker(path AS String) AS Integer
 PRIVATE FUNC helper() AS Float
@@ -857,10 +852,10 @@ PRIVATE FUNC helper() AS Float
 
 ```basic
 ' main.mfb
-IMPORT mathstuff                  ' whole package
-IMPORT geometry
+IMPORT mathstuff
+IMPORT shapes
 
-io::print(toString(geometry::area(geometry::Circle[2.0])))
+io::print(toString(shapes::area(shapes::Circle[2.0])))
 ```
 
 Import graph is resolved at compile time; cycles are an error.
@@ -1546,7 +1541,7 @@ MFBASIC uses source files for authoring, portable bytecode packages, and native 
 
 | Artifact | Extension | Purpose |
 |----------|-----------|---------|
-| Source file | `.mfb` | Human-authored source code. Each `.mfb` file contributes to its directory's package namespace (§13). |
+| Source file | `.mfb` | Human-authored source code. The `.mfb` files selected by a project's `project.json` together form that project's source package (§13). |
 | Package | `.mfp` | Architecture-neutral bytecode package with embedded package manifest, public API metadata, dependency metadata, and optional native-link metadata. A compiled package can be built on one platform and imported on any platform that supports the same MFB bytecode/package version. |
 | Executable | platform-native | Final application binary for the target OS/CPU. Executables compile application code plus imported `.mfp` packages to native code. |
 
