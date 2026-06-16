@@ -1,0 +1,358 @@
+=== regex ===
+
+REQUIREMENT: Built-in regex package
+SPECIFICATION: standard_package.md @ §6 Regex Package
+GROUP: regex
+RECOMMENDED: CODE CHANGE
+`regex::match`, `regex::find`, and `regex::replace` are specified as built-in package functions, but `src/builtins/mod.rs` does not register `regex` as a built-in import and there is no `src/builtins/regex.rs` implementation or native/runtime helper wiring. Resolve by adding the regex package to builtin import resolution, type checking, bytecode lowering, runtime/native helper support, man pages, and acceptance/runtime tests.
+
+
+=== net ===
+
+REQUIREMENT: Built-in net and TLS packages
+SPECIFICATION: standard_package.md @ §11 Built-in Net Package
+GROUP: net
+RECOMMENDED: CODE CHANGE
+The required `net` and `tls` packages, resource types, DNS/TCP/UDP/TLS functions, timeout behavior, and close semantics are not implemented or registered in `src/builtins/mod.rs`. Resolve by adding builtin package modules for `net` and `tls`, resource ownership integration, target runtime helpers, native imports, bytecode lowering, diagnostics, man pages, and runtime tests for socket/TLS behavior.
+
+
+=== stdlib ===
+
+REQUIREMENT: Built-in errorCode package
+SPECIFICATION: standard_package.md @ §13 Built-in Error Codes
+GROUP: stdlib
+RECOMMENDED: CODE CHANGE
+The spec requires an `errorCode` package exporting constants for every canonical error-code registry entry, but `errorCode` is not registered as a built-in import and no constants are exposed by the compiler. Resolve by adding a compiler-owned `errorCode` package, generating/exporting constants from `specifications/error_codes.md`, and validating imports and constant access.
+
+REQUIREMENT: Float `toString` must format Float values without fixed-point narrowing
+SPECIFICATION: standard_package.md @ §3.1 General
+GROUP: stdlib
+RECOMMENDED: CODE CHANGE
+`toString(value AS Float, precision AS Byte = 2)` is specified as a Float conversion and does not allow failures for ordinary finite Float values. Native lowering currently converts the Float through a 32.32 Fixed representation before formatting, which cannot correctly represent finite Float values outside the Fixed range and is not real Float formatting. Resolve by adding a true finite `Float` to decimal formatter that respects the precision argument without narrowing through Fixed, and add runtime tests for large, small, fractional, negative, and precision-controlled Float outputs.
+
+REQUIREMENT: `isNumeric` must follow numeric conversion success semantics
+SPECIFICATION: standard_package.md @ §3.1 General
+GROUP: stdlib
+RECOMMENDED: CODE CHANGE
+`isNumeric(value AS String)` is specified to return `TRUE` only when the text can be parsed as an `Integer`, `Float`, or `Fixed`. The native lowering in `src/target/shared/code/builder_conversions.rs` only calls `emit_parse_decimal_string_to_double` and returns `TRUE` on syntactic decimal parse success, without the overflow/finite checks used by `toFloat` and `toFixed`. As a result, overflow text such as `1e309` can be classified as numeric even though the specified conversions fail with `ErrOverflow` or cannot produce a finite value. Resolve by making `isNumeric` reuse the same parse validity and finite/range checks as the supported numeric conversions, returning `FALSE` for malformed, non-finite, or overflow-only text, and add runtime tests for large exponents and boundary values.
+
+
+=== json ===
+
+REQUIREMENT: JSON JsonNull shape
+SPECIFICATION: standard_package.md @ §12 Built-in JSON Package
+GROUP: json
+RECOMMENDED: CODE CHANGE
+The spec defines `JsonNull` as an empty record, but `src/builtins/json_package.mfb` implements it with `value AS Nothing`. This changes constructor shape and public API. Resolve by making `JsonNull` empty, or if the implementation requires a payload, update all JSON specs and examples consistently.
+
+
+=== language ===
+
+REQUIREMENT: Standard-package named arguments
+SPECIFICATION: standard_package.md @ opening call-rules paragraph
+GROUP: language
+RECOMMENDED: CODE CHANGE
+The spec says standard-package functions support normal positional/named call arguments and trailing defaults, but builtin parameter metadata is incomplete or inconsistent. Examples: `json::parse` is registered with parameter `text` while the spec names it `value`; `thread::start` only exposes `entry` despite four parameters; several `io` functions are missing from `call_param_names`. Resolve by aligning every builtin’s parameter-name table with the spec and adding named-argument tests for each builtin package.
+
+REQUIREMENT: Top-level LET and MUT declarations
+SPECIFICATION: mfbasic.md @ §5 Bindings & Scope; §13 Modules & Packages; §19 Grammar
+GROUP: language
+RECOMMENDED: CODE CHANGE
+The spec allows top-level `LET` and `MUT` declarations with visibility, including explicit `EXPORT MUT` package state. The compiler AST only has `Item::Function` and `Item::Type`, and the parser only accepts top-level `SUB`, `FUNC`, `TYPE`, `UNION`, and `ENUM`, so top-level bindings are rejected and have no resolver/typecheck/IR/bytecode/native model. Resolve by adding top-level binding AST items, symbol resolution, visibility/import behavior, initialization and defaultability checks, package-state lowering, bytecode/package metadata, native storage, audit exposure for exported mutable state, and valid/invalid tests.
+
+REQUIREMENT: Source LINK native binding declarations
+SPECIFICATION: mfbasic.md @ §17 Native Libraries; §19 Grammar
+GROUP: language
+RECOMMENDED: CODE CHANGE
+The spec defines `LINK "lib" AS namespace` blocks with native resource declarations, wrapper functions, `SYMBOL`, `ABI`, `SUCCESS_ON`, `ERROR_ON`, and `RETURN_OUT`. The lexer/parser/front end do not model `LINK`; top-level parsing only accepts imports and ordinary declarations, and package native metadata is derived from bytecode/imports rather than source `LINK` declarations. Resolve by adding LINK parsing, AST/resolver/typechecker support for native namespaces and resources, ABI validation, native-link table emission, resource close integration, package import behavior, native backend symbol loading, and runtime tests against a small native library.
+
+REQUIREMENT: Numeric division and MOD semantics
+SPECIFICATION: mfbasic.md @ §4.1 Primitives; §11 Operators
+GROUP: language
+RECOMMENDED: SPEC CHANGE
+The spec is internally inconsistent with the compiler’s established behavior. It says `Integer / Integer` produces `Float` and that `Float`/`Fixed` do not support `MOD`, while the promotion table and current compiler/tests treat `/` like promoted numeric arithmetic, `DIV` as `Float`, and `MOD` as available across numeric promotions. Resolve by updating the spec to match the implemented/tested operator model, or alternatively make a deliberate CODE CHANGE that flips `/`, `DIV`, and `MOD` behavior and updates the existing arithmetic tests.
+
+REQUIREMENT: Project source directory package mapping
+SPECIFICATION: project.md @ §6 Sources
+GROUP: language
+RECOMMENDED: SPEC CHANGE
+`project.md` says each source directory contributes to one package namespace and child directories use their own directory names unless explicitly mapped. `mfbasic.md` §13 says the selected `.mfb` files form one source package and directories do not create package boundaries, and the compiler implements the single-package model. Resolve by updating `project.md` to match `mfbasic.md`, removing the stale directory/package mapping and `sources[*].package` namespace behavior unless a future workspace/package-mapping feature is reintroduced.
+
+REQUIREMENT: Non-escaping MUT lambda capture
+SPECIFICATION: plan-lambda-mut.md @ §7 Recommended Direction; §11 Compiler And IR Changes Required For Option B
+GROUP: language
+RECOMMENDED: SPEC CHANGE
+The plan recommends allowing `MUT` capture for compiler-proven non-escaping callback positions such as `forEach`, but the current compiler rejects all mutable lambda captures, and `mfbasic.md` §6/§14 explicitly says non-escaping closures are not part of v1. Resolve by either marking `plan-lambda-mut.md` as future/non-normative, or promote the feature into `mfbasic.md` and implement callback non-escape metadata, type-checking, IR/lowering support, and runtime tests for safe mutable callback capture.
+
+REQUIREMENT: Match exhaustiveness diagnostics
+SPECIFICATION: mfbasic.md @ §9 Pattern Matching
+GROUP: language
+RECOMMENDED: CODE CHANGE
+The spec requires compile-time exhaustiveness checking: unions must cover all member types, and open types such as `Integer` or `String` require `CASE ELSE`. The current typechecker only uses exhaustiveness to decide whether a `MATCH` statement always returns; non-exhaustive matches can compile when subsequent code handles fallthrough. It also counts guarded cases as covered even though a guard may fail. Resolve by emitting a match-specific diagnostic for non-exhaustive matches regardless of surrounding flow, requiring `CASE ELSE` for open scrutinee types, and treating guarded cases as non-covering unless another unguarded case or `CASE ELSE` covers the remainder.
+
+REQUIREMENT: Float arithmetic finite-result enforcement
+SPECIFICATION: mfbasic.md @ §4.1 Primitives, Numeric edge cases
+GROUP: language
+RECOMMENDED: CODE CHANGE
+The spec requires `Float` operations that would produce NaN or infinity to fail instead: invalid domains and division by zero with `ErrInvalidArgument`, overflow to infinity with `ErrOverflow`. Native lowering for `Float` arithmetic in `src/target/shared/code/builder_numeric.rs` emits raw AArch64 floating-point add/subtract/multiply/divide/pow results and stores the bits without a post-operation finite check. Resolve by validating every `Float` arithmetic result before exposing it, mapping NaN/domain failures to `ErrInvalidArgument` and infinity/overflow to `ErrOverflow`, and adding runtime tests for overflow and invalid floating-point arithmetic paths.
+
+REQUIREMENT: Native heap object header contract
+SPECIFICATION: mfbasic.md @ §14.3.1 Native heap value contract
+GROUP: language
+RECOMMENDED: SPEC CHANGE
+`mfbasic.md` requires arena-backed values to use a 32-byte object header before payload bytes, but the compiler and `memory_layouts.md` use specialized compact layouts: strings start with byte length, records store field slots from offset 0, and unions store the tag at offset 0 followed by payload slots. Resolve by updating `mfbasic.md` to defer concrete runtime layouts to `specifications/memory_layouts.md`, or alternatively make a large CODE CHANGE that rewrites native value lowering, field access, union wrapping/extraction, string helpers, collection storage, and package/native ABI expectations around the 32-byte header.
+
+REQUIREMENT: `WITH` update must produce an owned record value
+SPECIFICATION: mfbasic.md @ §4.2 Records; §14.3.1 Native heap value contract
+GROUP: language
+RECOMMENDED: CODE CHANGE
+`WITH value { ... }` is specified to create a record copy, and returned heap-backed values must not point into a callee stack frame. Native lowering in `src/target/shared/code/builder_misc.rs` builds the updated record in stack storage and returns the stack address, so a `WITH` result can dangle or be overwritten after further calls/returns. Resolve by allocating the updated record in the arena like record constructors do, copying original fields into the allocation, applying updates there, and adding runtime tests that return and reuse `WITH`-updated records across function calls.
+
+REQUIREMENT: Package-qualified names must have exactly two parts
+SPECIFICATION: mfbasic.md @ §13 Modules & Packages; §19 Grammar
+GROUP: language
+RECOMMENDED: CODE CHANGE
+The spec requires `package::identifier` only and says nested qualifiers such as `a::b::c` are illegal, but the parser accepts repeated `::` segments for imports, identifiers, and type names. Resolution then uses only the first segment as the import root, so invalid nested package-qualified names are not rejected consistently. Resolve by making qualified-name parsing accept exactly one `::` segment, emitting a syntax diagnostic for additional segments, and adding invalid tests for imports, calls, constructors, and type annotations using `a::b::c`.
+
+REQUIREMENT: Imported package type constructors must resolve through package qualification
+SPECIFICATION: mfbasic.md @ §13 Modules & Packages
+GROUP: language
+RECOMMENDED: CODE CHANGE
+The spec says imported package constructors are addressed as `package::identifier`, but imported `.mfp` type metadata is installed under bare type names and constructor/type lookup does not canonicalize package-qualified type names. As a result, exported package records such as `comparable::Box` fail to construct or type-check even when package metadata exports `Box`, while bare names can leak into the importing scope. Resolve by keying imported type metadata by the import binding/canonical package-qualified name, canonicalizing constructor/type/member lookups, rejecting unqualified imported type use, and adding valid package-constructor/type-annotation tests plus collision tests.
+
+REQUIREMENT: Unary numeric negation for all numeric types
+SPECIFICATION: mfbasic.md @ §11 Operators
+GROUP: language
+RECOMMENDED: CODE CHANGE
+Unary `-` is specified as a numeric operator, and the typechecker accepts it for all numeric operands, but native lowering only implements unary negation for `Integer`. `Byte`, `Fixed`, and `Float` operands reach `native code plan does not lower unary operator '-' ... yet`, so accepted programs can fail during native code generation instead of working at runtime. Resolve by adding native lowering for `Byte`, `Fixed`, and `Float` unary negation with the language’s checked numeric semantics: reject/overflow `Byte` results outside `0..255`, detect the minimum raw `Fixed` value before negation, and ensure `Float` negation preserves finite-only results. Add runtime tests covering successful negation and overflow/error cases for each affected type.
+
+REQUIREMENT: USING secondary close failure metadata
+SPECIFICATION: mfbasic.md @ §15 Resource Management
+GROUP: language
+RECOMMENDED: CODE CHANGE
+When a `USING` body fails and the resource close also fails, the spec requires the original body error to win while the close error is emitted as diagnostic/audit metadata associated with the failed cleanup. Native cleanup lowering preserves the original pending error, but the secondary close failure is discarded and no cleanup-failure metadata is recorded or exposed. Resolve by adding cleanup-failure metadata to bytecode/native runtime cleanup paths, preserving it through audit data, and validating with runtime tests where body failure and close failure occur together.
+
+REQUIREMENT: Resource handles must be deterministically closed or rejected outside `USING`
+SPECIFICATION: mfbasic.md @ §15 Resource Management
+GROUP: language
+RECOMMENDED: CODE CHANGE
+The spec requires resource handles to have exactly one live owner and deterministic cleanup, with `USING` as the visible lifetime construct. The compiler only emits cleanup for `USING`; ordinary `LET f = fs::openFile(...)` / `MUT f = ...` resource bindings can compile without any guaranteed close on scope exit. Resolve by either rejecting resource-producing bindings outside `USING` and explicit consuming close flows, or by adding full lexical resource-drop analysis/lowering for all normal, return, fail, propagate, and auto-propagation exits, with missing-close and double-close diagnostics plus runtime tests.
+
+
+=== tooling ===
+
+REQUIREMENT: Required tooling commands
+SPECIFICATION: mfbasic.md @ §22 Tooling And Auditability
+GROUP: tooling
+RECOMMENDED: CODE CHANGE
+The CLI supports `help`, `init`, `init-pkg`, `pkg`, `build`, and `man`, but required commands `mfb audit`, `mfb fmt`, `mfb test`, and `mfb lsp` are absent. Resolve by adding command dispatch and implementations for audit metadata reporting, formatting/check mode, test discovery/execution, and LSP startup.
+
+REQUIREMENT: Project manifest semantic validation
+SPECIFICATION: project.md @ §11 Validation
+GROUP: tooling
+RECOMMENDED: CODE CHANGE
+The spec requires semantic validation for `project.json`: package import-name syntax, semantic versions, supported `mfb` language version, package dependency names/idents/versions/pins/sources, unsigned-local policy scope, and dependency resolution compatibility. The current validator mainly checks required fields, JSON types, non-empty strings, `sources`, and `kind`; package validation only checks that `packages` is an array. Resolve by implementing the project manifest validators and diagnostics required by §11, then applying them before parsing, package commands, and builds.
+
+REQUIREMENT: macOS app build mode
+SPECIFICATION: plan-macos-app.md @ §5.1 CLI Contract; §5.2 Output Shape; §6.1 CLI Layer
+GROUP: tooling
+RECOMMENDED: CODE CHANGE
+The spec requires `mfb build -app` for macOS executable projects, app-mode validation, native intermediate output support, and emission of a real `.app` bundle with `Contents/Info.plist` and `Contents/MacOS/<name>`. `src/main.rs` does not parse `-app`, `BuildOptions` has no app/build-mode field, and the target backend APIs only model console native output. Resolve by adding a native build mode enum, parsing and validating `-app`, threading the mode through NIR/plan/object/code/executable generation, and adding macOS bundle/link/runtime support plus acceptance and runtime validation.
+
+REQUIREMENT: Invalid project kind rejection
+SPECIFICATION: project.md @ §5 Project Kind; §11 Validation
+GROUP: tooling
+RECOMMENDED: CODE CHANGE
+`project.json` must reject `kind` values other than `executable` or `package`, but `src/main.rs` reports `PROJECT_JSON_UNKNOWN_KIND` as a warning and still returns the manifest as valid. Resolve by making unknown `kind` values fail manifest validation, updating `PROJECT_JSON_UNKNOWN_KIND` severity/docs if needed, and adding manifest validation tests for invalid kinds.
+
+REQUIREMENT: Package ABI diff command
+SPECIFICATION: repository.md @ §8.2 The `ABI_INDEX` section
+GROUP: tooling
+RECOMMENDED: CODE CHANGE
+The repository spec requires `mfb pkg check-abi` to diff the working tree ABI index against the latest published version and report exact changed symbols. `src/main.rs` only supports `pkg add`, `pkg info`, and `pkg verify`. Resolve by adding `mfb pkg check-abi`, generating the current package `ABI_INDEX`, loading the comparison baseline from the registry or configured package source, producing a symbol-level ABI diff, and adding CLI tests.
+
+REQUIREMENT: Project metadata object forms
+SPECIFICATION: project.md @ §4 Identity And Informational Fields
+GROUP: tooling
+RECOMMENDED: CODE CHANGE
+The spec allows `author` to be either a string or object, and `repository` to be either a URL string or object. The manifest validator currently accepts `author` only as a string and does not validate or preserve `repository`’s specified object/string forms. Resolve by accepting the documented metadata shapes, rejecting only malformed values, and defining how object-form metadata is copied or omitted from compiled package metadata.
+
+REQUIREMENT: Project source roles
+SPECIFICATION: project.md @ §6 Sources; mfbasic.md @ §22 Tooling And Auditability
+GROUP: tooling
+RECOMMENDED: CODE CHANGE
+`project.json` source entries define `role` values such as `main`, `test`, `example`, and `tool`, and `mfb test` is specified to discover tests from test source entries. The compiler parses source entries in `src/ast.rs` but drops `role`, compiles every selected entry as ordinary build input, and rejects overlap across all entries rather than applying the main-source overlap rule. Resolve by preserving source roles in source discovery, filtering normal builds to main sources, using test entries for `mfb test`, and applying overlap diagnostics according to role.
+
+REQUIREMENT: Source roots must be relative to project.json
+SPECIFICATION: project.md @ §6 Sources
+GROUP: tooling
+RECOMMENDED: CODE CHANGE
+`project.md` defines `sources[*].root` as a file or directory path relative to `project.json`, but the compiler accepts absolute roots when they canonicalize inside the project directory. `validate_sources` only checks that `root` is a string, and source discovery joins the path to `project_dir`, which leaves absolute paths absolute on Unix. Resolve by rejecting absolute `root` values during manifest validation or source discovery, adding a diagnostic and tests for absolute roots while preserving the existing canonical inside-project and symlink escape checks.
+
+
+=== registry ===
+
+REQUIREMENT: Lockfile-driven package manager
+SPECIFICATION: lockfile.md @ Modes; repository.md @ §4 Resolution & Lockfile
+GROUP: registry
+RECOMMENDED: CODE CHANGE
+The specs require `mfb.lock`, `mfb pkg install`, `mfb pkg install --frozen`, and `mfb pkg update`, with content-hash, signature, trust, and dependency graph verification. The current CLI only has `pkg add`, `pkg info`, and `pkg verify`, and builds do not consume `mfb.lock`. Resolve by implementing lockfile generation/validation, install/update commands, frozen-mode checks, package hash verification, and build integration.
+
+REQUIREMENT: Registry account, publishing, and transparency-log API
+SPECIFICATION: repository.md @ §2 Account Model; §3 Trust & Signing; §5 Registry API & Storage
+GROUP: registry
+RECOMMENDED: CODE CHANGE
+The repository spec requires key-owned accounts, key-auth login, owner/org roles, publish tokens, key rotation, immutable content-addressed blob storage, signed root/snapshot/timestamp metadata, publish/validate/release-state endpoints, and transparency-log proofs. The current compiler/CLI only has local package add/info/verify paths and no account, authentication, publish, registry metadata, or transparency-log implementation. Resolve by implementing the registry service/client model or explicitly splitting these server-side requirements into a separate non-compiler spec, then add CLI flows and verification tests for registration, login, validation, publish, yanking, signed index metadata, and log proof verification.
+
+REQUIREMENT: Lockfile name consistency
+SPECIFICATION: mfbasic.md @ §13 Modules & Packages
+GROUP: registry
+RECOMMENDED: SPEC CHANGE
+`mfbasic.md` says executable builds use a lockfile named `project.lock`, but `lockfile.md`, `repository.md`, and `mfbasic.md` §22 refer to `mfb.lock`. The compiler currently implements neither, and the missing `mfb.lock` package-manager behavior is already recorded in `specifications/review_issues.txt`; the additional uncovered issue is the contradictory `project.lock` requirement. Resolve by updating `mfbasic.md` §13 to use `mfb.lock` consistently, then implement the existing lockfile issue against that single filename.
+
+REQUIREMENT: Package dependency version syntax
+SPECIFICATION: mfbasic.md @ §13.1 Package identity, versions, and manifests
+GROUP: registry
+RECOMMENDED: SPEC CHANGE
+`mfbasic.md` requires semantic-version range constraints such as `^1.2.0`, `~1.2.0`, inequalities, and wildcards, but `project.md` §7 defines dependency `version` as a concrete semantic version/ABI anchor and explicitly rejects range syntax. The implementation follows the concrete-version model: package verification compares versions literally and has a test rejecting range syntax as a match. Resolve by updating `mfbasic.md` to match `project.md`'s ABI-anchor model, or deliberately implement full range parsing/resolution across manifest validation, lockfile generation, package install/update, ABI compatibility selection, and conflict diagnostics.
+
+
+=== package ===
+
+REQUIREMENT: Package signature and trust verification
+SPECIFICATION: package_format.md @ Signature types and Container validation
+GROUP: package
+RECOMMENDED: CODE CHANGE
+The package reader validates signature headers and computes content hashes, but it does not verify Ed25519 signatures or enforce trust policy, and package writing emits unsigned containers. Resolve by implementing signature verification over the specified domain-separated input, trust-policy checks, unsigned-local policy handling, and signed package emission or a documented signing workflow.
+
+REQUIREMENT: Package bytecode verifier
+SPECIFICATION: package_format.md @ Verifier Rules; mfbasic.md @ §21.1 .mfp bytecode verification
+GROUP: package
+RECOMMENDED: CODE CHANGE
+The specs require imported `.mfp` packages to be verified for type references, instruction operands, control-flow targets, initialized registers, `Result` operations, function call signatures, resource linearity, cleanup paths, native ABI metadata, and more. The package reader validates container/header structure, section parsing, manifest identity, and ABI_INDEX/export/import consistency, but it does not perform the full bytecode control-flow/type/resource verifier. Resolve by adding a verifier pass over decoded package bytecode before imports/merges/native export extraction, with tests for malformed instruction, branch, result, and resource cases.
+
+REQUIREMENT: Source package dependency imports
+SPECIFICATION: mfbasic.md @ §3 Templates; §13 Modules & Packages
+GROUP: package
+RECOMMENDED: CODE CHANGE
+The spec allows importing source packages and says exported templates in source packages are instantiated by the importing compilation. The resolver accepts `local:///.../project.json` and `packages/<name>/project.json` as valid source package locations, but the build pipeline later only loads `packages/<name>.mfp`; source package exports are not parsed, typechecked, monomorphized, or lowered for import. Resolve by adding source-package dependency compilation/import support, including exported symbol/type metadata, template instantiation across package boundaries, dependency ordering, cycle checks, and native/bytecode integration, or by requiring source packages to be built to `.mfp` before import and updating the specs consistently.
+
+REQUIREMENT: MFBC section and required-flag verification
+SPECIFICATION: package_format.md @ Container flags; MFB Package Bytecode; Verifier Rules
+GROUP: package
+RECOMMENDED: CODE CHANGE
+The package format requires unknown required container flags to reject a package, required sections to be present exactly once, section ranges not to overlap, unknown required sections to reject, and optional unknown sections to be ignored only when flags permit. `src/bytecode.rs` reads section IDs into a `HashMap`, so duplicate section IDs are accepted with the last one winning; it checks only that each section is in range, not that ranges are non-overlapping; it does not read or enforce section flags; it does not enforce `GLOBAL_TABLE` even though the spec lists it as required; and the MFP reader does not reject unknown required container flag bits. Resolve by adding a real container/section verifier before package import: validate flag masks, track duplicate IDs and byte ranges, require every required section exactly once, enforce unknown-section flag semantics, require exact payload parsing, and add malformed `.mfp` tests for duplicates, overlaps, missing `GLOBAL_TABLE`, and required flags.
+
+REQUIREMENT: Entry error exit-code mapping consistency
+SPECIFICATION: package_format.md @ MANIFEST entryFlags
+GROUP: package
+RECOMMENDED: SPEC CHANGE
+`package_format.md` says an uncaught entry error exits with `error.code`, but `mfbasic.md` §8.6/§8.7 specifies exit code `255` with `Code: <err.code> Message: <err.message>`, and native lowering implements the `255` behavior in `src/target/shared/code/mod.rs`. Resolve by updating `package_format.md` to match the language-level entry contract and current runtime behavior.
+
+REQUIREMENT: EXPORT_TABLE must include all exported symbol kinds
+SPECIFICATION: package_format.md @ EXPORT_TABLE
+GROUP: package
+RECOMMENDED: CODE CHANGE
+The package format requires exported types, unions, enums, union member constructors, record constructors, top-level LET/MUT, and native wrappers in `EXPORT_TABLE`, but `src/bytecode.rs` only encodes exported functions/subs there and only decodes export kinds 1 through 5. Resolve by emitting and decoding every required export kind, mapping constructor targets to type/member metadata, and updating package import/type resolution and tests to validate exported constructors and type entries through `EXPORT_TABLE`.
+
+REQUIREMENT: ABI hash input must include full public ABI identity
+SPECIFICATION: package_format.md @ ABI_INDEX
+GROUP: package
+RECOMMENDED: CODE CHANGE
+ABI v1 requires hashes to include fully qualified exported names and caller-visible public shape, including parameter names, defaults, exported type names, field/type visibility, and resource/native/public behavior. `function_sig_hash` omits the exported function name and parameter names, while `type_sig_hash` serializes type structure but not the exported type name itself. This can make distinct public symbols with identical shapes hash the same. Resolve by extending ABI serialization to include the fully qualified export name and every required caller-visible field, then regenerate ABI index fixtures and add package compatibility tests for renamed functions, renamed parameters, and same-shape renamed types.
+
+REQUIREMENT: Default arguments must work across package boundaries
+SPECIFICATION: mfbasic.md @ §6 Functions; §14.3 Function calls and returns
+GROUP: package
+RECOMMENDED: CODE CHANGE
+Default arguments are specified as normal call behavior, evaluated at the call site after omitted trailing parameters are filled. Same-source lowering can synthesize defaults, but imported `.mfp` function metadata only preserves a `has_default` bit in type checking/IR external parameters, and no default value is available when omitted imported arguments are lowered. Package generation also stores only constant defaults, so non-constant source defaults accepted by the frontend cannot be represented as package-call defaults. Resolve by preserving default argument values or default thunks in package metadata, loading them for imported calls, lowering omitted imported arguments in declaration order, and adding package import tests for positional and named omitted defaults.
+
+
+=== threads ===
+
+REQUIREMENT: Thread bounded queue semantics
+SPECIFICATION: threading.md @ §9 Queue Semantics
+GROUP: threads
+RECOMMENDED: CODE CHANGE
+Thread APIs are wired through type checking and native helpers, but the runtime queue implementation is a single-slot inbound/outbound value with count fields; `inboundLimit` and `outboundLimit` are validated but not used to allocate bounded queues of the requested capacity. Timeout behavior is implemented with busy-wait loops rather than real synchronized queue waits. Resolve by implementing per-thread bounded queues with the requested capacities, synchronized send/receive/poll semantics, correct timeout handling, cancellation behavior, and runtime execution tests.
+
+REQUIREMENT: Thread transfer sendability
+SPECIFICATION: mfbasic.md @ §16 Threads; standard_package.md @ §9 Built-in Thread Package
+GROUP: threads
+RECOMMENDED: CODE CHANGE
+The spec says opaque resource handles, including `File`, socket handles, and `Thread`, are not sendable to threads. The type checker validates `thread::start` and `thread::send` argument shapes, but does not reject input, message, or output types that directly or transitively contain a resource or thread handle. Resolve by adding a sendability predicate for `thread::start` `In`, `Msg`, and `Out`, plus `thread::send` message values, and preserve that metadata in package/import verification so imported workers cannot smuggle non-sendable ownership across thread boundaries.
+
+REQUIREMENT: Thread result field access
+SPECIFICATION: mfbasic.md @ §4.8 Threads; §16 Threads
+GROUP: threads
+RECOMMENDED: CODE CHANGE
+The specification requires a completed parent `Thread OF Msg TO Out` to expose `result AS Result OF Out` for field access as `t.result`, and says `thread::waitFor(t)` returns `t.result` with normal auto-unwrapping. The type checker and IR type inference recognize `Thread.result`, but bytecode and native lowering only implement member access for records, variants, map entries, enums, and `Error`; lowering `t.result` falls through as an unknown field on `Thread`. Resolve by adding lowering/runtime support for reading the stored thread result field from `Thread`, defining its blocking or completed-only semantics consistently with `thread::waitFor`, and adding valid/invalid thread result field tests that execute generated code.
+
+REQUIREMENT: Fresh package instance for each started thread
+SPECIFICATION: mfbasic.md @ §16 Threads; threading.md @ §3 Isolation; threading.md @ §7 Thread Runtime Helpers
+GROUP: threads
+RECOMMENDED: CODE CHANGE
+The spec requires each started thread to run the imported worker in a fresh package instance with isolated package state and runtime arena state. Native `thread::start` currently stores the caller's `ARENA_STATE_REGISTER` in the thread control block, and the trampoline restores that same arena for the worker. Resolve by allocating/initializing a worker-owned package/runtime arena state for each thread start, binding imported package exports to that instance, and adding runtime tests proving two starts do not share package state or arena-owned mutable data.
+
+REQUIREMENT: Thread handle lexical drop behavior
+SPECIFICATION: mfbasic.md @ §16 Threads
+GROUP: threads
+RECOMMENDED: CODE CHANGE
+The spec says dropping a completed `Thread` releases queued messages, and dropping a running `Thread` requests cancellation, detaches the worker, and ensures runtime reclamation. The compiler has explicit `thread::cancel`/`waitFor` helpers but no lowering for `Thread` value drop at scope exit, reassignment, return/error cleanup, or moved-from paths. Resolve by adding ownership/drop metadata and cleanup lowering for `Thread` handles, implementing detach/reclaim behavior in the runtime helpers, and adding runtime tests for completed-thread drop, running-thread drop, reassignment, and error-path cleanup.
+
+
+=== typesystem ===
+
+REQUIREMENT: Result success constructor privacy
+SPECIFICATION: standard_package.md @ §1 Built-in Types; mfbasic.md @ §4.4 Result, Error, and absence
+GROUP: typesystem
+RECOMMENDED: CODE CHANGE
+The spec says user code may construct `Error[...]`, but may not construct `Result` or `Ok` directly. `src/typecheck.rs` currently accepts `Ok[...]` as a constructor and returns `Result OF <payload>`, making the private success member source-constructible. Resolve by rejecting source-level `Ok[...]`/`Result[...]` construction while preserving compiler-internal result wrapping and `MATCH ... CASE Ok(x)` pattern support; add valid/invalid tests for `Error`, `Ok`, `Result`, and Result pattern matching.
+
+REQUIREMENT: Package field visibility across package boundaries
+SPECIFICATION: mfbasic.md @ §4.2 Records
+GROUP: typesystem
+RECOMMENDED: CODE CHANGE
+`PACKAGE` record fields are specified as visible only to files in the declaring package, but `src/typecheck.rs` and `src/resolver.rs` treat `Visibility::Package` as visible from any file. Imported package type metadata preserves package/private/export field visibility, so this leaks package-private fields to consumers for field reads, constructors, and `WITH` updates. Resolve by tracking the declaring package identity for source and imported symbols, making `PACKAGE` visible only when the use site belongs to the same package, and adding imported-package visibility tests for field read, constructor, and update rejection.
+
+REQUIREMENT: Imported union package layering
+SPECIFICATION: mfbasic.md @ §4.3 Unions; §20.1 Package Layering Example
+GROUP: typesystem
+RECOMMENDED: CODE CHANGE
+The spec allows a package union to `INCLUDES` another package's union and reintroduce the included member types as members of the new union, with importers constructing them through the declaring package namespace. The compiler has partial source-local support, but union expansion and bytecode payload generation only expand includes from source-local `IrType` entries; imported package union metadata is not expanded into the including union's ABI/runtime shape. Resolve by preserving imported union member metadata through type checking, IR, bytecode type payloads, package exports, matching, constructors, and native lowering, with tests for `UNION ExtraShape INCLUDES shape::Shape` across `.mfp` package boundaries.
+
+REQUIREMENT: Union member diagnostics must use registered error codes
+SPECIFICATION: error_codes.md @ Compiler Diagnostics
+GROUP: typesystem
+RECOMMENDED: CODE CHANGE
+`mfbasic.md` requires union members to name concrete `TYPE` declarations, and `src/typecheck.rs` reports `TYPE_UNION_MEMBER_REQUIRES_TYPE` when that rule is violated. That rule is not registered in `src/rules.rs` and is not listed in `specifications/error_codes.md`, so the compiler emits it as `UNKNOWN_RULE` instead of a canonical diagnostic. Resolve by adding `TYPE_UNION_MEMBER_REQUIRES_TYPE` to `src/rules.rs` with a new `2-203-*` code, documenting it in `specifications/error_codes.md`, and adding an invalid union-member test that verifies the registered diagnostic.
+
+
+=== math ===
+
+REQUIREMENT: Unspellable math constants
+SPECIFICATION: standard_package.md @ §10 Built-in Math Package
+GROUP: math
+RECOMMENDED: SPEC CHANGE
+The spec requires constants named `math::2pi` and `math::2piFixed`, but MFBASIC identifiers must match `[A-Za-z_][A-Za-z0-9_]*`, and the parser requires an identifier after `::`/`.`. These constants are registered internally as `math.2pi` and `math.2piFixed`, but they cannot be written in valid source. Resolve by renaming the constants in the spec and implementation to identifier-valid names, and clarify whether the intended value is `2 * pi` or the currently documented/implemented `2 / pi`.
+
+REQUIREMENT: Math rounding overflow checks
+SPECIFICATION: standard_package.md @ §10 Built-in Math Package
+GROUP: math
+RECOMMENDED: CODE CHANGE
+`math::floor`, `math::ceil`, and `math::round` on `Float` must fail with `ErrOverflow` when the result is outside the `Integer` range. The native lowering in `src/target/shared/code/builder_math.rs` directly emits AArch64 float-to-integer conversion instructions without explicit finite/range checks, so out-of-range values are not routed through the specified error behavior. Resolve by adding pre-conversion validation for finite values and `Integer` bounds, returning `ErrOverflow` for out-of-range results, and adding runtime tests for boundary and overflow cases for all three functions.
+
+
+=== filesystem ===
+
+REQUIREMENT: Narrow `fs::openFile` mode set
+SPECIFICATION: standard_package.md @ §8 Built-in Filesystem Package
+GROUP: filesystem
+RECOMMENDED: CODE CHANGE
+`fs::openFile` and `fs::openFileNoFollow` are specified with modes `"read"`, `"write"`, and `"append"`, while `fs::open` has the wider alias set `"read"`/`"r"`, `"write"`/`"w"`, `"readWrite"`/`"rw"`, and `"append"`/`"a"`. Native lowering routes all three APIs through `lower_fs_open_helper`, which accepts the wider alias set for `fs::openFile` and `fs::openFileNoFollow` too. Resolve by passing the API kind into the open helper and rejecting `r`, `w`, `rw`, `readWrite`, and `a` for `openFile`/`openFileNoFollow`, with runtime invalid-mode tests.
+
+REQUIREMENT: `fs::createTempFile()` no-argument form must work from package bytecode
+SPECIFICATION: standard_package.md @ §8 Built-in Filesystem Package
+GROUP: filesystem
+RECOMMENDED: CODE CHANGE
+The spec defines `fs::createTempFile()` with no directory argument, using the OS temp directory. Native source NIR lowering injects `fs.tempDirectory()` for this form, but bytecode lowering in `src/builtins/fs.rs` emits `OPCODE_FS_CREATE_TEMP_FILE` with no directory operand. Package/native helper metadata expects a directory string, so package bytecode that calls the no-argument form cannot execute with the specified behavior. Resolve by making bytecode lowering synthesize the temp-directory default, or by teaching the package/native runtime helper to handle the omitted operand, then add package/runtime tests for `fs::createTempFile()` and `fs::createTempFile(directory)`.

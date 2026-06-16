@@ -962,11 +962,7 @@ impl<'a> Resolver<'a> {
     fn function_visible_in_file(&self, file: &AstFile, name: &str) -> bool {
         self.functions.get(name).is_some_and(|functions| {
             functions.iter().any(|function| {
-                self.visible_from(
-                    file,
-                    function.symbol.visibility,
-                    &function.symbol.file_path,
-                )
+                self.visible_from(file, function.symbol.visibility, &function.symbol.file_path)
             })
         })
     }

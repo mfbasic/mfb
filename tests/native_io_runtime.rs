@@ -180,9 +180,18 @@ END FUNC
 "#,
     );
 
-    assert_eq!(run_with_stdin(&build_project(&read_line), b""), "77020003\n");
-    assert_eq!(run_with_stdin(&build_project(&read_char), b"\x80"), "77020004\n");
-    assert_eq!(run_with_stdin(&build_project(&input), b"\xff\n"), "77020004\n");
+    assert_eq!(
+        run_with_stdin(&build_project(&read_line), b""),
+        "77020003\n"
+    );
+    assert_eq!(
+        run_with_stdin(&build_project(&read_char), b"\x80"),
+        "77020004\n"
+    );
+    assert_eq!(
+        run_with_stdin(&build_project(&input), b"\xff\n"),
+        "77020004\n"
+    );
 }
 
 #[test]

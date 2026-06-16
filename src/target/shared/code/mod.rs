@@ -1066,12 +1066,12 @@ fn lower_program_entry(
             abi::store_u64("x0", abi::stack_pointer(), ENTRY_ARGC_OFFSET),
             abi::store_u64("x1", abi::stack_pointer(), ENTRY_ARGV_OFFSET),
         ]);
-        emit_entry_args_list_materialization(
-            error_label,
-            &mut instructions,
-            &mut relocations,
-        );
-        instructions.push(abi::load_u64("x0", abi::stack_pointer(), ENTRY_ARGS_LIST_OFFSET));
+        emit_entry_args_list_materialization(error_label, &mut instructions, &mut relocations);
+        instructions.push(abi::load_u64(
+            "x0",
+            abi::stack_pointer(),
+            ENTRY_ARGS_LIST_OFFSET,
+        ));
     }
     instructions.push(abi::branch_link(language_entry_symbol));
     relocations.push(CodeRelocation {
@@ -4825,7 +4825,12 @@ fn lower_io_read_byte_helper(
         abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_INPUT_CODE),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
     ]);
-    push_error_message_address(symbol, ERR_INPUT_SYMBOL, &mut instructions, &mut relocations);
+    push_error_message_address(
+        symbol,
+        ERR_INPUT_SYMBOL,
+        &mut instructions,
+        &mut relocations,
+    );
     instructions.push(abi::label(&done));
     if platform.preserves_link_register_in_runtime_helpers() {
         instructions.extend([
@@ -5308,7 +5313,12 @@ fn lower_io_read_char_helper(
         abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_INPUT_CODE),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
     ]);
-    push_error_message_address(symbol, ERR_INPUT_SYMBOL, &mut instructions, &mut relocations);
+    push_error_message_address(
+        symbol,
+        ERR_INPUT_SYMBOL,
+        &mut instructions,
+        &mut relocations,
+    );
     instructions.extend([
         abi::branch(&done),
         abi::label(&encoding_error),
@@ -5744,7 +5754,12 @@ fn lower_io_read_line_helper(
         abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_OUTPUT_CODE),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
     ]);
-    push_error_message_address(symbol, ERR_OUTPUT_SYMBOL, &mut instructions, &mut relocations);
+    push_error_message_address(
+        symbol,
+        ERR_OUTPUT_SYMBOL,
+        &mut instructions,
+        &mut relocations,
+    );
     instructions.extend([
         abi::branch(&done),
         abi::label(&eof_error),
@@ -5758,7 +5773,12 @@ fn lower_io_read_line_helper(
         abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_INPUT_CODE),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
     ]);
-    push_error_message_address(symbol, ERR_INPUT_SYMBOL, &mut instructions, &mut relocations);
+    push_error_message_address(
+        symbol,
+        ERR_INPUT_SYMBOL,
+        &mut instructions,
+        &mut relocations,
+    );
     instructions.extend([
         abi::branch(&done),
         abi::label(&encoding_error),

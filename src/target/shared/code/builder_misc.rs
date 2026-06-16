@@ -1117,11 +1117,7 @@ impl CodeBuilder<'_> {
     }
 
     pub(super) fn error_exit_destination(&self) -> ExitDestination {
-        if self
-            .trap
-            .as_ref()
-            .is_some_and(|trap| !trap.in_trap_body)
-        {
+        if self.trap.as_ref().is_some_and(|trap| !trap.in_trap_body) {
             ExitDestination::Trap
         } else {
             ExitDestination::Return
@@ -1130,7 +1126,11 @@ impl CodeBuilder<'_> {
 
     fn emit_cleanup_call(&mut self, cleanup: &UsingCleanup) -> Result<(), String> {
         let arg = NirValue::Local(cleanup.name.clone());
-        self.emit_raw_call(&cleanup.symbol, std::slice::from_ref(&arg), "using_close_arg")?;
+        self.emit_raw_call(
+            &cleanup.symbol,
+            std::slice::from_ref(&arg),
+            "using_close_arg",
+        )?;
         Ok(())
     }
 
@@ -1202,8 +1202,8 @@ impl CodeBuilder<'_> {
                 let result = self.lower_value(value)?;
                 if result.type_ != "Nothing" {
                     if self.inline_collection_payload_size(&result.type_).is_some() {
-                        let stable =
-                            self.materialize_inline_value_in_arena(&result.type_, &result.location)?;
+                        let stable = self
+                            .materialize_inline_value_in_arena(&result.type_, &result.location)?;
                         self.emit(abi::move_register(RESULT_VALUE_REGISTER, &stable));
                     } else {
                         self.emit(abi::move_register(RESULT_VALUE_REGISTER, &result.location));
@@ -1323,9 +1323,9 @@ impl CodeBuilder<'_> {
     }
 
     pub(super) fn current_block_returns(&self) -> bool {
-        self.instructions.last().is_some_and(|instruction| {
-            matches!(instruction.op, CodeOp::Ret | CodeOp::Branch)
-        })
+        self.instructions
+            .last()
+            .is_some_and(|instruction| matches!(instruction.op, CodeOp::Ret | CodeOp::Branch))
     }
 }
 

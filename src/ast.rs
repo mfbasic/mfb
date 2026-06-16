@@ -2056,11 +2056,11 @@ impl<'a> FileParser<'a> {
         let mut name = self.parse_type_base_name("Expected a type name.")?;
         if self.check_identifier_ci("OF") {
             self.advance();
-                if name.eq_ignore_ascii_case("Map")
-                    || name.eq_ignore_ascii_case("MapEntry")
-                    || name.eq_ignore_ascii_case("Thread")
-                    || name.eq_ignore_ascii_case("ThreadWorker")
-                {
+            if name.eq_ignore_ascii_case("Map")
+                || name.eq_ignore_ascii_case("MapEntry")
+                || name.eq_ignore_ascii_case("Thread")
+                || name.eq_ignore_ascii_case("ThreadWorker")
+            {
                 let first = self.parse_type_name()?;
                 if !self.check_identifier_ci("TO") && !self.check_keyword(Keyword::To) {
                     let token = self.peek().clone();

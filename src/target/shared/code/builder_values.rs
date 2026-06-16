@@ -620,12 +620,10 @@ impl CodeBuilder<'_> {
                     "thread.receive" => {
                         let handle = self
                             .static_type_name(helper_args.first().ok_or_else(|| {
-                                "native runtime thread.receive missing handle argument"
-                                    .to_string()
+                                "native runtime thread.receive missing handle argument".to_string()
                             })?)
                             .ok_or_else(|| {
-                                "native runtime thread.receive handle has unknown type"
-                                    .to_string()
+                                "native runtime thread.receive handle has unknown type".to_string()
                             })?;
                         if builtins::thread::is_worker_thread_type(&handle) {
                             "thread.receive"

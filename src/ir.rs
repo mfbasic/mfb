@@ -1455,8 +1455,7 @@ fn lower_local_call_arguments(
         .into_iter()
         .enumerate()
         .filter_map(|(index, argument)| {
-            let expected =
-                call_argument_expected_type(callee, index, arguments, locals, context);
+            let expected = call_argument_expected_type(callee, index, arguments, locals, context);
             match argument {
                 Some(argument) => Some(lower_expression_with_expected(
                     argument,
@@ -1466,12 +1465,7 @@ fn lower_local_call_arguments(
                 )),
                 None => params.get(index).and_then(|param| {
                     param.default.as_ref().map(|default| {
-                        lower_expression_with_expected(
-                            default,
-                            Some(&param.type_),
-                            locals,
-                            context,
-                        )
+                        lower_expression_with_expected(default, Some(&param.type_), locals, context)
                     })
                 }),
             }

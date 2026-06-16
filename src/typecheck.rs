@@ -719,7 +719,11 @@ impl<'a> TypeChecker<'a> {
             .collect()
     }
 
-    fn lookup_visible_function<'b>(&'b self, file: &AstFile, name: &str) -> Option<&'b FunctionSig> {
+    fn lookup_visible_function<'b>(
+        &'b self,
+        file: &AstFile,
+        name: &str,
+    ) -> Option<&'b FunctionSig> {
         let visible = self.visible_function_sigs(file, name);
         if visible.len() == 1 {
             return visible.into_iter().next();
@@ -3811,10 +3815,10 @@ impl<'a> TypeChecker<'a> {
                     Box::new(self.parse_type(output)),
                 );
             }
-                return Type::Thread(
-                    Box::new(self.parse_type(message)),
-                    Box::new(self.parse_type(output)),
-                );
+            return Type::Thread(
+                Box::new(self.parse_type(message)),
+                Box::new(self.parse_type(output)),
+            );
         }
         if let Some(rest) = name.strip_prefix("Map OF ") {
             if let Some((key, value)) = rest.split_once(" TO ") {
