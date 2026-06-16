@@ -34,6 +34,7 @@ RECOMMENDED: CODE CHANGE
 REQUIREMENT: `isNumeric` must follow numeric conversion success semantics
 SPECIFICATION: standard_package.md @ §3.1 General
 GROUP: stdlib
+STATUS: Completed
 RECOMMENDED: CODE CHANGE
 `isNumeric(value AS String)` is specified to return `TRUE` only when the text can be parsed as an `Integer`, `Float`, or `Fixed`. The native lowering in `src/target/shared/code/builder_conversions.rs` only calls `emit_parse_decimal_string_to_double` and returns `TRUE` on syntactic decimal parse success, without the overflow/finite checks used by `toFloat` and `toFixed`. As a result, overflow text such as `1e309` can be classified as numeric even though the specified conversions fail with `ErrOverflow` or cannot produce a finite value. Resolve by making `isNumeric` reuse the same parse validity and finite/range checks as the supported numeric conversions, returning `FALSE` for malformed, non-finite, or overflow-only text, and add runtime tests for large exponents and boundary values.
 
@@ -310,6 +311,12 @@ GROUP: package
 RECOMMENDED: CODE CHANGE
 Default arguments are specified as normal call behavior, evaluated at the call site after omitted trailing parameters are filled. Same-source lowering can synthesize defaults, but imported `.mfp` function metadata only preserves a `has_default` bit in type checking/IR external parameters, and no default value is available when omitted imported arguments are lowered. Package generation also stores only constant defaults, so non-constant source defaults accepted by the frontend cannot be represented as package-call defaults. Resolve by preserving default argument values or default thunks in package metadata, loading them for imported calls, lowering omitted imported arguments in declaration order, and adding package import tests for positional and named omitted defaults.
 
+REQUIREMENT: Imported package bytecode exports must lower to executable native code
+SPECIFICATION: linker.md @ §7 Package Linking
+GROUP: package
+RECOMMENDED: CODE CHANGE
+The linker spec requires native executable builds to read installed `.mfp` package metadata, emit native functions for reachable package exports, resolve package-to-package calls, and include runtime helpers used by package bytecode. The current native package bridge in `src/target/shared/code/mod.rs` lowers only a narrow subset of package bytecode opcodes (`LOAD_CONST`, `LOAD_DEFAULT`, `COPY`/`MOVE`, `UNWRAP_RESULT`, `GENERAL_LEN`, `ADD`, `CALL_RESULT`, and `RETURN_OK`) and rejects many valid package opcodes such as control flow, comparisons, records/unions, collections, math, most general built-ins, and resource cleanup. Resolve by either interpreting or fully lowering the complete verified MFBC instruction set used by package exports, wiring helper detection for package-only built-ins, and adding package import runtime tests that execute exported package functions using control flow, records, collections, math, filesystem/IO helpers, and package-to-package calls.
+
 
 === threads ===
 
@@ -369,6 +376,12 @@ SPECIFICATION: error_codes.md @ Compiler Diagnostics
 GROUP: typesystem
 RECOMMENDED: CODE CHANGE
 `mfbasic.md` requires union members to name concrete `TYPE` declarations, and `src/typecheck.rs` reports `TYPE_UNION_MEMBER_REQUIRES_TYPE` when that rule is violated. That rule is not registered in `src/rules.rs` and is not listed in `specifications/error_codes.md`, so the compiler emits it as `UNKNOWN_RULE` instead of a canonical diagnostic. Resolve by adding `TYPE_UNION_MEMBER_REQUIRES_TYPE` to `src/rules.rs` with a new `2-203-*` code, documenting it in `specifications/error_codes.md`, and adding an invalid union-member test that verifies the registered diagnostic.
+
+REQUIREMENT: Record comparability must be field-wise
+SPECIFICATION: mfbasic.md @ §4.11 Comparable Types
+GROUP: typesystem
+RECOMMENDED: CODE CHANGE
+Records whose fields are all comparable are specified as comparable, so `=` / `<>`, map keys, and list helpers such as `find`, `contains`, and `replace` must compare record values by their comparable fields. The type checker accepts comparable records, but native lowering falls back to comparing record value pointers for ordinary equality and uses raw inline bytes for collection/map matching, which makes records containing heap-backed comparable fields such as `String` compare by address or stored pointer bytes rather than semantic field values. Resolve by adding recursive field-wise comparison lowering for comparable records everywhere comparability is used: equality operators, list search/contains/replace, map key lookup/update/remove, and package/native bytecode paths. Add runtime tests for records with primitive fields and records with `String` fields, including use as `Map` keys.
 
 
 === math ===

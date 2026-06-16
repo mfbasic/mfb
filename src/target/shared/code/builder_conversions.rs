@@ -364,6 +364,7 @@ impl CodeBuilder<'_> {
         let done = self.label("is_numeric_done");
         let result = self.allocate_register()?;
         self.emit_parse_decimal_string_to_double(&source, &invalid)?;
+        self.emit_double_overflow_check("d0", &invalid);
         self.emit(abi::move_immediate(&result, "Boolean", "true"));
         self.emit(abi::branch(&done));
         self.emit(abi::label(&invalid));
