@@ -133,6 +133,8 @@ String length, search, substring, and regex indexes are zero-based Unicode scala
 | `sum` | `FUNC sum(value AS List OF Float) AS Float` | Sums floats. |
 | `sum` | `FUNC sum(value AS List OF Fixed) AS Fixed` | Sums fixed-point values. Fails with `77050010` on overflow. |
 
+Collection callback parameters accept named functions, `SUB` values where `FUNC(... ) AS Nothing` is expected, and lambdas or closures that satisfy the language closure rules. Ordinary closures may capture only copyable `LET` bindings by value; capturing `MUT`, resource, or other non-copyable values is a compile-time error.
+
 When absence is expected, handle `find` with `MATCH`:
 
 ```basic

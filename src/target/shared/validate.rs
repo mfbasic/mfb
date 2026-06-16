@@ -281,7 +281,15 @@ fn collect_runtime_calls_from_value(
         NirValue::Unary { operand, .. } => {
             collect_runtime_calls_from_value(operand, calls, constants)
         }
-        NirValue::Const { .. } | NirValue::Local(_) | NirValue::FunctionRef { .. } => {}
+        NirValue::Closure { captures, .. } => {
+            for value in captures {
+                collect_runtime_calls_from_value(value, calls, constants);
+            }
+        }
+        NirValue::Capture { .. }
+        | NirValue::Const { .. }
+        | NirValue::Local(_)
+        | NirValue::FunctionRef { .. } => {}
     }
 }
 
@@ -919,6 +927,28 @@ fn validate_value(
                 Err(format!("NIR function reference '{name}' does not resolve"))
             }
         }
+        NirValue::Closure {
+            name,
+            type_,
+            captures,
+        } => {
+            validate_type_name(type_)?;
+            if !(function_names.contains(name) || import_names.contains(name)) {
+                return Err(format!("NIR closure target '{name}' does not resolve"));
+            }
+            for value in captures {
+                validate_value(
+                    value,
+                    locals,
+                    function_names,
+                    import_names,
+                    type_value_names,
+                    used_helpers,
+                )?;
+            }
+            Ok(())
+        }
+        NirValue::Capture { type_, .. } => validate_type_name(type_),
         NirValue::Call { target, args } | NirValue::CallResult { target, args } => {
             for arg in args {
                 validate_value(

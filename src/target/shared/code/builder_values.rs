@@ -51,8 +51,8 @@ impl CodeBuilder<'_> {
                 let symbol = builtin_function_symbol_for_type(name, type_)
                     .or_else(|| self.function_symbols.get(name).cloned())
                     .unwrap_or_else(|| name.clone());
-                let register = self.allocate_register()?;
-                self.emit(abi::load_page_address(&register, &symbol));
+                let function_register = self.allocate_register()?;
+                self.emit(abi::load_page_address(&function_register, &symbol));
                 self.relocations.push(CodeRelocation {
                     from: self.current_symbol.clone(),
                     to: symbol.clone(),
@@ -60,7 +60,7 @@ impl CodeBuilder<'_> {
                     binding: "data".to_string(),
                     library: None,
                 });
-                self.emit(abi::add_page_offset(&register, &register, &symbol));
+                self.emit(abi::add_page_offset(&function_register, &function_register, &symbol));
                 self.relocations.push(CodeRelocation {
                     from: self.current_symbol.clone(),
                     to: symbol,
@@ -68,13 +68,175 @@ impl CodeBuilder<'_> {
                     binding: "data".to_string(),
                     library: None,
                 });
+                let function_slot = self.allocate_stack_object("function_ref_code", 8);
+                self.emit(abi::store_u64(
+                    &function_register,
+                    abi::stack_pointer(),
+                    function_slot,
+                ));
+                let closure_register = self.allocate_register()?;
+                let alloc_ok = self.label("function_ref_alloc_ok");
+                self.emit(abi::move_immediate(abi::return_register(), "Integer", &CLOSURE_OBJECT_SIZE.to_string()));
+                self.emit(abi::move_immediate("x1", "Integer", "8"));
+                self.emit(abi::branch_link(ARENA_ALLOC_SYMBOL));
+                self.relocations.push(CodeRelocation {
+                    from: self.current_symbol.clone(),
+                    to: ARENA_ALLOC_SYMBOL.to_string(),
+                    kind: "branch26".to_string(),
+                    binding: "internal".to_string(),
+                    library: None,
+                });
+                self.emit(abi::compare_immediate(abi::return_register(), RESULT_OK_TAG));
+                self.emit(abi::branch_eq(&alloc_ok));
+                self.emit_allocation_error_return()?;
+                self.emit(abi::label(&alloc_ok));
+                self.emit(abi::load_u64(
+                    &function_register,
+                    abi::stack_pointer(),
+                    function_slot,
+                ));
+                self.emit(abi::store_u64(&function_register, "x1", CLOSURE_OFFSET_CODE));
+                self.emit(abi::store_u64("x31", "x1", CLOSURE_OFFSET_ENV));
+                self.emit(abi::move_register(&closure_register, "x1"));
                 Ok(ValueResult {
                     type_: type_.clone(),
-                    location: register,
+                    location: closure_register,
                     text: name.clone(),
                 })
             }
+            NirValue::Closure {
+                name,
+                type_,
+                captures,
+            } => {
+                let symbol = self
+                    .function_symbols
+                    .get(name)
+                    .cloned()
+                    .unwrap_or_else(|| name.clone());
+                let function_register = self.allocate_register()?;
+                self.emit(abi::load_page_address(&function_register, &symbol));
+                self.relocations.push(CodeRelocation {
+                    from: self.current_symbol.clone(),
+                    to: symbol.clone(),
+                    kind: "page21".to_string(),
+                    binding: "data".to_string(),
+                    library: None,
+                });
+                self.emit(abi::add_page_offset(&function_register, &function_register, &symbol));
+                self.relocations.push(CodeRelocation {
+                    from: self.current_symbol.clone(),
+                    to: symbol,
+                    kind: "pageoff12".to_string(),
+                    binding: "data".to_string(),
+                    library: None,
+                });
+                let function_slot = self.allocate_stack_object("closure_code", 8);
+                self.emit(abi::store_u64(
+                    &function_register,
+                    abi::stack_pointer(),
+                    function_slot,
+                ));
+                let env_slot = if captures.is_empty() {
+                    None
+                } else {
+                    let env_register = self.allocate_register()?;
+                    let env_slot = self.allocate_stack_object("closure_env", 8);
+                    let alloc_ok = self.label("closure_env_alloc_ok");
+                    let env_size = (captures.len() * 8).to_string();
+                    self.emit(abi::move_immediate(abi::return_register(), "Integer", &env_size));
+                    self.emit(abi::move_immediate("x1", "Integer", "8"));
+                    self.emit(abi::branch_link(ARENA_ALLOC_SYMBOL));
+                    self.relocations.push(CodeRelocation {
+                        from: self.current_symbol.clone(),
+                        to: ARENA_ALLOC_SYMBOL.to_string(),
+                        kind: "branch26".to_string(),
+                        binding: "internal".to_string(),
+                        library: None,
+                    });
+                    self.emit(abi::compare_immediate(abi::return_register(), RESULT_OK_TAG));
+                    self.emit(abi::branch_eq(&alloc_ok));
+                    self.emit_allocation_error_return()?;
+                    self.emit(abi::label(&alloc_ok));
+                    self.emit(abi::move_register(&env_register, "x1"));
+                    self.emit(abi::store_u64(
+                        &env_register,
+                        abi::stack_pointer(),
+                        env_slot,
+                    ));
+                    for (index, capture) in captures.iter().enumerate() {
+                        let value = self.lower_value(capture)?;
+                        self.emit(abi::store_u64(&value.location, &env_register, index * 8));
+                    }
+                    Some(env_slot)
+                };
+                let closure_register = self.allocate_register()?;
+                let alloc_ok = self.label("closure_alloc_ok");
+                self.emit(abi::move_immediate(abi::return_register(), "Integer", &CLOSURE_OBJECT_SIZE.to_string()));
+                self.emit(abi::move_immediate("x1", "Integer", "8"));
+                self.emit(abi::branch_link(ARENA_ALLOC_SYMBOL));
+                self.relocations.push(CodeRelocation {
+                    from: self.current_symbol.clone(),
+                    to: ARENA_ALLOC_SYMBOL.to_string(),
+                    kind: "branch26".to_string(),
+                    binding: "internal".to_string(),
+                    library: None,
+                });
+                self.emit(abi::compare_immediate(abi::return_register(), RESULT_OK_TAG));
+                self.emit(abi::branch_eq(&alloc_ok));
+                self.emit_allocation_error_return()?;
+                self.emit(abi::label(&alloc_ok));
+                self.emit(abi::load_u64(
+                    &function_register,
+                    abi::stack_pointer(),
+                    function_slot,
+                ));
+                self.emit(abi::store_u64(&function_register, "x1", CLOSURE_OFFSET_CODE));
+                if let Some(env_slot) = env_slot {
+                    let env_register = self.allocate_register()?;
+                    self.emit(abi::load_u64(
+                        &env_register,
+                        abi::stack_pointer(),
+                        env_slot,
+                    ));
+                    self.emit(abi::store_u64(&env_register, "x1", CLOSURE_OFFSET_ENV));
+                } else {
+                    self.emit(abi::store_u64("x31", "x1", CLOSURE_OFFSET_ENV));
+                }
+                self.emit(abi::move_register(&closure_register, "x1"));
+                Ok(ValueResult {
+                    type_: type_.clone(),
+                    location: closure_register,
+                    text: name.clone(),
+                })
+            }
+            NirValue::Capture { index, type_ } => {
+                let register = self.allocate_register()?;
+                self.emit(abi::load_u64(&register, CLOSURE_ENV_REGISTER, index * 8));
+                Ok(ValueResult {
+                    type_: type_.clone(),
+                    location: register,
+                    text: format!("capture[{index}]"),
+                })
+            }
             NirValue::Call { target, args } => {
+                if let Some(local) = self.locals.get(target).cloned() {
+                    if local.type_.starts_with("FUNC(") {
+                        let return_type = callable_return_type(&local.type_).ok_or_else(|| {
+                            format!("native call through `{target}` has invalid callable type `{}`", local.type_)
+                        })?;
+                        let callable = ValueResult {
+                            type_: local.type_,
+                            location: {
+                                let register = self.allocate_register()?;
+                                self.emit(abi::load_u64(&register, abi::stack_pointer(), local.stack_offset));
+                                register
+                            },
+                            text: target.clone(),
+                        };
+                        return self.emit_function_value_call(target, &callable, args, Some(&return_type));
+                    }
+                }
                 if let Some(result) = self.lower_fs_path_call(target, args)? {
                     return Ok(result);
                 }
@@ -198,6 +360,27 @@ impl CodeBuilder<'_> {
                 self.emit_call(target, &symbol, args, None)
             }
             NirValue::CallResult { target, args } => {
+                if let Some(local) = self.locals.get(target).cloned() {
+                    if local.type_.starts_with("FUNC(") {
+                        let return_type = callable_return_type(&local.type_).ok_or_else(|| {
+                            format!("native raw call through `{target}` has invalid callable type `{}`", local.type_)
+                        })?;
+                        let callable = ValueResult {
+                            type_: local.type_,
+                            location: {
+                                let register = self.allocate_register()?;
+                                self.emit(abi::load_u64(&register, abi::stack_pointer(), local.stack_offset));
+                                register
+                            },
+                            text: target.clone(),
+                        };
+                        return self.emit_function_value_call(target, &callable, args, Some(&return_type))
+                            .map(|result| ValueResult {
+                                type_: format!("Result OF {return_type}"),
+                                ..result
+                            });
+                    }
+                }
                 let symbol = self
                     .function_symbols
                     .get(target)

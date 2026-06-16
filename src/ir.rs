@@ -5,7 +5,7 @@ use crate::ast::{
 use crate::builtins;
 use crate::json_string;
 use crate::numeric;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -139,6 +139,15 @@ pub(crate) enum IrValue {
     Local(String),
     FunctionRef {
         name: String,
+        type_: String,
+    },
+    Closure {
+        name: String,
+        type_: String,
+        captures: Vec<IrValue>,
+    },
+    Capture {
+        index: usize,
         type_: String,
     },
     Call {
@@ -385,6 +394,12 @@ struct LowerContext<'a> {
     lambdas: Vec<IrFunction>,
     next_lambda_id: usize,
     next_temp_id: usize,
+}
+
+#[derive(Clone)]
+struct CapturedLocal {
+    name: String,
+    type_: String,
 }
 
 fn lower_statement(
@@ -1383,6 +1398,11 @@ fn lower_expression_with_expected(
         Expression::Lambda { params, body } => {
             let name = format!("$lambda{}", context.next_lambda_id);
             context.next_lambda_id += 1;
+            let param_names = params
+                .iter()
+                .map(|param| param.name.clone())
+                .collect::<HashSet<_>>();
+            let captures = captured_locals(body, locals, &param_names);
             let mut lambda_locals = HashMap::new();
             let ir_params = params
                 .iter()
@@ -1399,9 +1419,26 @@ fn lower_expression_with_expected(
                     }
                 })
                 .collect::<Vec<_>>();
+            let mut body_ops = captures
+                .iter()
+                .enumerate()
+                .map(|(index, capture)| IrOp::Bind {
+                    mutable: false,
+                    name: capture.name.clone(),
+                    type_: capture.type_.clone(),
+                    value: Some(IrValue::Capture {
+                        index,
+                        type_: capture.type_.clone(),
+                    }),
+                })
+                .collect::<Vec<_>>();
+            for capture in &captures {
+                lambda_locals.insert(capture.name.clone(), capture.type_.clone());
+            }
             let returns = expression_type(body, &lambda_locals, context)
                 .expect("typecheck requires lambda return type before IR lowering");
             let value = lower_expression(body, &lambda_locals, context);
+            body_ops.push(IrOp::Return { value: Some(value) });
             context.lambdas.push(IrFunction {
                 name: name.clone(),
                 visibility: "private".to_string(),
@@ -1409,7 +1446,7 @@ fn lower_expression_with_expected(
                 isolated: false,
                 params: ir_params,
                 returns: returns.clone(),
-                body: vec![IrOp::Return { value: Some(value) }],
+                body: body_ops,
             });
             let params = params
                 .iter()
@@ -1421,9 +1458,18 @@ fn lower_expression_with_expected(
                 })
                 .collect::<Vec<_>>()
                 .join(", ");
-            IrValue::FunctionRef {
-                name,
-                type_: format!("FUNC({params}) AS {returns}"),
+            let type_ = format!("FUNC({params}) AS {returns}");
+            if captures.is_empty() {
+                IrValue::FunctionRef { name, type_ }
+            } else {
+                IrValue::Closure {
+                    name,
+                    type_,
+                    captures: captures
+                        .iter()
+                        .map(|capture| lower_expression(&Expression::Identifier(capture.name.clone()), locals, context))
+                        .collect(),
+                }
             }
         }
         Expression::Constructor {
@@ -1594,6 +1640,91 @@ fn constructor_arg_value(argument: &ConstructorArg) -> &Expression {
     match argument {
         ConstructorArg::Positional(value) => value,
         ConstructorArg::Named { value, .. } => value,
+    }
+}
+
+fn captured_locals(
+    expression: &Expression,
+    outer_locals: &HashMap<String, String>,
+    local_names: &HashSet<String>,
+) -> Vec<CapturedLocal> {
+    let mut captures = Vec::new();
+    let mut seen = HashSet::new();
+    collect_captured_locals(expression, outer_locals, local_names, &mut seen, &mut captures);
+    captures
+}
+
+fn collect_captured_locals(
+    expression: &Expression,
+    outer_locals: &HashMap<String, String>,
+    local_names: &HashSet<String>,
+    seen: &mut HashSet<String>,
+    captures: &mut Vec<CapturedLocal>,
+) {
+    match expression {
+        Expression::Identifier(name) => {
+            if let Some(type_) = outer_locals.get(name) {
+                if !local_names.contains(name) && seen.insert(name.clone()) {
+                    captures.push(CapturedLocal {
+                        name: name.clone(),
+                        type_: type_.clone(),
+                    });
+                }
+            }
+        }
+        Expression::Call { callee, arguments } => {
+            if let Some(type_) = outer_locals.get(callee) {
+                if !local_names.contains(callee) && seen.insert(callee.clone()) {
+                    captures.push(CapturedLocal {
+                        name: callee.clone(),
+                        type_: type_.clone(),
+                    });
+                }
+            }
+            for argument in arguments {
+                collect_captured_locals(argument, outer_locals, local_names, seen, captures);
+            }
+        }
+        Expression::Lambda { .. } => {}
+        Expression::Binary { left, right, .. } => {
+            collect_captured_locals(left, outer_locals, local_names, seen, captures);
+            collect_captured_locals(right, outer_locals, local_names, seen, captures);
+        }
+        Expression::Unary { operand, .. } => {
+            collect_captured_locals(operand, outer_locals, local_names, seen, captures);
+        }
+        Expression::Constructor { arguments, .. } => {
+            for argument in arguments {
+                collect_captured_locals(
+                    constructor_arg_value(argument),
+                    outer_locals,
+                    local_names,
+                    seen,
+                    captures,
+                );
+            }
+        }
+        Expression::ListLiteral(values) => {
+            for value in values {
+                collect_captured_locals(value, outer_locals, local_names, seen, captures);
+            }
+        }
+        Expression::MapLiteral { entries, .. } => {
+            for (key, value) in entries {
+                collect_captured_locals(key, outer_locals, local_names, seen, captures);
+                collect_captured_locals(value, outer_locals, local_names, seen, captures);
+            }
+        }
+        Expression::MemberAccess { target, .. } => {
+            collect_captured_locals(target, outer_locals, local_names, seen, captures);
+        }
+        Expression::WithUpdate { target, updates } => {
+            collect_captured_locals(target, outer_locals, local_names, seen, captures);
+            for update in updates {
+                collect_captured_locals(&update.value, outer_locals, local_names, seen, captures);
+            }
+        }
+        Expression::String(_) | Expression::Number(_) | Expression::Boolean(_) => {}
     }
 }
 
@@ -2226,6 +2357,30 @@ impl ToIrJson for IrValue {
                 format!(
                     "{{ \"kind\": \"functionRef\", \"name\": {}, \"type\": {} }}",
                     json_string(name),
+                    json_string(type_)
+                )
+            }
+            IrValue::Closure {
+                name,
+                type_,
+                captures,
+            } => {
+                let captures = captures
+                    .iter()
+                    .map(|arg| arg.to_json(0))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                format!(
+                    "{{ \"kind\": \"closure\", \"name\": {}, \"type\": {}, \"captures\": [{}] }}",
+                    json_string(name),
+                    json_string(type_),
+                    captures
+                )
+            }
+            IrValue::Capture { index, type_ } => {
+                format!(
+                    "{{ \"kind\": \"capture\", \"index\": {}, \"type\": {} }}",
+                    index,
                     json_string(type_)
                 )
             }

@@ -373,7 +373,7 @@ pub const RULES: &[Rule] = &[
         code: "2-203-0019",
         name: "TYPE_LAMBDA_CAPTURE_UNSUPPORTED",
         severity: Severity::Error,
-        message: "lambda captures are not supported by this compiler target",
+        message: "lambda capture is invalid",
     },
     Rule {
         code: "2-203-0020",

@@ -66,6 +66,10 @@ const RESULT_ERROR_MESSAGE_REGISTER: &str = "x2";
 pub(crate) const ARENA_ALLOC_SYMBOL: &str = "_mfb_arena_alloc";
 const ARENA_DESTROY_SYMBOL: &str = "_mfb_arena_destroy";
 const ARENA_STATE_REGISTER: &str = "x19";
+const CLOSURE_ENV_REGISTER: &str = "x28";
+const CLOSURE_OBJECT_SIZE: usize = 16;
+const CLOSURE_OFFSET_CODE: usize = 0;
+const CLOSURE_OFFSET_ENV: usize = 8;
 const ARENA_STATE_SIZE: usize = 64;
 const ARENA_DEFAULT_BLOCK_SIZE: u64 = 4096;
 const ARENA_BLOCK_HEADER_SIZE: usize = 32;
@@ -1661,6 +1665,11 @@ fn collect_package_function_refs_in_value(
                 symbols.insert(symbol.clone());
             }
         }
+        NirValue::Closure { captures, .. } => {
+            for value in captures {
+                collect_package_function_refs_in_value(value, package_import_symbols, symbols);
+            }
+        }
         NirValue::Call { args, .. }
         | NirValue::CallResult { args, .. }
         | NirValue::RuntimeCall { args, .. }
@@ -1709,7 +1718,7 @@ fn collect_package_function_refs_in_value(
         NirValue::Unary { operand, .. } => {
             collect_package_function_refs_in_value(operand, package_import_symbols, symbols);
         }
-        NirValue::Const { .. } | NirValue::Local(_) => {}
+        NirValue::Capture { .. } | NirValue::Const { .. } | NirValue::Local(_) => {}
     }
 }
 
@@ -3486,18 +3495,21 @@ fn lower_thread_trampoline(platform: &dyn CodegenPlatform) -> Result<CodeFunctio
     let instructions = if platform.target() == "linux-aarch64" {
         vec![
             abi::label("entry"),
-            abi::subtract_stack(32),
+            abi::subtract_stack(48),
             abi::store_u64(abi::link_register(), abi::stack_pointer(), 0),
             abi::store_u64(ARENA_STATE_REGISTER, abi::stack_pointer(), 8),
             abi::store_u64("x20", abi::stack_pointer(), 16),
+            abi::store_u64(CLOSURE_ENV_REGISTER, abi::stack_pointer(), 24),
             abi::move_register("x20", "x0"),
-            abi::store_u64("x20", abi::stack_pointer(), 24),
+            abi::store_u64("x20", abi::stack_pointer(), 32),
             abi::load_u64(ARENA_STATE_REGISTER, "x20", THREAD_OFFSET_ARENA_STATE),
             abi::load_u64("x9", "x20", THREAD_OFFSET_ENTRY),
+            abi::load_u64(CLOSURE_ENV_REGISTER, "x9", CLOSURE_OFFSET_ENV),
+            abi::load_u64("x9", "x9", CLOSURE_OFFSET_CODE),
             abi::load_u64("x1", "x20", THREAD_OFFSET_DATA),
             abi::move_register("x0", "x20"),
             abi::branch_link_register("x9"),
-            abi::load_u64("x20", abi::stack_pointer(), 24),
+            abi::load_u64("x20", abi::stack_pointer(), 32),
             abi::store_u64(RESULT_TAG_REGISTER, "x20", THREAD_OFFSET_RESULT_TAG),
             abi::store_u64(RESULT_VALUE_REGISTER, "x20", THREAD_OFFSET_RESULT_VALUE),
             abi::store_u64(
@@ -3509,19 +3521,23 @@ fn lower_thread_trampoline(platform: &dyn CodegenPlatform) -> Result<CodeFunctio
             abi::store_u64("x10", "x20", THREAD_OFFSET_STATE),
             abi::move_immediate("x0", "Integer", "0"),
             abi::load_u64(ARENA_STATE_REGISTER, abi::stack_pointer(), 8),
+            abi::load_u64(CLOSURE_ENV_REGISTER, abi::stack_pointer(), 24),
             abi::load_u64("x20", abi::stack_pointer(), 16),
             abi::load_u64(abi::link_register(), abi::stack_pointer(), 0),
-            abi::add_stack(32),
+            abi::add_stack(48),
             abi::return_(),
         ]
     } else {
         vec![
             abi::label("entry"),
-            abi::subtract_stack(16),
+            abi::subtract_stack(32),
             abi::move_register("x20", "x0"),
             abi::store_u64("x20", abi::stack_pointer(), 0),
+            abi::store_u64(CLOSURE_ENV_REGISTER, abi::stack_pointer(), 8),
             abi::load_u64(ARENA_STATE_REGISTER, "x20", THREAD_OFFSET_ARENA_STATE),
             abi::load_u64("x9", "x20", THREAD_OFFSET_ENTRY),
+            abi::load_u64(CLOSURE_ENV_REGISTER, "x9", CLOSURE_OFFSET_ENV),
+            abi::load_u64("x9", "x9", CLOSURE_OFFSET_CODE),
             abi::load_u64("x1", "x20", THREAD_OFFSET_DATA),
             abi::move_register("x0", "x20"),
             abi::branch_link_register("x9"),
@@ -3535,7 +3551,8 @@ fn lower_thread_trampoline(platform: &dyn CodegenPlatform) -> Result<CodeFunctio
             ),
             abi::move_immediate("x10", "Integer", "1"),
             abi::store_u64("x10", "x20", THREAD_OFFSET_STATE),
-            abi::add_stack(16),
+            abi::load_u64(CLOSURE_ENV_REGISTER, abi::stack_pointer(), 8),
+            abi::add_stack(32),
             abi::branch_self(),
             abi::return_(),
         ]
@@ -9380,7 +9397,13 @@ fn value_uses_call(value: &NirValue, target: &str) -> bool {
             value_uses_call(left, target) || value_uses_call(right, target)
         }
         NirValue::Unary { operand, .. } => value_uses_call(operand, target),
-        NirValue::Const { .. } | NirValue::Local(_) | NirValue::FunctionRef { .. } => false,
+        NirValue::Closure { captures, .. } => {
+            captures.iter().any(|value| value_uses_call(value, target))
+        }
+        NirValue::Capture { .. }
+        | NirValue::Const { .. }
+        | NirValue::Local(_)
+        | NirValue::FunctionRef { .. } => false,
     }
 }
 
@@ -9462,7 +9485,11 @@ fn value_uses_type_name(value: &NirValue) -> bool {
                 value_uses_type_name(left) || value_uses_type_name(right)
             }
             NirValue::Unary { operand, .. } => value_uses_type_name(operand),
-            NirValue::Const { .. } | NirValue::Local(_) | NirValue::FunctionRef { .. } => false,
+            NirValue::Closure { captures, .. } => captures.iter().any(value_uses_type_name),
+            NirValue::Capture { .. }
+            | NirValue::Const { .. }
+            | NirValue::Local(_)
+            | NirValue::FunctionRef { .. } => false,
         }
 }
 
@@ -9627,7 +9654,15 @@ fn collect_type_name_values_from_value(value: &NirValue, values: &mut Vec<String
             collect_type_name_values_from_value(right, values);
         }
         NirValue::Unary { operand, .. } => collect_type_name_values_from_value(operand, values),
-        NirValue::Const { .. } | NirValue::Local(_) | NirValue::FunctionRef { .. } => {}
+        NirValue::Closure { captures, .. } => {
+            for value in captures {
+                collect_type_name_values_from_value(value, values);
+            }
+        }
+        NirValue::Capture { .. }
+        | NirValue::Const { .. }
+        | NirValue::Local(_)
+        | NirValue::FunctionRef { .. } => {}
     }
 }
 
@@ -9845,7 +9880,13 @@ fn value_uses_unicode_runtime_tables(
         NirValue::Unary { operand, .. } => {
             value_uses_unicode_runtime_tables(operand, constants, types)
         }
-        NirValue::Const { .. } | NirValue::Local(_) | NirValue::FunctionRef { .. } => false,
+        NirValue::Closure { captures, .. } => captures
+            .iter()
+            .any(|value| value_uses_unicode_runtime_tables(value, constants, types)),
+        NirValue::Capture { .. }
+        | NirValue::Const { .. }
+        | NirValue::Local(_)
+        | NirValue::FunctionRef { .. } => false,
     }
 }
 
@@ -10216,7 +10257,15 @@ fn collect_string_values_from_value(
         NirValue::Unary { operand, .. } => {
             collect_string_values_from_value(operand, values, constants, types)
         }
-        NirValue::Const { .. } | NirValue::Local(_) | NirValue::FunctionRef { .. } => {}
+        NirValue::Closure { captures, .. } => {
+            for value in captures {
+                collect_string_values_from_value(value, values, constants, types);
+            }
+        }
+        NirValue::Capture { .. }
+        | NirValue::Const { .. }
+        | NirValue::Local(_)
+        | NirValue::FunctionRef { .. } => {}
     }
 }
 
@@ -10310,7 +10359,13 @@ fn value_may_return_invalid_format(
         NirValue::Unary { operand, .. } => {
             value_may_return_invalid_format(operand, constants, types)
         }
-        NirValue::Const { .. } | NirValue::Local(_) | NirValue::FunctionRef { .. } => false,
+        NirValue::Closure { captures, .. } => captures
+            .iter()
+            .any(|value| value_may_return_invalid_format(value, constants, types)),
+        NirValue::Capture { .. }
+        | NirValue::Const { .. }
+        | NirValue::Local(_)
+        | NirValue::FunctionRef { .. } => false,
     }
 }
 
@@ -10439,6 +10494,8 @@ fn static_type_name_with_types(
         NirValue::Const { type_, .. } => Some(type_.clone()),
         NirValue::Local(name) => types.get(name).cloned(),
         NirValue::FunctionRef { type_, .. }
+        | NirValue::Closure { type_, .. }
+        | NirValue::Capture { type_, .. }
         | NirValue::Constructor { type_, .. }
         | NirValue::WithUpdate { type_, .. }
         | NirValue::ListLiteral { type_, .. }
@@ -10665,6 +10722,11 @@ fn collect_builtin_function_refs_in_value(
                 }
             }
         }
+        NirValue::Closure { captures, .. } => {
+            for value in captures {
+                collect_builtin_function_refs_in_value(value, refs, seen);
+            }
+        }
         NirValue::Call { args, .. }
         | NirValue::CallResult { args, .. }
         | NirValue::RuntimeCall { args, .. } => {
@@ -10713,7 +10775,7 @@ fn collect_builtin_function_refs_in_value(
         NirValue::MemberAccess { target, .. } => {
             collect_builtin_function_refs_in_value(target, refs, seen);
         }
-        NirValue::Const { .. } | NirValue::Local(_) => {}
+        NirValue::Capture { .. } | NirValue::Const { .. } | NirValue::Local(_) => {}
     }
 }
 

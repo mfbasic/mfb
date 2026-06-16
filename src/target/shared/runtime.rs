@@ -1356,7 +1356,15 @@ fn push_value_helpers(value: &IrValue, helpers: &mut Vec<RuntimeHelper>) {
                 push_value_helpers(value, helpers);
             }
         }
-        IrValue::Const { .. } | IrValue::Local(_) | IrValue::FunctionRef { .. } => {}
+        IrValue::Closure { captures, .. } => {
+            for value in captures {
+                push_value_helpers(value, helpers);
+            }
+        }
+        IrValue::Capture { .. }
+        | IrValue::Const { .. }
+        | IrValue::Local(_)
+        | IrValue::FunctionRef { .. } => {}
     }
 }
 

@@ -128,6 +128,8 @@ const OPCODE_CALL_VALUE_RESULT: u16 = 63;
 const OPCODE_RESULT_IS_OK: u16 = 64;
 const OPCODE_RESULT_VALUE: u16 = 65;
 const OPCODE_RESULT_ERROR: u16 = 66;
+const OPCODE_LOAD_CAPTURE: u16 = 67;
+const OPCODE_LOAD_CLOSURE: u16 = 68;
 const OPCODE_RETURN_OK: u16 = 70;
 const OPCODE_RETURN_ERR: u16 = 71;
 const OPCODE_CONSTRUCT_RECORD: u16 = 80;
@@ -561,6 +563,8 @@ pub const NATIVE_OPCODE_RESULT_VALUE: u16 = OPCODE_RESULT_VALUE;
 pub const NATIVE_OPCODE_RESULT_ERROR: u16 = OPCODE_RESULT_ERROR;
 pub const NATIVE_OPCODE_LOAD_FUNCTION: u16 = OPCODE_LOAD_FUNCTION;
 pub const NATIVE_OPCODE_CALL_VALUE_RESULT: u16 = OPCODE_CALL_VALUE_RESULT;
+pub const NATIVE_OPCODE_LOAD_CAPTURE: u16 = OPCODE_LOAD_CAPTURE;
+pub const NATIVE_OPCODE_LOAD_CLOSURE: u16 = OPCODE_LOAD_CLOSURE;
 pub const NATIVE_OPCODE_RETURN_OK: u16 = OPCODE_RETURN_OK;
 pub const NATIVE_OPCODE_CONSTRUCT_RECORD: u16 = OPCODE_CONSTRUCT_RECORD;
 pub const NATIVE_OPCODE_CONSTRUCT_VARIANT: u16 = OPCODE_CONSTRUCT_VARIANT;
@@ -3153,6 +3157,9 @@ fn remap_instruction(mut instruction: Instruction, map: &MergeMap) -> Result<Ins
         OPCODE_LOAD_FUNCTION => {
             remap_operand(&mut instruction, 1, |value| remap_function_id(map, value))?;
         }
+        OPCODE_LOAD_CLOSURE => {
+            remap_operand(&mut instruction, 1, |value| remap_function_id(map, value))?;
+        }
         OPCODE_CALL_RESULT => {
             remap_operand(&mut instruction, 1, |value| remap_function_id(map, value))?;
         }
@@ -3398,6 +3405,8 @@ fn value_uses_resource_type(value: &IrValue) -> bool {
     match value {
         IrValue::Const { type_, .. }
         | IrValue::FunctionRef { type_, .. }
+        | IrValue::Closure { type_, .. }
+        | IrValue::Capture { type_, .. }
         | IrValue::Constructor { type_, .. }
         | IrValue::ListLiteral { type_, .. }
         | IrValue::MapLiteral { type_, .. } => is_resource_type_name(type_),
@@ -3997,6 +4006,37 @@ impl<'a> FunctionBuilder<'a> {
                 let type_id = self.type_id(type_);
                 let register = self.add_register(type_id, 0);
                 self.push(OPCODE_LOAD_FUNCTION, vec![register, function_id]);
+                Ok(ValueSlot {
+                    register,
+                    type_name: type_.clone(),
+                })
+            }
+            IrValue::Closure {
+                name,
+                type_,
+                captures,
+            } => {
+                let function_id = self
+                    .function_ids
+                    .get(name)
+                    .copied()
+                    .ok_or_else(|| format!("IR references unknown closure `{name}`"))?;
+                let type_id = self.type_id(type_);
+                let register = self.add_register(type_id, 0);
+                let mut operands = vec![register, function_id, captures.len() as u32];
+                for capture in captures {
+                    operands.push(self.lower_value(capture, locals)?.register);
+                }
+                self.push(OPCODE_LOAD_CLOSURE, operands);
+                Ok(ValueSlot {
+                    register,
+                    type_name: type_.clone(),
+                })
+            }
+            IrValue::Capture { index, type_ } => {
+                let type_id = self.type_id(type_);
+                let register = self.add_register(type_id, 0);
+                self.push(OPCODE_LOAD_CAPTURE, vec![register, *index as u32]);
                 Ok(ValueSlot {
                     register,
                     type_name: type_.clone(),

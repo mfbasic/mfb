@@ -1,0 +1,40 @@
+$ mfb build -ast tests/lambda-capture-invalid
+   7 | FUNC main AS Integer
+   8 |   MUT offset AS Integer = 1
+   9 |   LET badMutable AS FUNC(Integer) AS Integer = LAMBDA(value AS Integer) -> value + offset
+     | ^
+tests/lambda-capture-invalid/src/main.mfb:9 error[2-203-0019 TYPE_LAMBDA_CAPTURE_UNSUPPORTED]: lambda capture is invalid
+               Lambda captures mutable local `offset`; mutable captures are invalid.
+  10 | 
+  11 |   USING file = fs::openFile("tests/lambda-capture-invalid/data/input.txt")
+  12 |     LET badResource AS FUNC() AS String = LAMBDA() -> fs::readLine(file)
+     | ^
+tests/lambda-capture-invalid/src/main.mfb:12 error[2-203-0019 TYPE_LAMBDA_CAPTURE_UNSUPPORTED]: lambda capture is invalid
+               Lambda captures resource local `file`; resource captures are invalid.
+  15 |   USING file2 = fs::openFile("tests/lambda-capture-invalid/data/input.txt")
+  16 |     LET boxed AS FileBox = FileBox[file2]
+  17 |     LET badNonCopyable AS FUNC() AS FileBox = LAMBDA() -> boxed
+     | ^
+tests/lambda-capture-invalid/src/main.mfb:17 error[2-203-0019 TYPE_LAMBDA_CAPTURE_UNSUPPORTED]: lambda capture is invalid
+               Lambda captures non-copyable local `boxed` of type `FileBox`; non-copyable captures are invalid.
+[exit 1]
+$ mfb build -ir tests/lambda-capture-invalid
+   7 | FUNC main AS Integer
+   8 |   MUT offset AS Integer = 1
+   9 |   LET badMutable AS FUNC(Integer) AS Integer = LAMBDA(value AS Integer) -> value + offset
+     | ^
+tests/lambda-capture-invalid/src/main.mfb:9 error[2-203-0019 TYPE_LAMBDA_CAPTURE_UNSUPPORTED]: lambda capture is invalid
+               Lambda captures mutable local `offset`; mutable captures are invalid.
+  10 | 
+  11 |   USING file = fs::openFile("tests/lambda-capture-invalid/data/input.txt")
+  12 |     LET badResource AS FUNC() AS String = LAMBDA() -> fs::readLine(file)
+     | ^
+tests/lambda-capture-invalid/src/main.mfb:12 error[2-203-0019 TYPE_LAMBDA_CAPTURE_UNSUPPORTED]: lambda capture is invalid
+               Lambda captures resource local `file`; resource captures are invalid.
+  15 |   USING file2 = fs::openFile("tests/lambda-capture-invalid/data/input.txt")
+  16 |     LET boxed AS FileBox = FileBox[file2]
+  17 |     LET badNonCopyable AS FUNC() AS FileBox = LAMBDA() -> boxed
+     | ^
+tests/lambda-capture-invalid/src/main.mfb:17 error[2-203-0019 TYPE_LAMBDA_CAPTURE_UNSUPPORTED]: lambda capture is invalid
+               Lambda captures non-copyable local `boxed` of type `FileBox`; non-copyable captures are invalid.
+[exit 1]

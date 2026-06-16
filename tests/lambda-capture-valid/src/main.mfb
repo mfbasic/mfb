@@ -1,0 +1,24 @@
+IMPORT io
+
+FUNC makeAdder(base AS Integer) AS FUNC(Integer) AS Integer
+  LET captured AS Integer = base
+  RETURN LAMBDA(value AS Integer) -> value + captured
+END FUNC
+
+FUNC main AS Integer
+  LET addTwo AS FUNC(Integer) AS Integer = makeAdder(2)
+  LET addTen AS FUNC(Integer) AS Integer = makeAdder(10)
+  LET threshold AS Integer = 3
+  LET aboveThreshold AS FUNC(Integer) AS Boolean = LAMBDA(value AS Integer) -> value > threshold
+  LET numbers AS List OF Integer = [1, 2, 3, 4]
+  LET incremented AS List OF Integer = transform(numbers, addTwo)
+  LET elevated AS List OF Integer = transform([1], addTen)
+  LET filtered AS List OF Integer = filter(incremented, aboveThreshold)
+
+  io::print(toString(get(elevated, 0)))
+  io::print(toString(get(incremented, 0)))
+  io::print(toString(get(incremented, 3)))
+  io::print(toString(len(filtered)))
+
+  RETURN sum(incremented) + sum(elevated)
+END FUNC

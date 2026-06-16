@@ -449,8 +449,8 @@ FUNC applyTwice(f AS FUNC(Integer) AS Integer, x AS Integer) AS Integer
 END FUNC
 ```
 
-- **Closures** capture `LET` bindings by value. Capturing `MUT` is a **compile error** — closures capture values at creation time, not live cells. (This is distinct from inner-block reassignment of an outer `MUT`, which is allowed because the scope is still live.)
-- **Non-escaping closures** are not part of the v1 source language. Because ordinary closures cannot capture `MUT` bindings or resource handles, the memory model does not require `NONESCAPING`, `BORROW`, or lifetime annotations for closure safety. A future version may add non-escaping closures only if it also specifies local borrow lifetimes and escape diagnostics.
+- **Closures** capture copyable `LET` bindings by value. Capturing `MUT` is a **compile error** because closures capture values at creation time, not live cells. Capturing resource handles or other non-copyable values is also a compile error in v1. (This is distinct from inner-block reassignment of an outer `MUT`, which is allowed because the scope is still live.)
+- **Non-escaping closures** are not part of the v1 source language. Because ordinary closures cannot capture `MUT` bindings, resource handles, or other non-copyable values, the memory model does not require `NONESCAPING`, `BORROW`, or lifetime annotations for closure safety. A future version may add non-escaping closures only if it also specifies local borrow lifetimes and escape diagnostics.
 - **Effects are inferred, not annotated, in v1.** The compiler records fallible calls, resource use, thread use, filesystem/network/native access, and package permissions as audit metadata (§22). Source-level effect or purity annotations are reserved for a future version.
 - **Recursion** is allowed. Implementations are not required to perform tail-call optimization. A call stack or recursion-depth exhaustion fails with `ErrOutOfMemory` or a more specific future runtime error rather than causing undefined behavior.
 
@@ -972,9 +972,9 @@ Each package instance owns one arena. Worker threads or future isolated package 
 
 ### 14.4 Closures and first-class functions
 
-Closures capture `LET` bindings by value when the closure is created. Capturing a copyable value copies it into the closure environment unless the compiler can move it without changing later validity. Capturing a non-copyable value moves it into the closure environment, making the original binding unavailable after closure creation.
+Closures capture `LET` bindings by value when the closure is created. Capturing a copyable value copies it into the closure environment unless the compiler can move it without changing later validity.
 
-Capturing `MUT` bindings is a compile-time error because closures do not capture live mutable cells. Capturing resource handles is also a compile-time error unless a later non-escaping closure feature explicitly defines local borrowing rules.
+Capturing `MUT` bindings is a compile-time error because closures do not capture live mutable cells. Capturing resource handles or any other non-copyable values is also a compile-time error in v1 unless a later non-escaping closure feature explicitly defines local borrowing or move rules.
 
 A closure environment is owned by the function value. Dropping the function value drops its captured values in reverse capture order.
 
@@ -1007,6 +1007,7 @@ The compiler must diagnose:
 - Cyclic value construction.
 - Capturing `MUT` bindings in closures.
 - Capturing resource handles in ordinary closures.
+- Capturing other non-copyable values in ordinary closures.
 - Storing resources or thread handles in ordinary collections.
 - Any control-flow path that could drop the same resource or owned value more than once.
 

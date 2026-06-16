@@ -155,6 +155,15 @@ pub(crate) enum NirValue {
         name: String,
         type_: String,
     },
+    Closure {
+        name: String,
+        type_: String,
+        captures: Vec<NirValue>,
+    },
+    Capture {
+        index: usize,
+        type_: String,
+    },
     Call {
         target: String,
         args: Vec<NirValue>,
@@ -465,6 +474,19 @@ fn lower_value(value: &IrValue) -> NirValue {
         IrValue::Local(name) => NirValue::Local(name.clone()),
         IrValue::FunctionRef { name, type_ } => NirValue::FunctionRef {
             name: name.clone(),
+            type_: type_.clone(),
+        },
+        IrValue::Closure {
+            name,
+            type_,
+            captures,
+        } => NirValue::Closure {
+            name: name.clone(),
+            type_: type_.clone(),
+            captures: captures.iter().map(lower_value).collect(),
+        },
+        IrValue::Capture { index, type_ } => NirValue::Capture {
+            index: *index,
             type_: type_.clone(),
         },
         IrValue::Call { target, args } => {
@@ -1116,6 +1138,21 @@ impl ToNirJson for NirValue {
             NirValue::FunctionRef { name, type_ } => format!(
                 "{{ \"kind\": \"functionRef\", \"name\": {}, \"type\": {} }}",
                 json_string(name),
+                json_string(type_)
+            ),
+            NirValue::Closure {
+                name,
+                type_,
+                captures,
+            } => format!(
+                "{{ \"kind\": \"closure\", \"name\": {}, \"type\": {}, \"captures\": [{}] }}",
+                json_string(name),
+                json_string(type_),
+                join_values(captures)
+            ),
+            NirValue::Capture { index, type_ } => format!(
+                "{{ \"kind\": \"capture\", \"index\": {}, \"type\": {} }}",
+                index,
                 json_string(type_)
             ),
             NirValue::Call { target, args } => format!(

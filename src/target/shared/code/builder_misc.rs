@@ -385,6 +385,8 @@ impl CodeBuilder<'_> {
             NirValue::Const { type_, .. } => Some(type_.clone()),
             NirValue::Local(name) => self.locals.get(name).map(|local| local.type_.clone()),
             NirValue::FunctionRef { type_, .. }
+            | NirValue::Closure { type_, .. }
+            | NirValue::Capture { type_, .. }
             | NirValue::Constructor { type_, .. }
             | NirValue::WithUpdate { type_, .. }
             | NirValue::ListLiteral { type_, .. }
@@ -583,6 +585,81 @@ impl CodeBuilder<'_> {
         }
         if return_type.is_none() {
             let ok_label = self.label("call_ok");
+            self.emit(abi::compare_immediate(RESULT_TAG_REGISTER, RESULT_OK_TAG));
+            self.emit(abi::branch_eq(&ok_label));
+            if self.trap.is_some() {
+                self.route_current_result_to_trap()?;
+            } else {
+                self.emit(abi::return_());
+            }
+            self.emit(abi::label(&ok_label));
+        }
+        let register = self.allocate_register()?;
+        self.emit(abi::move_register(&register, RESULT_VALUE_REGISTER));
+        Ok(ValueResult {
+            type_: result_type,
+            location: register,
+            text: format!("call {target}({})", join_texts(&arg_values)),
+        })
+    }
+
+    pub(super) fn emit_function_value_call(
+        &mut self,
+        target: &str,
+        callable: &ValueResult,
+        args: &[NirValue],
+        return_type: Option<&str>,
+    ) -> Result<ValueResult, String> {
+        let mut arg_values = Vec::new();
+        let mut arg_slots = Vec::new();
+        for arg in args {
+            let value = self.lower_value(arg)?;
+            let slot = self.allocate_stack_object("call_arg", 8);
+            self.emit(abi::store_u64(&value.location, abi::stack_pointer(), slot));
+            arg_values.push(value);
+            arg_slots.push(slot);
+        }
+        for (index, slot) in arg_slots.iter().enumerate() {
+            self.emit(abi::load_u64("x9", abi::stack_pointer(), *slot));
+            self.emit(abi::move_register(&abi::argument_register(index)?, "x9"));
+        }
+        let saved_env_slot = self.allocate_stack_object("closure_saved_env", 8);
+        let code_register = self.allocate_register()?;
+        let env_register = self.allocate_register()?;
+        self.emit(abi::store_u64(
+            CLOSURE_ENV_REGISTER,
+            abi::stack_pointer(),
+            saved_env_slot,
+        ));
+        self.emit(abi::load_u64(
+            &code_register,
+            &callable.location,
+            CLOSURE_OFFSET_CODE,
+        ));
+        self.emit(abi::load_u64(
+            &env_register,
+            &callable.location,
+            CLOSURE_OFFSET_ENV,
+        ));
+        self.emit(abi::move_register(CLOSURE_ENV_REGISTER, &env_register));
+        self.emit(abi::branch_link_register(&code_register));
+        self.emit(abi::load_u64(
+            CLOSURE_ENV_REGISTER,
+            abi::stack_pointer(),
+            saved_env_slot,
+        ));
+        let result_type = return_type
+            .map(|type_| type_.to_string())
+            .unwrap_or_else(|| "Unknown".to_string());
+        if result_type == "Nothing" {
+            return Ok(ValueResult {
+                type_: result_type,
+                location: "void".to_string(),
+                text: format!("call {target}({})", join_texts(&arg_values)),
+            });
+        }
+        if return_type.is_none() {
+            let ok_label = self.label("call_value_ok");
             self.emit(abi::compare_immediate(RESULT_TAG_REGISTER, RESULT_OK_TAG));
             self.emit(abi::branch_eq(&ok_label));
             if self.trap.is_some() {

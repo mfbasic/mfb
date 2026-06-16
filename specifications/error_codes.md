@@ -153,7 +153,7 @@ These codes correspond to `src/rules.rs` and are emitted directly by the compile
 | `2-203-0016` | `TYPE_FLOAT_LITERAL_UNDERFLOW` | error | `numeric literal is outside the Float range` |
 | `2-203-0017` | `TYPE_FIXED_LITERAL_OVERFLOW` | error | `numeric literal is outside the Fixed range` |
 | `2-203-0018` | `TYPE_FIXED_LITERAL_UNDERFLOW` | error | `numeric literal is outside the Fixed range` |
-| `2-203-0019` | `TYPE_LAMBDA_CAPTURE_UNSUPPORTED` | error | `lambda captures are not supported by this compiler target` |
+| `2-203-0019` | `TYPE_LAMBDA_CAPTURE_UNSUPPORTED` | error | `lambda capture is invalid` |
 | `2-203-0020` | `TYPE_BINDING_REQUIRES_TYPE_OR_VALUE` | error | `binding requires a type annotation or initializer` |
 | `2-203-0021` | `TYPE_CALL_ARGUMENT_MISMATCH` | error | `function call argument type does not match parameter type` |
 | `2-203-0022` | `TYPE_CALL_ARITY_MISMATCH` | error | `function call has the wrong number of arguments` |

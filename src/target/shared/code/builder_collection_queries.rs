@@ -685,7 +685,7 @@ impl CodeBuilder<'_> {
         let item = self.emit_load_collection_payload(&element_type, "x8", "x11", "x12")?;
         self.emit(abi::move_register(&abi::argument_register(0)?, &item));
         self.emit(abi::load_u64("x17", abi::stack_pointer(), action_slot));
-        self.emit_callable_branch("x17");
+        self.emit_direct_callable_branch("x17");
         self.emit(abi::compare_immediate(RESULT_TAG_REGISTER, RESULT_OK_TAG));
         self.emit(abi::branch_eq(&ok_label));
         self.emit(abi::return_());
@@ -1040,7 +1040,35 @@ impl CodeBuilder<'_> {
     }
 
     pub(super) fn emit_direct_callable_branch(&mut self, location: &str) {
-        self.emit_callable_branch(location);
+        let saved_env_slot = self.allocate_stack_object("closure_saved_env", 8);
+        let code_register = self
+            .allocate_register()
+            .expect("closure call needs a scratch register");
+        let env_register = self
+            .allocate_register()
+            .expect("closure call needs a scratch register");
+        self.emit(abi::store_u64(
+            CLOSURE_ENV_REGISTER,
+            abi::stack_pointer(),
+            saved_env_slot,
+        ));
+        self.emit(abi::load_u64(
+            &code_register,
+            location,
+            CLOSURE_OFFSET_CODE,
+        ));
+        self.emit(abi::load_u64(
+            &env_register,
+            location,
+            CLOSURE_OFFSET_ENV,
+        ));
+        self.emit(abi::move_register(CLOSURE_ENV_REGISTER, &env_register));
+        self.emit_callable_branch(&code_register);
+        self.emit(abi::load_u64(
+            CLOSURE_ENV_REGISTER,
+            abi::stack_pointer(),
+            saved_env_slot,
+        ));
     }
 
     pub(super) fn emit_callable_branch(&mut self, location: &str) {

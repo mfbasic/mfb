@@ -520,7 +520,15 @@ fn collect_platform_imports_from_value(
         NirValue::Unary { operand, .. } => {
             collect_platform_imports_from_value(platform, required_by, operand, imports)
         }
-        NirValue::Const { .. } | NirValue::Local(_) | NirValue::FunctionRef { .. } => {}
+        NirValue::Closure { captures, .. } => {
+            for value in captures {
+                collect_platform_imports_from_value(platform, required_by, value, imports);
+            }
+        }
+        NirValue::Capture { .. }
+        | NirValue::Const { .. }
+        | NirValue::Local(_)
+        | NirValue::FunctionRef { .. } => {}
     }
 }
 
@@ -695,7 +703,15 @@ fn collect_runtime_symbols_from_value(
         NirValue::Unary { operand, .. } => {
             collect_runtime_symbols_from_value(operand, symbols, constants)
         }
-        NirValue::Const { .. } | NirValue::Local(_) | NirValue::FunctionRef { .. } => {}
+        NirValue::Closure { captures, .. } => {
+            for value in captures {
+                collect_runtime_symbols_from_value(value, symbols, constants);
+            }
+        }
+        NirValue::Capture { .. }
+        | NirValue::Const { .. }
+        | NirValue::Local(_)
+        | NirValue::FunctionRef { .. } => {}
     }
 }
 
@@ -1067,6 +1083,15 @@ impl FunctionPlanBuilder<'_> {
             NirValue::FunctionRef { type_, .. } => {
                 storage_for_type(type_, self.type_storage)?;
             }
+            NirValue::Closure { type_, captures, .. } => {
+                storage_for_type(type_, self.type_storage)?;
+                for value in captures {
+                    self.lower_value(value)?;
+                }
+            }
+            NirValue::Capture { type_, .. } => {
+                storage_for_type(type_, self.type_storage)?;
+            }
             NirValue::Local(_) => {}
         }
         Ok(())
@@ -1242,6 +1267,11 @@ fn describe_value(value: &NirValue) -> String {
         NirValue::Const { type_, value } => format!("{type_}({value})"),
         NirValue::Local(name) => format!("local {name}"),
         NirValue::FunctionRef { name, .. } => format!("functionRef {name}"),
+        NirValue::Closure { name, captures, .. } => format!(
+            "closure {name}[{}]",
+            captures.iter().map(describe_value).collect::<Vec<_>>().join(", ")
+        ),
+        NirValue::Capture { index, .. } => format!("capture[{index}]"),
         NirValue::Call { target, args } => {
             let args = args
                 .iter()
@@ -1402,7 +1432,15 @@ fn collect_string_literals(value: &NirValue, literals: &mut Vec<String>) {
             collect_string_literals(right, literals);
         }
         NirValue::Unary { operand, .. } => collect_string_literals(operand, literals),
-        NirValue::Const { .. } | NirValue::Local(_) | NirValue::FunctionRef { .. } => {}
+        NirValue::Closure { captures, .. } => {
+            for value in captures {
+                collect_string_literals(value, literals);
+            }
+        }
+        NirValue::Capture { .. }
+        | NirValue::Const { .. }
+        | NirValue::Local(_)
+        | NirValue::FunctionRef { .. } => {}
     }
 }
 

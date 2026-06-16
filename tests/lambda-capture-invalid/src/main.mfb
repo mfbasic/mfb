@@ -1,0 +1,21 @@
+IMPORT fs
+
+TYPE FileBox
+  handle AS File
+END TYPE
+
+FUNC main AS Integer
+  MUT offset AS Integer = 1
+  LET badMutable AS FUNC(Integer) AS Integer = LAMBDA(value AS Integer) -> value + offset
+
+  USING file = fs::openFile("tests/lambda-capture-invalid/data/input.txt")
+    LET badResource AS FUNC() AS String = LAMBDA() -> fs::readLine(file)
+  END USING
+
+  USING file2 = fs::openFile("tests/lambda-capture-invalid/data/input.txt")
+    LET boxed AS FileBox = FileBox[file2]
+    LET badNonCopyable AS FUNC() AS FileBox = LAMBDA() -> boxed
+  END USING
+
+  RETURN 0
+END FUNC

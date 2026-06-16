@@ -46,7 +46,7 @@ REQUIREMENT: Native `LINK` binding declarations
 SPECIFICATION: specifications/mfbasic.md @ §17 Native Libraries
 The lexer/parser have no `LINK`, `SYMBOL`, `ABI`, `SUCCESS_ON`, `ERROR_ON`, `RETURN_OUT`, native ABI types, or `TYPE ... AS RESOURCE` declaration support. Resolve by adding native binding syntax through AST/resolver/typechecker/IR, emitting `NATIVE_LINK_TABLE` and `RESOURCE_TABLE`, enforcing C ABI/resource rules, and wiring native executable linking for declared libraries/symbols.
 
-REQUIREMENT: Closure captures
+[FIXED] REQUIREMENT: Closure captures
 SPECIFICATION: specifications/mfbasic.md @ §6 Functions and §14.4 Closures and first-class functions
 Lambdas are parsed and typed, but any capture of an outer `LET` currently reports “closure environments are not supported yet.” The spec requires closures to capture `LET` bindings by value while rejecting `MUT` and resource captures. Resolve by adding closure environment analysis, owned capture lowering, function-value representation, bytecode/native support, and diagnostics only for invalid mutable/resource/non-copyable captures.
 

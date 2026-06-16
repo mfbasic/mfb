@@ -39,6 +39,13 @@ struct LocalInfo {
 }
 
 #[derive(Clone)]
+struct CapturedLocal {
+    name: String,
+    type_: Type,
+    mutable: bool,
+}
+
+#[derive(Clone)]
 struct FunctionSig {
     kind: FunctionKind,
     params: Vec<ParamSig>,
@@ -2216,23 +2223,33 @@ impl<'a> TypeChecker<'a> {
             .collect::<HashSet<_>>();
         let captures = captured_locals(body, outer_locals, &param_names);
         for capture in captures {
-            if outer_locals
-                .get(&capture)
-                .is_some_and(|local| local.mutable)
-            {
+            if capture.mutable {
                 self.report(
                     "TYPE_LAMBDA_CAPTURE_UNSUPPORTED",
                     &format!(
-                        "Lambda captures mutable local `{capture}`; mutable captures are invalid."
+                        "Lambda captures mutable local `{}`; mutable captures are invalid.",
+                        capture.name
                     ),
                     file,
                     line,
                 );
-            } else {
+            } else if self.is_resource_type(&capture.type_) {
                 self.report(
                     "TYPE_LAMBDA_CAPTURE_UNSUPPORTED",
                     &format!(
-                        "Lambda captures local `{capture}`, but closure environments are not supported yet."
+                        "Lambda captures resource local `{}`; resource captures are invalid.",
+                        capture.name
+                    ),
+                    file,
+                    line,
+                );
+            } else if !self.is_copyable_type(&capture.type_) {
+                self.report(
+                    "TYPE_LAMBDA_CAPTURE_UNSUPPORTED",
+                    &format!(
+                        "Lambda captures non-copyable local `{}` of type `{}`; non-copyable captures are invalid.",
+                        capture.name,
+                        self.type_name(&capture.type_)
                     ),
                     file,
                     line,
@@ -2902,6 +2919,50 @@ impl<'a> TypeChecker<'a> {
         )
     }
 
+    fn is_resource_type(&self, type_: &Type) -> bool {
+        match type_ {
+            Type::User(name) => builtins::is_resource_type(name),
+            _ => false,
+        }
+    }
+
+    fn is_copyable_type(&self, type_: &Type) -> bool {
+        match type_ {
+            Type::Boolean
+            | Type::Byte
+            | Type::Error
+            | Type::Fixed
+            | Type::Float
+            | Type::Integer
+            | Type::Nothing
+            | Type::String
+            | Type::Unknown => true,
+            Type::List(element) => self.is_copyable_type(element),
+            Type::Map(key, value) => self.is_copyable_type(key) && self.is_copyable_type(value),
+            Type::Result(success) => self.is_copyable_type(success),
+            Type::Function { .. } => true,
+            Type::Thread(_, _) => false,
+            Type::User(name) => {
+                if builtins::is_resource_type(name) {
+                    return false;
+                }
+                let Some(info) = self.type_infos.get(name) else {
+                    return true;
+                };
+                match info.kind {
+                    TypeDeclKind::Enum => true,
+                    TypeDeclKind::Type => {
+                        info.fields.iter().all(|field| self.is_copyable_type(&field.type_))
+                    }
+                    TypeDeclKind::Union => info
+                        .variants
+                        .iter()
+                        .all(|variant| variant.fields.iter().all(|field| self.is_copyable_type(&field.type_))),
+                }
+            }
+        }
+    }
+
     fn visible_from(&self, file: &AstFile, visibility: Visibility, owner_file_path: &str) -> bool {
         match visibility {
             Visibility::Export | Visibility::Package => true,
@@ -3194,9 +3255,10 @@ fn captured_locals(
     expression: &Expression,
     outer_locals: &HashMap<String, LocalInfo>,
     local_names: &HashSet<String>,
-) -> HashSet<String> {
-    let mut captures = HashSet::new();
-    collect_captured_locals(expression, outer_locals, local_names, &mut captures);
+) -> Vec<CapturedLocal> {
+    let mut captures = Vec::new();
+    let mut seen = HashSet::new();
+    collect_captured_locals(expression, outer_locals, local_names, &mut seen, &mut captures);
     captures
 }
 
@@ -3204,29 +3266,42 @@ fn collect_captured_locals(
     expression: &Expression,
     outer_locals: &HashMap<String, LocalInfo>,
     local_names: &HashSet<String>,
-    captures: &mut HashSet<String>,
+    seen: &mut HashSet<String>,
+    captures: &mut Vec<CapturedLocal>,
 ) {
     match expression {
         Expression::Identifier(name) => {
-            if outer_locals.contains_key(name) && !local_names.contains(name) {
-                captures.insert(name.clone());
+            if let Some(local) = outer_locals.get(name) {
+                if !local_names.contains(name) && seen.insert(name.clone()) {
+                    captures.push(CapturedLocal {
+                        name: name.clone(),
+                        type_: local.type_.clone(),
+                        mutable: local.mutable,
+                    });
+                }
             }
         }
         Expression::Call { callee, arguments } => {
-            if outer_locals.contains_key(callee) && !local_names.contains(callee) {
-                captures.insert(callee.clone());
+            if let Some(local) = outer_locals.get(callee) {
+                if !local_names.contains(callee) && seen.insert(callee.clone()) {
+                    captures.push(CapturedLocal {
+                        name: callee.clone(),
+                        type_: local.type_.clone(),
+                        mutable: local.mutable,
+                    });
+                }
             }
             for argument in arguments {
-                collect_captured_locals(argument, outer_locals, local_names, captures);
+                collect_captured_locals(argument, outer_locals, local_names, seen, captures);
             }
         }
         Expression::Lambda { .. } => {}
         Expression::Binary { left, right, .. } => {
-            collect_captured_locals(left, outer_locals, local_names, captures);
-            collect_captured_locals(right, outer_locals, local_names, captures);
+            collect_captured_locals(left, outer_locals, local_names, seen, captures);
+            collect_captured_locals(right, outer_locals, local_names, seen, captures);
         }
         Expression::Unary { operand, .. } => {
-            collect_captured_locals(operand, outer_locals, local_names, captures);
+            collect_captured_locals(operand, outer_locals, local_names, seen, captures);
         }
         Expression::Constructor { arguments, .. } => {
             for argument in arguments {
@@ -3234,28 +3309,29 @@ fn collect_captured_locals(
                     constructor_arg_value(argument),
                     outer_locals,
                     local_names,
+                    seen,
                     captures,
                 );
             }
         }
         Expression::ListLiteral(values) => {
             for value in values {
-                collect_captured_locals(value, outer_locals, local_names, captures);
+                collect_captured_locals(value, outer_locals, local_names, seen, captures);
             }
         }
         Expression::MapLiteral { entries, .. } => {
             for (key, value) in entries {
-                collect_captured_locals(key, outer_locals, local_names, captures);
-                collect_captured_locals(value, outer_locals, local_names, captures);
+                collect_captured_locals(key, outer_locals, local_names, seen, captures);
+                collect_captured_locals(value, outer_locals, local_names, seen, captures);
             }
         }
         Expression::MemberAccess { target, .. } => {
-            collect_captured_locals(target, outer_locals, local_names, captures);
+            collect_captured_locals(target, outer_locals, local_names, seen, captures);
         }
         Expression::WithUpdate { target, updates } => {
-            collect_captured_locals(target, outer_locals, local_names, captures);
+            collect_captured_locals(target, outer_locals, local_names, seen, captures);
             for update in updates {
-                collect_captured_locals(&update.value, outer_locals, local_names, captures);
+                collect_captured_locals(&update.value, outer_locals, local_names, seen, captures);
             }
         }
         Expression::String(_) | Expression::Number(_) | Expression::Boolean(_) => {}
