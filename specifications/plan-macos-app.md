@@ -1167,6 +1167,7 @@ Deliverable:
 - add ObjC bridge runtime source
 - implement app bootstrap, window creation, transcript view, input field
 - run language entry on a worker thread
+- written with libSystem objc send message calls
 
 Deliverable:
 
