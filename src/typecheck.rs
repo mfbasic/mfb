@@ -209,13 +209,297 @@ impl<'a> TypeChecker<'a> {
                     continue;
                 }
                 let Ok(type_exports) = bytecode::read_package_type_exports(&package_file) else {
+                    self.report(
+                        "PACKAGE_INVALID",
+                        &format!(
+                            "Imported package `{package}` has unreadable or invalid type metadata."
+                        ),
+                        file,
+                        import.line,
+                    );
                     continue;
                 };
+                for type_export in &type_exports {
+                    self.install_package_type_info(&package_file, type_export.clone());
+                }
                 for type_export in type_exports {
-                    self.install_package_type_info(&package_file, type_export);
+                    self.validate_imported_package_type(
+                        file,
+                        import.line,
+                        &package_file,
+                        &type_export,
+                    );
                 }
             }
         }
+    }
+
+    fn validate_imported_package_type(
+        &mut self,
+        file: &AstFile,
+        line: usize,
+        package_file: &Path,
+        type_export: &BytecodeTypeExport,
+    ) {
+        let mut seen = HashSet::new();
+        match type_export.kind {
+            BytecodeExportKind::Type => {
+                let type_ = Type::User(type_export.name.clone());
+                self.validate_package_metadata_type(
+                    file,
+                    line,
+                    package_file,
+                    &type_,
+                    &format!("exported type `{}`", type_export.name),
+                    &mut seen,
+                );
+            }
+            BytecodeExportKind::Union => {
+                let type_ = Type::User(type_export.name.clone());
+                self.validate_package_metadata_type(
+                    file,
+                    line,
+                    package_file,
+                    &type_,
+                    &format!("exported union `{}`", type_export.name),
+                    &mut seen,
+                );
+            }
+            BytecodeExportKind::Enum => {}
+            BytecodeExportKind::Func | BytecodeExportKind::Sub => {}
+        }
+    }
+
+    fn validate_package_metadata_type(
+        &mut self,
+        file: &AstFile,
+        line: usize,
+        package_file: &Path,
+        type_: &Type,
+        context: &str,
+        seen: &mut HashSet<String>,
+    ) {
+        match type_ {
+            Type::List(element) | Type::Result(element) => {
+                self.validate_package_metadata_type(
+                    file,
+                    line,
+                    package_file,
+                    element,
+                    context,
+                    seen,
+                );
+            }
+            Type::Map(key, value) => {
+                self.validate_package_metadata_type(file, line, package_file, key, context, seen);
+                self.validate_package_metadata_type(file, line, package_file, value, context, seen);
+                if !self.is_comparable(key) {
+                    self.report(
+                        "PACKAGE_INVALID",
+                        &format!(
+                            "Imported package `{}` has {context} with non-comparable map key type `{}`.",
+                            package_file.display(),
+                            self.type_name(key)
+                        ),
+                        file,
+                        line,
+                    );
+                }
+            }
+            Type::Function {
+                params,
+                return_type,
+                ..
+            } => {
+                for param in params {
+                    self.validate_package_metadata_type(
+                        file,
+                        line,
+                        package_file,
+                        param,
+                        context,
+                        seen,
+                    );
+                }
+                self.validate_package_metadata_type(
+                    file,
+                    line,
+                    package_file,
+                    return_type,
+                    context,
+                    seen,
+                );
+            }
+            Type::Thread(message, output) => {
+                self.validate_package_metadata_type(
+                    file,
+                    line,
+                    package_file,
+                    message,
+                    context,
+                    seen,
+                );
+                self.validate_package_metadata_type(
+                    file,
+                    line,
+                    package_file,
+                    output,
+                    context,
+                    seen,
+                );
+            }
+            Type::User(name) => {
+                if builtins::is_resource_type(name) || !seen.insert(name.clone()) {
+                    return;
+                }
+                let Some(info) = self.type_infos.get(name).cloned() else {
+                    self.report(
+                        "PACKAGE_INVALID",
+                        &format!(
+                            "Imported package `{}` has {context} that references unknown type `{name}`.",
+                            package_file.display()
+                        ),
+                        file,
+                        line,
+                    );
+                    return;
+                };
+                match info.kind {
+                    TypeDeclKind::Enum => {}
+                    TypeDeclKind::Type => {
+                        for field in &info.fields {
+                            self.validate_package_metadata_type(
+                                file,
+                                line,
+                                package_file,
+                                &field.type_,
+                                context,
+                                seen,
+                            );
+                        }
+                    }
+                    TypeDeclKind::Union => {
+                        for variant in &info.variants {
+                            for field in &variant.fields {
+                                self.validate_package_metadata_type(
+                                    file,
+                                    line,
+                                    package_file,
+                                    &field.type_,
+                                    context,
+                                    seen,
+                                );
+                            }
+                        }
+                    }
+                }
+                seen.remove(name);
+            }
+            Type::Boolean
+            | Type::Byte
+            | Type::Error
+            | Type::Fixed
+            | Type::Float
+            | Type::Integer
+            | Type::Nothing
+            | Type::String
+            | Type::Unknown => {}
+        }
+    }
+
+    fn collect_package_functions(&mut self) {
+        let mut seen = HashSet::new();
+        for file in &self.ast.files {
+            for import in &file.imports {
+                let binding = import.binding_name().to_string();
+                let package = import.package_name().to_string();
+                if !seen.insert(binding.clone()) || builtins::is_builtin_import(&package) {
+                    continue;
+                }
+                let package_file = self
+                    .project_dir
+                    .join("packages")
+                    .join(format!("{package}.mfp"));
+                if !package_file.is_file() {
+                    continue;
+                }
+                let Ok(exports) = bytecode::read_package_exports(&package_file) else {
+                    self.report(
+                        "PACKAGE_INVALID",
+                        &format!(
+                            "Imported package `{package}` has unreadable or invalid function metadata."
+                        ),
+                        file,
+                        import.line,
+                    );
+                    continue;
+                };
+                for export in exports {
+                    let sig = FunctionSig {
+                        kind: match export.kind {
+                            BytecodeExportKind::Func => FunctionKind::Func,
+                            BytecodeExportKind::Sub => FunctionKind::Sub,
+                            BytecodeExportKind::Type
+                            | BytecodeExportKind::Union
+                            | BytecodeExportKind::Enum => continue,
+                        },
+                        params: export
+                            .params
+                            .into_iter()
+                            .map(|param| ParamSig {
+                                name: param.name,
+                                type_: self.parse_type(&param.type_),
+                                has_default: param.has_default,
+                            })
+                            .collect(),
+                        return_type: self.parse_type(&export.return_type),
+                        isolated: export.isolated,
+                        imported_package_export: true,
+                    };
+                    self.validate_imported_function_signature(
+                        file,
+                        import.line,
+                        &package_file,
+                        &export.name,
+                        &sig,
+                    );
+                    self.functions
+                        .insert(format!("{binding}.{}", export.name), sig);
+                }
+            }
+        }
+    }
+
+    fn validate_imported_function_signature(
+        &mut self,
+        file: &AstFile,
+        line: usize,
+        package_file: &Path,
+        function_name: &str,
+        sig: &FunctionSig,
+    ) {
+        let mut seen = HashSet::new();
+        for param in &sig.params {
+            self.validate_package_metadata_type(
+                file,
+                line,
+                package_file,
+                &param.type_,
+                &format!(
+                    "exported function `{function_name}` parameter `{}`",
+                    param.name
+                ),
+                &mut seen,
+            );
+        }
+        self.validate_package_metadata_type(
+            file,
+            line,
+            package_file,
+            &sig.return_type,
+            &format!("exported function `{function_name}` return type"),
+            &mut seen,
+        );
     }
 
     fn install_package_type_info(&mut self, package_file: &Path, type_export: BytecodeTypeExport) {
@@ -399,55 +683,6 @@ impl<'a> TypeChecker<'a> {
                             return_type,
                             isolated: function.isolated,
                             imported_package_export: false,
-                        },
-                    );
-                }
-            }
-        }
-    }
-
-    fn collect_package_functions(&mut self) {
-        let mut seen = HashSet::new();
-        for file in &self.ast.files {
-            for import in &file.imports {
-                let binding = import.binding_name().to_string();
-                let package = import.package_name().to_string();
-                if !seen.insert(binding.clone()) || builtins::is_builtin_import(&package) {
-                    continue;
-                }
-                let package_file = self
-                    .project_dir
-                    .join("packages")
-                    .join(format!("{package}.mfp"));
-                if !package_file.is_file() {
-                    continue;
-                }
-                let Ok(exports) = bytecode::read_package_exports(&package_file) else {
-                    continue;
-                };
-                for export in exports {
-                    self.functions.insert(
-                        format!("{binding}.{}", export.name),
-                        FunctionSig {
-                            kind: match export.kind {
-                                BytecodeExportKind::Func => FunctionKind::Func,
-                                BytecodeExportKind::Sub => FunctionKind::Sub,
-                                BytecodeExportKind::Type
-                                | BytecodeExportKind::Union
-                                | BytecodeExportKind::Enum => continue,
-                            },
-                            params: export
-                                .params
-                                .into_iter()
-                                .map(|param| ParamSig {
-                                    name: param.name,
-                                    type_: self.parse_type(&param.type_),
-                                    has_default: param.has_default,
-                                })
-                                .collect(),
-                            return_type: self.parse_type(&export.return_type),
-                            isolated: export.isolated,
-                            imported_package_export: true,
                         },
                     );
                 }
@@ -1823,6 +2058,7 @@ impl<'a> TypeChecker<'a> {
         if self.contains_resource_or_thread(&key_type) {
             self.report_invalid_collection_element(file, line, "key", &key_type);
         }
+        self.require_comparable_type(file, line, "Map key type", &key_type);
         if self.contains_resource_or_thread(&value_type) {
             self.report_invalid_collection_element(file, line, "value", &value_type);
         }
@@ -2338,16 +2574,23 @@ impl<'a> TypeChecker<'a> {
         }
 
         if matches!(operator, "=" | "<>") {
-            if (self.is_numeric(left) && self.is_numeric(right))
-                || self.compatible(left, right)
-                || self.compatible(right, left)
+            if self.is_numeric(left) && self.is_numeric(right) {
+                return Type::Boolean;
+            }
+            if (self.compatible(left, right) || self.compatible(right, left))
+                && self.is_comparable(left)
+                && self.is_comparable(right)
             {
                 return Type::Boolean;
             }
             self.report(
-                "TYPE_BINARY_OPERATOR_MISMATCH",
+                if self.compatible(left, right) || self.compatible(right, left) {
+                    "TYPE_REQUIRES_COMPARABLE"
+                } else {
+                    "TYPE_BINARY_OPERATOR_MISMATCH"
+                },
                 &format!(
-                    "Operator `{operator}` requires compatible operands, got {} and {}.",
+                    "Operator `{operator}` requires compatible comparable operands, got {} and {}.",
                     self.type_name(left),
                     self.type_name(right)
                 ),
@@ -3209,15 +3452,18 @@ impl<'a> TypeChecker<'a> {
             .iter()
             .enumerate()
             .map(|(index, argument)| {
-                let type_ = self.infer_expression(
+                self.infer_expression(
                     file,
                     argument,
                     locals,
                     line,
                     self.general_argument_mode(callee, index),
-                );
-                self.type_name(&type_)
+                )
             })
+            .collect::<Vec<_>>();
+        let arg_type_names = arg_types
+            .iter()
+            .map(|type_| self.type_name(type_))
             .collect::<Vec<_>>();
 
         if let Some((min, max)) = builtins::general::arity(callee) {
@@ -3240,14 +3486,14 @@ impl<'a> TypeChecker<'a> {
             }
         }
 
-        let Some(resolved) = builtins::general::resolve_call(callee, &arg_types) else {
+        let Some(resolved) = builtins::general::resolve_call(callee, &arg_type_names) else {
             let expected =
                 builtins::general::expected_arguments(callee).unwrap_or("supported overload");
             self.report(
                 "TYPE_CALL_ARGUMENT_MISMATCH",
                 &format!(
                     "Call to `{display_callee}` has argument type(s) ({}), expected {expected}.",
-                    arg_types.join(", ")
+                    arg_type_names.join(", ")
                 ),
                 file,
                 line,
@@ -3255,7 +3501,46 @@ impl<'a> TypeChecker<'a> {
             return Type::Unknown;
         };
 
+        self.check_general_builtin_comparability(file, display_callee, callee, &arg_types, line);
+
         self.parse_type(&resolved.return_type)
+    }
+
+    fn check_general_builtin_comparability(
+        &mut self,
+        file: &AstFile,
+        display_callee: &str,
+        callee: &str,
+        arg_types: &[Type],
+        line: usize,
+    ) {
+        match callee {
+            "contains" | "replace" => {
+                let Some(Type::List(element)) = arg_types.first() else {
+                    return;
+                };
+                self.require_comparable_type(
+                    file,
+                    line,
+                    &format!("Call to `{display_callee}`"),
+                    element,
+                );
+            }
+            "find" => {
+                let Some(first) = arg_types.first() else {
+                    return;
+                };
+                if let Type::List(element) = first {
+                    self.require_comparable_type(
+                        file,
+                        line,
+                        &format!("Call to `{display_callee}`"),
+                        element,
+                    );
+                }
+            }
+            _ => {}
+        }
     }
 
     fn normalize_builtin_call_arguments(
@@ -3583,6 +3868,68 @@ impl<'a> TypeChecker<'a> {
         )
     }
 
+    fn is_comparable(&self, type_: &Type) -> bool {
+        self.is_comparable_with_seen(type_, &mut HashSet::new())
+    }
+
+    fn is_comparable_with_seen(&self, type_: &Type, seen: &mut HashSet<String>) -> bool {
+        match type_ {
+            Type::Boolean
+            | Type::Byte
+            | Type::Error
+            | Type::Fixed
+            | Type::Float
+            | Type::Integer
+            | Type::Nothing
+            | Type::String
+            | Type::Unknown => true,
+            Type::List(_)
+            | Type::Map(_, _)
+            | Type::Function { .. }
+            | Type::Result(_)
+            | Type::Thread(_, _) => false,
+            Type::User(name) => {
+                if builtins::is_resource_type(name) || !seen.insert(name.clone()) {
+                    return false;
+                }
+                let Some(info) = self.type_infos.get(name) else {
+                    return true;
+                };
+                let result = match info.kind {
+                    TypeDeclKind::Enum => true,
+                    TypeDeclKind::Type => info
+                        .fields
+                        .iter()
+                        .all(|field| self.is_comparable_with_seen(&field.type_, seen)),
+                    TypeDeclKind::Union => false,
+                };
+                seen.remove(name);
+                result
+            }
+        }
+    }
+
+    fn require_comparable_type(
+        &mut self,
+        file: &AstFile,
+        line: usize,
+        context: &str,
+        type_: &Type,
+    ) {
+        if self.is_comparable(type_) {
+            return;
+        }
+        self.report(
+            "TYPE_REQUIRES_COMPARABLE",
+            &format!(
+                "{context} requires a comparable type, got `{}`.",
+                self.type_name(type_)
+            ),
+            file,
+            line,
+        );
+    }
+
     fn argument_mode_for_type(&self, expected: &Option<&Type>) -> ExprMode {
         match expected {
             Some(type_) if !self.is_copyable_type(type_) => ExprMode::Transfer,
@@ -3816,6 +4163,7 @@ impl<'a> TypeChecker<'a> {
                 if self.contains_resource_or_thread(key) {
                     self.report_invalid_collection_element(file, line, "key", key);
                 }
+                self.require_comparable_type(file, line, "Map key type", key);
                 if self.contains_resource_or_thread(value) {
                     self.report_invalid_collection_element(file, line, "value", value);
                 }

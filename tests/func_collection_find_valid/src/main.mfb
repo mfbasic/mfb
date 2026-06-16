@@ -1,25 +1,36 @@
 IMPORT io
 
+TYPE Point
+  x AS Integer
+  y AS Integer
+END TYPE
+
 FUNC main AS Integer
   LET numbers AS List OF Integer = [10, 20, 30, 20]
   LET names AS List OF String = ["Ada", "Grace", "Ada"]
+  LET points AS List OF Point = [Point[1, 2], Point[3, 4], Point[1, 2]]
   LET numberNeedle AS List OF Integer = [20, 30]
   LET nameNeedle AS List OF String = ["Grace", "Ada"]
+  LET pointNeedle AS List OF Point = [Point[3, 4], Point[1, 2]]
   LET emptyNeedle AS List OF Integer = []
 
   LET firstTwenty AS Integer = find(numbers, 20)
   LET secondTwenty AS Integer = find(numbers, 20, 2)
   LET secondAda AS Integer = find(names, "Ada", 1)
+  LET secondPoint AS Integer = find(points, Point[1, 2], 1)
   LET numberSublist AS Integer = find(numbers, numberNeedle)
   LET nameSublist AS Integer = find(names, nameNeedle)
+  LET pointSublist AS Integer = find(points, pointNeedle)
   LET emptySublist AS Integer = find(numbers, emptyNeedle, 4)
 
   io::print(toString(firstTwenty))
   io::print(toString(secondTwenty))
   io::print(toString(secondAda))
+  io::print(toString(secondPoint))
   io::print(toString(numberSublist))
   io::print(toString(nameSublist))
+  io::print(toString(pointSublist))
   io::print(toString(emptySublist))
 
-  RETURN firstTwenty + secondTwenty + secondAda + numberSublist + nameSublist + emptySublist
+  RETURN firstTwenty + secondTwenty + secondAda + secondPoint + numberSublist + nameSublist + pointSublist + emptySublist
 END FUNC

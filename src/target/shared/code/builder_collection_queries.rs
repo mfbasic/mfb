@@ -1052,16 +1052,8 @@ impl CodeBuilder<'_> {
             abi::stack_pointer(),
             saved_env_slot,
         ));
-        self.emit(abi::load_u64(
-            &code_register,
-            location,
-            CLOSURE_OFFSET_CODE,
-        ));
-        self.emit(abi::load_u64(
-            &env_register,
-            location,
-            CLOSURE_OFFSET_ENV,
-        ));
+        self.emit(abi::load_u64(&code_register, location, CLOSURE_OFFSET_CODE));
+        self.emit(abi::load_u64(&env_register, location, CLOSURE_OFFSET_ENV));
         self.emit(abi::move_register(CLOSURE_ENV_REGISTER, &env_register));
         self.emit_callable_branch(&code_register);
         self.emit(abi::load_u64(

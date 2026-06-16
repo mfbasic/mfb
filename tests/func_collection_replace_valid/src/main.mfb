@@ -1,5 +1,10 @@
 IMPORT io
 
+TYPE Point
+  x AS Integer
+  y AS Integer
+END TYPE
+
 FUNC printIntegers(values AS List OF Integer) AS Nothing
   FOR EACH item IN values
     io::print(toString(item))
@@ -17,13 +22,16 @@ END FUNC
 FUNC main AS Integer
   LET numbers AS List OF Integer = [1, 2, 1, 3]
   LET names AS List OF String = ["Ada", "Grace", "Ada"]
+  LET points AS List OF Point = [Point[1, 2], Point[3, 4], Point[1, 2]]
   LET noMatch AS List OF Integer = replace(numbers, 9, 8)
   LET replacedNumbers AS List OF Integer = replace(numbers, 1, 7)
   LET replacedNames AS List OF String = replace(names, "Ada", "Katherine")
+  LET replacedPoints AS List OF Point = replace(points, Point[1, 2], Point[8, 9])
 
   printIntegers(replacedNumbers)
   printStrings(replacedNames)
   printIntegers(noMatch)
+  io::print(toString(len(replacedPoints)))
 
-  RETURN len(replacedNumbers) + len(replacedNames) + len(noMatch)
+  RETURN len(replacedNumbers) + len(replacedNames) + len(noMatch) + len(replacedPoints)
 END FUNC

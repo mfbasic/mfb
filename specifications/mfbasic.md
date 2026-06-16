@@ -127,7 +127,7 @@ Fixed > Float > Integer > Byte
 | `Float`      | `Fixed`       | `Fixed`                        | `Float` |
 | `Float`      | `Float`       | `Float`                        | `Float` |
 
-Numeric comparisons (`=`, `<>`, `<`, `>`, `<=`, `>=`) use the same operand promotion rules for comparison but always return `Boolean`.
+Numeric comparisons (`=`, `<>`, `<`, `>`, `<=`, `>=`) use the same operand promotion rules for comparison but always return `Boolean`. `=` and `<>` also accept any two compatible comparable operands.
 
 Numeric edge cases:
 
@@ -377,6 +377,8 @@ Defaultability is recursive and finite: nested lists, maps, and records are defa
 Some standard functions require a type to be comparable. Comparable types are `Integer`, `Float`, `Fixed`, `Boolean`, `String`, `Byte`, `Nothing`, enum types, and records whose fields are all comparable. `List`, `Map`, unions, functions, lambdas, threads, and resource handles are not comparable.
 
 `Map` keys must be comparable. List helpers such as `find`, `contains`, and `replace` require comparable element types.
+
+Equality operators `=` and `<>` require either numeric operands or any two compatible comparable operands. Ordering operators `<`, `>`, `<=`, and `>=` remain numeric-only.
 
 ---
 

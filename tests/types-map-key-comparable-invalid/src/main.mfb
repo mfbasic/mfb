@@ -1,0 +1,10 @@
+TYPE Box
+  items AS List OF Integer
+END TYPE
+
+FUNC main AS Integer
+  LET badKey AS Box = Box[[1]]
+  LET badType = Map OF Box TO String { badKey := "a" }
+  MUT alsoBad AS Map OF List OF Integer TO String
+  RETURN len(badType) + len(alsoBad)
+END FUNC

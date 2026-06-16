@@ -293,8 +293,16 @@ impl CodeBuilder<'_> {
     ) -> Result<ValueResult, String> {
         let left_slot = self.allocate_stack_object("cmp_left", 8);
         let right_slot = self.allocate_stack_object("cmp_right", 8);
-        self.emit(abi::store_u64(&left.location, abi::stack_pointer(), left_slot));
-        self.emit(abi::store_u64(&right.location, abi::stack_pointer(), right_slot));
+        self.emit(abi::store_u64(
+            &left.location,
+            abi::stack_pointer(),
+            left_slot,
+        ));
+        self.emit(abi::store_u64(
+            &right.location,
+            abi::stack_pointer(),
+            right_slot,
+        ));
 
         self.reset_temporary_registers();
         let left_register = self.allocate_register()?;

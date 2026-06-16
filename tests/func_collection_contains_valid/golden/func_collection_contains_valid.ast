@@ -8,44 +8,59 @@
     ],
     "items": [
     {
+      "kind": "type",
+      "visibility": "private",
+      "name": "Point",
+      "line": 3,
+      "fields": [
+      { "visibility": null, "name": "x", "type": "Integer", "line": 4 },
+      { "visibility": null, "name": "y", "type": "Integer", "line": 5 }
+      ]
+    },
+    {
       "kind": "func",
       "visibility": "private",
       "name": "printBoolean",
-      "line": 3,
+      "line": 8,
       "params": [
       { "name": "value", "type": "Boolean", "default": null }
       ],
       "returnType": "Nothing",
       "body": [
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "value" }] }] }, "line": 4 },
-      { "kind": "return", "value": { "kind": "identifier", "value": "NOTHING" }, "line": 5 }
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "value" }] }] }, "line": 9 },
+      { "kind": "return", "value": { "kind": "identifier", "value": "NOTHING" }, "line": 10 }
       ]
     },
     {
       "kind": "func",
       "visibility": "private",
       "name": "main",
-      "line": 8,
+      "line": 13,
       "params": [
       ],
       "returnType": "Integer",
       "body": [
-      { "kind": "binding", "mutable": false, "name": "empty", "type": "List OF Integer", "value": { "kind": "list", "values": [] }, "line": 9 },
-      { "kind": "binding", "mutable": false, "name": "numbers", "type": "List OF Integer", "value": { "kind": "list", "values": [{ "kind": "number", "value": "10" }, { "kind": "number", "value": "20" }, { "kind": "number", "value": "30" }] }, "line": 10 },
-      { "kind": "binding", "mutable": false, "name": "names", "type": "List OF String", "value": { "kind": "list", "values": [{ "kind": "string", "value": "Ada" }, { "kind": "string", "value": "Grace" }] }, "line": 11 },
-      { "kind": "binding", "mutable": false, "name": "emptyMissing", "type": "Boolean", "value": { "kind": "call", "callee": "contains", "arguments": [{ "kind": "identifier", "value": "empty" }, { "kind": "number", "value": "10" }] }, "line": 13 },
-      { "kind": "binding", "mutable": false, "name": "first", "type": "Boolean", "value": { "kind": "call", "callee": "contains", "arguments": [{ "kind": "identifier", "value": "numbers" }, { "kind": "number", "value": "10" }] }, "line": 14 },
-      { "kind": "binding", "mutable": false, "name": "last", "type": "Boolean", "value": { "kind": "call", "callee": "contains", "arguments": [{ "kind": "identifier", "value": "numbers" }, { "kind": "number", "value": "30" }] }, "line": 15 },
-      { "kind": "binding", "mutable": false, "name": "missing", "type": "Boolean", "value": { "kind": "call", "callee": "contains", "arguments": [{ "kind": "identifier", "value": "numbers" }, { "kind": "number", "value": "40" }] }, "line": 16 },
-      { "kind": "binding", "mutable": false, "name": "stringHit", "type": "Boolean", "value": { "kind": "call", "callee": "contains", "arguments": [{ "kind": "identifier", "value": "names" }, { "kind": "string", "value": "Grace" }] }, "line": 17 },
-      { "kind": "binding", "mutable": false, "name": "stringMiss", "type": "Boolean", "value": { "kind": "call", "callee": "contains", "arguments": [{ "kind": "identifier", "value": "names" }, { "kind": "string", "value": "Katherine" }] }, "line": 18 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "printBoolean", "arguments": [{ "kind": "identifier", "value": "emptyMissing" }] }, "line": 20 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "printBoolean", "arguments": [{ "kind": "identifier", "value": "first" }] }, "line": 21 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "printBoolean", "arguments": [{ "kind": "identifier", "value": "last" }] }, "line": 22 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "printBoolean", "arguments": [{ "kind": "identifier", "value": "missing" }] }, "line": 23 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "printBoolean", "arguments": [{ "kind": "identifier", "value": "stringHit" }] }, "line": 24 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "printBoolean", "arguments": [{ "kind": "identifier", "value": "stringMiss" }] }, "line": 25 },
-      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 27 }
+      { "kind": "binding", "mutable": false, "name": "empty", "type": "List OF Integer", "value": { "kind": "list", "values": [] }, "line": 14 },
+      { "kind": "binding", "mutable": false, "name": "numbers", "type": "List OF Integer", "value": { "kind": "list", "values": [{ "kind": "number", "value": "10" }, { "kind": "number", "value": "20" }, { "kind": "number", "value": "30" }] }, "line": 15 },
+      { "kind": "binding", "mutable": false, "name": "names", "type": "List OF String", "value": { "kind": "list", "values": [{ "kind": "string", "value": "Ada" }, { "kind": "string", "value": "Grace" }] }, "line": 16 },
+      { "kind": "binding", "mutable": false, "name": "points", "type": "List OF Point", "value": { "kind": "list", "values": [{ "kind": "constructor", "type": "Point", "arguments": [{ "kind": "number", "value": "1" }, { "kind": "number", "value": "2" }] }, { "kind": "constructor", "type": "Point", "arguments": [{ "kind": "number", "value": "3" }, { "kind": "number", "value": "4" }] }] }, "line": 17 },
+      { "kind": "binding", "mutable": false, "name": "emptyMissing", "type": "Boolean", "value": { "kind": "call", "callee": "contains", "arguments": [{ "kind": "identifier", "value": "empty" }, { "kind": "number", "value": "10" }] }, "line": 19 },
+      { "kind": "binding", "mutable": false, "name": "first", "type": "Boolean", "value": { "kind": "call", "callee": "contains", "arguments": [{ "kind": "identifier", "value": "numbers" }, { "kind": "number", "value": "10" }] }, "line": 20 },
+      { "kind": "binding", "mutable": false, "name": "last", "type": "Boolean", "value": { "kind": "call", "callee": "contains", "arguments": [{ "kind": "identifier", "value": "numbers" }, { "kind": "number", "value": "30" }] }, "line": 21 },
+      { "kind": "binding", "mutable": false, "name": "missing", "type": "Boolean", "value": { "kind": "call", "callee": "contains", "arguments": [{ "kind": "identifier", "value": "numbers" }, { "kind": "number", "value": "40" }] }, "line": 22 },
+      { "kind": "binding", "mutable": false, "name": "stringHit", "type": "Boolean", "value": { "kind": "call", "callee": "contains", "arguments": [{ "kind": "identifier", "value": "names" }, { "kind": "string", "value": "Grace" }] }, "line": 23 },
+      { "kind": "binding", "mutable": false, "name": "stringMiss", "type": "Boolean", "value": { "kind": "call", "callee": "contains", "arguments": [{ "kind": "identifier", "value": "names" }, { "kind": "string", "value": "Katherine" }] }, "line": 24 },
+      { "kind": "binding", "mutable": false, "name": "pointHit", "type": "Boolean", "value": { "kind": "call", "callee": "contains", "arguments": [{ "kind": "identifier", "value": "points" }, { "kind": "constructor", "type": "Point", "arguments": [{ "kind": "number", "value": "3" }, { "kind": "number", "value": "4" }] }] }, "line": 25 },
+      { "kind": "binding", "mutable": false, "name": "pointMiss", "type": "Boolean", "value": { "kind": "call", "callee": "contains", "arguments": [{ "kind": "identifier", "value": "points" }, { "kind": "constructor", "type": "Point", "arguments": [{ "kind": "number", "value": "5" }, { "kind": "number", "value": "6" }] }] }, "line": 26 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "printBoolean", "arguments": [{ "kind": "identifier", "value": "emptyMissing" }] }, "line": 28 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "printBoolean", "arguments": [{ "kind": "identifier", "value": "first" }] }, "line": 29 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "printBoolean", "arguments": [{ "kind": "identifier", "value": "last" }] }, "line": 30 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "printBoolean", "arguments": [{ "kind": "identifier", "value": "missing" }] }, "line": 31 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "printBoolean", "arguments": [{ "kind": "identifier", "value": "stringHit" }] }, "line": 32 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "printBoolean", "arguments": [{ "kind": "identifier", "value": "stringMiss" }] }, "line": 33 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "printBoolean", "arguments": [{ "kind": "identifier", "value": "pointHit" }] }, "line": 34 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "printBoolean", "arguments": [{ "kind": "identifier", "value": "pointMiss" }] }, "line": 35 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 37 }
       ]
     }
     ]

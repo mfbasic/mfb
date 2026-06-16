@@ -28,7 +28,10 @@ pub struct Import {
 
 impl Import {
     pub fn package_name(&self) -> &str {
-        self.module.split('.').next().unwrap_or(self.module.as_str())
+        self.module
+            .split('.')
+            .next()
+            .unwrap_or(self.module.as_str())
     }
 
     pub fn binding_name(&self) -> &str {
@@ -249,10 +252,7 @@ pub struct MatchCase {
 pub enum MatchPattern {
     Else,
     Literal(Expression),
-    Union {
-        type_name: String,
-        binding: String,
-    },
+    Union { type_name: String, binding: String },
     OneOf(Vec<Expression>),
 }
 
@@ -507,7 +507,10 @@ fn collect_selected_source_files(
         if source_files.is_empty() {
             rules::show_diagnostic(
                 "MFB_SOURCE_EMPTY",
-                &format!("Source root `{}` contains no selected .mfb files.", root.display()),
+                &format!(
+                    "Source root `{}` contains no selected .mfb files.",
+                    root.display()
+                ),
                 &root,
                 1,
                 1,
@@ -1462,12 +1465,17 @@ impl<'a> FileParser<'a> {
             return self.parse_for_each_statement(token);
         }
         let name = self.consume_identifier("FOR loop variable must be an identifier.")?;
-        if !self.consume_kind(TokenKind::Equal, "FOR loop must assign the initial value with `=`.")
-        {
+        if !self.consume_kind(
+            TokenKind::Equal,
+            "FOR loop must assign the initial value with `=`.",
+        ) {
             return None;
         }
         let start = self.parse_expression()?;
-        if !self.consume_keyword(Keyword::To, "FOR loop must include TO before the end value.") {
+        if !self.consume_keyword(
+            Keyword::To,
+            "FOR loop must include TO before the end value.",
+        ) {
             return None;
         }
         let end = self.parse_expression()?;
@@ -3465,16 +3473,8 @@ mod tests {
         let root = test_temp_dir("file_root_ignores_include_patterns");
         let project_dir = root.join("project");
         fs::create_dir_all(project_dir.join("src")).expect("project src");
-        fs::write(
-            project_dir.join("src/main.mfb"),
-            "SUB main\nEND SUB\n",
-        )
-        .expect("write main");
-        fs::write(
-            project_dir.join("src/other.mfb"),
-            "SUB other\nEND SUB\n",
-        )
-        .expect("write other");
+        fs::write(project_dir.join("src/main.mfb"), "SUB main\nEND SUB\n").expect("write main");
+        fs::write(project_dir.join("src/other.mfb"), "SUB other\nEND SUB\n").expect("write other");
 
         let manifest = manifest_with_sources(vec![source_entry(
             "src/main.mfb",
@@ -3482,8 +3482,8 @@ mod tests {
             None,
         )]);
         let canonical_project_dir = fs::canonicalize(&project_dir).expect("canonical project dir");
-        let files =
-            collect_selected_source_files(&project_dir, &canonical_project_dir, &manifest).expect("files");
+        let files = collect_selected_source_files(&project_dir, &canonical_project_dir, &manifest)
+            .expect("files");
 
         assert_eq!(
             files,
@@ -3501,16 +3501,8 @@ mod tests {
         let root = test_temp_dir("directory_root_applies_include_and_exclude_patterns");
         let project_dir = root.join("project");
         fs::create_dir_all(project_dir.join("src/pkg")).expect("project pkg");
-        fs::write(
-            project_dir.join("src/main.mfb"),
-            "SUB main\nEND SUB\n",
-        )
-        .expect("write main");
-        fs::write(
-            project_dir.join("src/pkg/keep.mfb"),
-            "SUB keep\nEND SUB\n",
-        )
-        .expect("write keep");
+        fs::write(project_dir.join("src/main.mfb"), "SUB main\nEND SUB\n").expect("write main");
+        fs::write(project_dir.join("src/pkg/keep.mfb"), "SUB keep\nEND SUB\n").expect("write keep");
         fs::write(
             project_dir.join("src/pkg/skip_test.mfb"),
             "SUB skip_test\nEND SUB\n",
@@ -3523,8 +3515,8 @@ mod tests {
             Some(vec!["**/*_test.mfb"]),
         )]);
         let canonical_project_dir = fs::canonicalize(&project_dir).expect("canonical project dir");
-        let files =
-            collect_selected_source_files(&project_dir, &canonical_project_dir, &manifest).expect("files");
+        let files = collect_selected_source_files(&project_dir, &canonical_project_dir, &manifest)
+            .expect("files");
 
         assert_eq!(
             files,
@@ -3542,11 +3534,7 @@ mod tests {
         let root = test_temp_dir("overlapping_source_entries_are_rejected");
         let project_dir = root.join("project");
         fs::create_dir_all(project_dir.join("src")).expect("project src");
-        fs::write(
-            project_dir.join("src/main.mfb"),
-            "SUB main\nEND SUB\n",
-        )
-        .expect("write main");
+        fs::write(project_dir.join("src/main.mfb"), "SUB main\nEND SUB\n").expect("write main");
 
         let manifest = manifest_with_sources(vec![
             source_entry("src", Some(vec!["**/*.mfb"]), None),
@@ -3554,7 +3542,9 @@ mod tests {
         ]);
         let canonical_project_dir = fs::canonicalize(&project_dir).expect("canonical project dir");
 
-        assert!(collect_selected_source_files(&project_dir, &canonical_project_dir, &manifest).is_err());
+        assert!(
+            collect_selected_source_files(&project_dir, &canonical_project_dir, &manifest).is_err()
+        );
 
         fs::remove_dir_all(root).expect("remove temp dir");
     }
@@ -3567,17 +3557,16 @@ mod tests {
         let outside_dir = root.join("outside");
         fs::create_dir_all(&project_dir).expect("project dir");
         fs::create_dir_all(&outside_dir).expect("outside dir");
-        fs::write(
-            outside_dir.join("escape.mfb"),
-            "SUB escape\nEND SUB\n",
-        )
-        .expect("write escape");
+        fs::write(outside_dir.join("escape.mfb"), "SUB escape\nEND SUB\n").expect("write escape");
         symlink(&outside_dir, project_dir.join("src")).expect("symlink src");
 
-        let manifest = manifest_with_sources(vec![source_entry("src", Some(vec!["**/*.mfb"]), None)]);
+        let manifest =
+            manifest_with_sources(vec![source_entry("src", Some(vec!["**/*.mfb"]), None)]);
         let canonical_project_dir = fs::canonicalize(&project_dir).expect("canonical project dir");
 
-        assert!(collect_selected_source_files(&project_dir, &canonical_project_dir, &manifest).is_err());
+        assert!(
+            collect_selected_source_files(&project_dir, &canonical_project_dir, &manifest).is_err()
+        );
 
         fs::remove_dir_all(root).expect("remove temp dir");
     }
@@ -3586,7 +3575,11 @@ mod tests {
         HashMap::from([("sources".to_string(), JsonValue::Array(sources))])
     }
 
-    fn source_entry(root: &str, include: Option<Vec<&str>>, exclude: Option<Vec<&str>>) -> JsonValue {
+    fn source_entry(
+        root: &str,
+        include: Option<Vec<&str>>,
+        exclude: Option<Vec<&str>>,
+    ) -> JsonValue {
         let mut source = HashMap::from([("root".to_string(), JsonValue::String(root.to_string()))]);
         if let Some(include) = include {
             source.insert(

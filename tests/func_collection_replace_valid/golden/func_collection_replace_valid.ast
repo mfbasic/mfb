@@ -8,10 +8,20 @@
     ],
     "items": [
     {
+      "kind": "type",
+      "visibility": "private",
+      "name": "Point",
+      "line": 3,
+      "fields": [
+      { "visibility": null, "name": "x", "type": "Integer", "line": 4 },
+      { "visibility": null, "name": "y", "type": "Integer", "line": 5 }
+      ]
+    },
+    {
       "kind": "func",
       "visibility": "private",
       "name": "printIntegers",
-      "line": 3,
+      "line": 8,
       "params": [
       { "name": "values", "type": "List OF Integer", "default": null }
       ],
@@ -21,19 +31,19 @@
         "kind": "forEach",
         "name": "item",
         "iterable": { "kind": "identifier", "value": "values" },
-        "line": 4,
+        "line": 9,
         "body": [
-        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "item" }] }] }, "line": 5 }
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "item" }] }] }, "line": 10 }
         ]
       },
-      { "kind": "return", "value": { "kind": "identifier", "value": "NOTHING" }, "line": 7 }
+      { "kind": "return", "value": { "kind": "identifier", "value": "NOTHING" }, "line": 12 }
       ]
     },
     {
       "kind": "func",
       "visibility": "private",
       "name": "printStrings",
-      "line": 10,
+      "line": 15,
       "params": [
       { "name": "values", "type": "List OF String", "default": null }
       ],
@@ -43,32 +53,35 @@
         "kind": "forEach",
         "name": "item",
         "iterable": { "kind": "identifier", "value": "values" },
-        "line": 11,
+        "line": 16,
         "body": [
-        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "identifier", "value": "item" }] }, "line": 12 }
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "identifier", "value": "item" }] }, "line": 17 }
         ]
       },
-      { "kind": "return", "value": { "kind": "identifier", "value": "NOTHING" }, "line": 14 }
+      { "kind": "return", "value": { "kind": "identifier", "value": "NOTHING" }, "line": 19 }
       ]
     },
     {
       "kind": "func",
       "visibility": "private",
       "name": "main",
-      "line": 17,
+      "line": 22,
       "params": [
       ],
       "returnType": "Integer",
       "body": [
-      { "kind": "binding", "mutable": false, "name": "numbers", "type": "List OF Integer", "value": { "kind": "list", "values": [{ "kind": "number", "value": "1" }, { "kind": "number", "value": "2" }, { "kind": "number", "value": "1" }, { "kind": "number", "value": "3" }] }, "line": 18 },
-      { "kind": "binding", "mutable": false, "name": "names", "type": "List OF String", "value": { "kind": "list", "values": [{ "kind": "string", "value": "Ada" }, { "kind": "string", "value": "Grace" }, { "kind": "string", "value": "Ada" }] }, "line": 19 },
-      { "kind": "binding", "mutable": false, "name": "noMatch", "type": "List OF Integer", "value": { "kind": "call", "callee": "replace", "arguments": [{ "kind": "identifier", "value": "numbers" }, { "kind": "number", "value": "9" }, { "kind": "number", "value": "8" }] }, "line": 20 },
-      { "kind": "binding", "mutable": false, "name": "replacedNumbers", "type": "List OF Integer", "value": { "kind": "call", "callee": "replace", "arguments": [{ "kind": "identifier", "value": "numbers" }, { "kind": "number", "value": "1" }, { "kind": "number", "value": "7" }] }, "line": 21 },
-      { "kind": "binding", "mutable": false, "name": "replacedNames", "type": "List OF String", "value": { "kind": "call", "callee": "replace", "arguments": [{ "kind": "identifier", "value": "names" }, { "kind": "string", "value": "Ada" }, { "kind": "string", "value": "Katherine" }] }, "line": 22 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "printIntegers", "arguments": [{ "kind": "identifier", "value": "replacedNumbers" }] }, "line": 24 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "printStrings", "arguments": [{ "kind": "identifier", "value": "replacedNames" }] }, "line": 25 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "printIntegers", "arguments": [{ "kind": "identifier", "value": "noMatch" }] }, "line": 26 },
-      { "kind": "return", "value": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "replacedNumbers" }] }, "right": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "replacedNames" }] } }, "right": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "noMatch" }] } }, "line": 28 }
+      { "kind": "binding", "mutable": false, "name": "numbers", "type": "List OF Integer", "value": { "kind": "list", "values": [{ "kind": "number", "value": "1" }, { "kind": "number", "value": "2" }, { "kind": "number", "value": "1" }, { "kind": "number", "value": "3" }] }, "line": 23 },
+      { "kind": "binding", "mutable": false, "name": "names", "type": "List OF String", "value": { "kind": "list", "values": [{ "kind": "string", "value": "Ada" }, { "kind": "string", "value": "Grace" }, { "kind": "string", "value": "Ada" }] }, "line": 24 },
+      { "kind": "binding", "mutable": false, "name": "points", "type": "List OF Point", "value": { "kind": "list", "values": [{ "kind": "constructor", "type": "Point", "arguments": [{ "kind": "number", "value": "1" }, { "kind": "number", "value": "2" }] }, { "kind": "constructor", "type": "Point", "arguments": [{ "kind": "number", "value": "3" }, { "kind": "number", "value": "4" }] }, { "kind": "constructor", "type": "Point", "arguments": [{ "kind": "number", "value": "1" }, { "kind": "number", "value": "2" }] }] }, "line": 25 },
+      { "kind": "binding", "mutable": false, "name": "noMatch", "type": "List OF Integer", "value": { "kind": "call", "callee": "replace", "arguments": [{ "kind": "identifier", "value": "numbers" }, { "kind": "number", "value": "9" }, { "kind": "number", "value": "8" }] }, "line": 26 },
+      { "kind": "binding", "mutable": false, "name": "replacedNumbers", "type": "List OF Integer", "value": { "kind": "call", "callee": "replace", "arguments": [{ "kind": "identifier", "value": "numbers" }, { "kind": "number", "value": "1" }, { "kind": "number", "value": "7" }] }, "line": 27 },
+      { "kind": "binding", "mutable": false, "name": "replacedNames", "type": "List OF String", "value": { "kind": "call", "callee": "replace", "arguments": [{ "kind": "identifier", "value": "names" }, { "kind": "string", "value": "Ada" }, { "kind": "string", "value": "Katherine" }] }, "line": 28 },
+      { "kind": "binding", "mutable": false, "name": "replacedPoints", "type": "List OF Point", "value": { "kind": "call", "callee": "replace", "arguments": [{ "kind": "identifier", "value": "points" }, { "kind": "constructor", "type": "Point", "arguments": [{ "kind": "number", "value": "1" }, { "kind": "number", "value": "2" }] }, { "kind": "constructor", "type": "Point", "arguments": [{ "kind": "number", "value": "8" }, { "kind": "number", "value": "9" }] }] }, "line": 29 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "printIntegers", "arguments": [{ "kind": "identifier", "value": "replacedNumbers" }] }, "line": 31 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "printStrings", "arguments": [{ "kind": "identifier", "value": "replacedNames" }] }, "line": 32 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "printIntegers", "arguments": [{ "kind": "identifier", "value": "noMatch" }] }, "line": 33 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "replacedPoints" }] }] }] }, "line": 34 },
+      { "kind": "return", "value": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "replacedNumbers" }] }, "right": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "replacedNames" }] } }, "right": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "noMatch" }] } }, "right": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "replacedPoints" }] } }, "line": 36 }
       ]
     }
     ]

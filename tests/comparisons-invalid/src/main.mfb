@@ -1,5 +1,10 @@
+TYPE Box
+  items AS List OF Integer
+END TYPE
+
 FUNC main AS Integer
   LET badEq AS Boolean = 1 = "1"
+  LET boxesEqual AS Boolean = Box[[1]] = Box[[1]]
   LET badLt AS Boolean = "a" < "b"
   LET badGt AS Boolean = TRUE > FALSE
   LET badLe AS Boolean = [] <= []

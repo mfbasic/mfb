@@ -8,6 +8,15 @@
     "accepts_args": false
   },
   "types": [
+  {
+    "kind": "type",
+    "visibility": "private",
+    "name": "Point",
+    "fields": [
+    { "visibility": null, "name": "x", "type": "Integer" },
+    { "visibility": null, "name": "y", "type": "Integer" }
+    ]
+  }
   ],
   "functions": [
   {
@@ -62,13 +71,16 @@
     "body": [
     { "op": "bind", "mutable": false, "name": "numbers", "type": "List OF Integer", "value": { "kind": "list", "type": "List OF Integer", "values": [{ "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "2" }, { "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "3" }] } },
     { "op": "bind", "mutable": false, "name": "names", "type": "List OF String", "value": { "kind": "list", "type": "List OF String", "values": [{ "kind": "const", "type": "String", "value": "Ada" }, { "kind": "const", "type": "String", "value": "Grace" }, { "kind": "const", "type": "String", "value": "Ada" }] } },
+    { "op": "bind", "mutable": false, "name": "points", "type": "List OF Point", "value": { "kind": "list", "type": "List OF Point", "values": [{ "kind": "constructor", "type": "Point", "args": [{ "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "2" }] }, { "kind": "constructor", "type": "Point", "args": [{ "kind": "const", "type": "Integer", "value": "3" }, { "kind": "const", "type": "Integer", "value": "4" }] }, { "kind": "constructor", "type": "Point", "args": [{ "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "2" }] }] } },
     { "op": "bind", "mutable": false, "name": "noMatch", "type": "List OF Integer", "value": { "kind": "call", "target": "replace", "args": [{ "kind": "local", "name": "numbers" }, { "kind": "const", "type": "Integer", "value": "9" }, { "kind": "const", "type": "Integer", "value": "8" }] } },
     { "op": "bind", "mutable": false, "name": "replacedNumbers", "type": "List OF Integer", "value": { "kind": "call", "target": "replace", "args": [{ "kind": "local", "name": "numbers" }, { "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "7" }] } },
     { "op": "bind", "mutable": false, "name": "replacedNames", "type": "List OF String", "value": { "kind": "call", "target": "replace", "args": [{ "kind": "local", "name": "names" }, { "kind": "const", "type": "String", "value": "Ada" }, { "kind": "const", "type": "String", "value": "Katherine" }] } },
+    { "op": "bind", "mutable": false, "name": "replacedPoints", "type": "List OF Point", "value": { "kind": "call", "target": "replace", "args": [{ "kind": "local", "name": "points" }, { "kind": "constructor", "type": "Point", "args": [{ "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "2" }] }, { "kind": "constructor", "type": "Point", "args": [{ "kind": "const", "type": "Integer", "value": "8" }, { "kind": "const", "type": "Integer", "value": "9" }] }] } },
     { "op": "eval", "value": { "kind": "call", "target": "printIntegers", "args": [{ "kind": "local", "name": "replacedNumbers" }] } },
     { "op": "eval", "value": { "kind": "call", "target": "printStrings", "args": [{ "kind": "local", "name": "replacedNames" }] } },
     { "op": "eval", "value": { "kind": "call", "target": "printIntegers", "args": [{ "kind": "local", "name": "noMatch" }] } },
-    { "op": "return", "value": { "kind": "binary", "op": "+", "left": { "kind": "binary", "op": "+", "left": { "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "replacedNumbers" }] }, "right": { "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "replacedNames" }] } }, "right": { "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "noMatch" }] } } }
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "replacedPoints" }] }] }] } },
+    { "op": "return", "value": { "kind": "binary", "op": "+", "left": { "kind": "binary", "op": "+", "left": { "kind": "binary", "op": "+", "left": { "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "replacedNumbers" }] }, "right": { "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "replacedNames" }] } }, "right": { "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "noMatch" }] } }, "right": { "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "replacedPoints" }] } } }
     ]
   }
   ]

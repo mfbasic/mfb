@@ -1,0 +1,21 @@
+{
+  "project": "package_comparable_types",
+  "files": [
+  {
+    "path": "src/lib.mfb",
+    "imports": [
+    ],
+    "items": [
+    {
+      "kind": "type",
+      "visibility": "export",
+      "name": "Box",
+      "line": 1,
+      "fields": [
+      { "visibility": "export", "name": "items", "type": "List OF Integer", "line": 2 }
+      ]
+    }
+    ]
+  }
+  ]
+}

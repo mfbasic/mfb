@@ -60,7 +60,11 @@ impl CodeBuilder<'_> {
                     binding: "data".to_string(),
                     library: None,
                 });
-                self.emit(abi::add_page_offset(&function_register, &function_register, &symbol));
+                self.emit(abi::add_page_offset(
+                    &function_register,
+                    &function_register,
+                    &symbol,
+                ));
                 self.relocations.push(CodeRelocation {
                     from: self.current_symbol.clone(),
                     to: symbol,
@@ -76,7 +80,11 @@ impl CodeBuilder<'_> {
                 ));
                 let closure_register = self.allocate_register()?;
                 let alloc_ok = self.label("function_ref_alloc_ok");
-                self.emit(abi::move_immediate(abi::return_register(), "Integer", &CLOSURE_OBJECT_SIZE.to_string()));
+                self.emit(abi::move_immediate(
+                    abi::return_register(),
+                    "Integer",
+                    &CLOSURE_OBJECT_SIZE.to_string(),
+                ));
                 self.emit(abi::move_immediate("x1", "Integer", "8"));
                 self.emit(abi::branch_link(ARENA_ALLOC_SYMBOL));
                 self.relocations.push(CodeRelocation {
@@ -86,7 +94,10 @@ impl CodeBuilder<'_> {
                     binding: "internal".to_string(),
                     library: None,
                 });
-                self.emit(abi::compare_immediate(abi::return_register(), RESULT_OK_TAG));
+                self.emit(abi::compare_immediate(
+                    abi::return_register(),
+                    RESULT_OK_TAG,
+                ));
                 self.emit(abi::branch_eq(&alloc_ok));
                 self.emit_allocation_error_return()?;
                 self.emit(abi::label(&alloc_ok));
@@ -95,7 +106,11 @@ impl CodeBuilder<'_> {
                     abi::stack_pointer(),
                     function_slot,
                 ));
-                self.emit(abi::store_u64(&function_register, "x1", CLOSURE_OFFSET_CODE));
+                self.emit(abi::store_u64(
+                    &function_register,
+                    "x1",
+                    CLOSURE_OFFSET_CODE,
+                ));
                 self.emit(abi::store_u64("x31", "x1", CLOSURE_OFFSET_ENV));
                 self.emit(abi::move_register(&closure_register, "x1"));
                 Ok(ValueResult {
@@ -123,7 +138,11 @@ impl CodeBuilder<'_> {
                     binding: "data".to_string(),
                     library: None,
                 });
-                self.emit(abi::add_page_offset(&function_register, &function_register, &symbol));
+                self.emit(abi::add_page_offset(
+                    &function_register,
+                    &function_register,
+                    &symbol,
+                ));
                 self.relocations.push(CodeRelocation {
                     from: self.current_symbol.clone(),
                     to: symbol,
@@ -144,7 +163,11 @@ impl CodeBuilder<'_> {
                     let env_slot = self.allocate_stack_object("closure_env", 8);
                     let alloc_ok = self.label("closure_env_alloc_ok");
                     let env_size = (captures.len() * 8).to_string();
-                    self.emit(abi::move_immediate(abi::return_register(), "Integer", &env_size));
+                    self.emit(abi::move_immediate(
+                        abi::return_register(),
+                        "Integer",
+                        &env_size,
+                    ));
                     self.emit(abi::move_immediate("x1", "Integer", "8"));
                     self.emit(abi::branch_link(ARENA_ALLOC_SYMBOL));
                     self.relocations.push(CodeRelocation {
@@ -154,7 +177,10 @@ impl CodeBuilder<'_> {
                         binding: "internal".to_string(),
                         library: None,
                     });
-                    self.emit(abi::compare_immediate(abi::return_register(), RESULT_OK_TAG));
+                    self.emit(abi::compare_immediate(
+                        abi::return_register(),
+                        RESULT_OK_TAG,
+                    ));
                     self.emit(abi::branch_eq(&alloc_ok));
                     self.emit_allocation_error_return()?;
                     self.emit(abi::label(&alloc_ok));
@@ -172,7 +198,11 @@ impl CodeBuilder<'_> {
                 };
                 let closure_register = self.allocate_register()?;
                 let alloc_ok = self.label("closure_alloc_ok");
-                self.emit(abi::move_immediate(abi::return_register(), "Integer", &CLOSURE_OBJECT_SIZE.to_string()));
+                self.emit(abi::move_immediate(
+                    abi::return_register(),
+                    "Integer",
+                    &CLOSURE_OBJECT_SIZE.to_string(),
+                ));
                 self.emit(abi::move_immediate("x1", "Integer", "8"));
                 self.emit(abi::branch_link(ARENA_ALLOC_SYMBOL));
                 self.relocations.push(CodeRelocation {
@@ -182,7 +212,10 @@ impl CodeBuilder<'_> {
                     binding: "internal".to_string(),
                     library: None,
                 });
-                self.emit(abi::compare_immediate(abi::return_register(), RESULT_OK_TAG));
+                self.emit(abi::compare_immediate(
+                    abi::return_register(),
+                    RESULT_OK_TAG,
+                ));
                 self.emit(abi::branch_eq(&alloc_ok));
                 self.emit_allocation_error_return()?;
                 self.emit(abi::label(&alloc_ok));
@@ -191,14 +224,14 @@ impl CodeBuilder<'_> {
                     abi::stack_pointer(),
                     function_slot,
                 ));
-                self.emit(abi::store_u64(&function_register, "x1", CLOSURE_OFFSET_CODE));
+                self.emit(abi::store_u64(
+                    &function_register,
+                    "x1",
+                    CLOSURE_OFFSET_CODE,
+                ));
                 if let Some(env_slot) = env_slot {
                     let env_register = self.allocate_register()?;
-                    self.emit(abi::load_u64(
-                        &env_register,
-                        abi::stack_pointer(),
-                        env_slot,
-                    ));
+                    self.emit(abi::load_u64(&env_register, abi::stack_pointer(), env_slot));
                     self.emit(abi::store_u64(&env_register, "x1", CLOSURE_OFFSET_ENV));
                 } else {
                     self.emit(abi::store_u64("x31", "x1", CLOSURE_OFFSET_ENV));
@@ -223,18 +256,30 @@ impl CodeBuilder<'_> {
                 if let Some(local) = self.locals.get(target).cloned() {
                     if local.type_.starts_with("FUNC(") {
                         let return_type = callable_return_type(&local.type_).ok_or_else(|| {
-                            format!("native call through `{target}` has invalid callable type `{}`", local.type_)
+                            format!(
+                                "native call through `{target}` has invalid callable type `{}`",
+                                local.type_
+                            )
                         })?;
                         let callable = ValueResult {
                             type_: local.type_,
                             location: {
                                 let register = self.allocate_register()?;
-                                self.emit(abi::load_u64(&register, abi::stack_pointer(), local.stack_offset));
+                                self.emit(abi::load_u64(
+                                    &register,
+                                    abi::stack_pointer(),
+                                    local.stack_offset,
+                                ));
                                 register
                             },
                             text: target.clone(),
                         };
-                        return self.emit_function_value_call(target, &callable, args, Some(&return_type));
+                        return self.emit_function_value_call(
+                            target,
+                            &callable,
+                            args,
+                            Some(&return_type),
+                        );
                     }
                 }
                 if let Some(result) = self.lower_fs_path_call(target, args)? {
@@ -363,18 +408,26 @@ impl CodeBuilder<'_> {
                 if let Some(local) = self.locals.get(target).cloned() {
                     if local.type_.starts_with("FUNC(") {
                         let return_type = callable_return_type(&local.type_).ok_or_else(|| {
-                            format!("native raw call through `{target}` has invalid callable type `{}`", local.type_)
+                            format!(
+                                "native raw call through `{target}` has invalid callable type `{}`",
+                                local.type_
+                            )
                         })?;
                         let callable = ValueResult {
                             type_: local.type_,
                             location: {
                                 let register = self.allocate_register()?;
-                                self.emit(abi::load_u64(&register, abi::stack_pointer(), local.stack_offset));
+                                self.emit(abi::load_u64(
+                                    &register,
+                                    abi::stack_pointer(),
+                                    local.stack_offset,
+                                ));
                                 register
                             },
                             text: target.clone(),
                         };
-                        return self.emit_function_value_call(target, &callable, args, Some(&return_type))
+                        return self
+                            .emit_function_value_call(target, &callable, args, Some(&return_type))
                             .map(|result| ValueResult {
                                 type_: format!("Result OF {return_type}"),
                                 ..result
@@ -392,7 +445,9 @@ impl CodeBuilder<'_> {
                     .map(|function| function.returns.clone())
                     .or_else(|| self.package_return_types.get(target).cloned())
                     .or_else(|| builtins::call_return_type_name(target).map(str::to_string))
-                    .ok_or_else(|| format!("native raw result call '{target}' has no return type"))?;
+                    .ok_or_else(|| {
+                        format!("native raw result call '{target}' has no return type")
+                    })?;
                 let tag_slot = self.allocate_stack_object("raw_result_tag", 8);
                 let value_slot = self.allocate_stack_object("raw_result_value", 8);
                 let message_slot = self.allocate_stack_object("raw_result_message", 8);
@@ -565,11 +620,7 @@ impl CodeBuilder<'_> {
                 if type_ == "Error" {
                     let result_slot = self.allocate_stack_object("error_result", 8);
                     let alloc_ok = self.label("error_construct_alloc_ok");
-                    self.emit(abi::move_immediate(
-                        abi::return_register(),
-                        "Integer",
-                        "16",
-                    ));
+                    self.emit(abi::move_immediate(abi::return_register(), "Integer", "16"));
                     self.emit(abi::move_immediate("x1", "Integer", "8"));
                     self.emit(abi::branch_link(ARENA_ALLOC_SYMBOL));
                     self.relocations.push(CodeRelocation {
@@ -626,11 +677,7 @@ impl CodeBuilder<'_> {
                     self.emit(abi::store_u64("x1", abi::stack_pointer(), result_slot));
                     for (index, slot) in arg_slots.iter().enumerate() {
                         self.emit(abi::load_u64("x9", abi::stack_pointer(), *slot));
-                        self.emit(abi::store_u64(
-                            "x9",
-                            "x1",
-                            8 * index,
-                        ));
+                        self.emit(abi::store_u64("x9", "x1", 8 * index));
                     }
                     self.emit(abi::load_u64(&register, abi::stack_pointer(), result_slot));
                     return Ok(ValueResult {
@@ -690,11 +737,7 @@ impl CodeBuilder<'_> {
                 let zero_register = self.allocate_register()?;
                 self.emit(abi::move_immediate(&zero_register, "Integer", "0"));
                 for offset in (0..union_size).step_by(8) {
-                    self.emit(abi::store_u64(
-                        &zero_register,
-                        "x1",
-                        offset,
-                    ));
+                    self.emit(abi::store_u64(&zero_register, "x1", offset));
                 }
                 let tag_register = self.allocate_register()?;
                 self.emit(abi::move_immediate(
@@ -702,18 +745,10 @@ impl CodeBuilder<'_> {
                     "UnionTag",
                     &tag.to_string(),
                 ));
-                self.emit(abi::store_u64(
-                    &tag_register,
-                    "x1",
-                    0,
-                ));
+                self.emit(abi::store_u64(&tag_register, "x1", 0));
                 for (index, slot) in arg_slots.iter().enumerate() {
                     self.emit(abi::load_u64("x9", abi::stack_pointer(), *slot));
-                    self.emit(abi::store_u64(
-                        "x9",
-                        "x1",
-                        8 * (index + 1),
-                    ));
+                    self.emit(abi::store_u64("x9", "x1", 8 * (index + 1)));
                 }
                 self.emit(abi::load_u64(&register, abi::stack_pointer(), result_slot));
                 Ok(ValueResult {
@@ -798,17 +833,9 @@ impl CodeBuilder<'_> {
                 self.emit(abi::store_u64(&tag_register, "x1", 0));
                 for (index, _) in fields.iter().enumerate() {
                     self.emit(abi::load_u64("x11", abi::stack_pointer(), wrapped_slot));
-                    self.emit(abi::load_u64(
-                        "x9",
-                        "x11",
-                        8 * index,
-                    ));
+                    self.emit(abi::load_u64("x9", "x11", 8 * index));
                     self.emit(abi::load_u64("x10", abi::stack_pointer(), result_slot));
-                    self.emit(abi::store_u64(
-                        "x9",
-                        "x10",
-                        8 * (index + 1),
-                    ));
+                    self.emit(abi::store_u64("x9", "x10", 8 * (index + 1)));
                 }
                 let register = self.allocate_register()?;
                 self.emit(abi::load_u64(&register, abi::stack_pointer(), result_slot));
@@ -860,16 +887,8 @@ impl CodeBuilder<'_> {
                 self.emit(abi::store_u64("x1", abi::stack_pointer(), result_slot));
                 for (index, _) in fields.iter().enumerate() {
                     self.emit(abi::load_u64("x11", abi::stack_pointer(), source_slot));
-                    self.emit(abi::load_u64(
-                        "x9",
-                        "x11",
-                        8 * (index + 1),
-                    ));
-                    self.emit(abi::store_u64(
-                        "x9",
-                        "x1",
-                        8 * index,
-                    ));
+                    self.emit(abi::load_u64("x9", "x11", 8 * (index + 1)));
+                    self.emit(abi::store_u64("x9", "x1", 8 * index));
                 }
                 let register = self.allocate_register()?;
                 self.emit(abi::load_u64(&register, abi::stack_pointer(), result_slot));

@@ -1,0 +1,18 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "package_comparable_types",
+  "entry": null,
+  "types": [
+  {
+    "kind": "type",
+    "visibility": "export",
+    "name": "Box",
+    "fields": [
+    { "visibility": "export", "name": "items", "type": "List OF Integer" }
+    ]
+  }
+  ],
+  "functions": [
+  ]
+}

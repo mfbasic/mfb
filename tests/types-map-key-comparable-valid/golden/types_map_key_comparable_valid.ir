@@ -1,0 +1,39 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "types_map_key_comparable_valid",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  {
+    "kind": "type",
+    "visibility": "private",
+    "name": "Point",
+    "fields": [
+    { "visibility": null, "name": "x", "type": "Integer" },
+    { "visibility": null, "name": "y", "type": "Integer" }
+    ]
+  }
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "mutable": false, "name": "first", "type": "Point", "value": { "kind": "constructor", "type": "Point", "args": [{ "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "2" }] } },
+    { "op": "bind", "mutable": false, "name": "second", "type": "Point", "value": { "kind": "constructor", "type": "Point", "args": [{ "kind": "const", "type": "Integer", "value": "3" }, { "kind": "const", "type": "Integer", "value": "4" }] } },
+    { "op": "bind", "mutable": false, "name": "points", "type": "Map OF Point TO String", "value": { "kind": "map", "type": "Map OF Point TO String", "entries": [{ "key": { "kind": "local", "name": "first" }, "value": { "kind": "const", "type": "String", "value": "a" } }, { "key": { "kind": "local", "name": "second" }, "value": { "kind": "const", "type": "String", "value": "b" } }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "points" }] }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "get", "args": [{ "kind": "local", "name": "points" }, { "kind": "local", "name": "second" }] }] } },
+    { "op": "return", "value": { "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "points" }] } }
+    ]
+  }
+  ]
+}

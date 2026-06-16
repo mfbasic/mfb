@@ -40,7 +40,10 @@ pub(crate) fn resolve_call<'a>(name: &str, arg_types: &'a [String]) -> Option<Re
         STRINGIFY if arg_types.len() == 1 && is_json_value_type(&arg_types[0]) => {
             Cow::Borrowed("String")
         }
-        GET if arg_types.len() == 2 && is_json_value_type(&arg_types[0]) && arg_types[1] == "List OF String" => {
+        GET if arg_types.len() == 2
+            && is_json_value_type(&arg_types[0])
+            && arg_types[1] == "List OF String" =>
+        {
             Cow::Borrowed("Json")
         }
         GET_OR

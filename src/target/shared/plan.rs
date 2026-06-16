@@ -1083,7 +1083,9 @@ impl FunctionPlanBuilder<'_> {
             NirValue::FunctionRef { type_, .. } => {
                 storage_for_type(type_, self.type_storage)?;
             }
-            NirValue::Closure { type_, captures, .. } => {
+            NirValue::Closure {
+                type_, captures, ..
+            } => {
                 storage_for_type(type_, self.type_storage)?;
                 for value in captures {
                     self.lower_value(value)?;
@@ -1269,7 +1271,11 @@ fn describe_value(value: &NirValue) -> String {
         NirValue::FunctionRef { name, .. } => format!("functionRef {name}"),
         NirValue::Closure { name, captures, .. } => format!(
             "closure {name}[{}]",
-            captures.iter().map(describe_value).collect::<Vec<_>>().join(", ")
+            captures
+                .iter()
+                .map(describe_value)
+                .collect::<Vec<_>>()
+                .join(", ")
         ),
         NirValue::Capture { index, .. } => format!("capture[{index}]"),
         NirValue::Call { target, args } => {
@@ -1404,9 +1410,7 @@ fn collect_string_literals(value: &NirValue, literals: &mut Vec<String>) {
         | NirValue::UnionExtract { value, .. }
         | NirValue::ResultIsOk { value }
         | NirValue::ResultValue { value }
-        | NirValue::ResultError { value } => {
-            collect_string_literals(value, literals)
-        }
+        | NirValue::ResultError { value } => collect_string_literals(value, literals),
         NirValue::WithUpdate {
             target, updates, ..
         } => {

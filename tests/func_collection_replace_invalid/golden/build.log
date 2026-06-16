@@ -1,52 +1,64 @@
 $ mfb build -ast tests/func_collection_replace_invalid
-   1 | FUNC main AS Integer
-   2 |   LET numbers AS List OF Integer = [1, 2, 3]
-   3 |   LET wrongOld AS List OF Integer = replace(numbers, "1", 9)
+   6 |   LET numbers AS List OF Integer = [1, 2, 3]
+   7 |   LET boxes AS List OF Box = [Box[[1]], Box[[2]]]
+   8 |   LET wrongOld AS List OF Integer = replace(numbers, "1", 9)
      | ^
-tests/func_collection_replace_invalid/src/main.mfb:3 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+tests/func_collection_replace_invalid/src/main.mfb:8 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
                Call to `replace` has argument type(s) (List OF Integer, String, Integer), expected String, String, String or List OF T, T, T.
-   1 | FUNC main AS Integer
-   2 |   LET numbers AS List OF Integer = [1, 2, 3]
-   3 |   LET wrongOld AS List OF Integer = replace(numbers, "1", 9)
+   6 |   LET numbers AS List OF Integer = [1, 2, 3]
+   7 |   LET boxes AS List OF Box = [Box[[1]], Box[[2]]]
+   8 |   LET wrongOld AS List OF Integer = replace(numbers, "1", 9)
      | ^
-tests/func_collection_replace_invalid/src/main.mfb:3 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+tests/func_collection_replace_invalid/src/main.mfb:8 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `wrongOld` does not have a known type.
-   2 |   LET numbers AS List OF Integer = [1, 2, 3]
-   3 |   LET wrongOld AS List OF Integer = replace(numbers, "1", 9)
-   4 |   LET wrongNew AS List OF Integer = replace(numbers, 1, "9")
+   7 |   LET boxes AS List OF Box = [Box[[1]], Box[[2]]]
+   8 |   LET wrongOld AS List OF Integer = replace(numbers, "1", 9)
+   9 |   LET wrongNew AS List OF Integer = replace(numbers, 1, "9")
      | ^
-tests/func_collection_replace_invalid/src/main.mfb:4 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+tests/func_collection_replace_invalid/src/main.mfb:9 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
                Call to `replace` has argument type(s) (List OF Integer, Integer, String), expected String, String, String or List OF T, T, T.
-   2 |   LET numbers AS List OF Integer = [1, 2, 3]
-   3 |   LET wrongOld AS List OF Integer = replace(numbers, "1", 9)
-   4 |   LET wrongNew AS List OF Integer = replace(numbers, 1, "9")
+   7 |   LET boxes AS List OF Box = [Box[[1]], Box[[2]]]
+   8 |   LET wrongOld AS List OF Integer = replace(numbers, "1", 9)
+   9 |   LET wrongNew AS List OF Integer = replace(numbers, 1, "9")
      | ^
-tests/func_collection_replace_invalid/src/main.mfb:4 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+tests/func_collection_replace_invalid/src/main.mfb:9 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `wrongNew` does not have a known type.
+   8 |   LET wrongOld AS List OF Integer = replace(numbers, "1", 9)
+   9 |   LET wrongNew AS List OF Integer = replace(numbers, 1, "9")
+  10 |   LET nonComparable AS List OF Box = replace(boxes, Box[[1]], Box[[9]])
+     | ^
+tests/func_collection_replace_invalid/src/main.mfb:10 error[2-203-0061 TYPE_REQUIRES_COMPARABLE]: operation requires a comparable type
+               Call to `replace` requires a comparable type, got `Box`.
 [exit 1]
 $ mfb build -ir tests/func_collection_replace_invalid
-   1 | FUNC main AS Integer
-   2 |   LET numbers AS List OF Integer = [1, 2, 3]
-   3 |   LET wrongOld AS List OF Integer = replace(numbers, "1", 9)
+   6 |   LET numbers AS List OF Integer = [1, 2, 3]
+   7 |   LET boxes AS List OF Box = [Box[[1]], Box[[2]]]
+   8 |   LET wrongOld AS List OF Integer = replace(numbers, "1", 9)
      | ^
-tests/func_collection_replace_invalid/src/main.mfb:3 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+tests/func_collection_replace_invalid/src/main.mfb:8 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
                Call to `replace` has argument type(s) (List OF Integer, String, Integer), expected String, String, String or List OF T, T, T.
-   1 | FUNC main AS Integer
-   2 |   LET numbers AS List OF Integer = [1, 2, 3]
-   3 |   LET wrongOld AS List OF Integer = replace(numbers, "1", 9)
+   6 |   LET numbers AS List OF Integer = [1, 2, 3]
+   7 |   LET boxes AS List OF Box = [Box[[1]], Box[[2]]]
+   8 |   LET wrongOld AS List OF Integer = replace(numbers, "1", 9)
      | ^
-tests/func_collection_replace_invalid/src/main.mfb:3 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+tests/func_collection_replace_invalid/src/main.mfb:8 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `wrongOld` does not have a known type.
-   2 |   LET numbers AS List OF Integer = [1, 2, 3]
-   3 |   LET wrongOld AS List OF Integer = replace(numbers, "1", 9)
-   4 |   LET wrongNew AS List OF Integer = replace(numbers, 1, "9")
+   7 |   LET boxes AS List OF Box = [Box[[1]], Box[[2]]]
+   8 |   LET wrongOld AS List OF Integer = replace(numbers, "1", 9)
+   9 |   LET wrongNew AS List OF Integer = replace(numbers, 1, "9")
      | ^
-tests/func_collection_replace_invalid/src/main.mfb:4 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+tests/func_collection_replace_invalid/src/main.mfb:9 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
                Call to `replace` has argument type(s) (List OF Integer, Integer, String), expected String, String, String or List OF T, T, T.
-   2 |   LET numbers AS List OF Integer = [1, 2, 3]
-   3 |   LET wrongOld AS List OF Integer = replace(numbers, "1", 9)
-   4 |   LET wrongNew AS List OF Integer = replace(numbers, 1, "9")
+   7 |   LET boxes AS List OF Box = [Box[[1]], Box[[2]]]
+   8 |   LET wrongOld AS List OF Integer = replace(numbers, "1", 9)
+   9 |   LET wrongNew AS List OF Integer = replace(numbers, 1, "9")
      | ^
-tests/func_collection_replace_invalid/src/main.mfb:4 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+tests/func_collection_replace_invalid/src/main.mfb:9 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `wrongNew` does not have a known type.
+   8 |   LET wrongOld AS List OF Integer = replace(numbers, "1", 9)
+   9 |   LET wrongNew AS List OF Integer = replace(numbers, 1, "9")
+  10 |   LET nonComparable AS List OF Box = replace(boxes, Box[[1]], Box[[9]])
+     | ^
+tests/func_collection_replace_invalid/src/main.mfb:10 error[2-203-0061 TYPE_REQUIRES_COMPARABLE]: operation requires a comparable type
+               Call to `replace` requires a comparable type, got `Box`.
 [exit 1]

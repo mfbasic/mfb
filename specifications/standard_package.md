@@ -126,7 +126,7 @@ String length, search, substring, and regex indexes are zero-based Unicode scala
 | `keys` | `FUNC keys OF K, V(value AS Map OF K TO V) AS List OF K` | Returns the keys in implementation-defined stable order. |
 | `values` | `FUNC values OF K, V(value AS Map OF K TO V) AS List OF V` | Returns the values in key iteration order. |
 | `hasKey` | `FUNC hasKey OF K, V(value AS Map OF K TO V, key AS K) AS Boolean` | `TRUE` when `key` exists. |
-| `contains` | `FUNC contains OF T(value AS List OF T, item AS T) AS Boolean` | `TRUE` when `item` appears in the list. |
+| `contains` | `FUNC contains OF T(value AS List OF T, item AS T) AS Boolean` | `TRUE` when `item` appears in the list. `T` must be comparable. |
 | `forEach` | `FUNC forEach OF T(value AS List OF T, action AS FUNC(T) AS Nothing) AS Nothing` | Calls `action` once for each item, left to right. A `SUB(T)` is accepted for `action`. |
 | `transform` | `FUNC transform OF T, U(value AS List OF T, f AS FUNC(T) AS U) AS List OF U` | Maps each item through `f`. |
 | `filter` | `FUNC filter OF T(value AS List OF T, predicate AS FUNC(T) AS Boolean) AS List OF T` | Keeps items where `predicate` returns `TRUE`. |

@@ -232,8 +232,8 @@ pub fn lower_project_with_external_functions(
     external_function_types: &HashMap<String, String>,
     external_function_params: &HashMap<String, Vec<ExternalFunctionParam>>,
 ) -> IrProject {
-    let augmented = builtins::json::augmented_project(ast)
-        .expect("built-in json package source must parse");
+    let augmented =
+        builtins::json::augmented_project(ast).expect("built-in json package source must parse");
     let ast = &augmented;
     let mut types = Vec::new();
     let mut functions = Vec::new();
@@ -392,7 +392,12 @@ fn lower_function_body(
         trap_locals.insert(trap.name.clone(), "Error".to_string());
         body.push(IrOp::Trap {
             name: trap.name.clone(),
-            body: lower_statement_block(&trap.body, &trap_locals, context, Some(trap.name.as_str())),
+            body: lower_statement_block(
+                &trap.body,
+                &trap_locals,
+                context,
+                Some(trap.name.as_str()),
+            ),
         });
     }
     body
@@ -519,11 +524,11 @@ fn lower_statement(
                 mutable: false,
                 name: matched_name.clone(),
                 type_: matched_type.clone(),
-                    value: Some(lower_match_expression(
-                        expression,
-                        &matched_type,
-                        locals,
-                        context,
+                value: Some(lower_match_expression(
+                    expression,
+                    &matched_type,
+                    locals,
+                    context,
                 )),
             }];
             let mut match_locals = locals.clone();
@@ -575,11 +580,14 @@ fn lower_statement(
             let end_name = make_temp_local_name(context, "for_end");
             let step_name = make_temp_local_name(context, "for_step");
 
-            let start_value = lower_expression_with_expected(start, Some(&loop_type), locals, context);
+            let start_value =
+                lower_expression_with_expected(start, Some(&loop_type), locals, context);
             let end_value = lower_expression_with_expected(end, Some(&loop_type), locals, context);
             let step_value = step
                 .as_ref()
-                .map(|value| lower_expression_with_expected(value, Some(&loop_type), locals, context))
+                .map(|value| {
+                    lower_expression_with_expected(value, Some(&loop_type), locals, context)
+                })
                 .unwrap_or_else(|| numeric_constant_for_type(&loop_type, "1"));
 
             locals.insert(iter_name.clone(), loop_type.clone());
@@ -830,7 +838,12 @@ fn lower_match_case(
             value: Some(value),
         });
     }
-    body.extend(lower_statement_block(&case.body, &case_locals, context, trap_name));
+    body.extend(lower_statement_block(
+        &case.body,
+        &case_locals,
+        context,
+        trap_name,
+    ));
     IrMatchCase {
         pattern,
         guard: case
@@ -891,15 +904,14 @@ fn lower_match_expression(
             let normalized_builtin = normalize_builtin_call_arguments(callee, arguments);
             let args = if callee == "filter" && normalized_builtin.len() == 2 {
                 if let Expression::Identifier(predicate) = normalized_builtin[1] {
-                    let predicate_type = expression_type(normalized_builtin[0], locals, context).and_then(
-                        |collection_type| {
+                    let predicate_type = expression_type(normalized_builtin[0], locals, context)
+                        .and_then(|collection_type| {
                             collection_type
                                 .strip_prefix("List OF ")
                                 .and_then(|element| {
                                     builtins::general::filter_predicate_type(predicate, element)
                                 })
-                        },
-                    );
+                        });
                     if let Some(predicate_type) = predicate_type {
                         vec![
                             lower_expression(normalized_builtin[0], locals, context),
@@ -929,13 +941,8 @@ fn lower_match_expression(
                     .into_iter()
                     .enumerate()
                     .filter_map(|(index, argument)| {
-                        let expected = call_argument_expected_type(
-                            callee,
-                            index,
-                            arguments,
-                            locals,
-                            context,
-                        );
+                        let expected =
+                            call_argument_expected_type(callee, index, arguments, locals, context);
                         argument.map(|argument| {
                             lower_expression_with_expected(
                                 argument,
@@ -1163,7 +1170,8 @@ fn expression_type(
         Expression::Call { callee, arguments } => {
             let canonical_callee = canonical_import_name(callee, context);
             if builtins::general::is_general_call(&canonical_callee) {
-                let normalized = normalize_builtin_call_arguments(canonical_callee.as_str(), arguments);
+                let normalized =
+                    normalize_builtin_call_arguments(canonical_callee.as_str(), arguments);
                 if callee == "filter" && normalized.len() == 2 {
                     if let Expression::Identifier(predicate) = normalized[1] {
                         if let Some(collection_type) =
@@ -1176,8 +1184,11 @@ fn expression_type(
                                 })
                             {
                                 let arg_types = vec![collection_type, predicate_type];
-                                return builtins::general::resolve_call(&canonical_callee, &arg_types)
-                                    .map(|resolved| resolved.return_type.to_string());
+                                return builtins::general::resolve_call(
+                                    &canonical_callee,
+                                    &arg_types,
+                                )
+                                .map(|resolved| resolved.return_type.to_string());
                             }
                         }
                     }
@@ -1190,50 +1201,56 @@ fn expression_type(
                     .map(|resolved| resolved.return_type.to_string());
             }
             if builtins::strings::is_strings_call(&canonical_callee) {
-                let arg_types = normalize_builtin_call_arguments(canonical_callee.as_str(), arguments)
-                    .iter()
-                    .map(|argument| expression_type(argument, locals, context))
-                    .collect::<Option<Vec<_>>>()?;
+                let arg_types =
+                    normalize_builtin_call_arguments(canonical_callee.as_str(), arguments)
+                        .iter()
+                        .map(|argument| expression_type(argument, locals, context))
+                        .collect::<Option<Vec<_>>>()?;
                 return builtins::strings::resolve_call(&canonical_callee, &arg_types)
                     .map(|resolved| resolved.return_type.to_string());
             }
             if builtins::math::is_math_call(&canonical_callee) {
-                let arg_types = normalize_builtin_call_arguments(canonical_callee.as_str(), arguments)
-                    .iter()
-                    .map(|argument| expression_type(argument, locals, context))
-                    .collect::<Option<Vec<_>>>()?;
+                let arg_types =
+                    normalize_builtin_call_arguments(canonical_callee.as_str(), arguments)
+                        .iter()
+                        .map(|argument| expression_type(argument, locals, context))
+                        .collect::<Option<Vec<_>>>()?;
                 return builtins::math::resolve_call(&canonical_callee, &arg_types)
                     .map(|resolved| resolved.return_type.to_string());
             }
             if builtins::fs::is_fs_call(&canonical_callee) {
-                let arg_types = normalize_builtin_call_arguments(canonical_callee.as_str(), arguments)
-                    .iter()
-                    .map(|argument| expression_type(argument, locals, context))
-                    .collect::<Option<Vec<_>>>()?;
+                let arg_types =
+                    normalize_builtin_call_arguments(canonical_callee.as_str(), arguments)
+                        .iter()
+                        .map(|argument| expression_type(argument, locals, context))
+                        .collect::<Option<Vec<_>>>()?;
                 return builtins::fs::resolve_call(&canonical_callee, &arg_types)
                     .map(|resolved| resolved.return_type.to_string());
             }
             if builtins::io::is_io_call(&canonical_callee) {
-                let arg_types = normalize_builtin_call_arguments(canonical_callee.as_str(), arguments)
-                    .iter()
-                    .map(|argument| expression_type(argument, locals, context))
-                    .collect::<Option<Vec<_>>>()?;
+                let arg_types =
+                    normalize_builtin_call_arguments(canonical_callee.as_str(), arguments)
+                        .iter()
+                        .map(|argument| expression_type(argument, locals, context))
+                        .collect::<Option<Vec<_>>>()?;
                 return builtins::io::resolve_call(&canonical_callee, &arg_types)
                     .map(|resolved| resolved.return_type.to_string());
             }
             if builtins::json::is_json_call(&canonical_callee) {
-                let arg_types = normalize_builtin_call_arguments(canonical_callee.as_str(), arguments)
-                    .iter()
-                    .map(|argument| expression_type(argument, locals, context))
-                    .collect::<Option<Vec<_>>>()?;
+                let arg_types =
+                    normalize_builtin_call_arguments(canonical_callee.as_str(), arguments)
+                        .iter()
+                        .map(|argument| expression_type(argument, locals, context))
+                        .collect::<Option<Vec<_>>>()?;
                 return builtins::json::resolve_call(&canonical_callee, &arg_types)
                     .map(|resolved| resolved.return_type.to_string());
             }
             if builtins::thread::is_thread_call(&canonical_callee) {
-                let arg_types = normalize_builtin_call_arguments(canonical_callee.as_str(), arguments)
-                    .iter()
-                    .map(|argument| expression_type(argument, locals, context))
-                    .collect::<Option<Vec<_>>>()?;
+                let arg_types =
+                    normalize_builtin_call_arguments(canonical_callee.as_str(), arguments)
+                        .iter()
+                        .map(|argument| expression_type(argument, locals, context))
+                        .collect::<Option<Vec<_>>>()?;
                 return builtins::thread::resolve_call(&canonical_callee, &arg_types)
                     .map(|resolved| resolved.return_type.to_string());
             }
@@ -1409,7 +1426,10 @@ fn normalize_local_call_arguments<'a>(
     context: &LowerContext<'_>,
 ) -> Vec<Option<&'a Expression>> {
     let Some(params) = context.function_params.get(callee) else {
-        return arguments.iter().map(|argument| Some(call_arg_value(argument))).collect();
+        return arguments
+            .iter()
+            .map(|argument| Some(call_arg_value(argument)))
+            .collect();
     };
     let mut ordered = vec![None; params.len()];
     let mut next_positional = 0usize;
@@ -1518,18 +1538,18 @@ fn lower_expression_with_expected(
         }
         Expression::Call { callee, arguments } => {
             let canonical_callee = canonical_import_name(callee, context);
-            let normalized_builtin = normalize_builtin_call_arguments(canonical_callee.as_str(), arguments);
+            let normalized_builtin =
+                normalize_builtin_call_arguments(canonical_callee.as_str(), arguments);
             let args = if callee == "filter" && normalized_builtin.len() == 2 {
                 if let Expression::Identifier(predicate) = normalized_builtin[1] {
-                    let predicate_type = expression_type(normalized_builtin[0], locals, context).and_then(
-                        |collection_type| {
+                    let predicate_type = expression_type(normalized_builtin[0], locals, context)
+                        .and_then(|collection_type| {
                             collection_type
                                 .strip_prefix("List OF ")
                                 .and_then(|element| {
                                     builtins::general::filter_predicate_type(predicate, element)
                                 })
-                        },
-                    );
+                        });
                     if let Some(predicate_type) = predicate_type {
                         vec![
                             lower_expression(normalized_builtin[0], locals, context),
@@ -1551,9 +1571,7 @@ fn lower_expression_with_expected(
                         .collect()
                 }
             } else if context.function_params.contains_key(callee)
-                || context
-                    .function_params
-                    .contains_key(&canonical_callee)
+                || context.function_params.contains_key(&canonical_callee)
             {
                 let params = context
                     .function_params
@@ -1681,7 +1699,13 @@ fn lower_expression_with_expected(
                     type_,
                     captures: captures
                         .iter()
-                        .map(|capture| lower_expression(&Expression::Identifier(capture.name.clone()), locals, context))
+                        .map(|capture| {
+                            lower_expression(
+                                &Expression::Identifier(capture.name.clone()),
+                                locals,
+                                context,
+                            )
+                        })
                         .collect(),
                 }
             }
@@ -1753,12 +1777,7 @@ fn lower_expression_with_expected(
                     .map(|(key, value)| {
                         (
                             lower_expression_with_expected(key, expected_key, locals, context),
-                            lower_expression_with_expected(
-                                value,
-                                expected_value,
-                                locals,
-                                context,
-                            ),
+                            lower_expression_with_expected(value, expected_value, locals, context),
                         )
                     })
                     .collect(),
@@ -1864,7 +1883,13 @@ fn captured_locals(
 ) -> Vec<CapturedLocal> {
     let mut captures = Vec::new();
     let mut seen = HashSet::new();
-    collect_captured_locals(expression, outer_locals, local_names, &mut seen, &mut captures);
+    collect_captured_locals(
+        expression,
+        outer_locals,
+        local_names,
+        &mut seen,
+        &mut captures,
+    );
     captures
 }
 

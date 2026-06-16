@@ -622,6 +622,12 @@ pub const RULES: &[Rule] = &[
         message: "uninitialized mutable binding requires a defaultable type",
     },
     Rule {
+        code: "2-203-0061",
+        name: "TYPE_REQUIRES_COMPARABLE",
+        severity: Severity::Error,
+        message: "operation requires a comparable type",
+    },
+    Rule {
         code: "2-200-0011",
         name: "PROJECT_ENTRY_INVALID",
         severity: Severity::Error,

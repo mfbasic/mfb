@@ -1,28 +1,40 @@
 $ mfb build -ast tests/func_collection_contains_invalid
-   1 | FUNC main AS Integer
-   2 |   LET numbers AS List OF Integer = [1, 2, 3]
-   3 |   LET found AS Boolean = contains(numbers, "2")
+   6 |   LET numbers AS List OF Integer = [1, 2, 3]
+   7 |   LET boxes AS List OF Box = [Box[[1]], Box[[2]]]
+   8 |   LET found AS Boolean = contains(numbers, "2")
      | ^
-tests/func_collection_contains_invalid/src/main.mfb:3 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+tests/func_collection_contains_invalid/src/main.mfb:8 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
                Call to `contains` has argument type(s) (List OF Integer, String), expected List OF T, T.
-   1 | FUNC main AS Integer
-   2 |   LET numbers AS List OF Integer = [1, 2, 3]
-   3 |   LET found AS Boolean = contains(numbers, "2")
+   6 |   LET numbers AS List OF Integer = [1, 2, 3]
+   7 |   LET boxes AS List OF Box = [Box[[1]], Box[[2]]]
+   8 |   LET found AS Boolean = contains(numbers, "2")
      | ^
-tests/func_collection_contains_invalid/src/main.mfb:3 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+tests/func_collection_contains_invalid/src/main.mfb:8 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `found` does not have a known type.
+   7 |   LET boxes AS List OF Box = [Box[[1]], Box[[2]]]
+   8 |   LET found AS Boolean = contains(numbers, "2")
+   9 |   LET nonComparable AS Boolean = contains(boxes, Box[[2]])
+     | ^
+tests/func_collection_contains_invalid/src/main.mfb:9 error[2-203-0061 TYPE_REQUIRES_COMPARABLE]: operation requires a comparable type
+               Call to `contains` requires a comparable type, got `Box`.
 [exit 1]
 $ mfb build -ir tests/func_collection_contains_invalid
-   1 | FUNC main AS Integer
-   2 |   LET numbers AS List OF Integer = [1, 2, 3]
-   3 |   LET found AS Boolean = contains(numbers, "2")
+   6 |   LET numbers AS List OF Integer = [1, 2, 3]
+   7 |   LET boxes AS List OF Box = [Box[[1]], Box[[2]]]
+   8 |   LET found AS Boolean = contains(numbers, "2")
      | ^
-tests/func_collection_contains_invalid/src/main.mfb:3 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+tests/func_collection_contains_invalid/src/main.mfb:8 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
                Call to `contains` has argument type(s) (List OF Integer, String), expected List OF T, T.
-   1 | FUNC main AS Integer
-   2 |   LET numbers AS List OF Integer = [1, 2, 3]
-   3 |   LET found AS Boolean = contains(numbers, "2")
+   6 |   LET numbers AS List OF Integer = [1, 2, 3]
+   7 |   LET boxes AS List OF Box = [Box[[1]], Box[[2]]]
+   8 |   LET found AS Boolean = contains(numbers, "2")
      | ^
-tests/func_collection_contains_invalid/src/main.mfb:3 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+tests/func_collection_contains_invalid/src/main.mfb:8 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `found` does not have a known type.
+   7 |   LET boxes AS List OF Box = [Box[[1]], Box[[2]]]
+   8 |   LET found AS Boolean = contains(numbers, "2")
+   9 |   LET nonComparable AS Boolean = contains(boxes, Box[[2]])
+     | ^
+tests/func_collection_contains_invalid/src/main.mfb:9 error[2-203-0061 TYPE_REQUIRES_COMPARABLE]: operation requires a comparable type
+               Call to `contains` requires a comparable type, got `Box`.
 [exit 1]

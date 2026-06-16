@@ -53,8 +53,7 @@ pub(crate) struct ResolvedCall<'a> {
 pub(crate) fn is_math_call(name: &str) -> bool {
     matches!(
         name,
-        ABS
-            | MIN
+        ABS | MIN
             | MAX
             | CLAMP
             | FLOOR
@@ -86,8 +85,7 @@ pub(crate) fn call_return_type_name(name: &str) -> Option<&'static str> {
 pub(crate) fn is_math_constant(name: &str) -> bool {
     matches!(
         name,
-        PI
-            | PI_FIXED
+        PI | PI_FIXED
             | TWO_PI
             | TWO_PI_FIXED
             | PI_2
@@ -106,8 +104,9 @@ pub(crate) fn is_math_constant(name: &str) -> bool {
 pub(crate) fn constant_type_name(name: &str) -> Option<&'static str> {
     match name {
         PI | TWO_PI | PI_2 | PI_4 | E | LN_2 | LN_10 => Some("Float"),
-        PI_FIXED | TWO_PI_FIXED | PI_2_FIXED | PI_4_FIXED | E_FIXED | LN_2_FIXED
-        | LN_10_FIXED => Some("Fixed"),
+        PI_FIXED | TWO_PI_FIXED | PI_2_FIXED | PI_4_FIXED | E_FIXED | LN_2_FIXED | LN_10_FIXED => {
+            Some("Fixed")
+        }
         _ => None,
     }
 }
@@ -164,8 +163,8 @@ pub(crate) fn expected_arguments(name: &str) -> Option<&'static str> {
 
 pub(crate) fn arity(name: &str) -> Option<(usize, usize)> {
     match name {
-        ABS | FLOOR | CEIL | ROUND | SQRT | EXP | LOG | LOG10 | SIN | COS | TAN | ASIN
-        | ACOS | ATAN => Some((1, 1)),
+        ABS | FLOOR | CEIL | ROUND | SQRT | EXP | LOG | LOG10 | SIN | COS | TAN | ASIN | ACOS
+        | ATAN => Some((1, 1)),
         MIN | MAX | POW | ATAN2 => Some((2, 2)),
         CLAMP => Some((3, 3)),
         _ => None,

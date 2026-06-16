@@ -1,0 +1,28 @@
+$ mfb build -ast tests/types-map-key-comparable-invalid
+   5 | FUNC main AS Integer
+   6 |   LET badKey AS Box = Box[[1]]
+   7 |   LET badType = Map OF Box TO String { badKey := "a" }
+     | ^
+tests/types-map-key-comparable-invalid/src/main.mfb:7 error[2-203-0061 TYPE_REQUIRES_COMPARABLE]: operation requires a comparable type
+               Map key type requires a comparable type, got `Box`.
+   6 |   LET badKey AS Box = Box[[1]]
+   7 |   LET badType = Map OF Box TO String { badKey := "a" }
+   8 |   MUT alsoBad AS Map OF List OF Integer TO String
+     | ^
+tests/types-map-key-comparable-invalid/src/main.mfb:8 error[2-203-0061 TYPE_REQUIRES_COMPARABLE]: operation requires a comparable type
+               Map key type requires a comparable type, got `List OF Integer`.
+[exit 1]
+$ mfb build -ir tests/types-map-key-comparable-invalid
+   5 | FUNC main AS Integer
+   6 |   LET badKey AS Box = Box[[1]]
+   7 |   LET badType = Map OF Box TO String { badKey := "a" }
+     | ^
+tests/types-map-key-comparable-invalid/src/main.mfb:7 error[2-203-0061 TYPE_REQUIRES_COMPARABLE]: operation requires a comparable type
+               Map key type requires a comparable type, got `Box`.
+   6 |   LET badKey AS Box = Box[[1]]
+   7 |   LET badType = Map OF Box TO String { badKey := "a" }
+   8 |   MUT alsoBad AS Map OF List OF Integer TO String
+     | ^
+tests/types-map-key-comparable-invalid/src/main.mfb:8 error[2-203-0061 TYPE_REQUIRES_COMPARABLE]: operation requires a comparable type
+               Map key type requires a comparable type, got `List OF Integer`.
+[exit 1]

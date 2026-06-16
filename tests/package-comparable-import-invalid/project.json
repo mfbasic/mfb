@@ -1,0 +1,16 @@
+{
+  "name": "package_comparable_import_invalid",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "executable",
+  "sources": [{ "root": "src", "role": "main", "include": ["**/*.mfb"] }],
+  "packages": [
+    {
+      "name": "package_comparable_types",
+      "version": "=1.0.0",
+      "source": "file:packages/package_comparable_types.mfp"
+    }
+  ],
+  "entry": "main",
+  "targets": ["native"]
+}

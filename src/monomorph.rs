@@ -483,24 +483,19 @@ impl<'a> Monomorphizer<'a> {
                         MatchCase {
                             pattern: match &case.pattern {
                                 MatchPattern::Else => MatchPattern::Else,
-                                MatchPattern::Literal(expression) => MatchPattern::Literal(
-                                    self.lower_expression(
+                                MatchPattern::Literal(expression) => {
+                                    MatchPattern::Literal(self.lower_expression(
                                         expression,
                                         substitutions,
                                         &mut case_context,
                                         None,
                                         case.line,
-                                    ),
-                                ),
-                                MatchPattern::Union { type_name, binding } => {
-                                    MatchPattern::Union {
-                                        type_name: self.concrete_type_name(
-                                            type_name,
-                                            substitutions,
-                                        ),
-                                        binding: binding.clone(),
-                                    }
+                                    ))
                                 }
+                                MatchPattern::Union { type_name, binding } => MatchPattern::Union {
+                                    type_name: self.concrete_type_name(type_name, substitutions),
+                                    binding: binding.clone(),
+                                },
                                 MatchPattern::OneOf(expressions) => MatchPattern::OneOf(
                                     expressions
                                         .iter()
@@ -547,15 +542,13 @@ impl<'a> Monomorphizer<'a> {
                 let lowered_start =
                     self.lower_expression(start, substitutions, context, None, *line);
                 let lowered_end = self.lower_expression(end, substitutions, context, None, *line);
-                let lowered_step = step.as_ref().map(|value| {
-                    self.lower_expression(value, substitutions, context, None, *line)
-                });
+                let lowered_step = step
+                    .as_ref()
+                    .map(|value| self.lower_expression(value, substitutions, context, None, *line));
                 let mut nested = context.clone();
                 if let Some(loop_type) = self
                     .expression_type(&lowered_start, context)
-                    .zip(
-                        self.expression_type(&lowered_end, context),
-                    )
+                    .zip(self.expression_type(&lowered_end, context))
                     .map(|(start_type, end_type)| {
                         let step_type = lowered_step
                             .as_ref()
@@ -651,25 +644,26 @@ impl<'a> Monomorphizer<'a> {
     ) -> Expression {
         match expression {
             Expression::Call { callee, arguments } => {
-                let lowered_args = arguments
-                    .iter()
-                    .map(|argument| match argument {
-                        CallArg::Positional(value) => CallArg::Positional(
-                            self.lower_expression(value, substitutions, context, None, line),
-                        ),
-                        CallArg::Named { name, value, line } => CallArg::Named {
-                            name: name.clone(),
-                            value: self.lower_expression(
-                                value,
-                                substitutions,
-                                context,
-                                None,
-                                *line,
+                let lowered_args =
+                    arguments
+                        .iter()
+                        .map(|argument| match argument {
+                            CallArg::Positional(value) => CallArg::Positional(
+                                self.lower_expression(value, substitutions, context, None, line),
                             ),
-                            line: *line,
-                        },
-                    })
-                    .collect::<Vec<_>>();
+                            CallArg::Named { name, value, line } => CallArg::Named {
+                                name: name.clone(),
+                                value: self.lower_expression(
+                                    value,
+                                    substitutions,
+                                    context,
+                                    None,
+                                    *line,
+                                ),
+                                line: *line,
+                            },
+                        })
+                        .collect::<Vec<_>>();
                 let arg_types = lowered_args
                     .iter()
                     .filter_map(|argument| self.expression_type(call_arg_value(argument), context))

@@ -1,0 +1,15 @@
+IMPORT io
+
+TYPE Point
+  x AS Integer
+  y AS Integer
+END TYPE
+
+FUNC main AS Integer
+  LET first AS Point = Point[1, 2]
+  LET second AS Point = Point[3, 4]
+  LET points AS Map OF Point TO String = Map OF Point TO String { first := "a", second := "b" }
+  io::print(toString(len(points)))
+  io::print(get(points, second))
+  RETURN len(points)
+END FUNC

@@ -501,7 +501,13 @@ impl Encoder {
         Ok(())
     }
 
-    fn emit_add_imm_chunk(&mut self, rd: u8, rn: u8, imm12: u32, shift12: bool) -> Result<(), String> {
+    fn emit_add_imm_chunk(
+        &mut self,
+        rd: u8,
+        rn: u8,
+        imm12: u32,
+        shift12: bool,
+    ) -> Result<(), String> {
         self.emit_word(
             0x9100_0000
                 | ((u32::from(shift12)) << 22)
@@ -530,7 +536,13 @@ impl Encoder {
         Ok(())
     }
 
-    fn emit_sub_imm_chunk(&mut self, rd: u8, rn: u8, imm12: u32, shift12: bool) -> Result<(), String> {
+    fn emit_sub_imm_chunk(
+        &mut self,
+        rd: u8,
+        rn: u8,
+        imm12: u32,
+        shift12: bool,
+    ) -> Result<(), String> {
         self.emit_word(
             0xd100_0000
                 | ((u32::from(shift12)) << 22)
@@ -842,13 +854,14 @@ fn instruction_size(instruction: &CodeInstruction) -> Result<usize, String> {
             return Ok(sized_add_sub_imm(immediate(field(instruction, "imm")?)?));
         }
         CodeOp::AddSp | CodeOp::SubSp | CodeOp::CmpImm => {
-            return Ok(sized_add_sub_imm(immediate(
-                field(instruction, if instruction.op == CodeOp::CmpImm {
+            return Ok(sized_add_sub_imm(immediate(field(
+                instruction,
+                if instruction.op == CodeOp::CmpImm {
                     "rhs"
                 } else {
                     "imm"
-                })?,
-            )?));
+                },
+            )?)?));
         }
         CodeOp::LdrU64 | CodeOp::StrU64 => {
             return Ok(sized_memory_imm(

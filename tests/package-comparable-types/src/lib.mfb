@@ -1,0 +1,3 @@
+EXPORT TYPE Box
+  EXPORT items AS List OF Integer
+END TYPE

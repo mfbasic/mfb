@@ -86,7 +86,7 @@ Function calls now support named arguments like `greet("Ada", greeting := "Hi")`
 SPECIFICATION: specifications/mfbasic.md @ §4.10 Default Values
 The compiler accepts uninitialized `MUT` bindings for any annotated type and lowers them through `LOAD_DEFAULT` or zero-like native storage. The spec allows this only for types with defined defaults, and explicitly excludes enums, unions, functions, lambdas, threads, and resource handles. Resolve by adding a recursive defaultability check, rejecting non-defaultable `MUT` declarations without initializers, and only generating record defaults when every field type is defaultable.
 
-REQUIREMENT: Comparable-type restrictions
+[FIXED] REQUIREMENT: Comparable-type restrictions
 SPECIFICATION: specifications/mfbasic.md @ §4.11 Comparable Types
 The spec defines which types are comparable and requires map keys plus list helpers such as `find`, `contains`, and `replace` to use comparable types. The typechecker does not implement a comparable predicate: map key types are accepted by shape alone, and collection helper resolution checks only type equality. Resolve by adding `is_comparable` for primitives, enums, and records with comparable fields; reject maps with non-comparable keys; and enforce comparability in `find`, `contains`, `replace`, equality/comparison paths where applicable, and package metadata verification.
 

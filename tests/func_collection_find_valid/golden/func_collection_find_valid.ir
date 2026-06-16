@@ -8,6 +8,15 @@
     "accepts_args": false
   },
   "types": [
+  {
+    "kind": "type",
+    "visibility": "private",
+    "name": "Point",
+    "fields": [
+    { "visibility": null, "name": "x", "type": "Integer" },
+    { "visibility": null, "name": "y", "type": "Integer" }
+    ]
+  }
   ],
   "functions": [
   {
@@ -20,22 +29,28 @@
     "body": [
     { "op": "bind", "mutable": false, "name": "numbers", "type": "List OF Integer", "value": { "kind": "list", "type": "List OF Integer", "values": [{ "kind": "const", "type": "Integer", "value": "10" }, { "kind": "const", "type": "Integer", "value": "20" }, { "kind": "const", "type": "Integer", "value": "30" }, { "kind": "const", "type": "Integer", "value": "20" }] } },
     { "op": "bind", "mutable": false, "name": "names", "type": "List OF String", "value": { "kind": "list", "type": "List OF String", "values": [{ "kind": "const", "type": "String", "value": "Ada" }, { "kind": "const", "type": "String", "value": "Grace" }, { "kind": "const", "type": "String", "value": "Ada" }] } },
+    { "op": "bind", "mutable": false, "name": "points", "type": "List OF Point", "value": { "kind": "list", "type": "List OF Point", "values": [{ "kind": "constructor", "type": "Point", "args": [{ "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "2" }] }, { "kind": "constructor", "type": "Point", "args": [{ "kind": "const", "type": "Integer", "value": "3" }, { "kind": "const", "type": "Integer", "value": "4" }] }, { "kind": "constructor", "type": "Point", "args": [{ "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "2" }] }] } },
     { "op": "bind", "mutable": false, "name": "numberNeedle", "type": "List OF Integer", "value": { "kind": "list", "type": "List OF Integer", "values": [{ "kind": "const", "type": "Integer", "value": "20" }, { "kind": "const", "type": "Integer", "value": "30" }] } },
     { "op": "bind", "mutable": false, "name": "nameNeedle", "type": "List OF String", "value": { "kind": "list", "type": "List OF String", "values": [{ "kind": "const", "type": "String", "value": "Grace" }, { "kind": "const", "type": "String", "value": "Ada" }] } },
+    { "op": "bind", "mutable": false, "name": "pointNeedle", "type": "List OF Point", "value": { "kind": "list", "type": "List OF Point", "values": [{ "kind": "constructor", "type": "Point", "args": [{ "kind": "const", "type": "Integer", "value": "3" }, { "kind": "const", "type": "Integer", "value": "4" }] }, { "kind": "constructor", "type": "Point", "args": [{ "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "2" }] }] } },
     { "op": "bind", "mutable": false, "name": "emptyNeedle", "type": "List OF Integer", "value": { "kind": "list", "type": "List OF Integer", "values": [] } },
     { "op": "bind", "mutable": false, "name": "firstTwenty", "type": "Integer", "value": { "kind": "call", "target": "find", "args": [{ "kind": "local", "name": "numbers" }, { "kind": "const", "type": "Integer", "value": "20" }] } },
     { "op": "bind", "mutable": false, "name": "secondTwenty", "type": "Integer", "value": { "kind": "call", "target": "find", "args": [{ "kind": "local", "name": "numbers" }, { "kind": "const", "type": "Integer", "value": "20" }, { "kind": "const", "type": "Integer", "value": "2" }] } },
     { "op": "bind", "mutable": false, "name": "secondAda", "type": "Integer", "value": { "kind": "call", "target": "find", "args": [{ "kind": "local", "name": "names" }, { "kind": "const", "type": "String", "value": "Ada" }, { "kind": "const", "type": "Integer", "value": "1" }] } },
+    { "op": "bind", "mutable": false, "name": "secondPoint", "type": "Integer", "value": { "kind": "call", "target": "find", "args": [{ "kind": "local", "name": "points" }, { "kind": "constructor", "type": "Point", "args": [{ "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "2" }] }, { "kind": "const", "type": "Integer", "value": "1" }] } },
     { "op": "bind", "mutable": false, "name": "numberSublist", "type": "Integer", "value": { "kind": "call", "target": "find", "args": [{ "kind": "local", "name": "numbers" }, { "kind": "local", "name": "numberNeedle" }] } },
     { "op": "bind", "mutable": false, "name": "nameSublist", "type": "Integer", "value": { "kind": "call", "target": "find", "args": [{ "kind": "local", "name": "names" }, { "kind": "local", "name": "nameNeedle" }] } },
+    { "op": "bind", "mutable": false, "name": "pointSublist", "type": "Integer", "value": { "kind": "call", "target": "find", "args": [{ "kind": "local", "name": "points" }, { "kind": "local", "name": "pointNeedle" }] } },
     { "op": "bind", "mutable": false, "name": "emptySublist", "type": "Integer", "value": { "kind": "call", "target": "find", "args": [{ "kind": "local", "name": "numbers" }, { "kind": "local", "name": "emptyNeedle" }, { "kind": "const", "type": "Integer", "value": "4" }] } },
     { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "local", "name": "firstTwenty" }] }] } },
     { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "local", "name": "secondTwenty" }] }] } },
     { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "local", "name": "secondAda" }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "local", "name": "secondPoint" }] }] } },
     { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "local", "name": "numberSublist" }] }] } },
     { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "local", "name": "nameSublist" }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "local", "name": "pointSublist" }] }] } },
     { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "local", "name": "emptySublist" }] }] } },
-    { "op": "return", "value": { "kind": "binary", "op": "+", "left": { "kind": "binary", "op": "+", "left": { "kind": "binary", "op": "+", "left": { "kind": "binary", "op": "+", "left": { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "firstTwenty" }, "right": { "kind": "local", "name": "secondTwenty" } }, "right": { "kind": "local", "name": "secondAda" } }, "right": { "kind": "local", "name": "numberSublist" } }, "right": { "kind": "local", "name": "nameSublist" } }, "right": { "kind": "local", "name": "emptySublist" } } }
+    { "op": "return", "value": { "kind": "binary", "op": "+", "left": { "kind": "binary", "op": "+", "left": { "kind": "binary", "op": "+", "left": { "kind": "binary", "op": "+", "left": { "kind": "binary", "op": "+", "left": { "kind": "binary", "op": "+", "left": { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "firstTwenty" }, "right": { "kind": "local", "name": "secondTwenty" } }, "right": { "kind": "local", "name": "secondAda" } }, "right": { "kind": "local", "name": "secondPoint" } }, "right": { "kind": "local", "name": "numberSublist" } }, "right": { "kind": "local", "name": "nameSublist" } }, "right": { "kind": "local", "name": "pointSublist" } }, "right": { "kind": "local", "name": "emptySublist" } } }
     ]
   }
   ]

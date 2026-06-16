@@ -250,8 +250,7 @@ fn build_project(options: &BuildOptions) -> Result<(), ()> {
                         eprintln!("error: {err}");
                     })?;
                 let (external_functions, external_params) =
-                    external_package_function_types_from_files(&packages)
-                    .map_err(|err| {
+                    external_package_function_types_from_files(&packages).map_err(|err| {
                         eprintln!("error: {err}");
                     })?;
                 let ir = ir::lower_project_with_external_functions(
@@ -275,8 +274,7 @@ fn build_project(options: &BuildOptions) -> Result<(), ()> {
                         eprintln!("error: {err}");
                     })?;
                 let (external_functions, external_params) =
-                    external_package_function_types_from_files(&packages)
-                    .map_err(|err| {
+                    external_package_function_types_from_files(&packages).map_err(|err| {
                         eprintln!("error: {err}");
                     })?;
                 let ir = ir::lower_project_with_external_functions(
@@ -326,8 +324,7 @@ fn build_project(options: &BuildOptions) -> Result<(), ()> {
                     eprintln!("error: {err}");
                 })?;
             let (external_functions, external_params) =
-                external_package_function_types_from_files(&packages)
-                .map_err(|err| {
+                external_package_function_types_from_files(&packages).map_err(|err| {
                     eprintln!("error: {err}");
                 })?;
             let ir = ir::lower_project_with_external_functions(
@@ -364,8 +361,7 @@ fn build_project(options: &BuildOptions) -> Result<(), ()> {
                     eprintln!("error: {err}");
                 })?;
             let (external_functions, external_params) =
-                external_package_function_types_from_files(&packages)
-                .map_err(|err| {
+                external_package_function_types_from_files(&packages).map_err(|err| {
                     eprintln!("error: {err}");
                 })?;
             let ir = ir::lower_project_with_external_functions(
@@ -397,8 +393,7 @@ fn build_project(options: &BuildOptions) -> Result<(), ()> {
                     eprintln!("error: {err}");
                 })?;
             let (external_functions, external_params) =
-                external_package_function_types_from_files(&packages)
-                .map_err(|err| {
+                external_package_function_types_from_files(&packages).map_err(|err| {
                     eprintln!("error: {err}");
                 })?;
             let ir = ir::lower_project_with_external_functions(
@@ -431,8 +426,7 @@ fn build_project(options: &BuildOptions) -> Result<(), ()> {
                     eprintln!("error: {err}");
                 })?;
             let (external_functions, external_params) =
-                external_package_function_types_from_files(&packages)
-                .map_err(|err| {
+                external_package_function_types_from_files(&packages).map_err(|err| {
                     eprintln!("error: {err}");
                 })?;
             let ir = ir::lower_project_with_external_functions(
@@ -469,8 +463,7 @@ fn build_project(options: &BuildOptions) -> Result<(), ()> {
                     eprintln!("error: {err}");
                 })?;
             let (external_functions, external_params) =
-                external_package_function_types_from_files(&packages)
-                .map_err(|err| {
+                external_package_function_types_from_files(&packages).map_err(|err| {
                     eprintln!("error: {err}");
                 })?;
             let ir = ir::lower_project_with_external_functions(
@@ -1650,7 +1643,10 @@ fn validate_source_pattern_field(
         );
         return false;
     };
-    if patterns.iter().all(|pattern| pattern.get::<String>().is_some()) {
+    if patterns
+        .iter()
+        .all(|pattern| pattern.get::<String>().is_some())
+    {
         return true;
     }
     rules::show_diagnostic(
