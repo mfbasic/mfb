@@ -537,7 +537,7 @@ pub(crate) fn lower_module_for_platform(
         .filter(|export| used_package_symbols.contains(&export.symbol))
         .collect::<Vec<_>>();
     let mut package_runtime_symbols = Vec::new();
-    add_package_runtime_symbols(&mut package_runtime_symbols, &package_exports);
+    add_package_runtime_symbols(&mut package_runtime_symbols, &package_exports)?;
     add_platform_package_runtime_imports(
         platform,
         &mut platform_imports,
@@ -2054,16 +2054,20 @@ fn collect_package_function_refs_in_value(
     }
 }
 
-fn add_package_runtime_symbols(runtime_symbols: &mut Vec<String>, exports: &[NativePackageExport]) {
+fn add_package_runtime_symbols(
+    runtime_symbols: &mut Vec<String>,
+    exports: &[NativePackageExport],
+) -> Result<(), String> {
     for export in exports {
         for instruction in &export.code {
-            if let Ok(Some(symbol)) = package_runtime_symbol(instruction) {
+            if let Some(symbol) = package_runtime_symbol(instruction)? {
                 if !runtime_symbols.iter().any(|existing| existing == symbol) {
                     runtime_symbols.push(symbol.to_string());
                 }
             }
         }
     }
+    Ok(())
 }
 
 fn add_platform_package_runtime_imports(
@@ -2248,7 +2252,15 @@ fn package_runtime_symbol(
                 }
             }
         }
-        bytecode::NATIVE_OPCODE_IO_FLUSH => "_mfb_rt_io_io_flush",
+        bytecode::NATIVE_OPCODE_IO_FLUSH => match native_operand(instruction, 1)? {
+            1 => "_mfb_rt_io_io_flush",
+            2 => "_mfb_rt_io_io_flushError",
+            fd => {
+                return Err(format!(
+                    "native bytecode IO_FLUSH uses unsupported fd operand {fd}"
+                ))
+            }
+        },
         bytecode::NATIVE_OPCODE_IO_READ_LINE => {
             let prompt = native_operand(instruction, 1)?;
             if prompt == u32::MAX {
@@ -12728,6 +12740,32 @@ mod tests {
         assert_eq!(
             package_runtime_symbol(&input).expect("input symbol"),
             Some("_mfb_rt_io_io_input")
+        );
+    }
+
+    #[test]
+    fn package_runtime_symbol_maps_io_flush_by_fd() {
+        for (fd, expected) in [(1, "_mfb_rt_io_io_flush"), (2, "_mfb_rt_io_io_flushError")] {
+            let instruction = bytecode::NativeInstruction {
+                opcode: bytecode::NATIVE_OPCODE_IO_FLUSH,
+                operands: vec![0, fd],
+            };
+            assert_eq!(
+                package_runtime_symbol(&instruction).expect("flush helper"),
+                Some(expected)
+            );
+        }
+    }
+
+    #[test]
+    fn package_runtime_symbol_rejects_invalid_io_flush_fd() {
+        let instruction = bytecode::NativeInstruction {
+            opcode: bytecode::NATIVE_OPCODE_IO_FLUSH,
+            operands: vec![0, 3],
+        };
+        assert_eq!(
+            package_runtime_symbol(&instruction),
+            Err("native bytecode IO_FLUSH uses unsupported fd operand 3".to_string())
         );
     }
 

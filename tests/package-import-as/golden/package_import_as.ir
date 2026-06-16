@@ -17,6 +17,18 @@
     "body": [
     { "op": "return", "value": { "kind": "call", "target": "strings.byteLen", "args": [{ "kind": "local", "name": "message" }] } }
     ]
+  },
+  {
+    "name": "flushStreams",
+    "visibility": "export",
+    "kind": "sub",
+    "params": [
+    ],
+    "returns": "Nothing",
+    "body": [
+    { "op": "eval", "value": { "kind": "call", "target": "io.flush", "args": [] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.flushError", "args": [] } }
+    ]
   }
   ]
 }

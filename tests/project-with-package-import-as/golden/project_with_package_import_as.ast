@@ -18,8 +18,9 @@
       "returnType": "Integer",
       "body": [
       { "kind": "binding", "mutable": false, "name": "result", "type": "Integer", "value": { "kind": "call", "callee": "worker.byteLenAlias", "arguments": [{ "kind": "string", "value": "package import alias" }] }, "line": 5 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "term.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "result" }] }] }, "line": 6 },
-      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 7 }
+      { "kind": "expression", "expression": { "kind": "call", "callee": "worker.flushStreams", "arguments": [] }, "line": 6 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "term.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "result" }] }] }, "line": 7 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 8 }
       ]
     }
     ]

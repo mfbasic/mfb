@@ -3,6 +3,7 @@ IMPORT package_import_as AS worker
 
 FUNC main AS Integer
   LET result AS Integer = worker::byteLenAlias("package import alias")
+  worker::flushStreams()
   term::print(toString(result))
   RETURN 0
 END FUNC

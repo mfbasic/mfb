@@ -4,20 +4,34 @@
   {
     "path": "src/lib.mfb",
     "imports": [
-    { "module": "strings", "alias": "text", "line": 1 }
+    { "module": "io", "alias": "term", "line": 1 },
+    { "module": "strings", "alias": "text", "line": 2 }
     ],
     "items": [
     {
       "kind": "func",
       "visibility": "export",
       "name": "byteLenAlias",
-      "line": 3,
+      "line": 4,
       "params": [
       { "name": "message", "type": "String", "default": null }
       ],
       "returnType": "Integer",
       "body": [
-      { "kind": "return", "value": { "kind": "call", "callee": "text.byteLen", "arguments": [{ "kind": "identifier", "value": "message" }] }, "line": 4 }
+      { "kind": "return", "value": { "kind": "call", "callee": "text.byteLen", "arguments": [{ "kind": "identifier", "value": "message" }] }, "line": 5 }
+      ]
+    },
+    {
+      "kind": "sub",
+      "visibility": "export",
+      "name": "flushStreams",
+      "line": 8,
+      "params": [
+      ],
+      "returnType": null,
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "term.flush", "arguments": [] }, "line": 9 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "term.flushError", "arguments": [] }, "line": 10 }
       ]
     }
     ]

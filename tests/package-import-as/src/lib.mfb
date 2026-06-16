@@ -1,5 +1,11 @@
+IMPORT io AS term
 IMPORT strings AS text
 
 EXPORT FUNC byteLenAlias(message AS String) AS Integer
   RETURN text::byteLen(message)
 END FUNC
+
+EXPORT SUB flushStreams()
+  term::flush()
+  term::flushError()
+END SUB
