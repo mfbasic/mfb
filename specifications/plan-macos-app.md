@@ -169,7 +169,8 @@ It should not depend on:
 - process injection
 - unsupported automation tricks for core functionality
 
-This matters especially if app mode uses a custom ObjC bridge.
+This matters especially because app mode will bind directly to AppKit/libobjc
+from code emitted by `mfb`.
 
 ## 4.5 Generated App Versus Compiler Product
 
@@ -581,7 +582,7 @@ This keeps the layering explicit:
 ```text
 shared builtin signature/typecheck
   -> native lowering chooses helper symbol by target + mode
-  -> app helper bridges to AppKit runtime
+  -> app helper invokes AppKit runtime directly
 ```
 
 This is preferable to:
@@ -835,12 +836,12 @@ semantics.
 App mode native planning must instead import:
 
 - Objective-C runtime symbols, if using direct ObjC runtime calls
-- or bridge symbols / framework imports, if using an ObjC bridge object
+- or direct framework/runtime symbols required for app mode
 - AppKit/Foundation dynamic libraries or frameworks
 - `libobjc`
 - any synchronization/thread primitives needed by the app runtime
 
-Suggested logical imports if using an ObjC bridge:
+Suggested logical imports for direct app-mode runtime calls:
 
 ```text
 libSystem   pthread / locks / condvars / memory / exit
@@ -872,7 +873,7 @@ App-mode `_main`:
 ```text
 _main:
   initialize app runtime state
-  bootstrap autorelease pool / app bridge
+  bootstrap autorelease pool / app runtime
   start worker thread with language entry
   run AppKit event loop
   exit when app terminates
@@ -886,7 +887,7 @@ _main
   -> _mfb_macapp_run(language_entry_symbol, accepts_args, argv)
 ```
 
-That bridge function can:
+That bootstrap function can:
 
 - create the app delegate
 - build the window
@@ -915,7 +916,7 @@ Avoid sprinkling ad hoc conditionals into the existing console helper bodies.
 Instead:
 
 - keep existing console helpers for console mode
-- add app-mode helper lowerers or external-bridge call wrappers
+- add app-mode helper lowerers or direct framework/runtime call wrappers
 
 Example wrapper idea:
 
@@ -1027,7 +1028,7 @@ App mode needs additional end-to-end tests beyond normal acceptance:
 
 There are multiple possible strategies.
 
-### Strategy A: headless bridge self-test mode
+### Strategy A: headless app-runtime self-test mode
 
 Expose a test-only app runtime mode that:
 
@@ -1109,8 +1110,8 @@ not viable.
 
 ### 2. Raw Objective-C runtime messaging in generated helpers
 
-Possible, but high-risk and hard to maintain. A bridge layer is strongly
-preferred.
+Possible, but high-risk and hard to maintain. Keep the runtime surface small and
+centralized inside the macOS OS/backend implementation.
 
 ### 3. Unicode semantics for `readChar`
 
@@ -1164,7 +1165,7 @@ Deliverable:
 
 ## Phase 3: App Runtime Bridge Bootstrap
 
-- add ObjC bridge runtime source
+- add macOS app runtime support emitted by `mfb`
 - implement app bootstrap, window creation, transcript view, input field
 - run language entry on a worker thread
 - written with libSystem objc send message calls
@@ -1264,7 +1265,7 @@ Proceed with a dedicated macOS app runtime mode with these choices:
 - app mode emits a real `.app` bundle
 - the main thread runs AppKit
 - MFBASIC entry runs on a worker thread
-- a small Objective-C bridge provides a stable C ABI to the generated runtime
+- generated code binds directly to public macOS runtime/framework APIs
 - all `io::*` interactive behavior is implemented against a transcript + input
   field model
 - `io::is*Terminal()` returns `TRUE`
@@ -1272,3 +1273,357 @@ Proceed with a dedicated macOS app runtime mode with these choices:
 
 This is the smallest design that is still technically coherent and
 production-grade.
+
+## 13. C pseudocode
+
+This is guide-level pseudocode only. It describes the runtime behavior that
+`mfb` should emit internally for macOS app mode. It is not intended to imply
+an external helper source file, Xcode dependency, or any compiler other than
+`mfb`.
+
+It intentionally keeps concrete examples of the kind of Objective-C runtime
+calls the generated code will need to perform so the section remains useful as
+an implementation guide, not just a structural sketch.
+
+```c
+// Pseudocode only.
+//
+// The generated binary may call libobjc/AppKit/Foundation directly via public
+// system APIs already present on macOS. All such calls are emitted by mfb.
+
+typedef struct {
+    Mutex lock;
+    CondVar input_ready;
+    CondVar worker_done;
+
+    bool app_running;
+    bool worker_finished;
+    int worker_exit_code;
+
+    ByteBuffer stdout_pending;
+    ByteBuffer stderr_pending;
+    Size terminal_cells;
+
+    Queue<String> committed_lines;
+    Queue<Utf8Scalar> scalar_queue;
+    Queue<uint8_t> byte_queue;
+
+    id app;
+    id window;
+    id transcript_view;
+    id input_field;
+} AppRuntimeState;
+
+static AppRuntimeState *STATE;
+
+// Example helper shape only. Actual generated code must use the exact ABI for
+// each objc_msgSend call site.
+id objc_call_id(id receiver, const char *selector_name, ...);
+void objc_call_void(id receiver, const char *selector_name, ...);
+bool objc_call_bool(id receiver, const char *selector_name, ...);
+
+id nsstring_from_utf8(const char *text) {
+    Class NSString = objc_getClass("NSString");
+    return objc_call_id((id)NSString, "stringWithUTF8String:", text);
+}
+
+void app_mode_bootstrap(void (*language_entry)(void)) {
+    STATE = state_create();
+
+    // AppKit always lives on the main thread.
+    {
+        Class NSApplication = objc_getClass("NSApplication");
+        Class NSWindow = objc_getClass("NSWindow");
+        Class NSScrollView = objc_getClass("NSScrollView");
+        Class NSTextView = objc_getClass("NSTextView");
+        Class NSTextField = objc_getClass("NSTextField");
+
+        id app = objc_call_id((id)NSApplication, "sharedApplication");
+        objc_call_void(app, "setActivationPolicy:", 0);
+        STATE->app = app;
+
+        CGRect window_frame = make_rect(100, 100, 900, 640);
+        id window = objc_call_id((id)NSWindow, "alloc");
+        window = objc_call_id(
+            window,
+            "initWithContentRect:styleMask:backing:defer:",
+            window_frame,
+            WINDOW_STYLE_TITLED
+                | WINDOW_STYLE_CLOSABLE
+                | WINDOW_STYLE_MINIATURIZABLE
+                | WINDOW_STYLE_RESIZABLE,
+            BACKING_BUFFERED,
+            false
+        );
+        objc_call_void(window, "setTitle:", nsstring_from_utf8("MFBASIC App"));
+        STATE->window = window;
+
+        id content = objc_call_id(window, "contentView");
+
+        CGRect transcript_scroll_frame = make_rect(20, 70, 860, 550);
+        id transcript_scroll = objc_call_id((id)NSScrollView, "alloc");
+        transcript_scroll = objc_call_id(
+            transcript_scroll,
+            "initWithFrame:",
+            transcript_scroll_frame
+        );
+
+        id transcript_view = objc_call_id((id)NSTextView, "alloc");
+        transcript_view = objc_call_id(
+            transcript_view,
+            "initWithFrame:",
+            transcript_scroll_frame
+        );
+        objc_call_void(transcript_view, "setEditable:", false);
+        objc_call_void(transcript_view, "setRichText:", false);
+        objc_call_void(transcript_view, "setSelectable:", true);
+        objc_call_void(transcript_scroll, "setDocumentView:", transcript_view);
+        objc_call_void(transcript_scroll, "setHasVerticalScroller:", true);
+        objc_call_void(content, "addSubview:", transcript_scroll);
+        STATE->transcript_view = transcript_view;
+
+        CGRect input_frame = make_rect(20, 20, 860, 32);
+        id input_field = objc_call_id((id)NSTextField, "alloc");
+        input_field = objc_call_id(input_field, "initWithFrame:", input_frame);
+        objc_call_void(input_field, "setStringValue:", nsstring_from_utf8(""));
+        objc_call_void(content, "addSubview:", input_field);
+        STATE->input_field = input_field;
+    }
+
+    appkit_install_submit_handler(STATE, on_input_committed);
+    appkit_install_resize_handler(STATE, on_window_resized);
+    appkit_install_close_handler(STATE, on_window_closed);
+
+    state_lock(STATE);
+    STATE->app_running = true;
+    state_unlock(STATE);
+
+    // MFBASIC program logic runs on a worker thread.
+    thread_start(worker_main, language_entry);
+
+    appkit_show_window(STATE);
+    appkit_activate_application(STATE);
+    appkit_run_event_loop(STATE);
+}
+
+void worker_main(void *entry_ptr) {
+    void (*language_entry)(void) = entry_ptr;
+    int exit_code = run_language_entry_and_capture_exit(language_entry);
+
+    state_lock(STATE);
+    STATE->worker_finished = true;
+    STATE->worker_exit_code = exit_code;
+    state_signal_all(STATE->worker_done);
+    state_unlock(STATE);
+
+    // Final UI actions are scheduled back onto the AppKit thread.
+    appkit_dispatch_async_main(on_worker_finished_main_thread);
+}
+
+void on_input_committed(String line) {
+    state_lock(STATE);
+
+    queue_push(STATE->committed_lines, line);
+
+    foreach (Utf8Scalar scalar in utf8_decode_scalars(line)) {
+        queue_push(STATE->scalar_queue, scalar);
+    }
+    queue_push(STATE->scalar_queue, '\n');
+
+    ByteString utf8 = utf8_encode(line);
+    foreach (uint8_t byte in utf8.bytes) {
+        queue_push(STATE->byte_queue, byte);
+    }
+    queue_push(STATE->byte_queue, '\n');
+
+    state_signal_all(STATE->input_ready);
+    state_unlock(STATE);
+
+    transcript_append_stdout(line);
+    transcript_append_stdout("\n");
+    input_field_clear_and_refocus(STATE);
+}
+
+void on_window_resized(Size pixel_size) {
+    state_lock(STATE);
+    STATE->terminal_cells = transcript_measure_visible_cells(pixel_size);
+    state_unlock(STATE);
+}
+
+void on_window_closed(void) {
+    state_lock(STATE);
+    STATE->app_running = false;
+    state_signal_all(STATE->input_ready);
+    state_signal_all(STATE->worker_done);
+    state_unlock(STATE);
+
+    request_process_shutdown();
+}
+
+void on_worker_finished_main_thread(void) {
+    bool keep_window_open = false;  // final policy decided elsewhere
+    if (!keep_window_open) {
+        appkit_stop_event_loop(STATE);
+    }
+}
+
+void io_print(String text) {
+    state_lock(STATE);
+    buffer_append_utf8(&STATE->stdout_pending, text);
+    buffer_append_utf8(&STATE->stdout_pending, "\n");
+    state_unlock(STATE);
+    appkit_dispatch_async_main(flush_pending_output_main_thread);
+}
+
+void io_write(String text) {
+    state_lock(STATE);
+    buffer_append_utf8(&STATE->stdout_pending, text);
+    state_unlock(STATE);
+    appkit_dispatch_async_main(flush_pending_output_main_thread);
+}
+
+void io_print_error(String text) {
+    state_lock(STATE);
+    buffer_append_utf8(&STATE->stderr_pending, text);
+    buffer_append_utf8(&STATE->stderr_pending, "\n");
+    state_unlock(STATE);
+    appkit_dispatch_async_main(flush_pending_output_main_thread);
+}
+
+void io_write_error(String text) {
+    state_lock(STATE);
+    buffer_append_utf8(&STATE->stderr_pending, text);
+    state_unlock(STATE);
+    appkit_dispatch_async_main(flush_pending_output_main_thread);
+}
+
+void io_flush(void) {
+    appkit_dispatch_sync_main(flush_pending_output_main_thread);
+}
+
+void io_flush_error(void) {
+    io_flush();
+}
+
+String io_input_with_prompt(String prompt) {
+    if (prompt.length > 0) {
+        io_write(prompt);
+    }
+    input_field_focus(STATE);
+    return io_read_line();
+}
+
+String io_read_line(void) {
+    state_lock(STATE);
+    while (queue_empty(STATE->committed_lines) && STATE->app_running) {
+        state_wait(STATE->input_ready, STATE->lock);
+    }
+    if (!STATE->app_running) {
+        state_unlock(STATE);
+        return runtime_abort_due_to_closed_window();
+    }
+    String line = queue_pop(STATE->committed_lines);
+    state_unlock(STATE);
+    return line;
+}
+
+Utf8Scalar io_read_char(void) {
+    state_lock(STATE);
+    while (queue_empty(STATE->scalar_queue) && STATE->app_running) {
+        state_wait(STATE->input_ready, STATE->lock);
+    }
+    if (!STATE->app_running) {
+        state_unlock(STATE);
+        return runtime_abort_due_to_closed_window();
+    }
+    Utf8Scalar scalar = queue_pop(STATE->scalar_queue);
+    state_unlock(STATE);
+    return scalar;
+}
+
+uint8_t io_read_byte(void) {
+    state_lock(STATE);
+    while (queue_empty(STATE->byte_queue) && STATE->app_running) {
+        state_wait(STATE->input_ready, STATE->lock);
+    }
+    if (!STATE->app_running) {
+        state_unlock(STATE);
+        return runtime_abort_due_to_closed_window();
+    }
+    uint8_t byte = queue_pop(STATE->byte_queue);
+    state_unlock(STATE);
+    return byte;
+}
+
+bool io_poll_input(int timeout_ms) {
+    state_lock(STATE);
+    if (input_queue_has_data(STATE)) {
+        state_unlock(STATE);
+        return true;
+    }
+    if (timeout_ms > 0) {
+        state_timed_wait(STATE->input_ready, STATE->lock, timeout_ms);
+    }
+    bool ready = input_queue_has_data(STATE);
+    state_unlock(STATE);
+    return ready;
+}
+
+bool io_is_input_terminal(void)  { return true; }
+bool io_is_output_terminal(void) { return true; }
+bool io_is_error_terminal(void)  { return true; }
+
+Size io_terminal_size(void) {
+    state_lock(STATE);
+    Size size = STATE->terminal_cells;
+    state_unlock(STATE);
+    return size;
+}
+
+void transcript_append_stdout(ByteString text) {
+    id storage = objc_call_id(STATE->transcript_view, "textStorage");
+    id value = nsstring_from_utf8(text.bytes);
+    objc_call_void(storage, "appendAttributedString:", plain_stdout_string(value));
+}
+
+void transcript_append_stderr(ByteString text) {
+    id storage = objc_call_id(STATE->transcript_view, "textStorage");
+    id value = nsstring_from_utf8(text.bytes);
+    objc_call_void(storage, "appendAttributedString:", styled_stderr_string(value));
+}
+
+void input_field_clear_and_refocus(AppRuntimeState *state) {
+    objc_call_void(state->input_field, "setStringValue:", nsstring_from_utf8(""));
+    objc_call_void(state->window, "makeFirstResponder:", state->input_field);
+}
+
+void appkit_show_window(AppRuntimeState *state) {
+    objc_call_void(state->window, "makeKeyAndOrderFront:", NULL);
+}
+
+void appkit_activate_application(AppRuntimeState *state) {
+    objc_call_void(state->app, "activateIgnoringOtherApps:", true);
+}
+
+void appkit_run_event_loop(AppRuntimeState *state) {
+    objc_call_void(state->app, "run");
+}
+
+void flush_pending_output_main_thread(void) {
+    ByteString stdout_chunk;
+    ByteString stderr_chunk;
+
+    state_lock(STATE);
+    stdout_chunk = buffer_take(&STATE->stdout_pending);
+    stderr_chunk = buffer_take(&STATE->stderr_pending);
+    state_unlock(STATE);
+
+    if (!stdout_chunk.empty) {
+        transcript_append_stdout(stdout_chunk);
+    }
+    if (!stderr_chunk.empty) {
+        transcript_append_stderr(stderr_chunk);
+    }
+    transcript_scroll_to_end(STATE);
+}
+```
