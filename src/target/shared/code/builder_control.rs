@@ -56,38 +56,10 @@ impl CodeBuilder<'_> {
                     self.lower_value(value)?;
                 }
                 NirOp::Return { value } => {
-                    if let Some(value) = value {
-                        let result = self.lower_value(value)?;
-                        if result.type_ != "Nothing" {
-                            if self.inline_collection_payload_size(&result.type_).is_some() {
-                                let stable = self.materialize_inline_value_in_arena(
-                                    &result.type_,
-                                    &result.location,
-                                )?;
-                                self.emit(abi::move_register(RESULT_VALUE_REGISTER, &stable));
-                            } else {
-                                self.emit(abi::move_register(
-                                    RESULT_VALUE_REGISTER,
-                                    &result.location,
-                                ));
-                            }
-                        }
-                    }
-                    self.emit(abi::move_immediate(
-                        RESULT_TAG_REGISTER,
-                        "Integer",
-                        RESULT_OK_TAG,
-                    ));
-                    self.emit(abi::return_());
+                    self.emit_return_exit(value.as_ref())?;
                 }
                 NirOp::Fail { error } => {
-                    if self.trap.is_some()
-                        && !self.trap.as_ref().is_some_and(|trap| trap.in_trap_body)
-                    {
-                        self.route_error_value_to_trap(error)?;
-                    } else {
-                        self.emit_error_return(error)?;
-                    }
+                    self.emit_error_value_exit(error, self.error_exit_destination())?;
                 }
                 NirOp::If {
                     condition,
@@ -223,6 +195,15 @@ impl CodeBuilder<'_> {
                 } => {
                     let stack_offset = self.allocate_stack_object(name, 8);
                     let result = self.lower_value(value)?;
+                    let symbol = self
+                        .function_symbols
+                        .get(close)
+                        .cloned()
+                        .or_else(|| {
+                            runtime::helper_for_call(close)
+                                .map(|helper| runtime::symbol_for_call(helper, close))
+                        })
+                        .unwrap_or_else(|| close.clone());
                     self.locals.insert(
                         name.clone(),
                         LocalValue {
@@ -236,13 +217,18 @@ impl CodeBuilder<'_> {
                         abi::stack_pointer(),
                         stack_offset,
                     ));
+                    self.active_cleanups.push(UsingCleanup {
+                        name: name.clone(),
+                        symbol,
+                    });
                     self.lower_ops(body)?;
-                    let symbol = self
-                        .function_symbols
-                        .get(close)
-                        .cloned()
-                        .unwrap_or_else(|| close.clone());
-                    self.emit_call(close, &symbol, &[], None)?;
+                    let cleanup = self
+                        .active_cleanups
+                        .pop()
+                        .expect("USING cleanup stack must contain active resource");
+                    if !self.current_block_returns() {
+                        self.emit_using_fallthrough_cleanup(&cleanup)?;
+                    }
                 }
                 NirOp::Trap { body, .. } => {
                     let label = self

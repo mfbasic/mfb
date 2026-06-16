@@ -853,8 +853,14 @@ fn validate_ops(
                     type_value_names,
                     used_helpers,
                 )?;
-                if !function_names.contains(close) && !import_names.contains(close) {
+                if !function_names.contains(close)
+                    && !import_names.contains(close)
+                    && crate::target::shared::runtime::helper_for_call(close).is_none()
+                {
                     return Err(format!("NIR using close target '{close}' does not resolve"));
+                }
+                if let Some(helper) = crate::target::shared::runtime::helper_for_call(close) {
+                    push_unique(used_helpers, helper);
                 }
                 let mut body_locals = locals.clone();
                 body_locals.insert(

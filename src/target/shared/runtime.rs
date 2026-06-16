@@ -1296,7 +1296,12 @@ fn push_op_helpers(ops: &[IrOp], helpers: &mut Vec<RuntimeHelper>) {
                 push_value_helpers(iterable, helpers);
                 push_op_helpers(body, helpers);
             }
-            IrOp::Using { value, body, .. } => {
+            IrOp::Using {
+                close, value, body, ..
+            } => {
+                if let Some(helper) = helper_for_call(close) {
+                    push_unique(helpers, helper);
+                }
                 push_value_helpers(value, helpers);
                 push_op_helpers(body, helpers);
             }

@@ -410,6 +410,8 @@ struct CodeBuilder<'a> {
     next_register: usize,
     next_label: usize,
     trap: Option<TrapState>,
+    active_cleanups: Vec<UsingCleanup>,
+    pending_result_slots: Option<PendingResultSlots>,
 }
 
 #[derive(Clone)]
@@ -430,6 +432,25 @@ struct TrapState {
     name: String,
     label: String,
     in_trap_body: bool,
+}
+
+#[derive(Clone)]
+struct UsingCleanup {
+    name: String,
+    symbol: String,
+}
+
+#[derive(Clone, Copy)]
+struct PendingResultSlots {
+    value: usize,
+    tag: usize,
+    message: usize,
+}
+
+#[derive(Clone, Copy)]
+enum ExitDestination {
+    Return,
+    Trap,
 }
 
 #[derive(Clone)]
@@ -1539,6 +1560,8 @@ fn lower_function(
         next_register: 8,
         next_label: 0,
         trap: None,
+        active_cleanups: Vec::new(),
+        pending_result_slots: None,
     };
     for param in &params {
         let stack_offset = builder.allocate_stack_object(&param.name, 8);
@@ -1648,6 +1671,8 @@ fn lower_builtin_function_wrapper(
         next_register: 8,
         next_label: 0,
         trap: None,
+        active_cleanups: Vec::new(),
+        pending_result_slots: None,
     };
 
     let stack_offset = builder.allocate_stack_object("value", 8);
@@ -1927,7 +1952,12 @@ fn collect_package_function_refs_in_ops(
                 collect_package_function_refs_in_value(iterable, package_import_symbols, symbols);
                 collect_package_function_refs_in_ops(body, package_import_symbols, symbols);
             }
-            NirOp::Using { value, body, .. } => {
+            NirOp::Using {
+                close, value, body, ..
+            } => {
+                if let Some(symbol) = package_import_symbols.get(close) {
+                    symbols.insert(symbol.clone());
+                }
                 collect_package_function_refs_in_value(value, package_import_symbols, symbols);
                 collect_package_function_refs_in_ops(body, package_import_symbols, symbols);
             }
@@ -3646,6 +3676,8 @@ fn lower_direct_builtin_runtime_helper(
         next_register: 8,
         next_label: 0,
         trap: None,
+        active_cleanups: Vec::new(),
+        pending_result_slots: None,
     };
 
     let args = spec

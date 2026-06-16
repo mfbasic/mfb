@@ -1,6 +1,54 @@
 use super::*;
 
 impl CodeBuilder<'_> {
+    fn emit_symbol_call(&mut self, symbol: &str) {
+        self.emit(abi::branch_link(symbol));
+        let (binding, library) = if let Some(library) = self.platform_imports.get(symbol) {
+            ("external".to_string(), Some(library.clone()))
+        } else {
+            ("internal".to_string(), None)
+        };
+        self.relocations.push(CodeRelocation {
+            from: self.current_symbol.clone(),
+            to: symbol.to_string(),
+            kind: "branch26".to_string(),
+            binding,
+            library,
+        });
+    }
+
+    fn emit_prepared_call_args(
+        &mut self,
+        args: &[NirValue],
+        slot_name: &str,
+    ) -> Result<Vec<ValueResult>, String> {
+        let mut arg_values = Vec::new();
+        let mut arg_slots = Vec::new();
+        for arg in args {
+            let value = self.lower_value(arg)?;
+            let slot = self.allocate_stack_object(slot_name, 8);
+            self.emit(abi::store_u64(&value.location, abi::stack_pointer(), slot));
+            arg_values.push(value);
+            arg_slots.push(slot);
+        }
+        for (index, slot) in arg_slots.iter().enumerate() {
+            self.emit(abi::load_u64("x9", abi::stack_pointer(), *slot));
+            self.emit(abi::move_register(&abi::argument_register(index)?, "x9"));
+        }
+        Ok(arg_values)
+    }
+
+    pub(super) fn emit_raw_call(
+        &mut self,
+        symbol: &str,
+        args: &[NirValue],
+        slot_name: &str,
+    ) -> Result<Vec<ValueResult>, String> {
+        let arg_values = self.emit_prepared_call_args(args, slot_name)?;
+        self.emit_symbol_call(symbol);
+        Ok(arg_values)
+    }
+
     pub(super) fn load_empty_string_constant(&mut self) -> Result<String, String> {
         let register = self.allocate_register()?;
         self.emit_load_static_string_symbol(&register, EMPTY_STRING_SYMBOL);
@@ -658,32 +706,7 @@ impl CodeBuilder<'_> {
         args: &[NirValue],
         return_type: Option<&str>,
     ) -> Result<ValueResult, String> {
-        let mut arg_values = Vec::new();
-        let mut arg_slots = Vec::new();
-        for arg in args {
-            let value = self.lower_value(arg)?;
-            let slot = self.allocate_stack_object("call_arg", 8);
-            self.emit(abi::store_u64(&value.location, abi::stack_pointer(), slot));
-            arg_values.push(value);
-            arg_slots.push(slot);
-        }
-        for (index, slot) in arg_slots.iter().enumerate() {
-            self.emit(abi::load_u64("x9", abi::stack_pointer(), *slot));
-            self.emit(abi::move_register(&abi::argument_register(index)?, "x9"));
-        }
-        self.emit(abi::branch_link(symbol));
-        let (binding, library) = if let Some(library) = self.platform_imports.get(symbol) {
-            ("external".to_string(), Some(library.clone()))
-        } else {
-            ("internal".to_string(), None)
-        };
-        self.relocations.push(CodeRelocation {
-            from: self.current_symbol.clone(),
-            to: symbol.to_string(),
-            kind: "branch26".to_string(),
-            binding,
-            library,
-        });
+        let arg_values = self.emit_raw_call(symbol, args, "call_arg")?;
         let result_type = return_type
             .map(|type_| type_.to_string())
             .or_else(|| {
@@ -704,11 +727,7 @@ impl CodeBuilder<'_> {
             let ok_label = self.label("call_ok");
             self.emit(abi::compare_immediate(RESULT_TAG_REGISTER, RESULT_OK_TAG));
             self.emit(abi::branch_eq(&ok_label));
-            if self.trap.is_some() {
-                self.route_current_result_to_trap()?;
-            } else {
-                self.emit(abi::return_());
-            }
+            self.emit_current_result_exit(self.error_exit_destination())?;
             self.emit(abi::label(&ok_label));
         }
         let register = self.allocate_register()?;
@@ -727,19 +746,7 @@ impl CodeBuilder<'_> {
         args: &[NirValue],
         return_type: Option<&str>,
     ) -> Result<ValueResult, String> {
-        let mut arg_values = Vec::new();
-        let mut arg_slots = Vec::new();
-        for arg in args {
-            let value = self.lower_value(arg)?;
-            let slot = self.allocate_stack_object("call_arg", 8);
-            self.emit(abi::store_u64(&value.location, abi::stack_pointer(), slot));
-            arg_values.push(value);
-            arg_slots.push(slot);
-        }
-        for (index, slot) in arg_slots.iter().enumerate() {
-            self.emit(abi::load_u64("x9", abi::stack_pointer(), *slot));
-            self.emit(abi::move_register(&abi::argument_register(index)?, "x9"));
-        }
+        let arg_values = self.emit_prepared_call_args(args, "call_arg")?;
         let saved_env_slot = self.allocate_stack_object("closure_saved_env", 8);
         let code_register = self.allocate_register()?;
         let env_register = self.allocate_register()?;
@@ -779,11 +786,7 @@ impl CodeBuilder<'_> {
             let ok_label = self.label("call_value_ok");
             self.emit(abi::compare_immediate(RESULT_TAG_REGISTER, RESULT_OK_TAG));
             self.emit(abi::branch_eq(&ok_label));
-            if self.trap.is_some() {
-                self.route_current_result_to_trap()?;
-            } else {
-                self.emit(abi::return_());
-            }
+            self.emit_current_result_exit(self.error_exit_destination())?;
             self.emit(abi::label(&ok_label));
         }
         let register = self.allocate_register()?;
@@ -802,41 +805,12 @@ impl CodeBuilder<'_> {
         args: &[NirValue],
         result_type: &str,
     ) -> Result<ValueResult, String> {
-        let mut arg_values = Vec::new();
-        let mut arg_slots = Vec::new();
-        for arg in args {
-            let value = self.lower_value(arg)?;
-            let slot = self.allocate_stack_object("runtime_call_arg", 8);
-            self.emit(abi::store_u64(&value.location, abi::stack_pointer(), slot));
-            arg_values.push(value);
-            arg_slots.push(slot);
-        }
-        for (index, slot) in arg_slots.iter().enumerate() {
-            self.emit(abi::load_u64("x9", abi::stack_pointer(), *slot));
-            self.emit(abi::move_register(&abi::argument_register(index)?, "x9"));
-        }
-        self.emit(abi::branch_link(symbol));
-        let (binding, library) = if let Some(library) = self.platform_imports.get(symbol) {
-            ("external".to_string(), Some(library.clone()))
-        } else {
-            ("internal".to_string(), None)
-        };
-        self.relocations.push(CodeRelocation {
-            from: self.current_symbol.clone(),
-            to: symbol.to_string(),
-            kind: "branch26".to_string(),
-            binding,
-            library,
-        });
+        let arg_values = self.emit_raw_call(symbol, args, "runtime_call_arg")?;
 
         let ok_label = self.label("runtime_call_ok");
         self.emit(abi::compare_immediate(RESULT_TAG_REGISTER, RESULT_OK_TAG));
         self.emit(abi::branch_eq(&ok_label));
-        if self.trap.is_some() {
-            self.route_current_result_to_trap()?;
-        } else {
-            self.emit(abi::return_());
-        }
+        self.emit_current_result_exit(self.error_exit_destination())?;
         self.emit(abi::label(&ok_label));
 
         if result_type == "Nothing" {
@@ -986,7 +960,86 @@ impl CodeBuilder<'_> {
         Ok(())
     }
 
-    pub(super) fn emit_error_return(&mut self, error: &NirValue) -> Result<(), String> {
+    fn ensure_pending_result_slots(&mut self) -> PendingResultSlots {
+        if let Some(slots) = self.pending_result_slots {
+            return slots;
+        }
+        let slots = PendingResultSlots {
+            value: self.allocate_stack_object("pending_result_value", 8),
+            tag: self.allocate_stack_object("pending_result_tag", 8),
+            message: self.allocate_stack_object("pending_result_message", 8),
+        };
+        self.pending_result_slots = Some(slots);
+        slots
+    }
+
+    fn store_pending_success_result(&mut self, value: Option<&ValueResult>) -> Result<(), String> {
+        let slots = self.ensure_pending_result_slots();
+        let value_register = if let Some(value) = value {
+            if value.type_ == "Nothing" {
+                let register = self.allocate_register()?;
+                self.emit(abi::move_immediate(&register, "Integer", "0"));
+                register
+            } else if self.inline_collection_payload_size(&value.type_).is_some() {
+                self.materialize_inline_value_in_arena(&value.type_, &value.location)?
+            } else {
+                value.location.clone()
+            }
+        } else {
+            let register = self.allocate_register()?;
+            self.emit(abi::move_immediate(&register, "Integer", "0"));
+            register
+        };
+        let message_register = self.allocate_register()?;
+        self.emit(abi::move_immediate(&message_register, "Integer", "0"));
+        self.emit(abi::store_u64(
+            &value_register,
+            abi::stack_pointer(),
+            slots.value,
+        ));
+        self.emit(abi::move_immediate("x9", "Integer", RESULT_OK_TAG));
+        self.emit(abi::store_u64("x9", abi::stack_pointer(), slots.tag));
+        self.emit(abi::store_u64(
+            &message_register,
+            abi::stack_pointer(),
+            slots.message,
+        ));
+        Ok(())
+    }
+
+    fn store_pending_error_registers(&mut self, code_register: &str, message_register: &str) {
+        let slots = self.ensure_pending_result_slots();
+        self.emit(abi::store_u64(
+            code_register,
+            abi::stack_pointer(),
+            slots.value,
+        ));
+        self.emit(abi::move_immediate("x9", "Integer", RESULT_ERR_TAG));
+        self.emit(abi::store_u64("x9", abi::stack_pointer(), slots.tag));
+        self.emit(abi::store_u64(
+            message_register,
+            abi::stack_pointer(),
+            slots.message,
+        ));
+    }
+
+    fn store_pending_error_from_value(&mut self, error: &NirValue) -> Result<(), String> {
+        let error = self.lower_value(error)?;
+        if error.type_ != "Error" {
+            return Err(format!(
+                "cleanup error exit expects Error value, got `{}`",
+                error.type_
+            ));
+        }
+        let code_register = self.allocate_register()?;
+        let message_register = self.allocate_register()?;
+        self.emit(abi::load_u64(&code_register, &error.location, 0));
+        self.emit(abi::load_u64(&message_register, &error.location, 8));
+        self.store_pending_error_registers(&code_register, &message_register);
+        Ok(())
+    }
+
+    fn emit_direct_error_return(&mut self, error: &NirValue) -> Result<(), String> {
         let error = self.lower_value(error)?;
         if error.type_ != "Error" {
             return Err(format!(
@@ -1012,7 +1065,7 @@ impl CodeBuilder<'_> {
         Ok(())
     }
 
-    pub(super) fn route_error_value_to_trap(&mut self, error: &NirValue) -> Result<(), String> {
+    fn emit_direct_error_route_to_trap(&mut self, error: &NirValue) -> Result<(), String> {
         let error = self.lower_value(error)?;
         if error.type_ != "Error" {
             return Err(format!(
@@ -1035,6 +1088,158 @@ impl CodeBuilder<'_> {
             stack_offset,
         ));
         self.emit(abi::branch(&label));
+        Ok(())
+    }
+
+    fn store_pending_current_result(&mut self) {
+        self.store_pending_error_registers(RESULT_VALUE_REGISTER, RESULT_ERROR_MESSAGE_REGISTER);
+    }
+
+    fn load_pending_result_registers(&mut self) {
+        let slots = self
+            .pending_result_slots
+            .expect("pending result slots must exist before loading");
+        self.emit(abi::load_u64(
+            RESULT_VALUE_REGISTER,
+            abi::stack_pointer(),
+            slots.value,
+        ));
+        self.emit(abi::load_u64(
+            RESULT_TAG_REGISTER,
+            abi::stack_pointer(),
+            slots.tag,
+        ));
+        self.emit(abi::load_u64(
+            RESULT_ERROR_MESSAGE_REGISTER,
+            abi::stack_pointer(),
+            slots.message,
+        ));
+    }
+
+    pub(super) fn error_exit_destination(&self) -> ExitDestination {
+        if self
+            .trap
+            .as_ref()
+            .is_some_and(|trap| !trap.in_trap_body)
+        {
+            ExitDestination::Trap
+        } else {
+            ExitDestination::Return
+        }
+    }
+
+    fn emit_cleanup_call(&mut self, cleanup: &UsingCleanup) -> Result<(), String> {
+        let arg = NirValue::Local(cleanup.name.clone());
+        self.emit_raw_call(&cleanup.symbol, std::slice::from_ref(&arg), "using_close_arg")?;
+        Ok(())
+    }
+
+    fn emit_cleanup_sequence(&mut self) -> Result<(), String> {
+        let cleanups = self.active_cleanups.clone();
+        let slots = self.ensure_pending_result_slots();
+        for cleanup in cleanups.iter().rev() {
+            self.emit_cleanup_call(cleanup)?;
+            let preserve_error = self.label("using_preserve_error");
+            let done = self.label("using_cleanup_done");
+            self.emit(abi::load_u64("x9", abi::stack_pointer(), slots.tag));
+            self.emit(abi::compare_immediate("x9", RESULT_ERR_TAG));
+            self.emit(abi::branch_eq(&preserve_error));
+            self.emit(abi::compare_immediate(RESULT_TAG_REGISTER, RESULT_OK_TAG));
+            self.emit(abi::branch_eq(&done));
+            self.store_pending_current_result();
+            self.emit(abi::branch(&done));
+            self.emit(abi::label(&preserve_error));
+            self.emit(abi::label(&done));
+        }
+        Ok(())
+    }
+
+    pub(super) fn emit_current_result_exit(
+        &mut self,
+        destination: ExitDestination,
+    ) -> Result<(), String> {
+        if self.active_cleanups.is_empty() {
+            match destination {
+                ExitDestination::Return => self.emit(abi::return_()),
+                ExitDestination::Trap => self.route_current_result_to_trap()?,
+            }
+            return Ok(());
+        }
+        self.store_pending_current_result();
+        self.emit_cleanup_sequence()?;
+        self.load_pending_result_registers();
+        match destination {
+            ExitDestination::Return => self.emit(abi::return_()),
+            ExitDestination::Trap => self.route_current_result_to_trap()?,
+        }
+        Ok(())
+    }
+
+    pub(super) fn emit_error_value_exit(
+        &mut self,
+        error: &NirValue,
+        destination: ExitDestination,
+    ) -> Result<(), String> {
+        if self.active_cleanups.is_empty() {
+            return match destination {
+                ExitDestination::Return => self.emit_direct_error_return(error),
+                ExitDestination::Trap => self.emit_direct_error_route_to_trap(error),
+            };
+        }
+        self.store_pending_error_from_value(error)?;
+        self.emit_cleanup_sequence()?;
+        self.load_pending_result_registers();
+        match destination {
+            ExitDestination::Return => self.emit(abi::return_()),
+            ExitDestination::Trap => self.route_current_result_to_trap()?,
+        }
+        Ok(())
+    }
+
+    pub(super) fn emit_return_exit(&mut self, value: Option<&NirValue>) -> Result<(), String> {
+        if self.active_cleanups.is_empty() {
+            if let Some(value) = value {
+                let result = self.lower_value(value)?;
+                if result.type_ != "Nothing" {
+                    if self.inline_collection_payload_size(&result.type_).is_some() {
+                        let stable =
+                            self.materialize_inline_value_in_arena(&result.type_, &result.location)?;
+                        self.emit(abi::move_register(RESULT_VALUE_REGISTER, &stable));
+                    } else {
+                        self.emit(abi::move_register(RESULT_VALUE_REGISTER, &result.location));
+                    }
+                }
+            }
+            self.emit(abi::move_immediate(
+                RESULT_TAG_REGISTER,
+                "Integer",
+                RESULT_OK_TAG,
+            ));
+            self.emit(abi::return_());
+            return Ok(());
+        }
+        let result = if let Some(value) = value {
+            Some(self.lower_value(value)?)
+        } else {
+            None
+        };
+        self.store_pending_success_result(result.as_ref())?;
+        self.emit_cleanup_sequence()?;
+        self.load_pending_result_registers();
+        self.emit(abi::return_());
+        Ok(())
+    }
+
+    pub(super) fn emit_using_fallthrough_cleanup(
+        &mut self,
+        cleanup: &UsingCleanup,
+    ) -> Result<(), String> {
+        let ok_label = self.label("using_close_ok");
+        self.emit_cleanup_call(cleanup)?;
+        self.emit(abi::compare_immediate(RESULT_TAG_REGISTER, RESULT_OK_TAG));
+        self.emit(abi::branch_eq(&ok_label));
+        self.emit_current_result_exit(self.error_exit_destination())?;
+        self.emit(abi::label(&ok_label));
         Ok(())
     }
 
@@ -1118,9 +1323,9 @@ impl CodeBuilder<'_> {
     }
 
     pub(super) fn current_block_returns(&self) -> bool {
-        self.instructions
-            .last()
-            .is_some_and(|instruction| instruction.op == CodeOp::Ret)
+        self.instructions.last().is_some_and(|instruction| {
+            matches!(instruction.op, CodeOp::Ret | CodeOp::Branch)
+        })
     }
 }
 

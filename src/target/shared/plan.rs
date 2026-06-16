@@ -625,7 +625,12 @@ fn collect_runtime_symbols_from_ops_with_constants(
                 let mut body_constants = constants.clone();
                 collect_runtime_symbols_from_ops_with_constants(body, symbols, &mut body_constants);
             }
-            NirOp::Using { value, body, .. } => {
+            NirOp::Using {
+                close, value, body, ..
+            } => {
+                if let Some(helper) = runtime::helper_for_call(close) {
+                    push_unique(symbols, runtime::symbol_for_call(helper, close));
+                }
                 collect_runtime_symbols_from_value(value, symbols, constants);
                 let mut body_constants = constants.clone();
                 collect_runtime_symbols_from_ops_with_constants(body, symbols, &mut body_constants);
@@ -1135,6 +1140,8 @@ impl FunctionPlanBuilder<'_> {
             (CallKind::Local, symbol.clone())
         } else if let Some(symbol) = self.import_symbols.get(target) {
             (CallKind::Import, symbol.clone())
+        } else if let Some(helper) = runtime::helper_for_call(target) {
+            (CallKind::Runtime, runtime::symbol_for_call(helper, target))
         } else {
             (CallKind::Indirect, target.to_string())
         };

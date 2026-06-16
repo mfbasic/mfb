@@ -147,7 +147,7 @@ When `kind` is omitted, the spec requires the tool to infer `executable` only wh
 SPECIFICATION: specifications/mfbasic.md @ §10 Control Flow and §19 Grammar (`inlineIfStmt`)
 The grammar and examples allow `IF expr THEN simpleStmt ELSE simpleStmt`, but `parse_if_statement` parses only one statement after inline `THEN` and returns an `If` with an empty `else_body`; an inline `ELSE` is not consumed or lowered. Resolve by parsing the optional inline `ELSE` branch, restricting inline branches to `simpleStmt` as specified, and adding typecheck/IR/native/runtime tests for both taken branches and invalid compound inline bodies.
 
-REQUIREMENT: Deterministic native `USING` cleanup
+[FIXED] REQUIREMENT: Deterministic native `USING` cleanup
 SPECIFICATION: specifications/mfbasic.md @ §15 Resource Management
 The spec requires `USING` to close the owned resource exactly once on normal exit, `RETURN`, `FAIL`, `PROPAGATE`, and auto-propagated errors, with defined close-failure precedence. Shared native lowering emits the close call only after the body and calls it without passing the bound resource, so early exits can bypass cleanup and normal cleanup is not wired to the resource handle. Resolve by lowering `USING` into explicit cleanup regions or exit blocks that receive the resource register, route every body exit through cleanup, preserve body-error-vs-close-error precedence, and validate with runtime tests for normal, return, fail, propagated-error, and close-failure cases.
 
