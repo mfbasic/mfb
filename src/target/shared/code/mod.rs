@@ -89,6 +89,7 @@ const ERR_ACCESS_DENIED_SYMBOL: &str = "_mfb_str_error_access_denied";
 const ERR_DIRECTORY_NOT_EMPTY_CODE: &str = "77030005";
 const ERR_DIRECTORY_NOT_EMPTY_MESSAGE: &str = "directory not empty";
 const ERR_DIRECTORY_NOT_EMPTY_SYMBOL: &str = "_mfb_str_error_directory_not_empty";
+const EMPTY_STRING_SYMBOL: &str = "_mfb_str_empty";
 const FS_MODE_TYPE_MASK: &str = "61440";
 const FS_MODE_DIRECTORY: &str = "16384";
 const FS_MODE_REGULAR: &str = "32768";
@@ -524,6 +525,18 @@ pub(crate) fn lower_module_for_platform(
             value: value.clone(),
         })
         .collect::<Vec<_>>();
+    if module_requires_empty_string_constant(module)
+        || package_exports_require_empty_string_constant(&package_exports)
+    {
+        data_objects.push(CodeDataObject {
+            symbol: EMPTY_STRING_SYMBOL.to_string(),
+            kind: "constant".to_string(),
+            layout: "mfb.string.v1 { u64 byteLength; u8 bytes[byteLength]; u8 nul }".to_string(),
+            align: 8,
+            size: 16,
+            value: String::new(),
+        });
+    }
     if native_plan
         .runtime_symbols
         .iter()
@@ -1516,6 +1529,102 @@ fn package_native_exports(packages: &[PathBuf]) -> Result<Vec<NativePackageExpor
     Ok(exports)
 }
 
+fn module_requires_empty_string_constant(module: &NirModule) -> bool {
+    let type_model = TypeModel::from_module(module).unwrap_or_else(|_| TypeModel::empty());
+    module.functions.iter().any(|function| {
+        function
+            .body
+            .iter()
+            .any(|op| op_requires_empty_string_constant(op, &type_model))
+    })
+}
+
+fn op_requires_empty_string_constant(op: &NirOp, type_model: &TypeModel) -> bool {
+    match op {
+        NirOp::Bind {
+            type_, value: None, ..
+        } => type_requires_empty_string_constant(type_, type_model, &mut HashSet::new()),
+        NirOp::If {
+            then_body,
+            else_body,
+            ..
+        } => {
+            then_body
+                .iter()
+                .any(|op| op_requires_empty_string_constant(op, type_model))
+                || else_body
+                    .iter()
+                    .any(|op| op_requires_empty_string_constant(op, type_model))
+        }
+        NirOp::Match { cases, .. } => cases.iter().any(|case| {
+            case.body
+                .iter()
+                .any(|op| op_requires_empty_string_constant(op, type_model))
+        }),
+        NirOp::While { body, .. }
+        | NirOp::ForEach { body, .. }
+        | NirOp::Using { body, .. }
+        | NirOp::Trap { body, .. } => body
+            .iter()
+            .any(|op| op_requires_empty_string_constant(op, type_model)),
+        _ => false,
+    }
+}
+
+fn type_requires_empty_string_constant(
+    type_: &str,
+    type_model: &TypeModel,
+    seen: &mut HashSet<String>,
+) -> bool {
+    if type_ == "String" {
+        return true;
+    }
+    let Some(fields) = type_model.record_fields.get(type_) else {
+        return false;
+    };
+    if !seen.insert(type_.to_string()) {
+        return false;
+    }
+    let result = fields
+        .iter()
+        .any(|(_, field_type)| type_requires_empty_string_constant(field_type, type_model, seen));
+    seen.remove(type_);
+    result
+}
+
+fn package_exports_require_empty_string_constant(exports: &[NativePackageExport]) -> bool {
+    fn type_id_requires_empty_string(
+        export: &NativePackageExport,
+        type_id: u32,
+        seen: &mut HashSet<u32>,
+    ) -> bool {
+        if type_id == bytecode::TYPE_STRING {
+            return true;
+        }
+        let Some(bytecode::NativePackageTypeInfo::Record(fields)) = export.type_info.get(&type_id)
+        else {
+            return false;
+        };
+        if !seen.insert(type_id) {
+            return false;
+        }
+        let result = fields
+            .iter()
+            .any(|field| type_id_requires_empty_string(export, field.type_id, seen));
+        seen.remove(&type_id);
+        result
+    }
+
+    exports.iter().any(|export| {
+        export.code.iter().any(|instruction| {
+            instruction.opcode == bytecode::NATIVE_OPCODE_LOAD_DEFAULT
+                && instruction.operands.get(1).is_some_and(|type_id| {
+                    type_id_requires_empty_string(export, *type_id, &mut HashSet::new())
+                })
+        })
+    })
+}
+
 fn package_string_symbols(exports: &[NativePackageExport]) -> HashMap<(String, usize), String> {
     let mut symbols = HashMap::new();
     for export in exports {
@@ -1632,11 +1741,7 @@ fn collect_package_function_refs_in_ops(
                 }
             }
             NirOp::While { condition, body } => {
-                collect_package_function_refs_in_value(
-                    condition,
-                    package_import_symbols,
-                    symbols,
-                );
+                collect_package_function_refs_in_value(condition, package_import_symbols, symbols);
                 collect_package_function_refs_in_ops(body, package_import_symbols, symbols);
             }
             NirOp::ForEach { iterable, body, .. } => {
@@ -2077,6 +2182,261 @@ fn lower_package_call_result(
     Ok(())
 }
 
+fn package_default_depth(export: &NativePackageExport) -> usize {
+    fn depth_for_type(
+        export: &NativePackageExport,
+        type_id: u32,
+        seen: &mut HashSet<u32>,
+    ) -> usize {
+        let Some(info) = export.type_info.get(&type_id) else {
+            return 0;
+        };
+        let bytecode::NativePackageTypeInfo::Record(fields) = info else {
+            return 0;
+        };
+        if !seen.insert(type_id) {
+            return 0;
+        }
+        let depth = 1 + fields
+            .iter()
+            .map(|field| depth_for_type(export, field.type_id, seen))
+            .max()
+            .unwrap_or(0);
+        seen.remove(&type_id);
+        depth
+    }
+
+    export
+        .registers
+        .iter()
+        .map(|register| depth_for_type(export, register.type_id, &mut HashSet::new()))
+        .max()
+        .unwrap_or(0)
+}
+
+fn package_collection_type_code(
+    export: &NativePackageExport,
+    type_id: u32,
+) -> Result<usize, String> {
+    if type_id == bytecode::TYPE_NOTHING {
+        return Ok(COLLECTION_TYPE_NONE);
+    }
+    if type_id == bytecode::TYPE_BOOLEAN {
+        return Ok(COLLECTION_TYPE_BOOLEAN);
+    }
+    if type_id == bytecode::TYPE_BYTE {
+        return Ok(COLLECTION_TYPE_BYTE);
+    }
+    if type_id == bytecode::TYPE_INTEGER {
+        return Ok(COLLECTION_TYPE_INTEGER);
+    }
+    if type_id == bytecode::TYPE_FLOAT {
+        return Ok(COLLECTION_TYPE_FLOAT);
+    }
+    if type_id == bytecode::TYPE_FIXED {
+        return Ok(COLLECTION_TYPE_FIXED);
+    }
+    if type_id == bytecode::TYPE_STRING {
+        return Ok(COLLECTION_TYPE_STRING);
+    }
+    match export.type_info.get(&type_id) {
+        Some(bytecode::NativePackageTypeInfo::List { .. }) => Ok(COLLECTION_TYPE_LIST),
+        Some(bytecode::NativePackageTypeInfo::Map { .. }) => Ok(COLLECTION_TYPE_MAP),
+        Some(bytecode::NativePackageTypeInfo::Record(_))
+        | Some(bytecode::NativePackageTypeInfo::Enum)
+        | Some(bytecode::NativePackageTypeInfo::Union) => Ok(COLLECTION_TYPE_OBJECT),
+        Some(bytecode::NativePackageTypeInfo::Result { .. })
+        | Some(bytecode::NativePackageTypeInfo::Thread { .. })
+        | Some(bytecode::NativePackageTypeInfo::Function)
+        | Some(bytecode::NativePackageTypeInfo::Resource) => Err(format!(
+            "package export '{}' collection payload type id {type_id} is not supported",
+            export.name
+        )),
+        None => Err(format!(
+            "package export '{}' collection payload type id {type_id} is unknown",
+            export.name
+        )),
+    }
+}
+
+fn emit_package_empty_collection_default(
+    export: &NativePackageExport,
+    kind: usize,
+    key_type_code: usize,
+    value_type_code: usize,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+) {
+    let alloc_ok = format!(
+        "{}_pkg_default_collection_ok_{}",
+        export.symbol,
+        instructions.len()
+    );
+    instructions.extend([
+        abi::move_immediate(
+            abi::return_register(),
+            "Integer",
+            &COLLECTION_HEADER_SIZE.to_string(),
+        ),
+        abi::move_immediate("x1", "Integer", "8"),
+        abi::branch_link(ARENA_ALLOC_SYMBOL),
+        abi::compare_immediate(abi::return_register(), RESULT_OK_TAG),
+        abi::branch_eq(&alloc_ok),
+        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_OUT_OF_MEMORY_CODE),
+        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
+    ]);
+    push_error_message_address(
+        &export.symbol,
+        ERR_ALLOCATION_SYMBOL,
+        instructions,
+        relocations,
+    );
+    instructions.extend([abi::return_(), abi::label(&alloc_ok)]);
+    relocations.push(internal_branch(&export.symbol, ARENA_ALLOC_SYMBOL));
+    instructions.extend([
+        abi::move_immediate("x8", "Byte", &kind.to_string()),
+        abi::store_u8("x8", "x1", COLLECTION_OFFSET_KIND),
+        abi::move_immediate("x8", "Byte", &key_type_code.to_string()),
+        abi::store_u8("x8", "x1", COLLECTION_OFFSET_KEY_TYPE),
+        abi::move_immediate("x8", "Byte", &value_type_code.to_string()),
+        abi::store_u8("x8", "x1", COLLECTION_OFFSET_VALUE_TYPE),
+        abi::move_immediate("x8", "Byte", "1"),
+        abi::store_u8("x8", "x1", COLLECTION_OFFSET_FLAGS_VERSION),
+        abi::move_immediate("x8", "Integer", "0"),
+        abi::store_u64("x8", "x1", COLLECTION_OFFSET_COUNT),
+        abi::store_u64("x8", "x1", COLLECTION_OFFSET_CAPACITY),
+        abi::store_u64("x8", "x1", COLLECTION_OFFSET_DATA_LENGTH),
+        abi::store_u64("x8", "x1", COLLECTION_OFFSET_DATA_CAPACITY),
+        abi::move_register("x9", "x1"),
+    ]);
+}
+
+fn emit_package_default_value(
+    export: &NativePackageExport,
+    type_id: u32,
+    scratch_base: usize,
+    depth: usize,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+) -> Result<(), String> {
+    if type_id == bytecode::TYPE_NOTHING
+        || type_id == bytecode::TYPE_BOOLEAN
+        || type_id == bytecode::TYPE_BYTE
+        || type_id == bytecode::TYPE_INTEGER
+        || type_id == bytecode::TYPE_FLOAT
+        || type_id == bytecode::TYPE_FIXED
+    {
+        instructions.push(abi::move_immediate("x9", "Integer", "0"));
+        return Ok(());
+    }
+    if type_id == bytecode::TYPE_STRING {
+        instructions.push(abi::load_page_address("x9", EMPTY_STRING_SYMBOL));
+        relocations.push(CodeRelocation {
+            from: export.symbol.clone(),
+            to: EMPTY_STRING_SYMBOL.to_string(),
+            kind: "page21".to_string(),
+            binding: "data".to_string(),
+            library: None,
+        });
+        instructions.push(abi::add_page_offset("x9", "x9", EMPTY_STRING_SYMBOL));
+        relocations.push(CodeRelocation {
+            from: export.symbol.clone(),
+            to: EMPTY_STRING_SYMBOL.to_string(),
+            kind: "pageoff12".to_string(),
+            binding: "data".to_string(),
+            library: None,
+        });
+        return Ok(());
+    }
+
+    match export.type_info.get(&type_id) {
+        Some(bytecode::NativePackageTypeInfo::List { element_type }) => {
+            emit_package_empty_collection_default(
+                export,
+                COLLECTION_KIND_LIST,
+                COLLECTION_TYPE_NONE,
+                package_collection_type_code(export, *element_type)?,
+                instructions,
+                relocations,
+            );
+            Ok(())
+        }
+        Some(bytecode::NativePackageTypeInfo::Map {
+            key_type,
+            value_type,
+        }) => {
+            emit_package_empty_collection_default(
+                export,
+                COLLECTION_KIND_MAP,
+                package_collection_type_code(export, *key_type)?,
+                package_collection_type_code(export, *value_type)?,
+                instructions,
+                relocations,
+            );
+            Ok(())
+        }
+        Some(bytecode::NativePackageTypeInfo::Record(fields)) => {
+            let scratch_slot = scratch_base + depth * 8;
+            let alloc_ok = format!(
+                "{}_pkg_default_record_ok_{}",
+                export.symbol,
+                instructions.len()
+            );
+            instructions.extend([
+                abi::move_immediate(
+                    abi::return_register(),
+                    "Integer",
+                    &(fields.len() * 8).to_string(),
+                ),
+                abi::move_immediate("x1", "Integer", "8"),
+                abi::branch_link(ARENA_ALLOC_SYMBOL),
+                abi::compare_immediate(abi::return_register(), RESULT_OK_TAG),
+                abi::branch_eq(&alloc_ok),
+                abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_OUT_OF_MEMORY_CODE),
+                abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
+            ]);
+            push_error_message_address(
+                &export.symbol,
+                ERR_ALLOCATION_SYMBOL,
+                instructions,
+                relocations,
+            );
+            instructions.extend([abi::return_(), abi::label(&alloc_ok)]);
+            relocations.push(internal_branch(&export.symbol, ARENA_ALLOC_SYMBOL));
+            instructions.push(abi::store_u64("x1", abi::stack_pointer(), scratch_slot));
+            for (index, field) in fields.iter().enumerate() {
+                emit_package_default_value(
+                    export,
+                    field.type_id,
+                    scratch_base,
+                    depth + 1,
+                    instructions,
+                    relocations,
+                )?;
+                instructions.extend([
+                    abi::load_u64("x10", abi::stack_pointer(), scratch_slot),
+                    abi::store_u64("x9", "x10", 8 * index),
+                ]);
+            }
+            instructions.push(abi::load_u64("x9", abi::stack_pointer(), scratch_slot));
+            Ok(())
+        }
+        Some(bytecode::NativePackageTypeInfo::Enum)
+        | Some(bytecode::NativePackageTypeInfo::Union)
+        | Some(bytecode::NativePackageTypeInfo::Result { .. })
+        | Some(bytecode::NativePackageTypeInfo::Thread { .. })
+        | Some(bytecode::NativePackageTypeInfo::Function)
+        | Some(bytecode::NativePackageTypeInfo::Resource) => Err(format!(
+            "package export '{}' cannot materialize default value for type id {type_id}",
+            export.name
+        )),
+        None => Err(format!(
+            "package export '{}' references unknown default type id {type_id}",
+            export.name
+        )),
+    }
+}
+
 fn lower_package_export_function(
     export: &NativePackageExport,
     string_symbols: &HashMap<(String, usize), String>,
@@ -2084,7 +2444,8 @@ fn lower_package_export_function(
     let lr_offset = 0;
     let register_base = 8;
     let slot = |register: u32| register_base + register as usize * 8;
-    let frame_size = align(register_base + export.registers.len() * 8, 16);
+    let scratch_base = register_base + export.registers.len() * 8;
+    let frame_size = align(scratch_base + package_default_depth(export) * 8, 16);
     let mut instructions = vec![abi::label("entry"), abi::subtract_stack(frame_size)];
     let mut relocations = Vec::new();
     instructions.push(abi::store_u64(
@@ -2136,10 +2497,16 @@ fn lower_package_export_function(
             }
             bytecode::NATIVE_OPCODE_LOAD_DEFAULT => {
                 let dst = native_operand(instruction, 0)?;
-                instructions.extend([
-                    abi::move_immediate("x9", "Integer", "0"),
-                    abi::store_u64("x9", abi::stack_pointer(), slot(dst)),
-                ]);
+                let type_id = native_operand(instruction, 1)?;
+                emit_package_default_value(
+                    export,
+                    type_id,
+                    scratch_base,
+                    0,
+                    &mut instructions,
+                    &mut relocations,
+                )?;
+                instructions.push(abi::store_u64("x9", abi::stack_pointer(), slot(dst)));
             }
             bytecode::NATIVE_OPCODE_COPY | bytecode::NATIVE_OPCODE_MOVE => {
                 let dst = native_operand(instruction, 0)?;
@@ -9373,9 +9740,7 @@ fn value_uses_call(value: &NirValue, target: &str) -> bool {
         | NirValue::UnionExtract { value, .. }
         | NirValue::ResultIsOk { value }
         | NirValue::ResultValue { value }
-        | NirValue::ResultError { value } => {
-            value_uses_call(value, target)
-        }
+        | NirValue::ResultError { value } => value_uses_call(value, target),
         NirValue::WithUpdate {
             target: updated,
             updates,
@@ -9442,9 +9807,7 @@ fn value_uses_type_name(value: &NirValue) -> bool {
     let direct = match value {
         NirValue::Call { target, .. }
         | NirValue::CallResult { target, .. }
-        | NirValue::RuntimeCall { target, .. } => {
-            target == "typeName"
-        }
+        | NirValue::RuntimeCall { target, .. } => target == "typeName",
         _ => false,
     };
     direct
@@ -9621,9 +9984,7 @@ fn collect_type_name_values_from_value(value: &NirValue, values: &mut Vec<String
         | NirValue::UnionExtract { value, .. }
         | NirValue::ResultIsOk { value }
         | NirValue::ResultValue { value }
-        | NirValue::ResultError { value } => {
-            collect_type_name_values_from_value(value, values)
-        }
+        | NirValue::ResultError { value } => collect_type_name_values_from_value(value, values),
         NirValue::WithUpdate {
             type_,
             target,
@@ -10190,7 +10551,8 @@ fn collect_string_values_from_value(
     }
     if let NirValue::Call { target, args }
     | NirValue::CallResult { target, args }
-    | NirValue::RuntimeCall { target, args, .. } = value {
+    | NirValue::RuntimeCall { target, args, .. } = value
+    {
         if target == "strings.graphemes" && args.len() == 1 {
             if let Some(value) = static_string_value_with_constants(&args[0], constants, types) {
                 for grapheme in crate::unicode_backend::graphemes(&value) {
@@ -10310,15 +10672,13 @@ fn value_may_return_invalid_format(
     (match value {
         NirValue::Call { target, args }
         | NirValue::CallResult { target, args }
-        | NirValue::RuntimeCall { target, args, .. } => {
-            match target.as_str() {
-                "toInt" if args.len() == 1 => {
-                    static_type_name_with_types(&args[0], types).as_deref() != Some("Byte")
-                }
-                "toFloat" | "toFixed" | "isNumeric" => true,
-                _ => false,
+        | NirValue::RuntimeCall { target, args, .. } => match target.as_str() {
+            "toInt" if args.len() == 1 => {
+                static_type_name_with_types(&args[0], types).as_deref() != Some("Byte")
             }
-        }
+            "toFloat" | "toFixed" | "isNumeric" => true,
+            _ => false,
+        },
         _ => false,
     }) || match value {
         NirValue::Call { args, .. }
@@ -10504,31 +10864,29 @@ fn static_type_name_with_types(
         NirValue::UnionExtract { type_, .. } => Some(type_.clone()),
         NirValue::Call { target, .. }
         | NirValue::CallResult { target, .. }
-        | NirValue::RuntimeCall { target, .. } => {
-            match target.as_str() {
-                "replace" | "typeName" | "toString" => Some("String".to_string()),
-                "find" | "len" | "toInt" => Some("Integer".to_string()),
-                "mid" => Some("String".to_string()),
-                "strings.trim"
-                | "strings.trimStart"
-                | "strings.trimEnd"
-                | "strings.upper"
-                | "strings.lower"
-                | "strings.caseFold"
-                | "strings.normalizeNfc"
-                | "strings.join" => Some("String".to_string()),
-                "strings.graphemes" | "strings.split" => Some("List OF String".to_string()),
-                "strings.startsWith" | "strings.endsWith" | "strings.contains" => {
-                    Some("Boolean".to_string())
-                }
-                "strings.byteLen" => Some("Integer".to_string()),
-                "toFloat" => Some("Float".to_string()),
-                "toFixed" => Some("Fixed".to_string()),
-                "toByte" => Some("Byte".to_string()),
-                "isNumeric" => Some("Boolean".to_string()),
-                _ => None,
+        | NirValue::RuntimeCall { target, .. } => match target.as_str() {
+            "replace" | "typeName" | "toString" => Some("String".to_string()),
+            "find" | "len" | "toInt" => Some("Integer".to_string()),
+            "mid" => Some("String".to_string()),
+            "strings.trim"
+            | "strings.trimStart"
+            | "strings.trimEnd"
+            | "strings.upper"
+            | "strings.lower"
+            | "strings.caseFold"
+            | "strings.normalizeNfc"
+            | "strings.join" => Some("String".to_string()),
+            "strings.graphemes" | "strings.split" => Some("List OF String".to_string()),
+            "strings.startsWith" | "strings.endsWith" | "strings.contains" => {
+                Some("Boolean".to_string())
             }
-        }
+            "strings.byteLen" => Some("Integer".to_string()),
+            "toFloat" => Some("Float".to_string()),
+            "toFixed" => Some("Fixed".to_string()),
+            "toByte" => Some("Byte".to_string()),
+            "isNumeric" => Some("Boolean".to_string()),
+            _ => None,
+        },
         NirValue::ResultIsOk { .. } => Some("Boolean".to_string()),
         NirValue::ResultValue { value } => static_type_name_with_types(value, types)
             .and_then(|type_| type_.strip_prefix("Result OF ").map(str::to_string))

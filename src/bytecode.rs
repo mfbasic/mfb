@@ -480,6 +480,20 @@ pub struct NativeVariantLayout {
 pub struct NativeFieldLayout {
     pub name: u32,
     pub offset_slots: usize,
+    pub type_id: u32,
+}
+
+#[derive(Clone)]
+pub enum NativePackageTypeInfo {
+    Record(Vec<NativeFieldLayout>),
+    Enum,
+    Union,
+    List { element_type: u32 },
+    Map { key_type: u32, value_type: u32 },
+    Result { success_type: u32 },
+    Thread { message_type: u32, output_type: u32 },
+    Function,
+    Resource,
 }
 
 pub struct NativeInstruction {
@@ -508,6 +522,7 @@ pub struct NativePackageExport {
     pub code: Vec<NativeInstruction>,
     pub constants: Vec<NativeConst>,
     pub external_calls: HashMap<u32, NativePackageCallTarget>,
+    pub type_info: HashMap<u32, NativePackageTypeInfo>,
 }
 
 #[derive(Clone)]
@@ -1127,7 +1142,9 @@ fn package_type_exports(package: &PackageBytecode) -> Result<Vec<BytecodeTypeExp
         }
         let name = string_at(&package.project.strings.values, export.name)?.to_string();
         let Some(entry) = type_by_name.get(&name) else {
-            return Err(format!("exported type `{name}` is missing from the type table"));
+            return Err(format!(
+                "exported type `{name}` is missing from the type table"
+            ));
         };
         exports.push(decode_type_export(
             &name,
@@ -1153,7 +1170,12 @@ fn decode_type_export(
             let field_count = cursor_u32(&entry.payload, &mut offset)? as usize;
             let mut fields = Vec::with_capacity(field_count);
             for _ in 0..field_count {
-                fields.push(decode_type_field(&entry.payload, &mut offset, type_names, strings)?);
+                fields.push(decode_type_field(
+                    &entry.payload,
+                    &mut offset,
+                    type_names,
+                    strings,
+                )?);
             }
             (fields, Vec::new(), Vec::new())
         }
@@ -1161,8 +1183,8 @@ fn decode_type_export(
             let variant_count = cursor_u32(&entry.payload, &mut offset)? as usize;
             let mut variants = Vec::with_capacity(variant_count);
             for _ in 0..variant_count {
-                let variant_name = string_at(strings, cursor_u32(&entry.payload, &mut offset)?)?
-                    .to_string();
+                let variant_name =
+                    string_at(strings, cursor_u32(&entry.payload, &mut offset)?)?.to_string();
                 let field_count = cursor_u32(&entry.payload, &mut offset)? as usize;
                 let mut fields = Vec::with_capacity(field_count);
                 for _ in 0..field_count {
@@ -1247,6 +1269,7 @@ fn package_native_exports(
     for (index, value) in package.project.strings.values.iter().enumerate() {
         strings.insert(index as u32, value.clone());
     }
+    let type_info = native_package_type_info(&package.project.types, &package.project.strings)?;
     let mut result_success_types = HashMap::new();
     for (index, entry) in package.project.types.entries.iter().enumerate() {
         if entry.kind == 6 && entry.payload.len() >= 4 {
@@ -1295,6 +1318,7 @@ fn package_native_exports(
                 .collect(),
             constants: constants.clone(),
             external_calls: external_calls.clone(),
+            type_info: type_info.clone(),
         });
     }
     Ok(exports)
@@ -2520,10 +2544,12 @@ fn native_type_layouts_from_bytecode(
             NativeFieldLayout {
                 name: code,
                 offset_slots: 0,
+                type_id: TYPE_INTEGER,
             },
             NativeFieldLayout {
                 name: message,
                 offset_slots: 1,
+                type_id: TYPE_STRING,
             },
         ];
         records.insert(
@@ -2546,10 +2572,12 @@ fn native_type_layouts_from_bytecode(
             NativeFieldLayout {
                 name: columns,
                 offset_slots: 0,
+                type_id: TYPE_INTEGER,
             },
             NativeFieldLayout {
                 name: rows,
                 offset_slots: 1,
+                type_id: TYPE_INTEGER,
             },
         ];
         records.insert(
@@ -2596,10 +2624,11 @@ fn native_type_layouts_from_bytecode(
                     let mut fields = Vec::with_capacity(field_count);
                     for index in 0..field_count {
                         let field_name = cursor_u32(&entry.payload, &mut offset)?;
-                        let _field_type = cursor_u32(&entry.payload, &mut offset)?;
+                        let field_type = cursor_u32(&entry.payload, &mut offset)?;
                         fields.push(NativeFieldLayout {
                             name: field_name,
                             offset_slots: 1 + index,
+                            type_id: field_type,
                         });
                     }
                     variants.insert(variant_name, NativeVariantLayout { fields });
@@ -2627,14 +2656,103 @@ fn native_record_field_layouts(
     let field_count = cursor_u32(payload, &mut offset)? as usize;
     let mut fields = Vec::with_capacity(field_count);
     for index in 0..field_count {
-        fields.push(NativeFieldLayout {
-            name: cursor_u32(payload, &mut offset)?,
-            offset_slots: base_offset_slots + index,
-        });
-        let _field_type = cursor_u32(payload, &mut offset)?;
+        let name = cursor_u32(payload, &mut offset)?;
+        let field_type = cursor_u32(payload, &mut offset)?;
         let _visibility = cursor_u32(payload, &mut offset)?;
+        fields.push(NativeFieldLayout {
+            name,
+            offset_slots: base_offset_slots + index,
+            type_id: field_type,
+        });
     }
     Ok(fields)
+}
+
+fn native_package_type_info(
+    types: &TypeTable,
+    strings: &StringPool,
+) -> Result<HashMap<u32, NativePackageTypeInfo>, String> {
+    let mut info = HashMap::new();
+    if let (Some(code), Some(message)) = (string_id(strings, "code"), string_id(strings, "message"))
+    {
+        info.insert(
+            TYPE_ERROR,
+            NativePackageTypeInfo::Record(vec![
+                NativeFieldLayout {
+                    name: code,
+                    offset_slots: 0,
+                    type_id: TYPE_INTEGER,
+                },
+                NativeFieldLayout {
+                    name: message,
+                    offset_slots: 1,
+                    type_id: TYPE_STRING,
+                },
+            ]),
+        );
+    }
+    if let (Some(columns), Some(rows)) = (string_id(strings, "columns"), string_id(strings, "rows"))
+    {
+        info.insert(
+            TYPE_TERMINAL_SIZE,
+            NativePackageTypeInfo::Record(vec![
+                NativeFieldLayout {
+                    name: columns,
+                    offset_slots: 0,
+                    type_id: TYPE_INTEGER,
+                },
+                NativeFieldLayout {
+                    name: rows,
+                    offset_slots: 1,
+                    type_id: TYPE_INTEGER,
+                },
+            ]),
+        );
+    }
+    for (index, entry) in types.entries.iter().enumerate() {
+        let type_id = FIRST_TABLE_TYPE_ID + index as u32;
+        let type_info = match entry.kind {
+            1 => NativePackageTypeInfo::Record(native_record_field_layouts(&entry.payload, 0)?),
+            2 => NativePackageTypeInfo::Union,
+            3 => NativePackageTypeInfo::Enum,
+            4 => NativePackageTypeInfo::List {
+                element_type: checked_u32_at(&entry.payload, 0)?,
+            },
+            5 => NativePackageTypeInfo::Map {
+                key_type: checked_u32_at(&entry.payload, 0)?,
+                value_type: checked_u32_at(&entry.payload, 4)?,
+            },
+            6 => NativePackageTypeInfo::Result {
+                success_type: checked_u32_at(&entry.payload, 0)?,
+            },
+            7 => NativePackageTypeInfo::Thread {
+                message_type: checked_u32_at(&entry.payload, 0)?,
+                output_type: checked_u32_at(&entry.payload, 4)?,
+            },
+            8 => NativePackageTypeInfo::Function,
+            9 => {
+                let key_name = string_id(strings, "key")
+                    .ok_or_else(|| "missing built-in `key` string id".to_string())?;
+                let value_name = string_id(strings, "value")
+                    .ok_or_else(|| "missing built-in `value` string id".to_string())?;
+                NativePackageTypeInfo::Record(vec![
+                    NativeFieldLayout {
+                        name: key_name,
+                        offset_slots: 0,
+                        type_id: checked_u32_at(&entry.payload, 0)?,
+                    },
+                    NativeFieldLayout {
+                        name: value_name,
+                        offset_slots: 1,
+                        type_id: checked_u32_at(&entry.payload, 4)?,
+                    },
+                ])
+            }
+            _ => NativePackageTypeInfo::Resource,
+        };
+        info.insert(type_id, type_info);
+    }
+    Ok(info)
 }
 
 fn string_id(strings: &StringPool, value: &str) -> Option<u32> {
@@ -3587,9 +3705,7 @@ fn value_uses_resource_type(value: &IrValue) -> bool {
         | IrValue::UnionExtract { value, .. }
         | IrValue::ResultIsOk { value }
         | IrValue::ResultValue { value }
-        | IrValue::ResultError { value } => {
-            value_uses_resource_type(value)
-        }
+        | IrValue::ResultError { value } => value_uses_resource_type(value),
         IrValue::MemberAccess { target, .. } => value_uses_resource_type(target),
         IrValue::WithUpdate {
             target, updates, ..
@@ -3850,7 +3966,8 @@ impl<'a> FunctionBuilder<'a> {
             }
             IrOp::Fail { error } => {
                 let register = self.lower_value(error, locals)?.register;
-                if self.trap.is_some() && !self.trap.as_ref().is_some_and(|trap| trap.in_trap_body) {
+                if self.trap.is_some() && !self.trap.as_ref().is_some_and(|trap| trap.in_trap_body)
+                {
                     let error_type = self.type_id("Error");
                     let trap_register = self.trap.as_ref().unwrap().error_register;
                     self.push_move_like(error_type, trap_register, register);
@@ -4418,13 +4535,17 @@ impl<'a> FunctionBuilder<'a> {
                     .records
                     .get(member_type)
                     .cloned()
-                    .ok_or_else(|| format!("IR union wrap member `{member_type}` is not a record"))?;
+                    .ok_or_else(|| {
+                        format!("IR union wrap member `{member_type}` is not a record")
+                    })?;
                 let variant = self
                     .type_model
                     .variants
                     .get(member_type)
                     .cloned()
-                    .ok_or_else(|| format!("IR union wrap member `{member_type}` is not a union member"))?;
+                    .ok_or_else(|| {
+                        format!("IR union wrap member `{member_type}` is not a union member")
+                    })?;
                 if variant.union_name != *union_type {
                     return Err(format!(
                         "IR union wrap expected `{union_type}`, got member of `{}`",
@@ -4455,12 +4576,10 @@ impl<'a> FunctionBuilder<'a> {
             }
             IrValue::UnionExtract { type_, value } => {
                 let extracted = self.lower_value(value, locals)?;
-                let record = self
-                    .type_model
-                    .records
-                    .get(type_)
-                    .cloned()
-                    .ok_or_else(|| format!("IR union extract target `{type_}` is not a record"))?;
+                let record =
+                    self.type_model.records.get(type_).cloned().ok_or_else(|| {
+                        format!("IR union extract target `{type_}` is not a record")
+                    })?;
                 let type_id = self.type_id(type_);
                 let dst = self.add_register(type_id, 0);
                 let mut operands = vec![dst, type_id];
@@ -4897,11 +5016,7 @@ impl<'a> FunctionBuilder<'a> {
             .push(jump);
     }
 
-    fn unwrap_result_or_trap(
-        &mut self,
-        result_register: u32,
-        success_type: u32,
-    ) -> u32 {
+    fn unwrap_result_or_trap(&mut self, result_register: u32, success_type: u32) -> u32 {
         if self.trap.is_none() {
             let value_register = self.add_register(success_type, 0);
             self.push(OPCODE_UNWRAP_RESULT, vec![value_register, result_register]);

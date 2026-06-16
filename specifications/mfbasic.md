@@ -366,11 +366,11 @@ A `MUT` binding may omit its initializer only when its type has a defined defaul
 | `Boolean` | `FALSE` |
 | `String` | `""` |
 | `Nothing` | `NOTHING` |
-| `List OF T` | `[]` |
-| `Map OF K TO V` | Empty map |
+| `List OF T` | `[]`, when `T` has a default value |
+| `Map OF K TO V` | Empty map, when `K` and `V` have default values |
 | Record type | A record with every field set to its default, if every field type has a default. |
 
-Enums, unions, functions, lambdas, threads, and resource handles do not have default values. A `MUT` binding of one of those types must have an initializer.
+Defaultability is recursive and finite: nested lists, maps, and records are defaultable only when every transitively referenced element, key, value, and field type is also defaultable, and recursive record cycles do not define a default value. Enums, unions, functions, lambdas, `Result`, threads, and resource handles do not have default values. A `MUT` binding of one of those types must have an initializer.
 
 ### 4.11 Comparable Types
 

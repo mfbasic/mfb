@@ -1,0 +1,36 @@
+IMPORT fs
+
+ENUM Flag
+  On
+END ENUM
+
+TYPE Label
+  text AS String
+END TYPE
+
+UNION Choice
+  Label
+END UNION
+
+TYPE WrappedFlag
+  value AS Flag
+END TYPE
+
+TYPE Node
+  tail AS Node
+END TYPE
+
+FUNC sample AS Integer
+  RETURN 1
+END FUNC
+
+FUNC main AS Integer
+  MUT enumValue AS Flag
+  MUT unionValue AS Choice
+  MUT functionValue AS FUNC() AS Integer
+  MUT resultValue AS Result OF Integer
+  MUT fileValue AS File
+  MUT nestedEnum AS WrappedFlag
+  MUT recursiveNode AS Node
+  RETURN 0
+END FUNC

@@ -29,7 +29,7 @@ TYPE Error
 END TYPE
 ```
 
-`Result OF T` is compiler-owned notation. It describes the built-in `Result` template with a private success member `Ok OF T` and a public error member `Error`; concrete uses are monomorphized before bytecode generation. Users may construct `Error[...]`, but may not construct `Result` or `Ok` directly.
+`Result OF T` is compiler-owned notation. It describes the built-in `Result` template with a private success member `Ok OF T` and a public error member `Error`; concrete uses are monomorphized before bytecode generation. Users may construct `Error[...]`, but may not construct `Result` or `Ok` directly. Because `Result` is a built-in union shape, it is not eligible for uninitialized `MUT` defaults.
 
 `MapEntry OF K TO V` is a compiler-owned record shape produced by iterating a `Map OF K TO V`. It has public read-only fields:
 

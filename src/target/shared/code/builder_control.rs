@@ -26,30 +26,10 @@ impl CodeBuilder<'_> {
                             abi::stack_pointer(),
                             stack_offset,
                         ));
-                    } else if is_collection_type(type_) {
-                        let result = self.lower_empty_collection(type_)?;
+                    } else {
+                        let result = self.lower_default_value(type_)?;
                         self.emit(abi::store_u64(
                             &result.location,
-                            abi::stack_pointer(),
-                            stack_offset,
-                        ));
-                    } else if let Some(fields) = self.type_model.record_fields.get(type_).cloned() {
-                        let record_offset = self.allocate_stack_object(type_, 8 * fields.len());
-                        for index in 0..fields.len() {
-                            self.emit(abi::store_u64(
-                                "x31",
-                                abi::stack_pointer(),
-                                record_offset + 8 * index,
-                            ));
-                        }
-                        let register = self.allocate_register()?;
-                        self.emit(abi::add_immediate(
-                            &register,
-                            abi::stack_pointer(),
-                            record_offset,
-                        ));
-                        self.emit(abi::store_u64(
-                            &register,
                             abi::stack_pointer(),
                             stack_offset,
                         ));
@@ -80,8 +60,10 @@ impl CodeBuilder<'_> {
                         let result = self.lower_value(value)?;
                         if result.type_ != "Nothing" {
                             if self.inline_collection_payload_size(&result.type_).is_some() {
-                                let stable = self
-                                    .materialize_inline_value_in_arena(&result.type_, &result.location)?;
+                                let stable = self.materialize_inline_value_in_arena(
+                                    &result.type_,
+                                    &result.location,
+                                )?;
                                 self.emit(abi::move_register(RESULT_VALUE_REGISTER, &stable));
                             } else {
                                 self.emit(abi::move_register(
@@ -127,88 +109,90 @@ impl CodeBuilder<'_> {
                     self.lower_ops(else_body)?;
                     self.emit(abi::label(&end_label));
                     self.clear_local_constants();
-            }
-            NirOp::Match { value, cases } => {
-                let matched = self.lower_value(value)?;
-                let matched_slot = self.allocate_stack_object("match_value", 8);
-                self.emit(abi::store_u64(
-                    &matched.location,
-                    abi::stack_pointer(),
-                    matched_slot,
-                ));
-                let end_label = self.label("match_end");
-                for case in cases {
-                    let matched_register = self.allocate_register()?;
-                    self.emit(abi::load_u64(
-                        &matched_register,
+                }
+                NirOp::Match { value, cases } => {
+                    let matched = self.lower_value(value)?;
+                    let matched_slot = self.allocate_stack_object("match_value", 8);
+                    self.emit(abi::store_u64(
+                        &matched.location,
                         abi::stack_pointer(),
                         matched_slot,
                     ));
-                    let case_matched = ValueResult {
-                        type_: matched.type_.clone(),
-                        location: matched_register,
-                        text: matched.text.clone(),
-                    };
-                    let next_label = self.label("match_next");
-                    match &case.pattern {
-                        NirMatchPattern::Else => {}
-                        NirMatchPattern::Value(pattern) => {
-                            let case_label = self.label("match_case");
-                            self.lower_match_compare(&case_matched, pattern, &case_label)?;
-                            self.emit(abi::branch(&next_label));
-                            self.emit(abi::label(&case_label));
-                        }
-                        NirMatchPattern::OneOf(patterns) => {
-                            let case_label = self.label("match_case");
-                            for pattern in patterns {
+                    let end_label = self.label("match_end");
+                    for case in cases {
+                        let matched_register = self.allocate_register()?;
+                        self.emit(abi::load_u64(
+                            &matched_register,
+                            abi::stack_pointer(),
+                            matched_slot,
+                        ));
+                        let case_matched = ValueResult {
+                            type_: matched.type_.clone(),
+                            location: matched_register,
+                            text: matched.text.clone(),
+                        };
+                        let next_label = self.label("match_next");
+                        match &case.pattern {
+                            NirMatchPattern::Else => {}
+                            NirMatchPattern::Value(pattern) => {
+                                let case_label = self.label("match_case");
                                 self.lower_match_compare(&case_matched, pattern, &case_label)?;
+                                self.emit(abi::branch(&next_label));
+                                self.emit(abi::label(&case_label));
                             }
-                            self.emit(abi::branch(&next_label));
-                            self.emit(abi::label(&case_label));
+                            NirMatchPattern::OneOf(patterns) => {
+                                let case_label = self.label("match_case");
+                                for pattern in patterns {
+                                    self.lower_match_compare(&case_matched, pattern, &case_label)?;
+                                }
+                                self.emit(abi::branch(&next_label));
+                                self.emit(abi::label(&case_label));
+                            }
                         }
-                    }
-                    let constants_before_case = self.local_constants();
-                    let mut case_locals = self.locals.clone();
-                    let mut body_index = 0;
-                    while let Some(NirOp::Bind {
-                        name,
-                        type_,
-                        value: Some(NirValue::UnionExtract { .. }),
-                        ..
-                    }) = case.body.get(body_index)
-                    {
-                        let bind = &case.body[body_index..body_index + 1];
-                        self.lower_ops(bind)?;
-                        if let Some(local) = self.locals.get(name).cloned() {
-                            case_locals.insert(
-                                name.clone(),
-                                LocalValue {
-                                    type_: type_.clone(),
-                                    stack_offset: local.stack_offset,
-                                    constant: local.constant,
-                                },
+                        let constants_before_case = self.local_constants();
+                        let mut case_locals = self.locals.clone();
+                        let mut body_index = 0;
+                        while let Some(NirOp::Bind {
+                            name,
+                            type_,
+                            value: Some(NirValue::UnionExtract { .. }),
+                            ..
+                        }) = case.body.get(body_index)
+                        {
+                            let bind = &case.body[body_index..body_index + 1];
+                            self.lower_ops(bind)?;
+                            if let Some(local) = self.locals.get(name).cloned() {
+                                case_locals.insert(
+                                    name.clone(),
+                                    LocalValue {
+                                        type_: type_.clone(),
+                                        stack_offset: local.stack_offset,
+                                        constant: local.constant,
+                                    },
+                                );
+                            }
+                            body_index += 1;
+                        }
+                        if let Some(guard) = &case.guard {
+                            let saved_locals = self.locals.clone();
+                            self.locals = case_locals.clone();
+                            let guard_value = self.lower_value(guard)?;
+                            self.emit(abi::compare_immediate(&guard_value.location, "0"));
+                            self.emit(
+                                abi::branch_eq(&next_label).field("reason", "matchGuardFalse"),
                             );
+                            self.locals = saved_locals;
                         }
-                        body_index += 1;
+                        self.lower_ops(&case.body[body_index..])?;
+                        if !self.current_block_returns() {
+                            self.emit(abi::branch(&end_label));
+                        }
+                        self.restore_local_constants(&constants_before_case);
+                        self.emit(abi::label(&next_label));
                     }
-                    if let Some(guard) = &case.guard {
-                        let saved_locals = self.locals.clone();
-                        self.locals = case_locals.clone();
-                        let guard_value = self.lower_value(guard)?;
-                        self.emit(abi::compare_immediate(&guard_value.location, "0"));
-                        self.emit(abi::branch_eq(&next_label).field("reason", "matchGuardFalse"));
-                        self.locals = saved_locals;
-                    }
-                    self.lower_ops(&case.body[body_index..])?;
-                    if !self.current_block_returns() {
-                        self.emit(abi::branch(&end_label));
-                    }
-                    self.restore_local_constants(&constants_before_case);
-                    self.emit(abi::label(&next_label));
+                    self.emit(abi::label(&end_label));
+                    self.clear_local_constants();
                 }
-                self.emit(abi::label(&end_label));
-                self.clear_local_constants();
-            }
                 NirOp::While { condition, body } => {
                     let loop_label = self.label("while_loop");
                     let end_label = self.label("while_end");

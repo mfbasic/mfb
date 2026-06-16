@@ -616,6 +616,12 @@ pub const RULES: &[Rule] = &[
         message: "call argument name does not match any parameter",
     },
     Rule {
+        code: "2-203-0060",
+        name: "TYPE_MUT_REQUIRES_DEFAULTABLE_TYPE",
+        severity: Severity::Error,
+        message: "uninitialized mutable binding requires a defaultable type",
+    },
+    Rule {
         code: "2-200-0011",
         name: "PROJECT_ENTRY_INVALID",
         severity: Severity::Error,
@@ -729,7 +735,10 @@ pub fn show_diagnostic(
 
 pub fn show_general_diagnostic(rule_name: &str, detailed_message: &str) {
     let rule = rule_for(rule_name);
-    eprintln!("{}[{} {}]: {}", rule.severity, rule.code, rule.name, rule.message);
+    eprintln!(
+        "{}[{} {}]: {}",
+        rule.severity, rule.code, rule.name, rule.message
+    );
     eprintln!("               {}", detailed_message);
 }
 

@@ -1,10 +1,113 @@
 use super::*;
 
 impl CodeBuilder<'_> {
+    pub(super) fn load_empty_string_constant(&mut self) -> Result<String, String> {
+        let register = self.allocate_register()?;
+        self.emit_load_static_string_symbol(&register, EMPTY_STRING_SYMBOL);
+        Ok(register)
+    }
+
     pub(super) fn load_string_constant(&mut self, value: &str) -> Result<String, String> {
         let register = self.allocate_register()?;
         self.emit_load_string_constant(&register, value)?;
         Ok(register)
+    }
+
+    pub(super) fn lower_default_value(&mut self, type_: &str) -> Result<ValueResult, String> {
+        match type_ {
+            "Nothing" => {
+                let register = self.allocate_register()?;
+                self.emit(abi::move_immediate(&register, "Integer", "0"));
+                Ok(ValueResult {
+                    type_: type_.to_string(),
+                    location: register,
+                    text: "default Nothing".to_string(),
+                })
+            }
+            "Boolean" => {
+                let register = self.allocate_register()?;
+                self.emit(abi::move_immediate(&register, "Boolean", "0"));
+                Ok(ValueResult {
+                    type_: type_.to_string(),
+                    location: register,
+                    text: "default Boolean".to_string(),
+                })
+            }
+            "Byte" | "Integer" | "Float" | "Fixed" => {
+                let register = self.allocate_register()?;
+                self.emit(abi::move_immediate(&register, type_, "0"));
+                Ok(ValueResult {
+                    type_: type_.to_string(),
+                    location: register,
+                    text: format!("default {type_}"),
+                })
+            }
+            "String" => {
+                let register = self.load_empty_string_constant()?;
+                Ok(ValueResult {
+                    type_: type_.to_string(),
+                    location: register,
+                    text: "default String".to_string(),
+                })
+            }
+            _ if is_collection_type(type_) => {
+                let result = self.lower_empty_collection(type_)?;
+                Ok(ValueResult {
+                    type_: result.type_,
+                    location: result.location,
+                    text: format!("default {type_}"),
+                })
+            }
+            _ => {
+                let Some(fields) = self.type_model.record_fields.get(type_).cloned() else {
+                    return Err(format!(
+                        "native code cannot materialize default value for type '{type_}'"
+                    ));
+                };
+                let mut field_slots = Vec::with_capacity(fields.len());
+                for (_, field_type) in &fields {
+                    let value = self.lower_default_value(field_type)?;
+                    let slot = self.allocate_stack_object("default_record_field", 8);
+                    self.emit(abi::store_u64(&value.location, abi::stack_pointer(), slot));
+                    field_slots.push(slot);
+                }
+                let result_slot = self.allocate_stack_object("default_record_result", 8);
+                let alloc_ok = self.label("default_record_alloc_ok");
+                self.emit(abi::move_immediate(
+                    abi::return_register(),
+                    "Integer",
+                    &(8 * fields.len()).to_string(),
+                ));
+                self.emit(abi::move_immediate("x1", "Integer", "8"));
+                self.emit(abi::branch_link(ARENA_ALLOC_SYMBOL));
+                self.relocations.push(CodeRelocation {
+                    from: self.current_symbol.clone(),
+                    to: ARENA_ALLOC_SYMBOL.to_string(),
+                    kind: "branch26".to_string(),
+                    binding: "internal".to_string(),
+                    library: None,
+                });
+                self.emit(abi::compare_immediate(
+                    abi::return_register(),
+                    RESULT_OK_TAG,
+                ));
+                self.emit(abi::branch_eq(&alloc_ok));
+                self.emit_allocation_error_return()?;
+                self.emit(abi::label(&alloc_ok));
+                self.emit(abi::store_u64("x1", abi::stack_pointer(), result_slot));
+                for (index, slot) in field_slots.iter().enumerate() {
+                    self.emit(abi::load_u64("x9", abi::stack_pointer(), *slot));
+                    self.emit(abi::store_u64("x9", "x1", 8 * index));
+                }
+                let register = self.allocate_register()?;
+                self.emit(abi::load_u64(&register, abi::stack_pointer(), result_slot));
+                Ok(ValueResult {
+                    type_: type_.to_string(),
+                    location: register,
+                    text: format!("default {type_}"),
+                })
+            }
+        }
     }
 
     pub(super) fn lower_field_access(
@@ -288,6 +391,25 @@ impl CodeBuilder<'_> {
         Ok(())
     }
 
+    pub(super) fn emit_load_static_string_symbol(&mut self, register: &str, symbol: &str) {
+        self.emit(abi::load_page_address(register, symbol));
+        self.relocations.push(CodeRelocation {
+            from: self.current_symbol.clone(),
+            to: symbol.to_string(),
+            kind: "page21".to_string(),
+            binding: "data".to_string(),
+            library: None,
+        });
+        self.emit(abi::add_page_offset(register, register, symbol));
+        self.relocations.push(CodeRelocation {
+            from: self.current_symbol.clone(),
+            to: symbol.to_string(),
+            kind: "pageoff12".to_string(),
+            binding: "data".to_string(),
+            library: None,
+        });
+    }
+
     pub(super) fn local_constant_value(&self, value: &NirValue) -> Option<NirValue> {
         match value {
             NirValue::Const { .. } => Some(value.clone()),
@@ -401,26 +523,24 @@ impl CodeBuilder<'_> {
             NirValue::ResultError { .. } => Some("Error".to_string()),
             NirValue::Call { target, args }
             | NirValue::CallResult { target, args }
-            | NirValue::RuntimeCall { target, args, .. } => {
-                match target.as_str() {
-                    "replace" | "typeName" | "toString" => Some("String".to_string()),
-                    "find" | "len" | "toInt" => Some("Integer".to_string()),
-                    "mid" => Some("String".to_string()),
-                    "toFloat" => Some("Float".to_string()),
-                    "toFixed" => Some("Fixed".to_string()),
-                    "toByte" => Some("Byte".to_string()),
-                    "isNumeric" => Some("Boolean".to_string()),
-                    "math.floor" | "math.ceil" | "math.round" => Some("Integer".to_string()),
-                    "math.sqrt" | "math.exp" | "math.log" | "math.log10" | "math.sin"
-                    | "math.cos" | "math.tan" | "math.asin" | "math.acos" | "math.atan" => {
-                        args.first().and_then(|arg| self.static_type_name(arg))
-                    }
-                    "math.pow" | "math.atan2" => {
-                        args.first().and_then(|arg| self.static_type_name(arg))
-                    }
-                    _ => None,
+            | NirValue::RuntimeCall { target, args, .. } => match target.as_str() {
+                "replace" | "typeName" | "toString" => Some("String".to_string()),
+                "find" | "len" | "toInt" => Some("Integer".to_string()),
+                "mid" => Some("String".to_string()),
+                "toFloat" => Some("Float".to_string()),
+                "toFixed" => Some("Fixed".to_string()),
+                "toByte" => Some("Byte".to_string()),
+                "isNumeric" => Some("Boolean".to_string()),
+                "math.floor" | "math.ceil" | "math.round" => Some("Integer".to_string()),
+                "math.sqrt" | "math.exp" | "math.log" | "math.log10" | "math.sin" | "math.cos"
+                | "math.tan" | "math.asin" | "math.acos" | "math.atan" => {
+                    args.first().and_then(|arg| self.static_type_name(arg))
                 }
-            }
+                "math.pow" | "math.atan2" => {
+                    args.first().and_then(|arg| self.static_type_name(arg))
+                }
+                _ => None,
+            },
             NirValue::Binary { op, left, right } => {
                 if matches!(
                     op.as_str(),
@@ -549,10 +669,7 @@ impl CodeBuilder<'_> {
         }
         for (index, slot) in arg_slots.iter().enumerate() {
             self.emit(abi::load_u64("x9", abi::stack_pointer(), *slot));
-            self.emit(abi::move_register(
-                &abi::argument_register(index)?,
-                "x9",
-            ));
+            self.emit(abi::move_register(&abi::argument_register(index)?, "x9"));
         }
         self.emit(abi::branch_link(symbol));
         let (binding, library) = if let Some(library) = self.platform_imports.get(symbol) {
@@ -696,10 +813,7 @@ impl CodeBuilder<'_> {
         }
         for (index, slot) in arg_slots.iter().enumerate() {
             self.emit(abi::load_u64("x9", abi::stack_pointer(), *slot));
-            self.emit(abi::move_register(
-                &abi::argument_register(index)?,
-                "x9",
-            ));
+            self.emit(abi::move_register(&abi::argument_register(index)?, "x9"));
         }
         self.emit(abi::branch_link(symbol));
         let (binding, library) = if let Some(library) = self.platform_imports.get(symbol) {

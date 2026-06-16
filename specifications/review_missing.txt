@@ -82,7 +82,7 @@ The spec allows trailing `_` to continue a statement onto the next line, but the
 SPECIFICATION: specifications/mfbasic.md @ §6 Functions
 Function calls now support named arguments like `greet("Ada", greeting := "Hi")` across source functions, built-ins, and imported package exports. Call parsing accepts `:=` in argument lists, duplicate/unknown names have dedicated diagnostics, omitted defaults are filled by parameter name, and IR/bytecode/native lowering preserves declaration order.
 
-REQUIREMENT: Default-value eligibility for uninitialized `MUT`
+[FIXED] REQUIREMENT: Default-value eligibility for uninitialized `MUT`
 SPECIFICATION: specifications/mfbasic.md @ §4.10 Default Values
 The compiler accepts uninitialized `MUT` bindings for any annotated type and lowers them through `LOAD_DEFAULT` or zero-like native storage. The spec allows this only for types with defined defaults, and explicitly excludes enums, unions, functions, lambdas, threads, and resource handles. Resolve by adding a recursive defaultability check, rejecting non-defaultable `MUT` declarations without initializers, and only generating record defaults when every field type is defaultable.
 

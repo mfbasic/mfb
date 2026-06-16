@@ -1,0 +1,47 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "mut_default_record_valid",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  {
+    "kind": "type",
+    "visibility": "private",
+    "name": "Inner",
+    "fields": [
+    { "visibility": null, "name": "name", "type": "String" },
+    { "visibility": null, "name": "values", "type": "List OF Integer" }
+    ]
+  },
+  {
+    "kind": "type",
+    "visibility": "private",
+    "name": "Outer",
+    "fields": [
+    { "visibility": null, "name": "inner", "type": "Inner" },
+    { "visibility": null, "name": "ready", "type": "Boolean" }
+    ]
+  }
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "mutable": true, "name": "state", "type": "Outer", "value": null },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "memberAccess", "target": { "kind": "memberAccess", "target": { "kind": "local", "name": "state" }, "member": "inner" }, "member": "name" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "len", "args": [{ "kind": "memberAccess", "target": { "kind": "memberAccess", "target": { "kind": "local", "name": "state" }, "member": "inner" }, "member": "values" }] }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "memberAccess", "target": { "kind": "local", "name": "state" }, "member": "ready" }] }] } },
+    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

@@ -191,7 +191,6 @@ impl<'a> TypeChecker<'a> {
                 info.variants = expanded;
             }
         }
-
     }
 
     fn collect_package_types(&mut self) {
@@ -753,7 +752,8 @@ impl<'a> TypeChecker<'a> {
                 let Some(branch_info) = branch.get(&key) else {
                     continue;
                 };
-                merged = merged.map(|current_info| self.merge_local_info(current_info, branch_info));
+                merged =
+                    merged.map(|current_info| self.merge_local_info(current_info, branch_info));
             }
             if let Some(merged) = merged {
                 current.insert(key, merged);
@@ -919,6 +919,17 @@ impl<'a> TypeChecker<'a> {
                         self.report(
                             "TYPE_LET_REQUIRES_VALUE",
                             &format!("Immutable binding `{name}` must have an initializer."),
+                            file,
+                            *line,
+                        );
+                    }
+                    (Some(declared), None) if *mutable && !self.is_defaultable_type(declared) => {
+                        self.report(
+                            "TYPE_MUT_REQUIRES_DEFAULTABLE_TYPE",
+                            &format!(
+                                "Mutable binding `{name}` cannot omit its initializer because type `{}` does not have a defined default value.",
+                                self.type_name(declared)
+                            ),
                             file,
                             *line,
                         );
@@ -1097,7 +1108,10 @@ impl<'a> TypeChecker<'a> {
                 } else if else_body.is_empty() {
                     fallthroughs.push(locals.clone());
                 }
-                if then_flow == Flow::AlwaysReturns && else_flow == Flow::AlwaysReturns && !else_body.is_empty() {
+                if then_flow == Flow::AlwaysReturns
+                    && else_flow == Flow::AlwaysReturns
+                    && !else_body.is_empty()
+                {
                     Flow::AlwaysReturns
                 } else {
                     self.merge_branch_locals(locals, fallthroughs);
@@ -1109,8 +1123,7 @@ impl<'a> TypeChecker<'a> {
                 cases,
                 line,
             } => {
-                let matched_type =
-                    self.infer_match_scrutinee(file, expression, locals, *line);
+                let matched_type = self.infer_match_scrutinee(file, expression, locals, *line);
                 let mut has_else = false;
                 let mut all_return = !cases.is_empty();
                 let mut covered_cases = HashSet::new();
@@ -1130,8 +1143,13 @@ impl<'a> TypeChecker<'a> {
                         case.line,
                     );
                     if let Some(guard) = &case.guard {
-                        let guard_type =
-                            self.infer_expression(file, guard, &mut case_locals, case.line, ExprMode::Read);
+                        let guard_type = self.infer_expression(
+                            file,
+                            guard,
+                            &mut case_locals,
+                            case.line,
+                            ExprMode::Read,
+                        );
                         if !self.expression_compatible(&Type::Boolean, &guard_type, Some(guard)) {
                             self.report(
                                 "TYPE_CONDITION_REQUIRES_BOOLEAN",
@@ -1156,7 +1174,8 @@ impl<'a> TypeChecker<'a> {
                         fallthroughs.push(case_locals);
                     }
                 }
-                let exhaustive = has_else || self.match_is_exhaustive(&matched_type, &covered_cases);
+                let exhaustive =
+                    has_else || self.match_is_exhaustive(&matched_type, &covered_cases);
                 if all_return && exhaustive {
                     Flow::AlwaysReturns
                 } else {
@@ -1175,8 +1194,7 @@ impl<'a> TypeChecker<'a> {
                 body,
                 line,
             } => {
-                let start_type =
-                    self.infer_expression(file, start, locals, *line, ExprMode::Read);
+                let start_type = self.infer_expression(file, start, locals, *line, ExprMode::Read);
                 let end_type = self.infer_expression(file, end, locals, *line, ExprMode::Read);
                 let step_type = match step {
                     Some(step) => self.infer_expression(file, step, locals, *line, ExprMode::Read),
@@ -1187,7 +1205,11 @@ impl<'a> TypeChecker<'a> {
                 let loop_type = if all_numeric {
                     promote_loop_numeric_type(&start_type, &end_type, &step_type)
                 } else {
-                    for (label, type_) in [("start", &start_type), ("end", &end_type), ("step", &step_type)] {
+                    for (label, type_) in [
+                        ("start", &start_type),
+                        ("end", &end_type),
+                        ("step", &step_type),
+                    ] {
                         if !self.is_numeric(type_) {
                             self.report(
                                 "TYPE_FOR_REQUIRES_NUMERIC",
@@ -1222,7 +1244,8 @@ impl<'a> TypeChecker<'a> {
                         scope_guard: ScopeGuard::None,
                     },
                 );
-                let body_flow = self.check_block(file, body, expected_return, &mut nested, trap_name);
+                let body_flow =
+                    self.check_block(file, body, expected_return, &mut nested, trap_name);
                 if body_flow == Flow::FallsThrough {
                     self.merge_branch_locals(locals, vec![nested]);
                 }
@@ -1266,7 +1289,8 @@ impl<'a> TypeChecker<'a> {
                         scope_guard: ScopeGuard::None,
                     },
                 );
-                let body_flow = self.check_block(file, body, expected_return, &mut nested, trap_name);
+                let body_flow =
+                    self.check_block(file, body, expected_return, &mut nested, trap_name);
                 if body_flow == Flow::FallsThrough {
                     self.merge_branch_locals(locals, vec![nested]);
                 }
@@ -1291,7 +1315,8 @@ impl<'a> TypeChecker<'a> {
                     );
                 }
                 let mut nested = locals.clone();
-                let body_flow = self.check_block(file, body, expected_return, &mut nested, trap_name);
+                let body_flow =
+                    self.check_block(file, body, expected_return, &mut nested, trap_name);
                 if body_flow == Flow::FallsThrough {
                     self.merge_branch_locals(locals, vec![nested]);
                 }
@@ -1303,7 +1328,8 @@ impl<'a> TypeChecker<'a> {
                 line,
             } => {
                 let mut nested = locals.clone();
-                let body_flow = self.check_block(file, body, expected_return, &mut nested, trap_name);
+                let body_flow =
+                    self.check_block(file, body, expected_return, &mut nested, trap_name);
                 let condition_type =
                     self.infer_expression(file, condition, locals, *line, ExprMode::Read);
                 if !self.expression_compatible(&Type::Boolean, &condition_type, Some(condition)) {
@@ -1440,8 +1466,7 @@ impl<'a> TypeChecker<'a> {
                 right,
             } => {
                 let left_type = self.infer_expression(file, left, locals, line, ExprMode::Read);
-                let right_type =
-                    self.infer_expression(file, right, locals, line, ExprMode::Read);
+                let right_type = self.infer_expression(file, right, locals, line, ExprMode::Read);
                 self.infer_binary(file, operator, &left_type, &right_type, line)
             }
             Expression::Unary { operator, operand } => {
@@ -1653,13 +1678,14 @@ impl<'a> TypeChecker<'a> {
                         return;
                     };
                     if !matches!(info.kind, TypeDeclKind::Union)
-                        || !info.variants.iter().any(|variant| variant.name == *type_name)
+                        || !info
+                            .variants
+                            .iter()
+                            .any(|variant| variant.name == *type_name)
                     {
                         self.report(
                             "TYPE_MATCH_PATTERN_MISMATCH",
-                            &format!(
-                                "CASE `{type_name}` is not a member of UNION `{union_name}`."
-                            ),
+                            &format!("CASE `{type_name}` is not a member of UNION `{union_name}`."),
                             file,
                             line,
                         );
@@ -1682,9 +1708,7 @@ impl<'a> TypeChecker<'a> {
                         _ => {
                             self.report(
                                 "TYPE_MATCH_PATTERN_MISMATCH",
-                                &format!(
-                                    "CASE `{type_name}` is not valid when matching a Result."
-                                ),
+                                &format!("CASE `{type_name}` is not valid when matching a Result."),
                                 file,
                                 line,
                             );
@@ -1816,8 +1840,7 @@ impl<'a> TypeChecker<'a> {
                     line,
                 );
             }
-            let actual_value =
-                self.infer_expression(file, value, locals, line, ExprMode::Transfer);
+            let actual_value = self.infer_expression(file, value, locals, line, ExprMode::Transfer);
             if !self.expression_compatible(&value_type, &actual_value, Some(value)) {
                 self.report(
                     "TYPE_MAP_VALUE_MISMATCH",
@@ -1972,12 +1995,12 @@ impl<'a> TypeChecker<'a> {
             return Type::Unknown;
         };
         if read_only_record_type(type_name) {
-                self.report(
-                    "TYPE_READ_ONLY_RECORD_UPDATE",
-                    &format!("TYPE `{type_name}` is read-only and cannot be updated."),
-                    file,
-                    line,
-                );
+            self.report(
+                "TYPE_READ_ONLY_RECORD_UPDATE",
+                &format!("TYPE `{type_name}` is read-only and cannot be updated."),
+                file,
+                line,
+            );
             for update in updates {
                 self.infer_expression(file, &update.value, locals, update.line, ExprMode::Transfer);
             }
@@ -2254,8 +2277,13 @@ impl<'a> TypeChecker<'a> {
                     )
                 }
             };
-            let actual =
-                self.infer_expression(file, argument_value, locals, argument_line, ExprMode::Transfer);
+            let actual = self.infer_expression(
+                file,
+                argument_value,
+                locals,
+                argument_line,
+                ExprMode::Transfer,
+            );
             let Some(field) = field else {
                 if let ConstructorArg::Named { name, .. } = argument {
                     self.report(
@@ -2435,14 +2463,8 @@ impl<'a> TypeChecker<'a> {
         locals: &mut HashMap<String, LocalInfo>,
         line: usize,
     ) {
-        let arguments = self.normalize_named_arguments(
-            file,
-            callee,
-            arguments,
-            &sig.params,
-            line,
-            false,
-        );
+        let arguments =
+            self.normalize_named_arguments(file, callee, arguments, &sig.params, line, false);
 
         for (index, argument) in arguments.iter().enumerate() {
             let Some(argument) = argument else {
@@ -2500,18 +2522,15 @@ impl<'a> TypeChecker<'a> {
                 line,
             );
             for argument in arguments {
-                self.infer_expression(
-                    file,
-                    call_arg_value(argument),
-                    locals,
-                    line,
-                    ExprMode::Read,
-                );
+                self.infer_expression(file, call_arg_value(argument), locals, line, ExprMode::Read);
             }
             return Type::Unknown;
         };
 
-        if arguments.iter().any(|argument| matches!(argument, CallArg::Named { .. })) {
+        if arguments
+            .iter()
+            .any(|argument| matches!(argument, CallArg::Named { .. }))
+        {
             self.report(
                 "TYPE_CALL_ARGUMENT_MISMATCH",
                 &format!(
@@ -2678,22 +2697,64 @@ impl<'a> TypeChecker<'a> {
             );
         }
         if builtins::strings::is_strings_call(callee) {
-            return self.check_strings_builtin_call(file, display_callee, callee, arguments, locals, line);
+            return self.check_strings_builtin_call(
+                file,
+                display_callee,
+                callee,
+                arguments,
+                locals,
+                line,
+            );
         }
         if builtins::math::is_math_call(callee) {
-            return self.check_math_builtin_call(file, display_callee, callee, arguments, locals, line);
+            return self.check_math_builtin_call(
+                file,
+                display_callee,
+                callee,
+                arguments,
+                locals,
+                line,
+            );
         }
         if builtins::fs::is_fs_call(callee) {
-            return self.check_fs_builtin_call(file, display_callee, callee, arguments, locals, line);
+            return self.check_fs_builtin_call(
+                file,
+                display_callee,
+                callee,
+                arguments,
+                locals,
+                line,
+            );
         }
         if builtins::io::is_io_call(callee) {
-            return self.check_io_builtin_call(file, display_callee, callee, arguments, locals, line);
+            return self.check_io_builtin_call(
+                file,
+                display_callee,
+                callee,
+                arguments,
+                locals,
+                line,
+            );
         }
         if builtins::json::is_json_call(callee) {
-            return self.check_json_builtin_call(file, display_callee, callee, arguments, locals, line);
+            return self.check_json_builtin_call(
+                file,
+                display_callee,
+                callee,
+                arguments,
+                locals,
+                line,
+            );
         }
         if builtins::thread::is_thread_call(callee) {
-            return self.check_thread_builtin_call(file, display_callee, callee, arguments, locals, line);
+            return self.check_thread_builtin_call(
+                file,
+                display_callee,
+                callee,
+                arguments,
+                locals,
+                line,
+            );
         }
 
         for argument in arguments {
@@ -2711,13 +2772,8 @@ impl<'a> TypeChecker<'a> {
         locals: &mut HashMap<String, LocalInfo>,
         line: usize,
     ) -> Type {
-        let arguments = self.normalize_builtin_call_arguments(
-            file,
-            display_callee,
-            callee,
-            arguments,
-            line,
-        );
+        let arguments =
+            self.normalize_builtin_call_arguments(file, display_callee, callee, arguments, line);
         let arg_types = arguments
             .iter()
             .enumerate()
@@ -2778,13 +2834,8 @@ impl<'a> TypeChecker<'a> {
         locals: &mut HashMap<String, LocalInfo>,
         line: usize,
     ) -> Type {
-        let arguments = self.normalize_builtin_call_arguments(
-            file,
-            display_callee,
-            callee,
-            arguments,
-            line,
-        );
+        let arguments =
+            self.normalize_builtin_call_arguments(file, display_callee, callee, arguments, line);
         let arg_types = arguments
             .iter()
             .map(|argument| {
@@ -2840,13 +2891,8 @@ impl<'a> TypeChecker<'a> {
         locals: &mut HashMap<String, LocalInfo>,
         line: usize,
     ) -> Type {
-        let arguments = self.normalize_builtin_call_arguments(
-            file,
-            display_callee,
-            callee,
-            arguments,
-            line,
-        );
+        let arguments =
+            self.normalize_builtin_call_arguments(file, display_callee, callee, arguments, line);
         let arg_types = arguments
             .iter()
             .map(|argument| {
@@ -2905,13 +2951,8 @@ impl<'a> TypeChecker<'a> {
         locals: &mut HashMap<String, LocalInfo>,
         line: usize,
     ) -> Type {
-        let arguments = self.normalize_builtin_call_arguments(
-            file,
-            display_callee,
-            callee,
-            arguments,
-            line,
-        );
+        let arguments =
+            self.normalize_builtin_call_arguments(file, display_callee, callee, arguments, line);
         let arg_types = arguments
             .iter()
             .enumerate()
@@ -3000,13 +3041,8 @@ impl<'a> TypeChecker<'a> {
         locals: &mut HashMap<String, LocalInfo>,
         line: usize,
     ) -> Type {
-        let arguments = self.normalize_builtin_call_arguments(
-            file,
-            display_callee,
-            callee,
-            arguments,
-            line,
-        );
+        let arguments =
+            self.normalize_builtin_call_arguments(file, display_callee, callee, arguments, line);
         let arg_types = arguments
             .iter()
             .map(|argument| {
@@ -3062,13 +3098,8 @@ impl<'a> TypeChecker<'a> {
         locals: &mut HashMap<String, LocalInfo>,
         line: usize,
     ) -> Type {
-        let arguments = self.normalize_builtin_call_arguments(
-            file,
-            display_callee,
-            callee,
-            arguments,
-            line,
-        );
+        let arguments =
+            self.normalize_builtin_call_arguments(file, display_callee, callee, arguments, line);
         let arg_types = arguments
             .iter()
             .map(|argument| {
@@ -3124,13 +3155,8 @@ impl<'a> TypeChecker<'a> {
         locals: &mut HashMap<String, LocalInfo>,
         line: usize,
     ) -> Type {
-        let arguments = self.normalize_builtin_call_arguments(
-            file,
-            display_callee,
-            callee,
-            arguments,
-            line,
-        );
+        let arguments =
+            self.normalize_builtin_call_arguments(file, display_callee, callee, arguments, line);
         if callee == "filter" && arguments.len() == 2 {
             if let Expression::Identifier(predicate) = &arguments[1] {
                 if builtins::general::builtin_function_id(predicate).is_some() {
@@ -3335,7 +3361,9 @@ impl<'a> TypeChecker<'a> {
                     let Some(index) = params.iter().position(|param| param.name == *name) else {
                         self.report(
                             "TYPE_UNKNOWN_ARGUMENT_NAME",
-                            &format!("Call to `{callee}` does not have a parameter named `{name}`."),
+                            &format!(
+                                "Call to `{callee}` does not have a parameter named `{name}`."
+                            ),
                             file,
                             *line,
                         );
@@ -3344,7 +3372,9 @@ impl<'a> TypeChecker<'a> {
                     if ordered[index].is_some() {
                         self.report(
                             "TYPE_DUPLICATE_ARGUMENT_NAME",
-                            &format!("Call to `{callee}` supplies parameter `{name}` more than once."),
+                            &format!(
+                                "Call to `{callee}` supplies parameter `{name}` more than once."
+                            ),
                             file,
                             *line,
                         );
@@ -3373,7 +3403,12 @@ impl<'a> TypeChecker<'a> {
                 .take(max_supplied)
                 .any(|(argument, param)| argument.is_none() && !param.has_default);
 
-        if arity_error || supplied < required || supplied > params.len() || missing_required || has_internal_gap {
+        if arity_error
+            || supplied < required
+            || supplied > params.len()
+            || missing_required
+            || has_internal_gap
+        {
             self.report(
                 "TYPE_CALL_ARITY_MISMATCH",
                 &format!(
@@ -3496,13 +3531,13 @@ impl<'a> TypeChecker<'a> {
             }
             (Type::User(expected_name), Type::User(actual_name)) => {
                 expected_name == actual_name
-                    || self
-                        .type_infos
-                        .get(expected_name)
-                        .is_some_and(|info| {
-                            matches!(info.kind, TypeDeclKind::Union)
-                                && info.variants.iter().any(|variant| variant.name == *actual_name)
-                        })
+                    || self.type_infos.get(expected_name).is_some_and(|info| {
+                        matches!(info.kind, TypeDeclKind::Union)
+                            && info
+                                .variants
+                                .iter()
+                                .any(|variant| variant.name == *actual_name)
+                    })
             }
             _ => expected == actual,
         }
@@ -3582,8 +3617,10 @@ impl<'a> TypeChecker<'a> {
         ) {
             return ExprMode::Read;
         }
-        if matches!(callee, "removeAt" | "removeKey" | "replace" | "set" | "append" | "prepend" | "insert")
-        {
+        if matches!(
+            callee,
+            "removeAt" | "removeKey" | "replace" | "set" | "append" | "prepend" | "insert"
+        ) {
             return if index == 0 {
                 ExprMode::Transfer
             } else {
@@ -3628,17 +3665,13 @@ impl<'a> TypeChecker<'a> {
                 };
                 let result = match info.kind {
                     TypeDeclKind::Enum => false,
-                    TypeDeclKind::Type => info
-                        .fields
-                        .iter()
-                        .any(|field| self.contains_resource_or_thread_with_seen(&field.type_, seen)),
+                    TypeDeclKind::Type => info.fields.iter().any(|field| {
+                        self.contains_resource_or_thread_with_seen(&field.type_, seen)
+                    }),
                     TypeDeclKind::Union => info.variants.iter().any(|variant| {
-                        variant
-                            .fields
-                            .iter()
-                            .any(|field| {
-                                self.contains_resource_or_thread_with_seen(&field.type_, seen)
-                            })
+                        variant.fields.iter().any(|field| {
+                            self.contains_resource_or_thread_with_seen(&field.type_, seen)
+                        })
                     }),
                 };
                 seen.remove(name);
@@ -3668,6 +3701,50 @@ impl<'a> TypeChecker<'a> {
 
     fn is_copyable_type(&self, type_: &Type) -> bool {
         self.is_copyable_type_with_seen(type_, &mut HashSet::new())
+    }
+
+    fn is_defaultable_type(&self, type_: &Type) -> bool {
+        self.is_defaultable_type_with_seen(type_, &mut HashSet::new())
+    }
+
+    fn is_defaultable_type_with_seen(&self, type_: &Type, seen: &mut HashSet<String>) -> bool {
+        match type_ {
+            Type::Boolean
+            | Type::Byte
+            | Type::Error
+            | Type::Fixed
+            | Type::Float
+            | Type::Integer
+            | Type::Nothing
+            | Type::String
+            | Type::Unknown => true,
+            Type::List(element) => self.is_defaultable_type_with_seen(element, seen),
+            Type::Map(key, value) => {
+                self.is_defaultable_type_with_seen(key, seen)
+                    && self.is_defaultable_type_with_seen(value, seen)
+            }
+            Type::Function { .. } | Type::Result(_) | Type::Thread(_, _) => false,
+            Type::User(name) => {
+                if builtins::is_resource_type(name) {
+                    return false;
+                }
+                if !seen.insert(name.clone()) {
+                    return false;
+                }
+                let Some(info) = self.type_infos.get(name) else {
+                    return false;
+                };
+                let result = match info.kind {
+                    TypeDeclKind::Enum | TypeDeclKind::Union => false,
+                    TypeDeclKind::Type => info
+                        .fields
+                        .iter()
+                        .all(|field| self.is_defaultable_type_with_seen(&field.type_, seen)),
+                };
+                seen.remove(name);
+                result
+            }
+        }
     }
 
     fn is_copyable_type_with_seen(&self, type_: &Type, seen: &mut HashSet<String>) -> bool {
@@ -3701,11 +3778,10 @@ impl<'a> TypeChecker<'a> {
                 };
                 let result = match info.kind {
                     TypeDeclKind::Enum => true,
-                    TypeDeclKind::Type => {
-                        info.fields
-                            .iter()
-                            .all(|field| self.is_copyable_type_with_seen(&field.type_, seen))
-                    }
+                    TypeDeclKind::Type => info
+                        .fields
+                        .iter()
+                        .all(|field| self.is_copyable_type_with_seen(&field.type_, seen)),
                     TypeDeclKind::Union => info.variants.iter().all(|variant| {
                         variant
                             .fields
@@ -4025,7 +4101,13 @@ fn captured_locals(
 ) -> Vec<CapturedLocal> {
     let mut captures = Vec::new();
     let mut seen = HashSet::new();
-    collect_captured_locals(expression, outer_locals, local_names, &mut seen, &mut captures);
+    collect_captured_locals(
+        expression,
+        outer_locals,
+        local_names,
+        &mut seen,
+        &mut captures,
+    );
     captures
 }
 
@@ -4168,7 +4250,8 @@ fn promote_loop_numeric_type(start: &Type, end: &Type, step: &Type) -> Type {
     let Some(step_name) = numeric_type_name(step) else {
         return Type::Unknown;
     };
-    let first = numeric::binary_result_type("+", start_name, end_name).unwrap_or(numeric::TYPE_INTEGER);
+    let first =
+        numeric::binary_result_type("+", start_name, end_name).unwrap_or(numeric::TYPE_INTEGER);
     let second =
         numeric::binary_result_type("+", first, step_name).unwrap_or(numeric::TYPE_INTEGER);
     type_from_numeric_name(second)
