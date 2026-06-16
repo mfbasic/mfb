@@ -1,0 +1,12 @@
+SUB bad(flag AS Boolean)
+  IF flag THEN
+    RETURN
+  END IF
+  TRAP err
+  RETURN
+  END TRAP
+END SUB
+
+FUNC main AS Integer
+  RETURN 0
+END FUNC

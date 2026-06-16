@@ -156,7 +156,7 @@ SPECIFICATION: specifications/standard_package.md @ §8 Built-in Filesystem Pack
 `fs::pathJoin` is specified to use the host platform’s separator and normal separator rules. The shared native implementation hardcodes `"/"` and delegates to `strings.join`, so it does not implement normal path joining semantics for leading/trailing separators, absolute components, repeated separators, or platform-specific separators. Resolve by implementing target-aware path joining semantics in the filesystem path helper, defining edge cases in tests, and either narrowing the spec to POSIX-only behavior for current targets or supporting each target’s path rules explicitly.
 
 
-REQUIREMENT: `SUB` with `TRAP` must not fall through into trap
+[FIXED] REQUIREMENT: `SUB` with `TRAP` must not fall through into trap
 SPECIFICATION: specifications/mfbasic.md @ §8.6 Rules
 A `SUB` that declares a `TRAP` must end every normal body path before the trap with `RETURN`, `RETURN NOTHING`, or `FAIL error`. The type checker only enforces missing normal returns for `FUNC`, so `SUB` bodies with a `TRAP` can fall through even though the spec requires a compile-time error. Resolve by checking `SUB` normal-body flow when `function.trap.is_some()`, emitting a diagnostic when the body falls through, and adding valid/invalid flow tests.
 
