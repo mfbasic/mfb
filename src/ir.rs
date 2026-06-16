@@ -937,22 +937,7 @@ fn lower_match_expression(
                     .function_params
                     .contains_key(&canonical_import_name(callee, context))
             {
-                normalize_local_call_arguments(callee, arguments, context)
-                    .into_iter()
-                    .enumerate()
-                    .filter_map(|(index, argument)| {
-                        let expected =
-                            call_argument_expected_type(callee, index, arguments, locals, context);
-                        argument.map(|argument| {
-                            lower_expression_with_expected(
-                                argument,
-                                expected.as_deref(),
-                                locals,
-                                context,
-                            )
-                        })
-                    })
-                    .collect()
+                lower_local_call_arguments(callee, arguments, locals, context)
             } else {
                 normalized_builtin
                     .iter()
@@ -1454,6 +1439,46 @@ fn normalize_local_call_arguments<'a>(
     ordered
 }
 
+fn lower_local_call_arguments(
+    callee: &str,
+    arguments: &[CallArg],
+    locals: &HashMap<String, String>,
+    context: &mut LowerContext<'_>,
+) -> Vec<IrValue> {
+    let canonical_callee = canonical_import_name(callee, context);
+    let params = context
+        .function_params
+        .get(callee)
+        .or_else(|| context.function_params.get(&canonical_callee))
+        .expect("local call lowering requires known function parameters");
+    normalize_local_call_arguments(callee, arguments, context)
+        .into_iter()
+        .enumerate()
+        .filter_map(|(index, argument)| {
+            let expected =
+                call_argument_expected_type(callee, index, arguments, locals, context);
+            match argument {
+                Some(argument) => Some(lower_expression_with_expected(
+                    argument,
+                    expected.as_deref(),
+                    locals,
+                    context,
+                )),
+                None => params.get(index).and_then(|param| {
+                    param.default.as_ref().map(|default| {
+                        lower_expression_with_expected(
+                            default,
+                            Some(&param.type_),
+                            locals,
+                            context,
+                        )
+                    })
+                }),
+            }
+        })
+        .collect()
+}
+
 fn call_arg_value(argument: &CallArg) -> &Expression {
     match argument {
         CallArg::Positional(value) => value,
@@ -1573,37 +1598,7 @@ fn lower_expression_with_expected(
             } else if context.function_params.contains_key(callee)
                 || context.function_params.contains_key(&canonical_callee)
             {
-                let params = context
-                    .function_params
-                    .get(callee)
-                    .or_else(|| context.function_params.get(&canonical_callee))
-                    .expect("checked function params presence above");
-                normalize_local_call_arguments(callee, arguments, context)
-                    .into_iter()
-                    .enumerate()
-                    .filter_map(|(index, argument)| {
-                        let expected =
-                            call_argument_expected_type(callee, index, arguments, locals, context);
-                        match argument {
-                            Some(argument) => Some(lower_expression_with_expected(
-                                argument,
-                                expected.as_deref(),
-                                locals,
-                                context,
-                            )),
-                            None => params.get(index).and_then(|param| {
-                                param.default.as_ref().map(|default| {
-                                    lower_expression_with_expected(
-                                        default,
-                                        Some(&param.type_),
-                                        locals,
-                                        context,
-                                    )
-                                })
-                            }),
-                        }
-                    })
-                    .collect()
+                lower_local_call_arguments(callee, arguments, locals, context)
             } else {
                 normalized_builtin
                     .iter()

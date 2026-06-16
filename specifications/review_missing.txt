@@ -94,7 +94,7 @@ REQUIREMENT: `Thread.result` runtime field access
 SPECIFICATION: specifications/mfbasic.md @ §4.8 Threads and §16 Threads
 `Thread OF Msg TO Out` is specified to expose `result AS Result OF Out` as `t.result`. Type checking recognizes the member, but shared native field lowering only handles records, variants, enums, and map entries, so `t.result` cannot be lowered as a thread control-block result load. Resolve by adding thread-result member lowering in IR/NIR/native code generation, reading the result tag/value/error slots consistently with `thread::waitFor`, and adding runtime coverage for successful and failed thread results.
 
-REQUIREMENT: Omitted user-defined default arguments
+[FIXED] REQUIREMENT: Omitted user-defined default arguments
 SPECIFICATION: specifications/mfbasic.md @ §6 Functions and §14.3 Function calls and returns
 User-defined parameters may declare trailing defaults, and calls may omit those arguments. The compiler typechecks that omission, but IR lowering keeps only the supplied call arguments and does not synthesize the omitted default expressions for user-defined functions before bytecode/native lowering. Resolve by expanding omitted defaults at the call site in declaration order, evaluating defaults under normal call-site semantics, and covering user-function defaults in valid/invalid/runtime tests.
 

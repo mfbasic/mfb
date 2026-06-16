@@ -1,0 +1,12 @@
+{
+  "name": "user_function_default_args_invalid",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "executable",
+  "sources": [
+    {
+      "root": "src"
+    }
+  ],
+  "entry": "main"
+}

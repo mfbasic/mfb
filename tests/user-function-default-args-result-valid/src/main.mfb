@@ -1,0 +1,39 @@
+IMPORT io
+
+FUNC mark(label AS String, value AS Integer) AS Integer
+  io::print(label)
+  RETURN value
+END FUNC
+
+FUNC compute(value AS Integer, extra AS Integer = mark("default-extra", 2), multiplier AS Integer = mark("default-multiplier", 5)) AS Integer
+  IF value < 0 THEN FAIL Error[100 + extra, "negative"]
+  RETURN (value + extra) * multiplier
+END FUNC
+
+FUNC main() AS Integer
+  MUT total AS Integer = 0
+
+  MATCH compute(mark("arg1-value", 3))
+    CASE Ok(value)
+      total = total + value
+    CASE Error(err)
+      total = total + err.code
+  END MATCH
+
+  MATCH compute(mark("arg2-value", 1), multiplier := mark("arg2-multiplier", 2))
+    CASE Ok(value)
+      total = total + value
+    CASE Error(err)
+      total = total + err.code
+  END MATCH
+
+  MATCH compute(mark("arg3-value", -1))
+    CASE Ok(value)
+      total = total + value
+    CASE Error(err)
+      total = total + err.code
+  END MATCH
+
+  io::print(toString(total))
+  RETURN 0
+END FUNC

@@ -1,0 +1,10 @@
+FUNC combine(base AS Integer, extra AS Integer = 2, suffix AS String = "!") AS String
+  RETURN toString(base + extra) & suffix
+END FUNC
+
+FUNC main() AS Integer
+  LET missing = combine(extra := 2)
+  LET wrongType = combine(1, suffix := 9)
+  LET tooMany = combine(1, 2, "!", 4)
+  RETURN len(missing) + len(wrongType) + len(tooMany)
+END FUNC
