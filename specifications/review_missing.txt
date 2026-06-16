@@ -62,7 +62,7 @@ REQUIREMENT: `errorCode` built-in package
 SPECIFICATION: specifications/standard_package.md @ §13 Built-in Error Codes
 The specs require an `errorCode` package exporting standard error-code constants, but `builtins::is_builtin_import` does not include `errorCode`, and no built-in module defines those constants. Resolve by adding an `errorCode` built-in package with all reserved constants, resolver/typechecker support for package constants, bytecode/native constant lowering, and tests.
 
-REQUIREMENT: Math constants are value-only
+[FIXED] REQUIREMENT: Math constants are value-only
 SPECIFICATION: specifications/standard_package.md @ §10 Built-in Math Package
 `standard_package.md` defines math constants as `LET` values, but `src/builtins/math.rs` also accepts them as zero-argument calls, and several callable constant paths have no opcode lowering. Resolve by making math constants identifier-only package constants and rejecting call syntax such as `math::pi()`, or explicitly documenting and fully implementing callable constants across every backend.
 

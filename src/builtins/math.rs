@@ -1,9 +1,9 @@
 use crate::bytecode::{
     BuiltinCallLowerer, ValueSlot, OPCODE_MATH_ABS, OPCODE_MATH_ACOS, OPCODE_MATH_ASIN,
     OPCODE_MATH_ATAN, OPCODE_MATH_ATAN2, OPCODE_MATH_CEIL, OPCODE_MATH_CLAMP, OPCODE_MATH_COS,
-    OPCODE_MATH_E, OPCODE_MATH_EXP, OPCODE_MATH_FLOOR, OPCODE_MATH_LOG, OPCODE_MATH_LOG10,
-    OPCODE_MATH_MAX, OPCODE_MATH_MIN, OPCODE_MATH_PI, OPCODE_MATH_POW, OPCODE_MATH_ROUND,
-    OPCODE_MATH_SIN, OPCODE_MATH_SQRT, OPCODE_MATH_TAN, TYPE_FIXED, TYPE_FLOAT, TYPE_INTEGER,
+    OPCODE_MATH_EXP, OPCODE_MATH_FLOOR, OPCODE_MATH_LOG, OPCODE_MATH_LOG10, OPCODE_MATH_MAX,
+    OPCODE_MATH_MIN, OPCODE_MATH_POW, OPCODE_MATH_ROUND, OPCODE_MATH_SIN, OPCODE_MATH_SQRT,
+    OPCODE_MATH_TAN, TYPE_FIXED, TYPE_FLOAT, TYPE_INTEGER,
 };
 use crate::ir::IrValue;
 use std::borrow::Cow;
@@ -53,21 +53,7 @@ pub(crate) struct ResolvedCall<'a> {
 pub(crate) fn is_math_call(name: &str) -> bool {
     matches!(
         name,
-        PI
-            | PI_FIXED
-            | TWO_PI
-            | TWO_PI_FIXED
-            | PI_2
-            | PI_2_FIXED
-            | PI_4
-            | PI_4_FIXED
-            | E
-            | E_FIXED
-            | LN_2
-            | LN_2_FIXED
-            | LN_10
-            | LN_10_FIXED
-            | ABS
+        ABS
             | MIN
             | MAX
             | CLAMP
@@ -91,9 +77,6 @@ pub(crate) fn is_math_call(name: &str) -> bool {
 
 pub(crate) fn call_return_type_name(name: &str) -> Option<&'static str> {
     match name {
-        PI | TWO_PI | PI_2 | PI_4 | E | LN_2 | LN_10 => Some("Float"),
-        PI_FIXED | TWO_PI_FIXED | PI_2_FIXED | PI_4_FIXED | E_FIXED | LN_2_FIXED
-        | LN_10_FIXED => Some("Fixed"),
         SQRT | POW | EXP | LOG | LOG10 | SIN | COS | TAN | ASIN | ACOS | ATAN | ATAN2 => None,
         FLOOR | CEIL | ROUND => Some("Integer"),
         _ => None,
@@ -151,14 +134,6 @@ pub(crate) fn constant_value(name: &str) -> Option<&'static str> {
 
 pub(crate) fn resolve_call<'a>(name: &str, arg_types: &'a [String]) -> Option<ResolvedCall<'a>> {
     let return_type = match name {
-        PI | TWO_PI | PI_2 | PI_4 | E | LN_2 | LN_10 if arg_types.is_empty() => {
-            Cow::Borrowed("Float")
-        }
-        PI_FIXED | TWO_PI_FIXED | PI_2_FIXED | PI_4_FIXED | E_FIXED | LN_2_FIXED | LN_10_FIXED
-            if arg_types.is_empty() =>
-        {
-            Cow::Borrowed("Fixed")
-        }
         ABS | MIN | MAX if all_same_numeric(arg_types, 1, 2) => {
             Cow::Borrowed(arg_types[0].as_str())
         }
@@ -177,10 +152,6 @@ pub(crate) fn resolve_call<'a>(name: &str, arg_types: &'a [String]) -> Option<Re
 
 pub(crate) fn expected_arguments(name: &str) -> Option<&'static str> {
     match name {
-        PI | PI_FIXED | TWO_PI | TWO_PI_FIXED | PI_2 | PI_2_FIXED | PI_4 | PI_4_FIXED | E
-        | E_FIXED | LN_2 | LN_2_FIXED | LN_10 | LN_10_FIXED => {
-            Some("no arguments")
-        }
         ABS => Some("Integer | Float | Fixed"),
         FLOOR | CEIL | ROUND => Some("Float | Fixed"),
         SQRT | EXP | LOG | LOG10 | SIN | COS | TAN | ASIN | ACOS | ATAN => Some("Float | Fixed"),
@@ -193,10 +164,6 @@ pub(crate) fn expected_arguments(name: &str) -> Option<&'static str> {
 
 pub(crate) fn arity(name: &str) -> Option<(usize, usize)> {
     match name {
-        PI | PI_FIXED | TWO_PI | TWO_PI_FIXED | PI_2 | PI_2_FIXED | PI_4 | PI_4_FIXED | E
-        | E_FIXED | LN_2 | LN_2_FIXED | LN_10 | LN_10_FIXED => {
-            Some((0, 0))
-        }
         ABS | FLOOR | CEIL | ROUND | SQRT | EXP | LOG | LOG10 | SIN | COS | TAN | ASIN
         | ACOS | ATAN => Some((1, 1)),
         MIN | MAX | POW | ATAN2 => Some((2, 2)),
@@ -240,8 +207,6 @@ pub(crate) fn lower_bytecode_call(
 
 fn opcode_for(name: &str) -> Result<u16, String> {
     match name {
-        PI | PI_FIXED => Ok(OPCODE_MATH_PI),
-        E | E_FIXED => Ok(OPCODE_MATH_E),
         ABS => Ok(OPCODE_MATH_ABS),
         MIN => Ok(OPCODE_MATH_MIN),
         MAX => Ok(OPCODE_MATH_MAX),

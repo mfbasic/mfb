@@ -1464,6 +1464,20 @@ impl<'a> TypeChecker<'a> {
             }
             Expression::Call { callee, arguments } => {
                 let canonical_callee = self.canonical_import_name(file, callee);
+                if builtins::math::is_math_constant(&canonical_callee) {
+                    self.report(
+                        "SYMBOL_NOT_CALLABLE",
+                        &format!("Package constant `{callee}` is not callable."),
+                        file,
+                        line,
+                    );
+                    for argument in arguments {
+                        self.infer_expression(file, argument, locals, line, ExprMode::Read);
+                    }
+                    return self.parse_type(
+                        builtins::math::constant_type_name(&canonical_callee).unwrap_or("Unknown"),
+                    );
+                }
                 if builtins::is_builtin_call(&canonical_callee) {
                     return self.check_builtin_call(
                         file,
@@ -1526,6 +1540,20 @@ impl<'a> TypeChecker<'a> {
     ) -> Type {
         if let Expression::Call { callee, arguments } = expression {
             let canonical_callee = self.canonical_import_name(file, callee);
+            if builtins::math::is_math_constant(&canonical_callee) {
+                self.report(
+                    "SYMBOL_NOT_CALLABLE",
+                    &format!("Package constant `{callee}` is not callable."),
+                    file,
+                    line,
+                );
+                for argument in arguments {
+                    self.infer_expression(file, argument, locals, line, ExprMode::Read);
+                }
+                return self.parse_type(
+                    builtins::math::constant_type_name(&canonical_callee).unwrap_or("Unknown"),
+                );
+            }
             if builtins::is_builtin_call(&canonical_callee) {
                 let success = self.check_builtin_call(
                     file,

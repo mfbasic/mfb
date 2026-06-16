@@ -937,7 +937,7 @@ impl<'a> Resolver<'a> {
 
         if builtins::is_builtin_import(package) {
             let qualified_name = qualify_package_name(name, root, package);
-            if !builtins::is_builtin_call(&qualified_name) {
+            if !builtins::is_builtin_member(&qualified_name) {
                 self.report(
                     "SYMBOL_UNKNOWN_IDENTIFIER",
                     &format!("Built-in package `{package}` does not export `{qualified_name}`."),

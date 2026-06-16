@@ -43,3 +43,7 @@ pub(crate) fn is_builtin_call(name: &str) -> bool {
         || thread::is_thread_call(name)
         || call_return_type_name(name).is_some()
 }
+
+pub(crate) fn is_builtin_member(name: &str) -> bool {
+    is_builtin_call(name) || math::is_math_constant(name)
+}
