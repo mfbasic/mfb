@@ -206,11 +206,85 @@ FUNC __json_escapeString(value AS String) AS String
       out = out & "\\b"
     ELSEIF ch = __json_formfeedChar() THEN
       out = out & "\\f"
+    ELSEIF __json_isRawControlChar(ch) THEN
+      out = out & __json_escapeRawControlChar(ch)
     ELSE
       out = out & ch
     END IF
   NEXT
   RETURN out
+END FUNC
+
+FUNC __json_escapeRawControlChar(ch AS String) AS String
+  RETURN __json_escapeRawControlCharAt(ch, 0)
+END FUNC
+
+FUNC __json_escapeRawControlCharAt(ch AS String, codePoint AS Integer) AS String
+  IF codePoint >= 32 THEN
+    RETURN ch
+  END IF
+  IF ch = __json_codePointToString(codePoint) THEN
+    RETURN __json_controlEscape(codePoint)
+  END IF
+  RETURN __json_escapeRawControlCharAt(ch, codePoint + 1)
+END FUNC
+
+FUNC __json_controlEscape(codePoint AS Integer) AS String
+  IF codePoint = 8 THEN
+    RETURN "\\b"
+  ELSEIF codePoint = 9 THEN
+    RETURN "\\t"
+  ELSEIF codePoint = 10 THEN
+    RETURN "\\n"
+  ELSEIF codePoint = 12 THEN
+    RETURN "\\f"
+  ELSEIF codePoint = 13 THEN
+    RETURN "\\r"
+  END IF
+  RETURN __json_unicodeControlEscape(codePoint)
+END FUNC
+
+FUNC __json_unicodeControlEscape(codePoint AS Integer) AS String
+  LET high AS Integer = codePoint / 16
+  LET low AS Integer = codePoint - high * 16
+  RETURN "\\u00" & __json_hexDigit(high) & __json_hexDigit(low)
+END FUNC
+
+FUNC __json_hexDigit(value AS Integer) AS String
+  IF value = 0 THEN
+    RETURN "0"
+  ELSEIF value = 1 THEN
+    RETURN "1"
+  ELSEIF value = 2 THEN
+    RETURN "2"
+  ELSEIF value = 3 THEN
+    RETURN "3"
+  ELSEIF value = 4 THEN
+    RETURN "4"
+  ELSEIF value = 5 THEN
+    RETURN "5"
+  ELSEIF value = 6 THEN
+    RETURN "6"
+  ELSEIF value = 7 THEN
+    RETURN "7"
+  ELSEIF value = 8 THEN
+    RETURN "8"
+  ELSEIF value = 9 THEN
+    RETURN "9"
+  ELSEIF value = 10 THEN
+    RETURN "A"
+  ELSEIF value = 11 THEN
+    RETURN "B"
+  ELSEIF value = 12 THEN
+    RETURN "C"
+  ELSEIF value = 13 THEN
+    RETURN "D"
+  ELSEIF value = 14 THEN
+    RETURN "E"
+  ELSEIF value = 15 THEN
+    RETURN "F"
+  END IF
+  FAIL Error[77050003, "invalid JSON format"]
 END FUNC
 
 FUNC __json_parse(value AS String) AS Json
@@ -356,7 +430,25 @@ FUNC __json_parseString(chars AS List OF String, index AS Integer, current AS St
     RETURN __json_parseString(chars, escapeState.index, current & escapeState.value)
   END IF
 
+  IF __json_isRawControlChar(ch) THEN
+    FAIL Error[77050003, "invalid JSON format"]
+  END IF
+
   RETURN __json_parseString(chars, index + 1, current & ch)
+END FUNC
+
+FUNC __json_isRawControlChar(ch AS String) AS Boolean
+  RETURN __json_isRawControlCharAt(ch, 0)
+END FUNC
+
+FUNC __json_isRawControlCharAt(ch AS String, codePoint AS Integer) AS Boolean
+  IF codePoint >= 32 THEN
+    RETURN FALSE
+  END IF
+  IF ch = __json_codePointToString(codePoint) THEN
+    RETURN TRUE
+  END IF
+  RETURN __json_isRawControlCharAt(ch, codePoint + 1)
 END FUNC
 
 FUNC __json_parseEscape(chars AS List OF String, index AS Integer) AS __JsonStringNode

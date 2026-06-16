@@ -1,9 +1,14 @@
 IMPORT io
 IMPORT json
 
-FUNC showInvalid(value AS String) AS Nothing
+FUNC controlChar(value AS Integer) AS String
+  LET bytes AS List OF Byte = [toByte(value)]
+  RETURN toString(bytes)
+END FUNC
+
+FUNC showInvalid(label AS String, value AS String) AS Nothing
   io::print("BEGIN")
-  io::print(value)
+  io::print(label)
   io::print(json::stringify(json::parse(value)))
   RETURN NOTHING
   TRAP err
@@ -13,8 +18,12 @@ FUNC showInvalid(value AS String) AS Nothing
 END FUNC
 
 FUNC main AS Integer
-  showInvalid("\"\\uD83D\"")
-  showInvalid("01")
-  showInvalid("true false")
+  showInvalid("unpaired surrogate", "\"\\uD83D\"")
+  showInvalid("leading zero", "01")
+  showInvalid("trailing token", "true false")
+  showInvalid("raw newline", "\"" & "\n" & "\"")
+  showInvalid("raw tab", "\"" & "\t" & "\"")
+  showInvalid("raw nul", "\"" & controlChar(0) & "\"")
+  showInvalid("raw unit separator", "\"" & controlChar(31) & "\"")
   RETURN 0
 END FUNC

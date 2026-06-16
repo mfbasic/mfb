@@ -9,12 +9,24 @@ Wrote executable to tests/func_json_parse_invalid_runtime/func_json_parse_invali
 [exit 0]
 $ tests/func_json_parse_invalid_runtime/func_json_parse_invalid_runtime.out
 BEGIN
-"\uD83D"
+unpaired surrogate
 invalid
 BEGIN
-01
+leading zero
 invalid
 BEGIN
-true false
+trailing token
+invalid
+BEGIN
+raw newline
+invalid
+BEGIN
+raw tab
+invalid
+BEGIN
+raw nul
+invalid
+BEGIN
+raw unit separator
 invalid
 [exit 0]

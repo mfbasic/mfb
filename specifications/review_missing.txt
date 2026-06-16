@@ -186,16 +186,16 @@ The project spec allows `author` to be either a string or an object, but `valida
 SPECIFICATION: specifications/mfbasic.md @ §2 Lexical Structure
 The lexer implements apostrophe comments but treats `REM` as an identifier because `Keyword` has no `Rem` token and `lex_identifier_or_keyword` does not skip the rest of the line. Source using `REM` comments will be parsed as code. Resolve by recognizing `REM` case-insensitively as a line-comment introducer in the lexer, with tests proving apostrophe comments, `REM` comments, and ordinary identifiers containing `rem` still behave correctly.
 
-REQUIREMENT: JSON strings must reject raw control characters
+[FIXED] REQUIREMENT: JSON strings must reject raw control characters
 SPECIFICATION: specifications/standard_package.md @ §12 Built-in JSON Package
 `json::parse` is specified to parse valid JSON text, but `src/builtins/json_package.mfb` accepts unescaped control characters inside JSON strings because `__json_parseString` appends any non-quote, non-backslash character. JSON requires raw U+0000 through U+001F to be escaped. Resolve by rejecting raw control characters in `__json_parseString`, keeping escaped forms valid, and adding valid/invalid/runtime tests for newline, tab, and other control-byte cases.
 
 REQUIREMENT: Project manifest `targets`
 SPECIFICATION: specifications/project.md @ §9 Targets And Build Metadata
-`project.json` may request build targets through `targets`, but `validate_project_manifest` does not validate the field and `build_project` ignores it entirely, relying only on CLI output flags and `-target`. Resolve by validating `targets` as an array of supported target strings, defining CLI precedence, and using it to select requested artifacts/platform triples when no overriding CLI output mode is supplied.
+`project.json` may request build targets through `targets`, but `validate_project_manifest` does not validate the field and `build_project` ignores it entirely, relying only on CLI output flags and `-target`. Resolve by validating `targets` as an array of supported target strings, defining CLI precedence, and using it to select requested artifacts/platform triples when no overriding CLI output mode is supplied. If the CLI adds a [-target os-arch] then this single target should override the targets in the `project.json`.
 
 
-REQUIREMENT: JSON stringify must produce valid JSON strings
+[FIXED] REQUIREMENT: JSON stringify must produce valid JSON strings
 SPECIFICATION: specifications/standard_package.md @ §12 Built-in JSON Package
 `json::stringify` is specified to produce compact valid JSON text, but `src/builtins/json_package.mfb` only escapes quotes, backslash, slash, newline, tab, carriage return, backspace, and formfeed. Other raw C0 control characters can be emitted into JSON strings, producing invalid JSON. Resolve by escaping all U+0000 through U+001F characters, using short escapes where available and `\u00XX` otherwise, and add runtime tests for every control-character class.
 
@@ -318,11 +318,6 @@ SPECIFICATION: specifications/standard_package.md @ §3.1 General
 REQUIREMENT: Stable `fs::listDirectory` ordering
 SPECIFICATION: specifications/standard_package.md @ §8 Built-in Filesystem Package
 `fs::listDirectory(path)` must return direct child names in implementation-defined stable order. The native helper in `src/target/shared/code/mod.rs` reads entries using `readdir` and appends them in the OS directory-stream order without sorting or otherwise defining a stable ordering. Resolve by collecting all child names, sorting them with a documented bytewise or scalar ordering before constructing the returned `List OF String`, and adding runtime tests that create files in varying orders but observe deterministic `listDirectory` output.
-
-
-REQUIREMENT: `thread::receive` positive timeout semantics
-SPECIFICATION: specifications/threading.md @ §9 Queue Semantics
-Positive thread queue timeouts must wait up to the requested number of milliseconds. `thread::receive` currently uses a fixed busy-loop count (`timeoutMs * 5000000`) when the inbound queue is empty, so elapsed wait time depends on CPU speed and scheduling rather than a real millisecond deadline. Resolve by using a monotonic clock or OS wait primitive for `thread::receive`, preserving `timeoutMs = 0` nonblocking behavior and negative-timeout rejection, and add runtime tests that prove delayed inbound messages are received before timeout and absent messages time out.
 
 
 REQUIREMENT: Function calls must not be limited to eight arguments
@@ -504,10 +499,6 @@ REQUIREMENT: `mfb init` must generate a valid executable project
 SPECIFICATION: specifications/architecture.md @ §2 Commands And Build Modes; specifications/mfbasic.md @ §13 Modules & Packages
 `mfb init <location>` creates `src/main.mfb` with `io.print("Hello World")`, but the language requires package-qualified calls to use exactly `package::identifier`. The generated project fails to parse. Resolve by changing the init template to emit `io::print("Hello World")` and adding an init smoke test that builds the generated project.
 
-
-REQUIREMENT: Union `CASE ELSE` narrowing for included unions
-SPECIFICATION: specifications/mfbasic.md @ §4.3 Unions
-When a union includes another union, the spec requires `CASE ELSE` to narrow the scrutinee to the included union when the explicit cases cover only local variants, enabling forwarding calls such as `shape::area(s)`. The compiler expands included variants into the containing union but tracks only the expanded variant names for match exhaustiveness and only narrows bare `CASE Variant` to that variant. It does not preserve enough origin-union metadata to narrow an `ELSE` body back to the included union. Resolve by retaining each expanded variant’s source/origin union, computing the remaining variant set for every `CASE ELSE`, narrowing the scrutinee to the included union when the remainder exactly matches one included union’s variant set, and carrying that narrowed type through type checking and IR/lowering tests.
 
 REQUIREMENT: Union `CASE ELSE` narrowing for included unions
 SPECIFICATION: specifications/mfbasic.md @ §4.3 Unions

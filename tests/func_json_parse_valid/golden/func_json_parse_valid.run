@@ -1,5 +1,11 @@
 null
 "hi"
+"\n"
+"\t"
+"\b"
+"\f"
 "A😀"
+bytes=1
+bytes=1
 [true,false,null,{"x":"y"}]
 -1250

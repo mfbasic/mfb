@@ -11,6 +11,18 @@ FUNC formfeedChar AS String
   RETURN toString(bytes)
 END FUNC
 
+FUNC controlChar(value AS Integer) AS String
+  LET bytes AS List OF Byte = [toByte(value)]
+  RETURN toString(bytes)
+END FUNC
+
+FUNC controlChars(value AS Integer) AS String
+  IF value >= 32 THEN
+    RETURN ""
+  END IF
+  RETURN controlChar(value) & controlChars(value + 1)
+END FUNC
+
 FUNC main AS Integer
   LET escaped AS String = "\"" & "\\" & "/" & "\n" & "\t" & "\r" & backspaceChar() & formfeedChar()
   io::print(json::stringify(JsonNull[NOTHING]))
@@ -18,6 +30,7 @@ FUNC main AS Integer
   io::print(json::stringify(JsonBool[FALSE]))
   io::print(json::stringify(JsonNum[toFloat("-12.5")]))
   io::print(json::stringify(JsonStr[escaped]))
+  io::print(json::stringify(JsonStr[controlChars(0)]))
   io::print(json::stringify(JsonArr[[]]))
   io::print(json::stringify(JsonObj[Map OF String TO Json { "name" := JsonStr["Ada"] }]))
   RETURN 0

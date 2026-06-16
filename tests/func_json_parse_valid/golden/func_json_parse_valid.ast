@@ -5,24 +5,67 @@
     "path": "src/main.mfb",
     "imports": [
     { "module": "io", "line": 1 },
-    { "module": "json", "line": 2 }
+    { "module": "json", "line": 2 },
+    { "module": "strings", "line": 3 }
     ],
     "items": [
     {
       "kind": "func",
       "visibility": "private",
+      "name": "printStringByteLen",
+      "line": 5,
+      "params": [
+      { "name": "value", "type": "Json", "default": null }
+      ],
+      "returnType": "Nothing",
+      "body": [
+      {
+        "kind": "match",
+        "expression": { "kind": "identifier", "value": "value" },
+        "line": 6,
+        "cases": [
+        {
+          "pattern": { "kind": "union", "type": "JsonStr", "binding": "strValue" },
+          "guard": null,
+          "line": 7,
+          "body": [
+          { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "bytes=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "strings.byteLen", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "strValue" }, "member": "value" }] }] } }] }, "line": 8 }
+          ]
+        },
+        {
+          "pattern": { "kind": "else" },
+          "guard": null,
+          "line": 9,
+          "body": [
+          { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "not string" }] }, "line": 10 }
+          ]
+        }
+        ]
+      },
+      { "kind": "return", "value": { "kind": "identifier", "value": "NOTHING" }, "line": 12 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "private",
       "name": "main",
-      "line": 4,
+      "line": 15,
       "params": [
       ],
       "returnType": "Integer",
       "body": [
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "json.stringify", "arguments": [{ "kind": "call", "callee": "json.parse", "arguments": [{ "kind": "string", "value": " null " }] }] }] }, "line": 5 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "json.stringify", "arguments": [{ "kind": "call", "callee": "json.parse", "arguments": [{ "kind": "string", "value": "\"hi\"" }] }] }] }, "line": 6 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "json.stringify", "arguments": [{ "kind": "call", "callee": "json.parse", "arguments": [{ "kind": "string", "value": "\"\\u0041\\uD83D\\uDE00\"" }] }] }] }, "line": 7 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "json.stringify", "arguments": [{ "kind": "call", "callee": "json.parse", "arguments": [{ "kind": "string", "value": "[true,false,null,{\"x\":\"y\"}]" }] }] }] }, "line": 8 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "json.stringify", "arguments": [{ "kind": "call", "callee": "json.parse", "arguments": [{ "kind": "string", "value": "-12.5e+2" }] }] }] }, "line": 9 },
-      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 10 }
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "json.stringify", "arguments": [{ "kind": "call", "callee": "json.parse", "arguments": [{ "kind": "string", "value": " null " }] }] }] }, "line": 16 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "json.stringify", "arguments": [{ "kind": "call", "callee": "json.parse", "arguments": [{ "kind": "string", "value": "\"hi\"" }] }] }] }, "line": 17 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "json.stringify", "arguments": [{ "kind": "call", "callee": "json.parse", "arguments": [{ "kind": "string", "value": "\"\\n\"" }] }] }] }, "line": 18 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "json.stringify", "arguments": [{ "kind": "call", "callee": "json.parse", "arguments": [{ "kind": "string", "value": "\"\\t\"" }] }] }] }, "line": 19 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "json.stringify", "arguments": [{ "kind": "call", "callee": "json.parse", "arguments": [{ "kind": "string", "value": "\"\\b\"" }] }] }] }, "line": 20 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "json.stringify", "arguments": [{ "kind": "call", "callee": "json.parse", "arguments": [{ "kind": "string", "value": "\"\\f\"" }] }] }] }, "line": 21 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "json.stringify", "arguments": [{ "kind": "call", "callee": "json.parse", "arguments": [{ "kind": "string", "value": "\"\\u0041\\uD83D\\uDE00\"" }] }] }] }, "line": 22 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "printStringByteLen", "arguments": [{ "kind": "call", "callee": "json.parse", "arguments": [{ "kind": "string", "value": "\"\\u0000\"" }] }] }, "line": 23 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "printStringByteLen", "arguments": [{ "kind": "call", "callee": "json.parse", "arguments": [{ "kind": "string", "value": "\"\\u001F\"" }] }] }, "line": 24 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "json.stringify", "arguments": [{ "kind": "call", "callee": "json.parse", "arguments": [{ "kind": "string", "value": "[true,false,null,{\"x\":\"y\"}]" }] }] }] }, "line": 25 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "json.stringify", "arguments": [{ "kind": "call", "callee": "json.parse", "arguments": [{ "kind": "string", "value": "-12.5e+2" }] }] }] }, "line": 26 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 27 }
       ]
     }
     ]

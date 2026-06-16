@@ -37,21 +37,59 @@
     {
       "kind": "func",
       "visibility": "private",
-      "name": "main",
+      "name": "controlChar",
       "line": 14,
+      "params": [
+      { "name": "value", "type": "Integer", "default": null }
+      ],
+      "returnType": "String",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "bytes", "type": "List OF Byte", "value": { "kind": "list", "values": [{ "kind": "call", "callee": "toByte", "arguments": [{ "kind": "identifier", "value": "value" }] }] }, "line": 15 },
+      { "kind": "return", "value": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "bytes" }] }, "line": 16 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "controlChars",
+      "line": 19,
+      "params": [
+      { "name": "value", "type": "Integer", "default": null }
+      ],
+      "returnType": "String",
+      "body": [
+      {
+        "kind": "if",
+        "condition": { "kind": "binary", "operator": ">=", "left": { "kind": "identifier", "value": "value" }, "right": { "kind": "number", "value": "32" } },
+        "line": 20,
+        "then": [
+        { "kind": "return", "value": { "kind": "string", "value": "" }, "line": 21 }
+        ],
+        "else": [
+        ]
+      },
+      { "kind": "return", "value": { "kind": "binary", "operator": "&", "left": { "kind": "call", "callee": "controlChar", "arguments": [{ "kind": "identifier", "value": "value" }] }, "right": { "kind": "call", "callee": "controlChars", "arguments": [{ "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "value" }, "right": { "kind": "number", "value": "1" } }] } }, "line": 23 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "main",
+      "line": 26,
       "params": [
       ],
       "returnType": "Integer",
       "body": [
-      { "kind": "binding", "mutable": false, "name": "escaped", "type": "String", "value": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "\"" }, "right": { "kind": "string", "value": "\\" } }, "right": { "kind": "string", "value": "/" } }, "right": { "kind": "string", "value": "\n" } }, "right": { "kind": "string", "value": "\t" } }, "right": { "kind": "string", "value": "r" } }, "right": { "kind": "call", "callee": "backspaceChar", "arguments": [] } }, "right": { "kind": "call", "callee": "formfeedChar", "arguments": [] } }, "line": 15 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "json.stringify", "arguments": [{ "kind": "constructor", "type": "JsonNull", "arguments": [{ "kind": "identifier", "value": "NOTHING" }] }] }] }, "line": 16 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "json.stringify", "arguments": [{ "kind": "constructor", "type": "JsonBool", "arguments": [{ "kind": "boolean", "value": true }] }] }] }, "line": 17 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "json.stringify", "arguments": [{ "kind": "constructor", "type": "JsonBool", "arguments": [{ "kind": "boolean", "value": false }] }] }] }, "line": 18 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "json.stringify", "arguments": [{ "kind": "constructor", "type": "JsonNum", "arguments": [{ "kind": "call", "callee": "toFloat", "arguments": [{ "kind": "string", "value": "-12.5" }] }] }] }] }, "line": 19 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "json.stringify", "arguments": [{ "kind": "constructor", "type": "JsonStr", "arguments": [{ "kind": "identifier", "value": "escaped" }] }] }] }, "line": 20 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "json.stringify", "arguments": [{ "kind": "constructor", "type": "JsonArr", "arguments": [{ "kind": "list", "values": [] }] }] }] }, "line": 21 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "json.stringify", "arguments": [{ "kind": "constructor", "type": "JsonObj", "arguments": [{ "kind": "map", "keyType": "String", "valueType": "Json", "entries": [{ "key": { "kind": "string", "value": "name" }, "value": { "kind": "constructor", "type": "JsonStr", "arguments": [{ "kind": "string", "value": "Ada" }] } }] }] }] }] }, "line": 22 },
-      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 23 }
+      { "kind": "binding", "mutable": false, "name": "escaped", "type": "String", "value": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "\"" }, "right": { "kind": "string", "value": "\\" } }, "right": { "kind": "string", "value": "/" } }, "right": { "kind": "string", "value": "\n" } }, "right": { "kind": "string", "value": "\t" } }, "right": { "kind": "string", "value": "r" } }, "right": { "kind": "call", "callee": "backspaceChar", "arguments": [] } }, "right": { "kind": "call", "callee": "formfeedChar", "arguments": [] } }, "line": 27 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "json.stringify", "arguments": [{ "kind": "constructor", "type": "JsonNull", "arguments": [{ "kind": "identifier", "value": "NOTHING" }] }] }] }, "line": 28 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "json.stringify", "arguments": [{ "kind": "constructor", "type": "JsonBool", "arguments": [{ "kind": "boolean", "value": true }] }] }] }, "line": 29 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "json.stringify", "arguments": [{ "kind": "constructor", "type": "JsonBool", "arguments": [{ "kind": "boolean", "value": false }] }] }] }, "line": 30 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "json.stringify", "arguments": [{ "kind": "constructor", "type": "JsonNum", "arguments": [{ "kind": "call", "callee": "toFloat", "arguments": [{ "kind": "string", "value": "-12.5" }] }] }] }] }, "line": 31 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "json.stringify", "arguments": [{ "kind": "constructor", "type": "JsonStr", "arguments": [{ "kind": "identifier", "value": "escaped" }] }] }] }, "line": 32 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "json.stringify", "arguments": [{ "kind": "constructor", "type": "JsonStr", "arguments": [{ "kind": "call", "callee": "controlChars", "arguments": [{ "kind": "number", "value": "0" }] }] }] }] }, "line": 33 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "json.stringify", "arguments": [{ "kind": "constructor", "type": "JsonArr", "arguments": [{ "kind": "list", "values": [] }] }] }] }, "line": 34 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "json.stringify", "arguments": [{ "kind": "constructor", "type": "JsonObj", "arguments": [{ "kind": "map", "keyType": "String", "valueType": "Json", "entries": [{ "key": { "kind": "string", "value": "name" }, "value": { "kind": "constructor", "type": "JsonStr", "arguments": [{ "kind": "string", "value": "Ada" }] } }] }] }] }] }, "line": 35 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 36 }
       ]
     }
     ]

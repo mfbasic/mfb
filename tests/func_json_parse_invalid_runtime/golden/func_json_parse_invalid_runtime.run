@@ -1,9 +1,21 @@
 BEGIN
-"\uD83D"
+unpaired surrogate
 invalid
 BEGIN
-01
+leading zero
 invalid
 BEGIN
-true false
+trailing token
+invalid
+BEGIN
+raw newline
+invalid
+BEGIN
+raw tab
+invalid
+BEGIN
+raw nul
+invalid
+BEGIN
+raw unit separator
 invalid
