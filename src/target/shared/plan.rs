@@ -447,6 +447,9 @@ fn collect_platform_imports_from_ops(
                 collect_platform_imports_from_value(platform, required_by, value, imports);
                 collect_platform_imports_from_ops(platform, required_by, body, imports);
             }
+            NirOp::Trap { body, .. } => {
+                collect_platform_imports_from_ops(platform, required_by, body, imports);
+            }
         }
     }
 }
@@ -618,6 +621,10 @@ fn collect_runtime_symbols_from_ops_with_constants(
                 collect_runtime_symbols_from_value(value, symbols, constants);
                 let mut body_constants = constants.clone();
                 collect_runtime_symbols_from_ops_with_constants(body, symbols, &mut body_constants);
+            }
+            NirOp::Trap { body, .. } => {
+                let mut trap_constants = constants.clone();
+                collect_runtime_symbols_from_ops_with_constants(body, symbols, &mut trap_constants);
             }
         }
     }
@@ -967,6 +974,11 @@ impl FunctionPlanBuilder<'_> {
                     self.lower_ops(body)?;
                     self.operations.push(format!("close {close}"));
                     self.add_call(close);
+                }
+                NirOp::Trap { name, body } => {
+                    self.operations.push(format!("trap {name}"));
+                    self.lower_ops(body)?;
+                    self.operations.push("end trap".to_string());
                 }
             }
         }

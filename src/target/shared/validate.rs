@@ -212,6 +212,10 @@ fn collect_runtime_calls_from_ops_with_constants(
                 let mut body_constants = constants.clone();
                 collect_runtime_calls_from_ops_with_constants(body, calls, &mut body_constants);
             }
+            NirOp::Trap { body, .. } => {
+                let mut trap_constants = constants.clone();
+                collect_runtime_calls_from_ops_with_constants(body, calls, &mut trap_constants);
+            }
         }
     }
 }
@@ -855,6 +859,24 @@ fn validate_ops(
                 validate_ops(
                     body,
                     &mut body_locals,
+                    function_names,
+                    import_names,
+                    type_value_names,
+                    used_helpers,
+                )?;
+            }
+            NirOp::Trap { name, body } => {
+                let mut trap_locals = locals.clone();
+                trap_locals.insert(
+                    name.clone(),
+                    LocalBinding {
+                        mutable: false,
+                        type_: "Error".to_string(),
+                    },
+                );
+                validate_ops(
+                    body,
+                    &mut trap_locals,
                     function_names,
                     import_names,
                     type_value_names,

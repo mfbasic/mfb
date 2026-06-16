@@ -112,6 +112,10 @@ pub(crate) enum IrOp {
         value: IrValue,
         body: Vec<IrOp>,
     },
+    Trap {
+        name: String,
+        body: Vec<IrOp>,
+    },
 }
 
 pub(crate) struct IrMatchCase {
@@ -332,13 +336,25 @@ fn lower_function(function: &Function, context: &mut LowerContext<'_>) -> IrFunc
             .map(|param| lower_param(param, &locals, context))
             .collect(),
         returns,
-        body: lower_statement_block_with_trap(
-            &function.body,
-            &locals,
-            function.trap.as_ref().map(|trap| trap.body.as_slice()),
-            context,
-        ),
+        body: lower_function_body(function, &locals, context),
     }
+}
+
+fn lower_function_body(
+    function: &Function,
+    locals: &HashMap<String, String>,
+    context: &mut LowerContext<'_>,
+) -> Vec<IrOp> {
+    let mut body = lower_statement_block(&function.body, locals, context, None);
+    if let Some(trap) = &function.trap {
+        let mut trap_locals = locals.clone();
+        trap_locals.insert(trap.name.clone(), "Error".to_string());
+        body.push(IrOp::Trap {
+            name: trap.name.clone(),
+            body: lower_statement_block(&trap.body, &trap_locals, context, Some(trap.name.as_str())),
+        });
+    }
+    body
 }
 
 fn lower_param(
@@ -371,8 +387,8 @@ struct LowerContext<'a> {
 fn lower_statement(
     statement: &Statement,
     locals: &mut HashMap<String, String>,
-    trap_body: Option<&[Statement]>,
     context: &mut LowerContext<'_>,
+    trap_name: Option<&str>,
 ) -> Vec<IrOp> {
     match statement {
         Statement::Let {
@@ -404,23 +420,15 @@ fn lower_statement(
                 .as_ref()
                 .map(|value| lower_expression(value, locals, context)),
         }],
-        Statement::Fail { error, .. } => {
-            if let Some(trap_body) = trap_body {
-                return vec![IrOp::If {
-                    condition: IrValue::Const {
-                        type_: "Boolean".to_string(),
-                        value: "true".to_string(),
-                    },
-                    then_body: lower_statement_block(trap_body, locals, context),
-                    else_body: Vec::new(),
-                }];
-            }
-            vec![IrOp::Fail {
-                error: lower_expression(error, locals, context),
-            }]
-        }
+        Statement::Fail { error, .. } => vec![IrOp::Fail {
+            error: lower_expression(error, locals, context),
+        }],
         Statement::Propagate { .. } => vec![IrOp::Fail {
-            error: IrValue::Local("err".to_string()),
+            error: IrValue::Local(
+                trap_name
+                    .expect("typecheck requires PROPAGATE to appear only in trap bodies")
+                    .to_string(),
+            ),
         }],
         Statement::Assign { name, value, .. } => vec![IrOp::Assign {
             name: name.clone(),
@@ -441,8 +449,8 @@ fn lower_statement(
             ..
         } => vec![IrOp::If {
             condition: lower_expression(condition, locals, context),
-            then_body: lower_statement_block_with_trap(then_body, locals, trap_body, context),
-            else_body: lower_statement_block_with_trap(else_body, locals, trap_body, context),
+            then_body: lower_statement_block(then_body, locals, context, trap_name),
+            else_body: lower_statement_block(else_body, locals, context, trap_name),
         }],
         Statement::Match {
             expression, cases, ..
@@ -454,11 +462,11 @@ fn lower_statement(
                 mutable: false,
                 name: matched_name.clone(),
                 type_: matched_type.clone(),
-                value: Some(lower_match_expression(
-                    expression,
-                    &matched_type,
-                    locals,
-                    context,
+                    value: Some(lower_match_expression(
+                        expression,
+                        &matched_type,
+                        locals,
+                        context,
                 )),
             }];
             let mut match_locals = locals.clone();
@@ -482,7 +490,9 @@ fn lower_statement(
                 value: match_value,
                 cases: cases
                     .iter()
-                    .map(|case| lower_match_case(case, &matched_name, &match_locals, context))
+                    .map(|case| {
+                        lower_match_case(case, &matched_name, &match_locals, context, trap_name)
+                    })
                     .collect(),
             });
             ops
@@ -561,7 +571,7 @@ fn lower_statement(
                 type_: loop_type.clone(),
                 value: Some(iter_local.clone()),
             }];
-            while_body.extend(lower_statement_block_with_trap(body, &nested, trap_body, context));
+            while_body.extend(lower_statement_block(body, &nested, context, trap_name));
             while_body.push(IrOp::Assign {
                 name: iter_name.clone(),
                 value: IrValue::Binary {
@@ -612,20 +622,20 @@ fn lower_statement(
                 name: name.clone(),
                 type_: element_type,
                 iterable: lower_expression(iterable, locals, context),
-                body: lower_statement_block_with_trap(body, &nested, trap_body, context),
+                body: lower_statement_block(body, &nested, context, trap_name),
             }]
         }
         Statement::While {
             condition, body, ..
         } => vec![IrOp::While {
             condition: lower_expression(condition, locals, context),
-            body: lower_statement_block_with_trap(body, locals, trap_body, context),
+            body: lower_statement_block(body, locals, context, trap_name),
         }],
         Statement::DoUntil {
             body, condition, ..
         } => {
-            let body_ops = lower_statement_block_with_trap(body, locals, trap_body, context);
-            let loop_body = lower_statement_block_with_trap(body, locals, trap_body, context);
+            let body_ops = lower_statement_block(body, locals, context, trap_name);
+            let loop_body = lower_statement_block(body, locals, context, trap_name);
             vec![
                 body_ops,
                 vec![IrOp::While {
@@ -656,7 +666,7 @@ fn lower_statement(
                 type_,
                 close,
                 value,
-                body: lower_statement_block_with_trap(body, &nested, trap_body, context),
+                body: lower_statement_block(body, &nested, context, trap_name),
             }]
         }
     }
@@ -666,19 +676,11 @@ fn lower_statement_block(
     body: &[Statement],
     locals: &HashMap<String, String>,
     context: &mut LowerContext<'_>,
-) -> Vec<IrOp> {
-    lower_statement_block_with_trap(body, locals, None, context)
-}
-
-fn lower_statement_block_with_trap(
-    body: &[Statement],
-    locals: &HashMap<String, String>,
-    trap_body: Option<&[Statement]>,
-    context: &mut LowerContext<'_>,
+    trap_name: Option<&str>,
 ) -> Vec<IrOp> {
     let mut nested = locals.clone();
     body.iter()
-        .flat_map(|statement| lower_statement(statement, &mut nested, trap_body, context))
+        .flat_map(|statement| lower_statement(statement, &mut nested, context, trap_name))
         .collect()
 }
 
@@ -726,6 +728,7 @@ fn lower_match_case(
     matched_local: &str,
     locals: &HashMap<String, String>,
     context: &mut LowerContext<'_>,
+    trap_name: Option<&str>,
 ) -> IrMatchCase {
     let matched_type = locals
         .get(matched_local)
@@ -770,7 +773,7 @@ fn lower_match_case(
             value: Some(value),
         });
     }
-    body.extend(lower_statement_block(&case.body, &case_locals, context));
+    body.extend(lower_statement_block(&case.body, &case_locals, context, trap_name));
     IrMatchCase {
         pattern,
         guard: case
@@ -2092,6 +2095,25 @@ impl ToIrJson for IrOp {
                     json_string(close),
                     pad,
                     value.to_json(indent),
+                    pad,
+                    join_json(body, indent + 2),
+                    pad,
+                    pad
+                )
+            }
+            IrOp::Trap { name, body } => {
+                format!(
+                    concat!(
+                        "\n{}{{\n",
+                        "{}  \"op\": \"trap\",\n",
+                        "{}  \"name\": {},\n",
+                        "{}  \"body\": [{}\n{}  ]\n",
+                        "{}}}"
+                    ),
+                    pad,
+                    pad,
+                    pad,
+                    json_string(name),
                     pad,
                     join_json(body, indent + 2),
                     pad,

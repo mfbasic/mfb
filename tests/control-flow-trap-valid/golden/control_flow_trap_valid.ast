@@ -1,0 +1,63 @@
+{
+  "project": "control_flow_trap_valid",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "leaf",
+      "line": 1,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "fail", "error": { "kind": "constructor", "type": "Error", "arguments": [{ "kind": "number", "value": "123" }, { "kind": "string", "value": "leaf failed" }] }, "line": 2 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "relay",
+      "line": 5,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "return", "value": { "kind": "call", "callee": "leaf", "arguments": [] }, "line": 6 }
+      ],
+      "trap": {
+      "name": "err",
+      "line": 7,
+      "body": [
+      { "kind": "propagate", "line": 8 }
+      ]
+    }
+    },
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "main",
+      "line": 12,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "value", "type": null, "value": { "kind": "call", "callee": "relay", "arguments": [] }, "line": 13 },
+      { "kind": "return", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "value" }, "right": { "kind": "number", "value": "1" } }, "line": 14 }
+      ],
+      "trap": {
+      "name": "err",
+      "line": 15,
+      "body": [
+      { "kind": "return", "value": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }, "line": 16 }
+      ]
+    }
+    }
+    ]
+  }
+  ]
+}

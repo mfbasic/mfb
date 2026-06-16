@@ -1,0 +1,28 @@
+SUB propagateOutside
+  PROPAGATE
+END SUB
+
+SUB fallthroughTrap
+  LET x AS Integer = 1
+  TRAP err
+  RETURN
+  END TRAP
+END SUB
+
+FUNC duplicateTrap AS Integer
+  RETURN 0
+  TRAP first
+  RETURN 1
+  END TRAP
+  TRAP second
+  RETURN 2
+  END TRAP
+END FUNC
+
+FUNC nonBottomTrap AS Integer
+  RETURN 0
+  TRAP err
+  RETURN 1
+  END TRAP
+  LET after AS Integer = 1
+END FUNC

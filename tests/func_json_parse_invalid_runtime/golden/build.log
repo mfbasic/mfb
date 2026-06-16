@@ -10,8 +10,11 @@ Wrote executable to tests/func_json_parse_invalid_runtime/func_json_parse_invali
 $ tests/func_json_parse_invalid_runtime/func_json_parse_invalid_runtime.out
 BEGIN
 "\uD83D"
+invalid
 BEGIN
 01
+invalid
 BEGIN
 true false
+invalid
 [exit 0]

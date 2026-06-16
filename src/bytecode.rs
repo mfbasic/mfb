@@ -3390,6 +3390,7 @@ fn ops_use_resource_type(ops: &[IrOp]) -> bool {
                 || value_uses_resource_type(value)
                 || ops_use_resource_type(body)
         }
+        IrOp::Trap { body, .. } => ops_use_resource_type(body),
     })
 }
 
@@ -3482,6 +3483,26 @@ fn lower_function(
         });
     }
 
+    if let Some((trap_name, _)) = function.body.iter().find_map(|op| match op {
+        IrOp::Trap { name, body } => Some((name, body)),
+        _ => None,
+    }) {
+        let error_type = builder.type_id("Error");
+        let register = builder.add_register(error_type, 0);
+        locals.insert(
+            trap_name.clone(),
+            ValueSlot {
+                register,
+                type_name: "Error".to_string(),
+            },
+        );
+        builder.trap = Some(TrapState {
+            error_register: register,
+            jump_patches: Vec::new(),
+            in_trap_body: false,
+        });
+    }
+
     for op in &function.body {
         builder.lower_op(op, &mut locals)?;
     }
@@ -3533,6 +3554,13 @@ struct FunctionBuilder<'a> {
     code: Vec<Instruction>,
     cleanups: Vec<Cleanup>,
     next_cleanup_id: u32,
+    trap: Option<TrapState>,
+}
+
+struct TrapState {
+    error_register: u32,
+    jump_patches: Vec<usize>,
+    in_trap_body: bool,
 }
 
 #[derive(Clone)]
@@ -3580,6 +3608,7 @@ impl<'a> FunctionBuilder<'a> {
             code: Vec::new(),
             cleanups: Vec::new(),
             next_cleanup_id: 0,
+            trap: None,
         }
     }
 
@@ -3643,7 +3672,14 @@ impl<'a> FunctionBuilder<'a> {
             }
             IrOp::Fail { error } => {
                 let register = self.lower_value(error, locals)?.register;
-                self.push(OPCODE_RETURN_ERR, vec![register]);
+                if self.trap.is_some() && !self.trap.as_ref().is_some_and(|trap| trap.in_trap_body) {
+                    let error_type = self.type_id("Error");
+                    let trap_register = self.trap.as_ref().unwrap().error_register;
+                    self.push_move_like(error_type, trap_register, register);
+                    self.branch_to_trap();
+                } else {
+                    self.push(OPCODE_RETURN_ERR, vec![register]);
+                }
                 Ok(())
             }
             IrOp::Eval { value } => {
@@ -3765,6 +3801,24 @@ impl<'a> FunctionBuilder<'a> {
                     resource_register: register,
                     close_function_id,
                 });
+                Ok(())
+            }
+            IrOp::Trap { body, .. } => {
+                let pending_jumps = self
+                    .trap
+                    .as_mut()
+                    .map(|trap| trap.jump_patches.drain(..).collect::<Vec<_>>())
+                    .unwrap_or_default();
+                for jump in pending_jumps {
+                    self.patch_jump(jump);
+                }
+                if let Some(trap) = &mut self.trap {
+                    trap.in_trap_body = true;
+                }
+                self.lower_ops(body, locals)?;
+                if let Some(trap) = &mut self.trap {
+                    trap.in_trap_body = false;
+                }
                 Ok(())
             }
         }
@@ -3986,8 +4040,8 @@ impl<'a> FunctionBuilder<'a> {
                             operands.push(self.lower_value(arg, locals)?.register);
                         }
                         self.push(OPCODE_CALL_VALUE_RESULT, operands);
-                        let value_register = self.add_register(return_type, 0);
-                        self.push(OPCODE_UNWRAP_RESULT, vec![value_register, result_register]);
+                        let value_register =
+                            self.unwrap_result_or_trap(result_register, return_type);
                         return Ok(ValueSlot {
                             register: value_register,
                             type_name: return_type_name,
@@ -4012,8 +4066,7 @@ impl<'a> FunctionBuilder<'a> {
                 }
                 self.push(OPCODE_CALL_RESULT, operands);
 
-                let value_register = self.add_register(return_type, 0);
-                self.push(OPCODE_UNWRAP_RESULT, vec![value_register, result_register]);
+                let value_register = self.unwrap_result_or_trap(result_register, return_type);
                 Ok(ValueSlot {
                     register: value_register,
                     type_name: return_type_name,
@@ -4624,6 +4677,44 @@ impl<'a> FunctionBuilder<'a> {
         self.code
             .last()
             .is_some_and(|instruction| instruction.opcode == OPCODE_RETURN_OK)
+    }
+
+    fn branch_to_trap(&mut self) {
+        let jump = self.push_jump(OPCODE_BRANCH, Vec::new());
+        self.trap
+            .as_mut()
+            .expect("trap branch requires active trap state")
+            .jump_patches
+            .push(jump);
+    }
+
+    fn unwrap_result_or_trap(
+        &mut self,
+        result_register: u32,
+        success_type: u32,
+    ) -> u32 {
+        if self.trap.is_none() {
+            let value_register = self.add_register(success_type, 0);
+            self.push(OPCODE_UNWRAP_RESULT, vec![value_register, result_register]);
+            return value_register;
+        }
+
+        let ok_register = self.add_register(TYPE_BOOLEAN, 0);
+        self.push(OPCODE_RESULT_IS_OK, vec![ok_register, result_register]);
+        let error_jump = self.push_jump(OPCODE_BRANCH_IF_FALSE, vec![ok_register]);
+        let value_register = self.add_register(success_type, 0);
+        self.push(OPCODE_RESULT_VALUE, vec![value_register, result_register]);
+        let end_jump = self.push_jump(OPCODE_BRANCH, Vec::new());
+        self.patch_jump(error_jump);
+        let error_register = self
+            .trap
+            .as_ref()
+            .expect("trap-aware unwrap requires trap state")
+            .error_register;
+        self.push(OPCODE_RESULT_ERROR, vec![error_register, result_register]);
+        self.branch_to_trap();
+        self.patch_jump(end_jump);
+        value_register
     }
 }
 

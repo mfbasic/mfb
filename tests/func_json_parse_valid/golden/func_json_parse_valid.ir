@@ -1614,7 +1614,14 @@
     ],
     "returns": "Float",
     "body": [
-    { "op": "return", "value": { "kind": "call", "target": "toFloat", "args": [{ "kind": "local", "name": "value" }] } }
+    { "op": "return", "value": { "kind": "call", "target": "toFloat", "args": [{ "kind": "local", "name": "value" }] } },
+    {
+      "op": "trap",
+      "name": "err",
+      "body": [
+      { "op": "fail", "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050003" }, { "kind": "const", "type": "String", "value": "invalid JSON format" }] } }
+      ]
+    }
     ]
   },
   {

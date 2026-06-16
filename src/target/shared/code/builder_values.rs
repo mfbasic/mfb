@@ -379,6 +379,42 @@ impl CodeBuilder<'_> {
                     arg_slots.push(slot);
                 }
                 let register = self.allocate_register()?;
+                if type_ == "Error" {
+                    let result_slot = self.allocate_stack_object("error_result", 8);
+                    let alloc_ok = self.label("error_construct_alloc_ok");
+                    self.emit(abi::move_immediate(
+                        abi::return_register(),
+                        "Integer",
+                        "16",
+                    ));
+                    self.emit(abi::move_immediate("x1", "Integer", "8"));
+                    self.emit(abi::branch_link(ARENA_ALLOC_SYMBOL));
+                    self.relocations.push(CodeRelocation {
+                        from: self.current_symbol.clone(),
+                        to: ARENA_ALLOC_SYMBOL.to_string(),
+                        kind: "branch26".to_string(),
+                        binding: "internal".to_string(),
+                        library: None,
+                    });
+                    self.emit(abi::compare_immediate(
+                        abi::return_register(),
+                        RESULT_OK_TAG,
+                    ));
+                    self.emit(abi::branch_eq(&alloc_ok));
+                    self.emit_allocation_error_return()?;
+                    self.emit(abi::label(&alloc_ok));
+                    self.emit(abi::store_u64("x1", abi::stack_pointer(), result_slot));
+                    for (index, slot) in arg_slots.iter().take(2).enumerate() {
+                        self.emit(abi::load_u64("x9", abi::stack_pointer(), *slot));
+                        self.emit(abi::store_u64("x9", "x1", 8 * index));
+                    }
+                    self.emit(abi::load_u64(&register, abi::stack_pointer(), result_slot));
+                    return Ok(ValueResult {
+                        type_: type_.clone(),
+                        location: register,
+                        text: format!("construct {type_}({})", join_texts(&arg_values)),
+                    });
+                }
                 if self.type_model.record_fields.contains_key(type_) {
                     let result_slot = self.allocate_stack_object("record_result", 8);
                     let alloc_ok = self.label("record_construct_alloc_ok");

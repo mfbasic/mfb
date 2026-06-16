@@ -99,7 +99,13 @@ impl CodeBuilder<'_> {
                     self.emit(abi::return_());
                 }
                 NirOp::Fail { error } => {
-                    self.emit_error_return(error)?;
+                    if self.trap.is_some()
+                        && !self.trap.as_ref().is_some_and(|trap| trap.in_trap_body)
+                    {
+                        self.route_error_value_to_trap(error)?;
+                    } else {
+                        self.emit_error_return(error)?;
+                    }
                 }
                 NirOp::If {
                     condition,
@@ -253,6 +259,21 @@ impl CodeBuilder<'_> {
                         .cloned()
                         .unwrap_or_else(|| close.clone());
                     self.emit_call(close, &symbol, &[], None)?;
+                }
+                NirOp::Trap { body, .. } => {
+                    let label = self
+                        .trap
+                        .as_ref()
+                        .map(|trap| trap.label.clone())
+                        .expect("trap op requires trap state");
+                    self.emit(abi::label(&label));
+                    if let Some(trap) = &mut self.trap {
+                        trap.in_trap_body = true;
+                    }
+                    self.lower_ops(body)?;
+                    if let Some(trap) = &mut self.trap {
+                        trap.in_trap_body = false;
+                    }
                 }
             }
             self.reset_temporary_registers();

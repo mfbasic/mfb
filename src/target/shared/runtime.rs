@@ -1300,6 +1300,9 @@ fn push_op_helpers(ops: &[IrOp], helpers: &mut Vec<RuntimeHelper>) {
                 push_value_helpers(value, helpers);
                 push_op_helpers(body, helpers);
             }
+            IrOp::Trap { body, .. } => {
+                push_op_helpers(body, helpers);
+            }
         }
     }
 }

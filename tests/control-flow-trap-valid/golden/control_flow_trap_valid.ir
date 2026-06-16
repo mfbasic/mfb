@@ -1,0 +1,62 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "control_flow_trap_valid",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "leaf",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "fail", "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "123" }, { "kind": "const", "type": "String", "value": "leaf failed" }] } }
+    ]
+  },
+  {
+    "name": "relay",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "return", "value": { "kind": "call", "target": "leaf", "args": [] } },
+    {
+      "op": "trap",
+      "name": "err",
+      "body": [
+      { "op": "fail", "error": { "kind": "local", "name": "err" } }
+      ]
+    }
+    ]
+  },
+  {
+    "name": "main",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "mutable": false, "name": "value", "type": "Integer", "value": { "kind": "call", "target": "relay", "args": [] } },
+    { "op": "return", "value": { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "value" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } },
+    {
+      "op": "trap",
+      "name": "err",
+      "body": [
+      { "op": "return", "value": { "kind": "memberAccess", "target": { "kind": "local", "name": "err" }, "member": "code" } }
+      ]
+    }
+    ]
+  }
+  ]
+}

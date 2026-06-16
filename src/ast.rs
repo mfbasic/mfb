@@ -541,7 +541,17 @@ impl<'a> FileParser<'a> {
         let mut trap = None;
         while !self.is_at_end() {
             if self.check_keyword(Keyword::Trap) {
-                trap = self.parse_trap();
+                if trap.is_some() {
+                    let token = self.peek().clone();
+                    self.report(
+                        "MFB_PARSE_UNEXPECTED_STATEMENT",
+                        "Each function may declare at most one TRAP.",
+                        &token,
+                    );
+                    self.parse_trap();
+                } else {
+                    trap = self.parse_trap();
+                }
                 self.skip_separators();
                 continue;
             }
@@ -568,6 +578,15 @@ impl<'a> FileParser<'a> {
                     trap,
                     line: kind_token.line,
                 });
+            }
+
+            if trap.is_some() {
+                let token = self.peek().clone();
+                self.report(
+                    "MFB_PARSE_UNEXPECTED_STATEMENT",
+                    "TRAP must appear at the bottom of the function after normal flow.",
+                    &token,
+                );
             }
 
             if let Some(statement) = self.parse_statement() {

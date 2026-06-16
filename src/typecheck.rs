@@ -537,7 +537,7 @@ impl<'a> TypeChecker<'a> {
             );
         }
 
-        let flow = self.check_block(file, &function.body, &expected_return, &mut locals);
+        let flow = self.check_block(file, &function.body, &expected_return, &mut locals, None);
         if let Some(trap) = &function.trap {
             let mut trap_locals = locals.clone();
             trap_locals.insert(
@@ -547,11 +547,28 @@ impl<'a> TypeChecker<'a> {
                     mutable: false,
                 },
             );
-            let trap_flow = self.check_block(file, &trap.body, &expected_return, &mut trap_locals);
+            let trap_flow = self.check_block(
+                file,
+                &trap.body,
+                &expected_return,
+                &mut trap_locals,
+                Some(trap.name.as_str()),
+            );
             if trap_flow != Flow::AlwaysReturns {
                 self.report(
                     "TYPE_TRAP_FALLTHROUGH",
                     &format!("TRAP `{}` must return, fail, or propagate.", trap.name),
+                    file,
+                    trap.line,
+                );
+            }
+            if flow != Flow::AlwaysReturns {
+                self.report(
+                    "TYPE_TRAP_FALLTHROUGH",
+                    &format!(
+                        "Normal flow in `{}` reaches TRAP `{}`; body paths before TRAP must end with RETURN or FAIL.",
+                        function.name, trap.name
+                    ),
                     file,
                     trap.line,
                 );
@@ -578,9 +595,10 @@ impl<'a> TypeChecker<'a> {
         body: &[Statement],
         expected_return: &Type,
         locals: &mut HashMap<String, LocalInfo>,
+        trap_name: Option<&str>,
     ) -> Flow {
         for statement in body {
-            let flow = self.check_statement(file, statement, expected_return, locals);
+            let flow = self.check_statement(file, statement, expected_return, locals, trap_name);
             if flow == Flow::AlwaysReturns {
                 return Flow::AlwaysReturns;
             }
@@ -594,6 +612,7 @@ impl<'a> TypeChecker<'a> {
         statement: &Statement,
         expected_return: &Type,
         locals: &mut HashMap<String, LocalInfo>,
+        trap_name: Option<&str>,
     ) -> Flow {
         match statement {
             Statement::Let {
@@ -740,12 +759,14 @@ impl<'a> TypeChecker<'a> {
                 Flow::AlwaysReturns
             }
             Statement::Propagate { line } => {
-                self.report(
-                    "TYPE_PROPAGATE_REQUIRES_TRAP",
-                    "PROPAGATE is valid only inside a TRAP.",
-                    file,
-                    *line,
-                );
+                if trap_name.is_none() {
+                    self.report(
+                        "TYPE_PROPAGATE_REQUIRES_TRAP",
+                        "PROPAGATE is valid only inside a TRAP.",
+                        file,
+                        *line,
+                    );
+                }
                 Flow::AlwaysReturns
             }
             Statement::Assign { name, value, line } => {
@@ -808,11 +829,21 @@ impl<'a> TypeChecker<'a> {
                     );
                 }
                 let mut then_locals = locals.clone();
-                let then_flow =
-                    self.check_block(file, then_body, expected_return, &mut then_locals);
+                let then_flow = self.check_block(
+                    file,
+                    then_body,
+                    expected_return,
+                    &mut then_locals,
+                    trap_name,
+                );
                 let mut else_locals = locals.clone();
-                let else_flow =
-                    self.check_block(file, else_body, expected_return, &mut else_locals);
+                let else_flow = self.check_block(
+                    file,
+                    else_body,
+                    expected_return,
+                    &mut else_locals,
+                    trap_name,
+                );
                 if then_flow == Flow::AlwaysReturns
                     && else_flow == Flow::AlwaysReturns
                     && !else_body.is_empty()
@@ -860,8 +891,13 @@ impl<'a> TypeChecker<'a> {
                             );
                         }
                     }
-                    let case_flow =
-                        self.check_block(file, &case.body, expected_return, &mut case_locals);
+                    let case_flow = self.check_block(
+                        file,
+                        &case.body,
+                        expected_return,
+                        &mut case_locals,
+                        trap_name,
+                    );
                     all_return &= case_flow == Flow::AlwaysReturns;
                 }
                 if all_return
@@ -924,7 +960,7 @@ impl<'a> TypeChecker<'a> {
                         mutable: false,
                     },
                 );
-                self.check_block(file, body, expected_return, &mut nested);
+                self.check_block(file, body, expected_return, &mut nested, trap_name);
                 Flow::FallsThrough
             }
             Statement::ForEach {
@@ -962,7 +998,7 @@ impl<'a> TypeChecker<'a> {
                         mutable: false,
                     },
                 );
-                self.check_block(file, body, expected_return, &mut nested);
+                self.check_block(file, body, expected_return, &mut nested, trap_name);
                 Flow::FallsThrough
             }
             Statement::While {
@@ -983,7 +1019,7 @@ impl<'a> TypeChecker<'a> {
                     );
                 }
                 let mut nested = locals.clone();
-                self.check_block(file, body, expected_return, &mut nested);
+                self.check_block(file, body, expected_return, &mut nested, trap_name);
                 Flow::FallsThrough
             }
             Statement::DoUntil {
@@ -992,7 +1028,7 @@ impl<'a> TypeChecker<'a> {
                 line,
             } => {
                 let mut nested = locals.clone();
-                self.check_block(file, body, expected_return, &mut nested);
+                self.check_block(file, body, expected_return, &mut nested, trap_name);
                 let condition_type = self.infer_expression(file, condition, locals, *line);
                 if !self.expression_compatible(&Type::Boolean, &condition_type, Some(condition)) {
                     self.report(
@@ -1034,7 +1070,7 @@ impl<'a> TypeChecker<'a> {
                         mutable: false,
                     },
                 );
-                self.check_block(file, body, expected_return, &mut nested)
+                self.check_block(file, body, expected_return, &mut nested, trap_name)
             }
         }
     }

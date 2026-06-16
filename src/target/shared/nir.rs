@@ -126,6 +126,10 @@ pub(crate) enum NirOp {
         value: NirValue,
         body: Vec<NirOp>,
     },
+    Trap {
+        name: String,
+        body: Vec<NirOp>,
+    },
 }
 
 pub(crate) struct NirMatchCase {
@@ -425,6 +429,10 @@ fn lower_op(op: &IrOp) -> NirOp {
             type_: type_.clone(),
             close: close.clone(),
             value: lower_value(value),
+            body: lower_ops(body),
+        },
+        IrOp::Trap { name, body } => NirOp::Trap {
+            name: name.clone(),
             body: lower_ops(body),
         },
     }
@@ -1019,6 +1027,23 @@ impl ToNirJson for NirOp {
                 json_string(close),
                 pad,
                 value.to_json(indent),
+                pad,
+                join_json(body, indent + 2),
+                pad,
+                pad
+            ),
+            NirOp::Trap { name, body } => format!(
+                concat!(
+                    "\n{}{{\n",
+                    "{}  \"op\": \"trap\",\n",
+                    "{}  \"name\": {},\n",
+                    "{}  \"body\": [{}\n{}  ]\n",
+                    "{}}}"
+                ),
+                pad,
+                pad,
+                pad,
+                json_string(name),
                 pad,
                 join_json(body, indent + 2),
                 pad,

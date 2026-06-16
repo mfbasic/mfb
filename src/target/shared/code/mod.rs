@@ -384,6 +384,7 @@ struct CodeBuilder<'a> {
     stack_size: usize,
     next_register: usize,
     next_label: usize,
+    trap: Option<TrapState>,
 }
 
 #[derive(Clone)]
@@ -398,6 +399,12 @@ struct ValueResult {
     type_: String,
     location: String,
     text: String,
+}
+
+struct TrapState {
+    name: String,
+    label: String,
+    in_trap_body: bool,
 }
 
 #[derive(Clone)]
@@ -1335,6 +1342,7 @@ fn lower_function(
         stack_size: 0,
         next_register: 8,
         next_label: 0,
+        trap: None,
     };
     for param in &params {
         let stack_offset = builder.allocate_stack_object(&param.name, 8);
@@ -1351,6 +1359,26 @@ fn lower_function(
             abi::stack_pointer(),
             stack_offset,
         ));
+    }
+    if let Some(name) = function.body.iter().find_map(|op| match op {
+        NirOp::Trap { name, .. } => Some(name.clone()),
+        _ => None,
+    }) {
+        let stack_offset = builder.allocate_stack_object(&name, 8);
+        builder.locals.insert(
+            name.clone(),
+            LocalValue {
+                type_: "Error".to_string(),
+                stack_offset,
+                constant: None,
+            },
+        );
+        let label = builder.label("trap");
+        builder.trap = Some(TrapState {
+            name,
+            label,
+            in_trap_body: false,
+        });
     }
     builder.lower_ops(&function.body)?;
     if !builder.current_block_returns() {
@@ -1423,6 +1451,7 @@ fn lower_builtin_function_wrapper(
         stack_size: 0,
         next_register: 8,
         next_label: 0,
+        trap: None,
     };
 
     let stack_offset = builder.allocate_stack_object("value", 8);
@@ -1612,6 +1641,9 @@ fn collect_package_function_refs_in_ops(
             }
             NirOp::Using { value, body, .. } => {
                 collect_package_function_refs_in_value(value, package_import_symbols, symbols);
+                collect_package_function_refs_in_ops(body, package_import_symbols, symbols);
+            }
+            NirOp::Trap { body, .. } => {
                 collect_package_function_refs_in_ops(body, package_import_symbols, symbols);
             }
         }
@@ -2948,6 +2980,7 @@ fn lower_direct_builtin_runtime_helper(
         stack_size: 0,
         next_register: 8,
         next_label: 0,
+        trap: None,
     };
 
     let args = spec
@@ -9307,6 +9340,7 @@ fn ops_use_call(ops: &[NirOp], target: &str) -> bool {
         NirOp::Using { value, body, .. } => {
             value_uses_call(value, target) || ops_use_call(body, target)
         }
+        NirOp::Trap { body, .. } => ops_use_call(body, target),
     })
 }
 
@@ -9377,6 +9411,7 @@ fn ops_use_type_name(ops: &[NirOp]) -> bool {
             value_uses_type_name(iterable) || ops_use_type_name(body)
         }
         NirOp::Using { value, body, .. } => value_uses_type_name(value) || ops_use_type_name(body),
+        NirOp::Trap { body, .. } => ops_use_type_name(body),
     })
 }
 
@@ -9513,6 +9548,9 @@ fn collect_type_name_values_from_ops(ops: &[NirOp], values: &mut Vec<String>) {
             } => {
                 push_string_value(values, type_.clone());
                 collect_type_name_values_from_value(value, values);
+                collect_type_name_values_from_ops(body, values);
+            }
+            NirOp::Trap { body, .. } => {
                 collect_type_name_values_from_ops(body, values);
             }
         }
@@ -9736,6 +9774,13 @@ fn ops_use_unicode_runtime_tables(
                 body_constants.remove(name);
                 body_types.insert(name.clone(), type_.clone());
                 if ops_use_unicode_runtime_tables(body, &mut body_constants, &mut body_types) {
+                    return true;
+                }
+            }
+            NirOp::Trap { body, .. } => {
+                let mut trap_constants = constants.clone();
+                let mut trap_types = types.clone();
+                if ops_use_unicode_runtime_tables(body, &mut trap_constants, &mut trap_types) {
                     return true;
                 }
             }
@@ -10077,6 +10122,16 @@ fn collect_string_values_from_ops_with_constants(
                     values,
                     &mut body_constants,
                     &mut body_types,
+                );
+            }
+            NirOp::Trap { body, .. } => {
+                let mut trap_constants = constants.clone();
+                let mut trap_types = types.clone();
+                collect_string_values_from_ops_with_constants(
+                    body,
+                    values,
+                    &mut trap_constants,
+                    &mut trap_types,
                 );
             }
         }
@@ -10587,6 +10642,9 @@ fn collect_builtin_function_refs_in_ops(
             }
             NirOp::Using { value, body, .. } => {
                 collect_builtin_function_refs_in_value(value, refs, seen);
+                collect_builtin_function_refs_in_ops(body, refs, seen);
+            }
+            NirOp::Trap { body, .. } => {
                 collect_builtin_function_refs_in_ops(body, refs, seen);
             }
         }

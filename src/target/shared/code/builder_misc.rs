@@ -585,7 +585,11 @@ impl CodeBuilder<'_> {
             let ok_label = self.label("call_ok");
             self.emit(abi::compare_immediate(RESULT_TAG_REGISTER, RESULT_OK_TAG));
             self.emit(abi::branch_eq(&ok_label));
-            self.emit(abi::return_());
+            if self.trap.is_some() {
+                self.route_current_result_to_trap()?;
+            } else {
+                self.emit(abi::return_());
+            }
             self.emit(abi::label(&ok_label));
         }
         let register = self.allocate_register()?;
@@ -637,7 +641,11 @@ impl CodeBuilder<'_> {
         let ok_label = self.label("runtime_call_ok");
         self.emit(abi::compare_immediate(RESULT_TAG_REGISTER, RESULT_OK_TAG));
         self.emit(abi::branch_eq(&ok_label));
-        self.emit(abi::return_());
+        if self.trap.is_some() {
+            self.route_current_result_to_trap()?;
+        } else {
+            self.emit(abi::return_());
+        }
         self.emit(abi::label(&ok_label));
 
         if result_type == "Nothing" {
@@ -788,17 +796,108 @@ impl CodeBuilder<'_> {
     }
 
     pub(super) fn emit_error_return(&mut self, error: &NirValue) -> Result<(), String> {
-        let NirValue::Constructor { type_, args } = error else {
-            return Err("native code fail expects Error constructor".to_string());
-        };
-        if type_ != "Error" || args.len() != 2 {
-            return Err("native code fail expects Error[code, message]".to_string());
+        let error = self.lower_value(error)?;
+        if error.type_ != "Error" {
+            return Err(format!(
+                "native code fail expects Error value, got `{}`",
+                error.type_
+            ));
         }
-        let code = integer_constant_value(&args[0])
-            .ok_or_else(|| "native code fail expects constant Error code".to_string())?;
-        let message = string_constant_value(&args[1])
-            .ok_or_else(|| "native code fail expects constant Error message".to_string())?;
-        self.emit_error_code_return(&(code as u64).to_string(), message)
+        let code_register = self.allocate_register()?;
+        let message_register = self.allocate_register()?;
+        self.emit(abi::load_u64(&code_register, &error.location, 0));
+        self.emit(abi::load_u64(&message_register, &error.location, 8));
+        self.emit(abi::move_register(RESULT_VALUE_REGISTER, &code_register));
+        self.emit(abi::move_immediate(
+            RESULT_TAG_REGISTER,
+            "Integer",
+            RESULT_ERR_TAG,
+        ));
+        self.emit(abi::move_register(
+            RESULT_ERROR_MESSAGE_REGISTER,
+            &message_register,
+        ));
+        self.emit(abi::return_());
+        Ok(())
+    }
+
+    pub(super) fn route_error_value_to_trap(&mut self, error: &NirValue) -> Result<(), String> {
+        let error = self.lower_value(error)?;
+        if error.type_ != "Error" {
+            return Err(format!(
+                "trap routing expects Error value, got `{}`",
+                error.type_
+            ));
+        }
+        let (stack_offset, label) = self
+            .trap
+            .as_ref()
+            .and_then(|trap| {
+                self.locals
+                    .get(&trap.name)
+                    .map(|local| (local.stack_offset, trap.label.clone()))
+            })
+            .ok_or_else(|| "trap routing requires bound trap local".to_string())?;
+        self.emit(abi::store_u64(
+            &error.location,
+            abi::stack_pointer(),
+            stack_offset,
+        ));
+        self.emit(abi::branch(&label));
+        Ok(())
+    }
+
+    pub(super) fn route_current_result_to_trap(&mut self) -> Result<(), String> {
+        let code_slot = self.allocate_stack_object("trap_error_code", 8);
+        let message_slot = self.allocate_stack_object("trap_error_message", 8);
+        let error_slot = self.allocate_stack_object("trap_error", 8);
+        let alloc_ok = self.label("trap_error_alloc_ok");
+        let (stack_offset, label) = self
+            .trap
+            .as_ref()
+            .and_then(|trap| {
+                self.locals
+                    .get(&trap.name)
+                    .map(|local| (local.stack_offset, trap.label.clone()))
+            })
+            .ok_or_else(|| "trap routing requires bound trap local".to_string())?;
+
+        self.emit(abi::store_u64(
+            RESULT_VALUE_REGISTER,
+            abi::stack_pointer(),
+            code_slot,
+        ));
+        self.emit(abi::store_u64(
+            RESULT_ERROR_MESSAGE_REGISTER,
+            abi::stack_pointer(),
+            message_slot,
+        ));
+        self.emit(abi::move_immediate(abi::return_register(), "Integer", "16"));
+        self.emit(abi::move_immediate("x1", "Integer", "8"));
+        self.emit(abi::branch_link(ARENA_ALLOC_SYMBOL));
+        self.relocations.push(CodeRelocation {
+            from: self.current_symbol.clone(),
+            to: ARENA_ALLOC_SYMBOL.to_string(),
+            kind: "branch26".to_string(),
+            binding: "internal".to_string(),
+            library: None,
+        });
+        self.emit(abi::compare_immediate(
+            abi::return_register(),
+            RESULT_OK_TAG,
+        ));
+        self.emit(abi::branch_eq(&alloc_ok));
+        self.emit_allocation_error_return()?;
+        self.emit(abi::label(&alloc_ok));
+        self.emit(abi::store_u64("x1", abi::stack_pointer(), error_slot));
+        self.emit(abi::load_u64("x9", abi::stack_pointer(), code_slot));
+        self.emit(abi::store_u64("x9", "x1", 0));
+        self.emit(abi::load_u64("x9", abi::stack_pointer(), message_slot));
+        self.emit(abi::store_u64("x9", "x1", 8));
+        self.emit(abi::load_u64("x9", abi::stack_pointer(), error_slot));
+        self.emit(abi::store_u64("x9", abi::stack_pointer(), stack_offset));
+        self.emit(abi::branch(&label));
+        Ok(())
     }
 
     pub(super) fn load_string_address(&mut self, value: &str) -> Result<String, String> {
