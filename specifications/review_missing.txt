@@ -106,7 +106,7 @@ SPECIFICATION: specifications/threading.md @ §8 Control Block and §9 Queue Sem
 SPECIFICATION: specifications/mfbasic.md @ §19 Grammar (`doStmt`)
 The grammar allows `DO` blocks ending in `LOOP` with optional `UNTIL expr`, but the parser requires `LOOP UNTIL <condition>` and rejects a bare infinite `DO ... LOOP`. Resolve by either implementing the bare infinite-loop form through parser/typecheck/IR/native lowering, or tightening the grammar/spec if bare loops are not intended.
 
-REQUIREMENT: `math::piFloat` and `math::eFloat` names
+[FIXED] REQUIREMENT: `math::piFloat` and `math::eFloat` names
 SPECIFICATION: specifications/mfbasic.md @ §18 Built-in Functions and §20.1 Package Layering Example
 `mfbasic.md` lists and demonstrates `math::piFloat` and `math::eFloat`, but the compiler exports `math::pi` and `math::e` and rejects the `*Float` names. Resolve by updating `mfbasic.md` to match `standard_package.md` and the current compiler names.
 

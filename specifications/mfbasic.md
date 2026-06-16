@@ -1247,7 +1247,7 @@ Strings: `len`, `find`, `mid`, `replace`, `strings::trim`, `strings::trimStart`,
 Regex: `regex::match`, `regex::find`, `regex::replace`.
 Collections: `forEach`, `transform`, `filter`, `reduce`, `sum`, `get`, `getOr`, `find`, `mid`, `replace`, `set`, `append`, `prepend`, `insert`, `removeAt`, `removeKey`, `keys`, `values`, `hasKey`, `contains`, `len`.
 Threads: `thread::start`, `thread::isRunning`, `thread::waitFor`, `thread::cancel`, `thread::send`, `thread::poll`, `thread::read`, `thread::receive`, `thread::emit`, `thread::isCancelled`.
-Math: `math::piFloat`, `math::piFixed`, `math::eFloat`, `math::eFixed`, `math::abs`, `math::min`, `math::max`, `math::clamp`, `math::floor`, `math::ceil`, `math::round`, `math::sqrt`, `math::pow`, `math::exp`, `math::log`, `math::log10`, `math::sin`, `math::cos`, `math::tan`, `math::asin`, `math::acos`, `math::atan`, `math::atan2`.
+Math: `math::pi`, `math::piFixed`, `math::e`, `math::eFixed`, `math::abs`, `math::min`, `math::max`, `math::clamp`, `math::floor`, `math::ceil`, `math::round`, `math::sqrt`, `math::pow`, `math::exp`, `math::log`, `math::log10`, `math::sin`, `math::cos`, `math::tan`, `math::asin`, `math::acos`, `math::atan`, `math::atan2`.
 JSON: `json::parse`, `json::stringify`, `json::get`, `json::getOr`.
 Error codes: `errorCode::ErrInvalidArgument`, `errorCode::ErrNotFound`, and the other constants listed in the built-in error-code registry.
 
@@ -1479,7 +1479,7 @@ END UNION
 EXPORT FUNC area(s AS Shape) AS Float
   MATCH s
     CASE Circle(c)
-      RETURN math::piFloat * c.radius * c.radius
+      RETURN math::pi * c.radius * c.radius
 
     CASE Rect(r)
       RETURN r.w * r.h
