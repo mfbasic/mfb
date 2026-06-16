@@ -50,7 +50,7 @@ The lexer/parser have no `LINK`, `SYMBOL`, `ABI`, `SUCCESS_ON`, `ERROR_ON`, `RET
 SPECIFICATION: specifications/mfbasic.md @ §6 Functions and §14.4 Closures and first-class functions
 Lambdas are parsed and typed, but any capture of an outer `LET` currently reports “closure environments are not supported yet.” The spec requires closures to capture `LET` bindings by value while rejecting `MUT` and resource captures. Resolve by adding closure environment analysis, owned capture lowering, function-value representation, bytecode/native support, and diagnostics only for invalid mutable/resource/non-copyable captures.
 
-REQUIREMENT: Source ownership and move diagnostics
+[FIXED] REQUIREMENT: Source ownership and move diagnostics
 SPECIFICATION: specifications/mfbasic.md @ §14 Memory Semantics
 The source compiler does not implement the required ownership analysis for use-after-move, non-copyable values, resource/thread storage in ordinary collections, double-close/drop paths, or cyclic owned values. Resolve by adding flow-sensitive ownership states to type checking/IR, enforcing copy/move/freeze/resource rules before lowering, and preserving ownership metadata in packages.
 

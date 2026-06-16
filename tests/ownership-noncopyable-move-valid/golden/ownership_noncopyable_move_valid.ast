@@ -1,0 +1,52 @@
+{
+  "project": "ownership_noncopyable_move_valid",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "fs", "line": 1 },
+    { "module": "io", "line": 2 }
+    ],
+    "items": [
+    {
+      "kind": "type",
+      "visibility": "private",
+      "name": "FileBox",
+      "line": 4,
+      "fields": [
+      { "visibility": null, "name": "handle", "type": "File", "line": 5 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "closeBox",
+      "line": 8,
+      "params": [
+      { "name": "box", "type": "FileBox", "default": null }
+      ],
+      "returnType": "Nothing",
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "fs.close", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "box" }, "member": "handle" }] }, "line": 9 },
+      { "kind": "return", "value": { "kind": "identifier", "value": "NOTHING" }, "line": 10 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "main",
+      "line": 13,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "box", "type": "FileBox", "value": { "kind": "constructor", "type": "FileBox", "arguments": [{ "kind": "call", "callee": "fs.openFile", "arguments": [{ "kind": "string", "value": "tests/ownership-noncopyable-move-valid/src/main.mfb" }] }] }, "line": 14 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "closeBox", "arguments": [{ "kind": "identifier", "value": "box" }] }, "line": 15 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "moved" }] }, "line": 16 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 17 }
+      ]
+    }
+    ]
+  }
+  ]
+}

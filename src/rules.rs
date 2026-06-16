@@ -586,6 +586,24 @@ pub const RULES: &[Rule] = &[
         message: "USING requires a resource value",
     },
     Rule {
+        code: "2-203-0055",
+        name: "TYPE_USE_AFTER_MOVE",
+        severity: Severity::Error,
+        message: "binding is used after move",
+    },
+    Rule {
+        code: "2-203-0056",
+        name: "TYPE_COLLECTION_OWNERSHIP_VIOLATION",
+        severity: Severity::Error,
+        message: "ordinary collections cannot store resource or thread ownership",
+    },
+    Rule {
+        code: "2-203-0057",
+        name: "TYPE_DOUBLE_DROP_PATH",
+        severity: Severity::Error,
+        message: "control flow could drop the same owned value more than once",
+    },
+    Rule {
         code: "2-200-0011",
         name: "PROJECT_ENTRY_INVALID",
         severity: Severity::Error,

@@ -228,9 +228,14 @@ pub fn lower_project_with_external_functions(
     let ast = &augmented;
     let mut types = Vec::new();
     let mut functions = Vec::new();
-    let function_returns = function_returns(ast);
+    let mut function_returns = function_returns(ast);
     let mut function_types = function_types(ast);
     function_types.extend(external_function_types.clone());
+    for (name, type_) in external_function_types {
+        if let Some(return_type) = function_return_from_type(type_) {
+            function_returns.insert(name.clone(), return_type);
+        }
+    }
     let type_index = TypeIndex::new(ast);
     let mut context = LowerContext {
         function_returns: &function_returns,

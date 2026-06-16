@@ -1,0 +1,16 @@
+{
+  "name": "package_ownership_import_use_after_move_invalid",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "executable",
+  "sources": [{ "root": "src", "role": "main", "include": ["**/*.mfb"] }],
+  "packages": [
+    {
+      "name": "package_ownership_noncopyable",
+      "version": "=1.0.0",
+      "source": "file:packages/package_ownership_noncopyable.mfp"
+    }
+  ],
+  "entry": "main",
+  "targets": ["native"]
+}

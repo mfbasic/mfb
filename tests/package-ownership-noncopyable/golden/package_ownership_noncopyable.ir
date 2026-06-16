@@ -1,0 +1,43 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "package_ownership_noncopyable",
+  "entry": null,
+  "types": [
+  {
+    "kind": "type",
+    "visibility": "export",
+    "name": "FileBox",
+    "fields": [
+    { "visibility": null, "name": "handle", "type": "File" }
+    ]
+  }
+  ],
+  "functions": [
+  {
+    "name": "makeBox",
+    "visibility": "export",
+    "kind": "func",
+    "params": [
+    { "name": "path", "type": "String", "default": null }
+    ],
+    "returns": "FileBox",
+    "body": [
+    { "op": "return", "value": { "kind": "constructor", "type": "FileBox", "args": [{ "kind": "call", "target": "fs.openFile", "args": [{ "kind": "local", "name": "path" }] }] } }
+    ]
+  },
+  {
+    "name": "closeBox",
+    "visibility": "export",
+    "kind": "func",
+    "params": [
+    { "name": "box", "type": "FileBox", "default": null }
+    ],
+    "returns": "Nothing",
+    "body": [
+    { "op": "eval", "value": { "kind": "call", "target": "fs.close", "args": [{ "kind": "memberAccess", "target": { "kind": "local", "name": "box" }, "member": "handle" }] } },
+    { "op": "return", "value": { "kind": "const", "type": "Nothing", "value": "NOTHING" } }
+    ]
+  }
+  ]
+}

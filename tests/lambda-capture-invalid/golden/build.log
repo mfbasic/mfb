@@ -11,6 +11,12 @@ tests/lambda-capture-invalid/src/main.mfb:9 error[2-203-0019 TYPE_LAMBDA_CAPTURE
      | ^
 tests/lambda-capture-invalid/src/main.mfb:12 error[2-203-0019 TYPE_LAMBDA_CAPTURE_UNSUPPORTED]: lambda capture is invalid
                Lambda captures resource local `file`; resource captures are invalid.
+  14 | 
+  15 |   USING file2 = fs::openFile("tests/lambda-capture-invalid/data/input.txt")
+  16 |     LET boxed AS FileBox = FileBox[file2]
+     | ^
+tests/lambda-capture-invalid/src/main.mfb:16 error[2-203-0057 TYPE_DOUBLE_DROP_PATH]: control flow could drop the same owned value more than once
+               Binding `file2` is cleaned up automatically at scope exit and cannot be consumed inside this scope.
   15 |   USING file2 = fs::openFile("tests/lambda-capture-invalid/data/input.txt")
   16 |     LET boxed AS FileBox = FileBox[file2]
   17 |     LET badNonCopyable AS FUNC() AS FileBox = LAMBDA() -> boxed
@@ -31,6 +37,12 @@ tests/lambda-capture-invalid/src/main.mfb:9 error[2-203-0019 TYPE_LAMBDA_CAPTURE
      | ^
 tests/lambda-capture-invalid/src/main.mfb:12 error[2-203-0019 TYPE_LAMBDA_CAPTURE_UNSUPPORTED]: lambda capture is invalid
                Lambda captures resource local `file`; resource captures are invalid.
+  14 | 
+  15 |   USING file2 = fs::openFile("tests/lambda-capture-invalid/data/input.txt")
+  16 |     LET boxed AS FileBox = FileBox[file2]
+     | ^
+tests/lambda-capture-invalid/src/main.mfb:16 error[2-203-0057 TYPE_DOUBLE_DROP_PATH]: control flow could drop the same owned value more than once
+               Binding `file2` is cleaned up automatically at scope exit and cannot be consumed inside this scope.
   15 |   USING file2 = fs::openFile("tests/lambda-capture-invalid/data/input.txt")
   16 |     LET boxed AS FileBox = FileBox[file2]
   17 |     LET badNonCopyable AS FUNC() AS FileBox = LAMBDA() -> boxed

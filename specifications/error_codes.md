@@ -189,6 +189,9 @@ These codes correspond to `src/rules.rs` and are emitted directly by the compile
 | `2-203-0052` | `TYPE_MAP_KEY_MISMATCH` | error | `map key type does not match the declared key type` |
 | `2-203-0053` | `TYPE_MAP_VALUE_MISMATCH` | error | `map value type does not match the declared value type` |
 | `2-203-0054` | `TYPE_USING_REQUIRES_RESOURCE` | error | `USING requires a resource value` |
+| `2-203-0055` | `TYPE_USE_AFTER_MOVE` | error | `binding is used after move` |
+| `2-203-0056` | `TYPE_COLLECTION_OWNERSHIP_VIOLATION` | error | `ordinary collections cannot store resource or thread ownership` |
+| `2-203-0057` | `TYPE_DOUBLE_DROP_PATH` | error | `control flow could drop the same owned value more than once` |
 
 ## Toolchain and Package Diagnostics
 

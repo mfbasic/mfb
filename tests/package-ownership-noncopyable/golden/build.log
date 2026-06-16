@@ -1,0 +1,6 @@
+$ mfb build -ast tests/package-ownership-noncopyable
+Wrote AST to tests/package-ownership-noncopyable/package_ownership_noncopyable.ast
+[exit 0]
+$ mfb build -ir tests/package-ownership-noncopyable
+Wrote IR to tests/package-ownership-noncopyable/package_ownership_noncopyable.ir
+[exit 0]

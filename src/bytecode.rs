@@ -341,6 +341,35 @@ pub struct BytecodeExportParam {
     pub has_default: bool,
 }
 
+#[derive(Clone)]
+pub struct BytecodeTypeExport {
+    pub name: String,
+    pub kind: BytecodeExportKind,
+    pub fields: Vec<BytecodeTypeField>,
+    pub variants: Vec<BytecodeTypeVariant>,
+    pub members: Vec<String>,
+}
+
+#[derive(Clone)]
+pub struct BytecodeTypeField {
+    pub name: String,
+    pub type_: String,
+    pub visibility: BytecodeTypeVisibility,
+}
+
+#[derive(Clone)]
+pub struct BytecodeTypeVariant {
+    pub name: String,
+    pub fields: Vec<BytecodeTypeField>,
+}
+
+#[derive(Clone, Copy, Eq, PartialEq)]
+pub enum BytecodeTypeVisibility {
+    Private,
+    Package,
+    Export,
+}
+
 pub struct BytecodePackageInfo {
     pub manifest_name: String,
     pub manifest_ident: String,
@@ -676,6 +705,12 @@ pub fn read_package_exports(path: &Path) -> Result<Vec<BytecodeExport>, String> 
 pub fn read_package_info(path: &Path) -> Result<BytecodePackageInfo, String> {
     let package = read_package_bytecode(path)?;
     package_info(&package).map_err(|err| format!("failed to read '{}': {err}", path.display()))
+}
+
+pub fn read_package_type_exports(path: &Path) -> Result<Vec<BytecodeTypeExport>, String> {
+    let package = read_package_bytecode(path)?;
+    package_type_exports(&package)
+        .map_err(|err| format!("failed to read '{}': {err}", path.display()))
 }
 
 pub fn read_package_native_exports(path: &Path) -> Result<Vec<NativePackageExport>, String> {
@@ -1061,6 +1096,137 @@ fn package_info(package: &PackageBytecode) -> Result<BytecodePackageInfo, String
         abi_format_version: ABI_FORMAT_VERSION,
         exports,
         imports,
+    })
+}
+
+fn package_type_exports(package: &PackageBytecode) -> Result<Vec<BytecodeTypeExport>, String> {
+    let type_names = type_entry_names(&package.project.types, &package.project.strings.values)?;
+    let type_by_name = package
+        .project
+        .types
+        .entries
+        .iter()
+        .enumerate()
+        .filter_map(|(index, entry)| {
+            let id = FIRST_TABLE_TYPE_ID + index as u32;
+            type_name(&type_names, id)
+                .ok()
+                .map(|name| (name.to_string(), entry))
+        })
+        .collect::<HashMap<_, _>>();
+    let mut exports = Vec::new();
+    for export in &package.project.abi.exports {
+        if !matches!(
+            export.kind,
+            BytecodeExportKind::Type | BytecodeExportKind::Union | BytecodeExportKind::Enum
+        ) {
+            continue;
+        }
+        let name = string_at(&package.project.strings.values, export.name)?.to_string();
+        let Some(entry) = type_by_name.get(&name) else {
+            return Err(format!("exported type `{name}` is missing from the type table"));
+        };
+        exports.push(decode_type_export(
+            &name,
+            export.kind,
+            entry,
+            &type_names,
+            &package.project.strings.values,
+        )?);
+    }
+    Ok(exports)
+}
+
+fn decode_type_export(
+    name: &str,
+    kind: BytecodeExportKind,
+    entry: &TypeEntry,
+    type_names: &HashMap<u32, String>,
+    strings: &[String],
+) -> Result<BytecodeTypeExport, String> {
+    let mut offset = 0usize;
+    let (fields, variants, members) = match kind {
+        BytecodeExportKind::Type => {
+            let field_count = cursor_u32(&entry.payload, &mut offset)? as usize;
+            let mut fields = Vec::with_capacity(field_count);
+            for _ in 0..field_count {
+                fields.push(decode_type_field(&entry.payload, &mut offset, type_names, strings)?);
+            }
+            (fields, Vec::new(), Vec::new())
+        }
+        BytecodeExportKind::Union => {
+            let variant_count = cursor_u32(&entry.payload, &mut offset)? as usize;
+            let mut variants = Vec::with_capacity(variant_count);
+            for _ in 0..variant_count {
+                let variant_name = string_at(strings, cursor_u32(&entry.payload, &mut offset)?)?
+                    .to_string();
+                let field_count = cursor_u32(&entry.payload, &mut offset)? as usize;
+                let mut fields = Vec::with_capacity(field_count);
+                for _ in 0..field_count {
+                    let field_name =
+                        string_at(strings, cursor_u32(&entry.payload, &mut offset)?)?.to_string();
+                    let field_type =
+                        type_name(type_names, cursor_u32(&entry.payload, &mut offset)?)?
+                            .to_string();
+                    fields.push(BytecodeTypeField {
+                        name: field_name,
+                        type_: field_type,
+                        visibility: BytecodeTypeVisibility::Export,
+                    });
+                }
+                variants.push(BytecodeTypeVariant {
+                    name: variant_name,
+                    fields,
+                });
+            }
+            (Vec::new(), variants, Vec::new())
+        }
+        BytecodeExportKind::Enum => {
+            let member_count = cursor_u32(&entry.payload, &mut offset)? as usize;
+            let mut members = Vec::with_capacity(member_count);
+            for _ in 0..member_count {
+                members.push(
+                    string_at(strings, cursor_u32(&entry.payload, &mut offset)?)?.to_string(),
+                );
+                let _ordinal = cursor_u32(&entry.payload, &mut offset)?;
+            }
+            (Vec::new(), Vec::new(), members)
+        }
+        BytecodeExportKind::Func | BytecodeExportKind::Sub => {
+            return Err(format!("export `{name}` is not a type export"));
+        }
+    };
+    if offset != entry.payload.len() {
+        return Err(format!("exported type `{name}` has trailing payload bytes"));
+    }
+    Ok(BytecodeTypeExport {
+        name: name.to_string(),
+        kind,
+        fields,
+        variants,
+        members,
+    })
+}
+
+fn decode_type_field(
+    payload: &[u8],
+    offset: &mut usize,
+    type_names: &HashMap<u32, String>,
+    strings: &[String],
+) -> Result<BytecodeTypeField, String> {
+    let name = string_at(strings, cursor_u32(payload, offset)?)?.to_string();
+    let type_ = type_name(type_names, cursor_u32(payload, offset)?)?.to_string();
+    let visibility = match cursor_u32(payload, offset)? {
+        0 => BytecodeTypeVisibility::Export,
+        1 => BytecodeTypeVisibility::Private,
+        2 => BytecodeTypeVisibility::Package,
+        3 => BytecodeTypeVisibility::Export,
+        other => return Err(format!("unsupported type field visibility {other}")),
+    };
+    Ok(BytecodeTypeField {
+        name,
+        type_,
+        visibility,
     })
 }
 

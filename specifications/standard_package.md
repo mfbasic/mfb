@@ -135,6 +135,8 @@ String length, search, substring, and regex indexes are zero-based Unicode scala
 
 Collection callback parameters accept named functions, `SUB` values where `FUNC(... ) AS Nothing` is expected, and lambdas or closures that satisfy the language closure rules. Ordinary closures may capture only copyable `LET` bindings by value; capturing `MUT`, resource, or other non-copyable values is a compile-time error.
 
+Ordinary `List` and `Map` values do not accept element, key, or value types that directly or transitively contain a resource handle or `Thread` handle. Ownership analysis rejects those collection instantiations before lowering.
+
 When absence is expected, handle `find` with `MATCH`:
 
 ```basic

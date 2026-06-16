@@ -1,0 +1,16 @@
+$ mfb build -ast tests/ownership-using-double-close-invalid
+   3 | FUNC main AS Integer
+   4 |   USING file = fs::openFile("tests/ownership-using-double-close-invalid/src/main.mfb")
+   5 |     fs::close(file)
+     | ^
+tests/ownership-using-double-close-invalid/src/main.mfb:5 error[2-203-0057 TYPE_DOUBLE_DROP_PATH]: control flow could drop the same owned value more than once
+               Binding `file` is cleaned up automatically at scope exit and cannot be consumed inside this scope.
+[exit 1]
+$ mfb build -ir tests/ownership-using-double-close-invalid
+   3 | FUNC main AS Integer
+   4 |   USING file = fs::openFile("tests/ownership-using-double-close-invalid/src/main.mfb")
+   5 |     fs::close(file)
+     | ^
+tests/ownership-using-double-close-invalid/src/main.mfb:5 error[2-203-0057 TYPE_DOUBLE_DROP_PATH]: control flow could drop the same owned value more than once
+               Binding `file` is cleaned up automatically at scope exit and cannot be consumed inside this scope.
+[exit 1]

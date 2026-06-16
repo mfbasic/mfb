@@ -1,0 +1,6 @@
+IMPORT fs
+
+FUNC main AS Integer
+  LET handles AS List OF File = [fs::openFile("tests/ownership-collection-resource-invalid/src/main.mfb")]
+  RETURN len(handles)
+END FUNC

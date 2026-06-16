@@ -1,0 +1,6 @@
+$ mfb build -ast tests/ownership-noncopyable-move-valid
+Wrote AST to tests/ownership-noncopyable-move-valid/ownership_noncopyable_move_valid.ast
+[exit 0]
+$ mfb build -ir tests/ownership-noncopyable-move-valid
+Wrote IR to tests/ownership-noncopyable-move-valid/ownership_noncopyable_move_valid.ir
+[exit 0]

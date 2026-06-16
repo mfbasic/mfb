@@ -1012,6 +1012,7 @@ The compiler must diagnose:
 - Any control-flow path that could drop the same resource or owned value more than once.
 
 `.mfp` packages must preserve enough ownership metadata for import-time type checking and bytecode verification (§21).
+At minimum, exported type shape metadata must remain sufficient to reconstruct copyability, resource/thread containment, and drop-sensitive ownership checks when imported packages participate in move analysis.
 
 ---
 

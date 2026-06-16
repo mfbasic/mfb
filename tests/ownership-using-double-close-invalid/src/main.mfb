@@ -1,0 +1,8 @@
+IMPORT fs
+
+FUNC main AS Integer
+  USING file = fs::openFile("tests/ownership-using-double-close-invalid/src/main.mfb")
+    fs::close(file)
+  END USING
+  RETURN 0
+END FUNC
