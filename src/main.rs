@@ -1692,7 +1692,16 @@ fn validate_kind(
     contents: &str,
 ) -> bool {
     let Some(value) = manifest.get("kind") else {
-        return true;
+        let (line, column) = fallback_field_position(contents);
+        rules::show_diagnostic(
+            "PROJECT_JSON_REQUIRED_FIELD",
+            "Required field `kind` is missing.",
+            project_path,
+            line,
+            column,
+            column + 1,
+        );
+        return false;
     };
 
     let (line, column) = field_position(contents, "kind");
@@ -1727,7 +1736,7 @@ fn project_kind(manifest: &HashMap<String, JsonValue>) -> &str {
         .get("kind")
         .and_then(|value| value.get::<String>())
         .map(String::as_str)
-        .unwrap_or("executable")
+        .expect("validated project manifests must include a string `kind` field")
 }
 
 fn entry_point(manifest: &HashMap<String, JsonValue>) -> &str {
@@ -2485,6 +2494,29 @@ mod tests {
         let ast = ast::parse_project("app", &project_dir, &manifest).expect("ast");
 
         assert!(validate_entry_point(&project_dir, &manifest, &ast).is_err());
+
+        fs::remove_dir_all(root).expect("remove temp dir");
+    }
+
+    #[test]
+    fn validate_project_manifest_rejects_missing_kind() {
+        let root = test_temp_dir("validate_project_manifest_rejects_missing_kind");
+        let project_dir = root.join("app");
+        fs::create_dir_all(&project_dir).expect("project dir");
+        fs::write(
+            project_dir.join("project.json"),
+            concat!(
+                "{\n",
+                "  \"name\": \"app\",\n",
+                "  \"version\": \"0.1.0\",\n",
+                "  \"mfb\": \"1.0\",\n",
+                "  \"sources\": [{ \"root\": \"src\" }]\n",
+                "}\n"
+            ),
+        )
+        .expect("project manifest");
+
+        assert!(validate_project_manifest(&project_dir.join("project.json")).is_err());
 
         fs::remove_dir_all(root).expect("remove temp dir");
     }

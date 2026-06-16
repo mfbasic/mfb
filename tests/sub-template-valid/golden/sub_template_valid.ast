@@ -1,0 +1,40 @@
+{
+  "project": "sub_template_valid",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 }
+    ],
+    "items": [
+    {
+      "kind": "sub",
+      "visibility": "private",
+      "name": "consume",
+      "templateParams": ["T"],
+      "line": 3,
+      "params": [
+      { "name": "value", "type": "T", "default": null }
+      ],
+      "returnType": null,
+      "body": [
+      ]
+    },
+    {
+      "kind": "sub",
+      "visibility": "private",
+      "name": "main",
+      "line": 6,
+      "params": [
+      ],
+      "returnType": null,
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "consume", "arguments": [{ "kind": "number", "value": "42" }] }, "line": 7 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "consume", "arguments": [{ "kind": "string", "value": "ok" }] }, "line": 8 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "ok" }] }, "line": 9 }
+      ]
+    }
+    ]
+  }
+  ]
+}

@@ -139,7 +139,7 @@ SPECIFICATION: specifications/mfbasic.md @ §3 Templates
 Template parameters may appear only on `TYPE`, `UNION`, and `FUNC` declarations, but the parser accepts `OF ...` template parameters on both `FUNC` and `SUB` because it parses template parameters for all function-like declarations. Resolve update the spec to allow templates with SUBs.
 
 
-REQUIREMENT: Project kind inference
+[FIXED] REQUIREMENT: Project kind inference
 SPECIFICATION: specifications/project.md @ §5 Project Kind
 When `kind` is omitted, the spec requires the tool to infer `executable` only when the selected source package contains a valid entry point, and infer `package` otherwise. The compiler currently defaults omitted `kind` to `executable`, so a package-style project without `"kind": "package"` fails entry-point validation instead of building as a package. Resolve by requiring `kind` in the package.json, update the spec and compiler.
 

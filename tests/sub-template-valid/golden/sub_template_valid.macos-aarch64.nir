@@ -1,0 +1,56 @@
+{
+  "format": "mfb-nir",
+  "version": 1,
+  "target": "macos-aarch64",
+  "project": "sub_template_valid",
+  "entry": {
+    "name": "main",
+    "returns": "Nothing",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "imports": [
+  ],
+  "runtimeHelpers": ["io"],
+  "functions": [
+  {
+    "name": "main",
+    "visibility": "private",
+    "kind": "sub",
+    "isolated": false,
+    "params": [
+    ],
+    "returns": "Nothing",
+    "body": [
+    { "op": "eval", "value": { "kind": "call", "target": "consume$Integer", "args": [{ "kind": "const", "type": "Integer", "value": "42" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "consume$String", "args": [{ "kind": "const", "type": "String", "value": "ok" }] } },
+    { "op": "eval", "value": { "kind": "runtimeCall", "helper": "io", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "ok" }] } }
+    ]
+  },
+  {
+    "name": "consume$Integer",
+    "visibility": "private",
+    "kind": "sub",
+    "isolated": false,
+    "params": [
+    { "name": "value", "type": "Integer", "default": null }
+    ],
+    "returns": "Nothing",
+    "body": [
+    ]
+  },
+  {
+    "name": "consume$String",
+    "visibility": "private",
+    "kind": "sub",
+    "isolated": false,
+    "params": [
+    { "name": "value", "type": "String", "default": null }
+    ],
+    "returns": "Nothing",
+    "body": [
+    ]
+  }
+  ]
+}

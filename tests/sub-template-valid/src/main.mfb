@@ -1,0 +1,10 @@
+IMPORT io
+
+SUB consume OF T(value AS T)
+END SUB
+
+SUB main()
+  consume(42)
+  consume("ok")
+  io::print("ok")
+END SUB

@@ -1,0 +1,63 @@
+{
+  "format": "mfb-native-plan",
+  "version": 1,
+  "target": "macos-aarch64",
+  "project": "sub_template_valid",
+  "entrySymbol": "_mfb_fn_main",
+  "runtimeSymbols": ["_mfb_rt_io_io_print"],
+  "externalSymbols": [],
+  "platformImports": [
+  { "library": "libSystem", "symbol": "_exit", "requiredBy": "_main" },
+  { "library": "libSystem", "symbol": "_write", "requiredBy": "_main" },
+  { "library": "libSystem", "symbol": "_write", "requiredBy": "_mfb_rt_io_io_print" }
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "symbol": "_mfb_fn_main",
+    "returns": { "name": "Nothing", "class": "void", "size": 0, "align": 1 },
+    "params": [
+    ],
+    "localSlots": [
+    ],
+    "labels": [
+    ],
+    "operations": ["eval call consume$Integer(Integer(42))", "eval call consume$String(String(ok))", "eval runtimeCall io io.print(String(ok))"],
+    "calls": [
+    { "target": "consume$Integer", "symbol": "_mfb_fn_consume_Integer", "kind": "local", "stringLiterals": [] },
+    { "target": "consume$String", "symbol": "_mfb_fn_consume_String", "kind": "local", "stringLiterals": [] },
+    { "target": "io.print", "symbol": "_mfb_rt_io_io_print", "kind": "runtime", "stringLiterals": ["ok"] }
+    ]
+  },
+  {
+    "name": "consume$Integer",
+    "symbol": "_mfb_fn_consume_Integer",
+    "returns": { "name": "Nothing", "class": "void", "size": 0, "align": 1 },
+    "params": [
+    { "name": "value", "storage": { "name": "Integer", "class": "integer", "size": 8, "align": 8 } }
+    ],
+    "localSlots": [
+    ],
+    "labels": [
+    ],
+    "operations": ["noOp"],
+    "calls": [
+    ]
+  },
+  {
+    "name": "consume$String",
+    "symbol": "_mfb_fn_consume_String",
+    "returns": { "name": "Nothing", "class": "void", "size": 0, "align": 1 },
+    "params": [
+    { "name": "value", "storage": { "name": "String", "class": "reference", "size": 8, "align": 8 } }
+    ],
+    "localSlots": [
+    ],
+    "labels": [
+    ],
+    "operations": ["noOp"],
+    "calls": [
+    ]
+  }
+  ]
+}

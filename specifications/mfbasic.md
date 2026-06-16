@@ -45,7 +45,7 @@ Identifiers are case-sensitive, so `userId` and `userid` are distinct. Tooling s
 
 MFBASIC supports monomorphized templates, not runtime generics.
 
-Template parameters may appear only on `TYPE`, `UNION`, and `FUNC` declarations. A template is not a runtime entity and is not emitted to bytecode as an open declaration. Every used instantiation is resolved during compilation into a concrete declaration before IR, bytecode, package metadata, or native lowering is produced.
+Template parameters may appear only on `TYPE`, `UNION`, `FUNC`, and `SUB` declarations. A template is not a runtime entity and is not emitted to bytecode as an open declaration. Every used instantiation is resolved during compilation into a concrete declaration before IR, bytecode, package metadata, or native lowering is produced.
 
 Built-in type constructors such as `List`, `Map`, `Result`, and `Thread` are compiler-owned templates. User code may define templates with the same `OF` syntax where allowed:
 
@@ -57,6 +57,10 @@ END TYPE
 FUNC push OF T(s AS Stack OF T, value AS T) AS Stack OF T
   RETURN WITH s { items := append(s.items, value) }
 END FUNC
+
+SUB printValue OF T(value AS T)
+  io::print(toString(value))
+END SUB
 ```
 
 Template arguments are inferred only from explicit argument, parameter, field, and expected result types by simple unification. There is no general inference engine, no trait system, no variance, no higher-kinded types, no boxing, and no runtime template dispatch.
@@ -1292,7 +1296,7 @@ topMutDecl     = declVis "MUT" ident [ "AS" type ] [ "=" expr ] ;
 
 funcDecl       = declVis funcIso "FUNC" ident [ templateParams ] "(" [ params ] ")" "AS" type
                    block [ trap ] "END" "FUNC" ;
-subDecl        = declVis "SUB" ident "(" [ params ] ")"
+subDecl        = declVis "SUB" ident [ templateParams ] "(" [ params ] ")"
                    block [ trap ] "END" "SUB" ;
 trap           = "TRAP" ident block "END" "TRAP" ;
 

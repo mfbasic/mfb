@@ -1,0 +1,14 @@
+{
+  "name": "project_kind_missing",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "sources": [
+    {
+      "root": "src",
+      "role": "main",
+      "include": ["**/*.mfb"]
+    }
+  ],
+  "entry": "main",
+  "targets": ["native"]
+}

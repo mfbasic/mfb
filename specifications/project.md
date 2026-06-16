@@ -81,6 +81,7 @@ The project manifest is an authoring file. It is not embedded verbatim in `.mfp`
 | `ident` | string | Registry identity `<owner>#<package>` for published packages. |
 | `version` | string | Semantic version `MAJOR.MINOR.PATCH`. |
 | `mfb` | string | Minimum compatible MFBASIC language version. |
+| `kind` | string | Primary build intent: `executable` or `package`. |
 | `sources` | array | Source entries included in the project. |
 
 The `name` field must use the same identifier restrictions as MFBASIC package names. It is the name used by `IMPORT name` in source code and by compiled `.mfp` package manifests. It is not globally unique and is not sufficient to resolve a registry dependency.
@@ -132,14 +133,14 @@ Tools may copy `name`, `ident`, `version`, `author`, and `url` into `.mfp` packa
 
 ## 5. Project Kind
 
-The optional `kind` field declares the primary build intent:
+The required `kind` field declares the primary build intent:
 
 | Value | Meaning |
 | ----- | ------- |
 | `package` | Build a reusable `.mfp` package. |
 | `executable` | Build a native executable with an entry point named by `entry`, defaulting to `main`. |
 
-If omitted, `kind` defaults to `executable` when a selected source package contains a valid entry point named by `entry` or by the default name `main`, and to `package` otherwise. Build tools should warn when inference is ambiguous.
+Build tools must reject a manifest that omits `kind`. They must not infer `executable` or `package` from the presence or absence of an entry point.
 
 For `executable` projects, `entry` defaults to `"main"`. The entry point names a root-package declaration with one of the accepted executable signatures:
 
@@ -288,6 +289,7 @@ Built-in standard packages may require platform baseline libraries without user 
 | Field | Type | Meaning |
 | ----- | ---- | ------- |
 | `targets` | array of strings | Requested build targets such as `native`, `bytecode`, or platform triples. |
+| `kind` | string | Required project kind: `executable` or `package`. |
 | `entry` | string | Executable entry point symbol, defaulting to `main`. |
 | `build` | object | Toolchain-specific build settings. |
 
