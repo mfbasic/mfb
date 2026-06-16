@@ -1,0 +1,15 @@
+{
+  "name": "project_sources_overlap_error",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "package",
+  "sources": [
+    {
+      "root": "src",
+      "include": ["**/*.mfb"]
+    },
+    {
+      "root": "src/main.mfb"
+    }
+  ]
+}

@@ -888,7 +888,7 @@ declarations are not inherited from importers and imports are not transitive.
 
 ### 13.1 Package identity, versions, and manifests
 
-A package has a stable identity independent of its local directory name. Source projects declare identity, source inputs, and dependencies in a project manifest file named `project.json` at the project root. Compiled packages embed the relevant manifest data in the `.mfp` file.
+A package has a stable identity independent of its local directory name. Source projects declare identity, source inputs, and dependencies in a project manifest file named `project.json` at the project root. Source selection follows the manifest's normalized file and directory roots, include and exclude globs, and in-project containment rules. Compiled packages embed the relevant manifest data in the `.mfp` file.
 
 Required manifest fields:
 

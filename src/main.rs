@@ -1601,9 +1601,51 @@ fn validate_sources(
         if !validate_required_string(source, project_path, contents, "root") {
             valid = false;
         }
+        if !validate_source_pattern_field(source, project_path, contents, index, "include") {
+            valid = false;
+        }
+        if !validate_source_pattern_field(source, project_path, contents, index, "exclude") {
+            valid = false;
+        }
     }
 
     valid
+}
+
+fn validate_source_pattern_field(
+    source: &HashMap<String, JsonValue>,
+    project_path: &Path,
+    contents: &str,
+    index: usize,
+    field: &str,
+) -> bool {
+    let Some(value) = source.get(field) else {
+        return true;
+    };
+    let (line, column) = field_position(contents, field);
+    let Some(patterns) = value.get::<Vec<JsonValue>>() else {
+        rules::show_diagnostic(
+            "PROJECT_JSON_FIELD_TYPE",
+            &format!("Source entry #{index} field `{field}` must be an array of strings."),
+            project_path,
+            line,
+            column,
+            column + field.len() + 2,
+        );
+        return false;
+    };
+    if patterns.iter().all(|pattern| pattern.get::<String>().is_some()) {
+        return true;
+    }
+    rules::show_diagnostic(
+        "PROJECT_JSON_FIELD_TYPE",
+        &format!("Source entry #{index} field `{field}` must be an array of strings."),
+        project_path,
+        line,
+        column,
+        column + field.len() + 2,
+    );
+    false
 }
 
 fn validate_kind(

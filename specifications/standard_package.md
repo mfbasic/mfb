@@ -580,4 +580,6 @@ The master registry in [error_codes.md](./error_codes.md) is the only normative 
 - Compiler diagnostic rule codes
 - Toolchain and package-manager diagnostics
 
+Project source-discovery failures such as selected-file overlaps and outside-project path resolution use those registered compiler diagnostic codes rather than runtime `Error` values.
+
 Runtime `Error` values produced by the standard package should use the runtime registry entries where possible. Compiler and toolchain codes are diagnostics; they are not normally produced by running MFBASIC programs.

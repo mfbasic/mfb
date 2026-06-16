@@ -6,11 +6,11 @@ REQUIREMENT: Net and TLS packages
 SPECIFICATION: specifications/standard_package.md @ §11 Built-in Net Package and §10.4 TLS Package
 The compiler has no `net` or `tls` built-in package registration, type support, resolver support, runtime helpers, or native lowering for the specified socket/TLS APIs. Resolve by adding builtin modules for `net` and `tls`, resource types/tables, runtime helper implementations, native linker requirements, and end-to-end runtime tests.
 
-REQUIREMENT: `MATCH` destructuring, guards, literal lists, and raw `Result` call matching
+[FIXED] REQUIREMENT: `MATCH` destructuring, guards, literal lists, and raw `Result` call matching
 SPECIFICATION: specifications/mfbasic.md @ §8.4 Capturing a `Result` for local handling (`MATCH`) and §9 Pattern Matching
 `MATCH` currently stores each `CASE` as either `ELSE` or one expression, so destructuring patterns like `CASE Ok(v)`, `CASE Circle(r)`, comma-separated literal lists, and `WHEN` guards are not implemented as specified. Direct-call scrutinees are also inferred as the unwrapped success type instead of raw `Result`. Resolve by adding real pattern AST nodes, parser support for bindings/guards/lists, typechecking for narrowed bindings and exhaustiveness, and IR/lowering support for direct `Result` matching.
 
-REQUIREMENT: `TRAP`/`PROPAGATE` error routing
+[FIXED] REQUIREMENT: `TRAP`/`PROPAGATE` error routing
 SPECIFICATION: specifications/mfbasic.md @ §8 Error Model — Implicit `Result`, One `TRAP` per Function
 The spec requires calls and `FAIL` to route `Err` values to the enclosing `TRAP`, and `PROPAGATE` to be valid inside a trap. The current typechecker reports `PROPAGATE` as invalid everywhere, and lowering does not preserve the actual trapped error flow. Resolve by carrying trap context through typecheck/IR/native lowering, binding the current `Error`, allowing `PROPAGATE` only in trap bodies, enforcing trap placement/count, and routing auto-propagated call errors into trap cleanup.
 
@@ -18,7 +18,7 @@ REQUIREMENT: `mfb.lock` install/update workflow
 SPECIFICATION: specifications/lockfile.md @ Modes
 The tool supports `pkg add/info/verify`, but not the specified `mfb pkg install`, `mfb pkg install --frozen`, lockfile generation/consumption, or `mfb pkg update [ident]`. Executable builds also do not write or consume `mfb.lock`. Resolve by implementing deterministic lockfile read/write, dependency resolution, hash/signature verification, frozen-mode checks, and build integration.
 
-REQUIREMENT: Source `include` and `exclude` patterns
+[FIXED] REQUIREMENT: Source `include` and `exclude` patterns
 SPECIFICATION: specifications/project.md @ §6 Sources
 Source discovery reads only each source root and recursively includes every `.mfb` file; it ignores the specified `include` and `exclude` glob fields. Resolve by implementing normalized in-project source selection with include/exclude glob matching, overlap diagnostics, symlink containment checks, and tests for file roots and directory roots.
 

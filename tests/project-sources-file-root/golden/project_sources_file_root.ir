@@ -1,0 +1,20 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "project_sources_file_root",
+  "entry": null,
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "onlyFile",
+    "visibility": "export",
+    "kind": "sub",
+    "params": [
+    ],
+    "returns": "Nothing",
+    "body": [
+    ]
+  }
+  ]
+}

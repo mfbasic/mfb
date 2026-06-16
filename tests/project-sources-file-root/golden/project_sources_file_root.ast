@@ -1,0 +1,23 @@
+{
+  "project": "project_sources_file_root",
+  "files": [
+  {
+    "path": "src/only.mfb",
+    "imports": [
+    ],
+    "items": [
+    {
+      "kind": "sub",
+      "visibility": "export",
+      "name": "onlyFile",
+      "line": 1,
+      "params": [
+      ],
+      "returnType": null,
+      "body": [
+      ]
+    }
+    ]
+  }
+  ]
+}

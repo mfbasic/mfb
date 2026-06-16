@@ -99,6 +99,8 @@ These codes correspond to `src/rules.rs` and are emitted directly by the compile
 | `1-100-0001` | `MFB_SOURCE_READ_FAILED` | error | `MFBASIC source could not be read` |
 | `1-100-0002` | `MFB_SOURCE_ROOT_MISSING` | error | `MFBASIC source root does not exist` |
 | `1-100-0003` | `MFB_SOURCE_EMPTY` | error | `MFBASIC source root contains no source files` |
+| `1-100-0004` | `MFB_SOURCE_OUTSIDE_PROJECT` | error | `MFBASIC source path resolves outside the project directory` |
+| `1-100-0005` | `MFB_SOURCE_OVERLAP` | error | `MFBASIC source file is selected by more than one source entry` |
 | `1-101-0001` | `MFB_LEX_UNEXPECTED_CHARACTER` | error | `lexer found an unexpected character` |
 | `1-101-0002` | `MFB_LEX_UNTERMINATED_STRING` | error | `string literal is unterminated` |
 | `1-102-0001` | `MFB_PARSE_EXPECTED_EXPRESSION` | error | `parser expected an expression` |

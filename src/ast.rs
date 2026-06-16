@@ -1,7 +1,7 @@
 use crate::json_string;
 use crate::lexer::{self, Keyword, Token, TokenKind};
 use crate::rules;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use tinyjson::JsonValue;
@@ -270,46 +270,27 @@ pub fn parse_project(
     manifest: &HashMap<String, JsonValue>,
 ) -> Result<AstProject, ()> {
     let mut files = Vec::new();
+    let canonical_project_dir = fs::canonicalize(project_dir).map_err(|err| {
+        rules::show_diagnostic(
+            "MFB_SOURCE_READ_FAILED",
+            &format!(
+                "Could not resolve project directory `{}`: {err}",
+                project_dir.display()
+            ),
+            &project_dir.join("project.json"),
+            1,
+            1,
+            1,
+        );
+    })?;
 
-    for source_root in source_roots(manifest) {
-        let root = project_dir.join(&source_root);
-        if !root.exists() {
-            rules::show_diagnostic(
-                "MFB_SOURCE_ROOT_MISSING",
-                &format!("Source root `{}` does not exist.", root.display()),
-                &root,
-                1,
-                1,
-                1,
-            );
-            return Err(());
-        }
-
-        let source_files = collect_mfb_files(&root).map_err(|err| {
-            rules::show_diagnostic(
-                "MFB_SOURCE_READ_FAILED",
-                &format!("Could not read source root `{}`: {err}", root.display()),
-                &root,
-                1,
-                1,
-                1,
-            );
-        })?;
-        if source_files.is_empty() {
-            rules::show_diagnostic(
-                "MFB_SOURCE_EMPTY",
-                &format!("Source root `{}` contains no .mfb files.", root.display()),
-                &root,
-                1,
-                1,
-                1,
-            );
-            return Err(());
-        }
-
-        for source_file in source_files {
-            files.push(parse_file(project_dir, &source_file)?);
-        }
+    for source_file in collect_selected_source_files(project_dir, &canonical_project_dir, manifest)?
+    {
+        files.push(parse_file(
+            project_dir,
+            &source_file.actual_path,
+            &source_file.display_path,
+        )?);
     }
 
     Ok(AstProject {
@@ -335,62 +316,352 @@ pub fn parse_source(path: &Path, relative_path: &str, contents: &str) -> Result<
     })
 }
 
-fn parse_file(project_dir: &Path, path: &Path) -> Result<AstFile, ()> {
-    let contents = fs::read_to_string(path).map_err(|err| {
-        rules::show_diagnostic("MFB_SOURCE_READ_FAILED", &err.to_string(), path, 1, 1, 1);
+fn parse_file(project_dir: &Path, actual_path: &Path, display_path: &Path) -> Result<AstFile, ()> {
+    let contents = fs::read_to_string(actual_path).map_err(|err| {
+        rules::show_diagnostic(
+            "MFB_SOURCE_READ_FAILED",
+            &err.to_string(),
+            display_path,
+            1,
+            1,
+            1,
+        );
     })?;
-    let relative_path = path
+    let relative_path = display_path
         .strip_prefix(project_dir)
-        .unwrap_or(path)
+        .unwrap_or(display_path)
         .to_string_lossy()
         .replace('\\', "/");
-    parse_source(path, &relative_path, &contents)
+    parse_source(display_path, &relative_path, &contents)
 }
 
-fn source_roots(manifest: &HashMap<String, JsonValue>) -> Vec<String> {
+#[derive(Clone, Debug)]
+struct SourceEntry {
+    root: String,
+    include: Vec<String>,
+    exclude: Vec<String>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct SelectedSource {
+    actual_path: PathBuf,
+    display_path: PathBuf,
+}
+
+fn source_entries(manifest: &HashMap<String, JsonValue>) -> Vec<SourceEntry> {
     manifest
         .get("sources")
         .and_then(|value| value.get::<Vec<JsonValue>>())
         .into_iter()
         .flatten()
         .filter_map(|source| source.get::<HashMap<String, JsonValue>>())
-        .filter_map(|source| source.get("root"))
-        .filter_map(|root| root.get::<String>())
-        .cloned()
+        .filter_map(|source| {
+            let root = source.get("root")?.get::<String>()?.clone();
+            let include = source
+                .get("include")
+                .and_then(|value| value.get::<Vec<JsonValue>>())
+                .map(|patterns| {
+                    patterns
+                        .iter()
+                        .filter_map(|pattern| pattern.get::<String>().cloned())
+                        .collect()
+                })
+                .unwrap_or_else(|| vec!["**/*.mfb".to_string()]);
+            let exclude = source
+                .get("exclude")
+                .and_then(|value| value.get::<Vec<JsonValue>>())
+                .map(|patterns| {
+                    patterns
+                        .iter()
+                        .filter_map(|pattern| pattern.get::<String>().cloned())
+                        .collect()
+                })
+                .unwrap_or_default();
+            Some(SourceEntry {
+                root,
+                include,
+                exclude,
+            })
+        })
         .collect()
 }
 
-fn collect_mfb_files(root: &Path) -> Result<Vec<PathBuf>, std::io::Error> {
-    let mut files = Vec::new();
+fn collect_selected_source_files(
+    project_dir: &Path,
+    canonical_project_dir: &Path,
+    manifest: &HashMap<String, JsonValue>,
+) -> Result<Vec<SelectedSource>, ()> {
+    let mut selected = Vec::new();
+    let mut selected_roots = HashMap::new();
 
-    if root.is_file() {
-        if root.extension().and_then(|ext| ext.to_str()) == Some("mfb") {
-            files.push(root.to_path_buf());
+    for source_entry in source_entries(manifest) {
+        let root = project_dir.join(&source_entry.root);
+        if !root.exists() {
+            rules::show_diagnostic(
+                "MFB_SOURCE_ROOT_MISSING",
+                &format!("Source root `{}` does not exist.", root.display()),
+                &root,
+                1,
+                1,
+                1,
+            );
+            return Err(());
         }
-        return Ok(files);
+
+        let canonical_root = fs::canonicalize(&root).map_err(|err| {
+            rules::show_diagnostic(
+                "MFB_SOURCE_READ_FAILED",
+                &format!("Could not resolve source root `{}`: {err}", root.display()),
+                &root,
+                1,
+                1,
+                1,
+            );
+        })?;
+        if !path_within_project(&canonical_root, canonical_project_dir) {
+            rules::show_diagnostic(
+                "MFB_SOURCE_OUTSIDE_PROJECT",
+                &format!(
+                    "Source root `{}` resolves outside project directory `{}`.",
+                    root.display(),
+                    project_dir.display()
+                ),
+                &root,
+                1,
+                1,
+                1,
+            );
+            return Err(());
+        }
+
+        let mut source_files = Vec::new();
+        if root.is_file() {
+            if root.extension().and_then(|ext| ext.to_str()) == Some("mfb") {
+                source_files.push(SelectedSource {
+                    actual_path: canonical_root,
+                    display_path: root.clone(),
+                });
+            }
+        } else {
+            let mut visited_dirs = HashSet::new();
+            collect_mfb_files(
+                project_dir,
+                &root,
+                &root,
+                canonical_project_dir,
+                &source_entry,
+                &mut visited_dirs,
+                &mut source_files,
+            )
+            .map_err(|err| {
+                if err.kind() != std::io::ErrorKind::PermissionDenied {
+                    rules::show_diagnostic(
+                        "MFB_SOURCE_READ_FAILED",
+                        &format!("Could not read source root `{}`: {err}", root.display()),
+                        &root,
+                        1,
+                        1,
+                        1,
+                    );
+                }
+            })?;
+        }
+
+        source_files.sort_by(|left, right| left.display_path.cmp(&right.display_path));
+
+        if source_files.is_empty() {
+            rules::show_diagnostic(
+                "MFB_SOURCE_EMPTY",
+                &format!("Source root `{}` contains no selected .mfb files.", root.display()),
+                &root,
+                1,
+                1,
+                1,
+            );
+            return Err(());
+        }
+
+        for source_file in source_files {
+            if let Some(previous_root) = selected_roots.get(&source_file.actual_path) {
+                rules::show_diagnostic(
+                    "MFB_SOURCE_OVERLAP",
+                    &format!(
+                        "Source file `{}` is selected by both `{}` and `{}`.",
+                        normalized_relative_path(project_dir, &source_file.display_path),
+                        previous_root,
+                        source_entry.root
+                    ),
+                    &source_file.display_path,
+                    1,
+                    1,
+                    1,
+                );
+                return Err(());
+            }
+            selected_roots.insert(source_file.actual_path.clone(), source_entry.root.clone());
+            selected.push(source_file);
+        }
     }
 
-    if !root.exists() {
-        return Ok(files);
-    }
-
-    collect_mfb_files_inner(root, &mut files)?;
-    files.sort();
-    Ok(files)
+    selected.sort_by(|left, right| left.display_path.cmp(&right.display_path));
+    Ok(selected)
 }
 
-fn collect_mfb_files_inner(root: &Path, files: &mut Vec<PathBuf>) -> Result<(), std::io::Error> {
-    for entry in fs::read_dir(root)? {
+fn collect_mfb_files(
+    project_dir: &Path,
+    logical_root: &Path,
+    current: &Path,
+    canonical_project_dir: &Path,
+    source_entry: &SourceEntry,
+    visited_dirs: &mut HashSet<PathBuf>,
+    files: &mut Vec<SelectedSource>,
+) -> Result<(), std::io::Error> {
+    let canonical_current = fs::canonicalize(current)?;
+    if !path_within_project(&canonical_current, canonical_project_dir) {
+        rules::show_diagnostic(
+            "MFB_SOURCE_OUTSIDE_PROJECT",
+            &format!(
+                "Source path `{}` resolves outside project directory `{}`.",
+                current.display(),
+                canonical_project_dir.display()
+            ),
+            current,
+            1,
+            1,
+            1,
+        );
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::PermissionDenied,
+            "source path resolves outside project",
+        ));
+    }
+    if !visited_dirs.insert(canonical_current) {
+        return Ok(());
+    }
+
+    for entry in fs::read_dir(current)? {
         let entry = entry?;
         let path = entry.path();
+        let canonical_path = fs::canonicalize(&path)?;
+        if !path_within_project(&canonical_path, canonical_project_dir) {
+            rules::show_diagnostic(
+                "MFB_SOURCE_OUTSIDE_PROJECT",
+                &format!(
+                    "Source path `{}` resolves outside project directory `{}`.",
+                    path.display(),
+                    canonical_project_dir.display()
+                ),
+                &path,
+                1,
+                1,
+                1,
+            );
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::PermissionDenied,
+                "source path resolves outside project",
+            ));
+        }
+
         if path.is_dir() {
-            collect_mfb_files_inner(&path, files)?;
-        } else if path.extension().and_then(|ext| ext.to_str()) == Some("mfb") {
-            files.push(path);
+            collect_mfb_files(
+                project_dir,
+                logical_root,
+                &path,
+                canonical_project_dir,
+                source_entry,
+                visited_dirs,
+                files,
+            )?;
+            continue;
+        }
+
+        if path.extension().and_then(|ext| ext.to_str()) != Some("mfb") {
+            continue;
+        }
+
+        let relative_path = normalized_relative_path(logical_root, &path);
+        if matches_source_patterns(&relative_path, &source_entry.include, &source_entry.exclude) {
+            files.push(SelectedSource {
+                actual_path: canonical_path,
+                display_path: path,
+            });
         }
     }
 
     Ok(())
+}
+
+fn path_within_project(path: &Path, canonical_project_dir: &Path) -> bool {
+    path == canonical_project_dir || path.starts_with(canonical_project_dir)
+}
+
+fn normalized_relative_path(base: &Path, path: &Path) -> String {
+    path.strip_prefix(base)
+        .unwrap_or(path)
+        .to_string_lossy()
+        .replace('\\', "/")
+}
+
+fn matches_source_patterns(path: &str, include: &[String], exclude: &[String]) -> bool {
+    include.iter().any(|pattern| glob_matches(pattern, path))
+        && !exclude.iter().any(|pattern| glob_matches(pattern, path))
+}
+
+fn glob_matches(pattern: &str, path: &str) -> bool {
+    let normalized_pattern = pattern.replace('\\', "/");
+    let normalized_path = path.replace('\\', "/");
+    let pattern_segments: Vec<&str> = normalized_pattern.split('/').collect();
+    let path_segments: Vec<&str> = normalized_path.split('/').collect();
+    glob_match_segments(&pattern_segments, &path_segments)
+}
+
+fn glob_match_segments(pattern: &[&str], path: &[&str]) -> bool {
+    match pattern.split_first() {
+        None => path.is_empty(),
+        Some((&"**", remaining)) => {
+            glob_match_segments(remaining, path)
+                || (!path.is_empty() && glob_match_segments(pattern, &path[1..]))
+        }
+        Some((segment, remaining)) => {
+            !path.is_empty()
+                && glob_match_component(segment, path[0])
+                && glob_match_segments(remaining, &path[1..])
+        }
+    }
+}
+
+fn glob_match_component(pattern: &str, value: &str) -> bool {
+    let pattern = pattern.as_bytes();
+    let value = value.as_bytes();
+    let mut pattern_index = 0;
+    let mut value_index = 0;
+    let mut star_index = None;
+    let mut retry_value = 0;
+
+    while value_index < value.len() {
+        if pattern_index < pattern.len()
+            && (pattern[pattern_index] == b'?' || pattern[pattern_index] == value[value_index])
+        {
+            pattern_index += 1;
+            value_index += 1;
+        } else if pattern_index < pattern.len() && pattern[pattern_index] == b'*' {
+            star_index = Some(pattern_index);
+            pattern_index += 1;
+            retry_value = value_index;
+        } else if let Some(star) = star_index {
+            pattern_index = star + 1;
+            retry_value += 1;
+            value_index = retry_value;
+        } else {
+            return false;
+        }
+    }
+
+    while pattern_index < pattern.len() && pattern[pattern_index] == b'*' {
+        pattern_index += 1;
+    }
+
+    pattern_index == pattern.len()
 }
 
 struct ParsedFile {
@@ -3050,5 +3321,189 @@ fn substitute_placeholder_constructor_arg(
             value: substitute_placeholder(value, input),
             line,
         },
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashMap;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    #[cfg(unix)]
+    use std::os::unix::fs::symlink;
+
+    #[test]
+    fn glob_patterns_match_nested_and_root_files() {
+        assert!(glob_matches("**/*.mfb", "main.mfb"));
+        assert!(glob_matches("**/*.mfb", "pkg/main.mfb"));
+        assert!(glob_matches("pkg/*.mfb", "pkg/main.mfb"));
+        assert!(!glob_matches("pkg/*.mfb", "pkg/nested/main.mfb"));
+        assert!(glob_matches("**/*_test.mfb", "pkg/math_test.mfb"));
+        assert!(!glob_matches("**/*_test.mfb", "pkg/math.mfb"));
+    }
+
+    #[test]
+    fn file_root_ignores_include_patterns() {
+        let root = test_temp_dir("file_root_ignores_include_patterns");
+        let project_dir = root.join("project");
+        fs::create_dir_all(project_dir.join("src")).expect("project src");
+        fs::write(
+            project_dir.join("src/main.mfb"),
+            "SUB main\nEND SUB\n",
+        )
+        .expect("write main");
+        fs::write(
+            project_dir.join("src/other.mfb"),
+            "SUB other\nEND SUB\n",
+        )
+        .expect("write other");
+
+        let manifest = manifest_with_sources(vec![source_entry(
+            "src/main.mfb",
+            Some(vec!["missing/**/*.mfb"]),
+            None,
+        )]);
+        let canonical_project_dir = fs::canonicalize(&project_dir).expect("canonical project dir");
+        let files =
+            collect_selected_source_files(&project_dir, &canonical_project_dir, &manifest).expect("files");
+
+        assert_eq!(
+            files,
+            vec![SelectedSource {
+                actual_path: canonical_project_dir.join("src/main.mfb"),
+                display_path: project_dir.join("src/main.mfb"),
+            }]
+        );
+
+        fs::remove_dir_all(root).expect("remove temp dir");
+    }
+
+    #[test]
+    fn directory_root_applies_include_and_exclude_patterns() {
+        let root = test_temp_dir("directory_root_applies_include_and_exclude_patterns");
+        let project_dir = root.join("project");
+        fs::create_dir_all(project_dir.join("src/pkg")).expect("project pkg");
+        fs::write(
+            project_dir.join("src/main.mfb"),
+            "SUB main\nEND SUB\n",
+        )
+        .expect("write main");
+        fs::write(
+            project_dir.join("src/pkg/keep.mfb"),
+            "SUB keep\nEND SUB\n",
+        )
+        .expect("write keep");
+        fs::write(
+            project_dir.join("src/pkg/skip_test.mfb"),
+            "SUB skip_test\nEND SUB\n",
+        )
+        .expect("write skip");
+
+        let manifest = manifest_with_sources(vec![source_entry(
+            "src",
+            Some(vec!["pkg/**/*.mfb"]),
+            Some(vec!["**/*_test.mfb"]),
+        )]);
+        let canonical_project_dir = fs::canonicalize(&project_dir).expect("canonical project dir");
+        let files =
+            collect_selected_source_files(&project_dir, &canonical_project_dir, &manifest).expect("files");
+
+        assert_eq!(
+            files,
+            vec![SelectedSource {
+                actual_path: canonical_project_dir.join("src/pkg/keep.mfb"),
+                display_path: project_dir.join("src/pkg/keep.mfb"),
+            }]
+        );
+
+        fs::remove_dir_all(root).expect("remove temp dir");
+    }
+
+    #[test]
+    fn overlapping_source_entries_are_rejected() {
+        let root = test_temp_dir("overlapping_source_entries_are_rejected");
+        let project_dir = root.join("project");
+        fs::create_dir_all(project_dir.join("src")).expect("project src");
+        fs::write(
+            project_dir.join("src/main.mfb"),
+            "SUB main\nEND SUB\n",
+        )
+        .expect("write main");
+
+        let manifest = manifest_with_sources(vec![
+            source_entry("src", Some(vec!["**/*.mfb"]), None),
+            source_entry("src/main.mfb", None, None),
+        ]);
+        let canonical_project_dir = fs::canonicalize(&project_dir).expect("canonical project dir");
+
+        assert!(collect_selected_source_files(&project_dir, &canonical_project_dir, &manifest).is_err());
+
+        fs::remove_dir_all(root).expect("remove temp dir");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn symlinked_source_paths_must_stay_inside_project() {
+        let root = test_temp_dir("symlinked_source_paths_must_stay_inside_project");
+        let project_dir = root.join("project");
+        let outside_dir = root.join("outside");
+        fs::create_dir_all(&project_dir).expect("project dir");
+        fs::create_dir_all(&outside_dir).expect("outside dir");
+        fs::write(
+            outside_dir.join("escape.mfb"),
+            "SUB escape\nEND SUB\n",
+        )
+        .expect("write escape");
+        symlink(&outside_dir, project_dir.join("src")).expect("symlink src");
+
+        let manifest = manifest_with_sources(vec![source_entry("src", Some(vec!["**/*.mfb"]), None)]);
+        let canonical_project_dir = fs::canonicalize(&project_dir).expect("canonical project dir");
+
+        assert!(collect_selected_source_files(&project_dir, &canonical_project_dir, &manifest).is_err());
+
+        fs::remove_dir_all(root).expect("remove temp dir");
+    }
+
+    fn manifest_with_sources(sources: Vec<JsonValue>) -> HashMap<String, JsonValue> {
+        HashMap::from([("sources".to_string(), JsonValue::Array(sources))])
+    }
+
+    fn source_entry(root: &str, include: Option<Vec<&str>>, exclude: Option<Vec<&str>>) -> JsonValue {
+        let mut source = HashMap::from([("root".to_string(), JsonValue::String(root.to_string()))]);
+        if let Some(include) = include {
+            source.insert(
+                "include".to_string(),
+                JsonValue::Array(
+                    include
+                        .into_iter()
+                        .map(|pattern| JsonValue::String(pattern.to_string()))
+                        .collect(),
+                ),
+            );
+        }
+        if let Some(exclude) = exclude {
+            source.insert(
+                "exclude".to_string(),
+                JsonValue::Array(
+                    exclude
+                        .into_iter()
+                        .map(|pattern| JsonValue::String(pattern.to_string()))
+                        .collect(),
+                ),
+            );
+        }
+        JsonValue::Object(source)
+    }
+
+    fn test_temp_dir(name: &str) -> PathBuf {
+        let stamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("timestamp")
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("mfb_ast_{name}_{stamp}"));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(&root).expect("temp dir");
+        root
     }
 }

@@ -1,0 +1,12 @@
+$ mfb build -ast tests/project-sources-overlap-error
+   1 | EXPORT SUB sharedMain
+     | ^
+tests/project-sources-overlap-error/src/main.mfb:1 error[1-100-0005 MFB_SOURCE_OVERLAP]: MFBASIC source file is selected by more than one source entry
+               Source file `src/main.mfb` is selected by both `src` and `src/main.mfb`.
+[exit 1]
+$ mfb build -ir tests/project-sources-overlap-error
+   1 | EXPORT SUB sharedMain
+     | ^
+tests/project-sources-overlap-error/src/main.mfb:1 error[1-100-0005 MFB_SOURCE_OVERLAP]: MFBASIC source file is selected by more than one source entry
+               Source file `src/main.mfb` is selected by both `src` and `src/main.mfb`.
+[exit 1]

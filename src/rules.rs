@@ -106,6 +106,18 @@ pub const RULES: &[Rule] = &[
         message: "MFBASIC source root contains no source files",
     },
     Rule {
+        code: "1-100-0004",
+        name: "MFB_SOURCE_OUTSIDE_PROJECT",
+        severity: Severity::Error,
+        message: "MFBASIC source path resolves outside the project directory",
+    },
+    Rule {
+        code: "1-100-0005",
+        name: "MFB_SOURCE_OVERLAP",
+        severity: Severity::Error,
+        message: "MFBASIC source file is selected by more than one source entry",
+    },
+    Rule {
         code: "1-101-0001",
         name: "MFB_LEX_UNEXPECTED_CHARACTER",
         severity: Severity::Error,

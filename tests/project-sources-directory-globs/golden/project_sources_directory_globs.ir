@@ -1,0 +1,30 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "project_sources_directory_globs",
+  "entry": null,
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "rootMain",
+    "visibility": "export",
+    "kind": "sub",
+    "params": [
+    ],
+    "returns": "Nothing",
+    "body": [
+    ]
+  },
+  {
+    "name": "keep",
+    "visibility": "export",
+    "kind": "sub",
+    "params": [
+    ],
+    "returns": "Nothing",
+    "body": [
+    ]
+  }
+  ]
+}

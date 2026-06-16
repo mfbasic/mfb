@@ -1,0 +1,12 @@
+{
+  "name": "project_sources_file_root",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "package",
+  "sources": [
+    {
+      "root": "src/only.mfb",
+      "include": ["missing/**/*.mfb"]
+    }
+  ]
+}

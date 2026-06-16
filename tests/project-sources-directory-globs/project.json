@@ -1,0 +1,13 @@
+{
+  "name": "project_sources_directory_globs",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "package",
+  "sources": [
+    {
+      "root": "src",
+      "include": ["main.mfb", "pkg/**/*.mfb"],
+      "exclude": ["**/*_test.mfb"]
+    }
+  ]
+}

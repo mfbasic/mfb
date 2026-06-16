@@ -1,0 +1,41 @@
+{
+  "project": "project_sources_directory_globs",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    ],
+    "items": [
+    {
+      "kind": "sub",
+      "visibility": "export",
+      "name": "rootMain",
+      "line": 1,
+      "params": [
+      ],
+      "returnType": null,
+      "body": [
+      ]
+    }
+    ]
+  },
+  {
+    "path": "src/pkg/keep.mfb",
+    "imports": [
+    ],
+    "items": [
+    {
+      "kind": "sub",
+      "visibility": "export",
+      "name": "keep",
+      "line": 1,
+      "params": [
+      ],
+      "returnType": null,
+      "body": [
+      ]
+    }
+    ]
+  }
+  ]
+}
