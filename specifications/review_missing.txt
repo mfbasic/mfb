@@ -102,13 +102,13 @@ REQUIREMENT: Bounded thread queues and positive send/emit timeouts
 SPECIFICATION: specifications/threading.md @ §8 Control Block and §9 Queue Semantics
 `thread::start` accepts `inboundLimit` and `outboundLimit`, but the native control block stores only one inbound value and one outbound value, and `thread::send`/`thread::emit` immediately return `ErrTimeout` when that single slot is full instead of waiting for positive `timeoutMs`. Resolve by implementing bounded queue storage using the requested capacities, preserving nonblocking `timeoutMs = 0`, adding positive-timeout wait/retry behavior, and validating with runtime tests.
 
-REQUIREMENT: Bare `DO ... LOOP`
+[FIXED] REQUIREMENT: Bare `DO ... LOOP`
 SPECIFICATION: specifications/mfbasic.md @ §19 Grammar (`doStmt`)
 The grammar allows `DO` blocks ending in `LOOP` with optional `UNTIL expr`, but the parser requires `LOOP UNTIL <condition>` and rejects a bare infinite `DO ... LOOP`. Resolve by either implementing the bare infinite-loop form through parser/typecheck/IR/native lowering, or tightening the grammar/spec if bare loops are not intended.
 
 REQUIREMENT: `math::piFloat` and `math::eFloat` names
 SPECIFICATION: specifications/mfbasic.md @ §18 Built-in Functions and §20.1 Package Layering Example
-`mfbasic.md` lists and demonstrates `math::piFloat` and `math::eFloat`, but the compiler exports `math::pi` and `math::e` and rejects the `*Float` names. Resolve by either adding supported aliases with tests and package metadata, or updating `mfbasic.md` to match `standard_package.md` and the current compiler names.
+`mfbasic.md` lists and demonstrates `math::piFloat` and `math::eFloat`, but the compiler exports `math::pi` and `math::e` and rejects the `*Float` names. Resolve by updating `mfbasic.md` to match `standard_package.md` and the current compiler names.
 
 REQUIREMENT: Executable entry runtime contract
 SPECIFICATION: specifications/mfbasic.md @ §8.7 Program entry point

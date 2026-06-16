@@ -1343,7 +1343,7 @@ forStmt        = "FOR" ident "=" expr "TO" expr [ "STEP" expr ]
                    block "NEXT" ;
 foreachStmt    = "FOR" "EACH" ident "IN" expr block "NEXT" ;
 whileStmt      = "WHILE" expr block "WEND" ;
-doStmt         = "DO" block "LOOP" [ "UNTIL" expr ]
+doStmt         = "DO" block "LOOP" "UNTIL" expr
                | "DO" "WHILE" expr block "LOOP" ;
 
 failStmt       = "FAIL" expr ;

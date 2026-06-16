@@ -11,7 +11,8 @@ SYNOPSIS
   LOOP
 
 DESCRIPTION
-  DO supports both post-test and pre-test loop forms.
+  DO supports two loop forms: a post-test `DO ... LOOP UNTIL condition`
+  and a pre-test `DO WHILE condition ... LOOP`.
 
 RULES
   `DO ... LOOP UNTIL condition` runs the body first, then stops when the
@@ -19,6 +20,8 @@ RULES
 
   `DO WHILE condition ... LOOP` checks the Boolean condition before each
   iteration and may run zero times.
+
+  A bare `DO ... LOOP` form is not valid syntax.
 
 EXAMPLES
   DO : work = work + 1 : LOOP UNTIL done

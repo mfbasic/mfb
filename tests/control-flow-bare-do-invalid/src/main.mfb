@@ -1,0 +1,4 @@
+FUNC main AS Integer
+  DO : LOOP
+  RETURN 0
+END FUNC
