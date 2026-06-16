@@ -227,12 +227,14 @@ pub fn lower_project_with_external_functions(
         function_returns: &function_returns,
         function_types: &function_types,
         type_index: &type_index,
+        current_imports: HashMap::new(),
         lambdas: Vec::new(),
         next_lambda_id: 0,
         next_temp_id: 0,
     };
 
     for file in &ast.files {
+        context.current_imports = file.import_bindings();
         for item in &file.items {
             match item {
                 Item::Function(function) => functions.push(lower_function(function, &mut context)),
@@ -379,6 +381,7 @@ struct LowerContext<'a> {
     function_returns: &'a HashMap<String, String>,
     function_types: &'a HashMap<String, String>,
     type_index: &'a TypeIndex,
+    current_imports: HashMap<String, String>,
     lambdas: Vec<IrFunction>,
     next_lambda_id: usize,
     next_temp_id: usize,
@@ -985,15 +988,24 @@ fn expression_type(
         }
         Expression::Boolean(_) => Some("Boolean".to_string()),
         Expression::Identifier(value) if value == "NOTHING" => Some("Nothing".to_string()),
-        Expression::Identifier(value) if builtins::math::is_math_constant(value) => {
-            builtins::math::constant_type_name(value).map(str::to_string)
+        Expression::Identifier(value) => {
+            let canonical_value = canonical_import_name(value, context);
+            if builtins::math::is_math_constant(&canonical_value) {
+                builtins::math::constant_type_name(&canonical_value).map(str::to_string)
+            } else {
+                locals
+                    .get(value)
+                    .cloned()
+                    .or_else(|| context.function_types.get(value).cloned())
+                    .or_else(|| context.function_types.get(&canonical_value).cloned())
+            }
         }
-        Expression::Identifier(value) => locals
-            .get(value)
-            .cloned()
-            .or_else(|| context.function_types.get(value).cloned()),
         Expression::Constructor { type_name, .. } => {
-            context.type_index.constructor_result(type_name)
+            let canonical_type_name = canonical_import_name(type_name, context);
+            context
+                .type_index
+                .constructor_result(&canonical_type_name)
+                .or_else(|| context.type_index.constructor_result(type_name))
         }
         Expression::WithUpdate { target, .. } => expression_type(target, locals, context),
         Expression::ListLiteral(values) => {
@@ -1041,7 +1053,8 @@ fn expression_type(
             context.type_index.record_field_type(&target_type, member)
         }
         Expression::Call { callee, arguments } => {
-            if builtins::general::is_general_call(callee) {
+            let canonical_callee = canonical_import_name(callee, context);
+            if builtins::general::is_general_call(&canonical_callee) {
                 if callee == "filter" && arguments.len() == 2 {
                     if let Expression::Identifier(predicate) = &arguments[1] {
                         if let Some(collection_type) =
@@ -1054,7 +1067,7 @@ fn expression_type(
                                 })
                             {
                                 let arg_types = vec![collection_type, predicate_type];
-                                return builtins::general::resolve_call(callee, &arg_types)
+                                return builtins::general::resolve_call(&canonical_callee, &arg_types)
                                     .map(|resolved| resolved.return_type.to_string());
                             }
                         }
@@ -1064,60 +1077,61 @@ fn expression_type(
                     .iter()
                     .map(|argument| expression_type(argument, locals, context))
                     .collect::<Option<Vec<_>>>()?;
-                return builtins::general::resolve_call(callee, &arg_types)
+                return builtins::general::resolve_call(&canonical_callee, &arg_types)
                     .map(|resolved| resolved.return_type.to_string());
             }
-            if builtins::strings::is_strings_call(callee) {
+            if builtins::strings::is_strings_call(&canonical_callee) {
                 let arg_types = arguments
                     .iter()
                     .map(|argument| expression_type(argument, locals, context))
                     .collect::<Option<Vec<_>>>()?;
-                return builtins::strings::resolve_call(callee, &arg_types)
+                return builtins::strings::resolve_call(&canonical_callee, &arg_types)
                     .map(|resolved| resolved.return_type.to_string());
             }
-            if builtins::math::is_math_call(callee) {
+            if builtins::math::is_math_call(&canonical_callee) {
                 let arg_types = arguments
                     .iter()
                     .map(|argument| expression_type(argument, locals, context))
                     .collect::<Option<Vec<_>>>()?;
-                return builtins::math::resolve_call(callee, &arg_types)
+                return builtins::math::resolve_call(&canonical_callee, &arg_types)
                     .map(|resolved| resolved.return_type.to_string());
             }
-            if builtins::fs::is_fs_call(callee) {
+            if builtins::fs::is_fs_call(&canonical_callee) {
                 let arg_types = arguments
                     .iter()
                     .map(|argument| expression_type(argument, locals, context))
                     .collect::<Option<Vec<_>>>()?;
-                return builtins::fs::resolve_call(callee, &arg_types)
+                return builtins::fs::resolve_call(&canonical_callee, &arg_types)
                     .map(|resolved| resolved.return_type.to_string());
             }
-            if builtins::io::is_io_call(callee) {
+            if builtins::io::is_io_call(&canonical_callee) {
                 let arg_types = arguments
                     .iter()
                     .map(|argument| expression_type(argument, locals, context))
                     .collect::<Option<Vec<_>>>()?;
-                return builtins::io::resolve_call(callee, &arg_types)
+                return builtins::io::resolve_call(&canonical_callee, &arg_types)
                     .map(|resolved| resolved.return_type.to_string());
             }
-            if builtins::json::is_json_call(callee) {
+            if builtins::json::is_json_call(&canonical_callee) {
                 let arg_types = arguments
                     .iter()
                     .map(|argument| expression_type(argument, locals, context))
                     .collect::<Option<Vec<_>>>()?;
-                return builtins::json::resolve_call(callee, &arg_types)
+                return builtins::json::resolve_call(&canonical_callee, &arg_types)
                     .map(|resolved| resolved.return_type.to_string());
             }
-            if builtins::thread::is_thread_call(callee) {
+            if builtins::thread::is_thread_call(&canonical_callee) {
                 let arg_types = arguments
                     .iter()
                     .map(|argument| expression_type(argument, locals, context))
                     .collect::<Option<Vec<_>>>()?;
-                return builtins::thread::resolve_call(callee, &arg_types)
+                return builtins::thread::resolve_call(&canonical_callee, &arg_types)
                     .map(|resolved| resolved.return_type.to_string());
             }
-            builtins::call_return_type_name(callee)
+            builtins::call_return_type_name(&canonical_callee)
                 .map(str::to_string)
                 .or_else(|| context.function_returns.get(callee).cloned())
+                .or_else(|| context.function_returns.get(&canonical_callee).cloned())
                 .or_else(|| {
                     locals
                         .get(callee)
@@ -1187,6 +1201,16 @@ fn function_param_types_from_type(type_: &str) -> Option<Vec<String>> {
     Some(params.split(", ").map(str::to_string).collect())
 }
 
+fn canonical_import_name(name: &str, context: &LowerContext<'_>) -> String {
+    let Some((binding, rest)) = name.split_once('.') else {
+        return name.to_string();
+    };
+    let Some(package) = context.current_imports.get(binding) else {
+        return name.to_string();
+    };
+    format!("{package}.{rest}")
+}
+
 fn call_argument_expected_type(
     callee: &str,
     index: usize,
@@ -1194,15 +1218,17 @@ fn call_argument_expected_type(
     locals: &HashMap<String, String>,
     context: &LowerContext<'_>,
 ) -> Option<String> {
+    let canonical_callee = canonical_import_name(callee, context);
     if callee == "toString" && index == 1 && arguments.len() == 2 {
         return Some("Byte".to_string());
     }
-    if let Some(params) = builtin_argument_types(callee) {
+    if let Some(params) = builtin_argument_types(&canonical_callee) {
         return params.get(index).cloned();
     }
     context
         .function_types
         .get(callee)
+        .or_else(|| context.function_types.get(&canonical_callee))
         .or_else(|| locals.get(callee))
         .and_then(|type_| function_param_types_from_type(type_))
         .and_then(|params| params.get(index).cloned())
@@ -1272,19 +1298,25 @@ fn lower_expression_with_expected(
             type_: "Nothing".to_string(),
             value: "NOTHING".to_string(),
         },
-        Expression::Identifier(value) if builtins::math::is_math_constant(value) => {
-            let type_ = builtins::math::constant_type_name(value)
-                .unwrap_or("Unknown")
-                .to_string();
-            let value = builtins::math::constant_value(value)
-                .expect("recognized math constant has a value")
-                .to_string();
-            IrValue::Const { type_, value }
-        }
         Expression::Identifier(value) => {
-            let base = if let Some(type_) = context.function_types.get(value) {
+            let canonical_value = canonical_import_name(value, context);
+            if builtins::math::is_math_constant(&canonical_value) {
+                let type_ = builtins::math::constant_type_name(&canonical_value)
+                    .unwrap_or("Unknown")
+                    .to_string();
+                let value = builtins::math::constant_value(&canonical_value)
+                    .expect("recognized math constant has a value")
+                    .to_string();
+                return IrValue::Const { type_, value };
+            }
+
+            let base = if let Some(type_) = context
+                .function_types
+                .get(value)
+                .or_else(|| context.function_types.get(&canonical_value))
+            {
                 IrValue::FunctionRef {
-                    name: value.clone(),
+                    name: canonical_value,
                     type_: type_.clone(),
                 }
             } else {
@@ -1293,6 +1325,7 @@ fn lower_expression_with_expected(
             wrap_union_value(base, expression, expected, locals, context)
         }
         Expression::Call { callee, arguments } => {
+            let canonical_callee = canonical_import_name(callee, context);
             let args = if callee == "filter" && arguments.len() == 2 {
                 if let Expression::Identifier(predicate) = &arguments[1] {
                     let predicate_type = expression_type(&arguments[0], locals, context).and_then(
@@ -1341,8 +1374,8 @@ fn lower_expression_with_expected(
                     .collect()
             };
             IrValue::Call {
-                target: builtins::json::implementation_name(callee)
-                    .unwrap_or(callee)
+                target: builtins::json::implementation_name(&canonical_callee)
+                    .unwrap_or(&canonical_callee)
                     .to_string(),
                 args,
             }
@@ -1397,13 +1430,16 @@ fn lower_expression_with_expected(
             type_name,
             arguments,
         } => {
+            let canonical_type_name = canonical_import_name(type_name, context);
             let fields = context
                 .type_index
                 .records
-                .get(type_name)
+                .get(&canonical_type_name)
+                .or_else(|| context.type_index.records.get(type_name))
+                .or_else(|| context.type_index.variant_fields.get(&canonical_type_name))
                 .or_else(|| context.type_index.variant_fields.get(type_name));
             let base = IrValue::Constructor {
-                type_: type_name.clone(),
+                type_: canonical_type_name,
                 args: lower_constructor_args(arguments, fields, locals, context),
             };
             wrap_union_value(base, expression, expected, locals, context)

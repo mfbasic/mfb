@@ -22,7 +22,32 @@ pub struct AstFile {
 #[derive(Clone, Debug)]
 pub struct Import {
     pub module: String,
+    pub alias: Option<String>,
     pub line: usize,
+}
+
+impl Import {
+    pub fn package_name(&self) -> &str {
+        self.module.split('.').next().unwrap_or(self.module.as_str())
+    }
+
+    pub fn binding_name(&self) -> &str {
+        self.alias.as_deref().unwrap_or_else(|| self.package_name())
+    }
+}
+
+impl AstFile {
+    pub fn import_bindings(&self) -> HashMap<String, String> {
+        self.imports
+            .iter()
+            .map(|import| {
+                (
+                    import.binding_name().to_string(),
+                    import.package_name().to_string(),
+                )
+            })
+            .collect()
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -713,8 +738,14 @@ impl<'a> FileParser<'a> {
                     self.skip_separators();
                     continue;
                 };
+                let alias = if self.match_keyword(Keyword::As) {
+                    self.consume_identifier("Expected alias name after AS.")
+                } else {
+                    None
+                };
                 imports.push(Import {
                     module,
+                    alias,
                     line: import_token.line,
                 });
                 self.consume_statement_end("Expected end of statement after IMPORT.");
@@ -2402,12 +2433,21 @@ impl ToAstJson for AstFile {
 impl ToAstJson for Import {
     fn to_json(&self, indent: usize) -> String {
         let pad = " ".repeat(indent);
-        format!(
-            "\n{}{{ \"module\": {}, \"line\": {} }}",
-            pad,
-            json_string(&self.module),
-            self.line
-        )
+        match &self.alias {
+            Some(alias) => format!(
+                "\n{}{{ \"module\": {}, \"alias\": {}, \"line\": {} }}",
+                pad,
+                json_string(&self.module),
+                json_string(alias),
+                self.line
+            ),
+            None => format!(
+                "\n{}{{ \"module\": {}, \"line\": {} }}",
+                pad,
+                json_string(&self.module),
+                self.line
+            ),
+        }
     }
 }
 
@@ -3341,6 +3381,26 @@ mod tests {
         assert!(!glob_matches("pkg/*.mfb", "pkg/nested/main.mfb"));
         assert!(glob_matches("**/*_test.mfb", "pkg/math_test.mfb"));
         assert!(!glob_matches("**/*_test.mfb", "pkg/math.mfb"));
+    }
+
+    #[test]
+    fn parse_import_aliases() {
+        let file = parse_source(
+            Path::new("main.mfb"),
+            "main.mfb",
+            "IMPORT io AS term\nIMPORT math\n",
+        )
+        .expect("parse source");
+
+        assert_eq!(file.imports.len(), 2);
+        assert_eq!(file.imports[0].module, "io");
+        assert_eq!(file.imports[0].alias.as_deref(), Some("term"));
+        assert_eq!(file.imports[0].binding_name(), "term");
+        assert_eq!(file.imports[0].package_name(), "io");
+        assert_eq!(file.imports[1].module, "math");
+        assert_eq!(file.imports[1].alias, None);
+        assert_eq!(file.imports[1].binding_name(), "math");
+        assert_eq!(file.imports[1].package_name(), "math");
     }
 
     #[test]

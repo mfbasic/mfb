@@ -1,0 +1,5 @@
+IMPORT strings AS text
+
+EXPORT FUNC byteLenAlias(message AS String) AS Integer
+  RETURN text::byteLen(message)
+END FUNC

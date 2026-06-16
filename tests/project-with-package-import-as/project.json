@@ -1,0 +1,16 @@
+{
+  "name": "project_with_package_import_as",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "executable",
+  "sources": [{ "root": "src", "role": "main", "include": ["**/*.mfb"] }],
+  "packages": [
+    {
+      "name": "package_import_as",
+      "version": "=0.1.0",
+      "source": "file:packages/package_import_as.mfp"
+    }
+  ],
+  "entry": "main",
+  "targets": ["native"]
+}

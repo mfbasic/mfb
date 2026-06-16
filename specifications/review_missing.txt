@@ -38,7 +38,7 @@ REQUIREMENT: Top-level `LET` and `MUT`
 SPECIFICATION: specifications/mfbasic.md @ §13 Modules & Packages
 The parser only accepts top-level `IMPORT`, `SUB`, `FUNC`, `TYPE`, `UNION`, and `ENUM`; `Item` has no top-level binding variant. This omits package constants/state, exported globals, and package initializer behavior. Resolve by adding top-level `LET`/`MUT` AST items, resolver/typecheck support, IR/global lowering, bytecode `GLOBAL_TABLE` emission, native/package initializer execution, and export/ABI metadata.
 
-REQUIREMENT: Import aliases
+[FIXED] REQUIREMENT: Import aliases
 SPECIFICATION: specifications/mfbasic.md @ §13 Modules & Packages
 `IMPORT package AS alias` is specified, but `Import` stores only `module`, and the parser consumes only a package name before statement end. Resolve by adding alias syntax and storage, enforcing alias conflict rules, and making resolver/typechecker/package qualification use the alias binding.
 

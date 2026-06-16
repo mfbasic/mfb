@@ -288,56 +288,61 @@ impl<'a> TypeChecker<'a> {
 
     fn collect_package_functions(&mut self) {
         let mut seen = HashSet::new();
-        for package in self.imported_packages() {
-            if !seen.insert(package.clone()) {
-                continue;
-            }
-            let package_file = self
-                .project_dir
-                .join("packages")
-                .join(format!("{package}.mfp"));
-            if !package_file.is_file() {
-                continue;
-            }
-            let Ok(exports) = bytecode::read_package_exports(&package_file) else {
-                continue;
-            };
-            for export in exports {
-                self.functions.insert(
-                    format!("{package}.{}", export.name),
-                    FunctionSig {
-                        kind: match export.kind {
-                            BytecodeExportKind::Func => FunctionKind::Func,
-                            BytecodeExportKind::Sub => FunctionKind::Sub,
-                            BytecodeExportKind::Type
-                            | BytecodeExportKind::Union
-                            | BytecodeExportKind::Enum => continue,
+        for file in &self.ast.files {
+            for import in &file.imports {
+                let binding = import.binding_name().to_string();
+                let package = import.package_name().to_string();
+                if !seen.insert(binding.clone()) || builtins::is_builtin_import(&package) {
+                    continue;
+                }
+                let package_file = self
+                    .project_dir
+                    .join("packages")
+                    .join(format!("{package}.mfp"));
+                if !package_file.is_file() {
+                    continue;
+                }
+                let Ok(exports) = bytecode::read_package_exports(&package_file) else {
+                    continue;
+                };
+                for export in exports {
+                    self.functions.insert(
+                        format!("{binding}.{}", export.name),
+                        FunctionSig {
+                            kind: match export.kind {
+                                BytecodeExportKind::Func => FunctionKind::Func,
+                                BytecodeExportKind::Sub => FunctionKind::Sub,
+                                BytecodeExportKind::Type
+                                | BytecodeExportKind::Union
+                                | BytecodeExportKind::Enum => continue,
+                            },
+                            params: export
+                                .params
+                                .into_iter()
+                                .map(|param| ParamSig {
+                                    type_: self.parse_type(&param.type_),
+                                    has_default: param.has_default,
+                                })
+                                .collect(),
+                            return_type: self.parse_type(&export.return_type),
+                            isolated: export.isolated,
+                            imported_package_export: true,
                         },
-                        params: export
-                            .params
-                            .into_iter()
-                            .map(|param| ParamSig {
-                                type_: self.parse_type(&param.type_),
-                                has_default: param.has_default,
-                            })
-                            .collect(),
-                        return_type: self.parse_type(&export.return_type),
-                        isolated: export.isolated,
-                        imported_package_export: true,
-                    },
-                );
+                    );
+                }
             }
         }
     }
 
-    fn imported_packages(&self) -> HashSet<String> {
-        self.ast
-            .files
-            .iter()
-            .flat_map(|file| &file.imports)
-            .filter_map(|import| import.module.split('.').next().map(str::to_string))
-            .filter(|package| !builtins::is_builtin_import(package))
-            .collect()
+    fn canonical_import_name(&self, file: &AstFile, name: &str) -> String {
+        let Some((binding, rest)) = name.split_once('.') else {
+            return name.to_string();
+        };
+        let imports = file.import_bindings();
+        let Some(package) = imports.get(binding) else {
+            return name.to_string();
+        };
+        format!("{package}.{rest}")
     }
 
     fn check(&mut self) {
@@ -1112,14 +1117,23 @@ impl<'a> TypeChecker<'a> {
                 }
             }
             Expression::Identifier(name) if name == "NOTHING" => Type::Nothing,
-            Expression::Identifier(name) if builtins::math::is_math_constant(name) => {
-                self.parse_type(builtins::math::constant_type_name(name).unwrap_or("Unknown"))
+            Expression::Identifier(name) => {
+                let canonical_name = self.canonical_import_name(file, name);
+                if canonical_name == "NOTHING" {
+                    Type::Nothing
+                } else if builtins::math::is_math_constant(&canonical_name) {
+                    self.parse_type(
+                        builtins::math::constant_type_name(&canonical_name).unwrap_or("Unknown"),
+                    )
+                } else {
+                    locals
+                        .get(name)
+                        .map(|local| local.type_.clone())
+                        .or_else(|| self.functions.get(name).map(function_type))
+                        .or_else(|| self.functions.get(&canonical_name).map(function_type))
+                        .unwrap_or(Type::Unknown)
+                }
             }
-            Expression::Identifier(name) => locals
-                .get(name)
-                .map(|local| local.type_.clone())
-                .or_else(|| self.functions.get(name).map(function_type))
-                .unwrap_or(Type::Unknown),
             Expression::Constructor {
                 type_name,
                 arguments,
@@ -1160,11 +1174,24 @@ impl<'a> TypeChecker<'a> {
                 self.infer_unary(file, operator, &operand_type, line)
             }
             Expression::Call { callee, arguments } => {
-                if builtins::is_builtin_call(callee) {
-                    return self.check_builtin_call(file, callee, arguments, locals, line);
+                let canonical_callee = self.canonical_import_name(file, callee);
+                if builtins::is_builtin_call(&canonical_callee) {
+                    return self.check_builtin_call(
+                        file,
+                        callee,
+                        &canonical_callee,
+                        arguments,
+                        locals,
+                        line,
+                    );
                 }
 
-                if let Some(sig) = self.functions.get(callee).cloned() {
+                if let Some(sig) = self
+                    .functions
+                    .get(callee)
+                    .cloned()
+                    .or_else(|| self.functions.get(&canonical_callee).cloned())
+                {
                     self.check_call(file, callee, &sig, arguments, locals, line);
                     return sig.return_type;
                 }
@@ -1209,11 +1236,24 @@ impl<'a> TypeChecker<'a> {
         line: usize,
     ) -> Type {
         if let Expression::Call { callee, arguments } = expression {
-            if builtins::is_builtin_call(callee) {
-                let success = self.check_builtin_call(file, callee, arguments, locals, line);
+            let canonical_callee = self.canonical_import_name(file, callee);
+            if builtins::is_builtin_call(&canonical_callee) {
+                let success = self.check_builtin_call(
+                    file,
+                    callee,
+                    &canonical_callee,
+                    arguments,
+                    locals,
+                    line,
+                );
                 return Type::Result(Box::new(success));
             }
-            if let Some(sig) = self.functions.get(callee).cloned() {
+            if let Some(sig) = self
+                .functions
+                .get(callee)
+                .cloned()
+                .or_else(|| self.functions.get(&canonical_callee).cloned())
+            {
                 self.check_call(file, callee, &sig, arguments, locals, line);
                 return Type::Result(Box::new(sig.return_type));
             }
@@ -2210,31 +2250,32 @@ impl<'a> TypeChecker<'a> {
     fn check_builtin_call(
         &mut self,
         file: &AstFile,
+        display_callee: &str,
         callee: &str,
         arguments: &[Expression],
         locals: &HashMap<String, LocalInfo>,
         line: usize,
     ) -> Type {
         if builtins::general::is_general_call(callee) {
-            return self.check_general_builtin_call(file, callee, arguments, locals, line);
+            return self.check_general_builtin_call(file, display_callee, callee, arguments, locals, line);
         }
         if builtins::strings::is_strings_call(callee) {
-            return self.check_strings_builtin_call(file, callee, arguments, locals, line);
+            return self.check_strings_builtin_call(file, display_callee, callee, arguments, locals, line);
         }
         if builtins::math::is_math_call(callee) {
-            return self.check_math_builtin_call(file, callee, arguments, locals, line);
+            return self.check_math_builtin_call(file, display_callee, callee, arguments, locals, line);
         }
         if builtins::fs::is_fs_call(callee) {
-            return self.check_fs_builtin_call(file, callee, arguments, locals, line);
+            return self.check_fs_builtin_call(file, display_callee, callee, arguments, locals, line);
         }
         if builtins::io::is_io_call(callee) {
-            return self.check_io_builtin_call(file, callee, arguments, locals, line);
+            return self.check_io_builtin_call(file, display_callee, callee, arguments, locals, line);
         }
         if builtins::json::is_json_call(callee) {
-            return self.check_json_builtin_call(file, callee, arguments, locals, line);
+            return self.check_json_builtin_call(file, display_callee, callee, arguments, locals, line);
         }
         if builtins::thread::is_thread_call(callee) {
-            return self.check_thread_builtin_call(file, callee, arguments, locals, line);
+            return self.check_thread_builtin_call(file, display_callee, callee, arguments, locals, line);
         }
 
         for argument in arguments {
@@ -2246,6 +2287,7 @@ impl<'a> TypeChecker<'a> {
     fn check_fs_builtin_call(
         &mut self,
         file: &AstFile,
+        display_callee: &str,
         callee: &str,
         arguments: &[Expression],
         locals: &HashMap<String, LocalInfo>,
@@ -2269,7 +2311,7 @@ impl<'a> TypeChecker<'a> {
                 self.report(
                     "TYPE_CALL_ARITY_MISMATCH",
                     &format!(
-                        "Call to `{callee}` has {} argument(s), expected {expected}.",
+                        "Call to `{display_callee}` has {} argument(s), expected {expected}.",
                         arguments.len()
                     ),
                     file,
@@ -2284,7 +2326,7 @@ impl<'a> TypeChecker<'a> {
             self.report(
                 "TYPE_CALL_ARGUMENT_MISMATCH",
                 &format!(
-                    "Call to `{callee}` has argument type(s) ({}), expected {expected}.",
+                    "Call to `{display_callee}` has argument type(s) ({}), expected {expected}.",
                     arg_types.join(", ")
                 ),
                 file,
@@ -2299,6 +2341,7 @@ impl<'a> TypeChecker<'a> {
     fn check_json_builtin_call(
         &mut self,
         file: &AstFile,
+        display_callee: &str,
         callee: &str,
         arguments: &[Expression],
         locals: &HashMap<String, LocalInfo>,
@@ -2322,7 +2365,7 @@ impl<'a> TypeChecker<'a> {
                 self.report(
                     "TYPE_CALL_ARITY_MISMATCH",
                     &format!(
-                        "Call to `{callee}` has {} argument(s), expected {expected}.",
+                        "Call to `{display_callee}` has {} argument(s), expected {expected}.",
                         arguments.len()
                     ),
                     file,
@@ -2338,7 +2381,7 @@ impl<'a> TypeChecker<'a> {
             self.report(
                 "TYPE_CALL_ARGUMENT_MISMATCH",
                 &format!(
-                    "Call to `{callee}` has argument type(s) ({}), expected {expected}.",
+                    "Call to `{display_callee}` has argument type(s) ({}), expected {expected}.",
                     arg_types.join(", ")
                 ),
                 file,
@@ -2353,6 +2396,7 @@ impl<'a> TypeChecker<'a> {
     fn check_io_builtin_call(
         &mut self,
         file: &AstFile,
+        display_callee: &str,
         callee: &str,
         arguments: &[Expression],
         locals: &HashMap<String, LocalInfo>,
@@ -2380,7 +2424,7 @@ impl<'a> TypeChecker<'a> {
                 self.report(
                     "TYPE_CALL_ARITY_MISMATCH",
                     &format!(
-                        "Call to `{callee}` has {} argument(s), expected {expected}.",
+                        "Call to `{display_callee}` has {} argument(s), expected {expected}.",
                         arguments.len()
                     ),
                     file,
@@ -2395,7 +2439,7 @@ impl<'a> TypeChecker<'a> {
             self.report(
                 "TYPE_CALL_ARGUMENT_MISMATCH",
                 &format!(
-                    "Call to `{callee}` has argument type(s) ({}), expected {expected}.",
+                    "Call to `{display_callee}` has argument type(s) ({}), expected {expected}.",
                     arg_types.join(", ")
                 ),
                 file,
@@ -2410,6 +2454,7 @@ impl<'a> TypeChecker<'a> {
     fn check_thread_builtin_call(
         &mut self,
         file: &AstFile,
+        display_callee: &str,
         callee: &str,
         arguments: &[Expression],
         locals: &HashMap<String, LocalInfo>,
@@ -2425,11 +2470,17 @@ impl<'a> TypeChecker<'a> {
 
         if callee == "thread.start" {
             let valid_entry = match arguments.first() {
-                Some(Expression::Identifier(name)) => self.functions.get(name).is_some_and(|sig| {
-                    sig.imported_package_export
-                        && matches!(sig.kind, FunctionKind::Func)
-                        && sig.isolated
-                }),
+                Some(Expression::Identifier(name)) => {
+                    let canonical_name = self.canonical_import_name(file, name);
+                    self.functions
+                        .get(name)
+                        .or_else(|| self.functions.get(&canonical_name))
+                        .is_some_and(|sig| {
+                            sig.imported_package_export
+                                && matches!(sig.kind, FunctionKind::Func)
+                                && sig.isolated
+                        })
+                }
                 _ => false,
             };
             if !valid_entry {
@@ -2453,7 +2504,7 @@ impl<'a> TypeChecker<'a> {
                 self.report(
                     "TYPE_CALL_ARITY_MISMATCH",
                     &format!(
-                        "Call to `{callee}` has {} argument(s), expected {expected}.",
+                        "Call to `{display_callee}` has {} argument(s), expected {expected}.",
                         arguments.len()
                     ),
                     file,
@@ -2469,7 +2520,7 @@ impl<'a> TypeChecker<'a> {
             self.report(
                 "TYPE_CALL_ARGUMENT_MISMATCH",
                 &format!(
-                    "Call to `{callee}` has argument type(s) ({}), expected {expected}.",
+                    "Call to `{display_callee}` has argument type(s) ({}), expected {expected}.",
                     arg_types.join(", ")
                 ),
                 file,
@@ -2484,6 +2535,7 @@ impl<'a> TypeChecker<'a> {
     fn check_strings_builtin_call(
         &mut self,
         file: &AstFile,
+        display_callee: &str,
         callee: &str,
         arguments: &[Expression],
         locals: &HashMap<String, LocalInfo>,
@@ -2507,7 +2559,7 @@ impl<'a> TypeChecker<'a> {
                 self.report(
                     "TYPE_CALL_ARITY_MISMATCH",
                     &format!(
-                        "Call to `{callee}` has {} argument(s), expected {expected}.",
+                        "Call to `{display_callee}` has {} argument(s), expected {expected}.",
                         arguments.len()
                     ),
                     file,
@@ -2523,7 +2575,7 @@ impl<'a> TypeChecker<'a> {
             self.report(
                 "TYPE_CALL_ARGUMENT_MISMATCH",
                 &format!(
-                    "Call to `{callee}` has argument type(s) ({}), expected {expected}.",
+                    "Call to `{display_callee}` has argument type(s) ({}), expected {expected}.",
                     arg_types.join(", ")
                 ),
                 file,
@@ -2538,6 +2590,7 @@ impl<'a> TypeChecker<'a> {
     fn check_math_builtin_call(
         &mut self,
         file: &AstFile,
+        display_callee: &str,
         callee: &str,
         arguments: &[Expression],
         locals: &HashMap<String, LocalInfo>,
@@ -2561,7 +2614,7 @@ impl<'a> TypeChecker<'a> {
                 self.report(
                     "TYPE_CALL_ARITY_MISMATCH",
                     &format!(
-                        "Call to `{callee}` has {} argument(s), expected {expected}.",
+                        "Call to `{display_callee}` has {} argument(s), expected {expected}.",
                         arguments.len()
                     ),
                     file,
@@ -2577,7 +2630,7 @@ impl<'a> TypeChecker<'a> {
             self.report(
                 "TYPE_CALL_ARGUMENT_MISMATCH",
                 &format!(
-                    "Call to `{callee}` has argument type(s) ({}), expected {expected}.",
+                    "Call to `{display_callee}` has argument type(s) ({}), expected {expected}.",
                     arg_types.join(", ")
                 ),
                 file,
@@ -2592,6 +2645,7 @@ impl<'a> TypeChecker<'a> {
     fn check_general_builtin_call(
         &mut self,
         file: &AstFile,
+        display_callee: &str,
         callee: &str,
         arguments: &[Expression],
         locals: &HashMap<String, LocalInfo>,
@@ -2613,7 +2667,7 @@ impl<'a> TypeChecker<'a> {
                         self.report(
                             "TYPE_CALL_ARGUMENT_MISMATCH",
                             &format!(
-                                "Call to `filter` has argument type(s) ({collection_type_name}, {predicate}), expected {}.",
+                                "Call to `{display_callee}` has argument type(s) ({collection_type_name}, {predicate}), expected {}.",
                                 builtins::general::expected_arguments(callee)
                                     .unwrap_or("supported overload")
                             ),
@@ -2628,7 +2682,7 @@ impl<'a> TypeChecker<'a> {
                         self.report(
                             "TYPE_CALL_ARGUMENT_MISMATCH",
                             &format!(
-                                "Call to `filter` has argument type(s) ({}), expected {}.",
+                                "Call to `{display_callee}` has argument type(s) ({}), expected {}.",
                                 arg_types.join(", "),
                                 builtins::general::expected_arguments(callee)
                                     .unwrap_or("supported overload")
@@ -2662,7 +2716,7 @@ impl<'a> TypeChecker<'a> {
                 self.report(
                     "TYPE_CALL_ARITY_MISMATCH",
                     &format!(
-                        "Call to `{callee}` has {} argument(s), expected {expected}.",
+                        "Call to `{display_callee}` has {} argument(s), expected {expected}.",
                         arguments.len()
                     ),
                     file,
@@ -2678,7 +2732,7 @@ impl<'a> TypeChecker<'a> {
             self.report(
                 "TYPE_CALL_ARGUMENT_MISMATCH",
                 &format!(
-                    "Call to `{callee}` has argument type(s) ({}), expected {expected}.",
+                    "Call to `{display_callee}` has argument type(s) ({}), expected {expected}.",
                     arg_types.join(", ")
                 ),
                 file,

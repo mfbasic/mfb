@@ -1,0 +1,22 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "package_import_as",
+  "entry": null,
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "byteLenAlias",
+    "visibility": "export",
+    "kind": "func",
+    "params": [
+    { "name": "message", "type": "String", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "return", "value": { "kind": "call", "target": "strings.byteLen", "args": [{ "kind": "local", "name": "message" }] } }
+    ]
+  }
+  ]
+}

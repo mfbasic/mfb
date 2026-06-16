@@ -1,0 +1,26 @@
+{
+  "project": "package_import_as",
+  "files": [
+  {
+    "path": "src/lib.mfb",
+    "imports": [
+    { "module": "strings", "alias": "text", "line": 1 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "export",
+      "name": "byteLenAlias",
+      "line": 3,
+      "params": [
+      { "name": "message", "type": "String", "default": null }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "return", "value": { "kind": "call", "callee": "text.byteLen", "arguments": [{ "kind": "identifier", "value": "message" }] }, "line": 4 }
+      ]
+    }
+    ]
+  }
+  ]
+}

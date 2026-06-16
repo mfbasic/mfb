@@ -1,0 +1,38 @@
+$ mfb build -ast tests/import-alias-conflicts
+   1 | IMPORT io AS term
+   2 | IMPORT math AS term
+     | ^
+tests/import-alias-conflicts/src/main.mfb:2 error[2-201-0008 SYMBOL_DUPLICATE_IMPORT]: import is declared more than once
+               Import binding `term` is already used for package `io` in this file.
+   1 | IMPORT io AS term
+   2 | IMPORT math AS term
+   3 | IMPORT strings AS io
+     | ^
+tests/import-alias-conflicts/src/main.mfb:3 error[2-201-0008 SYMBOL_DUPLICATE_IMPORT]: import is declared more than once
+               Import alias `io` conflicts with built-in package `io`.
+   2 | IMPORT math AS term
+   3 | IMPORT strings AS io
+   4 | IMPORT json AS helper
+     | ^
+tests/import-alias-conflicts/src/main.mfb:4 error[2-201-0008 SYMBOL_DUPLICATE_IMPORT]: import is declared more than once
+               Import alias `helper` conflicts with a visible top-level declaration.
+[exit 1]
+$ mfb build -ir tests/import-alias-conflicts
+   1 | IMPORT io AS term
+   2 | IMPORT math AS term
+     | ^
+tests/import-alias-conflicts/src/main.mfb:2 error[2-201-0008 SYMBOL_DUPLICATE_IMPORT]: import is declared more than once
+               Import binding `term` is already used for package `io` in this file.
+   1 | IMPORT io AS term
+   2 | IMPORT math AS term
+   3 | IMPORT strings AS io
+     | ^
+tests/import-alias-conflicts/src/main.mfb:3 error[2-201-0008 SYMBOL_DUPLICATE_IMPORT]: import is declared more than once
+               Import alias `io` conflicts with built-in package `io`.
+   2 | IMPORT math AS term
+   3 | IMPORT strings AS io
+   4 | IMPORT json AS helper
+     | ^
+tests/import-alias-conflicts/src/main.mfb:4 error[2-201-0008 SYMBOL_DUPLICATE_IMPORT]: import is declared more than once
+               Import alias `helper` conflicts with a visible top-level declaration.
+[exit 1]

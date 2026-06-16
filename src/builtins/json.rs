@@ -97,7 +97,7 @@ pub(crate) fn uses_package(ast: &crate::ast::AstProject) -> bool {
     ast.files.iter().any(|file| {
         file.imports
             .iter()
-            .any(|import| import.module.split('.').next() == Some("json"))
+            .any(|import| import.package_name() == "json")
     })
 }
 

@@ -1,0 +1,12 @@
+IMPORT io AS term
+IMPORT math AS term
+IMPORT strings AS io
+IMPORT json AS helper
+
+PRIVATE FUNC helper() AS Integer
+  RETURN 0
+END FUNC
+
+FUNC main AS Integer
+  RETURN helper()
+END FUNC

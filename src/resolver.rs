@@ -1,6 +1,6 @@
 use crate::ast::{
     AstFile, AstProject, ConstructorArg, Expression, Item, MatchPattern, Statement, TypeDecl,
-    TypeDeclKind, TypeField,
+    TypeDeclKind, TypeField, Visibility,
 };
 use crate::builtins;
 use crate::rules;
@@ -61,6 +61,7 @@ struct Resolver<'a> {
 struct Symbol {
     file_path: String,
     line: usize,
+    visibility: Visibility,
 }
 
 #[derive(Clone)]
@@ -100,7 +101,12 @@ impl<'a> Resolver<'a> {
                         self.insert_function(file, function);
                     }
                     Item::Type(type_decl) => {
-                        if self.insert_top_level(file, &type_decl.name, type_decl.line) {
+                        if self.insert_top_level(
+                            file,
+                            &type_decl.name,
+                            type_decl.line,
+                            type_decl.visibility,
+                        ) {
                             self.types.insert(type_decl.name.clone());
                         }
                     }
@@ -157,12 +163,19 @@ impl<'a> Resolver<'a> {
                 symbol: Symbol {
                     file_path: file.path.clone(),
                     line: function.line,
+                    visibility: function.visibility,
                 },
                 params,
             });
     }
 
-    fn insert_top_level(&mut self, file: &AstFile, name: &str, line: usize) -> bool {
+    fn insert_top_level(
+        &mut self,
+        file: &AstFile,
+        name: &str,
+        line: usize,
+        visibility: Visibility,
+    ) -> bool {
         if let Some(previous) = self.top_levels.get(name).cloned() {
             self.report(
                 "SYMBOL_DUPLICATE_TOP_LEVEL",
@@ -198,6 +211,7 @@ impl<'a> Resolver<'a> {
             Symbol {
                 file_path: file.path.clone(),
                 line,
+                visibility,
             },
         );
         true
@@ -210,28 +224,48 @@ impl<'a> Resolver<'a> {
     }
 
     fn resolve_file(&mut self, file: &AstFile) {
-        let mut imports = HashSet::new();
+        let mut imports = HashMap::new();
 
         for import in &file.imports {
-            if !imports.insert(import.module.clone()) {
+            let binding = import.binding_name();
+            if let Some(previous) =
+                imports.insert(binding.to_string(), import.package_name().to_string())
+            {
                 self.report(
                     "SYMBOL_DUPLICATE_IMPORT",
                     &format!(
-                        "Package `{}` is imported more than once in this file.",
-                        import.module
+                        "Import binding `{binding}` is already used for package `{previous}` in this file."
                     ),
                     file,
                     import.line,
                 );
             }
 
-            let root_package = import
-                .module
-                .split('.')
-                .next()
-                .unwrap_or(import.module.as_str());
+            if builtins::is_builtin_import(binding) && import.alias.is_some() {
+                self.report(
+                    "SYMBOL_DUPLICATE_IMPORT",
+                    &format!(
+                        "Import alias `{binding}` conflicts with built-in package `{binding}`."
+                    ),
+                    file,
+                    import.line,
+                );
+            }
 
-            self.resolve_imported_package(file, root_package, import.line);
+            if self.top_level_visible_in_file(file, binding)
+                || self.function_visible_in_file(file, binding)
+            {
+                self.report(
+                    "SYMBOL_DUPLICATE_IMPORT",
+                    &format!(
+                        "Import alias `{binding}` conflicts with a visible top-level declaration."
+                    ),
+                    file,
+                    import.line,
+                );
+            }
+
+            self.resolve_imported_package(file, import.package_name(), import.line);
         }
 
         for item in &file.items {
@@ -246,7 +280,7 @@ impl<'a> Resolver<'a> {
         &mut self,
         file: &AstFile,
         type_decl: &TypeDecl,
-        imports: &HashSet<String>,
+        imports: &HashMap<String, String>,
     ) {
         let previous_template_params = std::mem::replace(
             &mut self.active_template_params,
@@ -315,7 +349,7 @@ impl<'a> Resolver<'a> {
         &mut self,
         file: &AstFile,
         field: &TypeField,
-        imports: &HashSet<String>,
+        imports: &HashMap<String, String>,
     ) {
         self.resolve_type_name(file, &field.type_name, field.line, imports);
     }
@@ -324,7 +358,7 @@ impl<'a> Resolver<'a> {
         &mut self,
         file: &AstFile,
         function: &crate::ast::Function,
-        imports: &HashSet<String>,
+        imports: &HashMap<String, String>,
     ) {
         let previous_template_params = std::mem::replace(
             &mut self.active_template_params,
@@ -339,6 +373,7 @@ impl<'a> Resolver<'a> {
                     Symbol {
                         file_path: file.path.clone(),
                         line: param.line,
+                        visibility: Visibility::Private,
                     },
                 )
                 .is_some()
@@ -375,6 +410,7 @@ impl<'a> Resolver<'a> {
                 Symbol {
                     file_path: file.path.clone(),
                     line: trap.line,
+                    visibility: Visibility::Private,
                 },
             );
             self.resolve_block(file, &trap.body, imports, &mut trap_locals);
@@ -386,7 +422,7 @@ impl<'a> Resolver<'a> {
         &mut self,
         file: &AstFile,
         body: &[Statement],
-        imports: &HashSet<String>,
+        imports: &HashMap<String, String>,
         locals: &mut HashMap<String, Symbol>,
     ) {
         for statement in body {
@@ -398,7 +434,7 @@ impl<'a> Resolver<'a> {
         &mut self,
         file: &AstFile,
         statement: &Statement,
-        imports: &HashSet<String>,
+        imports: &HashMap<String, String>,
         locals: &mut HashMap<String, Symbol>,
     ) {
         match statement {
@@ -421,6 +457,7 @@ impl<'a> Resolver<'a> {
                         Symbol {
                             file_path: file.path.clone(),
                             line: *line,
+                            visibility: Visibility::Private,
                         },
                     )
                     .is_some()
@@ -475,6 +512,7 @@ impl<'a> Resolver<'a> {
                                 Symbol {
                                     file_path: file.path.clone(),
                                     line: case.line,
+                                    visibility: Visibility::Private,
                                 },
                             );
                         }
@@ -487,6 +525,7 @@ impl<'a> Resolver<'a> {
                             Symbol {
                                 file_path: file.path.clone(),
                                 line: case.line,
+                                visibility: Visibility::Private,
                             },
                         );
                     }
@@ -513,6 +552,7 @@ impl<'a> Resolver<'a> {
                         Symbol {
                             file_path: file.path.clone(),
                             line: *line,
+                            visibility: Visibility::Private,
                         },
                     )
                     .is_some()
@@ -540,6 +580,7 @@ impl<'a> Resolver<'a> {
                         Symbol {
                             file_path: file.path.clone(),
                             line: *line,
+                            visibility: Visibility::Private,
                         },
                     )
                     .is_some()
@@ -583,6 +624,7 @@ impl<'a> Resolver<'a> {
                         Symbol {
                             file_path: file.path.clone(),
                             line: *line,
+                            visibility: Visibility::Private,
                         },
                     )
                     .is_some()
@@ -603,7 +645,7 @@ impl<'a> Resolver<'a> {
         &mut self,
         file: &AstFile,
         body: &[Statement],
-        imports: &HashSet<String>,
+        imports: &HashMap<String, String>,
         locals: &HashMap<String, Symbol>,
     ) {
         let mut nested = locals.clone();
@@ -615,7 +657,7 @@ impl<'a> Resolver<'a> {
         file: &AstFile,
         pattern: &MatchPattern,
         line: usize,
-        imports: &HashSet<String>,
+        imports: &HashMap<String, String>,
         locals: &HashMap<String, Symbol>,
     ) {
         match pattern {
@@ -641,7 +683,7 @@ impl<'a> Resolver<'a> {
         file: &AstFile,
         expression: &Expression,
         line: usize,
-        imports: &HashSet<String>,
+        imports: &HashMap<String, String>,
         locals: &HashMap<String, Symbol>,
     ) {
         match expression {
@@ -670,6 +712,7 @@ impl<'a> Resolver<'a> {
                         Symbol {
                             file_path: file.path.clone(),
                             line: param.line,
+                            visibility: Visibility::Private,
                         },
                     );
                     if let Some(default) = &param.default {
@@ -738,7 +781,7 @@ impl<'a> Resolver<'a> {
         file: &AstFile,
         callee: &str,
         line: usize,
-        imports: &HashSet<String>,
+        imports: &HashMap<String, String>,
         locals: &HashMap<String, Symbol>,
     ) {
         if callee.contains('.') {
@@ -762,7 +805,7 @@ impl<'a> Resolver<'a> {
         file: &AstFile,
         name: &str,
         line: usize,
-        imports: &HashSet<String>,
+        imports: &HashMap<String, String>,
         locals: &HashMap<String, Symbol>,
     ) {
         if name.contains('.') {
@@ -785,7 +828,7 @@ impl<'a> Resolver<'a> {
         file: &AstFile,
         type_name: &str,
         line: usize,
-        imports: &HashSet<String>,
+        imports: &HashMap<String, String>,
     ) {
         if let Some(rest) = type_name.strip_prefix("ISOLATED FUNC(") {
             self.resolve_function_type_name(file, rest, line, imports);
@@ -855,7 +898,7 @@ impl<'a> Resolver<'a> {
         file: &AstFile,
         rest: &str,
         line: usize,
-        imports: &HashSet<String>,
+        imports: &HashMap<String, String>,
     ) {
         let Some((params, return_type)) = rest.split_once(") AS ") else {
             self.report(
@@ -879,24 +922,45 @@ impl<'a> Resolver<'a> {
         file: &AstFile,
         name: &str,
         line: usize,
-        imports: &HashSet<String>,
+        imports: &HashMap<String, String>,
     ) {
         let root = name.split('.').next().unwrap_or(name);
-        if !imports.contains(root) {
+        let Some(package) = imports.get(root) else {
             self.report(
                 "SYMBOL_UNKNOWN_IMPORT",
                 &format!("Package `{root}` is used but not imported in this file."),
                 file,
                 line,
             );
-        } else if builtins::is_builtin_import(root) && !builtins::is_builtin_call(name) {
-            self.report(
-                "SYMBOL_UNKNOWN_IDENTIFIER",
-                &format!("Built-in package `{root}` does not export `{name}`."),
-                file,
-                line,
-            );
+            return;
+        };
+
+        if builtins::is_builtin_import(package) {
+            let qualified_name = qualify_package_name(name, root, package);
+            if !builtins::is_builtin_call(&qualified_name) {
+                self.report(
+                    "SYMBOL_UNKNOWN_IDENTIFIER",
+                    &format!("Built-in package `{package}` does not export `{qualified_name}`."),
+                    file,
+                    line,
+                );
+            }
         }
+    }
+
+    fn top_level_visible_in_file(&self, file: &AstFile, name: &str) -> bool {
+        self.top_levels.get(name).is_some_and(|symbol| {
+            !matches!(symbol.visibility, Visibility::Private) || symbol.file_path == file.path
+        })
+    }
+
+    fn function_visible_in_file(&self, file: &AstFile, name: &str) -> bool {
+        self.functions.get(name).is_some_and(|functions| {
+            functions.iter().any(|function| {
+                !matches!(function.symbol.visibility, Visibility::Private)
+                    || function.symbol.file_path == file.path
+            })
+        })
     }
 
     fn report(&mut self, rule: &str, detail: &str, file: &AstFile, line: usize) {
@@ -1068,6 +1132,13 @@ fn read_manifest(path: &Path) -> Option<HashMap<String, JsonValue>> {
     let contents = fs::read_to_string(path).ok()?;
     let json = contents.parse::<JsonValue>().ok()?;
     json.get::<HashMap<String, JsonValue>>().cloned()
+}
+
+fn qualify_package_name(name: &str, binding: &str, package: &str) -> String {
+    if binding == package {
+        return name.to_string();
+    }
+    format!("{package}.{}", &name[binding.len() + 1..])
 }
 
 fn is_builtin_import(name: &str) -> bool {
