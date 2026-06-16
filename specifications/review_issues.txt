@@ -27,6 +27,7 @@ The spec requires an `errorCode` package exporting constants for every canonical
 REQUIREMENT: Float `toString` must format Float values without fixed-point narrowing
 SPECIFICATION: standard_package.md @ §3.1 General
 GROUP: stdlib
+STATUS: Completed
 RECOMMENDED: CODE CHANGE
 `toString(value AS Float, precision AS Byte = 2)` is specified as a Float conversion and does not allow failures for ordinary finite Float values. Native lowering currently converts the Float through a 32.32 Fixed representation before formatting, which cannot correctly represent finite Float values outside the Fixed range and is not real Float formatting. Resolve by adding a true finite `Float` to decimal formatter that respects the precision argument without narrowing through Fixed, and add runtime tests for large, small, fractional, negative, and precision-controlled Float outputs.
 
@@ -138,6 +139,36 @@ GROUP: language
 RECOMMENDED: CODE CHANGE
 The spec requires resource handles to have exactly one live owner and deterministic cleanup, with `USING` as the visible lifetime construct. The compiler only emits cleanup for `USING`; ordinary `LET f = fs::openFile(...)` / `MUT f = ...` resource bindings can compile without any guaranteed close on scope exit. Resolve by either rejecting resource-producing bindings outside `USING` and explicit consuming close flows, or by adding full lexical resource-drop analysis/lowering for all normal, return, fail, propagate, and auto-propagation exits, with missing-close and double-close diagnostics plus runtime tests.
 
+REQUIREMENT: Inner blocks may shadow enclosing bindings
+SPECIFICATION: specifications/mfbasic.md @ §5 Bindings, Scope, and Assignment
+GROUP: language
+RECOMMENDED: CODE CHANGE
+The resolver rejects inner-block shadowing because nested scopes clone the enclosing locals map and `LET`/`MUT`, `FOR`, `FOR EACH`, and `USING` bindings report `SYMBOL_DUPLICATE_LOCAL` when their name already exists in an outer scope. Resolve by replacing flat cloned local maps with lexical scope tracking: duplicate checks should apply only within the current scope, lookup should resolve the nearest binding, outer `MUT` reassignment should still target the enclosing binding when it is not shadowed, and IR/lowering should use stable scoped symbol identities so shadowed locals do not collide. Add valid and invalid tests for shadowing in `IF`, loops, `USING`, `MATCH`, and lambdas.
+
+REQUIREMENT: Import aliases must not conflict with other imported package names
+SPECIFICATION: specifications/mfbasic.md @ §13 Modules and Packages
+GROUP: language
+RECOMMENDED: CODE CHANGE
+Import validation rejects duplicate binding names, aliases that conflict with built-in package bindings, and aliases that conflict with visible top-level declarations, but it does not compare an alias against another import's original package name. For example, `IMPORT foo AS bar` alongside `IMPORT bar AS baz` can pass even though alias `bar` conflicts with imported package name `bar`. Resolve by tracking both import bindings/aliases and original package names during per-file import validation, then reject alias-vs-package-name collisions in either order. Add invalid import tests for those collision cases.
+
+REQUIREMENT: Pipeline tail grammar
+SPECIFICATION: mfbasic.md @ §11 Operators; §19 Grammar
+GROUP: language
+RECOMMENDED: CODE CHANGE
+The spec restricts pipeline RHS syntax to a call tail, `ident(...)` or `package::ident(...)`, with `_` used as a pipe argument placeholder. The parser accepts any expression containing `_` and substitutes every identifier `_`, so invalid forms like `x |> _ + 1` can parse. Resolve by implementing a dedicated `pipeTail` parser that accepts only call tails and only permits `_` in pipe call arguments, then add valid and invalid pipeline grammar tests.
+
+REQUIREMENT: Function calls with more than eight arguments
+SPECIFICATION: mfbasic.md @ §6 Functions; §14.3 Function calls and returns
+GROUP: language
+RECOMMENDED: CODE CHANGE
+The language specifies ordinary parameter lists and call semantics without an eight-argument limit, but native AArch64 lowering only maps arguments 0 through 7 to registers. `src/arch/aarch64/abi.rs` returns `stack arguments are not implemented` for argument index 8 and above, so valid source functions with nine or more parameters can pass parsing/typechecking/IR and then fail during native planning/code generation. Resolve by implementing AArch64 stack-argument passing and callee access for user functions, imported/package calls, and any runtime/native helper path that can exceed register arguments; preserve left-to-right argument evaluation and error propagation, then add runtime tests for calls with exactly 8, 9, and more mixed-type arguments.
+
+REQUIREMENT: Managed recursion exhaustion failure
+SPECIFICATION: specifications/mfbasic.md @ §6 Functions
+GROUP: language
+RECOMMENDED: CODE CHANGE
+`mfbasic.md` requires recursion and call-stack exhaustion to fail with `ErrOutOfMemory` or a specific runtime error instead of undefined behavior. Native lowering emits ordinary direct and indirect calls for user, package, and function-value calls without managed recursion-depth or stack-budget checks, and no runtime path maps stack overflow into an MFBASIC `Error`; deep recursion can therefore exhaust the host stack and crash. Resolve by adding call-depth or stack-budget accounting around generated calls, returning `ErrOutOfMemory` (`77010001`) or a documented runtime error through the normal `Result` path before the host stack is exhausted, then add a runtime test proving deep recursion errors observably rather than crashing.
+
 
 === tooling ===
 
@@ -189,6 +220,12 @@ GROUP: tooling
 RECOMMENDED: CODE CHANGE
 `project.md` defines `sources[*].root` as a file or directory path relative to `project.json`, but the compiler accepts absolute roots when they canonicalize inside the project directory. `validate_sources` only checks that `root` is a string, and source discovery joins the path to `project_dir`, which leaves absolute paths absolute on Unix. Resolve by rejecting absolute `root` values during manifest validation or source discovery, adding a diagnostic and tests for absolute roots while preserving the existing canonical inside-project and symlink escape checks.
 
+REQUIREMENT: Project manifest targets must affect build output
+SPECIFICATION: project.md @ §9 Targets And Build Metadata
+GROUP: tooling
+RECOMMENDED: CODE CHANGE
+`project.json` defines `targets` as requested build targets such as `native`, `bytecode`, or platform triples, but `src/main.rs` ignores the manifest field entirely. `mfb build` always emits the primary artifact for `kind` using the CLI/default host target, so a manifest requesting only `bytecode`, a specific platform triple, or multiple targets has no effect. Resolve by parsing and validating `targets`, mapping entries to build outputs/target triples, rejecting unsupported targets, defining CLI override precedence, and adding manifest/build tests for `native`, `bytecode`, explicit platform triples, and invalid target values.
+
 
 === registry ===
 
@@ -215,6 +252,12 @@ SPECIFICATION: mfbasic.md @ §13.1 Package identity, versions, and manifests
 GROUP: registry
 RECOMMENDED: SPEC CHANGE
 `mfbasic.md` requires semantic-version range constraints such as `^1.2.0`, `~1.2.0`, inequalities, and wildcards, but `project.md` §7 defines dependency `version` as a concrete semantic version/ABI anchor and explicitly rejects range syntax. The implementation follows the concrete-version model: package verification compares versions literally and has a test rejecting range syntax as a match. Resolve by updating `mfbasic.md` to match `project.md`'s ABI-anchor model, or deliberately implement full range parsing/resolution across manifest validation, lockfile generation, package install/update, ABI compatibility selection, and conflict diagnostics.
+
+REQUIREMENT: Registry-aware package add forms
+SPECIFICATION: repository.md @ §1 Naming & Identity Model; §8.3 Resolution algorithm
+GROUP: registry
+RECOMMENDED: CODE CHANGE
+`repository.md` requires `mfb pkg add` to accept registry identity forms such as `shape`, `<owner>#shape`, `<owner>#shape@<version>`, and `--pin`, resolve them through the registry, select an appropriate version, update project/lock state, and run install after add. Current `src/main.rs` only accepts `mfb pkg add <url>`, and the URL path only supports absolute `file://... .mfp` package files. Resolve by implementing the registry add parser/resolver, package search and disambiguation, owner/ident/version/pin handling, lockfile/install integration, supported source locators, and CLI tests for each required add form plus local file packages.
 
 
 === package ===

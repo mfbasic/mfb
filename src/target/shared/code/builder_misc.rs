@@ -1,7 +1,7 @@
 use super::*;
 
 impl CodeBuilder<'_> {
-    fn emit_symbol_call(&mut self, symbol: &str) {
+    pub(super) fn emit_symbol_call(&mut self, symbol: &str) {
         self.emit(abi::branch_link(symbol));
         let (binding, library) = if let Some(library) = self.platform_imports.get(symbol) {
             ("external".to_string(), Some(library.clone()))

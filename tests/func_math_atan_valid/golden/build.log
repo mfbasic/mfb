@@ -9,6 +9,6 @@ Wrote executable to tests/func_math_atan_valid/func_math_atan_valid.out
 [exit 0]
 $ tests/func_math_atan_valid/func_math_atan_valid.out
 0.00
-0.78
+0.79
 0.00
 [exit 0]

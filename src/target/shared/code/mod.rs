@@ -144,6 +144,8 @@ const UNICODE_LOWERCASE_SEQUENCES_SYMBOL: &str = "_mfb_unicode_lowercase_sequenc
 const UNICODE_CASEFOLD_ENTRIES_SYMBOL: &str = "_mfb_unicode_casefold_entries";
 const UNICODE_CASEFOLD_SEQUENCES_SYMBOL: &str = "_mfb_unicode_casefold_sequences";
 const THREAD_TRAMPOLINE_SYMBOL: &str = "_mfb_rt_thread_trampoline";
+const FLOAT_TO_STRING_FORMAT: &str = "%.*f";
+const FLOAT_TO_STRING_BUFFER_SIZE: usize = 640;
 
 pub(crate) struct NativeCodePlan {
     pub(crate) target: String,
@@ -10975,6 +10977,7 @@ fn string_symbols(module: &NirModule) -> HashMap<String, String> {
     if module_uses_call(module, "toString") {
         push_string_value(&mut values, "TRUE".to_string());
         push_string_value(&mut values, "FALSE".to_string());
+        push_string_value(&mut values, FLOAT_TO_STRING_FORMAT.to_string());
         push_string_value(&mut values, ERR_ENCODING_MESSAGE.to_string());
     }
     for value in [

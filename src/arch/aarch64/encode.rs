@@ -915,7 +915,7 @@ fn field(instruction: &CodeInstruction, name: &str) -> Result<String, String> {
 
 fn reg(name: String) -> Result<u8, String> {
     match name.as_str() {
-        "sp" | "x31" | "xzr" => Ok(31),
+        "sp" | "raw_sp" | "x31" | "xzr" => Ok(31),
         "x0" | "w0" => Ok(0),
         "x1" | "w1" => Ok(1),
         "x2" | "w2" => Ok(2),

@@ -8,15 +8,15 @@ $ mfb build tests/math_package_valid
 Wrote executable to tests/math_package_valid/math_package_valid.out
 [exit 0]
 $ tests/math_package_valid/math_package_valid.out
+3.141593
 3.141592
-3.141592
-0.636619
+0.636620
 0.636619
 1.570796
 1.570796
 0.785398
 0.785398
-2.718281
+2.718282
 2.718281
 0.693147
 0.693147
@@ -44,7 +44,7 @@ $ tests/math_package_valid/math_package_valid.out
 3.000000
 8.000000
 2.250000
-2.718281
+2.718282
 2.718281
 1.000000
 0.000000
@@ -56,9 +56,9 @@ $ tests/math_package_valid/math_package_valid.out
 -1.000000
 0.000000
 0.000000
+0.523599
 0.523598
-0.523598
-1.047197
+1.047198
 1.047197
 0.785398
 0.785398

@@ -150,6 +150,9 @@ impl plan::NativePlanPlatform for Platform {
     }
 
     fn native_call_imports(&self, target: &str, required_by: &str) -> Vec<PlatformImport> {
+        if target == "toString" {
+            return vec![self.libc_import("snprintf", required_by)];
+        }
         let symbol = match target {
             "math.pow" => "pow",
             "math.exp" => "exp",
