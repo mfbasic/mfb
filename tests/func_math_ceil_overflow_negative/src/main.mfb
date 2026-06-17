@@ -1,0 +1,5 @@
+IMPORT math
+
+FUNC main AS Integer
+  RETURN math::ceil(0.0 - 9223372036854777856.0)
+END FUNC

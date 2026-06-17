@@ -3,7 +3,64 @@ IMPORT io
 
 FUNC main AS Integer
   LET f AS File = fs::open("tests/func_fs_open_valid/src/main.mfb", "read")
-  io::print("opened")
   fs::close(f)
+  io::print("read")
+
+  LET r AS File = fs::open("tests/func_fs_open_valid/src/main.mfb", "r")
+  fs::close(r)
+  io::print("r")
+
+  LET writePath AS String = "target/func_fs_open_valid_w.txt"
+  IF fs::fileExists(writePath) THEN
+    fs::deleteFile(writePath)
+  END IF
+  LET w AS File = fs::open(writePath, "w")
+  fs::writeAll(w, "w")
+  fs::close(w)
+  io::print(fs::readText(writePath))
+  fs::deleteFile(writePath)
+
+  LET readWritePath AS String = "target/func_fs_open_valid_rw.txt"
+  fs::writeText(readWritePath, "")
+  LET rw AS File = fs::open(readWritePath, "rw")
+  fs::writeAll(rw, "rw")
+  fs::close(rw)
+  io::print(fs::readText(readWritePath))
+  fs::deleteFile(readWritePath)
+
+  LET readWriteNamePath AS String = "target/func_fs_open_valid_readWrite.txt"
+  fs::writeText(readWriteNamePath, "")
+  LET readWrite AS File = fs::open(readWriteNamePath, "readWrite")
+  fs::writeAll(readWrite, "readWrite")
+  fs::close(readWrite)
+  io::print(fs::readText(readWriteNamePath))
+  fs::deleteFile(readWriteNamePath)
+
+  LET appendAliasPath AS String = "target/func_fs_open_valid_a.txt"
+  fs::writeText(appendAliasPath, "base")
+  LET a AS File = fs::open(appendAliasPath, "a")
+  fs::writeAll(a, "+a")
+  fs::close(a)
+  io::print(fs::readText(appendAliasPath))
+  fs::deleteFile(appendAliasPath)
+
+  LET appendPath AS String = "target/func_fs_open_valid_append.txt"
+  fs::writeText(appendPath, "base")
+  LET append AS File = fs::open(appendPath, "append")
+  fs::writeAll(append, "+append")
+  fs::close(append)
+  io::print(fs::readText(appendPath))
+  fs::deleteFile(appendPath)
+
+  LET writeNamePath AS String = "target/func_fs_open_valid_write.txt"
+  IF fs::fileExists(writeNamePath) THEN
+    fs::deleteFile(writeNamePath)
+  END IF
+  LET write AS File = fs::open(writeNamePath, "write")
+  fs::writeAll(write, "write")
+  fs::close(write)
+  io::print(fs::readText(writeNamePath))
+  fs::deleteFile(writeNamePath)
+
   RETURN 0
 END FUNC

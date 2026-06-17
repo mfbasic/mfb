@@ -11,6 +11,8 @@ $ tests/func_math_round_valid/func_math_round_valid.out
 3
 4
 -4
+9223372036854773760
+-9223372036854775808
 2
 -2
 [exit 0]

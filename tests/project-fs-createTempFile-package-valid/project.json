@@ -1,0 +1,16 @@
+{
+  "name": "project_fs_createTempFile_package_valid",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "executable",
+  "sources": [{ "root": "src", "role": "main", "include": ["**/*.mfb"] }],
+  "packages": [
+    {
+      "name": "package_fs_create_temp_file",
+      "version": "=0.1.0",
+      "source": "file:packages/package_fs_create_temp_file.mfp"
+    }
+  ],
+  "entry": "main",
+  "targets": ["native"]
+}

@@ -1,0 +1,54 @@
+{
+  "project": "project_fs_createTempFile_package_valid",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "fs", "line": 1 },
+    { "module": "io", "line": 2 },
+    { "module": "package_fs_create_temp_file", "alias": "tempFiles", "line": 3 },
+    { "module": "strings", "line": 4 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "main",
+      "line": 6,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "directory", "type": "String", "value": { "kind": "string", "value": "target/project_fs_createTempFile_package_valid" }, "line": 7 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "fs.createDirectories", "arguments": [{ "kind": "identifier", "value": "directory" }] }, "line": 8 },
+      { "kind": "binding", "mutable": false, "name": "oldNames", "type": "List OF String", "value": { "kind": "call", "callee": "fs.listDirectory", "arguments": [{ "kind": "identifier", "value": "directory" }] }, "line": 10 },
+      {
+        "kind": "forEach",
+        "name": "oldName",
+        "iterable": { "kind": "identifier", "value": "oldNames" },
+        "line": 11,
+        "body": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "fs.deleteFile", "arguments": [{ "kind": "call", "callee": "fs.pathJoin", "arguments": [{ "kind": "list", "values": [{ "kind": "identifier", "value": "directory" }, { "kind": "identifier", "value": "oldName" }] }] }] }, "line": 12 }
+        ]
+      },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "tempFiles.createDefaultTemp", "arguments": [] }] }, "line": 15 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "tempFiles.createInDirectory", "arguments": [{ "kind": "identifier", "value": "directory" }] }] }, "line": 16 },
+      { "kind": "binding", "mutable": false, "name": "names", "type": "List OF String", "value": { "kind": "call", "callee": "fs.listDirectory", "arguments": [{ "kind": "identifier", "value": "directory" }] }, "line": 17 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "names" }] }] }] }, "line": 18 },
+      {
+        "kind": "forEach",
+        "name": "name",
+        "iterable": { "kind": "identifier", "value": "names" },
+        "line": 19,
+        "body": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "strings.startsWith", "arguments": [{ "kind": "identifier", "value": "name" }, { "kind": "string", "value": "mfb-" }] }] }] }, "line": 20 },
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "strings.endsWith", "arguments": [{ "kind": "identifier", "value": "name" }, { "kind": "string", "value": ".tmp" }] }] }] }, "line": 21 }
+        ]
+      },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 23 }
+      ]
+    }
+    ]
+  }
+  ]
+}

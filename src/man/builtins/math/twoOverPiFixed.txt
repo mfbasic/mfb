@@ -1,0 +1,11 @@
+NAME
+  twoOverPiFixed - mathematical constant 2 / pi as Fixed
+
+SYNOPSIS
+  math::twoOverPiFixed AS Fixed
+
+DESCRIPTION
+  The mathematical constant 2 / pi rounded to the nearest Fixed value.
+
+EXAMPLES
+  LET value AS Fixed = math::twoOverPiFixed

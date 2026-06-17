@@ -1,0 +1,51 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "project_fs_createTempFile_package_valid",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "mutable": false, "name": "directory", "type": "String", "value": { "kind": "const", "type": "String", "value": "target/project_fs_createTempFile_package_valid" } },
+    { "op": "eval", "value": { "kind": "call", "target": "fs.createDirectories", "args": [{ "kind": "local", "name": "directory" }] } },
+    { "op": "bind", "mutable": false, "name": "oldNames", "type": "List OF String", "value": { "kind": "call", "target": "fs.listDirectory", "args": [{ "kind": "local", "name": "directory" }] } },
+    {
+      "op": "forEach",
+      "name": "oldName",
+      "type": "String",
+      "iterable": { "kind": "local", "name": "oldNames" },
+      "body": [
+      { "op": "eval", "value": { "kind": "call", "target": "fs.deleteFile", "args": [{ "kind": "call", "target": "fs.pathJoin", "args": [{ "kind": "list", "type": "List OF String", "values": [{ "kind": "local", "name": "directory" }, { "kind": "local", "name": "oldName" }] }] }] } }
+      ]
+    },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "package_fs_create_temp_file.createDefaultTemp", "args": [] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "package_fs_create_temp_file.createInDirectory", "args": [{ "kind": "local", "name": "directory" }] }] } },
+    { "op": "bind", "mutable": false, "name": "names", "type": "List OF String", "value": { "kind": "call", "target": "fs.listDirectory", "args": [{ "kind": "local", "name": "directory" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "names" }] }] }] } },
+    {
+      "op": "forEach",
+      "name": "name",
+      "type": "String",
+      "iterable": { "kind": "local", "name": "names" },
+      "body": [
+      { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "strings.startsWith", "args": [{ "kind": "local", "name": "name" }, { "kind": "const", "type": "String", "value": "mfb-" }] }] }] } },
+      { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "strings.endsWith", "args": [{ "kind": "local", "name": "name" }, { "kind": "const", "type": "String", "value": ".tmp" }] }] }] } }
+      ]
+    },
+    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

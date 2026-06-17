@@ -1,0 +1,25 @@
+{
+  "project": "func_math_floor_overflow_negative",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "math", "line": 1 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "main",
+      "line": 3,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "return", "value": { "kind": "call", "callee": "math.floor", "arguments": [{ "kind": "binary", "operator": "-", "left": { "kind": "number", "value": "0.0" }, "right": { "kind": "number", "value": "9223372036854777856.0" } }] }, "line": 4 }
+      ]
+    }
+    ]
+  }
+  ]
+}

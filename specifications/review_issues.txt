@@ -431,12 +431,14 @@ Records whose fields are all comparable are specified as comparable, so `=` / `<
 REQUIREMENT: Unspellable math constants
 SPECIFICATION: standard_package.md @ §10 Built-in Math Package
 GROUP: math
+STATUS: completed
 RECOMMENDED: SPEC CHANGE
 The spec requires constants named `math::2pi` and `math::2piFixed`, but MFBASIC identifiers must match `[A-Za-z_][A-Za-z0-9_]*`, and the parser requires an identifier after `::`/`.`. These constants are registered internally as `math.2pi` and `math.2piFixed`, but they cannot be written in valid source. Resolve by renaming the constants in the spec and implementation to identifier-valid names, and clarify whether the intended value is `2 * pi` or the currently documented/implemented `2 / pi`.
 
 REQUIREMENT: Math rounding overflow checks
 SPECIFICATION: standard_package.md @ §10 Built-in Math Package
 GROUP: math
+STATUS: completed
 RECOMMENDED: CODE CHANGE
 `math::floor`, `math::ceil`, and `math::round` on `Float` must fail with `ErrOverflow` when the result is outside the `Integer` range. The native lowering in `src/target/shared/code/builder_math.rs` directly emits AArch64 float-to-integer conversion instructions without explicit finite/range checks, so out-of-range values are not routed through the specified error behavior. Resolve by adding pre-conversion validation for finite values and `Integer` bounds, returning `ErrOverflow` for out-of-range results, and adding runtime tests for boundary and overflow cases for all three functions.
 
@@ -446,12 +448,14 @@ RECOMMENDED: CODE CHANGE
 REQUIREMENT: Narrow `fs::openFile` mode set
 SPECIFICATION: standard_package.md @ §8 Built-in Filesystem Package
 GROUP: filesystem
-RECOMMENDED: CODE CHANGE
-`fs::openFile` and `fs::openFileNoFollow` are specified with modes `"read"`, `"write"`, and `"append"`, while `fs::open` has the wider alias set `"read"`/`"r"`, `"write"`/`"w"`, `"readWrite"`/`"rw"`, and `"append"`/`"a"`. Native lowering routes all three APIs through `lower_fs_open_helper`, which accepts the wider alias set for `fs::openFile` and `fs::openFileNoFollow` too. Resolve by passing the API kind into the open helper and rejecting `r`, `w`, `rw`, `readWrite`, and `a` for `openFile`/`openFileNoFollow`, with runtime invalid-mode tests.
+STATUS: completed
+RECOMMENDED: SPEC CHANGE
+`fs::openFile` and `fs::openFileNoFollow` are specified with modes `"read"`, `"write"`, and `"append"`, while `fs::open` has the wider alias set `"read"`/`"r"`, `"write"`/`"w"`, `"readWrite"`/`"rw"`, and `"append"`/`"a"`. unify all file open APIs to use the wider alias set `"read"`/`"r"`, `"write"`/`"w"`, `"readWrite"`/`"rw"`, and `"append"`/`"a"`
 
 REQUIREMENT: `fs::createTempFile()` no-argument form must work from package bytecode
 SPECIFICATION: standard_package.md @ §8 Built-in Filesystem Package
 GROUP: filesystem
+STATUS: completed
 RECOMMENDED: CODE CHANGE
 The spec defines `fs::createTempFile()` with no directory argument, using the OS temp directory. Native source NIR lowering injects `fs.tempDirectory()` for this form, but bytecode lowering in `src/builtins/fs.rs` emits `OPCODE_FS_CREATE_TEMP_FILE` with no directory operand. Package/native helper metadata expects a directory string, so package bytecode that calls the no-argument form cannot execute with the specified behavior. Resolve by making bytecode lowering synthesize the temp-directory default, or by teaching the package/native runtime helper to handle the omitted operand, then add package/runtime tests for `fs::createTempFile()` and `fs::createTempFile(directory)`.
 

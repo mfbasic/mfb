@@ -278,6 +278,14 @@ pub(crate) fn lower_bytecode_call(
         OPEN_FILE | OPEN_FILE_NO_FOLLOW if lowered.len() == 1 => {
             lowered.push(lowerer.push_string_const("read")?);
         }
+        CREATE_TEMP_FILE if lowered.is_empty() => {
+            let register = lowerer.add_register(TYPE_STRING, 0);
+            lowerer.push(OPCODE_FS_TEMP_DIRECTORY, vec![register]);
+            lowered.push(ValueSlot {
+                register,
+                type_name: "String".to_string(),
+            });
+        }
         _ => {}
     }
 

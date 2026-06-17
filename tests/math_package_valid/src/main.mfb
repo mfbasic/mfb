@@ -11,8 +11,8 @@ FUNC main AS Integer
 
   io::print(toString(math::pi, p))
   io::print(toString(math::piFixed, p))
-  io::print(toString(math::2pi, p))
-  io::print(toString(math::2piFixed, p))
+  io::print(toString(math::twoOverPi, p))
+  io::print(toString(math::twoOverPiFixed, p))
   io::print(toString(math::pi2, p))
   io::print(toString(math::pi2Fixed, p))
   io::print(toString(math::pi4, p))

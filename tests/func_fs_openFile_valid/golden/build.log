@@ -9,5 +9,12 @@ Wrote executable to tests/func_fs_openFile_valid/func_fs_openFile_valid.out
 [exit 0]
 $ tests/func_fs_openFile_valid/func_fs_openFile_valid.out
 default
-TRUE
+read
+r
+w
+rw
+readWrite
+base+a
+base+append
+write
 [exit 0]

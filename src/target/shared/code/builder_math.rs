@@ -250,6 +250,7 @@ impl CodeBuilder<'_> {
         match value.type_.as_str() {
             "Float" => {
                 self.emit(abi::float_move_d_from_x("d0", &value.location));
+                self.emit_float_rounding_integer_range_check(&value.location)?;
                 match function {
                     "floor" => self.emit(abi::float_floor_to_signed_x(&dst, "d0")),
                     "ceil" => self.emit(abi::float_ceil_to_signed_x(&dst, "d0")),
@@ -280,6 +281,45 @@ impl CodeBuilder<'_> {
             location: dst,
             text: format!("math.{function}({})", value.text),
         })
+    }
+
+    fn emit_float_rounding_integer_range_check(&mut self, source_bits: &str) -> Result<(), String> {
+        let bits = self.allocate_register()?;
+        let exponent = self.allocate_register()?;
+        let sign = self.allocate_register()?;
+        let mantissa = self.allocate_register()?;
+        let mask = self.allocate_register()?;
+        let ok = self.label("math_rounding_float_range_ok");
+        let edge = self.label("math_rounding_float_range_edge");
+        let edge_negative = self.label("math_rounding_float_range_edge_negative");
+        let overflow = self.label("math_rounding_float_range_overflow");
+
+        self.emit(abi::move_register(&bits, source_bits));
+        self.emit(abi::shift_right_immediate(&exponent, &bits, 52));
+        self.emit(abi::move_immediate(&mask, "Integer", "2047"));
+        self.emit(abi::and_registers(&exponent, &exponent, &mask));
+        self.emit(abi::compare_immediate(&exponent, "2047"));
+        self.emit(abi::branch_eq(&overflow));
+        self.emit(abi::compare_immediate(&exponent, "1086"));
+        self.emit(abi::branch_lt(&ok));
+        self.emit(abi::branch_eq(&edge));
+        self.emit(abi::branch(&overflow));
+
+        self.emit(abi::label(&edge));
+        self.emit(abi::shift_right_immediate(&sign, &bits, 63));
+        self.emit(abi::compare_immediate(&sign, "1"));
+        self.emit(abi::branch_eq(&edge_negative));
+        self.emit(abi::branch(&overflow));
+        self.emit(abi::label(&edge_negative));
+        self.emit(abi::move_immediate(&mask, "Integer", "4503599627370495"));
+        self.emit(abi::and_registers(&mantissa, &bits, &mask));
+        self.emit(abi::compare_immediate(&mantissa, "0"));
+        self.emit(abi::branch_eq(&ok));
+
+        self.emit(abi::label(&overflow));
+        self.emit_overflow_return()?;
+        self.emit(abi::label(&ok));
+        Ok(())
     }
 
     fn lower_math_sqrt(&mut self, arg: &NirValue) -> Result<ValueResult, String> {

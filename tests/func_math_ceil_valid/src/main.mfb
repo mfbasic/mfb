@@ -7,6 +7,8 @@ FUNC main AS Integer
   io::print(toString(math::ceil(3.25)))
   io::print(toString(math::ceil(0 - 3.75)))
   io::print(toString(math::ceil(4.0)))
+  io::print(toString(math::ceil(9223372036854773760.0)))
+  io::print(toString(math::ceil(0.0 - 9223372036854775808.0)))
   io::print(toString(math::ceil(fixedPositive)))
   io::print(toString(math::ceil(fixedNegative)))
   RETURN 0

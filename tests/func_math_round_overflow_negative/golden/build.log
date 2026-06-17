@@ -1,0 +1,12 @@
+$ mfb build -ast tests/func_math_round_overflow_negative
+Wrote AST to tests/func_math_round_overflow_negative/func_math_round_overflow_negative.ast
+[exit 0]
+$ mfb build -ir tests/func_math_round_overflow_negative
+Wrote IR to tests/func_math_round_overflow_negative/func_math_round_overflow_negative.ir
+[exit 0]
+$ mfb build tests/func_math_round_overflow_negative
+Wrote executable to tests/func_math_round_overflow_negative/func_math_round_overflow_negative.out
+[exit 0]
+$ tests/func_math_round_overflow_negative/func_math_round_overflow_negative.out
+Code: 77050010 Message: numeric overflow
+[exit 255]

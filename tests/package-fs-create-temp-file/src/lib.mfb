@@ -1,0 +1,15 @@
+IMPORT fs
+
+EXPORT FUNC createDefaultTemp() AS String
+  LET file AS File = fs::createTempFile()
+  fs::writeAll(file, "default")
+  fs::close(file)
+  RETURN "default"
+END FUNC
+
+EXPORT FUNC createInDirectory(directory AS String) AS String
+  LET file AS File = fs::createTempFile(directory)
+  fs::writeAll(file, "directory")
+  fs::close(file)
+  RETURN "directory"
+END FUNC

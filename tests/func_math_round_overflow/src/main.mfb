@@ -1,0 +1,5 @@
+IMPORT math
+
+FUNC main AS Integer
+  RETURN math::round(9223372036854775808.0)
+END FUNC

@@ -1,0 +1,25 @@
+{
+  "project": "func_math_floor_overflow",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "math", "line": 1 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "main",
+      "line": 3,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "return", "value": { "kind": "call", "callee": "math.floor", "arguments": [{ "kind": "number", "value": "9223372036854775808.0" }] }, "line": 4 }
+      ]
+    }
+    ]
+  }
+  ]
+}

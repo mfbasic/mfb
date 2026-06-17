@@ -11,6 +11,8 @@ $ tests/func_math_ceil_valid/func_math_ceil_valid.out
 4
 -3
 4
+9223372036854773760
+-9223372036854775808
 4
 -3
 [exit 0]

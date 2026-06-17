@@ -6,7 +6,8 @@ SYNOPSIS
 
 DESCRIPTION
   Opens path and returns an opaque File resource. The default mode is "read".
-  Portable modes are "read", "write", and "append".
+  Portable modes are "read" or "r", "write" or "w", "readWrite" or "rw",
+  and "append" or "a".
 
 EXAMPLES
   USING f = fs::openFile("data.txt")

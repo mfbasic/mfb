@@ -6248,10 +6248,7 @@ fn thread_queue_read_helper(
             abi::label(&timeout_ok),
         ]);
     } else {
-        instructions.extend([
-            abi::compare_immediate("x1", "0"),
-            abi::branch_lt(&invalid),
-        ]);
+        instructions.extend([abi::compare_immediate("x1", "0"), abi::branch_lt(&invalid)]);
     }
     emit_thread_deadline(
         symbol,

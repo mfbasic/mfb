@@ -1,0 +1,24 @@
+IMPORT fs
+IMPORT io
+IMPORT package_fs_create_temp_file AS tempFiles
+IMPORT strings
+
+FUNC main AS Integer
+  LET directory AS String = "target/project_fs_createTempFile_package_valid"
+  fs::createDirectories(directory)
+
+  LET oldNames AS List OF String = fs::listDirectory(directory)
+  FOR EACH oldName IN oldNames
+    fs::deleteFile(fs::pathJoin([directory, oldName]))
+  NEXT
+
+  io::print(tempFiles::createDefaultTemp())
+  io::print(tempFiles::createInDirectory(directory))
+  LET names AS List OF String = fs::listDirectory(directory)
+  io::print(toString(len(names)))
+  FOR EACH name IN names
+    io::print(toString(strings::startsWith(name, "mfb-")))
+    io::print(toString(strings::endsWith(name, ".tmp")))
+  NEXT
+  RETURN 0
+END FUNC

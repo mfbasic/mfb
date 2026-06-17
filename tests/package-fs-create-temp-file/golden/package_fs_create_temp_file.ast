@@ -1,0 +1,44 @@
+{
+  "project": "package_fs_create_temp_file",
+  "files": [
+  {
+    "path": "src/lib.mfb",
+    "imports": [
+    { "module": "fs", "line": 1 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "export",
+      "name": "createDefaultTemp",
+      "line": 3,
+      "params": [
+      ],
+      "returnType": "String",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "file", "type": "File", "value": { "kind": "call", "callee": "fs.createTempFile", "arguments": [] }, "line": 4 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "fs.writeAll", "arguments": [{ "kind": "identifier", "value": "file" }, { "kind": "string", "value": "default" }] }, "line": 5 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "fs.close", "arguments": [{ "kind": "identifier", "value": "file" }] }, "line": 6 },
+      { "kind": "return", "value": { "kind": "string", "value": "default" }, "line": 7 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "export",
+      "name": "createInDirectory",
+      "line": 10,
+      "params": [
+      { "name": "directory", "type": "String", "default": null }
+      ],
+      "returnType": "String",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "file", "type": "File", "value": { "kind": "call", "callee": "fs.createTempFile", "arguments": [{ "kind": "identifier", "value": "directory" }] }, "line": 11 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "fs.writeAll", "arguments": [{ "kind": "identifier", "value": "file" }, { "kind": "string", "value": "directory" }] }, "line": 12 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "fs.close", "arguments": [{ "kind": "identifier", "value": "file" }] }, "line": 13 },
+      { "kind": "return", "value": { "kind": "string", "value": "directory" }, "line": 14 }
+      ]
+    }
+    ]
+  }
+  ]
+}

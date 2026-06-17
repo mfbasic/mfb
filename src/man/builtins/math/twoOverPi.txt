@@ -1,0 +1,11 @@
+NAME
+  twoOverPi - mathematical constant 2 / pi as Float
+
+SYNOPSIS
+  math::twoOverPi AS Float
+
+DESCRIPTION
+  The mathematical constant 2 / pi as a Float value.
+
+EXAMPLES
+  LET value AS Float = math::twoOverPi

@@ -13,8 +13,8 @@ const PACKAGE: &str = "math";
 
 const PI: &str = "math.pi";
 const PI_FIXED: &str = "math.piFixed";
-const TWO_PI: &str = "math.2pi";
-const TWO_PI_FIXED: &str = "math.2piFixed";
+const TWO_OVER_PI: &str = "math.twoOverPi";
+const TWO_OVER_PI_FIXED: &str = "math.twoOverPiFixed";
 const PI_2: &str = "math.pi2";
 const PI_2_FIXED: &str = "math.pi2Fixed";
 const PI_4: &str = "math.pi4";
@@ -86,8 +86,8 @@ pub(crate) fn is_math_constant(name: &str) -> bool {
     matches!(
         name,
         PI | PI_FIXED
-            | TWO_PI
-            | TWO_PI_FIXED
+            | TWO_OVER_PI
+            | TWO_OVER_PI_FIXED
             | PI_2
             | PI_2_FIXED
             | PI_4
@@ -103,10 +103,9 @@ pub(crate) fn is_math_constant(name: &str) -> bool {
 
 pub(crate) fn constant_type_name(name: &str) -> Option<&'static str> {
     match name {
-        PI | TWO_PI | PI_2 | PI_4 | E | LN_2 | LN_10 => Some("Float"),
-        PI_FIXED | TWO_PI_FIXED | PI_2_FIXED | PI_4_FIXED | E_FIXED | LN_2_FIXED | LN_10_FIXED => {
-            Some("Fixed")
-        }
+        PI | TWO_OVER_PI | PI_2 | PI_4 | E | LN_2 | LN_10 => Some("Float"),
+        PI_FIXED | TWO_OVER_PI_FIXED | PI_2_FIXED | PI_4_FIXED | E_FIXED | LN_2_FIXED
+        | LN_10_FIXED => Some("Fixed"),
         _ => None,
     }
 }
@@ -115,8 +114,8 @@ pub(crate) fn constant_value(name: &str) -> Option<&'static str> {
     match name {
         PI => Some("3.141592653589793"),
         PI_FIXED => Some("3.141592653589793"),
-        TWO_PI => Some("0.6366197723675814"),
-        TWO_PI_FIXED => Some("0.6366197723675814"),
+        TWO_OVER_PI => Some("0.6366197723675814"),
+        TWO_OVER_PI_FIXED => Some("0.6366197723675814"),
         PI_2 => Some("1.5707963267948966"),
         PI_2_FIXED => Some("1.5707963267948966"),
         PI_4 => Some("0.7853981633974483"),

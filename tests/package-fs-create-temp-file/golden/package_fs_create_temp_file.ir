@@ -1,0 +1,39 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "package_fs_create_temp_file",
+  "entry": null,
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "createDefaultTemp",
+    "visibility": "export",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "String",
+    "body": [
+    { "op": "bind", "mutable": false, "name": "file", "type": "File", "value": { "kind": "call", "target": "fs.createTempFile", "args": [] } },
+    { "op": "eval", "value": { "kind": "call", "target": "fs.writeAll", "args": [{ "kind": "local", "name": "file" }, { "kind": "const", "type": "String", "value": "default" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "fs.close", "args": [{ "kind": "local", "name": "file" }] } },
+    { "op": "return", "value": { "kind": "const", "type": "String", "value": "default" } }
+    ]
+  },
+  {
+    "name": "createInDirectory",
+    "visibility": "export",
+    "kind": "func",
+    "params": [
+    { "name": "directory", "type": "String", "default": null }
+    ],
+    "returns": "String",
+    "body": [
+    { "op": "bind", "mutable": false, "name": "file", "type": "File", "value": { "kind": "call", "target": "fs.createTempFile", "args": [{ "kind": "local", "name": "directory" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "fs.writeAll", "args": [{ "kind": "local", "name": "file" }, { "kind": "const", "type": "String", "value": "directory" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "fs.close", "args": [{ "kind": "local", "name": "file" }] } },
+    { "op": "return", "value": { "kind": "const", "type": "String", "value": "directory" } }
+    ]
+  }
+  ]
+}

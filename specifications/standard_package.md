@@ -287,8 +287,8 @@ Symlink behavior is explicit:
 | `fs::appendBytes` | `FUNC appendBytes(path AS String, bytes AS List OF Byte) AS Nothing` | Appends raw bytes to a file, creating it when needed. Fails with `77030002`, `77030003`, or `77020002`. |
 | `fs::appendText` | `FUNC appendText(path AS String, value AS String) AS Nothing` | Appends UTF-8 text to a file, creating it when needed. Fails with `77030002`, `77030003`, or `77020002`. |
 | `fs::open` | `FUNC open(path AS String, mode AS String) AS File` | Opens a file handle for use with `USING`. Portable modes are `"read"`/`"r"`, `"write"`/`"w"`, `"readWrite"`/`"rw"`, and `"append"`/`"a"`. Invalid modes, empty paths, and embedded NUL bytes fail with `ErrInvalidArgument` (`77050002`). Missing files fail with `ErrNotFound` (`77050004`) for read-style opens. |
-| `fs::openFile` | `FUNC openFile(path AS String, mode AS String = "read") AS File` | Opens a file handle. `mode` is `"read"`, `"write"`, or `"append"`. Fails with `77030001`, `77030002`, or `77030003`. |
-| `fs::openFileNoFollow` | `FUNC openFileNoFollow(path AS String, mode AS String = "read") AS File` | Opens a file handle like `fs::openFile` but fails with `ErrAccessDenied` when the final path component is a symlink. |
+| `fs::openFile` | `FUNC openFile(path AS String, mode AS String = "read") AS File` | Opens a file handle. Portable modes are `"read"`/`"r"`, `"write"`/`"w"`, `"readWrite"`/`"rw"`, and `"append"`/`"a"`. Fails with `77030001`, `77030002`, or `77030003`. |
+| `fs::openFileNoFollow` | `FUNC openFileNoFollow(path AS String, mode AS String = "read") AS File` | Opens a file handle like `fs::openFile`, with the same portable modes, but fails with `ErrAccessDenied` when the final path component is a symlink. |
 | `fs::createTempFile` | `FUNC createTempFile() AS File`<br>`FUNC createTempFile(directory AS String) AS File` | Securely creates and opens a new unique file named `mfb-<uuid>.tmp`. Without `directory`, the file is created in the OS temp directory. With `directory`, the file is created in that directory. The caller owns the returned `File`. |
 | `fs::tempDirectory` | `FUNC tempDirectory() AS String` | Returns the OS temp directory. macOS uses `_confstr(_CS_DARWIN_USER_TEMP_DIR)`. Linux uses `$TMPDIR` when set and non-empty, otherwise `/tmp`. |
 | `fs::readLine` | `FUNC readLine(file AS File) AS String` | Reads one line without the line terminator. Fails with `77020003` at EOF and `77020001` on read failure. |
@@ -354,22 +354,22 @@ Math functions live in the `math` package. Constants are `LET` values and must b
 
 Math functions follow the numeric edge-case rules in §4.1. Integer and `Fixed` overflow fails with `ErrOverflow` (`77050010`). Integer and `Fixed` invalid domains, such as square root of a negative value or logarithm of a non-positive value, fail with `ErrInvalidArgument` (`77050002`). `Float` functions return only finite values: explicit domain failures fail with `ErrFloatDomain` (`77050012`), a result that would be NaN fails with `ErrFloatNaN` (`77050013`), and a result that would be infinity fails with `ErrFloatInf` (`77050014`).
 
-| Constant          | Type    | Value |
-|-------------------|---------|-------|
-| `math::pi`        | `Float` | The mathematical constant pi as a `Float`. |
-| `math::piFixed`   | `Fixed` | The mathematical constant pi rounded to the nearest `Fixed` value. |
-| `math::2pi`       | `Float` | The mathematical constant 2 / pi as a `Float`. |
-| `math::2piFixed`  | `Fixed` | The mathematical constant 2 / pi rounded to the nearest `Fixed` value. |
-| `math::pi2`       | `Float` | The mathematical constant pi / 2 as a `Float`. |
-| `math::pi2Fixed`  | `Fixed` | The mathematical constant pi / 2 rounded to the nearest `Fixed` value. |
-| `math::pi4`       | `Float` | The mathematical constant pi / 4 as a `Float`. |
-| `math::pi4Fixed`  | `Fixed` | The mathematical constant pi / 4 rounded to the nearest `Fixed` value. |
-| `math::e`         | `Float` | The mathematical constant e as a `Float`. |
-| `math::eFixed`    | `Fixed` | The mathematical constant e rounded to the nearest `Fixed` value. |
-| `math::ln2`       | `Float` | The mathematical constant ln(2) as a `Float`. |
-| `math::ln2Fixed`  | `Fixed` | The mathematical constant ln(2) rounded to the nearest `Fixed` value. |
-| `math::ln10`      | `Float` | The mathematical constant ln(10) as a `Float`. |
-| `math::ln10Fixed` | `Fixed` | The mathematical constant ln(10) rounded to the nearest `Fixed` value. |
+| Constant                 | Type    | Value |
+|--------------------------|---------|-------|
+| `math::pi`               | `Float` | The mathematical constant pi as a `Float`. |
+| `math::piFixed`          | `Fixed` | The mathematical constant pi rounded to the nearest `Fixed` value. |
+| `math::twoOverPi`        | `Float` | The mathematical constant 2 / pi as a `Float`. |
+| `math::twoOverPiFixed`   | `Fixed` | The mathematical constant 2 / pi rounded to the nearest `Fixed` value. |
+| `math::pi2`              | `Float` | The mathematical constant pi / 2 as a `Float`. |
+| `math::pi2Fixed`         | `Fixed` | The mathematical constant pi / 2 rounded to the nearest `Fixed` value. |
+| `math::pi4`              | `Float` | The mathematical constant pi / 4 as a `Float`. |
+| `math::pi4Fixed`         | `Fixed` | The mathematical constant pi / 4 rounded to the nearest `Fixed` value. |
+| `math::e`                | `Float` | The mathematical constant e as a `Float`. |
+| `math::eFixed`           | `Fixed` | The mathematical constant e rounded to the nearest `Fixed` value. |
+| `math::ln2`              | `Float` | The mathematical constant ln(2) as a `Float`. |
+| `math::ln2Fixed`         | `Fixed` | The mathematical constant ln(2) rounded to the nearest `Fixed` value. |
+| `math::ln10`             | `Float` | The mathematical constant ln(10) as a `Float`. |
+| `math::ln10Fixed`        | `Fixed` | The mathematical constant ln(10) rounded to the nearest `Fixed` value. |
 
 | Function | Signature | Behavior |
 |----------|-----------|----------|

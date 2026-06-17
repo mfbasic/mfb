@@ -1,0 +1,16 @@
+$ mfb build -ast tests/project-fs-createTempFile-package-valid
+Wrote AST to tests/project-fs-createTempFile-package-valid/project_fs_createTempFile_package_valid.ast
+[exit 0]
+$ mfb build -ir tests/project-fs-createTempFile-package-valid
+Wrote IR to tests/project-fs-createTempFile-package-valid/project_fs_createTempFile_package_valid.ir
+[exit 0]
+$ mfb build tests/project-fs-createTempFile-package-valid
+Wrote executable to tests/project-fs-createTempFile-package-valid/project_fs_createTempFile_package_valid.out
+[exit 0]
+$ tests/project-fs-createTempFile-package-valid/project_fs_createTempFile_package_valid.out
+default
+directory
+1
+TRUE
+TRUE
+[exit 0]

@@ -11,6 +11,8 @@ $ tests/func_math_floor_valid/func_math_floor_valid.out
 3
 -4
 4
+9223372036854773760
+-9223372036854775808
 3
 -4
 [exit 0]

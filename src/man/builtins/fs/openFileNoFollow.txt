@@ -6,7 +6,8 @@ SYNOPSIS
 
 DESCRIPTION
   Opens path like fs::openFile, but asks the host OS not to follow a symlink in
-  the final path component.
+  the final path component. Portable modes are "read" or "r", "write" or "w",
+  "readWrite" or "rw", and "append" or "a".
 
 EXAMPLES
   USING f = fs::openFileNoFollow("data.txt", "read")

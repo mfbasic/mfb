@@ -4,6 +4,6 @@ FUNC main AS Integer
   LET pi AS Float = math::pi()
   LET e AS Fixed = math::eFixed()
   LET ln AS Float = math::ln10()
-  LET twoPi AS Float = math::2pi()
+  LET twoOverPi AS Float = math::twoOverPi()
   RETURN 0
 END FUNC
