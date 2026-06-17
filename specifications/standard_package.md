@@ -313,20 +313,22 @@ Symlink behavior is explicit:
 | `fs::currentDirectory` | `FUNC currentDirectory() AS String` | Returns the current working directory. |
 | `fs::setCurrentDirectory` | `FUNC setCurrentDirectory(path AS String) AS Nothing` | Changes the current working directory. |
 
-`File` is an opaque standard `RESOURCE` type and unique handle. It can be bound by `USING` and is closed automatically with `fs::close` at `END USING`.
+`File` is an opaque standard `RESOURCE` type and unique handle. It can be bound by `USING` and is closed automatically with `fs::close` at `END USING`. `File` is thread-sendable: sending it through `thread::send` transfers ownership to the destination side, and the sender cannot use the handle again on a successful send path.
 
 ## 9. Built-in Thread Package
 
 Thread functions live in the `thread` package. Thread entry points must be exported `ISOLATED FUNC` declarations from imported packages with type `ISOLATED FUNC(ThreadWorker OF Msg TO Out, In) AS Out`; lambdas, closures, `SUB`s, non-isolated functions, current-package functions, and functions without the leading worker handle parameter are rejected at compile time.
 
+Thread boundary types must be thread-sendable. `thread::start` requires `In`, `Msg`, and `Out` to be thread-sendable. Both `thread::send` overloads require `Msg` to be thread-sendable, and worker return values require `Out` to be thread-sendable. Thread sendability is a type metadata property, not a per-value flag. Primitive owned values, strings, and standard immutable containers are sendable when their contained types are sendable. Records, unions, and `Result` values are sendable only when all field or payload types are sendable. Opaque handles are not sendable by default; each concrete handle type opts in explicitly. `Thread`, `ThreadWorker`, and `Listener` are not thread-sendable.
+
 | Function | Signature | Behavior |
 |----------|-----------|----------|
-| `thread::start` | `FUNC start OF In, Msg, Out(f AS ISOLATED FUNC(ThreadWorker OF Msg TO Out, In) AS Out, data AS In, inboundLimit AS Integer = 64, outboundLimit AS Integer = 64) AS Thread OF Msg TO Out` | Starts imported package export `f` in a fresh package instance with bounded inbound and outbound queues, passing the worker-side thread handle and `data` into the thread by copy, move, or freeze. Current-package functions are rejected at compile time. Fails with `77050002` for queue limits below `1`. |
+| `thread::start` | `FUNC start OF In, Msg, Out(f AS ISOLATED FUNC(ThreadWorker OF Msg TO Out, In) AS Out, data AS In, inboundLimit AS Integer = 64, outboundLimit AS Integer = 64) AS Thread OF Msg TO Out` | Starts imported package export `f` in a fresh package instance with bounded inbound and outbound queues, passing the worker-side thread handle and `data` into the thread by copy, move, or freeze. `In`, `Msg`, and `Out` must be thread-sendable. Current-package functions are rejected at compile time. Fails with `77050002` for queue limits below `1`. |
 | `thread::isRunning` | `FUNC isRunning OF Msg, Out(t AS Thread OF Msg TO Out) AS Boolean` | `TRUE` while the thread entry function is still running. |
 | `thread::waitFor` | `FUNC waitFor OF Msg, Out(t AS Thread OF Msg TO Out) AS Out` | Waits for completion, then returns the thread's stored result. `Err` auto-propagates like any fallible function. |
 | `thread::cancel` | `FUNC cancel OF Msg, Out(t AS Thread OF Msg TO Out) AS Nothing` | Requests cooperative cancellation. New sends fail after cancellation is requested. |
-| `thread::send` | `FUNC send OF Msg, Out(t AS Thread OF Msg TO Out, data AS Msg, timeoutMs AS Integer = 0) AS Nothing` | Sends `data` to the thread's inbound queue by copy, move, or freeze. `timeoutMs = 0` does not wait for queue space. Fails if the thread has ended, cancellation was requested, the timeout expires, or the timeout is invalid. |
-| `thread::send` | `FUNC send OF Msg, Out(t AS ThreadWorker OF Msg TO Out, data AS Msg, timeoutMs AS Integer = 0) AS Nothing` | Sends `data` from the worker to the parent-visible outbound queue by copy, move, or freeze. `timeoutMs = 0` does not wait for queue space. Fails if the thread has ended, the timeout expires, or the timeout is invalid. |
+| `thread::send` | `FUNC send OF Msg, Out(t AS Thread OF Msg TO Out, data AS Msg, timeoutMs AS Integer = 0) AS Nothing` | Sends thread-sendable `data` to the thread's inbound queue by copy, move, or freeze. `timeoutMs = 0` does not wait for queue space. Fails if the thread has ended, cancellation was requested, the timeout expires, or the timeout is invalid. |
+| `thread::send` | `FUNC send OF Msg, Out(t AS ThreadWorker OF Msg TO Out, data AS Msg, timeoutMs AS Integer = 0) AS Nothing` | Sends thread-sendable `data` from the worker to the parent-visible outbound queue by copy, move, or freeze. `timeoutMs = 0` does not wait for queue space. Fails if the thread has ended, the timeout expires, or the timeout is invalid. |
 | `thread::poll` | `FUNC poll OF Msg, Out(t AS Thread OF Msg TO Out, ms AS Integer) AS Boolean` | Waits up to `ms` milliseconds for an outbound message. Returns `TRUE` when `thread::receive(t)` can read without blocking. |
 | `thread::receive` | `FUNC receive OF Msg, Out(t AS Thread OF Msg TO Out, timeoutMs AS Integer = 0) AS Msg` | Parent-side read of the next outbound message by copy, move, or freeze. `timeoutMs = 0` does not wait for a message. Fails when no message is available before the timeout. |
 | `thread::receive` | `FUNC receive OF Msg, Out(t AS ThreadWorker OF Msg TO Out, timeoutMs AS Integer = 0) AS Msg` | Worker-side read from the inbound queue for `t`. Valid only inside the worker thread. `timeoutMs = 0` does not wait. |
@@ -337,6 +339,8 @@ When a thread ends, its `Thread` value keeps `result AS Result OF Out`. `thread:
 Thread functions are ordinary built-in templates. Their `Msg` and `Out` parameters are resolved by the template rules in the language specification from argument types and expected result types. `thread::start` gets `Msg` and `Out` from the started function's first `ThreadWorker OF Msg TO Out` parameter, and gets `In` from the started function's second parameter and the `data` argument. If a thread does not exchange messages, `Msg` may be `Nothing`.
 
 `Thread` is the parent-side handle and `ThreadWorker` is the worker-side handle. `thread::send` and `thread::receive` are overloaded on those handle types to select the inbound or outbound queue. Queue timeout uses `ErrTimeout`; unavailable messages use `ErrNotFound`; cancellation uses `ErrInterrupted`.
+
+For copyable values, `thread::send` copies or freezes the sent value and the sender's original binding remains usable. For non-copyable thread-sendable values, including sendable resource handles, a successful `thread::send` moves ownership to the destination side immediately. While the value is queued, the destination queue owns it. If the value is never received, the destination queue/runtime drops or closes it exactly once. If `thread::send` fails, ownership is not transferred and the sender still owns the value. Code may use `MATCH` on the send result to distinguish the success path, where the sent binding is moved, from the error path, where it remains owned by the sender. Using a moved handle is an after-move error.
 
 ## 10. Built-in Math Package
 
@@ -408,7 +412,7 @@ Math functions follow the numeric edge-case rules in §4.1. Integer and `Fixed` 
 
 ## 11. Built-in Net Package
 
-Network functions live in the `net` package. Socket handles are opaque standard `RESOURCE` types and unique handles. They can be bound by `USING`; `net::close` runs automatically at `END USING`.
+Network functions live in the `net` package. Socket handles are opaque standard `RESOURCE` types and unique handles. They can be bound by `USING`; `net::close` runs automatically at `END USING`. `Socket` and `UdpSocket` are thread-sendable and move ownership when sent through `thread::send`. `Listener` is not thread-sendable.
 
 The package defines DNS lookup, TCP stream sockets, UDP datagram sockets, and a required early TLS package. Unix-domain sockets and detailed DNS record inspection are outside the required core package and may be provided by extension packages.
 

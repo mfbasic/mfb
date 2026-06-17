@@ -24,6 +24,8 @@ The model has these requirements:
 - The worker runs in a native OS thread.
 - The worker receives its own thread handle and one input value.
 - The parent communicates with the worker through bounded typed queues.
+- All values that cross a thread boundary have thread-sendable types.
+- Sendable resource handles move across thread queues without being copied.
 - The worker result is stored as `Result OF Out`, with success exposed only through `MATCH` on the raw result and errors carried by public `Error` values.
 - Package imports used by the worker must work inside the worker thread exactly
   as they work outside a thread.
@@ -65,6 +67,26 @@ The compiler rejects:
 `thread::poll`. `Out` is the worker success type. `In` is the input value type
 passed to `thread::start`.
 
+`In`, `Msg`, and `Out` must be thread-sendable. Thread sendability is a type
+metadata property carried in package type metadata and available to the compiler,
+verifier, and runtime. It is not stored as a per-value flag in every value's
+memory block.
+
+Thread sendability is derived by type:
+
+- Primitive owned values, `String`, and `Nothing` are sendable.
+- `List OF T` is sendable when `T` is sendable.
+- `Map OF K TO V` is sendable when `K` and `V` are sendable.
+- Records are sendable when every field type is sendable.
+- Unions and `Result` values are sendable when every payload type is sendable.
+- Opaque handles are not sendable by default. Each concrete handle type opts in.
+- Standard `File`, `Socket`, and `UdpSocket` handles are sendable.
+- `Listener`, `Thread`, and `ThreadWorker` handles are not sendable.
+
+The compiler rejects statically known non-sendable `In`, `Msg`, or `Out` types
+before lowering. Runtime helpers and the verifier still consult type metadata so
+queued values can be moved, dropped, or closed correctly.
+
 ## 3. Isolation
 
 `ISOLATED` means the worker is callable from a separate runtime thread without
@@ -82,6 +104,15 @@ or through thread queues are transferred by the runtime representation rules for
 their type. Immutable owned values may be shared or copied only when that is
 safe for the value representation; mutable or unique resources must preserve
 ownership rules.
+
+For copyable sendable values, crossing a thread boundary copies or freezes the
+value as required by the representation. The sender's original binding remains
+usable.
+
+For non-copyable sendable values, including sendable resource handles, crossing a
+thread boundary is an ownership move. A successful `thread::start` or
+`thread::send` consumes the source binding on that control-flow path. Later use
+of the moved binding is an after-move error.
 
 ## 4. Package Requirements
 
@@ -253,6 +284,12 @@ ring buffer. The source-level contract is bounded queues with the behavior
 specified in `standard_package.md`; implementation changes must preserve that
 contract.
 
+Queue storage must preserve enough type metadata to drop or close queued values
+without receiving them. For queued resource handles, the runtime uses the
+resource close function recorded in package metadata. For queued composite
+values, the runtime uses the type metadata table to walk owned fields or payloads
+that require cleanup.
+
 ## 9. Queue Semantics
 
 Each thread has:
@@ -268,6 +305,21 @@ Each thread has:
 `timeoutMs = 0` means non-blocking. Positive timeouts wait up to that many
 milliseconds. Negative timeouts are invalid.
 
+For `thread::send`, ownership transfer is atomic with enqueue success:
+
+- If enqueue succeeds, the destination side owns `data` immediately. While the
+  value is queued, the destination queue owns it.
+- If enqueue fails because the queue is full, closed, cancelled, timed out, or
+  the timeout is invalid, ownership is not transferred and the sender still owns
+  `data`.
+- Code may use `MATCH thread::send(...)` to separate the success path, where a
+  non-copyable sent binding is moved, from the error path, where it remains
+  owned by the sender.
+
+Receiving a non-copyable value moves it out of the queue into the receiver's
+binding. Receiving a copyable value may copy or move according to the normal
+representation rules.
+
 Cancellation is cooperative:
 
 - `thread::cancel` sets the cancellation flag.
@@ -282,6 +334,18 @@ When the worker completes:
 - `thread::isRunning` returns `FALSE`.
 - `thread::waitFor` returns or propagates the stored result.
 - Remaining outbound messages stay readable until drained.
+
+If a queued value is never received, the destination queue/runtime drops or
+closes it exactly once:
+
+- Unreceived inbound messages are cleaned up by the worker-side runtime when the
+  worker exits or the thread is torn down.
+- Unreceived outbound messages are cleaned up when the parent drains them,
+  waits and drops the completed `Thread`, or drops/detaches the thread handle
+  according to the source-level `Thread` lifetime rules.
+- Dropping a running `Thread` requests cancellation and detaches the worker; any
+  remaining queued values are still owned by their destination queues until the
+  responsible runtime cleanup path runs.
 
 ## 10. OS Integration
 
