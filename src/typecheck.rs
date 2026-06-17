@@ -1,6 +1,7 @@
 use crate::ast::{
     AstFile, AstProject, CallArg, ConstructorArg, Expression, Function, FunctionKind, Item,
-    MatchPattern, RecordUpdate, Statement, TypeDecl, TypeDeclKind, TypeField, Visibility,
+    MatchPattern, RecordUpdate, Statement, TopLevelBinding, TypeDecl, TypeDeclKind, TypeField,
+    Visibility,
 };
 use crate::builtins;
 use crate::bytecode::{
@@ -76,6 +77,14 @@ struct FunctionSig {
 }
 
 #[derive(Clone)]
+struct BindingSig {
+    type_: Type,
+    mutable: bool,
+    visibility: Visibility,
+    owner_file_path: String,
+}
+
+#[derive(Clone)]
 struct ParamSig {
     name: String,
     type_: Type,
@@ -110,6 +119,7 @@ struct TypeChecker<'a> {
     project_dir: &'a Path,
     ast: &'a AstProject,
     functions: HashMap<String, Vec<FunctionSig>>,
+    bindings: HashMap<String, BindingSig>,
     user_types: HashSet<String>,
     user_type_kinds: HashMap<String, TypeDeclKind>,
     type_infos: HashMap<String, TypeInfo>,
@@ -148,6 +158,7 @@ impl<'a> TypeChecker<'a> {
             project_dir,
             ast,
             functions: HashMap::new(),
+            bindings: HashMap::new(),
             user_types: HashSet::new(),
             user_type_kinds: HashMap::new(),
             type_infos: HashMap::new(),
@@ -155,6 +166,7 @@ impl<'a> TypeChecker<'a> {
         };
         checker.collect_types();
         checker.collect_package_types();
+        checker.collect_bindings();
         checker.collect_functions();
         checker.collect_package_functions();
         checker
@@ -657,6 +669,29 @@ impl<'a> TypeChecker<'a> {
         }
     }
 
+    fn collect_bindings(&mut self) {
+        for file in &self.ast.files {
+            for item in &file.items {
+                if let Item::Binding(binding) = item {
+                    let type_ = binding
+                        .type_name
+                        .as_deref()
+                        .map(|name| self.parse_type(name))
+                        .unwrap_or(Type::Unknown);
+                    self.bindings.insert(
+                        binding.name.clone(),
+                        BindingSig {
+                            type_,
+                            mutable: binding.mutable,
+                            visibility: binding.visibility,
+                            owner_file_path: file.path.clone(),
+                        },
+                    );
+                }
+            }
+        }
+    }
+
     fn collect_functions(&mut self) {
         for file in &self.ast.files {
             for item in &file.items {
@@ -731,6 +766,16 @@ impl<'a> TypeChecker<'a> {
         visible.into_iter().last()
     }
 
+    fn lookup_visible_binding<'b>(
+        &'b self,
+        file: &AstFile,
+        name: &str,
+    ) -> Option<&'b BindingSig> {
+        self.bindings
+            .get(name)
+            .filter(|sig| self.visible_from(file, sig.visibility, &sig.owner_file_path))
+    }
+
     fn lookup_visible_call_sig<'b>(
         &'b self,
         file: &AstFile,
@@ -785,10 +830,45 @@ impl<'a> TypeChecker<'a> {
         for file in &self.ast.files {
             for item in &file.items {
                 match item {
+                    Item::Binding(binding) => self.check_binding(file, binding),
                     Item::Function(function) => self.check_function(file, function),
                     Item::Type(type_decl) => self.check_type_decl(file, type_decl),
                 }
             }
+        }
+    }
+
+    fn check_binding(&mut self, file: &AstFile, binding: &TopLevelBinding) {
+        let mut locals = HashMap::new();
+        let declared = binding
+            .type_name
+            .as_deref()
+            .map(|name| self.parse_type(name));
+        if let Some(declared) = &declared {
+            self.check_type_reference(file, declared, binding.line);
+        }
+        let inferred = binding.value.as_ref().map(|value| {
+            self.infer_expression_with_expected(
+                file,
+                value,
+                &mut locals,
+                binding.line,
+                declared.as_ref(),
+                ExprMode::Read,
+            )
+        });
+        self.check_binding_shape(
+            file,
+            &binding.name,
+            binding.mutable,
+            binding.line,
+            declared.as_ref(),
+            inferred.as_ref(),
+            binding.value.as_ref(),
+        );
+        let binding_type = declared.or(inferred).unwrap_or(Type::Unknown);
+        if let Some(sig) = self.bindings.get_mut(&binding.name) {
+            sig.type_ = binding_type;
         }
     }
 
@@ -1157,6 +1237,78 @@ impl<'a> TypeChecker<'a> {
         }
     }
 
+    fn check_binding_shape(
+        &mut self,
+        file: &AstFile,
+        name: &str,
+        mutable: bool,
+        line: usize,
+        declared: Option<&Type>,
+        inferred: Option<&Type>,
+        value: Option<&Expression>,
+    ) {
+        if matches!(inferred, Some(Type::Unknown)) {
+            self.report(
+                "TYPE_UNKNOWN_VALUE",
+                &format!("Initializer for binding `{name}` does not have a known type."),
+                file,
+                line,
+            );
+        }
+
+        let reported_range_error = declared
+            .zip(value)
+            .is_some_and(|(declared, value)| {
+                self.report_primitive_literal_range_error(declared, value, file, line)
+            });
+
+        match (declared, inferred) {
+            (Some(declared), Some(inferred))
+                if !reported_range_error
+                    && !self.expression_compatible(declared, inferred, value) =>
+            {
+                self.report(
+                    "TYPE_BINDING_MISMATCH",
+                    &format!(
+                        "Binding `{name}` has initializer type {}, expected {}.",
+                        self.type_name(inferred),
+                        self.type_name(declared)
+                    ),
+                    file,
+                    line,
+                );
+            }
+            (None, None) => {
+                self.report(
+                    "TYPE_BINDING_REQUIRES_TYPE_OR_VALUE",
+                    &format!("Binding `{name}` needs a type annotation or initializer."),
+                    file,
+                    line,
+                );
+            }
+            (Some(_), None) if !mutable => {
+                self.report(
+                    "TYPE_LET_REQUIRES_VALUE",
+                    &format!("Immutable binding `{name}` must have an initializer."),
+                    file,
+                    line,
+                );
+            }
+            (Some(declared), None) if mutable && !self.is_defaultable_type(declared) => {
+                self.report(
+                    "TYPE_MUT_REQUIRES_DEFAULTABLE_TYPE",
+                    &format!(
+                        "Mutable binding `{name}` cannot omit its initializer because type `{}` does not have a defined default value.",
+                        self.type_name(declared)
+                    ),
+                    file,
+                    line,
+                );
+            }
+            _ => {}
+        }
+    }
+
     fn check_statement(
         &mut self,
         file: &AstFile,
@@ -1189,68 +1341,15 @@ impl<'a> TypeChecker<'a> {
                     )
                 });
 
-                if matches!(inferred, Some(Type::Unknown)) {
-                    self.report(
-                        "TYPE_UNKNOWN_VALUE",
-                        &format!("Initializer for binding `{name}` does not have a known type."),
-                        file,
-                        *line,
-                    );
-                }
-
-                let reported_range_error =
-                    declared
-                        .as_ref()
-                        .zip(value.as_ref())
-                        .is_some_and(|(declared, value)| {
-                            self.report_primitive_literal_range_error(declared, value, file, *line)
-                        });
-
-                match (&declared, &inferred) {
-                    (Some(declared), Some(inferred))
-                        if !reported_range_error
-                            && !self.expression_compatible(declared, inferred, value.as_ref()) =>
-                    {
-                        self.report(
-                            "TYPE_BINDING_MISMATCH",
-                            &format!(
-                                "Binding `{name}` has initializer type {}, expected {}.",
-                                self.type_name(inferred),
-                                self.type_name(declared)
-                            ),
-                            file,
-                            *line,
-                        );
-                    }
-                    (None, None) => {
-                        self.report(
-                            "TYPE_BINDING_REQUIRES_TYPE_OR_VALUE",
-                            &format!("Binding `{name}` needs a type annotation or initializer."),
-                            file,
-                            *line,
-                        );
-                    }
-                    (Some(_), None) if !mutable => {
-                        self.report(
-                            "TYPE_LET_REQUIRES_VALUE",
-                            &format!("Immutable binding `{name}` must have an initializer."),
-                            file,
-                            *line,
-                        );
-                    }
-                    (Some(declared), None) if *mutable && !self.is_defaultable_type(declared) => {
-                        self.report(
-                            "TYPE_MUT_REQUIRES_DEFAULTABLE_TYPE",
-                            &format!(
-                                "Mutable binding `{name}` cannot omit its initializer because type `{}` does not have a defined default value.",
-                                self.type_name(declared)
-                            ),
-                            file,
-                            *line,
-                        );
-                    }
-                    _ => {}
-                }
+                self.check_binding_shape(
+                    file,
+                    name,
+                    *mutable,
+                    *line,
+                    declared.as_ref(),
+                    inferred.as_ref(),
+                    value.as_ref(),
+                );
 
                 let binding_type = declared.or(inferred).unwrap_or(Type::Unknown);
                 locals.insert(
@@ -1337,6 +1436,39 @@ impl<'a> TypeChecker<'a> {
             }
             Statement::Assign { name, value, line } => {
                 let Some(local) = locals.get(name).cloned() else {
+                    if let Some(binding) = self.lookup_visible_binding(file, name).cloned() {
+                        if !binding.mutable {
+                            self.report(
+                                "TYPE_ASSIGN_REQUIRES_MUT",
+                                &format!("Binding `{name}` is immutable and cannot be assigned."),
+                                file,
+                                *line,
+                            );
+                        }
+                        let actual =
+                            self.infer_expression(file, value, locals, *line, ExprMode::Transfer);
+                        let reported_range_error = self.report_primitive_literal_range_error(
+                            &binding.type_,
+                            value,
+                            file,
+                            *line,
+                        );
+                        if !reported_range_error
+                            && !self.expression_compatible(&binding.type_, &actual, Some(value))
+                        {
+                            self.report(
+                                "TYPE_ASSIGNMENT_MISMATCH",
+                                &format!(
+                                    "Assignment to `{name}` has type {}, expected {}.",
+                                    self.type_name(&actual),
+                                    self.type_name(&binding.type_)
+                                ),
+                                file,
+                                *line,
+                            );
+                        }
+                        return Flow::FallsThrough;
+                    }
                     self.report(
                         "TYPE_UNKNOWN_VALUE",
                         &format!("Assignment target `{name}` is not a local binding."),
@@ -1759,6 +1891,10 @@ impl<'a> TypeChecker<'a> {
                     } else {
                         self.lookup_visible_function(file, name)
                             .map(function_type)
+                            .or_else(|| {
+                                self.lookup_visible_binding(file, name)
+                                    .map(|binding| binding.type_.clone())
+                            })
                             .or_else(|| {
                                 self.lookup_visible_function(file, &canonical_name)
                                     .map(function_type)

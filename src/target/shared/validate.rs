@@ -33,6 +33,7 @@ pub fn validate_nir(module: &NirModule) -> Result<(), String> {
     }
 
     let function_names = unique_function_names(&module.functions)?;
+    let global_names = unique_global_names(module)?;
     let import_names = unique_import_names(module)?;
     let type_value_names = type_value_names(module)?;
     validate_entry(module, &function_names)?;
@@ -57,6 +58,7 @@ pub fn validate_nir(module: &NirModule) -> Result<(), String> {
         validate_function(
             function,
             &function_names,
+            &global_names,
             &import_names,
             &type_value_names,
             &mut used_helpers,
@@ -162,6 +164,11 @@ fn collect_runtime_calls_from_ops_with_constants(
                     constants.insert(name.clone(), constant);
                 } else {
                     constants.remove(name);
+                }
+            }
+            NirOp::StoreGlobal { value, .. } => {
+                if let Some(value) = value {
+                    collect_runtime_calls_from_value(value, calls, constants);
                 }
             }
             NirOp::Eval { value } => {
@@ -289,6 +296,7 @@ fn collect_runtime_calls_from_value(
         NirValue::Capture { .. }
         | NirValue::Const { .. }
         | NirValue::Local(_)
+        | NirValue::Global { .. }
         | NirValue::FunctionRef { .. } => {}
     }
 }
@@ -300,6 +308,7 @@ fn native_constant_value(
     match value {
         NirValue::Const { .. } => Some(value.clone()),
         NirValue::Local(name) => constants.get(name).cloned(),
+        NirValue::Global { .. } => None,
         NirValue::Call { target, args } if target == "toString" && args.len() == 1 => {
             native_primitive_text(&args[0], constants).map(|value| NirValue::Const {
                 type_: "String".to_string(),
@@ -330,6 +339,7 @@ fn native_static_string_value(
         NirValue::Local(name) => constants
             .get(name)
             .and_then(|constant| native_static_string_value(constant, constants)),
+        NirValue::Global { .. } => None,
         NirValue::Call { target, args } if target == "toString" && args.len() == 1 => {
             native_primitive_text(&args[0], constants)
         }
@@ -396,8 +406,41 @@ fn native_primitive_text(
         NirValue::Local(name) => constants
             .get(name)
             .and_then(|constant| native_primitive_text(constant, constants)),
+        NirValue::Global { .. } => None,
         _ => None,
     }
+}
+
+fn unique_global_names(module: &NirModule) -> Result<HashSet<String>, String> {
+    let mut names = HashSet::new();
+    let mut symbols = HashSet::new();
+    for global in &module.globals {
+        if global.name.is_empty() || global.symbol.is_empty() || global.type_.is_empty() {
+            return Err("NIR global name, symbol, and type must not be empty".to_string());
+        }
+        if !matches!(
+            global.visibility.as_str(),
+            "private" | "public" | "export"
+        ) {
+            return Err(format!(
+                "NIR global '{}' has invalid visibility '{}'",
+                global.name, global.visibility
+            ));
+        }
+        if !names.insert(global.name.clone()) {
+            return Err(format!(
+                "NIR global '{}' is declared more than once",
+                global.name
+            ));
+        }
+        if !symbols.insert(global.symbol.clone()) {
+            return Err(format!(
+                "NIR global symbol '{}' is declared more than once",
+                global.symbol
+            ));
+        }
+    }
+    Ok(names)
 }
 
 fn type_value_names(module: &NirModule) -> Result<TypeValueNames, String> {
@@ -526,6 +569,7 @@ fn validate_entry(module: &NirModule, function_names: &HashSet<String>) -> Resul
 fn validate_function(
     function: &NirFunction,
     function_names: &HashSet<String>,
+    global_names: &HashSet<String>,
     import_names: &HashSet<String>,
     type_value_names: &TypeValueNames,
     used_helpers: &mut Vec<RuntimeHelper>,
@@ -538,6 +582,7 @@ fn validate_function(
                 default,
                 &locals,
                 function_names,
+                global_names,
                 import_names,
                 type_value_names,
                 used_helpers,
@@ -548,6 +593,7 @@ fn validate_function(
         &function.body,
         &mut locals,
         function_names,
+        global_names,
         import_names,
         type_value_names,
         used_helpers,
@@ -587,6 +633,7 @@ fn validate_ops(
     ops: &[NirOp],
     locals: &mut HashMap<String, LocalBinding>,
     function_names: &HashSet<String>,
+    global_names: &HashSet<String>,
     import_names: &HashSet<String>,
     type_value_names: &TypeValueNames,
     used_helpers: &mut Vec<RuntimeHelper>,
@@ -607,6 +654,7 @@ fn validate_ops(
                         value,
                         locals,
                         function_names,
+                        global_names,
                         import_names,
                         type_value_names,
                         used_helpers,
@@ -636,10 +684,27 @@ fn validate_ops(
                     value,
                     locals,
                     function_names,
+                    global_names,
                     import_names,
                     type_value_names,
                     used_helpers,
                 )?;
+            }
+            NirOp::StoreGlobal { name, value, .. } => {
+                if !global_names.contains(name) {
+                    return Err(format!("NIR global store targets unknown global '{name}'"));
+                }
+                if let Some(value) = value {
+                    validate_value(
+                        value,
+                        locals,
+                        function_names,
+                        global_names,
+                        import_names,
+                        type_value_names,
+                        used_helpers,
+                    )?;
+                }
             }
             NirOp::Return { value } => {
                 if let Some(value) = value {
@@ -647,6 +712,7 @@ fn validate_ops(
                         value,
                         locals,
                         function_names,
+                        global_names,
                         import_names,
                         type_value_names,
                         used_helpers,
@@ -658,6 +724,7 @@ fn validate_ops(
                     error,
                     locals,
                     function_names,
+                    global_names,
                     import_names,
                     type_value_names,
                     used_helpers,
@@ -668,6 +735,7 @@ fn validate_ops(
                     value,
                     locals,
                     function_names,
+                    global_names,
                     import_names,
                     type_value_names,
                     used_helpers,
@@ -682,6 +750,7 @@ fn validate_ops(
                     condition,
                     locals,
                     function_names,
+                    global_names,
                     import_names,
                     type_value_names,
                     used_helpers,
@@ -691,6 +760,7 @@ fn validate_ops(
                     then_body,
                     &mut then_locals,
                     function_names,
+                    global_names,
                     import_names,
                     type_value_names,
                     used_helpers,
@@ -700,6 +770,7 @@ fn validate_ops(
                     else_body,
                     &mut else_locals,
                     function_names,
+                    global_names,
                     import_names,
                     type_value_names,
                     used_helpers,
@@ -710,6 +781,7 @@ fn validate_ops(
                     value,
                     locals,
                     function_names,
+                    global_names,
                     import_names,
                     type_value_names,
                     used_helpers,
@@ -722,6 +794,7 @@ fn validate_ops(
                                 value,
                                 locals,
                                 function_names,
+                                global_names,
                                 import_names,
                                 type_value_names,
                                 used_helpers,
@@ -733,6 +806,7 @@ fn validate_ops(
                                     value,
                                     locals,
                                     function_names,
+                                    global_names,
                                     import_names,
                                     type_value_names,
                                     used_helpers,
@@ -766,6 +840,7 @@ fn validate_ops(
                             guard,
                             &guard_locals,
                             function_names,
+                            global_names,
                             import_names,
                             type_value_names,
                             used_helpers,
@@ -776,6 +851,7 @@ fn validate_ops(
                         &case.body[body_start..],
                         &mut case_locals,
                         function_names,
+                        global_names,
                         import_names,
                         type_value_names,
                         used_helpers,
@@ -795,6 +871,7 @@ fn validate_ops(
                     iterable,
                     locals,
                     function_names,
+                    global_names,
                     import_names,
                     type_value_names,
                     used_helpers,
@@ -811,6 +888,7 @@ fn validate_ops(
                     body,
                     &mut body_locals,
                     function_names,
+                    global_names,
                     import_names,
                     type_value_names,
                     used_helpers,
@@ -821,6 +899,7 @@ fn validate_ops(
                     condition,
                     locals,
                     function_names,
+                    global_names,
                     import_names,
                     type_value_names,
                     used_helpers,
@@ -830,6 +909,7 @@ fn validate_ops(
                     body,
                     &mut body_locals,
                     function_names,
+                    global_names,
                     import_names,
                     type_value_names,
                     used_helpers,
@@ -849,6 +929,7 @@ fn validate_ops(
                     value,
                     locals,
                     function_names,
+                    global_names,
                     import_names,
                     type_value_names,
                     used_helpers,
@@ -874,6 +955,7 @@ fn validate_ops(
                     body,
                     &mut body_locals,
                     function_names,
+                    global_names,
                     import_names,
                     type_value_names,
                     used_helpers,
@@ -892,6 +974,7 @@ fn validate_ops(
                     body,
                     &mut trap_locals,
                     function_names,
+                    global_names,
                     import_names,
                     type_value_names,
                     used_helpers,
@@ -906,6 +989,7 @@ fn validate_value(
     value: &NirValue,
     locals: &HashMap<String, LocalBinding>,
     function_names: &HashSet<String>,
+    global_names: &HashSet<String>,
     import_names: &HashSet<String>,
     type_value_names: &TypeValueNames,
     used_helpers: &mut Vec<RuntimeHelper>,
@@ -920,6 +1004,16 @@ fn validate_value(
                 Ok(())
             } else {
                 Err(format!("NIR local reference '{name}' does not resolve"))
+            }
+        }
+        NirValue::Global { name, type_ } => {
+            if !type_.is_empty() {
+                validate_type_name(type_)?;
+            }
+            if global_names.contains(name) {
+                Ok(())
+            } else {
+                Err(format!("NIR global reference '{name}' does not resolve"))
             }
         }
         NirValue::FunctionRef { name, type_ } => {
@@ -947,6 +1041,7 @@ fn validate_value(
                     value,
                     locals,
                     function_names,
+                    global_names,
                     import_names,
                     type_value_names,
                     used_helpers,
@@ -961,6 +1056,7 @@ fn validate_value(
                     arg,
                     locals,
                     function_names,
+                    global_names,
                     import_names,
                     type_value_names,
                     used_helpers,
@@ -1015,6 +1111,7 @@ fn validate_value(
                     arg,
                     locals,
                     function_names,
+                    global_names,
                     import_names,
                     type_value_names,
                     used_helpers,
@@ -1044,6 +1141,7 @@ fn validate_value(
                     arg,
                     locals,
                     function_names,
+                    global_names,
                     import_names,
                     type_value_names,
                     used_helpers,
@@ -1062,6 +1160,7 @@ fn validate_value(
                 value,
                 locals,
                 function_names,
+                global_names,
                 import_names,
                 type_value_names,
                 used_helpers,
@@ -1073,6 +1172,7 @@ fn validate_value(
                 value,
                 locals,
                 function_names,
+                global_names,
                 import_names,
                 type_value_names,
                 used_helpers,
@@ -1084,6 +1184,7 @@ fn validate_value(
             value,
             locals,
             function_names,
+            global_names,
             import_names,
             type_value_names,
             used_helpers,
@@ -1098,6 +1199,7 @@ fn validate_value(
                 target,
                 locals,
                 function_names,
+                global_names,
                 import_names,
                 type_value_names,
                 used_helpers,
@@ -1107,6 +1209,7 @@ fn validate_value(
                     &update.value,
                     locals,
                     function_names,
+                    global_names,
                     import_names,
                     type_value_names,
                     used_helpers,
@@ -1121,6 +1224,7 @@ fn validate_value(
                     value,
                     locals,
                     function_names,
+                    global_names,
                     import_names,
                     type_value_names,
                     used_helpers,
@@ -1135,6 +1239,7 @@ fn validate_value(
                     key,
                     locals,
                     function_names,
+                    global_names,
                     import_names,
                     type_value_names,
                     used_helpers,
@@ -1143,6 +1248,7 @@ fn validate_value(
                     value,
                     locals,
                     function_names,
+                    global_names,
                     import_names,
                     type_value_names,
                     used_helpers,
@@ -1156,6 +1262,7 @@ fn validate_value(
                 target,
                 locals,
                 function_names,
+                global_names,
                 import_names,
                 type_value_names,
                 used_helpers,
@@ -1166,6 +1273,7 @@ fn validate_value(
                 left,
                 locals,
                 function_names,
+                global_names,
                 import_names,
                 type_value_names,
                 used_helpers,
@@ -1174,6 +1282,7 @@ fn validate_value(
                 right,
                 locals,
                 function_names,
+                global_names,
                 import_names,
                 type_value_names,
                 used_helpers,
@@ -1183,6 +1292,7 @@ fn validate_value(
             operand,
             locals,
             function_names,
+            global_names,
             import_names,
             type_value_names,
             used_helpers,

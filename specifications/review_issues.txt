@@ -61,6 +61,7 @@ The spec says standard-package functions support normal positional/named call ar
 REQUIREMENT: Top-level LET and MUT declarations
 SPECIFICATION: mfbasic.md @ §5 Bindings & Scope; §13 Modules & Packages; §19 Grammar
 GROUP: language
+STATUS: Completed
 RECOMMENDED: CODE CHANGE
 The spec allows top-level `LET` and `MUT` declarations with visibility, including explicit `EXPORT MUT` package state. The compiler AST only has `Item::Function` and `Item::Type`, and the parser only accepts top-level `SUB`, `FUNC`, `TYPE`, `UNION`, and `ENUM`, so top-level bindings are rejected and have no resolver/typecheck/IR/bytecode/native model. Resolve by adding top-level binding AST items, symbol resolution, visibility/import behavior, initialization and defaultability checks, package-state lowering, bytecode/package metadata, native storage, audit exposure for exported mutable state, and valid/invalid tests.
 
@@ -184,6 +185,12 @@ GROUP: language
 RECOMMENDED: CODE CHANGE
 The grammar defines `program = { import | linkDecl } { declaration }`, so imports are a leading top-level section before declarations. `src/ast.rs` accepts `IMPORT` anywhere in the top-level loop, including after function/type declarations. Resolve by tracking when the parser has consumed the first declaration and rejecting subsequent `IMPORT` statements with a parse diagnostic, while preserving leading imports before declarations.
 
+REQUIREMENT: MATCH CASE colon delimiter
+SPECIFICATION: mfbasic.md @ §19 Grammar
+GROUP: language
+RECOMMENDED: SPEC CHANGE
+The grammar requires `CASE` clauses to use a colon before the branch block, but the compiler accepts a newline/end-of-statement after `CASE` patterns, guards, and `CASE ELSE`. Existing tests, man pages, and examples also use newline-delimited `CASE` branches, so the implementation appears aligned with the language’s actual style and the grammar is too strict. Resolve by updating §19 so `caseClause` allows either `:` or a statement separator after the pattern/guard/`ELSE`, and keep examples consistent with that accepted form.
+
 
 === tooling ===
 
@@ -246,6 +253,12 @@ SPECIFICATION: project.md @ §4 Identity And Informational Fields; §11 Validati
 GROUP: tooling
 RECOMMENDED: CODE CHANGE
 `project.md` documents `description` and `license` as known optional string metadata fields, while unknown top-level fields are the only ones tools may ignore by default. `src/main.rs` validates optional `entry`, `author`, and `url`, but does not validate `description` or `license`, so malformed known metadata such as arrays, objects, or numbers is accepted silently. Resolve by adding optional string validation for `description` and `license` during manifest validation, with manifest tests covering valid strings and invalid non-string values.
+
+REQUIREMENT: Project `ident` required-field contract
+SPECIFICATION: project.md @ §3 Required Fields; §4 Identity And Informational Fields
+GROUP: tooling
+RECOMMENDED: SPEC CHANGE
+`project.md` lists `ident` as a required field in §3, but §4 says `ident` is required only for package publishing and may be omitted for executable-only projects and private local packages. The compiler follows the optional-local model: `validate_project_manifest` does not require `ident`, `init-pkg` generates package manifests without it, and package emission falls back to the project `name` when `ident` is empty. Resolve by updating §3 to remove `ident` from unconditional required fields and documenting it as required only for registry publishing or registry-resolved dependencies; alternatively, if every package project must have a registry identity, change `init-pkg`, manifest validation, package metadata generation, and tests to require and preserve `ident`.
 
 
 === registry ===
@@ -432,3 +445,12 @@ SPECIFICATION: standard_package.md @ §8 Built-in Filesystem Package
 GROUP: filesystem
 RECOMMENDED: CODE CHANGE
 The spec defines `fs::createTempFile()` with no directory argument, using the OS temp directory. Native source NIR lowering injects `fs.tempDirectory()` for this form, but bytecode lowering in `src/builtins/fs.rs` emits `OPCODE_FS_CREATE_TEMP_FILE` with no directory operand. Package/native helper metadata expects a directory string, so package bytecode that calls the no-argument form cannot execute with the specified behavior. Resolve by making bytecode lowering synthesize the temp-directory default, or by teaching the package/native runtime helper to handle the omitted operand, then add package/runtime tests for `fs::createTempFile()` and `fs::createTempFile(directory)`.
+
+
+=== io ===
+
+REQUIREMENT: IO flush operations must flush and report output failures
+SPECIFICATION: standard_package.md @ §7 Built-in IO Package
+GROUP: io
+RECOMMENDED: CODE CHANGE
+`io::flush` and `io::flushError` are specified to flush standard output/error and fail with `77020002` on output failure, but native lowering emits runtime helpers that unconditionally return `Ok(NOTHING)` without invoking any platform flush operation or checking failure. Resolve by adding real flush semantics to the runtime helper layer: either maintain an MFBASIC output buffer and drain it on flush, or define/use a target-appropriate host flush operation for the standard stream model. Map failures to `ErrWriteFailed` (`77020002`) and add runtime tests that prove `io::flush`, `io::flushError`, and `io::input` prompt flushing have observable behavior rather than only compiling.

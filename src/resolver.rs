@@ -1,6 +1,6 @@
 use crate::ast::{
-    AstFile, AstProject, ConstructorArg, Expression, Item, MatchPattern, Statement, TypeDecl,
-    TypeDeclKind, TypeField, Visibility,
+    AstFile, AstProject, ConstructorArg, Expression, Item, MatchPattern, Statement,
+    TopLevelBinding, TypeDecl, TypeDeclKind, TypeField, Visibility,
 };
 use crate::builtins;
 use crate::rules;
@@ -104,6 +104,9 @@ impl<'a> Resolver<'a> {
         for file in &ast.files {
             for item in &file.items {
                 match item {
+                    Item::Binding(binding) => {
+                        self.insert_top_level(file, &binding.name, binding.line, binding.visibility);
+                    }
                     Item::Function(function) => {
                         self.insert_function(file, function);
                     }
@@ -277,9 +280,25 @@ impl<'a> Resolver<'a> {
 
         for item in &file.items {
             match item {
+                Item::Binding(binding) => self.resolve_binding(file, binding, &imports),
                 Item::Function(function) => self.resolve_function(file, function, &imports),
                 Item::Type(type_decl) => self.resolve_type_decl(file, type_decl, &imports),
             }
+        }
+    }
+
+    fn resolve_binding(
+        &mut self,
+        file: &AstFile,
+        binding: &TopLevelBinding,
+        imports: &HashMap<String, String>,
+    ) {
+        if let Some(type_name) = &binding.type_name {
+            self.resolve_type_name(file, type_name, binding.line, imports);
+        }
+        let locals = HashMap::new();
+        if let Some(value) = &binding.value {
+            self.resolve_expression(file, value, binding.line, imports, &locals);
         }
     }
 
@@ -818,6 +837,7 @@ impl<'a> Resolver<'a> {
         if name.contains('.') {
             self.resolve_package_qualified_name(file, name, line, imports);
         } else if !locals.contains_key(name)
+            && !self.top_level_visible_in_file(file, name)
             && !self.function_visible_in_file(file, name)
             && !builtins::general::is_general_call(name)
         {

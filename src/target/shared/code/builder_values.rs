@@ -47,6 +47,22 @@ impl CodeBuilder<'_> {
                     text: name.clone(),
                 })
             }
+            NirValue::Global { name, type_ } => {
+                let global = self.global_value(name)?;
+                let value_type = if type_.is_empty() {
+                    global.type_.clone()
+                } else {
+                    type_.clone()
+                };
+                let address = self.load_global_address(name)?;
+                let register = self.allocate_register()?;
+                self.emit(abi::load_u64(&register, &address, 0));
+                Ok(ValueResult {
+                    type_: value_type,
+                    location: register,
+                    text: name.clone(),
+                })
+            }
             NirValue::FunctionRef { name, type_ } => {
                 let symbol = builtin_function_symbol_for_type(name, type_)
                     .or_else(|| self.function_symbols.get(name).cloned())

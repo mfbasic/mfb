@@ -55,8 +55,19 @@ impl AstFile {
 
 #[derive(Clone, Debug)]
 pub enum Item {
+    Binding(TopLevelBinding),
     Function(Function),
     Type(TypeDecl),
+}
+
+#[derive(Clone, Debug)]
+pub struct TopLevelBinding {
+    pub visibility: Visibility,
+    pub mutable: bool,
+    pub name: String,
+    pub type_name: Option<String>,
+    pub value: Option<Expression>,
+    pub line: usize,
 }
 
 #[derive(Clone, Debug)]
@@ -766,6 +777,15 @@ impl<'a> FileParser<'a> {
                 continue;
             }
 
+            if self.check_top_level_binding_start() {
+                let visibility = self.parse_visibility().unwrap_or(Visibility::Private);
+                if let Some(binding) = self.parse_top_level_binding(visibility) {
+                    items.push(Item::Binding(binding));
+                }
+                self.skip_separators();
+                continue;
+            }
+
             if self.check_top_level_item_start() {
                 let visibility = self.parse_visibility().unwrap_or(Visibility::Private);
                 if let Some(function) = self.parse_function() {
@@ -793,7 +813,7 @@ impl<'a> FileParser<'a> {
             let token = self.peek().clone();
             self.report(
                 "MFB_PARSE_UNEXPECTED_STATEMENT",
-                "Expected an IMPORT, SUB, FUNC, TYPE, UNION, or ENUM declaration at the top level.",
+                "Expected an IMPORT, LET, MUT, SUB, FUNC, TYPE, UNION, or ENUM declaration at the top level.",
                 &token,
             );
             self.synchronize();
@@ -805,6 +825,34 @@ impl<'a> FileParser<'a> {
         } else {
             Ok(ParsedFile { imports, items })
         }
+    }
+
+    fn parse_top_level_binding(&mut self, visibility: Visibility) -> Option<TopLevelBinding> {
+        let keyword = self.advance().clone();
+        let mutable = matches!(keyword.kind, TokenKind::Keyword(Keyword::Mut));
+        let Some(name) = self.consume_identifier("Binding name must be an identifier.") else {
+            self.synchronize();
+            return None;
+        };
+        let type_name = if self.match_keyword(Keyword::As) {
+            self.parse_type_name()
+        } else {
+            None
+        };
+        let value = if self.match_kind(TokenKind::Equal) {
+            self.parse_expression()
+        } else {
+            None
+        };
+        self.consume_statement_end("Expected end of statement after binding.");
+        Some(TopLevelBinding {
+            visibility,
+            mutable,
+            name,
+            type_name,
+            value,
+            line: keyword.line,
+        })
     }
 
     fn parse_function(&mut self) -> Option<Function> {
@@ -2274,6 +2322,18 @@ impl<'a> FileParser<'a> {
                 }))
     }
 
+    fn check_top_level_binding_start(&self) -> bool {
+        self.check_keyword(Keyword::Let)
+            || self.check_keyword(Keyword::Mut)
+            || (self.check_visibility()
+                && self.tokens.get(self.current + 1).is_some_and(|token| {
+                    matches!(
+                        token.kind,
+                        TokenKind::Keyword(Keyword::Let) | TokenKind::Keyword(Keyword::Mut)
+                    )
+                }))
+    }
+
     fn check_visibility(&self) -> bool {
         self.check_keyword(Keyword::Private)
             || self.check_keyword(Keyword::Package)
@@ -2549,9 +2609,36 @@ impl ToAstJson for Import {
 impl ToAstJson for Item {
     fn to_json(&self, indent: usize) -> String {
         match self {
+            Item::Binding(binding) => binding.to_json(indent),
             Item::Function(function) => function.to_json(indent),
             Item::Type(type_decl) => type_decl.to_json(indent),
         }
+    }
+}
+
+impl ToAstJson for TopLevelBinding {
+    fn to_json(&self, indent: usize) -> String {
+        let pad = " ".repeat(indent);
+        let type_name = self
+            .type_name
+            .as_ref()
+            .map(|value| json_string(value))
+            .unwrap_or_else(|| "null".to_string());
+        let value = self
+            .value
+            .as_ref()
+            .map(|value| value.to_json(indent))
+            .unwrap_or_else(|| "null".to_string());
+        format!(
+            "\n{}{{ \"kind\": \"binding\", \"visibility\": {}, \"mutable\": {}, \"name\": {}, \"type\": {}, \"value\": {}, \"line\": {} }}",
+            pad,
+            json_string(visibility_name(self.visibility)),
+            self.mutable,
+            json_string(&self.name),
+            type_name,
+            value,
+            self.line
+        )
     }
 }
 

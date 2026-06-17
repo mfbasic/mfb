@@ -34,6 +34,7 @@ Bytecode:
   constants: 0
   resources: 0
   functions: 2
+  globals: 0
   imports: 0
   exports: 8
 
@@ -54,6 +55,9 @@ Exports:
     sigHash: e5c57d1d2ef5e8d47ca8a9bcfdd47c7c0df55cf7752e8b51de1c04f8c2242f71
   UNION Shape
     sigHash: 8332c415a0ca7a8156f97cdb541c476fff4ad92567e788ec203f2091412cd4fd
+
+Package State:
+  <none>
 
 Imports:
   <none>

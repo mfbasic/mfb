@@ -409,7 +409,9 @@ fn collect_platform_imports_from_ops(
 ) {
     for op in ops {
         match op {
-            NirOp::Bind { value, .. } | NirOp::Return { value } => {
+            NirOp::Bind { value, .. }
+            | NirOp::StoreGlobal { value, .. }
+            | NirOp::Return { value } => {
                 if let Some(value) = value {
                     collect_platform_imports_from_value(platform, required_by, value, imports);
                 }
@@ -528,6 +530,7 @@ fn collect_platform_imports_from_value(
         NirValue::Capture { .. }
         | NirValue::Const { .. }
         | NirValue::Local(_)
+        | NirValue::Global { .. }
         | NirValue::FunctionRef { .. } => {}
     }
 }
@@ -564,6 +567,11 @@ fn collect_runtime_symbols_from_ops_with_constants(
                     }
                 } else {
                     constants.remove(name);
+                }
+            }
+            NirOp::StoreGlobal { value, .. } => {
+                if let Some(value) = value {
+                    collect_runtime_symbols_from_value(value, symbols, constants);
                 }
             }
             NirOp::Return { value } => {
@@ -716,6 +724,7 @@ fn collect_runtime_symbols_from_value(
         NirValue::Capture { .. }
         | NirValue::Const { .. }
         | NirValue::Local(_)
+        | NirValue::Global { .. }
         | NirValue::FunctionRef { .. } => {}
     }
 }
@@ -727,6 +736,7 @@ fn native_constant_value(
     match value {
         NirValue::Const { .. } => Some(value.clone()),
         NirValue::Local(name) => constants.get(name).cloned(),
+        NirValue::Global { .. } => None,
         NirValue::Call { target, args } if target == "toString" && args.len() == 1 => {
             native_primitive_text(&args[0], constants).map(|value| NirValue::Const {
                 type_: "String".to_string(),
@@ -757,6 +767,7 @@ fn native_static_string_value(
         NirValue::Local(name) => constants
             .get(name)
             .and_then(|constant| native_static_string_value(constant, constants)),
+        NirValue::Global { .. } => None,
         NirValue::Call { target, args } if target == "toString" && args.len() == 1 => {
             native_primitive_text(&args[0], constants)
         }
@@ -823,6 +834,7 @@ fn native_primitive_text(
         NirValue::Local(name) => constants
             .get(name)
             .and_then(|constant| native_primitive_text(constant, constants)),
+        NirValue::Global { .. } => None,
         _ => None,
     }
 }
@@ -883,6 +895,22 @@ impl FunctionPlanBuilder<'_> {
                     }
                     self.operations
                         .push(format!("assign {name} = {}", describe_value(value)));
+                }
+                NirOp::StoreGlobal { name, type_, value } => {
+                    if let Some(value) = value {
+                        self.lower_value(value)?;
+                    }
+                    let initializer = value
+                        .as_ref()
+                        .map(describe_value)
+                        .unwrap_or_else(|| "default".to_string());
+                    let type_suffix = if type_.is_empty() {
+                        String::new()
+                    } else {
+                        format!(" AS {type_}")
+                    };
+                    self.operations
+                        .push(format!("storeGlobal {name}{type_suffix} = {initializer}"));
                 }
                 NirOp::Eval { value } => {
                     self.lower_value(value)?;
@@ -1099,7 +1127,7 @@ impl FunctionPlanBuilder<'_> {
             NirValue::Capture { type_, .. } => {
                 storage_for_type(type_, self.type_storage)?;
             }
-            NirValue::Local(_) => {}
+            NirValue::Local(_) | NirValue::Global { .. } => {}
         }
         Ok(())
     }
@@ -1277,6 +1305,7 @@ fn describe_value(value: &NirValue) -> String {
     match value {
         NirValue::Const { type_, value } => format!("{type_}({value})"),
         NirValue::Local(name) => format!("local {name}"),
+        NirValue::Global { name, .. } => format!("global {name}"),
         NirValue::FunctionRef { name, .. } => format!("functionRef {name}"),
         NirValue::Closure { name, captures, .. } => format!(
             "closure {name}[{}]",
@@ -1453,6 +1482,7 @@ fn collect_string_literals(value: &NirValue, literals: &mut Vec<String>) {
         NirValue::Capture { .. }
         | NirValue::Const { .. }
         | NirValue::Local(_)
+        | NirValue::Global { .. }
         | NirValue::FunctionRef { .. } => {}
     }
 }

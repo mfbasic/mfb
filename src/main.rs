@@ -656,6 +656,7 @@ fn print_package_info(path: &Path) -> Result<(), String> {
     println!("  constants: {}", info.const_count);
     println!("  resources: {}", info.resource_count);
     println!("  functions: {}", info.function_count);
+    println!("  globals: {}", info.global_count);
     println!("  imports: {}", info.import_count);
     println!("  exports: {}", info.export_count);
     println!();
@@ -670,6 +671,24 @@ fn print_package_info(path: &Path) -> Result<(), String> {
                 export.name
             );
             println!("    sigHash: {}", export.sig_hash);
+        }
+    }
+    println!();
+    println!("Package State:");
+    if info.globals.is_empty() {
+        println!("  <none>");
+    } else {
+        for global in &info.globals {
+            println!(
+                "  {} {} AS {}",
+                if global.mutable { "MUT" } else { "LET" },
+                global.name,
+                global.type_
+            );
+            println!("    visibility: {}", global.visibility);
+            if global.mutable && global.visibility == "export" {
+                println!("    audit: exported mutable package state");
+            }
         }
     }
     println!();

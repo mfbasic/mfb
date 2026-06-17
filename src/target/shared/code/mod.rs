@@ -71,6 +71,7 @@ const CLOSURE_OBJECT_SIZE: usize = 16;
 const CLOSURE_OFFSET_CODE: usize = 0;
 const CLOSURE_OFFSET_ENV: usize = 8;
 const ENTRY_STACK_SIZE: usize = 112;
+const ENTRY_GLOBALS_OFFSET: usize = ENTRY_STACK_SIZE;
 const ARENA_STATE_SIZE: usize = 64;
 const ENTRY_ARGC_OFFSET: usize = ARENA_STATE_SIZE;
 const ENTRY_ARGV_OFFSET: usize = ENTRY_ARGC_OFFSET + 8;
@@ -401,6 +402,7 @@ struct CodeBuilder<'a> {
     functions: &'a HashMap<String, &'a NirFunction>,
     package_return_types: &'a HashMap<String, String>,
     platform_imports: &'a HashMap<String, String>,
+    globals: &'a HashMap<String, GlobalValue>,
     type_model: TypeModel,
     string_symbols: &'a HashMap<String, String>,
     locals: HashMap<String, LocalValue>,
@@ -421,6 +423,12 @@ struct LocalValue {
     type_: String,
     stack_offset: usize,
     constant: Option<NirValue>,
+}
+
+#[derive(Clone)]
+struct GlobalValue {
+    type_: String,
+    offset: usize,
 }
 
 #[derive(Clone)]
@@ -504,6 +512,20 @@ pub(crate) fn lower_module_for_platform(
     for import in &module.imports {
         function_symbols.insert(import.name.clone(), import.symbol.clone());
     }
+    let globals = module
+        .globals
+        .iter()
+        .enumerate()
+        .map(|(index, global)| {
+            (
+                global.name.clone(),
+                GlobalValue {
+                    type_: global.type_.clone(),
+                    offset: ENTRY_GLOBALS_OFFSET + index * 8,
+                },
+            )
+        })
+        .collect::<HashMap<_, _>>();
     let functions = module
         .functions
         .iter()
@@ -538,6 +560,21 @@ pub(crate) fn lower_module_for_platform(
         .into_iter()
         .filter(|export| used_package_symbols.contains(&export.symbol))
         .collect::<Vec<_>>();
+    let mut package_global_offsets = HashMap::new();
+    let mut package_global_count = 0usize;
+    let mut package_global_packages = HashSet::new();
+    for export in &package_exports {
+        if !package_global_packages.insert(export.package_name.clone()) {
+            continue;
+        }
+        for index in 0..export.global_count {
+            package_global_offsets.insert(
+                (export.package_name.clone(), index as u32),
+                ENTRY_GLOBALS_OFFSET + (module.globals.len() + package_global_count) * 8,
+            );
+            package_global_count += 1;
+        }
+    }
     let mut package_runtime_symbols = Vec::new();
     add_package_runtime_symbols(&mut package_runtime_symbols, &package_exports)?;
     add_platform_package_runtime_imports(
@@ -638,12 +675,23 @@ pub(crate) fn lower_module_for_platform(
                 .unwrap_or(false)
         });
 
+    let global_initializer_symbol = if module.globals.is_empty() {
+        None
+    } else {
+        Some(nir::function_symbol(&nir::global_initializer_name(
+            &module.project,
+        )))
+    };
+
     if let Some(entry) = &module.entry {
         let entry_symbol = nir::function_symbol(&entry.name);
         code_functions.push(lower_program_entry(
             &entry_symbol,
             &entry.returns,
             entry.accepts_args,
+            global_initializer_symbol.as_deref(),
+            ENTRY_STACK_SIZE + (module.globals.len() + package_global_count) * 8,
+            module.globals.len() + package_global_count,
             &platform_imports,
             platform,
             skip_entry_arena_destroy,
@@ -656,6 +704,7 @@ pub(crate) fn lower_module_for_platform(
             &functions,
             &package_return_types,
             &platform_imports,
+            &globals,
             &string_symbols,
             type_model.clone(),
         )?);
@@ -669,6 +718,7 @@ pub(crate) fn lower_module_for_platform(
             &functions,
             &package_return_types,
             &platform_imports,
+            &globals,
             &string_symbols,
             type_model.clone(),
         )?);
@@ -677,6 +727,7 @@ pub(crate) fn lower_module_for_platform(
         code_functions.push(lower_package_export_function(
             export,
             &package_string_symbols,
+            &package_global_offsets,
         )?);
     }
     code_functions.push(lower_arena_alloc(platform)?);
@@ -1047,22 +1098,46 @@ fn lower_program_entry(
     language_entry_symbol: &str,
     language_entry_returns: &str,
     language_entry_accepts_args: bool,
+    global_initializer_symbol: Option<&str>,
+    entry_stack_size: usize,
+    global_slot_count: usize,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
     skip_arena_destroy: bool,
 ) -> Result<CodeFunction, String> {
     let mut instructions = vec![
         abi::label("entry"),
-        abi::subtract_stack(ENTRY_STACK_SIZE),
+        abi::subtract_stack(entry_stack_size),
         abi::add_immediate(ARENA_STATE_REGISTER, abi::stack_pointer(), 0),
         abi::store_u64("x31", ARENA_STATE_REGISTER, 0),
         abi::store_u64("x31", ARENA_STATE_REGISTER, 8),
         abi::store_u64("x31", ARENA_STATE_REGISTER, 16),
         abi::store_u64("x31", ARENA_STATE_REGISTER, 24),
     ];
+    for index in 0..global_slot_count {
+        instructions.push(abi::store_u64(
+            "x31",
+            ARENA_STATE_REGISTER,
+            ENTRY_GLOBALS_OFFSET + index * 8,
+        ));
+    }
     let mut relocations = Vec::new();
     let error_label = "entry_error";
     let exit_label = "entry_exit";
+    if let Some(symbol) = global_initializer_symbol {
+        instructions.push(abi::branch_link(symbol));
+        relocations.push(CodeRelocation {
+            from: "_main".to_string(),
+            to: symbol.to_string(),
+            kind: "branch26".to_string(),
+            binding: "internal".to_string(),
+            library: None,
+        });
+        instructions.extend([
+            abi::compare_immediate(RESULT_TAG_REGISTER, RESULT_OK_TAG),
+            abi::branch_ne(error_label),
+        ]);
+    }
     if language_entry_accepts_args {
         instructions.extend([
             abi::store_u64("x0", abi::stack_pointer(), ENTRY_ARGC_OFFSET),
@@ -1546,6 +1621,7 @@ fn lower_function(
     functions: &HashMap<String, &NirFunction>,
     package_return_types: &HashMap<String, String>,
     platform_imports: &HashMap<String, String>,
+    globals: &HashMap<String, GlobalValue>,
     string_symbols: &HashMap<String, String>,
     type_model: TypeModel,
 ) -> Result<CodeFunction, String> {
@@ -1569,6 +1645,7 @@ fn lower_function(
         functions,
         package_return_types,
         platform_imports,
+        globals,
         type_model,
         string_symbols,
         locals: HashMap::new(),
@@ -1657,6 +1734,7 @@ fn lower_builtin_function_wrapper(
     functions: &HashMap<String, &NirFunction>,
     package_return_types: &HashMap<String, String>,
     platform_imports: &HashMap<String, String>,
+    globals: &HashMap<String, GlobalValue>,
     string_symbols: &HashMap<String, String>,
     type_model: TypeModel,
 ) -> Result<CodeFunction, String> {
@@ -1680,6 +1758,7 @@ fn lower_builtin_function_wrapper(
         functions,
         package_return_types,
         platform_imports,
+        globals,
         type_model,
         string_symbols,
         locals: HashMap::new(),
@@ -1930,7 +2009,9 @@ fn collect_package_function_refs_in_ops(
 ) {
     for op in ops {
         match op {
-            NirOp::Bind { value, .. } | NirOp::Return { value } => {
+            NirOp::Bind { value, .. }
+            | NirOp::StoreGlobal { value, .. }
+            | NirOp::Return { value } => {
                 if let Some(value) = value {
                     collect_package_function_refs_in_value(value, package_import_symbols, symbols);
                 }
@@ -2052,7 +2133,10 @@ fn collect_package_function_refs_in_value(
         NirValue::Unary { operand, .. } => {
             collect_package_function_refs_in_value(operand, package_import_symbols, symbols);
         }
-        NirValue::Capture { .. } | NirValue::Const { .. } | NirValue::Local(_) => {}
+        NirValue::Capture { .. }
+        | NirValue::Const { .. }
+        | NirValue::Local(_)
+        | NirValue::Global { .. } => {}
     }
 }
 
@@ -2704,6 +2788,7 @@ fn emit_package_default_value(
 fn lower_package_export_function(
     export: &NativePackageExport,
     string_symbols: &HashMap<(String, usize), String>,
+    global_offsets: &HashMap<(String, u32), usize>,
 ) -> Result<CodeFunction, String> {
     let lr_offset = 0;
     let register_base = 8;
@@ -2771,6 +2856,24 @@ fn lower_package_export_function(
                     &mut relocations,
                 )?;
                 instructions.push(abi::store_u64("x9", abi::stack_pointer(), slot(dst)));
+            }
+            bytecode::NATIVE_OPCODE_LOAD_GLOBAL => {
+                let dst = native_operand(instruction, 0)?;
+                let global = native_operand(instruction, 1)?;
+                let offset = package_global_offset(export, global_offsets, global)?;
+                instructions.extend([
+                    abi::load_u64("x9", ARENA_STATE_REGISTER, offset),
+                    abi::store_u64("x9", abi::stack_pointer(), slot(dst)),
+                ]);
+            }
+            bytecode::NATIVE_OPCODE_STORE_GLOBAL => {
+                let global = native_operand(instruction, 0)?;
+                let src = native_operand(instruction, 1)?;
+                let offset = package_global_offset(export, global_offsets, global)?;
+                instructions.extend([
+                    abi::load_u64("x9", abi::stack_pointer(), slot(src)),
+                    abi::store_u64("x9", ARENA_STATE_REGISTER, offset),
+                ]);
             }
             bytecode::NATIVE_OPCODE_COPY | bytecode::NATIVE_OPCODE_MOVE => {
                 let dst = native_operand(instruction, 0)?;
@@ -2880,6 +2983,22 @@ fn native_operand(instruction: &bytecode::NativeInstruction, index: usize) -> Re
             instruction.opcode
         )
     })
+}
+
+fn package_global_offset(
+    export: &NativePackageExport,
+    global_offsets: &HashMap<(String, u32), usize>,
+    index: u32,
+) -> Result<usize, String> {
+    global_offsets
+        .get(&(export.package_name.clone(), index))
+        .copied()
+        .ok_or_else(|| {
+            format!(
+                "package export '{}' references missing package global {index}",
+                export.name
+            )
+        })
 }
 
 fn emit_package_const(
@@ -3689,6 +3808,7 @@ fn lower_direct_builtin_runtime_helper(
     let function_symbols = HashMap::new();
     let functions = HashMap::new();
     let package_return_types = HashMap::new();
+    let globals = HashMap::new();
     let string_symbols = standard_error_messages()
         .iter()
         .map(|(_, message, symbol)| ((*message).to_string(), (*symbol).to_string()))
@@ -3699,6 +3819,7 @@ fn lower_direct_builtin_runtime_helper(
         functions: &functions,
         package_return_types: &package_return_types,
         platform_imports,
+        globals: &globals,
         type_model: TypeModel::empty(),
         string_symbols: &string_symbols,
         locals: HashMap::new(),
@@ -11109,7 +11230,9 @@ fn module_uses_any_call(module: &NirModule, targets: &[&str]) -> bool {
 
 fn ops_use_call(ops: &[NirOp], target: &str) -> bool {
     ops.iter().any(|op| match op {
-        NirOp::Bind { value, .. } | NirOp::Return { value } => {
+        NirOp::Bind { value, .. }
+        | NirOp::StoreGlobal { value, .. }
+        | NirOp::Return { value } => {
             value.as_ref().is_some_and(|value| value_uses_call(value, target))
         }
         NirOp::Fail { error } => value_uses_call(error, target),
@@ -11183,13 +11306,16 @@ fn value_uses_call(value: &NirValue, target: &str) -> bool {
         NirValue::Capture { .. }
         | NirValue::Const { .. }
         | NirValue::Local(_)
+        | NirValue::Global { .. }
         | NirValue::FunctionRef { .. } => false,
     }
 }
 
 fn ops_use_type_name(ops: &[NirOp]) -> bool {
     ops.iter().any(|op| match op {
-        NirOp::Bind { value, .. } | NirOp::Return { value } => {
+        NirOp::Bind { value, .. }
+        | NirOp::StoreGlobal { value, .. }
+        | NirOp::Return { value } => {
             value.as_ref().is_some_and(value_uses_type_name)
         }
         NirOp::Fail { error } => value_uses_type_name(error),
@@ -11267,6 +11393,7 @@ fn value_uses_type_name(value: &NirValue) -> bool {
             NirValue::Capture { .. }
             | NirValue::Const { .. }
             | NirValue::Local(_)
+            | NirValue::Global { .. }
             | NirValue::FunctionRef { .. } => false,
         }
 }
@@ -11303,6 +11430,14 @@ fn collect_type_name_values_from_ops(ops: &[NirOp], values: &mut Vec<String>) {
         match op {
             NirOp::Bind { type_, value, .. } => {
                 push_string_value(values, type_.clone());
+                if let Some(value) = value {
+                    collect_type_name_values_from_value(value, values);
+                }
+            }
+            NirOp::StoreGlobal { type_, value, .. } => {
+                if !type_.is_empty() {
+                    push_string_value(values, type_.clone());
+                }
                 if let Some(value) = value {
                     collect_type_name_values_from_value(value, values);
                 }
@@ -11438,6 +11573,7 @@ fn collect_type_name_values_from_value(value: &NirValue, values: &mut Vec<String
         NirValue::Capture { .. }
         | NirValue::Const { .. }
         | NirValue::Local(_)
+        | NirValue::Global { .. }
         | NirValue::FunctionRef { .. } => {}
     }
 }
@@ -11485,6 +11621,14 @@ fn ops_use_unicode_runtime_tables(
                     constants.insert(name.clone(), constant);
                 } else {
                     constants.remove(name);
+                }
+            }
+            NirOp::StoreGlobal { value, .. } => {
+                if value
+                    .as_ref()
+                    .is_some_and(|value| value_uses_unicode_runtime_tables(value, constants, types))
+                {
+                    return true;
                 }
             }
             NirOp::Eval { value } | NirOp::Fail { error: value } => {
@@ -11662,6 +11806,7 @@ fn value_uses_unicode_runtime_tables(
         NirValue::Capture { .. }
         | NirValue::Const { .. }
         | NirValue::Local(_)
+        | NirValue::Global { .. }
         | NirValue::FunctionRef { .. } => false,
     }
 }
@@ -11833,6 +11978,11 @@ fn collect_string_values_from_ops_with_constants(
                     }
                 } else {
                     constants.remove(name);
+                }
+            }
+            NirOp::StoreGlobal { value, .. } => {
+                if let Some(value) = value {
+                    collect_string_values_from_value(value, values, constants, types);
                 }
             }
             NirOp::Return { value } => {
@@ -12042,6 +12192,7 @@ fn collect_string_values_from_value(
         NirValue::Capture { .. }
         | NirValue::Const { .. }
         | NirValue::Local(_)
+        | NirValue::Global { .. }
         | NirValue::FunctionRef { .. } => {}
     }
 }
@@ -12134,6 +12285,7 @@ fn value_may_return_invalid_format(
         NirValue::Unary { operand, .. } => {
             value_may_return_invalid_format(operand, constants, types)
         }
+        NirValue::Global { .. } => false,
         NirValue::Closure { captures, .. } => captures
             .iter()
             .any(|value| value_may_return_invalid_format(value, constants, types)),
@@ -12268,6 +12420,8 @@ fn static_type_name_with_types(
     match value {
         NirValue::Const { type_, .. } => Some(type_.clone()),
         NirValue::Local(name) => types.get(name).cloned(),
+        NirValue::Global { type_, .. } if !type_.is_empty() => Some(type_.clone()),
+        NirValue::Global { .. } => None,
         NirValue::FunctionRef { type_, .. }
         | NirValue::Closure { type_, .. }
         | NirValue::Capture { type_, .. }
@@ -12431,7 +12585,7 @@ fn collect_builtin_function_refs_in_ops(
 ) {
     for op in ops {
         match op {
-            NirOp::Bind { value, .. } => {
+            NirOp::Bind { value, .. } | NirOp::StoreGlobal { value, .. } => {
                 if let Some(value) = value {
                     collect_builtin_function_refs_in_value(value, refs, seen);
                 }
@@ -12548,7 +12702,10 @@ fn collect_builtin_function_refs_in_value(
         NirValue::MemberAccess { target, .. } => {
             collect_builtin_function_refs_in_value(target, refs, seen);
         }
-        NirValue::Capture { .. } | NirValue::Const { .. } | NirValue::Local(_) => {}
+        NirValue::Capture { .. }
+        | NirValue::Const { .. }
+        | NirValue::Local(_)
+        | NirValue::Global { .. } => {}
     }
 }
 

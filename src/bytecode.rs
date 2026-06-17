@@ -49,6 +49,8 @@ const REGISTER_FLAG_INITIALIZED_AT_ENTRY: u32 = 1 << 3;
 
 const OPCODE_LOAD_CONST: u16 = 1;
 const OPCODE_LOAD_DEFAULT: u16 = 2;
+const OPCODE_LOAD_GLOBAL: u16 = 3;
+const OPCODE_STORE_GLOBAL: u16 = 4;
 const OPCODE_ADD: u16 = 20;
 const OPCODE_SUB: u16 = 21;
 const OPCODE_MUL: u16 = 22;
@@ -384,11 +386,20 @@ pub struct BytecodePackageInfo {
     pub const_count: usize,
     pub resource_count: usize,
     pub function_count: usize,
+    pub global_count: usize,
     pub export_count: usize,
     pub import_count: usize,
     pub abi_format_version: u16,
     pub exports: Vec<BytecodePackageInfoExport>,
+    pub globals: Vec<BytecodePackageInfoGlobal>,
     pub imports: Vec<BytecodePackageInfoImport>,
+}
+
+pub struct BytecodePackageInfoGlobal {
+    pub name: String,
+    pub type_: String,
+    pub mutable: bool,
+    pub visibility: String,
 }
 
 pub struct BytecodePackageInfoExport {
@@ -515,10 +526,12 @@ pub enum NativeConst {
 }
 
 pub struct NativePackageExport {
+    pub package_name: String,
     pub symbol: String,
     pub name: String,
     pub return_type: NativeType,
     pub param_count: usize,
+    pub global_count: usize,
     pub registers: Vec<NativeRegister>,
     pub code: Vec<NativeInstruction>,
     pub constants: Vec<NativeConst>,
@@ -534,6 +547,8 @@ pub struct NativePackageCallTarget {
 
 pub const NATIVE_OPCODE_LOAD_CONST: u16 = OPCODE_LOAD_CONST;
 pub const NATIVE_OPCODE_LOAD_DEFAULT: u16 = OPCODE_LOAD_DEFAULT;
+pub const NATIVE_OPCODE_LOAD_GLOBAL: u16 = OPCODE_LOAD_GLOBAL;
+pub const NATIVE_OPCODE_STORE_GLOBAL: u16 = OPCODE_STORE_GLOBAL;
 pub const NATIVE_OPCODE_MOVE: u16 = OPCODE_MOVE;
 pub const NATIVE_OPCODE_COPY: u16 = OPCODE_COPY;
 pub const NATIVE_OPCODE_ADD: u16 = OPCODE_ADD;
@@ -946,6 +961,10 @@ fn read_bytecode_package(bytes: &[u8]) -> Result<PackageBytecode, String> {
         Some(section) => read_resource_table(section)?,
         None => ResourceTable::new(),
     };
+    let globals = match sections.get(&SECTION_GLOBAL_TABLE).copied() {
+        Some(section) => read_global_table(section)?,
+        None => Vec::new(),
+    };
     let manifest = read_manifest(
         sections
             .get(&SECTION_MANIFEST)
@@ -980,6 +999,7 @@ fn read_bytecode_package(bytes: &[u8]) -> Result<PackageBytecode, String> {
             types,
             constants,
             resources,
+            globals,
             manifest,
             imports,
             abi,
@@ -1028,6 +1048,7 @@ fn package_exports(package: &PackageBytecode) -> Result<Vec<BytecodeExport>, Str
 
 fn package_info(package: &PackageBytecode) -> Result<BytecodePackageInfo, String> {
     let strings = &package.project.strings.values;
+    let type_names = type_entry_names(&package.project.types, strings)?;
     let exports = package
         .project
         .abi
@@ -1038,6 +1059,25 @@ fn package_info(package: &PackageBytecode) -> Result<BytecodePackageInfo, String
                 name: string_at(strings, abi_export.name)?.to_string(),
                 kind: abi_export.kind,
                 sig_hash: hex_hash(&abi_export.sig_hash),
+            })
+        })
+        .collect::<Result<Vec<_>, String>>()?;
+
+    let globals = package
+        .project
+        .globals
+        .iter()
+        .map(|global| {
+            let visibility = match (global.flags >> 1) & 0b11 {
+                1 => "package",
+                2 => "export",
+                _ => "private",
+            };
+            Ok(BytecodePackageInfoGlobal {
+                name: string_at(strings, global.name)?.to_string(),
+                type_: type_name(&type_names, global.type_id)?.to_string(),
+                mutable: global.flags & 1 != 0,
+                visibility: visibility.to_string(),
             })
         })
         .collect::<Result<Vec<_>, String>>()?;
@@ -1110,10 +1150,12 @@ fn package_info(package: &PackageBytecode) -> Result<BytecodePackageInfo, String
         const_count: package.project.constants.entries.len(),
         resource_count: package.project.resources.entries.len(),
         function_count: package.project.functions.len(),
+        global_count: package.project.globals.len(),
         export_count: package.project.abi.exports.len(),
         import_count: package.project.imports.entries.len(),
         abi_format_version: ABI_FORMAT_VERSION,
         exports,
+        globals,
         imports,
     })
 }
@@ -1293,6 +1335,7 @@ fn package_native_exports(
             .ok_or_else(|| format!("export references missing function {}", export.function_id))?;
         let export_name = string_at(&package.project.strings.values, export.name)?.to_string();
         exports.push(NativePackageExport {
+            package_name: package_name.clone(),
             symbol: format!(
                 "_mfb_pkg_{}_{}",
                 sanitize_symbol_part(&package_name),
@@ -1301,6 +1344,7 @@ fn package_native_exports(
             name: format!("{package_name}.{export_name}"),
             return_type: native_type(function.return_type, &result_success_types),
             param_count: function.params.len(),
+            global_count: package.project.globals.len(),
             registers: function
                 .registers
                 .iter()
@@ -1801,6 +1845,23 @@ fn read_resource_table(bytes: &[u8]) -> Result<ResourceTable, String> {
         });
     }
     Ok(ResourceTable { entries })
+}
+
+fn read_global_table(bytes: &[u8]) -> Result<Vec<GlobalEntry>, String> {
+    let mut offset = 0;
+    let count = cursor_u32(bytes, &mut offset)? as usize;
+    let mut globals = Vec::with_capacity(count);
+    for _ in 0..count {
+        globals.push(GlobalEntry {
+            name: cursor_u32(bytes, &mut offset)?,
+            type_id: cursor_u32(bytes, &mut offset)?,
+            flags: cursor_u32(bytes, &mut offset)?,
+        });
+    }
+    if offset != bytes.len() {
+        return Err("invalid trailing bytes in global table".to_string());
+    }
+    Ok(globals)
 }
 
 fn read_export_table(bytes: &[u8]) -> Result<Vec<DecodedExport>, String> {
@@ -2796,12 +2857,19 @@ struct BytecodeProject {
     types: TypeTable,
     constants: ConstPool,
     resources: ResourceTable,
+    globals: Vec<GlobalEntry>,
     manifest: BytecodeManifest,
     imports: ImportTable,
     abi: AbiIndex,
     entry_function: u32,
     entry_flags: u32,
     functions: Vec<Function>,
+}
+
+struct GlobalEntry {
+    name: u32,
+    type_id: u32,
+    flags: u32,
 }
 
 struct PackageBytecode {
@@ -3207,6 +3275,42 @@ fn lower_project_with_external_functions(
         resources.add_standard_file(&mut types, &mut strings);
     }
     let type_model = TypeModel::new(ir);
+    let globals = ir
+        .bindings
+        .iter()
+        .map(|binding| {
+            let mut flags = 0;
+            if binding.mutable {
+                flags |= 1;
+            }
+            flags |= match binding.visibility.as_str() {
+                "private" => 0 << 1,
+                "package" => 1 << 1,
+                "export" => 2 << 1,
+                _ => 0,
+            };
+            GlobalEntry {
+                name: strings.intern(&binding.name),
+                type_id: types.type_id(&mut strings, &binding.type_),
+                flags,
+            }
+        })
+        .collect::<Vec<_>>();
+    let global_slots = ir
+        .bindings
+        .iter()
+        .enumerate()
+        .map(|(index, binding)| {
+            (
+                binding.name.clone(),
+                GlobalSlot {
+                    index: index as u32,
+                    type_id: types.type_id(&mut strings, &binding.type_),
+                    type_name: binding.type_.clone(),
+                },
+            )
+        })
+        .collect::<HashMap<_, _>>();
 
     let mut constants = ConstPool::new();
     let mut function_ids = HashMap::new();
@@ -3238,6 +3342,7 @@ fn lower_project_with_external_functions(
             &function_ids,
             &function_return_types,
             &function_return_type_names,
+            &global_slots,
             &type_model,
             external_function_abi_hashes,
             &mut used_imported_functions,
@@ -3274,6 +3379,7 @@ fn lower_project_with_external_functions(
         types,
         constants,
         resources,
+        globals,
         manifest,
         imports,
         abi,
@@ -3287,6 +3393,7 @@ struct MergeMap {
     strings: HashMap<u32, u32>,
     types: HashMap<u32, u32>,
     constants: HashMap<u32, u32>,
+    globals: HashMap<u32, u32>,
     functions: HashMap<u32, u32>,
 }
 
@@ -3303,6 +3410,7 @@ fn merge_package_bytecode(
         strings: HashMap::new(),
         types: HashMap::new(),
         constants: HashMap::new(),
+        globals: HashMap::new(),
         functions: HashMap::new(),
     };
 
@@ -3356,6 +3464,16 @@ fn merge_package_bytecode(
             payload: remap_const_payload(constant.kind, &constant.payload, &map)?,
         });
         map.constants.insert(index as u32, new_id);
+    }
+
+    for (index, global) in package.project.globals.iter().enumerate() {
+        let new_id = project.globals.len() as u32;
+        project.globals.push(GlobalEntry {
+            name: remap_string(&map, global.name)?,
+            type_id: remap_type(&map, global.type_id)?,
+            flags: global.flags,
+        });
+        map.globals.insert(index as u32, new_id);
     }
 
     let function_start = project.functions.len() as u32;
@@ -3450,6 +3568,12 @@ fn remap_instruction(mut instruction: Instruction, map: &MergeMap) -> Result<Ins
         }
         OPCODE_LOAD_DEFAULT => {
             remap_operand(&mut instruction, 1, |value| remap_type(map, value))?;
+        }
+        OPCODE_LOAD_GLOBAL => {
+            remap_operand(&mut instruction, 1, |value| remap_global(map, value))?;
+        }
+        OPCODE_STORE_GLOBAL => {
+            remap_operand(&mut instruction, 0, |value| remap_global(map, value))?;
         }
         OPCODE_LOAD_FUNCTION => {
             remap_operand(&mut instruction, 1, |value| remap_function_id(map, value))?;
@@ -3619,6 +3743,13 @@ fn remap_const(map: &MergeMap, id: u32) -> Result<u32, String> {
         .ok_or_else(|| format!("merged bytecode references unknown const id {id}"))
 }
 
+fn remap_global(map: &MergeMap, id: u32) -> Result<u32, String> {
+    map.globals
+        .get(&id)
+        .copied()
+        .ok_or_else(|| format!("merged bytecode references unknown global id {id}"))
+}
+
 fn remap_function_id(map: &MergeMap, id: u32) -> Result<u32, String> {
     map.functions
         .get(&id)
@@ -3658,7 +3789,9 @@ fn ops_use_resource_type(ops: &[IrOp]) -> bool {
         IrOp::Bind { type_, value, .. } => {
             is_resource_type_name(type_) || value.as_ref().is_some_and(value_uses_resource_type)
         }
-        IrOp::Assign { value, .. } | IrOp::Eval { value } => value_uses_resource_type(value),
+        IrOp::Assign { value, .. } | IrOp::AssignGlobal { value, .. } | IrOp::Eval { value } => {
+            value_uses_resource_type(value)
+        }
         IrOp::Return { value } => value.as_ref().is_some_and(value_uses_resource_type),
         IrOp::Fail { error } => value_uses_resource_type(error),
         IrOp::If {
@@ -3729,7 +3862,7 @@ fn value_uses_resource_type(value: &IrValue) -> bool {
             value_uses_resource_type(left) || value_uses_resource_type(right)
         }
         IrValue::Unary { operand, .. } => value_uses_resource_type(operand),
-        IrValue::Local(_) => false,
+        IrValue::Local(_) | IrValue::Global(_) => false,
     }
 }
 
@@ -3745,6 +3878,7 @@ fn lower_function(
     function_ids: &HashMap<String, u32>,
     function_return_types: &HashMap<String, u32>,
     function_return_type_names: &HashMap<String, String>,
+    globals: &HashMap<String, GlobalSlot>,
     type_model: &TypeModel,
     external_function_abi_hashes: &HashMap<String, [u8; ABI_HASH_LEN]>,
     used_imported_functions: &mut HashSet<String>,
@@ -3756,6 +3890,7 @@ fn lower_function(
         function_ids,
         function_return_types,
         function_return_type_names,
+        globals,
         type_model,
         external_function_abi_hashes,
         used_imported_functions,
@@ -3851,6 +3986,7 @@ struct FunctionBuilder<'a> {
     function_ids: &'a HashMap<String, u32>,
     function_return_types: &'a HashMap<String, u32>,
     function_return_type_names: &'a HashMap<String, String>,
+    globals: &'a HashMap<String, GlobalSlot>,
     type_model: &'a TypeModel,
     external_function_abi_hashes: &'a HashMap<String, [u8; ABI_HASH_LEN]>,
     used_imported_functions: &'a mut HashSet<String>,
@@ -3871,6 +4007,13 @@ struct TrapState {
 pub(crate) struct ValueSlot {
     pub(crate) register: u32,
     pub(crate) type_name: String,
+}
+
+#[derive(Clone)]
+struct GlobalSlot {
+    index: u32,
+    type_id: u32,
+    type_name: String,
 }
 
 pub(crate) trait BuiltinCallLowerer {
@@ -3894,6 +4037,7 @@ impl<'a> FunctionBuilder<'a> {
         function_ids: &'a HashMap<String, u32>,
         function_return_types: &'a HashMap<String, u32>,
         function_return_type_names: &'a HashMap<String, String>,
+        globals: &'a HashMap<String, GlobalSlot>,
         type_model: &'a TypeModel,
         external_function_abi_hashes: &'a HashMap<String, [u8; ABI_HASH_LEN]>,
         used_imported_functions: &'a mut HashSet<String>,
@@ -3905,6 +4049,7 @@ impl<'a> FunctionBuilder<'a> {
             function_ids,
             function_return_types,
             function_return_type_names,
+            globals,
             type_model,
             external_function_abi_hashes,
             used_imported_functions,
@@ -3960,6 +4105,16 @@ impl<'a> FunctionBuilder<'a> {
                     target.register,
                     value.register,
                 );
+                Ok(())
+            }
+            IrOp::AssignGlobal { name, value } => {
+                let target = self
+                    .globals
+                    .get(name)
+                    .cloned()
+                    .ok_or_else(|| format!("IR assigns unknown global `{name}`"))?;
+                let value = self.lower_value(value, locals)?;
+                self.push(OPCODE_STORE_GLOBAL, vec![target.index, value.register]);
                 Ok(())
             }
             IrOp::Return { value } => {
@@ -4292,6 +4447,19 @@ impl<'a> FunctionBuilder<'a> {
                 .get(name)
                 .cloned()
                 .ok_or_else(|| format!("IR references unknown local `{name}`")),
+            IrValue::Global(name) => {
+                let global = self
+                    .globals
+                    .get(name)
+                    .cloned()
+                    .ok_or_else(|| format!("IR references unknown global `{name}`"))?;
+                let register = self.add_register(global.type_id, 0);
+                self.push(OPCODE_LOAD_GLOBAL, vec![register, global.index]);
+                Ok(ValueSlot {
+                    register,
+                    type_name: global.type_name,
+                })
+            }
             IrValue::FunctionRef { name, type_ } => {
                 let function_id = self
                     .function_ids
@@ -5896,7 +6064,7 @@ impl BytecodeProject {
             Section::new(SECTION_CONST_POOL, self.constants.encode()),
             Section::new(SECTION_IMPORT_TABLE, self.imports.encode()),
             Section::new(SECTION_EXPORT_TABLE, self.encode_exports()),
-            Section::new(SECTION_GLOBAL_TABLE, encode_empty_count()),
+            Section::new(SECTION_GLOBAL_TABLE, self.encode_globals()),
             Section::new(SECTION_FUNCTION_TABLE, self.encode_functions(&code_offsets)),
             Section::new(SECTION_CODE, code_section),
             Section::new(SECTION_ABI_INDEX, self.abi.encode()),
@@ -5953,6 +6121,17 @@ impl BytecodeProject {
             );
             put_u16(&mut bytes, 0);
             put_u32(&mut bytes, index as u32);
+        }
+        bytes
+    }
+
+    fn encode_globals(&self) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        put_u32(&mut bytes, self.globals.len() as u32);
+        for global in &self.globals {
+            put_u32(&mut bytes, global.name);
+            put_u32(&mut bytes, global.type_id);
+            put_u32(&mut bytes, global.flags);
         }
         bytes
     }

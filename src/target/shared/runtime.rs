@@ -1296,7 +1296,7 @@ fn push_op_helpers(ops: &[IrOp], helpers: &mut Vec<RuntimeHelper>) {
             IrOp::Fail { error } => {
                 push_value_helpers(error, helpers);
             }
-            IrOp::Assign { value, .. } | IrOp::Eval { value } => {
+            IrOp::Assign { value, .. } | IrOp::AssignGlobal { value, .. } | IrOp::Eval { value } => {
                 push_value_helpers(value, helpers);
             }
             IrOp::Return { value } => {
@@ -1400,6 +1400,7 @@ fn push_value_helpers(value: &IrValue, helpers: &mut Vec<RuntimeHelper>) {
         IrValue::Capture { .. }
         | IrValue::Const { .. }
         | IrValue::Local(_)
+        | IrValue::Global(_)
         | IrValue::FunctionRef { .. } => {}
     }
 }

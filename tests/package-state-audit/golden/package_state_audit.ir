@@ -1,0 +1,26 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "package_state_audit",
+  "entry": null,
+  "bindings": [
+  { "name": "counter", "visibility": "export", "mutable": true, "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+  { "name": "label", "visibility": "export", "mutable": false, "type": "String", "value": { "kind": "const", "type": "String", "value": "audit" } }
+  ],
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "nextCounter",
+    "visibility": "export",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "assignGlobal", "name": "counter", "value": { "kind": "binary", "op": "+", "left": { "kind": "global", "name": "counter" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } },
+    { "op": "return", "value": { "kind": "global", "name": "counter" } }
+    ]
+  }
+  ]
+}

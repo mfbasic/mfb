@@ -13,6 +13,7 @@ use std::path::{Path, PathBuf};
 pub struct IrProject {
     pub(crate) name: String,
     pub(crate) entry: Option<EntryPoint>,
+    pub(crate) bindings: Vec<IrBinding>,
     pub(crate) types: Vec<IrType>,
     pub(crate) functions: Vec<IrFunction>,
 }
@@ -32,6 +33,15 @@ pub(crate) struct IrType {
     pub(crate) includes: Vec<String>,
     pub(crate) variants: Vec<IrVariant>,
     pub(crate) members: Vec<IrEnumMember>,
+}
+
+#[derive(Clone)]
+pub(crate) struct IrBinding {
+    pub(crate) name: String,
+    pub(crate) visibility: String,
+    pub(crate) mutable: bool,
+    pub(crate) type_: String,
+    pub(crate) value: Option<IrValue>,
 }
 
 #[derive(Clone)]
@@ -75,6 +85,10 @@ pub(crate) enum IrOp {
         value: Option<IrValue>,
     },
     Assign {
+        name: String,
+        value: IrValue,
+    },
+    AssignGlobal {
         name: String,
         value: IrValue,
     },
@@ -138,6 +152,7 @@ pub(crate) enum IrValue {
         value: String,
     },
     Local(String),
+    Global(String),
     FunctionRef {
         name: String,
         type_: String,
@@ -240,6 +255,7 @@ pub fn lower_project_with_external_functions(
     let mut function_returns = function_returns(ast);
     let mut function_types = function_types(ast);
     let mut function_params = function_params(ast);
+    let binding_types = declared_binding_types(ast);
     function_types.extend(external_function_types.clone());
     for (name, params) in external_function_params {
         function_params.insert(
@@ -265,17 +281,23 @@ pub fn lower_project_with_external_functions(
         function_returns: &function_returns,
         function_types: &function_types,
         function_params: &function_params,
+        binding_types,
         type_index: &type_index,
         current_imports: HashMap::new(),
+        bindings: Vec::new(),
         lambdas: Vec::new(),
         next_lambda_id: 0,
         next_temp_id: 0,
     };
+    infer_binding_types(ast, &mut context);
+    let bindings = lower_bindings(ast, &mut context);
+    context.bindings = bindings.clone();
 
     for file in &ast.files {
         context.current_imports = file.import_bindings();
         for item in &file.items {
             match item {
+                Item::Binding(_) => {}
                 Item::Function(function) => functions.push(lower_function(function, &mut context)),
                 Item::Type(type_decl) => types.push(lower_type(type_decl, &type_index)),
             }
@@ -286,6 +308,7 @@ pub fn lower_project_with_external_functions(
     IrProject {
         name: ast.name.clone(),
         entry,
+        bindings,
         types,
         functions,
     }
@@ -317,6 +340,43 @@ fn lower_type(type_decl: &TypeDecl, type_index: &TypeIndex) -> IrType {
             .collect(),
         members: type_decl.members.iter().map(lower_enum_member).collect(),
     }
+}
+
+fn lower_binding(
+    binding: &crate::ast::TopLevelBinding,
+    context: &mut LowerContext<'_>,
+) -> IrBinding {
+    let locals = context.binding_types.clone();
+    let type_ = binding.type_name.clone().unwrap_or_else(|| {
+        binding
+            .value
+            .as_ref()
+            .and_then(|value| expression_type(value, &locals, context))
+            .expect("typecheck requires inferred binding type before IR lowering")
+    });
+    IrBinding {
+        name: binding.name.clone(),
+        visibility: visibility_name(binding.visibility).to_string(),
+        mutable: binding.mutable,
+        type_: type_.clone(),
+        value: binding
+            .value
+            .as_ref()
+            .map(|value| lower_expression_with_expected(value, Some(&type_), &locals, context)),
+    }
+}
+
+fn lower_bindings(ast: &AstProject, context: &mut LowerContext<'_>) -> Vec<IrBinding> {
+    let mut lowered = Vec::new();
+    for file in &ast.files {
+        context.current_imports = file.import_bindings();
+        for item in &file.items {
+            if let Item::Binding(binding) = item {
+                lowered.push(lower_binding(binding, context));
+            }
+        }
+    }
+    lowered
 }
 
 fn lower_field(field: &TypeField) -> IrField {
@@ -366,6 +426,8 @@ fn lower_function(function: &Function, context: &mut LowerContext<'_>) -> IrFunc
                 .expect("typecheck requires parameter type before IR lowering"),
         );
     }
+    let body = lower_function_body(function, &locals, context);
+
     IrFunction {
         name: function.name.clone(),
         visibility: visibility_name(function.visibility).to_string(),
@@ -377,7 +439,7 @@ fn lower_function(function: &Function, context: &mut LowerContext<'_>) -> IrFunc
             .map(|param| lower_param(param, &locals, context))
             .collect(),
         returns,
-        body: lower_function_body(function, &locals, context),
+        body,
     }
 }
 
@@ -425,6 +487,8 @@ struct LowerContext<'a> {
     function_returns: &'a HashMap<String, String>,
     function_types: &'a HashMap<String, String>,
     function_params: &'a HashMap<String, Vec<CallParam>>,
+    binding_types: HashMap<String, String>,
+    bindings: Vec<IrBinding>,
     type_index: &'a TypeIndex,
     current_imports: HashMap<String, String>,
     lambdas: Vec<IrFunction>,
@@ -492,15 +556,25 @@ fn lower_statement(
                     .to_string(),
             ),
         }],
-        Statement::Assign { name, value, .. } => vec![IrOp::Assign {
-            name: name.clone(),
-            value: lower_expression_with_expected(
-                value,
-                locals.get(name).map(String::as_str),
-                locals,
-                context,
-            ),
-        }],
+        Statement::Assign { name, value, .. } => {
+            let expected = locals
+                .get(name)
+                .or_else(|| context.binding_types.get(name))
+                .cloned();
+            let lowered =
+                lower_expression_with_expected(value, expected.as_deref(), locals, context);
+            if locals.contains_key(name) {
+                vec![IrOp::Assign {
+                    name: name.clone(),
+                    value: lowered,
+                }]
+            } else {
+                vec![IrOp::AssignGlobal {
+                    name: name.clone(),
+                    value: lowered,
+                }]
+            }
+        }
         Statement::Expression { expression, .. } => vec![IrOp::Eval {
             value: lower_expression(expression, locals, context),
         }],
@@ -1072,6 +1146,41 @@ fn function_params(ast: &AstProject) -> HashMap<String, Vec<CallParam>> {
     params
 }
 
+fn declared_binding_types(ast: &AstProject) -> HashMap<String, String> {
+    let mut bindings = HashMap::new();
+    for file in &ast.files {
+        for item in &file.items {
+            if let Item::Binding(binding) = item {
+                let type_ = binding
+                    .type_name
+                    .clone()
+                    .unwrap_or_else(|| "Unknown".to_string());
+                bindings.insert(binding.name.clone(), type_);
+            }
+        }
+    }
+    bindings
+}
+
+fn infer_binding_types(ast: &AstProject, context: &mut LowerContext<'_>) {
+    for file in &ast.files {
+        context.current_imports = file.import_bindings();
+        for item in &file.items {
+            if let Item::Binding(binding) = item {
+                if binding.type_name.is_some() {
+                    continue;
+                }
+                if let Some(value) = &binding.value {
+                    let locals = HashMap::new();
+                    if let Some(type_) = expression_type(value, &locals, context) {
+                        context.binding_types.insert(binding.name.clone(), type_);
+                    }
+                }
+            }
+        }
+    }
+}
+
 fn expression_type(
     expression: &Expression,
     locals: &HashMap<String, String>,
@@ -1096,6 +1205,7 @@ fn expression_type(
                 locals
                     .get(value)
                     .cloned()
+                    .or_else(|| context.binding_types.get(value).cloned())
                     .or_else(|| context.function_types.get(value).cloned())
                     .or_else(|| context.function_types.get(&canonical_value).cloned())
             }
@@ -1544,7 +1654,9 @@ fn lower_expression_with_expected(
                 return IrValue::Const { type_, value };
             }
 
-            let base = if let Some(type_) = context
+            let base = if locals.contains_key(value) {
+                IrValue::Local(value.clone())
+            } else if let Some(type_) = context
                 .function_types
                 .get(value)
                 .or_else(|| context.function_types.get(&canonical_value))
@@ -1553,6 +1665,8 @@ fn lower_expression_with_expected(
                     name: canonical_value,
                     type_: type_.clone(),
                 }
+            } else if context.binding_types.contains_key(value) {
+                IrValue::Global(value.clone())
             } else {
                 IrValue::Local(value.clone())
             };
@@ -2099,6 +2213,11 @@ fn expanded_union_variants<'a>(
 
 impl IrProject {
     fn to_json(&self) -> String {
+        let bindings = if self.bindings.is_empty() {
+            String::new()
+        } else {
+            format!("  \"bindings\": [{}\n  ],\n", join_json(&self.bindings, 2))
+        };
         format!(
             concat!(
                 "{{\n",
@@ -2106,6 +2225,7 @@ impl IrProject {
                 "  \"version\": 1,\n",
                 "  \"project\": {},\n",
                 "  \"entry\": {},\n",
+                "{}",
                 "  \"types\": [{}\n  ],\n",
                 "  \"functions\": [{}\n  ]\n",
                 "}}\n"
@@ -2115,6 +2235,7 @@ impl IrProject {
                 .as_ref()
                 .map(|entry| entry.to_json(2))
                 .unwrap_or_else(|| "null".to_string()),
+            bindings,
             join_json(&self.types, 2),
             join_json(&self.functions, 2)
         )
@@ -2223,6 +2344,26 @@ impl ToIrJson for IrType {
             ),
             _ => unreachable!("known IR type kind"),
         }
+    }
+}
+
+impl ToIrJson for IrBinding {
+    fn to_json(&self, indent: usize) -> String {
+        let pad = " ".repeat(indent);
+        let value = self
+            .value
+            .as_ref()
+            .map(|value| value.to_json(indent))
+            .unwrap_or_else(|| "null".to_string());
+        format!(
+            "\n{}{{ \"name\": {}, \"visibility\": {}, \"mutable\": {}, \"type\": {}, \"value\": {} }}",
+            pad,
+            json_string(&self.name),
+            json_string(&self.visibility),
+            self.mutable,
+            json_string(&self.type_),
+            value
+        )
     }
 }
 
@@ -2345,6 +2486,14 @@ impl ToIrJson for IrOp {
                     json_string(name),
                     json_string(type_),
                     value
+                )
+            }
+            IrOp::AssignGlobal { name, value } => {
+                format!(
+                    "\n{}{{ \"op\": \"assignGlobal\", \"name\": {}, \"value\": {} }}",
+                    pad,
+                    json_string(name),
+                    value.to_json(indent)
                 )
             }
             IrOp::Return { value } => {
@@ -2589,6 +2738,9 @@ impl ToIrJson for IrValue {
             }
             IrValue::Local(name) => {
                 format!("{{ \"kind\": \"local\", \"name\": {} }}", json_string(name))
+            }
+            IrValue::Global(name) => {
+                format!("{{ \"kind\": \"global\", \"name\": {} }}", json_string(name))
             }
             IrValue::FunctionRef { name, type_ } => {
                 format!(

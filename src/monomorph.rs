@@ -1,6 +1,7 @@
 use crate::ast::{
     AstFile, AstProject, CallArg, ConstructorArg, Expression, Function, Item, MatchCase,
-    MatchPattern, RecordUpdate, Statement, TypeDecl, TypeDeclKind, TypeField, UnionVariant,
+    MatchPattern, RecordUpdate, Statement, TopLevelBinding, TypeDecl, TypeDeclKind, TypeField,
+    UnionVariant,
 };
 use crate::numeric;
 use crate::rules;
@@ -52,6 +53,7 @@ impl<'a> Monomorphizer<'a> {
         for file in &source.files {
             for item in &file.items {
                 match item {
+                    Item::Binding(_) => {}
                     Item::Type(type_decl) if !type_decl.template_params.is_empty() => {
                         type_templates.insert(type_decl.name.clone(), type_decl.clone());
                     }
@@ -119,7 +121,7 @@ impl<'a> Monomorphizer<'a> {
         }
     }
 
-    fn into_project(self) -> AstProject {
+    fn into_project(mut self) -> AstProject {
         let mut emitted_types = HashSet::new();
         let mut emitted_functions = HashSet::new();
         let mut files = self
@@ -130,6 +132,9 @@ impl<'a> Monomorphizer<'a> {
                 let mut items = Vec::new();
                 for item in &file.items {
                     match item {
+                        Item::Binding(binding) => {
+                            items.push(Item::Binding(self.lower_binding(binding.clone())));
+                        }
                         Item::Type(type_decl) if type_decl.template_params.is_empty() => {
                             if let Some(concrete) = self.concrete_types.get(&type_decl.name) {
                                 emitted_types.insert(concrete.name.clone());
@@ -215,6 +220,23 @@ impl<'a> Monomorphizer<'a> {
             })
             .collect();
         type_decl
+    }
+
+    fn lower_binding(&mut self, mut binding: TopLevelBinding) -> TopLevelBinding {
+        if let Some(type_name) = &binding.type_name {
+            binding.type_name = Some(self.concrete_type_name(type_name, &HashMap::new()));
+        }
+        if let Some(value) = binding.value.take() {
+            let mut context = self.function_context();
+            binding.value = Some(self.lower_expression(
+                &value,
+                &HashMap::new(),
+                &mut context,
+                binding.type_name.as_deref(),
+                binding.line,
+            ));
+        }
+        binding
     }
 
     fn lower_function(

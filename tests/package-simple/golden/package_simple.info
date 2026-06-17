@@ -34,6 +34,7 @@ Bytecode:
   constants: 1
   resources: 0
   functions: 5
+  globals: 0
   imports: 0
   exports: 10
 
@@ -58,6 +59,9 @@ Exports:
     sigHash: 6f56a0627bf6e66bd79e17e6ba8bfd9853a637e284cdc465fc2f0590dcea5780
   UNION MaybeNumber
     sigHash: 60b0186ae18a2256be8ae9c563857b93b4c8178bfcfafa034449f0b2d43a6007
+
+Package State:
+  <none>
 
 Imports:
   <none>

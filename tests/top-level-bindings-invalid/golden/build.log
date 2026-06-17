@@ -1,0 +1,46 @@
+$ mfb build -ast tests/top-level-bindings-invalid
+   1 | LET missing AS Integer
+     | ^
+tests/top-level-bindings-invalid/src/main.mfb:1 error[2-203-0035 TYPE_LET_REQUIRES_VALUE]: immutable binding must have an initializer
+               Immutable binding `missing` must have an initializer.
+   1 | LET missing AS Integer
+   2 | MUT badUnion AS Result OF Integer
+     | ^
+tests/top-level-bindings-invalid/src/main.mfb:2 error[2-203-0060 TYPE_MUT_REQUIRES_DEFAULTABLE_TYPE]: uninitialized mutable binding requires a defaultable type
+               Mutable binding `badUnion` cannot omit its initializer because type `Result OF Integer` does not have a defined default value.
+   1 | LET missing AS Integer
+   2 | MUT badUnion AS Result OF Integer
+   3 | LET typed AS Integer = "bad"
+     | ^
+tests/top-level-bindings-invalid/src/main.mfb:3 error[2-203-0007 TYPE_BINDING_MISMATCH]: binding initializer type does not match declared type
+               Binding `typed` has initializer type String, expected Integer.
+   5 | 
+   6 | FUNC main AS Integer
+   7 |   locked = 2
+     | ^
+tests/top-level-bindings-invalid/src/main.mfb:7 error[2-203-0048 TYPE_ASSIGN_REQUIRES_MUT]: assignment target must be mutable
+               Binding `locked` is immutable and cannot be assigned.
+[exit 1]
+$ mfb build -ir tests/top-level-bindings-invalid
+   1 | LET missing AS Integer
+     | ^
+tests/top-level-bindings-invalid/src/main.mfb:1 error[2-203-0035 TYPE_LET_REQUIRES_VALUE]: immutable binding must have an initializer
+               Immutable binding `missing` must have an initializer.
+   1 | LET missing AS Integer
+   2 | MUT badUnion AS Result OF Integer
+     | ^
+tests/top-level-bindings-invalid/src/main.mfb:2 error[2-203-0060 TYPE_MUT_REQUIRES_DEFAULTABLE_TYPE]: uninitialized mutable binding requires a defaultable type
+               Mutable binding `badUnion` cannot omit its initializer because type `Result OF Integer` does not have a defined default value.
+   1 | LET missing AS Integer
+   2 | MUT badUnion AS Result OF Integer
+   3 | LET typed AS Integer = "bad"
+     | ^
+tests/top-level-bindings-invalid/src/main.mfb:3 error[2-203-0007 TYPE_BINDING_MISMATCH]: binding initializer type does not match declared type
+               Binding `typed` has initializer type String, expected Integer.
+   5 | 
+   6 | FUNC main AS Integer
+   7 |   locked = 2
+     | ^
+tests/top-level-bindings-invalid/src/main.mfb:7 error[2-203-0048 TYPE_ASSIGN_REQUIRES_MUT]: assignment target must be mutable
+               Binding `locked` is immutable and cannot be assigned.
+[exit 1]

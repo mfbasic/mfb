@@ -458,6 +458,24 @@ impl CodeBuilder<'_> {
         });
     }
 
+    pub(super) fn global_value(&self, name: &str) -> Result<GlobalValue, String> {
+        self.globals
+            .get(name)
+            .cloned()
+            .ok_or_else(|| format!("native code global '{name}' does not resolve"))
+    }
+
+    pub(super) fn load_global_address(&mut self, name: &str) -> Result<String, String> {
+        let global = self.global_value(name)?;
+        let register = self.allocate_register()?;
+        self.emit(abi::add_immediate(
+            &register,
+            ARENA_STATE_REGISTER,
+            global.offset,
+        ));
+        Ok(register)
+    }
+
     pub(super) fn local_constant_value(&self, value: &NirValue) -> Option<NirValue> {
         match value {
             NirValue::Const { .. } => Some(value.clone()),
@@ -465,6 +483,7 @@ impl CodeBuilder<'_> {
                 .locals
                 .get(name)
                 .and_then(|local| local.constant.clone()),
+            NirValue::Global { .. } => None,
             NirValue::Call { target, args } if target == "toString" && args.len() == 1 => self
                 .static_primitive_text(&args[0])
                 .map(|value| NirValue::Const {
@@ -508,6 +527,7 @@ impl CodeBuilder<'_> {
                 .get(name)
                 .and_then(|local| local.constant.as_ref())
                 .and_then(|constant| self.static_string_value(constant)),
+            NirValue::Global { .. } => None,
             NirValue::Call { target, args } if target == "toString" && args.len() == 1 => {
                 self.static_primitive_text(&args[0])
             }
@@ -546,6 +566,7 @@ impl CodeBuilder<'_> {
                 .get(name)
                 .and_then(|local| local.constant.as_ref())
                 .and_then(|constant| self.static_primitive_text(constant)),
+            NirValue::Global { .. } => None,
             _ => None,
         }
     }
@@ -554,6 +575,13 @@ impl CodeBuilder<'_> {
         match value {
             NirValue::Const { type_, .. } => Some(type_.clone()),
             NirValue::Local(name) => self.locals.get(name).map(|local| local.type_.clone()),
+            NirValue::Global { name, type_ } => {
+                if type_.is_empty() {
+                    self.globals.get(name).map(|global| global.type_.clone())
+                } else {
+                    Some(type_.clone())
+                }
+            }
             NirValue::FunctionRef { type_, .. }
             | NirValue::Closure { type_, .. }
             | NirValue::Capture { type_, .. }

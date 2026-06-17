@@ -34,12 +34,16 @@ Bytecode:
   constants: 0
   resources: 0
   functions: 0
+  globals: 0
   imports: 0
   exports: 1
 
 Exports:
   TYPE Box
     sigHash: c3a7f7d263325ed7ce5c70268af973f8d064cfcbf0e3067a342e7cb8218e25ae
+
+Package State:
+  <none>
 
 Imports:
   <none>

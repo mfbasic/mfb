@@ -1,0 +1,43 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "top_level_bindings_valid",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "bindings": [
+  { "name": "base", "visibility": "private", "mutable": false, "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "1" } },
+  { "name": "counter", "visibility": "private", "mutable": true, "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+  ],
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "bump",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "assignGlobal", "name": "counter", "value": { "kind": "binary", "op": "+", "left": { "kind": "global", "name": "counter" }, "right": { "kind": "global", "name": "base" } } },
+    { "op": "return", "value": { "kind": "global", "name": "counter" } }
+    ]
+  },
+  {
+    "name": "main",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "mutable": false, "name": "first", "type": "Integer", "value": { "kind": "call", "target": "bump", "args": [] } },
+    { "op": "bind", "mutable": false, "name": "second", "type": "Integer", "value": { "kind": "call", "target": "bump", "args": [] } },
+    { "op": "return", "value": { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "first" }, "right": { "kind": "local", "name": "second" } } }
+    ]
+  }
+  ]
+}

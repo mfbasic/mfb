@@ -35,6 +35,21 @@ impl CodeBuilder<'_> {
                         ));
                     }
                 }
+                NirOp::StoreGlobal { name, type_, value } => {
+                    let global = self.global_value(name)?;
+                    let value_type = if type_.is_empty() {
+                        global.type_.clone()
+                    } else {
+                        type_.clone()
+                    };
+                    let result = if let Some(value) = value {
+                        self.lower_value(value)?
+                    } else {
+                        self.lower_default_value(&value_type)?
+                    };
+                    let address = self.load_global_address(name)?;
+                    self.emit(abi::store_u64(&result.location, &address, 0));
+                }
                 NirOp::Assign { name, value } => {
                     let stack_offset = self
                         .locals

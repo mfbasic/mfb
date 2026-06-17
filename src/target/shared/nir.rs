@@ -1,7 +1,7 @@
 use crate::bytecode::{self, BytecodeExportKind};
 use crate::ir::{
-    EntryPoint, IrEnumMember, IrField, IrFunction, IrMatchCase, IrMatchPattern, IrOp, IrParam,
-    IrProject, IrRecordUpdate, IrType, IrValue, IrVariant,
+    EntryPoint, IrBinding, IrEnumMember, IrField, IrFunction, IrMatchCase, IrMatchPattern, IrOp,
+    IrParam, IrProject, IrRecordUpdate, IrType, IrValue, IrVariant,
 };
 use crate::json_string;
 use std::path::PathBuf;
@@ -12,6 +12,7 @@ pub(crate) struct NirModule {
     pub(crate) target: String,
     pub(crate) project: String,
     pub(crate) entry: Option<NirEntryPoint>,
+    pub(crate) globals: Vec<NirGlobal>,
     pub(crate) types: Vec<NirType>,
     pub(crate) imports: Vec<NirImport>,
     pub(crate) runtime_helpers: Vec<RuntimeHelper>,
@@ -64,6 +65,15 @@ pub(crate) struct NirImportParam {
     pub(crate) has_default: bool,
 }
 
+pub(crate) struct NirGlobal {
+    pub(crate) name: String,
+    pub(crate) symbol: String,
+    pub(crate) visibility: String,
+    pub(crate) mutable: bool,
+    pub(crate) type_: String,
+    pub(crate) value: Option<NirValue>,
+}
+
 pub(crate) struct NirFunction {
     pub(crate) name: String,
     pub(crate) visibility: String,
@@ -83,6 +93,11 @@ pub(crate) struct NirParam {
 pub(crate) enum NirOp {
     Bind {
         mutable: bool,
+        name: String,
+        type_: String,
+        value: Option<NirValue>,
+    },
+    StoreGlobal {
         name: String,
         type_: String,
         value: Option<NirValue>,
@@ -151,6 +166,10 @@ pub(crate) enum NirValue {
         value: String,
     },
     Local(String),
+    Global {
+        name: String,
+        type_: String,
+    },
     FunctionRef {
         name: String,
         type_: String,
@@ -244,10 +263,15 @@ pub(crate) fn lower_module(
         target,
         project: ir.name.clone(),
         entry: ir.entry.as_ref().map(lower_entry),
+        globals: ir
+            .bindings
+            .iter()
+            .map(|binding| lower_global(&ir.name, binding))
+            .collect(),
         types: ir.types.iter().map(lower_type).collect(),
         imports,
         runtime_helpers,
-        functions: ir.functions.iter().map(lower_function).collect(),
+        functions: lower_functions(ir),
     })
 }
 
@@ -288,6 +312,18 @@ pub(crate) fn function_symbol(name: &str) -> String {
     format!("_mfb_fn_{}", symbol_fragment(name))
 }
 
+pub(crate) fn global_symbol(project: &str, name: &str) -> String {
+    format!(
+        "_mfb_global_{}_{}",
+        symbol_fragment(project),
+        symbol_fragment(name)
+    )
+}
+
+pub(crate) fn global_initializer_name(project: &str) -> String {
+    format!("__mfb_init_globals_{}", symbol_fragment(project))
+}
+
 pub(crate) fn import_symbol(package: &str, name: &str) -> String {
     format!(
         "_mfb_pkg_{}_{}",
@@ -317,6 +353,46 @@ fn lower_entry(entry: &EntryPoint) -> NirEntryPoint {
         name: entry.name.clone(),
         returns: entry.returns.clone(),
         accepts_args: entry.accepts_args,
+    }
+}
+
+fn lower_global(project: &str, binding: &IrBinding) -> NirGlobal {
+    NirGlobal {
+        name: binding.name.clone(),
+        symbol: global_symbol(project, &binding.name),
+        visibility: binding.visibility.clone(),
+        mutable: binding.mutable,
+        type_: binding.type_.clone(),
+        value: binding.value.as_ref().map(lower_value),
+    }
+}
+
+fn lower_functions(ir: &IrProject) -> Vec<NirFunction> {
+    let mut functions = Vec::new();
+    if !ir.bindings.is_empty() {
+        functions.push(lower_global_initializer(ir));
+    }
+    functions.extend(ir.functions.iter().map(lower_function));
+    functions
+}
+
+fn lower_global_initializer(ir: &IrProject) -> NirFunction {
+    NirFunction {
+        name: global_initializer_name(&ir.name),
+        visibility: "private".to_string(),
+        kind: "sub".to_string(),
+        isolated: false,
+        params: Vec::new(),
+        returns: "Nothing".to_string(),
+        body: ir
+            .bindings
+            .iter()
+            .map(|binding| NirOp::StoreGlobal {
+                name: binding.name.clone(),
+                type_: binding.type_.clone(),
+                value: binding.value.as_ref().map(lower_value),
+            })
+            .collect(),
     }
 }
 
@@ -389,6 +465,11 @@ fn lower_op(op: &IrOp) -> NirOp {
         IrOp::Assign { name, value } => NirOp::Assign {
             name: name.clone(),
             value: lower_value(value),
+        },
+        IrOp::AssignGlobal { name, value } => NirOp::StoreGlobal {
+            name: name.clone(),
+            type_: String::new(),
+            value: Some(lower_value(value)),
         },
         IrOp::Return { value } => NirOp::Return {
             value: value.as_ref().map(lower_value),
@@ -472,6 +553,10 @@ fn lower_value(value: &IrValue) -> NirValue {
             value: value.clone(),
         },
         IrValue::Local(name) => NirValue::Local(name.clone()),
+        IrValue::Global(name) => NirValue::Global {
+            name: name.clone(),
+            type_: String::new(),
+        },
         IrValue::FunctionRef { name, type_ } => NirValue::FunctionRef {
             name: name.clone(),
             type_: type_.clone(),
@@ -600,6 +685,11 @@ fn lower_record_update(update: &IrRecordUpdate) -> NirRecordUpdate {
 
 impl NirModule {
     pub(crate) fn to_json(&self) -> String {
+        let globals = if self.globals.is_empty() {
+            String::new()
+        } else {
+            format!("  \"globals\": [{}\n  ],\n", join_json(&self.globals, 2))
+        };
         format!(
             concat!(
                 "{{\n",
@@ -608,6 +698,7 @@ impl NirModule {
                 "  \"target\": {},\n",
                 "  \"project\": {},\n",
                 "  \"entry\": {},\n",
+                "{}",
                 "  \"types\": [{}\n  ],\n",
                 "  \"imports\": [{}\n  ],\n",
                 "  \"runtimeHelpers\": [{}],\n",
@@ -620,6 +711,7 @@ impl NirModule {
                 .as_ref()
                 .map(|entry| entry.to_json(2))
                 .unwrap_or_else(|| "null".to_string()),
+            globals,
             join_json(&self.types, 2),
             join_json(&self.imports, 2),
             self.runtime_helpers
@@ -628,6 +720,30 @@ impl NirModule {
                 .collect::<Vec<_>>()
                 .join(", "),
             join_json(&self.functions, 2)
+        )
+    }
+}
+
+impl ToNirJson for NirGlobal {
+    fn to_json(&self, indent: usize) -> String {
+        let pad = " ".repeat(indent);
+        let value = self
+            .value
+            .as_ref()
+            .map(|value| value.to_json(indent))
+            .unwrap_or_else(|| "null".to_string());
+        format!(
+            concat!(
+                "\n{}{{ \"name\": {}, \"symbol\": {}, \"visibility\": {}, ",
+                "\"mutable\": {}, \"type\": {}, \"value\": {} }}"
+            ),
+            pad,
+            json_string(&self.name),
+            json_string(&self.symbol),
+            json_string(&self.visibility),
+            self.mutable,
+            json_string(&self.type_),
+            value
         )
     }
 }
@@ -916,6 +1032,19 @@ impl ToNirJson for NirOp {
                 json_string(name),
                 value.to_json(indent)
             ),
+            NirOp::StoreGlobal { name, type_, value } => {
+                let value = value
+                    .as_ref()
+                    .map(|value| value.to_json(indent))
+                    .unwrap_or_else(|| "null".to_string());
+                format!(
+                    "\n{}{{ \"op\": \"storeGlobal\", \"name\": {}, \"type\": {}, \"value\": {} }}",
+                    pad,
+                    json_string(name),
+                    json_string(type_),
+                    value
+                )
+            }
             NirOp::Return { value } => {
                 let value = value
                     .as_ref()
@@ -1135,6 +1264,11 @@ impl ToNirJson for NirValue {
             NirValue::Local(name) => {
                 format!("{{ \"kind\": \"local\", \"name\": {} }}", json_string(name))
             }
+            NirValue::Global { name, type_ } => format!(
+                "{{ \"kind\": \"global\", \"name\": {}, \"type\": {} }}",
+                json_string(name),
+                json_string(type_)
+            ),
             NirValue::FunctionRef { name, type_ } => format!(
                 "{{ \"kind\": \"functionRef\", \"name\": {}, \"type\": {} }}",
                 json_string(name),

@@ -1,0 +1,13 @@
+LET base AS Integer = 1
+MUT counter AS Integer = 0
+
+FUNC bump AS Integer
+  counter = counter + base
+  RETURN counter
+END FUNC
+
+FUNC main AS Integer
+  LET first = bump()
+  LET second = bump()
+  RETURN first + second
+END FUNC

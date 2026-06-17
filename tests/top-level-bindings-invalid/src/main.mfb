@@ -1,0 +1,9 @@
+LET missing AS Integer
+MUT badUnion AS Result OF Integer
+LET typed AS Integer = "bad"
+LET locked AS Integer = 1
+
+FUNC main AS Integer
+  locked = 2
+  RETURN typed
+END FUNC

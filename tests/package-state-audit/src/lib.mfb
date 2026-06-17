@@ -1,0 +1,7 @@
+EXPORT MUT counter AS Integer = 0
+EXPORT LET label AS String = "audit"
+
+EXPORT FUNC nextCounter AS Integer
+  counter = counter + 1
+  RETURN counter
+END FUNC
