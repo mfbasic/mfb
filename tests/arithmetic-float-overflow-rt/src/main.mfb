@@ -1,0 +1,6 @@
+FUNC main AS Integer
+  LET left AS Float = toFloat("1e308")
+  LET right AS Float = toFloat("1e308")
+  LET value AS Float = left + right
+  RETURN 0
+END FUNC

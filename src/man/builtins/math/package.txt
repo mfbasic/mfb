@@ -11,13 +11,14 @@ DESCRIPTION
   functions. Constants are LET values. Numeric calls are overloaded by exact
   argument type; mixed numeric arguments require an explicit conversion.
 
-  Integer and Fixed overflow fails with ErrOverflow (77050010). Invalid domains,
-  such as square root of a negative value or logarithm of a non-positive
-  value, fail with ErrInvalidArgument (77050002).
+  Integer and Fixed overflow fails with ErrOverflow (77050010). Integer and
+  Fixed invalid domains, such as square root of a negative value or logarithm
+  of a non-positive value, fail with ErrInvalidArgument (77050002).
 
   Float math functions return only finite values. Results that would be NaN
-  fail with ErrInvalidArgument (77050002). Results that would be infinity fail
-  with ErrOverflow (77050010).
+  fail with ErrFloatNaN (77050013). Results that would be infinity fail with
+  ErrFloatInf (77050014). Explicit Float domain failures fail with
+  ErrFloatDomain (77050012).
 
 EXAMPLES
   IMPORT math

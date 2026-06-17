@@ -100,6 +100,7 @@ The spec requires compile-time exhaustiveness checking: unions must cover all me
 REQUIREMENT: Float arithmetic finite-result enforcement
 SPECIFICATION: mfbasic.md @ §4.1 Primitives, Numeric edge cases
 GROUP: language
+STATUS: Completed
 RECOMMENDED: CODE AND SPEC CHANGE
 The spec requires `Float` operations that would produce NaN or infinity to fail instead: invalid domains and division by zero with `ErrInvalidArgument`, overflow to infinity with `ErrOverflow`. Native lowering for `Float` arithmetic in `src/target/shared/code/builder_numeric.rs` emits raw AArch64 floating-point add/subtract/multiply/divide/pow results and stores the bits without a post-operation finite check. Resolve by validating every `Float` arithmetic result before exposing it, mapping NaN to a new `ErrFloatNaN and domain failures to `ErrFloatDomain` and infinity to `ErrFloatInf and overflow to `ErrFloatOverflow`, and adding runtime tests for overflow and invalid floating-point arithmetic paths.
 

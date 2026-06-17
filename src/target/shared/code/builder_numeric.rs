@@ -1,4 +1,4 @@
-use super::builder_math::external_math_symbol;
+use super::builder_math::{external_math_symbol, FloatInfinityError};
 use super::*;
 
 impl CodeBuilder<'_> {
@@ -656,7 +656,7 @@ impl CodeBuilder<'_> {
                 self.emit(abi::float_compare_zero_d("d1"));
                 let nonzero = self.label("float_divisor_nonzero");
                 self.emit(abi::branch_ne(&nonzero));
-                self.emit_invalid_argument_return()?;
+                self.emit_float_domain_return()?;
                 self.emit(abi::label(&nonzero));
                 self.emit(abi::float_divide_d("d0", "d0", "d1"));
             }
@@ -664,7 +664,7 @@ impl CodeBuilder<'_> {
                 self.emit(abi::float_compare_zero_d("d1"));
                 let nonzero = self.label("float_mod_divisor_nonzero");
                 self.emit(abi::branch_ne(&nonzero));
-                self.emit_invalid_argument_return()?;
+                self.emit_float_domain_return()?;
                 self.emit(abi::label(&nonzero));
                 let symbol = external_math_symbol("fmod", self.platform_imports)
                     .ok_or_else(|| "native Float MOD requires platform fmod import".to_string())?;
@@ -681,10 +681,6 @@ impl CodeBuilder<'_> {
                     binding: "external".to_string(),
                     library: Some(library),
                 });
-                let result_bits = self.allocate_register()?;
-                self.emit(abi::float_move_x_from_d(&result_bits, "d0"));
-                self.emit_math_float_result_check(&result_bits)?;
-                self.emit(abi::float_move_d_from_x("d0", &result_bits));
             }
             "^" => self.emit_float_pow("d0", "d1")?,
             other => {
@@ -694,6 +690,7 @@ impl CodeBuilder<'_> {
             }
         }
         self.emit(abi::float_move_x_from_d(dst, "d0"));
+        self.emit_float_result_check(dst, FloatInfinityError::Overflow)?;
         Ok(())
     }
 
@@ -1019,7 +1016,7 @@ impl CodeBuilder<'_> {
         let done_label = self.label("float_pow_done");
         self.emit(abi::float_compare_zero_d(exponent));
         self.emit(abi::branch_ge(&nonnegative));
-        self.emit_invalid_argument_return()?;
+        self.emit_float_domain_return()?;
         self.emit(abi::label(&nonnegative));
         let exponent_int = self.allocate_register()?;
         let exponent_roundtrip = self.allocate_register()?;
@@ -1031,7 +1028,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::float_move_x_from_d(&exponent_bits, exponent));
         self.emit(abi::compare_registers(&exponent_roundtrip, &exponent_bits));
         self.emit(abi::branch_eq(&exponent_whole));
-        self.emit_invalid_argument_return()?;
+        self.emit_float_domain_return()?;
         self.emit(abi::label(&exponent_whole));
         self.emit_f64_const("d2", &scratch, 1.0);
         self.emit(abi::label(&loop_label));

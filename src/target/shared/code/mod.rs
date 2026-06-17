@@ -19,6 +19,18 @@ const ERR_OVERFLOW_SYMBOL: &str = "_mfb_str_error_overflow";
 const ERR_UNDERFLOW_CODE: &str = "77050011";
 const ERR_UNDERFLOW_MESSAGE: &str = "numeric underflow";
 const ERR_UNDERFLOW_SYMBOL: &str = "_mfb_str_error_underflow";
+const ERR_FLOAT_DOMAIN_CODE: &str = "77050012";
+const ERR_FLOAT_DOMAIN_MESSAGE: &str = "float domain error";
+const ERR_FLOAT_DOMAIN_SYMBOL: &str = "_mfb_str_error_float_domain";
+const ERR_FLOAT_NAN_CODE: &str = "77050013";
+const ERR_FLOAT_NAN_MESSAGE: &str = "float NaN result";
+const ERR_FLOAT_NAN_SYMBOL: &str = "_mfb_str_error_float_nan";
+const ERR_FLOAT_INF_CODE: &str = "77050014";
+const ERR_FLOAT_INF_MESSAGE: &str = "float infinity result";
+const ERR_FLOAT_INF_SYMBOL: &str = "_mfb_str_error_float_inf";
+const ERR_FLOAT_OVERFLOW_CODE: &str = "77050015";
+const ERR_FLOAT_OVERFLOW_MESSAGE: &str = "float overflow";
+const ERR_FLOAT_OVERFLOW_SYMBOL: &str = "_mfb_str_error_float_overflow";
 const ERR_ALLOCATION_MESSAGE: &str = "allocation failed";
 const ERR_ALLOCATION_SYMBOL: &str = "_mfb_str_error_allocation";
 const ERR_INDEX_OUT_OF_RANGE_CODE: &str = "77050001";
@@ -11001,6 +11013,16 @@ fn string_symbols(module: &NirModule) -> HashMap<String, String> {
     ] {
         push_string_value(&mut values, value.to_string());
     }
+    if module_may_emit_float_numeric_error(module) {
+        for value in [
+            ERR_FLOAT_DOMAIN_MESSAGE,
+            ERR_FLOAT_NAN_MESSAGE,
+            ERR_FLOAT_INF_MESSAGE,
+            ERR_FLOAT_OVERFLOW_MESSAGE,
+        ] {
+            push_string_value(&mut values, value.to_string());
+        }
+    }
     if module_uses_any_call(
         module,
         &[
@@ -11149,6 +11171,26 @@ fn standard_error_messages() -> &'static [(&'static str, &'static str, &'static 
             ERR_UNDERFLOW_SYMBOL,
         ),
         (
+            ERR_FLOAT_DOMAIN_CODE,
+            ERR_FLOAT_DOMAIN_MESSAGE,
+            ERR_FLOAT_DOMAIN_SYMBOL,
+        ),
+        (
+            ERR_FLOAT_NAN_CODE,
+            ERR_FLOAT_NAN_MESSAGE,
+            ERR_FLOAT_NAN_SYMBOL,
+        ),
+        (
+            ERR_FLOAT_INF_CODE,
+            ERR_FLOAT_INF_MESSAGE,
+            ERR_FLOAT_INF_SYMBOL,
+        ),
+        (
+            ERR_FLOAT_OVERFLOW_CODE,
+            ERR_FLOAT_OVERFLOW_MESSAGE,
+            ERR_FLOAT_OVERFLOW_SYMBOL,
+        ),
+        (
             ERR_OUT_OF_MEMORY_CODE,
             ERR_ALLOCATION_MESSAGE,
             ERR_ALLOCATION_SYMBOL,
@@ -11226,6 +11268,219 @@ fn module_uses_any_call(module: &NirModule, targets: &[&str]) -> bool {
     targets
         .iter()
         .any(|target| module_uses_call(module, target))
+}
+
+fn module_may_emit_float_numeric_error(module: &NirModule) -> bool {
+    if module_uses_any_call(
+        module,
+        &[
+            "math.pow",
+            "math.atan2",
+            "math.exp",
+            "math.log",
+            "math.log10",
+            "math.sin",
+            "math.cos",
+            "math.tan",
+            "math.asin",
+            "math.acos",
+            "math.atan",
+        ],
+    ) {
+        return true;
+    }
+    if module.globals.iter().any(|global| {
+        global
+            .value
+            .as_ref()
+            .is_some_and(|value| value_may_emit_float_arithmetic_error(value, &HashMap::new()))
+    }) {
+        return true;
+    }
+    module.functions.iter().any(|function| {
+        let mut locals = function
+            .params
+            .iter()
+            .map(|param| (param.name.clone(), param.type_.clone()))
+            .collect::<HashMap<_, _>>();
+        ops_may_emit_float_arithmetic_error(&function.body, &mut locals)
+    })
+}
+
+fn ops_may_emit_float_arithmetic_error(
+    ops: &[NirOp],
+    locals: &mut HashMap<String, String>,
+) -> bool {
+    for op in ops {
+        let emits = match op {
+            NirOp::Bind {
+                name, type_, value, ..
+            } => {
+                let emits = value
+                    .as_ref()
+                    .is_some_and(|value| value_may_emit_float_arithmetic_error(value, locals));
+                if !type_.is_empty() {
+                    locals.insert(name.clone(), type_.clone());
+                }
+                emits
+            }
+            NirOp::StoreGlobal { value, .. } | NirOp::Return { value } => value
+                .as_ref()
+                .is_some_and(|value| value_may_emit_float_arithmetic_error(value, locals)),
+            NirOp::Fail { error } => value_may_emit_float_arithmetic_error(error, locals),
+            NirOp::Assign { value, .. } | NirOp::Eval { value } => {
+                value_may_emit_float_arithmetic_error(value, locals)
+            }
+            NirOp::If {
+                condition,
+                then_body,
+                else_body,
+            } => {
+                value_may_emit_float_arithmetic_error(condition, locals)
+                    || ops_may_emit_float_arithmetic_error(then_body, &mut locals.clone())
+                    || ops_may_emit_float_arithmetic_error(else_body, &mut locals.clone())
+            }
+            NirOp::Match { value, cases } => {
+                value_may_emit_float_arithmetic_error(value, locals)
+                    || cases.iter().any(|case| {
+                        matches!(
+                            &case.pattern,
+                            NirMatchPattern::Value(value)
+                                if value_may_emit_float_arithmetic_error(value, locals)
+                        ) || ops_may_emit_float_arithmetic_error(&case.body, &mut locals.clone())
+                    })
+            }
+            NirOp::While { condition, body } => {
+                value_may_emit_float_arithmetic_error(condition, locals)
+                    || ops_may_emit_float_arithmetic_error(body, &mut locals.clone())
+            }
+            NirOp::ForEach {
+                name,
+                type_,
+                iterable,
+                body,
+            } => {
+                let mut body_locals = locals.clone();
+                body_locals.insert(name.clone(), type_.clone());
+                value_may_emit_float_arithmetic_error(iterable, locals)
+                    || ops_may_emit_float_arithmetic_error(body, &mut body_locals)
+            }
+            NirOp::Using {
+                name,
+                type_,
+                value,
+                body,
+                ..
+            } => {
+                let mut body_locals = locals.clone();
+                body_locals.insert(name.clone(), type_.clone());
+                value_may_emit_float_arithmetic_error(value, locals)
+                    || ops_may_emit_float_arithmetic_error(body, &mut body_locals)
+            }
+            NirOp::Trap { body, .. } => {
+                ops_may_emit_float_arithmetic_error(body, &mut locals.clone())
+            }
+        };
+        if emits {
+            return true;
+        }
+    }
+    false
+}
+
+fn value_may_emit_float_arithmetic_error(
+    value: &NirValue,
+    locals: &HashMap<String, String>,
+) -> bool {
+    match value {
+        NirValue::Binary { op, left, right } => {
+            let result_type = static_nir_value_type(left, locals)
+                .zip(static_nir_value_type(right, locals))
+                .map(|(left_type, right_type)| {
+                    numeric_binary_result_type(op, &left_type, &right_type)
+                });
+            (matches!(op.as_str(), "+" | "-" | "*" | "/" | "DIV" | "MOD" | "^")
+                && result_type == Some("Float"))
+                || value_may_emit_float_arithmetic_error(left, locals)
+                || value_may_emit_float_arithmetic_error(right, locals)
+        }
+        NirValue::Call { args, .. }
+        | NirValue::CallResult { args, .. }
+        | NirValue::RuntimeCall { args, .. }
+        | NirValue::Constructor { args, .. } => args
+            .iter()
+            .any(|arg| value_may_emit_float_arithmetic_error(arg, locals)),
+        NirValue::UnionWrap { value, .. }
+        | NirValue::UnionExtract { value, .. }
+        | NirValue::ResultIsOk { value }
+        | NirValue::ResultValue { value }
+        | NirValue::ResultError { value } => value_may_emit_float_arithmetic_error(value, locals),
+        NirValue::WithUpdate {
+            target, updates, ..
+        } => {
+            value_may_emit_float_arithmetic_error(target, locals)
+                || updates
+                    .iter()
+                    .any(|update| value_may_emit_float_arithmetic_error(&update.value, locals))
+        }
+        NirValue::ListLiteral { values, .. } => values
+            .iter()
+            .any(|value| value_may_emit_float_arithmetic_error(value, locals)),
+        NirValue::MapLiteral { entries, .. } => entries.iter().any(|(key, value)| {
+            value_may_emit_float_arithmetic_error(key, locals)
+                || value_may_emit_float_arithmetic_error(value, locals)
+        }),
+        NirValue::MemberAccess { target, .. } => {
+            value_may_emit_float_arithmetic_error(target, locals)
+        }
+        NirValue::Unary { operand, .. } => value_may_emit_float_arithmetic_error(operand, locals),
+        NirValue::Closure { captures, .. } => captures
+            .iter()
+            .any(|value| value_may_emit_float_arithmetic_error(value, locals)),
+        NirValue::Const { .. }
+        | NirValue::Local(_)
+        | NirValue::Global { .. }
+        | NirValue::FunctionRef { .. }
+        | NirValue::Capture { .. } => false,
+    }
+}
+
+fn static_nir_value_type(value: &NirValue, locals: &HashMap<String, String>) -> Option<String> {
+    match value {
+        NirValue::Const { type_, .. }
+        | NirValue::Global { type_, .. }
+        | NirValue::FunctionRef { type_, .. }
+        | NirValue::Capture { type_, .. }
+        | NirValue::Constructor { type_, .. }
+        | NirValue::UnionExtract { type_, .. }
+        | NirValue::WithUpdate { type_, .. }
+        | NirValue::ListLiteral { type_, .. }
+        | NirValue::MapLiteral { type_, .. } => Some(type_.clone()),
+        NirValue::Local(name) => locals.get(name).cloned(),
+        NirValue::Binary { op, left, right } => static_nir_value_type(left, locals)
+            .zip(static_nir_value_type(right, locals))
+            .map(|(left_type, right_type)| {
+                numeric_binary_result_type(op, &left_type, &right_type).to_string()
+            }),
+        NirValue::Unary { operand, .. } => static_nir_value_type(operand, locals),
+        NirValue::Call { target, args } | NirValue::CallResult { target, args } => {
+            let arg_types = args
+                .iter()
+                .map(|arg| static_nir_value_type(arg, locals))
+                .collect::<Option<Vec<_>>>()?;
+            builtins::general::resolve_call(target, &arg_types)
+                .map(|call| call.return_type.into_owned())
+                .or_else(|| builtins::call_return_type_name(target).map(str::to_string))
+        }
+        NirValue::ResultIsOk { .. } => Some("Boolean".to_string()),
+        NirValue::ResultValue { value } => static_nir_value_type(value, locals)
+            .and_then(|type_| type_.strip_prefix("Result OF ").map(str::to_string)),
+        NirValue::ResultError { .. } => Some("Error".to_string()),
+        NirValue::MemberAccess { .. }
+        | NirValue::RuntimeCall { .. }
+        | NirValue::UnionWrap { .. }
+        | NirValue::Closure { .. } => None,
+    }
 }
 
 fn ops_use_call(ops: &[NirOp], target: &str) -> bool {
@@ -11313,9 +11568,7 @@ fn value_uses_call(value: &NirValue, target: &str) -> bool {
 
 fn ops_use_type_name(ops: &[NirOp]) -> bool {
     ops.iter().any(|op| match op {
-        NirOp::Bind { value, .. }
-        | NirOp::StoreGlobal { value, .. }
-        | NirOp::Return { value } => {
+        NirOp::Bind { value, .. } | NirOp::StoreGlobal { value, .. } | NirOp::Return { value } => {
             value.as_ref().is_some_and(value_uses_type_name)
         }
         NirOp::Fail { error } => value_uses_type_name(error),

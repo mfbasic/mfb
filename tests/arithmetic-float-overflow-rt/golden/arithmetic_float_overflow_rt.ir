@@ -1,0 +1,28 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "arithmetic_float_overflow_rt",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "mutable": false, "name": "left", "type": "Float", "value": { "kind": "call", "target": "toFloat", "args": [{ "kind": "const", "type": "String", "value": "1e308" }] } },
+    { "op": "bind", "mutable": false, "name": "right", "type": "Float", "value": { "kind": "call", "target": "toFloat", "args": [{ "kind": "const", "type": "String", "value": "1e308" }] } },
+    { "op": "bind", "mutable": false, "name": "value", "type": "Float", "value": { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "left" }, "right": { "kind": "local", "name": "right" } } },
+    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

@@ -1,5 +1,10 @@
 use super::*;
 
+pub(super) enum FloatInfinityError {
+    Infinity,
+    Overflow,
+}
+
 impl CodeBuilder<'_> {
     pub(super) fn lower_math_call(
         &mut self,
@@ -389,7 +394,7 @@ impl CodeBuilder<'_> {
 
         let result_bits = self.allocate_register()?;
         self.emit(abi::float_move_x_from_d(&result_bits, "d0"));
-        self.emit_math_float_result_check(&result_bits)?;
+        self.emit_float_result_check(&result_bits, FloatInfinityError::Infinity)?;
 
         match first.type_.as_str() {
             "Float" => Ok(ValueResult {
@@ -411,11 +416,15 @@ impl CodeBuilder<'_> {
         }
     }
 
-    pub(super) fn emit_math_float_result_check(&mut self, bits: &str) -> Result<(), String> {
+    pub(super) fn emit_float_result_check(
+        &mut self,
+        bits: &str,
+        infinity_error: FloatInfinityError,
+    ) -> Result<(), String> {
         let exponent = self.allocate_register()?;
         let mantissa = self.allocate_register()?;
-        let ok = self.label("math_float_result_finite");
-        let overflow = self.label("math_float_result_overflow");
+        let ok = self.label("float_result_finite");
+        let infinity = self.label("float_result_infinity");
         self.emit(abi::move_immediate("x17", "Integer", "9218868437227405312"));
         self.emit(abi::and_registers(&exponent, bits, "x17"));
         self.emit(abi::compare_registers(&exponent, "x17"));
@@ -423,10 +432,13 @@ impl CodeBuilder<'_> {
         self.emit(abi::move_immediate("x17", "Integer", "4503599627370495"));
         self.emit(abi::and_registers(&mantissa, bits, "x17"));
         self.emit(abi::compare_immediate(&mantissa, "0"));
-        self.emit(abi::branch_eq(&overflow));
-        self.emit_invalid_argument_return()?;
-        self.emit(abi::label(&overflow));
-        self.emit_overflow_return()?;
+        self.emit(abi::branch_eq(&infinity));
+        self.emit_float_nan_return()?;
+        self.emit(abi::label(&infinity));
+        match infinity_error {
+            FloatInfinityError::Infinity => self.emit_float_inf_return()?,
+            FloatInfinityError::Overflow => self.emit_float_overflow_return()?,
+        }
         self.emit(abi::label(&ok));
         Ok(())
     }

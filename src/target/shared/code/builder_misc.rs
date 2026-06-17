@@ -934,6 +934,22 @@ impl CodeBuilder<'_> {
         self.emit_error_code_return(ERR_UNDERFLOW_CODE, ERR_UNDERFLOW_MESSAGE)
     }
 
+    pub(super) fn emit_float_domain_return(&mut self) -> Result<(), String> {
+        self.emit_error_code_return(ERR_FLOAT_DOMAIN_CODE, ERR_FLOAT_DOMAIN_MESSAGE)
+    }
+
+    pub(super) fn emit_float_nan_return(&mut self) -> Result<(), String> {
+        self.emit_error_code_return(ERR_FLOAT_NAN_CODE, ERR_FLOAT_NAN_MESSAGE)
+    }
+
+    pub(super) fn emit_float_inf_return(&mut self) -> Result<(), String> {
+        self.emit_error_code_return(ERR_FLOAT_INF_CODE, ERR_FLOAT_INF_MESSAGE)
+    }
+
+    pub(super) fn emit_float_overflow_return(&mut self) -> Result<(), String> {
+        self.emit_error_code_return(ERR_FLOAT_OVERFLOW_CODE, ERR_FLOAT_OVERFLOW_MESSAGE)
+    }
+
     pub(super) fn emit_invalid_argument_return(&mut self) -> Result<(), String> {
         self.emit_error_code_return(ERR_INVALID_ARGUMENT_CODE, ERR_INVALID_ARGUMENT_MESSAGE)
     }

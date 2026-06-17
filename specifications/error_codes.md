@@ -70,6 +70,10 @@ These are the canonical `errorCode::*` values and the integer payloads used by `
 | `7-703-0006` | `77030006` | `ErrCloseFailed`      | Resource close operation failed. | |
 | `7-707-0008` | `77070008` | `ErrTlsFailed`        | TLS handshake, certificate validation, SNI validation, or protocol operation failed. | |
 | `7-705-0011` | `77050011` | `ErrUnderflow`        | Arithmetic underflow below the destination range. | |
+| `7-705-0012` | `77050012` | `ErrFloatDomain`      | Floating-point operation domain is invalid, including divide-by-zero. | |
+| `7-705-0013` | `77050013` | `ErrFloatNaN`         | Floating-point operation produced a NaN result. | |
+| `7-705-0014` | `77050014` | `ErrFloatInf`         | Floating-point operation produced an infinity result. | |
+| `7-705-0015` | `77050015` | `ErrFloatOverflow`    | Floating-point arithmetic overflowed to infinity. | |
 | `7-706-0001` | `77060001` | `ErrWrapped`          | Generic wrapper code for adding context while preserving the underlying message. | |
 
 ## Compiler Diagnostics

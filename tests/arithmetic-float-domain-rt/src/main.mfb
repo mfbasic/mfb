@@ -1,0 +1,6 @@
+FUNC main AS Integer
+  LET value AS Float = 1.0
+  LET zero AS Float = 0.0
+  LET quotient AS Float = value / zero
+  RETURN 0
+END FUNC

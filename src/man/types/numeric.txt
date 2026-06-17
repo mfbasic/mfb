@@ -123,9 +123,12 @@ FLOAT RULES
   Float uses IEEE 754 binary64 representation, but ordinary source cannot
   construct or import non-finite values successfully.
 
-  Operations or math functions that would produce NaN or infinity fail instead:
-  invalid domains and division by zero fail with ErrInvalidArgument (77050002), and
-  overflow to infinity fails with ErrOverflow (77050010).
+  Operations or math functions that would produce NaN or infinity fail instead.
+  Float domain failures, including division by zero and invalid ^ exponents,
+  fail with ErrFloatDomain (77050012). Results that would be NaN fail with
+  ErrFloatNaN (77050013). Results that would be infinity fail with ErrFloatInf
+  (77050014), except arithmetic overflow to infinity fails with ErrFloatOverflow
+  (77050015).
 
   Imported native Float values that are already NaN or infinity are rejected at
   the boundary with ErrInvalidFormat (77050003).

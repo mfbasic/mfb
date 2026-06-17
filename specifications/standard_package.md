@@ -342,7 +342,7 @@ Thread functions are ordinary built-in templates. Their `Msg` and `Out` paramete
 
 Math functions live in the `math` package. Constants are `LET` values and must be referenced as identifiers, not called like zero-argument functions. Numeric functions are overloaded by argument type; mixed numeric calls require an explicit conversion.
 
-Math functions follow the numeric edge-case rules in §4.1. Integer and `Fixed` overflow fails with `ErrOverflow` (`77050010`). Invalid domains, such as square root of a negative value or logarithm of a non-positive value, fail with `ErrInvalidArgument` (`77050002`). `Float` functions return only finite values; a result that would be NaN is an invalid-domain error, and a result that would be infinity is an overflow error.
+Math functions follow the numeric edge-case rules in §4.1. Integer and `Fixed` overflow fails with `ErrOverflow` (`77050010`). Integer and `Fixed` invalid domains, such as square root of a negative value or logarithm of a non-positive value, fail with `ErrInvalidArgument` (`77050002`). `Float` functions return only finite values: explicit domain failures fail with `ErrFloatDomain` (`77050012`), a result that would be NaN fails with `ErrFloatNaN` (`77050013`), and a result that would be infinity fails with `ErrFloatInf` (`77050014`).
 
 | Constant          | Type    | Value |
 |-------------------|---------|-------|
