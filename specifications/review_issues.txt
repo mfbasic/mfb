@@ -100,12 +100,13 @@ The spec requires compile-time exhaustiveness checking: unions must cover all me
 REQUIREMENT: Float arithmetic finite-result enforcement
 SPECIFICATION: mfbasic.md @ §4.1 Primitives, Numeric edge cases
 GROUP: language
-RECOMMENDED: CODE CHANGE
-The spec requires `Float` operations that would produce NaN or infinity to fail instead: invalid domains and division by zero with `ErrInvalidArgument`, overflow to infinity with `ErrOverflow`. Native lowering for `Float` arithmetic in `src/target/shared/code/builder_numeric.rs` emits raw AArch64 floating-point add/subtract/multiply/divide/pow results and stores the bits without a post-operation finite check. Resolve by validating every `Float` arithmetic result before exposing it, mapping NaN/domain failures to `ErrInvalidArgument` and infinity/overflow to `ErrOverflow`, and adding runtime tests for overflow and invalid floating-point arithmetic paths.
+RECOMMENDED: CODE AND SPEC CHANGE
+The spec requires `Float` operations that would produce NaN or infinity to fail instead: invalid domains and division by zero with `ErrInvalidArgument`, overflow to infinity with `ErrOverflow`. Native lowering for `Float` arithmetic in `src/target/shared/code/builder_numeric.rs` emits raw AArch64 floating-point add/subtract/multiply/divide/pow results and stores the bits without a post-operation finite check. Resolve by validating every `Float` arithmetic result before exposing it, mapping NaN to a new `ErrFloatNaN and domain failures to `ErrFloatDomain` and infinity to `ErrFloatInf and overflow to `ErrFloatOverflow`, and adding runtime tests for overflow and invalid floating-point arithmetic paths.
 
 REQUIREMENT: Native heap object header contract
 SPECIFICATION: mfbasic.md @ §14.3.1 Native heap value contract
 GROUP: language
+STATUS: Completed
 RECOMMENDED: SPEC CHANGE
 `mfbasic.md` requires arena-backed values to use a 32-byte object header before payload bytes, but the compiler and `memory_layouts.md` use specialized compact layouts: strings start with byte length, records store field slots from offset 0, and unions store the tag at offset 0 followed by payload slots. Resolve by updating `mfbasic.md` to defer concrete runtime layouts to `specifications/memory_layouts.md`, or alternatively make a large CODE CHANGE that rewrites native value lowering, field access, union wrapping/extraction, string helpers, collection storage, and package/native ABI expectations around the 32-byte header.
 

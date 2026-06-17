@@ -10,7 +10,7 @@ runtime. These layouts are implementation contracts, not source-level syntax.
 - Copying a collection snapshot can be implemented as one contiguous memory copy.
 - Collection mutation can minimize payload copying by moving lookup metadata
   instead of moving packed item bytes.
-- The first layout favors one uniform representation over per-type memory
+- The collection layout favors one uniform representation over collection-kind
   specialization.
 
 ## Scalar Storage
@@ -29,7 +29,56 @@ collection data region.
 Payloads in the data region are aligned so every payload begins at an offset
 valid for that payload's type. Padding bytes are not observable.
 
-## String Payloads
+## Native Heap Value Layouts
+
+Native heap values use layout-specific compact object bodies. The arena
+allocator may keep block-level bookkeeping, but values allocated inside the
+arena do not share a universal per-object header.
+
+### Standalone String
+
+Standalone and static `String` objects store the byte length first, followed by
+UTF-8 bytes:
+
+```text
+StringObject
+  U64 byteLength
+  Byte[byteLength] utf8Bytes
+  U8 nulTerminator
+```
+
+The trailing NUL byte is a native helper convenience and is not part of the
+logical string length.
+
+### Record
+
+User-defined records store one 8-byte field slot per declared field, in
+declaration order:
+
+```text
+RecordObject
+  Slot[fieldCount] fields
+```
+
+Field `0` starts at offset `0`; field `n` starts at offset `8 * n`. A slot
+stores the native scalar value or native handle for the field's type.
+
+### Union
+
+User-defined unions store the active member tag at offset `0`, followed by slot
+space for the largest member payload:
+
+```text
+UnionObject
+  U64 activeMemberTag
+  Slot[maxMemberFieldCount] payloadFields
+```
+
+Payload field `0` starts at offset `8`; payload field `n` starts at offset
+`8 * (n + 1)`. The active member tag is the compiler-assigned member index for
+the expanded concrete union. Unused payload slots are not observable.
+
+## Collection String Payloads
 
 String payloads stored inside a collection data region are UTF-8 bytes only.
 The lookup entry stores the byte length.
@@ -100,6 +149,7 @@ padding and alignment.
 | `Byte` | 7 |
 | `List` | 20 |
 | `Map` | 21 |
+| user-defined object | 22 |
 
 User-defined, generic, nested, or future extended types may require an extended
 type table; that extension must preserve the fixed header size through
@@ -119,9 +169,11 @@ For `Map`, lookup entry order is the implementation-defined stable iteration
 order. The initial implementation may scan entries linearly. Future hash/probe
 metadata may be added through a new layout version.
 
-Version 1 packs primitive and `String` payloads. User-defined records, unions,
-and nested collection payloads require a follow-up representation decision before
-they can be stored directly inside collection data.
+Version 1 packs primitive payloads, `String` bytes, user-defined record slots,
+and user-defined union slots directly into the data region. Nested `List` and
+`Map` values store one pointer-sized native collection handle in the data
+region; the nested collection's own allocation stores its full header, lookup
+table, and data region.
 
 ## List Examples
 
@@ -263,7 +315,5 @@ updates lookup offsets. The observable collection value is unchanged.
 ## Open Questions
 
 - Whether map hashing should be added in layout version 1 or deferred.
-- Whether ordinary standalone `String` values should eventually use the same
-  payload representation as collection-embedded String values.
-- How nested collections, records, and unions encode their full owned payload in
-  the contiguous data region without adding per-item heap pointers.
+- Whether future layout versions should replace pointer-sized nested collection
+  handles with fully inline nested collection payloads.

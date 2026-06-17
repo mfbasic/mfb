@@ -959,19 +959,11 @@ Default arguments are evaluated at the call site and then passed under the same 
 
 Native backends use one allocator-agnostic bytecode contract for heap-backed values. Bytecode names value operations; native lowering chooses whether a value is inline, static, stack-resident, or arena-backed.
 
-Arena-backed values use a 32-byte object header followed by payload bytes:
+This language specification defines the ownership, aliasing, copy, move, and return behavior of heap-backed values; it does not define a universal per-object header or a byte-for-byte native representation for every value kind. Concrete runtime layouts for strings, records, unions, collections, and any future heap-backed value category are specified in `specifications/memory_layouts.md` and in the corresponding package/native ABI specifications when values cross an ABI boundary. Native lowering must follow those layout contracts consistently for construction, field access, union wrapping and extraction, collection storage, helper calls, and package/native ABI interop.
 
-| Offset | Field |
-|--------|-------|
-| `0` | kind tag (`String`, `List`, `Map`, `Record`, `Variant`, or future runtime object) |
-| `8` | logical length or field count |
-| `16` | capacity or payload byte length |
-| `24` | auxiliary tag, such as a union member id |
-| `32` | payload start, aligned at least to 8 bytes |
+Arena allocation is an implementation strategy for native backends. An arena allocator may maintain allocator-private block headers or bookkeeping, but those allocator structures are not part of the source-level value model and must not be treated as a required object prefix for all arena-backed values.
 
-Value slots are three machine words. Heap-backed slots store the object pointer in word 0, logical length or scalar metadata in word 1, and auxiliary metadata in word 2. Strings store UTF-8 bytes in the object payload. Lists and maps store owned value slots in payload order; maps store key/value slot pairs. Records store field slots in declaration order. Union values store the active member id in the header auxiliary field and the contained member value in the payload.
-
-Copy and move of arena-backed values are slot copies in the current native backend because arena objects are immutable after construction. Drop is a no-op for individual arena values; all arena blocks are released at package-instance shutdown. Returning a heap-backed value copies the slot into the caller-visible result, so returned values never point into the callee stack frame.
+Copy and move of arena-backed immutable values may be represented by copying the native value handle used by the active layout, provided the ownership rules above remain observable. Drop may be a no-op for individual values when all owned arena blocks are released at package-instance shutdown. Returning a heap-backed value copies or moves the native handle into the caller-visible result according to the active layout, so returned values never point into the callee stack frame.
 
 Each package instance owns one arena. Worker threads or future isolated package instances get distinct arenas. `arena_alloc(size, align)` validates that alignment is a non-zero power of two, treats zero-size allocations as one byte, rounds addresses with checked arithmetic, grows chained blocks when needed, uses a large-allocation block path for oversized requests, and reports `ErrInvalidArgument` or `ErrOutOfMemory` through ordinary language-level `Result` propagation.
 
