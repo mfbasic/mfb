@@ -93,6 +93,7 @@ The plan recommends allowing `MUT` capture for compiler-proven non-escaping call
 REQUIREMENT: Match exhaustiveness diagnostics
 SPECIFICATION: mfbasic.md @ §9 Pattern Matching
 GROUP: language
+STATUS: Completed
 RECOMMENDED: CODE CHANGE
 The spec requires compile-time exhaustiveness checking: unions must cover all member types, and open types such as `Integer` or `String` require `CASE ELSE`. The current typechecker only uses exhaustiveness to decide whether a `MATCH` statement always returns; non-exhaustive matches can compile when subsequent code handles fallthrough. It also counts guarded cases as covered even though a guard may fail. Resolve by emitting a match-specific diagnostic for non-exhaustive matches regardless of surrounding flow, requiring `CASE ELSE` for open scrutinee types, and treating guarded cases as non-covering unless another unguarded case or `CASE ELSE` covers the remainder.
 

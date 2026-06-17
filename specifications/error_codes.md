@@ -196,6 +196,7 @@ These codes correspond to `src/rules.rs` and are emitted directly by the compile
 | `2-203-0059` | `TYPE_UNKNOWN_ARGUMENT_NAME` | error | `call argument name does not match any parameter` |
 | `2-203-0060` | `TYPE_MUT_REQUIRES_DEFAULTABLE_TYPE` | error | `uninitialized mutable binding requires a defaultable type` |
 | `2-203-0061` | `TYPE_REQUIRES_COMPARABLE` | error | `operation requires a comparable type` |
+| `2-203-0062` | `TYPE_MATCH_NOT_EXHAUSTIVE` | error | `match cases do not cover every possible value` |
 
 ## Toolchain and Package Diagnostics
 

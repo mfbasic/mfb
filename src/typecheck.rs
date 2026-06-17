@@ -1571,15 +1571,17 @@ impl<'a> TypeChecker<'a> {
                 line,
             } => {
                 let matched_type = self.infer_match_scrutinee(file, expression, locals, *line);
-                let mut has_else = false;
+                let mut has_unguarded_else = false;
                 let mut all_return = !cases.is_empty();
                 let mut covered_cases = HashSet::new();
                 let mut fallthroughs = Vec::new();
                 for case in cases {
-                    if matches!(case.pattern, MatchPattern::Else) {
-                        has_else = true;
-                    } else if let Some(name) = self.match_case_name(&case.pattern) {
-                        covered_cases.insert(name);
+                    if case.guard.is_none() {
+                        if matches!(case.pattern, MatchPattern::Else) {
+                            has_unguarded_else = true;
+                        } else if let Some(name) = self.match_case_name(&case.pattern) {
+                            covered_cases.insert(name);
+                        }
                     }
                     let mut case_locals = locals.clone();
                     self.check_match_pattern(
@@ -1622,7 +1624,10 @@ impl<'a> TypeChecker<'a> {
                     }
                 }
                 let exhaustive =
-                    has_else || self.match_is_exhaustive(&matched_type, &covered_cases);
+                    has_unguarded_else || self.match_is_exhaustive(&matched_type, &covered_cases);
+                if !exhaustive && !matches!(matched_type, Type::Unknown) {
+                    self.report_match_not_exhaustive(file, *line, &matched_type, &covered_cases);
+                }
                 if all_return && exhaustive {
                     Flow::AlwaysReturns
                 } else {
@@ -2230,6 +2235,80 @@ impl<'a> TypeChecker<'a> {
                 .all(|variant| covered_cases.contains(&variant.name)),
             TypeDeclKind::Type => false,
         }
+    }
+
+    fn report_match_not_exhaustive(
+        &mut self,
+        file: &AstFile,
+        line: usize,
+        matched_type: &Type,
+        covered_cases: &HashSet<String>,
+    ) {
+        let detail = match matched_type {
+            Type::Result(_) => {
+                let missing = ["Ok", "Error"]
+                    .into_iter()
+                    .filter(|name| !covered_cases.contains(*name))
+                    .collect::<Vec<_>>();
+                format!(
+                    "MATCH on {} does not cover {}; add unguarded CASE arms or CASE ELSE.",
+                    self.type_name(matched_type),
+                    missing.join(", ")
+                )
+            }
+            Type::User(type_name) => {
+                let Some(info) = self.type_infos.get(type_name) else {
+                    return;
+                };
+                match info.kind {
+                    TypeDeclKind::Enum => {
+                        let mut missing = info
+                            .members
+                            .iter()
+                            .filter_map(|member| {
+                                let case_name = format!("{type_name}::{member}");
+                                if covered_cases.contains(&case_name) {
+                                    None
+                                } else {
+                                    Some(format!("{type_name}.{member}"))
+                                }
+                            })
+                            .collect::<Vec<_>>();
+                        missing.sort();
+                        format!(
+                            "MATCH on enum `{type_name}` does not cover {}; add unguarded CASE arms or CASE ELSE.",
+                            missing.join(", ")
+                        )
+                    }
+                    TypeDeclKind::Union => {
+                        let missing = info
+                            .variants
+                            .iter()
+                            .filter_map(|variant| {
+                                if covered_cases.contains(&variant.name) {
+                                    None
+                                } else {
+                                    Some(variant.name.clone())
+                                }
+                            })
+                            .collect::<Vec<_>>();
+                        format!(
+                            "MATCH on UNION `{type_name}` does not cover {}; add unguarded CASE arms or CASE ELSE.",
+                            missing.join(", ")
+                        )
+                    }
+                    TypeDeclKind::Type => format!(
+                        "MATCH on open type {} requires an unguarded CASE ELSE.",
+                        self.type_name(matched_type)
+                    ),
+                }
+            }
+            _ => format!(
+                "MATCH on open type {} requires an unguarded CASE ELSE.",
+                self.type_name(matched_type)
+            ),
+        };
+        self.report("TYPE_MATCH_NOT_EXHAUSTIVE", &detail, file, line);
     }
 
     fn infer_list_literal(

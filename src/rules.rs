@@ -628,6 +628,12 @@ pub const RULES: &[Rule] = &[
         message: "operation requires a comparable type",
     },
     Rule {
+        code: "2-203-0062",
+        name: "TYPE_MATCH_NOT_EXHAUSTIVE",
+        severity: Severity::Error,
+        message: "match cases do not cover every possible value",
+    },
+    Rule {
         code: "2-200-0011",
         name: "PROJECT_ENTRY_INVALID",
         severity: Severity::Error,

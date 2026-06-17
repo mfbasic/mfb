@@ -1,0 +1,69 @@
+TYPE Circle
+  radius AS Integer
+END TYPE
+
+TYPE Rect
+  width AS Integer
+  height AS Integer
+END TYPE
+
+TYPE Point
+  value AS Nothing
+END TYPE
+
+UNION Shape
+  Circle
+  Rect
+  Point
+END UNION
+
+FUNC parsePositive(value AS Integer) AS Integer
+  IF value < 0 THEN FAIL Error[100, "negative"]
+  RETURN value + 1
+END FUNC
+
+FUNC partialUnion(shape AS Shape) AS Integer
+  MATCH shape
+    CASE Circle(circle)
+      RETURN circle.radius
+    CASE Rect(rect)
+      RETURN rect.width + rect.height
+  END MATCH
+  RETURN 0
+END FUNC
+
+FUNC openInteger(value AS Integer) AS Integer
+  MATCH value
+    CASE 1
+      RETURN 1
+    CASE 2
+      RETURN 2
+  END MATCH
+  RETURN 0
+END FUNC
+
+FUNC guardedUnion(shape AS Shape) AS Integer
+  MATCH shape
+    CASE Circle(circle) WHEN circle.radius > 0
+      RETURN circle.radius
+    CASE Rect(rect)
+      RETURN rect.width + rect.height
+    CASE Point(point)
+      RETURN 0
+  END MATCH
+  RETURN -1
+END FUNC
+
+FUNC guardedResult(value AS Integer) AS Integer
+  MATCH parsePositive(value)
+    CASE Ok(parsed) WHEN parsed > 0
+      RETURN parsed
+    CASE Error(err)
+      RETURN err.code
+  END MATCH
+  RETURN -1
+END FUNC
+
+FUNC main AS Integer
+  RETURN partialUnion(Circle[1]) + openInteger(1) + guardedUnion(Point[NOTHING]) + guardedResult(1)
+END FUNC

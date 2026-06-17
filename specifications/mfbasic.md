@@ -697,7 +697,7 @@ END MATCH
 - Guards: `CASE Rect(r) WHEN r.w = r.h : ...`.
 - If the scrutinee is a direct call expression, `MATCH` sees the raw `Result`, so `CASE Ok(v)` and `CASE Error(e)` match the `Result` members.
 - `CASE ELSE` is the catch-all fallback.
-- **Exhaustiveness**: unions must cover all member types. Open types (`Integer`, `String`, etc.) require a `CASE ELSE` or it is a compile error.
+- **Exhaustiveness**: unions must cover all member types. Open types (`Integer`, `String`, etc.) require a `CASE ELSE` or it is a compile error. Guarded `CASE` arms do not contribute to compile-time coverage because the guard can fail; use an unguarded arm or `CASE ELSE` to cover the remaining values.
 - A call as the scrutinee captures its `Result` (see §8.4).
 
 ---
