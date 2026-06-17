@@ -1,0 +1,36 @@
+$ mfb build -ast tests/func_typesystem_result_invalid
+   1 | FUNC explicitResult AS Result OF Integer
+     | ^
+tests/func_typesystem_result_invalid/src/main.mfb:1 error[2-203-0040 TYPE_RESULT_IS_IMPLICIT]: Result return wrapping is implicit
+               Functions declare their success type; Result wrapping is implicit.
+   4 | 
+   5 | FUNC main AS Integer
+   6 |   LET constructed AS Result OF Integer = Result[1]
+     | ^
+tests/func_typesystem_result_invalid/src/main.mfb:6 error[2-203-0040 TYPE_RESULT_IS_IMPLICIT]: Result return wrapping is implicit
+               `Result` is compiler-owned and cannot be constructed directly.
+   4 | 
+   5 | FUNC main AS Integer
+   6 |   LET constructed AS Result OF Integer = Result[1]
+     | ^
+tests/func_typesystem_result_invalid/src/main.mfb:6 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `constructed` does not have a known type.
+[exit 1]
+$ mfb build -ir tests/func_typesystem_result_invalid
+   1 | FUNC explicitResult AS Result OF Integer
+     | ^
+tests/func_typesystem_result_invalid/src/main.mfb:1 error[2-203-0040 TYPE_RESULT_IS_IMPLICIT]: Result return wrapping is implicit
+               Functions declare their success type; Result wrapping is implicit.
+   4 | 
+   5 | FUNC main AS Integer
+   6 |   LET constructed AS Result OF Integer = Result[1]
+     | ^
+tests/func_typesystem_result_invalid/src/main.mfb:6 error[2-203-0040 TYPE_RESULT_IS_IMPLICIT]: Result return wrapping is implicit
+               `Result` is compiler-owned and cannot be constructed directly.
+   4 | 
+   5 | FUNC main AS Integer
+   6 |   LET constructed AS Result OF Integer = Result[1]
+     | ^
+tests/func_typesystem_result_invalid/src/main.mfb:6 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `constructed` does not have a known type.
+[exit 1]

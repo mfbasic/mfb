@@ -1,0 +1,25 @@
+FUNC parsePositive(value AS Integer) AS Integer
+  IF value < 0 THEN FAIL Error[900, "negative"]
+  RETURN value + 10
+END FUNC
+
+FUNC main AS Integer
+  MUT total AS Integer = 0
+
+  MATCH parsePositive(5)
+    CASE Ok(value)
+      total = total + value
+    CASE Error(err)
+      total = total + err.code
+  END MATCH
+
+  MATCH parsePositive(-1)
+    CASE Ok(value)
+      total = total + value
+    CASE Error(err)
+      total = total + err.code
+  END MATCH
+
+  IF total <> 915 THEN RETURN 1
+  RETURN 0
+END FUNC

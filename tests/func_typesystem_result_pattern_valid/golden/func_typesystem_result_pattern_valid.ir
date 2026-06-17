@@ -1,0 +1,104 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "func_typesystem_result_pattern_valid",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "parsePositive",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    { "name": "value", "type": "Integer", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    {
+      "op": "if",
+      "condition": { "kind": "binary", "op": "<", "left": { "kind": "local", "name": "value" }, "right": { "kind": "const", "type": "Integer", "value": "0" } },
+      "then": [
+      { "op": "fail", "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "900" }, { "kind": "const", "type": "String", "value": "negative" }] } }
+      ],
+      "else": [
+      ]
+    },
+    { "op": "return", "value": { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "value" }, "right": { "kind": "const", "type": "Integer", "value": "10" } } }
+    ]
+  },
+  {
+    "name": "main",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "mutable": true, "name": "total", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    { "op": "bind", "mutable": false, "name": "$match0", "type": "Result OF Integer", "value": { "kind": "callResult", "target": "parsePositive", "args": [{ "kind": "const", "type": "Integer", "value": "5" }] } },
+    { "op": "bind", "mutable": false, "name": "$match_ok1", "type": "Boolean", "value": { "kind": "resultIsOk", "value": { "kind": "local", "name": "$match0" } } },
+    {
+      "op": "match",
+      "value": { "kind": "local", "name": "$match_ok1" },
+      "cases": [
+      {
+        "pattern": { "kind": "value", "value": { "kind": "const", "type": "Boolean", "value": "true" } },
+        "guard": null,
+        "body": [
+        { "op": "bind", "mutable": false, "name": "value", "type": "Integer", "value": { "kind": "resultValue", "value": { "kind": "local", "name": "$match0" } } },
+        { "op": "assign", "name": "total", "value": { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "total" }, "right": { "kind": "local", "name": "value" } } }
+        ]
+      },
+      {
+        "pattern": { "kind": "value", "value": { "kind": "const", "type": "Boolean", "value": "false" } },
+        "guard": null,
+        "body": [
+        { "op": "bind", "mutable": false, "name": "err", "type": "Error", "value": { "kind": "resultError", "value": { "kind": "local", "name": "$match0" } } },
+        { "op": "assign", "name": "total", "value": { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "total" }, "right": { "kind": "memberAccess", "target": { "kind": "local", "name": "err" }, "member": "code" } } }
+        ]
+      }
+      ]
+    },
+    { "op": "bind", "mutable": false, "name": "$match2", "type": "Result OF Integer", "value": { "kind": "callResult", "target": "parsePositive", "args": [{ "kind": "unary", "op": "-", "operand": { "kind": "const", "type": "Integer", "value": "1" } }] } },
+    { "op": "bind", "mutable": false, "name": "$match_ok3", "type": "Boolean", "value": { "kind": "resultIsOk", "value": { "kind": "local", "name": "$match2" } } },
+    {
+      "op": "match",
+      "value": { "kind": "local", "name": "$match_ok3" },
+      "cases": [
+      {
+        "pattern": { "kind": "value", "value": { "kind": "const", "type": "Boolean", "value": "true" } },
+        "guard": null,
+        "body": [
+        { "op": "bind", "mutable": false, "name": "value", "type": "Integer", "value": { "kind": "resultValue", "value": { "kind": "local", "name": "$match2" } } },
+        { "op": "assign", "name": "total", "value": { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "total" }, "right": { "kind": "local", "name": "value" } } }
+        ]
+      },
+      {
+        "pattern": { "kind": "value", "value": { "kind": "const", "type": "Boolean", "value": "false" } },
+        "guard": null,
+        "body": [
+        { "op": "bind", "mutable": false, "name": "err", "type": "Error", "value": { "kind": "resultError", "value": { "kind": "local", "name": "$match2" } } },
+        { "op": "assign", "name": "total", "value": { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "total" }, "right": { "kind": "memberAccess", "target": { "kind": "local", "name": "err" }, "member": "code" } } }
+        ]
+      }
+      ]
+    },
+    {
+      "op": "if",
+      "condition": { "kind": "binary", "op": "<>", "left": { "kind": "local", "name": "total" }, "right": { "kind": "const", "type": "Integer", "value": "915" } },
+      "then": [
+      { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "1" } }
+      ],
+      "else": [
+      ]
+    },
+    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

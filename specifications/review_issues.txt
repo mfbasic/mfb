@@ -395,6 +395,7 @@ The spec says dropping a completed `Thread` releases queued messages, and droppi
 REQUIREMENT: Result success constructor privacy
 SPECIFICATION: standard_package.md @ §1 Built-in Types; mfbasic.md @ §4.4 Result, Error, and absence
 GROUP: typesystem
+STATUS: completed
 RECOMMENDED: CODE CHANGE
 The spec says user code may construct `Error[...]`, but may not construct `Result` or `Ok` directly. `src/typecheck.rs` currently accepts `Ok[...]` as a constructor and returns `Result OF <payload>`, making the private success member source-constructible. Resolve by rejecting source-level `Ok[...]`/`Result[...]` construction while preserving compiler-internal result wrapping and `MATCH ... CASE Ok(x)` pattern support; add valid/invalid tests for `Error`, `Ok`, `Result`, and Result pattern matching.
 

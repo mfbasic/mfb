@@ -1,0 +1,8 @@
+FUNC main AS Integer
+  LET missing AS Error = Error[100]
+  LET wrongCode AS Error = Error["bad", "message"]
+  LET wrongMessage AS Error = Error[100, 200]
+  LET unknownField AS Error = Error[code := 100, detail := "bad"]
+
+  RETURN missing.code + wrongCode.code + wrongMessage.code + unknownField.code
+END FUNC

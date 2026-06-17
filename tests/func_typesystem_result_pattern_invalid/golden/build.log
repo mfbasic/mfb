@@ -1,0 +1,88 @@
+$ mfb build -ast tests/func_typesystem_result_pattern_invalid
+   5 | 
+   6 | FUNC main AS Integer
+   7 |   MATCH parsePositive(5)
+     | ^
+tests/func_typesystem_result_pattern_invalid/src/main.mfb:7 error[2-203-0062 TYPE_MATCH_NOT_EXHAUSTIVE]: match cases do not cover every possible value
+               MATCH on Result OF Integer does not cover Error; add unguarded CASE arms or CASE ELSE.
+  11 | 
+  12 |   MATCH 1
+  13 |     CASE Ok(value)
+     | ^
+tests/func_typesystem_result_pattern_invalid/src/main.mfb:13 error[2-203-0049 TYPE_MATCH_PATTERN_MISMATCH]: match pattern type does not match the scrutinee type
+               CASE `Ok` requires a UNION or direct call Result, got Integer.
+  12 |   MATCH 1
+  13 |     CASE Ok(value)
+  14 |       RETURN value
+     | ^
+tests/func_typesystem_result_pattern_invalid/src/main.mfb:14 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               RETURN value does not have a known type.
+  13 |     CASE Ok(value)
+  14 |       RETURN value
+  15 |     CASE Error(err)
+     | ^
+tests/func_typesystem_result_pattern_invalid/src/main.mfb:15 error[2-203-0049 TYPE_MATCH_PATTERN_MISMATCH]: match pattern type does not match the scrutinee type
+               CASE `Error` requires a UNION or direct call Result, got Integer.
+  14 |       RETURN value
+  15 |     CASE Error(err)
+  16 |       RETURN err.code
+     | ^
+tests/func_typesystem_result_pattern_invalid/src/main.mfb:16 error[2-203-0034 TYPE_FIELD_ACCESS_REQUIRES_RECORD]: field access requires a record value
+               Field access `code` requires a record value, got Unknown.
+  14 |       RETURN value
+  15 |     CASE Error(err)
+  16 |       RETURN err.code
+     | ^
+tests/func_typesystem_result_pattern_invalid/src/main.mfb:16 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               RETURN value does not have a known type.
+  10 |   END MATCH
+  11 | 
+  12 |   MATCH 1
+     | ^
+tests/func_typesystem_result_pattern_invalid/src/main.mfb:12 error[2-203-0062 TYPE_MATCH_NOT_EXHAUSTIVE]: match cases do not cover every possible value
+               MATCH on open type Integer requires an unguarded CASE ELSE.
+[exit 1]
+$ mfb build -ir tests/func_typesystem_result_pattern_invalid
+   5 | 
+   6 | FUNC main AS Integer
+   7 |   MATCH parsePositive(5)
+     | ^
+tests/func_typesystem_result_pattern_invalid/src/main.mfb:7 error[2-203-0062 TYPE_MATCH_NOT_EXHAUSTIVE]: match cases do not cover every possible value
+               MATCH on Result OF Integer does not cover Error; add unguarded CASE arms or CASE ELSE.
+  11 | 
+  12 |   MATCH 1
+  13 |     CASE Ok(value)
+     | ^
+tests/func_typesystem_result_pattern_invalid/src/main.mfb:13 error[2-203-0049 TYPE_MATCH_PATTERN_MISMATCH]: match pattern type does not match the scrutinee type
+               CASE `Ok` requires a UNION or direct call Result, got Integer.
+  12 |   MATCH 1
+  13 |     CASE Ok(value)
+  14 |       RETURN value
+     | ^
+tests/func_typesystem_result_pattern_invalid/src/main.mfb:14 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               RETURN value does not have a known type.
+  13 |     CASE Ok(value)
+  14 |       RETURN value
+  15 |     CASE Error(err)
+     | ^
+tests/func_typesystem_result_pattern_invalid/src/main.mfb:15 error[2-203-0049 TYPE_MATCH_PATTERN_MISMATCH]: match pattern type does not match the scrutinee type
+               CASE `Error` requires a UNION or direct call Result, got Integer.
+  14 |       RETURN value
+  15 |     CASE Error(err)
+  16 |       RETURN err.code
+     | ^
+tests/func_typesystem_result_pattern_invalid/src/main.mfb:16 error[2-203-0034 TYPE_FIELD_ACCESS_REQUIRES_RECORD]: field access requires a record value
+               Field access `code` requires a record value, got Unknown.
+  14 |       RETURN value
+  15 |     CASE Error(err)
+  16 |       RETURN err.code
+     | ^
+tests/func_typesystem_result_pattern_invalid/src/main.mfb:16 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               RETURN value does not have a known type.
+  10 |   END MATCH
+  11 | 
+  12 |   MATCH 1
+     | ^
+tests/func_typesystem_result_pattern_invalid/src/main.mfb:12 error[2-203-0062 TYPE_MATCH_NOT_EXHAUSTIVE]: match cases do not cover every possible value
+               MATCH on open type Integer requires an unguarded CASE ELSE.
+[exit 1]

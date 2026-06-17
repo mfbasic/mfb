@@ -1,0 +1,76 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "func_typesystem_error_valid",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "makeError",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    { "name": "code", "type": "Integer", "default": null },
+    { "name": "message", "type": "String", "default": null }
+    ],
+    "returns": "Error",
+    "body": [
+    { "op": "return", "value": { "kind": "constructor", "type": "Error", "args": [{ "kind": "local", "name": "code" }, { "kind": "local", "name": "message" }] } }
+    ]
+  },
+  {
+    "name": "main",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "mutable": false, "name": "positional", "type": "Error", "value": { "kind": "call", "target": "makeError", "args": [{ "kind": "const", "type": "Integer", "value": "123" }, { "kind": "const", "type": "String", "value": "positional" }] } },
+    { "op": "bind", "mutable": false, "name": "named", "type": "Error", "value": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "456" }, { "kind": "const", "type": "String", "value": "named" }] } },
+    {
+      "op": "if",
+      "condition": { "kind": "binary", "op": "<>", "left": { "kind": "memberAccess", "target": { "kind": "local", "name": "positional" }, "member": "code" }, "right": { "kind": "const", "type": "Integer", "value": "123" } },
+      "then": [
+      { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "1" } }
+      ],
+      "else": [
+      ]
+    },
+    {
+      "op": "if",
+      "condition": { "kind": "binary", "op": "<>", "left": { "kind": "memberAccess", "target": { "kind": "local", "name": "positional" }, "member": "message" }, "right": { "kind": "const", "type": "String", "value": "positional" } },
+      "then": [
+      { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "2" } }
+      ],
+      "else": [
+      ]
+    },
+    {
+      "op": "if",
+      "condition": { "kind": "binary", "op": "<>", "left": { "kind": "memberAccess", "target": { "kind": "local", "name": "named" }, "member": "code" }, "right": { "kind": "const", "type": "Integer", "value": "456" } },
+      "then": [
+      { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "3" } }
+      ],
+      "else": [
+      ]
+    },
+    {
+      "op": "if",
+      "condition": { "kind": "binary", "op": "<>", "left": { "kind": "memberAccess", "target": { "kind": "local", "name": "named" }, "member": "message" }, "right": { "kind": "const", "type": "String", "value": "named" } },
+      "then": [
+      { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "4" } }
+      ],
+      "else": [
+      ]
+    },
+    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

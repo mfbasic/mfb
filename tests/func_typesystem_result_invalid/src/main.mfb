@@ -1,0 +1,9 @@
+FUNC explicitResult AS Result OF Integer
+  RETURN 1
+END FUNC
+
+FUNC main AS Integer
+  LET constructed AS Result OF Integer = Result[1]
+
+  RETURN 0
+END FUNC

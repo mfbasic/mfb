@@ -2454,27 +2454,23 @@ impl<'a> TypeChecker<'a> {
             return Type::Error;
         }
 
-        if type_name == "Ok" {
-            if arguments.len() != 1 {
-                self.report(
-                    "TYPE_CONSTRUCTOR_ARITY_MISMATCH",
-                    &format!(
-                        "Constructor `Ok` has {} argument(s), expected 1.",
-                        arguments.len()
-                    ),
-                    file,
-                    line,
-                );
-                return Type::Unknown;
-            }
-            let success = self.infer_expression(
+        if matches!(type_name, "Ok" | "Result") {
+            self.report(
+                "TYPE_RESULT_IS_IMPLICIT",
+                &format!("`{type_name}` is compiler-owned and cannot be constructed directly."),
                 file,
-                constructor_arg_value(&arguments[0]),
-                locals,
                 line,
-                ExprMode::Transfer,
             );
-            return Type::Result(Box::new(success));
+            for argument in arguments {
+                self.infer_expression(
+                    file,
+                    constructor_arg_value(argument),
+                    locals,
+                    line,
+                    ExprMode::Transfer,
+                );
+            }
+            return Type::Unknown;
         }
 
         if read_only_record_type(type_name) {

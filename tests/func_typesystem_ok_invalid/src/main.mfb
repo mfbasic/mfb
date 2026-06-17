@@ -1,0 +1,7 @@
+FUNC main AS Integer
+  LET success AS Result OF Integer = Ok[1]
+  LET noPayload AS Result OF Nothing = Ok[]
+  LET tooMany AS Result OF Integer = Ok[1, 2]
+
+  RETURN 0
+END FUNC

@@ -1,0 +1,50 @@
+$ mfb build -ast tests/func_typesystem_error_invalid
+   1 | FUNC main AS Integer
+   2 |   LET missing AS Error = Error[100]
+     | ^
+tests/func_typesystem_error_invalid/src/main.mfb:2 error[2-203-0024 TYPE_CONSTRUCTOR_ARITY_MISMATCH]: constructor has the wrong number of arguments
+               Constructor `Error` has 1 argument(s), expected 2.
+   1 | FUNC main AS Integer
+   2 |   LET missing AS Error = Error[100]
+   3 |   LET wrongCode AS Error = Error["bad", "message"]
+     | ^
+tests/func_typesystem_error_invalid/src/main.mfb:3 error[2-203-0023 TYPE_CONSTRUCTOR_ARGUMENT_MISMATCH]: constructor argument type does not match field type
+               Argument 1 for `Error` has type String, expected Integer for field `code`.
+   2 |   LET missing AS Error = Error[100]
+   3 |   LET wrongCode AS Error = Error["bad", "message"]
+   4 |   LET wrongMessage AS Error = Error[100, 200]
+     | ^
+tests/func_typesystem_error_invalid/src/main.mfb:4 error[2-203-0023 TYPE_CONSTRUCTOR_ARGUMENT_MISMATCH]: constructor argument type does not match field type
+               Argument 2 for `Error` has type Integer, expected String for field `message`.
+   3 |   LET wrongCode AS Error = Error["bad", "message"]
+   4 |   LET wrongMessage AS Error = Error[100, 200]
+   5 |   LET unknownField AS Error = Error[code := 100, detail := "bad"]
+     | ^
+tests/func_typesystem_error_invalid/src/main.mfb:5 error[2-203-0045 TYPE_UNKNOWN_FIELD]: record field does not exist
+               Constructor `Error` has no field `detail`.
+[exit 1]
+$ mfb build -ir tests/func_typesystem_error_invalid
+   1 | FUNC main AS Integer
+   2 |   LET missing AS Error = Error[100]
+     | ^
+tests/func_typesystem_error_invalid/src/main.mfb:2 error[2-203-0024 TYPE_CONSTRUCTOR_ARITY_MISMATCH]: constructor has the wrong number of arguments
+               Constructor `Error` has 1 argument(s), expected 2.
+   1 | FUNC main AS Integer
+   2 |   LET missing AS Error = Error[100]
+   3 |   LET wrongCode AS Error = Error["bad", "message"]
+     | ^
+tests/func_typesystem_error_invalid/src/main.mfb:3 error[2-203-0023 TYPE_CONSTRUCTOR_ARGUMENT_MISMATCH]: constructor argument type does not match field type
+               Argument 1 for `Error` has type String, expected Integer for field `code`.
+   2 |   LET missing AS Error = Error[100]
+   3 |   LET wrongCode AS Error = Error["bad", "message"]
+   4 |   LET wrongMessage AS Error = Error[100, 200]
+     | ^
+tests/func_typesystem_error_invalid/src/main.mfb:4 error[2-203-0023 TYPE_CONSTRUCTOR_ARGUMENT_MISMATCH]: constructor argument type does not match field type
+               Argument 2 for `Error` has type Integer, expected String for field `message`.
+   3 |   LET wrongCode AS Error = Error["bad", "message"]
+   4 |   LET wrongMessage AS Error = Error[100, 200]
+   5 |   LET unknownField AS Error = Error[code := 100, detail := "bad"]
+     | ^
+tests/func_typesystem_error_invalid/src/main.mfb:5 error[2-203-0045 TYPE_UNKNOWN_FIELD]: record field does not exist
+               Constructor `Error` has no field `detail`.
+[exit 1]

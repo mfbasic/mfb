@@ -1,0 +1,15 @@
+FUNC makeError(code AS Integer, message AS String) AS Error
+  RETURN Error[code, message]
+END FUNC
+
+FUNC main AS Integer
+  LET positional AS Error = makeError(123, "positional")
+  LET named AS Error = Error[code := 456, message := "named"]
+
+  IF positional.code <> 123 THEN RETURN 1
+  IF positional.message <> "positional" THEN RETURN 2
+  IF named.code <> 456 THEN RETURN 3
+  IF named.message <> "named" THEN RETURN 4
+
+  RETURN 0
+END FUNC
