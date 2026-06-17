@@ -1,0 +1,11 @@
+IMPORT io
+IMPORT thread
+IMPORT thread_runtime_workers
+
+FUNC main AS Integer
+  LET t AS Thread OF Integer TO Integer = thread::start(thread_runtime_workers::returnInteger, "seed")
+  thread::send(t, 101, 10)
+  LET result AS Integer = thread::waitFor(t)
+  io::print(toString(result))
+  RETURN 0
+END FUNC

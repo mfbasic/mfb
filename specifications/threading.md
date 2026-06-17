@@ -234,12 +234,12 @@ These helpers are compiler-owned runtime helpers. They are not source-level
 `thread::start` stores:
 
 - The worker function pointer.
-- The input value.
+- The input value as a transferred or frozen thread-boundary value.
 - Queue state.
 - Result state.
 - Cancellation state.
 - The native OS thread handle.
-- The runtime arena state needed by the worker.
+- The worker package instance's runtime arena state.
 
 It then asks the OS to start `_mfb_rt_thread_trampoline`.
 
@@ -252,7 +252,9 @@ x1 = input value
 ```
 
 and stores the returned `Result OF Out` in the thread control block before
-marking the thread complete.
+marking the thread complete. If that stored result references worker-arena
+storage, the worker arena remains owned by the control block until the result is
+materialized for the parent or the completed thread is released.
 
 ## 8. Control Block
 
@@ -273,11 +275,19 @@ offset  field
 72      OS handle
 80      entry function pointer
 88      input data
-96      stack pointer/base owned by the runtime
-104     arena state
+96      reserved
+104     worker arena state
+112     parent arena state
 ```
 
 `state = 0` means running. `state = 1` means complete.
+
+The `result tag`, `result value`, and `result error` fields describe the
+completed `Result OF Out`. Heap-backed success or error payloads stored through
+these fields must either be runtime-owned transfer values, values materialized
+into a receiver-valid arena, or values whose producer arena is kept live by the
+control block until every remaining result access can materialize its own
+receiver-owned copy.
 
 The current queue representation is intentionally minimal and may evolve into a
 ring buffer. The source-level contract is bounded queues with the behavior
@@ -308,7 +318,8 @@ milliseconds. Negative timeouts are invalid.
 For `thread::send`, ownership transfer is atomic with enqueue success:
 
 - If enqueue succeeds, the destination side owns `data` immediately. While the
-  value is queued, the destination queue owns it.
+  value is queued, the destination queue owns it in receiver-valid storage or
+  runtime transfer storage independent of the sender arena.
 - If enqueue fails because the queue is full, closed, cancelled, timed out, or
   the timeout is invalid, ownership is not transferred and the sender still owns
   `data`.
@@ -318,7 +329,8 @@ For `thread::send`, ownership transfer is atomic with enqueue success:
 
 Receiving a non-copyable value moves it out of the queue into the receiver's
 binding. Receiving a copyable value may copy or move according to the normal
-representation rules.
+representation rules. In all cases, a heap-backed received value is materialized
+in storage valid for the receiving thread before user code observes it.
 
 Cancellation is cooperative:
 
@@ -330,7 +342,8 @@ Cancellation is cooperative:
 When the worker completes:
 
 - Inbound sends fail.
-- The result is stored.
+- The result is stored, and the control block owns any worker-arena lifetime
+  needed to materialize later parent-visible result values.
 - `thread::isRunning` returns `FALSE`.
 - `thread::waitFor` returns or propagates the stored result.
 - Remaining outbound messages stay readable until drained.
@@ -346,6 +359,10 @@ closes it exactly once:
 - Dropping a running `Thread` requests cancellation and detaches the worker; any
   remaining queued values are still owned by their destination queues until the
   responsible runtime cleanup path runs.
+- The worker arena may be reclaimed only after the worker result has been
+  transferred out of that arena or no further result access can need it, and
+  every worker-to-parent message has either been transferred into outbound queue
+  storage or dropped by cleanup.
 
 ## 10. OS Integration
 
@@ -353,24 +370,19 @@ Threads are real native OS threads.
 
 ### macOS aarch64
 
-The macOS backend uses libSystem/Mach thread primitives:
+The macOS backend starts MFBASIC workers through libSystem pthreads:
 
 ```text
-thread_create
-thread_create_running
-thread_terminate
-thread_suspend
-thread_resume
-thread_abort
-thread_get_state
-thread_set_state
-thread_info
-mach_thread_self
+pthread_create(&controlBlock.osHandle, NULL, _mfb_rt_thread_trampoline, controlBlock)
 ```
 
-`thread_create_running` starts `_mfb_rt_thread_trampoline` on a runtime-owned
-stack. Mach thread state is set so the trampoline receives the thread control
-block and can restore the runtime arena state before calling the worker.
+The trampoline is a normal pthread start routine. The runtime must not start
+workers with raw Mach `thread_create_running`, because package imports used by a
+worker may call libSystem facilities that require pthread registration,
+including pthread TLS, `pthread_self`, errno storage, locale and stdio locks,
+malloc internals, and other libc state. Mach thread APIs such as
+`mach_thread_self` are reserved for introspection helpers only and are not the
+thread creation ABI.
 
 The linker must support both branch-call imports and any data or GOT-style
 relocations required by libSystem integration. Missing linker support is not an
@@ -413,7 +425,8 @@ pthread_create(&controlBlock.osHandle, NULL, _mfb_rt_thread_trampoline, controlB
 The Linux trampoline is a normal pthread start routine. It preserves the
 callee-saved runtime registers required by generated code, restores the worker
 arena state, calls the worker export, stores the returned result in the control
-block, marks the worker complete, and returns `NULL` to pthread.
+block, keeps the worker arena live as needed for that result, marks the worker
+complete, and returns `NULL` to pthread.
 
 Linux threaded programs do not explicitly destroy the main runtime arena during
 process shutdown. A worker may still be running when the main function returns,
@@ -472,11 +485,16 @@ UNWRAP_RESULT
 ```
 
 The thread trampoline stores the worker's returned result tag and value/error in
-the control block. `thread::waitFor` reads that stored result and behaves like a
-normal fallible call:
+the control block. `thread::waitFor` reads that stored result, materializes any
+heap-backed payload into the caller's arena before user code observes it, and
+behaves like a normal fallible call:
 
 - `Ok(value)` returns `value`.
 - `Error(error)` propagates as the caller's error.
+
+Parent-side field access `t.result` waits for the same completed control-block
+result and returns the raw `Result OF Out` value. The raw result payload follows
+the same transfer and receiver-materialization rules as `thread::waitFor`.
 
 Package bridge lowering must preserve the same behavior for calls made inside a
 worker. If a worker calls an imported package function and that function returns

@@ -1,0 +1,14 @@
+IMPORT thread
+IMPORT thread_workers
+
+EXPORT ISOLATED FUNC badWorker(w AS ThreadWorker OF String TO Integer, seed AS String) AS Integer
+  LET workerResult AS Integer = w.result
+  RETURN len(seed) + workerResult
+END FUNC
+
+FUNC main AS Integer
+  LET t AS Thread OF Nothing TO Integer = thread::start(thread_workers::noMessages, 1, 1, 1)
+  LET missing AS Integer = t.output
+  LET wrongType AS String = t.result
+  RETURN len(wrongType) + missing
+END FUNC

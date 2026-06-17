@@ -711,7 +711,13 @@ fn collect_runtime_symbols_from_value(
                 collect_runtime_symbols_from_value(value, symbols, constants);
             }
         }
-        NirValue::MemberAccess { target, .. } => {
+        NirValue::MemberAccess { target, member } => {
+            if member == "result" {
+                push_unique(
+                    symbols,
+                    runtime::symbol_for_call(runtime::RuntimeHelper::Thread, "thread.waitFor"),
+                );
+            }
             collect_runtime_symbols_from_value(target, symbols, constants)
         }
         NirValue::Binary { left, right, .. } => {
@@ -1245,6 +1251,8 @@ fn storage_for_type(
         (StorageClass::Fixed, 8, 8)
     } else if is_reference_type(type_) {
         (StorageClass::Reference, 8, 8)
+    } else if is_user_type_name(type_) {
+        (StorageClass::Reference, 8, 8)
     } else {
         return Err(format!(
             "native plan has no storage class for type '{type_}'"
@@ -1271,6 +1279,14 @@ fn is_reference_type(type_: &str) -> bool {
         || type_.starts_with("FUNC(")
         || type_.starts_with("ISOLATED FUNC(")
         || matches!(type_, "File" | "FileHandle" | "DirHandle")
+}
+
+fn is_user_type_name(type_: &str) -> bool {
+    !type_.is_empty()
+        && type_ != "Unknown"
+        && type_
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || ch == '_' || ch == '.')
 }
 
 fn push_call(calls: &mut Vec<PlanCall>, target: &str, symbol: String, kind: CallKind) {

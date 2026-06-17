@@ -3,264 +3,274 @@ use super::*;
 impl CodeBuilder<'_> {
     pub(super) fn lower_ops(&mut self, ops: &[NirOp]) -> Result<(), String> {
         for op in ops {
-            match op {
-                NirOp::Bind {
-                    name, type_, value, ..
-                } => {
-                    let stack_offset = self.allocate_stack_object(name, 8);
-                    let constant = value
-                        .as_ref()
-                        .and_then(|value| self.local_constant_value(value));
-                    self.locals.insert(
-                        name.clone(),
-                        LocalValue {
-                            type_: type_.clone(),
-                            stack_offset,
-                            constant,
-                        },
-                    );
-                    if let Some(value) = value {
+            let result = (|| -> Result<(), String> {
+                match op {
+                    NirOp::Bind {
+                        name, type_, value, ..
+                    } => {
+                        let stack_offset = self.allocate_stack_object(name, 8);
+                        let constant = value
+                            .as_ref()
+                            .and_then(|value| self.local_constant_value(value));
+                        self.locals.insert(
+                            name.clone(),
+                            LocalValue {
+                                type_: type_.clone(),
+                                stack_offset,
+                                constant,
+                            },
+                        );
+                        if let Some(value) = value {
+                            let result = self.lower_value(value)?;
+                            self.emit(abi::store_u64(
+                                &result.location,
+                                abi::stack_pointer(),
+                                stack_offset,
+                            ));
+                        } else {
+                            let result = self.lower_default_value(type_)?;
+                            self.emit(abi::store_u64(
+                                &result.location,
+                                abi::stack_pointer(),
+                                stack_offset,
+                            ));
+                        }
+                    }
+                    NirOp::StoreGlobal { name, type_, value } => {
+                        let global = self.global_value(name)?;
+                        let value_type = if type_.is_empty() {
+                            global.type_.clone()
+                        } else {
+                            type_.clone()
+                        };
+                        let result = if let Some(value) = value {
+                            self.lower_value(value)?
+                        } else {
+                            self.lower_default_value(&value_type)?
+                        };
+                        let address = self.load_global_address(name)?;
+                        self.emit(abi::store_u64(&result.location, &address, 0));
+                    }
+                    NirOp::Assign { name, value } => {
+                        let stack_offset = self
+                            .locals
+                            .get(name)
+                            .ok_or_else(|| {
+                                format!("native code assignment unknown local '{name}'")
+                            })?
+                            .stack_offset;
                         let result = self.lower_value(value)?;
                         self.emit(abi::store_u64(
                             &result.location,
                             abi::stack_pointer(),
                             stack_offset,
                         ));
-                    } else {
-                        let result = self.lower_default_value(type_)?;
+                        let constant = self.local_constant_value(value);
+                        if let Some(local) = self.locals.get_mut(name) {
+                            local.constant = constant;
+                        }
+                    }
+                    NirOp::Eval { value } => {
+                        self.lower_value(value)?;
+                    }
+                    NirOp::Return { value } => {
+                        self.emit_return_exit(value.as_ref())?;
+                    }
+                    NirOp::Fail { error } => {
+                        self.emit_error_value_exit(error, self.error_exit_destination())?;
+                    }
+                    NirOp::If {
+                        condition,
+                        then_body,
+                        else_body,
+                    } => {
+                        let condition = self.lower_value(condition)?;
+                        let else_label = self.label("if_else");
+                        let end_label = self.label("if_end");
+                        let constants_before_if = self.local_constants();
+                        self.emit(abi::compare_immediate(&condition.location, "0"));
+                        self.emit(abi::branch_eq(&else_label).field("reason", "ifFalse"));
+                        self.lower_ops(then_body)?;
+                        if !self.current_block_returns() {
+                            self.emit(abi::branch(&end_label));
+                        }
+                        self.emit(abi::label(&else_label));
+                        self.restore_local_constants(&constants_before_if);
+                        self.lower_ops(else_body)?;
+                        self.emit(abi::label(&end_label));
+                        self.clear_local_constants();
+                    }
+                    NirOp::Match { value, cases } => {
+                        let matched = self.lower_value(value)?;
+                        let matched_slot = self.allocate_stack_object("match_value", 8);
+                        self.emit(abi::store_u64(
+                            &matched.location,
+                            abi::stack_pointer(),
+                            matched_slot,
+                        ));
+                        let end_label = self.label("match_end");
+                        for case in cases {
+                            let matched_register = self.allocate_register()?;
+                            self.emit(abi::load_u64(
+                                &matched_register,
+                                abi::stack_pointer(),
+                                matched_slot,
+                            ));
+                            let case_matched = ValueResult {
+                                type_: matched.type_.clone(),
+                                location: matched_register,
+                                text: matched.text.clone(),
+                            };
+                            let next_label = self.label("match_next");
+                            match &case.pattern {
+                                NirMatchPattern::Else => {}
+                                NirMatchPattern::Value(pattern) => {
+                                    let case_label = self.label("match_case");
+                                    self.lower_match_compare(&case_matched, pattern, &case_label)?;
+                                    self.emit(abi::branch(&next_label));
+                                    self.emit(abi::label(&case_label));
+                                }
+                                NirMatchPattern::OneOf(patterns) => {
+                                    let case_label = self.label("match_case");
+                                    for pattern in patterns {
+                                        self.lower_match_compare(
+                                            &case_matched,
+                                            pattern,
+                                            &case_label,
+                                        )?;
+                                    }
+                                    self.emit(abi::branch(&next_label));
+                                    self.emit(abi::label(&case_label));
+                                }
+                            }
+                            let constants_before_case = self.local_constants();
+                            let mut case_locals = self.locals.clone();
+                            let mut body_index = 0;
+                            while let Some(NirOp::Bind {
+                                name,
+                                type_,
+                                value: Some(NirValue::UnionExtract { .. }),
+                                ..
+                            }) = case.body.get(body_index)
+                            {
+                                let bind = &case.body[body_index..body_index + 1];
+                                self.lower_ops(bind)?;
+                                if let Some(local) = self.locals.get(name).cloned() {
+                                    case_locals.insert(
+                                        name.clone(),
+                                        LocalValue {
+                                            type_: type_.clone(),
+                                            stack_offset: local.stack_offset,
+                                            constant: local.constant,
+                                        },
+                                    );
+                                }
+                                body_index += 1;
+                            }
+                            if let Some(guard) = &case.guard {
+                                let saved_locals = self.locals.clone();
+                                self.locals = case_locals.clone();
+                                let guard_value = self.lower_value(guard)?;
+                                self.emit(abi::compare_immediate(&guard_value.location, "0"));
+                                self.emit(
+                                    abi::branch_eq(&next_label).field("reason", "matchGuardFalse"),
+                                );
+                                self.locals = saved_locals;
+                            }
+                            self.lower_ops(&case.body[body_index..])?;
+                            if !self.current_block_returns() {
+                                self.emit(abi::branch(&end_label));
+                            }
+                            self.restore_local_constants(&constants_before_case);
+                            self.emit(abi::label(&next_label));
+                        }
+                        self.emit(abi::label(&end_label));
+                        self.clear_local_constants();
+                    }
+                    NirOp::While { condition, body } => {
+                        let loop_label = self.label("while_loop");
+                        let end_label = self.label("while_end");
+                        self.emit(abi::label(&loop_label));
+                        let condition = self.lower_value(condition)?;
+                        self.emit(abi::compare_immediate(&condition.location, "0"));
+                        self.emit(abi::branch_eq(&end_label));
+                        self.clear_local_constants();
+                        self.lower_ops(body)?;
+                        self.emit(abi::branch(&loop_label));
+                        self.emit(abi::label(&end_label));
+                        self.clear_local_constants();
+                    }
+                    NirOp::ForEach {
+                        name,
+                        type_,
+                        iterable,
+                        body,
+                    } => {
+                        self.lower_for_each(name, type_, iterable, body)?;
+                    }
+                    NirOp::Using {
+                        name,
+                        type_,
+                        close,
+                        value,
+                        body,
+                    } => {
+                        let stack_offset = self.allocate_stack_object(name, 8);
+                        let result = self.lower_value(value)?;
+                        let symbol = self
+                            .function_symbols
+                            .get(close)
+                            .cloned()
+                            .or_else(|| {
+                                runtime::helper_for_call(close)
+                                    .map(|helper| runtime::symbol_for_call(helper, close))
+                            })
+                            .unwrap_or_else(|| close.clone());
+                        self.locals.insert(
+                            name.clone(),
+                            LocalValue {
+                                type_: type_.clone(),
+                                stack_offset,
+                                constant: self.local_constant_value(value),
+                            },
+                        );
                         self.emit(abi::store_u64(
                             &result.location,
                             abi::stack_pointer(),
                             stack_offset,
                         ));
-                    }
-                }
-                NirOp::StoreGlobal { name, type_, value } => {
-                    let global = self.global_value(name)?;
-                    let value_type = if type_.is_empty() {
-                        global.type_.clone()
-                    } else {
-                        type_.clone()
-                    };
-                    let result = if let Some(value) = value {
-                        self.lower_value(value)?
-                    } else {
-                        self.lower_default_value(&value_type)?
-                    };
-                    let address = self.load_global_address(name)?;
-                    self.emit(abi::store_u64(&result.location, &address, 0));
-                }
-                NirOp::Assign { name, value } => {
-                    let stack_offset = self
-                        .locals
-                        .get(name)
-                        .ok_or_else(|| format!("native code assignment unknown local '{name}'"))?
-                        .stack_offset;
-                    let result = self.lower_value(value)?;
-                    self.emit(abi::store_u64(
-                        &result.location,
-                        abi::stack_pointer(),
-                        stack_offset,
-                    ));
-                    let constant = self.local_constant_value(value);
-                    if let Some(local) = self.locals.get_mut(name) {
-                        local.constant = constant;
-                    }
-                }
-                NirOp::Eval { value } => {
-                    self.lower_value(value)?;
-                }
-                NirOp::Return { value } => {
-                    self.emit_return_exit(value.as_ref())?;
-                }
-                NirOp::Fail { error } => {
-                    self.emit_error_value_exit(error, self.error_exit_destination())?;
-                }
-                NirOp::If {
-                    condition,
-                    then_body,
-                    else_body,
-                } => {
-                    let condition = self.lower_value(condition)?;
-                    let else_label = self.label("if_else");
-                    let end_label = self.label("if_end");
-                    let constants_before_if = self.local_constants();
-                    self.emit(abi::compare_immediate(&condition.location, "0"));
-                    self.emit(abi::branch_eq(&else_label).field("reason", "ifFalse"));
-                    self.lower_ops(then_body)?;
-                    if !self.current_block_returns() {
-                        self.emit(abi::branch(&end_label));
-                    }
-                    self.emit(abi::label(&else_label));
-                    self.restore_local_constants(&constants_before_if);
-                    self.lower_ops(else_body)?;
-                    self.emit(abi::label(&end_label));
-                    self.clear_local_constants();
-                }
-                NirOp::Match { value, cases } => {
-                    let matched = self.lower_value(value)?;
-                    let matched_slot = self.allocate_stack_object("match_value", 8);
-                    self.emit(abi::store_u64(
-                        &matched.location,
-                        abi::stack_pointer(),
-                        matched_slot,
-                    ));
-                    let end_label = self.label("match_end");
-                    for case in cases {
-                        let matched_register = self.allocate_register()?;
-                        self.emit(abi::load_u64(
-                            &matched_register,
-                            abi::stack_pointer(),
-                            matched_slot,
-                        ));
-                        let case_matched = ValueResult {
-                            type_: matched.type_.clone(),
-                            location: matched_register,
-                            text: matched.text.clone(),
-                        };
-                        let next_label = self.label("match_next");
-                        match &case.pattern {
-                            NirMatchPattern::Else => {}
-                            NirMatchPattern::Value(pattern) => {
-                                let case_label = self.label("match_case");
-                                self.lower_match_compare(&case_matched, pattern, &case_label)?;
-                                self.emit(abi::branch(&next_label));
-                                self.emit(abi::label(&case_label));
-                            }
-                            NirMatchPattern::OneOf(patterns) => {
-                                let case_label = self.label("match_case");
-                                for pattern in patterns {
-                                    self.lower_match_compare(&case_matched, pattern, &case_label)?;
-                                }
-                                self.emit(abi::branch(&next_label));
-                                self.emit(abi::label(&case_label));
-                            }
-                        }
-                        let constants_before_case = self.local_constants();
-                        let mut case_locals = self.locals.clone();
-                        let mut body_index = 0;
-                        while let Some(NirOp::Bind {
-                            name,
-                            type_,
-                            value: Some(NirValue::UnionExtract { .. }),
-                            ..
-                        }) = case.body.get(body_index)
-                        {
-                            let bind = &case.body[body_index..body_index + 1];
-                            self.lower_ops(bind)?;
-                            if let Some(local) = self.locals.get(name).cloned() {
-                                case_locals.insert(
-                                    name.clone(),
-                                    LocalValue {
-                                        type_: type_.clone(),
-                                        stack_offset: local.stack_offset,
-                                        constant: local.constant,
-                                    },
-                                );
-                            }
-                            body_index += 1;
-                        }
-                        if let Some(guard) = &case.guard {
-                            let saved_locals = self.locals.clone();
-                            self.locals = case_locals.clone();
-                            let guard_value = self.lower_value(guard)?;
-                            self.emit(abi::compare_immediate(&guard_value.location, "0"));
-                            self.emit(
-                                abi::branch_eq(&next_label).field("reason", "matchGuardFalse"),
-                            );
-                            self.locals = saved_locals;
-                        }
-                        self.lower_ops(&case.body[body_index..])?;
+                        self.active_cleanups.push(UsingCleanup {
+                            name: name.clone(),
+                            symbol,
+                        });
+                        self.lower_ops(body)?;
+                        let cleanup = self
+                            .active_cleanups
+                            .pop()
+                            .expect("USING cleanup stack must contain active resource");
                         if !self.current_block_returns() {
-                            self.emit(abi::branch(&end_label));
+                            self.emit_using_fallthrough_cleanup(&cleanup)?;
                         }
-                        self.restore_local_constants(&constants_before_case);
-                        self.emit(abi::label(&next_label));
                     }
-                    self.emit(abi::label(&end_label));
-                    self.clear_local_constants();
-                }
-                NirOp::While { condition, body } => {
-                    let loop_label = self.label("while_loop");
-                    let end_label = self.label("while_end");
-                    self.emit(abi::label(&loop_label));
-                    let condition = self.lower_value(condition)?;
-                    self.emit(abi::compare_immediate(&condition.location, "0"));
-                    self.emit(abi::branch_eq(&end_label));
-                    self.clear_local_constants();
-                    self.lower_ops(body)?;
-                    self.emit(abi::branch(&loop_label));
-                    self.emit(abi::label(&end_label));
-                    self.clear_local_constants();
-                }
-                NirOp::ForEach {
-                    name,
-                    type_,
-                    iterable,
-                    body,
-                } => {
-                    self.lower_for_each(name, type_, iterable, body)?;
-                }
-                NirOp::Using {
-                    name,
-                    type_,
-                    close,
-                    value,
-                    body,
-                } => {
-                    let stack_offset = self.allocate_stack_object(name, 8);
-                    let result = self.lower_value(value)?;
-                    let symbol = self
-                        .function_symbols
-                        .get(close)
-                        .cloned()
-                        .or_else(|| {
-                            runtime::helper_for_call(close)
-                                .map(|helper| runtime::symbol_for_call(helper, close))
-                        })
-                        .unwrap_or_else(|| close.clone());
-                    self.locals.insert(
-                        name.clone(),
-                        LocalValue {
-                            type_: type_.clone(),
-                            stack_offset,
-                            constant: self.local_constant_value(value),
-                        },
-                    );
-                    self.emit(abi::store_u64(
-                        &result.location,
-                        abi::stack_pointer(),
-                        stack_offset,
-                    ));
-                    self.active_cleanups.push(UsingCleanup {
-                        name: name.clone(),
-                        symbol,
-                    });
-                    self.lower_ops(body)?;
-                    let cleanup = self
-                        .active_cleanups
-                        .pop()
-                        .expect("USING cleanup stack must contain active resource");
-                    if !self.current_block_returns() {
-                        self.emit_using_fallthrough_cleanup(&cleanup)?;
+                    NirOp::Trap { body, .. } => {
+                        let label = self
+                            .trap
+                            .as_ref()
+                            .map(|trap| trap.label.clone())
+                            .expect("trap op requires trap state");
+                        self.emit(abi::label(&label));
+                        if let Some(trap) = &mut self.trap {
+                            trap.in_trap_body = true;
+                        }
+                        self.lower_ops(body)?;
+                        if let Some(trap) = &mut self.trap {
+                            trap.in_trap_body = false;
+                        }
                     }
                 }
-                NirOp::Trap { body, .. } => {
-                    let label = self
-                        .trap
-                        .as_ref()
-                        .map(|trap| trap.label.clone())
-                        .expect("trap op requires trap state");
-                    self.emit(abi::label(&label));
-                    if let Some(trap) = &mut self.trap {
-                        trap.in_trap_body = true;
-                    }
-                    self.lower_ops(body)?;
-                    if let Some(trap) = &mut self.trap {
-                        trap.in_trap_body = false;
-                    }
-                }
-            }
+                Ok(())
+            })();
+            result.map_err(|err| format!("{err} while lowering {}", nir_op_context(op)))?;
             self.reset_temporary_registers();
         }
         Ok(())
@@ -419,5 +429,52 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&end_label));
         self.clear_local_constants();
         Ok(())
+    }
+}
+
+fn nir_op_context(op: &NirOp) -> String {
+    match op {
+        NirOp::Bind { name, type_, .. } => format!("bind {name} AS {type_}"),
+        NirOp::StoreGlobal { name, .. } => format!("store global {name}"),
+        NirOp::Assign { name, .. } => format!("assign {name}"),
+        NirOp::Return { .. } => "return".to_string(),
+        NirOp::Fail { .. } => "fail".to_string(),
+        NirOp::Eval { value } => format!("eval {}", nir_value_context(value)),
+        NirOp::If { .. } => "if".to_string(),
+        NirOp::Match { .. } => "match".to_string(),
+        NirOp::While { .. } => "while".to_string(),
+        NirOp::ForEach { name, .. } => format!("for each {name}"),
+        NirOp::Using { name, .. } => format!("using {name}"),
+        NirOp::Trap { .. } => "trap".to_string(),
+    }
+}
+
+fn nir_value_context(value: &NirValue) -> String {
+    match value {
+        NirValue::Call { target, .. }
+        | NirValue::CallResult { target, .. }
+        | NirValue::RuntimeCall { target, .. } => format!("call {target}"),
+        NirValue::Constructor { type_, .. } => format!("construct {type_}"),
+        NirValue::MemberAccess { member, .. } => format!("member {member}"),
+        NirValue::Local(name) => format!("local {name}"),
+        NirValue::Global { name, .. } => format!("global {name}"),
+        NirValue::FunctionRef { name, .. } => format!("function {name}"),
+        NirValue::Closure { name, .. } => format!("closure {name}"),
+        NirValue::Const { type_, .. } => format!("const {type_}"),
+        NirValue::ListLiteral { type_, .. } | NirValue::MapLiteral { type_, .. } => {
+            format!("literal {type_}")
+        }
+        NirValue::Unary { op, .. } | NirValue::Binary { op, .. } => format!("operator {op}"),
+        NirValue::UnionWrap {
+            union_type,
+            member_type,
+            ..
+        } => format!("wrap {member_type} AS {union_type}"),
+        NirValue::UnionExtract { type_, .. } => format!("extract {type_}"),
+        NirValue::ResultIsOk { .. } => "result is ok".to_string(),
+        NirValue::ResultValue { .. } => "result value".to_string(),
+        NirValue::ResultError { .. } => "result error".to_string(),
+        NirValue::WithUpdate { type_, .. } => format!("with update {type_}"),
+        NirValue::Capture { index, .. } => format!("capture {index}"),
     }
 }

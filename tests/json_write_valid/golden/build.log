@@ -5,5 +5,9 @@ $ mfb build -ir tests/json_write_valid
 Wrote IR to tests/json_write_valid/json_write_valid.ir
 [exit 0]
 $ mfb build tests/json_write_valid
-error: aarch64 code plan exhausted physical registers at allocation 27 while lowering native function '_mfb_fn_main'
-[exit 1]
+Wrote executable to tests/json_write_valid/json_write_valid.out
+[exit 0]
+$ tests/json_write_valid/json_write_valid.out
+{"name":"Ada","enabled":true}
+"Ada"
+[exit 0]

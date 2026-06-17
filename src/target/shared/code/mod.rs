@@ -428,6 +428,7 @@ struct CodeBuilder<'a> {
     trap: Option<TrapState>,
     active_cleanups: Vec<UsingCleanup>,
     pending_result_slots: Option<PendingResultSlots>,
+    error_arena_restore_slot: Option<usize>,
 }
 
 #[derive(Clone)]
@@ -672,7 +673,7 @@ pub(crate) fn lower_module_for_platform(
             value: value.clone(),
         });
     }
-    let type_model = TypeModel::from_module(module)?;
+    let type_model = TypeModel::from_module_and_packages(module, packages)?;
     let mut code_functions = Vec::new();
     let mut runtime_symbols = native_plan.runtime_symbols.clone();
     for symbol in package_runtime_symbols {
@@ -1014,6 +1015,7 @@ impl TypeModel {
         let mut union_names = HashSet::new();
         let mut union_variants = HashMap::new();
         let mut union_variant_tags = HashMap::new();
+        let mut union_variant_fields = HashMap::new();
         for type_ in &module.types {
             match type_.kind.as_str() {
                 "type" | "record" => {
@@ -1039,6 +1041,14 @@ impl TypeModel {
                     {
                         union_variants.insert(variant.name.clone(), type_.name.clone());
                         union_variant_tags.insert(variant.name.clone(), index);
+                        union_variant_fields.insert(
+                            variant.name.clone(),
+                            variant
+                                .fields
+                                .iter()
+                                .map(|field| (field.name.clone(), field.type_.clone()))
+                                .collect(),
+                        );
                     }
                 }
                 "resource" => {}
@@ -1064,26 +1074,56 @@ impl TypeModel {
             union_names,
             union_variants,
             union_variant_tags,
-            union_variant_fields: module
-                .types
-                .iter()
-                .filter(|type_| type_.kind == "union")
-                .flat_map(|type_| {
-                    expanded_nir_union_variants(module, &type_.name)
-                        .into_iter()
-                        .map(|variant| {
-                            (
-                                variant.name.clone(),
-                                variant
-                                    .fields
-                                    .iter()
-                                    .map(|field| (field.name.clone(), field.type_.clone()))
-                                    .collect(),
-                            )
-                        })
-                })
-                .collect(),
+            union_variant_fields,
         })
+    }
+
+    fn from_module_and_packages(module: &NirModule, packages: &[PathBuf]) -> Result<Self, String> {
+        let mut model = Self::from_module(module)?;
+        for package in packages {
+            for type_export in bytecode::read_package_type_exports(package)? {
+                model.add_package_type_export(type_export);
+            }
+        }
+        Ok(model)
+    }
+
+    fn add_package_type_export(&mut self, type_export: bytecode::BytecodeTypeExport) {
+        match type_export.kind {
+            bytecode::BytecodeExportKind::Type => {
+                self.record_fields.insert(
+                    type_export.name,
+                    type_export
+                        .fields
+                        .into_iter()
+                        .map(|field| (field.name, field.type_))
+                        .collect(),
+                );
+            }
+            bytecode::BytecodeExportKind::Enum => {
+                for (index, member) in type_export.members.into_iter().enumerate() {
+                    self.enum_members
+                        .insert((type_export.name.clone(), member), index);
+                }
+            }
+            bytecode::BytecodeExportKind::Union => {
+                self.union_names.insert(type_export.name.clone());
+                for (index, variant) in type_export.variants.into_iter().enumerate() {
+                    self.union_variants
+                        .insert(variant.name.clone(), type_export.name.clone());
+                    self.union_variant_tags.insert(variant.name.clone(), index);
+                    self.union_variant_fields.insert(
+                        variant.name,
+                        variant
+                            .fields
+                            .into_iter()
+                            .map(|field| (field.name, field.type_))
+                            .collect(),
+                    );
+                }
+            }
+            bytecode::BytecodeExportKind::Func | bytecode::BytecodeExportKind::Sub => {}
+        }
     }
 }
 
@@ -1671,6 +1711,7 @@ fn lower_function(
         trap: None,
         active_cleanups: Vec::new(),
         pending_result_slots: None,
+        error_arena_restore_slot: None,
     };
     for param in &params {
         let stack_offset = builder.allocate_stack_object(&param.name, 8);
@@ -1784,6 +1825,7 @@ fn lower_builtin_function_wrapper(
         trap: None,
         active_cleanups: Vec::new(),
         pending_result_slots: None,
+        error_arena_restore_slot: None,
     };
 
     let stack_offset = builder.allocate_stack_object("value", 8);
@@ -2266,19 +2308,7 @@ fn add_macos_package_runtime_imports(
             }
             "thread.start" | "thread.isRunning" | "thread.waitFor" | "thread.cancel"
             | "thread.send" | "thread.poll" | "thread.read" | "thread.receive" | "thread.emit"
-            | "thread.isCancelled" => symbols.extend([
-                "_thread_create",
-                "_thread_create_running",
-                "_thread_terminate",
-                "_thread_suspend",
-                "_thread_resume",
-                "_thread_abort",
-                "_thread_get_state",
-                "_thread_set_state",
-                "_thread_info",
-                "_mach_thread_self",
-                "_mach_task_self_",
-            ]),
+            | "thread.isCancelled" => symbols.push("_pthread_create"),
             _ => {}
         }
     }
@@ -2441,6 +2471,7 @@ fn lower_package_runtime_call(
     pc: usize,
     helper: &str,
     slot: &dyn Fn(u32) -> usize,
+    scratch_base: usize,
     frame_size: usize,
     lr_offset: usize,
     instructions: &mut Vec<CodeInstruction>,
@@ -2460,6 +2491,31 @@ fn lower_package_runtime_call(
         abi::branch_link(helper),
         abi::compare_immediate(RESULT_TAG_REGISTER, RESULT_OK_TAG),
     ]);
+    if instruction.opcode == bytecode::NATIVE_OPCODE_THREAD_WAIT_FOR {
+        let dst = native_operand(instruction, 0)?;
+        if export
+            .registers
+            .get(dst as usize)
+            .and_then(|register| export.type_info.get(&register.type_id))
+            .is_some_and(|type_info| {
+                matches!(type_info, bytecode::NativePackageTypeInfo::Result { .. })
+            })
+        {
+            lower_package_raw_result_store(
+                export,
+                dst,
+                pc,
+                slot,
+                scratch_base,
+                frame_size,
+                lr_offset,
+                instructions,
+                relocations,
+            );
+            relocations.push(internal_branch(&export.symbol, helper));
+            return Ok(());
+        }
+    }
     let ok = format!("{}_pkg_runtime_ok_{pc}", export.symbol);
     instructions.extend([
         abi::branch_eq(&ok),
@@ -2484,6 +2540,91 @@ fn lower_package_runtime_call(
         ]);
     }
     Ok(())
+}
+
+fn lower_package_raw_result_store(
+    export: &NativePackageExport,
+    dst: u32,
+    pc: usize,
+    slot: &dyn Fn(u32) -> usize,
+    scratch_base: usize,
+    frame_size: usize,
+    lr_offset: usize,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+) {
+    let tag_slot = scratch_base;
+    let value_slot = scratch_base + 8;
+    let message_slot = scratch_base + 16;
+    let payload_slot = scratch_base + 24;
+    let result_slot = scratch_base + 32;
+    let wrap_error = format!("{}_pkg_raw_result_wrap_error_{pc}", export.symbol);
+    let have_payload = format!("{}_pkg_raw_result_have_payload_{pc}", export.symbol);
+    let error_alloc_ok = format!("{}_pkg_raw_result_error_alloc_ok_{pc}", export.symbol);
+    let result_alloc_ok = format!("{}_pkg_raw_result_alloc_ok_{pc}", export.symbol);
+    let allocation_failed = format!("{}_pkg_raw_result_alloc_failed_{pc}", export.symbol);
+
+    instructions.extend([
+        abi::store_u64(RESULT_TAG_REGISTER, abi::stack_pointer(), tag_slot),
+        abi::store_u64(RESULT_VALUE_REGISTER, abi::stack_pointer(), value_slot),
+        abi::store_u64(
+            RESULT_ERROR_MESSAGE_REGISTER,
+            abi::stack_pointer(),
+            message_slot,
+        ),
+        abi::load_u64("x9", abi::stack_pointer(), tag_slot),
+        abi::compare_immediate("x9", RESULT_OK_TAG),
+        abi::branch_ne(&wrap_error),
+        abi::load_u64("x9", abi::stack_pointer(), value_slot),
+        abi::store_u64("x9", abi::stack_pointer(), payload_slot),
+        abi::branch(&have_payload),
+        abi::label(&wrap_error),
+        abi::move_immediate(abi::return_register(), "Integer", "16"),
+        abi::move_immediate("x1", "Integer", "8"),
+        abi::branch_link(ARENA_ALLOC_SYMBOL),
+        abi::compare_immediate(abi::return_register(), RESULT_OK_TAG),
+        abi::branch_eq(&error_alloc_ok),
+        abi::branch(&allocation_failed),
+        abi::label(&error_alloc_ok),
+        abi::load_u64("x9", abi::stack_pointer(), value_slot),
+        abi::store_u64("x9", "x1", 0),
+        abi::load_u64("x9", abi::stack_pointer(), message_slot),
+        abi::store_u64("x9", "x1", 8),
+        abi::store_u64("x1", abi::stack_pointer(), payload_slot),
+        abi::label(&have_payload),
+        abi::move_immediate(abi::return_register(), "Integer", "16"),
+        abi::move_immediate("x1", "Integer", "8"),
+        abi::branch_link(ARENA_ALLOC_SYMBOL),
+        abi::compare_immediate(abi::return_register(), RESULT_OK_TAG),
+        abi::branch_eq(&result_alloc_ok),
+        abi::branch(&allocation_failed),
+        abi::label(&result_alloc_ok),
+        abi::store_u64("x1", abi::stack_pointer(), result_slot),
+        abi::load_u64("x9", abi::stack_pointer(), tag_slot),
+        abi::store_u64("x9", "x1", 0),
+        abi::load_u64("x9", abi::stack_pointer(), payload_slot),
+        abi::store_u64("x9", "x1", 8),
+        abi::load_u64("x9", abi::stack_pointer(), result_slot),
+        abi::store_u64("x9", abi::stack_pointer(), slot(dst)),
+        abi::branch(&format!("{}_pkg_raw_result_done_{pc}", export.symbol)),
+        abi::label(&allocation_failed),
+        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_OUT_OF_MEMORY_CODE),
+        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
+    ]);
+    push_error_message_address(
+        &export.symbol,
+        ERR_ALLOCATION_SYMBOL,
+        instructions,
+        relocations,
+    );
+    instructions.extend([
+        abi::load_u64(abi::link_register(), abi::stack_pointer(), lr_offset),
+        abi::add_stack(frame_size),
+        abi::return_(),
+        abi::label(&format!("{}_pkg_raw_result_done_{pc}", export.symbol)),
+    ]);
+    relocations.push(internal_branch(&export.symbol, ARENA_ALLOC_SYMBOL));
+    relocations.push(internal_branch(&export.symbol, ARENA_ALLOC_SYMBOL));
 }
 
 fn lower_package_call_result(
@@ -2602,7 +2743,7 @@ fn package_collection_type_code(
         Some(bytecode::NativePackageTypeInfo::Map { .. }) => Ok(COLLECTION_TYPE_MAP),
         Some(bytecode::NativePackageTypeInfo::Record(_))
         | Some(bytecode::NativePackageTypeInfo::Enum)
-        | Some(bytecode::NativePackageTypeInfo::Union) => Ok(COLLECTION_TYPE_OBJECT),
+        | Some(bytecode::NativePackageTypeInfo::Union(_)) => Ok(COLLECTION_TYPE_OBJECT),
         Some(bytecode::NativePackageTypeInfo::Result { .. })
         | Some(bytecode::NativePackageTypeInfo::Thread { .. })
         | Some(bytecode::NativePackageTypeInfo::ThreadWorker { .. })
@@ -2781,7 +2922,7 @@ fn emit_package_default_value(
             Ok(())
         }
         Some(bytecode::NativePackageTypeInfo::Enum)
-        | Some(bytecode::NativePackageTypeInfo::Union)
+        | Some(bytecode::NativePackageTypeInfo::Union(_))
         | Some(bytecode::NativePackageTypeInfo::Result { .. })
         | Some(bytecode::NativePackageTypeInfo::Thread { .. })
         | Some(bytecode::NativePackageTypeInfo::ThreadWorker { .. })
@@ -2806,7 +2947,8 @@ fn lower_package_export_function(
     let register_base = 8;
     let slot = |register: u32| register_base + register as usize * 8;
     let scratch_base = register_base + export.registers.len() * 8;
-    let frame_size = align(scratch_base + package_default_depth(export) * 8, 16);
+    let scratch_slots = package_default_depth(export).max(5);
+    let frame_size = align(scratch_base + scratch_slots * 8, 16);
     let mut instructions = vec![abi::label("entry"), abi::subtract_stack(frame_size)];
     let mut relocations = Vec::new();
     instructions.push(abi::store_u64(
@@ -2829,6 +2971,7 @@ fn lower_package_export_function(
                 pc,
                 helper,
                 &slot,
+                scratch_base,
                 frame_size,
                 lr_offset,
                 &mut instructions,
@@ -2937,6 +3080,18 @@ fn lower_package_export_function(
             }
             bytecode::NATIVE_OPCODE_RETURN_OK => {
                 let value = native_operand(instruction, 0)?;
+                if lower_package_return_union_variant(
+                    export,
+                    value,
+                    pc,
+                    &slot,
+                    frame_size,
+                    lr_offset,
+                    &mut instructions,
+                    &mut relocations,
+                )? {
+                    continue;
+                }
                 instructions.extend([
                     abi::load_u64(RESULT_VALUE_REGISTER, abi::stack_pointer(), slot(value)),
                     abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
@@ -2944,6 +3099,18 @@ fn lower_package_export_function(
                     abi::add_stack(frame_size),
                     abi::return_(),
                 ]);
+            }
+            bytecode::NATIVE_OPCODE_CONSTRUCT_RECORD => {
+                lower_package_construct_record(
+                    export,
+                    instruction,
+                    pc,
+                    &slot,
+                    frame_size,
+                    lr_offset,
+                    &mut instructions,
+                    &mut relocations,
+                )?;
             }
             other => {
                 return Err(format!(
@@ -2986,6 +3153,153 @@ fn lower_package_export_function(
         relocations,
         stack_slots: Vec::new(),
     })
+}
+
+fn lower_package_return_union_variant(
+    export: &NativePackageExport,
+    value: u32,
+    pc: usize,
+    slot: &dyn Fn(u32) -> usize,
+    frame_size: usize,
+    lr_offset: usize,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+) -> Result<bool, String> {
+    let Some(bytecode::NativePackageTypeInfo::Union(union)) =
+        export.type_info.get(&export.return_type_id)
+    else {
+        return Ok(false);
+    };
+    let value_type_id = export
+        .registers
+        .get(value as usize)
+        .ok_or_else(|| {
+            format!(
+                "package export '{}' returns missing register {value}",
+                export.name
+            )
+        })?
+        .type_id;
+    let Some(variant_name) = export.type_name_strings.get(&value_type_id).copied() else {
+        return Ok(false);
+    };
+    let Some(variant) = union.variants.get(&variant_name) else {
+        return Ok(false);
+    };
+
+    let union_slot = slot(value);
+    let alloc_ok = format!("{}_pkg_return_union_ok_{pc}", export.symbol);
+    instructions.extend([
+        abi::move_immediate(
+            abi::return_register(),
+            "Integer",
+            &(union.size_slots * 8).to_string(),
+        ),
+        abi::move_immediate("x1", "Integer", "8"),
+        abi::branch_link(ARENA_ALLOC_SYMBOL),
+        abi::compare_immediate(abi::return_register(), RESULT_OK_TAG),
+        abi::branch_eq(&alloc_ok),
+        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_OUT_OF_MEMORY_CODE),
+        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
+    ]);
+    push_error_message_address(
+        &export.symbol,
+        ERR_ALLOCATION_SYMBOL,
+        instructions,
+        relocations,
+    );
+    instructions.extend([
+        abi::load_u64(abi::link_register(), abi::stack_pointer(), lr_offset),
+        abi::add_stack(frame_size),
+        abi::return_(),
+        abi::label(&alloc_ok),
+        abi::load_u64("x10", abi::stack_pointer(), slot(value)),
+        abi::store_u64("x1", abi::stack_pointer(), union_slot),
+        abi::move_immediate("x9", "Integer", &variant.tag.to_string()),
+        abi::store_u64("x9", "x1", 0),
+    ]);
+    for field in &variant.fields {
+        instructions.extend([
+            abi::load_u64("x9", "x10", (field.offset_slots - 1) * 8),
+            abi::load_u64("x11", abi::stack_pointer(), union_slot),
+            abi::store_u64("x9", "x11", field.offset_slots * 8),
+        ]);
+    }
+    instructions.extend([
+        abi::load_u64(RESULT_VALUE_REGISTER, abi::stack_pointer(), union_slot),
+        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
+        abi::load_u64(abi::link_register(), abi::stack_pointer(), lr_offset),
+        abi::add_stack(frame_size),
+        abi::return_(),
+    ]);
+    relocations.push(internal_branch(&export.symbol, ARENA_ALLOC_SYMBOL));
+    Ok(true)
+}
+
+fn lower_package_construct_record(
+    export: &NativePackageExport,
+    instruction: &bytecode::NativeInstruction,
+    pc: usize,
+    slot: &dyn Fn(u32) -> usize,
+    frame_size: usize,
+    lr_offset: usize,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+) -> Result<(), String> {
+    let dst = native_operand(instruction, 0)?;
+    let type_id = native_operand(instruction, 1)?;
+    let Some(bytecode::NativePackageTypeInfo::Record(fields)) = export.type_info.get(&type_id)
+    else {
+        return Err(format!(
+            "package export '{}' constructs non-record type id {type_id}",
+            export.name
+        ));
+    };
+    if instruction.operands.len() != fields.len() + 2 {
+        return Err(format!(
+            "package export '{}' record constructor has {} field value(s), expected {}",
+            export.name,
+            instruction.operands.len().saturating_sub(2),
+            fields.len()
+        ));
+    }
+    let alloc_ok = format!("{}_pkg_construct_record_ok_{pc}", export.symbol);
+    instructions.extend([
+        abi::move_immediate(
+            abi::return_register(),
+            "Integer",
+            &(fields.len() * 8).to_string(),
+        ),
+        abi::move_immediate("x1", "Integer", "8"),
+        abi::branch_link(ARENA_ALLOC_SYMBOL),
+        abi::compare_immediate(abi::return_register(), RESULT_OK_TAG),
+        abi::branch_eq(&alloc_ok),
+        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_OUT_OF_MEMORY_CODE),
+        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
+    ]);
+    push_error_message_address(
+        &export.symbol,
+        ERR_ALLOCATION_SYMBOL,
+        instructions,
+        relocations,
+    );
+    instructions.extend([
+        abi::load_u64(abi::link_register(), abi::stack_pointer(), lr_offset),
+        abi::add_stack(frame_size),
+        abi::return_(),
+        abi::label(&alloc_ok),
+        abi::store_u64("x1", abi::stack_pointer(), slot(dst)),
+    ]);
+    for (index, field) in fields.iter().enumerate() {
+        let operand = native_operand(instruction, 2 + index)?;
+        instructions.extend([
+            abi::load_u64("x9", abi::stack_pointer(), slot(dst)),
+            abi::load_u64("x10", abi::stack_pointer(), slot(operand)),
+            abi::store_u64("x10", "x9", field.offset_slots * 8),
+        ]);
+    }
+    relocations.push(internal_branch(&export.symbol, ARENA_ALLOC_SYMBOL));
+    Ok(())
 }
 
 fn native_operand(instruction: &bytecode::NativeInstruction, index: usize) -> Result<u32, String> {
@@ -3845,6 +4159,7 @@ fn lower_direct_builtin_runtime_helper(
         trap: None,
         active_cleanups: Vec::new(),
         pending_result_slots: None,
+        error_arena_restore_slot: None,
     };
 
     let args = spec
@@ -4039,7 +4354,6 @@ fn lower_io_write_helper(
 }
 
 const THREAD_BLOCK_SIZE: usize = 128;
-const THREAD_STACK_SIZE: usize = 65536;
 const THREAD_OFFSET_STATE: usize = 0;
 const THREAD_OFFSET_CANCELLED: usize = 8;
 const THREAD_OFFSET_RESULT_TAG: usize = 16;
@@ -4052,8 +4366,8 @@ const THREAD_OFFSET_OUTBOUND_VALUE: usize = 64;
 const THREAD_OFFSET_OS_HANDLE: usize = 72;
 const THREAD_OFFSET_ENTRY: usize = 80;
 const THREAD_OFFSET_DATA: usize = 88;
-const THREAD_OFFSET_STACK: usize = 96;
 const THREAD_OFFSET_ARENA_STATE: usize = 104;
+const THREAD_OFFSET_PARENT_ARENA_STATE: usize = 112;
 
 fn lower_thread_helper(
     symbol: &str,
@@ -4104,23 +4418,17 @@ fn lower_thread_start_helper(
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
 ) -> Result<(CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>), String> {
-    const FRAME_SIZE: usize = 384;
+    const FRAME_SIZE: usize = 64;
     const LR_OFFSET: usize = 0;
     const ENTRY_OFFSET: usize = 8;
     const DATA_OFFSET: usize = 16;
     const IN_LIMIT_OFFSET: usize = 24;
     const OUT_LIMIT_OFFSET: usize = 32;
     const CB_OFFSET: usize = 40;
-    const STACK_OFFSET: usize = 48;
-    const MACH_STATE_OFFSET: usize = 56;
-    const MACH_STATE_PC_OFFSET: usize = MACH_STATE_OFFSET + 256;
-    const MACH_STATE_SP_OFFSET: usize = MACH_STATE_OFFSET + 248;
-    const MACH_STATE_X0_OFFSET: usize = MACH_STATE_OFFSET;
-    const MACH_STATE_X19_OFFSET: usize = MACH_STATE_OFFSET + 152;
 
     let invalid_limit = format!("{symbol}_invalid_limit");
     let alloc_block_ok = format!("{symbol}_alloc_block_ok");
-    let alloc_stack_ok = format!("{symbol}_alloc_stack_ok");
+    let alloc_worker_arena_ok = format!("{symbol}_alloc_worker_arena_ok");
     let spawn_error = format!("{symbol}_spawn_error");
     let parent_done = format!("{symbol}_parent_done");
     let mut instructions = vec![abi::label("entry"), abi::subtract_stack(FRAME_SIZE)];
@@ -4168,142 +4476,86 @@ fn lower_thread_start_helper(
         abi::store_u64("x31", "x9", THREAD_OFFSET_OUTBOUND_COUNT),
         abi::store_u64("x31", "x9", THREAD_OFFSET_OUTBOUND_VALUE),
         abi::store_u64("x31", "x9", THREAD_OFFSET_OS_HANDLE),
+        abi::store_u64("x31", "x9", THREAD_OFFSET_PARENT_ARENA_STATE),
         abi::load_u64("x10", abi::stack_pointer(), ENTRY_OFFSET),
         abi::store_u64("x10", "x9", THREAD_OFFSET_ENTRY),
         abi::load_u64("x10", abi::stack_pointer(), DATA_OFFSET),
         abi::store_u64("x10", "x9", THREAD_OFFSET_DATA),
-        abi::store_u64(ARENA_STATE_REGISTER, "x9", THREAD_OFFSET_ARENA_STATE),
+        abi::store_u64(ARENA_STATE_REGISTER, "x9", THREAD_OFFSET_PARENT_ARENA_STATE),
+        abi::move_immediate("x0", "Integer", &ARENA_STATE_SIZE.to_string()),
+        abi::move_immediate("x1", "Integer", "8"),
+        abi::branch_link(ARENA_ALLOC_SYMBOL),
+    ]);
+    relocations.push(internal_branch(symbol, ARENA_ALLOC_SYMBOL));
+    instructions.extend([
+        abi::compare_immediate(RESULT_TAG_REGISTER, RESULT_OK_TAG),
+        abi::branch_eq(&alloc_worker_arena_ok),
+        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_OUT_OF_MEMORY_CODE),
+        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
+    ]);
+    push_error_message_address(
+        symbol,
+        ERR_ALLOCATION_SYMBOL,
+        &mut instructions,
+        &mut relocations,
+    );
+    instructions.extend([
+        abi::branch(&parent_done),
+        abi::label(&alloc_worker_arena_ok),
+        abi::store_u64("x31", "x1", 0),
+        abi::store_u64("x31", "x1", 8),
+        abi::store_u64("x31", "x1", 16),
+        abi::store_u64("x31", "x1", 24),
+        abi::store_u64("x31", "x1", 32),
+        abi::store_u64("x31", "x1", 40),
+        abi::store_u64("x31", "x1", 48),
+        abi::store_u64("x31", "x1", 56),
+        abi::load_u64("x9", abi::stack_pointer(), CB_OFFSET),
+        abi::store_u64("x1", "x9", THREAD_OFFSET_ARENA_STATE),
     ]);
 
-    if platform.target() == "linux-aarch64" {
-        instructions.extend([
-            abi::add_immediate("x0", "x9", THREAD_OFFSET_OS_HANDLE),
-            abi::move_immediate("x1", "Integer", "0"),
-        ]);
-        instructions.push(abi::load_page_address("x2", THREAD_TRAMPOLINE_SYMBOL));
-        relocations.push(CodeRelocation {
-            from: symbol.to_string(),
-            to: THREAD_TRAMPOLINE_SYMBOL.to_string(),
-            kind: "page21".to_string(),
-            binding: "data".to_string(),
-            library: None,
-        });
-        instructions.push(abi::add_page_offset("x2", "x2", THREAD_TRAMPOLINE_SYMBOL));
-        relocations.push(CodeRelocation {
-            from: symbol.to_string(),
-            to: THREAD_TRAMPOLINE_SYMBOL.to_string(),
-            kind: "pageoff12".to_string(),
-            binding: "data".to_string(),
-            library: None,
-        });
-        instructions.extend([
-            abi::move_register("x3", "x9"),
-            abi::branch_link("pthread_create"),
-        ]);
-        relocations.push(external_branch(symbol, "pthread_create", platform_imports)?);
-        instructions.extend([
-            abi::compare_immediate("x0", "0"),
-            abi::branch_ne(&spawn_error),
-            abi::load_u64("x9", abi::stack_pointer(), CB_OFFSET),
-            abi::move_register(RESULT_VALUE_REGISTER, "x9"),
-            abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
-            abi::branch(&parent_done),
-        ]);
+    let pthread_create_symbol = if platform.target() == "macos-aarch64" {
+        "_pthread_create"
     } else {
-        instructions.extend([
-            abi::move_immediate("x0", "Integer", &THREAD_STACK_SIZE.to_string()),
-            abi::move_immediate("x1", "Integer", "16"),
-            abi::branch_link(ARENA_ALLOC_SYMBOL),
-        ]);
-        relocations.push(internal_branch(symbol, ARENA_ALLOC_SYMBOL));
-        instructions.extend([
-            abi::compare_immediate(RESULT_TAG_REGISTER, RESULT_OK_TAG),
-            abi::branch_eq(&alloc_stack_ok),
-            abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_OUT_OF_MEMORY_CODE),
-            abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
-        ]);
-        push_error_message_address(
-            symbol,
-            ERR_ALLOCATION_SYMBOL,
-            &mut instructions,
-            &mut relocations,
-        );
-        instructions.extend([
-            abi::branch(&parent_done),
-            abi::label(&alloc_stack_ok),
-            abi::store_u64("x1", abi::stack_pointer(), STACK_OFFSET),
-            abi::load_u64("x9", abi::stack_pointer(), CB_OFFSET),
-            abi::store_u64("x1", "x9", THREAD_OFFSET_STACK),
-            abi::load_u64("x9", abi::stack_pointer(), CB_OFFSET),
-            abi::store_u64("x9", abi::stack_pointer(), MACH_STATE_X0_OFFSET),
-            abi::store_u64(
-                ARENA_STATE_REGISTER,
-                abi::stack_pointer(),
-                MACH_STATE_X19_OFFSET,
-            ),
-            abi::load_u64("x10", abi::stack_pointer(), STACK_OFFSET),
-            abi::move_immediate("x11", "Integer", &(THREAD_STACK_SIZE - 16).to_string()),
-            abi::add_registers("x10", "x10", "x11"),
-            abi::store_u64("x10", abi::stack_pointer(), MACH_STATE_SP_OFFSET),
-        ]);
-        instructions.push(abi::load_page_address("x10", THREAD_TRAMPOLINE_SYMBOL));
-        relocations.push(CodeRelocation {
-            from: symbol.to_string(),
-            to: THREAD_TRAMPOLINE_SYMBOL.to_string(),
-            kind: "page21".to_string(),
-            binding: "data".to_string(),
-            library: None,
-        });
-        instructions.push(abi::add_page_offset("x10", "x10", THREAD_TRAMPOLINE_SYMBOL));
-        relocations.push(CodeRelocation {
-            from: symbol.to_string(),
-            to: THREAD_TRAMPOLINE_SYMBOL.to_string(),
-            kind: "pageoff12".to_string(),
-            binding: "data".to_string(),
-            library: None,
-        });
-        instructions.extend([
-            abi::store_u64("x10", abi::stack_pointer(), MACH_STATE_PC_OFFSET),
-            abi::load_page_address("x0", "_mach_task_self_"),
-        ]);
-        relocations.push(external_data_ref(
-            symbol,
-            "_mach_task_self_",
-            "page21",
-            platform_imports,
-        )?);
-        instructions.extend([
-            abi::add_page_offset("x0", "x0", "_mach_task_self_"),
-            abi::load_u64("x0", "x0", 0),
-            abi::load_u32("x0", "x0", 0),
-        ]);
-        relocations.push(external_data_ref(
-            symbol,
-            "_mach_task_self_",
-            "pageoff12",
-            platform_imports,
-        )?);
-        instructions.extend([
-            abi::move_immediate("x1", "Integer", "6"),
-            abi::add_immediate("x2", abi::stack_pointer(), MACH_STATE_OFFSET),
-            abi::move_immediate("x3", "Integer", "68"),
-            abi::add_immediate("x4", "x9", THREAD_OFFSET_OS_HANDLE),
-            abi::branch_link("_thread_create_running"),
-        ]);
-        relocations.push(external_branch(
-            symbol,
-            "_thread_create_running",
-            platform_imports,
-        )?);
-        instructions.extend([
-            abi::compare_immediate("x0", "0"),
-            abi::branch_ne(&spawn_error),
-            abi::load_u64("x9", abi::stack_pointer(), CB_OFFSET),
-            abi::move_register(RESULT_VALUE_REGISTER, "x9"),
-            abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
-            abi::branch(&parent_done),
-        ]);
-    }
+        "pthread_create"
+    };
+    instructions.extend([
+        abi::add_immediate("x0", "x9", THREAD_OFFSET_OS_HANDLE),
+        abi::move_immediate("x1", "Integer", "0"),
+    ]);
+    instructions.push(abi::load_page_address("x2", THREAD_TRAMPOLINE_SYMBOL));
+    relocations.push(CodeRelocation {
+        from: symbol.to_string(),
+        to: THREAD_TRAMPOLINE_SYMBOL.to_string(),
+        kind: "page21".to_string(),
+        binding: "data".to_string(),
+        library: None,
+    });
+    instructions.push(abi::add_page_offset("x2", "x2", THREAD_TRAMPOLINE_SYMBOL));
+    relocations.push(CodeRelocation {
+        from: symbol.to_string(),
+        to: THREAD_TRAMPOLINE_SYMBOL.to_string(),
+        kind: "pageoff12".to_string(),
+        binding: "data".to_string(),
+        library: None,
+    });
+    instructions.extend([
+        abi::move_register("x3", "x9"),
+        abi::branch_link(pthread_create_symbol),
+    ]);
+    relocations.push(external_branch(
+        symbol,
+        pthread_create_symbol,
+        platform_imports,
+    )?);
+    instructions.extend([
+        abi::compare_immediate("x0", "0"),
+        abi::branch_ne(&spawn_error),
+        abi::load_u64("x9", abi::stack_pointer(), CB_OFFSET),
+        abi::move_register(RESULT_VALUE_REGISTER, "x9"),
+        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
+        abi::branch(&parent_done),
+    ]);
 
     instructions.extend([
         abi::label(&invalid_limit),
@@ -4346,72 +4598,41 @@ fn lower_thread_start_helper(
     ))
 }
 
-fn lower_thread_trampoline(platform: &dyn CodegenPlatform) -> Result<CodeFunction, String> {
-    let instructions = if platform.target() == "linux-aarch64" {
-        vec![
-            abi::label("entry"),
-            abi::subtract_stack(48),
-            abi::store_u64(abi::link_register(), abi::stack_pointer(), 0),
-            abi::store_u64(ARENA_STATE_REGISTER, abi::stack_pointer(), 8),
-            abi::store_u64("x20", abi::stack_pointer(), 16),
-            abi::store_u64(CLOSURE_ENV_REGISTER, abi::stack_pointer(), 24),
-            abi::move_register("x20", "x0"),
-            abi::store_u64("x20", abi::stack_pointer(), 32),
-            abi::load_u64(ARENA_STATE_REGISTER, "x20", THREAD_OFFSET_ARENA_STATE),
-            abi::load_u64("x9", "x20", THREAD_OFFSET_ENTRY),
-            abi::load_u64(CLOSURE_ENV_REGISTER, "x9", CLOSURE_OFFSET_ENV),
-            abi::load_u64("x9", "x9", CLOSURE_OFFSET_CODE),
-            abi::load_u64("x1", "x20", THREAD_OFFSET_DATA),
-            abi::move_register("x0", "x20"),
-            abi::branch_link_register("x9"),
-            abi::load_u64("x20", abi::stack_pointer(), 32),
-            abi::store_u64(RESULT_TAG_REGISTER, "x20", THREAD_OFFSET_RESULT_TAG),
-            abi::store_u64(RESULT_VALUE_REGISTER, "x20", THREAD_OFFSET_RESULT_VALUE),
-            abi::store_u64(
-                RESULT_ERROR_MESSAGE_REGISTER,
-                "x20",
-                THREAD_OFFSET_RESULT_ERROR,
-            ),
-            abi::move_immediate("x10", "Integer", "1"),
-            abi::store_u64("x10", "x20", THREAD_OFFSET_STATE),
-            abi::move_immediate("x0", "Integer", "0"),
-            abi::load_u64(ARENA_STATE_REGISTER, abi::stack_pointer(), 8),
-            abi::load_u64(CLOSURE_ENV_REGISTER, abi::stack_pointer(), 24),
-            abi::load_u64("x20", abi::stack_pointer(), 16),
-            abi::load_u64(abi::link_register(), abi::stack_pointer(), 0),
-            abi::add_stack(48),
-            abi::return_(),
-        ]
-    } else {
-        vec![
-            abi::label("entry"),
-            abi::subtract_stack(32),
-            abi::move_register("x20", "x0"),
-            abi::store_u64("x20", abi::stack_pointer(), 0),
-            abi::store_u64(CLOSURE_ENV_REGISTER, abi::stack_pointer(), 8),
-            abi::load_u64(ARENA_STATE_REGISTER, "x20", THREAD_OFFSET_ARENA_STATE),
-            abi::load_u64("x9", "x20", THREAD_OFFSET_ENTRY),
-            abi::load_u64(CLOSURE_ENV_REGISTER, "x9", CLOSURE_OFFSET_ENV),
-            abi::load_u64("x9", "x9", CLOSURE_OFFSET_CODE),
-            abi::load_u64("x1", "x20", THREAD_OFFSET_DATA),
-            abi::move_register("x0", "x20"),
-            abi::branch_link_register("x9"),
-            abi::load_u64("x20", abi::stack_pointer(), 0),
-            abi::store_u64(RESULT_TAG_REGISTER, "x20", THREAD_OFFSET_RESULT_TAG),
-            abi::store_u64(RESULT_VALUE_REGISTER, "x20", THREAD_OFFSET_RESULT_VALUE),
-            abi::store_u64(
-                RESULT_ERROR_MESSAGE_REGISTER,
-                "x20",
-                THREAD_OFFSET_RESULT_ERROR,
-            ),
-            abi::move_immediate("x10", "Integer", "1"),
-            abi::store_u64("x10", "x20", THREAD_OFFSET_STATE),
-            abi::load_u64(CLOSURE_ENV_REGISTER, abi::stack_pointer(), 8),
-            abi::add_stack(32),
-            abi::branch_self(),
-            abi::return_(),
-        ]
-    };
+fn lower_thread_trampoline(_platform: &dyn CodegenPlatform) -> Result<CodeFunction, String> {
+    let instructions = vec![
+        abi::label("entry"),
+        abi::subtract_stack(48),
+        abi::store_u64(abi::link_register(), abi::stack_pointer(), 0),
+        abi::store_u64(ARENA_STATE_REGISTER, abi::stack_pointer(), 8),
+        abi::store_u64("x20", abi::stack_pointer(), 16),
+        abi::store_u64(CLOSURE_ENV_REGISTER, abi::stack_pointer(), 24),
+        abi::move_register("x20", "x0"),
+        abi::store_u64("x20", abi::stack_pointer(), 32),
+        abi::load_u64(ARENA_STATE_REGISTER, "x20", THREAD_OFFSET_ARENA_STATE),
+        abi::load_u64("x9", "x20", THREAD_OFFSET_ENTRY),
+        abi::load_u64(CLOSURE_ENV_REGISTER, "x9", CLOSURE_OFFSET_ENV),
+        abi::load_u64("x9", "x9", CLOSURE_OFFSET_CODE),
+        abi::load_u64("x1", "x20", THREAD_OFFSET_DATA),
+        abi::move_register("x0", "x20"),
+        abi::branch_link_register("x9"),
+        abi::load_u64("x20", abi::stack_pointer(), 32),
+        abi::store_u64(RESULT_TAG_REGISTER, "x20", THREAD_OFFSET_RESULT_TAG),
+        abi::store_u64(RESULT_VALUE_REGISTER, "x20", THREAD_OFFSET_RESULT_VALUE),
+        abi::store_u64(
+            RESULT_ERROR_MESSAGE_REGISTER,
+            "x20",
+            THREAD_OFFSET_RESULT_ERROR,
+        ),
+        abi::move_immediate("x10", "Integer", "1"),
+        abi::store_u64("x10", "x20", THREAD_OFFSET_STATE),
+        abi::move_immediate("x0", "Integer", "0"),
+        abi::load_u64(ARENA_STATE_REGISTER, abi::stack_pointer(), 8),
+        abi::load_u64(CLOSURE_ENV_REGISTER, abi::stack_pointer(), 24),
+        abi::load_u64("x20", abi::stack_pointer(), 16),
+        abi::load_u64(abi::link_register(), abi::stack_pointer(), 0),
+        abi::add_stack(48),
+        abi::return_(),
+    ];
     Ok(CodeFunction {
         name: "runtime.thread.trampoline".to_string(),
         symbol: THREAD_TRAMPOLINE_SYMBOL.to_string(),
@@ -4774,25 +4995,6 @@ fn external_branch(
         from: from.to_string(),
         to: to.to_string(),
         kind: "branch26".to_string(),
-        binding: "external".to_string(),
-        library: Some(library),
-    })
-}
-
-fn external_data_ref(
-    from: &str,
-    to: &str,
-    kind: &str,
-    platform_imports: &HashMap<String, String>,
-) -> Result<CodeRelocation, String> {
-    let library = platform_imports
-        .get(to)
-        .ok_or_else(|| format!("thread runtime helper requires {to} import"))?
-        .clone();
-    Ok(CodeRelocation {
-        from: from.to_string(),
-        to: to.to_string(),
-        kind: kind.to_string(),
         binding: "external".to_string(),
         library: Some(library),
     })
@@ -11479,10 +11681,18 @@ fn static_nir_value_type(value: &NirValue, locals: &HashMap<String, String>) -> 
         NirValue::ResultValue { value } => static_nir_value_type(value, locals)
             .and_then(|type_| type_.strip_prefix("Result OF ").map(str::to_string)),
         NirValue::ResultError { .. } => Some("Error".to_string()),
-        NirValue::MemberAccess { .. }
-        | NirValue::RuntimeCall { .. }
-        | NirValue::UnionWrap { .. }
-        | NirValue::Closure { .. } => None,
+        NirValue::MemberAccess { target, member } => {
+            let target_type = static_nir_value_type(target, locals)?;
+            if member == "result" {
+                builtins::thread::thread_output(&target_type)
+                    .map(|output_type| format!("Result OF {output_type}"))
+            } else {
+                None
+            }
+        }
+        NirValue::RuntimeCall { .. } | NirValue::UnionWrap { .. } | NirValue::Closure { .. } => {
+            None
+        }
     }
 }
 
@@ -12760,6 +12970,11 @@ fn static_type_name_with_types(
         }
         NirValue::MemberAccess { target, member } => {
             let target_type = static_type_name_with_types(target, types)?;
+            if member == "result" {
+                if let Some(output_type) = builtins::thread::thread_output(&target_type) {
+                    return Some(format!("Result OF {output_type}"));
+                }
+            }
             let (key_type, value_type) = parse_map_entry_type(&target_type)?;
             match member.as_str() {
                 "key" => Some(key_type),

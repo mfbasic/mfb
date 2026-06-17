@@ -1,0 +1,29 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "thread_return_fixed",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "mutable": false, "name": "t", "type": "Thread OF Fixed TO Fixed", "value": { "kind": "call", "target": "thread.start", "args": [{ "kind": "functionRef", "name": "thread_runtime_workers.returnFixed", "type": "ISOLATED FUNC(ThreadWorker OF Fixed TO Fixed, String) AS Fixed" }, { "kind": "const", "type": "String", "value": "seed" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "thread.send", "args": [{ "kind": "local", "name": "t" }, { "kind": "call", "target": "toFixed", "args": [{ "kind": "const", "type": "String", "value": "3.750" }] }, { "kind": "const", "type": "Integer", "value": "10" }] } },
+    { "op": "bind", "mutable": false, "name": "result", "type": "Fixed", "value": { "kind": "call", "target": "thread.waitFor", "args": [{ "kind": "local", "name": "t" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "local", "name": "result" }, { "kind": "call", "target": "toByte", "args": [{ "kind": "const", "type": "Integer", "value": "3" }] }] }] } },
+    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

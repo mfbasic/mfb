@@ -3,6 +3,24 @@ IMPORT io
 IMPORT strings
 IMPORT thread
 
+EXPORT TYPE ReturnItem
+  label AS String
+  count AS Integer
+END TYPE
+
+EXPORT TYPE ReturnOk
+  message AS String
+END TYPE
+
+EXPORT TYPE ReturnMissing
+  value AS Nothing
+END TYPE
+
+EXPORT UNION ReturnChoice
+  ReturnOk
+  ReturnMissing
+END UNION
+
 EXPORT ISOLATED FUNC printNumbers(t AS ThreadWorker OF String TO Integer, seed AS String) AS Integer
   io::print("1")
   io::print("2")
@@ -67,4 +85,59 @@ END FUNC
 
 EXPORT ISOLATED FUNC splitLines(t AS ThreadWorker OF String TO List OF String, content AS String) AS List OF String
   RETURN strings::split(content, "\n")
+END FUNC
+
+EXPORT ISOLATED FUNC returnInteger(t AS ThreadWorker OF Integer TO Integer, seed AS String) AS Integer
+  LET message AS Integer = thread::receive(t, 10)
+  io::print("101")
+  RETURN message
+END FUNC
+
+EXPORT ISOLATED FUNC returnString(t AS ThreadWorker OF String TO String, seed AS String) AS String
+  LET message AS String = thread::receive(t, 10)
+  io::print(message)
+  RETURN "worker-string-result"
+END FUNC
+
+EXPORT ISOLATED FUNC returnFloat(t AS ThreadWorker OF Float TO Float, seed AS String) AS Float
+  LET message AS Float = thread::receive(t, 10)
+  io::print("1.25")
+  RETURN message
+END FUNC
+
+EXPORT ISOLATED FUNC returnFixed(t AS ThreadWorker OF Fixed TO Fixed, seed AS String) AS Fixed
+  LET message AS Fixed = thread::receive(t, 10)
+  io::print("3.750")
+  RETURN message
+END FUNC
+
+EXPORT ISOLATED FUNC returnByte(t AS ThreadWorker OF Byte TO Byte, seed AS String) AS Byte
+  LET message AS Byte = thread::receive(t, 10)
+  io::print("7")
+  RETURN message
+END FUNC
+
+EXPORT ISOLATED FUNC returnListOfString(t AS ThreadWorker OF List OF String TO List OF String, seed AS String) AS List OF String
+  LET message AS List OF String = thread::receive(t, 10)
+  io::print("send-list-a")
+  io::print("send-list-b")
+  RETURN message
+END FUNC
+
+EXPORT ISOLATED FUNC returnMapOfStringToString(t AS ThreadWorker OF (Map OF String TO String) TO (Map OF String TO String), seed AS String) AS Map OF String TO String
+  LET message AS Map OF String TO String = thread::receive(t, 10)
+  io::print("send-map-value")
+  RETURN message
+END FUNC
+
+EXPORT ISOLATED FUNC returnType(t AS ThreadWorker OF String TO ReturnItem, seed AS String) AS ReturnItem
+  LET message AS String = thread::receive(t, 10)
+  io::print(message)
+  RETURN ReturnItem["returned-record", 22]
+END FUNC
+
+EXPORT ISOLATED FUNC returnUnion(t AS ThreadWorker OF String TO ReturnChoice, seed AS String) AS ReturnChoice
+  LET message AS String = thread::receive(t, 10)
+  io::print(message)
+  RETURN ReturnOk["returned-union"]
 END FUNC

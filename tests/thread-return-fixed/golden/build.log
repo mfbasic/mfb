@@ -1,0 +1,13 @@
+$ mfb build -ast tests/thread-return-fixed
+Wrote AST to tests/thread-return-fixed/thread_return_fixed.ast
+[exit 0]
+$ mfb build -ir tests/thread-return-fixed
+Wrote IR to tests/thread-return-fixed/thread_return_fixed.ir
+[exit 0]
+$ mfb build tests/thread-return-fixed
+Wrote executable to tests/thread-return-fixed/thread_return_fixed.out
+[exit 0]
+$ tests/thread-return-fixed/thread_return_fixed.out
+3.750
+3.750
+[exit 0]

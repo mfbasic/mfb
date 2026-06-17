@@ -370,12 +370,14 @@ Thread APIs are wired through type checking and native helpers, but the runtime 
 REQUIREMENT: Thread result field access
 SPECIFICATION: mfbasic.md @ §4.8 Threads; §16 Threads
 GROUP: threads
+STATUS: completed
 RECOMMENDED: CODE CHANGE
 The specification requires a completed parent `Thread OF Msg TO Out` to expose `result AS Result OF Out` for field access as `t.result`, and says `thread::waitFor(t)` returns `t.result` with normal auto-unwrapping. The type checker and IR type inference recognize `Thread.result`, but bytecode and native lowering only implement member access for records, variants, map entries, enums, and `Error`; lowering `t.result` falls through as an unknown field on `Thread`. Resolve by adding lowering/runtime support for reading the stored thread result field from `Thread`, defining its blocking or completed-only semantics consistently with `thread::waitFor`, and adding valid/invalid thread result field tests that execute generated code.
 
 REQUIREMENT: Fresh package instance for each started thread
 SPECIFICATION: mfbasic.md @ §16 Threads; threading.md @ §3 Isolation; threading.md @ §7 Thread Runtime Helpers
 GROUP: threads
+STATUS: completed
 RECOMMENDED: CODE CHANGE
 The spec requires each started thread to run the imported worker in a fresh package instance with isolated package state and runtime arena state. Native `thread::start` currently stores the caller's `ARENA_STATE_REGISTER` in the thread control block, and the trampoline restores that same arena for the worker. Resolve by allocating/initializing a worker-owned package/runtime arena state for each thread start, binding imported package exports to that instance, and adding runtime tests proving two starts do not share package state or arena-owned mutable data.
 

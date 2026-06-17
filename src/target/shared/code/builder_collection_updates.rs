@@ -1222,6 +1222,14 @@ impl CodeBuilder<'_> {
         key_type: &str,
         value_type: &str,
     ) -> Result<ValueResult, String> {
+        if key_type == "String" {
+            return self.lower_string_key_map_get(
+                collection_slot,
+                key_slot,
+                collection_type,
+                value_type,
+            );
+        }
         self.reset_temporary_registers();
         let collection = self.allocate_register()?;
         let key = self.allocate_register()?;
@@ -1307,6 +1315,78 @@ impl CodeBuilder<'_> {
             type_: value_type.to_string(),
             location: result,
             text: format!("get({collection_type}, {key_type})"),
+        })
+    }
+
+    fn lower_string_key_map_get(
+        &mut self,
+        collection_slot: usize,
+        key_slot: usize,
+        collection_type: &str,
+        value_type: &str,
+    ) -> Result<ValueResult, String> {
+        self.reset_temporary_registers();
+        let loop_label = self.label("map_get_loop");
+        let found = self.label("map_get_found");
+        let next = self.label("map_get_next");
+        let not_found = self.label("map_get_not_found");
+        let done = self.label("map_get_done");
+
+        self.emit(abi::load_u64("x8", abi::stack_pointer(), collection_slot));
+        self.emit(abi::load_u64("x9", abi::stack_pointer(), key_slot));
+        self.emit(abi::load_u64("x10", "x8", COLLECTION_OFFSET_COUNT));
+        self.emit(abi::move_immediate("x11", "Integer", "0"));
+        self.emit(abi::add_immediate("x12", "x8", COLLECTION_HEADER_SIZE));
+
+        self.emit(abi::label(&loop_label));
+        self.emit(abi::compare_registers("x11", "x10"));
+        self.emit(abi::branch_ge(&not_found));
+        self.emit(abi::load_u64(
+            "x13",
+            "x12",
+            COLLECTION_ENTRY_OFFSET_KEY_OFFSET,
+        ));
+        self.emit(abi::load_u64(
+            "x14",
+            "x12",
+            COLLECTION_ENTRY_OFFSET_KEY_LENGTH,
+        ));
+        self.emit(abi::load_u64("x15", "x9", 0));
+        self.emit(abi::compare_registers("x14", "x15"));
+        self.emit(abi::branch_ne(&next));
+        self.emit_collection_data_pointer("x15", "x8");
+        self.emit(abi::add_registers("x15", "x15", "x13"));
+        self.emit(abi::add_immediate("x16", "x9", 8));
+        self.emit_compare_bytes_branch("x15", "x16", "x14", &found, &next, "map_get_string_key");
+
+        self.emit(abi::label(&found));
+        self.emit(abi::load_u64(
+            "x13",
+            "x12",
+            COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
+        ));
+        self.emit(abi::load_u64(
+            "x14",
+            "x12",
+            COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
+        ));
+        self.reset_temporary_registers();
+        let result = self.emit_load_collection_payload(value_type, "x8", "x13", "x14")?;
+        self.emit(abi::branch(&done));
+
+        self.emit(abi::label(&next));
+        self.emit(abi::add_immediate("x12", "x12", COLLECTION_ENTRY_SIZE));
+        self.emit(abi::add_immediate("x11", "x11", 1));
+        self.emit(abi::branch(&loop_label));
+
+        self.emit(abi::label(&not_found));
+        self.emit_not_found_return()?;
+        self.emit(abi::label(&done));
+
+        Ok(ValueResult {
+            type_: value_type.to_string(),
+            location: result,
+            text: format!("get({collection_type}, String)"),
         })
     }
 

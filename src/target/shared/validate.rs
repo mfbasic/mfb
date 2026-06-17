@@ -418,10 +418,7 @@ fn unique_global_names(module: &NirModule) -> Result<HashSet<String>, String> {
         if global.name.is_empty() || global.symbol.is_empty() || global.type_.is_empty() {
             return Err("NIR global name, symbol, and type must not be empty".to_string());
         }
-        if !matches!(
-            global.visibility.as_str(),
-            "private" | "public" | "export"
-        ) {
+        if !matches!(global.visibility.as_str(), "private" | "public" | "export") {
             return Err(format!(
                 "NIR global '{}' has invalid visibility '{}'",
                 global.name, global.visibility
@@ -1000,6 +997,7 @@ fn validate_value(
             if locals.contains_key(name)
                 || type_value_names.constructors.contains(name)
                 || matches!(name.as_str(), "Ok" | "Error")
+                || is_imported_constructor_name(name)
             {
                 Ok(())
             } else {
@@ -1298,6 +1296,12 @@ fn validate_value(
             used_helpers,
         ),
     }
+}
+
+fn is_imported_constructor_name(name: &str) -> bool {
+    name.chars()
+        .next()
+        .is_some_and(|ch| ch.is_ascii_uppercase())
 }
 
 fn validate_type_name(type_: &str) -> Result<(), String> {

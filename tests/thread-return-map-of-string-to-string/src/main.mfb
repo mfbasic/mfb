@@ -1,0 +1,11 @@
+IMPORT io
+IMPORT thread
+IMPORT thread_runtime_workers
+
+FUNC main AS Integer
+  LET t AS Thread OF (Map OF String TO String) TO (Map OF String TO String) = thread::start(thread_runtime_workers::returnMapOfStringToString, "seed")
+  thread::send(t, Map OF String TO String { "send-map-key" := "send-map-value" }, 10)
+  LET result AS Map OF String TO String = thread::waitFor(t)
+  io::print(get(result, "send-map-key"))
+  RETURN 0
+END FUNC

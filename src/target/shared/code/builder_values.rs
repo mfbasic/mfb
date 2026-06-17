@@ -1003,6 +1003,23 @@ impl CodeBuilder<'_> {
                 updates,
             } => self.lower_with_update(type_, target, updates),
             NirValue::MemberAccess { target, member } => match target.as_ref() {
+                _ if member == "result" => {
+                    if let Some(output_type) = self.static_type_name(target).and_then(|type_| {
+                        builtins::thread::thread_output(&type_).map(str::to_string)
+                    }) {
+                        self.emit_raw_call(
+                            &runtime::symbol_for_call(
+                                runtime::RuntimeHelper::Thread,
+                                "thread.waitFor",
+                            ),
+                            std::slice::from_ref(target.as_ref()),
+                            "thread_result_arg",
+                        )?;
+                        return self
+                            .materialize_current_result(&output_type, "thread.result".to_string());
+                    }
+                    self.lower_field_access(target, member)
+                }
                 NirValue::Local(type_name) => {
                     if let Some(ordinal) = self
                         .type_model

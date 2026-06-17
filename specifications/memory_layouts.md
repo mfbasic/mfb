@@ -35,6 +35,15 @@ Native heap values use layout-specific compact object bodies. The arena
 allocator may keep block-level bookkeeping, but values allocated inside the
 arena do not share a universal per-object header.
 
+Each package instance owns a distinct arena. Worker package instances therefore
+allocate strings, records, unions, collections, errors, and other heap-backed
+values in the worker arena by default. When such a value crosses a thread
+boundary as start input, a queued message, or a completed result, the runtime
+must materialize the value in transfer storage independent of the producer arena
+or in the receiver's arena before the receiver observes it. A thread control
+block or queue entry must not retain a bare layout handle into a worker arena
+after that arena is eligible for reclamation.
+
 ### Standalone String
 
 Standalone and static `String` objects store the byte length first, followed by

@@ -4082,6 +4082,7 @@ impl<'a> TypeChecker<'a> {
     }
 
     fn parse_type(&self, name: &str) -> Type {
+        let name = builtins::thread::strip_type_group(name);
         if let Some(rest) = name.strip_prefix("ISOLATED FUNC(") {
             return self.parse_function_type(rest, true);
         }
@@ -4766,21 +4767,26 @@ impl<'a> TypeChecker<'a> {
             Type::Result(success) => format!("Result OF {}", self.type_name(success)),
             Type::String => "String".to_string(),
             Type::Thread(message, output) => {
-                format!(
-                    "Thread OF {} TO {}",
-                    self.type_name(message),
-                    self.type_name(output)
-                )
+                let message = self.thread_type_argument_name(message);
+                let output = self.thread_type_argument_name(output);
+                format!("Thread OF {message} TO {output}")
             }
             Type::ThreadWorker(message, output) => {
-                format!(
-                    "ThreadWorker OF {} TO {}",
-                    self.type_name(message),
-                    self.type_name(output)
-                )
+                let message = self.thread_type_argument_name(message);
+                let output = self.thread_type_argument_name(output);
+                format!("ThreadWorker OF {message} TO {output}")
             }
             Type::User(name) => name.clone(),
             Type::Unknown => "Unknown".to_string(),
+        }
+    }
+
+    fn thread_type_argument_name(&self, type_: &Type) -> String {
+        let name = self.type_name(type_);
+        if name.contains(" TO ") {
+            format!("({name})")
+        } else {
+            name
         }
     }
 

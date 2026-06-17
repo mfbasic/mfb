@@ -1,0 +1,39 @@
+{
+  "project": "thread_return_list_of_string",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 },
+    { "module": "thread", "line": 2 },
+    { "module": "thread_runtime_workers", "line": 3 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "main",
+      "line": 5,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "t", "type": "Thread OF List OF String TO List OF String", "value": { "kind": "call", "callee": "thread.start", "arguments": [{ "kind": "identifier", "value": "thread_runtime_workers.returnListOfString" }, { "kind": "string", "value": "seed" }] }, "line": 6 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "thread.send", "arguments": [{ "kind": "identifier", "value": "t" }, { "kind": "list", "values": [{ "kind": "string", "value": "send-list-a" }, { "kind": "string", "value": "send-list-b" }] }, { "kind": "number", "value": "10" }] }, "line": 7 },
+      { "kind": "binding", "mutable": false, "name": "result", "type": "List OF String", "value": { "kind": "call", "callee": "thread.waitFor", "arguments": [{ "kind": "identifier", "value": "t" }] }, "line": 8 },
+      {
+        "kind": "forEach",
+        "name": "item",
+        "iterable": { "kind": "identifier", "value": "result" },
+        "line": 9,
+        "body": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "identifier", "value": "item" }] }, "line": 10 }
+        ]
+      },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 12 }
+      ]
+    }
+    ]
+  }
+  ]
+}

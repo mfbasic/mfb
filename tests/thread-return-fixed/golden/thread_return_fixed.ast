@@ -1,0 +1,31 @@
+{
+  "project": "thread_return_fixed",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 },
+    { "module": "thread", "line": 2 },
+    { "module": "thread_runtime_workers", "line": 3 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "main",
+      "line": 5,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "t", "type": "Thread OF Fixed TO Fixed", "value": { "kind": "call", "callee": "thread.start", "arguments": [{ "kind": "identifier", "value": "thread_runtime_workers.returnFixed" }, { "kind": "string", "value": "seed" }] }, "line": 6 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "thread.send", "arguments": [{ "kind": "identifier", "value": "t" }, { "kind": "call", "callee": "toFixed", "arguments": [{ "kind": "string", "value": "3.750" }] }, { "kind": "number", "value": "10" }] }, "line": 7 },
+      { "kind": "binding", "mutable": false, "name": "result", "type": "Fixed", "value": { "kind": "call", "callee": "thread.waitFor", "arguments": [{ "kind": "identifier", "value": "t" }] }, "line": 8 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "result" }, { "kind": "call", "callee": "toByte", "arguments": [{ "kind": "number", "value": "3" }] }] }] }, "line": 9 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 10 }
+      ]
+    }
+    ]
+  }
+  ]
+}

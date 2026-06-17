@@ -234,12 +234,101 @@ pub(crate) fn thread_output(name: &str) -> Option<&str> {
 
 pub(crate) fn thread_parts(name: &str) -> Option<(&str, &str, &str)> {
     if let Some(rest) = name.strip_prefix("Thread OF ") {
-        let (message, output) = rest.split_once(" TO ")?;
-        return Some((THREAD_TYPE, message, output));
+        let (message, output) = split_thread_types(rest)?;
+        return Some((
+            THREAD_TYPE,
+            strip_type_group(message),
+            strip_type_group(output),
+        ));
     }
     let rest = name.strip_prefix("ThreadWorker OF ")?;
-    let (message, output) = rest.split_once(" TO ")?;
-    Some((THREAD_WORKER_TYPE, message, output))
+    let (message, output) = split_thread_types(rest)?;
+    Some((
+        THREAD_WORKER_TYPE,
+        strip_type_group(message),
+        strip_type_group(output),
+    ))
+}
+
+fn split_thread_types(rest: &str) -> Option<(&str, &str)> {
+    let message_end = type_prefix_len(rest.trim())?;
+    let rest = rest.trim();
+    let separator = rest.get(message_end..)?;
+    let output = separator.strip_prefix(" TO ")?;
+    Some((rest[..message_end].trim(), output.trim()))
+}
+
+pub(crate) fn strip_type_group(type_: &str) -> &str {
+    let trimmed = type_.trim();
+    if !(trimmed.starts_with('(') && trimmed.ends_with(')')) {
+        return trimmed;
+    }
+    let mut depth = 0usize;
+    for (index, ch) in trimmed.char_indices() {
+        match ch {
+            '(' => depth += 1,
+            ')' => {
+                depth = depth.saturating_sub(1);
+                if depth == 0 && index + ch.len_utf8() != trimmed.len() {
+                    return trimmed;
+                }
+            }
+            _ => {}
+        }
+    }
+    &trimmed[1..trimmed.len() - 1]
+}
+
+fn type_prefix_len(input: &str) -> Option<usize> {
+    let input = input.trim_start();
+    if input.starts_with('(') {
+        let mut depth = 0usize;
+        for (index, ch) in input.char_indices() {
+            match ch {
+                '(' => depth += 1,
+                ')' => {
+                    depth = depth.saturating_sub(1);
+                    if depth == 0 {
+                        return Some(index + ch.len_utf8());
+                    }
+                }
+                _ => {}
+            }
+        }
+        return None;
+    }
+
+    let base_end = input
+        .char_indices()
+        .find_map(|(index, ch)| {
+            if ch.is_ascii_alphanumeric() || ch == '_' || ch == ':' || ch == '.' {
+                None
+            } else {
+                Some(index)
+            }
+        })
+        .unwrap_or(input.len());
+    if base_end == 0 {
+        return None;
+    }
+    let base = &input[..base_end];
+    let Some(after_of) = input[base_end..].strip_prefix(" OF ") else {
+        return Some(base_end);
+    };
+
+    if matches!(base, "List" | "Result") {
+        return type_prefix_len(after_of).map(|len| base_end + 4 + len);
+    }
+
+    if matches!(base, "Map" | "MapEntry" | "Thread" | "ThreadWorker") {
+        let first_len = type_prefix_len(after_of)?;
+        let after_first = after_of.get(first_len..)?;
+        let second_input = after_first.strip_prefix(" TO ")?;
+        let second_len = type_prefix_len(second_input)?;
+        return Some(base_end + 4 + first_len + 4 + second_len);
+    }
+
+    Some(base_end)
 }
 
 fn split_top_level_types(params: &str) -> Vec<String> {

@@ -1,0 +1,13 @@
+$ mfb build -ast tests/thread-return-string
+Wrote AST to tests/thread-return-string/thread_return_string.ast
+[exit 0]
+$ mfb build -ir tests/thread-return-string
+Wrote IR to tests/thread-return-string/thread_return_string.ir
+[exit 0]
+$ mfb build tests/thread-return-string
+Wrote executable to tests/thread-return-string/thread_return_string.out
+[exit 0]
+$ tests/thread-return-string/thread_return_string.out
+main-string-message
+worker-string-result
+[exit 0]

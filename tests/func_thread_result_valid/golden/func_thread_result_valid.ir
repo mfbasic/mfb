@@ -1,0 +1,168 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "func_thread_result_valid",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "mutable": false, "name": "rawThread", "type": "Thread OF Nothing TO Integer", "value": { "kind": "call", "target": "thread.start", "args": [{ "kind": "functionRef", "name": "thread_workers.noMessages", "type": "ISOLATED FUNC(ThreadWorker OF Nothing TO Integer, Integer) AS Integer" }, { "kind": "const", "type": "Integer", "value": "41" }, { "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "1" }] } },
+    { "op": "bind", "mutable": false, "name": "raw", "type": "Result OF Integer", "value": { "kind": "memberAccess", "target": { "kind": "local", "name": "rawThread" }, "member": "result" } },
+    { "op": "bind", "mutable": true, "name": "matched", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    { "op": "bind", "mutable": false, "name": "$match0", "type": "Result OF Integer", "value": { "kind": "local", "name": "raw" } },
+    { "op": "bind", "mutable": false, "name": "$match_ok1", "type": "Boolean", "value": { "kind": "resultIsOk", "value": { "kind": "local", "name": "$match0" } } },
+    {
+      "op": "match",
+      "value": { "kind": "local", "name": "$match_ok1" },
+      "cases": [
+      {
+        "pattern": { "kind": "value", "value": { "kind": "const", "type": "Boolean", "value": "true" } },
+        "guard": null,
+        "body": [
+        { "op": "bind", "mutable": false, "name": "value", "type": "Integer", "value": { "kind": "resultValue", "value": { "kind": "local", "name": "$match0" } } },
+        { "op": "assign", "name": "matched", "value": { "kind": "local", "name": "value" } }
+        ]
+      },
+      {
+        "pattern": { "kind": "value", "value": { "kind": "const", "type": "Boolean", "value": "false" } },
+        "guard": null,
+        "body": [
+        { "op": "bind", "mutable": false, "name": "err", "type": "Error", "value": { "kind": "resultError", "value": { "kind": "local", "name": "$match0" } } },
+        { "op": "return", "value": { "kind": "memberAccess", "target": { "kind": "local", "name": "err" }, "member": "code" } }
+        ]
+      }
+      ]
+    },
+    { "op": "bind", "mutable": false, "name": "directThread", "type": "Thread OF Nothing TO Integer", "value": { "kind": "call", "target": "thread.start", "args": [{ "kind": "functionRef", "name": "thread_workers.noMessages", "type": "ISOLATED FUNC(ThreadWorker OF Nothing TO Integer, Integer) AS Integer" }, { "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "1" }] } },
+    { "op": "bind", "mutable": false, "name": "directRaw", "type": "Result OF Integer", "value": { "kind": "memberAccess", "target": { "kind": "local", "name": "directThread" }, "member": "result" } },
+    { "op": "bind", "mutable": true, "name": "direct", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    { "op": "bind", "mutable": false, "name": "$match2", "type": "Result OF Integer", "value": { "kind": "local", "name": "directRaw" } },
+    { "op": "bind", "mutable": false, "name": "$match_ok3", "type": "Boolean", "value": { "kind": "resultIsOk", "value": { "kind": "local", "name": "$match2" } } },
+    {
+      "op": "match",
+      "value": { "kind": "local", "name": "$match_ok3" },
+      "cases": [
+      {
+        "pattern": { "kind": "value", "value": { "kind": "const", "type": "Boolean", "value": "true" } },
+        "guard": null,
+        "body": [
+        { "op": "bind", "mutable": false, "name": "value", "type": "Integer", "value": { "kind": "resultValue", "value": { "kind": "local", "name": "$match2" } } },
+        { "op": "assign", "name": "direct", "value": { "kind": "local", "name": "value" } }
+        ]
+      },
+      {
+        "pattern": { "kind": "value", "value": { "kind": "const", "type": "Boolean", "value": "false" } },
+        "guard": null,
+        "body": [
+        { "op": "bind", "mutable": false, "name": "err", "type": "Error", "value": { "kind": "resultError", "value": { "kind": "local", "name": "$match2" } } },
+        { "op": "return", "value": { "kind": "memberAccess", "target": { "kind": "local", "name": "err" }, "member": "code" } }
+        ]
+      }
+      ]
+    },
+    { "op": "bind", "mutable": false, "name": "repeatedRaw", "type": "Result OF Integer", "value": { "kind": "memberAccess", "target": { "kind": "local", "name": "rawThread" }, "member": "result" } },
+    { "op": "bind", "mutable": true, "name": "repeated", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    { "op": "bind", "mutable": false, "name": "$match4", "type": "Result OF Integer", "value": { "kind": "local", "name": "repeatedRaw" } },
+    { "op": "bind", "mutable": false, "name": "$match_ok5", "type": "Boolean", "value": { "kind": "resultIsOk", "value": { "kind": "local", "name": "$match4" } } },
+    {
+      "op": "match",
+      "value": { "kind": "local", "name": "$match_ok5" },
+      "cases": [
+      {
+        "pattern": { "kind": "value", "value": { "kind": "const", "type": "Boolean", "value": "true" } },
+        "guard": null,
+        "body": [
+        { "op": "bind", "mutable": false, "name": "value", "type": "Integer", "value": { "kind": "resultValue", "value": { "kind": "local", "name": "$match4" } } },
+        { "op": "assign", "name": "repeated", "value": { "kind": "local", "name": "value" } }
+        ]
+      },
+      {
+        "pattern": { "kind": "value", "value": { "kind": "const", "type": "Boolean", "value": "false" } },
+        "guard": null,
+        "body": [
+        { "op": "bind", "mutable": false, "name": "err", "type": "Error", "value": { "kind": "resultError", "value": { "kind": "local", "name": "$match4" } } },
+        { "op": "return", "value": { "kind": "memberAccess", "target": { "kind": "local", "name": "err" }, "member": "code" } }
+        ]
+      }
+      ]
+    },
+    {
+      "op": "if",
+      "condition": { "kind": "binary", "op": "<>", "left": { "kind": "local", "name": "matched" }, "right": { "kind": "const", "type": "Integer", "value": "41" } },
+      "then": [
+      { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "1" } }
+      ],
+      "else": [
+      ]
+    },
+    {
+      "op": "if",
+      "condition": { "kind": "binary", "op": "<>", "left": { "kind": "local", "name": "direct" }, "right": { "kind": "const", "type": "Integer", "value": "1" } },
+      "then": [
+      { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "2" } }
+      ],
+      "else": [
+      ]
+    },
+    {
+      "op": "if",
+      "condition": { "kind": "binary", "op": "<>", "left": { "kind": "local", "name": "repeated" }, "right": { "kind": "const", "type": "Integer", "value": "41" } },
+      "then": [
+      { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "3" } }
+      ],
+      "else": [
+      ]
+    },
+    { "op": "bind", "mutable": false, "name": "textThread", "type": "Thread OF String TO String", "value": { "kind": "call", "target": "thread.start", "args": [{ "kind": "functionRef", "name": "thread_runtime_workers.readTextPath", "type": "ISOLATED FUNC(ThreadWorker OF String TO String, String) AS String" }, { "kind": "const", "type": "String", "value": "tests/func_thread_result_valid/data/input.txt" }, { "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "1" }] } },
+    { "op": "bind", "mutable": false, "name": "textRaw", "type": "Result OF String", "value": { "kind": "memberAccess", "target": { "kind": "local", "name": "textThread" }, "member": "result" } },
+    { "op": "bind", "mutable": true, "name": "text", "type": "String", "value": { "kind": "const", "type": "String", "value": "" } },
+    { "op": "bind", "mutable": false, "name": "$match6", "type": "Result OF String", "value": { "kind": "local", "name": "textRaw" } },
+    { "op": "bind", "mutable": false, "name": "$match_ok7", "type": "Boolean", "value": { "kind": "resultIsOk", "value": { "kind": "local", "name": "$match6" } } },
+    {
+      "op": "match",
+      "value": { "kind": "local", "name": "$match_ok7" },
+      "cases": [
+      {
+        "pattern": { "kind": "value", "value": { "kind": "const", "type": "Boolean", "value": "true" } },
+        "guard": null,
+        "body": [
+        { "op": "bind", "mutable": false, "name": "value", "type": "String", "value": { "kind": "resultValue", "value": { "kind": "local", "name": "$match6" } } },
+        { "op": "assign", "name": "text", "value": { "kind": "local", "name": "value" } }
+        ]
+      },
+      {
+        "pattern": { "kind": "value", "value": { "kind": "const", "type": "Boolean", "value": "false" } },
+        "guard": null,
+        "body": [
+        { "op": "bind", "mutable": false, "name": "err", "type": "Error", "value": { "kind": "resultError", "value": { "kind": "local", "name": "$match6" } } },
+        { "op": "return", "value": { "kind": "memberAccess", "target": { "kind": "local", "name": "err" }, "member": "code" } }
+        ]
+      }
+      ]
+    },
+    {
+      "op": "if",
+      "condition": { "kind": "binary", "op": "<>", "left": { "kind": "local", "name": "text" }, "right": { "kind": "const", "type": "String", "value": "thread result copied from worker arena\n" } },
+      "then": [
+      { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "4" } }
+      ],
+      "else": [
+      ]
+    },
+    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

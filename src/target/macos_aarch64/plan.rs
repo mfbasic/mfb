@@ -248,26 +248,14 @@ impl plan::NativePlanPlatform for Platform {
             ],
             "thread.start" | "thread.isRunning" | "thread.waitFor" | "thread.cancel"
             | "thread.send" | "thread.poll" | "thread.read" | "thread.receive" | "thread.emit"
-            | "thread.isCancelled" => [
-                "_thread_create",
-                "_thread_create_running",
-                "_thread_terminate",
-                "_thread_suspend",
-                "_thread_resume",
-                "_thread_abort",
-                "_thread_get_state",
-                "_thread_set_state",
-                "_thread_info",
-                "_mach_thread_self",
-                "_mach_task_self_",
-            ]
-            .into_iter()
-            .map(|symbol| PlatformImport {
-                library: "libSystem".to_string(),
-                symbol: symbol.to_string(),
-                required_by: spec.symbol.to_string(),
-            })
-            .collect(),
+            | "thread.isCancelled" => ["_pthread_create"]
+                .into_iter()
+                .map(|symbol| PlatformImport {
+                    library: "libSystem".to_string(),
+                    symbol: symbol.to_string(),
+                    required_by: spec.symbol.to_string(),
+                })
+                .collect(),
             _ => Vec::new(),
         }
     }

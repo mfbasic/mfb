@@ -141,15 +141,15 @@ _access
 _stat
 _getcwd
 _confstr
-_thread_create_running
-_mach_task_self_
+_pthread_create
 _pow
 _sin
 _cos
 ```
 
-Threading currently uses libSystem/Mach thread primitives as documented in
-`specifications/threading.md`.
+Threading uses libSystem pthread creation as documented in
+`specifications/threading.md`; raw Mach thread creation is not the worker
+thread ABI.
 
 Math functions that require a platform library use libSystem symbols such as
 `_pow`, `_exp`, `_log`, `_sin`, `_cos`, and related functions.

@@ -1,0 +1,170 @@
+{
+  "project": "func_thread_result_valid",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "thread", "line": 1 },
+    { "module": "thread_runtime_workers", "line": 2 },
+    { "module": "thread_workers", "line": 3 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "main",
+      "line": 5,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "rawThread", "type": "Thread OF Nothing TO Integer", "value": { "kind": "call", "callee": "thread.start", "arguments": [{ "kind": "identifier", "value": "thread_workers.noMessages" }, { "kind": "number", "value": "41" }, { "kind": "number", "value": "1" }, { "kind": "number", "value": "1" }] }, "line": 6 },
+      { "kind": "binding", "mutable": false, "name": "raw", "type": "Result OF Integer", "value": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "rawThread" }, "member": "result" }, "line": 7 },
+      { "kind": "binding", "mutable": true, "name": "matched", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 8 },
+      {
+        "kind": "match",
+        "expression": { "kind": "identifier", "value": "raw" },
+        "line": 10,
+        "cases": [
+        {
+          "pattern": { "kind": "union", "type": "Ok", "binding": "value" },
+          "guard": null,
+          "line": 11,
+          "body": [
+          { "kind": "assignment", "name": "matched", "value": { "kind": "identifier", "value": "value" }, "line": 12 }
+          ]
+        },
+        {
+          "pattern": { "kind": "union", "type": "Error", "binding": "err" },
+          "guard": null,
+          "line": 13,
+          "body": [
+          { "kind": "return", "value": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }, "line": 14 }
+          ]
+        }
+        ]
+      },
+      { "kind": "binding", "mutable": false, "name": "directThread", "type": "Thread OF Nothing TO Integer", "value": { "kind": "call", "callee": "thread.start", "arguments": [{ "kind": "identifier", "value": "thread_workers.noMessages" }, { "kind": "number", "value": "1" }, { "kind": "number", "value": "1" }, { "kind": "number", "value": "1" }] }, "line": 17 },
+      { "kind": "binding", "mutable": false, "name": "directRaw", "type": "Result OF Integer", "value": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "directThread" }, "member": "result" }, "line": 18 },
+      { "kind": "binding", "mutable": true, "name": "direct", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 19 },
+      {
+        "kind": "match",
+        "expression": { "kind": "identifier", "value": "directRaw" },
+        "line": 20,
+        "cases": [
+        {
+          "pattern": { "kind": "union", "type": "Ok", "binding": "value" },
+          "guard": null,
+          "line": 21,
+          "body": [
+          { "kind": "assignment", "name": "direct", "value": { "kind": "identifier", "value": "value" }, "line": 22 }
+          ]
+        },
+        {
+          "pattern": { "kind": "union", "type": "Error", "binding": "err" },
+          "guard": null,
+          "line": 23,
+          "body": [
+          { "kind": "return", "value": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }, "line": 24 }
+          ]
+        }
+        ]
+      },
+      { "kind": "binding", "mutable": false, "name": "repeatedRaw", "type": "Result OF Integer", "value": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "rawThread" }, "member": "result" }, "line": 27 },
+      { "kind": "binding", "mutable": true, "name": "repeated", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 28 },
+      {
+        "kind": "match",
+        "expression": { "kind": "identifier", "value": "repeatedRaw" },
+        "line": 29,
+        "cases": [
+        {
+          "pattern": { "kind": "union", "type": "Ok", "binding": "value" },
+          "guard": null,
+          "line": 30,
+          "body": [
+          { "kind": "assignment", "name": "repeated", "value": { "kind": "identifier", "value": "value" }, "line": 31 }
+          ]
+        },
+        {
+          "pattern": { "kind": "union", "type": "Error", "binding": "err" },
+          "guard": null,
+          "line": 32,
+          "body": [
+          { "kind": "return", "value": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }, "line": 33 }
+          ]
+        }
+        ]
+      },
+      {
+        "kind": "if",
+        "condition": { "kind": "binary", "operator": "<>", "left": { "kind": "identifier", "value": "matched" }, "right": { "kind": "number", "value": "41" } },
+        "line": 36,
+        "then": [
+        { "kind": "return", "value": { "kind": "number", "value": "1" }, "line": 36 }
+        ],
+        "else": [
+        ]
+      },
+      {
+        "kind": "if",
+        "condition": { "kind": "binary", "operator": "<>", "left": { "kind": "identifier", "value": "direct" }, "right": { "kind": "number", "value": "1" } },
+        "line": 37,
+        "then": [
+        { "kind": "return", "value": { "kind": "number", "value": "2" }, "line": 37 }
+        ],
+        "else": [
+        ]
+      },
+      {
+        "kind": "if",
+        "condition": { "kind": "binary", "operator": "<>", "left": { "kind": "identifier", "value": "repeated" }, "right": { "kind": "number", "value": "41" } },
+        "line": 38,
+        "then": [
+        { "kind": "return", "value": { "kind": "number", "value": "3" }, "line": 38 }
+        ],
+        "else": [
+        ]
+      },
+      { "kind": "binding", "mutable": false, "name": "textThread", "type": "Thread OF String TO String", "value": { "kind": "call", "callee": "thread.start", "arguments": [{ "kind": "identifier", "value": "thread_runtime_workers.readTextPath" }, { "kind": "string", "value": "tests/func_thread_result_valid/data/input.txt" }, { "kind": "number", "value": "1" }, { "kind": "number", "value": "1" }] }, "line": 40 },
+      { "kind": "binding", "mutable": false, "name": "textRaw", "type": "Result OF String", "value": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "textThread" }, "member": "result" }, "line": 41 },
+      { "kind": "binding", "mutable": true, "name": "text", "type": "String", "value": { "kind": "string", "value": "" }, "line": 42 },
+      {
+        "kind": "match",
+        "expression": { "kind": "identifier", "value": "textRaw" },
+        "line": 43,
+        "cases": [
+        {
+          "pattern": { "kind": "union", "type": "Ok", "binding": "value" },
+          "guard": null,
+          "line": 44,
+          "body": [
+          { "kind": "assignment", "name": "text", "value": { "kind": "identifier", "value": "value" }, "line": 45 }
+          ]
+        },
+        {
+          "pattern": { "kind": "union", "type": "Error", "binding": "err" },
+          "guard": null,
+          "line": 46,
+          "body": [
+          { "kind": "return", "value": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }, "line": 47 }
+          ]
+        }
+        ]
+      },
+      {
+        "kind": "if",
+        "condition": { "kind": "binary", "operator": "<>", "left": { "kind": "identifier", "value": "text" }, "right": { "kind": "string", "value": "thread result copied from worker arena\n" } },
+        "line": 49,
+        "then": [
+        { "kind": "return", "value": { "kind": "number", "value": "4" }, "line": 49 }
+        ],
+        "else": [
+        ]
+      },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 51 }
+      ]
+    }
+    ]
+  }
+  ]
+}

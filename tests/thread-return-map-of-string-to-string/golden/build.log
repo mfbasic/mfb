@@ -1,0 +1,13 @@
+$ mfb build -ast tests/thread-return-map-of-string-to-string
+Wrote AST to tests/thread-return-map-of-string-to-string/thread_return_map_of_string_to_string.ast
+[exit 0]
+$ mfb build -ir tests/thread-return-map-of-string-to-string
+Wrote IR to tests/thread-return-map-of-string-to-string/thread_return_map_of_string_to_string.ir
+[exit 0]
+$ mfb build tests/thread-return-map-of-string-to-string
+Wrote executable to tests/thread-return-map-of-string-to-string/thread_return_map_of_string_to_string.out
+[exit 0]
+$ tests/thread-return-map-of-string-to-string/thread_return_map_of_string_to_string.out
+send-map-value
+send-map-value
+[exit 0]

@@ -1,0 +1,14 @@
+$ mfb build -ast tests/thread-return-type
+Wrote AST to tests/thread-return-type/thread_return_type.ast
+[exit 0]
+$ mfb build -ir tests/thread-return-type
+Wrote IR to tests/thread-return-type/thread_return_type.ir
+[exit 0]
+$ mfb build tests/thread-return-type
+Wrote executable to tests/thread-return-type/thread_return_type.out
+[exit 0]
+$ tests/thread-return-type/thread_return_type.out
+sent-record
+returned-record
+22
+[exit 0]

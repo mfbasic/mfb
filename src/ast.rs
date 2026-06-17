@@ -2109,6 +2109,11 @@ impl<'a> FileParser<'a> {
             }
             return None;
         }
+        if self.match_kind(TokenKind::LParen) {
+            let name = self.parse_type_name()?;
+            self.consume_kind(TokenKind::RParen, "Expected `)` after grouped type.");
+            return Some(format!("({name})"));
+        }
         let mut name = self.parse_type_base_name("Expected a type name.")?;
         if self.check_identifier_ci("OF") {
             self.advance();

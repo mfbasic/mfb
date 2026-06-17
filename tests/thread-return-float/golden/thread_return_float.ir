@@ -1,0 +1,29 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "thread_return_float",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "mutable": false, "name": "t", "type": "Thread OF Float TO Float", "value": { "kind": "call", "target": "thread.start", "args": [{ "kind": "functionRef", "name": "thread_runtime_workers.returnFloat", "type": "ISOLATED FUNC(ThreadWorker OF Float TO Float, String) AS Float" }, { "kind": "const", "type": "String", "value": "seed" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "thread.send", "args": [{ "kind": "local", "name": "t" }, { "kind": "const", "type": "Float", "value": "1.25" }, { "kind": "const", "type": "Integer", "value": "10" }] } },
+    { "op": "bind", "mutable": false, "name": "result", "type": "Float", "value": { "kind": "call", "target": "thread.waitFor", "args": [{ "kind": "local", "name": "t" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "local", "name": "result" }, { "kind": "call", "target": "toByte", "args": [{ "kind": "const", "type": "Integer", "value": "2" }] }] }] } },
+    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

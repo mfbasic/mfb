@@ -1,0 +1,11 @@
+IMPORT io
+IMPORT thread
+IMPORT thread_runtime_workers
+
+FUNC main AS Integer
+  LET t AS Thread OF Float TO Float = thread::start(thread_runtime_workers::returnFloat, "seed")
+  thread::send(t, 1.25, 10)
+  LET result AS Float = thread::waitFor(t)
+  io::print(toString(result, toByte(2)))
+  RETURN 0
+END FUNC

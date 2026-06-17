@@ -1,0 +1,52 @@
+IMPORT thread
+IMPORT thread_runtime_workers
+IMPORT thread_workers
+
+FUNC main AS Integer
+  LET rawThread AS Thread OF Nothing TO Integer = thread::start(thread_workers::noMessages, 41, 1, 1)
+  LET raw AS Result OF Integer = rawThread.result
+  MUT matched AS Integer = 0
+
+  MATCH raw
+    CASE Ok(value)
+      matched = value
+    CASE Error(err)
+      RETURN err.code
+  END MATCH
+
+  LET directThread AS Thread OF Nothing TO Integer = thread::start(thread_workers::noMessages, 1, 1, 1)
+  LET directRaw AS Result OF Integer = directThread.result
+  MUT direct AS Integer = 0
+  MATCH directRaw
+    CASE Ok(value)
+      direct = value
+    CASE Error(err)
+      RETURN err.code
+  END MATCH
+
+  LET repeatedRaw AS Result OF Integer = rawThread.result
+  MUT repeated AS Integer = 0
+  MATCH repeatedRaw
+    CASE Ok(value)
+      repeated = value
+    CASE Error(err)
+      RETURN err.code
+  END MATCH
+
+  IF matched <> 41 THEN RETURN 1
+  IF direct <> 1 THEN RETURN 2
+  IF repeated <> 41 THEN RETURN 3
+
+  LET textThread AS Thread OF String TO String = thread::start(thread_runtime_workers::readTextPath, "tests/func_thread_result_valid/data/input.txt", 1, 1)
+  LET textRaw AS Result OF String = textThread.result
+  MUT text AS String = ""
+  MATCH textRaw
+    CASE Ok(value)
+      text = value
+    CASE Error(err)
+      RETURN err.code
+  END MATCH
+  IF text <> "thread result copied from worker arena\n" THEN RETURN 4
+
+  RETURN 0
+END FUNC

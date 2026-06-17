@@ -1,0 +1,16 @@
+IMPORT io
+IMPORT thread
+IMPORT thread_runtime_workers
+
+FUNC main AS Integer
+  LET t = thread::start(thread_runtime_workers::returnUnion, "seed")
+  thread::send(t, "sent-union", 10)
+  LET result = thread::waitFor(t)
+  MATCH result
+    CASE ReturnOk(value)
+      io::print(value.message)
+    CASE ReturnMissing(value)
+      io::print("returned-missing")
+  END MATCH
+  RETURN 0
+END FUNC

@@ -3,6 +3,7 @@ use crate::ast::{
     TopLevelBinding, TypeDecl, TypeDeclKind, TypeField, Visibility,
 };
 use crate::builtins;
+use crate::bytecode;
 use crate::rules;
 use std::collections::{HashMap, HashSet};
 use std::fs;
@@ -105,7 +106,12 @@ impl<'a> Resolver<'a> {
             for item in &file.items {
                 match item {
                     Item::Binding(binding) => {
-                        self.insert_top_level(file, &binding.name, binding.line, binding.visibility);
+                        self.insert_top_level(
+                            file,
+                            &binding.name,
+                            binding.line,
+                            binding.visibility,
+                        );
                     }
                     Item::Function(function) => {
                         self.insert_function(file, function);
@@ -1028,6 +1034,7 @@ impl<'a> Resolver<'a> {
             .join("packages")
             .join(format!("{name}.mfp"));
         if package_file.is_file() {
+            self.install_package_type_names(file, name, &package_file, line);
             return;
         }
 
@@ -1051,6 +1058,33 @@ impl<'a> Resolver<'a> {
             file,
             line,
         );
+    }
+
+    fn install_package_type_names(
+        &mut self,
+        file: &AstFile,
+        name: &str,
+        package_file: &Path,
+        line: usize,
+    ) {
+        let exports = match bytecode::read_package_type_exports(package_file) {
+            Ok(exports) => exports,
+            Err(err) => {
+                self.report(
+                    "IMPORT_PACKAGE_INVALID",
+                    &format!("Package `{name}` type exports could not be read: {err}"),
+                    file,
+                    line,
+                );
+                return;
+            }
+        };
+        for export in exports {
+            self.types.insert(export.name);
+            for variant in export.variants {
+                self.types.insert(variant.name);
+            }
+        }
     }
 
     fn resolve_local_dependency(&mut self, file: &AstFile, name: &str, source: &str, line: usize) {

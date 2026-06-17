@@ -1,0 +1,37 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "thread_return_list_of_string",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "mutable": false, "name": "t", "type": "Thread OF List OF String TO List OF String", "value": { "kind": "call", "target": "thread.start", "args": [{ "kind": "functionRef", "name": "thread_runtime_workers.returnListOfString", "type": "ISOLATED FUNC(ThreadWorker OF List OF String TO List OF String, String) AS List OF String" }, { "kind": "const", "type": "String", "value": "seed" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "thread.send", "args": [{ "kind": "local", "name": "t" }, { "kind": "list", "type": "List OF String", "values": [{ "kind": "const", "type": "String", "value": "send-list-a" }, { "kind": "const", "type": "String", "value": "send-list-b" }] }, { "kind": "const", "type": "Integer", "value": "10" }] } },
+    { "op": "bind", "mutable": false, "name": "result", "type": "List OF String", "value": { "kind": "call", "target": "thread.waitFor", "args": [{ "kind": "local", "name": "t" }] } },
+    {
+      "op": "forEach",
+      "name": "item",
+      "type": "String",
+      "iterable": { "kind": "local", "name": "result" },
+      "body": [
+      { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "local", "name": "item" }] } }
+      ]
+    },
+    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

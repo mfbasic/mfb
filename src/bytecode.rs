@@ -473,18 +473,22 @@ pub struct NativeTypeLayouts {
     pub unions: HashMap<u32, NativeUnionLayout>,
 }
 
+#[derive(Clone)]
 pub struct NativeRecordLayout {
     pub fields: HashMap<u32, NativeFieldLayout>,
     pub ordered_fields: Vec<NativeFieldLayout>,
     pub size_slots: usize,
 }
 
+#[derive(Clone)]
 pub struct NativeUnionLayout {
     pub variants: HashMap<u32, NativeVariantLayout>,
     pub size_slots: usize,
 }
 
+#[derive(Clone)]
 pub struct NativeVariantLayout {
+    pub tag: usize,
     pub fields: Vec<NativeFieldLayout>,
 }
 
@@ -499,7 +503,7 @@ pub struct NativeFieldLayout {
 pub enum NativePackageTypeInfo {
     Record(Vec<NativeFieldLayout>),
     Enum,
-    Union,
+    Union(NativeUnionLayout),
     List { element_type: u32 },
     Map { key_type: u32, value_type: u32 },
     Result { success_type: u32 },
@@ -530,6 +534,7 @@ pub struct NativePackageExport {
     pub package_name: String,
     pub symbol: String,
     pub name: String,
+    pub return_type_id: u32,
     pub return_type: NativeType,
     pub param_count: usize,
     pub global_count: usize,
@@ -538,6 +543,7 @@ pub struct NativePackageExport {
     pub constants: Vec<NativeConst>,
     pub external_calls: HashMap<u32, NativePackageCallTarget>,
     pub type_info: HashMap<u32, NativePackageTypeInfo>,
+    pub type_name_strings: HashMap<u32, u32>,
 }
 
 #[derive(Clone)]
@@ -1315,6 +1321,10 @@ fn package_native_exports(
         strings.insert(index as u32, value.clone());
     }
     let type_info = native_package_type_info(&package.project.types, &package.project.strings)?;
+    let mut type_name_strings = HashMap::new();
+    for (index, entry) in package.project.types.entries.iter().enumerate() {
+        type_name_strings.insert(FIRST_TABLE_TYPE_ID + index as u32, entry.name);
+    }
     let mut result_success_types = HashMap::new();
     for (index, entry) in package.project.types.entries.iter().enumerate() {
         if entry.kind == 6 && entry.payload.len() >= 4 {
@@ -1344,6 +1354,7 @@ fn package_native_exports(
                 sanitize_symbol_part(&export_name)
             ),
             name: format!("{package_name}.{export_name}"),
+            return_type_id: function.return_type,
             return_type: native_type(function.return_type, &result_success_types),
             param_count: function.params.len(),
             global_count: package.project.globals.len(),
@@ -1366,6 +1377,7 @@ fn package_native_exports(
             constants: constants.clone(),
             external_calls: external_calls.clone(),
             type_info: type_info.clone(),
+            type_name_strings: type_name_strings.clone(),
         });
     }
     Ok(exports)
@@ -2686,7 +2698,7 @@ fn native_type_layouts_from_bytecode(
                 let variant_count = cursor_u32(&entry.payload, &mut offset)? as usize;
                 let mut variants = HashMap::new();
                 let mut max_payload_slots = 0usize;
-                for _ in 0..variant_count {
+                for tag in 0..variant_count {
                     let variant_name = cursor_u32(&entry.payload, &mut offset)?;
                     let field_count = cursor_u32(&entry.payload, &mut offset)? as usize;
                     max_payload_slots = max_payload_slots.max(field_count);
@@ -2700,7 +2712,7 @@ fn native_type_layouts_from_bytecode(
                             type_id: field_type,
                         });
                     }
-                    variants.insert(variant_name, NativeVariantLayout { fields });
+                    variants.insert(variant_name, NativeVariantLayout { tag, fields });
                 }
                 unions.insert(
                     type_id,
@@ -2782,7 +2794,32 @@ fn native_package_type_info(
         let type_id = FIRST_TABLE_TYPE_ID + index as u32;
         let type_info = match entry.kind {
             1 => NativePackageTypeInfo::Record(native_record_field_layouts(&entry.payload, 0)?),
-            2 => NativePackageTypeInfo::Union,
+            2 => {
+                let mut offset = 0usize;
+                let variant_count = cursor_u32(&entry.payload, &mut offset)? as usize;
+                let mut variants = HashMap::new();
+                let mut max_payload_slots = 0usize;
+                for tag in 0..variant_count {
+                    let variant_name = cursor_u32(&entry.payload, &mut offset)?;
+                    let field_count = cursor_u32(&entry.payload, &mut offset)? as usize;
+                    max_payload_slots = max_payload_slots.max(field_count);
+                    let mut fields = Vec::with_capacity(field_count);
+                    for index in 0..field_count {
+                        let field_name = cursor_u32(&entry.payload, &mut offset)?;
+                        let field_type = cursor_u32(&entry.payload, &mut offset)?;
+                        fields.push(NativeFieldLayout {
+                            name: field_name,
+                            offset_slots: 1 + index,
+                            type_id: field_type,
+                        });
+                    }
+                    variants.insert(variant_name, NativeVariantLayout { tag, fields });
+                }
+                NativePackageTypeInfo::Union(NativeUnionLayout {
+                    variants,
+                    size_slots: 1 + max_payload_slots,
+                })
+            }
             3 => NativePackageTypeInfo::Enum,
             4 => NativePackageTypeInfo::List {
                 element_type: checked_u32_at(&entry.payload, 0)?,
@@ -4967,6 +5004,18 @@ impl<'a> FunctionBuilder<'a> {
                 }
 
                 let target = self.lower_value(target, locals)?;
+                if member == "result" {
+                    if let Some(output_type) = builtins::thread::thread_output(&target.type_name) {
+                        let output_type_id = self.type_id(output_type);
+                        let result_type_id = self.types.result_type(self.strings, output_type_id);
+                        let dst = self.add_register(result_type_id, 0);
+                        self.push(OPCODE_THREAD_WAIT_FOR, vec![dst, target.register]);
+                        return Ok(ValueSlot {
+                            register: dst,
+                            type_name: format!("Result OF {output_type}"),
+                        });
+                    }
+                }
                 if let Some((key_type, value_type)) = parse_map_entry_type(&target.type_name) {
                     let (field_index, field_type) = match member.as_str() {
                         "key" => (0, key_type),

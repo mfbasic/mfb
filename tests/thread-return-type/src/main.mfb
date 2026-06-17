@@ -1,0 +1,12 @@
+IMPORT io
+IMPORT thread
+IMPORT thread_runtime_workers
+
+FUNC main AS Integer
+  LET t = thread::start(thread_runtime_workers::returnType, "seed")
+  thread::send(t, "sent-record", 10)
+  LET result = thread::waitFor(t)
+  io::print(result.label)
+  io::print(toString(result.count))
+  RETURN 0
+END FUNC

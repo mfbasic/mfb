@@ -1,0 +1,11 @@
+IMPORT io
+IMPORT thread
+IMPORT thread_runtime_workers
+
+FUNC main AS Integer
+  LET t AS Thread OF String TO String = thread::start(thread_runtime_workers::returnString, "seed")
+  thread::send(t, "main-string-message", 10)
+  LET result AS String = thread::waitFor(t)
+  io::print(result)
+  RETURN 0
+END FUNC

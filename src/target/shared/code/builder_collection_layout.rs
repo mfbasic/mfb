@@ -27,7 +27,7 @@ impl CodeBuilder<'_> {
         is_collection_type(type_)
     }
 
-    fn emit_copy_bytes(&mut self, dst: &str, src: &str, len: &str, prefix: &str) {
+    pub(super) fn emit_copy_bytes(&mut self, dst: &str, src: &str, len: &str, prefix: &str) {
         let remaining = "x13";
         let loop_label = self.label(&format!("{prefix}_loop"));
         let done_label = self.label(&format!("{prefix}_done"));
@@ -44,7 +44,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&done_label));
     }
 
-    fn emit_compare_bytes_branch(
+    pub(super) fn emit_compare_bytes_branch(
         &mut self,
         left: &str,
         right: &str,
@@ -238,6 +238,7 @@ impl CodeBuilder<'_> {
         slots: Vec<CollectionValueSlot>,
         label: &str,
     ) -> Result<ValueResult, String> {
+        self.reset_temporary_registers();
         let layout = CollectionTypeLayout::from_type(type_)
             .ok_or_else(|| format!("native code collection type '{type_}' is not supported"))?;
         let count = slots.len();
