@@ -285,6 +285,7 @@ impl plan::NativePlanPlatform for Platform {
             "math.exp" => "_exp",
             "math.log" => "_log",
             "math.log10" => "_log10",
+            "math.fmod" => "_fmod",
             "math.sin" => "_sin",
             "math.cos" => "_cos",
             "math.tan" => "_tan",

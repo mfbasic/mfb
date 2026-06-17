@@ -12278,8 +12278,9 @@ fn value_may_return_invalid_format(
         NirValue::MemberAccess { target, .. } => {
             value_may_return_invalid_format(target, constants, types)
         }
-        NirValue::Binary { left, right, .. } => {
-            value_may_return_invalid_format(left, constants, types)
+        NirValue::Binary { op, left, right } => {
+            binary_may_promote_float_to_fixed(op, left, right, types)
+                || value_may_return_invalid_format(left, constants, types)
                 || value_may_return_invalid_format(right, constants, types)
         }
         NirValue::Unary { operand, .. } => {
@@ -12411,6 +12412,25 @@ fn strings_package_static_string_value(
         }
         _ => None,
     }
+}
+
+fn binary_may_promote_float_to_fixed(
+    op: &str,
+    left: &NirValue,
+    right: &NirValue,
+    types: &HashMap<String, String>,
+) -> bool {
+    if !matches!(op, "+" | "-" | "*" | "/" | "MOD" | "^") {
+        return false;
+    }
+    let Some(left_type) = static_type_name_with_types(left, types) else {
+        return false;
+    };
+    let Some(right_type) = static_type_name_with_types(right, types) else {
+        return false;
+    };
+    numeric_binary_result_type(op, &left_type, &right_type) == numeric::TYPE_FIXED
+        && (left_type == numeric::TYPE_FLOAT || right_type == numeric::TYPE_FLOAT)
 }
 
 fn static_type_name_with_types(

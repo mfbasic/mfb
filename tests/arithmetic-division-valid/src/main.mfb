@@ -1,7 +1,59 @@
+IMPORT io
+
 FUNC main AS Integer
+  integerDivisionAndMod()
+  byteDivision()
+  fixedDivision()
+  fixedMod()
+  floatDivisionAndMod()
+  mixedFloatFixedMod()
+  RETURN 0
+END FUNC
+
+SUB integerDivisionAndMod()
   LET a AS Integer = 7
   LET b AS Integer = 2
-  LET q AS Float = a DIV b
-  q
-  RETURN a / b
-END FUNC
+  LET precision AS Byte = 2
+  io::print(toString(a / b))
+  io::print(toString(a DIV b, precision))
+  io::print(toString(a MOD b))
+END SUB
+
+SUB byteDivision()
+  LET a AS Byte = 7
+  LET b AS Byte = 2
+  io::print(toString(a / b))
+END SUB
+
+SUB fixedDivision()
+  LET a AS Fixed = 7.5
+  LET b AS Fixed = 2.0
+  LET expected AS Fixed = 3.75
+  IF a / b = expected THEN
+    io::print("fixed / ok")
+  END IF
+END SUB
+
+SUB fixedMod()
+  LET a AS Fixed = 7.5
+  LET b AS Fixed = 2.0
+  LET expected AS Fixed = 1.5
+  IF a MOD b = expected THEN
+    io::print("fixed mod ok")
+  END IF
+END SUB
+
+SUB floatDivisionAndMod()
+  LET a AS Float = 7.5
+  LET b AS Float = 2.0
+  LET precision AS Byte = 2
+  io::print(toString(a / b, precision))
+  io::print(toString(a MOD b, precision))
+END SUB
+
+SUB mixedFloatFixedMod()
+  LET a AS Float = 7.5
+  LET b AS Fixed = 2.0
+  LET precision AS Byte = 2
+  io::print(toString(a MOD b, precision))
+END SUB

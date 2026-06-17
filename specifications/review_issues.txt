@@ -74,8 +74,9 @@ The spec defines `LINK "lib" AS namespace` blocks with native resource declarati
 REQUIREMENT: Numeric division and MOD semantics
 SPECIFICATION: mfbasic.md @ §4.1 Primitives; §11 Operators
 GROUP: language
+STATUS: Completed
 RECOMMENDED: SPEC CHANGE
-The spec is internally inconsistent with the compiler’s established behavior. It says `Integer / Integer` produces `Float` and that `Float`/`Fixed` do not support `MOD`, while the promotion table and current compiler/tests treat `/` like promoted numeric arithmetic, `DIV` as `Float`, and `MOD` as available across numeric promotions. Resolve by updating the spec to match the implemented/tested operator model, or alternatively make a deliberate CODE CHANGE that flips `/`, `DIV`, and `MOD` behavior and updates the existing arithmetic tests.
+The spec is internally inconsistent with the compiler’s established behavior. It says `Integer / Integer` produces `Float` and that `Float`/`Fixed` do not support `MOD`, while the promotion table and current compiler/tests treat `/` like promoted numeric arithmetic, `DIV` as `Float`, and `MOD` as available across numeric promotions. Resolve by updating the spec and compiler to both match the promotion table.
 
 REQUIREMENT: Project source directory package mapping
 SPECIFICATION: project.md @ §6 Sources

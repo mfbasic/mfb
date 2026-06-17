@@ -1,0 +1,6 @@
+FUNC main AS Integer
+  LET value AS Float = 7.5
+  LET zero AS Float = 0.0
+  value MOD zero
+  RETURN 0
+END FUNC

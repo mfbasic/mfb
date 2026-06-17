@@ -1,3 +1,4 @@
+use super::builder_math::external_math_symbol;
 use super::*;
 
 impl CodeBuilder<'_> {
@@ -136,7 +137,48 @@ impl CodeBuilder<'_> {
             "Byte" | "Integer" => {
                 self.emit_integer_binary(op, &left, &right, &register, result_type == "Byte")?;
             }
-            "Fixed" => self.emit_fixed_binary(op, &left, &right, &register)?,
+            "Fixed" => {
+                if left.type_ == "Fixed" && right.type_ == "Fixed" {
+                    self.emit_fixed_binary(op, &left, &right, &register)?;
+                } else {
+                    // Float-to-Fixed conversion uses x8-x12 as internal scratch registers.
+                    // Keep promoted Fixed operands above that range so conversion cannot clobber them.
+                    while self.next_register <= 12 {
+                        let _ = self.allocate_register()?;
+                    }
+                    let left_fixed = self.allocate_register()?;
+                    let right_fixed = self.allocate_register()?;
+                    let left_fixed_slot = self.allocate_stack_object("arith_left_fixed", 8);
+                    self.load_numeric_as_fixed(&left_fixed, &left)?;
+                    self.emit(abi::store_u64(
+                        &left_fixed,
+                        abi::stack_pointer(),
+                        left_fixed_slot,
+                    ));
+                    self.emit(abi::load_u64(
+                        &right.location,
+                        abi::stack_pointer(),
+                        right_slot,
+                    ));
+                    self.load_numeric_as_fixed(&right_fixed, &right)?;
+                    self.emit(abi::load_u64(
+                        &left_fixed,
+                        abi::stack_pointer(),
+                        left_fixed_slot,
+                    ));
+                    let left = ValueResult {
+                        type_: "Fixed".to_string(),
+                        location: left_fixed,
+                        text: left.text.clone(),
+                    };
+                    let right = ValueResult {
+                        type_: "Fixed".to_string(),
+                        location: right_fixed,
+                        text: right.text.clone(),
+                    };
+                    self.emit_fixed_binary(op, &left, &right, &register)?;
+                }
+            }
             "Float" => self.emit_float_binary(op, &left, &right, &register)?,
             other => {
                 return Err(format!(
@@ -572,15 +614,20 @@ impl CodeBuilder<'_> {
             "*" => self.emit_fixed_multiply(dst, &left.location, &right.location)?,
             "/" => self.emit_fixed_divide(dst, &left.location, &right.location)?,
             "MOD" => {
-                self.emit_fixed_divide(dst, &left.location, &right.location)?;
-                let product = self.allocate_register()?;
-                self.emit_fixed_multiply(&product, dst, &right.location)?;
-                self.emit(abi::subtract_registers_set_flags(
-                    dst,
+                self.emit_nonzero_or_invalid(&right.location)?;
+                self.emit_integer_division_overflow_check(&left.location, &right.location)?;
+                let quotient = self.allocate_register()?;
+                self.emit(abi::signed_divide_registers(
+                    &quotient,
                     &left.location,
-                    &product,
+                    &right.location,
                 ));
-                self.emit_overflow_if_flags_set()?;
+                self.emit(abi::multiply_subtract_registers(
+                    dst,
+                    &quotient,
+                    &right.location,
+                    &left.location,
+                ));
             }
             "^" => self.emit_fixed_pow(dst, &left.location, &right.location)?,
             other => {
@@ -612,6 +659,32 @@ impl CodeBuilder<'_> {
                 self.emit_invalid_argument_return()?;
                 self.emit(abi::label(&nonzero));
                 self.emit(abi::float_divide_d("d0", "d0", "d1"));
+            }
+            "MOD" => {
+                self.emit(abi::float_compare_zero_d("d1"));
+                let nonzero = self.label("float_mod_divisor_nonzero");
+                self.emit(abi::branch_ne(&nonzero));
+                self.emit_invalid_argument_return()?;
+                self.emit(abi::label(&nonzero));
+                let symbol = external_math_symbol("fmod", self.platform_imports)
+                    .ok_or_else(|| "native Float MOD requires platform fmod import".to_string())?;
+                let Some(library) = self.platform_imports.get(&symbol).cloned() else {
+                    return Err(format!(
+                        "native Float MOD requires platform import {symbol}"
+                    ));
+                };
+                self.emit(abi::branch_link(&symbol));
+                self.relocations.push(CodeRelocation {
+                    from: self.current_symbol.clone(),
+                    to: symbol,
+                    kind: "branch26".to_string(),
+                    binding: "external".to_string(),
+                    library: Some(library),
+                });
+                let result_bits = self.allocate_register()?;
+                self.emit(abi::float_move_x_from_d(&result_bits, "d0"));
+                self.emit_math_float_result_check(&result_bits)?;
+                self.emit(abi::float_move_d_from_x("d0", &result_bits));
             }
             "^" => self.emit_float_pow("d0", "d1")?,
             other => {

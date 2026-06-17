@@ -158,6 +158,7 @@ impl plan::NativePlanPlatform for Platform {
             "math.exp" => "exp",
             "math.log" => "log",
             "math.log10" => "log10",
+            "math.fmod" => "fmod",
             "math.sin" => "sin",
             "math.cos" => "cos",
             "math.tan" => "tan",

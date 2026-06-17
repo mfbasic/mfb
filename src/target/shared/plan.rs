@@ -515,7 +515,12 @@ fn collect_platform_imports_from_value(
         NirValue::MemberAccess { target, .. } => {
             collect_platform_imports_from_value(platform, required_by, target, imports)
         }
-        NirValue::Binary { left, right, .. } => {
+        NirValue::Binary { op, left, right } => {
+            if op == "MOD" {
+                for import in platform.native_call_imports("math.fmod", required_by) {
+                    push_platform_import(imports, import);
+                }
+            }
             collect_platform_imports_from_value(platform, required_by, left, imports);
             collect_platform_imports_from_value(platform, required_by, right, imports);
         }
@@ -1757,6 +1762,7 @@ mod tests {
                 accepts_args: false,
             }),
             types: Vec::new(),
+            globals: Vec::new(),
             imports: Vec::new(),
             runtime_helpers: vec![RuntimeHelper::Io],
             functions: vec![NirFunction {

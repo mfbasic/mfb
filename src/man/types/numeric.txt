@@ -101,11 +101,14 @@ BYTE RULES
   with ErrOverflow (77050010) when outside 0 through 255.
 
 DIVISION AND MOD
-  Integer / Integer is not integer division in the language specification; use
-  the operator result table to determine the result type.
+  / uses the operator result table to determine the result type. When / returns
+  Byte or Integer, it truncates the quotient toward zero.
 
-  MOD is defined only for Integer. a MOD b fails with ErrInvalidArgument
-  (77050002) when b = 0. Otherwise the remainder has the same sign as a, and:
+  DIV is fractional division and always returns Float.
+
+  MOD uses the operator result table to determine the result type. a MOD b
+  fails with ErrInvalidArgument (77050002) when b = 0. Otherwise the remainder
+  has the same sign as a, and:
 
     a = (truncTowardZero(a / b) * b) + (a MOD b)
 

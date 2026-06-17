@@ -411,7 +411,7 @@ impl CodeBuilder<'_> {
         }
     }
 
-    fn emit_math_float_result_check(&mut self, bits: &str) -> Result<(), String> {
+    pub(super) fn emit_math_float_result_check(&mut self, bits: &str) -> Result<(), String> {
         let exponent = self.allocate_register()?;
         let mantissa = self.allocate_register()?;
         let ok = self.label("math_float_result_finite");
@@ -471,7 +471,7 @@ impl CodeBuilder<'_> {
     }
 }
 
-fn external_math_symbol(
+pub(super) fn external_math_symbol(
     function: &str,
     platform_imports: &HashMap<String, String>,
 ) -> Option<String> {
@@ -481,6 +481,7 @@ fn external_math_symbol(
             | "exp"
             | "log"
             | "log10"
+            | "fmod"
             | "sin"
             | "cos"
             | "tan"

@@ -112,7 +112,7 @@ LET z = toFixed("1.25")  ' Fixed, fallible parse
 
 Fixed > Float > Integer > Byte
 
-| Left operand | Right operand | `+`, `-`, `*`, `^`, `/` `MOD`  | `DIV`   |
+| Left operand | Right operand | `+`, `-`, `*`, `^`, `/`, `MOD` | `DIV`   |
 |--------------|---------------|--------------------------------|---------|
 | `Byte`       | `Byte`        | `Byte`                         | `Float` |
 | `Byte`       | `Integer`     | `Integer`                      | `Float` |
@@ -137,7 +137,8 @@ Numeric edge cases:
 
 - `Integer` arithmetic is checked. Overflow in `+`, `-`, `*`, unary `-`, exponentiation (`^`), and the minimum-integer `MOD -1` case fails with `ErrOverflow` (`77050010`). Integer operations never wrap.
 - `Byte` arithmetic that returns `Byte` is checked. Results above `255` fail with `ErrOverflow` (`77050010`); results below `0` fail with `ErrUnderflow` (`77050011`). Byte operations never wrap.
-- `Integer / Integer` is not integer division; `/` produces `Float`. Use `MOD` for remainders and a future integer-division helper if truncating division is needed. Division by zero fails with `ErrInvalidArgument` (`77050002`).
+- `/` uses the promoted result type from the table above. When `/` promotes to `Byte` or `Integer`, it truncates the quotient toward zero. `DIV` is fractional division and always returns `Float`. Division by zero fails with `ErrInvalidArgument` (`77050002`).
+- `MOD` uses the promoted result type from the table above and is available for every numeric operand pairing in the table. `a MOD b` fails with `ErrInvalidArgument` (`77050002`) when `b = 0`. Otherwise the remainder has the same sign as `a`, and `a = (truncTowardZero(a / b) * b) + (a MOD b)` in the promoted numeric domain.
 - `^` for `Integer` requires a non-negative integer exponent and fails with `ErrInvalidArgument` (`77050002`) for negative exponents. Overflow fails with `ErrOverflow` (`77050010`).
 - `Float` follows IEEE 754 binary64 representation, but MFBASIC does not expose successful non-finite arithmetic results. Operations or math functions that would produce NaN or infinity fail instead: invalid domains and division by zero fail with `ErrInvalidArgument` (`77050002`), and overflow to infinity fails with `ErrOverflow` (`77050010`). Imported native `Float` values that are already NaN or infinity are rejected at the boundary with `ErrInvalidFormat` (`77050003`).
 - Float comparisons are total over finite values only. Comparing a non-finite `Float` is not possible in ordinary MFBASIC source because non-finite values cannot be constructed or imported successfully.
@@ -732,7 +733,7 @@ There is **no `GOTO`** and **no `SELECT CASE`** (use `MATCH`).
 
 | Category | Operators |
 |----------|-----------|
-| Arithmetic | `+  -  *  /  MOD  ^` |
+| Arithmetic | `+  -  *  /  DIV  MOD  ^` |
 | Comparison | `=  <>  <  >  <=  >=` |
 | Logical | `AND  OR  NOT  XOR` (`AND`/`OR` short-circuit; `XOR` always evaluates both sides) |
 | String | `&` (concat) |
@@ -764,8 +765,8 @@ Operator edge cases:
 - `^` is right-associative: `2 ^ 3 ^ 2` parses as `2 ^ (3 ^ 2)`.
 - Unary `-` has higher precedence than `^` in MFBASIC, so `-2^2` parses as `(-2) ^ 2`. Write `-(2 ^ 2)` when the negation should apply after exponentiation.
 - Checked numeric failures from operators are ordinary `Err` results and therefore auto-propagate unless handled by `MATCH` or `TRAP`.
-- `Integer` `/` produces `Float`; `Integer` `MOD` is the only built-in integer remainder operator.
-- `Float` and `Fixed` do not support `MOD`.
+- `/` and `MOD` use the numeric promotion table in §4.1. `DIV` always returns `Float`.
+- `MOD` is available for every numeric operand pairing and uses a truncation-toward-zero quotient to compute the remainder.
 
 ```basic
 LET result = nums |> filter(_, isEven) |> transform(_, square) |> sum(_)
@@ -1372,7 +1373,7 @@ notExpr        = [ "NOT" ] cmpExpr ;
 cmpExpr        = addExpr { cmpOp addExpr } ;
 cmpOp          = "=" | "<>" | "<" | ">" | "<=" | ">=" ;
 addExpr        = mulExpr { ("+"|"-"|"&") mulExpr } ;
-mulExpr        = powExpr { ("*"|"/"|"MOD") powExpr } ;
+mulExpr        = powExpr { ("*"|"/"|"DIV"|"MOD") powExpr } ;
 powExpr        = unary [ "^" powExpr ] ;       (* right-associative *)
 unary          = [ "-" ] fieldAccess ;
 fieldAccess    = primary { "." ident } ;

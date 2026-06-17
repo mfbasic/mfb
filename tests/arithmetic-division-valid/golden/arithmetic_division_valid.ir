@@ -18,11 +18,115 @@
     ],
     "returns": "Integer",
     "body": [
+    { "op": "eval", "value": { "kind": "call", "target": "integerDivisionAndMod", "args": [] } },
+    { "op": "eval", "value": { "kind": "call", "target": "byteDivision", "args": [] } },
+    { "op": "eval", "value": { "kind": "call", "target": "fixedDivision", "args": [] } },
+    { "op": "eval", "value": { "kind": "call", "target": "fixedMod", "args": [] } },
+    { "op": "eval", "value": { "kind": "call", "target": "floatDivisionAndMod", "args": [] } },
+    { "op": "eval", "value": { "kind": "call", "target": "mixedFloatFixedMod", "args": [] } },
+    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  },
+  {
+    "name": "integerDivisionAndMod",
+    "visibility": "private",
+    "kind": "sub",
+    "params": [
+    ],
+    "returns": "Nothing",
+    "body": [
     { "op": "bind", "mutable": false, "name": "a", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "7" } },
     { "op": "bind", "mutable": false, "name": "b", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "2" } },
-    { "op": "bind", "mutable": false, "name": "q", "type": "Float", "value": { "kind": "binary", "op": "DIV", "left": { "kind": "local", "name": "a" }, "right": { "kind": "local", "name": "b" } } },
-    { "op": "eval", "value": { "kind": "local", "name": "q" } },
-    { "op": "return", "value": { "kind": "binary", "op": "/", "left": { "kind": "local", "name": "a" }, "right": { "kind": "local", "name": "b" } } }
+    { "op": "bind", "mutable": false, "name": "precision", "type": "Byte", "value": { "kind": "const", "type": "Byte", "value": "2" } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "binary", "op": "/", "left": { "kind": "local", "name": "a" }, "right": { "kind": "local", "name": "b" } }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "binary", "op": "DIV", "left": { "kind": "local", "name": "a" }, "right": { "kind": "local", "name": "b" } }, { "kind": "local", "name": "precision" }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "binary", "op": "MOD", "left": { "kind": "local", "name": "a" }, "right": { "kind": "local", "name": "b" } }] }] } }
+    ]
+  },
+  {
+    "name": "byteDivision",
+    "visibility": "private",
+    "kind": "sub",
+    "params": [
+    ],
+    "returns": "Nothing",
+    "body": [
+    { "op": "bind", "mutable": false, "name": "a", "type": "Byte", "value": { "kind": "const", "type": "Byte", "value": "7" } },
+    { "op": "bind", "mutable": false, "name": "b", "type": "Byte", "value": { "kind": "const", "type": "Byte", "value": "2" } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "binary", "op": "/", "left": { "kind": "local", "name": "a" }, "right": { "kind": "local", "name": "b" } }] }] } }
+    ]
+  },
+  {
+    "name": "fixedDivision",
+    "visibility": "private",
+    "kind": "sub",
+    "params": [
+    ],
+    "returns": "Nothing",
+    "body": [
+    { "op": "bind", "mutable": false, "name": "a", "type": "Fixed", "value": { "kind": "const", "type": "Fixed", "value": "7.5" } },
+    { "op": "bind", "mutable": false, "name": "b", "type": "Fixed", "value": { "kind": "const", "type": "Fixed", "value": "2.0" } },
+    { "op": "bind", "mutable": false, "name": "expected", "type": "Fixed", "value": { "kind": "const", "type": "Fixed", "value": "3.75" } },
+    {
+      "op": "if",
+      "condition": { "kind": "binary", "op": "=", "left": { "kind": "binary", "op": "/", "left": { "kind": "local", "name": "a" }, "right": { "kind": "local", "name": "b" } }, "right": { "kind": "local", "name": "expected" } },
+      "then": [
+      { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "fixed / ok" }] } }
+      ],
+      "else": [
+      ]
+    }
+    ]
+  },
+  {
+    "name": "fixedMod",
+    "visibility": "private",
+    "kind": "sub",
+    "params": [
+    ],
+    "returns": "Nothing",
+    "body": [
+    { "op": "bind", "mutable": false, "name": "a", "type": "Fixed", "value": { "kind": "const", "type": "Fixed", "value": "7.5" } },
+    { "op": "bind", "mutable": false, "name": "b", "type": "Fixed", "value": { "kind": "const", "type": "Fixed", "value": "2.0" } },
+    { "op": "bind", "mutable": false, "name": "expected", "type": "Fixed", "value": { "kind": "const", "type": "Fixed", "value": "1.5" } },
+    {
+      "op": "if",
+      "condition": { "kind": "binary", "op": "=", "left": { "kind": "binary", "op": "MOD", "left": { "kind": "local", "name": "a" }, "right": { "kind": "local", "name": "b" } }, "right": { "kind": "local", "name": "expected" } },
+      "then": [
+      { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "fixed mod ok" }] } }
+      ],
+      "else": [
+      ]
+    }
+    ]
+  },
+  {
+    "name": "floatDivisionAndMod",
+    "visibility": "private",
+    "kind": "sub",
+    "params": [
+    ],
+    "returns": "Nothing",
+    "body": [
+    { "op": "bind", "mutable": false, "name": "a", "type": "Float", "value": { "kind": "const", "type": "Float", "value": "7.5" } },
+    { "op": "bind", "mutable": false, "name": "b", "type": "Float", "value": { "kind": "const", "type": "Float", "value": "2.0" } },
+    { "op": "bind", "mutable": false, "name": "precision", "type": "Byte", "value": { "kind": "const", "type": "Byte", "value": "2" } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "binary", "op": "/", "left": { "kind": "local", "name": "a" }, "right": { "kind": "local", "name": "b" } }, { "kind": "local", "name": "precision" }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "binary", "op": "MOD", "left": { "kind": "local", "name": "a" }, "right": { "kind": "local", "name": "b" } }, { "kind": "local", "name": "precision" }] }] } }
+    ]
+  },
+  {
+    "name": "mixedFloatFixedMod",
+    "visibility": "private",
+    "kind": "sub",
+    "params": [
+    ],
+    "returns": "Nothing",
+    "body": [
+    { "op": "bind", "mutable": false, "name": "a", "type": "Float", "value": { "kind": "const", "type": "Float", "value": "7.5" } },
+    { "op": "bind", "mutable": false, "name": "b", "type": "Fixed", "value": { "kind": "const", "type": "Fixed", "value": "2.0" } },
+    { "op": "bind", "mutable": false, "name": "precision", "type": "Byte", "value": { "kind": "const", "type": "Byte", "value": "2" } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "binary", "op": "MOD", "left": { "kind": "local", "name": "a" }, "right": { "kind": "local", "name": "b" } }, { "kind": "local", "name": "precision" }] }] } }
     ]
   }
   ]

@@ -1339,6 +1339,7 @@ mod tests {
                 accepts_args: false,
             }),
             types: Vec::new(),
+            globals: Vec::new(),
             imports: Vec::new(),
             runtime_helpers,
             functions: vec![NirFunction {
