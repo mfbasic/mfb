@@ -1,0 +1,64 @@
+{
+  "project": "unary_numeric_negation_valid",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "main",
+      "line": 3,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "byteZero", "type": "Byte", "value": { "kind": "number", "value": "0" }, "line": 4 },
+      { "kind": "binding", "mutable": false, "name": "fixedValue", "type": "Fixed", "value": { "kind": "number", "value": "12.5" }, "line": 5 },
+      { "kind": "binding", "mutable": false, "name": "floatValue", "type": "Float", "value": { "kind": "call", "callee": "toFloat", "arguments": [{ "kind": "string", "value": "6.25" }] }, "line": 6 },
+      { "kind": "binding", "mutable": false, "name": "negatedByte", "type": "Byte", "value": { "kind": "unary", "operator": "-", "operand": { "kind": "identifier", "value": "byteZero" } }, "line": 8 },
+      { "kind": "binding", "mutable": false, "name": "negatedFixed", "type": "Fixed", "value": { "kind": "unary", "operator": "-", "operand": { "kind": "identifier", "value": "fixedValue" } }, "line": 9 },
+      { "kind": "binding", "mutable": false, "name": "negatedFloat", "type": "Float", "value": { "kind": "unary", "operator": "-", "operand": { "kind": "identifier", "value": "floatValue" } }, "line": 10 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "negatedByte" }] }] }, "line": 12 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "negatedFixed" }, { "kind": "call", "callee": "toByte", "arguments": [{ "kind": "number", "value": "2" }] }] }] }, "line": 13 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "negatedFloat" }, { "kind": "call", "callee": "toByte", "arguments": [{ "kind": "number", "value": "2" }] }] }] }, "line": 14 },
+      {
+        "kind": "if",
+        "condition": { "kind": "binary", "operator": "<>", "left": { "kind": "identifier", "value": "negatedByte" }, "right": { "kind": "number", "value": "0" } },
+        "line": 16,
+        "then": [
+        { "kind": "return", "value": { "kind": "number", "value": "1" }, "line": 16 }
+        ],
+        "else": [
+        ]
+      },
+      {
+        "kind": "if",
+        "condition": { "kind": "binary", "operator": "<>", "left": { "kind": "identifier", "value": "negatedFixed" }, "right": { "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "12.5" } } },
+        "line": 17,
+        "then": [
+        { "kind": "return", "value": { "kind": "number", "value": "2" }, "line": 17 }
+        ],
+        "else": [
+        ]
+      },
+      {
+        "kind": "if",
+        "condition": { "kind": "binary", "operator": "<>", "left": { "kind": "identifier", "value": "negatedFloat" }, "right": { "kind": "call", "callee": "toFloat", "arguments": [{ "kind": "string", "value": "-6.25" }] } },
+        "line": 18,
+        "then": [
+        { "kind": "return", "value": { "kind": "number", "value": "3" }, "line": 18 }
+        ],
+        "else": [
+        ]
+      },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 20 }
+      ]
+    }
+    ]
+  }
+  ]
+}

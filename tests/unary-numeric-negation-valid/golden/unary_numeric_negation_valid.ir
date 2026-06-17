@@ -1,0 +1,61 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "unary_numeric_negation_valid",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "mutable": false, "name": "byteZero", "type": "Byte", "value": { "kind": "const", "type": "Byte", "value": "0" } },
+    { "op": "bind", "mutable": false, "name": "fixedValue", "type": "Fixed", "value": { "kind": "const", "type": "Fixed", "value": "12.5" } },
+    { "op": "bind", "mutable": false, "name": "floatValue", "type": "Float", "value": { "kind": "call", "target": "toFloat", "args": [{ "kind": "const", "type": "String", "value": "6.25" }] } },
+    { "op": "bind", "mutable": false, "name": "negatedByte", "type": "Byte", "value": { "kind": "unary", "op": "-", "operand": { "kind": "local", "name": "byteZero" } } },
+    { "op": "bind", "mutable": false, "name": "negatedFixed", "type": "Fixed", "value": { "kind": "unary", "op": "-", "operand": { "kind": "local", "name": "fixedValue" } } },
+    { "op": "bind", "mutable": false, "name": "negatedFloat", "type": "Float", "value": { "kind": "unary", "op": "-", "operand": { "kind": "local", "name": "floatValue" } } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "local", "name": "negatedByte" }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "local", "name": "negatedFixed" }, { "kind": "call", "target": "toByte", "args": [{ "kind": "const", "type": "Integer", "value": "2" }] }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "local", "name": "negatedFloat" }, { "kind": "call", "target": "toByte", "args": [{ "kind": "const", "type": "Integer", "value": "2" }] }] }] } },
+    {
+      "op": "if",
+      "condition": { "kind": "binary", "op": "<>", "left": { "kind": "local", "name": "negatedByte" }, "right": { "kind": "const", "type": "Integer", "value": "0" } },
+      "then": [
+      { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "1" } }
+      ],
+      "else": [
+      ]
+    },
+    {
+      "op": "if",
+      "condition": { "kind": "binary", "op": "<>", "left": { "kind": "local", "name": "negatedFixed" }, "right": { "kind": "unary", "op": "-", "operand": { "kind": "const", "type": "Float", "value": "12.5" } } },
+      "then": [
+      { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "2" } }
+      ],
+      "else": [
+      ]
+    },
+    {
+      "op": "if",
+      "condition": { "kind": "binary", "op": "<>", "left": { "kind": "local", "name": "negatedFloat" }, "right": { "kind": "call", "target": "toFloat", "args": [{ "kind": "const", "type": "String", "value": "-6.25" }] } },
+      "then": [
+      { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "3" } }
+      ],
+      "else": [
+      ]
+    },
+    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

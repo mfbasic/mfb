@@ -1,0 +1,27 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "unary_byte_negation_underflow_rt",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "mutable": false, "name": "value", "type": "Byte", "value": { "kind": "call", "target": "toByte", "args": [{ "kind": "const", "type": "Integer", "value": "1" }] } },
+    { "op": "bind", "mutable": false, "name": "negated", "type": "Byte", "value": { "kind": "unary", "op": "-", "operand": { "kind": "local", "name": "value" } } },
+    { "op": "return", "value": { "kind": "call", "target": "toInt", "args": [{ "kind": "local", "name": "negated" }] } }
+    ]
+  }
+  ]
+}

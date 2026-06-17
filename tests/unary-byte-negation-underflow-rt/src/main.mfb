@@ -1,0 +1,5 @@
+FUNC main AS Integer
+  LET value AS Byte = toByte(1)
+  LET negated AS Byte = -value
+  RETURN toInt(negated)
+END FUNC

@@ -1,0 +1,26 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "unary_float_negation_invalid_format_rt",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "mutable": false, "name": "value", "type": "Float", "value": { "kind": "unary", "op": "-", "operand": { "kind": "call", "target": "toFloat", "args": [{ "kind": "const", "type": "String", "value": "Infinity" }] } } },
+    { "op": "return", "value": { "kind": "call", "target": "toInt", "args": [{ "kind": "local", "name": "value" }] } }
+    ]
+  }
+  ]
+}

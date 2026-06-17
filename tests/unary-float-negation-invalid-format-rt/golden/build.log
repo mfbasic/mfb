@@ -1,0 +1,12 @@
+$ mfb build -ast tests/unary-float-negation-invalid-format-rt
+Wrote AST to tests/unary-float-negation-invalid-format-rt/unary_float_negation_invalid_format_rt.ast
+[exit 0]
+$ mfb build -ir tests/unary-float-negation-invalid-format-rt
+Wrote IR to tests/unary-float-negation-invalid-format-rt/unary_float_negation_invalid_format_rt.ir
+[exit 0]
+$ mfb build tests/unary-float-negation-invalid-format-rt
+Wrote executable to tests/unary-float-negation-invalid-format-rt/unary_float_negation_invalid_format_rt.out
+[exit 0]
+$ tests/unary-float-negation-invalid-format-rt/unary_float_negation_invalid_format_rt.out
+Code: 77050003 Message: invalid format
+[exit 255]

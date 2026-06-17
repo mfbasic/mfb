@@ -1,0 +1,21 @@
+IMPORT io
+
+FUNC main AS Integer
+  LET byteZero AS Byte = 0
+  LET fixedValue AS Fixed = 12.5
+  LET floatValue AS Float = toFloat("6.25")
+
+  LET negatedByte AS Byte = -byteZero
+  LET negatedFixed AS Fixed = -fixedValue
+  LET negatedFloat AS Float = -floatValue
+
+  io::print(toString(negatedByte))
+  io::print(toString(negatedFixed, toByte(2)))
+  io::print(toString(negatedFloat, toByte(2)))
+
+  IF negatedByte <> 0 THEN RETURN 1
+  IF negatedFixed <> -12.5 THEN RETURN 2
+  IF negatedFloat <> toFloat("-6.25") THEN RETURN 3
+
+  RETURN 0
+END FUNC

@@ -1,0 +1,27 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "unary_fixed_negation_overflow_rt",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "mutable": false, "name": "value", "type": "Fixed", "value": { "kind": "unary", "op": "-", "operand": { "kind": "const", "type": "Float", "value": "2147483648.0" } } },
+    { "op": "bind", "mutable": false, "name": "negated", "type": "Fixed", "value": { "kind": "unary", "op": "-", "operand": { "kind": "local", "name": "value" } } },
+    { "op": "return", "value": { "kind": "call", "target": "toInt", "args": [{ "kind": "local", "name": "negated" }] } }
+    ]
+  }
+  ]
+}

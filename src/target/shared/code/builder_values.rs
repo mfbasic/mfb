@@ -1057,30 +1057,13 @@ impl CodeBuilder<'_> {
                         text: format!("(NOT {})", operand.text),
                     });
                 }
-                if op == "-" && operand.type_ == "Integer" {
-                    let min_register = self.allocate_register()?;
-                    let overflow_label = self.label("integer_unary_overflow");
-                    let ok_label = self.label("integer_unary_ok");
-                    self.emit(abi::move_immediate(
-                        &min_register,
-                        "Integer",
-                        "9223372036854775808",
-                    ));
-                    self.emit(abi::compare_registers(&operand.location, &min_register));
-                    self.emit(abi::branch_eq(&overflow_label));
-                    let zero = self.allocate_register()?;
-                    self.emit(abi::move_immediate(&zero, "Integer", "0"));
-                    let register = self.allocate_register()?;
-                    self.emit(abi::subtract_registers(&register, &zero, &operand.location));
-                    self.emit(abi::branch(&ok_label));
-                    self.emit(abi::label(&overflow_label));
-                    self.emit_overflow_return()?;
-                    self.emit(abi::label(&ok_label));
-                    return Ok(ValueResult {
-                        type_: "Integer".to_string(),
-                        location: register,
-                        text: format!("(-{})", operand.text),
-                    });
+                if op == "-"
+                    && matches!(
+                        operand.type_.as_str(),
+                        "Byte" | "Integer" | "Fixed" | "Float"
+                    )
+                {
+                    return self.lower_numeric_unary_negation(operand);
                 }
                 Err(format!(
                     "native code plan does not lower unary operator '{op}' for {} yet while lowering native function '{}'",

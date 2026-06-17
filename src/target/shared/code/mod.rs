@@ -11433,7 +11433,10 @@ fn value_may_emit_float_arithmetic_error(
         NirValue::MemberAccess { target, .. } => {
             value_may_emit_float_arithmetic_error(target, locals)
         }
-        NirValue::Unary { operand, .. } => value_may_emit_float_arithmetic_error(operand, locals),
+        NirValue::Unary { op, operand } => {
+            (op == "-" && static_nir_value_type(operand, locals).as_deref() == Some("Float"))
+                || value_may_emit_float_arithmetic_error(operand, locals)
+        }
         NirValue::Closure { captures, .. } => captures
             .iter()
             .any(|value| value_may_emit_float_arithmetic_error(value, locals)),

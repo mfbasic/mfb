@@ -193,6 +193,51 @@ impl CodeBuilder<'_> {
         })
     }
 
+    pub(super) fn lower_numeric_unary_negation(
+        &mut self,
+        operand: ValueResult,
+    ) -> Result<ValueResult, String> {
+        let register = self.allocate_register()?;
+        match operand.type_.as_str() {
+            "Byte" => {
+                let ok = self.label("byte_unary_ok");
+                self.emit(abi::compare_immediate(&operand.location, "0"));
+                self.emit(abi::branch_eq(&ok));
+                self.emit_underflow_return()?;
+                self.emit(abi::label(&ok));
+                self.emit(abi::move_register(&register, &operand.location));
+            }
+            "Integer" => {
+                self.emit_min_i64_negation_check(&operand.location, "integer_unary")?;
+                let zero = self.allocate_register()?;
+                self.emit(abi::move_immediate(&zero, "Integer", "0"));
+                self.emit(abi::subtract_registers(&register, &zero, &operand.location));
+            }
+            "Fixed" => {
+                self.emit_min_i64_negation_check(&operand.location, "fixed_unary")?;
+                let zero = self.allocate_register()?;
+                self.emit(abi::move_immediate(&zero, "Integer", "0"));
+                self.emit(abi::subtract_registers(&register, &zero, &operand.location));
+            }
+            "Float" => {
+                self.emit(abi::float_move_d_from_x("d0", &operand.location));
+                self.emit(abi::float_negate_d("d0", "d0"));
+                self.emit(abi::float_move_x_from_d(&register, "d0"));
+                self.emit_float_result_check(&register, FloatInfinityError::Infinity)?;
+            }
+            other => {
+                return Err(format!(
+                    "native code plan does not lower unary operator '-' for {other}"
+                ));
+            }
+        }
+        Ok(ValueResult {
+            type_: operand.type_,
+            location: register,
+            text: format!("(-{})", operand.text),
+        })
+    }
+
     pub(super) fn lower_comparison_binary(
         &mut self,
         op: &str,
@@ -773,6 +818,21 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch_ne(&ok));
         self.emit_overflow_return()?;
         self.emit(abi::label(&not_min));
+        self.emit(abi::label(&ok));
+        Ok(())
+    }
+
+    fn emit_min_i64_negation_check(
+        &mut self,
+        value: &str,
+        label_prefix: &str,
+    ) -> Result<(), String> {
+        let min = self.allocate_register()?;
+        let ok = self.label(&format!("{label_prefix}_not_min"));
+        self.emit(abi::move_immediate(&min, "Integer", "9223372036854775808"));
+        self.emit(abi::compare_registers(value, &min));
+        self.emit(abi::branch_ne(&ok));
+        self.emit_overflow_return()?;
         self.emit(abi::label(&ok));
         Ok(())
     }

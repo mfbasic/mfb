@@ -134,6 +134,7 @@ The spec says imported package constructors are addressed as `package::identifie
 REQUIREMENT: Unary numeric negation for all numeric types
 SPECIFICATION: mfbasic.md @ §11 Operators
 GROUP: language
+STATUS: Completed
 RECOMMENDED: CODE CHANGE
 Unary `-` is specified as a numeric operator, and the typechecker accepts it for all numeric operands, but native lowering only implements unary negation for `Integer`. `Byte`, `Fixed`, and `Float` operands reach `native code plan does not lower unary operator '-' ... yet`, so accepted programs can fail during native code generation instead of working at runtime. Resolve by adding native lowering for `Byte`, `Fixed`, and `Float` unary negation with the language’s checked numeric semantics: reject/overflow `Byte` results outside `0..255`, detect the minimum raw `Fixed` value before negation, and ensure `Float` negation preserves finite-only results. Add runtime tests covering successful negation and overflow/error cases for each affected type.
 

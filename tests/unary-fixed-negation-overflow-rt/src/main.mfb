@@ -1,0 +1,5 @@
+FUNC main AS Integer
+  LET value AS Fixed = -2147483648.0
+  LET negated AS Fixed = -value
+  RETURN toInt(negated)
+END FUNC

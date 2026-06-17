@@ -1,0 +1,4 @@
+FUNC main AS Integer
+  LET value AS Float = -toFloat("Infinity")
+  RETURN toInt(value)
+END FUNC
