@@ -171,6 +171,26 @@ List literals use bare square brackets, such as `[1, 2, 3]`, and are parsed sepa
 
 `WITH value { field := expr, ... }` creates a copy of a record with the named fields replaced. The original value is unchanged.
 
+A record type may not contain itself, directly or transitively, except through a `List`, `Map`, or `UNION`. A field is a mandatory owned value with no null or absent form, so a record whose field cycles back to the same record only through other plain records has no base case and can never be constructed. Such a declaration is rejected with `TYPE_RECURSIVE_RECORD_REQUIRES_INDIRECTION`:
+
+```basic
+TYPE Node          ' rejected: `next` always demands another Node
+  value AS Integer
+  next  AS Node
+END TYPE
+```
+
+Mutually recursive records with no intervening `List`, `Map`, or `UNION` are rejected for the same reason. Recursion is legal when every cycle passes through a `List`, `Map`, or `UNION`, because those supply a terminating base case — an empty collection, or a non-recursive union member:
+
+```basic
+TYPE Tree                       ' allowed: cycle passes through List
+  value    AS Integer
+  children AS List OF Tree
+END TYPE
+```
+
+See §4.3 for the recursive-union form and §14.5 for the related value-cycle rule.
+
 ### 4.3 Unions (sum types)
 
 User-defined unions are closed sums over existing concrete member types. A union declaration does not define payload fields inline; it names concrete `TYPE` declarations that already exist and groups them into one closed domain.
@@ -376,7 +396,7 @@ A `MUT` binding may omit its initializer only when its type has a defined defaul
 | `Map OF K TO V` | Empty map, when `K` and `V` have default values |
 | Record type | A record with every field set to its default, if every field type has a default. |
 
-Defaultability is recursive and finite: nested lists, maps, and records are defaultable only when every transitively referenced element, key, value, and field type is also defaultable, and recursive record cycles do not define a default value. Enums, unions, functions, lambdas, `Result`, threads, and resource handles do not have default values. A `MUT` binding of one of those types must have an initializer.
+Defaultability is recursive and finite: nested lists, maps, and records are defaultable only when every transitively referenced element, key, value, and field type is also defaultable, and recursive record cycles (legal only through `List`, `Map`, or `UNION`; see §4.2) do not define a default value. Enums, unions, functions, lambdas, `Result`, threads, and resource handles do not have default values. A `MUT` binding of one of those types must have an initializer.
 
 ### 4.11 Comparable Types
 
@@ -978,6 +998,8 @@ A closure environment is owned by the function value. Dropping the function valu
 ### 14.5 Recursive unions and allocation
 
 Recursive concrete unions are represented through compiler-managed owned nodes. A recursive edge is an owned child value, not a shared pointer. The compiler rejects value cycles; a program cannot construct a `List`, `Map`, record, or union value that directly or indirectly owns itself.
+
+Independently of this construction-time check, a record type whose fields cycle back to itself without passing through a `List`, `Map`, or `UNION` is rejected at declaration time with `TYPE_RECURSIVE_RECORD_REQUIRES_INDIRECTION` (see §4.2), because such a type has no base case and can never be constructed.
 
 Because cycles are impossible and each edge has one owner, dropping a recursive value recursively drops its owned children without GC or refcounting. Implementations may use iterative drop internally to avoid stack overflow on deeply nested values.
 

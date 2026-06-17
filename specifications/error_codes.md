@@ -203,6 +203,7 @@ These codes correspond to `src/rules.rs` and are emitted directly by the compile
 | `2-203-0062` | `TYPE_MATCH_NOT_EXHAUSTIVE` | error | `match cases do not cover every possible value` |
 | `2-203-0063` | `TYPE_THREAD_NOT_SENDABLE` | error | `thread boundary type is not sendable` |
 | `2-203-0064` | `TYPE_UNION_MEMBER_REQUIRES_TYPE` | error | `union members must name concrete TYPE declarations` |
+| `2-203-0065` | `TYPE_RECURSIVE_RECORD_REQUIRES_INDIRECTION` | error | `recursive record cycle must pass through a List, Map, or UNION` |
 
 ## Toolchain and Package Diagnostics
 
