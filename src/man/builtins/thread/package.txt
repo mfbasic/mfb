@@ -11,6 +11,28 @@ DESCRIPTION
   packages in fresh package instances. Parent code holds Thread values. Worker
   code holds ThreadWorker values. Together they carry an inbound message queue,
   an outbound message queue, cancellation state, and the worker result.
+  Retrieving the result with thread::waitFor(t) or t.result is one-shot and
+  closes the parent Thread handle.
+
+  Thread values are non-copyable owned handles. A live parent Thread is cleaned
+  up automatically on scope exit, RETURN, FAIL, propagated errors, trap routing,
+  and successful reassignment of a MUT Thread. Dropping a running Thread
+  requests cancellation, wakes its queues, and detaches the worker. A Thread
+  moved out by RETURN or another consuming operation is not dropped by the
+  source scope. Compiler-generated cleanup is idempotent for handles already
+  closed by thread::waitFor(t) or t.result.
+
+  There is intentionally no thread::stop(). Cancellation is cooperative:
+  thread::cancel(t) sets a flag, and the worker observes it with
+  thread::isCancelled(t). Asynchronously killing a worker could interrupt it
+  while it owns a resource handle, holds a queue lock, moves a non-copyable
+  value, writes its result, or runs package/native code, making ownership and
+  cleanup ambiguous.
+
+  There is also no separate thread::detach() source API. Dropping a running
+  Thread already requests cancellation and detaches the OS worker for eventual
+  runtime cleanup. An explicit detach operation would have the same ownership
+  and cleanup requirements while making abandoned workers easier to create.
 
   Worker entry points must have the shape:
 

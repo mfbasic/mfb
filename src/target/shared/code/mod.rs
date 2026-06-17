@@ -426,7 +426,7 @@ struct CodeBuilder<'a> {
     next_register: usize,
     next_label: usize,
     trap: Option<TrapState>,
-    active_cleanups: Vec<UsingCleanup>,
+    active_cleanups: Vec<ActiveCleanup>,
     pending_result_slots: Option<PendingResultSlots>,
     error_arena_restore_slot: Option<usize>,
 }
@@ -461,6 +461,18 @@ struct TrapState {
 struct UsingCleanup {
     name: String,
     symbol: String,
+}
+
+#[derive(Clone)]
+struct ThreadCleanup {
+    name: String,
+    symbol: String,
+}
+
+#[derive(Clone)]
+enum ActiveCleanup {
+    Using(UsingCleanup),
+    Thread(ThreadCleanup),
 }
 
 #[derive(Clone, Copy)]
@@ -797,7 +809,7 @@ pub(crate) fn lower_module_for_platform(
         .iter()
         .any(|symbol| symbol == "_mfb_rt_thread_thread_start")
     {
-        code_functions.push(lower_thread_trampoline(platform)?);
+        code_functions.push(lower_thread_trampoline(&platform_imports, platform)?);
     }
 
     let plan = NativeCodePlan {
@@ -1728,6 +1740,14 @@ fn lower_function(
             abi::stack_pointer(),
             stack_offset,
         ));
+        if CodeBuilder::is_thread_type(&param.type_) {
+            builder
+                .active_cleanups
+                .push(ActiveCleanup::Thread(ThreadCleanup {
+                    name: param.name.clone(),
+                    symbol: CodeBuilder::thread_drop_symbol(),
+                }));
+        }
     }
     if let Some(name) = function.body.iter().find_map(|op| match op {
         NirOp::Trap { name, .. } => Some(name.clone()),
@@ -1751,12 +1771,7 @@ fn lower_function(
     }
     builder.lower_ops(&function.body)?;
     if !builder.current_block_returns() {
-        builder.emit(abi::move_immediate(
-            RESULT_TAG_REGISTER,
-            "Integer",
-            RESULT_OK_TAG,
-        ));
-        builder.emit(abi::return_());
+        builder.emit_return_exit(None)?;
     }
     let mut instructions = builder.instructions;
     let mut stack_slots = builder.stack_slots;
@@ -2307,8 +2322,10 @@ fn add_macos_package_runtime_imports(
                 symbols.extend(["_realpath", "___error"]);
             }
             "thread.start" | "thread.isRunning" | "thread.waitFor" | "thread.cancel"
-            | "thread.send" | "thread.poll" | "thread.read" | "thread.receive" | "thread.emit"
-            | "thread.isCancelled" => symbols.push("_pthread_create"),
+            | "thread.drop" | "thread.send" | "thread.poll" | "thread.read" | "thread.receive"
+            | "thread.emit" | "thread.isCancelled" => {
+                symbols.extend(thread_platform_symbols("macos-aarch64"))
+            }
             _ => {}
         }
     }
@@ -4096,8 +4113,8 @@ fn lower_runtime_helper(
         | "strings.join"
         | "strings.byteLen" => lower_direct_builtin_runtime_helper(symbol, spec, platform_imports),
         "thread.start" | "thread.isRunning" | "thread.waitFor" | "thread.cancel"
-        | "thread.send" | "thread.poll" | "thread.read" | "thread.receive" | "thread.emit"
-        | "thread.isCancelled" => {
+        | "thread.drop" | "thread.send" | "thread.poll" | "thread.read" | "thread.receive"
+        | "thread.emit" | "thread.isCancelled" => {
             let (frame, instructions, relocations) =
                 lower_thread_helper(symbol, spec.call, platform_imports, platform)?;
             Ok(CodeFunction {
@@ -4353,21 +4370,201 @@ fn lower_io_write_helper(
     }
 }
 
-const THREAD_BLOCK_SIZE: usize = 128;
+const THREAD_BLOCK_SIZE: usize = 96;
 const THREAD_OFFSET_STATE: usize = 0;
 const THREAD_OFFSET_CANCELLED: usize = 8;
 const THREAD_OFFSET_RESULT_TAG: usize = 16;
 const THREAD_OFFSET_RESULT_VALUE: usize = 24;
 const THREAD_OFFSET_RESULT_ERROR: usize = 32;
-const THREAD_OFFSET_INBOUND_COUNT: usize = 40;
-const THREAD_OFFSET_INBOUND_VALUE: usize = 48;
-const THREAD_OFFSET_OUTBOUND_COUNT: usize = 56;
-const THREAD_OFFSET_OUTBOUND_VALUE: usize = 64;
-const THREAD_OFFSET_OS_HANDLE: usize = 72;
-const THREAD_OFFSET_ENTRY: usize = 80;
-const THREAD_OFFSET_DATA: usize = 88;
-const THREAD_OFFSET_ARENA_STATE: usize = 104;
-const THREAD_OFFSET_PARENT_ARENA_STATE: usize = 112;
+const THREAD_OFFSET_INBOUND_QUEUE: usize = 40;
+const THREAD_OFFSET_OUTBOUND_QUEUE: usize = 48;
+const THREAD_OFFSET_OS_HANDLE: usize = 56;
+const THREAD_OFFSET_ENTRY: usize = 64;
+const THREAD_OFFSET_DATA: usize = 72;
+const THREAD_OFFSET_ARENA_STATE: usize = 80;
+const THREAD_OFFSET_PARENT_ARENA_STATE: usize = 88;
+const THREAD_STATE_RUNNING: &str = "0";
+const THREAD_STATE_COMPLETED: &str = "1";
+const THREAD_STATE_CLOSED: &str = "2";
+
+const THREAD_QUEUE_NOT_EMPTY_OFFSET: usize = 64;
+const THREAD_QUEUE_NOT_FULL_OFFSET: usize = 128;
+const THREAD_QUEUE_CAPACITY_OFFSET: usize = 192;
+const THREAD_QUEUE_COUNT_OFFSET: usize = 200;
+const THREAD_QUEUE_HEAD_OFFSET: usize = 208;
+const THREAD_QUEUE_TAIL_OFFSET: usize = 216;
+const THREAD_QUEUE_CLOSED_OFFSET: usize = 224;
+const THREAD_QUEUE_VALUES_OFFSET: usize = 232;
+const THREAD_QUEUE_BLOCK_SIZE: usize = 240;
+
+fn thread_platform_symbols(target: &str) -> Vec<&'static str> {
+    if target == "macos-aarch64" {
+        vec![
+            "_pthread_create",
+            "_pthread_detach",
+            "_pthread_mutex_init",
+            "_pthread_mutex_lock",
+            "_pthread_mutex_unlock",
+            "_pthread_cond_init",
+            "_pthread_cond_wait",
+            "_pthread_cond_timedwait",
+            "_pthread_cond_signal",
+            "_pthread_cond_broadcast",
+            "_clock_gettime",
+        ]
+    } else {
+        vec![
+            "pthread_create",
+            "pthread_detach",
+            "pthread_mutex_init",
+            "pthread_mutex_lock",
+            "pthread_mutex_unlock",
+            "pthread_cond_init",
+            "pthread_cond_wait",
+            "pthread_cond_timedwait",
+            "pthread_cond_signal",
+            "pthread_cond_broadcast",
+            "clock_gettime",
+        ]
+    }
+}
+
+fn thread_symbol(platform: &dyn CodegenPlatform, name: &str) -> String {
+    if platform.target() == "macos-aarch64" {
+        format!("_{name}")
+    } else {
+        name.to_string()
+    }
+}
+
+fn emit_thread_external_call(
+    from: &str,
+    platform_imports: &HashMap<String, String>,
+    platform: &dyn CodegenPlatform,
+    name: &str,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+) -> Result<(), String> {
+    let symbol = thread_symbol(platform, name);
+    instructions.push(abi::branch_link(&symbol));
+    relocations.push(external_branch(from, &symbol, platform_imports)?);
+    Ok(())
+}
+
+fn emit_thread_queue_alloc(
+    symbol: &str,
+    platform_imports: &HashMap<String, String>,
+    platform: &dyn CodegenPlatform,
+    limit_stack_offset: usize,
+    cb_stack_offset: usize,
+    queue_stack_offset: usize,
+    cb_queue_offset: usize,
+    done_label: &str,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+) -> Result<(), String> {
+    let alloc_queue_ok = format!("{symbol}_queue_{cb_queue_offset}_alloc_ok");
+    let alloc_values_ok = format!("{symbol}_queue_{cb_queue_offset}_values_ok");
+    let init_error = format!("{symbol}_queue_{cb_queue_offset}_init_error");
+    let init_done = format!("{symbol}_queue_{cb_queue_offset}_init_done");
+
+    instructions.extend([
+        abi::move_immediate("x0", "Integer", &THREAD_QUEUE_BLOCK_SIZE.to_string()),
+        abi::move_immediate("x1", "Integer", "8"),
+        abi::branch_link(ARENA_ALLOC_SYMBOL),
+    ]);
+    relocations.push(internal_branch(symbol, ARENA_ALLOC_SYMBOL));
+    instructions.extend([
+        abi::compare_immediate(RESULT_TAG_REGISTER, RESULT_OK_TAG),
+        abi::branch_eq(&alloc_queue_ok),
+        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_OUT_OF_MEMORY_CODE),
+        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
+    ]);
+    push_error_message_address(symbol, ERR_ALLOCATION_SYMBOL, instructions, relocations);
+    instructions.extend([
+        abi::branch(done_label),
+        abi::label(&alloc_queue_ok),
+        abi::store_u64("x1", abi::stack_pointer(), queue_stack_offset),
+        abi::load_u64("x9", abi::stack_pointer(), cb_stack_offset),
+        abi::store_u64("x1", "x9", cb_queue_offset),
+        abi::load_u64("x10", abi::stack_pointer(), limit_stack_offset),
+        abi::store_u64("x10", "x1", THREAD_QUEUE_CAPACITY_OFFSET),
+        abi::store_u64("x31", "x1", THREAD_QUEUE_COUNT_OFFSET),
+        abi::store_u64("x31", "x1", THREAD_QUEUE_HEAD_OFFSET),
+        abi::store_u64("x31", "x1", THREAD_QUEUE_TAIL_OFFSET),
+        abi::store_u64("x31", "x1", THREAD_QUEUE_CLOSED_OFFSET),
+        abi::move_immediate("x11", "Integer", "8"),
+        abi::multiply_registers("x0", "x10", "x11"),
+        abi::move_immediate("x1", "Integer", "8"),
+        abi::branch_link(ARENA_ALLOC_SYMBOL),
+    ]);
+    relocations.push(internal_branch(symbol, ARENA_ALLOC_SYMBOL));
+    instructions.extend([
+        abi::compare_immediate(RESULT_TAG_REGISTER, RESULT_OK_TAG),
+        abi::branch_eq(&alloc_values_ok),
+        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_OUT_OF_MEMORY_CODE),
+        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
+    ]);
+    push_error_message_address(symbol, ERR_ALLOCATION_SYMBOL, instructions, relocations);
+    instructions.extend([
+        abi::branch(done_label),
+        abi::label(&alloc_values_ok),
+        abi::load_u64("x9", abi::stack_pointer(), queue_stack_offset),
+        abi::store_u64("x1", "x9", THREAD_QUEUE_VALUES_OFFSET),
+        abi::move_register("x0", "x9"),
+        abi::move_immediate("x1", "Integer", "0"),
+    ]);
+    emit_thread_external_call(
+        symbol,
+        platform_imports,
+        platform,
+        "pthread_mutex_init",
+        instructions,
+        relocations,
+    )?;
+    instructions.extend([
+        abi::compare_immediate("x0", "0"),
+        abi::branch_ne(&init_error),
+        abi::load_u64("x9", abi::stack_pointer(), queue_stack_offset),
+        abi::add_immediate("x0", "x9", THREAD_QUEUE_NOT_EMPTY_OFFSET),
+        abi::move_immediate("x1", "Integer", "0"),
+    ]);
+    emit_thread_external_call(
+        symbol,
+        platform_imports,
+        platform,
+        "pthread_cond_init",
+        instructions,
+        relocations,
+    )?;
+    instructions.extend([
+        abi::compare_immediate("x0", "0"),
+        abi::branch_ne(&init_error),
+        abi::load_u64("x9", abi::stack_pointer(), queue_stack_offset),
+        abi::add_immediate("x0", "x9", THREAD_QUEUE_NOT_FULL_OFFSET),
+        abi::move_immediate("x1", "Integer", "0"),
+    ]);
+    emit_thread_external_call(
+        symbol,
+        platform_imports,
+        platform,
+        "pthread_cond_init",
+        instructions,
+        relocations,
+    )?;
+    instructions.extend([
+        abi::compare_immediate("x0", "0"),
+        abi::branch_ne(&init_error),
+        abi::branch(&init_done),
+        abi::label(&init_error),
+        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_INTERRUPTED_CODE),
+        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
+    ]);
+    push_error_message_address(symbol, ERR_INTERRUPTED_SYMBOL, instructions, relocations);
+    instructions.push(abi::branch(done_label));
+    instructions.push(abi::label(&init_done));
+    Ok(())
+}
 
 fn lower_thread_helper(
     symbol: &str,
@@ -4377,37 +4574,52 @@ fn lower_thread_helper(
 ) -> Result<(CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>), String> {
     match call {
         "thread.start" => lower_thread_start_helper(symbol, platform_imports, platform),
-        "thread.isRunning" => Ok(simple_thread_handle_helper(
+        "thread.isRunning" => simple_thread_handle_helper(
             symbol,
             ThreadSimpleOp::IsRunning,
-        )),
-        "thread.waitFor" => Ok(simple_thread_handle_helper(symbol, ThreadSimpleOp::WaitFor)),
-        "thread.cancel" => Ok(simple_thread_handle_helper(symbol, ThreadSimpleOp::Cancel)),
-        "thread.send" => Ok(thread_queue_write_helper(
+            platform_imports,
+            platform,
+        ),
+        "thread.waitFor" => {
+            simple_thread_handle_helper(symbol, ThreadSimpleOp::WaitFor, platform_imports, platform)
+        }
+        "thread.cancel" => {
+            simple_thread_handle_helper(symbol, ThreadSimpleOp::Cancel, platform_imports, platform)
+        }
+        "thread.drop" => {
+            simple_thread_handle_helper(symbol, ThreadSimpleOp::Drop, platform_imports, platform)
+        }
+        "thread.send" => thread_queue_write_helper(
             symbol,
-            THREAD_OFFSET_INBOUND_COUNT,
-            THREAD_OFFSET_INBOUND_VALUE,
+            THREAD_OFFSET_INBOUND_QUEUE,
             true,
-        )),
-        "thread.poll" => Ok(simple_thread_handle_helper(symbol, ThreadSimpleOp::Poll)),
-        "thread.read" => Ok(thread_queue_read_helper(
+            platform_imports,
+            platform,
+        ),
+        "thread.poll" => {
+            simple_thread_handle_helper(symbol, ThreadSimpleOp::Poll, platform_imports, platform)
+        }
+        "thread.read" => thread_queue_read_helper(
             symbol,
-            THREAD_OFFSET_OUTBOUND_COUNT,
-            THREAD_OFFSET_OUTBOUND_VALUE,
+            THREAD_OFFSET_OUTBOUND_QUEUE,
             false,
-        )),
-        "thread.receive" => Ok(thread_queue_read_helper(
+            platform_imports,
+            platform,
+        ),
+        "thread.receive" => thread_queue_read_helper(
             symbol,
-            THREAD_OFFSET_INBOUND_COUNT,
-            THREAD_OFFSET_INBOUND_VALUE,
+            THREAD_OFFSET_INBOUND_QUEUE,
             true,
-        )),
-        "thread.emit" => Ok(thread_queue_write_helper(
+            platform_imports,
+            platform,
+        ),
+        "thread.emit" => thread_queue_write_helper(
             symbol,
-            THREAD_OFFSET_OUTBOUND_COUNT,
-            THREAD_OFFSET_OUTBOUND_VALUE,
+            THREAD_OFFSET_OUTBOUND_QUEUE,
             false,
-        )),
+            platform_imports,
+            platform,
+        ),
         "thread.isCancelled" => Ok(thread_is_cancelled_helper()),
         _ => Err(format!("native thread helper does not implement {call}")),
     }
@@ -4418,13 +4630,14 @@ fn lower_thread_start_helper(
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
 ) -> Result<(CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>), String> {
-    const FRAME_SIZE: usize = 64;
+    const FRAME_SIZE: usize = 96;
     const LR_OFFSET: usize = 0;
     const ENTRY_OFFSET: usize = 8;
     const DATA_OFFSET: usize = 16;
     const IN_LIMIT_OFFSET: usize = 24;
     const OUT_LIMIT_OFFSET: usize = 32;
     const CB_OFFSET: usize = 40;
+    const QUEUE_OFFSET: usize = 48;
 
     let invalid_limit = format!("{symbol}_invalid_limit");
     let alloc_block_ok = format!("{symbol}_alloc_block_ok");
@@ -4471,10 +4684,8 @@ fn lower_thread_start_helper(
         abi::store_u64("x31", "x9", THREAD_OFFSET_RESULT_TAG),
         abi::store_u64("x31", "x9", THREAD_OFFSET_RESULT_VALUE),
         abi::store_u64("x31", "x9", THREAD_OFFSET_RESULT_ERROR),
-        abi::store_u64("x31", "x9", THREAD_OFFSET_INBOUND_COUNT),
-        abi::store_u64("x31", "x9", THREAD_OFFSET_INBOUND_VALUE),
-        abi::store_u64("x31", "x9", THREAD_OFFSET_OUTBOUND_COUNT),
-        abi::store_u64("x31", "x9", THREAD_OFFSET_OUTBOUND_VALUE),
+        abi::store_u64("x31", "x9", THREAD_OFFSET_INBOUND_QUEUE),
+        abi::store_u64("x31", "x9", THREAD_OFFSET_OUTBOUND_QUEUE),
         abi::store_u64("x31", "x9", THREAD_OFFSET_OS_HANDLE),
         abi::store_u64("x31", "x9", THREAD_OFFSET_PARENT_ARENA_STATE),
         abi::load_u64("x10", abi::stack_pointer(), ENTRY_OFFSET),
@@ -4514,12 +4725,38 @@ fn lower_thread_start_helper(
         abi::store_u64("x1", "x9", THREAD_OFFSET_ARENA_STATE),
     ]);
 
+    emit_thread_queue_alloc(
+        symbol,
+        platform_imports,
+        platform,
+        IN_LIMIT_OFFSET,
+        CB_OFFSET,
+        QUEUE_OFFSET,
+        THREAD_OFFSET_INBOUND_QUEUE,
+        &parent_done,
+        &mut instructions,
+        &mut relocations,
+    )?;
+    emit_thread_queue_alloc(
+        symbol,
+        platform_imports,
+        platform,
+        OUT_LIMIT_OFFSET,
+        CB_OFFSET,
+        QUEUE_OFFSET,
+        THREAD_OFFSET_OUTBOUND_QUEUE,
+        &parent_done,
+        &mut instructions,
+        &mut relocations,
+    )?;
+
     let pthread_create_symbol = if platform.target() == "macos-aarch64" {
         "_pthread_create"
     } else {
         "pthread_create"
     };
     instructions.extend([
+        abi::load_u64("x9", abi::stack_pointer(), CB_OFFSET),
         abi::add_immediate("x0", "x9", THREAD_OFFSET_OS_HANDLE),
         abi::move_immediate("x1", "Integer", "0"),
     ]);
@@ -4598,16 +4835,30 @@ fn lower_thread_start_helper(
     ))
 }
 
-fn lower_thread_trampoline(_platform: &dyn CodegenPlatform) -> Result<CodeFunction, String> {
-    let instructions = vec![
+fn lower_thread_trampoline(
+    platform_imports: &HashMap<String, String>,
+    platform: &dyn CodegenPlatform,
+) -> Result<CodeFunction, String> {
+    const FRAME_SIZE: usize = 80;
+    const LR_OFFSET: usize = 0;
+    const ARENA_OFFSET: usize = 8;
+    const X20_OFFSET: usize = 16;
+    const CLOSURE_OFFSET: usize = 24;
+    const CB_OFFSET: usize = 32;
+    const TAG_OFFSET: usize = 40;
+    const VALUE_OFFSET: usize = 48;
+    const ERROR_OFFSET: usize = 56;
+    let result_closed = format!("{THREAD_TRAMPOLINE_SYMBOL}_result_closed");
+
+    let mut instructions = vec![
         abi::label("entry"),
-        abi::subtract_stack(48),
-        abi::store_u64(abi::link_register(), abi::stack_pointer(), 0),
-        abi::store_u64(ARENA_STATE_REGISTER, abi::stack_pointer(), 8),
-        abi::store_u64("x20", abi::stack_pointer(), 16),
-        abi::store_u64(CLOSURE_ENV_REGISTER, abi::stack_pointer(), 24),
+        abi::subtract_stack(FRAME_SIZE),
+        abi::store_u64(abi::link_register(), abi::stack_pointer(), LR_OFFSET),
+        abi::store_u64(ARENA_STATE_REGISTER, abi::stack_pointer(), ARENA_OFFSET),
+        abi::store_u64("x20", abi::stack_pointer(), X20_OFFSET),
+        abi::store_u64(CLOSURE_ENV_REGISTER, abi::stack_pointer(), CLOSURE_OFFSET),
         abi::move_register("x20", "x0"),
-        abi::store_u64("x20", abi::stack_pointer(), 32),
+        abi::store_u64("x20", abi::stack_pointer(), CB_OFFSET),
         abi::load_u64(ARENA_STATE_REGISTER, "x20", THREAD_OFFSET_ARENA_STATE),
         abi::load_u64("x9", "x20", THREAD_OFFSET_ENTRY),
         abi::load_u64(CLOSURE_ENV_REGISTER, "x9", CLOSURE_OFFSET_ENV),
@@ -4615,24 +4866,139 @@ fn lower_thread_trampoline(_platform: &dyn CodegenPlatform) -> Result<CodeFuncti
         abi::load_u64("x1", "x20", THREAD_OFFSET_DATA),
         abi::move_register("x0", "x20"),
         abi::branch_link_register("x9"),
-        abi::load_u64("x20", abi::stack_pointer(), 32),
-        abi::store_u64(RESULT_TAG_REGISTER, "x20", THREAD_OFFSET_RESULT_TAG),
-        abi::store_u64(RESULT_VALUE_REGISTER, "x20", THREAD_OFFSET_RESULT_VALUE),
+        abi::store_u64(RESULT_TAG_REGISTER, abi::stack_pointer(), TAG_OFFSET),
+        abi::store_u64(RESULT_VALUE_REGISTER, abi::stack_pointer(), VALUE_OFFSET),
         abi::store_u64(
             RESULT_ERROR_MESSAGE_REGISTER,
-            "x20",
-            THREAD_OFFSET_RESULT_ERROR,
+            abi::stack_pointer(),
+            ERROR_OFFSET,
         ),
-        abi::move_immediate("x10", "Integer", "1"),
-        abi::store_u64("x10", "x20", THREAD_OFFSET_STATE),
-        abi::move_immediate("x0", "Integer", "0"),
-        abi::load_u64(ARENA_STATE_REGISTER, abi::stack_pointer(), 8),
-        abi::load_u64(CLOSURE_ENV_REGISTER, abi::stack_pointer(), 24),
-        abi::load_u64("x20", abi::stack_pointer(), 16),
-        abi::load_u64(abi::link_register(), abi::stack_pointer(), 0),
-        abi::add_stack(48),
-        abi::return_(),
+        abi::load_u64("x20", abi::stack_pointer(), CB_OFFSET),
+        abi::load_u64("x9", "x20", THREAD_OFFSET_INBOUND_QUEUE),
+        abi::move_register("x0", "x9"),
     ];
+    let mut relocations = Vec::new();
+    emit_thread_external_call(
+        THREAD_TRAMPOLINE_SYMBOL,
+        platform_imports,
+        platform,
+        "pthread_mutex_lock",
+        &mut instructions,
+        &mut relocations,
+    )?;
+    instructions.extend([
+        abi::load_u64("x20", abi::stack_pointer(), CB_OFFSET),
+        abi::load_u64("x9", "x20", THREAD_OFFSET_INBOUND_QUEUE),
+        abi::move_immediate("x10", "Integer", "1"),
+        abi::store_u64("x10", "x9", THREAD_QUEUE_CLOSED_OFFSET),
+        abi::add_immediate("x0", "x9", THREAD_QUEUE_NOT_EMPTY_OFFSET),
+    ]);
+    emit_thread_external_call(
+        THREAD_TRAMPOLINE_SYMBOL,
+        platform_imports,
+        platform,
+        "pthread_cond_broadcast",
+        &mut instructions,
+        &mut relocations,
+    )?;
+    instructions.extend([
+        abi::load_u64("x20", abi::stack_pointer(), CB_OFFSET),
+        abi::load_u64("x9", "x20", THREAD_OFFSET_INBOUND_QUEUE),
+        abi::add_immediate("x0", "x9", THREAD_QUEUE_NOT_FULL_OFFSET),
+    ]);
+    emit_thread_external_call(
+        THREAD_TRAMPOLINE_SYMBOL,
+        platform_imports,
+        platform,
+        "pthread_cond_broadcast",
+        &mut instructions,
+        &mut relocations,
+    )?;
+    instructions.extend([
+        abi::load_u64("x20", abi::stack_pointer(), CB_OFFSET),
+        abi::load_u64("x0", "x20", THREAD_OFFSET_INBOUND_QUEUE),
+    ]);
+    emit_thread_external_call(
+        THREAD_TRAMPOLINE_SYMBOL,
+        platform_imports,
+        platform,
+        "pthread_mutex_unlock",
+        &mut instructions,
+        &mut relocations,
+    )?;
+    instructions.extend([
+        abi::load_u64("x20", abi::stack_pointer(), CB_OFFSET),
+        abi::load_u64("x9", "x20", THREAD_OFFSET_OUTBOUND_QUEUE),
+        abi::move_register("x0", "x9"),
+    ]);
+    emit_thread_external_call(
+        THREAD_TRAMPOLINE_SYMBOL,
+        platform_imports,
+        platform,
+        "pthread_mutex_lock",
+        &mut instructions,
+        &mut relocations,
+    )?;
+    instructions.extend([
+        abi::load_u64("x20", abi::stack_pointer(), CB_OFFSET),
+        abi::load_u64("x9", "x20", THREAD_OFFSET_STATE),
+        abi::compare_immediate("x9", THREAD_STATE_CLOSED),
+        abi::branch_eq(&result_closed),
+        abi::load_u64("x20", abi::stack_pointer(), CB_OFFSET),
+        abi::load_u64("x9", abi::stack_pointer(), TAG_OFFSET),
+        abi::store_u64("x9", "x20", THREAD_OFFSET_RESULT_TAG),
+        abi::load_u64("x9", abi::stack_pointer(), VALUE_OFFSET),
+        abi::store_u64("x9", "x20", THREAD_OFFSET_RESULT_VALUE),
+        abi::load_u64("x9", abi::stack_pointer(), ERROR_OFFSET),
+        abi::store_u64("x9", "x20", THREAD_OFFSET_RESULT_ERROR),
+        abi::move_immediate("x10", "Integer", THREAD_STATE_COMPLETED),
+        abi::store_u64("x10", "x20", THREAD_OFFSET_STATE),
+        abi::load_u64("x9", "x20", THREAD_OFFSET_OUTBOUND_QUEUE),
+        abi::add_immediate("x0", "x9", THREAD_QUEUE_NOT_EMPTY_OFFSET),
+    ]);
+    emit_thread_external_call(
+        THREAD_TRAMPOLINE_SYMBOL,
+        platform_imports,
+        platform,
+        "pthread_cond_broadcast",
+        &mut instructions,
+        &mut relocations,
+    )?;
+    instructions.extend([
+        abi::load_u64("x20", abi::stack_pointer(), CB_OFFSET),
+        abi::load_u64("x9", "x20", THREAD_OFFSET_OUTBOUND_QUEUE),
+        abi::add_immediate("x0", "x9", THREAD_QUEUE_NOT_FULL_OFFSET),
+    ]);
+    emit_thread_external_call(
+        THREAD_TRAMPOLINE_SYMBOL,
+        platform_imports,
+        platform,
+        "pthread_cond_broadcast",
+        &mut instructions,
+        &mut relocations,
+    )?;
+    instructions.extend([
+        abi::label(&result_closed),
+        abi::load_u64("x20", abi::stack_pointer(), CB_OFFSET),
+        abi::load_u64("x0", "x20", THREAD_OFFSET_OUTBOUND_QUEUE),
+    ]);
+    emit_thread_external_call(
+        THREAD_TRAMPOLINE_SYMBOL,
+        platform_imports,
+        platform,
+        "pthread_mutex_unlock",
+        &mut instructions,
+        &mut relocations,
+    )?;
+    instructions.extend([
+        abi::move_immediate("x0", "Integer", "0"),
+        abi::load_u64(ARENA_STATE_REGISTER, abi::stack_pointer(), ARENA_OFFSET),
+        abi::load_u64(CLOSURE_ENV_REGISTER, abi::stack_pointer(), CLOSURE_OFFSET),
+        abi::load_u64("x20", abi::stack_pointer(), X20_OFFSET),
+        abi::load_u64(abi::link_register(), abi::stack_pointer(), LR_OFFSET),
+        abi::add_stack(FRAME_SIZE),
+        abi::return_(),
+    ]);
     Ok(CodeFunction {
         name: "runtime.thread.trampoline".to_string(),
         symbol: THREAD_TRAMPOLINE_SYMBOL.to_string(),
@@ -4643,12 +5009,12 @@ fn lower_thread_trampoline(_platform: &dyn CodegenPlatform) -> Result<CodeFuncti
         }],
         returns: "Nothing".to_string(),
         frame: CodeFrame {
-            stack_size: 0,
-            callee_saved: Vec::new(),
+            stack_size: FRAME_SIZE,
+            callee_saved: vec![abi::link_register().to_string(), "x20".to_string()],
         },
         stack_slots: Vec::new(),
         instructions,
-        relocations: Vec::new(),
+        relocations,
     })
 }
 
@@ -4656,22 +5022,115 @@ enum ThreadSimpleOp {
     IsRunning,
     WaitFor,
     Cancel,
+    Drop,
     Poll,
+}
+
+fn emit_thread_deadline(
+    symbol: &str,
+    platform_imports: &HashMap<String, String>,
+    platform: &dyn CodegenPlatform,
+    timeout_stack_offset: usize,
+    timespec_stack_offset: usize,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+) -> Result<(), String> {
+    let done = format!("{symbol}_deadline_done_{timespec_stack_offset}");
+    let nsec_ok = format!("{symbol}_deadline_nsec_ok_{timespec_stack_offset}");
+    instructions.extend([
+        abi::load_u64("x9", abi::stack_pointer(), timeout_stack_offset),
+        abi::compare_immediate("x9", "0"),
+        abi::branch_eq(&done),
+        abi::move_immediate("x0", "Integer", "0"),
+        abi::add_immediate("x1", abi::stack_pointer(), timespec_stack_offset),
+    ]);
+    emit_thread_external_call(
+        symbol,
+        platform_imports,
+        platform,
+        "clock_gettime",
+        instructions,
+        relocations,
+    )?;
+    instructions.extend([
+        abi::load_u64("x9", abi::stack_pointer(), timeout_stack_offset),
+        abi::move_immediate("x10", "Integer", "1000"),
+        abi::signed_divide_registers("x11", "x9", "x10"),
+        abi::multiply_subtract_registers("x12", "x11", "x10", "x9"),
+        abi::move_immediate("x13", "Integer", "1000000"),
+        abi::multiply_registers("x12", "x12", "x13"),
+        abi::load_u64("x14", abi::stack_pointer(), timespec_stack_offset),
+        abi::add_registers("x14", "x14", "x11"),
+        abi::load_u64("x15", abi::stack_pointer(), timespec_stack_offset + 8),
+        abi::add_registers("x15", "x15", "x12"),
+        abi::move_immediate("x13", "Integer", "1000000000"),
+        abi::compare_registers("x15", "x13"),
+        abi::branch_lt(&nsec_ok),
+        abi::subtract_registers("x15", "x15", "x13"),
+        abi::add_immediate("x14", "x14", 1),
+        abi::label(&nsec_ok),
+        abi::store_u64("x14", abi::stack_pointer(), timespec_stack_offset),
+        abi::store_u64("x15", abi::stack_pointer(), timespec_stack_offset + 8),
+        abi::label(&done),
+    ]);
+    Ok(())
 }
 
 fn simple_thread_handle_helper(
     symbol: &str,
     op: ThreadSimpleOp,
-) -> (CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>) {
-    let mut instructions = vec![abi::label("entry")];
+    platform_imports: &HashMap<String, String>,
+    platform: &dyn CodegenPlatform,
+) -> Result<(CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>), String> {
+    const FRAME_SIZE: usize = 48;
+    const LR_OFFSET: usize = 0;
+    const HANDLE_OFFSET: usize = 8;
+    const VALUE_OFFSET: usize = 16;
+    const TAG_OFFSET: usize = 24;
+    const ERROR_OFFSET: usize = 32;
+
+    let mut instructions = vec![abi::label("entry"), abi::subtract_stack(FRAME_SIZE)];
     let mut relocations = Vec::new();
+    instructions.extend([
+        abi::store_u64(abi::link_register(), abi::stack_pointer(), LR_OFFSET),
+        abi::store_u64("x0", abi::stack_pointer(), HANDLE_OFFSET),
+    ]);
     match op {
         ThreadSimpleOp::IsRunning => {
             let running = format!("{symbol}_running");
+            let closed = format!("{symbol}_closed");
             let done = format!("{symbol}_done");
             instructions.extend([
-                abi::load_u64("x9", "x0", THREAD_OFFSET_STATE),
-                abi::compare_immediate("x9", "0"),
+                abi::load_u64("x9", "x0", THREAD_OFFSET_OUTBOUND_QUEUE),
+                abi::move_register("x0", "x9"),
+            ]);
+            emit_thread_external_call(
+                symbol,
+                platform_imports,
+                platform,
+                "pthread_mutex_lock",
+                &mut instructions,
+                &mut relocations,
+            )?;
+            instructions.extend([
+                abi::load_u64("x8", abi::stack_pointer(), HANDLE_OFFSET),
+                abi::load_u64("x9", "x8", THREAD_OFFSET_STATE),
+                abi::store_u64("x9", abi::stack_pointer(), VALUE_OFFSET),
+                abi::load_u64("x0", "x8", THREAD_OFFSET_OUTBOUND_QUEUE),
+            ]);
+            emit_thread_external_call(
+                symbol,
+                platform_imports,
+                platform,
+                "pthread_mutex_unlock",
+                &mut instructions,
+                &mut relocations,
+            )?;
+            instructions.extend([
+                abi::load_u64("x9", abi::stack_pointer(), VALUE_OFFSET),
+                abi::compare_immediate("x9", THREAD_STATE_CLOSED),
+                abi::branch_eq(&closed),
+                abi::compare_immediate("x9", THREAD_STATE_RUNNING),
                 abi::branch_eq(&running),
                 abi::move_immediate(RESULT_VALUE_REGISTER, "Boolean", "0"),
                 abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
@@ -4679,71 +5138,487 @@ fn simple_thread_handle_helper(
                 abi::label(&running),
                 abi::move_immediate(RESULT_VALUE_REGISTER, "Boolean", "1"),
                 abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
-                abi::label(&done),
-                abi::return_(),
+                abi::branch(&done),
+                abi::label(&closed),
+                abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_RESOURCE_CLOSED_CODE),
+                abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
             ]);
+            push_error_message_address(
+                symbol,
+                ERR_RESOURCE_CLOSED_SYMBOL,
+                &mut instructions,
+                &mut relocations,
+            );
+            instructions.extend([abi::label(&done)]);
         }
         ThreadSimpleOp::WaitFor => {
             let loop_label = format!("{symbol}_wait_loop");
+            let closed = format!("{symbol}_closed");
+            let result_ready = format!("{symbol}_result_ready");
             let done = format!("{symbol}_done");
             instructions.extend([
+                abi::load_u64("x9", "x0", THREAD_OFFSET_OUTBOUND_QUEUE),
+                abi::move_register("x0", "x9"),
+            ]);
+            emit_thread_external_call(
+                symbol,
+                platform_imports,
+                platform,
+                "pthread_mutex_lock",
+                &mut instructions,
+                &mut relocations,
+            )?;
+            instructions.extend([
                 abi::label(&loop_label),
-                abi::load_u64("x9", "x0", THREAD_OFFSET_STATE),
-                abi::compare_immediate("x9", "1"),
-                abi::branch_ne(&loop_label),
+                abi::load_u64("x8", abi::stack_pointer(), HANDLE_OFFSET),
+                abi::load_u64("x9", "x8", THREAD_OFFSET_STATE),
+                abi::compare_immediate("x9", THREAD_STATE_CLOSED),
+                abi::branch_eq(&closed),
+                abi::compare_immediate("x9", THREAD_STATE_COMPLETED),
+                abi::branch_eq(&result_ready),
+                abi::load_u64("x9", "x8", THREAD_OFFSET_OUTBOUND_QUEUE),
+                abi::add_immediate("x0", "x9", THREAD_QUEUE_NOT_EMPTY_OFFSET),
+                abi::move_register("x1", "x9"),
+            ]);
+            emit_thread_external_call(
+                symbol,
+                platform_imports,
+                platform,
+                "pthread_cond_wait",
+                &mut instructions,
+                &mut relocations,
+            )?;
+            instructions.extend([
+                abi::branch(&loop_label),
+                abi::label(&result_ready),
+                abi::load_u64("x8", abi::stack_pointer(), HANDLE_OFFSET),
                 abi::load_u64(
                     RESULT_ERROR_MESSAGE_REGISTER,
-                    "x0",
+                    "x8",
                     THREAD_OFFSET_RESULT_ERROR,
                 ),
-                abi::load_u64(RESULT_VALUE_REGISTER, "x0", THREAD_OFFSET_RESULT_VALUE),
-                abi::load_u64(RESULT_TAG_REGISTER, "x0", THREAD_OFFSET_RESULT_TAG),
+                abi::load_u64(RESULT_VALUE_REGISTER, "x8", THREAD_OFFSET_RESULT_VALUE),
+                abi::load_u64(RESULT_TAG_REGISTER, "x8", THREAD_OFFSET_RESULT_TAG),
+                abi::store_u64(
+                    RESULT_ERROR_MESSAGE_REGISTER,
+                    abi::stack_pointer(),
+                    ERROR_OFFSET,
+                ),
+                abi::store_u64(RESULT_VALUE_REGISTER, abi::stack_pointer(), VALUE_OFFSET),
+                abi::store_u64(RESULT_TAG_REGISTER, abi::stack_pointer(), TAG_OFFSET),
+                abi::move_immediate("x9", "Integer", THREAD_STATE_CLOSED),
+                abi::store_u64("x9", "x8", THREAD_OFFSET_STATE),
+                abi::load_u64("x10", "x8", THREAD_OFFSET_OUTBOUND_QUEUE),
+                abi::store_u64("x9", "x10", THREAD_QUEUE_CLOSED_OFFSET),
+                abi::store_u64("x31", "x10", THREAD_QUEUE_COUNT_OFFSET),
+                abi::load_u64("x0", "x8", THREAD_OFFSET_OUTBOUND_QUEUE),
+            ]);
+            emit_thread_external_call(
+                symbol,
+                platform_imports,
+                platform,
+                "pthread_mutex_unlock",
+                &mut instructions,
+                &mut relocations,
+            )?;
+            instructions.extend([
+                abi::load_u64("x8", abi::stack_pointer(), HANDLE_OFFSET),
+                abi::load_u64("x0", "x8", THREAD_OFFSET_OS_HANDLE),
+            ]);
+            emit_thread_external_call(
+                symbol,
+                platform_imports,
+                platform,
+                "pthread_detach",
+                &mut instructions,
+                &mut relocations,
+            )?;
+            instructions.extend([
+                abi::load_u64(
+                    RESULT_ERROR_MESSAGE_REGISTER,
+                    abi::stack_pointer(),
+                    ERROR_OFFSET,
+                ),
+                abi::load_u64(RESULT_VALUE_REGISTER, abi::stack_pointer(), VALUE_OFFSET),
+                abi::load_u64(RESULT_TAG_REGISTER, abi::stack_pointer(), TAG_OFFSET),
+                abi::branch(&done),
+                abi::label(&closed),
+                abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_RESOURCE_CLOSED_CODE),
+                abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
+            ]);
+            push_error_message_address(
+                symbol,
+                ERR_RESOURCE_CLOSED_SYMBOL,
+                &mut instructions,
+                &mut relocations,
+            );
+            instructions.extend([
+                abi::store_u64(
+                    RESULT_ERROR_MESSAGE_REGISTER,
+                    abi::stack_pointer(),
+                    ERROR_OFFSET,
+                ),
+                abi::store_u64(RESULT_VALUE_REGISTER, abi::stack_pointer(), VALUE_OFFSET),
+                abi::store_u64(RESULT_TAG_REGISTER, abi::stack_pointer(), TAG_OFFSET),
+                abi::load_u64("x8", abi::stack_pointer(), HANDLE_OFFSET),
+                abi::load_u64("x0", "x8", THREAD_OFFSET_OUTBOUND_QUEUE),
+            ]);
+            emit_thread_external_call(
+                symbol,
+                platform_imports,
+                platform,
+                "pthread_mutex_unlock",
+                &mut instructions,
+                &mut relocations,
+            )?;
+            instructions.extend([
+                abi::load_u64(
+                    RESULT_ERROR_MESSAGE_REGISTER,
+                    abi::stack_pointer(),
+                    ERROR_OFFSET,
+                ),
+                abi::load_u64(RESULT_VALUE_REGISTER, abi::stack_pointer(), VALUE_OFFSET),
+                abi::load_u64(RESULT_TAG_REGISTER, abi::stack_pointer(), TAG_OFFSET),
                 abi::label(&done),
-                abi::return_(),
             ]);
         }
         ThreadSimpleOp::Cancel => {
+            let closed = format!("{symbol}_closed");
+            let closed_unlocked = format!("{symbol}_closed_unlocked");
             instructions.extend([
+                abi::load_u64("x9", "x0", THREAD_OFFSET_INBOUND_QUEUE),
+                abi::move_register("x0", "x9"),
+            ]);
+            emit_thread_external_call(
+                symbol,
+                platform_imports,
+                platform,
+                "pthread_mutex_lock",
+                &mut instructions,
+                &mut relocations,
+            )?;
+            instructions.extend([
+                abi::load_u64("x8", abi::stack_pointer(), HANDLE_OFFSET),
+                abi::load_u64("x9", "x8", THREAD_OFFSET_STATE),
+                abi::compare_immediate("x9", THREAD_STATE_CLOSED),
+                abi::branch_eq(&closed),
                 abi::move_immediate("x9", "Integer", "1"),
-                abi::store_u64("x9", "x0", THREAD_OFFSET_CANCELLED),
+                abi::store_u64("x9", "x8", THREAD_OFFSET_CANCELLED),
+                abi::load_u64("x10", "x8", THREAD_OFFSET_INBOUND_QUEUE),
+                abi::store_u64("x9", "x10", THREAD_QUEUE_CLOSED_OFFSET),
+                abi::add_immediate("x0", "x10", THREAD_QUEUE_NOT_EMPTY_OFFSET),
+            ]);
+            emit_thread_external_call(
+                symbol,
+                platform_imports,
+                platform,
+                "pthread_cond_broadcast",
+                &mut instructions,
+                &mut relocations,
+            )?;
+            instructions.extend([
+                abi::load_u64("x8", abi::stack_pointer(), HANDLE_OFFSET),
+                abi::load_u64("x10", "x8", THREAD_OFFSET_INBOUND_QUEUE),
+                abi::add_immediate("x0", "x10", THREAD_QUEUE_NOT_FULL_OFFSET),
+            ]);
+            emit_thread_external_call(
+                symbol,
+                platform_imports,
+                platform,
+                "pthread_cond_broadcast",
+                &mut instructions,
+                &mut relocations,
+            )?;
+            instructions.extend([
+                abi::load_u64("x8", abi::stack_pointer(), HANDLE_OFFSET),
+                abi::load_u64("x0", "x8", THREAD_OFFSET_INBOUND_QUEUE),
+            ]);
+            emit_thread_external_call(
+                symbol,
+                platform_imports,
+                platform,
+                "pthread_mutex_unlock",
+                &mut instructions,
+                &mut relocations,
+            )?;
+            instructions.extend([
                 abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
-                abi::return_(),
+                abi::branch(&closed_unlocked),
+                abi::label(&closed),
+                abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_RESOURCE_CLOSED_CODE),
+                abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
+            ]);
+            push_error_message_address(
+                symbol,
+                ERR_RESOURCE_CLOSED_SYMBOL,
+                &mut instructions,
+                &mut relocations,
+            );
+            instructions.extend([
+                abi::store_u64(RESULT_VALUE_REGISTER, abi::stack_pointer(), VALUE_OFFSET),
+                abi::store_u64(RESULT_TAG_REGISTER, abi::stack_pointer(), TAG_OFFSET),
+                abi::store_u64(
+                    RESULT_ERROR_MESSAGE_REGISTER,
+                    abi::stack_pointer(),
+                    ERROR_OFFSET,
+                ),
+                abi::load_u64("x8", abi::stack_pointer(), HANDLE_OFFSET),
+                abi::load_u64("x0", "x8", THREAD_OFFSET_INBOUND_QUEUE),
+            ]);
+            emit_thread_external_call(
+                symbol,
+                platform_imports,
+                platform,
+                "pthread_mutex_unlock",
+                &mut instructions,
+                &mut relocations,
+            )?;
+            instructions.extend([
+                abi::load_u64(RESULT_VALUE_REGISTER, abi::stack_pointer(), VALUE_OFFSET),
+                abi::load_u64(RESULT_TAG_REGISTER, abi::stack_pointer(), TAG_OFFSET),
+                abi::load_u64(
+                    RESULT_ERROR_MESSAGE_REGISTER,
+                    abi::stack_pointer(),
+                    ERROR_OFFSET,
+                ),
+                abi::label(&closed_unlocked),
+            ]);
+        }
+        ThreadSimpleOp::Drop => {
+            let already_closed = format!("{symbol}_already_closed");
+            let outbound_unlocked = format!("{symbol}_outbound_unlocked");
+            let inbound_unlocked = format!("{symbol}_inbound_unlocked");
+            let done = format!("{symbol}_done");
+            instructions.extend([
+                abi::load_u64("x9", "x0", THREAD_OFFSET_OUTBOUND_QUEUE),
+                abi::move_register("x0", "x9"),
+            ]);
+            emit_thread_external_call(
+                symbol,
+                platform_imports,
+                platform,
+                "pthread_mutex_lock",
+                &mut instructions,
+                &mut relocations,
+            )?;
+            instructions.extend([
+                abi::load_u64("x8", abi::stack_pointer(), HANDLE_OFFSET),
+                abi::load_u64("x9", "x8", THREAD_OFFSET_STATE),
+                abi::store_u64("x9", abi::stack_pointer(), VALUE_OFFSET),
+                abi::compare_immediate("x9", THREAD_STATE_CLOSED),
+                abi::branch_eq(&already_closed),
+                abi::move_immediate("x9", "Integer", THREAD_STATE_CLOSED),
+                abi::store_u64("x9", "x8", THREAD_OFFSET_STATE),
+                abi::load_u64("x10", "x8", THREAD_OFFSET_OUTBOUND_QUEUE),
+                abi::store_u64("x9", "x10", THREAD_QUEUE_CLOSED_OFFSET),
+                abi::store_u64("x31", "x10", THREAD_QUEUE_COUNT_OFFSET),
+                abi::store_u64("x31", "x10", THREAD_QUEUE_HEAD_OFFSET),
+                abi::store_u64("x31", "x10", THREAD_QUEUE_TAIL_OFFSET),
+                abi::add_immediate("x0", "x10", THREAD_QUEUE_NOT_EMPTY_OFFSET),
+            ]);
+            emit_thread_external_call(
+                symbol,
+                platform_imports,
+                platform,
+                "pthread_cond_broadcast",
+                &mut instructions,
+                &mut relocations,
+            )?;
+            instructions.extend([
+                abi::load_u64("x8", abi::stack_pointer(), HANDLE_OFFSET),
+                abi::load_u64("x10", "x8", THREAD_OFFSET_OUTBOUND_QUEUE),
+                abi::add_immediate("x0", "x10", THREAD_QUEUE_NOT_FULL_OFFSET),
+            ]);
+            emit_thread_external_call(
+                symbol,
+                platform_imports,
+                platform,
+                "pthread_cond_broadcast",
+                &mut instructions,
+                &mut relocations,
+            )?;
+            instructions.push(abi::label(&already_closed));
+            instructions.extend([
+                abi::load_u64("x8", abi::stack_pointer(), HANDLE_OFFSET),
+                abi::load_u64("x0", "x8", THREAD_OFFSET_OUTBOUND_QUEUE),
+            ]);
+            emit_thread_external_call(
+                symbol,
+                platform_imports,
+                platform,
+                "pthread_mutex_unlock",
+                &mut instructions,
+                &mut relocations,
+            )?;
+            instructions.extend([
+                abi::load_u64("x9", abi::stack_pointer(), VALUE_OFFSET),
+                abi::compare_immediate("x9", THREAD_STATE_CLOSED),
+                abi::branch_eq(&done),
+                abi::label(&outbound_unlocked),
+                abi::load_u64("x8", abi::stack_pointer(), HANDLE_OFFSET),
+                abi::load_u64("x9", "x8", THREAD_OFFSET_INBOUND_QUEUE),
+                abi::move_register("x0", "x9"),
+            ]);
+            emit_thread_external_call(
+                symbol,
+                platform_imports,
+                platform,
+                "pthread_mutex_lock",
+                &mut instructions,
+                &mut relocations,
+            )?;
+            instructions.extend([
+                abi::load_u64("x8", abi::stack_pointer(), HANDLE_OFFSET),
+                abi::move_immediate("x9", "Integer", "1"),
+                abi::store_u64("x9", "x8", THREAD_OFFSET_CANCELLED),
+                abi::load_u64("x10", "x8", THREAD_OFFSET_INBOUND_QUEUE),
+                abi::store_u64("x9", "x10", THREAD_QUEUE_CLOSED_OFFSET),
+                abi::store_u64("x31", "x10", THREAD_QUEUE_COUNT_OFFSET),
+                abi::store_u64("x31", "x10", THREAD_QUEUE_HEAD_OFFSET),
+                abi::store_u64("x31", "x10", THREAD_QUEUE_TAIL_OFFSET),
+                abi::add_immediate("x0", "x10", THREAD_QUEUE_NOT_EMPTY_OFFSET),
+            ]);
+            emit_thread_external_call(
+                symbol,
+                platform_imports,
+                platform,
+                "pthread_cond_broadcast",
+                &mut instructions,
+                &mut relocations,
+            )?;
+            instructions.extend([
+                abi::load_u64("x8", abi::stack_pointer(), HANDLE_OFFSET),
+                abi::load_u64("x10", "x8", THREAD_OFFSET_INBOUND_QUEUE),
+                abi::add_immediate("x0", "x10", THREAD_QUEUE_NOT_FULL_OFFSET),
+            ]);
+            emit_thread_external_call(
+                symbol,
+                platform_imports,
+                platform,
+                "pthread_cond_broadcast",
+                &mut instructions,
+                &mut relocations,
+            )?;
+            instructions.extend([
+                abi::load_u64("x8", abi::stack_pointer(), HANDLE_OFFSET),
+                abi::load_u64("x0", "x8", THREAD_OFFSET_INBOUND_QUEUE),
+            ]);
+            emit_thread_external_call(
+                symbol,
+                platform_imports,
+                platform,
+                "pthread_mutex_unlock",
+                &mut instructions,
+                &mut relocations,
+            )?;
+            instructions.extend([
+                abi::label(&inbound_unlocked),
+                abi::load_u64("x8", abi::stack_pointer(), HANDLE_OFFSET),
+                abi::load_u64("x0", "x8", THREAD_OFFSET_OS_HANDLE),
+            ]);
+            emit_thread_external_call(
+                symbol,
+                platform_imports,
+                platform,
+                "pthread_detach",
+                &mut instructions,
+                &mut relocations,
+            )?;
+            instructions.extend([
+                abi::label(&done),
+                abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
             ]);
         }
         ThreadSimpleOp::Poll => {
             let ready = format!("{symbol}_ready");
+            let closed = format!("{symbol}_closed");
             let invalid = format!("{symbol}_invalid_timeout");
-            let wait_prepare = format!("{symbol}_wait_prepare");
             let wait_loop = format!("{symbol}_wait_loop");
+            let wait_timed = format!("{symbol}_wait_timed");
+            let not_ready = format!("{symbol}_not_ready");
+            let locked_done = format!("{symbol}_locked_done");
             let done = format!("{symbol}_done");
             instructions.extend([
                 abi::compare_immediate("x1", "0"),
                 abi::branch_lt(&invalid),
-                abi::load_u64("x9", "x0", THREAD_OFFSET_OUTBOUND_COUNT),
-                abi::compare_immediate("x9", "0"),
-                abi::branch_gt(&ready),
-                abi::compare_immediate("x1", "0"),
-                abi::branch_gt(&wait_prepare),
-                abi::move_immediate(RESULT_VALUE_REGISTER, "Boolean", "0"),
-                abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
-                abi::branch(&done),
-                abi::label(&wait_prepare),
-                abi::move_immediate("x12", "Integer", "5000000"),
-                abi::multiply_registers("x11", "x1", "x12"),
+                abi::store_u64("x1", abi::stack_pointer(), VALUE_OFFSET),
+            ]);
+            emit_thread_deadline(
+                symbol,
+                platform_imports,
+                platform,
+                VALUE_OFFSET,
+                ERROR_OFFSET,
+                &mut instructions,
+                &mut relocations,
+            )?;
+            instructions.extend([
+                abi::load_u64("x8", abi::stack_pointer(), HANDLE_OFFSET),
+                abi::load_u64("x9", "x8", THREAD_OFFSET_OUTBOUND_QUEUE),
+                abi::move_register("x0", "x9"),
+            ]);
+            emit_thread_external_call(
+                symbol,
+                platform_imports,
+                platform,
+                "pthread_mutex_lock",
+                &mut instructions,
+                &mut relocations,
+            )?;
+            instructions.extend([
                 abi::label(&wait_loop),
-                abi::load_u64("x9", "x0", THREAD_OFFSET_OUTBOUND_COUNT),
-                abi::compare_immediate("x9", "0"),
+                abi::load_u64("x8", abi::stack_pointer(), HANDLE_OFFSET),
+                abi::load_u64("x9", "x8", THREAD_OFFSET_OUTBOUND_QUEUE),
+                abi::load_u64("x10", "x8", THREAD_OFFSET_STATE),
+                abi::compare_immediate("x10", THREAD_STATE_CLOSED),
+                abi::branch_eq(&closed),
+                abi::load_u64("x10", "x9", THREAD_QUEUE_COUNT_OFFSET),
+                abi::compare_immediate("x10", "0"),
                 abi::branch_gt(&ready),
-                abi::subtract_immediate("x11", "x11", 1),
-                abi::compare_immediate("x11", "0"),
-                abi::branch_gt(&wait_loop),
-                abi::move_immediate(RESULT_VALUE_REGISTER, "Boolean", "0"),
-                abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
-                abi::branch(&done),
+                abi::load_u64("x10", "x8", THREAD_OFFSET_STATE),
+                abi::compare_immediate("x10", THREAD_STATE_COMPLETED),
+                abi::branch_eq(&not_ready),
+                abi::load_u64("x10", abi::stack_pointer(), VALUE_OFFSET),
+                abi::compare_immediate("x10", "0"),
+                abi::branch_gt(&wait_timed),
+                abi::branch(&not_ready),
+                abi::label(&wait_timed),
+                abi::add_immediate("x0", "x9", THREAD_QUEUE_NOT_EMPTY_OFFSET),
+                abi::move_register("x1", "x9"),
+                abi::add_immediate("x2", abi::stack_pointer(), ERROR_OFFSET),
+            ]);
+            emit_thread_external_call(
+                symbol,
+                platform_imports,
+                platform,
+                "pthread_cond_timedwait",
+                &mut instructions,
+                &mut relocations,
+            )?;
+            instructions.extend([
+                abi::compare_immediate("x0", "0"),
+                abi::branch_ne(&not_ready),
+                abi::branch(&wait_loop),
                 abi::label(&ready),
                 abi::move_immediate(RESULT_VALUE_REGISTER, "Boolean", "1"),
                 abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
-                abi::branch(&done),
+                abi::branch(&locked_done),
+                abi::label(&not_ready),
+                abi::move_immediate(RESULT_VALUE_REGISTER, "Boolean", "0"),
+                abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
+                abi::branch(&locked_done),
+                abi::label(&closed),
+                abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_RESOURCE_CLOSED_CODE),
+                abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
+            ]);
+            push_error_message_address(
+                symbol,
+                ERR_RESOURCE_CLOSED_SYMBOL,
+                &mut instructions,
+                &mut relocations,
+            );
+            instructions.extend([
+                abi::branch(&locked_done),
                 abi::label(&invalid),
                 abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_INVALID_ARGUMENT_CODE),
                 abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
@@ -4754,58 +5629,192 @@ fn simple_thread_handle_helper(
                 &mut instructions,
                 &mut relocations,
             );
-            instructions.extend([abi::label(&done), abi::return_()]);
+            instructions.extend([
+                abi::branch(&done),
+                abi::label(&locked_done),
+                abi::store_u64(RESULT_VALUE_REGISTER, abi::stack_pointer(), VALUE_OFFSET),
+                abi::store_u64(RESULT_TAG_REGISTER, abi::stack_pointer(), TAG_OFFSET),
+                abi::store_u64(
+                    RESULT_ERROR_MESSAGE_REGISTER,
+                    abi::stack_pointer(),
+                    ERROR_OFFSET,
+                ),
+                abi::load_u64("x8", abi::stack_pointer(), HANDLE_OFFSET),
+                abi::load_u64("x0", "x8", THREAD_OFFSET_OUTBOUND_QUEUE),
+            ]);
+            emit_thread_external_call(
+                symbol,
+                platform_imports,
+                platform,
+                "pthread_mutex_unlock",
+                &mut instructions,
+                &mut relocations,
+            )?;
+            instructions.extend([
+                abi::load_u64(RESULT_VALUE_REGISTER, abi::stack_pointer(), VALUE_OFFSET),
+                abi::load_u64(RESULT_TAG_REGISTER, abi::stack_pointer(), TAG_OFFSET),
+                abi::load_u64(
+                    RESULT_ERROR_MESSAGE_REGISTER,
+                    abi::stack_pointer(),
+                    ERROR_OFFSET,
+                ),
+                abi::label(&done),
+            ]);
         }
     }
-    (
+    instructions.extend([
+        abi::load_u64(abi::link_register(), abi::stack_pointer(), LR_OFFSET),
+        abi::add_stack(FRAME_SIZE),
+        abi::return_(),
+    ]);
+    Ok((
         CodeFrame {
-            stack_size: 0,
-            callee_saved: Vec::new(),
+            stack_size: FRAME_SIZE,
+            callee_saved: vec![abi::link_register().to_string()],
         },
         instructions,
         relocations,
-    )
+    ))
 }
 
 fn thread_queue_write_helper(
     symbol: &str,
-    count_offset: usize,
-    value_offset: usize,
+    queue_offset: usize,
     parent_send: bool,
-) -> (CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>) {
+    platform_imports: &HashMap<String, String>,
+    platform: &dyn CodegenPlatform,
+) -> Result<(CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>), String> {
+    const FRAME_SIZE: usize = 80;
+    const LR_OFFSET: usize = 0;
+    const HANDLE_OFFSET: usize = 8;
+    const DATA_OFFSET: usize = 16;
+    const TIMEOUT_OFFSET: usize = 24;
+    const QUEUE_OFFSET: usize = 32;
+    const TIMESPEC_OFFSET: usize = 40;
+
     let invalid = format!("{symbol}_invalid");
+    let closed = format!("{symbol}_closed");
     let interrupted = format!("{symbol}_interrupted");
     let timeout = format!("{symbol}_timeout");
-    let ok = format!("{symbol}_ok");
+    let wait_loop = format!("{symbol}_wait_loop");
+    let wait_timed = format!("{symbol}_wait_timed");
+    let enqueue = format!("{symbol}_enqueue");
+    let tail_wrap = format!("{symbol}_tail_wrap");
+    let unlock = format!("{symbol}_unlock");
     let done = format!("{symbol}_done");
-    let mut instructions = vec![abi::label("entry")];
+    let mut instructions = vec![abi::label("entry"), abi::subtract_stack(FRAME_SIZE)];
     let mut relocations = Vec::new();
-    instructions.extend([abi::compare_immediate("x2", "0"), abi::branch_lt(&invalid)]);
-    if parent_send {
-        instructions.extend([
-            abi::load_u64("x9", "x0", THREAD_OFFSET_STATE),
-            abi::compare_immediate("x9", "1"),
-            abi::branch_eq(&interrupted),
-            abi::load_u64("x9", "x0", THREAD_OFFSET_CANCELLED),
-            abi::compare_immediate("x9", "0"),
-            abi::branch_ne(&interrupted),
-        ]);
-    } else {
+    instructions.extend([
+        abi::store_u64(abi::link_register(), abi::stack_pointer(), LR_OFFSET),
+        abi::store_u64("x0", abi::stack_pointer(), HANDLE_OFFSET),
+        abi::store_u64("x1", abi::stack_pointer(), DATA_OFFSET),
+        abi::store_u64("x2", abi::stack_pointer(), TIMEOUT_OFFSET),
+        abi::compare_immediate("x2", "0"),
+        abi::branch_lt(&invalid),
+    ]);
+    if !parent_send {
         instructions.extend([
             abi::compare_registers("x20", "x0"),
             abi::branch_ne(&invalid),
         ]);
     }
+    emit_thread_deadline(
+        symbol,
+        platform_imports,
+        platform,
+        TIMEOUT_OFFSET,
+        TIMESPEC_OFFSET,
+        &mut instructions,
+        &mut relocations,
+    )?;
     instructions.extend([
-        abi::load_u64("x9", "x0", count_offset),
-        abi::compare_immediate("x9", "0"),
+        abi::load_u64("x8", abi::stack_pointer(), HANDLE_OFFSET),
+        abi::load_u64("x9", "x8", queue_offset),
+        abi::store_u64("x9", abi::stack_pointer(), QUEUE_OFFSET),
+        abi::move_register("x0", "x9"),
+    ]);
+    emit_thread_external_call(
+        symbol,
+        platform_imports,
+        platform,
+        "pthread_mutex_lock",
+        &mut instructions,
+        &mut relocations,
+    )?;
+    instructions.push(abi::label(&wait_loop));
+    if parent_send {
+        instructions.extend([
+            abi::load_u64("x8", abi::stack_pointer(), HANDLE_OFFSET),
+            abi::load_u64("x9", "x8", THREAD_OFFSET_STATE),
+            abi::compare_immediate("x9", THREAD_STATE_CLOSED),
+            abi::branch_eq(&closed),
+            abi::compare_immediate("x9", THREAD_STATE_COMPLETED),
+            abi::branch_eq(&interrupted),
+            abi::load_u64("x9", "x8", THREAD_OFFSET_CANCELLED),
+            abi::compare_immediate("x9", "0"),
+            abi::branch_ne(&interrupted),
+        ]);
+    }
+    instructions.extend([
+        abi::load_u64("x9", abi::stack_pointer(), QUEUE_OFFSET),
+        abi::load_u64("x10", "x9", THREAD_QUEUE_CLOSED_OFFSET),
+        abi::compare_immediate("x10", "0"),
+        abi::branch_ne(&interrupted),
+        abi::load_u64("x10", "x9", THREAD_QUEUE_COUNT_OFFSET),
+        abi::load_u64("x11", "x9", THREAD_QUEUE_CAPACITY_OFFSET),
+        abi::compare_registers("x10", "x11"),
+        abi::branch_lt(&enqueue),
+        abi::load_u64("x12", abi::stack_pointer(), TIMEOUT_OFFSET),
+        abi::compare_immediate("x12", "0"),
+        abi::branch_eq(&timeout),
+        abi::label(&wait_timed),
+        abi::add_immediate("x0", "x9", THREAD_QUEUE_NOT_FULL_OFFSET),
+        abi::move_register("x1", "x9"),
+        abi::add_immediate("x2", abi::stack_pointer(), TIMESPEC_OFFSET),
+    ]);
+    emit_thread_external_call(
+        symbol,
+        platform_imports,
+        platform,
+        "pthread_cond_timedwait",
+        &mut instructions,
+        &mut relocations,
+    )?;
+    instructions.extend([
+        abi::compare_immediate("x0", "0"),
         abi::branch_ne(&timeout),
-        abi::store_u64("x1", "x0", value_offset),
-        abi::move_immediate("x9", "Integer", "1"),
-        abi::store_u64("x9", "x0", count_offset),
-        abi::label(&ok),
+        abi::branch(&wait_loop),
+        abi::label(&enqueue),
+        abi::load_u64("x9", abi::stack_pointer(), QUEUE_OFFSET),
+        abi::load_u64("x10", "x9", THREAD_QUEUE_TAIL_OFFSET),
+        abi::load_u64("x11", "x9", THREAD_QUEUE_VALUES_OFFSET),
+        abi::shift_left_immediate("x12", "x10", 3),
+        abi::add_registers("x11", "x11", "x12"),
+        abi::load_u64("x12", abi::stack_pointer(), DATA_OFFSET),
+        abi::store_u64("x12", "x11", 0),
+        abi::add_immediate("x10", "x10", 1),
+        abi::load_u64("x11", "x9", THREAD_QUEUE_CAPACITY_OFFSET),
+        abi::compare_registers("x10", "x11"),
+        abi::branch_lt(&tail_wrap),
+        abi::move_immediate("x10", "Integer", "0"),
+        abi::label(&tail_wrap),
+        abi::store_u64("x10", "x9", THREAD_QUEUE_TAIL_OFFSET),
+        abi::load_u64("x10", "x9", THREAD_QUEUE_COUNT_OFFSET),
+        abi::add_immediate("x10", "x10", 1),
+        abi::store_u64("x10", "x9", THREAD_QUEUE_COUNT_OFFSET),
+        abi::add_immediate("x0", "x9", THREAD_QUEUE_NOT_EMPTY_OFFSET),
+    ]);
+    emit_thread_external_call(
+        symbol,
+        platform_imports,
+        platform,
+        "pthread_cond_signal",
+        &mut instructions,
+        &mut relocations,
+    )?;
+    instructions.extend([
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
-        abi::branch(&done),
+        abi::branch(&unlock),
         abi::label(&interrupted),
         abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_INTERRUPTED_CODE),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
@@ -4817,19 +5826,19 @@ fn thread_queue_write_helper(
         &mut relocations,
     );
     instructions.extend([
-        abi::branch(&done),
-        abi::label(&invalid),
-        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_INVALID_ARGUMENT_CODE),
+        abi::branch(&unlock),
+        abi::label(&closed),
+        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_RESOURCE_CLOSED_CODE),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
     ]);
     push_error_message_address(
         symbol,
-        ERR_INVALID_ARGUMENT_SYMBOL,
+        ERR_RESOURCE_CLOSED_SYMBOL,
         &mut instructions,
         &mut relocations,
     );
     instructions.extend([
-        abi::branch(&done),
+        abi::branch(&unlock),
         abi::label(&timeout),
         abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_TIMEOUT_CODE),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
@@ -4840,82 +5849,8 @@ fn thread_queue_write_helper(
         &mut instructions,
         &mut relocations,
     );
-    instructions.extend([abi::label(&done), abi::return_()]);
-    (
-        CodeFrame {
-            stack_size: 0,
-            callee_saved: Vec::new(),
-        },
-        instructions,
-        relocations,
-    )
-}
-
-fn thread_queue_read_helper(
-    symbol: &str,
-    count_offset: usize,
-    value_offset: usize,
-    worker_only: bool,
-) -> (CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>) {
-    let invalid = format!("{symbol}_invalid");
-    let found = format!("{symbol}_found");
-    let wait_prepare = format!("{symbol}_wait_prepare");
-    let wait_loop = format!("{symbol}_wait_loop");
-    let done = format!("{symbol}_done");
-    let mut instructions = vec![abi::label("entry")];
-    let mut relocations = Vec::new();
-    if worker_only {
-        instructions.extend([
-            abi::compare_immediate("x1", "0"),
-            abi::branch_lt(&invalid),
-            abi::compare_registers("x20", "x0"),
-            abi::branch_ne(&invalid),
-        ]);
-    }
     instructions.extend([
-        abi::load_u64("x9", "x0", count_offset),
-        abi::compare_immediate("x9", "0"),
-        abi::branch_gt(&found),
-    ]);
-    if worker_only {
-        instructions.extend([
-            abi::compare_immediate("x1", "0"),
-            abi::branch_gt(&wait_prepare),
-        ]);
-    }
-    instructions.extend([
-        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_NOT_FOUND_CODE),
-        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
-    ]);
-    push_error_message_address(
-        symbol,
-        ERR_NOT_FOUND_SYMBOL,
-        &mut instructions,
-        &mut relocations,
-    );
-    instructions.extend([
-        abi::branch(&done),
-        abi::label(&wait_prepare),
-        abi::move_immediate("x12", "Integer", "5000000"),
-        abi::multiply_registers("x11", "x1", "x12"),
-        abi::label(&wait_loop),
-        abi::load_u64("x9", "x0", count_offset),
-        abi::compare_immediate("x9", "0"),
-        abi::branch_gt(&found),
-        abi::subtract_immediate("x11", "x11", 1),
-        abi::compare_immediate("x11", "0"),
-        abi::branch_gt(&wait_loop),
-        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_TIMEOUT_CODE),
-        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
-    ]);
-    push_error_message_address(
-        symbol,
-        ERR_TIMEOUT_SYMBOL,
-        &mut instructions,
-        &mut relocations,
-    );
-    instructions.extend([
-        abi::branch(&done),
+        abi::branch(&unlock),
         abi::label(&invalid),
         abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_INVALID_ARGUMENT_CODE),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
@@ -4928,21 +5863,272 @@ fn thread_queue_read_helper(
     );
     instructions.extend([
         abi::branch(&done),
-        abi::label(&found),
-        abi::load_u64(RESULT_VALUE_REGISTER, "x0", value_offset),
-        abi::store_u64("x31", "x0", count_offset),
-        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
+        abi::label(&unlock),
+        abi::store_u64(RESULT_VALUE_REGISTER, abi::stack_pointer(), DATA_OFFSET),
+        abi::store_u64(RESULT_TAG_REGISTER, abi::stack_pointer(), TIMEOUT_OFFSET),
+        abi::store_u64(
+            RESULT_ERROR_MESSAGE_REGISTER,
+            abi::stack_pointer(),
+            TIMESPEC_OFFSET,
+        ),
+        abi::load_u64("x0", abi::stack_pointer(), QUEUE_OFFSET),
+    ]);
+    emit_thread_external_call(
+        symbol,
+        platform_imports,
+        platform,
+        "pthread_mutex_unlock",
+        &mut instructions,
+        &mut relocations,
+    )?;
+    instructions.extend([
+        abi::load_u64(RESULT_VALUE_REGISTER, abi::stack_pointer(), DATA_OFFSET),
+        abi::load_u64(RESULT_TAG_REGISTER, abi::stack_pointer(), TIMEOUT_OFFSET),
+        abi::load_u64(
+            RESULT_ERROR_MESSAGE_REGISTER,
+            abi::stack_pointer(),
+            TIMESPEC_OFFSET,
+        ),
         abi::label(&done),
+        abi::load_u64(abi::link_register(), abi::stack_pointer(), LR_OFFSET),
+        abi::add_stack(FRAME_SIZE),
         abi::return_(),
     ]);
-    (
+    Ok((
         CodeFrame {
-            stack_size: 0,
-            callee_saved: Vec::new(),
+            stack_size: FRAME_SIZE,
+            callee_saved: vec![abi::link_register().to_string()],
         },
         instructions,
         relocations,
-    )
+    ))
+}
+
+fn thread_queue_read_helper(
+    symbol: &str,
+    queue_offset: usize,
+    worker_only: bool,
+    platform_imports: &HashMap<String, String>,
+    platform: &dyn CodegenPlatform,
+) -> Result<(CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>), String> {
+    const FRAME_SIZE: usize = 80;
+    const LR_OFFSET: usize = 0;
+    const HANDLE_OFFSET: usize = 8;
+    const TIMEOUT_OFFSET: usize = 16;
+    const QUEUE_OFFSET: usize = 24;
+    const VALUE_OFFSET: usize = 32;
+    const TAG_OFFSET: usize = 40;
+    const ERROR_OFFSET: usize = 48;
+    const TIMESPEC_OFFSET: usize = 56;
+
+    let invalid = format!("{symbol}_invalid");
+    let found = format!("{symbol}_found");
+    let wait_loop = format!("{symbol}_wait_loop");
+    let wait_timed = format!("{symbol}_wait_timed");
+    let not_found = format!("{symbol}_not_found");
+    let closed = format!("{symbol}_closed");
+    let timeout = format!("{symbol}_timeout");
+    let head_wrap = format!("{symbol}_head_wrap");
+    let unlock = format!("{symbol}_unlock");
+    let done = format!("{symbol}_done");
+    let mut instructions = vec![abi::label("entry"), abi::subtract_stack(FRAME_SIZE)];
+    let mut relocations = Vec::new();
+    instructions.extend([
+        abi::store_u64(abi::link_register(), abi::stack_pointer(), LR_OFFSET),
+        abi::store_u64("x0", abi::stack_pointer(), HANDLE_OFFSET),
+        abi::store_u64("x1", abi::stack_pointer(), TIMEOUT_OFFSET),
+        abi::compare_immediate("x1", "0"),
+        abi::branch_lt(&invalid),
+    ]);
+    if worker_only {
+        instructions.extend([
+            abi::compare_registers("x20", "x0"),
+            abi::branch_ne(&invalid),
+        ]);
+    }
+    emit_thread_deadline(
+        symbol,
+        platform_imports,
+        platform,
+        TIMEOUT_OFFSET,
+        TIMESPEC_OFFSET,
+        &mut instructions,
+        &mut relocations,
+    )?;
+    instructions.extend([
+        abi::load_u64("x8", abi::stack_pointer(), HANDLE_OFFSET),
+        abi::load_u64("x9", "x8", queue_offset),
+        abi::store_u64("x9", abi::stack_pointer(), QUEUE_OFFSET),
+        abi::move_register("x0", "x9"),
+    ]);
+    emit_thread_external_call(
+        symbol,
+        platform_imports,
+        platform,
+        "pthread_mutex_lock",
+        &mut instructions,
+        &mut relocations,
+    )?;
+    instructions.extend([
+        abi::label(&wait_loop),
+        abi::load_u64("x9", abi::stack_pointer(), QUEUE_OFFSET),
+        abi::load_u64("x10", "x9", THREAD_QUEUE_COUNT_OFFSET),
+        abi::compare_immediate("x10", "0"),
+        abi::branch_gt(&found),
+        abi::load_u64("x10", "x9", THREAD_QUEUE_CLOSED_OFFSET),
+        abi::compare_immediate("x10", "0"),
+        abi::branch_ne(&not_found),
+    ]);
+    if !worker_only {
+        instructions.extend([
+            abi::load_u64("x8", abi::stack_pointer(), HANDLE_OFFSET),
+            abi::load_u64("x10", "x8", THREAD_OFFSET_STATE),
+            abi::compare_immediate("x10", THREAD_STATE_CLOSED),
+            abi::branch_eq(&closed),
+            abi::compare_immediate("x10", THREAD_STATE_COMPLETED),
+            abi::branch_eq(&not_found),
+        ]);
+    }
+    instructions.extend([
+        abi::load_u64("x10", abi::stack_pointer(), TIMEOUT_OFFSET),
+        abi::compare_immediate("x10", "0"),
+        abi::branch_eq(&not_found),
+        abi::label(&wait_timed),
+        abi::add_immediate("x0", "x9", THREAD_QUEUE_NOT_EMPTY_OFFSET),
+        abi::move_register("x1", "x9"),
+        abi::add_immediate("x2", abi::stack_pointer(), TIMESPEC_OFFSET),
+    ]);
+    emit_thread_external_call(
+        symbol,
+        platform_imports,
+        platform,
+        "pthread_cond_timedwait",
+        &mut instructions,
+        &mut relocations,
+    )?;
+    instructions.extend([
+        abi::compare_immediate("x0", "0"),
+        abi::branch_ne(&timeout),
+        abi::branch(&wait_loop),
+        abi::label(&found),
+        abi::load_u64("x9", abi::stack_pointer(), QUEUE_OFFSET),
+        abi::load_u64("x10", "x9", THREAD_QUEUE_HEAD_OFFSET),
+        abi::load_u64("x11", "x9", THREAD_QUEUE_VALUES_OFFSET),
+        abi::shift_left_immediate("x12", "x10", 3),
+        abi::add_registers("x11", "x11", "x12"),
+        abi::load_u64(RESULT_VALUE_REGISTER, "x11", 0),
+        abi::add_immediate("x10", "x10", 1),
+        abi::load_u64("x11", "x9", THREAD_QUEUE_CAPACITY_OFFSET),
+        abi::compare_registers("x10", "x11"),
+        abi::branch_lt(&head_wrap),
+        abi::move_immediate("x10", "Integer", "0"),
+        abi::label(&head_wrap),
+        abi::store_u64("x10", "x9", THREAD_QUEUE_HEAD_OFFSET),
+        abi::load_u64("x10", "x9", THREAD_QUEUE_COUNT_OFFSET),
+        abi::subtract_immediate("x10", "x10", 1),
+        abi::store_u64("x10", "x9", THREAD_QUEUE_COUNT_OFFSET),
+        abi::store_u64(RESULT_VALUE_REGISTER, abi::stack_pointer(), VALUE_OFFSET),
+        abi::add_immediate("x0", "x9", THREAD_QUEUE_NOT_FULL_OFFSET),
+    ]);
+    emit_thread_external_call(
+        symbol,
+        platform_imports,
+        platform,
+        "pthread_cond_signal",
+        &mut instructions,
+        &mut relocations,
+    )?;
+    instructions.extend([
+        abi::load_u64(RESULT_VALUE_REGISTER, abi::stack_pointer(), VALUE_OFFSET),
+        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
+        abi::branch(&unlock),
+        abi::label(&not_found),
+        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_NOT_FOUND_CODE),
+        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
+    ]);
+    push_error_message_address(
+        symbol,
+        ERR_NOT_FOUND_SYMBOL,
+        &mut instructions,
+        &mut relocations,
+    );
+    instructions.extend([
+        abi::branch(&unlock),
+        abi::label(&closed),
+        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_RESOURCE_CLOSED_CODE),
+        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
+    ]);
+    push_error_message_address(
+        symbol,
+        ERR_RESOURCE_CLOSED_SYMBOL,
+        &mut instructions,
+        &mut relocations,
+    );
+    instructions.extend([
+        abi::branch(&unlock),
+        abi::label(&timeout),
+        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_TIMEOUT_CODE),
+        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
+    ]);
+    push_error_message_address(
+        symbol,
+        ERR_TIMEOUT_SYMBOL,
+        &mut instructions,
+        &mut relocations,
+    );
+    instructions.extend([
+        abi::branch(&unlock),
+        abi::label(&invalid),
+        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_INVALID_ARGUMENT_CODE),
+        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
+    ]);
+    push_error_message_address(
+        symbol,
+        ERR_INVALID_ARGUMENT_SYMBOL,
+        &mut instructions,
+        &mut relocations,
+    );
+    instructions.extend([
+        abi::branch(&done),
+        abi::label(&unlock),
+        abi::store_u64(RESULT_VALUE_REGISTER, abi::stack_pointer(), VALUE_OFFSET),
+        abi::store_u64(RESULT_TAG_REGISTER, abi::stack_pointer(), TAG_OFFSET),
+        abi::store_u64(
+            RESULT_ERROR_MESSAGE_REGISTER,
+            abi::stack_pointer(),
+            ERROR_OFFSET,
+        ),
+        abi::load_u64("x0", abi::stack_pointer(), QUEUE_OFFSET),
+    ]);
+    emit_thread_external_call(
+        symbol,
+        platform_imports,
+        platform,
+        "pthread_mutex_unlock",
+        &mut instructions,
+        &mut relocations,
+    )?;
+    instructions.extend([
+        abi::load_u64(RESULT_VALUE_REGISTER, abi::stack_pointer(), VALUE_OFFSET),
+        abi::load_u64(RESULT_TAG_REGISTER, abi::stack_pointer(), TAG_OFFSET),
+        abi::load_u64(
+            RESULT_ERROR_MESSAGE_REGISTER,
+            abi::stack_pointer(),
+            ERROR_OFFSET,
+        ),
+        abi::label(&done),
+        abi::load_u64(abi::link_register(), abi::stack_pointer(), LR_OFFSET),
+        abi::add_stack(FRAME_SIZE),
+        abi::return_(),
+    ]);
+    Ok((
+        CodeFrame {
+            stack_size: FRAME_SIZE,
+            callee_saved: vec![abi::link_register().to_string()],
+        },
+        instructions,
+        relocations,
+    ))
 }
 
 fn thread_is_cancelled_helper() -> (CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>) {
@@ -11250,6 +12436,20 @@ fn string_symbols(module: &NirModule) -> HashMap<String, String> {
     }
     if module_uses_call(module, "io.pollInput") {
         push_string_value(&mut values, ERR_INPUT_MESSAGE.to_string());
+    }
+    if module_uses_any_call(
+        module,
+        &[
+            "thread.isRunning",
+            "thread.waitFor",
+            "thread.cancel",
+            "thread.send",
+            "thread.poll",
+            "thread.receive",
+            "thread.read",
+        ],
+    ) {
+        push_string_value(&mut values, ERR_RESOURCE_CLOSED_MESSAGE.to_string());
     }
     if module_uses_call(module, "fs.currentDirectory") {
         push_string_value(&mut values, ERR_READ_MESSAGE.to_string());

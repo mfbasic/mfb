@@ -247,15 +247,27 @@ impl plan::NativePlanPlatform for Platform {
                 },
             ],
             "thread.start" | "thread.isRunning" | "thread.waitFor" | "thread.cancel"
-            | "thread.send" | "thread.poll" | "thread.read" | "thread.receive" | "thread.emit"
-            | "thread.isCancelled" => ["_pthread_create"]
-                .into_iter()
-                .map(|symbol| PlatformImport {
-                    library: "libSystem".to_string(),
-                    symbol: symbol.to_string(),
-                    required_by: spec.symbol.to_string(),
-                })
-                .collect(),
+            | "thread.drop" | "thread.send" | "thread.poll" | "thread.read" | "thread.receive"
+            | "thread.emit" | "thread.isCancelled" => [
+                "_pthread_create",
+                "_pthread_detach",
+                "_pthread_mutex_init",
+                "_pthread_mutex_lock",
+                "_pthread_mutex_unlock",
+                "_pthread_cond_init",
+                "_pthread_cond_wait",
+                "_pthread_cond_timedwait",
+                "_pthread_cond_signal",
+                "_pthread_cond_broadcast",
+                "_clock_gettime",
+            ]
+            .into_iter()
+            .map(|symbol| PlatformImport {
+                library: "libSystem".to_string(),
+                symbol: symbol.to_string(),
+                required_by: spec.symbol.to_string(),
+            })
+            .collect(),
             _ => Vec::new(),
         }
     }

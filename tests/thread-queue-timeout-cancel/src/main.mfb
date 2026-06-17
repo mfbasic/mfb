@@ -1,0 +1,55 @@
+IMPORT io
+IMPORT thread
+IMPORT thread_runtime_workers
+
+FUNC fullQueueScenario(t AS Thread OF String TO Integer) AS Integer
+  LET hasFullMessage AS Boolean = thread::poll(t, 100)
+  thread::send(t, "held", 0)
+  thread::send(t, "full", 0)
+  io::print("unexpected send")
+  RETURN 1
+  TRAP err
+    io::print("timeout")
+    LET raw AS Result OF Integer = t.result
+    MATCH raw
+      CASE Ok(value)
+        io::print("unexpected full result")
+      CASE Error(workerErr)
+        io::print("worker timeout")
+    END MATCH
+    RETURN 0
+  END TRAP
+END FUNC
+
+FUNC cancelScenario(t AS Thread OF String TO Integer) AS Integer
+  LET hasMessage AS Boolean = thread::poll(t, 1)
+  IF hasMessage THEN
+    io::print("unexpected poll")
+  ELSE
+    io::print("poll false")
+  END IF
+  thread::cancel(t)
+  thread::send(t, "after-cancel", 0)
+  io::print("unexpected cancel send")
+  RETURN 1
+  TRAP err
+    io::print("interrupted")
+    LET raw AS Result OF Integer = t.result
+    MATCH raw
+      CASE Ok(value)
+        io::print("unexpected cancel result")
+      CASE Error(cancelResultErr)
+        io::print("cancelled")
+    END MATCH
+    RETURN 0
+  END TRAP
+END FUNC
+
+FUNC main AS Integer
+  LET full AS Thread OF String TO Integer = thread::start(thread_runtime_workers::blockOnOutbound, "seed", 1, 1)
+  LET fullResult AS Integer = fullQueueScenario(full)
+
+  LET t AS Thread OF String TO Integer = thread::start(thread_runtime_workers::waitForCancel, "seed", 1, 1)
+  LET cancelResult AS Integer = cancelScenario(t)
+  RETURN fullResult + cancelResult
+END FUNC

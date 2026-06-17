@@ -140,11 +140,28 @@ impl plan::NativePlanPlatform for Platform {
                 self.libc_import("realpath", spec.symbol),
                 self.libc_import("__errno_location", spec.symbol),
             ],
-            "thread.start" => vec![PlatformImport {
+            "thread.start" | "thread.isRunning" | "thread.waitFor" | "thread.cancel"
+            | "thread.drop" | "thread.send" | "thread.poll" | "thread.read" | "thread.receive"
+            | "thread.emit" | "thread.isCancelled" => [
+                "pthread_create",
+                "pthread_detach",
+                "pthread_mutex_init",
+                "pthread_mutex_lock",
+                "pthread_mutex_unlock",
+                "pthread_cond_init",
+                "pthread_cond_wait",
+                "pthread_cond_timedwait",
+                "pthread_cond_signal",
+                "pthread_cond_broadcast",
+                "clock_gettime",
+            ]
+            .into_iter()
+            .map(|symbol| PlatformImport {
                 library: self.libpthread().to_string(),
-                symbol: "pthread_create".to_string(),
+                symbol: symbol.to_string(),
                 required_by: spec.symbol.to_string(),
-            }],
+            })
+            .collect(),
             _ => Vec::new(),
         }
     }

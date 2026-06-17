@@ -1,0 +1,17 @@
+$ mfb build -ast tests/thread-bounded-queues
+Wrote AST to tests/thread-bounded-queues/thread_bounded_queues.ast
+[exit 0]
+$ mfb build -ir tests/thread-bounded-queues
+Wrote IR to tests/thread-bounded-queues/thread_bounded_queues.ir
+[exit 0]
+$ mfb build tests/thread-bounded-queues
+Wrote executable to tests/thread-bounded-queues/thread_bounded_queues.out
+[exit 0]
+$ tests/thread-bounded-queues/thread_bounded_queues.out
+one
+two
+three
+alpha
+beta
+gamma
+[exit 0]

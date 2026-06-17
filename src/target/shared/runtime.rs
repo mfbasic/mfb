@@ -1027,6 +1027,17 @@ pub(crate) const THREAD_CANCEL_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
     },
 };
 
+pub(crate) const THREAD_DROP_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
+    helper: RuntimeHelper::Thread,
+    call: "thread.drop",
+    symbol: "_mfb_rt_thread_thread_drop",
+    abi: RuntimeHelperAbi {
+        params: THREAD_HANDLE_PARAMS,
+        returns: "Nothing",
+        clobbers: abi::IO_PRINT_CLOBBERS,
+    },
+};
+
 pub(crate) const THREAD_SEND_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
     helper: RuntimeHelper::Thread,
     call: "thread.send",
@@ -1160,6 +1171,7 @@ pub(crate) fn supported_helper_specs() -> &'static [RuntimeHelperSpec] {
         THREAD_IS_RUNNING_SPEC,
         THREAD_WAIT_FOR_SPEC,
         THREAD_CANCEL_SPEC,
+        THREAD_DROP_SPEC,
         THREAD_SEND_SPEC,
         THREAD_POLL_SPEC,
         THREAD_READ_SPEC,

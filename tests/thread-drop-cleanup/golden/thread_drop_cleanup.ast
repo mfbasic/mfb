@@ -1,0 +1,227 @@
+{
+  "project": "thread_drop_cleanup",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 },
+    { "module": "thread", "line": 2 },
+    { "module": "thread_workers", "line": 3 },
+    { "module": "thread_runtime_workers", "line": 4 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "completedScopeDrop",
+      "line": 6,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "t", "type": "Thread OF Nothing TO Integer", "value": { "kind": "call", "callee": "thread.start", "arguments": [{ "kind": "identifier", "value": "thread_workers.noMessages" }, { "kind": "number", "value": "5" }, { "kind": "number", "value": "1" }, { "kind": "number", "value": "1" }] }, "line": 7 },
+      {
+        "kind": "while",
+        "condition": { "kind": "call", "callee": "thread.isRunning", "arguments": [{ "kind": "identifier", "value": "t" }] },
+        "line": 8,
+        "body": [
+        ]
+      },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 10 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "runningEarlyReturnDrop",
+      "line": 13,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "t", "type": "Thread OF String TO Integer", "value": { "kind": "call", "callee": "thread.start", "arguments": [{ "kind": "identifier", "value": "thread_runtime_workers.waitForCancel" }, { "kind": "string", "value": "early" }, { "kind": "number", "value": "1" }, { "kind": "number", "value": "1" }] }, "line": 14 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 15 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "reassignmentDrop",
+      "line": 18,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": true, "name": "t", "type": "Thread OF String TO Integer", "value": { "kind": "call", "callee": "thread.start", "arguments": [{ "kind": "identifier", "value": "thread_runtime_workers.waitForCancel" }, { "kind": "string", "value": "old" }, { "kind": "number", "value": "1" }, { "kind": "number", "value": "1" }] }, "line": 19 },
+      { "kind": "assignment", "name": "t", "value": { "kind": "call", "callee": "thread.start", "arguments": [{ "kind": "identifier", "value": "thread_runtime_workers.waitForCancel" }, { "kind": "string", "value": "new" }, { "kind": "number", "value": "1" }, { "kind": "number", "value": "1" }] }, "line": 20 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "thread.send", "arguments": [{ "kind": "identifier", "value": "t" }, { "kind": "string", "value": "done" }, { "kind": "number", "value": "10" }] }, "line": 21 },
+      { "kind": "binding", "mutable": false, "name": "value", "type": "Integer", "value": { "kind": "call", "callee": "thread.waitFor", "arguments": [{ "kind": "identifier", "value": "t" }] }, "line": 22 },
+      {
+        "kind": "if",
+        "condition": { "kind": "binary", "operator": "<>", "left": { "kind": "identifier", "value": "value" }, "right": { "kind": "number", "value": "4" } },
+        "line": 23,
+        "then": [
+        { "kind": "return", "value": { "kind": "number", "value": "1" }, "line": 23 }
+        ],
+        "else": [
+        ]
+      },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 24 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "autoTrapDrop",
+      "line": 27,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "t", "type": "Thread OF String TO Integer", "value": { "kind": "call", "callee": "thread.start", "arguments": [{ "kind": "identifier", "value": "thread_runtime_workers.waitForCancel" }, { "kind": "string", "value": "trap" }, { "kind": "number", "value": "1" }, { "kind": "number", "value": "1" }] }, "line": 28 },
+      { "kind": "binding", "mutable": false, "name": "ready", "type": "Boolean", "value": { "kind": "call", "callee": "thread.poll", "arguments": [{ "kind": "identifier", "value": "t" }, { "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "1" } }] }, "line": 29 },
+      { "kind": "return", "value": { "kind": "number", "value": "2" }, "line": 30 }
+      ],
+      "trap": {
+      "name": "err",
+      "line": 31,
+      "body": [
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 32 }
+      ]
+    }
+    },
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "failTrapDrop",
+      "line": 36,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "t", "type": "Thread OF String TO Integer", "value": { "kind": "call", "callee": "thread.start", "arguments": [{ "kind": "identifier", "value": "thread_runtime_workers.waitForCancel" }, { "kind": "string", "value": "fail" }, { "kind": "number", "value": "1" }, { "kind": "number", "value": "1" }] }, "line": 37 },
+      { "kind": "fail", "error": { "kind": "constructor", "type": "Error", "arguments": [{ "kind": "number", "value": "77050002" }, { "kind": "string", "value": "forced" }] }, "line": 38 }
+      ],
+      "trap": {
+      "name": "err",
+      "line": 39,
+      "body": [
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 40 }
+      ]
+    }
+    },
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "makeThread",
+      "line": 44,
+      "params": [
+      ],
+      "returnType": "Thread OF String TO Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "t", "type": "Thread OF String TO Integer", "value": { "kind": "call", "callee": "thread.start", "arguments": [{ "kind": "identifier", "value": "thread_runtime_workers.waitForCancel" }, { "kind": "string", "value": "return" }, { "kind": "number", "value": "1" }, { "kind": "number", "value": "1" }] }, "line": 45 },
+      { "kind": "return", "value": { "kind": "identifier", "value": "t" }, "line": 46 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "returnedThreadStillLive",
+      "line": 49,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "t", "type": "Thread OF String TO Integer", "value": { "kind": "call", "callee": "makeThread", "arguments": [] }, "line": 50 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "thread.send", "arguments": [{ "kind": "identifier", "value": "t" }, { "kind": "string", "value": "ok" }, { "kind": "number", "value": "10" }] }, "line": 51 },
+      { "kind": "binding", "mutable": false, "name": "value", "type": "Integer", "value": { "kind": "call", "callee": "thread.waitFor", "arguments": [{ "kind": "identifier", "value": "t" }] }, "line": 52 },
+      {
+        "kind": "if",
+        "condition": { "kind": "binary", "operator": "<>", "left": { "kind": "identifier", "value": "value" }, "right": { "kind": "number", "value": "2" } },
+        "line": 53,
+        "then": [
+        { "kind": "return", "value": { "kind": "number", "value": "1" }, "line": 53 }
+        ],
+        "else": [
+        ]
+      },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 54 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "main",
+      "line": 57,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      {
+        "kind": "if",
+        "condition": { "kind": "binary", "operator": "<>", "left": { "kind": "call", "callee": "completedScopeDrop", "arguments": [] }, "right": { "kind": "number", "value": "0" } },
+        "line": 58,
+        "then": [
+        { "kind": "return", "value": { "kind": "number", "value": "10" }, "line": 58 }
+        ],
+        "else": [
+        ]
+      },
+      {
+        "kind": "if",
+        "condition": { "kind": "binary", "operator": "<>", "left": { "kind": "call", "callee": "runningEarlyReturnDrop", "arguments": [] }, "right": { "kind": "number", "value": "0" } },
+        "line": 59,
+        "then": [
+        { "kind": "return", "value": { "kind": "number", "value": "11" }, "line": 59 }
+        ],
+        "else": [
+        ]
+      },
+      {
+        "kind": "if",
+        "condition": { "kind": "binary", "operator": "<>", "left": { "kind": "call", "callee": "reassignmentDrop", "arguments": [] }, "right": { "kind": "number", "value": "0" } },
+        "line": 60,
+        "then": [
+        { "kind": "return", "value": { "kind": "number", "value": "12" }, "line": 60 }
+        ],
+        "else": [
+        ]
+      },
+      {
+        "kind": "if",
+        "condition": { "kind": "binary", "operator": "<>", "left": { "kind": "call", "callee": "autoTrapDrop", "arguments": [] }, "right": { "kind": "number", "value": "0" } },
+        "line": 61,
+        "then": [
+        { "kind": "return", "value": { "kind": "number", "value": "13" }, "line": 61 }
+        ],
+        "else": [
+        ]
+      },
+      {
+        "kind": "if",
+        "condition": { "kind": "binary", "operator": "<>", "left": { "kind": "call", "callee": "failTrapDrop", "arguments": [] }, "right": { "kind": "number", "value": "0" } },
+        "line": 62,
+        "then": [
+        { "kind": "return", "value": { "kind": "number", "value": "14" }, "line": 62 }
+        ],
+        "else": [
+        ]
+      },
+      {
+        "kind": "if",
+        "condition": { "kind": "binary", "operator": "<>", "left": { "kind": "call", "callee": "returnedThreadStillLive", "arguments": [] }, "right": { "kind": "number", "value": "0" } },
+        "line": 63,
+        "then": [
+        { "kind": "return", "value": { "kind": "number", "value": "15" }, "line": 63 }
+        ],
+        "else": [
+        ]
+      },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "thread-drop-cleanup-ok" }] }, "line": 64 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 65 }
+      ]
+    }
+    ]
+  }
+  ]
+}

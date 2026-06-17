@@ -75,6 +75,40 @@ EXPORT ISOLATED FUNC emitToMain(t AS ThreadWorker OF String TO Integer, seed AS 
   RETURN 0
 END FUNC
 
+EXPORT ISOLATED FUNC emitThreeBuffered(t AS ThreadWorker OF String TO Integer, seed AS String) AS Integer
+  thread::send(t, "one", 0)
+  thread::send(t, "two", 0)
+  thread::send(t, "three", 0)
+  RETURN 3
+END FUNC
+
+EXPORT ISOLATED FUNC receiveThreeBuffered(t AS ThreadWorker OF String TO Integer, seed AS String) AS Integer
+  LET first AS String = thread::receive(t, 10)
+  LET second AS String = thread::receive(t, 10)
+  LET third AS String = thread::receive(t, 10)
+  io::print(first)
+  io::print(second)
+  io::print(third)
+  RETURN 3
+END FUNC
+
+EXPORT ISOLATED FUNC waitForCancel(t AS ThreadWorker OF String TO Integer, seed AS String) AS Integer
+  LET message AS String = thread::receive(t, 1000)
+  RETURN len(message)
+  TRAP err
+    RETURN 7
+  END TRAP
+END FUNC
+
+EXPORT ISOLATED FUNC blockOnOutbound(t AS ThreadWorker OF String TO Integer, seed AS String) AS Integer
+  thread::send(t, "ready", 0)
+  thread::send(t, "blocked", 100)
+  RETURN 0
+  TRAP err
+    RETURN 7
+  END TRAP
+END FUNC
+
 EXPORT ISOLATED FUNC readFileText(t AS ThreadWorker OF String TO String, path AS String) AS String
   RETURN fs::readAll(fs::openFile(path))
 END FUNC

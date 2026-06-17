@@ -1,0 +1,16 @@
+$ mfb build -ast tests/thread-queue-timeout-cancel
+Wrote AST to tests/thread-queue-timeout-cancel/thread_queue_timeout_cancel.ast
+[exit 0]
+$ mfb build -ir tests/thread-queue-timeout-cancel
+Wrote IR to tests/thread-queue-timeout-cancel/thread_queue_timeout_cancel.ir
+[exit 0]
+$ mfb build tests/thread-queue-timeout-cancel
+Wrote executable to tests/thread-queue-timeout-cancel/thread_queue_timeout_cancel.out
+[exit 0]
+$ tests/thread-queue-timeout-cancel/thread_queue_timeout_cancel.out
+timeout
+worker timeout
+poll false
+interrupted
+cancelled
+[exit 0]

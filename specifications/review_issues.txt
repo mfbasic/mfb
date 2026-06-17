@@ -363,6 +363,7 @@ The linker spec requires native executable builds to read installed `.mfp` packa
 REQUIREMENT: Thread bounded queue semantics
 SPECIFICATION: threading.md @ §9 Queue Semantics
 GROUP: threads
+STATUS: completed
 RECOMMENDED: CODE CHANGE
 Thread APIs are wired through type checking and native helpers, but the runtime queue implementation is a single-slot inbound/outbound value with count fields; `inboundLimit` and `outboundLimit` are validated but not used to allocate bounded queues of the requested capacity. Timeout behavior is implemented with busy-wait loops rather than real synchronized queue waits. Resolve by implementing per-thread bounded queues with the requested capacities, synchronized send/receive/poll semantics, correct timeout handling, cancellation behavior, and runtime execution tests.
 
@@ -384,6 +385,7 @@ The spec requires each started thread to run the imported worker in a fresh pack
 REQUIREMENT: Thread handle lexical drop behavior
 SPECIFICATION: mfbasic.md @ §16 Threads
 GROUP: threads
+STATUS: completed
 RECOMMENDED: CODE CHANGE
 The spec says dropping a completed `Thread` releases queued messages, and dropping a running `Thread` requests cancellation, detaches the worker, and ensures runtime reclamation. The compiler has explicit `thread::cancel`/`waitFor` helpers but no lowering for `Thread` value drop at scope exit, reassignment, return/error cleanup, or moved-from paths. Resolve by adding ownership/drop metadata and cleanup lowering for `Thread` handles, implementing detach/reclaim behavior in the runtime helpers, and adding runtime tests for completed-thread drop, running-thread drop, reassignment, and error-path cleanup.
 

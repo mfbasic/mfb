@@ -1,0 +1,21 @@
+{
+  "name": "thread_drop_cleanup",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "executable",
+  "sources": [{ "root": "src", "role": "main", "include": ["**/*.mfb"] }],
+  "packages": [
+    {
+      "name": "thread_workers",
+      "version": "=0.1.0",
+      "source": "file:packages/thread_workers.mfp"
+    },
+    {
+      "name": "thread_runtime_workers",
+      "version": "=0.1.0",
+      "source": "file:packages/thread_runtime_workers.mfp"
+    }
+  ],
+  "entry": "main",
+  "targets": ["native"]
+}

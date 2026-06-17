@@ -379,6 +379,12 @@ fn runtime_symbols(module: &NirModule) -> Vec<String> {
     for function in &module.functions {
         collect_runtime_symbols_from_ops(&function.body, &mut symbols);
     }
+    if module_has_thread_owner(module) {
+        push_unique(
+            &mut symbols,
+            runtime::symbol_for_call(runtime::RuntimeHelper::Thread, "thread.drop"),
+        );
+    }
     symbols
 }
 
@@ -398,7 +404,44 @@ fn platform_imports(module: &NirModule, platform: &dyn NativePlanPlatform) -> Ve
             &mut imports,
         );
     }
+    if module_has_thread_owner(module) {
+        for import in platform_imports_for_runtime_call(platform, "thread.drop") {
+            push_platform_import(&mut imports, import);
+        }
+    }
     imports
+}
+
+fn is_thread_type(type_: &str) -> bool {
+    type_.starts_with("Thread OF ")
+}
+
+fn module_has_thread_owner(module: &NirModule) -> bool {
+    module.functions.iter().any(|function| {
+        function
+            .params
+            .iter()
+            .any(|param| is_thread_type(&param.type_))
+            || ops_have_thread_owner(&function.body)
+    })
+}
+
+fn ops_have_thread_owner(ops: &[NirOp]) -> bool {
+    ops.iter().any(|op| match op {
+        NirOp::Bind { type_, .. } | NirOp::StoreGlobal { type_, .. } => is_thread_type(type_),
+        NirOp::ForEach { type_, body, .. } => is_thread_type(type_) || ops_have_thread_owner(body),
+        NirOp::Using { type_, body, .. } => is_thread_type(type_) || ops_have_thread_owner(body),
+        NirOp::If {
+            then_body,
+            else_body,
+            ..
+        } => ops_have_thread_owner(then_body) || ops_have_thread_owner(else_body),
+        NirOp::Match { cases, .. } => cases.iter().any(|case| ops_have_thread_owner(&case.body)),
+        NirOp::While { body, .. } | NirOp::Trap { body, .. } => ops_have_thread_owner(body),
+        NirOp::Assign { .. } | NirOp::Return { .. } | NirOp::Fail { .. } | NirOp::Eval { .. } => {
+            false
+        }
+    })
 }
 
 fn collect_platform_imports_from_ops(

@@ -1,0 +1,23 @@
+IMPORT io
+IMPORT thread
+IMPORT thread_runtime_workers
+
+FUNC main AS Integer
+  LET outbound AS Thread OF String TO Integer = thread::start(thread_runtime_workers::emitThreeBuffered, "seed", 1, 3)
+  LET hasFirst AS Boolean = thread::poll(outbound, 100)
+  LET first AS String = thread::receive(outbound, 0)
+  LET second AS String = thread::receive(outbound, 0)
+  LET third AS String = thread::receive(outbound, 0)
+  io::print(first)
+  io::print(second)
+  io::print(third)
+  LET outboundResult AS Integer = thread::waitFor(outbound)
+
+  LET inbound AS Thread OF String TO Integer = thread::start(thread_runtime_workers::receiveThreeBuffered, "seed", 3, 1)
+  thread::send(inbound, "alpha", 0)
+  thread::send(inbound, "beta", 0)
+  thread::send(inbound, "gamma", 0)
+  LET inboundResult AS Integer = thread::waitFor(inbound)
+
+  RETURN outboundResult + inboundResult - 6
+END FUNC

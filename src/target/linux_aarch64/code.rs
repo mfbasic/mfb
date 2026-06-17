@@ -155,7 +155,23 @@ impl code::CodegenPlatform for Platform {
                     self.libc_import("__errno_location"),
                 ]
             }
-            "thread.start" => vec![self.import(self.libpthread(), "pthread_create")],
+            "thread.start" | "thread.isRunning" | "thread.waitFor" | "thread.cancel"
+            | "thread.send" | "thread.poll" | "thread.read" | "thread.receive" | "thread.emit"
+            | "thread.isCancelled" => [
+                "pthread_create",
+                "pthread_mutex_init",
+                "pthread_mutex_lock",
+                "pthread_mutex_unlock",
+                "pthread_cond_init",
+                "pthread_cond_wait",
+                "pthread_cond_timedwait",
+                "pthread_cond_signal",
+                "pthread_cond_broadcast",
+                "clock_gettime",
+            ]
+            .into_iter()
+            .map(|symbol| self.import(self.libpthread(), symbol))
+            .collect(),
             _ => Vec::new(),
         }
     }

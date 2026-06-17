@@ -1,0 +1,41 @@
+{
+  "project": "thread_bounded_queues",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 },
+    { "module": "thread", "line": 2 },
+    { "module": "thread_runtime_workers", "line": 3 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "main",
+      "line": 5,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "outbound", "type": "Thread OF String TO Integer", "value": { "kind": "call", "callee": "thread.start", "arguments": [{ "kind": "identifier", "value": "thread_runtime_workers.emitThreeBuffered" }, { "kind": "string", "value": "seed" }, { "kind": "number", "value": "1" }, { "kind": "number", "value": "3" }] }, "line": 6 },
+      { "kind": "binding", "mutable": false, "name": "hasFirst", "type": "Boolean", "value": { "kind": "call", "callee": "thread.poll", "arguments": [{ "kind": "identifier", "value": "outbound" }, { "kind": "number", "value": "100" }] }, "line": 7 },
+      { "kind": "binding", "mutable": false, "name": "first", "type": "String", "value": { "kind": "call", "callee": "thread.receive", "arguments": [{ "kind": "identifier", "value": "outbound" }, { "kind": "number", "value": "0" }] }, "line": 8 },
+      { "kind": "binding", "mutable": false, "name": "second", "type": "String", "value": { "kind": "call", "callee": "thread.receive", "arguments": [{ "kind": "identifier", "value": "outbound" }, { "kind": "number", "value": "0" }] }, "line": 9 },
+      { "kind": "binding", "mutable": false, "name": "third", "type": "String", "value": { "kind": "call", "callee": "thread.receive", "arguments": [{ "kind": "identifier", "value": "outbound" }, { "kind": "number", "value": "0" }] }, "line": 10 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "identifier", "value": "first" }] }, "line": 11 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "identifier", "value": "second" }] }, "line": 12 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "identifier", "value": "third" }] }, "line": 13 },
+      { "kind": "binding", "mutable": false, "name": "outboundResult", "type": "Integer", "value": { "kind": "call", "callee": "thread.waitFor", "arguments": [{ "kind": "identifier", "value": "outbound" }] }, "line": 14 },
+      { "kind": "binding", "mutable": false, "name": "inbound", "type": "Thread OF String TO Integer", "value": { "kind": "call", "callee": "thread.start", "arguments": [{ "kind": "identifier", "value": "thread_runtime_workers.receiveThreeBuffered" }, { "kind": "string", "value": "seed" }, { "kind": "number", "value": "3" }, { "kind": "number", "value": "1" }] }, "line": 16 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "thread.send", "arguments": [{ "kind": "identifier", "value": "inbound" }, { "kind": "string", "value": "alpha" }, { "kind": "number", "value": "0" }] }, "line": 17 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "thread.send", "arguments": [{ "kind": "identifier", "value": "inbound" }, { "kind": "string", "value": "beta" }, { "kind": "number", "value": "0" }] }, "line": 18 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "thread.send", "arguments": [{ "kind": "identifier", "value": "inbound" }, { "kind": "string", "value": "gamma" }, { "kind": "number", "value": "0" }] }, "line": 19 },
+      { "kind": "binding", "mutable": false, "name": "inboundResult", "type": "Integer", "value": { "kind": "call", "callee": "thread.waitFor", "arguments": [{ "kind": "identifier", "value": "inbound" }] }, "line": 20 },
+      { "kind": "return", "value": { "kind": "binary", "operator": "-", "left": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "outboundResult" }, "right": { "kind": "identifier", "value": "inboundResult" } }, "right": { "kind": "number", "value": "6" } }, "line": 22 }
+      ]
+    }
+    ]
+  }
+  ]
+}

@@ -1,0 +1,66 @@
+IMPORT io
+IMPORT thread
+IMPORT thread_workers
+IMPORT thread_runtime_workers
+
+FUNC completedScopeDrop AS Integer
+  LET t AS Thread OF Nothing TO Integer = thread::start(thread_workers::noMessages, 5, 1, 1)
+  WHILE thread::isRunning(t)
+  WEND
+  RETURN 0
+END FUNC
+
+FUNC runningEarlyReturnDrop AS Integer
+  LET t AS Thread OF String TO Integer = thread::start(thread_runtime_workers::waitForCancel, "early", 1, 1)
+  RETURN 0
+END FUNC
+
+FUNC reassignmentDrop AS Integer
+  MUT t AS Thread OF String TO Integer = thread::start(thread_runtime_workers::waitForCancel, "old", 1, 1)
+  t = thread::start(thread_runtime_workers::waitForCancel, "new", 1, 1)
+  thread::send(t, "done", 10)
+  LET value AS Integer = thread::waitFor(t)
+  IF value <> 4 THEN RETURN 1
+  RETURN 0
+END FUNC
+
+FUNC autoTrapDrop AS Integer
+  LET t AS Thread OF String TO Integer = thread::start(thread_runtime_workers::waitForCancel, "trap", 1, 1)
+  LET ready AS Boolean = thread::poll(t, -1)
+  RETURN 2
+  TRAP err
+    RETURN 0
+  END TRAP
+END FUNC
+
+FUNC failTrapDrop AS Integer
+  LET t AS Thread OF String TO Integer = thread::start(thread_runtime_workers::waitForCancel, "fail", 1, 1)
+  FAIL Error[77050002, "forced"]
+  TRAP err
+    RETURN 0
+  END TRAP
+END FUNC
+
+FUNC makeThread AS Thread OF String TO Integer
+  LET t AS Thread OF String TO Integer = thread::start(thread_runtime_workers::waitForCancel, "return", 1, 1)
+  RETURN t
+END FUNC
+
+FUNC returnedThreadStillLive AS Integer
+  LET t AS Thread OF String TO Integer = makeThread()
+  thread::send(t, "ok", 10)
+  LET value AS Integer = thread::waitFor(t)
+  IF value <> 2 THEN RETURN 1
+  RETURN 0
+END FUNC
+
+FUNC main AS Integer
+  IF completedScopeDrop() <> 0 THEN RETURN 10
+  IF runningEarlyReturnDrop() <> 0 THEN RETURN 11
+  IF reassignmentDrop() <> 0 THEN RETURN 12
+  IF autoTrapDrop() <> 0 THEN RETURN 13
+  IF failTrapDrop() <> 0 THEN RETURN 14
+  IF returnedThreadStillLive() <> 0 THEN RETURN 15
+  io::print("thread-drop-cleanup-ok")
+  RETURN 0
+END FUNC

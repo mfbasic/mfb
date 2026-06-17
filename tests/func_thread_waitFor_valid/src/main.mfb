@@ -1,12 +1,25 @@
 IMPORT thread
 IMPORT thread_workers
 
+FUNC doubleWaitCloses(t AS Thread OF Nothing TO Integer) AS Integer
+  LET first AS Integer = thread::waitFor(t)
+  LET second AS Integer = thread::waitFor(t)
+  RETURN 10
+  TRAP err
+    IF err.code = 77030004 THEN
+      RETURN 0
+    ELSE
+      RETURN 11
+    END IF
+  END TRAP
+END FUNC
+
 FUNC main AS Integer
-  LET textThread AS Thread OF String TO Integer = thread::start(thread_workers::echoText, "a", 1, 1)
   LET noneThread AS Thread OF Nothing TO Integer = thread::start(thread_workers::noMessages, 1, 1, 1)
-  thread::send(textThread, "b", 1)
-  LET textValue AS Integer = thread::waitFor(textThread)
+  LET closeThread AS Thread OF Nothing TO Integer = thread::start(thread_workers::noMessages, 2, 1, 1)
   LET noneValue AS Integer = thread::waitFor(noneThread)
-  LET total AS Integer = textValue + noneValue
-  RETURN 0
+  IF noneValue <> 1 THEN
+    RETURN 12
+  END IF
+  RETURN doubleWaitCloses(closeThread)
 END FUNC

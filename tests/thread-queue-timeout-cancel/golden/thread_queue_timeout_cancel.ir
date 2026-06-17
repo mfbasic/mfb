@@ -1,0 +1,137 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "thread_queue_timeout_cancel",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "fullQueueScenario",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    { "name": "t", "type": "Thread OF String TO Integer", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "mutable": false, "name": "hasFullMessage", "type": "Boolean", "value": { "kind": "call", "target": "thread.poll", "args": [{ "kind": "local", "name": "t" }, { "kind": "const", "type": "Integer", "value": "100" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "thread.send", "args": [{ "kind": "local", "name": "t" }, { "kind": "const", "type": "String", "value": "held" }, { "kind": "const", "type": "Integer", "value": "0" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "thread.send", "args": [{ "kind": "local", "name": "t" }, { "kind": "const", "type": "String", "value": "full" }, { "kind": "const", "type": "Integer", "value": "0" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "unexpected send" }] } },
+    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "1" } },
+    {
+      "op": "trap",
+      "name": "err",
+      "body": [
+      { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "timeout" }] } },
+      { "op": "bind", "mutable": false, "name": "raw", "type": "Result OF Integer", "value": { "kind": "memberAccess", "target": { "kind": "local", "name": "t" }, "member": "result" } },
+      { "op": "bind", "mutable": false, "name": "$match0", "type": "Result OF Integer", "value": { "kind": "local", "name": "raw" } },
+      { "op": "bind", "mutable": false, "name": "$match_ok1", "type": "Boolean", "value": { "kind": "resultIsOk", "value": { "kind": "local", "name": "$match0" } } },
+      {
+        "op": "match",
+        "value": { "kind": "local", "name": "$match_ok1" },
+        "cases": [
+        {
+          "pattern": { "kind": "value", "value": { "kind": "const", "type": "Boolean", "value": "true" } },
+          "guard": null,
+          "body": [
+          { "op": "bind", "mutable": false, "name": "value", "type": "Integer", "value": { "kind": "resultValue", "value": { "kind": "local", "name": "$match0" } } },
+          { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "unexpected full result" }] } }
+          ]
+        },
+        {
+          "pattern": { "kind": "value", "value": { "kind": "const", "type": "Boolean", "value": "false" } },
+          "guard": null,
+          "body": [
+          { "op": "bind", "mutable": false, "name": "workerErr", "type": "Error", "value": { "kind": "resultError", "value": { "kind": "local", "name": "$match0" } } },
+          { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "worker timeout" }] } }
+          ]
+        }
+        ]
+      },
+      { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+      ]
+    }
+    ]
+  },
+  {
+    "name": "cancelScenario",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    { "name": "t", "type": "Thread OF String TO Integer", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "mutable": false, "name": "hasMessage", "type": "Boolean", "value": { "kind": "call", "target": "thread.poll", "args": [{ "kind": "local", "name": "t" }, { "kind": "const", "type": "Integer", "value": "1" }] } },
+    {
+      "op": "if",
+      "condition": { "kind": "local", "name": "hasMessage" },
+      "then": [
+      { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "unexpected poll" }] } }
+      ],
+      "else": [
+      { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "poll false" }] } }
+      ]
+    },
+    { "op": "eval", "value": { "kind": "call", "target": "thread.cancel", "args": [{ "kind": "local", "name": "t" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "thread.send", "args": [{ "kind": "local", "name": "t" }, { "kind": "const", "type": "String", "value": "after-cancel" }, { "kind": "const", "type": "Integer", "value": "0" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "unexpected cancel send" }] } },
+    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "1" } },
+    {
+      "op": "trap",
+      "name": "err",
+      "body": [
+      { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "interrupted" }] } },
+      { "op": "bind", "mutable": false, "name": "raw", "type": "Result OF Integer", "value": { "kind": "memberAccess", "target": { "kind": "local", "name": "t" }, "member": "result" } },
+      { "op": "bind", "mutable": false, "name": "$match2", "type": "Result OF Integer", "value": { "kind": "local", "name": "raw" } },
+      { "op": "bind", "mutable": false, "name": "$match_ok3", "type": "Boolean", "value": { "kind": "resultIsOk", "value": { "kind": "local", "name": "$match2" } } },
+      {
+        "op": "match",
+        "value": { "kind": "local", "name": "$match_ok3" },
+        "cases": [
+        {
+          "pattern": { "kind": "value", "value": { "kind": "const", "type": "Boolean", "value": "true" } },
+          "guard": null,
+          "body": [
+          { "op": "bind", "mutable": false, "name": "value", "type": "Integer", "value": { "kind": "resultValue", "value": { "kind": "local", "name": "$match2" } } },
+          { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "unexpected cancel result" }] } }
+          ]
+        },
+        {
+          "pattern": { "kind": "value", "value": { "kind": "const", "type": "Boolean", "value": "false" } },
+          "guard": null,
+          "body": [
+          { "op": "bind", "mutable": false, "name": "cancelResultErr", "type": "Error", "value": { "kind": "resultError", "value": { "kind": "local", "name": "$match2" } } },
+          { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "cancelled" }] } }
+          ]
+        }
+        ]
+      },
+      { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+      ]
+    }
+    ]
+  },
+  {
+    "name": "main",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "mutable": false, "name": "full", "type": "Thread OF String TO Integer", "value": { "kind": "call", "target": "thread.start", "args": [{ "kind": "functionRef", "name": "thread_runtime_workers.blockOnOutbound", "type": "ISOLATED FUNC(ThreadWorker OF String TO Integer, String) AS Integer" }, { "kind": "const", "type": "String", "value": "seed" }, { "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "1" }] } },
+    { "op": "bind", "mutable": false, "name": "fullResult", "type": "Integer", "value": { "kind": "call", "target": "fullQueueScenario", "args": [{ "kind": "local", "name": "full" }] } },
+    { "op": "bind", "mutable": false, "name": "t", "type": "Thread OF String TO Integer", "value": { "kind": "call", "target": "thread.start", "args": [{ "kind": "functionRef", "name": "thread_runtime_workers.waitForCancel", "type": "ISOLATED FUNC(ThreadWorker OF String TO Integer, String) AS Integer" }, { "kind": "const", "type": "String", "value": "seed" }, { "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "1" }] } },
+    { "op": "bind", "mutable": false, "name": "cancelResult", "type": "Integer", "value": { "kind": "call", "target": "cancelScenario", "args": [{ "kind": "local", "name": "t" }] } },
+    { "op": "return", "value": { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "fullResult" }, "right": { "kind": "local", "name": "cancelResult" } } }
+    ]
+  }
+  ]
+}

@@ -25,17 +25,15 @@ FUNC main AS Integer
   END MATCH
 
   LET repeatedRaw AS Result OF Integer = rawThread.result
-  MUT repeated AS Integer = 0
   MATCH repeatedRaw
     CASE Ok(value)
-      repeated = value
+      RETURN 3
     CASE Error(err)
-      RETURN err.code
+      IF err.code <> 77030004 THEN RETURN 5
   END MATCH
 
   IF matched <> 41 THEN RETURN 1
   IF direct <> 1 THEN RETURN 2
-  IF repeated <> 41 THEN RETURN 3
 
   LET textThread AS Thread OF String TO String = thread::start(thread_runtime_workers::readTextPath, "tests/func_thread_result_valid/data/input.txt", 1, 1)
   LET textRaw AS Result OF String = textThread.result

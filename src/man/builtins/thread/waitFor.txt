@@ -5,8 +5,12 @@ SYNOPSIS
   thread::waitFor(t AS Thread OF Msg TO Out) AS Out
 
 DESCRIPTION
-  Waits until the worker has stored its result, then returns the successful Out
-  value. Err results auto-propagate using the normal fallible function rules.
+  Waits until the worker has stored its result, retrieves it, closes the parent
+  Thread handle, then returns the successful Out value. Err results
+  auto-propagate using the normal fallible function rules.
+
+  After waitFor retrieves the result, any later use of the same Thread handle
+  fails with ErrResourceClosed.
 
 EXAMPLES
   LET count AS Integer = thread::waitFor(t)

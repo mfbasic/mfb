@@ -71,26 +71,34 @@
         ]
       },
       { "kind": "binding", "mutable": false, "name": "repeatedRaw", "type": "Result OF Integer", "value": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "rawThread" }, "member": "result" }, "line": 27 },
-      { "kind": "binding", "mutable": true, "name": "repeated", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 28 },
       {
         "kind": "match",
         "expression": { "kind": "identifier", "value": "repeatedRaw" },
-        "line": 29,
+        "line": 28,
         "cases": [
         {
           "pattern": { "kind": "union", "type": "Ok", "binding": "value" },
           "guard": null,
-          "line": 30,
+          "line": 29,
           "body": [
-          { "kind": "assignment", "name": "repeated", "value": { "kind": "identifier", "value": "value" }, "line": 31 }
+          { "kind": "return", "value": { "kind": "number", "value": "3" }, "line": 30 }
           ]
         },
         {
           "pattern": { "kind": "union", "type": "Error", "binding": "err" },
           "guard": null,
-          "line": 32,
+          "line": 31,
           "body": [
-          { "kind": "return", "value": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }, "line": 33 }
+          {
+            "kind": "if",
+            "condition": { "kind": "binary", "operator": "<>", "left": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }, "right": { "kind": "number", "value": "77030004" } },
+            "line": 32,
+            "then": [
+            { "kind": "return", "value": { "kind": "number", "value": "5" }, "line": 32 }
+            ],
+            "else": [
+            ]
+          }
           ]
         }
         ]
@@ -98,9 +106,9 @@
       {
         "kind": "if",
         "condition": { "kind": "binary", "operator": "<>", "left": { "kind": "identifier", "value": "matched" }, "right": { "kind": "number", "value": "41" } },
-        "line": 36,
+        "line": 35,
         "then": [
-        { "kind": "return", "value": { "kind": "number", "value": "1" }, "line": 36 }
+        { "kind": "return", "value": { "kind": "number", "value": "1" }, "line": 35 }
         ],
         "else": [
         ]
@@ -108,45 +116,35 @@
       {
         "kind": "if",
         "condition": { "kind": "binary", "operator": "<>", "left": { "kind": "identifier", "value": "direct" }, "right": { "kind": "number", "value": "1" } },
-        "line": 37,
+        "line": 36,
         "then": [
-        { "kind": "return", "value": { "kind": "number", "value": "2" }, "line": 37 }
+        { "kind": "return", "value": { "kind": "number", "value": "2" }, "line": 36 }
         ],
         "else": [
         ]
       },
-      {
-        "kind": "if",
-        "condition": { "kind": "binary", "operator": "<>", "left": { "kind": "identifier", "value": "repeated" }, "right": { "kind": "number", "value": "41" } },
-        "line": 38,
-        "then": [
-        { "kind": "return", "value": { "kind": "number", "value": "3" }, "line": 38 }
-        ],
-        "else": [
-        ]
-      },
-      { "kind": "binding", "mutable": false, "name": "textThread", "type": "Thread OF String TO String", "value": { "kind": "call", "callee": "thread.start", "arguments": [{ "kind": "identifier", "value": "thread_runtime_workers.readTextPath" }, { "kind": "string", "value": "tests/func_thread_result_valid/data/input.txt" }, { "kind": "number", "value": "1" }, { "kind": "number", "value": "1" }] }, "line": 40 },
-      { "kind": "binding", "mutable": false, "name": "textRaw", "type": "Result OF String", "value": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "textThread" }, "member": "result" }, "line": 41 },
-      { "kind": "binding", "mutable": true, "name": "text", "type": "String", "value": { "kind": "string", "value": "" }, "line": 42 },
+      { "kind": "binding", "mutable": false, "name": "textThread", "type": "Thread OF String TO String", "value": { "kind": "call", "callee": "thread.start", "arguments": [{ "kind": "identifier", "value": "thread_runtime_workers.readTextPath" }, { "kind": "string", "value": "tests/func_thread_result_valid/data/input.txt" }, { "kind": "number", "value": "1" }, { "kind": "number", "value": "1" }] }, "line": 38 },
+      { "kind": "binding", "mutable": false, "name": "textRaw", "type": "Result OF String", "value": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "textThread" }, "member": "result" }, "line": 39 },
+      { "kind": "binding", "mutable": true, "name": "text", "type": "String", "value": { "kind": "string", "value": "" }, "line": 40 },
       {
         "kind": "match",
         "expression": { "kind": "identifier", "value": "textRaw" },
-        "line": 43,
+        "line": 41,
         "cases": [
         {
           "pattern": { "kind": "union", "type": "Ok", "binding": "value" },
           "guard": null,
-          "line": 44,
+          "line": 42,
           "body": [
-          { "kind": "assignment", "name": "text", "value": { "kind": "identifier", "value": "value" }, "line": 45 }
+          { "kind": "assignment", "name": "text", "value": { "kind": "identifier", "value": "value" }, "line": 43 }
           ]
         },
         {
           "pattern": { "kind": "union", "type": "Error", "binding": "err" },
           "guard": null,
-          "line": 46,
+          "line": 44,
           "body": [
-          { "kind": "return", "value": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }, "line": 47 }
+          { "kind": "return", "value": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }, "line": 45 }
           ]
         }
         ]
@@ -154,14 +152,14 @@
       {
         "kind": "if",
         "condition": { "kind": "binary", "operator": "<>", "left": { "kind": "identifier", "value": "text" }, "right": { "kind": "string", "value": "thread result copied from worker arena\n" } },
-        "line": 49,
+        "line": 47,
         "then": [
-        { "kind": "return", "value": { "kind": "number", "value": "4" }, "line": 49 }
+        { "kind": "return", "value": { "kind": "number", "value": "4" }, "line": 47 }
         ],
         "else": [
         ]
       },
-      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 51 }
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 49 }
       ]
     }
     ]

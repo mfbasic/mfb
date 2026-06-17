@@ -11,6 +11,36 @@
   ],
   "functions": [
   {
+    "name": "doubleWaitCloses",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    { "name": "t", "type": "Thread OF Nothing TO Integer", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "mutable": false, "name": "first", "type": "Integer", "value": { "kind": "call", "target": "thread.waitFor", "args": [{ "kind": "local", "name": "t" }] } },
+    { "op": "bind", "mutable": false, "name": "second", "type": "Integer", "value": { "kind": "call", "target": "thread.waitFor", "args": [{ "kind": "local", "name": "t" }] } },
+    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "10" } },
+    {
+      "op": "trap",
+      "name": "err",
+      "body": [
+      {
+        "op": "if",
+        "condition": { "kind": "binary", "op": "=", "left": { "kind": "memberAccess", "target": { "kind": "local", "name": "err" }, "member": "code" }, "right": { "kind": "const", "type": "Integer", "value": "77030004" } },
+        "then": [
+        { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+        ],
+        "else": [
+        { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "11" } }
+        ]
+      }
+      ]
+    }
+    ]
+  },
+  {
     "name": "main",
     "visibility": "private",
     "kind": "func",
@@ -18,13 +48,19 @@
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "mutable": false, "name": "textThread", "type": "Thread OF String TO Integer", "value": { "kind": "call", "target": "thread.start", "args": [{ "kind": "functionRef", "name": "thread_workers.echoText", "type": "ISOLATED FUNC(ThreadWorker OF String TO Integer, String) AS Integer" }, { "kind": "const", "type": "String", "value": "a" }, { "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "1" }] } },
     { "op": "bind", "mutable": false, "name": "noneThread", "type": "Thread OF Nothing TO Integer", "value": { "kind": "call", "target": "thread.start", "args": [{ "kind": "functionRef", "name": "thread_workers.noMessages", "type": "ISOLATED FUNC(ThreadWorker OF Nothing TO Integer, Integer) AS Integer" }, { "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "1" }] } },
-    { "op": "eval", "value": { "kind": "call", "target": "thread.send", "args": [{ "kind": "local", "name": "textThread" }, { "kind": "const", "type": "String", "value": "b" }, { "kind": "const", "type": "Integer", "value": "1" }] } },
-    { "op": "bind", "mutable": false, "name": "textValue", "type": "Integer", "value": { "kind": "call", "target": "thread.waitFor", "args": [{ "kind": "local", "name": "textThread" }] } },
+    { "op": "bind", "mutable": false, "name": "closeThread", "type": "Thread OF Nothing TO Integer", "value": { "kind": "call", "target": "thread.start", "args": [{ "kind": "functionRef", "name": "thread_workers.noMessages", "type": "ISOLATED FUNC(ThreadWorker OF Nothing TO Integer, Integer) AS Integer" }, { "kind": "const", "type": "Integer", "value": "2" }, { "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "1" }] } },
     { "op": "bind", "mutable": false, "name": "noneValue", "type": "Integer", "value": { "kind": "call", "target": "thread.waitFor", "args": [{ "kind": "local", "name": "noneThread" }] } },
-    { "op": "bind", "mutable": false, "name": "total", "type": "Integer", "value": { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "textValue" }, "right": { "kind": "local", "name": "noneValue" } } },
-    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    {
+      "op": "if",
+      "condition": { "kind": "binary", "op": "<>", "left": { "kind": "local", "name": "noneValue" }, "right": { "kind": "const", "type": "Integer", "value": "1" } },
+      "then": [
+      { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "12" } }
+      ],
+      "else": [
+      ]
+    },
+    { "op": "return", "value": { "kind": "call", "target": "doubleWaitCloses", "args": [{ "kind": "local", "name": "closeThread" }] } }
     ]
   }
   ]

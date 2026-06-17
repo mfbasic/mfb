@@ -2,6 +2,7 @@ use super::*;
 
 impl CodeBuilder<'_> {
     pub(super) fn lower_ops(&mut self, ops: &[NirOp]) -> Result<(), String> {
+        let cleanup_scope_start = self.active_cleanups.len();
         for op in ops {
             let result = (|| -> Result<(), String> {
                 match op {
@@ -35,6 +36,13 @@ impl CodeBuilder<'_> {
                                 stack_offset,
                             ));
                         }
+                        if Self::is_thread_type(type_) {
+                            self.active_cleanups
+                                .push(ActiveCleanup::Thread(ThreadCleanup {
+                                    name: name.clone(),
+                                    symbol: Self::thread_drop_symbol(),
+                                }));
+                        }
                     }
                     NirOp::StoreGlobal { name, type_, value } => {
                         let global = self.global_value(name)?;
@@ -60,8 +68,23 @@ impl CodeBuilder<'_> {
                             })?
                             .stack_offset;
                         let result = self.lower_value(value)?;
+                        let assign_slot = if Self::is_thread_type(&result.type_) {
+                            let slot = self.allocate_stack_object("thread_assign_value", 8);
+                            self.emit(abi::store_u64(&result.location, abi::stack_pointer(), slot));
+                            self.emit_thread_cleanup_for_name(name)?;
+                            Some(slot)
+                        } else {
+                            None
+                        };
+                        let result_location = if let Some(slot) = assign_slot {
+                            let register = self.allocate_register()?;
+                            self.emit(abi::load_u64(&register, abi::stack_pointer(), slot));
+                            register
+                        } else {
+                            result.location.clone()
+                        };
                         self.emit(abi::store_u64(
-                            &result.location,
+                            &result_location,
                             abi::stack_pointer(),
                             stack_offset,
                         ));
@@ -239,15 +262,21 @@ impl CodeBuilder<'_> {
                             abi::stack_pointer(),
                             stack_offset,
                         ));
-                        self.active_cleanups.push(UsingCleanup {
-                            name: name.clone(),
-                            symbol,
-                        });
+                        self.active_cleanups
+                            .push(ActiveCleanup::Using(UsingCleanup {
+                                name: name.clone(),
+                                symbol,
+                            }));
                         self.lower_ops(body)?;
                         let cleanup = self
                             .active_cleanups
                             .pop()
                             .expect("USING cleanup stack must contain active resource");
+                        let ActiveCleanup::Using(cleanup) = cleanup else {
+                            return Err(
+                                "USING cleanup stack ended with non-USING cleanup".to_string()
+                            );
+                        };
                         if !self.current_block_returns() {
                             self.emit_using_fallthrough_cleanup(&cleanup)?;
                         }
@@ -272,6 +301,21 @@ impl CodeBuilder<'_> {
             })();
             result.map_err(|err| format!("{err} while lowering {}", nir_op_context(op)))?;
             self.reset_temporary_registers();
+        }
+        let scope_returns = self.current_block_returns();
+        while self.active_cleanups.len() > cleanup_scope_start {
+            let cleanup = self
+                .active_cleanups
+                .pop()
+                .expect("cleanup scope length already checked");
+            if !scope_returns {
+                match cleanup {
+                    ActiveCleanup::Thread(cleanup) => self.emit_thread_cleanup_call(&cleanup)?,
+                    ActiveCleanup::Using(_) => {
+                        return Err("USING cleanup escaped its owning scope".to_string());
+                    }
+                }
+            }
         }
         Ok(())
     }

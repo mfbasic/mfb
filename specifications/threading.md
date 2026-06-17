@@ -1,6 +1,6 @@
 # MFBASIC Threading
 
-Last updated: 2026-06-14
+Last updated: 2026-06-17
 
 This document specifies how MFBASIC threads are compiled, linked, and executed.
 It complements:
@@ -26,7 +26,7 @@ The model has these requirements:
 - The parent communicates with the worker through bounded typed queues.
 - All values that cross a thread boundary have thread-sendable types.
 - Sendable resource handles move across thread queues without being copied.
-- The worker result is stored as `Result OF Out`, with success exposed only through `MATCH` on the raw result and errors carried by public `Error` values.
+- The worker result is stored as `Result OF Out` and retrieved exactly once by `thread::waitFor(t)` or `t.result`, closing the parent `Thread` handle.
 - Package imports used by the worker must work inside the worker thread exactly
   as they work outside a thread.
 - Native code generation must resolve all worker and package calls at link time;
@@ -268,31 +268,30 @@ offset  field
 16      result tag
 24      result value
 32      result error
-40      inbound count
-48      inbound value
-56      outbound count
-64      outbound value
-72      OS handle
-80      entry function pointer
-88      input data
-96      reserved
-104     worker arena state
-112     parent arena state
+40      inbound queue handle
+48      outbound queue handle
+56      OS handle
+64      entry function pointer
+72      input data
+80      worker arena state
+88      parent arena state
 ```
 
-`state = 0` means running. `state = 1` means complete.
+`state = 0` means running. `state = 1` means complete with an unretrieved result. `state = 2` means the parent `Thread` handle is closed because the result was retrieved or the handle was dropped.
 
 The `result tag`, `result value`, and `result error` fields describe the
 completed `Result OF Out`. Heap-backed success or error payloads stored through
 these fields must either be runtime-owned transfer values, values materialized
 into a receiver-valid arena, or values whose producer arena is kept live by the
-control block until every remaining result access can materialize its own
-receiver-owned copy.
+control block until the one result retrieval materializes its receiver-owned
+copy.
 
-The current queue representation is intentionally minimal and may evolve into a
-ring buffer. The source-level contract is bounded queues with the behavior
-specified in `standard_package.md`; implementation changes must preserve that
-contract.
+The inbound and outbound queue handle fields point to runtime-owned bounded
+queue records, not directly to a single queued message. A queue record stores
+its requested capacity, current occupancy, synchronization state, and a backing
+ring/buffer of value slots. The source-level contract is bounded queues with the
+behavior specified in `standard_package.md`; implementation changes must
+preserve that contract.
 
 Queue storage must preserve enough type metadata to drop or close queued values
 without receiving them. For queued resource handles, the runtime uses the
@@ -339,13 +338,37 @@ Cancellation is cooperative:
 - The worker observes cancellation with `thread::isCancelled(t)`.
 - The runtime does not forcibly kill the worker as normal cancellation behavior.
 
+There is intentionally no `thread::stop()` operation. Asynchronous termination
+can kill a worker while it owns a resource handle, holds a queue lock, is moving
+a non-copyable value, is writing its result, or is inside package/native code.
+That would make ownership and cleanup ambiguous and can leak resources, poison
+queues, or deadlock other threads. Stopping work must happen at cooperative
+cancellation points where the worker can return normally and the runtime can
+close or transfer every owned value exactly once.
+
+There is also no separate `thread::detach()` source API. Dropping a running
+`Thread` already requests cancellation and detaches the OS worker for eventual
+runtime cleanup. A public detach operation would need the same ownership and
+cleanup guarantees as dropping the handle, while making it easier for user code
+to abandon a worker that still owns resources or queued values.
+
+The compiler lowers ordinary lexical ownership cleanup for every live parent
+`Thread` handle. Scope exit, `RETURN`, `FAIL`, `PROPAGATE`, auto-propagated
+errors, and trap routing run the same drop helper in reverse declaration order.
+Reassigning a `MUT Thread` evaluates the new value first, then drops the old
+handle before storing the replacement. Bindings that have moved out through
+return or another consuming operation are removed from the cleanup set. Handles
+closed by `thread::waitFor(t)` or `t.result` remain safe for compiler-generated
+cleanup; the drop helper is idempotent for an already closed handle.
+
 When the worker completes:
 
 - Inbound sends fail.
 - The result is stored, and the control block owns any worker-arena lifetime
-  needed to materialize later parent-visible result values.
+  needed to materialize the one parent-visible result retrieval.
 - `thread::isRunning` returns `FALSE`.
-- `thread::waitFor` returns or propagates the stored result.
+- `thread::waitFor` returns or propagates the stored result and closes the
+  parent `Thread` handle.
 - Remaining outbound messages stay readable until drained.
 
 If a queued value is never received, the destination queue/runtime drops or
@@ -354,13 +377,13 @@ closes it exactly once:
 - Unreceived inbound messages are cleaned up by the worker-side runtime when the
   worker exits or the thread is torn down.
 - Unreceived outbound messages are cleaned up when the parent drains them,
-  waits and drops the completed `Thread`, or drops/detaches the thread handle
-  according to the source-level `Thread` lifetime rules.
+  waits and lets lexical cleanup drop the completed `Thread`, or drops/detaches
+  the thread handle according to the source-level `Thread` lifetime rules.
 - Dropping a running `Thread` requests cancellation and detaches the worker; any
   remaining queued values are still owned by their destination queues until the
   responsible runtime cleanup path runs.
 - The worker arena may be reclaimed only after the worker result has been
-  transferred out of that arena or no further result access can need it, and
+  transferred out of that arena or the result has otherwise been retrieved, and
   every worker-to-parent message has either been transferred into outbound queue
   storage or dropped by cleanup.
 
@@ -487,14 +510,16 @@ UNWRAP_RESULT
 The thread trampoline stores the worker's returned result tag and value/error in
 the control block. `thread::waitFor` reads that stored result, materializes any
 heap-backed payload into the caller's arena before user code observes it, and
-behaves like a normal fallible call:
+closes the parent `Thread` handle before behaving like a normal fallible call:
 
 - `Ok(value)` returns `value`.
 - `Error(error)` propagates as the caller's error.
 
 Parent-side field access `t.result` waits for the same completed control-block
-result and returns the raw `Result OF Out` value. The raw result payload follows
-the same transfer and receiver-materialization rules as `thread::waitFor`.
+result, returns the raw `Result OF Out` value, and closes the parent `Thread`
+handle. The raw result payload follows the same transfer and
+receiver-materialization rules as `thread::waitFor`. After either retrieval
+path, later use of the same `Thread` handle fails with `ErrResourceClosed`.
 
 Package bridge lowering must preserve the same behavior for calls made inside a
 worker. If a worker calls an imported package function and that function returns

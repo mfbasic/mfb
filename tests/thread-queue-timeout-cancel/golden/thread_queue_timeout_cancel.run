@@ -1,0 +1,5 @@
+timeout
+worker timeout
+poll false
+interrupted
+cancelled
