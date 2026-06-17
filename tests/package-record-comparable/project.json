@@ -1,0 +1,14 @@
+{
+  "name": "package_record_comparable",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "package",
+  "sources": [
+    {
+      "root": "src",
+      "role": "main",
+      "include": ["**/*.mfb"]
+    }
+  ],
+  "targets": ["native"]
+}

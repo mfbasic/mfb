@@ -414,12 +414,14 @@ The spec allows a package union to `INCLUDES` another package's union and reintr
 REQUIREMENT: Union member diagnostics must use registered error codes
 SPECIFICATION: error_codes.md @ Compiler Diagnostics
 GROUP: typesystem
+STATUS: completed
 RECOMMENDED: CODE CHANGE
 `mfbasic.md` requires union members to name concrete `TYPE` declarations, and `src/typecheck.rs` reports `TYPE_UNION_MEMBER_REQUIRES_TYPE` when that rule is violated. That rule is not registered in `src/rules.rs` and is not listed in `specifications/error_codes.md`, so the compiler emits it as `UNKNOWN_RULE` instead of a canonical diagnostic. Resolve by adding `TYPE_UNION_MEMBER_REQUIRES_TYPE` to `src/rules.rs` with a new `2-203-*` code, documenting it in `specifications/error_codes.md`, and adding an invalid union-member test that verifies the registered diagnostic.
 
 REQUIREMENT: Record comparability must be field-wise
 SPECIFICATION: mfbasic.md @ §4.11 Comparable Types
 GROUP: typesystem
+STATUS: completed
 RECOMMENDED: CODE CHANGE
 Records whose fields are all comparable are specified as comparable, so `=` / `<>`, map keys, and list helpers such as `find`, `contains`, and `replace` must compare record values by their comparable fields. The type checker accepts comparable records, but native lowering falls back to comparing record value pointers for ordinary equality and uses raw inline bytes for collection/map matching, which makes records containing heap-backed comparable fields such as `String` compare by address or stored pointer bytes rather than semantic field values. Resolve by adding recursive field-wise comparison lowering for comparable records everywhere comparability is used: equality operators, list search/contains/replace, map key lookup/update/remove, and package/native bytecode paths. Add runtime tests for records with primitive fields and records with `String` fields, including use as `Map` keys.
 

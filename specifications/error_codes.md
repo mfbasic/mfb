@@ -202,6 +202,7 @@ These codes correspond to `src/rules.rs` and are emitted directly by the compile
 | `2-203-0061` | `TYPE_REQUIRES_COMPARABLE` | error | `operation requires a comparable type` |
 | `2-203-0062` | `TYPE_MATCH_NOT_EXHAUSTIVE` | error | `match cases do not cover every possible value` |
 | `2-203-0063` | `TYPE_THREAD_NOT_SENDABLE` | error | `thread boundary type is not sendable` |
+| `2-203-0064` | `TYPE_UNION_MEMBER_REQUIRES_TYPE` | error | `union members must name concrete TYPE declarations` |
 
 ## Toolchain and Package Diagnostics
 

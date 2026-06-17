@@ -1,0 +1,16 @@
+EXPORT TYPE Person
+  EXPORT name AS String
+  EXPORT city AS String
+END TYPE
+
+EXPORT FUNC makePerson(name AS String, city AS String) AS Person
+  RETURN Person[name, city]
+END FUNC
+
+EXPORT FUNC samePerson(left AS Person, right AS Person) AS Boolean
+  RETURN left = right
+END FUNC
+
+EXPORT FUNC differentPerson(left AS Person, right AS Person) AS Boolean
+  RETURN left <> right
+END FUNC

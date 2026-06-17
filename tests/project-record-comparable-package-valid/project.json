@@ -1,0 +1,22 @@
+{
+  "name": "project_record_comparable_package_valid",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "executable",
+  "sources": [
+    {
+      "root": "src",
+      "role": "main",
+      "include": ["**/*.mfb"]
+    }
+  ],
+  "packages": [
+    {
+      "name": "package_record_comparable",
+      "version": "=0.1.0",
+      "source": "file:packages/package_record_comparable.mfp"
+    }
+  ],
+  "entry": "main",
+  "targets": ["native"]
+}

@@ -1,0 +1,14 @@
+$ mfb build -ast tests/project-record-comparable-package-valid
+Wrote AST to tests/project-record-comparable-package-valid/project_record_comparable_package_valid.ast
+[exit 0]
+$ mfb build -ir tests/project-record-comparable-package-valid
+Wrote IR to tests/project-record-comparable-package-valid/project_record_comparable_package_valid.ir
+[exit 0]
+$ mfb build tests/project-record-comparable-package-valid
+Wrote executable to tests/project-record-comparable-package-valid/project_record_comparable_package_valid.out
+[exit 0]
+$ tests/project-record-comparable-package-valid/project_record_comparable_package_valid.out
+TRUE
+TRUE
+TRUE
+[exit 0]

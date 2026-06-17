@@ -314,6 +314,8 @@ impl CodeBuilder<'_> {
         let copy_old = self.label("replace_list_copy_old");
         let copy_new_string_loop = self.label("replace_list_copy_new_string_loop");
         let copy_new_string_done = self.label("replace_list_copy_new_string_done");
+        let copy_new_inline_loop = self.label("replace_list_copy_new_inline_loop");
+        let copy_new_inline_done = self.label("replace_list_copy_new_inline_done");
         let copy_old_loop = self.label("replace_list_copy_old_loop");
         let copy_done_one = self.label("replace_list_copy_done_one");
         let copy_done = self.label("replace_list_copy_done");
@@ -510,6 +512,19 @@ impl CodeBuilder<'_> {
                 self.emit(abi::subtract_immediate("x23", "x23", 1));
                 self.emit(abi::branch(&copy_new_string_loop));
                 self.emit(abi::label(&copy_new_string_done));
+            }
+            other if self.inline_collection_payload_size(other).is_some() => {
+                self.emit(abi::load_u64("x24", abi::stack_pointer(), new_slot));
+                self.emit(abi::label(&copy_new_inline_loop));
+                self.emit(abi::compare_immediate("x23", "0"));
+                self.emit(abi::branch_eq(&copy_new_inline_done));
+                self.emit(abi::load_u8("x22", "x24", 0));
+                self.emit(abi::store_u8("x22", "x25", 0));
+                self.emit(abi::add_immediate("x24", "x24", 1));
+                self.emit(abi::add_immediate("x25", "x25", 1));
+                self.emit(abi::subtract_immediate("x23", "x23", 1));
+                self.emit(abi::branch(&copy_new_inline_loop));
+                self.emit(abi::label(&copy_new_inline_done));
             }
             _ => {
                 self.emit(abi::load_u64("x24", abi::stack_pointer(), new_slot));

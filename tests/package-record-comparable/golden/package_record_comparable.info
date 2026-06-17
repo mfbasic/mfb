@@ -1,0 +1,55 @@
+Package: package_record_comparable
+Ident: package_record_comparable
+Version: 0.1.0
+Ident Key: <empty>
+Ident Fingerprint: <empty>
+Signing Fingerprint: <empty>
+Author: <empty>
+URL: <empty>
+Path: tests/package-record-comparable/package_record_comparable.mfp
+
+Container:
+  format: MFP
+  version: 1.0
+  bytecode version: 1.0
+  flags: 0x00000000
+  signature type: unsigned
+  signature length: 0
+  content hash: 465f1de992926023847932b4e5e756054af943ff60305cf8367bc43f4797b19a
+  bytecode length: 1164
+
+Manifest:
+  name: package_record_comparable
+  ident: package_record_comparable
+  version: 0.1.0
+  ident key: <empty>
+  ident fingerprint: <empty>
+  signing fingerprint: <empty>
+  author: <empty>
+  url: <empty>
+
+Bytecode:
+  ABI format version: 1
+  types: 1
+  constants: 0
+  resources: 0
+  functions: 3
+  globals: 0
+  imports: 0
+  exports: 4
+
+Exports:
+  FUNC makePerson
+    sigHash: 696f01eeb821aa690ca8701b5a072e0e9d27b701d430725c89cc7c0e27bf9343
+  FUNC samePerson
+    sigHash: 1afb762dc6b6d7cdc55ac31d2c904fd68e02750b7b3f852312febf26226ac47a
+  FUNC differentPerson
+    sigHash: 1afb762dc6b6d7cdc55ac31d2c904fd68e02750b7b3f852312febf26226ac47a
+  TYPE Person
+    sigHash: ec62487e02be18462658e96a9bba71ef994d8786e2db26adf6c4f41725aae9f6
+
+Package State:
+  <none>
+
+Imports:
+  <none>

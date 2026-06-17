@@ -640,6 +640,12 @@ pub const RULES: &[Rule] = &[
         message: "thread boundary type is not sendable",
     },
     Rule {
+        code: "2-203-0064",
+        name: "TYPE_UNION_MEMBER_REQUIRES_TYPE",
+        severity: Severity::Error,
+        message: "union members must name concrete TYPE declarations",
+    },
+    Rule {
         code: "2-200-0011",
         name: "PROJECT_ENTRY_INVALID",
         severity: Severity::Error,

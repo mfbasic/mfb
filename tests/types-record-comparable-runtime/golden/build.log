@@ -1,0 +1,28 @@
+$ mfb build -ast tests/types-record-comparable-runtime
+Wrote AST to tests/types-record-comparable-runtime/types_record_comparable_runtime.ast
+[exit 0]
+$ mfb build -ir tests/types-record-comparable-runtime
+Wrote IR to tests/types-record-comparable-runtime/types_record_comparable_runtime.ir
+[exit 0]
+$ mfb build tests/types-record-comparable-runtime
+Wrote executable to tests/types-record-comparable-runtime/types_record_comparable_runtime.out
+[exit 0]
+$ tests/types-record-comparable-runtime/types_record_comparable_runtime.out
+TRUE
+TRUE
+TRUE
+TRUE
+TRUE
+TRUE
+TRUE
+0
+0
+Katherine
+first
+TRUE
+1
+10
+2
+1
+FALSE
+[exit 0]

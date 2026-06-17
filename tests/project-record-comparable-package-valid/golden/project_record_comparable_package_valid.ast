@@ -1,0 +1,32 @@
+{
+  "project": "project_record_comparable_package_valid",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 },
+    { "module": "package_record_comparable", "alias": "records", "line": 2 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "main",
+      "line": 4,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "ada", "type": null, "value": { "kind": "call", "callee": "records.makePerson", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "A" }, "right": { "kind": "string", "value": "da" } }, { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "Love" }, "right": { "kind": "string", "value": "lace" } }] }, "line": 5 },
+      { "kind": "binding", "mutable": false, "name": "sameAda", "type": null, "value": { "kind": "call", "callee": "records.makePerson", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "Ad" }, "right": { "kind": "string", "value": "a" } }, { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "Lovel" }, "right": { "kind": "string", "value": "ace" } }] }, "line": 6 },
+      { "kind": "binding", "mutable": false, "name": "grace", "type": null, "value": { "kind": "call", "callee": "records.makePerson", "arguments": [{ "kind": "string", "value": "Grace" }, { "kind": "string", "value": "Hopper" }] }, "line": 7 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "ada" }, "right": { "kind": "identifier", "value": "sameAda" } }] }] }, "line": 9 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "records.samePerson", "arguments": [{ "kind": "identifier", "value": "ada" }, { "kind": "identifier", "value": "sameAda" }] }] }] }, "line": 10 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "records.differentPerson", "arguments": [{ "kind": "identifier", "value": "ada" }, { "kind": "identifier", "value": "grace" }] }] }] }, "line": 11 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 13 }
+      ]
+    }
+    ]
+  }
+  ]
+}

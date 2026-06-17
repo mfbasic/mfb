@@ -1,0 +1,64 @@
+{
+  "project": "package_record_comparable",
+  "files": [
+  {
+    "path": "src/lib.mfb",
+    "imports": [
+    ],
+    "items": [
+    {
+      "kind": "type",
+      "visibility": "export",
+      "name": "Person",
+      "line": 1,
+      "fields": [
+      { "visibility": "export", "name": "name", "type": "String", "line": 2 },
+      { "visibility": "export", "name": "city", "type": "String", "line": 3 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "export",
+      "name": "makePerson",
+      "line": 6,
+      "params": [
+      { "name": "name", "type": "String", "default": null },
+      { "name": "city", "type": "String", "default": null }
+      ],
+      "returnType": "Person",
+      "body": [
+      { "kind": "return", "value": { "kind": "constructor", "type": "Person", "arguments": [{ "kind": "identifier", "value": "name" }, { "kind": "identifier", "value": "city" }] }, "line": 7 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "export",
+      "name": "samePerson",
+      "line": 10,
+      "params": [
+      { "name": "left", "type": "Person", "default": null },
+      { "name": "right", "type": "Person", "default": null }
+      ],
+      "returnType": "Boolean",
+      "body": [
+      { "kind": "return", "value": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "left" }, "right": { "kind": "identifier", "value": "right" } }, "line": 11 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "export",
+      "name": "differentPerson",
+      "line": 14,
+      "params": [
+      { "name": "left", "type": "Person", "default": null },
+      { "name": "right", "type": "Person", "default": null }
+      ],
+      "returnType": "Boolean",
+      "body": [
+      { "kind": "return", "value": { "kind": "binary", "operator": "<>", "left": { "kind": "identifier", "value": "left" }, "right": { "kind": "identifier", "value": "right" } }, "line": 15 }
+      ]
+    }
+    ]
+  }
+  ]
+}

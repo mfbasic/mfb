@@ -2730,6 +2730,208 @@ fn package_default_depth(export: &NativePackageExport) -> usize {
         .unwrap_or(0)
 }
 
+fn emit_package_compare_values_branch(
+    export: &NativePackageExport,
+    type_id: u32,
+    left: &str,
+    right: &str,
+    scratch_base: usize,
+    depth: usize,
+    equal_label: &str,
+    not_equal_label: &str,
+    instructions: &mut Vec<CodeInstruction>,
+) -> Result<(), String> {
+    match type_id {
+        bytecode::TYPE_NOTHING => {
+            instructions.push(abi::branch(equal_label));
+        }
+        bytecode::TYPE_BOOLEAN
+        | bytecode::TYPE_BYTE
+        | bytecode::TYPE_INTEGER
+        | bytecode::TYPE_FIXED => {
+            instructions.extend([
+                abi::compare_registers(left, right),
+                abi::branch_eq(equal_label),
+                abi::branch(not_equal_label),
+            ]);
+        }
+        bytecode::TYPE_FLOAT => {
+            instructions.extend([
+                abi::float_move_d_from_x("d0", left),
+                abi::float_move_d_from_x("d1", right),
+                abi::float_compare_d("d0", "d1"),
+                abi::branch_eq(equal_label),
+                abi::branch(not_equal_label),
+            ]);
+        }
+        bytecode::TYPE_STRING => {
+            let loop_label = format!(
+                "{}_pkg_compare_string_loop_{}",
+                export.symbol,
+                instructions.len()
+            );
+            instructions.extend([
+                abi::move_register("x4", left),
+                abi::move_register("x5", right),
+                abi::load_u64("x2", "x4", 0),
+                abi::load_u64("x3", "x5", 0),
+                abi::compare_registers("x2", "x3"),
+                abi::branch_ne(not_equal_label),
+                abi::add_immediate("x4", "x4", 8),
+                abi::add_immediate("x5", "x5", 8),
+                abi::label(&loop_label),
+                abi::compare_immediate("x2", "0"),
+                abi::branch_eq(equal_label),
+                abi::load_u8("x6", "x4", 0),
+                abi::load_u8("x7", "x5", 0),
+                abi::compare_registers("x6", "x7"),
+                abi::branch_ne(not_equal_label),
+                abi::add_immediate("x4", "x4", 1),
+                abi::add_immediate("x5", "x5", 1),
+                abi::subtract_immediate("x2", "x2", 1),
+                abi::branch(&loop_label),
+            ]);
+        }
+        other => match export.type_info.get(&other) {
+            Some(bytecode::NativePackageTypeInfo::Enum) => {
+                instructions.extend([
+                    abi::compare_registers(left, right),
+                    abi::branch_eq(equal_label),
+                    abi::branch(not_equal_label),
+                ]);
+            }
+            Some(bytecode::NativePackageTypeInfo::Record(fields)) => {
+                if fields.is_empty() {
+                    instructions.push(abi::branch(equal_label));
+                    return Ok(());
+                }
+                let left_slot = scratch_base + depth * 16;
+                let right_slot = left_slot + 8;
+                instructions.extend([
+                    abi::store_u64(left, abi::stack_pointer(), left_slot),
+                    abi::store_u64(right, abi::stack_pointer(), right_slot),
+                ]);
+                for field in fields {
+                    let next_field = format!(
+                        "{}_pkg_compare_record_next_{}",
+                        export.symbol,
+                        instructions.len()
+                    );
+                    instructions.extend([
+                        abi::load_u64("x2", abi::stack_pointer(), left_slot),
+                        abi::load_u64("x3", abi::stack_pointer(), right_slot),
+                        abi::load_u64("x2", "x2", field.offset_slots * 8),
+                        abi::load_u64("x3", "x3", field.offset_slots * 8),
+                    ]);
+                    emit_package_compare_values_branch(
+                        export,
+                        field.type_id,
+                        "x2",
+                        "x3",
+                        scratch_base,
+                        depth + 1,
+                        &next_field,
+                        not_equal_label,
+                        instructions,
+                    )?;
+                    instructions.push(abi::label(&next_field));
+                }
+                instructions.push(abi::branch(equal_label));
+            }
+            Some(_) => {
+                return Err(format!(
+                    "package export '{}' cannot compare non-comparable type id {other}",
+                    export.name
+                ));
+            }
+            None => {
+                return Err(format!(
+                    "package export '{}' references unknown comparable type id {other}",
+                    export.name
+                ));
+            }
+        },
+    }
+    Ok(())
+}
+
+fn lower_package_equality(
+    export: &NativePackageExport,
+    instruction: &bytecode::NativeInstruction,
+    pc: usize,
+    slot: &dyn Fn(u32) -> usize,
+    scratch_base: usize,
+    instructions: &mut Vec<CodeInstruction>,
+) -> Result<(), String> {
+    let dst = native_operand(instruction, 0)?;
+    let left = native_operand(instruction, 1)?;
+    let right = native_operand(instruction, 2)?;
+    let left_type = export
+        .registers
+        .get(left as usize)
+        .ok_or_else(|| {
+            format!(
+                "package export '{}' instruction {pc} references missing register {left}",
+                export.name
+            )
+        })?
+        .type_id;
+    let right_type = export
+        .registers
+        .get(right as usize)
+        .ok_or_else(|| {
+            format!(
+                "package export '{}' instruction {pc} references missing register {right}",
+                export.name
+            )
+        })?
+        .type_id;
+    if left_type != right_type {
+        return Err(format!(
+            "package export '{}' instruction {pc} compares mismatched type ids {left_type} and {right_type}",
+            export.name
+        ));
+    }
+    let equal_label = format!("{}_pkg_compare_equal_{pc}", export.symbol);
+    let not_equal_label = format!("{}_pkg_compare_not_equal_{pc}", export.symbol);
+    let done_label = format!("{}_pkg_compare_done_{pc}", export.symbol);
+    instructions.extend([
+        abi::load_u64("x9", abi::stack_pointer(), slot(left)),
+        abi::load_u64("x10", abi::stack_pointer(), slot(right)),
+    ]);
+    emit_package_compare_values_branch(
+        export,
+        left_type,
+        "x9",
+        "x10",
+        scratch_base,
+        0,
+        &equal_label,
+        &not_equal_label,
+        instructions,
+    )?;
+    let equal_value = if instruction.opcode == bytecode::NATIVE_OPCODE_EQUAL {
+        "true"
+    } else {
+        "false"
+    };
+    let not_equal_value = if instruction.opcode == bytecode::NATIVE_OPCODE_EQUAL {
+        "false"
+    } else {
+        "true"
+    };
+    instructions.extend([
+        abi::label(&equal_label),
+        abi::move_immediate("x11", "Boolean", equal_value),
+        abi::branch(&done_label),
+        abi::label(&not_equal_label),
+        abi::move_immediate("x11", "Boolean", not_equal_value),
+        abi::label(&done_label),
+        abi::store_u64("x11", abi::stack_pointer(), slot(dst)),
+    ]);
+    Ok(())
+}
+
 fn package_collection_type_code(
     export: &NativePackageExport,
     type_id: u32,
@@ -2964,7 +3166,8 @@ fn lower_package_export_function(
     let register_base = 8;
     let slot = |register: u32| register_base + register as usize * 8;
     let scratch_base = register_base + export.registers.len() * 8;
-    let scratch_slots = package_default_depth(export).max(5);
+    let record_depth = package_default_depth(export);
+    let scratch_slots = record_depth.max(record_depth * 2 + 2).max(5);
     let frame_size = align(scratch_base + scratch_slots * 8, 16);
     let mut instructions = vec![abi::label("entry"), abi::subtract_stack(frame_size)];
     let mut relocations = Vec::new();
@@ -3102,6 +3305,16 @@ fn lower_package_export_function(
                     abi::subtract_registers("x10", "x31", "x9"),
                     abi::store_u64("x10", abi::stack_pointer(), slot(dst)),
                 ]);
+            }
+            bytecode::NATIVE_OPCODE_EQUAL | bytecode::NATIVE_OPCODE_NOT_EQUAL => {
+                lower_package_equality(
+                    export,
+                    instruction,
+                    pc,
+                    &slot,
+                    scratch_base,
+                    &mut instructions,
+                )?;
             }
             bytecode::NATIVE_OPCODE_CALL_RESULT => {
                 lower_package_call_result(

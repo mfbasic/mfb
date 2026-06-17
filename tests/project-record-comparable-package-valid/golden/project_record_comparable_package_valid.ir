@@ -1,0 +1,31 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "project_record_comparable_package_valid",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "mutable": false, "name": "ada", "type": "Person", "value": { "kind": "call", "target": "package_record_comparable.makePerson", "args": [{ "kind": "binary", "op": "&", "left": { "kind": "const", "type": "String", "value": "A" }, "right": { "kind": "const", "type": "String", "value": "da" } }, { "kind": "binary", "op": "&", "left": { "kind": "const", "type": "String", "value": "Love" }, "right": { "kind": "const", "type": "String", "value": "lace" } }] } },
+    { "op": "bind", "mutable": false, "name": "sameAda", "type": "Person", "value": { "kind": "call", "target": "package_record_comparable.makePerson", "args": [{ "kind": "binary", "op": "&", "left": { "kind": "const", "type": "String", "value": "Ad" }, "right": { "kind": "const", "type": "String", "value": "a" } }, { "kind": "binary", "op": "&", "left": { "kind": "const", "type": "String", "value": "Lovel" }, "right": { "kind": "const", "type": "String", "value": "ace" } }] } },
+    { "op": "bind", "mutable": false, "name": "grace", "type": "Person", "value": { "kind": "call", "target": "package_record_comparable.makePerson", "args": [{ "kind": "const", "type": "String", "value": "Grace" }, { "kind": "const", "type": "String", "value": "Hopper" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "binary", "op": "=", "left": { "kind": "local", "name": "ada" }, "right": { "kind": "local", "name": "sameAda" } }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "package_record_comparable.samePerson", "args": [{ "kind": "local", "name": "ada" }, { "kind": "local", "name": "sameAda" }] }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "package_record_comparable.differentPerson", "args": [{ "kind": "local", "name": "ada" }, { "kind": "local", "name": "grace" }] }] }] } },
+    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

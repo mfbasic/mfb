@@ -69,6 +69,131 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch(&loop_label));
     }
 
+    pub(super) fn emit_comparable_values_match_branch(
+        &mut self,
+        type_: &str,
+        left: &str,
+        right: &str,
+        equal_label: &str,
+        not_equal_label: &str,
+    ) -> Result<(), String> {
+        let left_slot = self.allocate_stack_object("compare_left_value", 8);
+        let right_slot = self.allocate_stack_object("compare_right_value", 8);
+        self.emit(abi::store_u64(left, abi::stack_pointer(), left_slot));
+        self.emit(abi::store_u64(right, abi::stack_pointer(), right_slot));
+        self.emit_comparable_values_match_branch_from_slots(
+            type_,
+            left_slot,
+            right_slot,
+            equal_label,
+            not_equal_label,
+        )
+    }
+
+    fn emit_comparable_values_match_branch_from_slots(
+        &mut self,
+        type_: &str,
+        left_slot: usize,
+        right_slot: usize,
+        equal_label: &str,
+        not_equal_label: &str,
+    ) -> Result<(), String> {
+        match type_ {
+            "Nothing" => {
+                self.emit(abi::branch(equal_label));
+            }
+            "Boolean" | "Byte" | "Integer" | "Fixed" => {
+                self.emit(abi::load_u64("x6", abi::stack_pointer(), left_slot));
+                self.emit(abi::load_u64("x7", abi::stack_pointer(), right_slot));
+                self.emit(abi::compare_registers("x6", "x7"));
+                self.emit(abi::branch_eq(equal_label));
+                self.emit(abi::branch(not_equal_label));
+            }
+            "Float" => {
+                self.emit(abi::load_u64("x6", abi::stack_pointer(), left_slot));
+                self.emit(abi::load_u64("x7", abi::stack_pointer(), right_slot));
+                self.emit(abi::float_move_d_from_x("d0", "x6"));
+                self.emit(abi::float_move_d_from_x("d1", "x7"));
+                self.emit(abi::float_compare_d("d0", "d1"));
+                self.emit(abi::branch_eq(equal_label));
+                self.emit(abi::branch(not_equal_label));
+            }
+            "String" => {
+                let loop_label = self.label("compare_string_value_loop");
+                self.emit(abi::load_u64("x2", abi::stack_pointer(), left_slot));
+                self.emit(abi::load_u64("x4", abi::stack_pointer(), right_slot));
+                self.emit(abi::load_u64("x5", "x2", 0));
+                self.emit(abi::load_u64("x6", "x4", 0));
+                self.emit(abi::compare_registers("x5", "x6"));
+                self.emit(abi::branch_ne(not_equal_label));
+                self.emit(abi::add_immediate("x2", "x2", 8));
+                self.emit(abi::add_immediate("x4", "x4", 8));
+                self.emit(abi::label(&loop_label));
+                self.emit(abi::compare_immediate("x5", "0"));
+                self.emit(abi::branch_eq(equal_label));
+                self.emit(abi::load_u8("x6", "x2", 0));
+                self.emit(abi::load_u8("x7", "x4", 0));
+                self.emit(abi::compare_registers("x6", "x7"));
+                self.emit(abi::branch_ne(not_equal_label));
+                self.emit(abi::add_immediate("x2", "x2", 1));
+                self.emit(abi::add_immediate("x4", "x4", 1));
+                self.emit(abi::subtract_immediate("x5", "x5", 1));
+                self.emit(abi::branch(&loop_label));
+            }
+            other if self.type_model.record_fields.contains_key(other) => {
+                let fields = self
+                    .type_model
+                    .record_fields
+                    .get(other)
+                    .cloned()
+                    .ok_or_else(|| format!("native record type '{other}' does not resolve"))?;
+                if fields.is_empty() {
+                    self.emit(abi::branch(equal_label));
+                    return Ok(());
+                }
+                for (index, (_, field_type)) in fields.iter().enumerate() {
+                    let next_field = self.label("compare_record_next_field");
+                    let field_left_slot = self.allocate_stack_object("compare_record_left", 8);
+                    let field_right_slot = self.allocate_stack_object("compare_record_right", 8);
+                    self.emit(abi::load_u64("x2", abi::stack_pointer(), left_slot));
+                    self.emit(abi::load_u64("x4", abi::stack_pointer(), right_slot));
+                    self.emit(abi::load_u64("x2", "x2", index * 8));
+                    self.emit(abi::load_u64("x4", "x4", index * 8));
+                    self.emit(abi::store_u64("x2", abi::stack_pointer(), field_left_slot));
+                    self.emit(abi::store_u64("x4", abi::stack_pointer(), field_right_slot));
+                    self.emit_comparable_values_match_branch_from_slots(
+                        field_type,
+                        field_left_slot,
+                        field_right_slot,
+                        &next_field,
+                        not_equal_label,
+                    )?;
+                    self.emit(abi::label(&next_field));
+                }
+                self.emit(abi::branch(equal_label));
+            }
+            other
+                if self
+                    .type_model
+                    .enum_members
+                    .keys()
+                    .any(|(enum_type, _)| enum_type == other) =>
+            {
+                self.emit(abi::load_u64("x6", abi::stack_pointer(), left_slot));
+                self.emit(abi::load_u64("x7", abi::stack_pointer(), right_slot));
+                self.emit(abi::compare_registers("x6", "x7"));
+                self.emit(abi::branch_eq(equal_label));
+                self.emit(abi::branch(not_equal_label));
+            }
+            other => {
+                return Err(format!(
+                    "native comparable comparison does not support type '{other}'"
+                ));
+            }
+        }
+        Ok(())
+    }
+
     pub(super) fn materialize_inline_value_in_arena(
         &mut self,
         type_: &str,
@@ -712,6 +837,15 @@ impl CodeBuilder<'_> {
                 self.emit(abi::branch_eq(equal_label));
                 self.emit(abi::branch(not_equal_label));
             }
+            other if self.type_model.record_fields.contains_key(other) => {
+                self.emit_comparable_values_match_branch(
+                    other,
+                    &data,
+                    value,
+                    equal_label,
+                    not_equal_label,
+                )?;
+            }
             other if self.inline_collection_payload_size(other).is_some() => {
                 self.emit_compare_bytes_branch(
                     &data,
@@ -782,6 +916,15 @@ impl CodeBuilder<'_> {
                 self.emit(abi::compare_registers("x6", value));
                 self.emit(abi::branch_eq(equal_label));
                 self.emit(abi::branch(not_equal_label));
+            }
+            other if self.type_model.record_fields.contains_key(other) => {
+                self.emit_comparable_values_match_branch(
+                    other,
+                    "x2",
+                    value,
+                    equal_label,
+                    not_equal_label,
+                )?;
             }
             other if self.inline_collection_payload_size(other).is_some() => {
                 self.emit_compare_bytes_branch(
@@ -860,6 +1003,17 @@ impl CodeBuilder<'_> {
                 self.emit(abi::compare_registers("x6", "x7"));
                 self.emit(abi::branch_eq(equal_label));
                 self.emit(abi::branch(not_equal_label));
+            }
+            other if self.type_model.record_fields.contains_key(other) => {
+                self.emit(abi::compare_registers(left_length, right_length));
+                self.emit(abi::branch_ne(not_equal_label));
+                self.emit_comparable_values_match_branch(
+                    other,
+                    "x2",
+                    "x4",
+                    equal_label,
+                    not_equal_label,
+                )?;
             }
             other if self.inline_collection_payload_size(other).is_some() => {
                 self.emit(abi::compare_registers(left_length, right_length));

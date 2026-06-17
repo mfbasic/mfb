@@ -323,6 +323,69 @@ impl CodeBuilder<'_> {
             };
             return self.lower_numeric_comparison_binary(op, &left, &right);
         }
+        if self.type_model.record_fields.contains_key(&left.type_) {
+            if !matches!(op, "=" | "<>") {
+                return Err(format!(
+                    "native code does not lower record comparison operator '{op}'"
+                ));
+            }
+            let right = self.lower_value(right)?;
+            if right.type_ != left.type_ {
+                return Err(format!(
+                    "native code comparison requires matching record operands, got {} and {}",
+                    left.type_, right.type_
+                ));
+            }
+            let right_slot = self.allocate_stack_object("cmp_right", 8);
+            self.emit(abi::store_u64(
+                &right.location,
+                abi::stack_pointer(),
+                right_slot,
+            ));
+            self.reset_temporary_registers();
+            let left_register = self.allocate_register()?;
+            let right_register = self.allocate_register()?;
+            let result = self.allocate_register()?;
+            let equal_label = self.label("cmp_record_equal");
+            let not_equal_label = self.label("cmp_record_not_equal");
+            let done_label = self.label("cmp_record_done");
+            self.emit(abi::load_u64(
+                &left_register,
+                abi::stack_pointer(),
+                left_slot,
+            ));
+            self.emit(abi::load_u64(
+                &right_register,
+                abi::stack_pointer(),
+                right_slot,
+            ));
+            self.emit_comparable_values_match_branch(
+                &left.type_,
+                &left_register,
+                &right_register,
+                &equal_label,
+                &not_equal_label,
+            )?;
+            self.emit(abi::label(&equal_label));
+            self.emit(abi::move_immediate(
+                &result,
+                "Boolean",
+                if op == "=" { "true" } else { "false" },
+            ));
+            self.emit(abi::branch(&done_label));
+            self.emit(abi::label(&not_equal_label));
+            self.emit(abi::move_immediate(
+                &result,
+                "Boolean",
+                if op == "=" { "false" } else { "true" },
+            ));
+            self.emit(abi::label(&done_label));
+            return Ok(ValueResult {
+                type_: "Boolean".to_string(),
+                location: result,
+                text: format!("({} {op} {})", left.text, right.text),
+            });
+        }
         let right = self.lower_value(right)?;
         let right_slot = self.allocate_stack_object("cmp_right", 8);
         self.emit(abi::store_u64(

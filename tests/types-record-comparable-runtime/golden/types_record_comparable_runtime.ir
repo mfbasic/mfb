@@ -1,0 +1,99 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "types_record_comparable_runtime",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  {
+    "kind": "type",
+    "visibility": "private",
+    "name": "Point",
+    "fields": [
+    { "visibility": null, "name": "x", "type": "Integer" },
+    { "visibility": null, "name": "y", "type": "Integer" }
+    ]
+  },
+  {
+    "kind": "type",
+    "visibility": "private",
+    "name": "Person",
+    "fields": [
+    { "visibility": null, "name": "name", "type": "String" },
+    { "visibility": null, "name": "city", "type": "String" }
+    ]
+  },
+  {
+    "kind": "type",
+    "visibility": "private",
+    "name": "Badge",
+    "fields": [
+    { "visibility": null, "name": "owner", "type": "Person" },
+    { "visibility": null, "name": "level", "type": "Integer" }
+    ]
+  }
+  ],
+  "functions": [
+  {
+    "name": "printBoolean",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    { "name": "value", "type": "Boolean", "default": null }
+    ],
+    "returns": "Nothing",
+    "body": [
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "local", "name": "value" }] }] } },
+    { "op": "return", "value": { "kind": "const", "type": "Nothing", "value": "NOTHING" } }
+    ]
+  },
+  {
+    "name": "main",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "mutable": false, "name": "firstPoint", "type": "Point", "value": { "kind": "constructor", "type": "Point", "args": [{ "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "2" }] } },
+    { "op": "bind", "mutable": false, "name": "samePoint", "type": "Point", "value": { "kind": "constructor", "type": "Point", "args": [{ "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "2" }] } },
+    { "op": "bind", "mutable": false, "name": "otherPoint", "type": "Point", "value": { "kind": "constructor", "type": "Point", "args": [{ "kind": "const", "type": "Integer", "value": "2" }, { "kind": "const", "type": "Integer", "value": "1" }] } },
+    { "op": "bind", "mutable": false, "name": "ada", "type": "Person", "value": { "kind": "constructor", "type": "Person", "args": [{ "kind": "binary", "op": "&", "left": { "kind": "const", "type": "String", "value": "A" }, "right": { "kind": "const", "type": "String", "value": "da" } }, { "kind": "binary", "op": "&", "left": { "kind": "const", "type": "String", "value": "Love" }, "right": { "kind": "const", "type": "String", "value": "lace" } }] } },
+    { "op": "bind", "mutable": false, "name": "sameAda", "type": "Person", "value": { "kind": "constructor", "type": "Person", "args": [{ "kind": "binary", "op": "&", "left": { "kind": "const", "type": "String", "value": "Ad" }, "right": { "kind": "const", "type": "String", "value": "a" } }, { "kind": "binary", "op": "&", "left": { "kind": "const", "type": "String", "value": "Lovel" }, "right": { "kind": "const", "type": "String", "value": "ace" } }] } },
+    { "op": "bind", "mutable": false, "name": "grace", "type": "Person", "value": { "kind": "constructor", "type": "Person", "args": [{ "kind": "const", "type": "String", "value": "Grace" }, { "kind": "const", "type": "String", "value": "Hopper" }] } },
+    { "op": "bind", "mutable": false, "name": "firstBadge", "type": "Badge", "value": { "kind": "constructor", "type": "Badge", "args": [{ "kind": "local", "name": "ada" }, { "kind": "const", "type": "Integer", "value": "7" }] } },
+    { "op": "bind", "mutable": false, "name": "sameBadge", "type": "Badge", "value": { "kind": "constructor", "type": "Badge", "args": [{ "kind": "local", "name": "sameAda" }, { "kind": "const", "type": "Integer", "value": "7" }] } },
+    { "op": "bind", "mutable": false, "name": "otherBadge", "type": "Badge", "value": { "kind": "constructor", "type": "Badge", "args": [{ "kind": "local", "name": "sameAda" }, { "kind": "const", "type": "Integer", "value": "8" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "printBoolean", "args": [{ "kind": "binary", "op": "=", "left": { "kind": "local", "name": "firstPoint" }, "right": { "kind": "local", "name": "samePoint" } }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "printBoolean", "args": [{ "kind": "binary", "op": "<>", "left": { "kind": "local", "name": "firstPoint" }, "right": { "kind": "local", "name": "otherPoint" } }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "printBoolean", "args": [{ "kind": "binary", "op": "=", "left": { "kind": "local", "name": "ada" }, "right": { "kind": "local", "name": "sameAda" } }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "printBoolean", "args": [{ "kind": "binary", "op": "<>", "left": { "kind": "local", "name": "ada" }, "right": { "kind": "local", "name": "grace" } }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "printBoolean", "args": [{ "kind": "binary", "op": "=", "left": { "kind": "local", "name": "firstBadge" }, "right": { "kind": "local", "name": "sameBadge" } }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "printBoolean", "args": [{ "kind": "binary", "op": "<>", "left": { "kind": "local", "name": "firstBadge" }, "right": { "kind": "local", "name": "otherBadge" } }] } },
+    { "op": "bind", "mutable": false, "name": "people", "type": "List OF Person", "value": { "kind": "list", "type": "List OF Person", "values": [{ "kind": "local", "name": "ada" }, { "kind": "local", "name": "grace" }] } },
+    { "op": "bind", "mutable": false, "name": "pair", "type": "List OF Person", "value": { "kind": "list", "type": "List OF Person", "values": [{ "kind": "local", "name": "sameAda" }, { "kind": "local", "name": "grace" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "printBoolean", "args": [{ "kind": "call", "target": "contains", "args": [{ "kind": "local", "name": "people" }, { "kind": "local", "name": "sameAda" }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "find", "args": [{ "kind": "local", "name": "people" }, { "kind": "local", "name": "sameAda" }] }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "find", "args": [{ "kind": "local", "name": "people" }, { "kind": "local", "name": "pair" }] }] }] } },
+    { "op": "bind", "mutable": false, "name": "replaced", "type": "List OF Person", "value": { "kind": "call", "target": "replace", "args": [{ "kind": "local", "name": "people" }, { "kind": "local", "name": "sameAda" }, { "kind": "constructor", "type": "Person", "args": [{ "kind": "const", "type": "String", "value": "Katherine" }, { "kind": "const", "type": "String", "value": "Johnson" }] }] } },
+    { "op": "bind", "mutable": false, "name": "replacedFirst", "type": "Person", "value": { "kind": "call", "target": "get", "args": [{ "kind": "local", "name": "replaced" }, { "kind": "const", "type": "Integer", "value": "0" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "memberAccess", "target": { "kind": "local", "name": "replacedFirst" }, "member": "name" }] } },
+    { "op": "bind", "mutable": false, "name": "pointLabels", "type": "Map OF Point TO String", "value": { "kind": "map", "type": "Map OF Point TO String", "entries": [{ "key": { "kind": "local", "name": "firstPoint" }, "value": { "kind": "const", "type": "String", "value": "first" } }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "get", "args": [{ "kind": "local", "name": "pointLabels" }, { "kind": "local", "name": "samePoint" }] }] } },
+    { "op": "bind", "mutable": false, "name": "scores", "type": "Map OF Person TO Integer", "value": { "kind": "map", "type": "Map OF Person TO Integer", "entries": [{ "key": { "kind": "local", "name": "ada" }, "value": { "kind": "const", "type": "Integer", "value": "1" } }, { "key": { "kind": "local", "name": "grace" }, "value": { "kind": "const", "type": "Integer", "value": "2" } }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "printBoolean", "args": [{ "kind": "call", "target": "hasKey", "args": [{ "kind": "local", "name": "scores" }, { "kind": "local", "name": "sameAda" }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "get", "args": [{ "kind": "local", "name": "scores" }, { "kind": "local", "name": "sameAda" }] }] }] } },
+    { "op": "bind", "mutable": false, "name": "updated", "type": "Map OF Person TO Integer", "value": { "kind": "call", "target": "set", "args": [{ "kind": "local", "name": "scores" }, { "kind": "local", "name": "sameAda" }, { "kind": "const", "type": "Integer", "value": "10" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "get", "args": [{ "kind": "local", "name": "updated" }, { "kind": "local", "name": "ada" }] }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "updated" }] }] }] } },
+    { "op": "bind", "mutable": false, "name": "removed", "type": "Map OF Person TO Integer", "value": { "kind": "call", "target": "removeKey", "args": [{ "kind": "local", "name": "updated" }, { "kind": "local", "name": "sameAda" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "removed" }] }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "printBoolean", "args": [{ "kind": "call", "target": "hasKey", "args": [{ "kind": "local", "name": "removed" }, { "kind": "local", "name": "ada" }] }] } },
+    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

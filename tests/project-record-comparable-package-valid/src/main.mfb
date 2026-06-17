@@ -1,0 +1,14 @@
+IMPORT io
+IMPORT package_record_comparable AS records
+
+FUNC main AS Integer
+  LET ada = records::makePerson("A" & "da", "Love" & "lace")
+  LET sameAda = records::makePerson("Ad" & "a", "Lovel" & "ace")
+  LET grace = records::makePerson("Grace", "Hopper")
+
+  io::print(toString(ada = sameAda))
+  io::print(toString(records::samePerson(ada, sameAda)))
+  io::print(toString(records::differentPerson(ada, grace)))
+
+  RETURN 0
+END FUNC

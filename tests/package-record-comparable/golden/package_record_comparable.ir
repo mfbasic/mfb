@@ -1,0 +1,58 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "package_record_comparable",
+  "entry": null,
+  "types": [
+  {
+    "kind": "type",
+    "visibility": "export",
+    "name": "Person",
+    "fields": [
+    { "visibility": "export", "name": "name", "type": "String" },
+    { "visibility": "export", "name": "city", "type": "String" }
+    ]
+  }
+  ],
+  "functions": [
+  {
+    "name": "makePerson",
+    "visibility": "export",
+    "kind": "func",
+    "params": [
+    { "name": "name", "type": "String", "default": null },
+    { "name": "city", "type": "String", "default": null }
+    ],
+    "returns": "Person",
+    "body": [
+    { "op": "return", "value": { "kind": "constructor", "type": "Person", "args": [{ "kind": "local", "name": "name" }, { "kind": "local", "name": "city" }] } }
+    ]
+  },
+  {
+    "name": "samePerson",
+    "visibility": "export",
+    "kind": "func",
+    "params": [
+    { "name": "left", "type": "Person", "default": null },
+    { "name": "right", "type": "Person", "default": null }
+    ],
+    "returns": "Boolean",
+    "body": [
+    { "op": "return", "value": { "kind": "binary", "op": "=", "left": { "kind": "local", "name": "left" }, "right": { "kind": "local", "name": "right" } } }
+    ]
+  },
+  {
+    "name": "differentPerson",
+    "visibility": "export",
+    "kind": "func",
+    "params": [
+    { "name": "left", "type": "Person", "default": null },
+    { "name": "right", "type": "Person", "default": null }
+    ],
+    "returns": "Boolean",
+    "body": [
+    { "op": "return", "value": { "kind": "binary", "op": "<>", "left": { "kind": "local", "name": "left" }, "right": { "kind": "local", "name": "right" } } }
+    ]
+  }
+  ]
+}
