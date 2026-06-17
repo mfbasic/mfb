@@ -1,0 +1,103 @@
+{
+  "project": "types_with_update_owned",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 }
+    ],
+    "items": [
+    {
+      "kind": "type",
+      "visibility": "private",
+      "name": "Payload",
+      "line": 3,
+      "fields": [
+      { "visibility": null, "name": "label", "type": "String", "line": 4 },
+      { "visibility": null, "name": "first", "type": "Integer", "line": 5 },
+      { "visibility": null, "name": "second", "type": "Integer", "line": 6 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "promote",
+      "line": 9,
+      "params": [
+      { "name": "seed", "type": "Integer", "default": null }
+      ],
+      "returnType": "Payload",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "base", "type": "Payload", "value": { "kind": "constructor", "type": "Payload", "arguments": [{ "kind": "string", "value": "base" }, { "kind": "identifier", "value": "seed" }, { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "seed" }, "right": { "kind": "number", "value": "10" } }] }, "line": 10 },
+      { "kind": "return", "value": { "kind": "with", "target": { "kind": "identifier", "value": "base" }, "updates": [{ "field": "label", "value": { "kind": "string", "value": "owned" } }] }, "line": 11 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "rewrite",
+      "line": 14,
+      "params": [
+      { "name": "value", "type": "Payload", "default": null },
+      { "name": "delta", "type": "Integer", "default": null }
+      ],
+      "returnType": "Payload",
+      "body": [
+      { "kind": "return", "value": { "kind": "with", "target": { "kind": "identifier", "value": "value" }, "updates": [{ "field": "label", "value": { "kind": "string", "value": "rewritten" } }, { "field": "first", "value": { "kind": "binary", "operator": "+", "left": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "value" }, "member": "first" }, "right": { "kind": "identifier", "value": "delta" } } }] }, "line": 15 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "occupy",
+      "line": 18,
+      "params": [
+      { "name": "seed", "type": "Integer", "default": null }
+      ],
+      "returnType": "Payload",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "base", "type": "Payload", "value": { "kind": "constructor", "type": "Payload", "arguments": [{ "kind": "string", "value": "noise-base" }, { "kind": "identifier", "value": "seed" }, { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "seed" }, "right": { "kind": "number", "value": "1" } }] }, "line": 19 },
+      { "kind": "return", "value": { "kind": "with", "target": { "kind": "identifier", "value": "base" }, "updates": [{ "field": "label", "value": { "kind": "string", "value": "noise" } }, { "field": "first", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "seed" }, "right": { "kind": "number", "value": "10" } } }, { "field": "second", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "seed" }, "right": { "kind": "number", "value": "20" } } }] }, "line": 20 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "readAfterCalls",
+      "line": 23,
+      "params": [
+      { "name": "value", "type": "Payload", "default": null }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "firstNoise", "type": "Payload", "value": { "kind": "call", "callee": "occupy", "arguments": [{ "kind": "number", "value": "7" }] }, "line": 24 },
+      { "kind": "binding", "mutable": false, "name": "secondNoise", "type": "Payload", "value": { "kind": "call", "callee": "occupy", "arguments": [{ "kind": "number", "value": "8" }] }, "line": 25 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "firstNoise" }, "member": "label" }] }, "line": 26 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "secondNoise" }, "member": "label" }] }, "line": 27 },
+      { "kind": "return", "value": { "kind": "binary", "operator": "+", "left": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "value" }, "member": "first" }, "right": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "value" }, "member": "second" } }, "line": 28 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "main",
+      "line": 31,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "kept", "type": "Payload", "value": { "kind": "call", "callee": "promote", "arguments": [{ "kind": "number", "value": "5" }] }, "line": 32 },
+      { "kind": "binding", "mutable": false, "name": "changed", "type": "Payload", "value": { "kind": "call", "callee": "rewrite", "arguments": [{ "kind": "identifier", "value": "kept" }, { "kind": "number", "value": "20" }] }, "line": 33 },
+      { "kind": "binding", "mutable": false, "name": "noise", "type": "Payload", "value": { "kind": "call", "callee": "occupy", "arguments": [{ "kind": "number", "value": "9" }] }, "line": 34 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "kept" }, "member": "label" }] }, "line": 36 },
+      { "kind": "binding", "mutable": false, "name": "after", "type": "Integer", "value": { "kind": "call", "callee": "readAfterCalls", "arguments": [{ "kind": "identifier", "value": "kept" }] }, "line": 37 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "kept" }, "member": "label" }] }, "line": 38 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "changed" }, "member": "label" }] }, "line": 39 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "noise" }, "member": "label" }] }, "line": 40 },
+      { "kind": "return", "value": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "after" }, "right": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "changed" }, "member": "first" } }, "right": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "changed" }, "member": "second" } }, "right": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "noise" }, "member": "first" } }, "right": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "noise" }, "member": "second" } }, "line": 42 }
+      ]
+    }
+    ]
+  }
+  ]
+}

@@ -264,16 +264,44 @@ impl CodeBuilder<'_> {
             .cloned()
             .ok_or_else(|| format!("native code WITH target '{type_}' is not a record"))?;
         let target_value = self.lower_value(target)?;
-        let register = self.allocate_register()?;
-        let object_offset = self.allocate_stack_object(type_, 8 * fields.len());
+        let target_slot = self.allocate_stack_object("with_target", 8);
+        self.emit(abi::store_u64(
+            &target_value.location,
+            abi::stack_pointer(),
+            target_slot,
+        ));
+
+        let result_slot = self.allocate_stack_object("with_record_result", 8);
+        let alloc_ok = self.label("with_record_alloc_ok");
+        let object_size = 8 * fields.len();
+        self.emit(abi::move_immediate(
+            abi::return_register(),
+            "Integer",
+            &object_size.to_string(),
+        ));
+        self.emit(abi::move_immediate("x1", "Integer", "8"));
+        self.emit(abi::branch_link(ARENA_ALLOC_SYMBOL));
+        self.relocations.push(CodeRelocation {
+            from: self.current_symbol.clone(),
+            to: ARENA_ALLOC_SYMBOL.to_string(),
+            kind: "branch26".to_string(),
+            binding: "internal".to_string(),
+            library: None,
+        });
+        self.emit(abi::compare_immediate(
+            abi::return_register(),
+            RESULT_OK_TAG,
+        ));
+        self.emit(abi::branch_eq(&alloc_ok));
+        self.emit_allocation_error_return()?;
+        self.emit(abi::label(&alloc_ok));
+        self.emit(abi::store_u64("x1", abi::stack_pointer(), result_slot));
+
         for (index, _) in fields.iter().enumerate() {
-            let scratch = self.allocate_register()?;
-            self.emit(abi::load_u64(&scratch, &target_value.location, 8 * index));
-            self.emit(abi::store_u64(
-                &scratch,
-                abi::stack_pointer(),
-                object_offset + 8 * index,
-            ));
+            self.emit(abi::load_u64("x8", abi::stack_pointer(), target_slot));
+            self.emit(abi::load_u64("x9", "x8", 8 * index));
+            self.emit(abi::load_u64("x10", abi::stack_pointer(), result_slot));
+            self.emit(abi::store_u64("x9", "x10", 8 * index));
         }
         for update in updates {
             let Some(index) = fields
@@ -286,17 +314,18 @@ impl CodeBuilder<'_> {
                 ));
             };
             let value = self.lower_value(&update.value)?;
+            let value_slot = self.allocate_stack_object("with_update_value", 8);
             self.emit(abi::store_u64(
                 &value.location,
                 abi::stack_pointer(),
-                object_offset + 8 * index,
+                value_slot,
             ));
+            self.emit(abi::load_u64("x9", abi::stack_pointer(), value_slot));
+            self.emit(abi::load_u64("x10", abi::stack_pointer(), result_slot));
+            self.emit(abi::store_u64("x9", "x10", 8 * index));
         }
-        self.emit(abi::add_immediate(
-            &register,
-            abi::stack_pointer(),
-            object_offset,
-        ));
+        let register = self.allocate_register()?;
+        self.emit(abi::load_u64(&register, abi::stack_pointer(), result_slot));
         Ok(ValueResult {
             type_: type_.to_string(),
             location: register,

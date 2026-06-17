@@ -114,6 +114,7 @@ RECOMMENDED: SPEC CHANGE
 REQUIREMENT: `WITH` update must produce an owned record value
 SPECIFICATION: mfbasic.md @ §4.2 Records; §14.3.1 Native heap value contract
 GROUP: language
+STATUS: Completed
 RECOMMENDED: CODE CHANGE
 `WITH value { ... }` is specified to create a record copy, and returned heap-backed values must not point into a callee stack frame. Native lowering in `src/target/shared/code/builder_misc.rs` builds the updated record in stack storage and returns the stack address, so a `WITH` result can dangle or be overwritten after further calls/returns. Resolve by allocating the updated record in the arena like record constructors do, copying original fields into the allocation, applying updates there, and adding runtime tests that return and reuse `WITH`-updated records across function calls.
 

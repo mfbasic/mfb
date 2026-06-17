@@ -1,0 +1,43 @@
+IMPORT io
+
+TYPE Payload
+  label AS String
+  first AS Integer
+  second AS Integer
+END TYPE
+
+FUNC promote(seed AS Integer) AS Payload
+  LET base AS Payload = Payload["base", seed, seed + 10]
+  RETURN WITH base { label := "owned" }
+END FUNC
+
+FUNC rewrite(value AS Payload, delta AS Integer) AS Payload
+  RETURN WITH value { label := "rewritten", first := value.first + delta }
+END FUNC
+
+FUNC occupy(seed AS Integer) AS Payload
+  LET base AS Payload = Payload["noise-base", seed, seed + 1]
+  RETURN WITH base { label := "noise", first := seed + 10, second := seed + 20 }
+END FUNC
+
+FUNC readAfterCalls(value AS Payload) AS Integer
+  LET firstNoise AS Payload = occupy(7)
+  LET secondNoise AS Payload = occupy(8)
+  io::print(firstNoise.label)
+  io::print(secondNoise.label)
+  RETURN value.first + value.second
+END FUNC
+
+FUNC main AS Integer
+  LET kept AS Payload = promote(5)
+  LET changed AS Payload = rewrite(kept, 20)
+  LET noise AS Payload = occupy(9)
+
+  io::print(kept.label)
+  LET after AS Integer = readAfterCalls(kept)
+  io::print(kept.label)
+  io::print(changed.label)
+  io::print(noise.label)
+
+  RETURN after + changed.first + changed.second + noise.first + noise.second
+END FUNC
