@@ -42,12 +42,44 @@ impl plan::NativePlanPlatform for Platform {
                 symbol: "_write".to_string(),
                 required_by: spec.symbol.to_string(),
             }],
+            "io.flush" | "io.flushError" => vec![
+                PlatformImport {
+                    library: "libSystem".to_string(),
+                    symbol: "_fsync".to_string(),
+                    required_by: spec.symbol.to_string(),
+                },
+                PlatformImport {
+                    library: "libSystem".to_string(),
+                    symbol: "___error".to_string(),
+                    required_by: spec.symbol.to_string(),
+                },
+            ],
             "io.input" | "io.readLine" | "io.readChar" | "io.readByte" => {
-                vec![PlatformImport {
+                let mut imports = vec![PlatformImport {
                     library: "libSystem".to_string(),
                     symbol: "_read".to_string(),
                     required_by: spec.symbol.to_string(),
-                }]
+                }];
+                if spec.call == "io.input" {
+                    imports.extend([
+                        PlatformImport {
+                            library: "libSystem".to_string(),
+                            symbol: "_write".to_string(),
+                            required_by: spec.symbol.to_string(),
+                        },
+                        PlatformImport {
+                            library: "libSystem".to_string(),
+                            symbol: "_fsync".to_string(),
+                            required_by: spec.symbol.to_string(),
+                        },
+                        PlatformImport {
+                            library: "libSystem".to_string(),
+                            symbol: "___error".to_string(),
+                            required_by: spec.symbol.to_string(),
+                        },
+                    ]);
+                }
+                imports
             }
             "io.pollInput" => vec![PlatformImport {
                 library: "libSystem".to_string(),

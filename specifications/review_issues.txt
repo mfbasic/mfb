@@ -465,5 +465,6 @@ The spec defines `fs::createTempFile()` with no directory argument, using the OS
 REQUIREMENT: IO flush operations must flush and report output failures
 SPECIFICATION: standard_package.md @ §7 Built-in IO Package
 GROUP: io
+STATUS: completed
 RECOMMENDED: CODE CHANGE
 `io::flush` and `io::flushError` are specified to flush standard output/error and fail with `77020002` on output failure, but native lowering emits runtime helpers that unconditionally return `Ok(NOTHING)` without invoking any platform flush operation or checking failure. Resolve by adding real flush semantics to the runtime helper layer: either maintain an MFBASIC output buffer and drain it on flush, or define/use a target-appropriate host flush operation for the standard stream model. Map failures to `ErrWriteFailed` (`77020002`) and add runtime tests that prove `io::flush`, `io::flushError`, and `io::input` prompt flushing have observable behavior rather than only compiling.

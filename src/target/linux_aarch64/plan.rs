@@ -66,8 +66,18 @@ impl plan::NativePlanPlatform for Platform {
             "io.print" | "io.write" | "io.printError" | "io.writeError" => {
                 vec![self.libc_import("write", spec.symbol)]
             }
+            "io.flush" | "io.flushError" => vec![
+                self.libc_import("fsync", spec.symbol),
+                self.libc_import("__errno_location", spec.symbol),
+            ],
             "io.input" | "io.readLine" | "io.readChar" | "io.readByte" => {
-                vec![self.libc_import("read", spec.symbol)]
+                let mut imports = vec![self.libc_import("read", spec.symbol)];
+                if spec.call == "io.input" {
+                    imports.push(self.libc_import("write", spec.symbol));
+                    imports.push(self.libc_import("fsync", spec.symbol));
+                    imports.push(self.libc_import("__errno_location", spec.symbol));
+                }
+                imports
             }
             "io.pollInput" => vec![self.libc_import("poll", spec.symbol)],
             "io.isInputTerminal" | "io.isOutputTerminal" | "io.isErrorTerminal" => {

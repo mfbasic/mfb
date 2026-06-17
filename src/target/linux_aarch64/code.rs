@@ -71,8 +71,20 @@ impl code::CodegenPlatform for Platform {
             "io.print" | "io.write" | "io.printError" | "io.writeError" => {
                 vec![self.libc_import("write")]
             }
+            "io.flush" | "io.flushError" => {
+                vec![
+                    self.libc_import("fsync"),
+                    self.libc_import("__errno_location"),
+                ]
+            }
             "io.input" | "io.readLine" | "io.readChar" | "io.readByte" => {
-                vec![self.libc_import("read")]
+                let mut imports = vec![self.libc_import("read")];
+                if spec.call == "io.input" {
+                    imports.push(self.libc_import("write"));
+                    imports.push(self.libc_import("fsync"));
+                    imports.push(self.libc_import("__errno_location"));
+                }
+                imports
             }
             "io.pollInput" => vec![self.libc_import("poll")],
             "io.isInputTerminal" | "io.isOutputTerminal" | "io.isErrorTerminal" => {
