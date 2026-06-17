@@ -45,11 +45,69 @@ FUNC cancelScenario(t AS Thread OF String TO Integer) AS Integer
   END TRAP
 END FUNC
 
+FUNC expectInterruptedWaitFor(t AS Thread OF String TO Integer) AS Integer
+  LET code AS Integer = thread::waitFor(t)
+  RETURN 1
+  TRAP err
+    IF err.code <> 77050009 THEN
+      RETURN 2
+    END IF
+    RETURN 0
+  END TRAP
+END FUNC
+
+FUNC receiveCancelScenario(t AS Thread OF String TO Integer) AS Integer
+  LET hasMessage AS Boolean = thread::poll(t, 1)
+  IF hasMessage THEN
+    io::print("unexpected receive poll")
+    RETURN 1
+  END IF
+  thread::cancel(t)
+  LET status AS Integer = expectInterruptedWaitFor(t)
+  IF status = 1 THEN
+    io::print("unexpected receive cancel result")
+    RETURN 1
+  END IF
+  IF status = 2 THEN
+    io::print("unexpected receive cancel code")
+    RETURN 1
+  END IF
+  io::print("receive interrupted")
+  RETURN 0
+END FUNC
+
+FUNC outboundCancelScenario(t AS Thread OF String TO Integer) AS Integer
+  LET hasMessage AS Boolean = thread::poll(t, 100)
+  IF hasMessage THEN
+    thread::cancel(t)
+    LET status AS Integer = expectInterruptedWaitFor(t)
+    IF status = 1 THEN
+      io::print("unexpected outbound cancel result")
+      RETURN 1
+    END IF
+    IF status = 2 THEN
+      io::print("unexpected outbound cancel code")
+      RETURN 1
+    END IF
+    io::print("outbound interrupted")
+    RETURN 0
+  END IF
+  io::print("unexpected outbound poll")
+  RETURN 1
+END FUNC
+
 FUNC main AS Integer
   LET full AS Thread OF String TO Integer = thread::start(thread_runtime_workers::blockOnOutbound, "seed", 1, 1)
   LET fullResult AS Integer = fullQueueScenario(full)
 
   LET t AS Thread OF String TO Integer = thread::start(thread_runtime_workers::waitForCancel, "seed", 1, 1)
   LET cancelResult AS Integer = cancelScenario(t)
-  RETURN fullResult + cancelResult
+
+  LET receiveThread AS Thread OF String TO Integer = thread::start(thread_runtime_workers::waitForCancelForever, "seed", 1, 1)
+  LET receiveResult AS Integer = receiveCancelScenario(receiveThread)
+
+  LET outboundThread AS Thread OF String TO Integer = thread::start(thread_runtime_workers::blockOnOutboundUntilCancel, "seed", 1, 1)
+  LET outboundResult AS Integer = outboundCancelScenario(outboundThread)
+
+  RETURN fullResult + cancelResult + receiveResult + outboundResult
 END FUNC

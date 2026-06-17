@@ -9,10 +9,13 @@ DESCRIPTION
   Reads from the queue selected by the handle type. Thread reads from the
   worker outbound queue. ThreadWorker reads from the worker inbound queue.
   timeoutMs = 0 does not wait for a message. A positive timeout waits up to
-  that many milliseconds.
+  that many milliseconds. For ThreadWorker receives, timeoutMs = -1 waits
+  indefinitely until a message, queue closure, or cancellation. Other negative
+  timeout values fail with ErrInvalidArgument.
 
   Unavailable messages fail with ErrNotFound and timeout expiry fails with
-  ErrTimeout.
+  ErrTimeout. A worker-side receive interrupted by cancellation fails with
+  ErrInterrupted.
 
 EXAMPLES
   LET message AS String = thread::receive(t)

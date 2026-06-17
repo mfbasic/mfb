@@ -8,5 +8,11 @@ DESCRIPTION
   Worker-side cancellation check. Returns TRUE after the parent calls
   thread::cancel for the current worker.
 
+  Blocking worker queue cancellation points also observe the same request by
+  failing with ErrInterrupted, so workers blocked in thread::receive or
+  thread::send can resume through normal error handling. Other blocking
+  built-ins that are implemented as runtime-managed waits must use the same
+  cooperative error-return model when cancellation integration is provided.
+
 EXAMPLES
   LET cancelled AS Boolean = thread::isCancelled(t)

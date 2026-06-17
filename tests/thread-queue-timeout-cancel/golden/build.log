@@ -13,4 +13,6 @@ worker timeout
 poll false
 interrupted
 cancelled
+receive interrupted
+outbound interrupted
 [exit 0]

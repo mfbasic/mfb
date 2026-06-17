@@ -13,7 +13,9 @@ DESCRIPTION
 
   Fails with ErrInterrupted when the thread has ended or cancellation was
   requested. Fails with ErrTimeout when the timeout expires. Invalid timeout
-  values fail with ErrInvalidArgument.
+  values fail with ErrInvalidArgument. A worker-side send blocked on outbound
+  queue space wakes and fails with ErrInterrupted when cancellation is
+  requested.
 
 EXAMPLES
   thread::send(t, "next")

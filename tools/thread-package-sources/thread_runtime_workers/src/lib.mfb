@@ -100,6 +100,13 @@ EXPORT ISOLATED FUNC waitForCancel(t AS ThreadWorker OF String TO Integer, seed 
   END TRAP
 END FUNC
 
+EXPORT ISOLATED FUNC waitForCancelForever(t AS ThreadWorker OF String TO Integer, seed AS String) AS Integer
+  MUT forever AS Integer = 0
+  forever = forever - 1
+  LET message AS String = thread::receive(t, forever)
+  RETURN len(message)
+END FUNC
+
 EXPORT ISOLATED FUNC blockOnOutbound(t AS ThreadWorker OF String TO Integer, seed AS String) AS Integer
   thread::send(t, "ready", 0)
   thread::send(t, "blocked", 100)
@@ -107,6 +114,12 @@ EXPORT ISOLATED FUNC blockOnOutbound(t AS ThreadWorker OF String TO Integer, see
   TRAP err
     RETURN 7
   END TRAP
+END FUNC
+
+EXPORT ISOLATED FUNC blockOnOutboundUntilCancel(t AS ThreadWorker OF String TO Integer, seed AS String) AS Integer
+  thread::send(t, "ready", 0)
+  thread::send(t, "blocked", 60000)
+  RETURN 0
 END FUNC
 
 EXPORT ISOLATED FUNC readFileText(t AS ThreadWorker OF String TO String, path AS String) AS String

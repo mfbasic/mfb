@@ -9,5 +9,13 @@ DESCRIPTION
   cancellation is requested. The worker can observe the request with
   thread::isCancelled.
 
+  Cancellation also wakes runtime-managed worker queue waits inside the worker.
+  thread::receive(ThreadWorker, ...) and thread::send(ThreadWorker, ...) fail
+  with ErrInterrupted when cancellation is requested. Other blocking built-ins
+  that are implemented as runtime-managed waits must use the same cooperative
+  error-return model when cancellation integration is provided. Cancellation is
+  not a force stop and does not asynchronously kill arbitrary user or native
+  code.
+
 EXAMPLES
   thread::cancel(t)

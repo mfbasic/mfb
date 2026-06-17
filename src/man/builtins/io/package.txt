@@ -13,6 +13,11 @@ DESCRIPTION
   Output functions accept String values only. Use toString explicitly before
   printing non-string values.
 
+  Thread cancellation is cooperative. The current runtime does not
+  asynchronously interrupt arbitrary standard-input reads; workers that need
+  prompt cancellation around input should use nonblocking or timed polling and
+  check thread::isCancelled between waits.
+
 SEE ALSO
   errors
   types

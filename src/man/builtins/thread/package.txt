@@ -24,10 +24,14 @@ DESCRIPTION
 
   There is intentionally no thread::stop(). Cancellation is cooperative:
   thread::cancel(t) sets a flag, and the worker observes it with
-  thread::isCancelled(t). Asynchronously killing a worker could interrupt it
-  while it owns a resource handle, holds a queue lock, moves a non-copyable
-  value, writes its result, or runs package/native code, making ownership and
-  cleanup ambiguous.
+  thread::isCancelled(t). Runtime-managed worker queue waits inside the worker,
+  including thread::receive(ThreadWorker, ...) and
+  thread::send(ThreadWorker, ...), wake and fail with ErrInterrupted when
+  cancellation is requested. Other blocking built-ins that are implemented as
+  runtime-managed waits must use the same cooperative error-return model when
+  cancellation integration is provided. Cancellation does not asynchronously
+  kill a worker while it owns a resource handle, holds a queue lock, moves a
+  non-copyable value, writes its result, or runs package/native code.
 
   There is also no separate thread::detach() source API. Dropping a running
   Thread already requests cancellation and detaches the OS worker for eventual

@@ -312,7 +312,10 @@ Each thread has:
 `thread::start` rejects queue limits below `1`.
 
 `timeoutMs = 0` means non-blocking. Positive timeouts wait up to that many
-milliseconds. Negative timeouts are invalid.
+milliseconds. Negative timeouts are invalid except where a specific overload
+documents an indefinite worker-side wait. `thread::receive(ThreadWorker, -1)`
+waits until a message, queue closure, or cancellation; if cancellation is
+requested before or during that wait, it fails with `ErrInterrupted`.
 
 For `thread::send`, ownership transfer is atomic with enqueue success:
 
@@ -336,7 +339,28 @@ Cancellation is cooperative:
 - `thread::cancel` sets the cancellation flag.
 - New sends fail after cancellation is requested.
 - The worker observes cancellation with `thread::isCancelled(t)`.
+- Runtime-managed blocking cancellation points wake and fail with
+  `ErrInterrupted` when cancellation is requested for their worker thread.
 - The runtime does not forcibly kill the worker as normal cancellation behavior.
+
+Cancellation points are built-in operations whose implementations can safely
+return an error without abandoning partially moved values or held runtime locks.
+The current runtime cancellation points are indefinitely blocking or timed waits
+in `thread::receive` and `thread::send` on a `ThreadWorker`. If cancellation is
+already requested before a worker enters one of these operations, the operation
+fails immediately with `ErrInterrupted`. If cancellation is requested while the
+operation is blocked, the runtime wakes the wait and the operation fails with
+`ErrInterrupted`. Other blocking built-ins that are implemented as
+runtime-managed waits, such as terminal input, blocking file reads, or network
+waits, must use the same cooperative error-return model when cancellation
+integration is provided.
+Normal `TRAP` and auto-propagation behavior then runs in the worker.
+
+Cancellation does not interrupt arbitrary user code, does not asynchronously
+terminate the OS thread, and does not unwind out of foreign/native code that has
+not registered a cancellation point. A worker in non-blocking computation must
+still check `thread::isCancelled(t)` or call a cancellation-point operation to
+observe the request.
 
 There is intentionally no `thread::stop()` operation. Asynchronous termination
 can kill a worker while it owns a resource handle, holds a queue lock, is moving

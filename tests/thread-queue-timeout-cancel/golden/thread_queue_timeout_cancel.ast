@@ -121,17 +121,152 @@
     {
       "kind": "func",
       "visibility": "private",
-      "name": "main",
+      "name": "expectInterruptedWaitFor",
       "line": 48,
+      "params": [
+      { "name": "t", "type": "Thread OF String TO Integer", "default": null }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "code", "type": "Integer", "value": { "kind": "call", "callee": "thread.waitFor", "arguments": [{ "kind": "identifier", "value": "t" }] }, "line": 49 },
+      { "kind": "return", "value": { "kind": "number", "value": "1" }, "line": 50 }
+      ],
+      "trap": {
+      "name": "err",
+      "line": 51,
+      "body": [
+      {
+        "kind": "if",
+        "condition": { "kind": "binary", "operator": "<>", "left": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }, "right": { "kind": "number", "value": "77050009" } },
+        "line": 52,
+        "then": [
+        { "kind": "return", "value": { "kind": "number", "value": "2" }, "line": 53 }
+        ],
+        "else": [
+        ]
+      },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 55 }
+      ]
+    }
+    },
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "receiveCancelScenario",
+      "line": 59,
+      "params": [
+      { "name": "t", "type": "Thread OF String TO Integer", "default": null }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "hasMessage", "type": "Boolean", "value": { "kind": "call", "callee": "thread.poll", "arguments": [{ "kind": "identifier", "value": "t" }, { "kind": "number", "value": "1" }] }, "line": 60 },
+      {
+        "kind": "if",
+        "condition": { "kind": "identifier", "value": "hasMessage" },
+        "line": 61,
+        "then": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "unexpected receive poll" }] }, "line": 62 },
+        { "kind": "return", "value": { "kind": "number", "value": "1" }, "line": 63 }
+        ],
+        "else": [
+        ]
+      },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "thread.cancel", "arguments": [{ "kind": "identifier", "value": "t" }] }, "line": 65 },
+      { "kind": "binding", "mutable": false, "name": "status", "type": "Integer", "value": { "kind": "call", "callee": "expectInterruptedWaitFor", "arguments": [{ "kind": "identifier", "value": "t" }] }, "line": 66 },
+      {
+        "kind": "if",
+        "condition": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "status" }, "right": { "kind": "number", "value": "1" } },
+        "line": 67,
+        "then": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "unexpected receive cancel result" }] }, "line": 68 },
+        { "kind": "return", "value": { "kind": "number", "value": "1" }, "line": 69 }
+        ],
+        "else": [
+        ]
+      },
+      {
+        "kind": "if",
+        "condition": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "status" }, "right": { "kind": "number", "value": "2" } },
+        "line": 71,
+        "then": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "unexpected receive cancel code" }] }, "line": 72 },
+        { "kind": "return", "value": { "kind": "number", "value": "1" }, "line": 73 }
+        ],
+        "else": [
+        ]
+      },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "receive interrupted" }] }, "line": 75 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 76 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "outboundCancelScenario",
+      "line": 79,
+      "params": [
+      { "name": "t", "type": "Thread OF String TO Integer", "default": null }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "hasMessage", "type": "Boolean", "value": { "kind": "call", "callee": "thread.poll", "arguments": [{ "kind": "identifier", "value": "t" }, { "kind": "number", "value": "100" }] }, "line": 80 },
+      {
+        "kind": "if",
+        "condition": { "kind": "identifier", "value": "hasMessage" },
+        "line": 81,
+        "then": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "thread.cancel", "arguments": [{ "kind": "identifier", "value": "t" }] }, "line": 82 },
+        { "kind": "binding", "mutable": false, "name": "status", "type": "Integer", "value": { "kind": "call", "callee": "expectInterruptedWaitFor", "arguments": [{ "kind": "identifier", "value": "t" }] }, "line": 83 },
+        {
+          "kind": "if",
+          "condition": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "status" }, "right": { "kind": "number", "value": "1" } },
+          "line": 84,
+          "then": [
+          { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "unexpected outbound cancel result" }] }, "line": 85 },
+          { "kind": "return", "value": { "kind": "number", "value": "1" }, "line": 86 }
+          ],
+          "else": [
+          ]
+        },
+        {
+          "kind": "if",
+          "condition": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "status" }, "right": { "kind": "number", "value": "2" } },
+          "line": 88,
+          "then": [
+          { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "unexpected outbound cancel code" }] }, "line": 89 },
+          { "kind": "return", "value": { "kind": "number", "value": "1" }, "line": 90 }
+          ],
+          "else": [
+          ]
+        },
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "outbound interrupted" }] }, "line": 92 },
+        { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 93 }
+        ],
+        "else": [
+        ]
+      },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "unexpected outbound poll" }] }, "line": 95 },
+      { "kind": "return", "value": { "kind": "number", "value": "1" }, "line": 96 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "main",
+      "line": 99,
       "params": [
       ],
       "returnType": "Integer",
       "body": [
-      { "kind": "binding", "mutable": false, "name": "full", "type": "Thread OF String TO Integer", "value": { "kind": "call", "callee": "thread.start", "arguments": [{ "kind": "identifier", "value": "thread_runtime_workers.blockOnOutbound" }, { "kind": "string", "value": "seed" }, { "kind": "number", "value": "1" }, { "kind": "number", "value": "1" }] }, "line": 49 },
-      { "kind": "binding", "mutable": false, "name": "fullResult", "type": "Integer", "value": { "kind": "call", "callee": "fullQueueScenario", "arguments": [{ "kind": "identifier", "value": "full" }] }, "line": 50 },
-      { "kind": "binding", "mutable": false, "name": "t", "type": "Thread OF String TO Integer", "value": { "kind": "call", "callee": "thread.start", "arguments": [{ "kind": "identifier", "value": "thread_runtime_workers.waitForCancel" }, { "kind": "string", "value": "seed" }, { "kind": "number", "value": "1" }, { "kind": "number", "value": "1" }] }, "line": 52 },
-      { "kind": "binding", "mutable": false, "name": "cancelResult", "type": "Integer", "value": { "kind": "call", "callee": "cancelScenario", "arguments": [{ "kind": "identifier", "value": "t" }] }, "line": 53 },
-      { "kind": "return", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "fullResult" }, "right": { "kind": "identifier", "value": "cancelResult" } }, "line": 54 }
+      { "kind": "binding", "mutable": false, "name": "full", "type": "Thread OF String TO Integer", "value": { "kind": "call", "callee": "thread.start", "arguments": [{ "kind": "identifier", "value": "thread_runtime_workers.blockOnOutbound" }, { "kind": "string", "value": "seed" }, { "kind": "number", "value": "1" }, { "kind": "number", "value": "1" }] }, "line": 100 },
+      { "kind": "binding", "mutable": false, "name": "fullResult", "type": "Integer", "value": { "kind": "call", "callee": "fullQueueScenario", "arguments": [{ "kind": "identifier", "value": "full" }] }, "line": 101 },
+      { "kind": "binding", "mutable": false, "name": "t", "type": "Thread OF String TO Integer", "value": { "kind": "call", "callee": "thread.start", "arguments": [{ "kind": "identifier", "value": "thread_runtime_workers.waitForCancel" }, { "kind": "string", "value": "seed" }, { "kind": "number", "value": "1" }, { "kind": "number", "value": "1" }] }, "line": 103 },
+      { "kind": "binding", "mutable": false, "name": "cancelResult", "type": "Integer", "value": { "kind": "call", "callee": "cancelScenario", "arguments": [{ "kind": "identifier", "value": "t" }] }, "line": 104 },
+      { "kind": "binding", "mutable": false, "name": "receiveThread", "type": "Thread OF String TO Integer", "value": { "kind": "call", "callee": "thread.start", "arguments": [{ "kind": "identifier", "value": "thread_runtime_workers.waitForCancelForever" }, { "kind": "string", "value": "seed" }, { "kind": "number", "value": "1" }, { "kind": "number", "value": "1" }] }, "line": 106 },
+      { "kind": "binding", "mutable": false, "name": "receiveResult", "type": "Integer", "value": { "kind": "call", "callee": "receiveCancelScenario", "arguments": [{ "kind": "identifier", "value": "receiveThread" }] }, "line": 107 },
+      { "kind": "binding", "mutable": false, "name": "outboundThread", "type": "Thread OF String TO Integer", "value": { "kind": "call", "callee": "thread.start", "arguments": [{ "kind": "identifier", "value": "thread_runtime_workers.blockOnOutboundUntilCancel" }, { "kind": "string", "value": "seed" }, { "kind": "number", "value": "1" }, { "kind": "number", "value": "1" }] }, "line": 109 },
+      { "kind": "binding", "mutable": false, "name": "outboundResult", "type": "Integer", "value": { "kind": "call", "callee": "outboundCancelScenario", "arguments": [{ "kind": "identifier", "value": "outboundThread" }] }, "line": 110 },
+      { "kind": "return", "value": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "fullResult" }, "right": { "kind": "identifier", "value": "cancelResult" } }, "right": { "kind": "identifier", "value": "receiveResult" } }, "right": { "kind": "identifier", "value": "outboundResult" } }, "line": 112 }
       ]
     }
     ]

@@ -8,6 +8,11 @@ DESCRIPTION
   Reads one line from file without the line terminator. LF and CRLF terminators
   are accepted. EOF before any byte is read is an Error.
 
+  Thread cancellation is cooperative. The current runtime does not
+  asynchronously interrupt arbitrary host file reads; workers that need prompt
+  cancellation around blocking file descriptors should check thread::isCancelled
+  between cancellation-point operations.
+
 EXAMPLES
   USING f = fs::openFile("data.txt")
     LET line AS String = fs::readLine(f)
