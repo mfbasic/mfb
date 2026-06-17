@@ -121,6 +121,7 @@ RECOMMENDED: CODE CHANGE
 REQUIREMENT: Package-qualified names must have exactly two parts
 SPECIFICATION: mfbasic.md @ §13 Modules & Packages; §19 Grammar
 GROUP: language
+STATUS: Completed
 RECOMMENDED: CODE CHANGE
 The spec requires `package::identifier` only and says nested qualifiers such as `a::b::c` are illegal, but the parser accepts repeated `::` segments for imports, identifiers, and type names. Resolution then uses only the first segment as the import root, so invalid nested package-qualified names are not rejected consistently. Resolve by making qualified-name parsing accept exactly one `::` segment, emitting a syntax diagnostic for additional segments, and adding invalid tests for imports, calls, constructors, and type annotations using `a::b::c`.
 

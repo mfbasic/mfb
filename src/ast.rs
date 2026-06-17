@@ -2056,12 +2056,7 @@ impl<'a> FileParser<'a> {
                     let value_type = self.parse_type_name()?;
                     return self.parse_map_literal(key_type, value_type);
                 }
-                let mut name = value;
-                while self.match_kind(TokenKind::DoubleColon) {
-                    let part = self.consume_qualified_identifier_part()?;
-                    name.push('.');
-                    name.push_str(&part);
-                }
+                let name = self.finish_qualified_name(value)?;
                 Some(Expression::Identifier(name))
             }
             TokenKind::LParen => {
@@ -2082,11 +2077,24 @@ impl<'a> FileParser<'a> {
     }
 
     fn parse_qualified_name(&mut self, detail: &str) -> Option<String> {
-        let mut name = self.consume_identifier(detail)?;
-        while self.match_kind(TokenKind::DoubleColon) {
+        let name = self.consume_identifier(detail)?;
+        self.finish_qualified_name(name)
+    }
+
+    fn finish_qualified_name(&mut self, mut name: String) -> Option<String> {
+        if self.match_kind(TokenKind::DoubleColon) {
             let part = self.consume_qualified_identifier_part()?;
             name.push('.');
             name.push_str(&part);
+        }
+        while self.match_kind(TokenKind::DoubleColon) {
+            let token = self.previous().clone();
+            self.report(
+                "MFB_PARSE_UNEXPECTED_TOKEN",
+                "Package-qualified names must have exactly two parts.",
+                &token,
+            );
+            self.consume_qualified_identifier_part()?;
         }
         Some(name)
     }
@@ -2210,7 +2218,7 @@ impl<'a> FileParser<'a> {
     }
 
     fn parse_type_base_name(&mut self, detail: &str) -> Option<String> {
-        let mut name = match self.peek().kind.clone() {
+        let name = match self.peek().kind.clone() {
             TokenKind::Identifier(value) => {
                 self.advance();
                 value
@@ -2225,12 +2233,7 @@ impl<'a> FileParser<'a> {
                 return None;
             }
         };
-        while self.match_kind(TokenKind::DoubleColon) {
-            let part = self.consume_qualified_identifier_part()?;
-            name.push('.');
-            name.push_str(&part);
-        }
-        Some(name)
+        self.finish_qualified_name(name)
     }
 
     fn parse_list_literal(&mut self) -> Option<Expression> {

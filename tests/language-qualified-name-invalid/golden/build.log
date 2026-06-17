@@ -1,0 +1,48 @@
+$ mfb build -ast tests/language-qualified-name-invalid
+   1 | IMPORT a::b::c
+     |            ^^
+tests/language-qualified-name-invalid/src/main.mfb:1 error[1-102-0005 MFB_PARSE_UNEXPECTED_TOKEN]: parser found an unexpected token
+               Package-qualified names must have exactly two parts.
+   2 | 
+   3 | FUNC main AS Integer
+   4 |   LET typed AS a::b::c = a::b::c[1]
+     |                    ^^
+tests/language-qualified-name-invalid/src/main.mfb:4 error[1-102-0005 MFB_PARSE_UNEXPECTED_TOKEN]: parser found an unexpected token
+               Package-qualified names must have exactly two parts.
+   2 | 
+   3 | FUNC main AS Integer
+   4 |   LET typed AS a::b::c = a::b::c[1]
+     |                              ^^
+tests/language-qualified-name-invalid/src/main.mfb:4 error[1-102-0005 MFB_PARSE_UNEXPECTED_TOKEN]: parser found an unexpected token
+               Package-qualified names must have exactly two parts.
+   3 | FUNC main AS Integer
+   4 |   LET typed AS a::b::c = a::b::c[1]
+   5 |   a::b::c()
+     |       ^^
+tests/language-qualified-name-invalid/src/main.mfb:5 error[1-102-0005 MFB_PARSE_UNEXPECTED_TOKEN]: parser found an unexpected token
+               Package-qualified names must have exactly two parts.
+[exit 1]
+$ mfb build -ir tests/language-qualified-name-invalid
+   1 | IMPORT a::b::c
+     |            ^^
+tests/language-qualified-name-invalid/src/main.mfb:1 error[1-102-0005 MFB_PARSE_UNEXPECTED_TOKEN]: parser found an unexpected token
+               Package-qualified names must have exactly two parts.
+   2 | 
+   3 | FUNC main AS Integer
+   4 |   LET typed AS a::b::c = a::b::c[1]
+     |                    ^^
+tests/language-qualified-name-invalid/src/main.mfb:4 error[1-102-0005 MFB_PARSE_UNEXPECTED_TOKEN]: parser found an unexpected token
+               Package-qualified names must have exactly two parts.
+   2 | 
+   3 | FUNC main AS Integer
+   4 |   LET typed AS a::b::c = a::b::c[1]
+     |                              ^^
+tests/language-qualified-name-invalid/src/main.mfb:4 error[1-102-0005 MFB_PARSE_UNEXPECTED_TOKEN]: parser found an unexpected token
+               Package-qualified names must have exactly two parts.
+   3 | FUNC main AS Integer
+   4 |   LET typed AS a::b::c = a::b::c[1]
+   5 |   a::b::c()
+     |       ^^
+tests/language-qualified-name-invalid/src/main.mfb:5 error[1-102-0005 MFB_PARSE_UNEXPECTED_TOKEN]: parser found an unexpected token
+               Package-qualified names must have exactly two parts.
+[exit 1]

@@ -1,0 +1,7 @@
+IMPORT a::b::c
+
+FUNC main AS Integer
+  LET typed AS a::b::c = a::b::c[1]
+  a::b::c()
+  RETURN 0
+END FUNC
