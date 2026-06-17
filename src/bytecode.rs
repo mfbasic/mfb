@@ -390,10 +390,22 @@ pub struct BytecodePackageInfo {
     pub global_count: usize,
     pub export_count: usize,
     pub import_count: usize,
+    pub cleanup_count: usize,
     pub abi_format_version: u16,
     pub exports: Vec<BytecodePackageInfoExport>,
     pub globals: Vec<BytecodePackageInfoGlobal>,
     pub imports: Vec<BytecodePackageInfoImport>,
+    pub cleanups: Vec<BytecodePackageInfoCleanup>,
+}
+
+pub struct BytecodePackageInfoCleanup {
+    pub function: String,
+    pub cleanup_id: u32,
+    pub start_pc: u32,
+    pub end_pc: u32,
+    pub resource_register: u32,
+    pub close_function_id: u32,
+    pub records_secondary_close_failure: bool,
 }
 
 pub struct BytecodePackageInfoGlobal {
@@ -735,6 +747,7 @@ pub const NATIVE_OPCODE_CLOSE_RESOURCE: u16 = OPCODE_CLOSE_RESOURCE;
 const RESOURCE_FLAG_NATIVE: u32 = 1 << 0;
 const RESOURCE_FLAG_STANDARD: u32 = 1 << 1;
 const RESOURCE_FLAG_CLOSE_MAY_FAIL: u32 = 1 << 3;
+const CLEANUP_FLAG_RECORD_SECONDARY_CLOSE_FAILURE: u32 = 1 << 0;
 const BUILTIN_FS_CLOSE_FUNCTION_ID: u32 = 0xffff_ff00;
 
 pub fn read_package_exports(path: &Path) -> Result<Vec<BytecodeExport>, String> {
@@ -1140,6 +1153,31 @@ fn package_info(package: &PackageBytecode) -> Result<BytecodePackageInfo, String
         })
         .collect::<Result<Vec<_>, String>>()?;
 
+    let cleanups = package
+        .project
+        .functions
+        .iter()
+        .flat_map(|function| {
+            function
+                .cleanups
+                .iter()
+                .map(move |cleanup| (function.name, cleanup))
+        })
+        .map(|(function_name, cleanup)| {
+            Ok(BytecodePackageInfoCleanup {
+                function: string_at(strings, function_name)?.to_string(),
+                cleanup_id: cleanup.id,
+                start_pc: cleanup.start_pc,
+                end_pc: cleanup.end_pc,
+                resource_register: cleanup.resource_register,
+                close_function_id: cleanup.close_function_id,
+                records_secondary_close_failure: cleanup.flags
+                    & CLEANUP_FLAG_RECORD_SECONDARY_CLOSE_FAILURE
+                    != 0,
+            })
+        })
+        .collect::<Result<Vec<_>, String>>()?;
+
     Ok(BytecodePackageInfo {
         manifest_name: string_at(strings, package.project.manifest.package_name)?.to_string(),
         manifest_ident: string_at(strings, package.project.manifest.package_ident)?.to_string(),
@@ -1161,10 +1199,12 @@ fn package_info(package: &PackageBytecode) -> Result<BytecodePackageInfo, String
         global_count: package.project.globals.len(),
         export_count: package.project.abi.exports.len(),
         import_count: package.project.imports.entries.len(),
+        cleanup_count: cleanups.len(),
         abi_format_version: ABI_FORMAT_VERSION,
         exports,
         globals,
         imports,
+        cleanups,
     })
 }
 
@@ -1709,6 +1749,7 @@ fn read_function_table(
                 end_pc: cursor_u32(bytes, &mut offset)?,
                 resource_register: cursor_u32(bytes, &mut offset)?,
                 close_function_id: cursor_u32(bytes, &mut offset)?,
+                flags: cursor_u32(bytes, &mut offset)?,
             });
         }
 
@@ -3159,6 +3200,7 @@ struct Cleanup {
     end_pc: u32,
     resource_register: u32,
     close_function_id: u32,
+    flags: u32,
 }
 
 fn lower_project(ir: &IrProject, metadata: &BytecodeMetadata) -> Result<BytecodeProject, String> {
@@ -3594,6 +3636,7 @@ fn remap_function(function: Function, map: &MergeMap) -> Result<Function, String
                     end_pc: cleanup.end_pc,
                     resource_register: cleanup.resource_register,
                     close_function_id: remap_function_id_if_needed(map, cleanup.close_function_id)?,
+                    flags: cleanup.flags,
                 })
             })
             .collect::<Result<Vec<_>, String>>()?,
@@ -4299,6 +4342,7 @@ impl<'a> FunctionBuilder<'a> {
                     end_pc: leave_pc,
                     resource_register: register,
                     close_function_id,
+                    flags: CLEANUP_FLAG_RECORD_SECONDARY_CLOSE_FAILURE,
                 });
                 Ok(())
             }
@@ -6238,6 +6282,7 @@ impl BytecodeProject {
                 put_u32(&mut bytes, cleanup.end_pc);
                 put_u32(&mut bytes, cleanup.resource_register);
                 put_u32(&mut bytes, cleanup.close_function_id);
+                put_u32(&mut bytes, cleanup.flags);
             }
         }
         bytes

@@ -2036,6 +2036,30 @@ impl CodeBuilder<'_> {
         Ok(())
     }
 
+    fn record_secondary_cleanup_failure(&mut self) {
+        self.emit(abi::load_u64(
+            "x9",
+            ARENA_STATE_REGISTER,
+            ARENA_CLEANUP_FAILURE_COUNT_OFFSET,
+        ));
+        self.emit(abi::add_immediate("x9", "x9", 1));
+        self.emit(abi::store_u64(
+            "x9",
+            ARENA_STATE_REGISTER,
+            ARENA_CLEANUP_FAILURE_COUNT_OFFSET,
+        ));
+        self.emit(abi::store_u64(
+            RESULT_VALUE_REGISTER,
+            ARENA_STATE_REGISTER,
+            ARENA_CLEANUP_FAILURE_CODE_OFFSET,
+        ));
+        self.emit(abi::store_u64(
+            RESULT_ERROR_MESSAGE_REGISTER,
+            ARENA_STATE_REGISTER,
+            ARENA_CLEANUP_FAILURE_MESSAGE_OFFSET,
+        ));
+    }
+
     pub(super) fn emit_thread_cleanup_call(
         &mut self,
         cleanup: &ThreadCleanup,
@@ -2074,6 +2098,9 @@ impl CodeBuilder<'_> {
                     self.store_pending_current_result();
                     self.emit(abi::branch(&done));
                     self.emit(abi::label(&preserve_error));
+                    self.emit(abi::compare_immediate(RESULT_TAG_REGISTER, RESULT_OK_TAG));
+                    self.emit(abi::branch_eq(&done));
+                    self.record_secondary_cleanup_failure();
                     self.emit(abi::label(&done));
                 }
                 ActiveCleanup::Thread(cleanup) => {

@@ -1,0 +1,31 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "package_cleanup_audit",
+  "entry": null,
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "firstLine",
+    "visibility": "export",
+    "kind": "func",
+    "params": [
+    { "name": "path", "type": "String", "default": null }
+    ],
+    "returns": "String",
+    "body": [
+    {
+      "op": "using",
+      "name": "file",
+      "type": "File",
+      "close": "fs.close",
+      "value": { "kind": "call", "target": "fs.openFile", "args": [{ "kind": "local", "name": "path" }] },
+      "body": [
+      { "op": "return", "value": { "kind": "call", "target": "fs.readLine", "args": [{ "kind": "local", "name": "file" }] } }
+      ]
+    }
+    ]
+  }
+  ]
+}

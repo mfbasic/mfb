@@ -1145,6 +1145,7 @@ repeated cleanupCount times:
   endPc           u32
   resourceReg     u32
   closeFunctionId u32
+  flags           u32
 ```
 
 A cleanup region is active for instruction indexes:
@@ -1159,6 +1160,7 @@ Verifier rules:
 * A cleanup region must end at or before `USING_LEAVE`.
 * Control may not jump into a cleanup region from outside.
 * Control may leave a cleanup region only through paths that close the resource or through runtime cleanup transfer.
+* `flags & 0x00000001` means the runtime records a secondary close failure as cleanup-failure audit metadata when the body already has a pending error. The pending body error remains the source-level result.
 * `closeFunctionId` must accept the exact resource type.
 
 ---

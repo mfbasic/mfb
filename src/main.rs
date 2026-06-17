@@ -657,6 +657,7 @@ fn print_package_info(path: &Path) -> Result<(), String> {
     println!("  resources: {}", info.resource_count);
     println!("  functions: {}", info.function_count);
     println!("  globals: {}", info.global_count);
+    println!("  cleanups: {}", info.cleanup_count);
     println!("  imports: {}", info.import_count);
     println!("  exports: {}", info.export_count);
     println!();
@@ -688,6 +689,21 @@ fn print_package_info(path: &Path) -> Result<(), String> {
             println!("    visibility: {}", global.visibility);
             if global.mutable && global.visibility == "export" {
                 println!("    audit: exported mutable package state");
+            }
+        }
+    }
+    println!();
+    println!("Resource Cleanups:");
+    if info.cleanups.is_empty() {
+        println!("  <none>");
+    } else {
+        for cleanup in &info.cleanups {
+            println!("  {} cleanup {}", cleanup.function, cleanup.cleanup_id);
+            println!("    pc: {}..{}", cleanup.start_pc, cleanup.end_pc);
+            println!("    resource register: {}", cleanup.resource_register);
+            println!("    close function id: {}", cleanup.close_function_id);
+            if cleanup.records_secondary_close_failure {
+                println!("    audit: records secondary close failure");
             }
         }
     }

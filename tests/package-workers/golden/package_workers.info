@@ -35,6 +35,7 @@ Bytecode:
   resources: 0
   functions: 2
   globals: 0
+  cleanups: 0
   imports: 0
   exports: 7
 
@@ -55,6 +56,9 @@ Exports:
     sigHash: 0bf645d5c461a3f251356e4658374726161318354f43ab8257f2c08175dd7ebc
 
 Package State:
+  <none>
+
+Resource Cleanups:
   <none>
 
 Imports:

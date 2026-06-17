@@ -1,0 +1,57 @@
+Package: package_cleanup_audit
+Ident: package_cleanup_audit
+Version: 0.1.0
+Ident Key: <empty>
+Ident Fingerprint: <empty>
+Signing Fingerprint: <empty>
+Author: <empty>
+URL: <empty>
+Path: tests/package-cleanup-audit/package_cleanup_audit.mfp
+
+Container:
+  format: MFP
+  version: 1.0
+  bytecode version: 1.0
+  flags: 0x00000000
+  signature type: unsigned
+  signature length: 0
+  content hash: dfbdaaf85906687866081da795b77f0f49cb1cefa776ecbc497af64ce9aa6995
+  bytecode length: 829
+
+Manifest:
+  name: package_cleanup_audit
+  ident: package_cleanup_audit
+  version: 0.1.0
+  ident key: <empty>
+  ident fingerprint: <empty>
+  signing fingerprint: <empty>
+  author: <empty>
+  url: <empty>
+
+Bytecode:
+  ABI format version: 1
+  types: 0
+  constants: 1
+  resources: 1
+  functions: 1
+  globals: 0
+  cleanups: 1
+  imports: 0
+  exports: 1
+
+Exports:
+  FUNC firstLine
+    sigHash: 64c61bc07443bfcfc5f13ce9c773743188402c066964966eb3ea97af0d80bf93
+
+Package State:
+  <none>
+
+Resource Cleanups:
+  firstLine cleanup 0
+    pc: 3..7
+    resource register: 3
+    close function id: 4294967040
+    audit: records secondary close failure
+
+Imports:
+  <none>

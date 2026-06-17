@@ -35,6 +35,7 @@ Bytecode:
   resources: 0
   functions: 1
   globals: 2
+  cleanups: 0
   imports: 0
   exports: 1
 
@@ -48,6 +49,9 @@ Package State:
     audit: exported mutable package state
   LET label AS String
     visibility: export
+
+Resource Cleanups:
+  <none>
 
 Imports:
   <none>

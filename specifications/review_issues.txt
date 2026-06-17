@@ -141,6 +141,7 @@ Unary `-` is specified as a numeric operator, and the typechecker accepts it for
 REQUIREMENT: USING secondary close failure metadata
 SPECIFICATION: mfbasic.md @ §15 Resource Management
 GROUP: language
+STATUS: Completed
 RECOMMENDED: CODE CHANGE
 When a `USING` body fails and the resource close also fails, the spec requires the original body error to win while the close error is emitted as diagnostic/audit metadata associated with the failed cleanup. Native cleanup lowering preserves the original pending error, but the secondary close failure is discarded and no cleanup-failure metadata is recorded or exposed. Resolve by adding cleanup-failure metadata to bytecode/native runtime cleanup paths, preserving it through audit data, and validating with runtime tests where body failure and close failure occur together.
 

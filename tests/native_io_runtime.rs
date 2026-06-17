@@ -42,6 +42,138 @@ fn build_project(project: &Path) -> PathBuf {
     PathBuf::from(path)
 }
 
+fn run_capture_with_env(
+    executable: &Path,
+    envs: &[(&str, String)],
+) -> (i32, String, String) {
+    let mut command = Command::new(executable);
+    for (key, value) in envs {
+        command.env(key, value);
+    }
+    let output = command.output().expect("run executable");
+    (
+        output.status.code().unwrap_or(-1),
+        String::from_utf8(output.stdout).expect("utf8 stdout"),
+        String::from_utf8(output.stderr).expect("utf8 stderr"),
+    )
+}
+
+fn build_close_interposer(root: &Path) -> PathBuf {
+    let source = root.join("fail_close.c");
+    fs::write(
+        &source,
+        r#"
+#include <errno.h>
+#include <fcntl.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/syscall.h>
+#include <unistd.h>
+#if !defined(__APPLE__)
+#include <stdio.h>
+#endif
+
+static void mfb_marker_text(const char *text) {
+  const char *marker = getenv("MFB_INTERPOSER_MARKER");
+  if (marker && marker[0]) {
+    int fd = open(marker, O_WRONLY | O_CREAT | O_APPEND, 0600);
+    if (fd >= 0) {
+      write(fd, text, strlen(text));
+      syscall(SYS_close, fd);
+    }
+  }
+}
+
+__attribute__((constructor)) static void mfb_marker(void) {
+  const char *marker = getenv("MFB_INTERPOSER_MARKER");
+  if (marker && marker[0]) {
+    int fd = open(marker, O_WRONLY | O_CREAT | O_TRUNC, 0600);
+    if (fd >= 0) {
+      syscall(SYS_close, fd);
+    }
+  }
+  mfb_marker_text("loaded\n");
+}
+
+static int should_fail_close(int fd) {
+  const char *target = getenv("MFB_FAIL_CLOSE_PATH");
+  if (target && target[0]) {
+    if (strcmp(target, "*") == 0 && fd > 2) {
+      mfb_marker_text("fail\n");
+      errno = EIO;
+      return 1;
+    }
+    char path[4096];
+#if defined(__APPLE__)
+    if (fcntl(fd, F_GETPATH, path) == 0 && strcmp(path, target) == 0) {
+      errno = EIO;
+      return 1;
+    }
+#else
+    char link_path[64];
+    snprintf(link_path, sizeof(link_path), "/proc/self/fd/%d", fd);
+    ssize_t len = readlink(link_path, path, sizeof(path) - 1);
+    if (len >= 0) {
+      path[len] = '\0';
+      if (strcmp(path, target) == 0) {
+        errno = EIO;
+        return 1;
+      }
+    }
+#endif
+  }
+  return 0;
+}
+
+static long mfb_close(int fd) {
+  if (should_fail_close(fd)) {
+    return -1L;
+  }
+  return syscall(SYS_close, fd);
+}
+
+#if defined(__APPLE__)
+typedef struct {
+  const void *replacement;
+  const void *replacee;
+} interpose_t;
+__attribute__((used)) static const interpose_t interposers[] __attribute__((section("__DATA,__interpose"))) = {
+  { (const void *)mfb_close, (const void *)close }
+};
+#else
+int close(int fd) {
+  return (int)mfb_close(fd);
+}
+#endif
+"#,
+    )
+    .expect("write close interposer source");
+
+    let library = if cfg!(target_os = "macos") {
+        root.join("libfail_close.dylib")
+    } else {
+        root.join("libfail_close.so")
+    };
+    let mut command = Command::new("cc");
+    if cfg!(target_os = "macos") {
+        command.args(["-dynamiclib", "-o"]);
+    } else {
+        command.args(["-shared", "-fPIC", "-o"]);
+    }
+    command.arg(&library).arg(&source);
+    if !cfg!(target_os = "macos") {
+        command.arg("-ldl");
+    }
+    let output = command.output().expect("compile close interposer");
+    assert!(
+        output.status.success(),
+        "interposer build failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    library
+}
+
 fn run_with_stdin(executable: &Path, stdin: &[u8]) -> String {
     let mut child = Command::new(executable)
         .stdin(Stdio::piped())
@@ -300,6 +432,72 @@ END FUNC
     assert_eq!(status, 0);
     assert_eq!(stdout, "77020002\n");
     assert_eq!(stderr, "");
+}
+
+#[test]
+fn native_using_cleanup_reports_secondary_close_failure_metadata() {
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("clock before epoch")
+        .as_nanos();
+    let root = std::env::temp_dir().join(format!("mfb_native_using_cleanup_{nonce}"));
+    fs::create_dir_all(root.join("src")).expect("create temp project");
+    let target_file = root.join("data.txt");
+    fs::write(&target_file, "data").expect("write target file");
+    fs::write(
+        root.join("project.json"),
+        "{\"name\":\"native_using_cleanup_failure\",\"version\":\"0.1.0\",\"mfb\":\"1.0\",\"kind\":\"executable\",\"sources\":[{\"root\":\"src\",\"role\":\"main\",\"include\":[\"**/*.mfb\"]}],\"entry\":\"main\",\"targets\":[\"native\"]}\n",
+    )
+    .expect("write project.json");
+    fs::write(
+        root.join("src/main.mfb"),
+        format!(
+            r#"
+IMPORT fs
+
+FUNC main AS Integer
+  USING file = fs::openFile("{}")
+    FAIL Error[1234, "body failed"]
+  END USING
+  RETURN 0
+END FUNC
+"#,
+            target_file.display()
+        ),
+    )
+    .expect("write source");
+
+    let executable = build_project(&root);
+    let interposer = build_close_interposer(&root);
+    let marker = root.join("interposer.loaded");
+    let mut envs = vec![(
+        "MFB_FAIL_CLOSE_PATH",
+        "*".to_string(),
+    )];
+    envs.push(("MFB_INTERPOSER_MARKER", marker.display().to_string()));
+    if cfg!(target_os = "macos") {
+        envs.push((
+            "DYLD_INSERT_LIBRARIES",
+            interposer.display().to_string(),
+        ));
+        envs.push(("DYLD_FORCE_FLAT_NAMESPACE", "1".to_string()));
+    } else {
+        envs.push(("LD_PRELOAD", interposer.display().to_string()));
+    }
+
+    let (status, stdout, stderr) = run_capture_with_env(&executable, &envs);
+    assert!(marker.exists(), "interposer was not loaded");
+    let marker_text = fs::read_to_string(&marker).expect("read marker");
+    assert!(
+        marker_text.contains("fail\n"),
+        "interposer did not fail a close call; marker: {marker_text:?}"
+    );
+    assert_eq!(status, 255, "stdout:\n{stdout}\nstderr:\n{stderr}");
+    assert_eq!(stdout, "");
+    assert_eq!(
+        stderr,
+        "Code: 1234 Message: body failed\nCleanup failure: Code: 77020002 Message: output failure\n"
+    );
 }
 
 #[test]

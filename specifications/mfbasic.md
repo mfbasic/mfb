@@ -1041,6 +1041,8 @@ Close failures are deterministic:
 
 This rule does not change the built-in `Error` shape: A secondary close failure is not directly inspectable by ordinary source code unless a future diagnostics API exposes cleanup metadata.
 
+Compiled cleanup metadata must preserve enough information for runtime and audit tooling to report a secondary close failure without replacing the original body error. Package audit output should identify cleanup regions that retain this secondary-failure metadata.
+
 `USING` is the only user-visible lifetime-management construct. Ordinary values use the ownership and lexical drop rules in §14.
 
 ---

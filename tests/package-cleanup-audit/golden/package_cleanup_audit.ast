@@ -1,0 +1,34 @@
+{
+  "project": "package_cleanup_audit",
+  "files": [
+  {
+    "path": "src/lib.mfb",
+    "imports": [
+    { "module": "fs", "line": 1 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "export",
+      "name": "firstLine",
+      "line": 3,
+      "params": [
+      { "name": "path", "type": "String", "default": null }
+      ],
+      "returnType": "String",
+      "body": [
+      {
+        "kind": "using",
+        "name": "file",
+        "value": { "kind": "call", "callee": "fs.openFile", "arguments": [{ "kind": "identifier", "value": "path" }] },
+        "line": 4,
+        "body": [
+        { "kind": "return", "value": { "kind": "call", "callee": "fs.readLine", "arguments": [{ "kind": "identifier", "value": "file" }] }, "line": 5 }
+        ]
+      }
+      ]
+    }
+    ]
+  }
+  ]
+}

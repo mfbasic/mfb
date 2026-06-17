@@ -72,6 +72,10 @@ const ENTRY_ERROR_SEPARATOR: &str = " Message: ";
 const ENTRY_ERROR_SEPARATOR_SYMBOL: &str = "_mfb_str_entry_error_separator";
 const ENTRY_ERROR_NEWLINE: &str = "\n";
 const ENTRY_ERROR_NEWLINE_SYMBOL: &str = "_mfb_str_entry_error_newline";
+const CLEANUP_FAILURE_PREFIX: &str = "Cleanup failure: Code: ";
+const CLEANUP_FAILURE_PREFIX_SYMBOL: &str = "_mfb_str_cleanup_failure_prefix";
+const CLEANUP_FAILURE_SEPARATOR: &str = " Message: ";
+const CLEANUP_FAILURE_SEPARATOR_SYMBOL: &str = ENTRY_ERROR_SEPARATOR_SYMBOL;
 const RESULT_TAG_REGISTER: &str = abi::RETURN_REGISTER;
 const RESULT_VALUE_REGISTER: &str = "x1";
 const RESULT_ERROR_MESSAGE_REGISTER: &str = "x2";
@@ -84,7 +88,10 @@ const CLOSURE_OFFSET_CODE: usize = 0;
 const CLOSURE_OFFSET_ENV: usize = 8;
 const ENTRY_STACK_SIZE: usize = 112;
 const ENTRY_GLOBALS_OFFSET: usize = ENTRY_STACK_SIZE;
-const ARENA_STATE_SIZE: usize = 64;
+const ARENA_STATE_SIZE: usize = 88;
+const ARENA_CLEANUP_FAILURE_COUNT_OFFSET: usize = 64;
+const ARENA_CLEANUP_FAILURE_CODE_OFFSET: usize = 72;
+const ARENA_CLEANUP_FAILURE_MESSAGE_OFFSET: usize = 80;
 const ENTRY_ARGC_OFFSET: usize = ARENA_STATE_SIZE;
 const ENTRY_ARGV_OFFSET: usize = ENTRY_ARGC_OFFSET + 8;
 const ENTRY_ARGS_LIST_OFFSET: usize = ENTRY_ARGV_OFFSET + 8;
@@ -720,6 +727,7 @@ pub(crate) fn lower_module_for_platform(
             &platform_imports,
             platform,
             skip_entry_arena_destroy,
+            module_may_record_cleanup_failure(module),
         )?);
     }
     for function in &module.functions {
@@ -1168,6 +1176,7 @@ fn lower_program_entry(
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
     skip_arena_destroy: bool,
+    emit_cleanup_failure_audit: bool,
 ) -> Result<CodeFunction, String> {
     let mut instructions = vec![
         abi::label("entry"),
@@ -1178,6 +1187,21 @@ fn lower_program_entry(
         abi::store_u64("x31", ARENA_STATE_REGISTER, 16),
         abi::store_u64("x31", ARENA_STATE_REGISTER, 24),
     ];
+    if emit_cleanup_failure_audit {
+        instructions.extend([
+            abi::store_u64(
+                "x31",
+                ARENA_STATE_REGISTER,
+                ARENA_CLEANUP_FAILURE_COUNT_OFFSET,
+            ),
+            abi::store_u64("x31", ARENA_STATE_REGISTER, ARENA_CLEANUP_FAILURE_CODE_OFFSET),
+            abi::store_u64(
+                "x31",
+                ARENA_STATE_REGISTER,
+                ARENA_CLEANUP_FAILURE_MESSAGE_OFFSET,
+            ),
+        ]);
+    }
     for index in 0..global_slot_count {
         instructions.push(abi::store_u64(
             "x31",
@@ -1300,6 +1324,15 @@ fn lower_program_entry(
         &mut instructions,
         &mut relocations,
     )?;
+    if emit_cleanup_failure_audit {
+        emit_cleanup_failure_audit_report(
+            "_main",
+            platform_imports,
+            platform,
+            &mut instructions,
+            &mut relocations,
+        )?;
+    }
     instructions.push(abi::move_immediate(
         abi::return_register(),
         "Integer",
@@ -1455,6 +1488,72 @@ fn emit_entry_args_list_materialization(
         abi::branch("entry_args_fill_loop"),
         abi::label("entry_args_fill_done"),
     ]);
+}
+
+fn emit_cleanup_failure_audit_report(
+    from: &str,
+    platform_imports: &HashMap<String, String>,
+    platform: &dyn CodegenPlatform,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+) -> Result<(), String> {
+    let done = "entry_cleanup_failure_audit_done";
+    instructions.extend([
+        abi::load_u64("x9", ARENA_STATE_REGISTER, ARENA_CLEANUP_FAILURE_COUNT_OFFSET),
+        abi::compare_immediate("x9", "0"),
+        abi::branch_eq(done),
+    ]);
+    emit_write_string_object(
+        CLEANUP_FAILURE_PREFIX_SYMBOL,
+        from,
+        platform_imports,
+        platform,
+        instructions,
+        relocations,
+    )?;
+    instructions.push(abi::load_u64(
+        "x9",
+        ARENA_STATE_REGISTER,
+        ARENA_CLEANUP_FAILURE_CODE_OFFSET,
+    ));
+    instructions.push(abi::store_u64("x9", ARENA_STATE_REGISTER, 32));
+    emit_write_integer_to_stderr_with_labels(
+        from,
+        platform_imports,
+        platform,
+        instructions,
+        relocations,
+        "entry_cleanup_failure_code",
+    )?;
+    emit_write_string_object(
+        CLEANUP_FAILURE_SEPARATOR_SYMBOL,
+        from,
+        platform_imports,
+        platform,
+        instructions,
+        relocations,
+    )?;
+    instructions.extend([
+        abi::load_u64(
+            "x20",
+            ARENA_STATE_REGISTER,
+            ARENA_CLEANUP_FAILURE_MESSAGE_OFFSET,
+        ),
+        abi::load_u64(abi::string_length_register(), "x20", 0),
+        abi::add_immediate(abi::string_data_register(), "x20", 8),
+        abi::move_immediate(abi::return_register(), "Integer", "2"),
+    ]);
+    platform.emit_write(from, platform_imports, instructions, relocations)?;
+    emit_write_string_object(
+        ENTRY_ERROR_NEWLINE_SYMBOL,
+        from,
+        platform_imports,
+        platform,
+        instructions,
+        relocations,
+    )?;
+    instructions.push(abi::label(done));
+    Ok(())
 }
 
 fn lower_arena_alloc(platform: &dyn CodegenPlatform) -> Result<CodeFunction, String> {
@@ -1633,27 +1732,45 @@ fn emit_write_integer_to_stderr(
     instructions: &mut Vec<CodeInstruction>,
     relocations: &mut Vec<CodeRelocation>,
 ) -> Result<(), String> {
-    let absolute_ready_label = "entry_error_code_absolute_ready";
-    let digit_loop_label = "entry_error_code_digit_loop";
-    let digits_done_label = "entry_error_code_digits_done";
-    let write_label = "entry_error_code_write";
+    emit_write_integer_to_stderr_with_labels(
+        from,
+        platform_imports,
+        platform,
+        instructions,
+        relocations,
+        "entry_error_code",
+    )
+}
+
+fn emit_write_integer_to_stderr_with_labels(
+    from: &str,
+    platform_imports: &HashMap<String, String>,
+    platform: &dyn CodegenPlatform,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+    label_prefix: &str,
+) -> Result<(), String> {
+    let absolute_ready_label = format!("{label_prefix}_absolute_ready");
+    let digit_loop_label = format!("{label_prefix}_digit_loop");
+    let digits_done_label = format!("{label_prefix}_digits_done");
+    let write_label = format!("{label_prefix}_write");
     instructions.extend([
         abi::subtract_stack(64),
         abi::load_u64("x21", ARENA_STATE_REGISTER, 32),
         abi::compare_immediate("x21", "0"),
-        abi::branch_ge(absolute_ready_label),
+        abi::branch_ge(&absolute_ready_label),
         abi::move_immediate("x22", "Integer", "0"),
         abi::subtract_registers("x21", "x22", "x21"),
-        abi::label(absolute_ready_label),
+        abi::label(&absolute_ready_label),
         abi::add_immediate("x23", abi::stack_pointer(), 64),
         abi::move_immediate("x24", "Integer", "10"),
         abi::compare_immediate("x21", "0"),
-        abi::branch_ne(digit_loop_label),
+        abi::branch_ne(&digit_loop_label),
         abi::subtract_immediate("x23", "x23", 1),
         abi::move_immediate("x22", "Integer", "48"),
         abi::store_u8("x22", "x23", 0),
-        abi::branch(digits_done_label),
-        abi::label(digit_loop_label),
+        abi::branch(&digits_done_label),
+        abi::label(&digit_loop_label),
         abi::unsigned_divide_registers("x25", "x21", "x24"),
         abi::multiply_subtract_registers("x26", "x25", "x24", "x21"),
         abi::add_immediate("x26", "x26", 48),
@@ -1661,14 +1778,14 @@ fn emit_write_integer_to_stderr(
         abi::store_u8("x26", "x23", 0),
         abi::move_register("x21", "x25"),
         abi::compare_immediate("x21", "0"),
-        abi::branch_ne(digit_loop_label),
-        abi::label(digits_done_label),
+        abi::branch_ne(&digit_loop_label),
+        abi::label(&digits_done_label),
         abi::compare_immediate("x19", "0"),
-        abi::branch_ge(write_label),
+        abi::branch_ge(&write_label),
         abi::subtract_immediate("x23", "x23", 1),
         abi::move_immediate("x22", "Integer", "45"),
         abi::store_u8("x22", "x23", 0),
-        abi::label(write_label),
+        abi::label(&write_label),
         abi::add_immediate("x27", abi::stack_pointer(), 64),
         abi::subtract_registers(abi::string_length_register(), "x27", "x23"),
         abi::move_register(abi::string_data_register(), "x23"),
@@ -4958,6 +5075,9 @@ fn lower_thread_start_helper(
         abi::store_u64("x31", "x1", 40),
         abi::store_u64("x31", "x1", 48),
         abi::store_u64("x31", "x1", 56),
+        abi::store_u64("x31", "x1", ARENA_CLEANUP_FAILURE_COUNT_OFFSET),
+        abi::store_u64("x31", "x1", ARENA_CLEANUP_FAILURE_CODE_OFFSET),
+        abi::store_u64("x31", "x1", ARENA_CLEANUP_FAILURE_MESSAGE_OFFSET),
         abi::load_u64("x9", abi::stack_pointer(), CB_OFFSET),
         abi::store_u64("x1", "x9", THREAD_OFFSET_ARENA_STATE),
     ]);
@@ -13007,13 +13127,16 @@ fn string_symbols(module: &NirModule) -> HashMap<String, String> {
         push_string_value(&mut values, FLOAT_TO_STRING_FORMAT.to_string());
         push_string_value(&mut values, ERR_ENCODING_MESSAGE.to_string());
     }
-    for value in [
-        ENTRY_ERROR_PREFIX,
-        ENTRY_ERROR_SEPARATOR,
-        ENTRY_ERROR_NEWLINE,
-    ] {
+    for value in [ENTRY_ERROR_PREFIX, ENTRY_ERROR_SEPARATOR, ENTRY_ERROR_NEWLINE] {
         if !values.contains(&value.to_string()) {
             values.push(value.to_string());
+        }
+    }
+    if module_may_record_cleanup_failure(module) {
+        for value in [CLEANUP_FAILURE_PREFIX, CLEANUP_FAILURE_SEPARATOR] {
+            if !values.contains(&value.to_string()) {
+                values.push(value.to_string());
+            }
         }
     }
     values
@@ -13028,6 +13151,10 @@ fn string_symbols(module: &NirModule) -> HashMap<String, String> {
                 ENTRY_ERROR_SEPARATOR_SYMBOL.to_string()
             } else if value == ENTRY_ERROR_NEWLINE {
                 ENTRY_ERROR_NEWLINE_SYMBOL.to_string()
+            } else if value == CLEANUP_FAILURE_PREFIX {
+                CLEANUP_FAILURE_PREFIX_SYMBOL.to_string()
+            } else if value == CLEANUP_FAILURE_SEPARATOR {
+                CLEANUP_FAILURE_SEPARATOR_SYMBOL.to_string()
             } else {
                 format!("_mfb_str_{index}")
             };
@@ -13146,6 +13273,39 @@ fn module_uses_call(module: &NirModule, target: &str) -> bool {
         .functions
         .iter()
         .any(|function| ops_use_call(&function.body, target))
+}
+
+fn module_may_record_cleanup_failure(module: &NirModule) -> bool {
+    module
+        .functions
+        .iter()
+        .any(|function| ops_may_record_cleanup_failure(&function.body))
+}
+
+fn ops_may_record_cleanup_failure(ops: &[NirOp]) -> bool {
+    ops.iter().any(|op| match op {
+        NirOp::Using { .. } => true,
+        NirOp::If {
+            then_body,
+            else_body,
+            ..
+        } => {
+            ops_may_record_cleanup_failure(then_body)
+                || ops_may_record_cleanup_failure(else_body)
+        }
+        NirOp::Match { cases, .. } => cases
+            .iter()
+            .any(|case| ops_may_record_cleanup_failure(&case.body)),
+        NirOp::While { body, .. }
+        | NirOp::ForEach { body, .. }
+        | NirOp::Trap { body, .. } => ops_may_record_cleanup_failure(body),
+        NirOp::Bind { .. }
+        | NirOp::StoreGlobal { .. }
+        | NirOp::Assign { .. }
+        | NirOp::Return { .. }
+        | NirOp::Fail { .. }
+        | NirOp::Eval { .. } => false,
+    })
 }
 
 fn module_uses_any_call(module: &NirModule, targets: &[&str]) -> bool {
