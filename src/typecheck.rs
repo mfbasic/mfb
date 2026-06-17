@@ -766,11 +766,7 @@ impl<'a> TypeChecker<'a> {
         visible.into_iter().last()
     }
 
-    fn lookup_visible_binding<'b>(
-        &'b self,
-        file: &AstFile,
-        name: &str,
-    ) -> Option<&'b BindingSig> {
+    fn lookup_visible_binding<'b>(&'b self, file: &AstFile, name: &str) -> Option<&'b BindingSig> {
         self.bindings
             .get(name)
             .filter(|sig| self.visible_from(file, sig.visibility, &sig.owner_file_path))
@@ -1256,11 +1252,9 @@ impl<'a> TypeChecker<'a> {
             );
         }
 
-        let reported_range_error = declared
-            .zip(value)
-            .is_some_and(|(declared, value)| {
-                self.report_primitive_literal_range_error(declared, value, file, line)
-            });
+        let reported_range_error = declared.zip(value).is_some_and(|(declared, value)| {
+            self.report_primitive_literal_range_error(declared, value, file, line)
+        });
 
         match (declared, inferred) {
             (Some(declared), Some(inferred))
@@ -1570,6 +1564,8 @@ impl<'a> TypeChecker<'a> {
                 cases,
                 line,
             } => {
+                let send_failure_restore =
+                    self.thread_send_failure_restore(file, expression, locals);
                 let matched_type = self.infer_match_scrutinee(file, expression, locals, *line);
                 let mut has_unguarded_else = false;
                 let mut all_return = !cases.is_empty();
@@ -1584,6 +1580,17 @@ impl<'a> TypeChecker<'a> {
                         }
                     }
                     let mut case_locals = locals.clone();
+                    if matches!(
+                        (&case.pattern, &send_failure_restore),
+                        (
+                            MatchPattern::Union { type_name, .. },
+                            Some((_, _))
+                        ) if type_name == "Error"
+                    ) {
+                        if let Some((name, info)) = &send_failure_restore {
+                            case_locals.insert(name.clone(), info.clone());
+                        }
+                    }
                     self.check_match_pattern(
                         file,
                         &case.pattern,
@@ -2095,6 +2102,31 @@ impl<'a> TypeChecker<'a> {
             }
         }
         self.infer_expression(file, expression, locals, line, ExprMode::Read)
+    }
+
+    fn thread_send_failure_restore(
+        &self,
+        file: &AstFile,
+        expression: &Expression,
+        locals: &HashMap<String, LocalInfo>,
+    ) -> Option<(String, LocalInfo)> {
+        let Expression::Call { callee, arguments } = expression else {
+            return None;
+        };
+        if self.canonical_import_name(file, callee) != "thread.send" {
+            return None;
+        }
+        let Some(argument) = arguments.get(1).map(call_arg_value) else {
+            return None;
+        };
+        let Expression::Identifier(name) = argument else {
+            return None;
+        };
+        let info = locals.get(name)?;
+        if info.ownership != OwnershipState::Available || self.is_copyable_type(&info.type_) {
+            return None;
+        }
+        Some((name.clone(), info.clone()))
     }
 
     fn check_match_pattern(
@@ -3501,15 +3533,18 @@ impl<'a> TypeChecker<'a> {
             .iter()
             .enumerate()
             .map(|(index, argument)| {
-                let type_ = self.infer_expression(
+                self.infer_expression(
                     file,
                     argument,
                     locals,
                     line,
                     self.thread_argument_mode(callee, index),
-                );
-                self.type_name(&type_)
+                )
             })
+            .collect::<Vec<_>>();
+        let arg_type_names = arg_types
+            .iter()
+            .map(|type_| self.type_name(type_))
             .collect::<Vec<_>>();
 
         if callee == "thread.start" {
@@ -3557,14 +3592,14 @@ impl<'a> TypeChecker<'a> {
             }
         }
 
-        let Some(resolved) = builtins::thread::resolve_call(callee, &arg_types) else {
+        let Some(resolved) = builtins::thread::resolve_call(callee, &arg_type_names) else {
             let expected =
                 builtins::thread::expected_arguments(callee).unwrap_or("supported overload");
             self.report(
                 "TYPE_CALL_ARGUMENT_MISMATCH",
                 &format!(
                     "Call to `{display_callee}` has argument type(s) ({}), expected {expected}.",
-                    arg_types.join(", ")
+                    arg_type_names.join(", ")
                 ),
                 file,
                 line,
@@ -3572,7 +3607,16 @@ impl<'a> TypeChecker<'a> {
             return Type::Unknown;
         };
 
-        self.parse_type(&resolved.return_type)
+        let return_type = self.parse_type(&resolved.return_type);
+        self.check_thread_boundary_sendability(
+            file,
+            display_callee,
+            callee,
+            &arg_types,
+            &return_type,
+            line,
+        );
+        return_type
     }
 
     fn check_strings_builtin_call(
@@ -4389,6 +4433,10 @@ impl<'a> TypeChecker<'a> {
         self.is_copyable_type_with_seen(type_, &mut HashSet::new())
     }
 
+    fn is_thread_sendable_type(&self, type_: &Type) -> bool {
+        self.is_thread_sendable_type_with_seen(type_, &mut HashSet::new())
+    }
+
     fn is_defaultable_type(&self, type_: &Type) -> bool {
         self.is_defaultable_type_with_seen(type_, &mut HashSet::new())
     }
@@ -4484,6 +4532,135 @@ impl<'a> TypeChecker<'a> {
         }
     }
 
+    fn is_thread_sendable_type_with_seen(&self, type_: &Type, seen: &mut HashSet<String>) -> bool {
+        match type_ {
+            Type::Boolean
+            | Type::Byte
+            | Type::Error
+            | Type::Fixed
+            | Type::Float
+            | Type::Integer
+            | Type::Nothing
+            | Type::String
+            | Type::Unknown => true,
+            Type::List(element) => self.is_thread_sendable_type_with_seen(element, seen),
+            Type::Map(key, value) => {
+                self.is_thread_sendable_type_with_seen(key, seen)
+                    && self.is_thread_sendable_type_with_seen(value, seen)
+            }
+            Type::Result(success) => self.is_thread_sendable_type_with_seen(success, seen),
+            Type::Function { .. } | Type::Thread(_, _) | Type::ThreadWorker(_, _) => false,
+            Type::User(name) => {
+                if builtins::is_resource_type(name) {
+                    return builtins::is_thread_sendable_resource_type(name);
+                }
+                if !seen.insert(name.clone()) {
+                    return true;
+                }
+                let Some(info) = self.type_infos.get(name) else {
+                    return true;
+                };
+                let result =
+                    match info.kind {
+                        TypeDeclKind::Enum => true,
+                        TypeDeclKind::Type => info.fields.iter().all(|field| {
+                            self.is_thread_sendable_type_with_seen(&field.type_, seen)
+                        }),
+                        TypeDeclKind::Union => info.variants.iter().all(|variant| {
+                            variant.fields.iter().all(|field| {
+                                self.is_thread_sendable_type_with_seen(&field.type_, seen)
+                            })
+                        }),
+                    };
+                seen.remove(name);
+                result
+            }
+        }
+    }
+
+    fn report_thread_type_not_sendable(
+        &mut self,
+        file: &AstFile,
+        line: usize,
+        context: &str,
+        type_: &Type,
+    ) {
+        self.report(
+            "TYPE_THREAD_NOT_SENDABLE",
+            &format!(
+                "{context} requires a thread-sendable type, got `{}`.",
+                self.type_name(type_)
+            ),
+            file,
+            line,
+        );
+    }
+
+    fn require_thread_sendable_type(
+        &mut self,
+        file: &AstFile,
+        line: usize,
+        context: &str,
+        type_: &Type,
+    ) {
+        if !self.is_thread_sendable_type(type_) {
+            self.report_thread_type_not_sendable(file, line, context, type_);
+        }
+    }
+
+    fn check_thread_boundary_sendability(
+        &mut self,
+        file: &AstFile,
+        display_callee: &str,
+        callee: &str,
+        arg_types: &[Type],
+        return_type: &Type,
+        line: usize,
+    ) {
+        match callee {
+            "thread.start" => {
+                if let Some(input) = arg_types.get(1) {
+                    self.require_thread_sendable_type(
+                        file,
+                        line,
+                        &format!("Call to `{display_callee}` input"),
+                        input,
+                    );
+                }
+                if let Type::Thread(message, output) = return_type {
+                    self.require_thread_sendable_type(
+                        file,
+                        line,
+                        &format!("Call to `{display_callee}` message type"),
+                        message,
+                    );
+                    self.require_thread_sendable_type(
+                        file,
+                        line,
+                        &format!("Call to `{display_callee}` output type"),
+                        output,
+                    );
+                }
+            }
+            "thread.send" => {
+                if let Some(handle) = arg_types.first() {
+                    match handle {
+                        Type::Thread(message, _) | Type::ThreadWorker(message, _) => {
+                            self.require_thread_sendable_type(
+                                file,
+                                line,
+                                &format!("Call to `{display_callee}` message type"),
+                                message,
+                            );
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
     fn visible_from(&self, file: &AstFile, visibility: Visibility, owner_file_path: &str) -> bool {
         match visibility {
             Visibility::Export | Visibility::Package => true,
@@ -4524,6 +4701,8 @@ impl<'a> TypeChecker<'a> {
             Type::Thread(message, output) | Type::ThreadWorker(message, output) => {
                 self.check_type_reference(file, message, line);
                 self.check_type_reference(file, output, line);
+                self.require_thread_sendable_type(file, line, "Thread message type", message);
+                self.require_thread_sendable_type(file, line, "Thread output type", output);
             }
             Type::User(name) => {
                 let Some(info) = self.type_infos.get(name) else {

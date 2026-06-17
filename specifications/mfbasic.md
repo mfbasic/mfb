@@ -1024,7 +1024,7 @@ USING f = fs::openFile("data.txt")  ' auto-propagates on Err
 END USING                          ' fs::close(f) runs here, even on error exit
 ```
 
-`USING` owns the handle for the body and runs the resource's close operation exactly once. Standard resource operations borrow the handle for the duration of the call without transferring ownership. Close operations consume the handle, so the source binding is moved and cannot be used afterward. A resource handle cannot be copied, stored in an ordinary collection, sent to a thread, printed, compared, serialized, or captured by a lambda or ordinary closure.
+`USING` owns the handle for the body and runs the resource's close operation exactly once. Standard resource operations borrow the handle for the duration of the call without transferring ownership. Close operations consume the handle, so the source binding is moved and cannot be used afterward. A resource handle cannot be copied, stored in an ordinary collection, printed, compared, serialized, or captured by a lambda or ordinary closure. A concrete resource handle may be sent to a thread only when that resource type is thread-sendable.
 
 A `RESOURCE` value may be passed only to a function whose signature explicitly names that concrete resource type, such as `File`, `Socket`, or a `LINK`-declared `RESOURCE`. There is no generic `RESOURCE` supertype, no structural matching of handles, and no implicit conversion between resource types.
 
@@ -1077,7 +1077,8 @@ Rules:
 - A thread entry point must not be a closure or lambda. It must be a named package function.
 - Each started thread receives its own fresh instance of the entry function's package. Starting isolated functions from the same package more than once creates independent package state for each thread:
 - Thread arguments and messages are copied, moved, or frozen when they enter a thread. Values read from a thread are copied, moved, or frozen when they leave the thread. No sender and receiver can observe or mutate the same live value.
-- Opaque resource handles, including `File`, socket handles, and `Thread`, are not sendable.
+- Thread boundary types must be thread-sendable. Primitive owned values, `String`, `Nothing`, records, unions, `Result`, and immutable containers are sendable when every contained field, payload, element, key, or value type is sendable. Functions, lambdas, `Thread`, `ThreadWorker`, and opaque resource handles are not sendable by default.
+- Concrete resource types opt in to thread sendability. Standard `File`, `Socket`, and `UdpSocket` handles are sendable. `Listener` is not sendable. A successful send of a non-copyable sendable resource moves ownership to the destination side immediately; a failed send leaves ownership with the sender.
 - A thread's top-level `MUT` state is private to that thread's package instance.
 - If the thread entry function returns `Ok(v)`, the thread's stored result becomes the success member with payload `v`. If it fails with `Error(e)`, including through auto-propagation, the thread's stored result becomes the error member carrying `e`.
 - The `Thread` value keeps the completed result after the thread ends. `thread::waitFor(t)` waits until completion and returns `t.result`, auto-unwrapping or auto-propagating like any other function call.
@@ -1147,7 +1148,7 @@ USING db = sqlite::open("app.db")
 END USING
 ```
 
-`TYPE Db AS RESOURCE` declares an opaque unique native handle. For a C library this is usually represented by a pointer or host handle internally, but source code cannot inspect, cast, compare, serialize, print, copy, capture in a lambda, store in an ordinary collection, send to a thread, or do arithmetic on it. A resource may be passed only to functions whose signatures explicitly accept that resource type. Resource handles are not sendable to threads unless a future extension says so for a specific resource type.
+`TYPE Db AS RESOURCE` declares an opaque unique native handle. For a C library this is usually represented by a pointer or host handle internally, but source code cannot inspect, cast, compare, serialize, print, copy, capture in a lambda, store in an ordinary collection, send to a thread unless the concrete resource type is declared thread-sendable, or do arithmetic on it. A resource may be passed only to functions whose signatures explicitly accept that resource type. Resource handles are not sendable to threads unless the concrete resource type opts in.
 
 `CLOSE close` names the native wrapper function that releases the resource. A resource type with a close function can be bound by `USING`; the close function runs automatically at `END USING`, including on error exits. Calling a native wrapper function with a closed resource fails with `ErrResourceClosed`.
 
@@ -1566,7 +1567,7 @@ The verifier must check:
 - Public API metadata is consistent with bytecode definitions, including exported names, type shapes, function signatures, ownership properties, and native-link declarations.
 - Bytecode instructions are type-correct at every program point. Operand types, result types, call signatures, record fields, union member types, collection element types, and `Result` handling must match the typed metadata.
 - Stack slots, registers, temporaries, locals, and return slots are definitely initialized before read and are not read after move.
-- Resource ownership is linear. A resource handle has one owner, is not copied, is not stored in ordinary collections, is not sent to threads, and is closed or moved exactly once on every control-flow path.
+- Resource ownership is linear. A resource handle has one owner, is not copied, is not stored in ordinary collections, is sent to threads only when its concrete type is thread-sendable, and is closed or moved exactly once on every control-flow path.
 - Drop and cleanup paths are valid. The verifier rejects double-drop, missing-drop, and use-after-drop paths.
 - Control-flow targets are valid instruction boundaries inside the same function. Branches cannot jump into another function, into the middle of an instruction, into a `TRAP` body except through the error-routing edge, or into cleanup/finalizer code except through compiler-emitted cleanup edges.
 - All normal and error paths satisfy the function's declared return type and `Result` behavior.

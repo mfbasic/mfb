@@ -5,25 +5,29 @@
     "path": "src/main.mfb",
     "imports": [
     { "module": "thread", "line": 1 },
-    { "module": "thread_workers", "line": 2 }
+    { "module": "thread_workers", "line": 2 },
+    { "module": "thread_file_workers", "line": 3 },
+    { "module": "fs", "line": 4 }
     ],
     "items": [
     {
       "kind": "func",
       "visibility": "private",
       "name": "main",
-      "line": 4,
+      "line": 6,
       "params": [
       ],
       "returnType": "Integer",
       "body": [
-      { "kind": "binding", "mutable": false, "name": "t1", "type": "Thread OF String TO Integer", "value": { "kind": "call", "callee": "thread.start", "arguments": [{ "kind": "identifier", "value": "thread_workers.echoText" }, { "kind": "string", "value": "a" }] }, "line": 5 },
-      { "kind": "binding", "mutable": false, "name": "t2", "type": "Thread OF String TO Integer", "value": { "kind": "call", "callee": "thread.start", "arguments": [{ "kind": "identifier", "value": "thread_workers.echoText" }, { "kind": "string", "value": "b" }, { "kind": "number", "value": "1" }] }, "line": 6 },
-      { "kind": "binding", "mutable": false, "name": "t3", "type": "Thread OF String TO Integer", "value": { "kind": "call", "callee": "thread.start", "arguments": [{ "kind": "identifier", "value": "thread_workers.echoText" }, { "kind": "string", "value": "c" }, { "kind": "number", "value": "1" }, { "kind": "number", "value": "1" }] }, "line": 7 },
-      { "kind": "binding", "mutable": false, "name": "t4", "type": "Thread OF Nothing TO Integer", "value": { "kind": "call", "callee": "thread.start", "arguments": [{ "kind": "identifier", "value": "thread_workers.noMessages" }, { "kind": "number", "value": "41" }, { "kind": "number", "value": "1" }, { "kind": "number", "value": "1" }] }, "line": 8 },
-      { "kind": "binding", "mutable": false, "name": "t5", "type": "Thread OF String TO Integer", "value": { "kind": "call", "callee": "thread.start", "arguments": [{ "kind": "named", "name": "f", "value": { "kind": "identifier", "value": "thread_workers.echoText" } }, { "kind": "named", "name": "data", "value": { "kind": "string", "value": "d" } }] }, "line": 9 },
-      { "kind": "binding", "mutable": false, "name": "t6", "type": "Thread OF String TO Integer", "value": { "kind": "call", "callee": "thread.start", "arguments": [{ "kind": "named", "name": "data", "value": { "kind": "string", "value": "e" } }, { "kind": "named", "name": "f", "value": { "kind": "identifier", "value": "thread_workers.echoText" } }, { "kind": "named", "name": "outboundLimit", "value": { "kind": "number", "value": "1" } }, { "kind": "named", "name": "inboundLimit", "value": { "kind": "number", "value": "1" } }] }, "line": 10 },
-      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 11 }
+      { "kind": "binding", "mutable": false, "name": "t1", "type": "Thread OF String TO Integer", "value": { "kind": "call", "callee": "thread.start", "arguments": [{ "kind": "identifier", "value": "thread_workers.echoText" }, { "kind": "string", "value": "a" }] }, "line": 7 },
+      { "kind": "binding", "mutable": false, "name": "t2", "type": "Thread OF String TO Integer", "value": { "kind": "call", "callee": "thread.start", "arguments": [{ "kind": "identifier", "value": "thread_workers.echoText" }, { "kind": "string", "value": "b" }, { "kind": "number", "value": "1" }] }, "line": 8 },
+      { "kind": "binding", "mutable": false, "name": "t3", "type": "Thread OF String TO Integer", "value": { "kind": "call", "callee": "thread.start", "arguments": [{ "kind": "identifier", "value": "thread_workers.echoText" }, { "kind": "string", "value": "c" }, { "kind": "number", "value": "1" }, { "kind": "number", "value": "1" }] }, "line": 9 },
+      { "kind": "binding", "mutable": false, "name": "t4", "type": "Thread OF Nothing TO Integer", "value": { "kind": "call", "callee": "thread.start", "arguments": [{ "kind": "identifier", "value": "thread_workers.noMessages" }, { "kind": "number", "value": "41" }, { "kind": "number", "value": "1" }, { "kind": "number", "value": "1" }] }, "line": 10 },
+      { "kind": "binding", "mutable": false, "name": "t5", "type": "Thread OF String TO Integer", "value": { "kind": "call", "callee": "thread.start", "arguments": [{ "kind": "named", "name": "f", "value": { "kind": "identifier", "value": "thread_workers.echoText" } }, { "kind": "named", "name": "data", "value": { "kind": "string", "value": "d" } }] }, "line": 11 },
+      { "kind": "binding", "mutable": false, "name": "t6", "type": "Thread OF String TO Integer", "value": { "kind": "call", "callee": "thread.start", "arguments": [{ "kind": "named", "name": "data", "value": { "kind": "string", "value": "e" } }, { "kind": "named", "name": "f", "value": { "kind": "identifier", "value": "thread_workers.echoText" } }, { "kind": "named", "name": "outboundLimit", "value": { "kind": "number", "value": "1" } }, { "kind": "named", "name": "inboundLimit", "value": { "kind": "number", "value": "1" } }] }, "line": 12 },
+      { "kind": "binding", "mutable": false, "name": "file", "type": "File", "value": { "kind": "call", "callee": "fs.openFile", "arguments": [{ "kind": "string", "value": "tests/func_thread_start_valid/src/main.mfb" }] }, "line": 13 },
+      { "kind": "binding", "mutable": false, "name": "t7", "type": "Thread OF Nothing TO Integer", "value": { "kind": "call", "callee": "thread.start", "arguments": [{ "kind": "identifier", "value": "thread_file_workers.acceptFile" }, { "kind": "identifier", "value": "file" }, { "kind": "number", "value": "1" }, { "kind": "number", "value": "1" }] }, "line": 14 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 15 }
       ]
     }
     ]

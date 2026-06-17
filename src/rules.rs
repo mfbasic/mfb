@@ -634,6 +634,12 @@ pub const RULES: &[Rule] = &[
         message: "match cases do not cover every possible value",
     },
     Rule {
+        code: "2-203-0063",
+        name: "TYPE_THREAD_NOT_SENDABLE",
+        severity: Severity::Error,
+        message: "thread boundary type is not sendable",
+    },
+    Rule {
         code: "2-200-0011",
         name: "PROJECT_ENTRY_INVALID",
         severity: Severity::Error,

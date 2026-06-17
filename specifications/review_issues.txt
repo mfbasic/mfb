@@ -366,11 +366,6 @@ GROUP: threads
 RECOMMENDED: CODE CHANGE
 Thread APIs are wired through type checking and native helpers, but the runtime queue implementation is a single-slot inbound/outbound value with count fields; `inboundLimit` and `outboundLimit` are validated but not used to allocate bounded queues of the requested capacity. Timeout behavior is implemented with busy-wait loops rather than real synchronized queue waits. Resolve by implementing per-thread bounded queues with the requested capacities, synchronized send/receive/poll semantics, correct timeout handling, cancellation behavior, and runtime execution tests.
 
-REQUIREMENT: Thread transfer sendability
-SPECIFICATION: mfbasic.md @ §16 Threads; standard_package.md @ §9 Built-in Thread Package
-GROUP: threads
-RECOMMENDED: CODE CHANGE
-The spec says opaque resource handles, including `File`, socket handles, and `Thread`, are not sendable to threads. The type checker validates `thread::start` and `thread::send` argument shapes, but does not reject input, message, or output types that directly or transitively contain a resource or thread handle. Resolve by adding a sendability predicate for `thread::start` `In`, `Msg`, and `Out`, plus `thread::send` message values, and preserve that metadata in package/import verification so imported workers cannot smuggle non-sendable ownership across thread boundaries.
 
 REQUIREMENT: Thread result field access
 SPECIFICATION: mfbasic.md @ §4.8 Threads; §16 Threads

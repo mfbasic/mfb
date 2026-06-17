@@ -1044,22 +1044,9 @@ fn match_expression_type(
     locals: &HashMap<String, String>,
     context: &LowerContext<'_>,
 ) -> Option<String> {
-    if let Expression::Call { callee, .. } = expression {
-        return builtins::call_return_type_name(callee)
-            .map(|success| format!("Result OF {success}"))
-            .or_else(|| {
-                context
-                    .function_returns
-                    .get(callee)
-                    .cloned()
-                    .map(|success| format!("Result OF {success}"))
-            })
-            .or_else(|| {
-                locals
-                    .get(callee)
-                    .and_then(|type_| function_return_from_type(type_))
-                    .map(|success| format!("Result OF {success}"))
-            });
+    if let Expression::Call { .. } = expression {
+        return expression_type(expression, locals, context)
+            .map(|success| format!("Result OF {success}"));
     }
     expression_type(expression, locals, context)
 }
@@ -2740,7 +2727,10 @@ impl ToIrJson for IrValue {
                 format!("{{ \"kind\": \"local\", \"name\": {} }}", json_string(name))
             }
             IrValue::Global(name) => {
-                format!("{{ \"kind\": \"global\", \"name\": {} }}", json_string(name))
+                format!(
+                    "{{ \"kind\": \"global\", \"name\": {} }}",
+                    json_string(name)
+                )
             }
             IrValue::FunctionRef { name, type_ } => {
                 format!(

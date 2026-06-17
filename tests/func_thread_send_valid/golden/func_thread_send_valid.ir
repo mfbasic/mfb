@@ -21,9 +21,37 @@
     { "op": "bind", "mutable": false, "name": "t1", "type": "Thread OF String TO Integer", "value": { "kind": "call", "target": "thread.start", "args": [{ "kind": "functionRef", "name": "thread_workers.echoText", "type": "ISOLATED FUNC(ThreadWorker OF String TO Integer, String) AS Integer" }, { "kind": "const", "type": "String", "value": "a" }, { "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "1" }] } },
     { "op": "bind", "mutable": false, "name": "t2", "type": "Thread OF String TO Integer", "value": { "kind": "call", "target": "thread.start", "args": [{ "kind": "functionRef", "name": "thread_workers.echoText", "type": "ISOLATED FUNC(ThreadWorker OF String TO Integer, String) AS Integer" }, { "kind": "const", "type": "String", "value": "b" }, { "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "1" }] } },
     { "op": "bind", "mutable": false, "name": "t3", "type": "Thread OF String TO Integer", "value": { "kind": "call", "target": "thread.start", "args": [{ "kind": "functionRef", "name": "thread_workers.echoText", "type": "ISOLATED FUNC(ThreadWorker OF String TO Integer, String) AS Integer" }, { "kind": "const", "type": "String", "value": "c" }, { "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "1" }] } },
+    { "op": "bind", "mutable": false, "name": "fileThread", "type": "Thread OF File TO Integer", "value": { "kind": "call", "target": "thread.start", "args": [{ "kind": "functionRef", "name": "thread_file_workers.receiveFile", "type": "ISOLATED FUNC(ThreadWorker OF File TO Integer, String) AS Integer" }, { "kind": "const", "type": "String", "value": "file" }, { "kind": "const", "type": "Integer", "value": "2" }, { "kind": "const", "type": "Integer", "value": "1" }] } },
     { "op": "eval", "value": { "kind": "call", "target": "thread.send", "args": [{ "kind": "local", "name": "t1" }, { "kind": "const", "type": "String", "value": "d" }] } },
     { "op": "eval", "value": { "kind": "call", "target": "thread.send", "args": [{ "kind": "local", "name": "t2" }, { "kind": "const", "type": "String", "value": "e" }, { "kind": "const", "type": "Integer", "value": "0" }] } },
     { "op": "eval", "value": { "kind": "call", "target": "thread.send", "args": [{ "kind": "local", "name": "t3" }, { "kind": "const", "type": "String", "value": "f" }, { "kind": "const", "type": "Integer", "value": "1" }] } },
+    { "op": "bind", "mutable": false, "name": "sentFile", "type": "File", "value": { "kind": "call", "target": "fs.openFile", "args": [{ "kind": "const", "type": "String", "value": "tests/func_thread_send_valid/src/main.mfb" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "thread.send", "args": [{ "kind": "local", "name": "fileThread" }, { "kind": "local", "name": "sentFile" }] } },
+    { "op": "bind", "mutable": false, "name": "recoverFile", "type": "File", "value": { "kind": "call", "target": "fs.openFile", "args": [{ "kind": "const", "type": "String", "value": "tests/func_thread_send_valid/src/main.mfb" }] } },
+    { "op": "bind", "mutable": false, "name": "$match0", "type": "Result OF Nothing", "value": { "kind": "callResult", "target": "thread.send", "args": [{ "kind": "local", "name": "fileThread" }, { "kind": "local", "name": "recoverFile" }] } },
+    { "op": "bind", "mutable": false, "name": "$match_ok1", "type": "Boolean", "value": { "kind": "resultIsOk", "value": { "kind": "local", "name": "$match0" } } },
+    {
+      "op": "match",
+      "value": { "kind": "local", "name": "$match_ok1" },
+      "cases": [
+      {
+        "pattern": { "kind": "value", "value": { "kind": "const", "type": "Boolean", "value": "true" } },
+        "guard": null,
+        "body": [
+        { "op": "bind", "mutable": false, "name": "sent", "type": "Nothing", "value": { "kind": "resultValue", "value": { "kind": "local", "name": "$match0" } } },
+        { "op": "bind", "mutable": false, "name": "accepted", "type": "Nothing", "value": { "kind": "local", "name": "sent" } }
+        ]
+      },
+      {
+        "pattern": { "kind": "value", "value": { "kind": "const", "type": "Boolean", "value": "false" } },
+        "guard": null,
+        "body": [
+        { "op": "bind", "mutable": false, "name": "err", "type": "Error", "value": { "kind": "resultError", "value": { "kind": "local", "name": "$match0" } } },
+        { "op": "eval", "value": { "kind": "call", "target": "fs.close", "args": [{ "kind": "local", "name": "recoverFile" }] } }
+        ]
+      }
+      ]
+    },
     { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
     ]
   }

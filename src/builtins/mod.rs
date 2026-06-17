@@ -25,6 +25,10 @@ pub(crate) fn is_resource_type(type_name: &str) -> bool {
     resource_close_function(type_name).is_some()
 }
 
+pub(crate) fn is_thread_sendable_resource_type(type_name: &str) -> bool {
+    matches!(type_name, "File" | "Socket" | "UdpSocket")
+}
+
 pub(crate) fn call_return_type_name(name: &str) -> Option<&'static str> {
     strings::call_return_type_name(name)
         .or_else(|| math::call_return_type_name(name))

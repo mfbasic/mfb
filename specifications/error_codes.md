@@ -201,6 +201,7 @@ These codes correspond to `src/rules.rs` and are emitted directly by the compile
 | `2-203-0060` | `TYPE_MUT_REQUIRES_DEFAULTABLE_TYPE` | error | `uninitialized mutable binding requires a defaultable type` |
 | `2-203-0061` | `TYPE_REQUIRES_COMPARABLE` | error | `operation requires a comparable type` |
 | `2-203-0062` | `TYPE_MATCH_NOT_EXHAUSTIVE` | error | `match cases do not cover every possible value` |
+| `2-203-0063` | `TYPE_THREAD_NOT_SENDABLE` | error | `thread boundary type is not sendable` |
 
 ## Toolchain and Package Diagnostics
 

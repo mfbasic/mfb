@@ -5,25 +5,54 @@
     "path": "src/main.mfb",
     "imports": [
     { "module": "thread", "line": 1 },
-    { "module": "thread_workers", "line": 2 }
+    { "module": "thread_workers", "line": 2 },
+    { "module": "thread_file_workers", "line": 3 },
+    { "module": "fs", "line": 4 }
     ],
     "items": [
     {
       "kind": "func",
       "visibility": "private",
       "name": "main",
-      "line": 4,
+      "line": 6,
       "params": [
       ],
       "returnType": "Integer",
       "body": [
-      { "kind": "binding", "mutable": false, "name": "t1", "type": "Thread OF String TO Integer", "value": { "kind": "call", "callee": "thread.start", "arguments": [{ "kind": "identifier", "value": "thread_workers.echoText" }, { "kind": "string", "value": "a" }, { "kind": "number", "value": "1" }, { "kind": "number", "value": "1" }] }, "line": 5 },
-      { "kind": "binding", "mutable": false, "name": "t2", "type": "Thread OF String TO Integer", "value": { "kind": "call", "callee": "thread.start", "arguments": [{ "kind": "identifier", "value": "thread_workers.echoText" }, { "kind": "string", "value": "b" }, { "kind": "number", "value": "1" }, { "kind": "number", "value": "1" }] }, "line": 6 },
-      { "kind": "binding", "mutable": false, "name": "t3", "type": "Thread OF String TO Integer", "value": { "kind": "call", "callee": "thread.start", "arguments": [{ "kind": "identifier", "value": "thread_workers.echoText" }, { "kind": "string", "value": "c" }, { "kind": "number", "value": "1" }, { "kind": "number", "value": "1" }] }, "line": 7 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "thread.send", "arguments": [{ "kind": "identifier", "value": "t1" }, { "kind": "string", "value": "d" }] }, "line": 8 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "thread.send", "arguments": [{ "kind": "identifier", "value": "t2" }, { "kind": "string", "value": "e" }, { "kind": "number", "value": "0" }] }, "line": 9 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "thread.send", "arguments": [{ "kind": "identifier", "value": "t3" }, { "kind": "string", "value": "f" }, { "kind": "number", "value": "1" }] }, "line": 10 },
-      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 11 }
+      { "kind": "binding", "mutable": false, "name": "t1", "type": "Thread OF String TO Integer", "value": { "kind": "call", "callee": "thread.start", "arguments": [{ "kind": "identifier", "value": "thread_workers.echoText" }, { "kind": "string", "value": "a" }, { "kind": "number", "value": "1" }, { "kind": "number", "value": "1" }] }, "line": 7 },
+      { "kind": "binding", "mutable": false, "name": "t2", "type": "Thread OF String TO Integer", "value": { "kind": "call", "callee": "thread.start", "arguments": [{ "kind": "identifier", "value": "thread_workers.echoText" }, { "kind": "string", "value": "b" }, { "kind": "number", "value": "1" }, { "kind": "number", "value": "1" }] }, "line": 8 },
+      { "kind": "binding", "mutable": false, "name": "t3", "type": "Thread OF String TO Integer", "value": { "kind": "call", "callee": "thread.start", "arguments": [{ "kind": "identifier", "value": "thread_workers.echoText" }, { "kind": "string", "value": "c" }, { "kind": "number", "value": "1" }, { "kind": "number", "value": "1" }] }, "line": 9 },
+      { "kind": "binding", "mutable": false, "name": "fileThread", "type": "Thread OF File TO Integer", "value": { "kind": "call", "callee": "thread.start", "arguments": [{ "kind": "identifier", "value": "thread_file_workers.receiveFile" }, { "kind": "string", "value": "file" }, { "kind": "number", "value": "2" }, { "kind": "number", "value": "1" }] }, "line": 10 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "thread.send", "arguments": [{ "kind": "identifier", "value": "t1" }, { "kind": "string", "value": "d" }] }, "line": 11 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "thread.send", "arguments": [{ "kind": "identifier", "value": "t2" }, { "kind": "string", "value": "e" }, { "kind": "number", "value": "0" }] }, "line": 12 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "thread.send", "arguments": [{ "kind": "identifier", "value": "t3" }, { "kind": "string", "value": "f" }, { "kind": "number", "value": "1" }] }, "line": 13 },
+      { "kind": "binding", "mutable": false, "name": "sentFile", "type": "File", "value": { "kind": "call", "callee": "fs.openFile", "arguments": [{ "kind": "string", "value": "tests/func_thread_send_valid/src/main.mfb" }] }, "line": 14 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "thread.send", "arguments": [{ "kind": "identifier", "value": "fileThread" }, { "kind": "identifier", "value": "sentFile" }] }, "line": 15 },
+      { "kind": "binding", "mutable": false, "name": "recoverFile", "type": "File", "value": { "kind": "call", "callee": "fs.openFile", "arguments": [{ "kind": "string", "value": "tests/func_thread_send_valid/src/main.mfb" }] }, "line": 16 },
+      {
+        "kind": "match",
+        "expression": { "kind": "call", "callee": "thread.send", "arguments": [{ "kind": "identifier", "value": "fileThread" }, { "kind": "identifier", "value": "recoverFile" }] },
+        "line": 17,
+        "cases": [
+        {
+          "pattern": { "kind": "union", "type": "Ok", "binding": "sent" },
+          "guard": null,
+          "line": 18,
+          "body": [
+          { "kind": "binding", "mutable": false, "name": "accepted", "type": "Nothing", "value": { "kind": "identifier", "value": "sent" }, "line": 19 }
+          ]
+        },
+        {
+          "pattern": { "kind": "union", "type": "Error", "binding": "err" },
+          "guard": null,
+          "line": 20,
+          "body": [
+          { "kind": "expression", "expression": { "kind": "call", "callee": "fs.close", "arguments": [{ "kind": "identifier", "value": "recoverFile" }] }, "line": 21 }
+          ]
+        }
+        ]
+      },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 23 }
       ]
     }
     ]
