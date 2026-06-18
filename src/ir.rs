@@ -120,13 +120,6 @@ pub(crate) enum IrOp {
         iterable: IrValue,
         body: Vec<IrOp>,
     },
-    Using {
-        name: String,
-        type_: String,
-        close: String,
-        value: IrValue,
-        body: Vec<IrOp>,
-    },
     Trap {
         name: String,
         body: Vec<IrOp>,
@@ -788,25 +781,6 @@ fn lower_statement(
             .into_iter()
             .flatten()
             .collect()
-        }
-        Statement::Using {
-            name, value, body, ..
-        } => {
-            let type_ = expression_type(value, locals, context)
-                .expect("typecheck requires inferred USING resource type before IR lowering");
-            let value = lower_expression(value, locals, context);
-            let close = builtins::resource_close_function(&type_)
-                .expect("typecheck requires USING close function before IR lowering")
-                .to_string();
-            let mut nested = locals.clone();
-            nested.insert(name.clone(), type_.clone());
-            vec![IrOp::Using {
-                name: name.clone(),
-                type_,
-                close,
-                value,
-                body: lower_statement_block(body, &nested, context, trap_name),
-            }]
         }
     }
 }
@@ -2619,40 +2593,6 @@ impl ToIrJson for IrOp {
                     json_string(type_),
                     pad,
                     iterable.to_json(indent),
-                    pad,
-                    join_json(body, indent + 2),
-                    pad,
-                    pad
-                )
-            }
-            IrOp::Using {
-                name,
-                type_,
-                close,
-                value,
-                body,
-            } => {
-                format!(
-                    concat!(
-                        "\n{}{{\n",
-                        "{}  \"op\": \"using\",\n",
-                        "{}  \"name\": {},\n",
-                        "{}  \"type\": {},\n",
-                        "{}  \"close\": {},\n",
-                        "{}  \"value\": {},\n",
-                        "{}  \"body\": [{}\n{}  ]\n",
-                        "{}}}"
-                    ),
-                    pad,
-                    pad,
-                    pad,
-                    json_string(name),
-                    pad,
-                    json_string(type_),
-                    pad,
-                    json_string(close),
-                    pad,
-                    value.to_json(indent),
                     pad,
                     join_json(body, indent + 2),
                     pad,

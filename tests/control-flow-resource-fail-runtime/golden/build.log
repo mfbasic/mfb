@@ -1,0 +1,12 @@
+$ mfb build -ast tests/control-flow-resource-fail-runtime
+Wrote AST to tests/control-flow-resource-fail-runtime/control_flow_resource_fail_runtime.ast
+[exit 0]
+$ mfb build -ir tests/control-flow-resource-fail-runtime
+Wrote IR to tests/control-flow-resource-fail-runtime/control_flow_resource_fail_runtime.ir
+[exit 0]
+$ mfb build tests/control-flow-resource-fail-runtime
+Wrote executable to tests/control-flow-resource-fail-runtime/control_flow_resource_fail_runtime.out
+[exit 0]
+$ tests/control-flow-resource-fail-runtime/control_flow_resource_fail_runtime.out
+fail
+[exit 0]

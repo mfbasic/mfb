@@ -1300,7 +1300,12 @@ pub fn required_helpers(ir: &IrProject) -> Vec<RuntimeHelper> {
 fn push_op_helpers(ops: &[IrOp], helpers: &mut Vec<RuntimeHelper>) {
     for op in ops {
         match op {
-            IrOp::Bind { value, .. } => {
+            IrOp::Bind { type_, value, .. } => {
+                if let Some(close) = crate::builtins::resource_close_function(type_) {
+                    if let Some(helper) = helper_for_call(close) {
+                        push_unique(helpers, helper);
+                    }
+                }
                 if let Some(value) = value {
                     push_value_helpers(value, helpers);
                 }
@@ -1339,15 +1344,6 @@ fn push_op_helpers(ops: &[IrOp], helpers: &mut Vec<RuntimeHelper>) {
             }
             IrOp::ForEach { iterable, body, .. } => {
                 push_value_helpers(iterable, helpers);
-                push_op_helpers(body, helpers);
-            }
-            IrOp::Using {
-                close, value, body, ..
-            } => {
-                if let Some(helper) = helper_for_call(close) {
-                    push_unique(helpers, helper);
-                }
-                push_value_helpers(value, helpers);
                 push_op_helpers(body, helpers);
             }
             IrOp::Trap { body, .. } => {

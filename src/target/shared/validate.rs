@@ -214,11 +214,6 @@ fn collect_runtime_calls_from_ops_with_constants(
                 let mut body_constants = constants.clone();
                 collect_runtime_calls_from_ops_with_constants(body, calls, &mut body_constants);
             }
-            NirOp::Using { value, body, .. } => {
-                collect_runtime_calls_from_value(value, calls, constants);
-                let mut body_constants = constants.clone();
-                collect_runtime_calls_from_ops_with_constants(body, calls, &mut body_constants);
-            }
             NirOp::Trap { body, .. } => {
                 let mut trap_constants = constants.clone();
                 collect_runtime_calls_from_ops_with_constants(body, calls, &mut trap_constants);
@@ -902,52 +897,6 @@ fn validate_ops(
                     used_helpers,
                 )?;
                 let mut body_locals = locals.clone();
-                validate_ops(
-                    body,
-                    &mut body_locals,
-                    function_names,
-                    global_names,
-                    import_names,
-                    type_value_names,
-                    used_helpers,
-                )?;
-            }
-            NirOp::Using {
-                name,
-                type_,
-                close,
-                value,
-                body,
-            } => {
-                if name.is_empty() || type_.is_empty() || close.is_empty() {
-                    return Err("NIR using op has empty name, type, or close target".to_string());
-                }
-                validate_value(
-                    value,
-                    locals,
-                    function_names,
-                    global_names,
-                    import_names,
-                    type_value_names,
-                    used_helpers,
-                )?;
-                if !function_names.contains(close)
-                    && !import_names.contains(close)
-                    && crate::target::shared::runtime::helper_for_call(close).is_none()
-                {
-                    return Err(format!("NIR using close target '{close}' does not resolve"));
-                }
-                if let Some(helper) = crate::target::shared::runtime::helper_for_call(close) {
-                    push_unique(used_helpers, helper);
-                }
-                let mut body_locals = locals.clone();
-                body_locals.insert(
-                    name.clone(),
-                    LocalBinding {
-                        mutable: false,
-                        type_: type_.clone(),
-                    },
-                );
                 validate_ops(
                     body,
                     &mut body_locals,

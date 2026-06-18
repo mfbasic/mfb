@@ -465,21 +465,21 @@ struct TrapState {
 }
 
 #[derive(Clone)]
-struct UsingCleanup {
-    name: String,
-    symbol: String,
-}
-
-#[derive(Clone)]
 struct ThreadCleanup {
     name: String,
     symbol: String,
 }
 
 #[derive(Clone)]
+struct ResourceCleanup {
+    name: String,
+    symbol: String,
+}
+
+#[derive(Clone)]
 enum ActiveCleanup {
-    Using(UsingCleanup),
     Thread(ThreadCleanup),
+    Resource(ResourceCleanup),
 }
 
 #[derive(Clone, Copy)]
@@ -2074,7 +2074,6 @@ fn op_requires_empty_string_constant(op: &NirOp, type_model: &TypeModel) -> bool
         }),
         NirOp::While { body, .. }
         | NirOp::ForEach { body, .. }
-        | NirOp::Using { body, .. }
         | NirOp::Trap { body, .. } => body
             .iter()
             .any(|op| op_requires_empty_string_constant(op, type_model)),
@@ -2259,15 +2258,6 @@ fn collect_package_function_refs_in_ops(
             }
             NirOp::ForEach { iterable, body, .. } => {
                 collect_package_function_refs_in_value(iterable, package_import_symbols, symbols);
-                collect_package_function_refs_in_ops(body, package_import_symbols, symbols);
-            }
-            NirOp::Using {
-                close, value, body, ..
-            } => {
-                if let Some(symbol) = package_import_symbols.get(close) {
-                    symbols.insert(symbol.clone());
-                }
-                collect_package_function_refs_in_value(value, package_import_symbols, symbols);
                 collect_package_function_refs_in_ops(body, package_import_symbols, symbols);
             }
             NirOp::Trap { body, .. } => {
@@ -13306,7 +13296,7 @@ fn module_may_record_cleanup_failure(module: &NirModule) -> bool {
 
 fn ops_may_record_cleanup_failure(ops: &[NirOp]) -> bool {
     ops.iter().any(|op| match op {
-        NirOp::Using { .. } => true,
+        NirOp::Bind { type_, .. } => crate::builtins::resource_close_function(type_).is_some(),
         NirOp::If {
             then_body,
             else_body,
@@ -13321,8 +13311,7 @@ fn ops_may_record_cleanup_failure(ops: &[NirOp]) -> bool {
         NirOp::While { body, .. }
         | NirOp::ForEach { body, .. }
         | NirOp::Trap { body, .. } => ops_may_record_cleanup_failure(body),
-        NirOp::Bind { .. }
-        | NirOp::StoreGlobal { .. }
+        NirOp::StoreGlobal { .. }
         | NirOp::Assign { .. }
         | NirOp::Return { .. }
         | NirOp::Fail { .. }
@@ -13429,18 +13418,6 @@ fn ops_may_emit_float_arithmetic_error(
                 let mut body_locals = locals.clone();
                 body_locals.insert(name.clone(), type_.clone());
                 value_may_emit_float_arithmetic_error(iterable, locals)
-                    || ops_may_emit_float_arithmetic_error(body, &mut body_locals)
-            }
-            NirOp::Using {
-                name,
-                type_,
-                value,
-                body,
-                ..
-            } => {
-                let mut body_locals = locals.clone();
-                body_locals.insert(name.clone(), type_.clone());
-                value_may_emit_float_arithmetic_error(value, locals)
                     || ops_may_emit_float_arithmetic_error(body, &mut body_locals)
             }
             NirOp::Trap { body, .. } => {
@@ -13591,9 +13568,6 @@ fn ops_use_call(ops: &[NirOp], target: &str) -> bool {
         NirOp::ForEach { iterable, body, .. } => {
             value_uses_call(iterable, target) || ops_use_call(body, target)
         }
-        NirOp::Using { value, body, .. } => {
-            value_uses_call(value, target) || ops_use_call(body, target)
-        }
         NirOp::Trap { body, .. } => ops_use_call(body, target),
     })
 }
@@ -13669,7 +13643,6 @@ fn ops_use_type_name(ops: &[NirOp]) -> bool {
         NirOp::ForEach { iterable, body, .. } => {
             value_uses_type_name(iterable) || ops_use_type_name(body)
         }
-        NirOp::Using { value, body, .. } => value_uses_type_name(value) || ops_use_type_name(body),
         NirOp::Trap { body, .. } => ops_use_type_name(body),
     })
 }
@@ -13811,13 +13784,6 @@ fn collect_type_name_values_from_ops(ops: &[NirOp], values: &mut Vec<String>) {
             } => {
                 push_string_value(values, type_.clone());
                 collect_type_name_values_from_value(iterable, values);
-                collect_type_name_values_from_ops(body, values);
-            }
-            NirOp::Using {
-                type_, value, body, ..
-            } => {
-                push_string_value(values, type_.clone());
-                collect_type_name_values_from_value(value, values);
                 collect_type_name_values_from_ops(body, values);
             }
             NirOp::Trap { body, .. } => {
@@ -14034,24 +14000,6 @@ fn ops_use_unicode_runtime_tables(
                 body,
             } => {
                 if value_uses_unicode_runtime_tables(iterable, constants, types) {
-                    return true;
-                }
-                let mut body_constants = constants.clone();
-                let mut body_types = types.clone();
-                body_constants.remove(name);
-                body_types.insert(name.clone(), type_.clone());
-                if ops_use_unicode_runtime_tables(body, &mut body_constants, &mut body_types) {
-                    return true;
-                }
-            }
-            NirOp::Using {
-                name,
-                type_,
-                value,
-                body,
-                ..
-            } => {
-                if value_uses_unicode_runtime_tables(value, constants, types) {
                     return true;
                 }
                 let mut body_constants = constants.clone();
@@ -14395,24 +14343,6 @@ fn collect_string_values_from_ops_with_constants(
                 let mut body_constants = constants.clone();
                 let mut body_types = types.clone();
                 body_constants.remove(name);
-                body_types.insert(name.clone(), type_.clone());
-                collect_string_values_from_ops_with_constants(
-                    body,
-                    values,
-                    &mut body_constants,
-                    &mut body_types,
-                );
-            }
-            NirOp::Using {
-                name,
-                type_,
-                value,
-                body,
-                ..
-            } => {
-                collect_string_values_from_value(value, values, constants, types);
-                let mut body_constants = constants.clone();
-                let mut body_types = types.clone();
                 body_types.insert(name.clone(), type_.clone());
                 collect_string_values_from_ops_with_constants(
                     body,
@@ -14977,10 +14907,6 @@ fn collect_builtin_function_refs_in_ops(
             }
             NirOp::ForEach { iterable, body, .. } => {
                 collect_builtin_function_refs_in_value(iterable, refs, seen);
-                collect_builtin_function_refs_in_ops(body, refs, seen);
-            }
-            NirOp::Using { value, body, .. } => {
-                collect_builtin_function_refs_in_value(value, refs, seen);
                 collect_builtin_function_refs_in_ops(body, refs, seen);
             }
             NirOp::Trap { body, .. } => {

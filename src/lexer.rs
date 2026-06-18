@@ -81,7 +81,6 @@ pub enum Keyword {
     Trap,
     Until,
     Union,
-    Using,
     When,
     While,
     Wend,
@@ -522,8 +521,6 @@ fn keyword(value: &str) -> Option<Keyword> {
         Some(Keyword::Until)
     } else if value.eq_ignore_ascii_case("UNION") {
         Some(Keyword::Union)
-    } else if value.eq_ignore_ascii_case("USING") {
-        Some(Keyword::Using)
     } else if value.eq_ignore_ascii_case("WHEN") {
         Some(Keyword::When)
     } else if value.eq_ignore_ascii_case("WHILE") {

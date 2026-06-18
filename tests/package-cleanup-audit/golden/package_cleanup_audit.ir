@@ -15,16 +15,8 @@
     ],
     "returns": "String",
     "body": [
-    {
-      "op": "using",
-      "name": "file",
-      "type": "File",
-      "close": "fs.close",
-      "value": { "kind": "call", "target": "fs.openFile", "args": [{ "kind": "local", "name": "path" }] },
-      "body": [
-      { "op": "return", "value": { "kind": "call", "target": "fs.readLine", "args": [{ "kind": "local", "name": "file" }] } }
-      ]
-    }
+    { "op": "bind", "mutable": false, "name": "file", "type": "File", "value": { "kind": "call", "target": "fs.openFile", "args": [{ "kind": "local", "name": "path" }] } },
+    { "op": "return", "value": { "kind": "call", "target": "fs.readLine", "args": [{ "kind": "local", "name": "file" }] } }
     ]
   }
   ]

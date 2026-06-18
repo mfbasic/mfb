@@ -42,6 +42,12 @@ impl CodeBuilder<'_> {
                                     name: name.clone(),
                                     symbol: Self::thread_drop_symbol(),
                                 }));
+                        } else if let Some(symbol) = self.resource_cleanup_symbol(type_) {
+                            self.active_cleanups
+                                .push(ActiveCleanup::Resource(ResourceCleanup {
+                                    name: name.clone(),
+                                    symbol,
+                                }));
                         }
                     }
                     NirOp::StoreGlobal { name, type_, value } => {
@@ -72,6 +78,15 @@ impl CodeBuilder<'_> {
                             let slot = self.allocate_stack_object("thread_assign_value", 8);
                             self.emit(abi::store_u64(&result.location, abi::stack_pointer(), slot));
                             self.emit_thread_cleanup_for_name(name)?;
+                            Some(slot)
+                        } else if let Some(symbol) = self.resource_cleanup_symbol(&result.type_) {
+                            let slot = self.allocate_stack_object("resource_assign_value", 8);
+                            self.emit(abi::store_u64(&result.location, abi::stack_pointer(), slot));
+                            let cleanup = ResourceCleanup {
+                                name: name.clone(),
+                                symbol,
+                            };
+                            self.emit_resource_cleanup_call(&cleanup)?;
                             Some(slot)
                         } else {
                             None
@@ -231,56 +246,6 @@ impl CodeBuilder<'_> {
                     } => {
                         self.lower_for_each(name, type_, iterable, body)?;
                     }
-                    NirOp::Using {
-                        name,
-                        type_,
-                        close,
-                        value,
-                        body,
-                    } => {
-                        let stack_offset = self.allocate_stack_object(name, 8);
-                        let result = self.lower_value(value)?;
-                        let symbol = self
-                            .function_symbols
-                            .get(close)
-                            .cloned()
-                            .or_else(|| {
-                                runtime::helper_for_call(close)
-                                    .map(|helper| runtime::symbol_for_call(helper, close))
-                            })
-                            .unwrap_or_else(|| close.clone());
-                        self.locals.insert(
-                            name.clone(),
-                            LocalValue {
-                                type_: type_.clone(),
-                                stack_offset,
-                                constant: self.local_constant_value(value),
-                            },
-                        );
-                        self.emit(abi::store_u64(
-                            &result.location,
-                            abi::stack_pointer(),
-                            stack_offset,
-                        ));
-                        self.active_cleanups
-                            .push(ActiveCleanup::Using(UsingCleanup {
-                                name: name.clone(),
-                                symbol,
-                            }));
-                        self.lower_ops(body)?;
-                        let cleanup = self
-                            .active_cleanups
-                            .pop()
-                            .expect("USING cleanup stack must contain active resource");
-                        let ActiveCleanup::Using(cleanup) = cleanup else {
-                            return Err(
-                                "USING cleanup stack ended with non-USING cleanup".to_string()
-                            );
-                        };
-                        if !self.current_block_returns() {
-                            self.emit_using_fallthrough_cleanup(&cleanup)?;
-                        }
-                    }
                     NirOp::Trap { body, .. } => {
                         let label = self
                             .trap
@@ -311,8 +276,8 @@ impl CodeBuilder<'_> {
             if !scope_returns {
                 match cleanup {
                     ActiveCleanup::Thread(cleanup) => self.emit_thread_cleanup_call(&cleanup)?,
-                    ActiveCleanup::Using(_) => {
-                        return Err("USING cleanup escaped its owning scope".to_string());
+                    ActiveCleanup::Resource(cleanup) => {
+                        self.emit_resource_cleanup_call(&cleanup)?
                     }
                 }
             }
@@ -488,7 +453,6 @@ fn nir_op_context(op: &NirOp) -> String {
         NirOp::Match { .. } => "match".to_string(),
         NirOp::While { .. } => "while".to_string(),
         NirOp::ForEach { name, .. } => format!("for each {name}"),
-        NirOp::Using { name, .. } => format!("using {name}"),
         NirOp::Trap { .. } => "trap".to_string(),
     }
 }

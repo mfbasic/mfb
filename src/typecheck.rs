@@ -42,7 +42,6 @@ struct LocalInfo {
     type_: Type,
     mutable: bool,
     ownership: OwnershipState,
-    scope_guard: ScopeGuard,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -50,12 +49,6 @@ enum OwnershipState {
     Available,
     Moved,
     MaybeMoved,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum ScopeGuard {
-    None,
-    MustRemainOwned,
 }
 
 #[derive(Clone)]
@@ -1137,7 +1130,6 @@ impl<'a> TypeChecker<'a> {
                     type_: param_type,
                     mutable: false,
                     ownership: OwnershipState::Available,
-                    scope_guard: ScopeGuard::None,
                 },
             );
         }
@@ -1151,7 +1143,6 @@ impl<'a> TypeChecker<'a> {
                     type_: Type::Error,
                     mutable: false,
                     ownership: OwnershipState::Available,
-                    scope_guard: ScopeGuard::None,
                 },
             );
             let trap_flow = self.check_block(
@@ -1251,7 +1242,6 @@ impl<'a> TypeChecker<'a> {
             type_: left.type_,
             mutable: left.mutable,
             ownership,
-            scope_guard: left.scope_guard,
         }
     }
 
@@ -1301,17 +1291,6 @@ impl<'a> TypeChecker<'a> {
             return;
         }
         if !self.is_copyable_type(&info.type_) {
-            if info.scope_guard == ScopeGuard::MustRemainOwned {
-                self.report(
-                    "TYPE_DOUBLE_DROP_PATH",
-                    &format!(
-                        "Binding `{name}` is cleaned up automatically at scope exit and cannot be consumed inside this scope."
-                    ),
-                    file,
-                    line,
-                );
-                return;
-            }
             if let Some(local) = locals.get_mut(name) {
                 local.ownership = OwnershipState::Moved;
             }
@@ -1437,7 +1416,6 @@ impl<'a> TypeChecker<'a> {
                         type_: binding_type,
                         mutable: *mutable,
                         ownership: OwnershipState::Available,
-                        scope_guard: ScopeGuard::None,
                     },
                 );
                 Flow::FallsThrough
@@ -1785,7 +1763,6 @@ impl<'a> TypeChecker<'a> {
                         type_: loop_type,
                         mutable: false,
                         ownership: OwnershipState::Available,
-                        scope_guard: ScopeGuard::None,
                     },
                 );
                 let body_flow =
@@ -1830,7 +1807,6 @@ impl<'a> TypeChecker<'a> {
                         type_: element_type,
                         mutable: false,
                         ownership: OwnershipState::Available,
-                        scope_guard: ScopeGuard::None,
                     },
                 );
                 let body_flow =
@@ -1891,42 +1867,6 @@ impl<'a> TypeChecker<'a> {
                     self.merge_branch_locals(locals, vec![nested]);
                 }
                 Flow::FallsThrough
-            }
-            Statement::Using {
-                name,
-                value,
-                body,
-                line,
-            } => {
-                let resource_type =
-                    self.infer_expression(file, value, locals, *line, ExprMode::Transfer);
-                let resource_type_name = self.type_name(&resource_type);
-                if !builtins::is_resource_type(&resource_type_name) {
-                    self.report(
-                        "TYPE_USING_REQUIRES_RESOURCE",
-                        &format!(
-                            "USING binding `{name}` has type {}, expected resource.",
-                            resource_type_name
-                        ),
-                        file,
-                        *line,
-                    );
-                }
-                let mut nested = locals.clone();
-                nested.insert(
-                    name.clone(),
-                    LocalInfo {
-                        type_: resource_type,
-                        mutable: false,
-                        ownership: OwnershipState::Available,
-                        scope_guard: ScopeGuard::MustRemainOwned,
-                    },
-                );
-                let flow = self.check_block(file, body, expected_return, &mut nested, trap_name);
-                if let Some(resource) = nested.get(name).cloned() {
-                    self.require_local_owned(file, *line, name, &resource);
-                }
-                flow
             }
         }
     }
@@ -2278,7 +2218,6 @@ impl<'a> TypeChecker<'a> {
                             type_: Type::User(type_name.clone()),
                             mutable: false,
                             ownership: OwnershipState::Available,
-                            scope_guard: ScopeGuard::None,
                         },
                     );
                 }
@@ -2302,7 +2241,6 @@ impl<'a> TypeChecker<'a> {
                             type_: binding_type,
                             mutable: false,
                             ownership: OwnershipState::Available,
-                            scope_guard: ScopeGuard::None,
                         },
                     );
                 }
@@ -3325,7 +3263,6 @@ impl<'a> TypeChecker<'a> {
                     type_: type_.clone(),
                     mutable: false,
                     ownership: OwnershipState::Available,
-                    scope_guard: ScopeGuard::None,
                 },
             );
             param_types.push(type_);

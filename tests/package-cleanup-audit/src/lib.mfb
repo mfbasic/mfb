@@ -1,7 +1,6 @@
 IMPORT fs
 
 EXPORT FUNC firstLine(path AS String) AS String
-  USING file = fs::openFile(path)
-    RETURN fs::readLine(file)
-  END USING
+  LET file = fs::openFile(path)
+  RETURN fs::readLine(file)
 END FUNC

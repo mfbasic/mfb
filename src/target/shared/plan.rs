@@ -430,7 +430,6 @@ fn ops_have_thread_owner(ops: &[NirOp]) -> bool {
     ops.iter().any(|op| match op {
         NirOp::Bind { type_, .. } | NirOp::StoreGlobal { type_, .. } => is_thread_type(type_),
         NirOp::ForEach { type_, body, .. } => is_thread_type(type_) || ops_have_thread_owner(body),
-        NirOp::Using { type_, body, .. } => is_thread_type(type_) || ops_have_thread_owner(body),
         NirOp::If {
             then_body,
             else_body,
@@ -486,10 +485,6 @@ fn collect_platform_imports_from_ops(
             }
             NirOp::ForEach { iterable, body, .. } => {
                 collect_platform_imports_from_value(platform, required_by, iterable, imports);
-                collect_platform_imports_from_ops(platform, required_by, body, imports);
-            }
-            NirOp::Using { value, body, .. } => {
-                collect_platform_imports_from_value(platform, required_by, value, imports);
                 collect_platform_imports_from_ops(platform, required_by, body, imports);
             }
             NirOp::Trap { body, .. } => {
@@ -605,7 +600,14 @@ fn collect_runtime_symbols_from_ops_with_constants(
 ) {
     for op in ops {
         match op {
-            NirOp::Bind { name, value, .. } => {
+            NirOp::Bind {
+                name, type_, value, ..
+            } => {
+                if let Some(close) = crate::builtins::resource_close_function(type_) {
+                    if let Some(helper) = runtime::helper_for_call(close) {
+                        push_unique(symbols, runtime::symbol_for_call(helper, close));
+                    }
+                }
                 if let Some(value) = value {
                     collect_runtime_symbols_from_value(value, symbols, constants);
                     if let Some(constant) = native_constant_value(value, constants) {
@@ -678,16 +680,6 @@ fn collect_runtime_symbols_from_ops_with_constants(
             }
             NirOp::ForEach { iterable, body, .. } => {
                 collect_runtime_symbols_from_value(iterable, symbols, constants);
-                let mut body_constants = constants.clone();
-                collect_runtime_symbols_from_ops_with_constants(body, symbols, &mut body_constants);
-            }
-            NirOp::Using {
-                close, value, body, ..
-            } => {
-                if let Some(helper) = runtime::helper_for_call(close) {
-                    push_unique(symbols, runtime::symbol_for_call(helper, close));
-                }
-                collect_runtime_symbols_from_value(value, symbols, constants);
                 let mut body_constants = constants.clone();
                 collect_runtime_symbols_from_ops_with_constants(body, symbols, &mut body_constants);
             }
@@ -1060,23 +1052,6 @@ impl FunctionPlanBuilder<'_> {
                     self.lower_ops(body)?;
                     self.constants = constants_before_loop;
                     self.operations.push("next".to_string());
-                }
-                NirOp::Using {
-                    name,
-                    type_,
-                    close,
-                    value,
-                    body,
-                } => {
-                    self.lower_value(value)?;
-                    self.operations.push(format!(
-                        "using {name} AS {type_} = {}",
-                        describe_value(value)
-                    ));
-                    self.add_stack_slot(name, type_, false)?;
-                    self.lower_ops(body)?;
-                    self.operations.push(format!("close {close}"));
-                    self.add_call(close);
                 }
                 NirOp::Trap { name, body } => {
                     self.operations.push(format!("trap {name}"));

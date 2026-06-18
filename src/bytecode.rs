@@ -228,8 +228,8 @@ pub(crate) const OPCODE_MATH_ATAN2: u16 = 252;
 pub(crate) const OPCODE_MATH_RADIANS: u16 = 253;
 pub(crate) const OPCODE_MATH_DEGREES: u16 = 254;
 pub(crate) const OPCODE_MATH_IS_FINITE: u16 = 255;
-pub(crate) const OPCODE_USING_ENTER: u16 = 170;
-pub(crate) const OPCODE_USING_LEAVE: u16 = 171;
+pub(crate) const OPCODE_RESOURCE_ENTER: u16 = 170;
+pub(crate) const OPCODE_RESOURCE_LEAVE: u16 = 171;
 pub(crate) const OPCODE_CLOSE_RESOURCE: u16 = 172;
 
 pub fn write_bytecode_hex(
@@ -740,8 +740,8 @@ pub const NATIVE_OPCODE_MATH_ATAN2: u16 = OPCODE_MATH_ATAN2;
 pub const NATIVE_OPCODE_MATH_RADIANS: u16 = OPCODE_MATH_RADIANS;
 pub const NATIVE_OPCODE_MATH_DEGREES: u16 = OPCODE_MATH_DEGREES;
 pub const NATIVE_OPCODE_MATH_IS_FINITE: u16 = OPCODE_MATH_IS_FINITE;
-pub const NATIVE_OPCODE_USING_ENTER: u16 = OPCODE_USING_ENTER;
-pub const NATIVE_OPCODE_USING_LEAVE: u16 = OPCODE_USING_LEAVE;
+pub const NATIVE_OPCODE_RESOURCE_ENTER: u16 = OPCODE_RESOURCE_ENTER;
+pub const NATIVE_OPCODE_RESOURCE_LEAVE: u16 = OPCODE_RESOURCE_LEAVE;
 pub const NATIVE_OPCODE_CLOSE_RESOURCE: u16 = OPCODE_CLOSE_RESOURCE;
 
 const RESOURCE_FLAG_NATIVE: u32 = 1 << 0;
@@ -3686,7 +3686,7 @@ fn remap_instruction(mut instruction: Instruction, map: &MergeMap) -> Result<Ins
         OPCODE_LOAD_FIELD | OPCODE_VARIANT_MATCH => {
             remap_operand(&mut instruction, 2, |value| remap_string(map, value))?;
         }
-        OPCODE_USING_ENTER | OPCODE_CLOSE_RESOURCE => {
+        OPCODE_RESOURCE_ENTER | OPCODE_CLOSE_RESOURCE => {
             remap_operand(&mut instruction, 1, |value| {
                 remap_function_id_if_needed(map, value)
             })?;
@@ -3902,13 +3902,6 @@ fn ops_use_resource_type(ops: &[IrOp]) -> bool {
                 || value_uses_resource_type(iterable)
                 || ops_use_resource_type(body)
         }
-        IrOp::Using {
-            type_, value, body, ..
-        } => {
-            is_resource_type_name(type_)
-                || value_uses_resource_type(value)
-                || ops_use_resource_type(body)
-        }
         IrOp::Trap { body, .. } => ops_use_resource_type(body),
     })
 }
@@ -4024,9 +4017,7 @@ fn lower_function(
         });
     }
 
-    for op in &function.body {
-        builder.lower_op(op, &mut locals)?;
-    }
+    builder.lower_ops(&function.body, &mut locals)?;
 
     if !builder.ends_with_return() {
         let nothing = builder.add_register(TYPE_NOTHING, 0);
@@ -4076,7 +4067,15 @@ struct FunctionBuilder<'a> {
     code: Vec<Instruction>,
     cleanups: Vec<Cleanup>,
     next_cleanup_id: u32,
+    resource_scopes: Vec<Vec<PendingResource>>,
     trap: Option<TrapState>,
+}
+
+struct PendingResource {
+    cleanup_id: u32,
+    enter_pc: u32,
+    register: u32,
+    close_function_id: u32,
 }
 
 struct TrapState {
@@ -4139,6 +4138,7 @@ impl<'a> FunctionBuilder<'a> {
             code: Vec::new(),
             cleanups: Vec::new(),
             next_cleanup_id: 0,
+            resource_scopes: Vec::new(),
             trap: None,
         }
     }
@@ -4156,9 +4156,13 @@ impl<'a> FunctionBuilder<'a> {
                 value,
             } => {
                 let type_id = self.type_id(type_);
+                let close = builtins::resource_close_function(type_);
                 let mut flags = 0;
                 if *mutable {
                     flags |= REGISTER_FLAG_MUTABLE_LOCAL_CELL;
+                }
+                if close.is_some() {
+                    flags |= REGISTER_FLAG_RESOURCE;
                 }
                 let register = self.add_register(type_id, flags);
                 locals.insert(
@@ -4173,6 +4177,25 @@ impl<'a> FunctionBuilder<'a> {
                     self.push_move_like(type_id, register, value_register.register);
                 } else {
                     self.push(OPCODE_LOAD_DEFAULT, vec![register, type_id]);
+                }
+                if let Some(close) = close {
+                    let close_function_id = close_function_id(close)?;
+                    let cleanup_id = self.next_cleanup_id;
+                    self.next_cleanup_id += 1;
+                    let enter_pc = self.code.len() as u32;
+                    self.push(
+                        OPCODE_RESOURCE_ENTER,
+                        vec![register, close_function_id, cleanup_id],
+                    );
+                    self.resource_scopes
+                        .last_mut()
+                        .expect("resource scope must be active for resource bind")
+                        .push(PendingResource {
+                            cleanup_id,
+                            enter_pc,
+                            register,
+                            close_function_id,
+                        });
                 }
                 Ok(())
             }
@@ -4305,47 +4328,6 @@ impl<'a> FunctionBuilder<'a> {
                 self.patch_jump(end_jump);
                 Ok(())
             }
-            IrOp::Using {
-                name,
-                type_,
-                close,
-                value,
-                body,
-            } => {
-                let type_id = self.type_id(type_);
-                let value = self.lower_value(value, locals)?;
-                let register = self.add_register(type_id, REGISTER_FLAG_RESOURCE);
-                self.push_move_like(type_id, register, value.register);
-                let close_function_id = close_function_id(close)?;
-                let cleanup_id = self.next_cleanup_id;
-                self.next_cleanup_id += 1;
-                let enter_pc = self.code.len() as u32;
-                self.push(
-                    OPCODE_USING_ENTER,
-                    vec![register, close_function_id, cleanup_id],
-                );
-                let mut nested = locals.clone();
-                nested.insert(
-                    name.clone(),
-                    ValueSlot {
-                        register,
-                        type_name: type_.clone(),
-                    },
-                );
-                self.lower_ops(body, &mut nested)?;
-                self.push(OPCODE_CLOSE_RESOURCE, vec![register, close_function_id]);
-                let leave_pc = self.code.len() as u32;
-                self.push(OPCODE_USING_LEAVE, vec![cleanup_id]);
-                self.cleanups.push(Cleanup {
-                    id: cleanup_id,
-                    start_pc: enter_pc,
-                    end_pc: leave_pc,
-                    resource_register: register,
-                    close_function_id,
-                    flags: CLEANUP_FLAG_RECORD_SECONDARY_CLOSE_FAILURE,
-                });
-                Ok(())
-            }
             IrOp::Trap { body, .. } => {
                 let pending_jumps = self
                     .trap
@@ -4372,8 +4354,29 @@ impl<'a> FunctionBuilder<'a> {
         ops: &[IrOp],
         locals: &mut HashMap<String, ValueSlot>,
     ) -> Result<(), String> {
+        self.resource_scopes.push(Vec::new());
         for op in ops {
             self.lower_op(op, locals)?;
+        }
+        let scope = self
+            .resource_scopes
+            .pop()
+            .expect("resource scope must be present at block end");
+        for pending in scope.into_iter().rev() {
+            self.push(
+                OPCODE_CLOSE_RESOURCE,
+                vec![pending.register, pending.close_function_id],
+            );
+            let leave_pc = self.code.len() as u32;
+            self.push(OPCODE_RESOURCE_LEAVE, vec![pending.cleanup_id]);
+            self.cleanups.push(Cleanup {
+                id: pending.cleanup_id,
+                start_pc: pending.enter_pc,
+                end_pc: leave_pc,
+                resource_register: pending.register,
+                close_function_id: pending.close_function_id,
+                flags: CLEANUP_FLAG_RECORD_SECONDARY_CLOSE_FAILURE,
+            });
         }
         Ok(())
     }

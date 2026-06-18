@@ -435,18 +435,18 @@ END FUNC
 }
 
 #[test]
-fn native_using_cleanup_reports_secondary_close_failure_metadata() {
+fn native_resource_cleanup_reports_secondary_close_failure_metadata() {
     let nonce = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .expect("clock before epoch")
         .as_nanos();
-    let root = std::env::temp_dir().join(format!("mfb_native_using_cleanup_{nonce}"));
+    let root = std::env::temp_dir().join(format!("mfb_native_resource_cleanup_{nonce}"));
     fs::create_dir_all(root.join("src")).expect("create temp project");
     let target_file = root.join("data.txt");
     fs::write(&target_file, "data").expect("write target file");
     fs::write(
         root.join("project.json"),
-        "{\"name\":\"native_using_cleanup_failure\",\"version\":\"0.1.0\",\"mfb\":\"1.0\",\"kind\":\"executable\",\"sources\":[{\"root\":\"src\",\"role\":\"main\",\"include\":[\"**/*.mfb\"]}],\"entry\":\"main\",\"targets\":[\"native\"]}\n",
+        "{\"name\":\"native_resource_cleanup_failure\",\"version\":\"0.1.0\",\"mfb\":\"1.0\",\"kind\":\"executable\",\"sources\":[{\"root\":\"src\",\"role\":\"main\",\"include\":[\"**/*.mfb\"]}],\"entry\":\"main\",\"targets\":[\"native\"]}\n",
     )
     .expect("write project.json");
     fs::write(
@@ -456,10 +456,8 @@ fn native_using_cleanup_reports_secondary_close_failure_metadata() {
 IMPORT fs
 
 FUNC main AS Integer
-  USING file = fs::openFile("{}")
-    FAIL Error[1234, "body failed"]
-  END USING
-  RETURN 0
+  LET file = fs::openFile("{}")
+  FAIL Error[1234, "body failed"]
 END FUNC
 "#,
             target_file.display()

@@ -634,25 +634,6 @@ impl<'a> Monomorphizer<'a> {
                 condition: self.lower_expression(condition, substitutions, context, None, *line),
                 line: *line,
             },
-            Statement::Using {
-                name,
-                value,
-                body,
-                line,
-            } => {
-                let lowered_value =
-                    self.lower_expression(value, substitutions, context, None, *line);
-                let mut nested = context.clone();
-                if let Some(type_name) = self.expression_type(&lowered_value, context) {
-                    nested.locals.insert(name.clone(), type_name);
-                }
-                Statement::Using {
-                    name: name.clone(),
-                    value: lowered_value,
-                    body: self.lower_statements(body, substitutions, &mut nested),
-                    line: *line,
-                }
-            }
         }
     }
 

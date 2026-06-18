@@ -243,12 +243,6 @@ pub enum Statement {
         condition: Expression,
         line: usize,
     },
-    Using {
-        name: String,
-        value: Expression,
-        body: Vec<Statement>,
-        line: usize,
-    },
 }
 
 #[derive(Clone, Debug)]
@@ -734,7 +728,6 @@ enum BlockTerminator {
     EndMatch,
     Loop,
     Next,
-    EndUsing,
     Wend,
 }
 
@@ -1207,10 +1200,6 @@ impl<'a> FileParser<'a> {
             return self.parse_match_statement();
         }
 
-        if self.check_keyword(Keyword::Using) {
-            return self.parse_using_statement();
-        }
-
         if self.check_keyword(Keyword::For) {
             return self.parse_for_statement();
         }
@@ -1229,7 +1218,6 @@ impl<'a> FileParser<'a> {
     fn parse_simple_statement(&mut self, allow_else_terminator: bool) -> Option<Statement> {
         if self.check_keyword(Keyword::If)
             || self.check_keyword(Keyword::Match)
-            || self.check_keyword(Keyword::Using)
             || self.check_keyword(Keyword::For)
             || self.check_keyword(Keyword::While)
             || self.check_keyword(Keyword::Do)
@@ -1529,27 +1517,6 @@ impl<'a> FileParser<'a> {
             self.current = saved;
             None
         }
-    }
-
-    fn parse_using_statement(&mut self) -> Option<Statement> {
-        let token = self.advance().clone();
-        let name = self.consume_identifier("USING binding name must be an identifier.")?;
-        if !self.consume_kind(TokenKind::Equal, "USING must bind a resource with `=`.") {
-            return None;
-        }
-        let value = self.parse_expression()?;
-        self.consume_statement_end("Expected end of statement after USING binding.");
-        self.skip_separators();
-        let body = self.parse_statement_block(&[BlockTerminator::EndUsing]);
-        if !self.consume_end_block(Keyword::Using, "USING block must end with END USING.") {
-            return None;
-        }
-        Some(Statement::Using {
-            name,
-            value,
-            body,
-            line: token.line,
-        })
     }
 
     fn parse_for_statement(&mut self) -> Option<Statement> {
@@ -2357,7 +2324,6 @@ impl<'a> FileParser<'a> {
             BlockTerminator::EndMatch => self.is_end_block(Keyword::Match),
             BlockTerminator::Loop => self.check_keyword(Keyword::Loop),
             BlockTerminator::Next => self.check_keyword(Keyword::Next),
-            BlockTerminator::EndUsing => self.is_end_block(Keyword::Using),
             BlockTerminator::Wend => self.check_keyword(Keyword::Wend),
         })
     }
@@ -3051,36 +3017,6 @@ impl ToAstJson for Statement {
                     end.to_json(0),
                     pad,
                     step,
-                    pad,
-                    line,
-                    pad,
-                    join_indented(body, indent + 2),
-                    pad,
-                    pad
-                )
-            }
-            Statement::Using {
-                name,
-                value,
-                body,
-                line,
-            } => {
-                format!(
-                    concat!(
-                        "\n{}{{\n",
-                        "{}  \"kind\": \"using\",\n",
-                        "{}  \"name\": {},\n",
-                        "{}  \"value\": {},\n",
-                        "{}  \"line\": {},\n",
-                        "{}  \"body\": [{}\n{}  ]\n",
-                        "{}}}"
-                    ),
-                    pad,
-                    pad,
-                    pad,
-                    json_string(name),
-                    pad,
-                    value.to_json(0),
                     pad,
                     line,
                     pad,

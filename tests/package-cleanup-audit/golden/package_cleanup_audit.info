@@ -15,7 +15,7 @@ Container:
   flags: 0x00000000
   signature type: unsigned
   signature length: 0
-  content hash: dfbdaaf85906687866081da795b77f0f49cb1cefa776ecbc497af64ce9aa6995
+  content hash: 4e8fb90d154b5c86d6e3f894a9b5ce7b7216887d47e701af459c5b32a241f493
   bytecode length: 829
 
 Manifest:
@@ -49,7 +49,7 @@ Package State:
 Resource Cleanups:
   firstLine cleanup 0
     pc: 3..7
-    resource register: 3
+    resource register: 1
     close function id: 4294967040
     audit: records secondary close failure
 

@@ -782,6 +782,7 @@ impl CodeBuilder<'_> {
             .unwrap_or_else(|| "Unknown".to_string());
         if result_type == "Nothing" {
             self.deactivate_moved_thread_arguments(target, args);
+            self.deactivate_moved_resource_arguments(target, args);
             return Ok(ValueResult {
                 type_: result_type,
                 location: "void".to_string(),
@@ -796,6 +797,7 @@ impl CodeBuilder<'_> {
             self.emit(abi::label(&ok_label));
         }
         self.deactivate_moved_thread_arguments(target, args);
+        self.deactivate_moved_resource_arguments(target, args);
         let register = self.allocate_register()?;
         self.emit(abi::move_register(&register, RESULT_VALUE_REGISTER));
         Ok(ValueResult {
@@ -845,6 +847,7 @@ impl CodeBuilder<'_> {
             for arg in args {
                 self.maybe_deactivate_moved_thread_local(arg);
             }
+            self.deactivate_moved_resource_arguments(target, args);
             return Ok(ValueResult {
                 type_: result_type,
                 location: "void".to_string(),
@@ -861,6 +864,7 @@ impl CodeBuilder<'_> {
         for arg in args {
             self.maybe_deactivate_moved_thread_local(arg);
         }
+        self.deactivate_moved_resource_arguments(target, args);
         let register = self.allocate_register()?;
         self.emit(abi::move_register(&register, RESULT_VALUE_REGISTER));
         Ok(ValueResult {
@@ -889,6 +893,7 @@ impl CodeBuilder<'_> {
         self.emit_current_result_exit(self.error_exit_destination())?;
         self.emit(abi::label(&ok_label));
         self.deactivate_moved_thread_arguments(target, args);
+        self.deactivate_moved_resource_arguments(target, args);
 
         if result_type == "Nothing" {
             return Ok(ValueResult {
@@ -988,6 +993,7 @@ impl CodeBuilder<'_> {
         self.emit_current_result_exit(self.error_exit_destination())?;
         self.emit(abi::label(&ok_label));
         self.deactivate_moved_thread_arguments(target, args);
+        self.deactivate_moved_resource_arguments(target, args);
 
         if result_type != "Nothing" {
             return Err(format!(
@@ -2024,13 +2030,67 @@ impl CodeBuilder<'_> {
         }
     }
 
-    fn emit_using_cleanup_call(&mut self, cleanup: &UsingCleanup) -> Result<(), String> {
+    pub(super) fn resource_cleanup_symbol(&self, type_: &str) -> Option<String> {
+        let close = crate::builtins::resource_close_function(type_)?;
+        let symbol = self
+            .function_symbols
+            .get(close)
+            .cloned()
+            .or_else(|| {
+                runtime::helper_for_call(close)
+                    .map(|helper| runtime::symbol_for_call(helper, close))
+            })
+            .unwrap_or_else(|| close.to_string());
+        Some(symbol)
+    }
+
+    pub(super) fn deactivate_resource_cleanup(&mut self, name: &str) {
+        if let Some(index) = self.active_cleanups.iter().rposition(
+            |cleanup| matches!(cleanup, ActiveCleanup::Resource(resource) if resource.name == name),
+        ) {
+            self.active_cleanups.remove(index);
+        }
+    }
+
+    fn deactivate_moved_resource_arguments(&mut self, target: &str, args: &[NirValue]) {
+        for (index, arg) in args.iter().enumerate() {
+            let NirValue::Local(name) = arg else {
+                continue;
+            };
+            let Some(local) = self.locals.get(name) else {
+                continue;
+            };
+            let Some(close) = crate::builtins::resource_close_function(&local.type_) else {
+                continue;
+            };
+            let consumed = if target == close {
+                index == 0
+            } else if crate::builtins::is_builtin_call(target) {
+                false
+            } else {
+                true
+            };
+            if consumed {
+                self.deactivate_resource_cleanup(name);
+            }
+        }
+    }
+
+    pub(super) fn emit_resource_cleanup_call(
+        &mut self,
+        cleanup: &ResourceCleanup,
+    ) -> Result<(), String> {
         let arg = NirValue::Local(cleanup.name.clone());
         self.emit_raw_call(
             &cleanup.symbol,
             std::slice::from_ref(&arg),
-            "using_close_arg",
+            "resource_drop_arg",
         )?;
+        let done = self.label("resource_cleanup_done");
+        self.emit(abi::compare_immediate(RESULT_TAG_REGISTER, RESULT_OK_TAG));
+        self.emit(abi::branch_eq(&done));
+        self.record_secondary_cleanup_failure();
+        self.emit(abi::label(&done));
         Ok(())
     }
 
@@ -2081,28 +2141,13 @@ impl CodeBuilder<'_> {
 
     fn emit_cleanup_sequence(&mut self) -> Result<(), String> {
         let cleanups = self.active_cleanups.clone();
-        let slots = self.ensure_pending_result_slots();
         for cleanup in cleanups.iter().rev() {
             match cleanup {
-                ActiveCleanup::Using(cleanup) => {
-                    self.emit_using_cleanup_call(cleanup)?;
-                    let preserve_error = self.label("using_preserve_error");
-                    let done = self.label("using_cleanup_done");
-                    self.emit(abi::load_u64("x9", abi::stack_pointer(), slots.tag));
-                    self.emit(abi::compare_immediate("x9", RESULT_ERR_TAG));
-                    self.emit(abi::branch_eq(&preserve_error));
-                    self.emit(abi::compare_immediate(RESULT_TAG_REGISTER, RESULT_OK_TAG));
-                    self.emit(abi::branch_eq(&done));
-                    self.store_pending_current_result();
-                    self.emit(abi::branch(&done));
-                    self.emit(abi::label(&preserve_error));
-                    self.emit(abi::compare_immediate(RESULT_TAG_REGISTER, RESULT_OK_TAG));
-                    self.emit(abi::branch_eq(&done));
-                    self.record_secondary_cleanup_failure();
-                    self.emit(abi::label(&done));
-                }
                 ActiveCleanup::Thread(cleanup) => {
                     self.emit_thread_cleanup_call(cleanup)?;
+                }
+                ActiveCleanup::Resource(cleanup) => {
+                    self.emit_resource_cleanup_call(cleanup)?;
                 }
             }
         }
@@ -2187,24 +2232,16 @@ impl CodeBuilder<'_> {
                 {
                     self.deactivate_thread_cleanup(name);
                 }
+                if result.as_ref().is_some_and(|result| {
+                    crate::builtins::resource_close_function(&result.type_).is_some()
+                }) {
+                    self.deactivate_resource_cleanup(name);
+                }
             }
         }
         self.emit_cleanup_sequence()?;
         self.load_pending_result_registers();
         self.emit(abi::return_());
-        Ok(())
-    }
-
-    pub(super) fn emit_using_fallthrough_cleanup(
-        &mut self,
-        cleanup: &UsingCleanup,
-    ) -> Result<(), String> {
-        let ok_label = self.label("using_close_ok");
-        self.emit_using_cleanup_call(cleanup)?;
-        self.emit(abi::compare_immediate(RESULT_TAG_REGISTER, RESULT_OK_TAG));
-        self.emit(abi::branch_eq(&ok_label));
-        self.emit_current_result_exit(self.error_exit_destination())?;
-        self.emit(abi::label(&ok_label));
         Ok(())
     }
 

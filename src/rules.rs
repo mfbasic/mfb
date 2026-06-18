@@ -580,12 +580,6 @@ pub const RULES: &[Rule] = &[
         message: "map value type does not match the declared value type",
     },
     Rule {
-        code: "2-203-0054",
-        name: "TYPE_USING_REQUIRES_RESOURCE",
-        severity: Severity::Error,
-        message: "USING requires a resource value",
-    },
-    Rule {
         code: "2-203-0055",
         name: "TYPE_USE_AFTER_MOVE",
         severity: Severity::Error,
@@ -596,12 +590,6 @@ pub const RULES: &[Rule] = &[
         name: "TYPE_COLLECTION_OWNERSHIP_VIOLATION",
         severity: Severity::Error,
         message: "ordinary collections cannot store resource or thread ownership",
-    },
-    Rule {
-        code: "2-203-0057",
-        name: "TYPE_DOUBLE_DROP_PATH",
-        severity: Severity::Error,
-        message: "control flow could drop the same owned value more than once",
     },
     Rule {
         code: "2-203-0058",
