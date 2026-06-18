@@ -1,0 +1,28 @@
+FUNC leaf AS Integer
+  FAIL Error[1, "boom"]
+END FUNC
+
+FUNC propagates AS Integer
+  RETURN leaf()
+  TRAP err
+  PROPAGATE
+  END TRAP
+END FUNC
+
+FUNC reraises AS Integer
+  RETURN leaf()
+  TRAP err
+  FAIL Error[2, "wrapped"]
+  END TRAP
+END FUNC
+
+FUNC recovers AS Integer
+  RETURN leaf()
+  TRAP err
+  RETURN 0
+  END TRAP
+END FUNC
+
+FUNC main AS Integer
+  RETURN recovers()
+END FUNC

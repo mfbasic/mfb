@@ -1,0 +1,135 @@
+$ mfb audit --format text tests/audit-trap-recovery
+Audit: audit_trap_recovery 0.1.0 (executable)
+Root: tests/audit-trap-recovery
+Language: 1.0
+Entry: main
+Lockfile: absent
+
+Summary:
+  errors: 0
+  warnings: 0
+  infos: 0
+
+Control flow:
+  leaf at src/main.mfb:1 (fallible)
+  propagates at src/main.mfb:5 (fallible)
+    trap err -> propagates
+    fallible call leaf at src/main.mfb:6 -> trap
+  reraises at src/main.mfb:12 (fallible)
+    trap err -> fails
+    fallible call leaf at src/main.mfb:13 -> trap
+  recovers at src/main.mfb:19
+    trap err -> returns value
+    fallible call leaf at src/main.mfb:20 -> trap
+[exit 0]
+$ mfb audit --format json tests/audit-trap-recovery
+{
+  "schema": "mfb.audit.v1",
+  "tool": {
+    "name": "mfb",
+    "version": "0.1.0"
+  },
+  "project": {
+    "name": "audit_trap_recovery",
+    "ident": "audit_trap_recovery",
+    "version": "0.1.0",
+    "kind": "executable",
+    "root": "tests/audit-trap-recovery",
+    "entry": "main",
+    "languageVersion": "1.0"
+  },
+  "summary": {
+    "errors": 0,
+    "warnings": 0,
+    "infos": 0
+  },
+  "lockfile": {
+    "path": "mfb.lock",
+    "present": false,
+    "locked": false,
+    "lockfileVersion": null,
+    "projectHashMatches": null
+  },
+  "dependencies": [],
+  "packages": [],
+  "sourceFlow": [
+    {
+      "function": "leaf",
+      "path": "src/main.mfb",
+      "line": 1,
+      "fallible": true,
+      "trap": null,
+      "calls": []
+    },
+    {
+      "function": "propagates",
+      "path": "src/main.mfb",
+      "line": 5,
+      "fallible": true,
+      "trap": {
+        "name": "err",
+        "line": 7,
+        "classification": "propagates"
+      },
+      "calls": [
+        {
+          "callee": "leaf",
+          "line": 6,
+          "propagation": "trap",
+          "capability": null
+        }
+      ]
+    },
+    {
+      "function": "reraises",
+      "path": "src/main.mfb",
+      "line": 12,
+      "fallible": true,
+      "trap": {
+        "name": "err",
+        "line": 14,
+        "classification": "fails"
+      },
+      "calls": [
+        {
+          "callee": "leaf",
+          "line": 13,
+          "propagation": "trap",
+          "capability": null
+        }
+      ]
+    },
+    {
+      "function": "recovers",
+      "path": "src/main.mfb",
+      "line": 19,
+      "fallible": false,
+      "trap": {
+        "name": "err",
+        "line": 21,
+        "classification": "returns value"
+      },
+      "calls": [
+        {
+          "callee": "leaf",
+          "line": 20,
+          "propagation": "trap",
+          "capability": null
+        }
+      ]
+    },
+    {
+      "function": "main",
+      "path": "src/main.mfb",
+      "line": 26,
+      "fallible": false,
+      "trap": null,
+      "calls": []
+    }
+  ],
+  "resources": [],
+  "nativeLinks": [],
+  "permissions": [],
+  "findings": []
+}
+[exit 0]

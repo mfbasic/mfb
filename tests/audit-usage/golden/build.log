@@ -1,0 +1,6 @@
+$ mfb build -ast tests/audit-usage
+Wrote AST to tests/audit-usage/audit_usage.ast
+[exit 0]
+$ mfb build -ir tests/audit-usage
+Wrote IR to tests/audit-usage/audit_usage.ir
+[exit 0]

@@ -1,0 +1,6 @@
+$ mfb build -ast tests/audit-lockfile-stale
+Wrote AST to tests/audit-lockfile-stale/audit_lockfile_stale.ast
+[exit 0]
+$ mfb build -ir tests/audit-lockfile-stale
+Wrote IR to tests/audit-lockfile-stale/audit_lockfile_stale.ir
+[exit 0]

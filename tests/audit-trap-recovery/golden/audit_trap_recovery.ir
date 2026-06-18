@@ -1,0 +1,90 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "audit_trap_recovery",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "leaf",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "fail", "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "String", "value": "boom" }] } }
+    ]
+  },
+  {
+    "name": "propagates",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "return", "value": { "kind": "call", "target": "leaf", "args": [] } },
+    {
+      "op": "trap",
+      "name": "err",
+      "body": [
+      { "op": "fail", "error": { "kind": "local", "name": "err" } }
+      ]
+    }
+    ]
+  },
+  {
+    "name": "reraises",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "return", "value": { "kind": "call", "target": "leaf", "args": [] } },
+    {
+      "op": "trap",
+      "name": "err",
+      "body": [
+      { "op": "fail", "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "2" }, { "kind": "const", "type": "String", "value": "wrapped" }] } }
+      ]
+    }
+    ]
+  },
+  {
+    "name": "recovers",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "return", "value": { "kind": "call", "target": "leaf", "args": [] } },
+    {
+      "op": "trap",
+      "name": "err",
+      "body": [
+      { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+      ]
+    }
+    ]
+  },
+  {
+    "name": "main",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "return", "value": { "kind": "call", "target": "recovers", "args": [] } }
+    ]
+  }
+  ]
+}

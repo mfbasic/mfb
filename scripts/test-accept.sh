@@ -218,7 +218,35 @@ for test_dir in "$TEST_ROOT"/*; do
     mv "$ncode_path" "$actual_dir/$package_name.$target_name.ncode"
   fi
 
+  audit_path="$actual_dir/$package_name.audit"
+  if [ -f "$golden_dir/$package_name.audit" ]; then
+    : >"$audit_path"
+    if [ -f "$test_dir/audit.args" ]; then
+      while IFS= read -r argline || [ -n "$argline" ]; do
+        [ -z "$argline" ] && continue
+        {
+          echo "\$ mfb audit $argline tests/$test_name"
+          # shellcheck disable=SC2086
+          "$MFB_EXE" audit $argline "tests/$test_name" 2>&1
+          echo "[exit $?]"
+        } >>"$audit_path"
+      done <"$test_dir/audit.args"
+    else
+      {
+        echo "\$ mfb audit --format text tests/$test_name"
+        "$MFB_EXE" audit --format text "tests/$test_name" 2>&1
+        echo "[exit $?]"
+        echo "\$ mfb audit --format json tests/$test_name"
+        "$MFB_EXE" audit --format json "tests/$test_name" 2>&1
+        echo "[exit $?]"
+      } >>"$audit_path"
+    fi
+  fi
+
   compare_file "$test_name/build.log" "$golden_dir/build.log" "$log_path"
+  compare_optional_output "$test_name/$package_name.audit" \
+    "$golden_dir/$package_name.audit" \
+    "$audit_path"
   compare_optional_output "$test_name/$package_name.ast" \
     "$golden_dir/$package_name.ast" \
     "$actual_dir/$package_name.ast"

@@ -1,0 +1,70 @@
+$ mfb audit --format text tests/audit-lockfile-current
+Audit: audit_lockfile_current 0.1.0 (executable)
+Root: tests/audit-lockfile-current
+Language: 1.0
+Entry: main
+Lockfile: present (projectHash matches)
+
+Summary:
+  errors: 0
+  warnings: 0
+  infos: 0
+[exit 0]
+$ mfb audit --format json tests/audit-lockfile-current
+{
+  "schema": "mfb.audit.v1",
+  "tool": {
+    "name": "mfb",
+    "version": "0.1.0"
+  },
+  "project": {
+    "name": "audit_lockfile_current",
+    "ident": "audit_lockfile_current",
+    "version": "0.1.0",
+    "kind": "executable",
+    "root": "tests/audit-lockfile-current",
+    "entry": "main",
+    "languageVersion": "1.0"
+  },
+  "summary": {
+    "errors": 0,
+    "warnings": 0,
+    "infos": 0
+  },
+  "lockfile": {
+    "path": "mfb.lock",
+    "present": true,
+    "locked": false,
+    "lockfileVersion": 1,
+    "projectHashMatches": true
+  },
+  "dependencies": [],
+  "packages": [],
+  "sourceFlow": [
+    {
+      "function": "main",
+      "path": "src/main.mfb",
+      "line": 1,
+      "fallible": false,
+      "trap": null,
+      "calls": []
+    }
+  ],
+  "resources": [],
+  "nativeLinks": [],
+  "permissions": [],
+  "findings": []
+}
+[exit 0]
+$ mfb audit --locked --format text tests/audit-lockfile-current
+Audit: audit_lockfile_current 0.1.0 (executable)
+Root: tests/audit-lockfile-current
+Language: 1.0
+Entry: main
+Lockfile: present (projectHash matches) [--locked]
+
+Summary:
+  errors: 0
+  warnings: 0
+  infos: 0
+[exit 0]

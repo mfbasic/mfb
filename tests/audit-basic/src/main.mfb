@@ -1,0 +1,6 @@
+IMPORT io
+
+FUNC main AS Integer
+  io::print("hello")
+  RETURN 0
+END FUNC

@@ -1,0 +1,12 @@
+{
+  "name": "audit_dependency_missing",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "executable",
+  "sources": [{ "root": "src", "role": "main", "include": ["**/*.mfb"] }],
+  "entry": "main",
+  "targets": ["native"],
+  "packages": [
+    { "name": "widgets", "ident": "acme#widgets", "version": "1.0.0", "pin": true, "source": "file:///widgets.mfp" }
+  ]
+}

@@ -1,0 +1,6 @@
+$ mfb build -ast tests/audit-basic
+Wrote AST to tests/audit-basic/audit_basic.ast
+[exit 0]
+$ mfb build -ir tests/audit-basic
+Wrote IR to tests/audit-basic/audit_basic.ir
+[exit 0]

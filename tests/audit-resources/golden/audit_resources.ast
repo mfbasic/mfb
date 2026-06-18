@@ -1,0 +1,50 @@
+{
+  "project": "audit_resources",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "fs", "line": 1 },
+    { "module": "io", "line": 2 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "readFirst",
+      "line": 4,
+      "params": [
+      { "name": "path", "type": "String", "default": null }
+      ],
+      "returnType": "String",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "file", "type": null, "value": { "kind": "call", "callee": "fs.openFile", "arguments": [{ "kind": "identifier", "value": "path" }] }, "line": 5 },
+      { "kind": "return", "value": { "kind": "call", "callee": "fs.readLine", "arguments": [{ "kind": "identifier", "value": "file" }] }, "line": 6 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "main",
+      "line": 9,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "line", "type": null, "value": { "kind": "call", "callee": "readFirst", "arguments": [{ "kind": "string", "value": "data.txt" }] }, "line": 10 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "identifier", "value": "line" }] }, "line": 11 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 12 }
+      ],
+      "trap": {
+      "name": "err",
+      "line": 13,
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "failed" }] }, "line": 14 },
+      { "kind": "return", "value": { "kind": "number", "value": "1" }, "line": 15 }
+      ]
+    }
+    }
+    ]
+  }
+  ]
+}

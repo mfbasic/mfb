@@ -1,0 +1,17 @@
+IMPORT fs
+IMPORT io
+
+FUNC readFirst(path AS String) AS String
+  LET file = fs::openFile(path)
+  RETURN fs::readLine(file)
+END FUNC
+
+FUNC main AS Integer
+  LET line = readFirst("data.txt")
+  io::print(line)
+  RETURN 0
+  TRAP err
+  io::print("failed")
+  RETURN 1
+  END TRAP
+END FUNC

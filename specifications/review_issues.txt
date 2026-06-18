@@ -65,13 +65,22 @@ PRIORITY: MED
 
 === tooling ===
 
-REQUIREMENT: Required audit, fmt, test, and lsp commands
+REQUIREMENT: Required fmt, test, and lsp commands
 SPECIFICATION: mfbasic.md @ §22 Tooling And Auditability
 GROUP: tooling
 RECOMMENDED: CODE CHANGE
 VERIFIED: YES
 PRIORITY: HIGH
-The CLI only exposes `help`, `init`, `init-pkg`, `pkg add/info/verify`, `build`, and `man`. The required `mfb audit`, `mfb fmt`, `mfb test`, and `mfb lsp` commands are not implemented. Add these commands with the specified options, diagnostics, metadata reporting, formatter behavior, test discovery/execution, and LSP diagnostics.
+The CLI only exposes `help`, `init`, `init-pkg`, `pkg add/info/verify`, `build`, `audit`, and `man`. The required `mfb fmt`, `mfb test`, and `mfb lsp` commands are not implemented. Add these commands with the specified options, diagnostics, formatter behavior, test discovery/execution, and LSP diagnostics. (The `mfb audit` command is tracked as a separate entry and is implemented.)
+
+REQUIREMENT: Audit command
+SPECIFICATION: mfbasic.md @ §22 Tooling And Auditability
+GROUP: tooling
+RECOMMENDED: CODE CHANGE
+VERIFIED: YES
+PRIORITY: HIGH
+STATUS: COMPLETE
+`mfb audit [--format text|json] [--locked] [path]` reports fallible call sites, auto-propagation paths, TRAP recovery classification, resource cleanup behavior, native links, package permissions, dependency versions, lockfile mismatches, and verifier status; `--locked` requires the resolved graph to match `mfb.lock`. Implemented in `src/audit/` (reusing the build front-end and package reader, no user-code execution) with deterministic text and JSON (`schema = "mfb.audit.v1"`) output, stable `AUDIT-*` finding codes, exit codes 0/1/2/3, and golden coverage under `tests/audit-*`.
 
 REQUIREMENT: Project manifest validation
 SPECIFICATION: project.md @ §11 Validation
@@ -143,6 +152,7 @@ GROUP: tooling
 RECOMMENDED: SPEC CHANGE
 VERIFIED: YES
 PRIORITY: LOW
+STATUS: COMPLETE
 `plan-audit.md` requires audit output for each `USING` region, but `mfbasic.md` and `error_codes.md` mark `USING` as removed in favor of lexical resource drop. Resolve by updating the audit plan to report lexical resource acquisitions, explicit close calls, scope-exit cleanup paths, and cleanup metadata instead of `USING` regions.
 
 REQUIREMENT: Project manifest `ident` required-field conflict

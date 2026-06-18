@@ -1,0 +1,48 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "audit_resources",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "readFirst",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    { "name": "path", "type": "String", "default": null }
+    ],
+    "returns": "String",
+    "body": [
+    { "op": "bind", "mutable": false, "name": "file", "type": "File", "value": { "kind": "call", "target": "fs.openFile", "args": [{ "kind": "local", "name": "path" }] } },
+    { "op": "return", "value": { "kind": "call", "target": "fs.readLine", "args": [{ "kind": "local", "name": "file" }] } }
+    ]
+  },
+  {
+    "name": "main",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "mutable": false, "name": "line", "type": "String", "value": { "kind": "call", "target": "readFirst", "args": [{ "kind": "const", "type": "String", "value": "data.txt" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "local", "name": "line" }] } },
+    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    {
+      "op": "trap",
+      "name": "err",
+      "body": [
+      { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "failed" }] } },
+      { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "1" } }
+      ]
+    }
+    ]
+  }
+  ]
+}

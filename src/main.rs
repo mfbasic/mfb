@@ -1,5 +1,6 @@
 mod arch;
 mod ast;
+mod audit;
 mod builtins;
 mod bytecode;
 mod ir;
@@ -22,7 +23,7 @@ use std::path::{Path, PathBuf};
 use std::process;
 use tinyjson::JsonValue;
 
-const USAGE: &str = "Usage: mfb <command> <arguments>\n\nCommands:\n  help                        Show this message\n  init <location>             Create a new MFBASIC executable project\n  init-pkg <location>         Create a new MFBASIC package project\n  pkg add <url>               Add a compiled package to the current project\n  pkg info <package>          Show information about a compiled package\n  pkg verify                  Verify packages declared by project.json\n  build [-ast|-ir|-bc|-nir|-nplan|-nobj|-ncode] [-target os-arch] [location] Validate and build an MFBASIC project\n  man [package] [function]    Show built-in package and function help";
+const USAGE: &str = "Usage: mfb <command> <arguments>\n\nCommands:\n  help                        Show this message\n  init <location>             Create a new MFBASIC executable project\n  init-pkg <location>         Create a new MFBASIC package project\n  pkg add <url>               Add a compiled package to the current project\n  pkg info <package>          Show information about a compiled package\n  pkg verify                  Verify packages declared by project.json\n  build [-ast|-ir|-bc|-nir|-nplan|-nobj|-ncode] [-target os-arch] [location] Validate and build an MFBASIC project\n  audit [--format text|json] [--locked] [path] Report audit findings for a project\n  man [package] [function]    Show built-in package and function help";
 
 const MFP_MAGIC: [u8; 8] = [0x4d, 0x46, 0x50, 0x0d, 0x0a, 0x1a, 0x0a, 0x00];
 
@@ -92,6 +93,16 @@ fn main() {
                     }
                 }
             }
+        }
+        Some("audit") => {
+            let options = match audit::parse_options(args.collect()) {
+                Ok(options) => options,
+                Err(err) => {
+                    eprintln!("error: {err}\n\n{USAGE}");
+                    process::exit(2);
+                }
+            };
+            process::exit(audit::run(&options));
         }
         Some("man") => {
             let man_args = args.collect::<Vec<_>>();

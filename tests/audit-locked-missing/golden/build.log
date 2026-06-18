@@ -1,0 +1,6 @@
+$ mfb build -ast tests/audit-locked-missing
+Wrote AST to tests/audit-locked-missing/audit_locked_missing.ast
+[exit 0]
+$ mfb build -ir tests/audit-locked-missing
+Wrote IR to tests/audit-locked-missing/audit_locked_missing.ir
+[exit 0]

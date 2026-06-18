@@ -1,0 +1,32 @@
+$ mfb audit --format yaml tests/audit-usage
+error: invalid --format value `yaml` (expected text or json)
+
+Usage: mfb <command> <arguments>
+
+Commands:
+  help                        Show this message
+  init <location>             Create a new MFBASIC executable project
+  init-pkg <location>         Create a new MFBASIC package project
+  pkg add <url>               Add a compiled package to the current project
+  pkg info <package>          Show information about a compiled package
+  pkg verify                  Verify packages declared by project.json
+  build [-ast|-ir|-bc|-nir|-nplan|-nobj|-ncode] [-target os-arch] [location] Validate and build an MFBASIC project
+  audit [--format text|json] [--locked] [path] Report audit findings for a project
+  man [package] [function]    Show built-in package and function help
+[exit 2]
+$ mfb audit --bogus tests/audit-usage
+error: unknown audit option `--bogus`
+
+Usage: mfb <command> <arguments>
+
+Commands:
+  help                        Show this message
+  init <location>             Create a new MFBASIC executable project
+  init-pkg <location>         Create a new MFBASIC package project
+  pkg add <url>               Add a compiled package to the current project
+  pkg info <package>          Show information about a compiled package
+  pkg verify                  Verify packages declared by project.json
+  build [-ast|-ir|-bc|-nir|-nplan|-nobj|-ncode] [-target os-arch] [location] Validate and build an MFBASIC project
+  audit [--format text|json] [--locked] [path] Report audit findings for a project
+  man [package] [function]    Show built-in package and function help
+[exit 2]
