@@ -3,6 +3,17 @@
 REVIEW_issues="specifications/review_issues.txt"
 MISSING_CLEAN_STREAK_TARGET="${1:-3}"
 
+# Set AUDIT_DEBUG=1 to keep every claude response and log how it was parsed.
+AUDIT_DEBUG="${AUDIT_DEBUG:-}"
+DEBUG_DIR="audit-debug"
+if [ -n "$AUDIT_DEBUG" ]; then
+    mkdir -p "$DEBUG_DIR"
+fi
+
+debug_log() {
+    [ -n "$AUDIT_DEBUG" ] && printf '[debug] %s\n' "$*" >&2
+}
+
 if ! [[ "$MISSING_CLEAN_STREAK_TARGET" =~ ^[1-9][0-9]*$ ]]; then
     echo "Error: clean streak must be a positive integer"
     exit 1
@@ -59,25 +70,27 @@ cleanup() {
 trap cleanup EXIT
 trap request_stop INT TERM
 
-extract_codex_response() {
+extract_review_response() {
     local response_file="$1"
 
-    awk '
-        BEGIN { last = 0 }
-        { lines[NR] = $0 }
-        tolower($0) ~ /codex/ { last = NR }
-        END {
-            if (last == 0) {
-                for (i = 1; i <= NR; i++) {
-                    print lines[i]
-                }
-            } else {
-                for (i = last + 1; i <= NR; i++) {
-                    print lines[i]
+    if [ -n "$CODEX" ]; then
+        awk '
+            BEGIN { last = 0 }
+            { lines[NR] = $0 }
+            tolower($0) ~ /codex/ { last = NR }
+            END {
+                if (last == 0) {
+                    for (i = 1; i <= NR; i++) {
+                        print lines[i]
+                    }
+                } else {
+                    for (i = last + 1; i <= NR; i++) {
+                        print lines[i]
+                    }
                 }
             }
-        }
-    ' "$response_file"
+        ' "$response_file"
+    fi
 }
 
 dedupe_exact_duplicate_halves() {
@@ -147,13 +160,31 @@ Groups (pick the most specific match):
   tooling     CLI commands (build, init, pkg, fmt, test, lsp, audit, check-abi), project configuration, project manifest validation
   package     Package format (.mfp), bytecode sections, linker, ABI hashing, native helper dispatch, package bytecode lowering"
 
-    codex exec "$prompt" >"$response_file" 2>&1
-    echo "$?" >"$exit_file"
+    
+    if [ -n "$CODEX" ]; then
+        codex exec "$prompt" >"$response_file" 2>&1
+        echo "$?" >"$exit_file"
+    else
+        claude -p "$prompt" --allowedTools "Read,Glob,Grep" >"$response_file" 2>&1
+        echo "$?" >"$exit_file"
+    fi
+    
+    if [ -n "$AUDIT_DEBUG" ]; then
+        cp "$response_file" "$DEBUG_DIR/$job_key.response"
+        debug_log "$job_key: claude exit $(cat "$exit_file"), response saved to $DEBUG_DIR/$job_key.response ($(wc -l <"$response_file" | tr -d ' ') lines)"
+    fi
 }
 
 render_progress() {
     local found_count="$1"
     local clean_streak="$2"
+
+    # In debug mode skip the cursor-redraw (it conflicts with debug log lines).
+    if [ -n "$AUDIT_DEBUG" ]; then
+        printf 'scan: found=%d clean_streak=%d/%d\n' \
+            "$found_count" "$clean_streak" "$MISSING_CLEAN_STREAK_TARGET"
+        return
+    fi
 
     if [ -n "$RENDERED" ]; then
         printf '\033[2A'
@@ -234,17 +265,19 @@ process_issues_review() {
     local exit_code response normalized_response missing_body deduped_issues_body
 
     exit_code=$(cat "$exit_file")
-    response=$(extract_codex_response "$response_file")
+    response=$(extract_review_response "$response_file")
 
     if [ "$exit_code" -ne 0 ]; then
-        rm -f "$response_file" "$exit_file"
+        debug_log "$job_key: non-zero claude exit ($exit_code); skipping (response kept in $DEBUG_DIR)"
+        [ -z "$AUDIT_DEBUG" ] && rm -f "$response_file" "$exit_file"
         return 1
     fi
 
     normalized_response=$(printf '%s' "$response" | tr -d '\r' | sed -e '1{/^[[:space:]]*$/d;}' -e '${/^[[:space:]]*$/d;}')
 
     if [ "$normalized_response" = "No missing requirements found" ]; then
-        rm -f "$response_file" "$exit_file"
+        debug_log "$job_key: clean scan (\"No missing requirements found\")"
+        [ -z "$AUDIT_DEBUG" ] && rm -f "$response_file" "$exit_file"
         return 0
     fi
 
@@ -256,7 +289,8 @@ process_issues_review() {
     ')
 
     if [ -z "$missing_body" ]; then
-        rm -f "$response_file" "$exit_file"
+        debug_log "$job_key: response was non-empty but contained no 'REQUIREMENT:' blocks the parser could read — check $DEBUG_DIR/$job_key.response for format drift"
+        [ -z "$AUDIT_DEBUG" ] && rm -f "$response_file" "$exit_file"
         return 2
     fi
 
@@ -285,7 +319,8 @@ process_issues_review() {
         END { if (buf != "") printf "%s%c", buf, 0 }
     ')
 
-    rm -f "$response_file" "$exit_file"
+    debug_log "$job_key: parsed REQUIREMENT block(s), added $added new item(s) to $REVIEW_issues"
+    [ -z "$AUDIT_DEBUG" ] && rm -f "$response_file" "$exit_file"
 
     if [ "$added" -gt 0 ]; then
         FOUND_COUNT=$((FOUND_COUNT + added))
