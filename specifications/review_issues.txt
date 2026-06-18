@@ -771,6 +771,7 @@ GROUP: math
 RECOMMENDED: CODE CHANGE
 VERIFIED: YES
 PRIORITY: MED
+STATUS: COMPLETE
 The spec defines dedicated floating-point domain behavior: explicit Float domain failures must fail with `ErrFloatDomain` (`77050012`), while NaN and infinity results use their own codes. Native math lowering currently emits `ErrInvalidArgument` for Float `sqrt`, `log`, and `log10` domain checks, and lets functions like `asin`/`acos` produce NaN that is then reported as `ErrFloatNaN` rather than a domain error. Resolve by adding Float-specific domain checks for the affected math functions and emitting `ErrFloatDomain`, while preserving `ErrInvalidArgument` for Integer/Fixed domain failures.
 
 REQUIREMENT: Fixed math overloads must be deterministic Fixed operations
@@ -779,6 +780,7 @@ GROUP: math
 RECOMMENDED: CODE CHANGE
 VERIFIED: YES
 PRIORITY: HIGH
+STATUS: COMPLETE
 The math package specifies Fixed overloads for functions such as `sqrt`, `pow`, `exp`, `log`, trigonometric functions, and Fixed `floor`/`ceil`/`round`, with Fixed results rounded to nearest Fixed. The backend currently lowers many Fixed math calls through host floating-point/libm operations and converts back to Fixed, which violates Fixed’s deterministic cross-target semantics and can produce incorrect results for large Fixed values. Implement compiler-owned deterministic Fixed math paths, use raw Fixed arithmetic for rounding helpers, and add runtime tests covering Fixed overloads, edge values, domain errors, overflow, and cross-platform-stable results.
 
 

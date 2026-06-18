@@ -1,0 +1,27 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "math_log10_float_domain_rt",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "mutable": false, "name": "neg", "type": "Float", "value": { "kind": "unary", "op": "-", "operand": { "kind": "const", "type": "Float", "value": "2.0" } } },
+    { "op": "bind", "mutable": false, "name": "result", "type": "Float", "value": { "kind": "call", "target": "math.log10", "args": [{ "kind": "local", "name": "neg" }] } },
+    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

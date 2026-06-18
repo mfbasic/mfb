@@ -1,0 +1,7 @@
+IMPORT math
+
+FUNC main AS Integer
+  LET neg AS Fixed = toFixed("-1.0")
+  LET result AS Fixed = math::sqrt(neg)
+  RETURN 0
+END FUNC

@@ -1,0 +1,7 @@
+IMPORT math
+
+FUNC main AS Integer
+  LET neg AS Float = -1.0
+  LET result AS Float = math::sqrt(neg)
+  RETURN 0
+END FUNC

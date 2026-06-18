@@ -1,0 +1,40 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "math_fixed_transcendental_valid",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "mutable": false, "name": "p", "type": "Byte", "value": { "kind": "const", "type": "Byte", "value": "6" } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "math.sqrt", "args": [{ "kind": "call", "target": "toFixed", "args": [{ "kind": "const", "type": "String", "value": "2.0" }] }] }, { "kind": "local", "name": "p" }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "math.exp", "args": [{ "kind": "call", "target": "toFixed", "args": [{ "kind": "const", "type": "String", "value": "1.0" }] }] }, { "kind": "local", "name": "p" }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "math.log", "args": [{ "kind": "call", "target": "toFixed", "args": [{ "kind": "const", "type": "String", "value": "10.0" }] }] }, { "kind": "local", "name": "p" }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "math.log10", "args": [{ "kind": "call", "target": "toFixed", "args": [{ "kind": "const", "type": "String", "value": "50.0" }] }] }, { "kind": "local", "name": "p" }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "math.pow", "args": [{ "kind": "call", "target": "toFixed", "args": [{ "kind": "const", "type": "String", "value": "1.5" }] }, { "kind": "call", "target": "toFixed", "args": [{ "kind": "const", "type": "String", "value": "2.0" }] }] }, { "kind": "local", "name": "p" }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "math.pow", "args": [{ "kind": "call", "target": "toFixed", "args": [{ "kind": "const", "type": "String", "value": "2.0" }] }, { "kind": "call", "target": "toFixed", "args": [{ "kind": "const", "type": "String", "value": "0.5" }] }] }, { "kind": "local", "name": "p" }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "math.pow", "args": [{ "kind": "call", "target": "toFixed", "args": [{ "kind": "const", "type": "String", "value": "3.0" }] }, { "kind": "call", "target": "toFixed", "args": [{ "kind": "const", "type": "String", "value": "-2.0" }] }] }, { "kind": "local", "name": "p" }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "math.sin", "args": [{ "kind": "call", "target": "toFixed", "args": [{ "kind": "const", "type": "String", "value": "0.5" }] }] }, { "kind": "local", "name": "p" }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "math.cos", "args": [{ "kind": "call", "target": "toFixed", "args": [{ "kind": "const", "type": "String", "value": "0.5" }] }] }, { "kind": "local", "name": "p" }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "math.tan", "args": [{ "kind": "call", "target": "toFixed", "args": [{ "kind": "const", "type": "String", "value": "1.0" }] }] }, { "kind": "local", "name": "p" }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "math.asin", "args": [{ "kind": "call", "target": "toFixed", "args": [{ "kind": "const", "type": "String", "value": "0.8" }] }] }, { "kind": "local", "name": "p" }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "math.acos", "args": [{ "kind": "call", "target": "toFixed", "args": [{ "kind": "const", "type": "String", "value": "-0.3" }] }] }, { "kind": "local", "name": "p" }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "math.atan", "args": [{ "kind": "call", "target": "toFixed", "args": [{ "kind": "const", "type": "String", "value": "2.0" }] }] }, { "kind": "local", "name": "p" }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "math.atan2", "args": [{ "kind": "call", "target": "toFixed", "args": [{ "kind": "const", "type": "String", "value": "3.0" }] }, { "kind": "call", "target": "toFixed", "args": [{ "kind": "const", "type": "String", "value": "-4.0" }] }] }, { "kind": "local", "name": "p" }] }] } },
+    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

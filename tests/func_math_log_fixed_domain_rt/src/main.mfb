@@ -1,0 +1,7 @@
+IMPORT math
+
+FUNC main AS Integer
+  LET zero AS Fixed = toFixed("0.0")
+  LET result AS Fixed = math::log(zero)
+  RETURN 0
+END FUNC

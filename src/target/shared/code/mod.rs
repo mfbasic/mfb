@@ -12866,6 +12866,7 @@ mod builder_collection_queries;
 mod builder_collection_updates;
 mod builder_control;
 mod builder_conversions;
+mod builder_fixed_math;
 mod builder_fs_paths;
 mod builder_math;
 mod builder_misc;
@@ -13436,6 +13437,7 @@ fn module_may_emit_float_numeric_error(module: &NirModule) -> bool {
     if module_uses_any_call(
         module,
         &[
+            "math.sqrt",
             "math.pow",
             "math.atan2",
             "math.exp",

@@ -1,0 +1,8 @@
+IMPORT math
+
+FUNC main AS Integer
+  LET base AS Fixed = toFixed("2.0")
+  LET exponent AS Fixed = toFixed("40.0")
+  LET result AS Fixed = math::pow(base, exponent)
+  RETURN 0
+END FUNC

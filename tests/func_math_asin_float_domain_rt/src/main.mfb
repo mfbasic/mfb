@@ -1,0 +1,7 @@
+IMPORT math
+
+FUNC main AS Integer
+  LET outside AS Float = 2.0
+  LET result AS Float = math::asin(outside)
+  RETURN 0
+END FUNC

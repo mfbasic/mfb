@@ -1,0 +1,7 @@
+IMPORT math
+
+FUNC main AS Integer
+  LET outside AS Float = -1.5
+  LET result AS Float = math::acos(outside)
+  RETURN 0
+END FUNC

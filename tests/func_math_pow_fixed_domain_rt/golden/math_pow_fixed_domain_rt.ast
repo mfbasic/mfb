@@ -1,0 +1,28 @@
+{
+  "project": "math_pow_fixed_domain_rt",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "math", "line": 1 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "main",
+      "line": 3,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "base", "type": "Fixed", "value": { "kind": "call", "callee": "toFixed", "arguments": [{ "kind": "string", "value": "-2.0" }] }, "line": 4 },
+      { "kind": "binding", "mutable": false, "name": "exponent", "type": "Fixed", "value": { "kind": "call", "callee": "toFixed", "arguments": [{ "kind": "string", "value": "0.5" }] }, "line": 5 },
+      { "kind": "binding", "mutable": false, "name": "result", "type": "Fixed", "value": { "kind": "call", "callee": "math.pow", "arguments": [{ "kind": "identifier", "value": "base" }, { "kind": "identifier", "value": "exponent" }] }, "line": 6 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 7 }
+      ]
+    }
+    ]
+  }
+  ]
+}

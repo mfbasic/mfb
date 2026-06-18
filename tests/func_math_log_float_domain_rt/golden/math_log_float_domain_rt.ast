@@ -1,0 +1,27 @@
+{
+  "project": "math_log_float_domain_rt",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "math", "line": 1 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "main",
+      "line": 3,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "zero", "type": "Float", "value": { "kind": "number", "value": "0.0" }, "line": 4 },
+      { "kind": "binding", "mutable": false, "name": "result", "type": "Float", "value": { "kind": "call", "callee": "math.log", "arguments": [{ "kind": "identifier", "value": "zero" }] }, "line": 5 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 6 }
+      ]
+    }
+    ]
+  }
+  ]
+}

@@ -393,15 +393,15 @@ Math functions follow the numeric edge-case rules in §4.1. Integer and `Fixed` 
 | `math::ceil` | `FUNC ceil(value AS Fixed) AS Integer` | Smallest integer greater than or equal to `value`. |
 | `math::round` | `FUNC round(value AS Float) AS Integer` | Nearest integer, halves away from zero. Fails with `77050010` when outside `Integer` range. |
 | `math::round` | `FUNC round(value AS Fixed) AS Integer` | Nearest integer, halves away from zero. |
-| `math::sqrt` | `FUNC sqrt(value AS Float) AS Float` | Square root. Fails with `77050002` for negative input. |
+| `math::sqrt` | `FUNC sqrt(value AS Float) AS Float` | Square root. Fails with `77050012` for negative input. |
 | `math::sqrt` | `FUNC sqrt(value AS Fixed) AS Fixed` | Fixed-point square root rounded to nearest `Fixed`. Fails with `77050002` for negative input. |
 | `math::pow` | `FUNC pow(base AS Float, exponent AS Float) AS Float` | Power function. |
 | `math::pow` | `FUNC pow(base AS Fixed, exponent AS Fixed) AS Fixed` | Fixed-point power rounded to nearest `Fixed`. Fails with `77050002` for invalid domains and `77050010` on overflow. |
 | `math::exp` | `FUNC exp(value AS Float) AS Float` | e raised to `value`. |
 | `math::exp` | `FUNC exp(value AS Fixed) AS Fixed` | Fixed-point e raised to `value`, rounded to nearest `Fixed`. Fails with `77050010` on overflow. |
-| `math::log` | `FUNC log(value AS Float) AS Float` | Natural logarithm. Fails with `77050002` for non-positive input. |
+| `math::log` | `FUNC log(value AS Float) AS Float` | Natural logarithm. Fails with `77050012` for non-positive input. |
 | `math::log` | `FUNC log(value AS Fixed) AS Fixed` | Fixed-point natural logarithm rounded to nearest `Fixed`. Fails with `77050002` for non-positive input. |
-| `math::log10` | `FUNC log10(value AS Float) AS Float` | Base-10 logarithm. Fails with `77050002` for non-positive input. |
+| `math::log10` | `FUNC log10(value AS Float) AS Float` | Base-10 logarithm. Fails with `77050012` for non-positive input. |
 | `math::log10` | `FUNC log10(value AS Fixed) AS Fixed` | Fixed-point base-10 logarithm rounded to nearest `Fixed`. Fails with `77050002` for non-positive input. |
 | `math::sin` | `FUNC sin(value AS Float) AS Float` | Sine, radians. |
 | `math::sin` | `FUNC sin(value AS Fixed) AS Fixed` | Fixed-point sine, radians, rounded to nearest `Fixed`. |
@@ -409,9 +409,9 @@ Math functions follow the numeric edge-case rules in §4.1. Integer and `Fixed` 
 | `math::cos` | `FUNC cos(value AS Fixed) AS Fixed` | Fixed-point cosine, radians, rounded to nearest `Fixed`. |
 | `math::tan` | `FUNC tan(value AS Float) AS Float` | Tangent, radians. |
 | `math::tan` | `FUNC tan(value AS Fixed) AS Fixed` | Fixed-point tangent, radians, rounded to nearest `Fixed`. Fails with `77050002` at undefined points. |
-| `math::asin` | `FUNC asin(value AS Float) AS Float` | Arc sine. Fails with `77050002` when outside `[-1.0, 1.0]`. |
+| `math::asin` | `FUNC asin(value AS Float) AS Float` | Arc sine. Fails with `77050012` when outside `[-1.0, 1.0]`. |
 | `math::asin` | `FUNC asin(value AS Fixed) AS Fixed` | Fixed-point arc sine rounded to nearest `Fixed`. Fails with `77050002` when outside `[-1.0, 1.0]`. |
-| `math::acos` | `FUNC acos(value AS Float) AS Float` | Arc cosine. Fails with `77050002` when outside `[-1.0, 1.0]`. |
+| `math::acos` | `FUNC acos(value AS Float) AS Float` | Arc cosine. Fails with `77050012` when outside `[-1.0, 1.0]`. |
 | `math::acos` | `FUNC acos(value AS Fixed) AS Fixed` | Fixed-point arc cosine rounded to nearest `Fixed`. Fails with `77050002` when outside `[-1.0, 1.0]`. |
 | `math::atan` | `FUNC atan(value AS Float) AS Float` | Arc tangent. |
 | `math::atan` | `FUNC atan(value AS Fixed) AS Fixed` | Fixed-point arc tangent rounded to nearest `Fixed`. |

@@ -259,20 +259,10 @@ impl CodeBuilder<'_> {
                 }
             }
             "Fixed" => {
-                self.load_numeric_as_double(
-                    "d0",
-                    &ValueResult {
-                        type_: "Fixed".to_string(),
-                        location: value.location.clone(),
-                        text: value.text.clone(),
-                    },
-                )?;
-                match function {
-                    "floor" => self.emit(abi::float_floor_to_signed_x(&dst, "d0")),
-                    "ceil" => self.emit(abi::float_ceil_to_signed_x(&dst, "d0")),
-                    "round" => self.emit(abi::float_round_to_signed_x(&dst, "d0")),
-                    _ => unreachable!(),
-                }
+                // Deterministic raw Q32.32 rounding: the integer result of
+                // rounding a Fixed always fits in `Integer` range (|real| < 2^31),
+                // so no host floating-point conversion is required.
+                self.emit_fixed_rounding_to_integer(function, &value.location, &dst)?;
             }
             other => return Err(format!("math.{function} does not accept {other}")),
         }
@@ -331,7 +321,7 @@ impl CodeBuilder<'_> {
                 self.emit(abi::float_compare_zero_d("d0"));
                 let valid = self.label("math_sqrt_valid");
                 self.emit(abi::branch_ge(&valid));
-                self.emit_invalid_argument_return()?;
+                self.emit_float_domain_return()?;
                 self.emit(abi::label(&valid));
                 self.emit(abi::float_sqrt_d("d0", "d0"));
                 self.emit(abi::float_move_x_from_d(&dst, "d0"));
@@ -342,17 +332,13 @@ impl CodeBuilder<'_> {
                 })
             }
             "Fixed" => {
-                let dst = self.allocate_register()?;
                 self.emit(abi::compare_immediate(&value.location, "0"));
                 let valid = self.label("math_fixed_sqrt_valid");
                 self.emit(abi::branch_ge(&valid));
                 self.emit_invalid_argument_return()?;
                 self.emit(abi::label(&valid));
-                self.load_numeric_as_double("d0", &value)?;
-                self.emit(abi::float_sqrt_d("d0", "d0"));
-                self.emit_f64_const("d1", "x17", 4_294_967_296.0);
-                self.emit(abi::float_multiply_d("d0", "d0", "d1"));
-                self.emit(abi::float_round_to_signed_x(&dst, "d0"));
+                // Deterministic raw Q32.32 square root (no host floating-point).
+                let dst = self.emit_fixed_sqrt(&value.location)?;
                 Ok(ValueResult {
                     type_: "Fixed".to_string(),
                     location: dst,
@@ -368,6 +354,49 @@ impl CodeBuilder<'_> {
         function: &str,
         args: &[NirValue],
     ) -> Result<ValueResult, String> {
+        // Lower each argument and spill it to its own stack slot immediately.
+        // Lowering a later argument can reset the temporary register file (e.g.
+        // `toFixed`), which would otherwise clobber an earlier argument still
+        // held only in a register.
+        let mut slots = Vec::with_capacity(args.len());
+        let mut types = Vec::with_capacity(args.len());
+        let mut texts = Vec::with_capacity(args.len());
+        for arg in args {
+            let value = self.lower_value(arg)?;
+            let slot = self.allocate_stack_object("math_arg", 8);
+            self.emit(abi::store_u64(&value.location, abi::stack_pointer(), slot));
+            slots.push(slot);
+            types.push(value.type_);
+            texts.push(value.text);
+        }
+        let Some(first_type) = types.first().cloned() else {
+            return Err(format!("math.{function} expects at least one argument"));
+        };
+        if !matches!(first_type.as_str(), "Float" | "Fixed") {
+            return Err(format!("math.{function} does not accept {first_type}"));
+        }
+        if types.iter().any(|type_| type_ != &first_type) {
+            return Err(format!("math.{function} requires matching argument types"));
+        }
+        // `Fixed` overloads use deterministic compiler-owned Q32.32 paths rather
+        // than the platform libm, which is non-deterministic across targets.
+        if first_type == "Fixed" {
+            self.reset_temporary_registers();
+            let values = slots
+                .iter()
+                .zip(texts.iter())
+                .map(|(slot, text)| {
+                    let register = self.allocate_register()?;
+                    self.emit(abi::load_u64(&register, abi::stack_pointer(), *slot));
+                    Ok(ValueResult {
+                        type_: "Fixed".to_string(),
+                        location: register,
+                        text: text.clone(),
+                    })
+                })
+                .collect::<Result<Vec<_>, String>>()?;
+            return self.lower_fixed_external_math(function, &values);
+        }
         let symbol = external_math_symbol(function, self.platform_imports)
             .ok_or_else(|| format!("native math lowering does not support math.{function}"))?;
         let Some(library) = self.platform_imports.get(&symbol).cloned() else {
@@ -376,51 +405,42 @@ impl CodeBuilder<'_> {
             ));
         };
 
-        let values = args
-            .iter()
-            .map(|arg| self.lower_value(arg))
-            .collect::<Result<Vec<_>, _>>()?;
-        let Some(first) = values.first() else {
-            return Err(format!("math.{function} expects at least one argument"));
-        };
-        if !matches!(first.type_.as_str(), "Float" | "Fixed") {
-            return Err(format!("math.{function} does not accept {}", first.type_));
-        }
-        if values.iter().any(|value| value.type_ != first.type_) {
-            return Err(format!("math.{function} requires matching argument types"));
-        }
-        let slots = values
-            .iter()
-            .map(|value| {
-                let slot = self.allocate_stack_object("math_libsystem_arg", 8);
-                self.emit(abi::store_u64(&value.location, abi::stack_pointer(), slot));
-                slot
-            })
-            .collect::<Vec<_>>();
-
         self.reset_temporary_registers();
-        for (index, value) in values.iter().enumerate() {
+        for (index, slot) in slots.iter().enumerate() {
             let register = self.allocate_register()?;
-            self.emit(abi::load_u64(&register, abi::stack_pointer(), slots[index]));
-            match value.type_.as_str() {
-                "Float" => self.emit(abi::float_move_d_from_x(&format!("d{index}"), &register)),
-                "Fixed" => {
-                    let fixed_value = ValueResult {
-                        type_: "Fixed".to_string(),
-                        location: register,
-                        text: value.text.clone(),
-                    };
-                    self.load_numeric_as_double(&format!("d{index}"), &fixed_value)?;
-                }
-                other => return Err(format!("math.{function} does not accept {other}")),
-            }
+            self.emit(abi::load_u64(&register, abi::stack_pointer(), *slot));
+            self.emit(abi::float_move_d_from_x(&format!("d{index}"), &register));
         }
         if matches!(function, "log" | "log10") {
+            // Float domain failures (non-positive input) report ErrFloatDomain.
             self.emit(abi::float_compare_zero_d("d0"));
             let valid = self.label("math_log_positive");
             self.emit(abi::branch_gt(&valid));
-            self.emit_invalid_argument_return()?;
+            self.emit_float_domain_return()?;
             self.emit(abi::label(&valid));
+        }
+        if matches!(function, "asin" | "acos") {
+            // Arc sine/cosine are only defined on [-1.0, 1.0]; inputs outside the
+            // domain would otherwise produce NaN. Report the domain failure
+            // explicitly as ErrFloatDomain. The error path is terminal, so its
+            // scratch registers are dead on the in-domain path; restore the
+            // allocation counter afterwards to avoid inflating register pressure.
+            let saved_registers = self.next_register;
+            let valid = self.label("math_arc_in_domain");
+            let domain_error = self.label("math_arc_domain_error");
+            // value > 1.0 OR value < -1.0  =>  out of domain
+            self.emit_f64_const("d1", "x17", 1.0);
+            self.emit(abi::float_subtract_d("d2", "d0", "d1"));
+            self.emit(abi::float_compare_zero_d("d2"));
+            self.emit(abi::branch_gt(&domain_error));
+            self.emit_f64_const("d1", "x17", -1.0);
+            self.emit(abi::float_subtract_d("d2", "d0", "d1"));
+            self.emit(abi::float_compare_zero_d("d2"));
+            self.emit(abi::branch_ge(&valid));
+            self.emit(abi::label(&domain_error));
+            self.emit_float_domain_return()?;
+            self.emit(abi::label(&valid));
+            self.next_register = saved_registers;
         }
 
         self.emit(abi::branch_link(&symbol));
@@ -436,24 +456,57 @@ impl CodeBuilder<'_> {
         self.emit(abi::float_move_x_from_d(&result_bits, "d0"));
         self.emit_float_result_check(&result_bits, FloatInfinityError::Infinity)?;
 
-        match first.type_.as_str() {
-            "Float" => Ok(ValueResult {
-                type_: "Float".to_string(),
-                location: result_bits,
-                text: format!("math.{function}({})", join_texts(&values)),
-            }),
-            "Fixed" => {
-                let result = self.allocate_register()?;
-                self.emit(abi::float_move_d_from_x("d0", &result_bits));
-                self.emit_math_double_to_fixed_value(&result)?;
-                Ok(ValueResult {
-                    type_: "Fixed".to_string(),
-                    location: result,
-                    text: format!("math.{function}({})", join_texts(&values)),
-                })
+        Ok(ValueResult {
+            type_: "Float".to_string(),
+            location: result_bits,
+            text: format!("math.{function}({})", texts.join(", ")),
+        })
+    }
+
+    /// Lower a `Fixed` transcendental overload to a deterministic Q32.32
+    /// implementation. `values` holds the already-lowered `Fixed` arguments.
+    fn lower_fixed_external_math(
+        &mut self,
+        function: &str,
+        values: &[ValueResult],
+    ) -> Result<ValueResult, String> {
+        let text = format!("math.{function}({})", join_texts(values));
+        let location = match function {
+            "atan2" => self.emit_fixed_atan2(&values[0].location, &values[1].location)?,
+            "atan" => {
+                let one = self.allocate_register()?;
+                self.emit(abi::move_immediate(&one, "Fixed", &(1u64 << 32).to_string()));
+                self.emit_fixed_atan2(&values[0].location, &one)?
             }
-            other => Err(format!("math.{function} does not accept {other}")),
-        }
+            "asin" => self.emit_fixed_asin(&values[0].location, false)?,
+            "acos" => self.emit_fixed_asin(&values[0].location, true)?,
+            "sin" => self.emit_fixed_sin_cos(&values[0].location, false)?,
+            "cos" => self.emit_fixed_sin_cos(&values[0].location, true)?,
+            "tan" => self.emit_fixed_tan(&values[0].location)?,
+            "exp" => self.emit_fixed_exp(&values[0].location)?,
+            "log" => self.emit_fixed_log(&values[0].location, false)?,
+            "log10" => self.emit_fixed_log(&values[0].location, true)?,
+            "pow" => self.emit_fixed_pow_general(&values[0].location, &values[1].location)?,
+            other => {
+                return Err(format!(
+                    "deterministic Fixed math does not support math.{other}"
+                ))
+            }
+        };
+        // The deterministic routines reset the register file internally and may
+        // return a high-numbered register, leaving little room for the
+        // surrounding expression. Normalize by spilling and reloading into a
+        // freshly reset register file.
+        let slot = self.allocate_stack_object("fixed_math_result", 8);
+        self.emit(abi::store_u64(&location, abi::stack_pointer(), slot));
+        self.reset_temporary_registers();
+        let result = self.allocate_register()?;
+        self.emit(abi::load_u64(&result, abi::stack_pointer(), slot));
+        Ok(ValueResult {
+            type_: "Fixed".to_string(),
+            location: result,
+            text,
+        })
     }
 
     pub(super) fn emit_float_result_check(
@@ -483,44 +536,6 @@ impl CodeBuilder<'_> {
         Ok(())
     }
 
-    fn emit_math_double_to_fixed_value(&mut self, result: &str) -> Result<(), String> {
-        let bits = self.allocate_register()?;
-        let exponent = self.allocate_register()?;
-        let sign = self.allocate_register()?;
-        let mantissa = self.allocate_register()?;
-        let range_ok = self.label("math_fixed_result_range_ok");
-        let edge = self.label("math_fixed_result_edge");
-        let edge_negative = self.label("math_fixed_result_edge_negative");
-        let overflow = self.label("math_fixed_result_overflow");
-        let ok = self.label("math_fixed_result_ok");
-        self.emit(abi::float_move_x_from_d(&bits, "d0"));
-        self.emit(abi::shift_right_immediate(&exponent, &bits, 52));
-        self.emit(abi::move_immediate("x17", "Integer", "2047"));
-        self.emit(abi::and_registers(&exponent, &exponent, "x17"));
-        self.emit(abi::compare_immediate(&exponent, "1054"));
-        self.emit(abi::branch_lt(&range_ok));
-        self.emit(abi::branch_eq(&edge));
-        self.emit(abi::branch(&overflow));
-        self.emit(abi::label(&edge));
-        self.emit(abi::shift_right_immediate(&sign, &bits, 63));
-        self.emit(abi::compare_immediate(&sign, "1"));
-        self.emit(abi::branch_eq(&edge_negative));
-        self.emit(abi::branch(&overflow));
-        self.emit(abi::label(&edge_negative));
-        self.emit(abi::move_immediate("x17", "Integer", "4503599627370495"));
-        self.emit(abi::and_registers(&mantissa, &bits, "x17"));
-        self.emit(abi::compare_immediate(&mantissa, "0"));
-        self.emit(abi::branch_ne(&overflow));
-        self.emit(abi::label(&range_ok));
-        self.emit_f64_const("d1", "x17", 4_294_967_296.0);
-        self.emit(abi::float_multiply_d("d0", "d0", "d1"));
-        self.emit(abi::float_round_to_signed_x(result, "d0"));
-        self.emit(abi::branch(&ok));
-        self.emit(abi::label(&overflow));
-        self.emit_overflow_return()?;
-        self.emit(abi::label(&ok));
-        Ok(())
-    }
 }
 
 pub(super) fn external_math_symbol(

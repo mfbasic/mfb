@@ -936,6 +936,8 @@ impl CodeBuilder<'_> {
         left: &str,
         right: &str,
     ) -> Result<(), String> {
+        // The working registers are dead once the product lands in `dst`.
+        let saved_registers = self.next_register;
         let high = self.allocate_register()?;
         let shifted_high = self.allocate_register()?;
         let max_high = self.allocate_register()?;
@@ -961,6 +963,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&overflow));
         self.emit_overflow_return()?;
         self.emit(abi::label(&ok));
+        self.next_register = saved_registers;
         Ok(())
     }
 
@@ -970,6 +973,8 @@ impl CodeBuilder<'_> {
         left: &str,
         right: &str,
     ) -> Result<(), String> {
+        // The working registers are dead once the quotient lands in `dst`.
+        let saved_registers = self.next_register;
         self.emit_nonzero_or_invalid(right)?;
         let lhs_abs = self.allocate_register()?;
         let rhs_abs = self.allocate_register()?;
@@ -1031,6 +1036,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&negative));
         self.emit_neg_i64(dst)?;
         self.emit(abi::label(&quotient_done));
+        self.next_register = saved_registers;
         Ok(())
     }
 
