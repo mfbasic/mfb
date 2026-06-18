@@ -629,6 +629,41 @@ impl<'a> TypeChecker<'a> {
         variants
     }
 
+    fn report_expanded_union_member_conflicts(&mut self, file: &AstFile, type_decl: &TypeDecl) {
+        let mut included_members: HashMap<String, String> = HashMap::new();
+        for include in &type_decl.includes {
+            for variant in self.expanded_union_variants(include, &mut HashSet::new()) {
+                if let Some(previous_include) =
+                    included_members.insert(variant.name.clone(), include.clone())
+                {
+                    self.report(
+                        "TYPE_DUPLICATE_VARIANT",
+                        &format!(
+                            "Member type `{}` in UNION `{}` is provided by both included UNION `{}` and included UNION `{}`.",
+                            variant.name, type_decl.name, previous_include, include
+                        ),
+                        file,
+                        type_decl.line,
+                    );
+                }
+            }
+        }
+
+        for variant in &type_decl.variants {
+            if let Some(include) = included_members.get(&variant.name) {
+                self.report(
+                    "TYPE_DUPLICATE_VARIANT",
+                    &format!(
+                        "Member type `{}` in UNION `{}` conflicts with a member included from UNION `{}`.",
+                        variant.name, type_decl.name, include
+                    ),
+                    file,
+                    variant.line,
+                );
+            }
+        }
+    }
+
     fn type_info(&self, file: &AstFile, type_decl: &TypeDecl) -> TypeInfo {
         let fields = type_decl
             .fields
@@ -894,6 +929,7 @@ impl<'a> TypeChecker<'a> {
                         }
                     }
                 }
+                self.report_expanded_union_member_conflicts(file, type_decl);
 
                 for variant in &type_decl.variants {
                     let type_ = self.parse_type(&variant.name);

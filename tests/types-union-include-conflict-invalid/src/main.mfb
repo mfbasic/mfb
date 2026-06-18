@@ -1,0 +1,40 @@
+TYPE Circle
+  radius AS Integer
+END TYPE
+
+TYPE Rect
+  width AS Integer
+  height AS Integer
+END TYPE
+
+TYPE Point
+  value AS Nothing
+END TYPE
+
+TYPE Triangle
+  a AS Integer
+  b AS Integer
+  c AS Integer
+END TYPE
+
+UNION Shape
+  Circle
+  Rect
+END UNION
+
+UNION AlsoRound
+  Circle
+  Point
+END UNION
+
+UNION DuplicateLocal INCLUDES Shape
+  Circle
+END UNION
+
+UNION DuplicateIncludes INCLUDES Shape, AlsoRound
+  Triangle
+END UNION
+
+FUNC main AS Integer
+  RETURN 0
+END FUNC
