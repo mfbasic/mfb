@@ -1,0 +1,44 @@
+TYPE Tree
+  value AS Integer
+  children AS List OF Tree
+END TYPE
+
+TYPE ConfigJsonNull
+  value AS Nothing
+END TYPE
+
+TYPE ConfigJsonBool
+  value AS Boolean
+END TYPE
+
+TYPE ConfigJsonNum
+  value AS Float
+END TYPE
+
+TYPE ConfigJsonStr
+  value AS String
+END TYPE
+
+TYPE ConfigJsonArr
+  items AS List OF ConfigJson
+END TYPE
+
+TYPE ConfigJsonObj
+  fields AS Map OF String TO ConfigJson
+END TYPE
+
+UNION ConfigJson
+  ConfigJsonNull
+  ConfigJsonBool
+  ConfigJsonNum
+  ConfigJsonStr
+  ConfigJsonArr
+  ConfigJsonObj
+END UNION
+
+FUNC main AS Integer
+  LET tree AS Tree = Tree[1, []]
+  LET nullValue AS ConfigJson = ConfigJsonNull[NOTHING]
+  LET obj AS ConfigJson = ConfigJsonObj[Map OF String TO ConfigJson { "empty" := nullValue }]
+  RETURN tree.value
+END FUNC

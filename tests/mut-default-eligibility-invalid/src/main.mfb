@@ -17,7 +17,7 @@ TYPE WrappedFlag
 END TYPE
 
 TYPE Node
-  tail AS Node
+  tail AS Choice
 END TYPE
 
 FUNC sample AS Integer

@@ -646,6 +646,12 @@ pub const RULES: &[Rule] = &[
         message: "union members must name concrete TYPE declarations",
     },
     Rule {
+        code: "2-203-0065",
+        name: "TYPE_RECURSIVE_RECORD_REQUIRES_INDIRECTION",
+        severity: Severity::Error,
+        message: "recursive record cycle must pass through a List, Map, or UNION",
+    },
+    Rule {
         code: "2-200-0011",
         name: "PROJECT_ENTRY_INVALID",
         severity: Severity::Error,

@@ -664,6 +664,44 @@ impl<'a> TypeChecker<'a> {
         }
     }
 
+    fn direct_record_successors(&self, name: &str) -> Vec<String> {
+        let Some(info) = self.type_infos.get(name) else {
+            return Vec::new();
+        };
+        if !matches!(info.kind, TypeDeclKind::Type) {
+            return Vec::new();
+        }
+        info.fields
+            .iter()
+            .filter_map(|field| match &field.type_ {
+                Type::User(type_name)
+                    if matches!(
+                        self.type_infos.get(type_name).map(|info| info.kind),
+                        Some(TypeDeclKind::Type)
+                    ) =>
+                {
+                    Some(type_name.clone())
+                }
+                _ => None,
+            })
+            .collect()
+    }
+
+    fn record_field_cycle(&self, start: &str) -> bool {
+        let mut visited = HashSet::new();
+        let mut stack = self.direct_record_successors(start);
+        while let Some(node) = stack.pop() {
+            if node == start {
+                return true;
+            }
+            if !visited.insert(node.clone()) {
+                continue;
+            }
+            stack.extend(self.direct_record_successors(&node));
+        }
+        false
+    }
+
     fn type_info(&self, file: &AstFile, type_decl: &TypeDecl) -> TypeInfo {
         let fields = type_decl
             .fields
@@ -909,6 +947,17 @@ impl<'a> TypeChecker<'a> {
                 for field in &type_decl.fields {
                     let type_ = self.parse_type(&field.type_name);
                     self.check_type_reference(file, &type_, field.line);
+                }
+                if self.record_field_cycle(&type_decl.name) {
+                    self.report(
+                        "TYPE_RECURSIVE_RECORD_REQUIRES_INDIRECTION",
+                        &format!(
+                            "Record `{}` refers to itself without passing through a List, Map, or UNION; such a record has no base case and cannot be constructed.",
+                            type_decl.name
+                        ),
+                        file,
+                        type_decl.line,
+                    );
                 }
             }
             TypeDeclKind::Union => {

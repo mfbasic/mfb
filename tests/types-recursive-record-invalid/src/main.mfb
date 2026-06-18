@@ -1,0 +1,16 @@
+TYPE Node
+  value AS Integer
+  child AS Node
+END TYPE
+
+TYPE A
+  b AS B
+END TYPE
+
+TYPE B
+  a AS A
+END TYPE
+
+FUNC main AS Integer
+  RETURN 0
+END FUNC

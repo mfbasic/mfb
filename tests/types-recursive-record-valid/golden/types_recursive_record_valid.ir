@@ -1,0 +1,129 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "types_recursive_record_valid",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  {
+    "kind": "type",
+    "visibility": "private",
+    "name": "Tree",
+    "fields": [
+    { "visibility": null, "name": "value", "type": "Integer" },
+    { "visibility": null, "name": "children", "type": "List OF Tree" }
+    ]
+  },
+  {
+    "kind": "type",
+    "visibility": "private",
+    "name": "ConfigJsonNull",
+    "fields": [
+    { "visibility": null, "name": "value", "type": "Nothing" }
+    ]
+  },
+  {
+    "kind": "type",
+    "visibility": "private",
+    "name": "ConfigJsonBool",
+    "fields": [
+    { "visibility": null, "name": "value", "type": "Boolean" }
+    ]
+  },
+  {
+    "kind": "type",
+    "visibility": "private",
+    "name": "ConfigJsonNum",
+    "fields": [
+    { "visibility": null, "name": "value", "type": "Float" }
+    ]
+  },
+  {
+    "kind": "type",
+    "visibility": "private",
+    "name": "ConfigJsonStr",
+    "fields": [
+    { "visibility": null, "name": "value", "type": "String" }
+    ]
+  },
+  {
+    "kind": "type",
+    "visibility": "private",
+    "name": "ConfigJsonArr",
+    "fields": [
+    { "visibility": null, "name": "items", "type": "List OF ConfigJson" }
+    ]
+  },
+  {
+    "kind": "type",
+    "visibility": "private",
+    "name": "ConfigJsonObj",
+    "fields": [
+    { "visibility": null, "name": "fields", "type": "Map OF String TO ConfigJson" }
+    ]
+  },
+  {
+    "kind": "union",
+    "visibility": "private",
+    "name": "ConfigJson",
+    "includes": [],
+    "variants": [
+    {
+      "name": "ConfigJsonNull",
+      "fields": [
+      { "visibility": null, "name": "value", "type": "Nothing" }
+      ]
+    },
+    {
+      "name": "ConfigJsonBool",
+      "fields": [
+      { "visibility": null, "name": "value", "type": "Boolean" }
+      ]
+    },
+    {
+      "name": "ConfigJsonNum",
+      "fields": [
+      { "visibility": null, "name": "value", "type": "Float" }
+      ]
+    },
+    {
+      "name": "ConfigJsonStr",
+      "fields": [
+      { "visibility": null, "name": "value", "type": "String" }
+      ]
+    },
+    {
+      "name": "ConfigJsonArr",
+      "fields": [
+      { "visibility": null, "name": "items", "type": "List OF ConfigJson" }
+      ]
+    },
+    {
+      "name": "ConfigJsonObj",
+      "fields": [
+      { "visibility": null, "name": "fields", "type": "Map OF String TO ConfigJson" }
+      ]
+    }
+    ]
+  }
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "mutable": false, "name": "tree", "type": "Tree", "value": { "kind": "constructor", "type": "Tree", "args": [{ "kind": "const", "type": "Integer", "value": "1" }, { "kind": "list", "type": "List OF Tree", "values": [] }] } },
+    { "op": "bind", "mutable": false, "name": "nullValue", "type": "ConfigJson", "value": { "kind": "unionWrap", "union": "ConfigJson", "member": "ConfigJsonNull", "value": { "kind": "constructor", "type": "ConfigJsonNull", "args": [{ "kind": "const", "type": "Nothing", "value": "NOTHING" }] } } },
+    { "op": "bind", "mutable": false, "name": "obj", "type": "ConfigJson", "value": { "kind": "unionWrap", "union": "ConfigJson", "member": "ConfigJsonObj", "value": { "kind": "constructor", "type": "ConfigJsonObj", "args": [{ "kind": "map", "type": "Map OF String TO ConfigJson", "entries": [{ "key": { "kind": "const", "type": "String", "value": "empty" }, "value": { "kind": "local", "name": "nullValue" } }] }] } } },
+    { "op": "return", "value": { "kind": "memberAccess", "target": { "kind": "local", "name": "tree" }, "member": "value" } }
+    ]
+  }
+  ]
+}
