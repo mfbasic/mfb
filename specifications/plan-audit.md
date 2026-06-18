@@ -1,6 +1,6 @@
 # MFBASIC Audit Implementation Plan
 
-Last updated: 2026-06-17
+Last updated: 2026-06-18
 
 This document plans how to implement the `mfb audit` command required by
 `specifications/mfbasic.md` and how to extend it into a useful source,
@@ -68,6 +68,61 @@ preserve audit-relevant metadata:
 The current CLI does not dispatch an `audit` command. `src/main.rs` lists
 `help`, `init`, `init-pkg`, `pkg`, `build`, and `man`; it does not list
 `audit`, `fmt`, `test`, or `lsp`.
+
+### 2.1 Metadata Available Today
+
+A survey of the implementation establishes what the first `mfb audit`
+implementation can rely on and what is still missing:
+
+- `bytecode::read_package_info` already exposes manifest identity, ABI format
+  version, type/const/resource/function/global/export/import/cleanup counts,
+  the export table (kind, name, sigHash), package state globals (mutability and
+  visibility), imports (name, ident, version, pin, flags, used symbols), and
+  resource cleanups (function, cleanup id, pc range, resource register, close
+  function id, and the `records_secondary_close_failure` flag). `mfb pkg info`
+  already prints `audit:` notes for exported mutable package state and for
+  cleanups that record secondary close failures.
+- `.mfp` headers carry container/bytecode versions, flags, and a signature type
+  (`0` unsigned, `1` Ed25519). `target::package_mfp::package_content_hash`
+  computes the deterministic content hash over the header prefix, zero-filled
+  signature area, and bytecode.
+- The resource model no longer uses a `USING` statement. Resources are released
+  by lexical drop / RAII at scope exit (`specifications/mfbasic.md` §14.7, §15).
+  Source-level resource bindings are therefore ordinary `LET`/`MUT` bindings
+  whose initializer produces a resource handle (for example `fs::openFile`).
+- There is no `mfb.lock` parser yet. The lockfile format is specified in
+  `specifications/lockfile.md` but nothing reads it. The `LOCKFILE_MISMATCH`
+  diagnostic exists in `rules.rs` but is unused.
+- Native-link metadata (`LINK` libraries, symbols, ABI mappings) is **not**
+  surfaced by the package reader. The manifest parser reads a native-link count
+  and discards it. Until that metadata is exposed, native-link audit is limited
+  to resource close functions that are not the built-in filesystem close.
+- There is no cryptographic signature verifier. `mfb pkg verify` checks package
+  name/ident/version against `project.json`, not Ed25519 signatures.
+
+### 2.2 First Implementation Scope
+
+The first `mfb audit` lands Phases 1–6 at the fidelity the available metadata
+allows, and records every gap above as an explicit finding rather than as a
+clean result:
+
+- Full CLI contract: `--format text|json`, `--locked`, optional `path`, exit
+  codes, deterministic ordering.
+- Project summary, dependency graph (resolved from installed `.mfp` packages and
+  compared to `project.json` requests), lockfile comparison, package verifier
+  status, source control-flow (fallible call sites, auto-propagation, `TRAP`
+  classification), resource cleanup behavior, host-capability permissions, and
+  the native close-function inventory.
+- A `projectHash` for `--locked` comparison is defined as the lowercase hex
+  SHA-256 of a canonical, sorted serialization of the `project.json`
+  `packages[]` request tuples (`name`, `ident`, `version`, `pin`, `source`).
+- Deterministic, machine-independent output: source locations use
+  project-relative paths and the report never prints absolute or canonicalized
+  paths, so golden files are portable.
+
+Native-link symbol/ABI audit, the policy file, transitive-capability graphs,
+reproducibility scoring, the target matrix, online advisory checks, and the
+identifier-similarity lint remain Phase 7 follow-ups.
 
 ## 3. Non-Goals
 
@@ -156,7 +211,7 @@ Report:
 ### 5.2 Fallible Call Sites
 
 Report every fallible call site, including calls hidden inside expressions,
-argument lists, initializers, `USING` bindings, and condition expressions.
+argument lists, initializers, resource bindings, and condition expressions.
 
 Each finding should include:
 
@@ -197,19 +252,21 @@ operations.
 
 ### 5.5 Resource Cleanup Behavior
 
-Report each `USING` region and resource cleanup path:
+Report each lexical resource binding and cleanup region:
 
 - resource type and close operation
 - source path, line, and column of the acquisition
 - whether the resource is standard or native
 - whether close can fail
-- all normal and error exits that trigger cleanup
+- the lexical drop-close edges that release the resource on each exit path
+  (normal scope exit, `RETURN`, `FAIL`, `PROPAGATE`, auto-propagated `Err`, and
+  `TRAP` routing)
 - whether cleanup metadata records secondary close failures
 - whether any cleanup path crosses thread or callback boundaries
 
-If a `USING` body can fail and the close operation can also fail, the report
-must state that the body error wins and the close failure is retained only as
-diagnostic/audit metadata.
+If a scope holding a live resource can fail and the drop-close can also fail,
+the report must state that the body error wins and the drop-close failure is
+retained only as diagnostic/audit metadata (`mfbasic.md` §15).
 
 Missing cleanup metadata for such a region is an error-severity finding.
 
@@ -622,7 +679,16 @@ src/audit/
 
 The first production implementation can keep policy parsing absent if no policy
 file is supported yet, but the report data model should not make policy
-enforcement difficult later.
+enforcement difficult later. `policy.rs` is omitted until a policy file is
+supported.
+
+Audit submodules live under `src/audit/` and reach the existing project loader,
+front-end pipeline, package reader, and `.mfp` header helpers in `src/main.rs`
+through `crate::` paths, so audit reuses build behavior without duplicating the
+parser, resolver, typechecker, or package reader. To keep findings consistent
+with build diagnostics, JSON is written with a hand-rolled deterministic
+formatter (the project already emits AST/IR JSON this way) rather than through
+`tinyjson`, whose object key ordering is not stable.
 
 ## 10. Metadata Requirements
 
@@ -682,7 +748,7 @@ until the compiler produces it.
 
 ### Phase 5: Resource Cleanup Audit
 
-- Report all `USING` regions and cleanup paths.
+- Report all lexical resource bindings and their drop-close paths.
 - Validate secondary close-failure metadata for body-fails/close-fails cases.
 - Report close operation identity and close-failure behavior.
 
@@ -718,14 +784,24 @@ Audit implementation must have focused CLI and report tests:
 - auto-propagation to function return is reported.
 - auto-propagation to `TRAP` is reported.
 - `TRAP` recovery behavior is classified.
-- `USING` cleanup with fallible body and fallible close reports the secondary
-  close-failure metadata requirement.
+- lexical resource cleanup with a fallible scope and fallible close reports the
+  secondary close-failure metadata requirement.
 - native link libraries, symbols, ABI mappings, and resource close functions are
   reported.
 - standard package permissions are reported for filesystem, network, process,
   environment, clock, randomness, and native-library access where applicable.
 - optional extended capability findings report terminal/stdio and thread use
   when implemented.
+
+Audit reports are regression-locked with golden files. When a test directory
+provides `golden/<name>.audit`, the acceptance harness runs
+`mfb audit --format text <test-dir>` and `mfb audit --format json <test-dir>`,
+captures both into one `<name>.audit` artifact (each preceded by its command
+line and exit code), and diffs it against the golden. Because audit output uses
+project-relative source paths and never prints absolute paths, the artifact is
+portable across machines. Dedicated `tests/audit-*` projects exercise the
+project summary, dependency/lockfile findings, source flow, resource cleanup,
+permissions, and CLI usage/`--locked` error paths.
 
 After code changes, run:
 
