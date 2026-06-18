@@ -10,5 +10,5 @@ DESCRIPTION
   "readWrite" or "rw", and "append" or "a".
 
 EXAMPLES
-  USING f = fs::openFileNoFollow("data.txt", "read")
-  END USING
+  LET f = fs::openFileNoFollow("data.txt", "read")
+  ' f is closed by lexical drop when this scope ends

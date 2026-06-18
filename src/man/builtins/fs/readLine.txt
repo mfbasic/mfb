@@ -14,6 +14,6 @@ DESCRIPTION
   between cancellation-point operations.
 
 EXAMPLES
-  USING f = fs::openFile("data.txt")
-    LET line AS String = fs::readLine(f)
-  END USING
+  LET f = fs::openFile("data.txt")
+  LET line AS String = fs::readLine(f)
+  ' f is closed by lexical drop when this scope ends

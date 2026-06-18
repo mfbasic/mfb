@@ -9,6 +9,6 @@ DESCRIPTION
   been written or the host reports an output failure.
 
 EXAMPLES
-  USING f = fs::openFile("target/output.txt", "write")
-    fs::writeAll(f, "Hello")
-  END USING
+  LET f = fs::openFile("target/output.txt", "write")
+  fs::writeAll(f, "Hello")
+  ' f is closed by lexical drop when this scope ends

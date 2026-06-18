@@ -930,7 +930,7 @@ Rules:
 * Reading a moved register is a verifier error.
 * `FREEZE` converts a locally mutable collection buffer into an immutable owned value.
 * `DROP` releases a non-resource value or marks a register dead.
-* Resource values are not dropped silently; they must be closed, moved, returned, or owned by an active `USING`.
+* Resource values are not lost silently; they are closed, moved, or returned. A resource binding still owned when its lexical scope exits is closed by a compiler-generated lexical drop.
 
 ## Global access
 
@@ -1112,23 +1112,23 @@ Rules:
 
 The function table’s `trapPc` gives the single bottom trap entry point.
 
-## Resources and `USING`
+## Resource cleanup
 
 ```text
-USING_ENTER     resourceReg, closeFunctionId, cleanupId
-USING_LEAVE     cleanupId
+RESOURCE_ENTER  resourceReg, closeFunctionId, cleanupId
+RESOURCE_LEAVE  cleanupId
 CLOSE_RESOURCE  resourceReg, closeFunctionId
 ```
 
 Rules:
 
-* `USING_ENTER` registers a resource as owned by the current lexical `USING` region.
-* `USING_LEAVE` closes the resource exactly once.
-* `CLOSE_RESOURCE` is compiler-generated for explicit close operations or `USING` lowering.
-* If control exits a `USING` region through `FAIL`, `UNWRAP_RESULT`, `RETURN_OK`, `RETURN_ERR`, or branch, the bytecode must either close the resource explicitly or have cleanup metadata that closes it.
+* `RESOURCE_ENTER` registers a resource as owned by the current lexical cleanup region, established when the resource binding is declared.
+* `RESOURCE_LEAVE` ends the region and closes the resource exactly once if it is still owned (lexical drop).
+* `CLOSE_RESOURCE` is compiler-generated for explicit close operations and for lexical drop lowering. An explicit close marks the resource moved, so the region's `RESOURCE_LEAVE` does not close it again.
+* If control exits a region through `FAIL`, `UNWRAP_RESULT`, `RETURN_OK`, `RETURN_ERR`, or branch, the bytecode must either close the resource explicitly or have cleanup metadata that closes it.
 * The verifier rejects paths where an owned resource can be lost, copied, double-closed, used after close, or read after move.
 
-The existing resource model already says files, sockets, and similar handles are scoped with `USING` and closed deterministically, including on error exits.  The bytecode makes that rule verifiable.
+The resource model closes files, sockets, and similar handles by lexical drop when their owning binding leaves scope, deterministically and on every exit path including error exits.  The bytecode makes that rule verifiable.
 
 ---
 
@@ -1156,8 +1156,8 @@ startPc <= pc < endPc
 
 Verifier rules:
 
-* A cleanup region must begin at or after `USING_ENTER`.
-* A cleanup region must end at or before `USING_LEAVE`.
+* A cleanup region must begin at or after `RESOURCE_ENTER`.
+* A cleanup region must end at or before `RESOURCE_LEAVE`.
 * Control may not jump into a cleanup region from outside.
 * Control may leave a cleanup region only through paths that close the resource or through runtime cleanup transfer.
 * `flags & 0x00000001` means the runtime records a secondary close failure as cleanup-failure audit metadata when the body already has a pending error. The pending body error remains the source-level result.
@@ -1413,7 +1413,7 @@ The resource verifier checks:
 * Resource values are not sent to threads unless explicitly marked sendable.
 * A resource is not used after close.
 * A resource is not used after move.
-* A resource is closed exactly once when owned by `USING`.
+* A resource is closed exactly once, by explicit close or by lexical drop at scope exit.
 * A resource returned from a function transfers ownership to the caller.
 * A resource passed to a consuming close function is marked closed afterward.
 * A borrowed resource cannot outlive the call that borrowed it.

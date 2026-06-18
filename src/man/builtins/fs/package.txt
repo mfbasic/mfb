@@ -6,13 +6,15 @@ SYNOPSIS
   fs::exists(path)
 
 DESCRIPTION
-  The fs package provides filesystem path operations and scoped file-handle I/O.
+  The fs package provides filesystem path operations and file-handle I/O.
   Path values are UTF-8 String values. File handles use the opaque File
-  resource type and should be scoped with USING when possible.
+  resource type, closed automatically by lexical drop when the binding leaves
+  scope.
 
   One-shot path functions operate directly on paths. File-handle functions use
   fs::open, fs::openFile, fs::openFileNoFollow, or fs::createTempFile to create
-  File values that are closed with fs::close or automatically at END USING.
+  File values that are closed by lexical drop at scope exit or explicitly with
+  fs::close.
 
 SEE ALSO
   errors

@@ -9,6 +9,6 @@ DESCRIPTION
   collection and advances the file position to EOF.
 
 EXAMPLES
-  USING f = fs::openFile("data.bin")
-    LET bytes AS List OF Byte = fs::readAllBytes(f)
-  END USING
+  LET f = fs::openFile("data.bin")
+  LET bytes AS List OF Byte = fs::readAllBytes(f)
+  ' f is closed by lexical drop when this scope ends

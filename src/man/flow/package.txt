@@ -28,9 +28,6 @@ TOPICS
   match
     Value-based branching with CASE and END MATCH.
 
-  using
-    Resource-scoped blocks with automatic close behavior.
-
 SEE ALSO
   types logical
   types comparisons

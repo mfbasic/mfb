@@ -9,6 +9,6 @@ DESCRIPTION
   until every byte has been written or the host reports an output failure.
 
 EXAMPLES
-  USING f = fs::openFile("target/output.bin", "write")
-    fs::writeAllBytes(f, [72, 105])
-  END USING
+  LET f = fs::openFile("target/output.bin", "write")
+  fs::writeAllBytes(f, [72, 105])
+  ' f is closed by lexical drop when this scope ends

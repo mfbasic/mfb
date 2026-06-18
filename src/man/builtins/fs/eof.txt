@@ -9,6 +9,6 @@ DESCRIPTION
   file and FALSE otherwise.
 
 EXAMPLES
-  USING f = fs::openFile("data.txt")
-    io::print(toString(fs::eof(f)))
-  END USING
+  LET f = fs::openFile("data.txt")
+  io::print(toString(fs::eof(f)))
+  ' f is closed by lexical drop when this scope ends

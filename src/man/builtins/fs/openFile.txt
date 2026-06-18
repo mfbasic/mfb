@@ -10,5 +10,5 @@ DESCRIPTION
   and "append" or "a".
 
 EXAMPLES
-  USING f = fs::openFile("data.txt")
-  END USING
+  LET f = fs::openFile("data.txt")
+  ' f is closed by lexical drop when this scope ends

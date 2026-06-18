@@ -8,8 +8,9 @@ DESCRIPTION
   Opens path and returns an opaque File resource. Portable modes are "read" or
   "r", "write" or "w", "readWrite" or "rw", and "append" or "a".
 
-  File resources should be closed with fs::close or scoped with USING.
+  File resources are closed by lexical drop at scope exit or explicitly with
+  fs::close.
 
 EXAMPLES
-  USING f = fs::open("data.txt", "read")
-  END USING
+  LET f = fs::open("data.txt", "read")
+  ' f is closed by lexical drop when this scope ends

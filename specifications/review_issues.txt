@@ -145,11 +145,12 @@ STATUS: Completed
 RECOMMENDED: CODE CHANGE
 When a `USING` body fails and the resource close also fails, the spec requires the original body error to win while the close error is emitted as diagnostic/audit metadata associated with the failed cleanup. Native cleanup lowering preserves the original pending error, but the secondary close failure is discarded and no cleanup-failure metadata is recorded or exposed. Resolve by adding cleanup-failure metadata to bytecode/native runtime cleanup paths, preserving it through audit data, and validating with runtime tests where body failure and close failure occur together.
 
-REQUIREMENT: Resource handles must be deterministically closed or rejected outside `USING`
+REQUIREMENT: Resource handles must be deterministically closed by lexical drop
 SPECIFICATION: mfbasic.md @ §15 Resource Management
 GROUP: language
+STATUS: In progress
 RECOMMENDED: CODE CHANGE
-The spec requires resource handles to have exactly one live owner and deterministic cleanup, with `USING` as the visible lifetime construct. The compiler only emits cleanup for `USING`; ordinary `LET f = fs::openFile(...)` / `MUT f = ...` resource bindings can compile without any guaranteed close on scope exit. Resolve by either rejecting resource-producing bindings outside `USING` and explicit consuming close flows, or by adding full lexical resource-drop analysis/lowering for all normal, return, fail, propagate, and auto-propagation exits, with missing-close and double-close diagnostics plus runtime tests.
+RESOLUTION: `USING` is removed from the language entirely. Resource handles are closed automatically by lexical drop (RAII) on every exit path (normal scope exit, RETURN, FAIL, PROPAGATE, auto-propagated Err, TRAP routing), exactly like `Thread` handles in §16. Ordinary `LET`/`MUT` resource bindings are no longer rejected; a resource still owned at scope exit is closed by a compiler-generated drop. Explicit close releases early and observes close failures; an implicit drop-close failure becomes audit metadata only. This supersedes the earlier Path A "reject leaks" approach.
 
 REQUIREMENT: Inner blocks may shadow enclosing bindings
 SPECIFICATION: specifications/mfbasic.md @ §5 Bindings, Scope, and Assignment

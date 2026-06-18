@@ -12,13 +12,14 @@ DESCRIPTION
   directory argument, the file is created in that directory.
 
   The file is opened read/write with exclusive-create behavior. The returned
-  File is owned by the caller and should be closed explicitly or with USING.
+  File is owned by the caller and is closed by lexical drop at scope exit or by
+  an explicit fs::close.
 
 EXAMPLE
-  USING f = fs::createTempFile()
-    fs::writeAll(f, "data")
-  END USING
+  LET f = fs::createTempFile()
+  fs::writeAll(f, "data")
+  ' f is closed by lexical drop when this scope ends
 
-  USING f = fs::createTempFile("target")
-    fs::writeAll(f, "data")
-  END USING
+  LET g = fs::createTempFile("target")
+  fs::writeAll(g, "data")
+  ' g is closed by lexical drop when this scope ends

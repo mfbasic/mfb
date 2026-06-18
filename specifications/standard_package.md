@@ -259,12 +259,12 @@ Use `toString` explicitly before calling `io::print`, `io::write`, `io::printErr
 
 Filesystem and file-handle functions live in the `fs` package. Paths are `String` values.
 
-One-shot path operations read, write, inspect, or modify filesystem entries without exposing resource handles. Scoped file-handle I/O uses `fs::open`, `fs::openFile`, `fs::openFileNoFollow`, or `fs::createTempFile` with `USING`; the resulting `File` is closed automatically at `END USING`.
+One-shot path operations read, write, inspect, or modify filesystem entries without exposing resource handles. File-handle I/O uses `fs::open`, `fs::openFile`, `fs::openFileNoFollow`, or `fs::createTempFile`; the resulting `File` is closed automatically by lexical drop when its binding leaves scope, on every exit path, or by an explicit `fs::close`.
 
 ```basic
-USING file = fs::open("data.txt", "read")
-  ' file is in scope here
-END USING
+LET file = fs::open("data.txt", "read")
+' file is in scope here
+' file is closed by lexical drop when this scope ends
 ```
 
 Symlink behavior is explicit:
@@ -288,7 +288,7 @@ Symlink behavior is explicit:
 | `fs::writeTextAtomic` | `FUNC writeTextAtomic(path AS String, value AS String) AS Nothing` | Writes UTF-8 text to a temporary file in the same directory, flushes it, then atomically replaces `path` when the host filesystem supports atomic rename. Fails rather than falling back to a non-atomic replace. |
 | `fs::appendBytes` | `FUNC appendBytes(path AS String, bytes AS List OF Byte) AS Nothing` | Appends raw bytes to a file, creating it when needed. Fails with `77030002`, `77030003`, or `77020002`. |
 | `fs::appendText` | `FUNC appendText(path AS String, value AS String) AS Nothing` | Appends UTF-8 text to a file, creating it when needed. Fails with `77030002`, `77030003`, or `77020002`. |
-| `fs::open` | `FUNC open(path AS String, mode AS String) AS File` | Opens a file handle for use with `USING`. Portable modes are `"read"`/`"r"`, `"write"`/`"w"`, `"readWrite"`/`"rw"`, and `"append"`/`"a"`. Invalid modes, empty paths, and embedded NUL bytes fail with `ErrInvalidArgument` (`77050002`). Missing files fail with `ErrNotFound` (`77050004`) for read-style opens. |
+| `fs::open` | `FUNC open(path AS String, mode AS String) AS File` | Opens a file handle, closed by lexical drop or `fs::close`. Portable modes are `"read"`/`"r"`, `"write"`/`"w"`, `"readWrite"`/`"rw"`, and `"append"`/`"a"`. Invalid modes, empty paths, and embedded NUL bytes fail with `ErrInvalidArgument` (`77050002`). Missing files fail with `ErrNotFound` (`77050004`) for read-style opens. |
 | `fs::openFile` | `FUNC openFile(path AS String, mode AS String = "read") AS File` | Opens a file handle. Portable modes are `"read"`/`"r"`, `"write"`/`"w"`, `"readWrite"`/`"rw"`, and `"append"`/`"a"`. Fails with `77030001`, `77030002`, or `77030003`. |
 | `fs::openFileNoFollow` | `FUNC openFileNoFollow(path AS String, mode AS String = "read") AS File` | Opens a file handle like `fs::openFile`, with the same portable modes, but fails with `ErrAccessDenied` when the final path component is a symlink. |
 | `fs::createTempFile` | `FUNC createTempFile() AS File`<br>`FUNC createTempFile(directory AS String) AS File` | Securely creates and opens a new unique file named `mfb-<uuid>.tmp`. Without `directory`, the file is created in the OS temp directory. With `directory`, the file is created in that directory. The caller owns the returned `File`. |
@@ -315,7 +315,7 @@ Symlink behavior is explicit:
 | `fs::currentDirectory` | `FUNC currentDirectory() AS String` | Returns the current working directory. |
 | `fs::setCurrentDirectory` | `FUNC setCurrentDirectory(path AS String) AS Nothing` | Changes the current working directory. |
 
-`File` is an opaque standard `RESOURCE` type and unique handle. It can be bound by `USING` and is closed automatically with `fs::close` at `END USING`. `File` is thread-sendable: sending it through `thread::send` transfers ownership to the destination side, and the sender cannot use the handle again on a successful send path.
+`File` is an opaque standard `RESOURCE` type and unique handle. It is closed automatically with `fs::close` by lexical drop when its binding leaves scope, on every exit path, and may also be closed explicitly with `fs::close`. `File` is thread-sendable: sending it through `thread::send` transfers ownership to the destination side, and the sender cannot use the handle again on a successful send path.
 
 ## 9. Built-in Thread Package
 
@@ -420,7 +420,7 @@ Math functions follow the numeric edge-case rules in §4.1. Integer and `Fixed` 
 
 ## 11. Built-in Net Package
 
-Network functions live in the `net` package. Socket handles are opaque standard `RESOURCE` types and unique handles. They can be bound by `USING`; `net::close` runs automatically at `END USING`. `Socket` and `UdpSocket` are thread-sendable and move ownership when sent through `thread::send`. `Listener` is not thread-sendable.
+Network functions live in the `net` package. Socket handles are opaque standard `RESOURCE` types and unique handles. `net::close` runs automatically by lexical drop when a socket binding leaves scope, on every exit path, and may also be called explicitly. `Socket` and `UdpSocket` are thread-sendable and move ownership when sent through `thread::send`. `Listener` is not thread-sendable.
 
 The package defines DNS lookup, TCP stream sockets, UDP datagram sockets, and a required early TLS package. Unix-domain sockets and detailed DNS record inspection are outside the required core package and may be provided by extension packages.
 
@@ -501,11 +501,11 @@ IMPORT net
 LET addresses = net::lookup("example.com", 80)
 LET address = get(addresses, 0)
 
-USING client = net::connectTcp(address, timeoutMs := 5000)
-  net::writeText(client, "ping")
-  LET chunk = net::readText(client, 4096)
-  io::print(chunk)
-END USING
+LET client = net::connectTcp(address, timeoutMs := 5000)
+net::writeText(client, "ping")
+LET chunk = net::readText(client, 4096)
+io::print(chunk)
+' client is closed by lexical drop when this scope ends
 ```
 
 ### 10.4 TLS Package

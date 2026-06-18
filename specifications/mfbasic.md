@@ -534,7 +534,7 @@ There is **no `TRY` keyword and no `GOTO`**. Propagation is the default behavior
 
 Function arguments are evaluated left to right. If any argument expression returns `Err`, later arguments are not evaluated and the error routes to the enclosing `TRAP` or propagates to the caller.
 
-When an error path exits a `USING` body, resource close behavior is resolved by the deterministic cleanup rules in §15 before the final error reaches the enclosing `TRAP` or caller.
+When an error path leaves a scope, any live resource bindings in that scope are closed by lexical drop (§14.7, §15) before the final error reaches the enclosing `TRAP` or caller.
 
 ### 8.2 Entering the error path
 
@@ -1039,35 +1039,29 @@ At minimum, exported type shape metadata must remain sufficient to reconstruct c
 
 ## 15. Resource Management
 
-`RESOURCE` values, such as files and sockets, are unique handles. At any point in the program, exactly one live owner is responsible for each open handle. Resource handles are non-copyable owned values with additional close rules. They are scoped via `USING` and closed deterministically on scope exit, including on an error exit (`FAIL`, `PROPAGATE`, or an auto-propagated `Err`).
+`RESOURCE` values, such as files and sockets, are unique handles. At any point in the program, exactly one live owner is responsible for each open handle. Resource handles are non-copyable owned values with additional close rules. They are closed automatically by lexical drop (§14.7) when their owning binding leaves scope, on every exit path: normal scope exit, `RETURN`, `FAIL`, `PROPAGATE`, an auto-propagated `Err`, and `TRAP` routing. There is no user-visible lifetime construct; a resource is released by the same ownership and drop rules as any other owned value.
 
 ```basic
-USING f = fs::openFile("data.txt")  ' auto-propagates on Err
-  LET line = fs::readLine(f)
-  io::print(line)
-END USING                          ' fs::close(f) runs here, even on error exit
+FUNC readFirstLine(path AS String) AS String
+  LET f = fs::openFile(path)   ' auto-propagates on Err
+  LET line = fs::readLine(f)   ' if this fails, f is still closed on the error exit
+  RETURN line                  ' f is dropped (closed) here, on the success exit
+END FUNC
 ```
 
-`USING` owns the handle for the body and runs the resource's close operation exactly once. Standard resource operations borrow the handle for the duration of the call without transferring ownership. Close operations consume the handle, so the source binding is moved and cannot be used afterward. A resource handle cannot be copied, stored in an ordinary collection, printed, compared, serialized, or captured by a lambda or ordinary closure. A concrete resource handle may be sent to a thread only when that resource type is thread-sendable.
+A resource is closed exactly once. Standard resource operations borrow the handle for the duration of the call without transferring ownership. The explicit close operation consumes the handle, so the source binding is moved and cannot be used afterward; an already-moved binding is not dropped again. A resource handle cannot be copied, stored in an ordinary collection, printed, compared, serialized, or captured by a lambda or ordinary closure. A concrete resource handle may be sent to a thread only when that resource type is thread-sendable.
 
 A `RESOURCE` value may be passed only to a function whose signature explicitly names that concrete resource type, such as `File`, `Socket`, or a `LINK`-declared `RESOURCE`. There is no generic `RESOURCE` supertype, no structural matching of handles, and no implicit conversion between resource types.
 
 Borrow and consume are compiler rules inferred from the resource operation. They are not source-level annotations; MFBASIC does not add `BORROW`, `MOVE`, or similar parameter syntax for ordinary resource use.
 
-Close failures are deterministic:
+To release a resource earlier than the end of its scope, or to observe a close failure, call the resource's explicit close operation (such as `fs::close(f)`). That operation consumes the handle, returns a `Result`, and auto-propagates a close `Err` like any other call, so the close failure is directly observable. After an explicit close the binding is moved and is not closed again by lexical drop. Reassigning a `MUT` resource binding evaluates the right-hand side first; if that succeeds, the old handle is dropped (closed) before the binding stores the new handle.
 
-| Body result | Close result | Outcome |
-|-------------|--------------|---------|
-| Body succeeds | Close succeeds | The `USING` statement succeeds. |
-| Body succeeds | Close fails | The close error becomes the `USING` statement error and routes to the enclosing `TRAP` or caller. |
-| Body fails | Close succeeds | The original body error routes to the enclosing `TRAP` or caller. |
-| Body fails | Close fails | The original body error wins. The close error is emitted as diagnostic/audit metadata associated with the failed cleanup, but it does not replace or wrap the source-level `Error`. |
+A close that runs as part of an implicit lexical drop cannot inject an error into program flow, because a drop has no source-level result to route. If such a drop-close fails, the failure is emitted as diagnostic/audit metadata associated with the failed cleanup; it does not replace, wrap, or raise a source-level `Error`. Programs that must observe a close failure use the explicit close operation instead.
 
 This rule does not change the built-in `Error` shape: A secondary close failure is not directly inspectable by ordinary source code unless a future diagnostics API exposes cleanup metadata.
 
-Compiled cleanup metadata must preserve enough information for runtime and audit tooling to report a secondary close failure without replacing the original body error. Package audit output should identify cleanup regions that retain this secondary-failure metadata.
-
-`USING` is the only user-visible lifetime-management construct. Ordinary values use the ownership and lexical drop rules in §14.
+Compiled cleanup metadata must preserve enough information for runtime and audit tooling to report a drop-close failure. Package audit output should identify cleanup regions that retain this failure metadata.
 
 ---
 
@@ -1142,10 +1136,10 @@ When a thread ends, its inbound queue is closed and further parent-side sends fa
 
 Native libraries are host dynamic libraries loaded through reusable `.mfp` binding packages. MFBASIC code cannot call arbitrary C symbols directly. A package that contains a `LINK` block declares the library name, its package-like namespace, opaque resource types, and the typed wrapper functions that are visible to MFBASIC code. Compiling that package emits normal `.mfp` bytecode plus native binding metadata.
 
-Application packages do not repeat a dependency's `LINK` block. They import the binding package normally with `IMPORT`, call its exported wrapper functions, and use its resource types through ordinary `USING` behavior. Final executable builds collect native dependencies from all imported `.mfp` packages, resolve them once for the target platform, validate their manifests, and link or load the declared native libraries before `main`.
+Application packages do not repeat a dependency's `LINK` block. They import the binding package normally with `IMPORT`, call its exported wrapper functions, and use its resource types through ordinary ownership and lexical-drop behavior. Final executable builds collect native dependencies from all imported `.mfp` packages, resolve them once for the target platform, validate their manifests, and link or load the declared native libraries before `main`.
 
 * Native ABI details do not leak across package boundaries unless explicitly part of the binding package's public API.
-* Application code importing a binding package sees ordinary MFBASIC types, functions, resources, `Result` behavior, and `USING` behavior.
+* Application code importing a binding package sees ordinary MFBASIC types, functions, resources, `Result` behavior, and lexical-drop cleanup behavior.
 * A source package that declares `LINK` is a binding package. It may also include ordinary MFBASIC wrapper code, validation, and higher-level helpers around the native symbols.
 
 ```basic
@@ -1171,14 +1165,14 @@ END LINK
 `LINK "sqlite3" AS sqlite` creates the namespace `sqlite`, so native wrapper functions are called like package functions:
 
 ```basic
-USING db = sqlite::open("app.db")
-  ' use db
-END USING
+LET db = sqlite::open("app.db")
+' use db
+' db is closed by lexical drop when its scope ends, or by an explicit sqlite::close(db)
 ```
 
 `TYPE Db AS RESOURCE` declares an opaque unique native handle. For a C library this is usually represented by a pointer or host handle internally, but source code cannot inspect, cast, compare, serialize, print, copy, capture in a lambda, store in an ordinary collection, send to a thread unless the concrete resource type is declared thread-sendable, or do arithmetic on it. A resource may be passed only to functions whose signatures explicitly accept that resource type. Resource handles are not sendable to threads unless the concrete resource type opts in.
 
-`CLOSE close` names the native wrapper function that releases the resource. A resource type with a close function can be bound by `USING`; the close function runs automatically at `END USING`, including on error exits. Calling a native wrapper function with a closed resource fails with `ErrResourceClosed`.
+`CLOSE close` names the native wrapper function that releases the resource. The close function runs automatically when the resource binding is dropped at scope exit, including on error exits, and may also be called explicitly to release the resource early or to observe a close failure. Calling a native wrapper function with a closed resource fails with `ErrResourceClosed`.
 
 `SYMBOL "sqlite3_open"` gives the exact native symbol name to look up in the loaded library. The MFBASIC function name is the public wrapper name; it does not have to match the native symbol name.
 
@@ -1344,7 +1338,7 @@ identlist      = ident { "," ident } ;
 block          = { statement } ;
 statement      = letStmt | mutStmt | assignStmt
                | ifStmt | forStmt | foreachStmt | whileStmt
-               | doStmt | matchStmt | usingStmt
+               | doStmt | matchStmt
                | failStmt | propagateStmt | returnStmt
                | exprStmt | "REM" ... ;
 
@@ -1374,8 +1368,6 @@ failStmt       = "FAIL" expr ;
 propagateStmt  = "PROPAGATE" ;
 returnStmt     = "RETURN" [ expr ] ;
 exprStmt       = expr ;
-
-usingStmt      = "USING" ident "=" expr block "END" "USING" ;
 
 matchStmt      = "MATCH" expr { caseClause } "END" "MATCH" ;
 caseClause     = "CASE" patternList [ "WHEN" expr ] ":" block
@@ -1450,13 +1442,12 @@ END FUNC
 
 FUNC loadPoints(path AS String) AS List OF Vec3
   MUT pts AS List OF Vec3 = []
-  USING f = fs::openFile(path)              ' auto-propagates on Err
-    WHILE NOT fs::eof(f)
-      LET v = parseLine(fs::readLine(f))    ' auto-propagates to TRAP below on bad input
-      pts = append(pts, v)                 ' optimized in place for MUT
-    WEND
-  END USING                                ' f closed even on error exit
-  RETURN pts                               ' freezes automatically here
+  LET f = fs::openFile(path)                ' auto-propagates on Err
+  WHILE NOT fs::eof(f)
+    LET v = parseLine(fs::readLine(f))      ' auto-propagates to TRAP below on bad input
+    pts = append(pts, v)                   ' optimized in place for MUT
+  WEND
+  RETURN pts                               ' f closed by lexical drop here; pts freezes automatically
 
   TRAP err
     io::print("Load failed: " & err.message)
@@ -1617,7 +1608,7 @@ Required diagnostics and tooling metadata:
 - Mark every fallible call site in editor diagnostics or semantic tokens, including calls hidden inside expressions and argument lists.
 - Show each auto-propagation edge from a fallible call to the enclosing `TRAP` or function return.
 - Show each `TRAP` recovery path, including whether it `RETURN`s, `PROPAGATE`s, or replaces the error with `FAIL`.
-- Report fallible calls inside resource `USING` bodies together with the close-failure precedence rule from §15.
+- Report scopes that hold live resource bindings across fallible calls, and surface the lexical drop-close edges that release those resources on each exit path, together with the drop-close failure metadata rule from §15.
 - Surface all native binding packages, linked native libraries, declared symbols, ABI mappings, and native resource close functions used by a build.
 - Surface package permissions and host capabilities when a standard or native package requires filesystem, network, process, environment, clock, randomness, or native-library access.
 - Lint dense or security-sensitive code for confusing identifier similarity. In the current ASCII-only identifier set this includes case-only near-collisions; if non-ASCII identifiers are ever enabled, it also includes Unicode normalization, case-fold, script-mixing, and confusable-character collisions.
