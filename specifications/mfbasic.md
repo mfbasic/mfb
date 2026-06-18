@@ -935,7 +935,7 @@ The package resolver produces one selected version for each package identity. If
 
 A package may import a source package or an `.mfp` package. Imported `.mfp` packages must have a compatible bytecode/package format version, compatible public API metadata, and an MFBASIC language version supported by the compiler.
 
-Executable builds use a lockfile named `project.lock`. The lockfile records the exact selected package identity, version, source or registry URL, content hash, bytecode/package version, native dependency metadata hash, and transitive dependencies. Locked builds must use the lockfile selections exactly; a hash or version mismatch fails before compilation, bytecode merging, or native linking.
+Executable builds use a lockfile named `mfb.lock`. The lockfile records the exact selected package identity, version, source or registry alias, content hash, bytecode/package version, native dependency metadata hash, and transitive dependencies. Locked builds must use the lockfile selections exactly; a hash or version mismatch fails before compilation, bytecode merging, or native linking.
 
 An **isolated function** is an exported top-level `FUNC` declared with `ISOLATED`. When an isolated function is used as a thread entry point, the runtime starts it in a fresh instance of its package. Starting isolated functions from the same package multiple times creates multiple independent instances; their top-level `MUT` bindings are not shared with each other or with the importing package.
 

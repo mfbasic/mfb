@@ -419,6 +419,8 @@ Rationale:
   immediately available
 - `io::pollInput(timeoutMs)` waits up to `timeoutMs` for committed input to
   arrive
+- `timeoutMs < 0` waits indefinitely, matching the standard `io::pollInput`
+  contract
 
 Recommended definition of “available input”:
 
@@ -1467,117 +1469,136 @@ void on_worker_finished_main_thread(void) {
     }
 }
 
-void io_print(String text) {
+ResultNothing io_print(String text) {
     state_lock(STATE);
     buffer_append_utf8(&STATE->stdout_pending, text);
     buffer_append_utf8(&STATE->stdout_pending, "\n");
     state_unlock(STATE);
     appkit_dispatch_async_main(flush_pending_output_main_thread);
+    return make_ok_nothing();
 }
 
-void io_write(String text) {
+ResultNothing io_write(String text) {
     state_lock(STATE);
     buffer_append_utf8(&STATE->stdout_pending, text);
     state_unlock(STATE);
     appkit_dispatch_async_main(flush_pending_output_main_thread);
+    return make_ok_nothing();
 }
 
-void io_print_error(String text) {
+ResultNothing io_print_error(String text) {
     state_lock(STATE);
     buffer_append_utf8(&STATE->stderr_pending, text);
     buffer_append_utf8(&STATE->stderr_pending, "\n");
     state_unlock(STATE);
     appkit_dispatch_async_main(flush_pending_output_main_thread);
+    return make_ok_nothing();
 }
 
-void io_write_error(String text) {
+ResultNothing io_write_error(String text) {
     state_lock(STATE);
     buffer_append_utf8(&STATE->stderr_pending, text);
     state_unlock(STATE);
     appkit_dispatch_async_main(flush_pending_output_main_thread);
+    return make_ok_nothing();
 }
 
-void io_flush(void) {
+ResultNothing io_flush(void) {
     appkit_dispatch_sync_main(flush_pending_output_main_thread);
+    return make_ok_nothing();
 }
 
-void io_flush_error(void) {
-    io_flush();
+ResultNothing io_flush_error(void) {
+    return io_flush();
 }
 
-String io_input_with_prompt(String prompt) {
+ResultString io_input_with_prompt(String prompt) {
     if (prompt.length > 0) {
-        io_write(prompt);
+        ResultNothing wrote_prompt = io_write(prompt);
+        if (result_is_error(wrote_prompt)) {
+            return result_error_as_string(wrote_prompt);
+        }
     }
     input_field_focus(STATE);
     return io_read_line();
 }
 
-String io_read_line(void) {
+ResultString io_read_line(void) {
     state_lock(STATE);
     while (queue_empty(STATE->committed_lines) && STATE->app_running) {
         state_wait(STATE->input_ready, STATE->lock);
     }
     if (!STATE->app_running) {
         state_unlock(STATE);
-        return runtime_abort_due_to_closed_window();
+        return make_err(ERR_INPUT_FAILURE, "app window closed while reading input");
     }
     String line = queue_pop(STATE->committed_lines);
     state_unlock(STATE);
-    return line;
+    return make_ok_string(line);
 }
 
-Utf8Scalar io_read_char(void) {
+ResultString io_read_char(void) {
     state_lock(STATE);
     while (queue_empty(STATE->scalar_queue) && STATE->app_running) {
         state_wait(STATE->input_ready, STATE->lock);
     }
     if (!STATE->app_running) {
         state_unlock(STATE);
-        return runtime_abort_due_to_closed_window();
+        return make_err(ERR_INPUT_FAILURE, "app window closed while reading input");
     }
     Utf8Scalar scalar = queue_pop(STATE->scalar_queue);
     state_unlock(STATE);
-    return scalar;
+    return make_ok_string(string_from_scalar(scalar));
 }
 
-uint8_t io_read_byte(void) {
+ResultByte io_read_byte(void) {
     state_lock(STATE);
     while (queue_empty(STATE->byte_queue) && STATE->app_running) {
         state_wait(STATE->input_ready, STATE->lock);
     }
     if (!STATE->app_running) {
         state_unlock(STATE);
-        return runtime_abort_due_to_closed_window();
+        return make_err(ERR_INPUT_FAILURE, "app window closed while reading input");
     }
     uint8_t byte = queue_pop(STATE->byte_queue);
     state_unlock(STATE);
-    return byte;
+    return make_ok_byte(byte);
 }
 
-bool io_poll_input(int timeout_ms) {
+ResultBoolean io_poll_input(int timeout_ms) {
     state_lock(STATE);
     if (input_queue_has_data(STATE)) {
         state_unlock(STATE);
-        return true;
+        return make_ok_boolean(true);
     }
-    if (timeout_ms > 0) {
+    if (timeout_ms < 0) {
+        while (!input_queue_has_data(STATE) && STATE->app_running) {
+            state_wait(STATE->input_ready, STATE->lock);
+        }
+    } else if (timeout_ms > 0) {
         state_timed_wait(STATE->input_ready, STATE->lock, timeout_ms);
+    }
+    if (!STATE->app_running) {
+        state_unlock(STATE);
+        return make_err(ERR_INPUT_FAILURE, "app window closed while polling input");
     }
     bool ready = input_queue_has_data(STATE);
     state_unlock(STATE);
-    return ready;
+    return make_ok_boolean(ready);
 }
 
-bool io_is_input_terminal(void)  { return true; }
-bool io_is_output_terminal(void) { return true; }
-bool io_is_error_terminal(void)  { return true; }
+ResultBoolean io_is_input_terminal(void)  { return make_ok_boolean(true); }
+ResultBoolean io_is_output_terminal(void) { return make_ok_boolean(true); }
+ResultBoolean io_is_error_terminal(void)  { return make_ok_boolean(true); }
 
-Size io_terminal_size(void) {
+ResultTerminalSize io_terminal_size(void) {
     state_lock(STATE);
     Size size = STATE->terminal_cells;
     state_unlock(STATE);
-    return size;
+    if (size.columns <= 0 || size.rows <= 0) {
+        return make_err(ERR_UNSUPPORTED_OPERATION, "app transcript size is unavailable");
+    }
+    return make_ok_terminal_size(size);
 }
 
 void transcript_append_stdout(ByteString text) {

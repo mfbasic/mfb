@@ -35,7 +35,7 @@ OS, or target-specific regex quirks. The compatibility target is Rust
 ## 2. Current State
 
 The spec already defines the package in
-`specifications/standard_package.md:198`:
+`specifications/standard_package.md` section 6:
 
 - invalid patterns fail with `ErrInvalidFormat`
 - `match` succeeds when the pattern matches anywhere in the string
@@ -45,7 +45,8 @@ The spec already defines the package in
 The compiler/runtime state is incomplete:
 
 - `src/builtins/mod.rs` does not register a `regex` built-in package.
-- `src/builtins/strings.rs` does not expose regex calls.
+- there is no `src/builtins/regex.rs` module for regex call signatures and
+  lowering.
 - native backend capability lists do not advertise regex runtime calls.
 - shared runtime helper metadata in `src/target/shared/runtime.rs` has no regex
   helper family.
@@ -117,9 +118,10 @@ contract.
 
 ## 6. Semantic Boundary To Standardize
 
-Before implementation, the spec should stop saying the dialect is merely
-"runtime-defined" and instead define a compiler-owned stable dialect aligned to
-Rust `regex` style.
+The current standard-package spec already defines regex as a compiler-owned,
+target-stable dialect aligned to Rust `regex` style. Before implementation, the
+remaining work is to make the exact supported subset explicit enough for tests
+and diagnostics.
 
 At minimum, the dialect must answer:
 
@@ -377,8 +379,8 @@ runtime behavior is demonstrated end-to-end.
 
 ## 12. Recommended Implementation Sequence
 
-1. Tighten the spec from "runtime-defined" to Rust `regex`-style,
-   compiler-owned regex semantics.
+1. Confirm the standard-package regex subset is specific enough for tests,
+   diagnostics, and implementation.
 2. Add `src/builtins/regex.rs` and register the package in
    `src/builtins/mod.rs`.
 3. Finish bytecode lowering for regex using the existing reserved opcode space.

@@ -334,7 +334,7 @@ END FUNC
 ```
 
 ```basic
-thread::start(worker, LAMBDA(x AS Integer) -> total = total + x)
+thread::start(LAMBDA(worker, input) -> total = total + input, 1)
 ```
 
 ### Important Invariant
