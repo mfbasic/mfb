@@ -4,6 +4,8 @@ REQUIREMENT: Built-in regex package
 SPECIFICATION: standard_package.md @ §6 Regex Package
 GROUP: regex
 RECOMMENDED: CODE CHANGE
+VERIFIED: YES
+PRIORITY: MED
 `regex` is specified as a built-in import with `regex::match`, `regex::find`, and `regex::replace`, but `src/builtins/mod.rs` does not register a `regex` package and there is no regex built-in implementation. Add a deterministic Rust-regex-style compiler/runtime implementation, expose the package in built-in resolution, lower calls through bytecode/native runtime helpers, and add valid/invalid function tests plus runtime proofs.
 
 
@@ -13,6 +15,8 @@ REQUIREMENT: Built-in net and TLS packages
 SPECIFICATION: standard_package.md @ §11 Built-in Net Package
 GROUP: net
 RECOMMENDED: CODE CHANGE
+VERIFIED: YES
+PRIORITY: MED
 `net` and `tls` are specified with DNS, TCP, UDP, socket resources, TLS sockets, timeout behavior, and resource cleanup, but the implementation has no `net`/`tls` built-in modules or import registration. Add resource types and built-ins for both packages, implement OS/runtime helpers, wire lexical cleanup and thread-sendability for eligible sockets, and validate with runtime network/TLS tests.
 
 
@@ -22,30 +26,40 @@ REQUIREMENT: Built-in errorCode package
 SPECIFICATION: standard_package.md @ §13 Built-in Error Codes
 GROUP: stdlib
 RECOMMENDED: CODE CHANGE
+VERIFIED: YES
+PRIORITY: MED
 The spec requires `IMPORT errorCode` to expose named integer constants for every canonical error code, but no `errorCode` built-in package is registered. Generate or maintain constants from `specifications/error_codes.md`, expose package-qualified constants in resolver/typecheck/lowering, and add tests for representative runtime and toolchain codes.
 
 REQUIREMENT: `toString(Float)` round-trippable output
 SPECIFICATION: standard_package.md @ §3.1 General
 GROUP: stdlib
 RECOMMENDED: SPEC CHANGE
+VERIFIED: YES
+PRIORITY: LOW
 `standard_package.md` says `toString(value AS Float, precision AS Byte = 2)` produces implementation-defined round-trippable text, but the implementation uses `"%.*f"` with default precision `2`, and the manual describes fixed decimal places. That cannot be round-trippable for ordinary Float values. Resolve by changing the spec to match the language feel and implementation: `toString(Float, precision)` should produce decimal text with exactly `precision` digits after the decimal point, while any future round-trippable formatter should be a separate API or a clearly different default behavior.
 
 REQUIREMENT: `toFixed` must round to nearest Fixed
 SPECIFICATION: standard_package.md @ §3.1 Scalar and string helpers
 GROUP: stdlib
 RECOMMENDED: CODE CHANGE
+VERIFIED: YES
+PRIORITY: MED
 `toFixed(value AS String)` and `toFixed(value AS Float)` are specified to produce the nearest representable `Fixed` value, but the native lowering scales the parsed/float value by `2^32` and converts with AArch64 `fcvtzs`, which truncates toward zero. The backend already has a nearest-rounding conversion helper (`fcvtas`) used elsewhere. Change `emit_float_bits_to_fixed_value` to round to nearest after scaling, preserve the existing invalid/overflow checks, and add runtime tests for positive and negative halfway/non-halfway values from both String and Float inputs.
 
 REQUIREMENT: Collection data payloads must be aligned
 SPECIFICATION: memory_layouts.md @ Scalar Storage; Collection Layout
 GROUP: stdlib
 RECOMMENDED: CODE CHANGE
+VERIFIED: YES
+PRIORITY: MED
 `memory_layouts.md` requires primitive payloads in collection data regions to begin at offsets valid for their type, with padding bytes unobservable. The native collection writer in `src/target/shared/code/builder_collection_layout.rs` appends key and value payloads by raw length only, so a map such as `Map OF String TO Integer { "Ada" := 36 }` stores the `Integer` value immediately after 3 string bytes, at an unaligned offset. Add a shared payload-alignment calculation for every collection key/value write and read path, round `dataOffset`/`dataLength` before each payload according to its compact runtime type, preserve lookup offsets after padding, and add runtime tests for map/list operations with 1-byte or variable-length payloads followed by 8-byte payloads.
 
 REQUIREMENT: Decimal conversion exponent overflow
 SPECIFICATION: standard_package.md @ §3.1 General Built-ins
 GROUP: stdlib
 RECOMMENDED: CODE CHANGE
+VERIFIED: YES
+PRIORITY: MED
 `toFloat(String)` and `toFixed(String)` must reject overflow, and `isNumeric(String)` should be false for strings that cannot be parsed as a valid finite numeric value. The native decimal parser accumulates exponent digits in a 64-bit register without overflow checks, then applies the exponent by looping that wrapped value. Inputs with huge exponents, such as an exponent numerically equal to `2^64`, can wrap to a small value and be accepted instead of failing with overflow or returning `FALSE`. Add checked exponent accumulation with a bounded cutoff, route too-large positive exponents to `ErrOverflow` for conversions, route too-large negative exponents according to the language’s underflow/rounding rules, and add valid/invalid/runtime tests for large positive and negative exponents across `toFloat`, `toFixed`, and `isNumeric`.
 
 
@@ -55,84 +69,112 @@ REQUIREMENT: Required audit, fmt, test, and lsp commands
 SPECIFICATION: mfbasic.md @ §22 Tooling And Auditability
 GROUP: tooling
 RECOMMENDED: CODE CHANGE
+VERIFIED: YES
+PRIORITY: HIGH
 The CLI only exposes `help`, `init`, `init-pkg`, `pkg add/info/verify`, `build`, and `man`. The required `mfb audit`, `mfb fmt`, `mfb test`, and `mfb lsp` commands are not implemented. Add these commands with the specified options, diagnostics, metadata reporting, formatter behavior, test discovery/execution, and LSP diagnostics.
 
 REQUIREMENT: Project manifest validation
 SPECIFICATION: project.md @ §11 Validation
 GROUP: tooling
 RECOMMENDED: CODE CHANGE
+VERIFIED: YES
+PRIORITY: MED
 Manifest validation does not enforce several required rules: semantic version syntax, supported `mfb` language version, invalid package dependency fields/source locators, package policy restrictions, and dependency resolution constraints. It also warns for unknown `kind` even though the spec says invalid `kind` must be rejected. Extend validation to enforce the full manifest contract and emit registered diagnostics.
 
 REQUIREMENT: macOS app build mode
 SPECIFICATION: plan-macos-app.md @ §5.1 CLI Contract
 GROUP: tooling
 RECOMMENDED: CODE CHANGE
+VERIFIED: YES
+PRIORITY: MED
 The macOS app-mode plan specifies app bundle generation and app-mode I/O behavior, but the CLI has no app mode/build option and the macOS backend only writes native executable artifacts. Add the app-mode CLI contract, bundle output, Info.plist and executable layout, AppKit runtime bridge, app-mode I/O semantics, linker support, and app-mode validation.
 
 REQUIREMENT: Package ABI diff command
 SPECIFICATION: repository.md @ §8.2 The ABI_INDEX section
 GROUP: tooling
 RECOMMENDED: CODE CHANGE
+VERIFIED: YES
+PRIORITY: MED
 The registry design requires `mfb pkg check-abi` so publishers can compare a working package ABI index against the latest published version before publishing. `src/main.rs` only dispatches `pkg add`, `pkg info`, and `pkg verify`. Add a `pkg check-abi` subcommand that builds or reads the local package ABI index, obtains the comparison ABI index from the selected registry or package source, reports symbol-level ABI additions/removals/changes, and exits nonzero for unintended breaking changes.
 
 REQUIREMENT: Source directory package mapping
 SPECIFICATION: project.md @ §6 Sources
 GROUP: tooling
 RECOMMENDED: SPEC CHANGE
+VERIFIED: YES
+PRIORITY: LOW
 `project.md` says directory-to-package rules still apply, that each source directory contributes to one package namespace, and that child directories use their own directory names as package names. This is not implemented, and it conflicts with `mfbasic.md` §13, which says the selected `.mfb` files in one project form one source package and directories inside a source root do not create package boundaries. Resolve by updating `project.md` to match the language model: source entries select files for the current project package only, and package boundaries come only from dependency manifests/imports.
 
 REQUIREMENT: Source roles control build source selection
 SPECIFICATION: project.md @ §6 Sources
 GROUP: tooling
 RECOMMENDED: CODE CHANGE
+VERIFIED: YES
+PRIORITY: MED
 `project.json` source entries include roles such as `main`, `test`, `example`, and `tool`, and overlap rules are specific to `main` entries. The source collector ignores `role`, parses all source entries for ordinary builds, and rejects overlap across all entries. This makes test/example/tool files part of normal builds and prevents the role-specific overlap behavior the manifest specifies. Parse and preserve `sources[*].role`, select only the active role for each command, enforce main-overlap rules specifically for main builds, and wire test-role selection into `mfb test` when that command is implemented.
 
 REQUIREMENT: Initialized executable projects must contain valid source
 SPECIFICATION: architecture.md @ §2 Commands And Build Modes
 GROUP: tooling
 RECOMMENDED: CODE CHANGE
+VERIFIED: YES
+PRIORITY: HIGH
 `mfb init <location>` is specified to create an executable project with `project.json` and `src/main.mfb`, but `src/main.rs::hello_world_source()` emits `io.print("Hello World")`. The language package access syntax is `io::print`, and building a freshly initialized project fails with `MFB_PARSE_UNEXPECTED_TOKEN`. Change the scaffold to emit `io::print("Hello World")`, then add an init smoke test that runs `mfb init` and successfully builds the generated project.
 
 REQUIREMENT: Project manifest author object metadata
 SPECIFICATION: project.md @ §4 Identity And Informational Fields
 GROUP: tooling
 RECOMMENDED: CODE CHANGE
+VERIFIED: YES
+PRIORITY: MED
 `project.md` allows `author` to be either a string or an object, but `src/main.rs::validate_project_manifest` validates `author` with `validate_optional_string`, so a valid object form is rejected. Update manifest validation to accept the documented object form, validate supported object members such as `name`, `email`, and `url`, carry normalized author metadata into package metadata where needed, and add manifest validation tests for string, object, and invalid author shapes.
 
 REQUIREMENT: Manifest targets control requested build outputs
 SPECIFICATION: project.md @ §9 Targets And Build Metadata
 GROUP: tooling
 RECOMMENDED: CODE CHANGE
+VERIFIED: YES
+PRIORITY: MED
 `project.json` defines `targets` as the requested build targets such as `native`, `bytecode`, or platform triples, but `src/main.rs` does not consume `manifest["targets"]`; build output is controlled only by CLI flags and host/default target selection. Resolve by validating `targets`, mapping `native`/`bytecode`/platform triples into the build plan, rejecting unsupported target entries, and defining precedence when both manifest targets and CLI `-target` or output flags are supplied.
 
 REQUIREMENT: Audit plan still requires removed USING regions
 SPECIFICATION: plan-audit.md @ §5.5 Resource Cleanup Behavior
 GROUP: tooling
 RECOMMENDED: SPEC CHANGE
+VERIFIED: YES
+PRIORITY: LOW
 `plan-audit.md` requires audit output for each `USING` region, but `mfbasic.md` and `error_codes.md` mark `USING` as removed in favor of lexical resource drop. Resolve by updating the audit plan to report lexical resource acquisitions, explicit close calls, scope-exit cleanup paths, and cleanup metadata instead of `USING` regions.
 
 REQUIREMENT: Project manifest `ident` required-field conflict
 SPECIFICATION: project.md @ §3 Required Fields
 GROUP: tooling
 RECOMMENDED: SPEC CHANGE
+VERIFIED: YES
+PRIORITY: LOW
 `project.md` lists `ident` as a required field, but §3/§4 also says executable-only projects and private local packages may omit it, and publishing tools must require it. The implementation follows that latter model: `validate_project_manifest` does not require `ident`, and both `mfb init`/`mfb init-pkg` scaffold manifests without it. Resolve by changing the §3 required-fields table so `ident` is not unconditionally required; document it as required only for registry publishing or registry-resolved package identities.
 
 REQUIREMENT: Project manifest repository metadata
 SPECIFICATION: project.md @ §4 Identity And Informational Fields
 GROUP: tooling
 RECOMMENDED: CODE CHANGE
+VERIFIED: YES
+PRIORITY: MED
 `project.md` defines `repository` as a known field that may be either a string or an object with fields such as `type`, `url`, and `directory`, but `src/main.rs::validate_project_manifest` does not validate or normalize `repository` at all. Add manifest validation for the documented string/object forms, validate supported object members, reject invalid shapes with `PROJECT_JSON_FIELD_TYPE`, and carry normalized repository metadata into tooling/package metadata where applicable.
 
 REQUIREMENT: Project manifest name must be a valid package import name
 SPECIFICATION: project.md @ §3 Required Fields / §11 Validation
 GROUP: tooling
 RECOMMENDED: CODE CHANGE
+VERIFIED: YES
+PRIORITY: MED
 `project.md` requires `name` to use MFBASIC package-name identifier restrictions and requires rejection when `name` is not a valid package import name. `src/main.rs::validate_project_manifest` only checks that `name` is a non-empty string, so invalid names such as `bad-name`, `123abc`, or names containing spaces can pass validation and be copied into project/package metadata. Add manifest-name validation using the same identifier/package-name rules as `IMPORT`, emit a registered project diagnostic for invalid names, and add manifest validation tests for valid names plus invalid empty, punctuation, digit-leading, and whitespace-containing names.
 
 REQUIREMENT: Project manifest description and license metadata types
 SPECIFICATION: project.md @ §4 Identity And Informational Fields
 GROUP: tooling
 RECOMMENDED: CODE CHANGE
+VERIFIED: YES
+PRIORITY: MED
 `project.md` defines `description` and `license` as known optional string fields, but `src/main.rs::validate_project_manifest` does not validate either field. Invalid shapes such as an object, array, boolean, or number can pass manifest validation even though the manifest schema gives these fields concrete string types. Add optional-string validation for `description` and `license`, emit `PROJECT_JSON_FIELD_TYPE` for invalid shapes, and add manifest validation tests for valid strings plus invalid non-string values.
 
 
@@ -142,42 +184,56 @@ REQUIREMENT: Lockfile-backed package install/update and registry resolution
 SPECIFICATION: lockfile.md @ Modes
 GROUP: registry
 RECOMMENDED: CODE CHANGE
+VERIFIED: YES
+PRIORITY: HIGH
 The spec requires `mfb pkg install`, `mfb pkg install --frozen`, and `mfb pkg update [ident]` with lockfile, hash, signature, metadata, and resolver behavior. The CLI only supports local `pkg add`, `pkg info`, and `pkg verify`. Implement dependency resolution, lockfile read/write, frozen checks, hash-addressed installs, registry source handling, and update flows.
 
 REQUIREMENT: Dependency version range syntax
 SPECIFICATION: mfbasic.md @ §13.1 Package identity, versions, and manifests
 GROUP: registry
 RECOMMENDED: SPEC CHANGE
+VERIFIED: YES
+PRIORITY: LOW
 `mfbasic.md` says dependency versions use range syntax such as `=1.2.3`, `^1.2.0`, `~1.2.0`, inequalities, and wildcards. The compiler and the newer registry/project specs use concrete semantic versions as ABI anchors with optional exact pinning, and `src/main.rs` treats range syntax as a literal non-match. Update `mfbasic.md` to align with `project.md` and `repository.md`: dependency `version` should be a concrete semantic version, `pin` controls exactness, and unpinned requests resolve by ABI compatibility.
 
 REQUIREMENT: Registry account, publish, and transparency-log lifecycle
 SPECIFICATION: repository.md @ §2 Account Model; §3 Trust & Signing; §5 Registry API & Storage
 GROUP: registry
 RECOMMENDED: CODE CHANGE
+VERIFIED: YES
+PRIORITY: MED
 The registry specification defines key-owned accounts, auth/ident/signing keys, key rotation, publish validation, immutable blob storage, signed index metadata, release-state changes, and transparency-log proofs. The source tree has no registry client/server implementation for registration, auth challenge/login, key rotation, validate/publish, root/snapshot/timestamp verification, release-state updates, or transparency-log proof handling. Implement the registry service/client surfaces and wire package add/install/verify/publish flows through signed metadata, inclusion/consistency proofs, release-state policy, and immutable content-hash blob retrieval.
 
 REQUIREMENT: Platform-specific dependencies are only active on matching targets
 SPECIFICATION: project.md @ §7 Packages
 GROUP: registry
 RECOMMENDED: CODE CHANGE
+VERIFIED: YES
+PRIORITY: MED
 Package dependencies may declare `platforms` and `optional`, but installed package discovery and dependency metadata treat every `packages[]` entry as active for every build target. Resolve by evaluating dependency activation against the selected build target, skipping inactive platform-specific dependencies, honoring `optional` only under the documented policy, and carrying the active dependency set into resolver, package verification, lockfile generation, ABI metadata, and native linking.
 
 REQUIREMENT: Package source locators drive dependency resolution
 SPECIFICATION: project.md @ §7 Packages
 GROUP: registry
 RECOMMENDED: CODE CHANGE
+VERIFIED: YES
+PRIORITY: MED
 `project.md` requires `source` locators such as `path:relative/path`, `file:relative/path/package.mfp`, `registry:name`, `git+https://...`, and `https://...`, but build/import resolution ignores most of them. `resolver.rs` only special-cases the older `local://` form, and `main.rs::installed_package_files` only looks for `packages/<name>.mfp`. Implement a locator resolver that maps `file:` to the declared `.mfp`, `path:` to either source-package compilation or local `.mfp` loading, and registry/remote locators through the lockfile/package manager path.
 
 REQUIREMENT: Builds consume `mfb.lock`
 SPECIFICATION: lockfile.md @ Goals; mfbasic.md @ §13.1 Package identity, versions, and manifests
 GROUP: registry
 RECOMMENDED: CODE CHANGE
+VERIFIED: YES
+PRIORITY: MED
 The specs require compilers and executable builds to use locked dependency selections exactly, including content hash, package/bytecode versions, signature policy, ABI/native metadata, and transitive dependency metadata. The build path has no `mfb.lock` reader and resolves dependencies directly from `project.json` plus `packages/<name>.mfp`. Add lockfile loading before dependency import/merge, validate `projectHash`, selected versions, hashes, signatures/trust exceptions, ABI/native metadata, and fail builds when the installed package state disagrees with the lockfile.
 
 REQUIREMENT: Project dependency aliases are ignored
 SPECIFICATION: project.md @ §7 Packages
 GROUP: registry
 RECOMMENDED: CODE CHANGE
+VERIFIED: YES
+PRIORITY: MED
 `project.md` defines `packages[*].alias` as a local resolver alias, but dependency parsing and package resolution ignore it entirely. `src/resolver.rs::dependency_packages`, `src/main.rs::project_package_dependency`, `package_dependencies`, `installed_package_files`, and package verification only preserve `name`, `ident`, `version`, `pin`, and `source`. Add validation for `alias`, preserve it in dependency metadata/lockfile resolution, define how it participates in active dependency uniqueness and resolver selection without changing source `IMPORT` names, and add manifest/package-resolution tests covering valid aliases, invalid alias shapes, and alias conflicts.
 
 
@@ -187,162 +243,208 @@ REQUIREMENT: .mfp signature and trust verification
 SPECIFICATION: package_format.md @ Signature types; Verifier Rules
 GROUP: package
 RECOMMENDED: CODE CHANGE
+VERIFIED: YES
+PRIORITY: HIGH
 The package reader validates signature type/length and computes content hashes, but it does not verify Ed25519 signatures, enforce signed packages by default, validate trust policy, or verify header identity/fingerprints against package metadata and lockfile/registry trust data. Add real signature verification, trust-store/lockfile policy checks, unsigned-local exceptions, and verifier tests with signed and tampered packages.
 
 REQUIREMENT: Semantic .mfp bytecode verifier
 SPECIFICATION: package_format.md @ Verifier Rules
 GROUP: package
 RECOMMENDED: CODE CHANGE
+VERIFIED: YES
+PRIORITY: HIGH
 The package reader parses container headers, required sections, type/export metadata, and ABI index consistency, but it does not run the required verifier pass for section uniqueness/overlap, instruction operand validity, register initialization, branch target validity, `Result` flow correctness, function call signature correctness, or linear resource ownership. `read_function_code` accepts arbitrary opcodes and operands after decoding, and imported packages can be read/merged without proving the bytecode is type-safe. Add a verifier after `read_bytecode_package` that validates section table invariants, all type/register/function/global/constant references, opcode arity and operand types, control-flow targets, `UNWRAP_RESULT`/`RESULT_VALUE`/`RESULT_ERROR` dominance, return-path correctness, cleanup regions, and resource move/close/drop rules before any package is imported or merged.
 
 REQUIREMENT: ABI_INDEX covers every caller-visible exported surface
 SPECIFICATION: package_format.md @ ABI_INDEX
 GROUP: package
 RECOMMENDED: CODE CHANGE
+VERIFIED: YES
+PRIORITY: MED
 The spec requires ABI v1 to hash exported funcs, subs, record types, union types, enum types, constants, global LET, global MUT, native wrappers, and resource types, plus dependency used symbols for every imported public ABI surface used by the package. The implementation builds ABI exports for exported functions/subs and exported types only, and records used imported functions only. Add ABI entries and hash serializers for exported constants/globals/resources/native wrappers and non-function imported surfaces, extend EXPORT_TABLE/package metadata as needed, and validate ABI_INDEX coverage against the full public surface.
 
 REQUIREMENT: Package manifest entry error exit mapping
 SPECIFICATION: package_format.md @ MANIFEST
 GROUP: package
 RECOMMENDED: SPEC CHANGE
+VERIFIED: YES
+PRIORITY: LOW
 `package_format.md` says an uncaught entry error writes `error.message` and exits with `error.code`, but `mfbasic.md` §8.6 and §8.7 specify stderr as `Code: <err.code> Message: <err.message>` and process exit code `255`; the native entry lowering implements the `255` model. Resolve by changing `package_format.md` to match the language-level entry contract and current runtime behavior.
 
 REQUIREMENT: Imported package bytecode built-ins link in native executables
 SPECIFICATION: linker.md @ §7 Package Linking
 GROUP: package
 RECOMMENDED: CODE CHANGE
+VERIFIED: YES
+PRIORITY: MED
 Imported `.mfp` package exports are supposed to lower into native functions for executable builds, including any runtime helpers or built-in operations used inside package bytecode. The native package bridge in `src/target/shared/code/mod.rs` only maps IO, filesystem, strings, and thread runtime-helper opcodes, plus a small hand-lowered opcode subset such as `LOAD_CONST`, `LOAD_DEFAULT`, `GENERAL_LEN`, integer add/sub/neg/equality, `CALL_RESULT`, `RETURN_OK`, and record construction. Package exports that use many legal standard operations, such as `toString`, `find`, conversions, collection helpers, math opcodes, broader arithmetic/comparisons, or JSON’s source-lowered helper code, can fail with “not lowered by the native package bridge” even though the same operations work in root-project native code. Resolve by routing package bytecode built-in opcodes through the same native lowering/runtime-helper coverage as root NIR where possible, adding package bridge lowering for remaining bytecode operations, collecting required platform imports from those helpers, and adding executable tests that call imported package exports using representative general, collection, math, string, JSON, IO/FS, and thread built-ins.
 
 REQUIREMENT: Source package imports and imported templates
 SPECIFICATION: mfbasic.md @ §13 Modules & Packages; §3 Templates
 GROUP: package
 RECOMMENDED: CODE CHANGE
+VERIFIED: YES
+PRIORITY: MED
 Source package imports are manifest-validated but not compiled, linked, or exposed to the importer. The compiler checks `packages/<name>/project.json`, but build/package loading still requires `.mfp` artifacts, imported source package symbols and types are not added to resolver/typechecker state, and exported templates from source packages are not available for importer-side instantiation. Resolve by adding a source-package dependency pipeline that loads dependency manifests and sources, detects cycles, compiles or caches source packages before the root package, exposes exported symbols/types/templates to resolver/typechecker/monomorphization, and feeds the resulting bytecode/native metadata into linker, ABI, lockfile, and audit flows.
 
 REQUIREMENT: Package global initializers and GLOBAL_TABLE flags
 SPECIFICATION: package_format.md @ Globals
 GROUP: package
 RECOMMENDED: CODE CHANGE
+VERIFIED: YES
+PRIORITY: MED
 The `.mfp` `GLOBAL_TABLE` implementation omits the specified `initFunction` field and uses incompatible flag meanings. Imported package globals are allocated, but package-level global initializer functions are not represented or run, so top-level `LET`/`MUT` initialization in compiled packages cannot be preserved at runtime. Resolve by extending global table encode/decode to include `initFunction`, emitting initializer functions for package globals, setting exported/mutable/constant-init/function-init flags according to the package format, and running dependency initializers in linker order, including isolated thread package instances.
 
 REQUIREMENT: Function export flags in package bytecode
 SPECIFICATION: package_format.md @ Functions
 GROUP: package
 RECOMMENDED: CODE CHANGE
+VERIFIED: YES
+PRIORITY: LOW
 Exported functions are encoded without the specified exported flag bit; the implementation currently treats “not private” as exported. This makes `FUNCTION_TABLE` flags inconsistent with the package format and leaves export status dependent on secondary tables. Resolve by adding and emitting `FUNCTION_FLAG_EXPORTED = 1 << 0`, keeping private/package visibility behavior explicit, validating consistency between `FUNCTION_TABLE` and `EXPORT_TABLE`, and regenerating package fixtures/tests.
 
 REQUIREMENT: .mfp unknown required container flags are rejected
 SPECIFICATION: package_format.md @ Container flags
 GROUP: package
 RECOMMENDED: CODE CHANGE
+VERIFIED: YES
+PRIORITY: MED
 The package format reserves bits 16-31 of the container `flags` field as required flags and requires readers to reject unknown required flags before import or merge. The current container readers parse or print the flags but do not reject required bits. Resolve by defining a supported required-flag mask and enforcing it in all `.mfp` readers used by import, merge, `pkg info`, `pkg verify`, and content-hash/verification paths, with tests for optional low bits versus rejected required high bits.
 
 REQUIREMENT: Imported package readers enforce `.mfp` header string limits
 SPECIFICATION: package_format.md @ Container validation
 GROUP: package
 RECOMMENDED: CODE CHANGE
+VERIFIED: YES
+PRIORITY: MED
 The package format requires readers to reject `.mfp` containers when any header string length exceeds the implementation limits, such as `nameLength <= 255`, `identLength <= 255`, `versionLength <= 64`, `authorLength <= 512`, and `urlLength <= 2048`. `src/main.rs::read_mfp_header` enforces these limits for CLI/package-info paths, and the package writer validates emitted metadata, but `src/bytecode.rs::mfp_bytecode_payload` uses unrestricted `read_length_prefixed`/`skip_length_prefixed` for the lower-level readers used by resolver, typechecker, bytecode merge, native import lowering, and package type/export loading. As a result, imported `.mfp` packages can bypass the specified container string-length validation. Resolve by centralizing `.mfp` header parsing and validation or by adding the same per-field byte limits and required-field checks to `mfp_bytecode_payload`, then cover import/type-export/package-merge paths with oversized-header tests.
 
 REQUIREMENT: EXPORT_TABLE kind values match package format
 SPECIFICATION: package_format.md @ EXPORT_TABLE
 GROUP: package
 RECOMMENDED: CODE CHANGE
+VERIFIED: YES
+PRIORITY: MED
 `EXPORT_TABLE` specifies kind `3` as top-level `LET`, `4` as top-level `MUT`, `5` as type, `6` as union, `7` as enum, `8` as union member constructor, and `9` as record constructor. The implementation encodes/decodes type, union, and enum as `3`, `4`, and `5`, and has no export kinds for constructors. This makes emitted `.mfp` metadata incompatible with the specified package format. Update `BytecodeExportKind` encoding/decoding to the specified values, add export entries for record constructors and union member constructors, preserve compatibility intentionally if old fixtures exist, and add package read/write tests that verify the numeric kind values.
 
 REQUIREMENT: File resource metadata marks thread sendability
 SPECIFICATION: package_format.md @ RESOURCE_TABLE; standard_package.md @ §8 Built-in Filesystem Package
 GROUP: package
 RECOMMENDED: CODE CHANGE
+VERIFIED: YES
+PRIORITY: MED
 `File` is specified as thread-sendable, and `RESOURCE_TABLE` bit 2 records whether a resource is sendable to threads. `ResourceTable::add_standard_file` emits `native`, `standard`, and `close may fail`, but does not define or set the sendable flag, so packages using `File` do not carry the required resource sendability metadata. Add `RESOURCE_FLAG_THREAD_SENDABLE = 1 << 2`, set it for standard `File`, validate imported resource metadata against built-in sendability rules, and add package metadata tests that inspect the emitted `RESOURCE_TABLE`.
 
 REQUIREMENT: Package install/verify rejects unsupported bytecode versions
 SPECIFICATION: package_format.md @ Container validation
 GROUP: package
 RECOMMENDED: CODE CHANGE
+VERIFIED: YES
+PRIORITY: MED
 The spec requires `.mfp` readers to reject unsupported `bytecodeMajor`, but `src/main.rs::read_mfp_header` only reads `bytecode_major`/`bytecode_minor` and does not validate them. `mfb pkg add` and `mfb pkg verify` rely on this header-only path, so an unsupported bytecode package can be added or reported against project dependencies without being rejected. Resolve by centralizing `.mfp` container validation or making `pkg add`/`pkg verify` parse and validate the bytecode payload with the same `bytecodeMajor` checks used by `read_bytecode_package`, before copying or accepting the package.
 
 REQUIREMENT: Union payload metadata uses member type IDs
 SPECIFICATION: package_format.md @ Union payload
 GROUP: package
 RECOMMENDED: CODE CHANGE
+VERIFIED: YES
+PRIORITY: MED
 `TYPE_TABLE` union payloads are specified as `memberCount` followed by `memberType` type IDs. The encoder instead writes each variant name plus flattened field names/types, and the readers expect that non-spec layout. Encode union payloads as member type IDs, ensure member record types are present in `TYPE_TABLE`, and update import/native layout readers to recover fields through the referenced member type metadata.
 
 REQUIREMENT: MapEntry package metadata must not use native resource type kind
 SPECIFICATION: standard_package.md @ §2 Built-in Containers
 GROUP: package
 RECOMMENDED: CODE CHANGE
+VERIFIED: YES
+PRIORITY: MED
 `MapEntry OF K TO V` is specified as a compiler-owned read-only record shape with `key` and `value` fields. The bytecode type table currently emits `MapEntry` with type kind `9`, which `package_format.md` defines as `native resource`. Encode `MapEntry` as a record-like compiler-owned type with public read-only fields, or add and implement a dedicated package-format kind before emitting it.
 
 REQUIREMENT: Function trap metadata in package bytecode
 SPECIFICATION: package_format.md @ Functions
 GROUP: package
 RECOMMENDED: CODE CHANGE
+VERIFIED: YES
+PRIORITY: MED
 `FUNCTION_TABLE` specifies `hasTrap` in function flags and `trapPc` as the single bottom trap entry point, with `trapPc = 0xFFFFFFFF` only when `hasTrap` is false. The encoder lowers trap control flow but never sets the `hasTrap` flag and always writes `trapPc` as `0xFFFFFFFF`. Track the trap body entry PC during bytecode lowering, set `FUNCTION_FLAG_HAS_TRAP`, emit the real `trapPc`, and validate/read that metadata consistently.
 
 REQUIREMENT: Function type metadata must mark SUB-compatible Nothing callbacks
 SPECIFICATION: package_format.md @ Function type payload
 GROUP: package
 RECOMMENDED: CODE CHANGE
+VERIFIED: YES
+PRIORITY: MED
 `FUNCTION` type payload flags specify bit 1 as `sub-compatible Nothing return`, matching `mfbasic.md` first-class function typing where `SUB(A, ...)` is compatible with `FUNC(A, ...) AS Nothing`. `src/bytecode.rs::TypeTable::function_type` only writes the isolated bit and never sets or decodes the sub-compatible bit, so emitted `.mfp` type metadata loses that caller-visible function-type property. Add a function-type flag constant, set it when the encoded function type returns `Nothing`, preserve it through decode/ABI serialization, and add package metadata tests for `FUNC(...) AS Nothing` callback types used by `forEach`/function values.
 
 REQUIREMENT: Function parameter metadata must declare resource borrow/consume mode
 SPECIFICATION: package_format.md @ Parameters
 GROUP: package
 RECOMMENDED: CODE CHANGE
+VERIFIED: YES
+PRIORITY: MED
 `FUNCTION_TABLE` parameter flags reserve bit 1 for resource borrow and bit 2 for resource consume, but `src/bytecode.rs::lower_function` only sets bit 0 for default arguments. Exported package functions with resource parameters therefore omit required ownership metadata, preventing importers and verifiers from distinguishing ordinary borrowed resource parameters from consuming close/transfer parameters. Compute parameter ownership mode during bytecode lowering, set borrow flags for ordinary resource parameters, consume flags for close/transfer/native-wrapper parameters, include those flags in ABI hashing/import validation, and add `.mfp` metadata tests using exported functions that accept `File`.
 
 REQUIREMENT: Imported package default arguments are materialized at call sites
 SPECIFICATION: mfbasic.md @ §6 Functions; package_format.md @ Parameters
 GROUP: package
 RECOMMENDED: CODE CHANGE
+VERIFIED: YES
+PRIORITY: HIGH
 Default arguments are part of function call semantics, and `.mfp` function parameter metadata includes `defaultConst` for parameters with defaults. The package export reader exposes only `has_default`, and `external_package_function_types` passes only name/type/has_default into IR. Typechecking may therefore accept an imported package call that omits a trailing default argument, but IR lowering has no default expression or constant to materialize, so the generated call can pass too few arguments. Preserve imported `defaultConst` values through `read_package_exports` into external function params, lower omitted imported defaults from package constants using the declared parameter type, and add executable package-import tests that omit exported default parameters.
-
-REQUIREMENT: Container flag bit assignments cover emitted flags
-SPECIFICATION: package_format.md @ Container flags
-GROUP: package
-RECOMMENDED: SPEC CHANGE
-`package_format.md` defines container flag bits 0-2, reserves bits 4-15 as optional, and reserves bits 16-31 as required, leaving bit 3 without a specified meaning. The package writer emits bit 3 as `FLAG_PRE_RELEASE` when the package version contains a prerelease marker, so compiler-produced `.mfp` files can contain a flag not described by the format. Resolve this by documenting bit 3 as the prerelease/container metadata flag, or remove the emitted flag and derive prerelease status from the semantic version string.
 
 REQUIREMENT: Malformed imported package type exports use a registered diagnostic
 SPECIFICATION: error_codes.md @ Name Resolution; Package And Registry
 GROUP: package
 RECOMMENDED: CODE CHANGE
+VERIFIED: YES
+PRIORITY: MED
 `src/resolver.rs::install_package_type_names` reports `IMPORT_PACKAGE_INVALID` when `.mfp` type exports cannot be read, but `IMPORT_PACKAGE_INVALID` is not defined in `specifications/error_codes.md` or registered in `src/rules.rs`. That path will surface as `UNKNOWN_RULE` instead of a documented diagnostic. Replace it with the registered `PACKAGE_INVALID` diagnostic, or add a documented `IMPORT_PACKAGE_INVALID` rule consistently to `error_codes.md`, `rules.rs`, and related specs. Add an import test with a malformed `.mfp` dependency that proves the emitted rule is registered.
 
 REQUIREMENT: Imported package `len(String)` must count Unicode scalars
 SPECIFICATION: standard_package.md @ §3.1 General
 GROUP: package
 RECOMMENDED: CODE CHANGE
+VERIFIED: YES
+PRIORITY: HIGH
 `len(value AS String)` is specified to return the number of Unicode scalar values. The root native lowering counts UTF-8 scalar starts, but the native package bytecode bridge handles `NATIVE_OPCODE_GENERAL_LEN` by loading the first word of the runtime value for every operand. For `String`, that word is byte length, so an imported package export using `len("é")` can return `2` instead of `1` when linked into a native executable. Resolve by making the package bridge lower `GENERAL_LEN` with type-aware behavior: use collection count for list/map values, but count UTF-8 scalar starts for strings, matching root native lowering. Add an executable package-import runtime test with non-ASCII text.
 
 REQUIREMENT: Package bytecode instruction set matches the package format contract
 SPECIFICATION: specifications/package_format.md @ Core Instructions
 GROUP: package
 RECOMMENDED: SPEC CHANGE
+VERIFIED: YES
+PRIORITY: LOW
 `package_format.md` defines a package bytecode instruction set with operations such as `NOP`, `MOVE`, `COPY`, `DROP`, `FREEZE`, `MAKE_RECORD`, `GET_FIELD`, `MAKE_MEMBER`, `LIST_NEW`, `MAP_PUT`, `JMP_TRUE`, `FAIL`, and `PROPAGATE`. The compiler’s package bytecode implementation in `src/bytecode.rs` and lowering code uses a different concrete opcode surface, including operations such as `CONSTRUCT_RECORD`, `LOAD_FIELD`, `CONSTRUCT_VARIANT`, `BRANCH_IF_FALSE`, `FLOAT_DIV`, package-specific FS/IO/thread ops, and result-specific call/unwrapping opcodes. Several spec-listed instructions are not encoded or decoded as named, while several implemented opcodes are not specified there. Resolve by updating `specifications/package_format.md` so the package bytecode opcode table, numeric values, operands, verifier rules, and lowering expectations match the compiler’s actual package bytecode format; if the documented instruction set is intended to be normative instead, replace the implemented opcode model or add a package-format translation layer and acceptance coverage for the documented opcodes.
 
 REQUIREMENT: Imported package readers enforce `.mfp` header bytecode version
 SPECIFICATION: package_format.md @ Container validation; Container verifier
 GROUP: package
 RECOMMENDED: CODE CHANGE
+VERIFIED: YES
+PRIORITY: MED
 The package format requires readers to reject unsupported `.mfp` header `bytecodeMajor` before import or merge. The lower-level import path in `src/bytecode.rs::mfp_bytecode_payload` reads `containerMajor` and signature metadata, but never reads or validates header `bytecodeMajor`/`bytecodeMinor`; it only later validates the embedded `MFBC` payload major version. A package with an unsupported header `bytecodeMajor` but a valid embedded `MFBC` payload can therefore be accepted by resolver/type export/package merge/native import paths. Add header bytecode-version validation to the shared `.mfp` container parser, ensure it agrees with supported payload versions, and cover imported-package paths with malformed-header tests.
 
 REQUIREMENT: Built-in default arguments must be materialized before package bytecode lowering
 SPECIFICATION: standard_package.md @ Standard-package functions preamble
 GROUP: package
 RECOMMENDED: CODE CHANGE
+VERIFIED: YES
+PRIORITY: MED
 `standard_package.md` requires omitted trailing defaults to be filled before lowering, but package bytecode lowering does not consistently materialize built-in defaults. `src/builtins/general.rs::lower_bytecode_call` emits `find(value, needle)` and `toString(Float|Fixed)` without adding the default `start := 0` or `precision := 2`, while some other built-ins use opcode-specific sentinels such as `u32::MAX` instead of lowered default values. Root native lowering compensates for some of these cases, but `.mfp` bytecode can encode calls that have not had defaults filled, which breaks the package bytecode contract and leaves imported-package execution dependent on ad hoc bridge behavior. Normalize built-in calls before bytecode emission by inserting the specified default arguments as ordinary constants for every built-in overload with defaults, then validate package bytecode/goldens and add package-import runtime tests for omitted defaults such as `find("abc", "b")`, `toString(1.5)`, `io::pollInput()`, and `thread::send(t, msg)`.
 
 REQUIREMENT: Package audit metadata section emission
 SPECIFICATION: mfbasic.md @ §22 Tooling And Auditability
 GROUP: package
 RECOMMENDED: CODE CHANGE
+VERIFIED: YES
+PRIORITY: LOW
 The compiler emits package sections for manifest, pools, imports, exports, globals, functions, code, ABI, and resources, but does not emit the required package audit metadata for exported APIs that expose fallible calls, propagation, TRAP handling, permissions, native links, or resource cleanup behavior. `package_format.md` defines `AUDIT_INFO`, but the package writer has no corresponding section or lowering path. Resolve by defining the `AUDIT_INFO` payload, collecting the required effects during type checking/lowering, emitting the section for `.mfp` builds, and validating/reporting it through package verification and audit tooling.
 
 REQUIREMENT: Imported package language and runtime version validation
 SPECIFICATION: mfbasic.md @ §13.1 Package identity, versions, and manifests
 GROUP: package
 RECOMMENDED: CODE CHANGE
+VERIFIED: YES
+PRIORITY: MED
 Imported `.mfp` packages are required to declare an MFBASIC language version supported by the compiler, along with compatible runtime requirements. The package reader parses manifest version fields but does not enforce `languageMajor/languageMinor` or `minimumRuntimeMajor/minimumRuntimeMinor` compatibility across import, link, or verify paths. Resolve by preserving these manifest fields in package metadata, validating them wherever `.mfp` packages are loaded, and adding package import/verify tests for supported and unsupported language/runtime versions.
 
 
@@ -352,174 +454,216 @@ REQUIREMENT: Native LINK binding packages
 SPECIFICATION: mfbasic.md @ §17 Native Libraries
 GROUP: language
 RECOMMENDED: CODE CHANGE
+VERIFIED: YES
+PRIORITY: LOW
 The language specifies `LINK` blocks, `TYPE ... AS RESOURCE`, `SYMBOL`, `ABI`, `SUCCESS_ON`, `ERROR_ON`, and native metadata, but the lexer/parser do not include this syntax and native binding package semantics are not implemented. Add parsing, typechecking, package metadata emission, verifier support, native symbol resolution, runtime conversion, and resource cleanup integration.
 
 REQUIREMENT: Non-escaping mutable lambda captures
 SPECIFICATION: plan-lambda-mut.md @ §10 Source-Level Behavior Under The Recommended Model
 GROUP: language
 RECOMMENDED: CODE CHANGE
+VERIFIED: YES
+PRIORITY: LOW
 The plan recommends allowing `MUT` capture for proven non-escaping callbacks, but the typechecker still rejects mutable local capture in lambdas generally. Implement non-escaping callback metadata and analysis for approved collection callbacks, permit only those mutable captures, and keep escaping closures rejected.
 
 REQUIREMENT: Imported package constructors are package-qualified
 SPECIFICATION: mfbasic.md @ §13 Modules & Packages
 GROUP: language
 RECOMMENDED: CODE CHANGE
+VERIFIED: YES
+PRIORITY: MED
 Imported `.mfp` type exports are installed as bare type and variant names in resolver/typechecker state. `package::Type[...]` parses to `package.Type[...]`, but exported package types are not installed under that qualified name, while unqualified `Type[...]` can resolve. This violates the package-access model and can collide when multiple imports export the same type or constructor. Resolve by namespacing imported type, enum, record, and union constructor symbols by import binding/canonical package name, supporting qualified type annotations and constructors, and rejecting unqualified imported constructors unless the language explicitly adds an import form that brings them into local scope.
 
 REQUIREMENT: Package-private record fields are hidden from importers
 SPECIFICATION: mfbasic.md @ §4.2 Records; §13 Modules & Packages
 GROUP: language
 RECOMMENDED: CODE CHANGE
+VERIFIED: YES
+PRIORITY: MED
 `PACKAGE` fields may be used only by files in the declaring package, and imported records with hidden fields must be opaque to importers. Imported `.mfp` type metadata preserves `PACKAGE` field visibility, but `src/typecheck.rs` treats `Visibility::Package` as visible from every file in `visible_from`, so an importing project can construct, read, or `WITH`-update package-private fields from dependency records. Track package identity/source ownership in visibility checks, treat imported package `PACKAGE` fields as hidden outside that package, and add package import tests covering constructor, field access, and `WITH` rejection for package-private fields.
 
 REQUIREMENT: Aggregate resource ownership and lexical drop
 SPECIFICATION: specifications/mfbasic.md @ §14.7 Drop order / §15 Resource Management
 GROUP: language
 RECOMMENDED: CODE CHANGE
+VERIFIED: YES
+PRIORITY: HIGH
 Records and unions can contain resource fields, and the spec requires record fields to drop in declaration order, union payloads to drop according to the active member layout, and every resource owner to close exactly once on all exits. The compiler/runtime cleanup path only registers cleanup for bindings whose type is itself a direct resource type such as `File`; aggregate bindings like `TYPE FileBox: handle AS File` do not get recursive cleanup. Transfer of `box.handle` also does not mark `box` or the field as moved, so ownership is not tracked at aggregate-field granularity. Resolve by adding drop metadata for aggregate types containing owned resources, recursively emitting native/bytecode cleanup in specified order, tracking field/aggregate moves so explicit close deactivates the correct cleanup path, and adding valid/invalid runtime tests for record and union resource fields on normal, return, fail/propagate, and explicit-close paths.
 
 REQUIREMENT: Float exponentiation supports floating exponents
 SPECIFICATION: mfbasic.md @ §4.1 Primitives; §11 Operators
 GROUP: language
 RECOMMENDED: CODE CHANGE
+VERIFIED: YES
+PRIORITY: HIGH
 The spec restricts `Integer ^` to non-negative integer exponents, but does not apply that restriction to `Float ^`. The implementation lowers Float exponentiation through an integer-only loop path that rejects negative or fractional Float exponents with a domain error, so valid cases like `4.0 ^ 0.5` and `2.0 ^ -1.0` do not work. Resolve by implementing real Float exponentiation in the native lowering/runtime path, preserving specified errors for invalid domains and non-finite results, and add runtime tests for fractional, negative, invalid-domain, and overflow cases.
 
 REQUIREMENT: User-defined source RESOURCE declarations
 SPECIFICATION: plan-resource.md @ §4 Proposed Syntax; §18 Recommendation
 GROUP: language
 RECOMMENDED: CODE CHANGE
+VERIFIED: YES
+PRIORITY: LOW
 `plan-resource.md` specifies first-class top-level source resources using `RESOURCE ... END RESOURCE`, `REPRESENTATION`, `CLOSE ... AS ...`, optional `THREAD_SENDABLE`, package-local construction with `RESOURCE Type[state]`, ownership/drop semantics, package metadata, and verifier support. The compiler currently has built-in resource support and planned native `LINK` resource support is already listed in `review_issues.txt`, but it has no lexer/parser/AST/typechecker/lowering/package metadata implementation for ordinary source-defined resources. Add the syntax and AST nodes, resolve and validate representation/close rules, mark source resources as nominal non-copyable handles, implement construction and explicit/lexical close lowering, preserve metadata in `RESOURCE_TABLE`/ABI, enforce thread-sendability, and add valid/invalid plus runtime close-behavior tests.
-
-REQUIREMENT: UNION INCLUDES member set
-SPECIFICATION: mfbasic.md @ §4.3 Unions (sum types); §9 Pattern Matching
-GROUP: language
-RECOMMENDED: CODE CHANGE
-`UNION ... INCLUDES ...` must create a new closed union whose member set includes all members from included unions, and those included members must be usable for construction, assignment, matching, and exhaustiveness. The implementation parses and validates includes for conflicts, but `TypeInfo` stores only directly declared `variants`; compatibility checks, `CASE` validation, and exhaustiveness all use that direct-only list. Populate each union's effective expanded member set, use it consistently in type compatibility, constructor/wrap lowering, pattern matching, exhaustiveness, IR/bytecode metadata, and package ABI/type export generation, then add valid/invalid tests for local included unions and package-qualified included members.
 
 REQUIREMENT: Resource parameters borrow unless a resource operation consumes
 SPECIFICATION: mfbasic.md @ §6 Functions; §15 Resource Management
 GROUP: language
 RECOMMENDED: CODE CHANGE
+VERIFIED: YES
+PRIORITY: MED
 `mfbasic.md` says resource parameters are governed by resource borrow/consume rules: ordinary resource operations borrow the handle for the duration of the call, while explicit close operations consume it. The compiler currently applies that distinction to built-in filesystem calls, but ordinary source calls and function-value calls use the generic non-copyable argument path, which treats resource-typed arguments as transfers. A helper taking `f AS File` therefore moves the caller's handle even if it only reads from it, preventing later use or close by the caller. Add resource-aware argument mode metadata for ordinary calls/function values: borrow direct resource parameters by default, consume only registered close/transfer operations, preserve ownership moves for non-resource non-copyable values, and add valid/invalid plus runtime tests proving a `File` remains usable after a borrowing helper while `fs::close` still consumes it.
 
 REQUIREMENT: Native calls support all declared function parameters
 SPECIFICATION: mfbasic.md @ §6 Functions; §21 Build Artifacts
 GROUP: language
 RECOMMENDED: CODE CHANGE
+VERIFIED: YES
+PRIORITY: HIGH
 MFBASIC does not specify an eight-parameter limit for source functions, but the AArch64 backend maps every function parameter and call argument through `abi::argument_register(index)`, which errors for `index >= 8` with “stack arguments are not implemented”. As a result, otherwise valid source functions or package exports with more than eight parameters can typecheck and lower through earlier stages but cannot produce a working native executable. Implement AArch64 stack-argument passing for function entry, ordinary calls, package export bridges, and runtime/native helper call sites, then add runtime tests that execute functions with more than eight parameters.
 
 REQUIREMENT: Aliased imported package calls preserve named-argument ordering
 SPECIFICATION: mfbasic.md @ §6 Functions; §13 Modules & Packages
 GROUP: language
 RECOMMENDED: CODE CHANGE
+VERIFIED: YES
+PRIORITY: HIGH
 Named arguments must bind by declared parameter name and lower in declaration order, and `IMPORT package AS alias` must make calls through the alias equivalent to calls through the package binding. Typechecking can validate an aliased imported package call against the imported signature, but IR lowering calls `normalize_local_call_arguments(callee, ...)` with the alias-qualified name; that helper only looks up `context.function_params.get(callee)` and does not fall back to the canonical package name. For aliased `.mfp` imports with out-of-order named arguments, lowering can preserve source order instead of declaration order. Make normalization use the same canonical-name fallback as `lower_local_call_arguments`, and add package import tests for aliased calls with reordered named arguments.
 
 REQUIREMENT: REM comments continue to end of line
 SPECIFICATION: mfbasic.md @ §2 Lexical Structure
 GROUP: language
 RECOMMENDED: CODE CHANGE
+VERIFIED: YES
+PRIORITY: MED
 The spec lists `REM` as a comment form, but the lexer only treats `REM` as a comment at statement start. Inline usage such as `LET x = 1 REM comment` is therefore parsed as normal tokens instead of a comment. Resolve by updating lexing so standalone `REM` starts a line comment wherever a token may begin while preserving identifiers such as `REMvalue`; if the intended design is statement-only `REM`, revise the spec instead.
 
 REQUIREMENT: Double-drop diagnostic rule is registered
 SPECIFICATION: error_codes.md @ Compiler Diagnostics / TYPE_DOUBLE_DROP_PATH
 GROUP: language
 RECOMMENDED: CODE CHANGE
+VERIFIED: YES
+PRIORITY: MED
 `error_codes.md` defines `TYPE_DOUBLE_DROP_PATH` (`2-203-0057`) for paths that could drop the same owned value more than once, but `src/rules.rs` does not register that rule. Add the missing rule entry with the documented code, severity, and message, then wire any double-drop ownership checks to emit it instead of falling back to `UNKNOWN_RULE` or a generic diagnostic.
 
 REQUIREMENT: Default argument expressions work in package bytecode
 SPECIFICATION: mfbasic.md @ §6 Functions; §14.3 Function calls and returns
 GROUP: language
 RECOMMENDED: CODE CHANGE
+VERIFIED: YES
+PRIORITY: MED
 Default parameters are parsed and typechecked as arbitrary expressions, and omitted defaults are supposed to be evaluated at the call site before lowering. Local IR lowering can materialize those expressions, but `.mfp` function metadata lowers every default through `CONST_POOL` via `builder.const_id(default)`, which only accepts `IrValue::Const`. A source package with a non-constant default expression can typecheck but fail package bytecode generation instead of preserving the language behavior. Resolve by either lowering default expressions into package-visible default thunks/metadata that importers can materialize at call sites, or by explicitly restricting default parameters to compile-time constants across `mfbasic.md`, parser/typecheck diagnostics, and package docs. Since the current language grammar and call semantics specify expressions, the direct fix is to support expression defaults through package generation/import, ABI hashing, and runtime tests for exported and local default expressions.
 
 REQUIREMENT: Fixed exponentiation must support Fixed exponents
 SPECIFICATION: mfbasic.md @ §4.1 Primitives; §11 Operators
 GROUP: language
 RECOMMENDED: CODE CHANGE
+VERIFIED: YES
+PRIORITY: MED
 The specification defines `Fixed ^ Fixed -> Fixed` and only restricts non-negative integer exponents for `Integer ^ Integer`. The compiler backend currently treats Fixed exponentiation like repeated multiplication: it rejects negative exponents and rejects fractional Fixed exponents. Implement full Fixed exponentiation semantics for Fixed operands, including fractional and negative exponents, with deterministic rounding, overflow handling, and runtime tests for representative valid and invalid cases.
 
 REQUIREMENT: Dynamic FOR STEP zero must be rejected
 SPECIFICATION: error_codes.md @ Compiler Diagnostics / TYPE_FOR_STEP_ZERO
 GROUP: language
 RECOMMENDED: CODE CHANGE
+VERIFIED: YES
+PRIORITY: MED
 `TYPE_FOR_STEP_ZERO` specifies that a `FOR` loop step must not be zero, but `src/typecheck.rs` only diagnoses literal zero step expressions. A non-literal expression that evaluates to zero is lowered in `src/ir.rs` into a `WHILE` loop whose increment adds zero forever when the loop condition is initially true. Resolve by evaluating the step before entering the loop and rejecting zero there: keep the static diagnostic for literal or constant-zero steps, and add a runtime error path for dynamic zero steps routed through normal cleanup/TRAP behavior. Add valid tests for positive and negative dynamic steps, plus invalid/runtime tests for literal and dynamic zero steps.
 
 REQUIREMENT: Recursion exhaustion must fail safely
 SPECIFICATION: mfbasic.md @ §6 Functions
 GROUP: language
 RECOMMENDED: CODE CHANGE
+VERIFIED: YES
+PRIORITY: MED
 The spec allows recursion but requires call stack or recursion-depth exhaustion to fail with `ErrOutOfMemory` or a future specific runtime error instead of causing undefined behavior. The native backend emits ordinary AArch64 calls and stack frames without a recursion-depth counter, stack-limit check, alternate signal handling, or runtime conversion path for stack overflow. Add a per-thread/package call-depth or stack-limit guard around MFBASIC function entry, route exhaustion through normal `Result`/`TRAP` cleanup semantics with `ErrOutOfMemory`, and add a runtime test with intentionally deep recursion that observes the error instead of a host crash.
 
 REQUIREMENT: Retired USING diagnostic is still listed as compiler-facing
 SPECIFICATION: error_codes.md @ Compiler Diagnostics / TYPE_USING_REQUIRES_RESOURCE
 GROUP: language
 RECOMMENDED: SPEC CHANGE
+VERIFIED: YES
+PRIORITY: LOW
 `error_codes.md` says compiler diagnostic codes correspond to `src/rules.rs`, but `TYPE_USING_REQUIRES_RESOURCE` is listed as retired and is not registered in `src/rules.rs`. Since `USING` has been removed in favor of lexical resource drop, update the spec to move retired codes into a historical/non-emitted section, or explicitly state retired codes are intentionally absent from `rules.rs`.
 
 REQUIREMENT: Import aliases must conflict with imported package names
 SPECIFICATION: mfbasic.md @ §13 Modules & Packages
 GROUP: language
 RECOMMENDED: CODE CHANGE
+VERIFIED: YES
+PRIORITY: MED
 `IMPORT packageName AS aliasName` must reject aliases that conflict with another imported package name or alias. `src/resolver.rs::resolve_file` only checks duplicate active bindings, built-in alias conflicts, and visible top-level conflicts. It allows cases such as `IMPORT foo AS bar` alongside `IMPORT bar AS baz`, where alias `bar` conflicts with another imported package name. Track both imported package names and aliases per file, reject cross-conflicts with `SYMBOL_DUPLICATE_IMPORT`, include `errorCode` once that built-in package is registered, and add invalid import-alias tests covering alias-vs-package-name, package-name-vs-alias, alias-vs-alias, built-in-name, and top-level conflicts.
-
-REQUIREMENT: First-class function values are callable
-SPECIFICATION: mfbasic.md @ §6 Functions
-GROUP: language
-RECOMMENDED: CODE CHANGE
-The language specifies first-class functions and lambdas, including calls like `f(f(x))` through a `FUNC(...) AS ...` parameter or local. Typechecking accepts ordinary function-value calls, but native lowering only handles callable locals on `CallResult`/direct `MATCH` paths. Auto-unwrapped ordinary calls lower `f(x)` as a static call target named `f`, producing a native relocation failure such as `native object plan relocation target 'f' is neither defined nor imported`. Route `NirValue::Call` through the same callable-local closure path already used by `NirValue::CallResult`, preserve auto-unwrapping/error propagation semantics, and add runtime tests for function parameters, local lambda values, captured closures, and collection callbacks that call function values.
 
 REQUIREMENT: Exported package globals are visible to importers
 SPECIFICATION: mfbasic.md @ §13 Modules & Packages
 GROUP: language
 RECOMMENDED: CODE CHANGE
+VERIFIED: YES
+PRIORITY: HIGH
 The spec says exported top-level `LET` and explicit `EXPORT MUT` are visible to importers through package-qualified names, but imported `.mfp` globals are not exposed to resolver/typechecker/lowering. `src/typecheck.rs` loads only imported package function exports, and `src/bytecode.rs::package_exports` only returns callable exports; package global metadata is printed by `pkg info` but not installed as package-qualified values. Add exported global `LET`/`MUT` entries to package export metadata, load them into imported binding/typecheck state under the import binding or canonical package name, lower reads and allowed writes through package global access, and validate initialization/linking order with package import tests.
 
 REQUIREMENT: Inner block binding shadowing
 SPECIFICATION: mfbasic.md @ §5 Bindings & Scope
 GROUP: language
 RECOMMENDED: CODE CHANGE
+VERIFIED: YES
+PRIORITY: MED
 The spec allows inner blocks to shadow bindings from enclosing scopes, but `src/resolver.rs` clones outer locals into nested block maps and reports `SYMBOL_DUPLICATE_LOCAL` when a nested `LET`, `MUT`, `FOR`, or `FOR EACH` binding reuses an outer name. Implement lexical scope frames or scoped symbol IDs so duplicate checks apply only within the same declaration scope, while lookups still fall back to enclosing scopes. Update typecheck/IR lowering to preserve distinct storage for shadowed names, likely by assigning unique internal local names, and add valid/invalid tests for legal nested shadowing and illegal duplicate declarations in the same scope.
 
 REQUIREMENT: Private top-level declarations are file-local
 SPECIFICATION: mfbasic.md @ §13 Modules & Packages
 GROUP: language
 RECOMMENDED: CODE CHANGE
+VERIFIED: YES
+PRIORITY: MED
 `PRIVATE` top-level declarations are specified as file-local, but `src/resolver.rs::collect_top_level_symbols` stores top-level bindings, functions, and types in project-wide maps and rejects duplicate private names declared in different files. Split top-level symbol tables by visibility and owner file, allow same-name `PRIVATE` declarations across different files, keep same-file duplicates rejected, and ensure resolver/typechecker/IR/codegen mangle or otherwise distinguish private declarations so file-local helpers and types cannot collide in generated artifacts.
 
 REQUIREMENT: Linux entry-point args must receive argv
 SPECIFICATION: mfbasic.md @ §8.7 Program entry point
 GROUP: language
 RECOMMENDED: CODE CHANGE
+VERIFIED: YES
+PRIORITY: HIGH
 Entry points declared with `args AS List OF String` must receive the host command-line argument vector, with `get(args, 0)` as the invoked program name. The compiler validates this signature and the shared entry wrapper materializes args from `x0`/`x1`, but Linux ELF output jumps directly to `_main` as the process entry. On Linux AArch64 process startup, argc/argv are on the initial stack, not in `x0`/`x1`, so Linux executables with an args entry receive invalid argument data. Add a Linux-specific entry shim that reads argc/argv from the initial stack and passes them to the shared MFB entry wrapper, or link through a proper C runtime startup that calls `_main(argc, argv)`. Add a runtime test that builds and runs a Linux executable with `SUB main(args AS List OF String)` and verifies `get(args, 0)` plus subsequent user arguments.
 
 REQUIREMENT: Package-qualified identifiers must use identifier syntax
 SPECIFICATION: mfbasic.md @ §2 Lexical Structure; §19 Grammar
 GROUP: language
 RECOMMENDED: CODE CHANGE
+VERIFIED: YES
+PRIORITY: MED
 Package-qualified names are specified as `ident "::" ident`, and identifiers must match `[A-Za-z_][A-Za-z0-9_]*`. The parser’s `consume_qualified_identifier_part` accepts a `Number` token immediately followed by an `Identifier` after `::` and stitches them into a name such as `pkg::123abc`, which is not a valid identifier under the language grammar. Remove `consume_numeric_identifier_part` from qualified-name parsing, require the right side of `::` to be a normal identifier token, and add invalid parser tests for digit-leading qualified members in calls, constructors, imports, union includes, and type annotations.
 
 REQUIREMENT: Omitted record field visibility follows containing type visibility
 SPECIFICATION: mfbasic.md @ §13 Modules & Packages
 GROUP: language
 RECOMMENDED: CODE CHANGE
+VERIFIED: YES
+PRIORITY: MED
 The spec says omitted field visibility defaults to the containing type's visibility, capped at `PACKAGE` for non-exported types. `src/typecheck.rs::effective_field_visibility` instead defaults omitted fields in `PRIVATE` types to `PACKAGE`, and it does not cap explicitly `EXPORT` fields on non-exported types. This can make fields visible outside the declaring file/package boundary the spec defines. Change `effective_field_visibility` to first apply `declared.unwrap_or(containing_visibility)`, then downgrade `EXPORT` to `PACKAGE` when the containing type is not `EXPORT`, while preserving omitted `PRIVATE` fields as `PRIVATE`. Add valid/invalid tests for omitted fields in `PRIVATE`, `PACKAGE`, and `EXPORT` types, plus explicit `EXPORT` fields inside non-exported types.
 
 REQUIREMENT: Pipeline tail grammar is enforced
 SPECIFICATION: mfbasic.md @ §19 Grammar / `pipeTail`
 GROUP: language
 RECOMMENDED: SPEC CHANGE
+VERIFIED: YES
+PRIORITY: LOW
 The spec defines pipeline syntax as `expr |> (ident | qualifiedIdent)(...)` with `_` used inside call arguments, but `src/ast.rs::parse_pipeline` accepts any right-hand expression containing `_` and rewrites all placeholders. This permits forms outside the grammar, such as `value |> _ + 1` or placeholders inside lambdas/constructors/literals. The implementation looks intentional because it has a dedicated placeholder diagnostic, so resolve by updating the grammar and prose to define pipeline RHS as an expression containing placeholder(s), including placeholder scope and evaluation rules. If strict call-only pipelines are intended instead, replace `parse_pipeline` with a dedicated `pipeTail` parser and reject non-call RHS forms.
 
 REQUIREMENT: Imports appear only in the import prologue
 SPECIFICATION: mfbasic.md @ §19 Grammar / `program = { import | linkDecl } { declaration }`
 GROUP: language
 RECOMMENDED: CODE CHANGE
+VERIFIED: YES
+PRIORITY: MED
 The grammar requires imports before declarations, but `src/ast.rs::FileParser::parse` accepts `IMPORT` anywhere at top level because it keeps matching imports throughout the whole parse loop. Enforce an import/link prologue: once a top-level declaration has been parsed, later `IMPORT` declarations should produce a parse diagnostic. When `LINK` blocks are implemented, apply the same prologue rule to `import | linkDecl`.
 
 REQUIREMENT: Import names are package identifiers, not package-qualified members
 SPECIFICATION: mfbasic.md @ §13 Modules & Packages; §19 Grammar / `import = "IMPORT" ident [ "AS" ident ]`
 GROUP: language
 RECOMMENDED: CODE CHANGE
+VERIFIED: YES
+PRIORITY: MED
 `IMPORT` is specified to take a package name identifier, but `src/ast.rs::FileParser::parse` calls `parse_qualified_name`, so source like `IMPORT foo::bar` is accepted and normalized internally as `foo.bar`, with only `foo` used as the package name. Change import parsing to consume a single identifier and reject `::` in import declarations, then add parser/resolver tests for invalid qualified imports and valid alias imports.
 
 
@@ -529,36 +673,40 @@ REQUIREMENT: Mixed Fixed/Float comparisons use Fixed promotion
 SPECIFICATION: mfbasic.md @ §4.1 Primitives; §11 Operators
 GROUP: typesystem
 RECOMMENDED: CODE CHANGE
+VERIFIED: YES
+PRIORITY: HIGH
 The spec says numeric comparisons use the same operand-promotion rules as arithmetic, and those rules make `Fixed` dominate `Float`. `src/numeric.rs` and type checking reflect that, but native comparison lowering in `src/target/shared/code/builder_numeric.rs` promotes any comparison with a `Float` operand to `Float`, so `Fixed`/`Float` comparisons can execute with the wrong runtime semantics. Resolve by using the shared numeric promotion helper for comparisons, converting mixed `Fixed`/`Float` operands to `Fixed`, and adding runtime comparison tests for both operand orders and all comparison operators.
-
-REQUIREMENT: Union payload ownership properties
-SPECIFICATION: standard_package.md @ §3.2 Collections; §9 Built-in Thread Package
-GROUP: typesystem
-RECOMMENDED: CODE CHANGE
-Unions must derive resource/thread containment, copyability, and thread-sendability from every member payload type. The typechecker builds local union variants with empty `fields`, then `contains_resource_or_thread`, `is_copyable_type`, and `is_thread_sendable_type` inspect those empty fields instead of resolving each union member record. As a result, a union whose member record contains `File`, `Thread`, or another non-copyable/non-sendable value can be treated as safe for ordinary collections, copy, or thread boundaries. Resolve by storing or resolving union member payload type info for local and imported unions, using the resolved member record fields in ownership predicates, and adding invalid tests for `List OF UnionWithFile`, copying/moving such unions, and thread boundary use of unions containing `Thread` or non-sendable payloads.
 
 REQUIREMENT: Bare Result type annotations are rejected
 SPECIFICATION: standard_package.md @ §1 Built-in Types
 GROUP: typesystem
 RECOMMENDED: CODE CHANGE
+VERIFIED: YES
+PRIORITY: MED
 `Result OF T` is specified as compiler-owned concrete notation, but `src/resolver.rs` lists bare `Result` as a built-in type and `src/typecheck.rs::parse_type` maps bare `Result` to `Result OF Unknown`. This can allow annotations such as `LET r AS Result = thread.result` to typecheck while erasing the success type. Remove bare `Result` from the built-in type set, remove the `parse_type` special case, require `Result OF T` everywhere a source-level result type is valid, and add invalid tests for bare `Result` in bindings, parameters, fields, and function returns.
 
 REQUIREMENT: Error is not comparable or defaultable
 SPECIFICATION: mfbasic.md @ §4.10 Default Values; §4.11 Comparable Types
 GROUP: typesystem
 RECOMMENDED: CODE CHANGE
+VERIFIED: YES
+PRIORITY: MED
 `Error` is not listed as a type with a defined default value and is not listed as a comparable type, but the type checker currently treats `Type::Error` as both comparable and defaultable. This can accept programs such as uninitialized `MUT e AS Error`, `Error` equality/comparable helper usage, or `Map OF Error TO ...`, even though the spec does not define those semantics. Remove `Type::Error` from the comparable/defaultable predicates, ensure records containing `Error` follow the spec-derived rules, and add invalid tests for `Error` equality, map keys, collection comparable helpers, and omitted initializers.
 
 REQUIREMENT: Function templates infer from expected result type
 SPECIFICATION: mfbasic.md @ §3 Templates
 GROUP: typesystem
 RECOMMENDED: CODE CHANGE
+VERIFIED: YES
+PRIORITY: MED
 The spec says template arguments are inferred from explicit argument, parameter, field, and expected result types. `src/monomorph.rs::instantiate_function` only unifies template parameters from call argument types against declared parameter types. A valid call such as assigning `makeDefault OF T() AS T` into `LET x AS Integer = makeDefault()` cannot infer `T` from the expected result type. Pass the expected expression type into function-call monomorphization, unify unresolved template parameters against the template return type, and add valid/invalid tests for return-only and mixed argument/return template inference.
 
 REQUIREMENT: Result error member is `Error`, not `Err`
 SPECIFICATION: mfbasic.md @ §4.4 `Result`, `Error`, and absence
 GROUP: typesystem
 RECOMMENDED: CODE CHANGE
+VERIFIED: YES
+PRIORITY: MED
 `Result OF T` is specified as a compiler-owned union with private `Ok OF T` and public `Error`; direct matching uses `CASE Ok(v)` and `CASE Error(e)`, and users may construct `Error[...]` but not result members directly. The compiler still has leftover `Err` handling: `src/resolver.rs` exempts `Err[...]` constructors from type-name resolution, while `src/typecheck.rs` only emits `TYPE_RESULT_IS_IMPLICIT` for `Ok` and `Result`. As a result, `Err[...]` is not rejected cleanly as an unknown/nonexistent result member and can fall through as `Type::Unknown` without the intended diagnostic in some contexts. Remove the `Err` constructor special-case from resolver, add explicit invalid tests for `Err[...]` and `CASE Err(e)`, and keep `Error[...]` construction plus `CASE Error(e)` as the only public error-member spelling.
 
 
@@ -568,24 +716,32 @@ REQUIREMENT: Thread resource transfer ownership
 SPECIFICATION: standard_package.md @ §9 Built-in Thread Package
 GROUP: threads
 RECOMMENDED: CODE CHANGE
+VERIFIED: YES
+PRIORITY: HIGH
 `File` is specified as thread-sendable, and `thread::start` / `thread::send` must move non-copyable sendable resources only on successful transfer while failed sends keep sender ownership. Native cleanup lowering currently treats built-in calls as non-consuming in `deactivate_moved_resource_arguments`, so `thread.start` / `thread.send` do not deactivate sender-side `File` cleanup after successful transfer. Implement path-sensitive ownership for thread boundary transfers, deactivate cleanup only on successful transfer, preserve ownership on `Err`, and add runtime tests using `MATCH thread::send(...)` for both success and failure paths.
 
 REQUIREMENT: Thread queue values must be materialized and cleaned up by type
 SPECIFICATION: threading.md @ §8 Control Block; §9 Queue Semantics
 GROUP: threads
 RECOMMENDED: CODE CHANGE
+VERIFIED: YES
+PRIORITY: HIGH
 The thread specification requires queue records to preserve enough type metadata to materialize heap-backed values into receiver-valid storage and to drop or close unread queued values exactly once. The native thread queue path currently stores raw value words without queue element type descriptors, aggregate drop metadata, resource close hooks, or cross-arena materialization. Resolve by wiring `Thread OF Msg TO Out` type descriptors into queue/control-block allocation, implementing typed enqueue/dequeue/drop for strings, collections, records, unions, `Result`, and sendable resources, and adding runtime tests for unread queued values and cross-thread heap/resource transfers.
 
 REQUIREMENT: Thread result retrieval only accepts parent Thread handles
 SPECIFICATION: standard_package.md @ §9 Built-in Thread Package
 GROUP: threads
 RECOMMENDED: CODE CHANGE
+VERIFIED: YES
+PRIORITY: MED
 `thread::waitFor` is specified as `FUNC waitFor OF Msg, Out(t AS Thread OF Msg TO Out) AS Out`, but `src/builtins/thread.rs::resolve_call` accepts any thread-shaped type for `WAIT_FOR`, including `ThreadWorker OF Msg TO Out`. The IR/bytecode member-access helpers also use `thread_output` broadly for `result`, even though source type checking currently restricts `t.result` to `Thread`. Tighten `thread::waitFor` resolution to `is_parent_thread_type`, keep `t.result` restricted to parent `Thread` in every lowering/type helper layer, and add invalid tests proving `thread::waitFor(worker)` and `worker.result` are rejected while parent `Thread` retrieval still works.
 
 REQUIREMENT: Thread receive and cancellation helper ABI metadata
 SPECIFICATION: standard_package.md @ §9 Built-in Thread Package
 GROUP: threads
 RECOMMENDED: CODE CHANGE
+VERIFIED: YES
+PRIORITY: HIGH
 `thread::receive(t AS Thread OF Msg TO Out, timeoutMs AS Integer = 0)` requires the parent receive timeout to be passed to the runtime helper, and `thread::isCancelled(t AS ThreadWorker OF Msg TO Out)` takes exactly one argument. `src/target/shared/runtime.rs` declares `THREAD_READ_SPEC` with only the thread handle, omitting `timeoutMs`, and declares `THREAD_IS_CANCELLED_SPEC` with the worker receive parameter list, adding an invalid `timeoutMs` parameter. These specs are used by native/package runtime helper dispatch, so imported package bytecode can pass the wrong registers or fail lowering for these thread APIs. Define separate ABI parameter lists for parent read and `isCancelled`, update package runtime lowering to use the corrected arities, and add package-import runtime tests for `thread::receive(parent, timeout)` and `thread::isCancelled(worker)`.
 
 
@@ -595,12 +751,16 @@ REQUIREMENT: Float math domain errors use ErrFloatDomain
 SPECIFICATION: standard_package.md @ §10 Built-in Math Package
 GROUP: math
 RECOMMENDED: CODE CHANGE
+VERIFIED: YES
+PRIORITY: MED
 The spec defines dedicated floating-point domain behavior: explicit Float domain failures must fail with `ErrFloatDomain` (`77050012`), while NaN and infinity results use their own codes. Native math lowering currently emits `ErrInvalidArgument` for Float `sqrt`, `log`, and `log10` domain checks, and lets functions like `asin`/`acos` produce NaN that is then reported as `ErrFloatNaN` rather than a domain error. Resolve by adding Float-specific domain checks for the affected math functions and emitting `ErrFloatDomain`, while preserving `ErrInvalidArgument` for Integer/Fixed domain failures.
 
 REQUIREMENT: Fixed math overloads must be deterministic Fixed operations
 SPECIFICATION: standard_package.md @ §10 Built-in Math Package
 GROUP: math
 RECOMMENDED: CODE CHANGE
+VERIFIED: YES
+PRIORITY: HIGH
 The math package specifies Fixed overloads for functions such as `sqrt`, `pow`, `exp`, `log`, trigonometric functions, and Fixed `floor`/`ceil`/`round`, with Fixed results rounded to nearest Fixed. The backend currently lowers many Fixed math calls through host floating-point/libm operations and converts back to Fixed, which violates Fixed’s deterministic cross-target semantics and can produce incorrect results for large Fixed values. Implement compiler-owned deterministic Fixed math paths, use raw Fixed arithmetic for rounding helpers, and add runtime tests covering Fixed overloads, edge values, domain errors, overflow, and cross-platform-stable results.
 
 
@@ -610,36 +770,48 @@ REQUIREMENT: Filesystem text reads validate UTF-8
 SPECIFICATION: standard_package.md @ §8 Built-in Filesystem Package
 GROUP: filesystem
 RECOMMENDED: CODE CHANGE
+VERIFIED: YES
+PRIORITY: MED
 `fs::readText`, `fs::readAll`, and `fs::readLine` return `String` and the spec requires invalid UTF-8 to fail with `ErrEncoding`/`77020004` where applicable. The native filesystem helpers copy raw file bytes into `String` layouts without validating UTF-8, unlike the IO line/char helpers. Add shared UTF-8 validation for all filesystem text-read paths before returning `String`, map validation failure to `ErrEncoding`, and add runtime valid/invalid tests for path reads and file-handle reads.
 
 REQUIREMENT: openFileNoFollow symlink failures map to ErrAccessDenied
 SPECIFICATION: standard_package.md @ §8 Built-in Filesystem Package
 GROUP: filesystem
 RECOMMENDED: CODE CHANGE
+VERIFIED: YES
+PRIORITY: MED
 `fs::openFileNoFollow` is specified to fail with `ErrAccessDenied` when the final path component is a symlink. The implementation uses no-follow open flags, but the shared errno mapping only handles `ENOENT`, `EACCES`, and `EEXIST`; final symlink failures such as `ELOOP` fall through to a generic output error. Extend filesystem errno mapping for no-follow opens to map final-symlink `ELOOP` to `ErrAccessDenied`, keeping unrelated `ELOOP` cases precise where possible, and add runtime tests using a symlink final component.
 
 REQUIREMENT: Stable listDirectory ordering
 SPECIFICATION: standard_package.md @ §8 Filesystem package
 GROUP: filesystem
 RECOMMENDED: CODE CHANGE
+VERIFIED: YES
+PRIORITY: LOW
 `fs::listDirectory` is specified to return direct child names in an implementation-defined stable order. The native helper in `src/target/shared/code/mod.rs` collects entries in raw `readdir` order and returns them without any deterministic ordering pass, so the result can vary by filesystem/platform even for equivalent directory contents. Resolve by sorting the collected names before returning the `List OF String`, define the chosen order in the implementation docs/tests, and add a runtime validation that creates multiple entries and proves `fs::listDirectory` returns the stable order.
 
 REQUIREMENT: Filesystem path errors use filesystem-specific runtime codes
 SPECIFICATION: standard_package.md @ §8 Built-in Filesystem Package
 GROUP: filesystem
 RECOMMENDED: CODE CHANGE
+VERIFIED: YES
+PRIORITY: MED
 Filesystem path APIs such as `fs::readBytes`, `fs::readText`, `fs::openFile`, `fs::deleteFile`, and `fs::deleteDirectory` specify filesystem-specific error codes like `ErrPathNotFound` (`77030001`) and `ErrInvalidPath` (`77030002`). The shared native errno mapper in `src/target/shared/code/mod.rs` maps missing paths to the generic `ErrNotFound` (`77050004`), and several invalid path paths use generic `ErrInvalidArgument` (`77050002`). Add filesystem-context errno mapping and constants for `ErrPathNotFound`/`ErrInvalidPath`, use that mapper for filesystem path helpers, keep `fs::open`’s explicitly documented generic `ErrInvalidArgument` behavior for invalid modes/empty/NUL paths, and add runtime tests covering missing path, invalid path, and permission cases for the affected filesystem overloads.
 
 REQUIREMENT: Filesystem pathJoin applies host path joining rules
 SPECIFICATION: standard_package.md @ §8 Built-in Filesystem Package
 GROUP: filesystem
 RECOMMENDED: CODE CHANGE
+VERIFIED: YES
+PRIORITY: MED
 `fs::pathJoin(parts AS List OF String)` is specified to join components using the host platform's separator and normal separator rules, but `src/target/shared/code/builder_fs_paths.rs::lower_fs_path_join` lowers it to `strings::join(parts, "/")`. That only concatenates strings with a slash and does not implement path-join behavior for empty components, absolute/rooted components, duplicate separators, or target-specific separator handling. Replace the lowering with a real filesystem path-join helper consistent with `pathNormalize`, then add valid/invalid function tests and runtime coverage for representative component combinations.
 
 REQUIREMENT: File close failures use ErrCloseFailed
 SPECIFICATION: error_codes.md @ Runtime and Standard Package Errors / ErrCloseFailed
 GROUP: filesystem
 RECOMMENDED: CODE CHANGE
+VERIFIED: YES
+PRIORITY: MED
 `ErrCloseFailed` (`77030006`) is the canonical runtime code for resource close operation failures, and `mfbasic.md` §15 says explicit close failures are directly observable. The native `fs::close` helper maps a failed host `close` to `ErrWriteFailed` / `ERR_OUTPUT_CODE` (`77020002`) instead. Add `ERR_CLOSE_FAILED_CODE` and message/symbol constants, return that code from `lower_fs_close_helper` on close failure, preserve `ErrResourceClosed` for double close, and add runtime tests that exercise an explicit close failure path or a controlled close-helper failure.
 
 
@@ -649,12 +821,16 @@ REQUIREMENT: JSON carriage return handling
 SPECIFICATION: standard_package.md @ §12 Built-in JSON Package
 GROUP: json
 RECOMMENDED: CODE CHANGE
+VERIFIED: YES
+PRIORITY: HIGH
 `json::parse` and `json::stringify` must implement JSON text semantics, but the built-in JSON source compares and returns `"\r"` while the lexer only decodes `\"`, `\\`, `\n`, and `\t`; unsupported escapes fall through as the escaped character. As a result, `"\r"` in `src/builtins/json_package.mfb` becomes `"r"`: stringifying `"user"` can emit `"use\r"`, parsing JSON `\r` produces `"r"` instead of carriage return, and actual CR whitespace is not treated as JSON whitespace. Add carriage-return escape support to string literal lexing, or change the JSON package to construct CR via byte/codepoint helpers instead of `"\r"`. Then update JSON valid/runtime tests and goldens to cover ordinary `r`, JSON `\r` escapes, and CR whitespace correctly.
 
 REQUIREMENT: JSON object member order preservation
 SPECIFICATION: standard_package.md @ §12 Built-in JSON Package
 GROUP: json
 RECOMMENDED: SPEC CHANGE
+VERIFIED: YES
+PRIORITY: LOW
 `standard_package.md` says JSON object member order is preserved as read when possible, but the specified `JsonObj` shape stores fields as `Map OF String TO Json`, and the implementation parses objects into that map with `set(fields, key, value)` before stringifying by map iteration. MFBASIC maps have implementation-defined stable order, not insertion/read order, so the current type shape cannot guarantee preservation. Resolve by either changing the spec to say JSON object order is implementation-defined and stable for an unchanged value, or redesigning `JsonObj` to carry ordered entries if preserving source order is truly required.
 
 
@@ -664,4 +840,6 @@ REQUIREMENT: `io::flush` and `io::input` must flush standard output streams, not
 SPECIFICATION: standard_package.md @ §7 Built-in IO Package
 GROUP: io
 RECOMMENDED: CODE CHANGE
+VERIFIED: YES
+PRIORITY: MED
 `io::flush` and `io::flushError` are specified to flush standard output/error, and `io::input` must flush standard output after writing a non-empty prompt. The native helpers lower these flushes to `fsync(1)`/`fsync(2)`, which is durable file synchronization, not stream flushing. Because `io::print`/`io::write` use raw `write` calls rather than a buffered stream, there may be no userspace buffer to flush, and `fsync` can fail on valid standard streams such as terminals or pipes. Resolve by removing `fsync` from standard-stream flush semantics: either make flush a successful no-op for the current unbuffered raw-write implementation, or introduce an actual runtime output buffer and flush that buffer with `write`. Keep `fsync` only for filesystem durability paths such as atomic file writes. Update `io::input` prompt flushing accordingly and add runtime tests for flush/input with stdout attached to a terminal, pipe, and regular file.
