@@ -798,6 +798,8 @@ LET result = nums |> filter(_, isEven) |> transform(_, square) |> sum(_)
 
 All access is via free functions — **no indexing brackets, no key brackets**. Brackets construct values; functions read and update them.
 
+List literals use the declared or otherwise expected `List OF T` element type when one is available; otherwise the element type is inferred from the first item. Every element must be compatible with that element type. This allows annotated lists of union members, such as `LET shapes AS List OF Shape = [Circle[5], Rect[2, 3]]`.
+
 ```basic
 LET list  = [1, 2, 3]                          ' List OF Integer (literal)
 LET first = get(list, 0)                        ' read (fallible -> auto-propagates)

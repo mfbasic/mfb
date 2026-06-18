@@ -189,7 +189,7 @@ These codes correspond to `src/rules.rs` and are emitted directly by the compile
 | `2-203-0048` | `TYPE_ASSIGN_REQUIRES_MUT` | error | `assignment target must be mutable` |
 | `2-203-0049` | `TYPE_MATCH_PATTERN_MISMATCH` | error | `match pattern type does not match the scrutinee type` |
 | `2-203-0050` | `TYPE_FOR_EACH_REQUIRES_COLLECTION` | error | `FOR EACH source must be a List or Map` |
-| `2-203-0051` | `TYPE_LIST_ELEMENT_MISMATCH` | error | `list element type does not match the inferred element type` |
+| `2-203-0051` | `TYPE_LIST_ELEMENT_MISMATCH` | error | `list element type does not match the expected element type` |
 | `2-203-0052` | `TYPE_MAP_KEY_MISMATCH` | error | `map key type does not match the declared key type` |
 | `2-203-0053` | `TYPE_MAP_VALUE_MISMATCH` | error | `map value type does not match the declared value type` |
 | `2-203-0054` | `TYPE_USING_REQUIRES_RESOURCE` | error | `USING requires a resource value` |

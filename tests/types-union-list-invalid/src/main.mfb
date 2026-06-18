@@ -1,0 +1,23 @@
+TYPE Circle
+  radius AS Integer
+END TYPE
+
+TYPE Rect
+  w AS Integer
+  h AS Integer
+END TYPE
+
+UNION Shape
+  Circle
+  Rect
+END UNION
+
+TYPE ShapeBag
+  shapes AS List OF Shape
+END TYPE
+
+FUNC main AS Integer
+  LET shapes AS List OF Shape = [Circle[5], "not a shape"]
+  LET bag AS ShapeBag = ShapeBag[[Rect[2, 3], 42]]
+  RETURN 0
+END FUNC

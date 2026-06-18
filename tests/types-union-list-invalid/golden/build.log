@@ -1,0 +1,28 @@
+$ mfb build -ast tests/types-union-list-invalid
+  18 | 
+  19 | FUNC main AS Integer
+  20 |   LET shapes AS List OF Shape = [Circle[5], "not a shape"]
+     | ^
+tests/types-union-list-invalid/src/main.mfb:20 error[2-203-0051 TYPE_LIST_ELEMENT_MISMATCH]: list element type does not match the expected element type
+               List element has type String, expected Shape.
+  19 | FUNC main AS Integer
+  20 |   LET shapes AS List OF Shape = [Circle[5], "not a shape"]
+  21 |   LET bag AS ShapeBag = ShapeBag[[Rect[2, 3], 42]]
+     | ^
+tests/types-union-list-invalid/src/main.mfb:21 error[2-203-0051 TYPE_LIST_ELEMENT_MISMATCH]: list element type does not match the expected element type
+               List element has type Integer, expected Shape.
+[exit 1]
+$ mfb build -ir tests/types-union-list-invalid
+  18 | 
+  19 | FUNC main AS Integer
+  20 |   LET shapes AS List OF Shape = [Circle[5], "not a shape"]
+     | ^
+tests/types-union-list-invalid/src/main.mfb:20 error[2-203-0051 TYPE_LIST_ELEMENT_MISMATCH]: list element type does not match the expected element type
+               List element has type String, expected Shape.
+  19 | FUNC main AS Integer
+  20 |   LET shapes AS List OF Shape = [Circle[5], "not a shape"]
+  21 |   LET bag AS ShapeBag = ShapeBag[[Rect[2, 3], 42]]
+     | ^
+tests/types-union-list-invalid/src/main.mfb:21 error[2-203-0051 TYPE_LIST_ELEMENT_MISMATCH]: list element type does not match the expected element type
+               List element has type Integer, expected Shape.
+[exit 1]

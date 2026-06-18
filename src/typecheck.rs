@@ -2029,7 +2029,9 @@ impl<'a> TypeChecker<'a> {
             Expression::Lambda { params, body } => {
                 self.infer_lambda(file, params, body, locals, line)
             }
-            Expression::ListLiteral(values) => self.infer_list_literal(file, values, locals, line),
+            Expression::ListLiteral(values) => {
+                self.infer_list_literal(file, values, locals, line, expected)
+            }
             Expression::MapLiteral {
                 key_type,
                 value_type,
@@ -2349,7 +2351,37 @@ impl<'a> TypeChecker<'a> {
         values: &[Expression],
         locals: &mut HashMap<String, LocalInfo>,
         line: usize,
+        expected: Option<&Type>,
     ) -> Type {
+        if let Some(Type::List(expected_element)) = expected {
+            if self.contains_resource_or_thread(expected_element) {
+                self.report_invalid_collection_element(file, line, "element", expected_element);
+            }
+            for value in values {
+                let actual = self.infer_expression_with_expected(
+                    file,
+                    value,
+                    locals,
+                    line,
+                    Some(expected_element),
+                    ExprMode::Transfer,
+                );
+                if !self.expression_compatible(expected_element, &actual, Some(value)) {
+                    self.report(
+                        "TYPE_LIST_ELEMENT_MISMATCH",
+                        &format!(
+                            "List element has type {}, expected {}.",
+                            self.type_name(&actual),
+                            self.type_name(expected_element)
+                        ),
+                        file,
+                        line,
+                    );
+                }
+            }
+            return Type::List(expected_element.clone());
+        }
+
         let Some(first) = values.first() else {
             return Type::List(Box::new(Type::Unknown));
         };
@@ -2842,13 +2874,24 @@ impl<'a> TypeChecker<'a> {
                     )
                 }
             };
-            let actual = self.infer_expression(
-                file,
-                argument_value,
-                locals,
-                argument_line,
-                ExprMode::Transfer,
-            );
+            let actual = if let Some(field) = field {
+                self.infer_expression_with_expected(
+                    file,
+                    argument_value,
+                    locals,
+                    argument_line,
+                    Some(&field.type_),
+                    ExprMode::Transfer,
+                )
+            } else {
+                self.infer_expression(
+                    file,
+                    argument_value,
+                    locals,
+                    argument_line,
+                    ExprMode::Transfer,
+                )
+            };
             let Some(field) = field else {
                 if let ConstructorArg::Named { name, .. } = argument {
                     self.report(

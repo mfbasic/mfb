@@ -29,6 +29,10 @@ UNION ExtraShape INCLUDES Shape
   Triangle
 END UNION
 
+TYPE ShapeBag
+  shapes AS List OF Shape
+END TYPE
+
 FUNC shapeScore(s AS Shape) AS Integer
   MATCH s
     CASE Circle(circle)
@@ -53,6 +57,14 @@ FUNC extraScore(s AS ExtraShape) AS Integer
   END MATCH
 END FUNC
 
+FUNC listScore(shapes AS List OF Shape) AS Integer
+  MUT total AS Integer = 0
+  FOR EACH shape IN shapes
+    total = total + shapeScore(shape)
+  NEXT
+  RETURN total
+END FUNC
+
 FUNC main AS Integer
   LET circle AS Shape = Circle[5]
   LET rect AS Shape = Rect[2, 3]
@@ -61,6 +73,8 @@ FUNC main AS Integer
   LET extraRect AS ExtraShape = Rect[4, 5]
   LET extraPoint AS ExtraShape = Point[NOTHING]
   LET triangle AS ExtraShape = Triangle[6, 7, 8]
+  LET shapes AS List OF Shape = [Circle[5], Rect[2, 3]]
+  LET bag AS ShapeBag = ShapeBag[[Circle[1], Rect[1, 2]]]
 
   io::print(typeName(circle))
   io::print(typeName(extraCircle))
@@ -71,5 +85,9 @@ FUNC main AS Integer
   LET e AS Integer = extraScore(extraRect)
   LET f AS Integer = extraScore(extraPoint)
   LET g AS Integer = extraScore(triangle)
-  RETURN a + b + c + d + e + f + g
+  LET h AS Integer = listScore(shapes)
+  LET i AS Integer = listScore(bag.shapes)
+  io::print(toString(h))
+  io::print(toString(i))
+  RETURN a + b + c + d + e + f + g + h + i
 END FUNC

@@ -1597,10 +1597,8 @@ impl CodeBuilder<'_> {
     ) -> Result<(), String> {
         let mut variants = self
             .type_model
-            .union_variants
-            .iter()
-            .filter(|(_, union_name)| union_name.as_str() == type_)
-            .map(|(variant, _)| {
+            .variants_for_union(type_)
+            .map(|variant| {
                 let tag = self
                     .type_model
                     .union_variant_tags

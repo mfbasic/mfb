@@ -519,6 +519,7 @@ struct TypeModel {
     record_fields: HashMap<String, Vec<(String, String)>>,
     union_names: HashSet<String>,
     union_variants: HashMap<String, String>,
+    union_variant_unions: HashMap<String, HashSet<String>>,
     union_variant_tags: HashMap<String, usize>,
     union_variant_fields: HashMap<String, Vec<(String, String)>>,
 }
@@ -1024,6 +1025,7 @@ impl TypeModel {
             record_fields: HashMap::new(),
             union_names: HashSet::new(),
             union_variants: HashMap::new(),
+            union_variant_unions: HashMap::new(),
             union_variant_tags: HashMap::new(),
             union_variant_fields: HashMap::new(),
         }
@@ -1034,6 +1036,7 @@ impl TypeModel {
         let mut record_fields = HashMap::new();
         let mut union_names = HashSet::new();
         let mut union_variants = HashMap::new();
+        let mut union_variant_unions = HashMap::<String, HashSet<String>>::new();
         let mut union_variant_tags = HashMap::new();
         let mut union_variant_fields = HashMap::new();
         for type_ in &module.types {
@@ -1059,7 +1062,13 @@ impl TypeModel {
                         .iter()
                         .enumerate()
                     {
-                        union_variants.insert(variant.name.clone(), type_.name.clone());
+                        union_variants
+                            .entry(variant.name.clone())
+                            .or_insert_with(|| type_.name.clone());
+                        union_variant_unions
+                            .entry(variant.name.clone())
+                            .or_default()
+                            .insert(type_.name.clone());
                         union_variant_tags.insert(variant.name.clone(), index);
                         union_variant_fields.insert(
                             variant.name.clone(),
@@ -1093,6 +1102,7 @@ impl TypeModel {
             record_fields,
             union_names,
             union_variants,
+            union_variant_unions,
             union_variant_tags,
             union_variant_fields,
         })
@@ -1130,7 +1140,12 @@ impl TypeModel {
                 self.union_names.insert(type_export.name.clone());
                 for (index, variant) in type_export.variants.into_iter().enumerate() {
                     self.union_variants
-                        .insert(variant.name.clone(), type_export.name.clone());
+                        .entry(variant.name.clone())
+                        .or_insert_with(|| type_export.name.clone());
+                    self.union_variant_unions
+                        .entry(variant.name.clone())
+                        .or_default()
+                        .insert(type_export.name.clone());
                     self.union_variant_tags.insert(variant.name.clone(), index);
                     self.union_variant_fields.insert(
                         variant.name,
@@ -1144,6 +1159,13 @@ impl TypeModel {
             }
             bytecode::BytecodeExportKind::Func | bytecode::BytecodeExportKind::Sub => {}
         }
+    }
+
+    fn variants_for_union<'a>(&'a self, union: &'a str) -> impl Iterator<Item = &'a String> + 'a {
+        self.union_variant_unions
+            .iter()
+            .filter(move |(_, unions)| unions.contains(union))
+            .map(|(variant, _)| variant)
     }
 }
 

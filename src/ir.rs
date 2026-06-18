@@ -1909,7 +1909,10 @@ fn wrap_union_value(
     let Some(actual_type) = expression_type(expression, locals, context) else {
         return base;
     };
-    if context.type_index.variants.get(&actual_type) == Some(&union_type.to_string()) {
+    if context
+        .type_index
+        .variant_belongs_to_union(&actual_type, union_type)
+    {
         return IrValue::UnionWrap {
             union_type: union_type.to_string(),
             member_type: actual_type,
@@ -2090,6 +2093,7 @@ struct TypeIndex {
     records: HashMap<String, Vec<IrField>>,
     enums: HashMap<String, Vec<String>>,
     variants: HashMap<String, String>,
+    variant_unions: HashMap<String, HashSet<String>>,
     variant_fields: HashMap<String, Vec<IrField>>,
 }
 
@@ -2098,6 +2102,7 @@ impl TypeIndex {
         let mut records = HashMap::new();
         let mut enums = HashMap::new();
         let mut variants = HashMap::new();
+        let mut variant_unions = HashMap::<String, HashSet<String>>::new();
         let mut variant_fields = HashMap::new();
         let union_decls = ast
             .files
@@ -2128,7 +2133,13 @@ impl TypeIndex {
                     }
                     TypeDeclKind::Union => {
                         for variant in expanded_union_variants(type_decl, &union_decls) {
-                            variants.insert(variant.name.clone(), type_decl.name.clone());
+                            variants
+                                .entry(variant.name.clone())
+                                .or_insert_with(|| type_decl.name.clone());
+                            variant_unions
+                                .entry(variant.name.clone())
+                                .or_default()
+                                .insert(type_decl.name.clone());
                             variant_fields.insert(
                                 variant.name.clone(),
                                 records.get(&variant.name).cloned().unwrap_or_default(),
@@ -2152,6 +2163,7 @@ impl TypeIndex {
             records,
             enums,
             variants,
+            variant_unions,
             variant_fields,
         }
     }
@@ -2181,6 +2193,12 @@ impl TypeIndex {
             .iter()
             .find(|field| field.name == member)
             .map(|field| field.type_.clone())
+    }
+
+    fn variant_belongs_to_union(&self, variant_name: &str, union_name: &str) -> bool {
+        self.variant_unions
+            .get(variant_name)
+            .is_some_and(|unions| unions.contains(union_name))
     }
 }
 

@@ -56,6 +56,8 @@ LET nums = [1, 2, 3]
 LET empty AS List OF String = []
 ```
 
+When a list literal has a declared or expected `List OF T` type, each item is checked against `T`; otherwise `T` is inferred from the first item.
+
 Map literals use `Map OF K TO V { ... }`:
 
 ```basic

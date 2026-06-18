@@ -706,12 +706,6 @@ impl<'a> Monomorphizer<'a> {
                 type_name,
                 arguments,
             } => {
-                let lowered_args = arguments
-                    .iter()
-                    .map(|argument| {
-                        self.lower_constructor_arg(argument, substitutions, context, line)
-                    })
-                    .collect::<Vec<_>>();
                 let mut concrete_type = None;
                 if let Some((expected_name, expected_args)) =
                     expected_type.and_then(user_template_parts)
@@ -720,6 +714,26 @@ impl<'a> Monomorphizer<'a> {
                         concrete_type = Some(self.instantiate_type(&expected_name, &expected_args));
                     }
                 }
+                let field_types = concrete_type
+                    .as_deref()
+                    .or(Some(type_name.as_str()))
+                    .and_then(|name| context.record_fields.get(name))
+                    .cloned();
+                let lowered_args = arguments
+                    .iter()
+                    .enumerate()
+                    .map(|(index, argument)| {
+                        let expected_arg_type =
+                            constructor_arg_field_type(argument, index, field_types.as_deref());
+                        self.lower_constructor_arg(
+                            argument,
+                            substitutions,
+                            context,
+                            line,
+                            expected_arg_type,
+                        )
+                    })
+                    .collect::<Vec<_>>();
                 if concrete_type.is_none() && self.type_templates.contains_key(type_name) {
                     let Some(template) = self.type_templates.get(type_name).cloned() else {
                         unreachable!();
@@ -776,7 +790,11 @@ impl<'a> Monomorphizer<'a> {
             Expression::ListLiteral(values) => Expression::ListLiteral(
                 values
                     .iter()
-                    .map(|value| self.lower_expression(value, substitutions, context, None, line))
+                    .map(|value| {
+                        let expected_element =
+                            expected_type.and_then(|type_| type_.strip_prefix("List OF "));
+                        self.lower_expression(value, substitutions, context, expected_element, line)
+                    })
                     .collect(),
             ),
             Expression::MapLiteral {
@@ -859,13 +877,14 @@ impl<'a> Monomorphizer<'a> {
         substitutions: &HashMap<String, String>,
         context: &mut FunctionContext,
         line: usize,
+        expected_type: Option<&str>,
     ) -> ConstructorArg {
         match argument {
             ConstructorArg::Positional(value) => ConstructorArg::Positional(self.lower_expression(
                 value,
                 substitutions,
                 context,
-                None,
+                expected_type,
                 line,
             )),
             ConstructorArg::Named {
@@ -874,7 +893,13 @@ impl<'a> Monomorphizer<'a> {
                 line: arg_line,
             } => ConstructorArg::Named {
                 name: name.clone(),
-                value: self.lower_expression(value, substitutions, context, None, *arg_line),
+                value: self.lower_expression(
+                    value,
+                    substitutions,
+                    context,
+                    expected_type,
+                    *arg_line,
+                ),
                 line: *arg_line,
             },
         }
@@ -1164,6 +1189,21 @@ fn call_arg_value(argument: &CallArg) -> &Expression {
     match argument {
         CallArg::Positional(value) => value,
         CallArg::Named { value, .. } => value,
+    }
+}
+
+fn constructor_arg_field_type<'a>(
+    argument: &ConstructorArg,
+    index: usize,
+    fields: Option<&'a [TypeField]>,
+) -> Option<&'a str> {
+    let fields = fields?;
+    match argument {
+        ConstructorArg::Positional(_) => fields.get(index).map(|field| field.type_name.as_str()),
+        ConstructorArg::Named { name, .. } => fields
+            .iter()
+            .find(|field| field.name == *name)
+            .map(|field| field.type_name.as_str()),
     }
 }
 

@@ -11,10 +11,8 @@ impl CodeBuilder<'_> {
         if self.type_model.union_names.contains(type_) {
             let max_fields = self
                 .type_model
-                .union_variants
-                .iter()
-                .filter(|(_, union_name)| *union_name == type_)
-                .filter_map(|(variant, _)| self.type_model.union_variant_fields.get(variant))
+                .variants_for_union(type_)
+                .filter_map(|variant| self.type_model.union_variant_fields.get(variant))
                 .map(Vec::len)
                 .max()
                 .unwrap_or(0);

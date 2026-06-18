@@ -752,10 +752,8 @@ impl CodeBuilder<'_> {
                     .unwrap_or_else(|| type_.clone());
                 let union_size = self
                     .type_model
-                    .union_variants
-                    .iter()
-                    .filter(|(_, candidate_union)| *candidate_union == &union_name)
-                    .filter_map(|(variant, _)| self.type_model.union_variant_fields.get(variant))
+                    .variants_for_union(&union_name)
+                    .filter_map(|variant| self.type_model.union_variant_fields.get(variant))
                     .map(Vec::len)
                     .max()
                     .map(|max_fields| 8 * (1 + max_fields))
@@ -837,10 +835,8 @@ impl CodeBuilder<'_> {
                     })?;
                 let union_size = self
                     .type_model
-                    .union_variants
-                    .iter()
-                    .filter(|(_, candidate_union)| *candidate_union == union_type)
-                    .filter_map(|(variant, _)| self.type_model.union_variant_fields.get(variant))
+                    .variants_for_union(union_type)
+                    .filter_map(|variant| self.type_model.union_variant_fields.get(variant))
                     .map(Vec::len)
                     .max()
                     .map(|max_fields| 8 * (1 + max_fields))

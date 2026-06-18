@@ -565,7 +565,7 @@ pub const RULES: &[Rule] = &[
         code: "2-203-0051",
         name: "TYPE_LIST_ELEMENT_MISMATCH",
         severity: Severity::Error,
-        message: "list element type does not match the inferred element type",
+        message: "list element type does not match the expected element type",
     },
     Rule {
         code: "2-203-0052",
