@@ -47,7 +47,9 @@ pub(crate) fn resolve_call<'a>(name: &str, arg_types: &'a [String]) -> Option<Re
         IS_RUNNING if arg_types.len() == 1 && is_parent_thread_type(&arg_types[0]) => {
             Cow::Borrowed("Boolean")
         }
-        WAIT_FOR if arg_types.len() == 1 => thread_output(&arg_types[0]).map(Cow::Borrowed)?,
+        WAIT_FOR if arg_types.len() == 1 && is_parent_thread_type(&arg_types[0]) => {
+            thread_output(&arg_types[0]).map(Cow::Borrowed)?
+        }
         CANCEL if arg_types.len() == 1 && is_parent_thread_type(&arg_types[0]) => {
             Cow::Borrowed("Nothing")
         }
@@ -230,6 +232,12 @@ pub(crate) fn thread_message(name: &str) -> Option<&str> {
 
 pub(crate) fn thread_output(name: &str) -> Option<&str> {
     thread_parts(name).map(|(_, _, output)| output)
+}
+
+/// Output type for `t.result` / `thread::waitFor`, which are only valid on a
+/// parent `Thread` handle (not a `ThreadWorker`).
+pub(crate) fn parent_thread_output(name: &str) -> Option<&str> {
+    thread_parts(name).and_then(|(kind, _, output)| (kind == THREAD_TYPE).then_some(output))
 }
 
 pub(crate) fn thread_parts(name: &str) -> Option<(&str, &str, &str)> {

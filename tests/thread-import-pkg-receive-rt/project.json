@@ -1,0 +1,13 @@
+{
+  "name": "thread_import_pkg_receive_rt",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "executable",
+  "sources": [{ "root": "src", "role": "main", "include": ["**/*.mfb"] }],
+  "packages": [
+    { "name": "thread_cancel_worker", "version": "=1.0.0", "source": "file:packages/thread_cancel_worker.mfp" },
+    { "name": "thread_recv_pkg", "version": "=1.0.0", "source": "file:packages/thread_recv_pkg.mfp" }
+  ],
+  "entry": "main",
+  "targets": ["native"]
+}

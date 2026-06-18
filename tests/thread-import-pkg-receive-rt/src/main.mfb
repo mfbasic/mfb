@@ -1,0 +1,12 @@
+IMPORT io
+IMPORT thread
+IMPORT thread_cancel_worker
+IMPORT thread_recv_pkg
+
+FUNC main AS Integer
+  LET t AS Thread OF String TO Integer = thread::start(thread_cancel_worker::echoWorker, "seed")
+  thread::send(t, "ping")
+  LET ack AS String = thread_recv_pkg::drain(t)
+  io::print(ack)
+  RETURN 0
+END FUNC

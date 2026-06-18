@@ -1,0 +1,18 @@
+$ mfb build -ast tests/func_general_decimal_exponent_valid
+Wrote AST to tests/func_general_decimal_exponent_valid/func_general_decimal_exponent_valid.ast
+[exit 0]
+$ mfb build -ir tests/func_general_decimal_exponent_valid
+Wrote IR to tests/func_general_decimal_exponent_valid/func_general_decimal_exponent_valid.ir
+[exit 0]
+$ mfb build tests/func_general_decimal_exponent_valid
+Wrote executable to tests/func_general_decimal_exponent_valid/func_general_decimal_exponent_valid.out
+[exit 0]
+$ tests/func_general_decimal_exponent_valid/func_general_decimal_exponent_valid.out
+FALSE
+TRUE
+FALSE
+TRUE
+FALSE
+0.0
+0.0
+[exit 0]

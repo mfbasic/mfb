@@ -1,5 +1,13 @@
 use super::*;
 
+/// Upper bound on the decimal exponent magnitude accumulated while parsing a
+/// numeric string. The representable range of an IEEE-754 double spans roughly
+/// 10^-324 to 10^308, so any exponent magnitude at or beyond this clamp drives
+/// every representable mantissa to overflow (infinity) or underflow (zero). The
+/// value is well above that useful range yet far below 2^63, so accumulation can
+/// never wrap a 64-bit register. It also fits the AArch64 12-bit `cmp` immediate.
+const DECIMAL_EXPONENT_CLAMP: &str = "1000";
+
 impl CodeBuilder<'_> {
     pub(super) fn lower_to_int(&mut self, arg: &NirValue) -> Result<ValueResult, String> {
         let value = self.lower_value(arg)?;
@@ -555,7 +563,9 @@ impl CodeBuilder<'_> {
         self.emit(abi::float_move_d_from_x("d0", "x8"));
         self.emit_f64_const("d1", "x17", 4_294_967_296.0);
         self.emit(abi::float_multiply_d("d0", "d0", "d1"));
-        self.emit(abi::float_convert_to_signed_x(result, "d0"));
+        // Round to nearest representable Fixed (ties away from zero) rather than
+        // truncating toward zero, as `toFixed(Float)`/`toFixed(String)` require.
+        self.emit(abi::float_round_to_signed_x(result, "d0"));
         self.emit(abi::branch(&ok));
         self.emit(abi::label(&invalid));
         self.emit_invalid_format_return()?;
@@ -601,6 +611,7 @@ impl CodeBuilder<'_> {
         let exponent_multiply_loop = self.label("parse_decimal_exponent_multiply_loop");
         let exponent_divide_loop = self.label("parse_decimal_exponent_divide_loop");
         let exponent_apply_done = self.label("parse_decimal_exponent_apply_done");
+        let exponent_skip_accum = self.label("parse_decimal_exponent_skip_accum");
         self.emit(abi::move_register(string, source_register));
         self.emit(abi::load_u64(length, string, 0));
         self.emit(abi::compare_immediate(length, "0"));
@@ -702,9 +713,20 @@ impl CodeBuilder<'_> {
         self.emit(abi::compare_immediate(byte, "57"));
         self.emit(abi::branch_hi(invalid_label));
         self.emit(abi::subtract_immediate(digit, byte, 48));
+        self.emit(abi::move_immediate(seen_digit, "Integer", "1"));
+        // Clamp exponent accumulation to avoid 64-bit wraparound on absurdly
+        // large exponents (e.g. `1e18446744073709551616`). Once the magnitude
+        // reaches EXPONENT_CLAMP, any representable mantissa is already forced to
+        // overflow to infinity (positive exponent) or underflow to zero
+        // (negative exponent), so additional digits cannot change the result.
+        // Skipping further accumulation keeps the register far below 2^63 and
+        // preserves the overflow/underflow outcome instead of wrapping to a
+        // small, wrongly-accepted value.
+        self.emit(abi::compare_immediate(exponent, DECIMAL_EXPONENT_CLAMP));
+        self.emit(abi::branch_ge(&exponent_skip_accum));
         self.emit(abi::multiply_registers(exponent, exponent, exponent_ten));
         self.emit(abi::add_registers(exponent, exponent, digit));
-        self.emit(abi::move_immediate(seen_digit, "Integer", "1"));
+        self.emit(abi::label(&exponent_skip_accum));
         self.emit(abi::add_immediate(index, index, 1));
         self.emit(abi::add_immediate(cursor, cursor, 1));
         self.emit(abi::branch(&exponent_loop));

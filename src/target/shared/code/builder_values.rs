@@ -1001,7 +1001,7 @@ impl CodeBuilder<'_> {
             NirValue::MemberAccess { target, member } => match target.as_ref() {
                 _ if member == "result" => {
                     if let Some(output_type) = self.static_type_name(target).and_then(|type_| {
-                        builtins::thread::thread_output(&type_).map(str::to_string)
+                        builtins::thread::parent_thread_output(&type_).map(str::to_string)
                     }) {
                         self.emit_raw_call(
                             &runtime::symbol_for_call(

@@ -1,0 +1,80 @@
+{
+  "project": "collection_payload_alignment_rt",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "main",
+      "line": 9,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "p", "type": "Byte", "value": { "kind": "number", "value": "1" }, "line": 10 },
+      { "kind": "binding", "mutable": false, "name": "si", "type": "Map OF String TO Integer", "value": { "kind": "map", "keyType": "String", "valueType": "Integer", "entries": [{ "key": { "kind": "string", "value": "a" }, "value": { "kind": "number", "value": "1" } }, { "key": { "kind": "string", "value": "bb" }, "value": { "kind": "number", "value": "22" } }, { "key": { "kind": "string", "value": "ccc" }, "value": { "kind": "number", "value": "333" } }] }, "line": 13 },
+      {
+        "kind": "forEach",
+        "name": "e",
+        "iterable": { "kind": "identifier", "value": "si" },
+        "line": 14,
+        "body": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "e" }, "member": "key" }, "right": { "kind": "string", "value": "=" } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "e" }, "member": "value" }] } }] }, "line": 14 }
+        ]
+      },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "get", "arguments": [{ "kind": "identifier", "value": "si" }, { "kind": "string", "value": "a" }] }] }] }, "line": 15 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "get", "arguments": [{ "kind": "identifier", "value": "si" }, { "kind": "string", "value": "bb" }] }] }] }, "line": 16 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "get", "arguments": [{ "kind": "identifier", "value": "si" }, { "kind": "string", "value": "ccc" }] }] }] }, "line": 17 },
+      { "kind": "binding", "mutable": false, "name": "bf", "type": "Map OF Byte TO Float", "value": { "kind": "map", "keyType": "Byte", "valueType": "Float", "entries": [{ "key": { "kind": "number", "value": "1" }, "value": { "kind": "number", "value": "1.5" } }, { "key": { "kind": "number", "value": "2" }, "value": { "kind": "number", "value": "2.5" } }, { "key": { "kind": "number", "value": "200" }, "value": { "kind": "number", "value": "9.5" } }] }, "line": 20 },
+      {
+        "kind": "forEach",
+        "name": "e",
+        "iterable": { "kind": "identifier", "value": "bf" },
+        "line": 21,
+        "body": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "e" }, "member": "key" }] }, "right": { "kind": "string", "value": "=" } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "e" }, "member": "value" }, { "kind": "identifier", "value": "p" }] } }] }, "line": 21 }
+        ]
+      },
+      { "kind": "binding", "mutable": false, "name": "is", "type": "Map OF Integer TO String", "value": { "kind": "map", "keyType": "Integer", "valueType": "String", "entries": [{ "key": { "kind": "number", "value": "1" }, "value": { "kind": "string", "value": "x" } }, { "key": { "kind": "number", "value": "22" }, "value": { "kind": "string", "value": "yy" } }, { "key": { "kind": "number", "value": "333" }, "value": { "kind": "string", "value": "zzz" } }] }, "line": 24 },
+      {
+        "kind": "forEach",
+        "name": "e",
+        "iterable": { "kind": "identifier", "value": "is" },
+        "line": 25,
+        "body": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "e" }, "member": "key" }] }, "right": { "kind": "string", "value": "=" } }, "right": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "e" }, "member": "value" } }] }, "line": 25 }
+        ]
+      },
+      { "kind": "binding", "mutable": false, "name": "si2", "type": "Map OF String TO Integer", "value": { "kind": "call", "callee": "set", "arguments": [{ "kind": "identifier", "value": "si" }, { "kind": "string", "value": "dddd" }, { "kind": "number", "value": "4444" }] }, "line": 29 },
+      {
+        "kind": "forEach",
+        "name": "e",
+        "iterable": { "kind": "identifier", "value": "si2" },
+        "line": 30,
+        "body": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "e" }, "member": "key" }, "right": { "kind": "string", "value": "=" } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "e" }, "member": "value" }] } }] }, "line": 30 }
+        ]
+      },
+      { "kind": "binding", "mutable": false, "name": "si3", "type": "Map OF String TO Integer", "value": { "kind": "call", "callee": "removeKey", "arguments": [{ "kind": "identifier", "value": "si2" }, { "kind": "string", "value": "a" }] }, "line": 31 },
+      {
+        "kind": "forEach",
+        "name": "e",
+        "iterable": { "kind": "identifier", "value": "si3" },
+        "line": 32,
+        "body": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "e" }, "member": "key" }, "right": { "kind": "string", "value": "=" } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "e" }, "member": "value" }] } }] }, "line": 32 }
+        ]
+      },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "get", "arguments": [{ "kind": "identifier", "value": "si3" }, { "kind": "string", "value": "dddd" }] }] }] }, "line": 33 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 35 }
+      ]
+    }
+    ]
+  }
+  ]
+}

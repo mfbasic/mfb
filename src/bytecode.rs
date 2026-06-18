@@ -748,7 +748,7 @@ const RESOURCE_FLAG_NATIVE: u32 = 1 << 0;
 const RESOURCE_FLAG_STANDARD: u32 = 1 << 1;
 const RESOURCE_FLAG_CLOSE_MAY_FAIL: u32 = 1 << 3;
 const CLEANUP_FLAG_RECORD_SECONDARY_CLOSE_FAILURE: u32 = 1 << 0;
-const BUILTIN_FS_CLOSE_FUNCTION_ID: u32 = 0xffff_ff00;
+pub(crate) const BUILTIN_FS_CLOSE_FUNCTION_ID: u32 = 0xffff_ff00;
 
 pub fn read_package_exports(path: &Path) -> Result<Vec<BytecodeExport>, String> {
     let package = read_package_bytecode(path)?;
@@ -5052,7 +5052,9 @@ impl<'a> FunctionBuilder<'a> {
 
                 let target = self.lower_value(target, locals)?;
                 if member == "result" {
-                    if let Some(output_type) = builtins::thread::thread_output(&target.type_name) {
+                    if let Some(output_type) =
+                        builtins::thread::parent_thread_output(&target.type_name)
+                    {
                         let output_type_id = self.type_id(output_type);
                         let result_type_id = self.types.result_type(self.strings, output_type_id);
                         let dst = self.add_register(result_type_id, 0);

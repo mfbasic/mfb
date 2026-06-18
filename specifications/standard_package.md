@@ -82,7 +82,7 @@ String length, search, substring, and regex indexes are zero-based Unicode scala
 | `replace` | `FUNC replace(value AS String, old AS String, new AS String) AS String` | Replaces all non-overlapping occurrences. |
 | `typeName` | `FUNC typeName OF T(value AS T) AS String` | Implementation-defined display name of the static type. Intended for diagnostics. |
 | `toString` | `FUNC toString(value AS Integer) AS String` | Converts an integer to base-10 text. |
-| `toString` | `FUNC toString(value AS Float, precision AS Byte = 2) AS String` | Converts a float to implementation-defined round-trippable text. |
+| `toString` | `FUNC toString(value AS Float, precision AS Byte = 2) AS String` | Converts a float to decimal text with exactly `precision` digits after the decimal point. |
 | `toString` | `FUNC toString(value AS Fixed, precision AS Byte = 2) AS String` | Converts a fixed-point value to decimal text. |
 | `toString` | `FUNC toString(value AS Boolean) AS String` | Returns `"TRUE"` or `"FALSE"`. |
 | `toString` | `FUNC toString(value AS String) AS String` | Returns `value` unchanged. |

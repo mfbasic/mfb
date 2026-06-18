@@ -25,6 +25,55 @@ impl CodeBuilder<'_> {
         is_collection_type(type_)
     }
 
+    /// Alignment, in bytes, that a packed collection payload of `type_` requires
+    /// in the data region. 8-byte scalars (`Integer`/`Float`/`Fixed`), native
+    /// collection/object pointers, and inline record/union slot payloads must
+    /// begin at 8-byte boundaries; 1-byte scalars (`Boolean`/`Byte`) and UTF-8
+    /// `String` bytes have no alignment requirement. `memory_layouts.md`
+    /// (Scalar Storage) requires every payload to begin at an offset valid for
+    /// its type, with padding bytes unobservable.
+    pub(super) fn collection_payload_alignment(&self, type_: &str) -> usize {
+        match type_ {
+            "Boolean" | "Byte" | "String" => 1,
+            "Integer" | "Float" | "Fixed" => 8,
+            other if self.is_pointer_collection_payload_type(other) => 8,
+            other if self.inline_collection_payload_size(other).is_some() => 8,
+            _ => 1,
+        }
+    }
+
+    /// Rounds the unsigned offset stored at `slot` up to `alignment`. A no-op
+    /// for `alignment <= 1`. Uses x12/x13 as scratch so it does not disturb the
+    /// x8-x11 registers used by the surrounding collection-writer code.
+    pub(super) fn emit_align_offset_slot(&mut self, slot: usize, alignment: usize) {
+        if alignment <= 1 {
+            return;
+        }
+        let mask = !((alignment - 1) as u64);
+        self.emit(abi::load_u64("x12", abi::stack_pointer(), slot));
+        self.emit(abi::add_immediate("x12", "x12", alignment - 1));
+        self.emit(abi::move_immediate("x13", "Integer", &mask.to_string()));
+        self.emit(abi::and_registers("x12", "x12", "x13"));
+        self.emit(abi::store_u64("x12", abi::stack_pointer(), slot));
+    }
+
+    /// Rounds the unsigned offset held in `reg` up to `alignment`, using
+    /// `scratch` for the alignment mask. A no-op for `alignment <= 1`.
+    pub(super) fn emit_align_offset_register(
+        &mut self,
+        reg: &str,
+        alignment: usize,
+        scratch: &str,
+    ) {
+        if alignment <= 1 {
+            return;
+        }
+        let mask = !((alignment - 1) as u64);
+        self.emit(abi::add_immediate(reg, reg, alignment - 1));
+        self.emit(abi::move_immediate(scratch, "Integer", &mask.to_string()));
+        self.emit(abi::and_registers(reg, reg, scratch));
+    }
+
     pub(super) fn emit_copy_bytes(&mut self, dst: &str, src: &str, len: &str, prefix: &str) {
         let remaining = "x13";
         let loop_label = self.label(&format!("{prefix}_loop"));
@@ -370,7 +419,16 @@ impl CodeBuilder<'_> {
         self.emit(abi::store_u64("x8", abi::stack_pointer(), data_len_slot));
         for slot in &slots {
             if let Some(key) = &slot.key {
+                // Map entries pack a key then a value; round each payload's start
+                // offset up to its type alignment so the running data length
+                // accounts for the same padding the writer inserts below. List
+                // payloads are homogeneous and size-aligned, so they never need
+                // padding (no key present).
+                let key_alignment = self.collection_payload_alignment(&key.type_);
+                self.emit_align_offset_slot(data_len_slot, key_alignment);
                 self.emit_add_payload_length(data_len_slot, key)?;
+                let value_alignment = self.collection_payload_alignment(&slot.value.type_);
+                self.emit_align_offset_slot(data_len_slot, value_alignment);
             }
             self.emit_add_payload_length(data_len_slot, &slot.value)?;
         }
@@ -488,6 +546,17 @@ impl CodeBuilder<'_> {
         ));
 
         if let Some(key_len_slot) = key_len_slot {
+            // Align the key payload start to its type alignment before recording
+            // its offset (map entries only; lists have no key).
+            let key_alignment = self.collection_payload_alignment(
+                &slot.key.as_ref().unwrap().type_,
+            );
+            self.emit_align_offset_slot(data_offset_slot, key_alignment);
+            self.emit(abi::load_u64(
+                collection_register,
+                abi::stack_pointer(),
+                collection_slot,
+            ));
             self.emit(abi::load_u64("x10", abi::stack_pointer(), data_offset_slot));
             self.emit(abi::store_u64(
                 "x10",
@@ -520,6 +589,14 @@ impl CodeBuilder<'_> {
             ));
         }
 
+        // Align the value payload start to its type alignment before recording
+        // its offset. Only map entries can leave the cursor unaligned (a
+        // variable-length or 1-byte key preceding an 8-byte value); list
+        // payloads are homogeneous and stay naturally aligned.
+        if slot.key.is_some() {
+            let value_alignment = self.collection_payload_alignment(&slot.value.type_);
+            self.emit_align_offset_slot(data_offset_slot, value_alignment);
+        }
         self.emit(abi::load_u64(
             collection_register,
             abi::stack_pointer(),

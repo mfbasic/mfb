@@ -768,6 +768,9 @@ impl CodeBuilder<'_> {
     ) -> Result<ValueResult, String> {
         let layout = CollectionTypeLayout::from_type(map_type)
             .ok_or_else(|| format!("native code collection type '{map_type}' is not supported"))?;
+        let key_payload_align = collection_payload_alignment_for_code(layout.key_type_code);
+        let value_payload_align = collection_payload_alignment_for_code(layout.value_type_code);
+        let map_max_align = key_payload_align.max(value_payload_align);
         for register in ["x20", "x21", "x22", "x23", "x24", "x25"] {
             self.mark_register_used(register);
         }
@@ -779,6 +782,10 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64("x11", "x9", COLLECTION_OFFSET_COUNT));
         self.emit(abi::add_registers("x12", "x10", "x11"));
         self.emit(abi::load_u64("x13", "x8", COLLECTION_OFFSET_DATA_LENGTH));
+        // The right map's payloads are re-packed starting at the left map's data
+        // length; round that boundary up to the map's maximum payload alignment
+        // so the right map's internal aligned layout is reproduced unchanged.
+        self.emit_align_offset_register("x13", map_max_align, "x15");
         self.emit(abi::load_u64("x14", "x9", COLLECTION_OFFSET_DATA_LENGTH));
         self.emit(abi::add_registers("x14", "x13", "x14"));
         self.emit(abi::move_immediate(
@@ -831,11 +838,34 @@ impl CodeBuilder<'_> {
         self.emit(abi::add_immediate("x12", "x8", COLLECTION_HEADER_SIZE));
         self.emit_collection_data_pointer("x20", "x8");
         self.emit(abi::load_u64("x10", "x8", COLLECTION_OFFSET_COUNT));
-        self.emit_copy_map_entries("x12", "x20", "x17", "x21", "x13", "x10", "map_concat_left")?;
+        self.emit_copy_map_entries(
+            "x12",
+            "x20",
+            "x17",
+            "x21",
+            "x13",
+            "x10",
+            "map_concat_left",
+            key_payload_align,
+            value_payload_align,
+        )?;
+        // Round the destination cursor up to the map's maximum payload alignment
+        // before re-packing the right map, matching the precomputed data length.
+        self.emit_align_offset_register("x13", map_max_align, "x22");
         self.emit(abi::add_immediate("x12", "x9", COLLECTION_HEADER_SIZE));
         self.emit_collection_data_pointer("x20", "x9");
         self.emit(abi::load_u64("x10", "x9", COLLECTION_OFFSET_COUNT));
-        self.emit_copy_map_entries("x12", "x20", "x17", "x21", "x13", "x10", "map_concat_right")?;
+        self.emit_copy_map_entries(
+            "x12",
+            "x20",
+            "x17",
+            "x21",
+            "x13",
+            "x10",
+            "map_concat_right",
+            key_payload_align,
+            value_payload_align,
+        )?;
         let result = self.allocate_register()?;
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         Ok(ValueResult {
@@ -854,6 +884,8 @@ impl CodeBuilder<'_> {
     ) -> Result<ValueResult, String> {
         let layout = CollectionTypeLayout::from_type(map_type)
             .ok_or_else(|| format!("native code collection type '{map_type}' is not supported"))?;
+        let key_payload_align = collection_payload_alignment_for_code(layout.key_type_code);
+        let value_payload_align = collection_payload_alignment_for_code(layout.value_type_code);
         for register in ["x20", "x21", "x22", "x23", "x24", "x25"] {
             self.mark_register_used(register);
         }
@@ -893,17 +925,22 @@ impl CodeBuilder<'_> {
         )?;
         self.emit(abi::label(&scan_keep));
         self.emit(abi::add_immediate("x14", "x14", 1));
+        // Accumulate the retained data length with the same per-payload
+        // alignment the copy phase applies, so the precomputed allocation
+        // matches the bytes actually written.
+        self.emit_align_offset_register("x15", key_payload_align, "x16");
         self.emit(abi::load_u64(
             "x16",
             "x12",
             COLLECTION_ENTRY_OFFSET_KEY_LENGTH,
         ));
+        self.emit(abi::add_registers("x15", "x15", "x16"));
+        self.emit_align_offset_register("x15", value_payload_align, "x16");
         self.emit(abi::load_u64(
             "x17",
             "x12",
             COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
         ));
-        self.emit(abi::add_registers("x15", "x15", "x16"));
         self.emit(abi::add_registers("x15", "x15", "x17"));
         self.emit(abi::label(&scan_next));
         self.emit(abi::add_immediate("x12", "x12", COLLECTION_ENTRY_SIZE));
@@ -979,7 +1016,9 @@ impl CodeBuilder<'_> {
             key_type, "x8", "x14", "x15", "x9", &copy_next, &copy_keep,
         )?;
         self.emit(abi::label(&copy_keep));
-        self.emit_copy_one_map_entry("x12", "x20", "x17", "x21", "x13");
+        self.emit_copy_one_map_entry(
+            "x12", "x20", "x17", "x21", "x13", key_payload_align, value_payload_align,
+        );
         self.emit(abi::label(&copy_next));
         self.emit(abi::add_immediate("x12", "x12", COLLECTION_ENTRY_SIZE));
         self.emit(abi::add_immediate("x11", "x11", 1));
@@ -1003,6 +1042,8 @@ impl CodeBuilder<'_> {
         dest_data_offset: &str,
         count: &str,
         label_prefix: &str,
+        key_align: usize,
+        value_align: usize,
     ) -> Result<(), String> {
         let loop_label = self.label(&format!("{label_prefix}_loop"));
         let done = self.label(&format!("{label_prefix}_done"));
@@ -1015,6 +1056,8 @@ impl CodeBuilder<'_> {
             dest_entry,
             dest_data,
             dest_data_offset,
+            key_align,
+            value_align,
         );
         self.emit(abi::add_immediate(
             source_entry,
@@ -1034,6 +1077,8 @@ impl CodeBuilder<'_> {
         dest_entry: &str,
         dest_data: &str,
         dest_data_offset: &str,
+        key_align: usize,
+        value_align: usize,
     ) {
         let key_loop = self.label("map_entry_key_copy_loop");
         let key_done = self.label("map_entry_key_copy_done");
@@ -1049,6 +1094,10 @@ impl CodeBuilder<'_> {
             dest_entry,
             COLLECTION_ENTRY_OFFSET_FLAGS,
         ));
+        // Align the destination cursor to the key payload alignment before
+        // recording its offset, matching the packing used when the map was
+        // first built. Idempotent when the cursor is already aligned.
+        self.emit_align_offset_register(dest_data_offset, key_align, "x22");
         self.emit(abi::load_u64(
             "x22",
             source_entry,
@@ -1092,6 +1141,9 @@ impl CodeBuilder<'_> {
             "x23",
         ));
 
+        // Align the destination cursor to the value payload alignment before
+        // recording its offset.
+        self.emit_align_offset_register(dest_data_offset, value_align, "x22");
         self.emit(abi::load_u64(
             "x22",
             source_entry,

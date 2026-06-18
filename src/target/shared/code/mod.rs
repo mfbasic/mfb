@@ -2349,6 +2349,18 @@ fn add_package_runtime_symbols(
                     runtime_symbols.push(symbol.to_string());
                 }
             }
+            // Resource bindings lower to lexical close calls on every exit
+            // path, so the file-close runtime helper must be linked even when
+            // no explicit `fs.close` call appears in the bytecode.
+            if matches!(
+                instruction.opcode,
+                bytecode::NATIVE_OPCODE_RESOURCE_ENTER | bytecode::NATIVE_OPCODE_CLOSE_RESOURCE
+            ) && !runtime_symbols
+                .iter()
+                .any(|existing| existing == FS_CLOSE_HELPER_SYMBOL)
+            {
+                runtime_symbols.push(FS_CLOSE_HELPER_SYMBOL.to_string());
+            }
         }
     }
     Ok(())
@@ -2626,6 +2638,7 @@ fn lower_package_runtime_call(
     scratch_base: usize,
     frame_size: usize,
     lr_offset: usize,
+    active_cleanups: &[(u32, u32)],
     instructions: &mut Vec<CodeInstruction>,
     relocations: &mut Vec<CodeRelocation>,
 ) -> Result<(), String> {
@@ -2669,8 +2682,9 @@ fn lower_package_runtime_call(
         }
     }
     let ok = format!("{}_pkg_runtime_ok_{pc}", export.symbol);
+    instructions.push(abi::branch_eq(&ok));
+    emit_package_error_path_resource_closes(active_cleanups, slot, scratch_base, instructions);
     instructions.extend([
-        abi::branch_eq(&ok),
         abi::load_u64(abi::link_register(), abi::stack_pointer(), lr_offset),
         abi::add_stack(frame_size),
         abi::return_(),
@@ -2692,6 +2706,57 @@ fn lower_package_runtime_call(
         ]);
     }
     Ok(())
+}
+
+/// Runtime helper symbol that closes a standard `File` resource handle.
+const FS_CLOSE_HELPER_SYMBOL: &str = "_mfb_rt_fs_fs_close";
+
+/// Emit lexical-drop close calls for the currently active resource cleanups in
+/// a package export, in reverse acquisition order. Used on the normal return
+/// path, where the return value is materialized after these calls.
+fn emit_package_resource_close_calls(
+    active_cleanups: &[(u32, u32)],
+    slot: &dyn Fn(u32) -> usize,
+    instructions: &mut Vec<CodeInstruction>,
+) {
+    for (register, _) in active_cleanups.iter().rev() {
+        instructions.push(abi::load_u64("x0", abi::stack_pointer(), slot(*register)));
+        instructions.push(abi::branch_link(FS_CLOSE_HELPER_SYMBOL));
+    }
+}
+
+/// Emit resource close calls on an error-propagation exit, preserving the
+/// propagating `Result` registers (tag/value/message) across the close calls so
+/// the caller still receives the original error. Owned resources are closed
+/// exactly once on every exit path this way.
+fn emit_package_error_path_resource_closes(
+    active_cleanups: &[(u32, u32)],
+    slot: &dyn Fn(u32) -> usize,
+    scratch_base: usize,
+    instructions: &mut Vec<CodeInstruction>,
+) {
+    if active_cleanups.is_empty() {
+        return;
+    }
+    instructions.extend([
+        abi::store_u64(RESULT_TAG_REGISTER, abi::stack_pointer(), scratch_base),
+        abi::store_u64(RESULT_VALUE_REGISTER, abi::stack_pointer(), scratch_base + 8),
+        abi::store_u64(
+            RESULT_ERROR_MESSAGE_REGISTER,
+            abi::stack_pointer(),
+            scratch_base + 16,
+        ),
+    ]);
+    emit_package_resource_close_calls(active_cleanups, slot, instructions);
+    instructions.extend([
+        abi::load_u64(RESULT_TAG_REGISTER, abi::stack_pointer(), scratch_base),
+        abi::load_u64(RESULT_VALUE_REGISTER, abi::stack_pointer(), scratch_base + 8),
+        abi::load_u64(
+            RESULT_ERROR_MESSAGE_REGISTER,
+            abi::stack_pointer(),
+            scratch_base + 16,
+        ),
+    ]);
 }
 
 fn lower_package_raw_result_store(
@@ -2784,8 +2849,10 @@ fn lower_package_call_result(
     instruction: &bytecode::NativeInstruction,
     pc: usize,
     slot: &dyn Fn(u32) -> usize,
+    scratch_base: usize,
     frame_size: usize,
     lr_offset: usize,
+    active_cleanups: &[(u32, u32)],
     instructions: &mut Vec<CodeInstruction>,
     relocations: &mut Vec<CodeRelocation>,
 ) -> Result<(), String> {
@@ -2810,8 +2877,9 @@ fn lower_package_call_result(
         abi::compare_immediate(RESULT_TAG_REGISTER, RESULT_OK_TAG),
     ]);
     let ok = format!("{}_pkg_call_ok_{pc}", export.symbol);
+    instructions.push(abi::branch_eq(&ok));
+    emit_package_error_path_resource_closes(active_cleanups, slot, scratch_base, instructions);
     instructions.extend([
-        abi::branch_eq(&ok),
         abi::load_u64(abi::link_register(), abi::stack_pointer(), lr_offset),
         abi::add_stack(frame_size),
         abi::return_(),
@@ -3318,6 +3386,11 @@ fn lower_package_export_function(
             slot(index as u32),
         ));
     }
+    // Active resource cleanups (resource register, cleanup id) in acquisition
+    // order. Package exports are straight-line, so this grows on
+    // RESOURCE_ENTER and shrinks on RESOURCE_LEAVE; every exit path closes the
+    // owned resources exactly once.
+    let mut active_cleanups: Vec<(u32, u32)> = Vec::new();
     for (pc, instruction) in export.code.iter().enumerate() {
         if let Some(helper) = package_runtime_symbol(instruction)? {
             lower_package_runtime_call(
@@ -3329,6 +3402,7 @@ fn lower_package_export_function(
                 scratch_base,
                 frame_size,
                 lr_offset,
+                &active_cleanups,
                 &mut instructions,
                 &mut relocations,
             )?;
@@ -3457,14 +3531,47 @@ fn lower_package_export_function(
                     instruction,
                     pc,
                     &slot,
+                    scratch_base,
                     frame_size,
                     lr_offset,
+                    &active_cleanups,
                     &mut instructions,
                     &mut relocations,
                 )?;
             }
+            bytecode::NATIVE_OPCODE_RESOURCE_ENTER => {
+                let register = native_operand(instruction, 0)?;
+                let close_function_id = native_operand(instruction, 1)?;
+                let cleanup_id = native_operand(instruction, 2)?;
+                if close_function_id != bytecode::BUILTIN_FS_CLOSE_FUNCTION_ID {
+                    return Err(format!(
+                        "package export '{}' uses unsupported resource close function {close_function_id} in the native package bridge",
+                        export.name
+                    ));
+                }
+                active_cleanups.push((register, cleanup_id));
+            }
+            bytecode::NATIVE_OPCODE_CLOSE_RESOURCE => {
+                let register = native_operand(instruction, 0)?;
+                // Lexical scope-exit close on the normal (fall-through) path.
+                emit_package_resource_close_calls(
+                    &[(register, 0)],
+                    &slot,
+                    &mut instructions,
+                );
+            }
+            bytecode::NATIVE_OPCODE_RESOURCE_LEAVE => {
+                let cleanup_id = native_operand(instruction, 0)?;
+                if let Some(index) = active_cleanups
+                    .iter()
+                    .rposition(|(_, id)| *id == cleanup_id)
+                {
+                    active_cleanups.remove(index);
+                }
+            }
             bytecode::NATIVE_OPCODE_RETURN_OK => {
                 let value = native_operand(instruction, 0)?;
+                emit_package_resource_close_calls(&active_cleanups, &slot, &mut instructions);
                 if lower_package_return_union_variant(
                     export,
                     value,
@@ -13525,7 +13632,7 @@ fn static_nir_value_type(value: &NirValue, locals: &HashMap<String, String>) -> 
         NirValue::MemberAccess { target, member } => {
             let target_type = static_nir_value_type(target, locals)?;
             if member == "result" {
-                builtins::thread::thread_output(&target_type)
+                builtins::thread::parent_thread_output(&target_type)
                     .map(|output_type| format!("Result OF {output_type}"))
             } else {
                 None
@@ -14490,6 +14597,23 @@ fn collection_type_code(type_: &str) -> Option<usize> {
     }
 }
 
+/// Alignment, in bytes, of a packed collection payload identified by its compact
+/// runtime type code. Mirrors `CodeBuilder::collection_payload_alignment` for
+/// paths that carry the numeric type code rather than the type name: 8-byte
+/// scalars, native collection/object pointers, and inline record/union slot
+/// payloads require 8-byte alignment; 1-byte scalars and `String` bytes do not.
+fn collection_payload_alignment_for_code(code: usize) -> usize {
+    match code {
+        COLLECTION_TYPE_INTEGER
+        | COLLECTION_TYPE_FLOAT
+        | COLLECTION_TYPE_FIXED
+        | COLLECTION_TYPE_LIST
+        | COLLECTION_TYPE_MAP
+        | COLLECTION_TYPE_OBJECT => 8,
+        _ => 1,
+    }
+}
+
 fn value_may_return_invalid_format(
     value: &NirValue,
     constants: &HashMap<String, NirValue>,
@@ -14765,7 +14889,7 @@ fn static_type_name_with_types(
         NirValue::MemberAccess { target, member } => {
             let target_type = static_type_name_with_types(target, types)?;
             if member == "result" {
-                if let Some(output_type) = builtins::thread::thread_output(&target_type) {
+                if let Some(output_type) = builtins::thread::parent_thread_output(&target_type) {
                     return Some(format!("Result OF {output_type}"));
                 }
             }

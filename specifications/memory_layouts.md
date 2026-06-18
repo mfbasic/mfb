@@ -252,19 +252,24 @@ Header:
   valueType = Integer
   count = 1
   capacity = 1
-  dataLength = 11
+  dataLength = 16
 
 Lookup[0]:
   flags = used
   keyOffset = 0
   keyLength = 3
-  valueOffset = 3
+  valueOffset = 8
   valueLength = 8
 
 Data:
   A d a
+  <5 padding bytes>
   Integer(36)
 ```
+
+The three `String` key bytes occupy offsets `0` through `2`. The `Integer`
+value requires 8-byte alignment, so it begins at the next valid offset, `8`,
+leaving five unobservable padding bytes at offsets `3` through `7`.
 
 ## Operations
 

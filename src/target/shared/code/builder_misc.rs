@@ -672,7 +672,7 @@ impl CodeBuilder<'_> {
             NirValue::MemberAccess { target, member } => {
                 let target_type = self.static_type_name(target)?;
                 if member == "result" {
-                    if let Some(output_type) = builtins::thread::thread_output(&target_type) {
+                    if let Some(output_type) = builtins::thread::parent_thread_output(&target_type) {
                         return Some(format!("Result OF {output_type}"));
                     }
                 }
@@ -705,7 +705,7 @@ impl CodeBuilder<'_> {
             "thread.cancel" | "thread.send" => Some("Nothing".to_string()),
             "thread.waitFor" => {
                 let thread_type = self.static_type_name(args.first()?)?;
-                builtins::thread::thread_output(&thread_type).map(str::to_string)
+                builtins::thread::parent_thread_output(&thread_type).map(str::to_string)
             }
             "thread.receive" => {
                 let thread_type = self.static_type_name(args.first()?)?;
@@ -1135,6 +1135,9 @@ impl CodeBuilder<'_> {
             other if is_collection_type(other) => {
                 self.copy_collection_to_current_arena(other, source)
             }
+            other if crate::builtins::is_thread_sendable_resource_type(other) => {
+                self.copy_resource_to_current_arena(source)
+            }
             other => {
                 if self.type_model.record_fields.contains_key(other) {
                     return self.copy_record_to_current_arena(other, source);
@@ -1179,6 +1182,45 @@ impl CodeBuilder<'_> {
         let copied_message = self.copy_value_to_current_arena("String", "x10")?;
         self.emit(abi::load_u64("x9", abi::stack_pointer(), result_slot));
         self.emit(abi::store_u64(&copied_message, "x9", 8));
+        let result = self.allocate_register()?;
+        self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
+        Ok(result)
+    }
+
+    /// Materialize a thread-sendable resource handle (e.g. `File`) into the
+    /// current arena. The handle is a two-word struct (a host resource word
+    /// such as a file descriptor, followed by a closed flag); moving it copies
+    /// both words so the receiver owns the underlying OS resource. The sender's
+    /// lexical cleanup is deactivated on the successful-transfer path, so the
+    /// resource is closed exactly once by the receiver.
+    fn copy_resource_to_current_arena(&mut self, source: &str) -> Result<String, String> {
+        let source_slot = self.allocate_stack_object("thread_copy_resource_source", 8);
+        let result_slot = self.allocate_stack_object("thread_copy_resource_result", 8);
+        let alloc_ok = self.label("thread_copy_resource_alloc_ok");
+        self.emit(abi::store_u64(source, abi::stack_pointer(), source_slot));
+        self.emit(abi::move_immediate(abi::return_register(), "Integer", "16"));
+        self.emit(abi::move_immediate("x1", "Integer", "8"));
+        self.emit(abi::branch_link(ARENA_ALLOC_SYMBOL));
+        self.relocations.push(CodeRelocation {
+            from: self.current_symbol.clone(),
+            to: ARENA_ALLOC_SYMBOL.to_string(),
+            kind: "branch26".to_string(),
+            binding: "internal".to_string(),
+            library: None,
+        });
+        self.emit(abi::compare_immediate(
+            abi::return_register(),
+            RESULT_OK_TAG,
+        ));
+        self.emit(abi::branch_eq(&alloc_ok));
+        self.emit_allocation_error_return()?;
+        self.emit(abi::label(&alloc_ok));
+        self.emit(abi::store_u64("x1", abi::stack_pointer(), result_slot));
+        self.emit(abi::load_u64("x9", abi::stack_pointer(), source_slot));
+        self.emit(abi::load_u64("x10", "x9", 0));
+        self.emit(abi::store_u64("x10", "x1", 0));
+        self.emit(abi::load_u64("x10", "x9", 8));
+        self.emit(abi::store_u64("x10", "x1", 8));
         let result = self.allocate_register()?;
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         Ok(result)
@@ -2065,6 +2107,12 @@ impl CodeBuilder<'_> {
             };
             let consumed = if target == close {
                 index == 0
+            } else if matches!(target, "thread.start" | "thread.send" | "thread.emit") {
+                // A thread-sendable resource is moved into the thread on a
+                // successful transfer. Deactivation runs only on the success
+                // path (after the result-tag branch), so the sender keeps
+                // ownership and cleanup when the transfer fails with `Err`.
+                index == 1 && crate::builtins::is_thread_sendable_resource_type(&local.type_)
             } else if crate::builtins::is_builtin_call(target) {
                 false
             } else {

@@ -1,0 +1,4 @@
+FUNC main AS Integer
+  LET v AS Fixed = toFixed("1e18446744073709551616")
+  RETURN 0
+END FUNC

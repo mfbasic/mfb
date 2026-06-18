@@ -1,0 +1,36 @@
+IMPORT io
+
+' Regression for memory_layouts.md (Scalar Storage / Collection Layout): map
+' value payloads must begin at offsets valid for their type. These maps pack a
+' variable-length or 1-byte key immediately before an 8-byte value, which the
+' writer must pad to an 8-byte boundary. Padding is unobservable, so every
+' operation below must still round-trip the exact values across the map literal,
+' lookup, iteration, set (rebuild via removeKey + concat), and removeKey paths.
+FUNC main AS Integer
+  LET p AS Byte = 1
+
+  ' variable-length String key followed by an 8-byte Integer value
+  LET si AS Map OF String TO Integer = Map OF String TO Integer { "a" := 1, "bb" := 22, "ccc" := 333 }
+  FOR EACH e IN si : io::print(e.key & "=" & toString(e.value)) : NEXT
+  io::print(toString(get(si, "a")))
+  io::print(toString(get(si, "bb")))
+  io::print(toString(get(si, "ccc")))
+
+  ' 1-byte Byte key followed by an 8-byte Float value
+  LET bf AS Map OF Byte TO Float = Map OF Byte TO Float { 1 := 1.5, 2 := 2.5, 200 := 9.5 }
+  FOR EACH e IN bf : io::print(toString(e.key) & "=" & toString(e.value, p)) : NEXT
+
+  ' 8-byte Integer key followed by a variable-length String value
+  LET is AS Map OF Integer TO String = Map OF Integer TO String { 1 := "x", 22 := "yy", 333 := "zzz" }
+  FOR EACH e IN is : io::print(toString(e.key) & "=" & e.value) : NEXT
+
+  ' rebuild paths: set adds a key (removeKey + literal singleton + concat),
+  ' removeKey drops one
+  LET si2 AS Map OF String TO Integer = set(si, "dddd", 4444)
+  FOR EACH e IN si2 : io::print(e.key & "=" & toString(e.value)) : NEXT
+  LET si3 AS Map OF String TO Integer = removeKey(si2, "a")
+  FOR EACH e IN si3 : io::print(e.key & "=" & toString(e.value)) : NEXT
+  io::print(toString(get(si3, "dddd")))
+
+  RETURN 0
+END FUNC

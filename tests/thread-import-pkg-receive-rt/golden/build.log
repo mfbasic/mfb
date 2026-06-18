@@ -1,0 +1,12 @@
+$ mfb build -ast tests/thread-import-pkg-receive-rt
+Wrote AST to tests/thread-import-pkg-receive-rt/thread_import_pkg_receive_rt.ast
+[exit 0]
+$ mfb build -ir tests/thread-import-pkg-receive-rt
+Wrote IR to tests/thread-import-pkg-receive-rt/thread_import_pkg_receive_rt.ir
+[exit 0]
+$ mfb build tests/thread-import-pkg-receive-rt
+Wrote executable to tests/thread-import-pkg-receive-rt/thread_import_pkg_receive_rt.out
+[exit 0]
+$ tests/thread-import-pkg-receive-rt/thread_import_pkg_receive_rt.out
+ping
+[exit 0]

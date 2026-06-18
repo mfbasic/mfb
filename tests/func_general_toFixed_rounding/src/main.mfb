@@ -1,0 +1,23 @@
+IMPORT io
+
+' toFixed must round to the nearest representable Fixed (ties away from zero)
+' rather than truncating toward zero. Fixed has 32 fractional bits, so the
+' last representable step (ULP) is 2^-32. The values below land at fractional
+' multiples of that ULP; printed at 10 fractional digits, Fixed raw 5 shows as
+' 0.0000000011 and Fixed raw 6 shows as 0.0000000013.
+FUNC main AS Integer
+  LET p AS Byte = 10
+
+  ' Float inputs: exact dyadic fractions of a ULP.
+  io::print(toString(toFixed(21.0 / 17179869184.0), p))   ' 5.25 ULP -> nearest 5  -> 0.0000000011
+  io::print(toString(toFixed(11.0 / 8589934592.0), p))    ' 5.50 ULP -> tie away 6 -> 0.0000000013
+  io::print(toString(toFixed(23.0 / 17179869184.0), p))   ' 5.75 ULP -> nearest 6  -> 0.0000000013
+  io::print(toString(toFixed(-11.0 / 8589934592.0), p))   ' -5.50 ULP -> tie away -6 -> -0.0000000013
+  io::print(toString(toFixed(-21.0 / 17179869184.0), p))  ' -5.25 ULP -> nearest -5 -> -0.0000000011
+
+  ' String inputs exercise the decimal-parse path into the same scaling.
+  io::print(toString(toFixed("0.0000000013737008"), p))   ' ~5.9 ULP -> nearest 6  -> 0.0000000013
+  io::print(toString(toFixed("-0.0000000013737008"), p))  ' ~-5.9 ULP -> nearest -6 -> -0.0000000013
+  io::print(toString(toFixed("0.0000000012107938"), p))   ' ~5.2 ULP -> nearest 5  -> 0.0000000011
+  RETURN 0
+END FUNC

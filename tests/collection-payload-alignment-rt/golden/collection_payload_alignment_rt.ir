@@ -1,0 +1,80 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "collection_payload_alignment_rt",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "mutable": false, "name": "p", "type": "Byte", "value": { "kind": "const", "type": "Byte", "value": "1" } },
+    { "op": "bind", "mutable": false, "name": "si", "type": "Map OF String TO Integer", "value": { "kind": "map", "type": "Map OF String TO Integer", "entries": [{ "key": { "kind": "const", "type": "String", "value": "a" }, "value": { "kind": "const", "type": "Integer", "value": "1" } }, { "key": { "kind": "const", "type": "String", "value": "bb" }, "value": { "kind": "const", "type": "Integer", "value": "22" } }, { "key": { "kind": "const", "type": "String", "value": "ccc" }, "value": { "kind": "const", "type": "Integer", "value": "333" } }] } },
+    {
+      "op": "forEach",
+      "name": "e",
+      "type": "MapEntry OF String TO Integer",
+      "iterable": { "kind": "local", "name": "si" },
+      "body": [
+      { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "binary", "op": "&", "left": { "kind": "binary", "op": "&", "left": { "kind": "memberAccess", "target": { "kind": "local", "name": "e" }, "member": "key" }, "right": { "kind": "const", "type": "String", "value": "=" } }, "right": { "kind": "call", "target": "toString", "args": [{ "kind": "memberAccess", "target": { "kind": "local", "name": "e" }, "member": "value" }] } }] } }
+      ]
+    },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "get", "args": [{ "kind": "local", "name": "si" }, { "kind": "const", "type": "String", "value": "a" }] }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "get", "args": [{ "kind": "local", "name": "si" }, { "kind": "const", "type": "String", "value": "bb" }] }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "get", "args": [{ "kind": "local", "name": "si" }, { "kind": "const", "type": "String", "value": "ccc" }] }] }] } },
+    { "op": "bind", "mutable": false, "name": "bf", "type": "Map OF Byte TO Float", "value": { "kind": "map", "type": "Map OF Byte TO Float", "entries": [{ "key": { "kind": "const", "type": "Byte", "value": "1" }, "value": { "kind": "const", "type": "Float", "value": "1.5" } }, { "key": { "kind": "const", "type": "Byte", "value": "2" }, "value": { "kind": "const", "type": "Float", "value": "2.5" } }, { "key": { "kind": "const", "type": "Byte", "value": "200" }, "value": { "kind": "const", "type": "Float", "value": "9.5" } }] } },
+    {
+      "op": "forEach",
+      "name": "e",
+      "type": "MapEntry OF Byte TO Float",
+      "iterable": { "kind": "local", "name": "bf" },
+      "body": [
+      { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "binary", "op": "&", "left": { "kind": "binary", "op": "&", "left": { "kind": "call", "target": "toString", "args": [{ "kind": "memberAccess", "target": { "kind": "local", "name": "e" }, "member": "key" }] }, "right": { "kind": "const", "type": "String", "value": "=" } }, "right": { "kind": "call", "target": "toString", "args": [{ "kind": "memberAccess", "target": { "kind": "local", "name": "e" }, "member": "value" }, { "kind": "local", "name": "p" }] } }] } }
+      ]
+    },
+    { "op": "bind", "mutable": false, "name": "is", "type": "Map OF Integer TO String", "value": { "kind": "map", "type": "Map OF Integer TO String", "entries": [{ "key": { "kind": "const", "type": "Integer", "value": "1" }, "value": { "kind": "const", "type": "String", "value": "x" } }, { "key": { "kind": "const", "type": "Integer", "value": "22" }, "value": { "kind": "const", "type": "String", "value": "yy" } }, { "key": { "kind": "const", "type": "Integer", "value": "333" }, "value": { "kind": "const", "type": "String", "value": "zzz" } }] } },
+    {
+      "op": "forEach",
+      "name": "e",
+      "type": "MapEntry OF Integer TO String",
+      "iterable": { "kind": "local", "name": "is" },
+      "body": [
+      { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "binary", "op": "&", "left": { "kind": "binary", "op": "&", "left": { "kind": "call", "target": "toString", "args": [{ "kind": "memberAccess", "target": { "kind": "local", "name": "e" }, "member": "key" }] }, "right": { "kind": "const", "type": "String", "value": "=" } }, "right": { "kind": "memberAccess", "target": { "kind": "local", "name": "e" }, "member": "value" } }] } }
+      ]
+    },
+    { "op": "bind", "mutable": false, "name": "si2", "type": "Map OF String TO Integer", "value": { "kind": "call", "target": "set", "args": [{ "kind": "local", "name": "si" }, { "kind": "const", "type": "String", "value": "dddd" }, { "kind": "const", "type": "Integer", "value": "4444" }] } },
+    {
+      "op": "forEach",
+      "name": "e",
+      "type": "MapEntry OF String TO Integer",
+      "iterable": { "kind": "local", "name": "si2" },
+      "body": [
+      { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "binary", "op": "&", "left": { "kind": "binary", "op": "&", "left": { "kind": "memberAccess", "target": { "kind": "local", "name": "e" }, "member": "key" }, "right": { "kind": "const", "type": "String", "value": "=" } }, "right": { "kind": "call", "target": "toString", "args": [{ "kind": "memberAccess", "target": { "kind": "local", "name": "e" }, "member": "value" }] } }] } }
+      ]
+    },
+    { "op": "bind", "mutable": false, "name": "si3", "type": "Map OF String TO Integer", "value": { "kind": "call", "target": "removeKey", "args": [{ "kind": "local", "name": "si2" }, { "kind": "const", "type": "String", "value": "a" }] } },
+    {
+      "op": "forEach",
+      "name": "e",
+      "type": "MapEntry OF String TO Integer",
+      "iterable": { "kind": "local", "name": "si3" },
+      "body": [
+      { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "binary", "op": "&", "left": { "kind": "binary", "op": "&", "left": { "kind": "memberAccess", "target": { "kind": "local", "name": "e" }, "member": "key" }, "right": { "kind": "const", "type": "String", "value": "=" } }, "right": { "kind": "call", "target": "toString", "args": [{ "kind": "memberAccess", "target": { "kind": "local", "name": "e" }, "member": "value" }] } }] } }
+      ]
+    },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "get", "args": [{ "kind": "local", "name": "si3" }, { "kind": "const", "type": "String", "value": "dddd" }] }] }] } },
+    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

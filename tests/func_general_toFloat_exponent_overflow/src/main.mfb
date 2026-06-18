@@ -1,0 +1,6 @@
+FUNC main AS Integer
+  ' Exponent numerically equal to 2^64 would wrap to 0 without checked
+  ' accumulation; it must instead overflow to ErrOverflow (77050010).
+  LET v AS Float = toFloat("1e18446744073709551616")
+  RETURN 0
+END FUNC

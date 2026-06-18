@@ -1,0 +1,25 @@
+{
+  "project": "func_general_toFloat_exponent_overflow",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "main",
+      "line": 1,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "v", "type": "Float", "value": { "kind": "call", "callee": "toFloat", "arguments": [{ "kind": "string", "value": "1e18446744073709551616" }] }, "line": 4 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 5 }
+      ]
+    }
+    ]
+  }
+  ]
+}

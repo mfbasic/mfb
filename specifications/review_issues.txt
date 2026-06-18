@@ -36,7 +36,8 @@ GROUP: stdlib
 RECOMMENDED: SPEC CHANGE
 VERIFIED: YES
 PRIORITY: LOW
-`standard_package.md` says `toString(value AS Float, precision AS Byte = 2)` produces implementation-defined round-trippable text, but the implementation uses `"%.*f"` with default precision `2`, and the manual describes fixed decimal places. That cannot be round-trippable for ordinary Float values. Resolve by changing the spec to match the language feel and implementation: `toString(Float, precision)` should produce decimal text with exactly `precision` digits after the decimal point, while any future round-trippable formatter should be a separate API or a clearly different default behavior.
+STATUS: COMPLETE
+`standard_package.md` says `toString(value AS Float, precision AS Byte = 2)` produces implementation-defined round-trippable text, but the implementation uses `"%.*f"` with default precision `2`, and the manual describes fixed decimal places. That cannot be round-trippable for ordinary Float values. Resolve by changing the spec to match the language feel and implementation: `toString(Float, precision)` should produce decimal text with exactly `precision` digits after the decimal point, remove any future round-trippable formatter from the spec.
 
 REQUIREMENT: `toFixed` must round to nearest Fixed
 SPECIFICATION: standard_package.md @ §3.1 Scalar and string helpers
@@ -44,6 +45,7 @@ GROUP: stdlib
 RECOMMENDED: CODE CHANGE
 VERIFIED: YES
 PRIORITY: MED
+STATUS: COMPLETE
 `toFixed(value AS String)` and `toFixed(value AS Float)` are specified to produce the nearest representable `Fixed` value, but the native lowering scales the parsed/float value by `2^32` and converts with AArch64 `fcvtzs`, which truncates toward zero. The backend already has a nearest-rounding conversion helper (`fcvtas`) used elsewhere. Change `emit_float_bits_to_fixed_value` to round to nearest after scaling, preserve the existing invalid/overflow checks, and add runtime tests for positive and negative halfway/non-halfway values from both String and Float inputs.
 
 REQUIREMENT: Collection data payloads must be aligned
@@ -52,6 +54,7 @@ GROUP: stdlib
 RECOMMENDED: CODE CHANGE
 VERIFIED: YES
 PRIORITY: MED
+STATUS: COMPLETE
 `memory_layouts.md` requires primitive payloads in collection data regions to begin at offsets valid for their type, with padding bytes unobservable. The native collection writer in `src/target/shared/code/builder_collection_layout.rs` appends key and value payloads by raw length only, so a map such as `Map OF String TO Integer { "Ada" := 36 }` stores the `Integer` value immediately after 3 string bytes, at an unaligned offset. Add a shared payload-alignment calculation for every collection key/value write and read path, round `dataOffset`/`dataLength` before each payload according to its compact runtime type, preserve lookup offsets after padding, and add runtime tests for map/list operations with 1-byte or variable-length payloads followed by 8-byte payloads.
 
 REQUIREMENT: Decimal conversion exponent overflow
@@ -60,6 +63,7 @@ GROUP: stdlib
 RECOMMENDED: CODE CHANGE
 VERIFIED: YES
 PRIORITY: MED
+STATUS: COMPLETE
 `toFloat(String)` and `toFixed(String)` must reject overflow, and `isNumeric(String)` should be false for strings that cannot be parsed as a valid finite numeric value. The native decimal parser accumulates exponent digits in a 64-bit register without overflow checks, then applies the exponent by looping that wrapped value. Inputs with huge exponents, such as an exponent numerically equal to `2^64`, can wrap to a small value and be accepted instead of failing with overflow or returning `FALSE`. Add checked exponent accumulation with a bounded cutoff, route too-large positive exponents to `ErrOverflow` for conversions, route too-large negative exponents according to the language’s underflow/rounding rules, and add valid/invalid/runtime tests for large positive and negative exponents across `toFloat`, `toFixed`, and `isNumeric`.
 
 
@@ -728,6 +732,7 @@ GROUP: threads
 RECOMMENDED: CODE CHANGE
 VERIFIED: YES
 PRIORITY: HIGH
+STATUS: COMPLETE
 `File` is specified as thread-sendable, and `thread::start` / `thread::send` must move non-copyable sendable resources only on successful transfer while failed sends keep sender ownership. Native cleanup lowering currently treats built-in calls as non-consuming in `deactivate_moved_resource_arguments`, so `thread.start` / `thread.send` do not deactivate sender-side `File` cleanup after successful transfer. Implement path-sensitive ownership for thread boundary transfers, deactivate cleanup only on successful transfer, preserve ownership on `Err`, and add runtime tests using `MATCH thread::send(...)` for both success and failure paths.
 
 REQUIREMENT: Thread queue values must be materialized and cleaned up by type
@@ -736,6 +741,7 @@ GROUP: threads
 RECOMMENDED: CODE CHANGE
 VERIFIED: YES
 PRIORITY: HIGH
+STATUS: COMPLETE
 The thread specification requires queue records to preserve enough type metadata to materialize heap-backed values into receiver-valid storage and to drop or close unread queued values exactly once. The native thread queue path currently stores raw value words without queue element type descriptors, aggregate drop metadata, resource close hooks, or cross-arena materialization. Resolve by wiring `Thread OF Msg TO Out` type descriptors into queue/control-block allocation, implementing typed enqueue/dequeue/drop for strings, collections, records, unions, `Result`, and sendable resources, and adding runtime tests for unread queued values and cross-thread heap/resource transfers.
 
 REQUIREMENT: Thread result retrieval only accepts parent Thread handles
@@ -744,6 +750,7 @@ GROUP: threads
 RECOMMENDED: CODE CHANGE
 VERIFIED: YES
 PRIORITY: MED
+STATUS: COMPLETE
 `thread::waitFor` is specified as `FUNC waitFor OF Msg, Out(t AS Thread OF Msg TO Out) AS Out`, but `src/builtins/thread.rs::resolve_call` accepts any thread-shaped type for `WAIT_FOR`, including `ThreadWorker OF Msg TO Out`. The IR/bytecode member-access helpers also use `thread_output` broadly for `result`, even though source type checking currently restricts `t.result` to `Thread`. Tighten `thread::waitFor` resolution to `is_parent_thread_type`, keep `t.result` restricted to parent `Thread` in every lowering/type helper layer, and add invalid tests proving `thread::waitFor(worker)` and `worker.result` are rejected while parent `Thread` retrieval still works.
 
 REQUIREMENT: Thread receive and cancellation helper ABI metadata
@@ -752,6 +759,7 @@ GROUP: threads
 RECOMMENDED: CODE CHANGE
 VERIFIED: YES
 PRIORITY: HIGH
+STATUS: COMPLETE
 `thread::receive(t AS Thread OF Msg TO Out, timeoutMs AS Integer = 0)` requires the parent receive timeout to be passed to the runtime helper, and `thread::isCancelled(t AS ThreadWorker OF Msg TO Out)` takes exactly one argument. `src/target/shared/runtime.rs` declares `THREAD_READ_SPEC` with only the thread handle, omitting `timeoutMs`, and declares `THREAD_IS_CANCELLED_SPEC` with the worker receive parameter list, adding an invalid `timeoutMs` parameter. These specs are used by native/package runtime helper dispatch, so imported package bytecode can pass the wrong registers or fail lowering for these thread APIs. Define separate ABI parameter lists for parent read and `isCancelled`, update package runtime lowering to use the corrected arities, and add package-import runtime tests for `thread::receive(parent, timeout)` and `thread::isCancelled(worker)`.
 
 

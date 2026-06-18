@@ -1,0 +1,19 @@
+$ mfb build -ast tests/func_general_toFixed_rounding
+Wrote AST to tests/func_general_toFixed_rounding/func_general_toFixed_rounding.ast
+[exit 0]
+$ mfb build -ir tests/func_general_toFixed_rounding
+Wrote IR to tests/func_general_toFixed_rounding/func_general_toFixed_rounding.ir
+[exit 0]
+$ mfb build tests/func_general_toFixed_rounding
+Wrote executable to tests/func_general_toFixed_rounding/func_general_toFixed_rounding.out
+[exit 0]
+$ tests/func_general_toFixed_rounding/func_general_toFixed_rounding.out
+0.0000000011
+0.0000000013
+0.0000000013
+-0.0000000013
+-0.0000000011
+0.0000000013
+-0.0000000013
+0.0000000011
+[exit 0]
