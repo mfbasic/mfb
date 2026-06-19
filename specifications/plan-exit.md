@@ -28,7 +28,7 @@ flow stays readable and there is no `GOTO`-style ambiguity.
 | `EXIT WHILE` | break out of the enclosing `WHILE … WEND` | inside a `WHILE` loop |
 | `EXIT SUB` | value-less early success exit from the enclosing `SUB` | inside a `SUB` |
 | `EXIT FUNC` | **always a compile error** — functions must `RETURN` a value | anywhere (diagnostic only) |
-| `EXIT APP <integer>` | terminate the process now with the given exit code | anywhere |
+| `EXIT PROGRAM <integer>` | terminate the program with the given exit code, running full RAII cleanup | anywhere |
 
 Loop-kind coverage note: `FOR` and `FOR EACH` both end in `NEXT`, so `EXIT FOR`
 serves both. `DO … LOOP UNTIL` and `DO WHILE … LOOP` are both `EXIT DO`.
@@ -62,30 +62,33 @@ serves both. `DO … LOOP UNTIL` and `DO WHILE … LOOP` are both `EXIT DO`.
 - Recognized solely to emit a targeted compile error `EXIT_FUNC_FORBIDDEN`:
   "Functions must `RETURN` a value; `EXIT FUNC` is not allowed." Never executes.
 
-### `EXIT APP <integer>`
-- Requests immediate process termination with `<integer>` as the host exit code.
-- Legal in any `FUNC` or `SUB`, at any call depth. It does **not** unwind user
-  frames or route to any `TRAP` — it is not an error and is **not catchable**.
+### `EXIT PROGRAM <integer>`
+- Terminates the program with `<integer>` as the host exit code.
+- Legal in any `FUNC` or `SUB`, at any call depth. It is not an error and is
+  **not catchable** by any `TRAP`.
+- **Cleanup policy (resolved, Q2): clean ASAP — full RAII.** `EXIT PROGRAM`
+  initiates an uncatchable unwind that runs lexical drops for every live scope in
+  the current function **and every caller up to the entry point**, in the normal
+  reverse-declaration drop order (§14.7), closing all live resources and dropping
+  all `Thread` handles, then terminates with the code. It is "ASAP" in that it
+  skips remaining *work* (no further statements run), not in that it skips
+  *cleanup*. The total-RAII guarantee in §15/§16 is preserved — `EXIT PROGRAM` is
+  a drop edge like any other exit, just one that unwinds the whole stack at once.
+  Mechanically: a terminate signal carrying the exit code propagates up the call
+  stack, running each frame's drops, but bypassing every `TRAP`.
 - The operand is any `Integer` expression. The exit code follows the same
   host-range rules as an entry-point `FUNC AS Integer` return (§8.7): a constant
   operand outside the host range is a compile error; a non-constant out-of-range
   value is truncated per host convention (e.g. `code & 0xFF` on POSIX).
-- **Cleanup policy (the key decision — see Q2):** recommended default is *fast
-  termination* — `EXIT APP` does **not** run user-level lexical drops / resource
-  close hooks (that is the point of "ASAP"), but the runtime **does** flush
-  buffered `stdout`/`stderr` and lets the OS reclaim file descriptors, memory,
-  and threads on process exit. This is the single sanctioned exception to the
-  language's otherwise-total RAII close guarantee; it must be called out
-  explicitly in §15 and §16.
 
 ### Terminator / reachability
 All `EXIT` forms (except the always-error `EXIT FUNC`) are **diverging
 statements**: control does not continue to the next statement in the same block.
 - Code textually after an `EXIT` in the same block is unreachable —
   `UNREACHABLE_AFTER_EXIT` (consistent with the existing post-`RETURN` rule).
-- `EXIT SUB` and `EXIT APP` count as valid block/function **terminators** for
+- `EXIT SUB` and `EXIT PROGRAM` count as valid block/function **terminators** for
   the path-termination analysis in `plan-errors.md` §4 (a diverging inline-`TRAP`
-  handler may end in `EXIT SUB` or `EXIT APP`; a loop-body `EXIT FOR/DO/WHILE`
+  handler may end in `EXIT SUB` or `EXIT PROGRAM`; a loop-body `EXIT FOR/DO/WHILE`
   satisfies divergence within that loop).
 
 ## 4. Grammar (§19 EBNF additions)
@@ -94,7 +97,7 @@ statements**: control does not continue to the next statement in the same block.
 ExitStmt   := "EXIT" LoopKind
             | "EXIT" "SUB"
             | "EXIT" "FUNC"          ' parsed, then rejected
-            | "EXIT" "APP" Expression
+            | "EXIT" "PROGRAM" Expression
 LoopKind   := "FOR" | "DO" | "WHILE"
 ```
 
@@ -106,43 +109,51 @@ LoopKind   := "FOR" | "DO" | "WHILE"
 - **§7 Subs:** add `EXIT SUB` as the value-less early-exit (ties into
   `plan-result-cleanup.md` §6a, which bans `RETURN` here).
 - **§6 Functions:** note `EXIT FUNC` is forbidden — functions `RETURN` a value.
-- **New subsection (§10.x or §8.7-adjacent) `EXIT APP`:** define immediate
-  termination, exit-code rules, non-catchability, and the cleanup policy.
-- **§8.7 entry-point table (lines 656–658):** add a row — `EXIT APP <n>`
-  terminates with code `n` immediately, short-circuiting the normal
-  return-to-exit-code mapping.
-- **§14.7 / §15 / §16:** add `EXIT FOR/DO/WHILE/SUB` to the list of drop edges;
-  call out `EXIT APP` as the explicit exception that bypasses user-level drops.
+- **New subsection (§10.x or §8.7-adjacent) `EXIT PROGRAM`:** define termination,
+  exit-code rules, non-catchability, and the full-RAII unwind policy.
+- **§8.7 entry-point table (lines 656–658):** add a row — `EXIT PROGRAM <n>`
+  terminates with code `n`, short-circuiting the normal return-to-exit-code
+  mapping (after the stack-wide RAII unwind).
+- **§14.7 / §15 / §16:** add `EXIT FOR/DO/WHILE/SUB` to the list of drop edges,
+  and add `EXIT PROGRAM` as a stack-wide drop edge that unwinds every live scope
+  up to the entry point. No exception to the RAII close guarantee is introduced.
 
 ## 6. Compiler edits
 
-- **`src/lexer.rs`:** add `Keyword::Exit` and `Keyword::App`
-  (`FOR`/`DO`/`WHILE`/`SUB`/`FUNC` already exist — lines 47–81). `APP` is only
+- **`src/lexer.rs`:** add `Keyword::Exit` and `Keyword::Program`
+  (`FOR`/`DO`/`WHILE`/`SUB`/`FUNC` already exist — lines 47–81). `PROGRAM` is only
   meaningful after `EXIT`; simplest is a plain reserved keyword.
 - **`src/ast.rs`:** add `Statement::Exit { target: ExitTarget, code:
   Option<Expression>, line }` with `enum ExitTarget { For, Do, While, Sub, Func,
-  App }`. Parse after the statement dispatch in the parser; `code` is `Some` only
-  for `App`.
+  Program }`. Parse after the statement dispatch in the parser; `code` is `Some`
+  only for `Program`.
 - **`src/typecheck.rs`:**
   - `EXIT FOR/DO/WHILE`: walk the enclosing-loop stack; error
     `EXIT_NO_MATCHING_LOOP` if no loop of that kind encloses the statement.
   - `EXIT SUB`: error `EXIT_SUB_IN_FUNC` if the enclosing routine is a `FUNC`.
   - `EXIT FUNC`: always `EXIT_FUNC_FORBIDDEN`.
-  - `EXIT APP`: require the operand to be `Integer`; constant-fold and host-range
-    check; emit `EXIT_APP_CODE_OUT_OF_RANGE` for an out-of-range constant.
-  - Reachability: flag `UNREACHABLE_AFTER_EXIT`; register `EXIT SUB`/`EXIT APP`
-    as terminators in the path-termination pass (shared with `plan-errors.md`).
+  - `EXIT PROGRAM`: require the operand to be `Integer`; constant-fold and
+    host-range check; emit `EXIT_PROGRAM_CODE_OUT_OF_RANGE` for an out-of-range
+    constant.
+  - Reachability: flag `UNREACHABLE_AFTER_EXIT`; register `EXIT SUB`/`EXIT
+    PROGRAM` as terminators in the path-termination pass (shared with
+    `plan-errors.md`).
 - **`src/ir.rs`:**
   - New `IrOp` for loop-break (jump to the loop's exit label) — needs a
     loop-context stack during lowering mapping loop kind → exit label.
   - `EXIT SUB` lowers to the sub's success-exit path (run scope drops, produce
     the internal `Ok(Nothing)`).
-  - New `IrOp::ExitApp { code }` (process-exit intrinsic).
-  - Insert lexical-drop ops on `EXIT FOR/DO/WHILE/SUB` paths; **skip** user drops
-    for `EXIT APP` per the cleanup policy.
+  - New `IrOp::ExitProgram { code }` — a stack-wide unwind intrinsic. Unlike a
+    plain process-exit, lowering must ensure live-scope drops run for the current
+    frame and propagate the terminate-and-drop signal through callers
+    (uncatchable by `TRAP`) up to the entry point, then exit with the code.
+  - Insert lexical-drop ops on **all** `EXIT FOR/DO/WHILE/SUB/PROGRAM` paths;
+    `EXIT PROGRAM` additionally drops every enclosing/caller scope (full RAII).
 - **`src/target/shared/code/mod.rs` + per-target backends:** loop-break → jump to
-  loop-end label; `EXIT APP` → flush stdio then call the runtime/OS exit with the
-  code. `EXIT SUB` reuses the existing sub-return lowering.
+  loop-end label; `EXIT SUB` reuses sub-return lowering; `EXIT PROGRAM` →
+  stack-wide RAII unwind (run drops for each live frame) then call the runtime/OS
+  exit with the code. The unwind reuses the existing drop/cleanup emission used
+  for error propagation, minus the `TRAP` routing.
 
 ## 7. Tests
 
@@ -158,10 +169,11 @@ with `scripts/test-accept.sh`. Runtime exit code / `.out` checks for `EXIT APP`.
   → exit 0.
 - `exit-sub-invalid` — `EXIT SUB` inside a `FUNC` (`EXIT_SUB_IN_FUNC`);
   `EXIT FUNC` (`EXIT_FUNC_FORBIDDEN`).
-- `exit-app-valid-rt` — `EXIT APP 3` terminates with code 3; `EXIT APP` with a
-  computed code; buffered output before it is flushed.
-- `exit-app-invalid` — non-`Integer` operand; out-of-range constant
-  (`EXIT_APP_CODE_OUT_OF_RANGE`).
+- `exit-program-valid-rt` — `EXIT PROGRAM 3` terminates with code 3;
+  `EXIT PROGRAM` with a computed code; assert a live resource opened up the call
+  stack is closed during the unwind (RAII observed before exit).
+- `exit-program-invalid` — non-`Integer` operand; out-of-range constant
+  (`EXIT_PROGRAM_CODE_OUT_OF_RANGE`).
 
 ## 8. Reconciliation with existing plans
 
@@ -177,19 +189,22 @@ with `scripts/test-accept.sh`. Runtime exit code / `.out` checks for `EXIT APP`.
   `CONTINUE` for `FOR`/`DO`/`WHILE`, since the diverging-`TRAP`-in-a-loop case
   genuinely needs "handle and continue the loop."
 
-## 9. Open questions
+## 9. Decisions & open questions
 
+Resolved:
+- **Q2 — `EXIT PROGRAM` cleanup → clean ASAP, full RAII.** Stack-wide unwind runs
+  every live scope's drops up to the entry point before exit; no exception to the
+  RAII close guarantee. (See §3.)
+- **Q4 — spelling → `EXIT PROGRAM`** (reserved word `PROGRAM`).
+
+Open:
 - **Q1 — loop-target rule.** Recommended: `EXIT <kind>` targets the innermost
   enclosing loop *of that kind*, even across inner loops of other kinds
   (BASIC-traditional; explicit because the kind is named). Stricter alternative:
   require the named kind to equal the innermost enclosing loop overall (no
   multi-level break). Confirm.
-- **Q2 — `EXIT APP` cleanup.** Recommended: fast termination — skip user-level
-  lexical drops / resource close hooks, but flush `stdout`/`stderr` and let the
-  OS reclaim fds/threads/memory. Alternative: full orderly unwind of every live
-  scope (safer, but contradicts "ASAP" and is much heavier). Confirm.
 - **Q3 — add `CONTINUE`?** The diverging inline-`TRAP`-inside-a-loop pattern
-  needs "handle the error and continue the loop," which only `CONTINUE`
-  expresses cleanly. Recommend a follow-up `plan-continue.md`. Confirm scope.
-- **Q4 — keyword spelling.** `EXIT APP` vs `EXIT PROGRAM` / `EXIT PROCESS`.
-  Keeping `EXIT APP` per request; confirm it should be a reserved word.
+  needs "handle the error and continue the loop," which no `EXIT` form expresses
+  (`EXIT FOR` leaves the loop entirely). Likely spelled `CONTINUE FOR/DO/WHILE`
+  to mirror the `EXIT` family. Recommend a follow-up `plan-continue.md`. Confirm
+  scope.
