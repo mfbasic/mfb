@@ -193,6 +193,53 @@ also convert here:
 - Re-audit any remaining `CASE Ok(`/`CASE Error(` in `tests/*/src/*.mfb` — the
   target is **zero** user-facing occurrences.
 
+## 6a. Companion cleanup: `SUB` becomes value-less (no `RETURN NOTHING`)
+
+Once `Result`/`Ok` are internal, the matching `Nothing`-success plumbing on
+`SUB` is the last bit of "unit value" leaking into the surface. A `SUB` cannot
+be *truly* non-returning — it still has an error channel (it can `FAIL`,
+auto-propagate, and drop resources on the way out) — but it can be **value-less**:
+it produces no success value, and its call is a statement, not an expression.
+
+### The change
+- A `SUB` produces **no success value.** Internally it remains `Result OF Nothing`
+  (invisible, like `Result` itself).
+- A `SUB` **call is a statement**, not an expression. `LET x = aSub()` is a
+  compile error (today it silently binds `x = NOTHING`).
+- **Remove `RETURN NOTHING`.** Bare `RETURN` is a value-less early exit;
+  fall-through to `END SUB` is success. (Keep both forms.)
+- Failure is handled with inline `TRAP` (`plan-errors.md`), never `MATCH Ok/Error`.
+- `Nothing` **stays a nameable unit type** — it is still needed for marker union
+  members (e.g. `value AS Nothing`) and the `FUNC(...) AS Nothing` callback bridge
+  that lets a `SUB` be passed to `forEach`. We are killing the `SUB`-return smell,
+  not the unit type. (Fully eliminating `Nothing` — a first-class effect-only
+  function kind, a `SUB`-typed `forEach`, respelled marker members — is a deeper
+  type-system change and is **out of scope**.)
+
+### Spec edits (`mfbasic.md` §7, §4.6)
+- **§7 line 497:** drop `RETURN NOTHING` and `Ok(NOTHING)`; state a `SUB`
+  produces no value, `RETURN` is a value-less early exit, fall-through succeeds.
+- **§7 lines 509–515:** the `Result OF Nothing` `MATCH` example is already being
+  replaced by an inline-`TRAP` example (§4 above) — the `fs::writeAll` failure
+  case demonstrates the value-less + `TRAP` pattern.
+- **§7 line 489 / §4.6 line 343–347:** keep `Nothing` as the unit type for type
+  positions; remove the `' Ok(NOTHING)` comment (line 347) and the framing of a
+  `SUB` as "success type `Nothing`" in favor of "effect-only, value-less."
+
+### Compiler edits
+- **Parser/typecheck:** reject `RETURN NOTHING` inside a `SUB`
+  (`SUB_RETURN_TAKES_NO_VALUE`); a bare `RETURN` and fall-through stay valid.
+- **Typecheck:** a `SUB` call used in value position (`LET`/`MUT`/`Assign` RHS,
+  argument, operand) is a compile error `TYPE_SUB_HAS_NO_VALUE`. A `SUB` call as
+  a bare statement, and as a `FUNC(...) AS Nothing` callback value, stays valid.
+- Internal `Result OF Nothing` / `Ok(NOTHING)` IR is unchanged — invisible.
+
+### Tests
+- New `sub-value-less-invalid`: `LET x = aSub()` → `TYPE_SUB_HAS_NO_VALUE`;
+  `RETURN NOTHING` in a `SUB` → `SUB_RETURN_TAKES_NO_VALUE`.
+- Audit existing `SUB` tests for `RETURN NOTHING` and any `LET x = <subcall>`;
+  migrate to bare `RETURN` / statement calls.
+
 ## 7. Sequencing
 
 1. Land `plan-errors.md` first (inline `TRAP`, remove MATCH call-scrutinee). It
@@ -216,3 +263,7 @@ also convert here:
 - **Implementer note placement** — §4.4 footnote vs bytecode/runtime section.
   Recommend the bytecode/runtime invariants section, where `Result` legitimately
   remains a typed-metadata concept.
+- **Value-less `SUB` (§6a)** — confirm making `SUB` calls statement-only
+  (`LET x = aSub()` becomes illegal) and removing `RETURN NOTHING`. Recommend
+  yes; keep `Nothing` as a nameable unit type for marker fields and the
+  `FUNC(...) AS Nothing` callback bridge (full `Nothing` removal is out of scope).
