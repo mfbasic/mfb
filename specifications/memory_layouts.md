@@ -44,6 +44,14 @@ or in the receiver's arena before the receiver observes it. A thread control
 block or queue entry must not retain a bare layout handle into a worker arena
 after that arena is eligible for reclamation.
 
+The arena allocator entry point `arena_alloc(size, align)` validates that
+alignment is a non-zero power of two, treats zero-size allocations as one byte,
+rounds addresses with checked arithmetic, grows chained blocks when needed, and
+uses a separate large-allocation block path for oversized requests. It reports
+an invalid alignment or request as `ErrInvalidArgument` and exhaustion as
+`ErrOutOfMemory`; both surface to source code as ordinary language-level errors
+(see the language spec §14.3.1).
+
 ### Standalone String
 
 Standalone and static `String` objects store the byte length first, followed by
