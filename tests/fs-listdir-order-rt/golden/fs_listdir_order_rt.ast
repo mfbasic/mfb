@@ -1,0 +1,40 @@
+{
+  "project": "fs_listdir_order_rt",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "fs", "line": 1 },
+    { "module": "io", "line": 2 },
+    { "module": "strings", "line": 3 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "main",
+      "line": 5,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "dir", "type": "String", "value": { "kind": "string", "value": "target/fs_listdir_order_rt_dir" }, "line": 6 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "fs.createDirectories", "arguments": [{ "kind": "identifier", "value": "dir" }] }, "line": 7 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "fs.writeText", "arguments": [{ "kind": "string", "value": "target/fs_listdir_order_rt_dir/zebra.txt" }, { "kind": "string", "value": "z" }] }, "line": 8 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "fs.writeText", "arguments": [{ "kind": "string", "value": "target/fs_listdir_order_rt_dir/apple.txt" }, { "kind": "string", "value": "a" }] }, "line": 9 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "fs.writeText", "arguments": [{ "kind": "string", "value": "target/fs_listdir_order_rt_dir/mango.txt" }, { "kind": "string", "value": "m" }] }, "line": 10 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "fs.writeText", "arguments": [{ "kind": "string", "value": "target/fs_listdir_order_rt_dir/Banana.txt" }, { "kind": "string", "value": "B" }] }, "line": 11 },
+      { "kind": "binding", "mutable": false, "name": "names", "type": "List OF String", "value": { "kind": "call", "callee": "fs.listDirectory", "arguments": [{ "kind": "identifier", "value": "dir" }] }, "line": 12 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "strings.join", "arguments": [{ "kind": "identifier", "value": "names" }, { "kind": "string", "value": "," }] }] }, "line": 13 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "fs.deleteFile", "arguments": [{ "kind": "string", "value": "target/fs_listdir_order_rt_dir/zebra.txt" }] }, "line": 14 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "fs.deleteFile", "arguments": [{ "kind": "string", "value": "target/fs_listdir_order_rt_dir/apple.txt" }] }, "line": 15 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "fs.deleteFile", "arguments": [{ "kind": "string", "value": "target/fs_listdir_order_rt_dir/mango.txt" }] }, "line": 16 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "fs.deleteFile", "arguments": [{ "kind": "string", "value": "target/fs_listdir_order_rt_dir/Banana.txt" }] }, "line": 17 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "fs.deleteDirectory", "arguments": [{ "kind": "identifier", "value": "dir" }] }, "line": 18 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 19 }
+      ]
+    }
+    ]
+  }
+  ]
+}

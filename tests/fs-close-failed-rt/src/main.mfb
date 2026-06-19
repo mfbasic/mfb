@@ -1,0 +1,21 @@
+IMPORT fs
+IMPORT io
+
+FUNC closeOnce(p AS String) AS Integer
+  LET f AS File = fs::openFile(p)
+  fs::close(f)
+  RETURN 0
+END FUNC
+
+FUNC main AS Integer
+  MUT ok AS Integer = -1
+  MATCH closeOnce("tests/fs-close-failed-rt/data/in.txt")
+    CASE Ok(v)
+      ok = v
+    CASE Error(e)
+      ok = e.code
+  END MATCH
+  io::print(toString(ok))
+  io::print("closed")
+  RETURN 0
+END FUNC

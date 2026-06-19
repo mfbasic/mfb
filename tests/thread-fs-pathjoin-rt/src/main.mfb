@@ -1,0 +1,11 @@
+IMPORT io
+IMPORT thread
+IMPORT fs_thread_workers
+
+FUNC main AS Integer
+  LET parts AS List OF String = ["base", "", "sub", "leaf.txt"]
+  LET t AS Thread OF (List OF String) TO String = thread::start(fs_thread_workers::pathJoinWorker, parts)
+  LET joined AS String = thread::waitFor(t)
+  io::print(joined)
+  RETURN 0
+END FUNC

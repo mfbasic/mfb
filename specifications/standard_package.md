@@ -311,7 +311,7 @@ Symlink behavior is explicit:
 | `fs::createDirectory` | `FUNC createDirectory(path AS String) AS Nothing` | Creates one directory. Fails if the parent is missing or the target already exists. |
 | `fs::createDirectories` | `FUNC createDirectories(path AS String) AS Nothing` | Creates a directory and any missing parents. |
 | `fs::deleteDirectory` | `FUNC deleteDirectory(path AS String) AS Nothing` | Deletes an empty directory. Fails with `77030001` when missing and `77030005` when the directory is not empty. |
-| `fs::listDirectory` | `FUNC listDirectory(path AS String) AS List OF String` | Lists direct child names in implementation-defined stable order. |
+| `fs::listDirectory` | `FUNC listDirectory(path AS String) AS List OF String` | Lists direct child names in implementation-defined stable order; the native runtime returns them sorted ascending by UTF-8 byte value. |
 | `fs::currentDirectory` | `FUNC currentDirectory() AS String` | Returns the current working directory. |
 | `fs::setCurrentDirectory` | `FUNC setCurrentDirectory(path AS String) AS Nothing` | Changes the current working directory. |
 

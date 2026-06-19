@@ -17,12 +17,48 @@ impl CodeBuilder<'_> {
         Ok(Some(result))
     }
 
+    /// Join path components with the host separator following normal path-join
+    /// rules: empty components are skipped, a component that is absolute (begins
+    /// with the separator) discards everything joined so far, and exactly one
+    /// separator is inserted between components without producing duplicates.
+    ///
+    /// The work is delegated to the shared [`FS_PATH_JOIN_SYMBOL`] runtime helper
+    /// so that root native code and imported-package bytecode lower `pathJoin`
+    /// identically.
     fn lower_fs_path_join(&mut self, parts: &NirValue) -> Result<ValueResult, String> {
-        let delimiter = NirValue::Const {
+        let parts = self.lower_value(parts)?;
+        if list_element_type(&parts.type_).as_deref() != Some("String") {
+            return Err(format!(
+                "fs.pathJoin parts must be List OF String, got {}",
+                parts.type_
+            ));
+        }
+        let parts_slot = self.store_string_pointer("fs_path_join_parts", &parts.location);
+        let alloc_ok = self.label("fs_path_join_alloc_ok");
+        self.emit(abi::load_u64(
+            abi::return_register(),
+            abi::stack_pointer(),
+            parts_slot,
+        ));
+        self.emit(abi::branch_link(FS_PATH_JOIN_SYMBOL));
+        self.relocations.push(CodeRelocation {
+            from: self.current_symbol.clone(),
+            to: FS_PATH_JOIN_SYMBOL.to_string(),
+            kind: "branch26".to_string(),
+            binding: "internal".to_string(),
+            library: None,
+        });
+        self.emit(abi::compare_immediate(RESULT_TAG_REGISTER, RESULT_OK_TAG));
+        self.emit(abi::branch_eq(&alloc_ok));
+        self.emit_allocation_error_return()?;
+        self.emit(abi::label(&alloc_ok));
+        let result = self.allocate_register()?;
+        self.emit(abi::move_register(&result, RESULT_VALUE_REGISTER));
+        Ok(ValueResult {
             type_: "String".to_string(),
-            value: "/".to_string(),
-        };
-        self.lower_strings_join(parts, &delimiter)
+            location: result,
+            text: "fs.pathJoin".to_string(),
+        })
     }
 
     fn lower_fs_path_base_name(&mut self, path: &NirValue) -> Result<ValueResult, String> {

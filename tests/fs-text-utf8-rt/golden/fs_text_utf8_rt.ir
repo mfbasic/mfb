@@ -1,0 +1,176 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "fs_text_utf8_rt",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "readText1",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    { "name": "p", "type": "String", "default": null }
+    ],
+    "returns": "String",
+    "body": [
+    { "op": "return", "value": { "kind": "call", "target": "fs.readText", "args": [{ "kind": "local", "name": "p" }] } }
+    ]
+  },
+  {
+    "name": "readAll1",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    { "name": "p", "type": "String", "default": null }
+    ],
+    "returns": "String",
+    "body": [
+    { "op": "return", "value": { "kind": "call", "target": "fs.readAll", "args": [{ "kind": "call", "target": "fs.openFile", "args": [{ "kind": "local", "name": "p" }] }] } }
+    ]
+  },
+  {
+    "name": "readLine1",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    { "name": "p", "type": "String", "default": null }
+    ],
+    "returns": "String",
+    "body": [
+    { "op": "return", "value": { "kind": "call", "target": "fs.readLine", "args": [{ "kind": "call", "target": "fs.openFile", "args": [{ "kind": "local", "name": "p" }] }] } }
+    ]
+  },
+  {
+    "name": "codeOf",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    { "name": "p", "type": "String", "default": null },
+    { "name": "which", "type": "Integer", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "mutable": true, "name": "code", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    {
+      "op": "if",
+      "condition": { "kind": "binary", "op": "=", "left": { "kind": "local", "name": "which" }, "right": { "kind": "const", "type": "Integer", "value": "0" } },
+      "then": [
+      { "op": "bind", "mutable": false, "name": "$match0", "type": "Result OF String", "value": { "kind": "callResult", "target": "readText1", "args": [{ "kind": "local", "name": "p" }] } },
+      { "op": "bind", "mutable": false, "name": "$match_ok1", "type": "Boolean", "value": { "kind": "resultIsOk", "value": { "kind": "local", "name": "$match0" } } },
+      {
+        "op": "match",
+        "value": { "kind": "local", "name": "$match_ok1" },
+        "cases": [
+        {
+          "pattern": { "kind": "value", "value": { "kind": "const", "type": "Boolean", "value": "true" } },
+          "guard": null,
+          "body": [
+          { "op": "bind", "mutable": false, "name": "v", "type": "String", "value": { "kind": "resultValue", "value": { "kind": "local", "name": "$match0" } } },
+          { "op": "assign", "name": "code", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+          ]
+        },
+        {
+          "pattern": { "kind": "value", "value": { "kind": "const", "type": "Boolean", "value": "false" } },
+          "guard": null,
+          "body": [
+          { "op": "bind", "mutable": false, "name": "e", "type": "Error", "value": { "kind": "resultError", "value": { "kind": "local", "name": "$match0" } } },
+          { "op": "assign", "name": "code", "value": { "kind": "memberAccess", "target": { "kind": "local", "name": "e" }, "member": "code" } }
+          ]
+        }
+        ]
+      }
+      ],
+      "else": [
+      ]
+    },
+    {
+      "op": "if",
+      "condition": { "kind": "binary", "op": "=", "left": { "kind": "local", "name": "which" }, "right": { "kind": "const", "type": "Integer", "value": "1" } },
+      "then": [
+      { "op": "bind", "mutable": false, "name": "$match2", "type": "Result OF String", "value": { "kind": "callResult", "target": "readAll1", "args": [{ "kind": "local", "name": "p" }] } },
+      { "op": "bind", "mutable": false, "name": "$match_ok3", "type": "Boolean", "value": { "kind": "resultIsOk", "value": { "kind": "local", "name": "$match2" } } },
+      {
+        "op": "match",
+        "value": { "kind": "local", "name": "$match_ok3" },
+        "cases": [
+        {
+          "pattern": { "kind": "value", "value": { "kind": "const", "type": "Boolean", "value": "true" } },
+          "guard": null,
+          "body": [
+          { "op": "bind", "mutable": false, "name": "v", "type": "String", "value": { "kind": "resultValue", "value": { "kind": "local", "name": "$match2" } } },
+          { "op": "assign", "name": "code", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+          ]
+        },
+        {
+          "pattern": { "kind": "value", "value": { "kind": "const", "type": "Boolean", "value": "false" } },
+          "guard": null,
+          "body": [
+          { "op": "bind", "mutable": false, "name": "e", "type": "Error", "value": { "kind": "resultError", "value": { "kind": "local", "name": "$match2" } } },
+          { "op": "assign", "name": "code", "value": { "kind": "memberAccess", "target": { "kind": "local", "name": "e" }, "member": "code" } }
+          ]
+        }
+        ]
+      }
+      ],
+      "else": [
+      ]
+    },
+    {
+      "op": "if",
+      "condition": { "kind": "binary", "op": "=", "left": { "kind": "local", "name": "which" }, "right": { "kind": "const", "type": "Integer", "value": "2" } },
+      "then": [
+      { "op": "bind", "mutable": false, "name": "$match4", "type": "Result OF String", "value": { "kind": "callResult", "target": "readLine1", "args": [{ "kind": "local", "name": "p" }] } },
+      { "op": "bind", "mutable": false, "name": "$match_ok5", "type": "Boolean", "value": { "kind": "resultIsOk", "value": { "kind": "local", "name": "$match4" } } },
+      {
+        "op": "match",
+        "value": { "kind": "local", "name": "$match_ok5" },
+        "cases": [
+        {
+          "pattern": { "kind": "value", "value": { "kind": "const", "type": "Boolean", "value": "true" } },
+          "guard": null,
+          "body": [
+          { "op": "bind", "mutable": false, "name": "v", "type": "String", "value": { "kind": "resultValue", "value": { "kind": "local", "name": "$match4" } } },
+          { "op": "assign", "name": "code", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+          ]
+        },
+        {
+          "pattern": { "kind": "value", "value": { "kind": "const", "type": "Boolean", "value": "false" } },
+          "guard": null,
+          "body": [
+          { "op": "bind", "mutable": false, "name": "e", "type": "Error", "value": { "kind": "resultError", "value": { "kind": "local", "name": "$match4" } } },
+          { "op": "assign", "name": "code", "value": { "kind": "memberAccess", "target": { "kind": "local", "name": "e" }, "member": "code" } }
+          ]
+        }
+        ]
+      }
+      ],
+      "else": [
+      ]
+    },
+    { "op": "return", "value": { "kind": "local", "name": "code" } }
+    ]
+  },
+  {
+    "name": "main",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "mutable": false, "name": "good", "type": "String", "value": { "kind": "call", "target": "fs.readText", "args": [{ "kind": "const", "type": "String", "value": "tests/fs-text-utf8-rt/good.txt" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "local", "name": "good" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "codeOf", "args": [{ "kind": "const", "type": "String", "value": "tests/fs-text-utf8-rt/bad.txt" }, { "kind": "const", "type": "Integer", "value": "0" }] }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "codeOf", "args": [{ "kind": "const", "type": "String", "value": "tests/fs-text-utf8-rt/bad.txt" }, { "kind": "const", "type": "Integer", "value": "1" }] }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "codeOf", "args": [{ "kind": "const", "type": "String", "value": "tests/fs-text-utf8-rt/bad.txt" }, { "kind": "const", "type": "Integer", "value": "2" }] }] }] } },
+    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

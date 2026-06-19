@@ -1,0 +1,67 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "fs_nofollow_symlink_rt",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "openNoFollow",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    { "name": "p", "type": "String", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "mutable": false, "name": "f", "type": "File", "value": { "kind": "call", "target": "fs.openFileNoFollow", "args": [{ "kind": "local", "name": "p" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "fs.close", "args": [{ "kind": "local", "name": "f" }] } },
+    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "1" } }
+    ]
+  },
+  {
+    "name": "main",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "mutable": false, "name": "real", "type": "String", "value": { "kind": "call", "target": "fs.readText", "args": [{ "kind": "const", "type": "String", "value": "tests/fs-nofollow-symlink-rt/data/real.txt" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "local", "name": "real" }] } },
+    { "op": "bind", "mutable": true, "name": "code", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    { "op": "bind", "mutable": false, "name": "$match0", "type": "Result OF Integer", "value": { "kind": "callResult", "target": "openNoFollow", "args": [{ "kind": "const", "type": "String", "value": "tests/fs-nofollow-symlink-rt/data/link.txt" }] } },
+    { "op": "bind", "mutable": false, "name": "$match_ok1", "type": "Boolean", "value": { "kind": "resultIsOk", "value": { "kind": "local", "name": "$match0" } } },
+    {
+      "op": "match",
+      "value": { "kind": "local", "name": "$match_ok1" },
+      "cases": [
+      {
+        "pattern": { "kind": "value", "value": { "kind": "const", "type": "Boolean", "value": "true" } },
+        "guard": null,
+        "body": [
+        { "op": "bind", "mutable": false, "name": "v", "type": "Integer", "value": { "kind": "resultValue", "value": { "kind": "local", "name": "$match0" } } },
+        { "op": "assign", "name": "code", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+        ]
+      },
+      {
+        "pattern": { "kind": "value", "value": { "kind": "const", "type": "Boolean", "value": "false" } },
+        "guard": null,
+        "body": [
+        { "op": "bind", "mutable": false, "name": "e", "type": "Error", "value": { "kind": "resultError", "value": { "kind": "local", "name": "$match0" } } },
+        { "op": "assign", "name": "code", "value": { "kind": "memberAccess", "target": { "kind": "local", "name": "e" }, "member": "code" } }
+        ]
+      }
+      ]
+    },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "local", "name": "code" }] }] } },
+    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

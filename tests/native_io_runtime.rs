@@ -494,7 +494,7 @@ END FUNC
     assert_eq!(stdout, "");
     assert_eq!(
         stderr,
-        "Code: 1234 Message: body failed\nCleanup failure: Code: 77020002 Message: output failure\n"
+        "Code: 1234 Message: body failed\nCleanup failure: Code: 77030006 Message: close failed\n"
     );
 }
 

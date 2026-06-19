@@ -1,0 +1,41 @@
+{
+  "project": "fs_pathjoin_rules_rt",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "fs", "line": 1 },
+    { "module": "io", "line": 2 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "main",
+      "line": 4,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "empty", "type": "List OF String", "value": { "kind": "list", "values": [] }, "line": 5 },
+      { "kind": "binding", "mutable": false, "name": "a", "type": "String", "value": { "kind": "call", "callee": "fs.pathJoin", "arguments": [{ "kind": "list", "values": [{ "kind": "string", "value": "a" }, { "kind": "string", "value": "b" }, { "kind": "string", "value": "c" }] }] }, "line": 6 },
+      { "kind": "binding", "mutable": false, "name": "b", "type": "String", "value": { "kind": "call", "callee": "fs.pathJoin", "arguments": [{ "kind": "list", "values": [{ "kind": "string", "value": "a/" }, { "kind": "string", "value": "b" }] }] }, "line": 7 },
+      { "kind": "binding", "mutable": false, "name": "c", "type": "String", "value": { "kind": "call", "callee": "fs.pathJoin", "arguments": [{ "kind": "list", "values": [{ "kind": "string", "value": "a" }, { "kind": "string", "value": "" }, { "kind": "string", "value": "b" }] }] }, "line": 8 },
+      { "kind": "binding", "mutable": false, "name": "d", "type": "String", "value": { "kind": "call", "callee": "fs.pathJoin", "arguments": [{ "kind": "list", "values": [{ "kind": "string", "value": "a" }, { "kind": "string", "value": "/etc" }, { "kind": "string", "value": "x" }] }] }, "line": 9 },
+      { "kind": "binding", "mutable": false, "name": "e", "type": "String", "value": { "kind": "call", "callee": "fs.pathJoin", "arguments": [{ "kind": "list", "values": [{ "kind": "string", "value": "/root" }, { "kind": "string", "value": "sub" }] }] }, "line": 10 },
+      { "kind": "binding", "mutable": false, "name": "f", "type": "String", "value": { "kind": "call", "callee": "fs.pathJoin", "arguments": [{ "kind": "identifier", "value": "empty" }] }, "line": 11 },
+      { "kind": "binding", "mutable": false, "name": "g", "type": "String", "value": { "kind": "call", "callee": "fs.pathJoin", "arguments": [{ "kind": "list", "values": [{ "kind": "string", "value": "one" }] }] }, "line": 12 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "identifier", "value": "a" }] }, "line": 13 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "identifier", "value": "b" }] }, "line": 14 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "identifier", "value": "c" }] }, "line": 15 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "identifier", "value": "d" }] }, "line": 16 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "identifier", "value": "e" }] }, "line": 17 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "identifier", "value": "f" }] }, "line": 18 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "identifier", "value": "g" }] }, "line": 19 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 20 }
+      ]
+    }
+    ]
+  }
+  ]
+}

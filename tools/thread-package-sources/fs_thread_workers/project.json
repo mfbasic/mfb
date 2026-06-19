@@ -1,0 +1,11 @@
+{
+  "name": "fs_thread_workers",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "package",
+  "sources": [{ "root": "src", "role": "lib", "include": ["**/*.mfb"] }],
+  "ident": "tests:fs-thread-workers",
+  "identKey": "ed25519-public:test-fs-thread-workers-ident",
+  "identFingerprint": "sha256:test-fs-thread-workers-ident",
+  "signingFingerprint": "sha256:test-fs-thread-workers-signing"
+}

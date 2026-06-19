@@ -1,0 +1,31 @@
+IMPORT fs
+IMPORT strings
+IMPORT thread
+
+EXPORT ISOLATED FUNC readTextWorker(t AS ThreadWorker OF String TO String, path AS String) AS String
+  RETURN fs::readText(path)
+END FUNC
+
+EXPORT ISOLATED FUNC readAllWorker(t AS ThreadWorker OF String TO String, path AS String) AS String
+  RETURN fs::readAll(fs::openFile(path))
+END FUNC
+
+EXPORT ISOLATED FUNC openNoFollowWorker(t AS ThreadWorker OF String TO Integer, path AS String) AS Integer
+  LET f AS File = fs::openFileNoFollow(path)
+  fs::close(f)
+  RETURN 1
+END FUNC
+
+EXPORT ISOLATED FUNC listDirWorker(t AS ThreadWorker OF String TO String, path AS String) AS String
+  RETURN strings::join(fs::listDirectory(path), ",")
+END FUNC
+
+EXPORT ISOLATED FUNC pathJoinWorker(t AS ThreadWorker OF (List OF String) TO String, parts AS List OF String) AS String
+  RETURN fs::pathJoin(parts)
+END FUNC
+
+EXPORT ISOLATED FUNC closeWorker(t AS ThreadWorker OF String TO Integer, path AS String) AS Integer
+  LET f AS File = fs::openFile(path)
+  fs::close(f)
+  RETURN 7
+END FUNC

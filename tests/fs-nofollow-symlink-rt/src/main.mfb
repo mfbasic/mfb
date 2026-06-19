@@ -1,0 +1,22 @@
+IMPORT fs
+IMPORT io
+
+FUNC openNoFollow(p AS String) AS Integer
+  LET f AS File = fs::openFileNoFollow(p)
+  fs::close(f)
+  RETURN 1
+END FUNC
+
+FUNC main AS Integer
+  LET real AS String = fs::readText("tests/fs-nofollow-symlink-rt/data/real.txt")
+  io::print(real)
+  MUT code AS Integer = 0
+  MATCH openNoFollow("tests/fs-nofollow-symlink-rt/data/link.txt")
+    CASE Ok(v)
+      code = 0
+    CASE Error(e)
+      code = e.code
+  END MATCH
+  io::print(toString(code))
+  RETURN 0
+END FUNC

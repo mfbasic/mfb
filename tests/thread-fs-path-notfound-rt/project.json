@@ -1,0 +1,12 @@
+{
+  "name": "thread_fs_path_notfound_rt",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "executable",
+  "sources": [{ "root": "src", "role": "main", "include": ["**/*.mfb"] }],
+  "packages": [
+    { "name": "fs_thread_workers", "version": "=0.1.0", "source": "file:packages/fs_thread_workers.mfp" }
+  ],
+  "entry": "main",
+  "targets": ["native"]
+}

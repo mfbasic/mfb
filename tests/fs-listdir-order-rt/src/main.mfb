@@ -1,0 +1,20 @@
+IMPORT fs
+IMPORT io
+IMPORT strings
+
+FUNC main AS Integer
+  LET dir AS String = "target/fs_listdir_order_rt_dir"
+  fs::createDirectories(dir)
+  fs::writeText("target/fs_listdir_order_rt_dir/zebra.txt", "z")
+  fs::writeText("target/fs_listdir_order_rt_dir/apple.txt", "a")
+  fs::writeText("target/fs_listdir_order_rt_dir/mango.txt", "m")
+  fs::writeText("target/fs_listdir_order_rt_dir/Banana.txt", "B")
+  LET names AS List OF String = fs::listDirectory(dir)
+  io::print(strings::join(names, ","))
+  fs::deleteFile("target/fs_listdir_order_rt_dir/zebra.txt")
+  fs::deleteFile("target/fs_listdir_order_rt_dir/apple.txt")
+  fs::deleteFile("target/fs_listdir_order_rt_dir/mango.txt")
+  fs::deleteFile("target/fs_listdir_order_rt_dir/Banana.txt")
+  fs::deleteDirectory(dir)
+  RETURN 0
+END FUNC

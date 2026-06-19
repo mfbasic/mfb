@@ -1,0 +1,67 @@
+{
+  "project": "fs_close_failed_rt",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "fs", "line": 1 },
+    { "module": "io", "line": 2 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "closeOnce",
+      "line": 4,
+      "params": [
+      { "name": "p", "type": "String", "default": null }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "f", "type": "File", "value": { "kind": "call", "callee": "fs.openFile", "arguments": [{ "kind": "identifier", "value": "p" }] }, "line": 5 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "fs.close", "arguments": [{ "kind": "identifier", "value": "f" }] }, "line": 6 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 7 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "main",
+      "line": 10,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": true, "name": "ok", "type": "Integer", "value": { "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "1" } }, "line": 11 },
+      {
+        "kind": "match",
+        "expression": { "kind": "call", "callee": "closeOnce", "arguments": [{ "kind": "string", "value": "tests/fs-close-failed-rt/data/in.txt" }] },
+        "line": 12,
+        "cases": [
+        {
+          "pattern": { "kind": "union", "type": "Ok", "binding": "v" },
+          "guard": null,
+          "line": 13,
+          "body": [
+          { "kind": "assignment", "name": "ok", "value": { "kind": "identifier", "value": "v" }, "line": 14 }
+          ]
+        },
+        {
+          "pattern": { "kind": "union", "type": "Error", "binding": "e" },
+          "guard": null,
+          "line": 15,
+          "body": [
+          { "kind": "assignment", "name": "ok", "value": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "e" }, "member": "code" }, "line": 16 }
+          ]
+        }
+        ]
+      },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "ok" }] }] }, "line": 18 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "closed" }] }, "line": 19 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 20 }
+      ]
+    }
+    ]
+  }
+  ]
+}

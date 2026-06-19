@@ -1,0 +1,14 @@
+$ mfb build -ast tests/fs-path-errors-rt
+Wrote AST to tests/fs-path-errors-rt/fs_path_errors_rt.ast
+[exit 0]
+$ mfb build -ir tests/fs-path-errors-rt
+Wrote IR to tests/fs-path-errors-rt/fs_path_errors_rt.ir
+[exit 0]
+$ mfb build tests/fs-path-errors-rt
+Wrote executable to tests/fs-path-errors-rt/fs_path_errors_rt.out
+[exit 0]
+$ tests/fs-path-errors-rt/fs_path_errors_rt.out
+77030001
+77030001
+77030001
+[exit 0]

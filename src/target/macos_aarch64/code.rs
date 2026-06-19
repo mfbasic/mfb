@@ -20,7 +20,6 @@ const DARWIN_PROT_READ_WRITE: &str = "3";
 const DARWIN_MAP_PRIVATE_ANON: &str = "4098";
 const DARWIN_SYSCALL_MMAP: &str = "33554629";
 const DARWIN_SYSCALL_MUNMAP: &str = "33554505";
-const DARWIN_SYSCALL_OPEN: &str = "33554437";
 const DARWIN_CS_USER_TEMP_DIR: &str = "65537";
 
 impl code::CodegenPlatform for Platform {
@@ -259,11 +258,20 @@ impl code::CodegenPlatform for Platform {
         instructions: &mut Vec<CodeInstruction>,
         relocations: &mut Vec<CodeRelocation>,
     ) -> Result<(), String> {
-        let _ = (from, platform_imports, relocations);
-        instructions.extend([
-            abi::move_immediate("x16", "Integer", DARWIN_SYSCALL_OPEN),
-            abi::syscall(),
-        ]);
+        // Call the libSystem `open` wrapper rather than a raw `svc` syscall so the
+        // helper observes the standard `-1` failure return with a populated libc
+        // `errno`. A raw Darwin syscall reports failure via the carry flag and
+        // returns the positive errno in `x0`, which the fd checks would otherwise
+        // mistake for a valid descriptor.
+        //
+        // `open(path, flags, mode)` is variadic, and the Apple AArch64 calling
+        // convention passes variadic arguments on the stack. Callers place the
+        // creation `mode` in `x2` (as the raw syscall required); move it to the
+        // top of the stack so the wrapper reads it as the variadic argument.
+        instructions.push(abi::subtract_stack(16));
+        instructions.push(abi::store_u64("x2", abi::stack_pointer(), 0));
+        emit_libsystem_call(from, "_open", platform_imports, instructions, relocations)?;
+        instructions.push(abi::add_stack(16));
         Ok(())
     }
 

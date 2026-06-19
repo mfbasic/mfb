@@ -1,0 +1,13 @@
+$ mfb build -ast tests/fs-close-failed-rt
+Wrote AST to tests/fs-close-failed-rt/fs_close_failed_rt.ast
+[exit 0]
+$ mfb build -ir tests/fs-close-failed-rt
+Wrote IR to tests/fs-close-failed-rt/fs_close_failed_rt.ir
+[exit 0]
+$ mfb build tests/fs-close-failed-rt
+Wrote executable to tests/fs-close-failed-rt/fs_close_failed_rt.out
+[exit 0]
+$ tests/fs-close-failed-rt/fs_close_failed_rt.out
+0
+closed
+[exit 0]

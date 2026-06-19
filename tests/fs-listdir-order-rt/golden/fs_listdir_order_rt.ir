@@ -1,0 +1,38 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "fs_listdir_order_rt",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "mutable": false, "name": "dir", "type": "String", "value": { "kind": "const", "type": "String", "value": "target/fs_listdir_order_rt_dir" } },
+    { "op": "eval", "value": { "kind": "call", "target": "fs.createDirectories", "args": [{ "kind": "local", "name": "dir" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "fs.writeText", "args": [{ "kind": "const", "type": "String", "value": "target/fs_listdir_order_rt_dir/zebra.txt" }, { "kind": "const", "type": "String", "value": "z" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "fs.writeText", "args": [{ "kind": "const", "type": "String", "value": "target/fs_listdir_order_rt_dir/apple.txt" }, { "kind": "const", "type": "String", "value": "a" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "fs.writeText", "args": [{ "kind": "const", "type": "String", "value": "target/fs_listdir_order_rt_dir/mango.txt" }, { "kind": "const", "type": "String", "value": "m" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "fs.writeText", "args": [{ "kind": "const", "type": "String", "value": "target/fs_listdir_order_rt_dir/Banana.txt" }, { "kind": "const", "type": "String", "value": "B" }] } },
+    { "op": "bind", "mutable": false, "name": "names", "type": "List OF String", "value": { "kind": "call", "target": "fs.listDirectory", "args": [{ "kind": "local", "name": "dir" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "strings.join", "args": [{ "kind": "local", "name": "names" }, { "kind": "const", "type": "String", "value": "," }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "fs.deleteFile", "args": [{ "kind": "const", "type": "String", "value": "target/fs_listdir_order_rt_dir/zebra.txt" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "fs.deleteFile", "args": [{ "kind": "const", "type": "String", "value": "target/fs_listdir_order_rt_dir/apple.txt" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "fs.deleteFile", "args": [{ "kind": "const", "type": "String", "value": "target/fs_listdir_order_rt_dir/mango.txt" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "fs.deleteFile", "args": [{ "kind": "const", "type": "String", "value": "target/fs_listdir_order_rt_dir/Banana.txt" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "fs.deleteDirectory", "args": [{ "kind": "local", "name": "dir" }] } },
+    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

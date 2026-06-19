@@ -792,6 +792,7 @@ GROUP: filesystem
 RECOMMENDED: CODE CHANGE
 VERIFIED: YES
 PRIORITY: MED
+STATUS: COMPLETE
 `fs::readText`, `fs::readAll`, and `fs::readLine` return `String` and the spec requires invalid UTF-8 to fail with `ErrEncoding`/`77020004` where applicable. The native filesystem helpers copy raw file bytes into `String` layouts without validating UTF-8, unlike the IO line/char helpers. Add shared UTF-8 validation for all filesystem text-read paths before returning `String`, map validation failure to `ErrEncoding`, and add runtime valid/invalid tests for path reads and file-handle reads.
 
 REQUIREMENT: openFileNoFollow symlink failures map to ErrAccessDenied
@@ -800,6 +801,7 @@ GROUP: filesystem
 RECOMMENDED: CODE CHANGE
 VERIFIED: YES
 PRIORITY: MED
+STATUS: COMPLETE
 `fs::openFileNoFollow` is specified to fail with `ErrAccessDenied` when the final path component is a symlink. The implementation uses no-follow open flags, but the shared errno mapping only handles `ENOENT`, `EACCES`, and `EEXIST`; final symlink failures such as `ELOOP` fall through to a generic output error. Extend filesystem errno mapping for no-follow opens to map final-symlink `ELOOP` to `ErrAccessDenied`, keeping unrelated `ELOOP` cases precise where possible, and add runtime tests using a symlink final component.
 
 REQUIREMENT: Stable listDirectory ordering
@@ -808,6 +810,7 @@ GROUP: filesystem
 RECOMMENDED: CODE CHANGE
 VERIFIED: YES
 PRIORITY: LOW
+STATUS: COMPLETE
 `fs::listDirectory` is specified to return direct child names in an implementation-defined stable order. The native helper in `src/target/shared/code/mod.rs` collects entries in raw `readdir` order and returns them without any deterministic ordering pass, so the result can vary by filesystem/platform even for equivalent directory contents. Resolve by sorting the collected names before returning the `List OF String`, define the chosen order in the implementation docs/tests, and add a runtime validation that creates multiple entries and proves `fs::listDirectory` returns the stable order.
 
 REQUIREMENT: Filesystem path errors use filesystem-specific runtime codes
@@ -816,6 +819,7 @@ GROUP: filesystem
 RECOMMENDED: CODE CHANGE
 VERIFIED: YES
 PRIORITY: MED
+STATUS: COMPLETE
 Filesystem path APIs such as `fs::readBytes`, `fs::readText`, `fs::openFile`, `fs::deleteFile`, and `fs::deleteDirectory` specify filesystem-specific error codes like `ErrPathNotFound` (`77030001`) and `ErrInvalidPath` (`77030002`). The shared native errno mapper in `src/target/shared/code/mod.rs` maps missing paths to the generic `ErrNotFound` (`77050004`), and several invalid path paths use generic `ErrInvalidArgument` (`77050002`). Add filesystem-context errno mapping and constants for `ErrPathNotFound`/`ErrInvalidPath`, use that mapper for filesystem path helpers, keep `fs::open`’s explicitly documented generic `ErrInvalidArgument` behavior for invalid modes/empty/NUL paths, and add runtime tests covering missing path, invalid path, and permission cases for the affected filesystem overloads.
 
 REQUIREMENT: Filesystem pathJoin applies host path joining rules
@@ -824,6 +828,7 @@ GROUP: filesystem
 RECOMMENDED: CODE CHANGE
 VERIFIED: YES
 PRIORITY: MED
+STATUS: COMPLETE
 `fs::pathJoin(parts AS List OF String)` is specified to join components using the host platform's separator and normal separator rules, but `src/target/shared/code/builder_fs_paths.rs::lower_fs_path_join` lowers it to `strings::join(parts, "/")`. That only concatenates strings with a slash and does not implement path-join behavior for empty components, absolute/rooted components, duplicate separators, or target-specific separator handling. Replace the lowering with a real filesystem path-join helper consistent with `pathNormalize`, then add valid/invalid function tests and runtime coverage for representative component combinations.
 
 REQUIREMENT: File close failures use ErrCloseFailed
@@ -832,6 +837,7 @@ GROUP: filesystem
 RECOMMENDED: CODE CHANGE
 VERIFIED: YES
 PRIORITY: MED
+STATUS: COMPLETE
 `ErrCloseFailed` (`77030006`) is the canonical runtime code for resource close operation failures, and `mfbasic.md` §15 says explicit close failures are directly observable. The native `fs::close` helper maps a failed host `close` to `ErrWriteFailed` / `ERR_OUTPUT_CODE` (`77020002`) instead. Add `ERR_CLOSE_FAILED_CODE` and message/symbol constants, return that code from `lower_fs_close_helper` on close failure, preserve `ErrResourceClosed` for double close, and add runtime tests that exercise an explicit close failure path or a controlled close-helper failure.
 
 

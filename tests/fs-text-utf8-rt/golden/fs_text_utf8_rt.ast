@@ -1,0 +1,181 @@
+{
+  "project": "fs_text_utf8_rt",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "fs", "line": 1 },
+    { "module": "io", "line": 2 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "readText1",
+      "line": 4,
+      "params": [
+      { "name": "p", "type": "String", "default": null }
+      ],
+      "returnType": "String",
+      "body": [
+      { "kind": "return", "value": { "kind": "call", "callee": "fs.readText", "arguments": [{ "kind": "identifier", "value": "p" }] }, "line": 5 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "readAll1",
+      "line": 7,
+      "params": [
+      { "name": "p", "type": "String", "default": null }
+      ],
+      "returnType": "String",
+      "body": [
+      { "kind": "return", "value": { "kind": "call", "callee": "fs.readAll", "arguments": [{ "kind": "call", "callee": "fs.openFile", "arguments": [{ "kind": "identifier", "value": "p" }] }] }, "line": 8 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "readLine1",
+      "line": 10,
+      "params": [
+      { "name": "p", "type": "String", "default": null }
+      ],
+      "returnType": "String",
+      "body": [
+      { "kind": "return", "value": { "kind": "call", "callee": "fs.readLine", "arguments": [{ "kind": "call", "callee": "fs.openFile", "arguments": [{ "kind": "identifier", "value": "p" }] }] }, "line": 11 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "codeOf",
+      "line": 14,
+      "params": [
+      { "name": "p", "type": "String", "default": null },
+      { "name": "which", "type": "Integer", "default": null }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": true, "name": "code", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 15 },
+      {
+        "kind": "if",
+        "condition": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "which" }, "right": { "kind": "number", "value": "0" } },
+        "line": 16,
+        "then": [
+        {
+          "kind": "match",
+          "expression": { "kind": "call", "callee": "readText1", "arguments": [{ "kind": "identifier", "value": "p" }] },
+          "line": 17,
+          "cases": [
+          {
+            "pattern": { "kind": "union", "type": "Ok", "binding": "v" },
+            "guard": null,
+            "line": 18,
+            "body": [
+            { "kind": "assignment", "name": "code", "value": { "kind": "number", "value": "0" }, "line": 19 }
+            ]
+          },
+          {
+            "pattern": { "kind": "union", "type": "Error", "binding": "e" },
+            "guard": null,
+            "line": 20,
+            "body": [
+            { "kind": "assignment", "name": "code", "value": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "e" }, "member": "code" }, "line": 21 }
+            ]
+          }
+          ]
+        }
+        ],
+        "else": [
+        ]
+      },
+      {
+        "kind": "if",
+        "condition": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "which" }, "right": { "kind": "number", "value": "1" } },
+        "line": 24,
+        "then": [
+        {
+          "kind": "match",
+          "expression": { "kind": "call", "callee": "readAll1", "arguments": [{ "kind": "identifier", "value": "p" }] },
+          "line": 25,
+          "cases": [
+          {
+            "pattern": { "kind": "union", "type": "Ok", "binding": "v" },
+            "guard": null,
+            "line": 26,
+            "body": [
+            { "kind": "assignment", "name": "code", "value": { "kind": "number", "value": "0" }, "line": 27 }
+            ]
+          },
+          {
+            "pattern": { "kind": "union", "type": "Error", "binding": "e" },
+            "guard": null,
+            "line": 28,
+            "body": [
+            { "kind": "assignment", "name": "code", "value": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "e" }, "member": "code" }, "line": 29 }
+            ]
+          }
+          ]
+        }
+        ],
+        "else": [
+        ]
+      },
+      {
+        "kind": "if",
+        "condition": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "which" }, "right": { "kind": "number", "value": "2" } },
+        "line": 32,
+        "then": [
+        {
+          "kind": "match",
+          "expression": { "kind": "call", "callee": "readLine1", "arguments": [{ "kind": "identifier", "value": "p" }] },
+          "line": 33,
+          "cases": [
+          {
+            "pattern": { "kind": "union", "type": "Ok", "binding": "v" },
+            "guard": null,
+            "line": 34,
+            "body": [
+            { "kind": "assignment", "name": "code", "value": { "kind": "number", "value": "0" }, "line": 35 }
+            ]
+          },
+          {
+            "pattern": { "kind": "union", "type": "Error", "binding": "e" },
+            "guard": null,
+            "line": 36,
+            "body": [
+            { "kind": "assignment", "name": "code", "value": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "e" }, "member": "code" }, "line": 37 }
+            ]
+          }
+          ]
+        }
+        ],
+        "else": [
+        ]
+      },
+      { "kind": "return", "value": { "kind": "identifier", "value": "code" }, "line": 40 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "main",
+      "line": 43,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "good", "type": "String", "value": { "kind": "call", "callee": "fs.readText", "arguments": [{ "kind": "string", "value": "tests/fs-text-utf8-rt/good.txt" }] }, "line": 44 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "identifier", "value": "good" }] }, "line": 45 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "codeOf", "arguments": [{ "kind": "string", "value": "tests/fs-text-utf8-rt/bad.txt" }, { "kind": "number", "value": "0" }] }] }] }, "line": 46 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "codeOf", "arguments": [{ "kind": "string", "value": "tests/fs-text-utf8-rt/bad.txt" }, { "kind": "number", "value": "1" }] }] }] }, "line": 47 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "codeOf", "arguments": [{ "kind": "string", "value": "tests/fs-text-utf8-rt/bad.txt" }, { "kind": "number", "value": "2" }] }] }] }, "line": 48 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 49 }
+      ]
+    }
+    ]
+  }
+  ]
+}

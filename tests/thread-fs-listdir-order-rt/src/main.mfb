@@ -1,0 +1,20 @@
+IMPORT io
+IMPORT fs
+IMPORT thread
+IMPORT fs_thread_workers
+
+FUNC main AS Integer
+  LET dir AS String = "target/thread_fs_listdir_order_rt_dir"
+  fs::createDirectories(dir)
+  fs::writeText("target/thread_fs_listdir_order_rt_dir/zebra.txt", "z")
+  fs::writeText("target/thread_fs_listdir_order_rt_dir/apple.txt", "a")
+  fs::writeText("target/thread_fs_listdir_order_rt_dir/mango.txt", "m")
+  LET t AS Thread OF String TO String = thread::start(fs_thread_workers::listDirWorker, dir)
+  LET names AS String = thread::waitFor(t)
+  io::print(names)
+  fs::deleteFile("target/thread_fs_listdir_order_rt_dir/zebra.txt")
+  fs::deleteFile("target/thread_fs_listdir_order_rt_dir/apple.txt")
+  fs::deleteFile("target/thread_fs_listdir_order_rt_dir/mango.txt")
+  fs::deleteDirectory(dir)
+  RETURN 0
+END FUNC

@@ -1,0 +1,43 @@
+IMPORT fs
+IMPORT io
+
+FUNC readMissing(p AS String) AS String
+  RETURN fs::readText(p)
+END FUNC
+FUNC openMissing(p AS String) AS Integer
+  LET f AS File = fs::openFile(p)
+  fs::close(f)
+  RETURN 1
+END FUNC
+FUNC delMissing(p AS String) AS Integer
+  fs::deleteFile(p)
+  RETURN 0
+END FUNC
+
+FUNC main AS Integer
+  MUT a AS Integer = 0
+  MATCH readMissing("target/fs_path_errors_rt_missing.txt")
+    CASE Ok(v)
+      a = 0
+    CASE Error(e)
+      a = e.code
+  END MATCH
+  io::print(toString(a))
+  MUT b AS Integer = 0
+  MATCH openMissing("target/fs_path_errors_rt_missing.txt")
+    CASE Ok(v)
+      b = 0
+    CASE Error(e)
+      b = e.code
+  END MATCH
+  io::print(toString(b))
+  MUT c AS Integer = 0
+  MATCH delMissing("target/fs_path_errors_rt_missing.txt")
+    CASE Ok(v)
+      c = 0
+    CASE Error(e)
+      c = e.code
+  END MATCH
+  io::print(toString(c))
+  RETURN 0
+END FUNC

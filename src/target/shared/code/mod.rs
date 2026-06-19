@@ -115,6 +115,15 @@ const ERR_ACCESS_DENIED_SYMBOL: &str = "_mfb_str_error_access_denied";
 const ERR_DIRECTORY_NOT_EMPTY_CODE: &str = "77030005";
 const ERR_DIRECTORY_NOT_EMPTY_MESSAGE: &str = "directory not empty";
 const ERR_DIRECTORY_NOT_EMPTY_SYMBOL: &str = "_mfb_str_error_directory_not_empty";
+const ERR_CLOSE_FAILED_CODE: &str = "77030006";
+const ERR_CLOSE_FAILED_MESSAGE: &str = "close failed";
+const ERR_CLOSE_FAILED_SYMBOL: &str = "_mfb_str_error_close_failed";
+const ERR_PATH_NOT_FOUND_CODE: &str = "77030001";
+const ERR_PATH_NOT_FOUND_MESSAGE: &str = "path not found";
+const ERR_PATH_NOT_FOUND_SYMBOL: &str = "_mfb_str_error_path_not_found";
+const ERR_INVALID_PATH_CODE: &str = "77030002";
+const ERR_INVALID_PATH_MESSAGE: &str = "invalid path";
+const ERR_INVALID_PATH_SYMBOL: &str = "_mfb_str_error_invalid_path";
 const EMPTY_STRING_SYMBOL: &str = "_mfb_str_empty";
 const FS_MODE_TYPE_MASK: &str = "61440";
 const FS_MODE_DIRECTORY: &str = "16384";
@@ -813,6 +822,30 @@ pub(crate) fn lower_module_for_platform(
     }
     for symbol in &runtime_symbols {
         code_functions.push(lower_runtime_helper(symbol, &platform_imports, platform)?);
+    }
+    if runtime_symbols.iter().any(|symbol| {
+        matches!(
+            symbol.as_str(),
+            "_mfb_rt_fs_fs_readText" | "_mfb_rt_fs_fs_readAll" | "_mfb_rt_fs_fs_readLine"
+        )
+    }) {
+        code_functions.push(lower_validate_utf8_helper());
+    }
+    if runtime_symbols
+        .iter()
+        .any(|symbol| symbol == "_mfb_rt_fs_fs_listDirectory")
+    {
+        code_functions.push(lower_sort_string_list_helper());
+    }
+    if module_uses_call(module, "fs.pathJoin")
+        || package_exports.iter().any(|export| {
+            export
+                .code
+                .iter()
+                .any(|instruction| instruction.opcode == bytecode::NATIVE_OPCODE_FS_PATH_JOIN)
+        })
+    {
+        code_functions.push(lower_fs_path_join_helper(platform));
     }
     if runtime_symbols
         .iter()
@@ -3603,6 +3636,29 @@ fn lower_package_export_function(
                     &mut instructions,
                     &mut relocations,
                 )?;
+            }
+            bytecode::NATIVE_OPCODE_FS_PATH_JOIN => {
+                let dst = native_operand(instruction, 0)?;
+                let parts = native_operand(instruction, 1)?;
+                // Route through the same shared helper as root native lowering.
+                instructions.push(abi::load_u64(
+                    abi::return_register(),
+                    abi::stack_pointer(),
+                    slot(parts),
+                ));
+                instructions.push(abi::branch_link(FS_PATH_JOIN_SYMBOL));
+                relocations.push(CodeRelocation {
+                    from: export.symbol.clone(),
+                    to: FS_PATH_JOIN_SYMBOL.to_string(),
+                    kind: "branch26".to_string(),
+                    binding: "internal".to_string(),
+                    library: None,
+                });
+                instructions.push(abi::store_u64(
+                    RESULT_VALUE_REGISTER,
+                    abi::stack_pointer(),
+                    slot(dst),
+                ));
             }
             other => {
                 return Err(format!(
@@ -8603,11 +8659,6 @@ fn lower_fs_path_operation_helper(
     let copy_done = format!("{symbol}_copy_done");
     let invalid_path = format!("{symbol}_invalid_path");
     let call_error = format!("{symbol}_call_error");
-    let err_not_found = format!("{symbol}_err_not_found");
-    let err_access_denied = format!("{symbol}_err_access_denied");
-    let err_already_exists = format!("{symbol}_err_already_exists");
-    let err_not_empty = format!("{symbol}_err_not_empty");
-    let err_output = format!("{symbol}_err_output");
     let done = format!("{symbol}_done");
 
     let mut instructions = vec![abi::label("entry"), abi::subtract_stack(FRAME_SIZE)];
@@ -8685,16 +8736,15 @@ fn lower_fs_path_operation_helper(
         &mut instructions,
         &mut relocations,
     )?;
+    emit_fs_path_errno_error_mapping(
+        symbol,
+        platform.target(),
+        false,
+        &mut instructions,
+        &mut relocations,
+        &done,
+    );
     instructions.extend([
-        abi::compare_immediate("x9", "2"),
-        abi::branch_eq(&err_not_found),
-        abi::compare_immediate("x9", "13"),
-        abi::branch_eq(&err_access_denied),
-        abi::compare_immediate("x9", "17"),
-        abi::branch_eq(&err_already_exists),
-        abi::compare_immediate("x9", "39"),
-        abi::branch_eq(&err_not_empty),
-        abi::branch(&err_output),
         abi::label(&invalid_path),
         abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_INVALID_ARGUMENT_CODE),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
@@ -8702,70 +8752,6 @@ fn lower_fs_path_operation_helper(
     push_error_message_address(
         symbol,
         ERR_INVALID_ARGUMENT_SYMBOL,
-        &mut instructions,
-        &mut relocations,
-    );
-    instructions.extend([
-        abi::branch(&done),
-        abi::label(&err_not_found),
-        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_NOT_FOUND_CODE),
-        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
-    ]);
-    push_error_message_address(
-        symbol,
-        ERR_NOT_FOUND_SYMBOL,
-        &mut instructions,
-        &mut relocations,
-    );
-    instructions.extend([
-        abi::branch(&done),
-        abi::label(&err_access_denied),
-        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_ACCESS_DENIED_CODE),
-        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
-    ]);
-    push_error_message_address(
-        symbol,
-        ERR_ACCESS_DENIED_SYMBOL,
-        &mut instructions,
-        &mut relocations,
-    );
-    instructions.extend([
-        abi::branch(&done),
-        abi::label(&err_already_exists),
-        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_ALREADY_EXISTS_CODE),
-        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
-    ]);
-    push_error_message_address(
-        symbol,
-        ERR_ALREADY_EXISTS_SYMBOL,
-        &mut instructions,
-        &mut relocations,
-    );
-    instructions.extend([
-        abi::branch(&done),
-        abi::label(&err_not_empty),
-        abi::move_immediate(
-            RESULT_VALUE_REGISTER,
-            "Integer",
-            ERR_DIRECTORY_NOT_EMPTY_CODE,
-        ),
-        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
-    ]);
-    push_error_message_address(
-        symbol,
-        ERR_DIRECTORY_NOT_EMPTY_SYMBOL,
-        &mut instructions,
-        &mut relocations,
-    );
-    instructions.extend([
-        abi::branch(&done),
-        abi::label(&err_output),
-        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_OUTPUT_CODE),
-        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
-    ]);
-    push_error_message_address(
-        symbol,
-        ERR_OUTPUT_SYMBOL,
         &mut instructions,
         &mut relocations,
     );
@@ -9325,6 +9311,19 @@ fn lower_fs_list_directory_helper(
         &mut instructions,
         &mut relocations,
     )?;
+    instructions.push(abi::load_u64(
+        abi::return_register(),
+        abi::stack_pointer(),
+        COLLECTION_OFFSET,
+    ));
+    instructions.push(abi::branch_link(SORT_STRING_LIST_SYMBOL));
+    relocations.push(CodeRelocation {
+        from: symbol.to_string(),
+        to: SORT_STRING_LIST_SYMBOL.to_string(),
+        kind: "branch26".to_string(),
+        binding: "internal".to_string(),
+        library: None,
+    });
     instructions.extend([
         abi::load_u64(
             RESULT_VALUE_REGISTER,
@@ -9826,7 +9825,14 @@ fn lower_fs_open_helper(
         &mut instructions,
         &mut relocations,
     )?;
-    emit_errno_error_mapping(symbol, &mut instructions, &mut relocations, &done);
+    emit_fs_path_errno_error_mapping(
+        symbol,
+        platform.target(),
+        no_follow,
+        &mut instructions,
+        &mut relocations,
+        &done,
+    );
     instructions.extend([
         abi::label(&done),
         abi::load_u64(abi::link_register(), abi::stack_pointer(), LR_OFFSET),
@@ -9894,12 +9900,12 @@ fn lower_fs_close_helper(
     instructions.extend([
         abi::branch(&done),
         abi::label(&close_error),
-        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_OUTPUT_CODE),
+        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_CLOSE_FAILED_CODE),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
     ]);
     push_error_message_address(
         symbol,
-        ERR_OUTPUT_SYMBOL,
+        ERR_CLOSE_FAILED_SYMBOL,
         &mut instructions,
         &mut relocations,
     );
@@ -10144,8 +10150,27 @@ fn lower_fs_read_all_helper(
         abi::label(&read_done),
         abi::load_u64("x11", abi::stack_pointer(), CURSOR_OFFSET),
         abi::store_u8("x31", "x11", 0),
+        abi::load_u64("x0", abi::stack_pointer(), STRING_OFFSET),
+        abi::load_u64("x1", "x0", 0),
+        abi::add_immediate("x0", "x0", 8),
+    ]);
+    let encoding_error = format!("{symbol}_encoding_error");
+    emit_call_validate_utf8(symbol, &encoding_error, &mut instructions, &mut relocations);
+    instructions.extend([
         abi::load_u64(RESULT_VALUE_REGISTER, abi::stack_pointer(), STRING_OFFSET),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
+        abi::branch(&done),
+        abi::label(&encoding_error),
+        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_ENCODING_CODE),
+        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
+    ]);
+    push_error_message_address(
+        symbol,
+        ERR_ENCODING_SYMBOL,
+        &mut instructions,
+        &mut relocations,
+    );
+    instructions.extend([
         abi::branch(&done),
         abi::label(&closed),
         abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_RESOURCE_CLOSED_CODE),
@@ -11864,9 +11889,28 @@ fn lower_fs_read_text_path_helper(
         &mut instructions,
         &mut relocations,
     )?;
+    let encoding_error = format!("{symbol}_encoding_error");
+    instructions.extend([
+        abi::load_u64("x0", abi::stack_pointer(), STRING_OFFSET),
+        abi::add_immediate("x0", "x0", 8),
+        abi::load_u64("x1", abi::stack_pointer(), LEN_OFFSET),
+    ]);
+    emit_call_validate_utf8(symbol, &encoding_error, &mut instructions, &mut relocations);
     instructions.extend([
         abi::load_u64(RESULT_VALUE_REGISTER, abi::stack_pointer(), STRING_OFFSET),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
+        abi::branch(&done),
+        abi::label(&encoding_error),
+        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_ENCODING_CODE),
+        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
+    ]);
+    push_error_message_address(
+        symbol,
+        ERR_ENCODING_SYMBOL,
+        &mut instructions,
+        &mut relocations,
+    );
+    instructions.extend([
         abi::branch(&done),
         abi::label(&read_error),
         abi::label(&close_and_read_error),
@@ -11891,7 +11935,14 @@ fn lower_fs_read_text_path_helper(
         &mut instructions,
         &mut relocations,
     )?;
-    emit_errno_error_mapping(symbol, &mut instructions, &mut relocations, &done);
+    emit_fs_path_errno_error_mapping(
+        symbol,
+        platform.target(),
+        false,
+        &mut instructions,
+        &mut relocations,
+        &done,
+    );
     instructions.extend([
         abi::label(&invalid),
         abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_INVALID_ARGUMENT_CODE),
@@ -12315,7 +12366,14 @@ fn lower_fs_read_bytes_path_helper(
         &mut instructions,
         &mut relocations,
     )?;
-    emit_errno_error_mapping(symbol, &mut instructions, &mut relocations, &done);
+    emit_fs_path_errno_error_mapping(
+        symbol,
+        platform.target(),
+        false,
+        &mut instructions,
+        &mut relocations,
+        &done,
+    );
     instructions.extend([
         abi::label(&invalid),
         abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_INVALID_ARGUMENT_CODE),
@@ -12574,8 +12632,27 @@ fn lower_fs_read_line_helper(
         abi::branch(&copy_loop),
         abi::label(&copy_done),
         abi::store_u8("x31", "x11", 0),
+        abi::load_u64("x0", abi::stack_pointer(), RESULT_OFFSET),
+        abi::load_u64("x1", "x0", 0),
+        abi::add_immediate("x0", "x0", 8),
+    ]);
+    let encoding_error = format!("{symbol}_encoding_error");
+    emit_call_validate_utf8(symbol, &encoding_error, &mut instructions, &mut relocations);
+    instructions.extend([
         abi::load_u64(RESULT_VALUE_REGISTER, abi::stack_pointer(), RESULT_OFFSET),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
+        abi::branch(&done),
+        abi::label(&encoding_error),
+        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_ENCODING_CODE),
+        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
+    ]);
+    push_error_message_address(
+        symbol,
+        ERR_ENCODING_SYMBOL,
+        &mut instructions,
+        &mut relocations,
+    );
+    instructions.extend([
         abi::branch(&done),
         abi::label(&closed),
         abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_RESOURCE_CLOSED_CODE),
@@ -12738,6 +12815,613 @@ fn emit_errno_error_mapping(
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
     ]);
     push_error_message_address(symbol, ERR_OUTPUT_SYMBOL, instructions, relocations);
+}
+
+/// Filesystem-context errno mapping for path-based helpers.
+///
+/// Like [`emit_errno_error_mapping`], but maps missing paths to the
+/// filesystem-specific `ErrPathNotFound` instead of the generic `ErrNotFound`,
+/// routes host errnos that indicate an unusable path string to `ErrInvalidPath`,
+/// and (for no-follow opens) maps a final-symlink `ELOOP` to `ErrAccessDenied`.
+/// The host errno is expected in `x9`, as produced by `emit_errno`.
+fn emit_fs_path_errno_error_mapping(
+    symbol: &str,
+    target: &str,
+    no_follow: bool,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+    done: &str,
+) {
+    let linux = target == "linux-aarch64";
+    let eloop = if linux { "40" } else { "62" };
+    let enametoolong = if linux { "36" } else { "63" };
+    let eilseq = if linux { "84" } else { "92" };
+    let enotempty = if linux { "39" } else { "66" };
+
+    let err_path_not_found = format!("{symbol}_errno_path_not_found");
+    let err_access_denied = format!("{symbol}_errno_access_denied");
+    let err_already_exists = format!("{symbol}_errno_already_exists");
+    let err_not_empty = format!("{symbol}_errno_not_empty");
+    let err_invalid_path = format!("{symbol}_errno_invalid_path");
+    let err_output = format!("{symbol}_errno_output");
+    let eloop_target = if no_follow {
+        err_access_denied.clone()
+    } else {
+        err_invalid_path.clone()
+    };
+
+    instructions.extend([
+        abi::compare_immediate("x9", "2"),
+        abi::branch_eq(&err_path_not_found),
+        abi::compare_immediate("x9", "13"),
+        abi::branch_eq(&err_access_denied),
+        abi::compare_immediate("x9", "17"),
+        abi::branch_eq(&err_already_exists),
+        abi::compare_immediate("x9", enotempty),
+        abi::branch_eq(&err_not_empty),
+        abi::compare_immediate("x9", "20"),
+        abi::branch_eq(&err_invalid_path),
+        abi::compare_immediate("x9", enametoolong),
+        abi::branch_eq(&err_invalid_path),
+        abi::compare_immediate("x9", eilseq),
+        abi::branch_eq(&err_invalid_path),
+        abi::compare_immediate("x9", eloop),
+        abi::branch_eq(&eloop_target),
+        abi::branch(&err_output),
+        abi::label(&err_path_not_found),
+        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_PATH_NOT_FOUND_CODE),
+        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
+    ]);
+    push_error_message_address(symbol, ERR_PATH_NOT_FOUND_SYMBOL, instructions, relocations);
+    instructions.extend([
+        abi::branch(done),
+        abi::label(&err_access_denied),
+        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_ACCESS_DENIED_CODE),
+        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
+    ]);
+    push_error_message_address(symbol, ERR_ACCESS_DENIED_SYMBOL, instructions, relocations);
+    instructions.extend([
+        abi::branch(done),
+        abi::label(&err_already_exists),
+        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_ALREADY_EXISTS_CODE),
+        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
+    ]);
+    push_error_message_address(symbol, ERR_ALREADY_EXISTS_SYMBOL, instructions, relocations);
+    instructions.extend([
+        abi::branch(done),
+        abi::label(&err_not_empty),
+        abi::move_immediate(
+            RESULT_VALUE_REGISTER,
+            "Integer",
+            ERR_DIRECTORY_NOT_EMPTY_CODE,
+        ),
+        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
+    ]);
+    push_error_message_address(
+        symbol,
+        ERR_DIRECTORY_NOT_EMPTY_SYMBOL,
+        instructions,
+        relocations,
+    );
+    instructions.extend([
+        abi::branch(done),
+        abi::label(&err_invalid_path),
+        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_INVALID_PATH_CODE),
+        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
+    ]);
+    push_error_message_address(symbol, ERR_INVALID_PATH_SYMBOL, instructions, relocations);
+    instructions.extend([
+        abi::branch(done),
+        abi::label(&err_output),
+        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_OUTPUT_CODE),
+        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
+    ]);
+    push_error_message_address(symbol, ERR_OUTPUT_SYMBOL, instructions, relocations);
+    instructions.push(abi::branch(done));
+}
+
+/// Symbol of the shared standalone UTF-8 validation runtime helper.
+const VALIDATE_UTF8_SYMBOL: &str = "_mfb_rt_validate_utf8";
+
+/// Symbol of the shared standalone string-list sort runtime helper.
+const SORT_STRING_LIST_SYMBOL: &str = "_mfb_rt_sort_string_list";
+
+/// Symbol of the shared standalone `fs::pathJoin` runtime helper.
+const FS_PATH_JOIN_SYMBOL: &str = "_mfb_rt_fs_path_join";
+
+/// Lower the standalone `fs::pathJoin` helper. It takes a `List OF String`
+/// collection pointer in `x0` and returns a `Result`-shaped value: `x0` holds
+/// the tag (`RESULT_OK_TAG`/`RESULT_ERR_TAG`) and, on success, `x1` holds the
+/// resulting `String` pointer (on allocation failure it returns `ErrOutOfMemory`).
+/// Implementing it as a shared `bl`-reachable helper lets both root native code
+/// and imported-package bytecode lower `pathJoin` identically. Components are
+/// joined with `/`, empty components are skipped, an absolute component discards
+/// everything accumulated so far, and duplicate separators are avoided.
+fn lower_fs_path_join_helper(platform: &dyn CodegenPlatform) -> CodeFunction {
+    const SEP: &str = "47";
+    const FRAME_SIZE: usize = 32;
+    const LR_OFFSET: usize = 0;
+    const PARTS_OFFSET: usize = 8;
+    const RESULT_OFFSET: usize = 16;
+    let symbol = FS_PATH_JOIN_SYMBOL;
+    let _ = platform;
+
+    let length_loop = format!("{symbol}_length_loop");
+    let length_done = format!("{symbol}_length_done");
+    let alloc_ok = format!("{symbol}_alloc_ok");
+    let alloc_error = format!("{symbol}_alloc_error");
+    let build_loop = format!("{symbol}_build_loop");
+    let build_done = format!("{symbol}_build_done");
+    let skip_part = format!("{symbol}_skip_part");
+    let absolute = format!("{symbol}_absolute");
+    let copy_part = format!("{symbol}_copy_part");
+    let no_separator = format!("{symbol}_no_separator");
+    let copy_loop = format!("{symbol}_copy_loop");
+    let copy_done = format!("{symbol}_copy_done");
+    let done = format!("{symbol}_done");
+
+    let entry_size = COLLECTION_ENTRY_SIZE.to_string();
+    let mut instructions = vec![
+        abi::label("entry"),
+        abi::subtract_stack(FRAME_SIZE),
+        abi::store_u64(abi::link_register(), abi::stack_pointer(), LR_OFFSET),
+        abi::store_u64(abi::return_register(), abi::stack_pointer(), PARTS_OFFSET),
+        // Pass 1: upper-bound length = sum(component lengths) + count separators.
+        abi::load_u64("x9", abi::return_register(), COLLECTION_OFFSET_COUNT),
+        abi::move_immediate("x11", "Integer", "0"),
+        abi::move_immediate("x12", "Integer", "0"),
+        abi::add_immediate("x13", abi::return_register(), COLLECTION_HEADER_SIZE),
+        abi::label(&length_loop),
+        abi::compare_registers("x12", "x9"),
+        abi::branch_ge(&length_done),
+        abi::load_u64("x14", "x13", COLLECTION_ENTRY_OFFSET_VALUE_LENGTH),
+        abi::add_registers("x11", "x11", "x14"),
+        abi::add_immediate("x13", "x13", COLLECTION_ENTRY_SIZE),
+        abi::add_immediate("x12", "x12", 1),
+        abi::branch(&length_loop),
+        abi::label(&length_done),
+        abi::add_registers(abi::return_register(), "x11", "x9"),
+        abi::add_immediate(abi::return_register(), abi::return_register(), 9),
+        abi::move_immediate("x1", "Integer", "8"),
+        abi::branch_link(ARENA_ALLOC_SYMBOL),
+    ];
+    let mut relocations = vec![CodeRelocation {
+        from: symbol.to_string(),
+        to: ARENA_ALLOC_SYMBOL.to_string(),
+        kind: "branch26".to_string(),
+        binding: "internal".to_string(),
+        library: None,
+    }];
+    instructions.extend([
+        abi::compare_immediate(abi::return_register(), RESULT_OK_TAG),
+        abi::branch_eq(&alloc_ok),
+        abi::branch(&alloc_error),
+        abi::label(&alloc_ok),
+        abi::store_u64("x1", abi::stack_pointer(), RESULT_OFFSET),
+        // Pass 2: build the joined path.
+        abi::load_u64("x16", abi::stack_pointer(), PARTS_OFFSET),
+        abi::load_u64("x9", "x16", COLLECTION_OFFSET_COUNT),
+        // data base = collection + header + count * entry_size
+        abi::add_immediate("x14", "x16", COLLECTION_HEADER_SIZE),
+        abi::move_immediate("x5", "Integer", &entry_size),
+        abi::multiply_registers("x5", "x9", "x5"),
+        abi::add_registers("x14", "x14", "x5"),
+        abi::add_immediate("x15", "x16", COLLECTION_HEADER_SIZE),
+        abi::load_u64("x1", abi::stack_pointer(), RESULT_OFFSET),
+        abi::add_immediate("x6", "x1", 8),
+        abi::move_register("x13", "x6"),
+        abi::move_immediate("x12", "Integer", "0"),
+        abi::label(&build_loop),
+        abi::compare_registers("x12", "x9"),
+        abi::branch_ge(&build_done),
+        abi::load_u64("x3", "x15", COLLECTION_ENTRY_OFFSET_VALUE_LENGTH),
+        abi::compare_immediate("x3", "0"),
+        abi::branch_eq(&skip_part),
+        abi::load_u64("x2", "x15", COLLECTION_ENTRY_OFFSET_VALUE_OFFSET),
+        abi::add_registers("x2", "x14", "x2"),
+        abi::load_u8("x4", "x2", 0),
+        abi::compare_immediate("x4", SEP),
+        abi::branch_eq(&absolute),
+        abi::compare_registers("x13", "x6"),
+        abi::branch_eq(&no_separator),
+        abi::subtract_immediate("x7", "x13", 1),
+        abi::load_u8("x5", "x7", 0),
+        abi::compare_immediate("x5", SEP),
+        abi::branch_eq(&no_separator),
+        abi::move_immediate("x5", "Byte", SEP),
+        abi::store_u8("x5", "x13", 0),
+        abi::add_immediate("x13", "x13", 1),
+        abi::branch(&copy_part),
+        abi::label(&absolute),
+        abi::move_register("x13", "x6"),
+        abi::label(&no_separator),
+        abi::label(&copy_part),
+        abi::label(&copy_loop),
+        abi::compare_immediate("x3", "0"),
+        abi::branch_eq(&copy_done),
+        abi::load_u8("x4", "x2", 0),
+        abi::store_u8("x4", "x13", 0),
+        abi::add_immediate("x2", "x2", 1),
+        abi::add_immediate("x13", "x13", 1),
+        abi::subtract_immediate("x3", "x3", 1),
+        abi::branch(&copy_loop),
+        abi::label(&copy_done),
+        abi::label(&skip_part),
+        abi::add_immediate("x15", "x15", COLLECTION_ENTRY_SIZE),
+        abi::add_immediate("x12", "x12", 1),
+        abi::branch(&build_loop),
+        abi::label(&build_done),
+        abi::subtract_registers("x4", "x13", "x6"),
+        abi::load_u64("x1", abi::stack_pointer(), RESULT_OFFSET),
+        abi::store_u64("x4", "x1", 0),
+        abi::move_immediate("x5", "Integer", "0"),
+        abi::store_u8("x5", "x13", 0),
+        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
+        abi::branch(&done),
+        abi::label(&alloc_error),
+        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_OUT_OF_MEMORY_CODE),
+        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
+    ]);
+    push_error_message_address(
+        symbol,
+        ERR_ALLOCATION_SYMBOL,
+        &mut instructions,
+        &mut relocations,
+    );
+    instructions.extend([
+        abi::label(&done),
+        abi::load_u64(abi::link_register(), abi::stack_pointer(), LR_OFFSET),
+        abi::add_stack(FRAME_SIZE),
+        abi::return_(),
+    ]);
+    CodeFunction {
+        name: "runtime.fsPathJoin".to_string(),
+        symbol: symbol.to_string(),
+        params: Vec::new(),
+        returns: "String".to_string(),
+        frame: CodeFrame {
+            stack_size: FRAME_SIZE,
+            callee_saved: vec![abi::link_register().to_string()],
+        },
+        stack_slots: Vec::new(),
+        instructions,
+        relocations,
+    }
+}
+
+/// Lower the standalone string-list sort helper used to give `fs::listDirectory`
+/// a deterministic, stable order. It takes a `List OF String` collection pointer
+/// in `x0` and sorts its entries in place by ascending byte-wise (UTF-8
+/// lexicographic) order using selection sort, swapping only the fixed-size entry
+/// records and leaving the data region untouched. It makes no calls.
+fn lower_sort_string_list_helper() -> CodeFunction {
+    let symbol = SORT_STRING_LIST_SYMBOL;
+    // x0  = collection pointer (preserved for the caller)
+    // x9  = entries base (collection + header)
+    // x10 = count
+    // x11 = data region base (entries base + count * entry size)
+    // x12 = i (outer index), x13 = min index, x14 = j (inner index)
+    // x15 = entry[min] address, x16 = entry[j] address
+    // x1..x7 = comparison/swap scratch
+    let entry_size = COLLECTION_ENTRY_SIZE.to_string();
+    let done = format!("{symbol}_done");
+    let outer = format!("{symbol}_outer");
+    let inner = format!("{symbol}_inner");
+    let inner_done = format!("{symbol}_inner_done");
+    let no_swap = format!("{symbol}_no_swap");
+    let next_inner = format!("{symbol}_next_inner");
+    let cmp_loop = format!("{symbol}_cmp_loop");
+    let take_j = format!("{symbol}_take_j");
+    let keep_min = format!("{symbol}_keep_min");
+
+    let mut instructions = vec![
+        abi::label("entry"),
+        abi::load_u64("x10", "x0", COLLECTION_OFFSET_COUNT),
+        abi::compare_immediate("x10", "1"),
+        abi::branch_le(&done),
+        abi::add_immediate("x9", "x0", COLLECTION_HEADER_SIZE),
+        abi::move_immediate("x1", "Integer", &entry_size),
+        abi::multiply_registers("x11", "x10", "x1"),
+        abi::add_registers("x11", "x9", "x11"),
+        abi::move_immediate("x12", "Integer", "0"),
+        // outer: for i in 0..count-1
+        abi::label(&outer),
+        abi::add_immediate("x2", "x12", 1),
+        abi::compare_registers("x2", "x10"),
+        abi::branch_ge(&done),
+        abi::move_register("x13", "x12"),
+        abi::move_register("x14", "x2"),
+        // inner: for j in i+1..count
+        abi::label(&inner),
+        abi::compare_registers("x14", "x10"),
+        abi::branch_ge(&inner_done),
+        // entry[min] -> x15, entry[j] -> x16
+        abi::move_immediate("x1", "Integer", &entry_size),
+        abi::multiply_registers("x15", "x13", "x1"),
+        abi::add_registers("x15", "x9", "x15"),
+        abi::multiply_registers("x16", "x14", "x1"),
+        abi::add_registers("x16", "x9", "x16"),
+        // name pointers: data_base + value_offset ; lengths: value_length
+        abi::load_u64("x2", "x15", COLLECTION_ENTRY_OFFSET_VALUE_OFFSET),
+        abi::add_registers("x2", "x11", "x2"),
+        abi::load_u64("x3", "x15", COLLECTION_ENTRY_OFFSET_VALUE_LENGTH),
+        abi::load_u64("x4", "x16", COLLECTION_ENTRY_OFFSET_VALUE_OFFSET),
+        abi::add_registers("x4", "x11", "x4"),
+        abi::load_u64("x5", "x16", COLLECTION_ENTRY_OFFSET_VALUE_LENGTH),
+        // compare bytes: x2/x3 = min name ptr/len, x4/x5 = j name ptr/len
+        abi::move_immediate("x6", "Integer", "0"),
+        abi::label(&cmp_loop),
+        // if reached end of min name -> min is prefix; j<min iff j also ended? no: min shorter => min<j => keep_min
+        abi::compare_registers("x6", "x3"),
+        abi::branch_ge(&keep_min),
+        // if reached end of j name -> j shorter, j<min => take_j
+        abi::compare_registers("x6", "x5"),
+        abi::branch_ge(&take_j),
+        abi::load_u8("x7", "x2", 0),
+        abi::load_u8("x1", "x4", 0),
+        abi::compare_registers("x1", "x7"),
+        abi::branch_lo(&take_j),
+        abi::branch_hi(&keep_min),
+        abi::add_immediate("x2", "x2", 1),
+        abi::add_immediate("x4", "x4", 1),
+        abi::add_immediate("x6", "x6", 1),
+        abi::branch(&cmp_loop),
+        abi::label(&take_j),
+        abi::move_register("x13", "x14"),
+        abi::label(&keep_min),
+        abi::label(&next_inner),
+        abi::add_immediate("x14", "x14", 1),
+        abi::branch(&inner),
+        abi::label(&inner_done),
+        // swap entry[i] and entry[min] if different
+        abi::compare_registers("x13", "x12"),
+        abi::branch_eq(&no_swap),
+        abi::move_immediate("x1", "Integer", &entry_size),
+        abi::multiply_registers("x2", "x12", "x1"),
+        abi::add_registers("x2", "x9", "x2"),
+        abi::multiply_registers("x3", "x13", "x1"),
+        abi::add_registers("x3", "x9", "x3"),
+    ];
+    // swap COLLECTION_ENTRY_SIZE bytes (8 at a time)
+    let mut offset = 0;
+    while offset < COLLECTION_ENTRY_SIZE {
+        instructions.extend([
+            abi::load_u64("x4", "x2", offset),
+            abi::load_u64("x5", "x3", offset),
+            abi::store_u64("x5", "x2", offset),
+            abi::store_u64("x4", "x3", offset),
+        ]);
+        offset += 8;
+    }
+    instructions.extend([
+        abi::label(&no_swap),
+        abi::add_immediate("x12", "x12", 1),
+        abi::branch(&outer),
+        abi::label(&done),
+        abi::return_(),
+    ]);
+    CodeFunction {
+        name: "runtime.sortStringList".to_string(),
+        symbol: symbol.to_string(),
+        params: Vec::new(),
+        returns: "Nothing".to_string(),
+        frame: CodeFrame {
+            stack_size: 0,
+            callee_saved: Vec::new(),
+        },
+        stack_slots: Vec::new(),
+        instructions,
+        relocations: Vec::new(),
+    }
+}
+
+/// Emit a call to the shared [`VALIDATE_UTF8_SYMBOL`] helper. The byte pointer
+/// must already be in `x0` and the byte length in `x1`. The helper returns `0`
+/// in `x0` for valid UTF-8 and `1` for invalid; this branches to `error_label`
+/// when invalid. Keeping validation in a separate `bl`-reachable function (with
+/// its own frame and short-range internal branches) keeps the filesystem read
+/// helpers small.
+fn emit_call_validate_utf8(
+    symbol: &str,
+    error_label: &str,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+) {
+    instructions.push(abi::branch_link(VALIDATE_UTF8_SYMBOL));
+    relocations.push(CodeRelocation {
+        from: symbol.to_string(),
+        to: VALIDATE_UTF8_SYMBOL.to_string(),
+        kind: "branch26".to_string(),
+        binding: "internal".to_string(),
+        library: None,
+    });
+    instructions.extend([
+        abi::compare_immediate("x0", "0"),
+        abi::branch_ne(error_label),
+    ]);
+}
+
+/// Lower the standalone UTF-8 validation helper. It takes a byte pointer in `x0`
+/// and a byte length in `x1`, and returns `0` in `x0` when the buffer is
+/// well-formed UTF-8 or `1` otherwise. It makes no calls, so it needs no stack
+/// frame.
+fn lower_validate_utf8_helper() -> CodeFunction {
+    let symbol = VALIDATE_UTF8_SYMBOL;
+    let invalid = format!("{symbol}_invalid");
+    let mut instructions = vec![abi::label("entry")];
+    if std::env::var("MFB_ASCII").is_ok() {
+        let lp=format!("{symbol}_lp"); let ok=format!("{symbol}_ok");
+        instructions.extend([
+            abi::move_register("x9","x0"),
+            abi::move_register("x10","x1"),
+            abi::label(&lp),
+            abi::compare_immediate("x10","0"),
+            abi::branch_eq(&ok),
+            abi::load_u8("x11","x9",0),
+            abi::compare_immediate("x11","127"),
+            abi::branch_hi(&invalid),
+            abi::add_immediate("x9","x9",1),
+            abi::subtract_immediate("x10","x10",1),
+            abi::branch(&lp),
+            abi::label(&ok),
+            abi::move_immediate("x0","Integer","0"),
+            abi::return_(),
+            abi::label(&invalid),
+            abi::move_immediate("x0","Integer","1"),
+            abi::return_(),
+        ]);
+    } else {
+    emit_validate_utf8(symbol, "x0", "x1", &invalid, &mut instructions);
+    instructions.extend([
+        abi::move_immediate("x0", "Integer", "0"),
+        abi::return_(),
+        abi::label(&invalid),
+        abi::move_immediate("x0", "Integer", "1"),
+        abi::return_(),
+    ]);
+    }
+    CodeFunction {
+        name: "runtime.validateUtf8".to_string(),
+        symbol: symbol.to_string(),
+        params: Vec::new(),
+        returns: "Integer".to_string(),
+        frame: CodeFrame {
+            stack_size: 0,
+            callee_saved: Vec::new(),
+        },
+        stack_slots: Vec::new(),
+        instructions,
+        relocations: Vec::new(),
+    }
+}
+
+/// Validate that the `len`-byte buffer at `ptr` is well-formed UTF-8, branching
+/// to `error_label` on the first invalid sequence. Used by
+/// [`lower_validate_utf8_helper`]. Clobbers `x9`-`x14`. `ptr` and `len` are read
+/// into scratch registers before any clobber, so they may name `x0`/`x1`.
+fn emit_validate_utf8(
+    symbol: &str,
+    ptr: &str,
+    len: &str,
+    error_label: &str,
+    instructions: &mut Vec<CodeInstruction>,
+) {
+    let pos = "x9";
+    let rem = "x10";
+    let byte = "x11";
+    let cont = "x12";
+    let lo = "x13";
+    let hi = "x14";
+
+    let loop_start = format!("{symbol}_utf8_loop");
+    let done = format!("{symbol}_utf8_done");
+    let one = format!("{symbol}_utf8_one");
+    let two = format!("{symbol}_utf8_two");
+    let three = format!("{symbol}_utf8_three");
+    let four = format!("{symbol}_utf8_four");
+    let three_ed = format!("{symbol}_utf8_three_ed");
+    let three_bounds = format!("{symbol}_utf8_three_bounds");
+    let four_f4 = format!("{symbol}_utf8_four_f4");
+    let four_bounds = format!("{symbol}_utf8_four_bounds");
+
+    instructions.extend([
+        abi::move_register(pos, ptr),
+        abi::move_register(rem, len),
+        abi::label(&loop_start),
+        abi::compare_immediate(rem, "0"),
+        abi::branch_eq(&done),
+        abi::load_u8(byte, pos, 0),
+        abi::compare_immediate(byte, "128"),
+        abi::branch_lo(&one),
+        abi::compare_immediate(byte, "194"),
+        abi::branch_lo(error_label),
+        abi::compare_immediate(byte, "224"),
+        abi::branch_lo(&two),
+        abi::compare_immediate(byte, "240"),
+        abi::branch_lo(&three),
+        abi::compare_immediate(byte, "245"),
+        abi::branch_lo(&four),
+        abi::branch(error_label),
+        // 1-byte ASCII
+        abi::label(&one),
+        abi::add_immediate(pos, pos, 1),
+        abi::subtract_immediate(rem, rem, 1),
+        abi::branch(&loop_start),
+        // 2-byte sequence
+        abi::label(&two),
+        abi::compare_immediate(rem, "2"),
+        abi::branch_lo(error_label),
+        abi::load_u8(cont, pos, 1),
+        abi::compare_immediate(cont, "128"),
+        abi::branch_lo(error_label),
+        abi::compare_immediate(cont, "191"),
+        abi::branch_hi(error_label),
+        abi::add_immediate(pos, pos, 2),
+        abi::subtract_immediate(rem, rem, 2),
+        abi::branch(&loop_start),
+        // 3-byte sequence
+        abi::label(&three),
+        abi::compare_immediate(rem, "3"),
+        abi::branch_lo(error_label),
+        abi::move_immediate(lo, "Integer", "128"),
+        abi::move_immediate(hi, "Integer", "191"),
+        abi::compare_immediate(byte, "224"),
+        abi::branch_ne(&three_ed),
+        abi::move_immediate(lo, "Integer", "160"),
+        abi::branch(&three_bounds),
+        abi::label(&three_ed),
+        abi::compare_immediate(byte, "237"),
+        abi::branch_ne(&three_bounds),
+        abi::move_immediate(hi, "Integer", "159"),
+        abi::label(&three_bounds),
+        abi::load_u8(cont, pos, 1),
+        abi::compare_registers(cont, lo),
+        abi::branch_lo(error_label),
+        abi::compare_registers(cont, hi),
+        abi::branch_hi(error_label),
+        abi::load_u8(cont, pos, 2),
+        abi::compare_immediate(cont, "128"),
+        abi::branch_lo(error_label),
+        abi::compare_immediate(cont, "191"),
+        abi::branch_hi(error_label),
+        abi::add_immediate(pos, pos, 3),
+        abi::subtract_immediate(rem, rem, 3),
+        abi::branch(&loop_start),
+        // 4-byte sequence
+        abi::label(&four),
+        abi::compare_immediate(rem, "4"),
+        abi::branch_lo(error_label),
+        abi::move_immediate(lo, "Integer", "128"),
+        abi::move_immediate(hi, "Integer", "191"),
+        abi::compare_immediate(byte, "240"),
+        abi::branch_ne(&four_f4),
+        abi::move_immediate(lo, "Integer", "144"),
+        abi::branch(&four_bounds),
+        abi::label(&four_f4),
+        abi::compare_immediate(byte, "244"),
+        abi::branch_ne(&four_bounds),
+        abi::move_immediate(hi, "Integer", "143"),
+        abi::label(&four_bounds),
+        abi::load_u8(cont, pos, 1),
+        abi::compare_registers(cont, lo),
+        abi::branch_lo(error_label),
+        abi::compare_registers(cont, hi),
+        abi::branch_hi(error_label),
+        abi::load_u8(cont, pos, 2),
+        abi::compare_immediate(cont, "128"),
+        abi::branch_lo(error_label),
+        abi::compare_immediate(cont, "191"),
+        abi::branch_hi(error_label),
+        abi::load_u8(cont, pos, 3),
+        abi::compare_immediate(cont, "128"),
+        abi::branch_lo(error_label),
+        abi::compare_immediate(cont, "191"),
+        abi::branch_hi(error_label),
+        abi::add_immediate(pos, pos, 4),
+        abi::subtract_immediate(rem, rem, 4),
+        abi::branch(&loop_start),
+        abi::label(&done),
+    ]);
 }
 
 fn push_error_message_address(
@@ -13357,6 +14041,21 @@ fn standard_error_messages() -> &'static [(&'static str, &'static str, &'static 
             ERR_DIRECTORY_NOT_EMPTY_CODE,
             ERR_DIRECTORY_NOT_EMPTY_MESSAGE,
             ERR_DIRECTORY_NOT_EMPTY_SYMBOL,
+        ),
+        (
+            ERR_CLOSE_FAILED_CODE,
+            ERR_CLOSE_FAILED_MESSAGE,
+            ERR_CLOSE_FAILED_SYMBOL,
+        ),
+        (
+            ERR_PATH_NOT_FOUND_CODE,
+            ERR_PATH_NOT_FOUND_MESSAGE,
+            ERR_PATH_NOT_FOUND_SYMBOL,
+        ),
+        (
+            ERR_INVALID_PATH_CODE,
+            ERR_INVALID_PATH_MESSAGE,
+            ERR_INVALID_PATH_SYMBOL,
         ),
         (
             ERR_RESOURCE_CLOSED_CODE,

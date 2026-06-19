@@ -1,0 +1,29 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "thread_fs_pathjoin_rt",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "mutable": false, "name": "parts", "type": "List OF String", "value": { "kind": "list", "type": "List OF String", "values": [{ "kind": "const", "type": "String", "value": "base" }, { "kind": "const", "type": "String", "value": "" }, { "kind": "const", "type": "String", "value": "sub" }, { "kind": "const", "type": "String", "value": "leaf.txt" }] } },
+    { "op": "bind", "mutable": false, "name": "t", "type": "Thread OF List OF String TO String", "value": { "kind": "call", "target": "thread.start", "args": [{ "kind": "functionRef", "name": "fs_thread_workers.pathJoinWorker", "type": "ISOLATED FUNC(ThreadWorker OF List OF String TO String, List OF String) AS String" }, { "kind": "local", "name": "parts" }] } },
+    { "op": "bind", "mutable": false, "name": "joined", "type": "String", "value": { "kind": "call", "target": "thread.waitFor", "args": [{ "kind": "local", "name": "t" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "local", "name": "joined" }] } },
+    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

@@ -1,0 +1,10 @@
+IMPORT io
+IMPORT thread
+IMPORT fs_thread_workers
+
+FUNC main AS Integer
+  LET t AS Thread OF String TO String = thread::start(fs_thread_workers::readTextWorker, "target/thread_fs_path_notfound_rt_missing.txt")
+  LET content AS String = thread::waitFor(t)
+  io::print(content)
+  RETURN 0
+END FUNC

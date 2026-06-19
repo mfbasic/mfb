@@ -1,0 +1,21 @@
+IMPORT fs
+IMPORT io
+
+FUNC main AS Integer
+  LET empty AS List OF String = []
+  LET a AS String = fs::pathJoin(["a", "b", "c"])
+  LET b AS String = fs::pathJoin(["a/", "b"])
+  LET c AS String = fs::pathJoin(["a", "", "b"])
+  LET d AS String = fs::pathJoin(["a", "/etc", "x"])
+  LET e AS String = fs::pathJoin(["/root", "sub"])
+  LET f AS String = fs::pathJoin(empty)
+  LET g AS String = fs::pathJoin(["one"])
+  io::print(a)
+  io::print(b)
+  io::print(c)
+  io::print(d)
+  io::print(e)
+  io::print(f)
+  io::print(g)
+  RETURN 0
+END FUNC

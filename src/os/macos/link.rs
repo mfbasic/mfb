@@ -6,6 +6,8 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 
 const VM_BASE: u64 = 0x1_0000_0000;
+/// Byte size of one imported-symbol stub (adrp + ldr + br).
+const IMPORT_STUB_SIZE: usize = 12;
 const PAGE_SIZE: usize = 0x4000;
 
 pub(crate) fn write_executable(
@@ -189,7 +191,16 @@ fn append_import_stubs(
     data_len: usize,
 ) -> Result<ImportLocations, String> {
     let mut locations = ImportLocations::default();
-    let layout = macho_layout(code_offset, text.len(), data_len, true);
+    // Each import appends a 3-instruction (12-byte) stub to the text section.
+    // The GOT lives at `data_const_file_offset`, which is the page-aligned end of
+    // the final code (stubs included) plus the constant data. Compute the layout
+    // from that final code length, not the pre-stub length, so the GOT address
+    // baked into every stub matches where the GOT is actually placed. Using the
+    // pre-stub length makes the two diverge by a page whenever the stub bytes push
+    // the total across a `PAGE_SIZE` boundary, which sends each stub's `br` to a
+    // garbage address.
+    let final_code_len = text.len() + image.imports.len() * IMPORT_STUB_SIZE;
+    let layout = macho_layout(code_offset, final_code_len, data_len, true);
     for (index, import) in image.imports.iter().enumerate() {
         let stub_offset = text.len();
         let stub_vmaddr = text_vmaddr + stub_offset as u64;
