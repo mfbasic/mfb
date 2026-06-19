@@ -29,30 +29,17 @@
       { "kind": "binding", "mutable": false, "name": "sentFile", "type": "File", "value": { "kind": "call", "callee": "fs.openFile", "arguments": [{ "kind": "string", "value": "tests/func_thread_send_valid/src/main.mfb" }] }, "line": 14 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "thread.send", "arguments": [{ "kind": "identifier", "value": "fileThread" }, { "kind": "identifier", "value": "sentFile" }] }, "line": 15 },
       { "kind": "binding", "mutable": false, "name": "recoverFile", "type": "File", "value": { "kind": "call", "callee": "fs.openFile", "arguments": [{ "kind": "string", "value": "tests/func_thread_send_valid/src/main.mfb" }] }, "line": 16 },
-      {
-        "kind": "match",
-        "expression": { "kind": "call", "callee": "thread.send", "arguments": [{ "kind": "identifier", "value": "fileThread" }, { "kind": "identifier", "value": "recoverFile" }] },
+      { "kind": "expression", "expression": {
+        "kind": "trapped",
+        "binding": "err",
         "line": 17,
-        "cases": [
-        {
-          "pattern": { "kind": "union", "type": "Ok", "binding": "sent" },
-          "guard": null,
-          "line": 18,
-          "body": [
-          { "kind": "binding", "mutable": false, "name": "accepted", "type": "Nothing", "value": { "kind": "identifier", "value": "sent" }, "line": 19 }
-          ]
-        },
-        {
-          "pattern": { "kind": "union", "type": "Error", "binding": "err" },
-          "guard": null,
-          "line": 20,
-          "body": [
-          { "kind": "expression", "expression": { "kind": "call", "callee": "fs.close", "arguments": [{ "kind": "identifier", "value": "recoverFile" }] }, "line": 21 }
-          ]
-        }
+        "expression": { "kind": "call", "callee": "thread.send", "arguments": [{ "kind": "identifier", "value": "fileThread" }, { "kind": "identifier", "value": "recoverFile" }] },
+        "handler": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "fs.close", "arguments": [{ "kind": "identifier", "value": "recoverFile" }] }, "line": 18 },
+        { "kind": "recover", "value": null, "line": 19 }
         ]
-      },
-      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 23 }
+      }, "line": 17 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 21 }
       ]
     }
     ]

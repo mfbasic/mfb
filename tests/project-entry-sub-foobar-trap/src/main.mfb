@@ -1,7 +1,7 @@
 SUB foobar
   FAIL Error[100, "This is a message"]
 
-  TRAP err
+  TRAP(err)
   RETURN
   END TRAP
 END SUB

@@ -117,6 +117,14 @@ struct TypeChecker<'a> {
     user_type_kinds: HashMap<String, TypeDeclKind>,
     type_infos: HashMap<String, TypeInfo>,
     had_error: bool,
+    /// Return type of the function currently being checked. Used to validate
+    /// `RETURN` inside an inline-`TRAP` handler, which is reached from
+    /// `infer_expression` where the function context is otherwise unavailable.
+    current_return: Type,
+    /// Stack of success types for the inline-`TRAP` handlers currently being
+    /// checked (innermost last). Non-empty means a `RECOVER` is legal and must
+    /// match the top type. Empty means `RECOVER` is illegal.
+    inline_trap_types: Vec<Type>,
 }
 
 #[derive(Clone)]
@@ -156,6 +164,8 @@ impl<'a> TypeChecker<'a> {
             user_type_kinds: HashMap::new(),
             type_infos: HashMap::new(),
             had_error: false,
+            current_return: Type::Nothing,
+            inline_trap_types: Vec::new(),
         };
         checker.collect_types();
         checker.collect_package_types();
@@ -1134,6 +1144,8 @@ impl<'a> TypeChecker<'a> {
             );
         }
 
+        self.current_return = expected_return.clone();
+        self.inline_trap_types.clear();
         let flow = self.check_block(file, &function.body, &expected_return, &mut locals, None);
         if let Some(trap) = &function.trap {
             let mut trap_locals = locals.clone();
@@ -1488,6 +1500,67 @@ impl<'a> TypeChecker<'a> {
                         file,
                         *line,
                     );
+                }
+                Flow::AlwaysReturns
+            }
+            Statement::Recover { value, line } => {
+                let Some(recover_type) = self.inline_trap_types.last().cloned() else {
+                    if let Some(value) = value {
+                        self.infer_expression(file, value, locals, *line, ExprMode::Read);
+                    }
+                    self.report(
+                        "TYPE_RECOVER_OUTSIDE_INLINE_TRAP",
+                        "RECOVER is valid only inside an inline TRAP handler.",
+                        file,
+                        *line,
+                    );
+                    return Flow::AlwaysReturns;
+                };
+                let produces_value = !matches!(recover_type, Type::Nothing);
+                match (value, produces_value) {
+                    (Some(value), true) => {
+                        let actual = self.infer_expression_with_expected(
+                            file,
+                            value,
+                            locals,
+                            *line,
+                            Some(&recover_type),
+                            ExprMode::Transfer,
+                        );
+                        if !self.expression_compatible(&recover_type, &actual, Some(value)) {
+                            self.report(
+                                "TYPE_RECOVER_TYPE_MISMATCH",
+                                &format!(
+                                    "RECOVER has type {}, expected {}.",
+                                    self.type_name(&actual),
+                                    self.type_name(&recover_type)
+                                ),
+                                file,
+                                *line,
+                            );
+                        }
+                    }
+                    (None, true) => {
+                        self.report(
+                            "TYPE_RECOVER_TYPE_MISMATCH",
+                            &format!(
+                                "RECOVER must supply a {} value for the trapped expression.",
+                                self.type_name(&recover_type)
+                            ),
+                            file,
+                            *line,
+                        );
+                    }
+                    (Some(value), false) => {
+                        self.infer_expression(file, value, locals, *line, ExprMode::Read);
+                        self.report(
+                            "TYPE_RECOVER_TYPE_MISMATCH",
+                            "RECOVER must not supply a value for a value-less trapped expression.",
+                            file,
+                            *line,
+                        );
+                    }
+                    (None, false) => {}
                 }
                 Flow::AlwaysReturns
             }
@@ -1950,6 +2023,65 @@ impl<'a> TypeChecker<'a> {
             Expression::MemberAccess { target, member } => {
                 self.infer_member_access(file, target, member, locals, line)
             }
+            Expression::Trapped {
+                expression: inner,
+                binding,
+                handler,
+                line: trap_line,
+            } => {
+                let fallible = match inner.as_ref() {
+                    Expression::Call { callee, .. } => {
+                        let canonical = self.canonical_import_name(file, callee);
+                        !builtins::math::is_math_constant(&canonical)
+                    }
+                    _ => false,
+                };
+                // A failed `thread.send` returns ownership of the sent value to
+                // the caller so the handler can release it. Capture it before
+                // the call consumes it, then restore it into the handler scope.
+                let send_failure_restore = self.thread_send_failure_restore(file, inner, locals);
+                let success_type = self
+                    .infer_expression_with_expected(file, inner, locals, line, expected, mode);
+                if !fallible {
+                    self.report(
+                        "TYPE_INLINE_TRAP_REQUIRES_FALLIBLE",
+                        "Inline TRAP requires a fallible call; this expression cannot fail.",
+                        file,
+                        *trap_line,
+                    );
+                }
+                let mut handler_locals = locals.clone();
+                if let Some((name, info)) = send_failure_restore {
+                    handler_locals.insert(name, info);
+                }
+                handler_locals.insert(
+                    binding.clone(),
+                    LocalInfo {
+                        type_: Type::Error,
+                        mutable: false,
+                        ownership: OwnershipState::Available,
+                    },
+                );
+                self.inline_trap_types.push(success_type.clone());
+                let current_return = self.current_return.clone();
+                let handler_flow = self.check_block(
+                    file,
+                    handler,
+                    &current_return,
+                    &mut handler_locals,
+                    Some(binding.as_str()),
+                );
+                self.inline_trap_types.pop();
+                if handler_flow != Flow::AlwaysReturns {
+                    self.report(
+                        "TYPE_INLINE_TRAP_FALLS_THROUGH",
+                        "Inline TRAP handler must end every path in RECOVER or a diverging statement (RETURN, FAIL, or PROPAGATE).",
+                        file,
+                        *trap_line,
+                    );
+                }
+                success_type
+            }
             Expression::Binary {
                 left,
                 operator,
@@ -2072,62 +2204,11 @@ impl<'a> TypeChecker<'a> {
         locals: &mut HashMap<String, LocalInfo>,
         line: usize,
     ) -> Type {
-        if let Expression::Call { callee, arguments } = expression {
-            let canonical_callee = self.canonical_import_name(file, callee);
-            if builtins::math::is_math_constant(&canonical_callee) {
-                self.report(
-                    "SYMBOL_NOT_CALLABLE",
-                    &format!("Package constant `{callee}` is not callable."),
-                    file,
-                    line,
-                );
-                for argument in arguments {
-                    self.infer_expression(
-                        file,
-                        call_arg_value(argument),
-                        locals,
-                        line,
-                        ExprMode::Read,
-                    );
-                }
-                return self.parse_type(
-                    builtins::math::constant_type_name(&canonical_callee).unwrap_or("Unknown"),
-                );
-            }
-            if builtins::is_builtin_call(&canonical_callee) {
-                let success = self.check_builtin_call(
-                    file,
-                    callee,
-                    &canonical_callee,
-                    arguments,
-                    locals,
-                    line,
-                );
-                return Type::Result(Box::new(success));
-            }
-            if let Some(sig) = self
-                .lookup_visible_call_sig(file, callee, arguments)
-                .cloned()
-                .or_else(|| {
-                    self.lookup_visible_call_sig(file, &canonical_callee, arguments)
-                        .cloned()
-                })
-            {
-                self.check_call(file, callee, &sig, arguments, locals, line);
-                return Type::Result(Box::new(sig.return_type));
-            }
-            if let Some(local) = locals.get(callee).cloned() {
-                let success = self.check_function_value_call(
-                    file,
-                    callee,
-                    &local.type_,
-                    arguments,
-                    locals,
-                    line,
-                );
-                return Type::Result(Box::new(success));
-            }
-        }
+        // A call scrutinee auto-unwraps like every other call site (its `Ok`
+        // value is matched). Local error handling now uses an inline `TRAP`
+        // (§8.4); `MATCH` only matches enum/union/`Result` *values*. A
+        // `Result`-typed value (a local or field) still infers to
+        // `Type::Result(..)`, preserving `CASE Ok`/`CASE Error` matching.
         self.infer_expression(file, expression, locals, line, ExprMode::Read)
     }
 
@@ -2247,7 +2328,7 @@ impl<'a> TypeChecker<'a> {
                 _ => self.report(
                     "TYPE_MATCH_PATTERN_MISMATCH",
                     &format!(
-                        "CASE `{type_name}` requires a UNION or direct call Result, got {}.",
+                        "CASE `{type_name}` requires a UNION or Result value, got {}.",
                         self.type_name(matched_type)
                     ),
                     file,
@@ -5125,6 +5206,9 @@ fn collect_captured_locals(
         }
         Expression::MemberAccess { target, .. } => {
             collect_captured_locals(target, outer_locals, local_names, seen, captures);
+        }
+        Expression::Trapped { expression, .. } => {
+            collect_captured_locals(expression, outer_locals, local_names, seen, captures);
         }
         Expression::WithUpdate { target, updates } => {
             collect_captured_locals(target, outer_locals, local_names, seen, captures);

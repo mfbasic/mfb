@@ -1,52 +1,40 @@
 $ mfb build -ast tests/control-flow-match-exhaustiveness-invalid
-  24 | 
-  25 | FUNC partialUnion(shape AS Shape) AS Integer
-  26 |   MATCH shape
+  19 | 
+  20 | FUNC partialUnion(shape AS Shape) AS Integer
+  21 |   MATCH shape
      | ^
-tests/control-flow-match-exhaustiveness-invalid/src/main.mfb:26 error[2-203-0062 TYPE_MATCH_NOT_EXHAUSTIVE]: match cases do not cover every possible value
+tests/control-flow-match-exhaustiveness-invalid/src/main.mfb:21 error[2-203-0062 TYPE_MATCH_NOT_EXHAUSTIVE]: match cases do not cover every possible value
                MATCH on UNION `Shape` does not cover Point; add unguarded CASE arms or CASE ELSE.
-  34 | 
-  35 | FUNC openInteger(value AS Integer) AS Integer
-  36 |   MATCH value
+  29 | 
+  30 | FUNC openInteger(value AS Integer) AS Integer
+  31 |   MATCH value
      | ^
-tests/control-flow-match-exhaustiveness-invalid/src/main.mfb:36 error[2-203-0062 TYPE_MATCH_NOT_EXHAUSTIVE]: match cases do not cover every possible value
+tests/control-flow-match-exhaustiveness-invalid/src/main.mfb:31 error[2-203-0062 TYPE_MATCH_NOT_EXHAUSTIVE]: match cases do not cover every possible value
                MATCH on open type Integer requires an unguarded CASE ELSE.
-  44 | 
-  45 | FUNC guardedUnion(shape AS Shape) AS Integer
-  46 |   MATCH shape
+  39 | 
+  40 | FUNC guardedUnion(shape AS Shape) AS Integer
+  41 |   MATCH shape
      | ^
-tests/control-flow-match-exhaustiveness-invalid/src/main.mfb:46 error[2-203-0062 TYPE_MATCH_NOT_EXHAUSTIVE]: match cases do not cover every possible value
+tests/control-flow-match-exhaustiveness-invalid/src/main.mfb:41 error[2-203-0062 TYPE_MATCH_NOT_EXHAUSTIVE]: match cases do not cover every possible value
                MATCH on UNION `Shape` does not cover Circle; add unguarded CASE arms or CASE ELSE.
-  56 | 
-  57 | FUNC guardedResult(value AS Integer) AS Integer
-  58 |   MATCH parsePositive(value)
-     | ^
-tests/control-flow-match-exhaustiveness-invalid/src/main.mfb:58 error[2-203-0062 TYPE_MATCH_NOT_EXHAUSTIVE]: match cases do not cover every possible value
-               MATCH on Result OF Integer does not cover Ok; add unguarded CASE arms or CASE ELSE.
 [exit 1]
 $ mfb build -ir tests/control-flow-match-exhaustiveness-invalid
-  24 | 
-  25 | FUNC partialUnion(shape AS Shape) AS Integer
-  26 |   MATCH shape
+  19 | 
+  20 | FUNC partialUnion(shape AS Shape) AS Integer
+  21 |   MATCH shape
      | ^
-tests/control-flow-match-exhaustiveness-invalid/src/main.mfb:26 error[2-203-0062 TYPE_MATCH_NOT_EXHAUSTIVE]: match cases do not cover every possible value
+tests/control-flow-match-exhaustiveness-invalid/src/main.mfb:21 error[2-203-0062 TYPE_MATCH_NOT_EXHAUSTIVE]: match cases do not cover every possible value
                MATCH on UNION `Shape` does not cover Point; add unguarded CASE arms or CASE ELSE.
-  34 | 
-  35 | FUNC openInteger(value AS Integer) AS Integer
-  36 |   MATCH value
+  29 | 
+  30 | FUNC openInteger(value AS Integer) AS Integer
+  31 |   MATCH value
      | ^
-tests/control-flow-match-exhaustiveness-invalid/src/main.mfb:36 error[2-203-0062 TYPE_MATCH_NOT_EXHAUSTIVE]: match cases do not cover every possible value
+tests/control-flow-match-exhaustiveness-invalid/src/main.mfb:31 error[2-203-0062 TYPE_MATCH_NOT_EXHAUSTIVE]: match cases do not cover every possible value
                MATCH on open type Integer requires an unguarded CASE ELSE.
-  44 | 
-  45 | FUNC guardedUnion(shape AS Shape) AS Integer
-  46 |   MATCH shape
+  39 | 
+  40 | FUNC guardedUnion(shape AS Shape) AS Integer
+  41 |   MATCH shape
      | ^
-tests/control-flow-match-exhaustiveness-invalid/src/main.mfb:46 error[2-203-0062 TYPE_MATCH_NOT_EXHAUSTIVE]: match cases do not cover every possible value
+tests/control-flow-match-exhaustiveness-invalid/src/main.mfb:41 error[2-203-0062 TYPE_MATCH_NOT_EXHAUSTIVE]: match cases do not cover every possible value
                MATCH on UNION `Shape` does not cover Circle; add unguarded CASE arms or CASE ELSE.
-  56 | 
-  57 | FUNC guardedResult(value AS Integer) AS Integer
-  58 |   MATCH parsePositive(value)
-     | ^
-tests/control-flow-match-exhaustiveness-invalid/src/main.mfb:58 error[2-203-0062 TYPE_MATCH_NOT_EXHAUSTIVE]: match cases do not cover every possible value
-               MATCH on Result OF Integer does not cover Ok; add unguarded CASE arms or CASE ELSE.
 [exit 1]

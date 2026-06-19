@@ -1,0 +1,62 @@
+IMPORT io
+
+FUNC parsePositive(v AS Integer) AS Integer
+  IF v < 0 THEN FAIL Error[404, "missing"]
+  RETURN v + 1
+END FUNC
+
+' `inner` propagates its error out of `outer`, which has no trap of its own.
+FUNC inner(v AS Integer) AS Integer
+  IF v < 0 THEN FAIL Error[404, "inner failed"]
+  RETURN v + 1
+END FUNC
+
+FUNC outer(v AS Integer) AS Integer
+  RETURN inner(v) + 1
+END FUNC
+
+' The inline trap on the trapped expression catches the propagated error; the
+' function-level trap is not reached for the trapped call.
+FUNC withBothTraps(v AS Integer) AS Integer
+  LET a = outer(v) TRAP(e)
+    RECOVER 1000 + e.code
+  END TRAP
+  RETURN a
+  TRAP(fe)
+    RETURN -1
+  END TRAP
+END FUNC
+
+' A handler that itself contains an inline trap.
+FUNC nestedHandler(v AS Integer) AS Integer
+  LET a = parsePositive(v) TRAP(e)
+    LET b = parsePositive(e.code) TRAP(e2)
+      RECOVER 0
+    END TRAP
+    RECOVER b + 1
+  END TRAP
+  RETURN a
+END FUNC
+
+' PROPAGATE inside an inline handler re-raises to the caller.
+FUNC viaPropagate(v AS Integer) AS Integer
+  LET a = parsePositive(v) TRAP(e)
+    PROPAGATE
+  END TRAP
+  RETURN a
+END FUNC
+
+FUNC catchesPropagated(v AS Integer) AS Integer
+  LET a = viaPropagate(v) TRAP(e)
+    RECOVER 2000 + e.code
+  END TRAP
+  RETURN a
+END FUNC
+
+FUNC main AS Integer
+  io::print(toString(withBothTraps(-1)))
+  io::print(toString(withBothTraps(5)))
+  io::print(toString(nestedHandler(-1)))
+  io::print(toString(catchesPropagated(-1)))
+  RETURN 0
+END FUNC

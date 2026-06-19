@@ -16,28 +16,22 @@ END FUNC
 
 FUNC main AS Integer
   MUT a AS Integer = 0
-  MATCH readMissing("target/fs_path_errors_rt_missing.txt")
-    CASE Ok(v)
-      a = 0
-    CASE Error(e)
-      a = e.code
-  END MATCH
+  readMissing("target/fs_path_errors_rt_missing.txt") TRAP(e)
+    a = e.code
+    RECOVER ""
+  END TRAP
   io::print(toString(a))
   MUT b AS Integer = 0
-  MATCH openMissing("target/fs_path_errors_rt_missing.txt")
-    CASE Ok(v)
-      b = 0
-    CASE Error(e)
-      b = e.code
-  END MATCH
+  openMissing("target/fs_path_errors_rt_missing.txt") TRAP(e)
+    b = e.code
+    RECOVER 0
+  END TRAP
   io::print(toString(b))
   MUT c AS Integer = 0
-  MATCH delMissing("target/fs_path_errors_rt_missing.txt")
-    CASE Ok(v)
-      c = 0
-    CASE Error(e)
-      c = e.code
-  END MATCH
+  delMissing("target/fs_path_errors_rt_missing.txt") TRAP(e)
+    c = e.code
+    RECOVER 0
+  END TRAP
   io::print(toString(c))
   RETURN 0
 END FUNC

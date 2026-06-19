@@ -456,6 +456,12 @@ impl<'a> Monomorphizer<'a> {
                 line: *line,
             },
             Statement::Propagate { line } => Statement::Propagate { line: *line },
+            Statement::Recover { value, line } => Statement::Recover {
+                value: value
+                    .as_ref()
+                    .map(|value| self.lower_expression(value, substitutions, context, None, *line)),
+                line: *line,
+            },
             Statement::Assign { name, value, line } => Statement::Assign {
                 name: name.clone(),
                 value: self.lower_expression(value, substitutions, context, None, *line),
@@ -845,6 +851,27 @@ impl<'a> Monomorphizer<'a> {
                     )),
                 }
             }
+            Expression::Trapped {
+                expression,
+                binding,
+                handler,
+                line: trap_line,
+            } => {
+                let lowered_expression =
+                    Box::new(self.lower_expression(expression, substitutions, context, None, line));
+                let mut handler_context = context.clone();
+                handler_context
+                    .locals
+                    .insert(binding.clone(), "Error".to_string());
+                let lowered_handler =
+                    self.lower_statements(handler, substitutions, &mut handler_context);
+                Expression::Trapped {
+                    expression: lowered_expression,
+                    binding: binding.clone(),
+                    handler: lowered_handler,
+                    line: *trap_line,
+                }
+            }
             Expression::Identifier(value) => Expression::Identifier(value.clone()),
             Expression::String(value) => Expression::String(value.clone()),
             Expression::Number(value) => Expression::Number(value.clone()),
@@ -1151,6 +1178,7 @@ impl<'a> Monomorphizer<'a> {
                     self.expression_type(operand, context)
                 }
             }
+            Expression::Trapped { expression, .. } => self.expression_type(expression, context),
         }
     }
 

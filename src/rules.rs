@@ -640,6 +640,30 @@ pub const RULES: &[Rule] = &[
         message: "recursive record cycle must pass through a List, Map, or UNION",
     },
     Rule {
+        code: "2-203-0066",
+        name: "TYPE_INLINE_TRAP_FALLS_THROUGH",
+        severity: Severity::Error,
+        message: "inline TRAP handler path neither recovers nor diverges",
+    },
+    Rule {
+        code: "2-203-0067",
+        name: "TYPE_RECOVER_TYPE_MISMATCH",
+        severity: Severity::Error,
+        message: "RECOVER value does not match the trapped expression's success type",
+    },
+    Rule {
+        code: "2-203-0068",
+        name: "TYPE_RECOVER_OUTSIDE_INLINE_TRAP",
+        severity: Severity::Error,
+        message: "RECOVER is valid only inside an inline TRAP handler",
+    },
+    Rule {
+        code: "2-203-0069",
+        name: "TYPE_INLINE_TRAP_REQUIRES_FALLIBLE",
+        severity: Severity::Error,
+        message: "inline TRAP requires a fallible call",
+    },
+    Rule {
         code: "2-200-0011",
         name: "PROJECT_ENTRY_INVALID",
         severity: Severity::Error,

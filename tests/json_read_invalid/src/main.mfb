@@ -6,7 +6,7 @@ FUNC main AS Integer
   LET path AS String = "target/json_read_invalid.json"
   fs::writeText(path, "{ bad json }")
   io::print(json::stringify(json::parse(fs::readText(path))))
-  TRAP err
+  TRAP(err)
     io::print("invalid")
     fs::deleteFile(path)
     RETURN 0

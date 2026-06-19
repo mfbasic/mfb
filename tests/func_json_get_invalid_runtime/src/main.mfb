@@ -4,7 +4,7 @@ IMPORT json
 FUNC showInvalid(value AS Json, path AS List OF String) AS Nothing
   io::print(json::stringify(json::get(value, path)))
   RETURN NOTHING
-  TRAP err
+  TRAP(err)
     io::print("invalid")
     RETURN NOTHING
   END TRAP

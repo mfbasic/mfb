@@ -1,0 +1,13 @@
+$ mfb build -ast tests/control-flow-inline-trap-resource-rt
+Wrote AST to tests/control-flow-inline-trap-resource-rt/control_flow_inline_trap_resource_rt.ast
+[exit 0]
+$ mfb build -ir tests/control-flow-inline-trap-resource-rt
+Wrote IR to tests/control-flow-inline-trap-resource-rt/control_flow_inline_trap_resource_rt.ir
+[exit 0]
+$ mfb build tests/control-flow-inline-trap-resource-rt
+Wrote executable to tests/control-flow-inline-trap-resource-rt/control_flow_inline_trap_resource_rt.out
+[exit 0]
+$ tests/control-flow-inline-trap-resource-rt/control_flow_inline_trap_resource_rt.out
+first-line
+700
+[exit 0]

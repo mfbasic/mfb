@@ -14,7 +14,7 @@ END FUNC
 FUNC trapPropagate(path AS String) AS Nothing
   propagateOnce(path)
   RETURN NOTHING
-  TRAP err
+  TRAP(err)
     IF err.code <> 77050002 THEN FAIL err
     RETURN NOTHING
   END TRAP

@@ -141,16 +141,20 @@ Collection callback parameters accept named functions, `SUB` values where `FUNC(
 
 Ordinary `List` and `Map` values do not accept element, key, or value types that directly or transitively contain a resource handle or `Thread` handle. Ownership analysis rejects those collection instantiations before lowering.
 
-When absence is expected, handle `find` with `MATCH`:
+When absence is expected, handle `find` with an inline `TRAP`:
 
 ```basic
 IMPORT errorCode
 
-MATCH find(parts, "=")
-  CASE Ok(i) : io::print("separator at " & toString(i))
-  CASE Error(e) WHEN e.code = errorCode::ErrNotFound : io::print("separator not found")
-  CASE Error(e) : FAIL e
-END MATCH
+LET separator = find(parts, "=") TRAP(e)
+  IF e.code = errorCode::ErrNotFound THEN RECOVER -1   ' absent: use a sentinel
+  FAIL e                                               ' any other error: bail
+END TRAP
+IF separator >= 0 THEN
+  io::print("separator at " & toString(separator))
+ELSE
+  io::print("separator not found")
+END IF
 ```
 
 ## 4. Built-in Filter Functions

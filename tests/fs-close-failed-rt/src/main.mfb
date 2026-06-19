@@ -9,12 +9,9 @@ END FUNC
 
 FUNC main AS Integer
   MUT ok AS Integer = -1
-  MATCH closeOnce("tests/fs-close-failed-rt/data/in.txt")
-    CASE Ok(v)
-      ok = v
-    CASE Error(e)
-      ok = e.code
-  END MATCH
+  ok = closeOnce("tests/fs-close-failed-rt/data/in.txt") TRAP(e)
+    RECOVER e.code
+  END TRAP
   io::print(toString(ok))
   io::print("closed")
   RETURN 0

@@ -1,0 +1,19 @@
+$ mfb build -ast tests/control-flow-inline-trap-valid
+Wrote AST to tests/control-flow-inline-trap-valid/control_flow_inline_trap_valid.ast
+[exit 0]
+$ mfb build -ir tests/control-flow-inline-trap-valid
+Wrote IR to tests/control-flow-inline-trap-valid/control_flow_inline_trap_valid.ir
+[exit 0]
+$ mfb build tests/control-flow-inline-trap-valid
+Wrote executable to tests/control-flow-inline-trap-valid/control_flow_inline_trap_valid.out
+[exit 0]
+$ tests/control-flow-inline-trap-valid/control_flow_inline_trap_valid.out
+10
+7
+9
+5
+0
+99
+0
+500
+[exit 0]

@@ -11,7 +11,7 @@ FUNC showInvalid(label AS String, value AS String) AS Nothing
   io::print(label)
   io::print(json::stringify(json::parse(value)))
   RETURN NOTHING
-  TRAP err
+  TRAP(err)
     io::print("invalid")
     RETURN NOTHING
   END TRAP

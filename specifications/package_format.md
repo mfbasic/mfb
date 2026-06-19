@@ -1066,13 +1066,13 @@ CALL_RESULT     r1, toInt, r0
 UNWRAP_RESULT   r2, r1
 ```
 
-Source direct `MATCH`:
+Source inline `TRAP`:
 
 ```basic
-MATCH toInt(s)
-  CASE Ok(n)  : ...
-  CASE Error(e) : ...
-END MATCH
+LET n = toInt(s) TRAP(e)
+  ...
+  RECOVER 0
+END TRAP
 ```
 
 Bytecode pattern:
@@ -1083,11 +1083,11 @@ RESULT_IS_OK    r2, r1
 JMP_FALSE       r2, errCase
 RESULT_VALUE    r3, r1
 ...
-JMP             endMatch
+JMP             endTrap
 errCase:
 RESULT_ERROR    r4, r1
 ...
-endMatch:
+endTrap:
 ```
 
 This keeps the language clean while making the bytecode explicit and auditable.

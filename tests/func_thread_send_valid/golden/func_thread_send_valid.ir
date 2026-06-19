@@ -28,28 +28,15 @@
     { "op": "bind", "mutable": false, "name": "sentFile", "type": "File", "value": { "kind": "call", "target": "fs.openFile", "args": [{ "kind": "const", "type": "String", "value": "tests/func_thread_send_valid/src/main.mfb" }] } },
     { "op": "eval", "value": { "kind": "call", "target": "thread.send", "args": [{ "kind": "local", "name": "fileThread" }, { "kind": "local", "name": "sentFile" }] } },
     { "op": "bind", "mutable": false, "name": "recoverFile", "type": "File", "value": { "kind": "call", "target": "fs.openFile", "args": [{ "kind": "const", "type": "String", "value": "tests/func_thread_send_valid/src/main.mfb" }] } },
-    { "op": "bind", "mutable": false, "name": "$match0", "type": "Result OF Nothing", "value": { "kind": "callResult", "target": "thread.send", "args": [{ "kind": "local", "name": "fileThread" }, { "kind": "local", "name": "recoverFile" }] } },
-    { "op": "bind", "mutable": false, "name": "$match_ok1", "type": "Boolean", "value": { "kind": "resultIsOk", "value": { "kind": "local", "name": "$match0" } } },
+    { "op": "bind", "mutable": false, "name": "$trap_res0", "type": "Result OF Nothing", "value": { "kind": "callResult", "target": "thread.send", "args": [{ "kind": "local", "name": "fileThread" }, { "kind": "local", "name": "recoverFile" }] } },
     {
-      "op": "match",
-      "value": { "kind": "local", "name": "$match_ok1" },
-      "cases": [
-      {
-        "pattern": { "kind": "value", "value": { "kind": "const", "type": "Boolean", "value": "true" } },
-        "guard": null,
-        "body": [
-        { "op": "bind", "mutable": false, "name": "sent", "type": "Nothing", "value": { "kind": "resultValue", "value": { "kind": "local", "name": "$match0" } } },
-        { "op": "bind", "mutable": false, "name": "accepted", "type": "Nothing", "value": { "kind": "local", "name": "sent" } }
-        ]
-      },
-      {
-        "pattern": { "kind": "value", "value": { "kind": "const", "type": "Boolean", "value": "false" } },
-        "guard": null,
-        "body": [
-        { "op": "bind", "mutable": false, "name": "err", "type": "Error", "value": { "kind": "resultError", "value": { "kind": "local", "name": "$match0" } } },
-        { "op": "eval", "value": { "kind": "call", "target": "fs.close", "args": [{ "kind": "local", "name": "recoverFile" }] } }
-        ]
-      }
+      "op": "if",
+      "condition": { "kind": "resultIsOk", "value": { "kind": "local", "name": "$trap_res0" } },
+      "then": [
+      ],
+      "else": [
+      { "op": "bind", "mutable": false, "name": "err", "type": "Error", "value": { "kind": "resultError", "value": { "kind": "local", "name": "$trap_res0" } } },
+      { "op": "eval", "value": { "kind": "call", "target": "fs.close", "args": [{ "kind": "local", "name": "recoverFile" }] } }
       ]
     },
     { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }

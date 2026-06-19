@@ -5,7 +5,7 @@ FUNC doubleWaitCloses(t AS Thread OF Nothing TO Integer) AS Integer
   LET first AS Integer = thread::waitFor(t)
   LET second AS Integer = thread::waitFor(t)
   RETURN 10
-  TRAP err
+  TRAP(err)
     IF err.code = 77030004 THEN
       RETURN 0
     ELSE

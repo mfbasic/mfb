@@ -652,7 +652,7 @@ END FUNC
 
 FUNC __json_toNumber(value AS String) AS Float
   RETURN toFloat(value)
-  TRAP err
+  TRAP(err)
     FAIL Error[77050003, "invalid JSON format"]
   END TRAP
 END FUNC

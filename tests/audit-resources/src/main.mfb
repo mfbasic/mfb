@@ -10,7 +10,7 @@ FUNC main AS Integer
   LET line = readFirst("data.txt")
   io::print(line)
   RETURN 0
-  TRAP err
+  TRAP(err)
   io::print("failed")
   RETURN 1
   END TRAP

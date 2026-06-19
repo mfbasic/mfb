@@ -1,0 +1,55 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "control_flow_inline_trap_resource_rt",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "openThenFail",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    { "name": "p", "type": "String", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "mutable": false, "name": "scratch", "type": "File", "value": { "kind": "call", "target": "fs.openFile", "args": [{ "kind": "local", "name": "p" }] } },
+    { "op": "fail", "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "700" }, { "kind": "const", "type": "String", "value": "after open" }] } }
+    ]
+  },
+  {
+    "name": "main",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "mutable": false, "name": "outer", "type": "File", "value": { "kind": "call", "target": "fs.openFile", "args": [{ "kind": "const", "type": "String", "value": "tests/control-flow-inline-trap-resource-rt/data/in.txt" }] } },
+    { "op": "bind", "mutable": true, "name": "code", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    { "op": "bind", "mutable": false, "name": "$trap_res0", "type": "Result OF Integer", "value": { "kind": "callResult", "target": "openThenFail", "args": [{ "kind": "const", "type": "String", "value": "tests/control-flow-inline-trap-resource-rt/data/in.txt" }] } },
+    {
+      "op": "if",
+      "condition": { "kind": "resultIsOk", "value": { "kind": "local", "name": "$trap_res0" } },
+      "then": [
+      ],
+      "else": [
+      { "op": "bind", "mutable": false, "name": "e", "type": "Error", "value": { "kind": "resultError", "value": { "kind": "local", "name": "$trap_res0" } } },
+      { "op": "bind", "mutable": false, "name": "line", "type": "String", "value": { "kind": "call", "target": "fs.readLine", "args": [{ "kind": "local", "name": "outer" }] } },
+      { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "local", "name": "line" }] } },
+      { "op": "assign", "name": "code", "value": { "kind": "memberAccess", "target": { "kind": "local", "name": "e" }, "member": "code" } },
+      { "op": "eval", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+      ]
+    },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "local", "name": "code" }] }] } },
+    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

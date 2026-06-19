@@ -117,53 +117,27 @@
         }
         ]
       },
-      {
-        "kind": "match",
-        "expression": { "kind": "call", "callee": "parsePositive", "arguments": [{ "kind": "number", "value": "9" }] },
+      { "kind": "binding", "mutable": false, "name": "parsedOk", "type": null, "value": {
+        "kind": "trapped",
+        "binding": "err",
         "line": 39,
-        "cases": [
-        {
-          "pattern": { "kind": "union", "type": "Ok", "binding": "value" },
-          "guard": null,
-          "line": 40,
-          "body": [
-          { "kind": "assignment", "name": "total", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "total" }, "right": { "kind": "identifier", "value": "value" } }, "line": 41 }
-          ]
-        },
-        {
-          "pattern": { "kind": "union", "type": "Error", "binding": "err" },
-          "guard": null,
-          "line": 42,
-          "body": [
-          { "kind": "assignment", "name": "total", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "total" }, "right": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" } }, "line": 43 }
-          ]
-        }
+        "expression": { "kind": "call", "callee": "parsePositive", "arguments": [{ "kind": "number", "value": "9" }] },
+        "handler": [
+        { "kind": "recover", "value": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }, "line": 40 }
         ]
-      },
-      {
-        "kind": "match",
+      }, "line": 39 },
+      { "kind": "assignment", "name": "total", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "total" }, "right": { "kind": "identifier", "value": "parsedOk" } }, "line": 42 },
+      { "kind": "binding", "mutable": false, "name": "parsedErr", "type": null, "value": {
+        "kind": "trapped",
+        "binding": "err",
+        "line": 44,
         "expression": { "kind": "call", "callee": "parsePositive", "arguments": [{ "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "1" } }] },
-        "line": 46,
-        "cases": [
-        {
-          "pattern": { "kind": "union", "type": "Ok", "binding": "value" },
-          "guard": null,
-          "line": 47,
-          "body": [
-          { "kind": "assignment", "name": "total", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "total" }, "right": { "kind": "identifier", "value": "value" } }, "line": 48 }
-          ]
-        },
-        {
-          "pattern": { "kind": "union", "type": "Error", "binding": "err" },
-          "guard": null,
-          "line": 49,
-          "body": [
-          { "kind": "assignment", "name": "total", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "total" }, "right": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" } }, "line": 50 }
-          ]
-        }
+        "handler": [
+        { "kind": "recover", "value": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }, "line": 45 }
         ]
-      },
-      { "kind": "return", "value": { "kind": "identifier", "value": "total" }, "line": 53 }
+      }, "line": 44 },
+      { "kind": "assignment", "name": "total", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "total" }, "right": { "kind": "identifier", "value": "parsedErr" } }, "line": 47 },
+      { "kind": "return", "value": { "kind": "identifier", "value": "total" }, "line": 49 }
       ]
     }
     ]

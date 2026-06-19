@@ -57,77 +57,38 @@
       "returnType": "Integer",
       "body": [
       { "kind": "binding", "mutable": true, "name": "total", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 14 },
-      {
-        "kind": "match",
-        "expression": { "kind": "call", "callee": "compute", "arguments": [{ "kind": "call", "callee": "mark", "arguments": [{ "kind": "string", "value": "arg1-value" }, { "kind": "number", "value": "3" }] }] },
+      { "kind": "binding", "mutable": false, "name": "first", "type": null, "value": {
+        "kind": "trapped",
+        "binding": "err",
         "line": 16,
-        "cases": [
-        {
-          "pattern": { "kind": "union", "type": "Ok", "binding": "value" },
-          "guard": null,
-          "line": 17,
-          "body": [
-          { "kind": "assignment", "name": "total", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "total" }, "right": { "kind": "identifier", "value": "value" } }, "line": 18 }
-          ]
-        },
-        {
-          "pattern": { "kind": "union", "type": "Error", "binding": "err" },
-          "guard": null,
-          "line": 19,
-          "body": [
-          { "kind": "assignment", "name": "total", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "total" }, "right": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" } }, "line": 20 }
-          ]
-        }
+        "expression": { "kind": "call", "callee": "compute", "arguments": [{ "kind": "call", "callee": "mark", "arguments": [{ "kind": "string", "value": "arg1-value" }, { "kind": "number", "value": "3" }] }] },
+        "handler": [
+        { "kind": "recover", "value": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }, "line": 17 }
         ]
-      },
-      {
-        "kind": "match",
+      }, "line": 16 },
+      { "kind": "assignment", "name": "total", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "total" }, "right": { "kind": "identifier", "value": "first" } }, "line": 19 },
+      { "kind": "binding", "mutable": false, "name": "second", "type": null, "value": {
+        "kind": "trapped",
+        "binding": "err",
+        "line": 21,
         "expression": { "kind": "call", "callee": "compute", "arguments": [{ "kind": "call", "callee": "mark", "arguments": [{ "kind": "string", "value": "arg2-value" }, { "kind": "number", "value": "1" }] }, { "kind": "named", "name": "multiplier", "value": { "kind": "call", "callee": "mark", "arguments": [{ "kind": "string", "value": "arg2-multiplier" }, { "kind": "number", "value": "2" }] } }] },
-        "line": 23,
-        "cases": [
-        {
-          "pattern": { "kind": "union", "type": "Ok", "binding": "value" },
-          "guard": null,
-          "line": 24,
-          "body": [
-          { "kind": "assignment", "name": "total", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "total" }, "right": { "kind": "identifier", "value": "value" } }, "line": 25 }
-          ]
-        },
-        {
-          "pattern": { "kind": "union", "type": "Error", "binding": "err" },
-          "guard": null,
-          "line": 26,
-          "body": [
-          { "kind": "assignment", "name": "total", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "total" }, "right": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" } }, "line": 27 }
-          ]
-        }
+        "handler": [
+        { "kind": "recover", "value": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }, "line": 22 }
         ]
-      },
-      {
-        "kind": "match",
+      }, "line": 21 },
+      { "kind": "assignment", "name": "total", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "total" }, "right": { "kind": "identifier", "value": "second" } }, "line": 24 },
+      { "kind": "binding", "mutable": false, "name": "third", "type": null, "value": {
+        "kind": "trapped",
+        "binding": "err",
+        "line": 26,
         "expression": { "kind": "call", "callee": "compute", "arguments": [{ "kind": "call", "callee": "mark", "arguments": [{ "kind": "string", "value": "arg3-value" }, { "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "1" } }] }] },
-        "line": 30,
-        "cases": [
-        {
-          "pattern": { "kind": "union", "type": "Ok", "binding": "value" },
-          "guard": null,
-          "line": 31,
-          "body": [
-          { "kind": "assignment", "name": "total", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "total" }, "right": { "kind": "identifier", "value": "value" } }, "line": 32 }
-          ]
-        },
-        {
-          "pattern": { "kind": "union", "type": "Error", "binding": "err" },
-          "guard": null,
-          "line": 33,
-          "body": [
-          { "kind": "assignment", "name": "total", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "total" }, "right": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" } }, "line": 34 }
-          ]
-        }
+        "handler": [
+        { "kind": "recover", "value": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }, "line": 27 }
         ]
-      },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "total" }] }] }, "line": 37 },
-      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 38 }
+      }, "line": 26 },
+      { "kind": "assignment", "name": "total", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "total" }, "right": { "kind": "identifier", "value": "third" } }, "line": 29 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "total" }] }] }, "line": 31 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 32 }
       ]
     }
     ]

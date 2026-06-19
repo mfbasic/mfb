@@ -1,0 +1,74 @@
+IMPORT io
+
+FUNC parsePositive(v AS Integer) AS Integer
+  IF v < 0 THEN FAIL Error[404, "missing"]
+  RETURN v + 1
+END FUNC
+
+SUB doEffect(v AS Integer)
+  IF v < 0 THEN FAIL Error[500, "effect failed"]
+END SUB
+
+' Happy path: the trapped call auto-unwraps into the binding.
+FUNC happy() AS Integer
+  LET a = parsePositive(9) TRAP(e)
+    RECOVER 0
+  END TRAP
+  RETURN a
+END FUNC
+
+' Error path: RECOVER supplies the binding value and continues.
+FUNC recovered() AS Integer
+  LET a = parsePositive(-1) TRAP(e)
+    RECOVER 7
+  END TRAP
+  RETURN a
+END FUNC
+
+' Assignment target.
+FUNC viaAssign(v AS Integer) AS Integer
+  MUT total AS Integer = 100
+  total = parsePositive(v) TRAP(e)
+    RECOVER 5
+  END TRAP
+  RETURN total
+END FUNC
+
+' Recover-or-bail idiom: recover the known code, propagate anything else.
+FUNC recoverOrBail(v AS Integer) AS Integer
+  LET a = parsePositive(v) TRAP(e)
+    IF e.code = 404 THEN RECOVER 0
+    FAIL e
+  END TRAP
+  RETURN a
+END FUNC
+
+' Diverge out of the handler with RETURN.
+FUNC viaReturn(v AS Integer) AS Integer
+  LET a = parsePositive(v) TRAP(e)
+    RETURN 99
+  END TRAP
+  RETURN a
+END FUNC
+
+' Value-less RECOVER on a bare SUB call statement.
+FUNC viaSub(v AS Integer) AS Integer
+  MUT code AS Integer = 0
+  doEffect(v) TRAP(e)
+    code = e.code
+    RECOVER
+  END TRAP
+  RETURN code
+END FUNC
+
+FUNC main AS Integer
+  io::print(toString(happy()))
+  io::print(toString(recovered()))
+  io::print(toString(viaAssign(8)))
+  io::print(toString(viaAssign(-1)))
+  io::print(toString(recoverOrBail(-1)))
+  io::print(toString(viaReturn(-1)))
+  io::print(toString(viaSub(5)))
+  io::print(toString(viaSub(-1)))
+  RETURN 0
+END FUNC

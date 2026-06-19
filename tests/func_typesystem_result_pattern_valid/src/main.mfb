@@ -6,19 +6,15 @@ END FUNC
 FUNC main AS Integer
   MUT total AS Integer = 0
 
-  MATCH parsePositive(5)
-    CASE Ok(value)
-      total = total + value
-    CASE Error(err)
-      total = total + err.code
-  END MATCH
+  LET parsedOk = parsePositive(5) TRAP(err)
+    RECOVER err.code
+  END TRAP
+  total = total + parsedOk
 
-  MATCH parsePositive(-1)
-    CASE Ok(value)
-      total = total + value
-    CASE Error(err)
-      total = total + err.code
-  END MATCH
+  LET parsedErr = parsePositive(-1) TRAP(err)
+    RECOVER err.code
+  END TRAP
+  total = total + parsedErr
 
   IF total <> 915 THEN RETURN 1
   RETURN 0

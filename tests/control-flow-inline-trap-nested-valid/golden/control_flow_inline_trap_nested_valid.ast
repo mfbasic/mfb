@@ -1,0 +1,192 @@
+{
+  "project": "control_flow_inline_trap_nested_valid",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "parsePositive",
+      "line": 3,
+      "params": [
+      { "name": "v", "type": "Integer", "default": null }
+      ],
+      "returnType": "Integer",
+      "body": [
+      {
+        "kind": "if",
+        "condition": { "kind": "binary", "operator": "<", "left": { "kind": "identifier", "value": "v" }, "right": { "kind": "number", "value": "0" } },
+        "line": 4,
+        "then": [
+        { "kind": "fail", "error": { "kind": "constructor", "type": "Error", "arguments": [{ "kind": "number", "value": "404" }, { "kind": "string", "value": "missing" }] }, "line": 4 }
+        ],
+        "else": [
+        ]
+      },
+      { "kind": "return", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "v" }, "right": { "kind": "number", "value": "1" } }, "line": 5 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "inner",
+      "line": 9,
+      "params": [
+      { "name": "v", "type": "Integer", "default": null }
+      ],
+      "returnType": "Integer",
+      "body": [
+      {
+        "kind": "if",
+        "condition": { "kind": "binary", "operator": "<", "left": { "kind": "identifier", "value": "v" }, "right": { "kind": "number", "value": "0" } },
+        "line": 10,
+        "then": [
+        { "kind": "fail", "error": { "kind": "constructor", "type": "Error", "arguments": [{ "kind": "number", "value": "404" }, { "kind": "string", "value": "inner failed" }] }, "line": 10 }
+        ],
+        "else": [
+        ]
+      },
+      { "kind": "return", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "v" }, "right": { "kind": "number", "value": "1" } }, "line": 11 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "outer",
+      "line": 14,
+      "params": [
+      { "name": "v", "type": "Integer", "default": null }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "return", "value": { "kind": "binary", "operator": "+", "left": { "kind": "call", "callee": "inner", "arguments": [{ "kind": "identifier", "value": "v" }] }, "right": { "kind": "number", "value": "1" } }, "line": 15 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "withBothTraps",
+      "line": 20,
+      "params": [
+      { "name": "v", "type": "Integer", "default": null }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "a", "type": null, "value": {
+        "kind": "trapped",
+        "binding": "e",
+        "line": 21,
+        "expression": { "kind": "call", "callee": "outer", "arguments": [{ "kind": "identifier", "value": "v" }] },
+        "handler": [
+        { "kind": "recover", "value": { "kind": "binary", "operator": "+", "left": { "kind": "number", "value": "1000" }, "right": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "e" }, "member": "code" } }, "line": 22 }
+        ]
+      }, "line": 21 },
+      { "kind": "return", "value": { "kind": "identifier", "value": "a" }, "line": 24 }
+      ],
+      "trap": {
+      "name": "fe",
+      "line": 25,
+      "body": [
+      { "kind": "return", "value": { "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "1" } }, "line": 26 }
+      ]
+    }
+    },
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "nestedHandler",
+      "line": 31,
+      "params": [
+      { "name": "v", "type": "Integer", "default": null }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "a", "type": null, "value": {
+        "kind": "trapped",
+        "binding": "e",
+        "line": 32,
+        "expression": { "kind": "call", "callee": "parsePositive", "arguments": [{ "kind": "identifier", "value": "v" }] },
+        "handler": [
+        { "kind": "binding", "mutable": false, "name": "b", "type": null, "value": {
+          "kind": "trapped",
+          "binding": "e2",
+          "line": 33,
+          "expression": { "kind": "call", "callee": "parsePositive", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "e" }, "member": "code" }] },
+          "handler": [
+          { "kind": "recover", "value": { "kind": "number", "value": "0" }, "line": 34 }
+          ]
+        }, "line": 33 },
+        { "kind": "recover", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "b" }, "right": { "kind": "number", "value": "1" } }, "line": 36 }
+        ]
+      }, "line": 32 },
+      { "kind": "return", "value": { "kind": "identifier", "value": "a" }, "line": 38 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "viaPropagate",
+      "line": 42,
+      "params": [
+      { "name": "v", "type": "Integer", "default": null }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "a", "type": null, "value": {
+        "kind": "trapped",
+        "binding": "e",
+        "line": 43,
+        "expression": { "kind": "call", "callee": "parsePositive", "arguments": [{ "kind": "identifier", "value": "v" }] },
+        "handler": [
+        { "kind": "propagate", "line": 44 }
+        ]
+      }, "line": 43 },
+      { "kind": "return", "value": { "kind": "identifier", "value": "a" }, "line": 46 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "catchesPropagated",
+      "line": 49,
+      "params": [
+      { "name": "v", "type": "Integer", "default": null }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "a", "type": null, "value": {
+        "kind": "trapped",
+        "binding": "e",
+        "line": 50,
+        "expression": { "kind": "call", "callee": "viaPropagate", "arguments": [{ "kind": "identifier", "value": "v" }] },
+        "handler": [
+        { "kind": "recover", "value": { "kind": "binary", "operator": "+", "left": { "kind": "number", "value": "2000" }, "right": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "e" }, "member": "code" } }, "line": 51 }
+        ]
+      }, "line": 50 },
+      { "kind": "return", "value": { "kind": "identifier", "value": "a" }, "line": 53 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "main",
+      "line": 56,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "withBothTraps", "arguments": [{ "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "1" } }] }] }] }, "line": 57 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "withBothTraps", "arguments": [{ "kind": "number", "value": "5" }] }] }] }, "line": 58 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "nestedHandler", "arguments": [{ "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "1" } }] }] }] }, "line": 59 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "catchesPropagated", "arguments": [{ "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "1" } }] }] }] }, "line": 60 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 61 }
+      ]
+    }
+    ]
+  }
+  ]
+}

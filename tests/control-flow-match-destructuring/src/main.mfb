@@ -36,19 +36,15 @@ FUNC main() AS Integer
       total = total + rect.width + rect.height
   END MATCH
 
-  MATCH parsePositive(9)
-    CASE Ok(value)
-      total = total + value
-    CASE Error(err)
-      total = total + err.code
-  END MATCH
+  LET parsedOk = parsePositive(9) TRAP(err)
+    RECOVER err.code
+  END TRAP
+  total = total + parsedOk
 
-  MATCH parsePositive(-1)
-    CASE Ok(value)
-      total = total + value
-    CASE Error(err)
-      total = total + err.code
-  END MATCH
+  LET parsedErr = parsePositive(-1) TRAP(err)
+    RECOVER err.code
+  END TRAP
+  total = total + parsedErr
 
   RETURN total
 END FUNC

@@ -1,16 +1,28 @@
 $ mfb build -ast tests/func_typesystem_result_pattern_invalid
+   6 | FUNC main AS Integer
+   7 |   MATCH parsePositive(5)
+   8 |     CASE Ok(value)
+     | ^
+tests/func_typesystem_result_pattern_invalid/src/main.mfb:8 error[2-203-0049 TYPE_MATCH_PATTERN_MISMATCH]: match pattern type does not match the scrutinee type
+               CASE `Ok` requires a UNION or Result value, got Integer.
+   7 |   MATCH parsePositive(5)
+   8 |     CASE Ok(value)
+   9 |       RETURN value
+     | ^
+tests/func_typesystem_result_pattern_invalid/src/main.mfb:9 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               RETURN value does not have a known type.
    5 | 
    6 | FUNC main AS Integer
    7 |   MATCH parsePositive(5)
      | ^
 tests/func_typesystem_result_pattern_invalid/src/main.mfb:7 error[2-203-0062 TYPE_MATCH_NOT_EXHAUSTIVE]: match cases do not cover every possible value
-               MATCH on Result OF Integer does not cover Error; add unguarded CASE arms or CASE ELSE.
+               MATCH on open type Integer requires an unguarded CASE ELSE.
   11 | 
   12 |   MATCH 1
   13 |     CASE Ok(value)
      | ^
 tests/func_typesystem_result_pattern_invalid/src/main.mfb:13 error[2-203-0049 TYPE_MATCH_PATTERN_MISMATCH]: match pattern type does not match the scrutinee type
-               CASE `Ok` requires a UNION or direct call Result, got Integer.
+               CASE `Ok` requires a UNION or Result value, got Integer.
   12 |   MATCH 1
   13 |     CASE Ok(value)
   14 |       RETURN value
@@ -22,7 +34,7 @@ tests/func_typesystem_result_pattern_invalid/src/main.mfb:14 error[2-203-0043 TY
   15 |     CASE Error(err)
      | ^
 tests/func_typesystem_result_pattern_invalid/src/main.mfb:15 error[2-203-0049 TYPE_MATCH_PATTERN_MISMATCH]: match pattern type does not match the scrutinee type
-               CASE `Error` requires a UNION or direct call Result, got Integer.
+               CASE `Error` requires a UNION or Result value, got Integer.
   14 |       RETURN value
   15 |     CASE Error(err)
   16 |       RETURN err.code
@@ -43,18 +55,30 @@ tests/func_typesystem_result_pattern_invalid/src/main.mfb:12 error[2-203-0062 TY
                MATCH on open type Integer requires an unguarded CASE ELSE.
 [exit 1]
 $ mfb build -ir tests/func_typesystem_result_pattern_invalid
+   6 | FUNC main AS Integer
+   7 |   MATCH parsePositive(5)
+   8 |     CASE Ok(value)
+     | ^
+tests/func_typesystem_result_pattern_invalid/src/main.mfb:8 error[2-203-0049 TYPE_MATCH_PATTERN_MISMATCH]: match pattern type does not match the scrutinee type
+               CASE `Ok` requires a UNION or Result value, got Integer.
+   7 |   MATCH parsePositive(5)
+   8 |     CASE Ok(value)
+   9 |       RETURN value
+     | ^
+tests/func_typesystem_result_pattern_invalid/src/main.mfb:9 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               RETURN value does not have a known type.
    5 | 
    6 | FUNC main AS Integer
    7 |   MATCH parsePositive(5)
      | ^
 tests/func_typesystem_result_pattern_invalid/src/main.mfb:7 error[2-203-0062 TYPE_MATCH_NOT_EXHAUSTIVE]: match cases do not cover every possible value
-               MATCH on Result OF Integer does not cover Error; add unguarded CASE arms or CASE ELSE.
+               MATCH on open type Integer requires an unguarded CASE ELSE.
   11 | 
   12 |   MATCH 1
   13 |     CASE Ok(value)
      | ^
 tests/func_typesystem_result_pattern_invalid/src/main.mfb:13 error[2-203-0049 TYPE_MATCH_PATTERN_MISMATCH]: match pattern type does not match the scrutinee type
-               CASE `Ok` requires a UNION or direct call Result, got Integer.
+               CASE `Ok` requires a UNION or Result value, got Integer.
   12 |   MATCH 1
   13 |     CASE Ok(value)
   14 |       RETURN value
@@ -66,7 +90,7 @@ tests/func_typesystem_result_pattern_invalid/src/main.mfb:14 error[2-203-0043 TY
   15 |     CASE Error(err)
      | ^
 tests/func_typesystem_result_pattern_invalid/src/main.mfb:15 error[2-203-0049 TYPE_MATCH_PATTERN_MISMATCH]: match pattern type does not match the scrutinee type
-               CASE `Error` requires a UNION or direct call Result, got Integer.
+               CASE `Error` requires a UNION or Result value, got Integer.
   14 |       RETURN value
   15 |     CASE Error(err)
   16 |       RETURN err.code

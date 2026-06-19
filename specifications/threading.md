@@ -325,9 +325,9 @@ For `thread::send`, ownership transfer is atomic with enqueue success:
 - If enqueue fails because the queue is full, closed, cancelled, timed out, or
   the timeout is invalid, ownership is not transferred and the sender still owns
   `data`.
-- Code may use `MATCH thread::send(...)` to separate the success path, where a
-  non-copyable sent binding is moved, from the error path, where it remains
-  owned by the sender.
+- Code may attach an inline `TRAP` to `thread::send(...)` to separate the
+  success path, where a non-copyable sent binding is moved, from the error
+  handler, where it remains owned by the sender and can be released.
 
 Receiving a non-copyable value moves it out of the queue into the receiver's
 binding. Receiving a copyable value may copy or move according to the normal

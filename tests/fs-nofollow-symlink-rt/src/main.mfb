@@ -11,12 +11,10 @@ FUNC main AS Integer
   LET real AS String = fs::readText("tests/fs-nofollow-symlink-rt/data/real.txt")
   io::print(real)
   MUT code AS Integer = 0
-  MATCH openNoFollow("tests/fs-nofollow-symlink-rt/data/link.txt")
-    CASE Ok(v)
-      code = 0
-    CASE Error(e)
-      code = e.code
-  END MATCH
+  openNoFollow("tests/fs-nofollow-symlink-rt/data/link.txt") TRAP(e)
+    code = e.code
+    RECOVER 0
+  END TRAP
   io::print(toString(code))
   RETURN 0
 END FUNC

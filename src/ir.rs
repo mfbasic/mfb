@@ -281,6 +281,7 @@ pub fn lower_project_with_external_functions(
         lambdas: Vec::new(),
         next_lambda_id: 0,
         next_temp_id: 0,
+        recover_targets: Vec::new(),
     };
     infer_binding_types(ast, &mut context);
     let bindings = lower_bindings(ast, &mut context);
@@ -487,6 +488,16 @@ struct LowerContext<'a> {
     lambdas: Vec<IrFunction>,
     next_lambda_id: usize,
     next_temp_id: usize,
+    /// Stack of inline-`TRAP` recover destinations (innermost last). Each entry
+    /// is the local slot a `RECOVER` value should be stored into and its type,
+    /// or `None` when the trapped value is discarded (bare-statement form).
+    recover_targets: Vec<RecoverTarget>,
+}
+
+#[derive(Clone)]
+struct RecoverTarget {
+    slot: Option<String>,
+    type_: String,
 }
 
 #[derive(Clone)]
@@ -517,6 +528,30 @@ fn lower_statement(
             value,
             ..
         } => {
+            if let Some(Expression::Trapped {
+                expression,
+                binding,
+                handler,
+                ..
+            }) = value
+            {
+                let success_type = type_name
+                    .clone()
+                    .or_else(|| expression_type(expression, locals, context))
+                    .expect("typecheck requires inferred binding type before IR lowering");
+                return lower_inline_trap(
+                    expression,
+                    binding,
+                    handler,
+                    InlineTrapTarget::Bind {
+                        mutable: *mutable,
+                        name: name.clone(),
+                        type_: success_type,
+                    },
+                    locals,
+                    context,
+                );
+            }
             let lowered_type = type_name.clone().unwrap_or_else(|| {
                 value
                     .as_ref()
@@ -549,7 +584,53 @@ fn lower_statement(
                     .to_string(),
             ),
         }],
+        Statement::Recover { value, .. } => {
+            let target = context
+                .recover_targets
+                .last()
+                .cloned()
+                .expect("typecheck requires RECOVER to appear only in inline TRAP handlers");
+            match (target.slot, value) {
+                (Some(slot), Some(value)) => {
+                    let lowered = lower_expression_with_expected(
+                        value,
+                        Some(&target.type_),
+                        locals,
+                        context,
+                    );
+                    vec![IrOp::Assign {
+                        name: slot,
+                        value: lowered,
+                    }]
+                }
+                (None, Some(value)) => vec![IrOp::Eval {
+                    value: lower_expression_with_expected(
+                        value,
+                        Some(&target.type_),
+                        locals,
+                        context,
+                    ),
+                }],
+                (_, None) => Vec::new(),
+            }
+        }
         Statement::Assign { name, value, .. } => {
+            if let Expression::Trapped {
+                expression,
+                binding,
+                handler,
+                ..
+            } = value
+            {
+                return lower_inline_trap(
+                    expression,
+                    binding,
+                    handler,
+                    InlineTrapTarget::Assign { name: name.clone() },
+                    locals,
+                    context,
+                );
+            }
             let expected = locals
                 .get(name)
                 .or_else(|| context.binding_types.get(name))
@@ -568,9 +649,27 @@ fn lower_statement(
                 }]
             }
         }
-        Statement::Expression { expression, .. } => vec![IrOp::Eval {
-            value: lower_expression(expression, locals, context),
-        }],
+        Statement::Expression { expression, .. } => {
+            if let Expression::Trapped {
+                expression: inner,
+                binding,
+                handler,
+                ..
+            } = expression
+            {
+                return lower_inline_trap(
+                    inner,
+                    binding,
+                    handler,
+                    InlineTrapTarget::Discard,
+                    locals,
+                    context,
+                );
+            }
+            vec![IrOp::Eval {
+                value: lower_expression(expression, locals, context),
+            }]
+        }
         Statement::If {
             condition,
             then_body,
@@ -797,6 +896,345 @@ fn lower_statement_block(
         .collect()
 }
 
+/// Where the recovered/`Ok` value of an inline `TRAP` is delivered.
+enum InlineTrapTarget {
+    /// `LET`/`MUT name = <call> TRAP(e) …`
+    Bind {
+        mutable: bool,
+        name: String,
+        type_: String,
+    },
+    /// `name = <call> TRAP(e) …`
+    Assign { name: String },
+    /// `<call> TRAP(e) …` as a bare statement (value discarded).
+    Discard,
+}
+
+/// Lowers an inline `TRAP` to existing IR primitives (no backend support is
+/// required). The trapped call is evaluated as a raw `Result`; on `Ok` its value
+/// flows to the target; on `Err` the handler runs with `e` bound. `RECOVER`
+/// stores its value into a shared slot and then falls through to the delivery of
+/// the target, while diverging handler paths (`RETURN`/`FAIL`/`PROPAGATE`) leave
+/// as usual. The handler is normalized so that statements following a `RECOVER`
+/// in a branch do not execute after recovery (see [`treeify_handler`]).
+fn lower_inline_trap(
+    inner: &Expression,
+    binding: &str,
+    handler: &[Statement],
+    target: InlineTrapTarget,
+    locals: &mut HashMap<String, String>,
+    context: &mut LowerContext<'_>,
+) -> Vec<IrOp> {
+    let success_type = expression_type(inner, locals, context)
+        .expect("typecheck requires inline TRAP expression type before IR lowering");
+    let result_type = format!("Result OF {success_type}");
+    let raw = lower_expression(inner, locals, context);
+    let call_result = match raw {
+        IrValue::Call { target, args } => IrValue::CallResult { target, args },
+        other => other,
+    };
+
+    let res_name = make_temp_local_name(context, "trap_res");
+    let mut ops = vec![IrOp::Bind {
+        mutable: false,
+        name: res_name.clone(),
+        type_: result_type.clone(),
+        value: Some(call_result),
+    }];
+    locals.insert(res_name.clone(), result_type);
+
+    // A shared slot carries the value on both the Ok and RECOVER paths so the
+    // target binding/assignment is produced exactly once after the branch.
+    let slot = match &target {
+        InlineTrapTarget::Bind { .. } | InlineTrapTarget::Assign { .. } => {
+            let val_name = make_temp_local_name(context, "trap_val");
+            ops.push(IrOp::Bind {
+                mutable: true,
+                name: val_name.clone(),
+                type_: success_type.clone(),
+                value: None,
+            });
+            locals.insert(val_name.clone(), success_type.clone());
+            Some(val_name)
+        }
+        InlineTrapTarget::Discard => None,
+    };
+
+    let then_body = match &slot {
+        Some(val_name) => vec![IrOp::Assign {
+            name: val_name.clone(),
+            value: IrValue::ResultValue {
+                value: Box::new(IrValue::Local(res_name.clone())),
+            },
+        }],
+        None => Vec::new(),
+    };
+
+    let mut handler_locals = locals.clone();
+    handler_locals.insert(binding.to_string(), "Error".to_string());
+    let mut else_body = vec![IrOp::Bind {
+        mutable: false,
+        name: binding.to_string(),
+        type_: "Error".to_string(),
+        value: Some(IrValue::ResultError {
+            value: Box::new(IrValue::Local(res_name.clone())),
+        }),
+    }];
+    context.recover_targets.push(RecoverTarget {
+        slot: slot.clone(),
+        type_: success_type.clone(),
+    });
+    let normalized = treeify_handler(handler);
+    else_body.extend(lower_statement_block(
+        &normalized,
+        &handler_locals,
+        context,
+        Some(binding),
+    ));
+    context.recover_targets.pop();
+
+    ops.push(IrOp::If {
+        condition: IrValue::ResultIsOk {
+            value: Box::new(IrValue::Local(res_name.clone())),
+        },
+        then_body,
+        else_body,
+    });
+
+    match target {
+        InlineTrapTarget::Bind {
+            mutable,
+            name,
+            type_,
+        } => {
+            ops.push(IrOp::Bind {
+                mutable,
+                name: name.clone(),
+                type_: type_.clone(),
+                value: Some(IrValue::Local(slot.expect("bind target has a value slot"))),
+            });
+            locals.insert(name, type_);
+        }
+        InlineTrapTarget::Assign { name } => {
+            let value = IrValue::Local(slot.expect("assign target has a value slot"));
+            if locals.contains_key(&name) {
+                ops.push(IrOp::Assign { name, value });
+            } else {
+                ops.push(IrOp::AssignGlobal { name, value });
+            }
+        }
+        InlineTrapTarget::Discard => {}
+    }
+
+    ops
+}
+
+/// Normalizes an inline-`TRAP` handler so that a `RECOVER` (which is lowered as
+/// an assignment that falls through to the post-trap continuation) never lets
+/// statements that follow it in a sibling position execute. Statements after a
+/// branching statement (`IF`/`MATCH`) whose branch falls through are pushed into
+/// that fall-through branch, so each leaf path ends in its own terminator and
+/// the structured lowering needs no jumps. Statements after a terminator are
+/// unreachable and dropped.
+fn treeify_handler(stmts: &[Statement]) -> Vec<Statement> {
+    let Some((head, tail)) = stmts.split_first() else {
+        return Vec::new();
+    };
+
+    if tail.is_empty() {
+        return vec![treeify_statement(head)];
+    }
+    if statement_terminates(head) {
+        // Anything after a terminator cannot run.
+        return vec![treeify_statement(head)];
+    }
+
+    match head {
+        Statement::If {
+            condition,
+            then_body,
+            else_body,
+            line,
+        } => {
+            let then_body = distribute_continuation(then_body, tail);
+            let else_body = distribute_continuation(else_body, tail);
+            vec![Statement::If {
+                condition: condition.clone(),
+                then_body,
+                else_body,
+                line: *line,
+            }]
+        }
+        Statement::Match {
+            expression,
+            cases,
+            line,
+        } => {
+            let mut new_cases: Vec<MatchCase> = cases
+                .iter()
+                .map(|case| MatchCase {
+                    pattern: case.pattern.clone(),
+                    guard: case.guard.clone(),
+                    body: distribute_continuation(&case.body, tail),
+                    line: case.line,
+                })
+                .collect();
+            // An unmatched scrutinee falls through to the continuation, so make
+            // that path explicit unless an ELSE arm already covers it.
+            let has_else = cases
+                .iter()
+                .any(|case| matches!(case.pattern, MatchPattern::Else) && case.guard.is_none());
+            if !has_else {
+                new_cases.push(MatchCase {
+                    pattern: MatchPattern::Else,
+                    guard: None,
+                    body: treeify_handler(tail),
+                    line: *line,
+                });
+            }
+            vec![Statement::Match {
+                expression: expression.clone(),
+                cases: new_cases,
+                line: *line,
+            }]
+        }
+        _ => {
+            // A non-branching, non-terminating statement falls through to the
+            // continuation; keep it and continue normalizing the tail.
+            let mut result = vec![treeify_statement(head)];
+            result.extend(treeify_handler(tail));
+            result
+        }
+    }
+}
+
+/// Appends `continuation` to a block's fall-through paths, then normalizes it.
+fn distribute_continuation(body: &[Statement], continuation: &[Statement]) -> Vec<Statement> {
+    if block_terminates(body) {
+        treeify_handler(body)
+    } else {
+        let mut combined = body.to_vec();
+        combined.extend_from_slice(continuation);
+        treeify_handler(&combined)
+    }
+}
+
+/// Recurses into a statement's nested blocks without distributing any
+/// continuation (used when there is nothing following the statement).
+fn treeify_statement(statement: &Statement) -> Statement {
+    match statement {
+        Statement::If {
+            condition,
+            then_body,
+            else_body,
+            line,
+        } => Statement::If {
+            condition: condition.clone(),
+            then_body: treeify_handler(then_body),
+            else_body: treeify_handler(else_body),
+            line: *line,
+        },
+        Statement::Match {
+            expression,
+            cases,
+            line,
+        } => Statement::Match {
+            expression: expression.clone(),
+            cases: cases
+                .iter()
+                .map(|case| MatchCase {
+                    pattern: case.pattern.clone(),
+                    guard: case.guard.clone(),
+                    body: treeify_handler(&case.body),
+                    line: case.line,
+                })
+                .collect(),
+            line: *line,
+        },
+        Statement::While {
+            condition,
+            body,
+            line,
+        } => Statement::While {
+            condition: condition.clone(),
+            body: treeify_handler(body),
+            line: *line,
+        },
+        Statement::DoUntil {
+            body,
+            condition,
+            line,
+        } => Statement::DoUntil {
+            body: treeify_handler(body),
+            condition: condition.clone(),
+            line: *line,
+        },
+        Statement::For {
+            name,
+            start,
+            end,
+            step,
+            body,
+            line,
+        } => Statement::For {
+            name: name.clone(),
+            start: start.clone(),
+            end: end.clone(),
+            step: step.clone(),
+            body: treeify_handler(body),
+            line: *line,
+        },
+        Statement::ForEach {
+            name,
+            iterable,
+            body,
+            line,
+        } => Statement::ForEach {
+            name: name.clone(),
+            iterable: iterable.clone(),
+            body: treeify_handler(body),
+            line: *line,
+        },
+        other => other.clone(),
+    }
+}
+
+/// Whether executing `stmts` always ends in a terminator (never reaches the end
+/// of the block).
+fn block_terminates(stmts: &[Statement]) -> bool {
+    stmts.iter().any(statement_terminates)
+}
+
+/// Whether a statement always diverges or recovers (ends its enclosing handler
+/// path). Mirrors the typecheck flow analysis for the constructs an inline-trap
+/// handler may contain.
+fn statement_terminates(statement: &Statement) -> bool {
+    match statement {
+        Statement::Return { .. }
+        | Statement::Fail { .. }
+        | Statement::Propagate { .. }
+        | Statement::Recover { .. } => true,
+        Statement::If {
+            then_body,
+            else_body,
+            ..
+        } => {
+            !else_body.is_empty()
+                && block_terminates(then_body)
+                && block_terminates(else_body)
+        }
+        Statement::Match { cases, .. } => {
+            let has_else = cases
+                .iter()
+                .any(|case| matches!(case.pattern, MatchPattern::Else) && case.guard.is_none());
+            has_else
+                && !cases.is_empty()
+                && cases.iter().all(|case| block_terminates(&case.body))
+        }
+        _ => false,
+    }
+}
+
 fn collection_iteration_type(type_: &str) -> Option<String> {
     type_
         .strip_prefix("List OF ")
@@ -947,69 +1385,10 @@ fn lower_match_expression(
     locals: &HashMap<String, String>,
     context: &mut LowerContext<'_>,
 ) -> IrValue {
-    if matched_type.starts_with("Result OF ") {
-        if let Expression::Call { callee, arguments } = expression {
-            let normalized_builtin = normalize_builtin_call_arguments(callee, arguments);
-            let args = if callee == "filter" && normalized_builtin.len() == 2 {
-                if let Expression::Identifier(predicate) = normalized_builtin[1] {
-                    let predicate_type = expression_type(normalized_builtin[0], locals, context)
-                        .and_then(|collection_type| {
-                            collection_type
-                                .strip_prefix("List OF ")
-                                .and_then(|element| {
-                                    builtins::general::filter_predicate_type(predicate, element)
-                                })
-                        });
-                    if let Some(predicate_type) = predicate_type {
-                        vec![
-                            lower_expression(normalized_builtin[0], locals, context),
-                            IrValue::FunctionRef {
-                                name: predicate.clone(),
-                                type_: predicate_type,
-                            },
-                        ]
-                    } else {
-                        normalized_builtin
-                            .iter()
-                            .map(|argument| lower_expression(argument, locals, context))
-                            .collect()
-                    }
-                } else {
-                    normalized_builtin
-                        .iter()
-                        .map(|argument| lower_expression(argument, locals, context))
-                        .collect()
-                }
-            } else if context.function_params.contains_key(callee)
-                || context
-                    .function_params
-                    .contains_key(&canonical_import_name(callee, context))
-            {
-                lower_local_call_arguments(callee, arguments, locals, context)
-            } else {
-                normalized_builtin
-                    .iter()
-                    .enumerate()
-                    .map(|(index, argument)| {
-                        let expected =
-                            call_argument_expected_type(callee, index, arguments, locals, context);
-                        lower_expression_with_expected(
-                            argument,
-                            expected.as_deref(),
-                            locals,
-                            context,
-                        )
-                    })
-                    .collect()
-            };
-            return IrValue::CallResult {
-                target: builtins::json::implementation_name(callee)
-                    .unwrap_or(callee)
-                    .to_string(),
-                args,
-            };
-        }
-    }
+    // A `MATCH` scrutinee that is a call auto-unwraps like any other call site
+    // (local error handling now uses an inline `TRAP`), so the scrutinee lowers
+    // to its ordinary value. A `Result`-typed *value* (a local or field) keeps
+    // its `Result OF …` type and is matched with `CASE Ok`/`CASE Error`.
     lower_expression_with_expected(expression, Some(matched_type), locals, context)
 }
 
@@ -1018,10 +1397,8 @@ fn match_expression_type(
     locals: &HashMap<String, String>,
     context: &LowerContext<'_>,
 ) -> Option<String> {
-    if let Expression::Call { .. } = expression {
-        return expression_type(expression, locals, context)
-            .map(|success| format!("Result OF {success}"));
-    }
+    // Call scrutinees auto-unwrap; only a value already of `Result` type keeps
+    // its `Result OF …` shape for `CASE Ok`/`CASE Error` matching.
     expression_type(expression, locals, context)
 }
 
@@ -1361,6 +1738,7 @@ fn expression_type(
                 expression_type(operand, locals, context)
             }
         }
+        Expression::Trapped { expression, .. } => expression_type(expression, locals, context),
     }
 }
 
@@ -1854,6 +2232,12 @@ fn lower_expression_with_expected(
             target: Box::new(lower_expression(target, locals, context)),
             member: member.clone(),
         },
+        Expression::Trapped { .. } => {
+            // Inline traps are only constructed as the value of a binding,
+            // assignment, or bare-expression statement, where `lower_statement`
+            // desugars them directly; they never reach value lowering.
+            unreachable!("inline TRAP must be lowered as a statement value")
+        }
         Expression::Binary {
             left,
             operator,
@@ -2038,6 +2422,9 @@ fn collect_captured_locals(
             for update in updates {
                 collect_captured_locals(&update.value, outer_locals, local_names, seen, captures);
             }
+        }
+        Expression::Trapped { expression, .. } => {
+            collect_captured_locals(expression, outer_locals, local_names, seen, captures);
         }
         Expression::String(_) | Expression::Number(_) | Expression::Boolean(_) => {}
     }

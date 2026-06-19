@@ -511,6 +511,11 @@ impl<'a> Resolver<'a> {
                 self.resolve_expression(file, error, *line, imports, locals);
             }
             Statement::Propagate { .. } => {}
+            Statement::Recover { value, line } => {
+                if let Some(value) = value {
+                    self.resolve_expression(file, value, *line, imports, locals);
+                }
+            }
             Statement::Assign { name, value, line } => {
                 self.resolve_identifier(file, name, *line, imports, locals);
                 self.resolve_expression(file, value, *line, imports, locals);
@@ -772,6 +777,24 @@ impl<'a> Resolver<'a> {
                     }
                 }
                 self.resolve_expression(file, target, line, imports, locals);
+            }
+            Expression::Trapped {
+                expression,
+                binding,
+                handler,
+                line: trap_line,
+            } => {
+                self.resolve_expression(file, expression, line, imports, locals);
+                let mut handler_locals = locals.clone();
+                handler_locals.insert(
+                    binding.clone(),
+                    Symbol {
+                        file_path: file.path.clone(),
+                        line: *trap_line,
+                        visibility: Visibility::Private,
+                    },
+                );
+                self.resolve_block(file, handler, imports, &mut handler_locals);
             }
             Expression::Identifier(name) if name == "NOTHING" => {}
             Expression::Identifier(name) => {

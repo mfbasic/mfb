@@ -28,7 +28,7 @@ FUNC autoTrapDrop AS Integer
   LET t AS Thread OF String TO Integer = thread::start(thread_runtime_workers::waitForCancel, "trap", 1, 1)
   LET ready AS Boolean = thread::poll(t, -1)
   RETURN 2
-  TRAP err
+  TRAP(err)
     RETURN 0
   END TRAP
 END FUNC
@@ -36,7 +36,7 @@ END FUNC
 FUNC failTrapDrop AS Integer
   LET t AS Thread OF String TO Integer = thread::start(thread_runtime_workers::waitForCancel, "fail", 1, 1)
   FAIL Error[77050002, "forced"]
-  TRAP err
+  TRAP(err)
     RETURN 0
   END TRAP
 END FUNC

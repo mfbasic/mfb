@@ -2,7 +2,7 @@ SUB bad(flag AS Boolean)
   IF flag THEN
     RETURN
   END IF
-  TRAP err
+  TRAP(err)
   RETURN
   END TRAP
 END SUB

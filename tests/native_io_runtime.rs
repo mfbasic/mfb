@@ -400,7 +400,7 @@ IMPORT io
 FUNC main AS Integer
   io::flush()
   RETURN 17
-  TRAP err
+  TRAP(err)
     io::printError(toString(err.code))
     RETURN 0
   END TRAP
@@ -415,7 +415,7 @@ IMPORT io
 FUNC main AS Integer
   io::flushError()
   RETURN 17
-  TRAP err
+  TRAP(err)
     io::print(toString(err.code))
     RETURN 0
   END TRAP
@@ -531,7 +531,7 @@ IMPORT io
 FUNC main AS Integer
   io::input()
   RETURN 17
-  TRAP err
+  TRAP(err)
     io::printError(toString(err.code))
     RETURN 0
   END TRAP
@@ -554,7 +554,7 @@ IMPORT io
 FUNC readLineWithTrap AS Nothing
   io::print(io::readLine())
   RETURN NOTHING
-  TRAP err
+  TRAP(err)
     io::print(toString(err.code))
     RETURN NOTHING
   END TRAP
@@ -574,7 +574,7 @@ IMPORT io
 FUNC readCharWithTrap AS Nothing
   io::print(io::readChar())
   RETURN NOTHING
-  TRAP err
+  TRAP(err)
     io::print(toString(err.code))
     RETURN NOTHING
   END TRAP
@@ -594,7 +594,7 @@ IMPORT io
 FUNC inputWithTrap AS Nothing
   io::print(io::input())
   RETURN NOTHING
-  TRAP err
+  TRAP(err)
     io::print(toString(err.code))
     RETURN NOTHING
   END TRAP
@@ -633,7 +633,7 @@ FUNC printTerminalSize AS Nothing
   io::print(toString(size.columns))
   io::print(toString(size.rows))
   RETURN NOTHING
-  TRAP err
+  TRAP(err)
     io::print("ERR:" & toString(err.code))
     RETURN NOTHING
   END TRAP

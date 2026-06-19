@@ -14,28 +14,22 @@ END FUNC
 FUNC codeOf(p AS String, which AS Integer) AS Integer
   MUT code AS Integer = 0
   IF which = 0 THEN
-    MATCH readText1(p)
-      CASE Ok(v)
-        code = 0
-      CASE Error(e)
-        code = e.code
-    END MATCH
+    readText1(p) TRAP(e)
+      code = e.code
+      RECOVER ""
+    END TRAP
   END IF
   IF which = 1 THEN
-    MATCH readAll1(p)
-      CASE Ok(v)
-        code = 0
-      CASE Error(e)
-        code = e.code
-    END MATCH
+    readAll1(p) TRAP(e)
+      code = e.code
+      RECOVER ""
+    END TRAP
   END IF
   IF which = 2 THEN
-    MATCH readLine1(p)
-      CASE Ok(v)
-        code = 0
-      CASE Error(e)
-        code = e.code
-    END MATCH
+    readLine1(p) TRAP(e)
+      code = e.code
+      RECOVER ""
+    END TRAP
   END IF
   RETURN code
 END FUNC

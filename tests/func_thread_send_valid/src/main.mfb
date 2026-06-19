@@ -14,11 +14,9 @@ FUNC main AS Integer
   LET sentFile AS File = fs::openFile("tests/func_thread_send_valid/src/main.mfb")
   thread::send(fileThread, sentFile)
   LET recoverFile AS File = fs::openFile("tests/func_thread_send_valid/src/main.mfb")
-  MATCH thread::send(fileThread, recoverFile)
-    CASE Ok(sent)
-      LET accepted AS Nothing = sent
-    CASE Error(err)
-      fs::close(recoverFile)
-  END MATCH
+  thread::send(fileThread, recoverFile) TRAP(err)
+    fs::close(recoverFile)
+    RECOVER
+  END TRAP
   RETURN 0
 END FUNC

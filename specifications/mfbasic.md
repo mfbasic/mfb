@@ -2,7 +2,7 @@
 
 ## Modern Functional Basic (MFB)
 
-A modern, functional dialect of BASIC. Immutable by default, no objects, package-level imports, and a single-trap error model. Every function returns a `Result` that **auto-unwraps on success and auto-propagates on error** — no `TRY`, no `GOTO`, no exceptions. The language is designed for memory-safe implementation through owned values, explicit resource ownership, and lexical cleanup.
+A modern, functional dialect of BASIC. Immutable by default, no objects, package-level imports, and an implicit-`Result` error model. Every function returns a `Result` that **auto-unwraps on success and auto-propagates on error**; errors auto-route to an inline `TRAP` on the failing expression, to a function-level `TRAP`, or propagate to the caller — no `TRY`, no `GOTO`, no exceptions. The language is designed for memory-safe implementation through owned values, explicit resource ownership, and lexical cleanup.
 
 ---
 
@@ -12,7 +12,7 @@ A modern, functional dialect of BASIC. Immutable by default, no objects, package
 2. **Functional, no OOP** — plain data (records/unions) + free functions. No classes, methods, `self`, or inheritance.
 3. **Immutable by default** — `LET` binds, `MUT` opts into reassignment. No implicit globals, no hidden aliasing.
 4. **Optional ceremony** — a 3-line script needs no module header; structure exists when you want it.
-5. **Errors as values, invisibly plumbed** — every function returns `Result`; success auto-unwraps, errors auto-route to a single `TRAP` or propagate. No exceptions, no unwinding.
+5. **Errors as values, invisibly plumbed** — every function returns `Result`; success auto-unwraps, errors auto-route to an inline `TRAP` on the failing expression, to a function-level `TRAP`, or propagate. No exceptions, no unwinding.
 6. **Package-owned closed domains** — a package owns the unions it defines and the free functions that operate on them. Extension is package layering through explicit composition (`UNION ... INCLUDES ...`), not open inheritance, traits, or retroactive interface implementation.
 7. **Predictable memory** — designed for memory-safe implementation through formal ownership, move, copy, freeze, resource, and lexical drop rules. No GC, no refcounting, no manual `free`.
 
@@ -35,7 +35,7 @@ LET msg = "hello " & _
 REM so is this
 ```
 
-The `:` separator is legal, but formatters and language servers should lint dense security-sensitive lines, especially lines that combine fallible calls, resource operations, native calls, permissioned filesystem/network operations, or `TRAP` control flow.
+The `:` separator is legal, but formatters and language servers should lint dense security-sensitive lines, especially lines that combine fallible calls, resource operations, native calls, permissioned filesystem/network operations, an inline `TRAP`, or `TRAP` control flow.
 
 Identifiers are case-sensitive, so `userId` and `userid` are distinct. Tooling should lint near-collisions that differ only by case or visually minor spelling differences within the same scope or imported namespace.
 
@@ -506,13 +506,14 @@ END SUB
 forEach(nums, printItem)
 ```
 
-`Nothing` is a normal concrete unit type, not a bottom type and not a non-returning marker. `Result OF Nothing` participates in auto-unwrapping, propagation, and direct `MATCH` handling exactly like any other `Result OF T`:
+`Nothing` is a normal concrete unit type, not a bottom type and not a non-returning marker. `Result OF Nothing` participates in auto-unwrapping, propagation, and inline `TRAP` handling exactly like any other `Result OF T`:
 
 ```basic
-MATCH fs::writeAll(f, "done")
-  CASE Ok(v)       : io::print("saved")
-  CASE Error(e)    : io::print(e.message)
-END MATCH
+fs::writeAll(f, "done") TRAP(e)
+  io::print(e.message)
+  RECOVER            ' value-less: the call produces Nothing
+END TRAP
+io::print("saved")
 ```
 
 Value-producing callbacks still require a value-producing `FUNC`. A `SUB` is valid for APIs such as `forEach` that expect `FUNC(T) AS Nothing`; it is not valid for APIs such as `transform` that infer and collect a result value.
@@ -530,7 +531,7 @@ LET x = toFloat(input)    ' if Ok(v): x = v
                             ' if Error(e): jump to TRAP, or return an error result carrying e
 ```
 
-There is **no `TRY` keyword and no `GOTO`**. Propagation is the default behavior of calling a function.
+There is **no `TRY` keyword and no `GOTO`**. Propagation is the default behavior of calling a function; a call auto-propagates **unless** a postfix inline `TRAP` is attached to its expression (§8.4), which overrides the default for that one expression.
 
 Function arguments are evaluated left to right. If any argument expression returns `Err`, later arguments are not evaluated and the error routes to the enclosing `TRAP` or propagates to the caller.
 
@@ -546,9 +547,9 @@ IF n < 0 THEN FAIL Error[77050002, "negative"]
 
 `FAIL e` routes to the enclosing `TRAP`; with no trap, the function returns an error result carrying `e`.
 
-### 8.3 The `TRAP` block
+### 8.3 The `TRAP` block — one keyword, two scopes
 
-Each `FUNC`/`SUB` may declare **at most one** `TRAP`, at the bottom, after normal flow. The payload is always `Error`, so no type annotation is needed.
+`TRAP(e)` traps errors in two scopes. A **function-level** `TRAP(e)` at the bottom of a `FUNC`/`SUB` traps every error from the body; an **inline** `TRAP(e)` attached postfix to a single expression traps just that expression (§8.4). Both bind an `Error` named by the parenthesized identifier, so no type annotation is needed.
 
 ```basic
 FUNC readAge(input AS String) AS Integer
@@ -556,59 +557,64 @@ FUNC readAge(input AS String) AS Integer
   IF n < 0 THEN FAIL Error[77050002, "negative"]
   RETURN n
 
-  TRAP err
+  TRAP(err)
     io::print("Bad age: " & err.message)
     RETURN 0                           ' function succeeds with default
   END TRAP
 END FUNC
 ```
 
+Each `FUNC`/`SUB` may declare **at most one** function-level `TRAP`, at the bottom, after normal flow.
+
 Trap outcomes:
 
-| Statement | Meaning | Produces |
-|-----------|---------|----------|
-| `RETURN v` | function succeeds | `Ok(v)` |
-| `PROPAGATE` | re-propagate the current `err` | error result carrying `err` |
-| `FAIL e2` | replace/wrap the error | error result carrying `e2` |
+| Statement | Meaning | Produces | Scope |
+|-----------|---------|----------|-------|
+| `RECOVER v` | bind `v` and continue after the trap | binding gets `v` | inline only |
+| `RETURN v` | function succeeds | `Ok(v)` | both (`FUNC` only) |
+| `PROPAGATE` | re-propagate the current `err` | error result carrying `err` | both |
+| `FAIL e2` | replace/wrap the error | error result carrying `e2` | both |
 
-There is no trap resume operation. Once control enters a `TRAP`, the failed expression is abandoned. A trap may convert the error into the function's final success value with `RETURN`, rethrow the same error with `PROPAGATE`, or replace it with `FAIL`.
+The function-level `TRAP` is **diverging-only**: it has no `RECOVER`, because at function scope there is no failing statement to resume into. It may convert the error into the function's final success value with `RETURN` (in a `FUNC`), rethrow the same error with `PROPAGATE`, or replace it with `FAIL`. Once control enters a function-level `TRAP`, the failed expression is abandoned.
 
 ```basic
-TRAP err
+TRAP(err)
   PROPAGATE                            ' bubble the same error
 END TRAP
 ```
 
 ```basic
-TRAP err
+TRAP(err)
   FAIL Error[77060001, "load failed: " & err.message]   ' wrap with context
 END TRAP
 ```
 
-### 8.4 Capturing a `Result` for local handling (`MATCH`)
+### 8.4 Local error handling (inline `TRAP`)
 
-To handle an error at the call site instead of auto-propagating, make the call the **direct scrutinee of a `MATCH`**. A matched call is *not* auto-unwrapped — you receive the `Result`.
+To handle an error at the call site instead of auto-propagating, attach a **postfix inline `TRAP`** to the expression. The happy value auto-unwraps into the binding exactly as a normal call; on error the handler block runs with `e : Error` and must either **`RECOVER` a value** (bound into the binding, then continue at the statement after `END TRAP`) or **diverge** (`RETURN`, `FAIL`, `PROPAGATE`, or an `EXIT` form).
 
 ```basic
-MATCH fs::openFile(path)
-  CASE Ok(f)     : LET line = fs::readLine(f)
-  CASE Error(e)  : io::print("could not open: " & e.message)
-END MATCH
+LET f = fs::openFile(path) TRAP(e)
+  io::print("could not open: " & e.message)
+  RECOVER fs::openFile(fallbackPath)   ' supply a File and continue
+END TRAP
+LET line = fs::readLine(f)
 ```
 
-This is the only way to intercept an error locally without a `TRAP`. Everywhere else, calls auto-propagate.
+An inline `TRAP` is legal only as the value of a `LET`/`MUT` binding, an assignment, or a bare expression statement. It scopes to exactly **one** expression — to wrap several fallible calls, use the function-level `TRAP`. Every path through the handler must `RECOVER` or diverge; falling through to `END TRAP` is a compile error (there must be no path that leaves the binding unset). For a value-less trapped call (a `SUB`, or any `Result OF Nothing`), `RECOVER` takes no operand.
 
-Use this same pattern for ordinary absence:
+Use the same construct for ordinary absence — `RECOVER` the recoverable case, bail on the rest:
 
 ```basic
 IMPORT errorCode
 
-MATCH getUser(id)
-  CASE Ok(user) : io::print("Found")
-  CASE Error(e) WHEN e.code = errorCode::ErrNotFound : io::print("User does not exist")
-  CASE Error(e) : FAIL e
-END MATCH
+LET user = getUser(id) TRAP(e)
+  IF e.code = errorCode::ErrNotFound THEN RECOVER defaultUser   ' use default, continue
+  FAIL e                                                        ' any other error: bail
+END TRAP
 ```
+
+`MATCH` no longer intercepts call errors. A call used as a `MATCH` scrutinee auto-unwraps like every other call site; `MATCH` matches enum/union/`Result` **values** only (§9).
 
 ### 8.5 `RETURN` semantics
 
@@ -616,16 +622,19 @@ END MATCH
 
 ### 8.6 Rules
 
-1. At most one `TRAP` per function, at the bottom, after normal flow.
-2. The trap payload is always `Error`; written `TRAP err` with no type.
-3. The trap block is reachable only via `FAIL` (in the body), an auto-propagated `Err` from a call, or `FAIL`/`PROPAGATE` inside the trap. It is never reached by fall-through.
-4. `PROPAGATE` is valid only inside a `TRAP` (it refers to the current `err`). Elsewhere it is a compile error; use `FAIL e` instead.
-5. With no `TRAP`, any `Err` (from `FAIL` or an auto-propagated call) becomes the function's returned `Err`.
-6. Every `TRAP` path must end in `RETURN`, `PROPAGATE`, or `FAIL`. Trap fall-through is a compile error.
+1. At most one function-level `TRAP` per function, at the bottom, after normal flow.
+2. The trap payload is always `Error`; written `TRAP(err)` with no type. The same spelling is used for the inline and function-level forms.
+3. The function-level trap block is reachable only via `FAIL` (in the body), an auto-propagated `Err` from a call, or `FAIL`/`PROPAGATE` inside the trap. It is never reached by fall-through.
+4. `PROPAGATE` is valid inside a function-level `TRAP` or an inline `TRAP` handler (it refers to the current `err`). Elsewhere it is a compile error; use `FAIL e` instead.
+5. With no enclosing `TRAP`, any `Err` (from `FAIL` or an auto-propagated call) becomes the function's returned `Err`.
+6. Every function-level `TRAP` path must end in `RETURN`, `PROPAGATE`, or `FAIL`. Trap fall-through is a compile error.
 7. Every `FUNC` path must end in `RETURN value` or `FAIL error`. Function fall-through is a compile error.
 8. A `SUB` with no `TRAP` may fall through to `END SUB`, implicitly returning `Ok(NOTHING)`.
 9. A `SUB` with a `TRAP` must end every normal path before the `TRAP` with `RETURN`, `RETURN NOTHING`, or `FAIL error`. Falling through from the normal body into the `TRAP` is a compile error.
 10. An executable entry point's uncaught `Err` terminates the process as an unhandled runtime error: the process exits with code `255`, and stderr receives `Code: <err.code> Message: <err.message>`. Give the entry point a `TRAP` for graceful handling.
+11. An inline `TRAP` is legal only as the value of a `LET`/`MUT` binding, an assignment, or a bare expression statement, and traps exactly one expression. The trapped expression must be a fallible call; trapping an expression that cannot fail is a compile error.
+12. Every path through an inline `TRAP` handler must end in `RECOVER` or a diverging statement (`RETURN`, `FAIL`, `PROPAGATE`, or an `EXIT` form). Falling through to `END TRAP` is a compile error.
+13. `RECOVER` is valid only inside an inline `TRAP` handler; it is a compile error in a function-level `TRAP` or anywhere else. `RECOVER`'s value must be assignable to the trapped expression's success type; it carries a value iff that type is not `Nothing`. The handler binding is scoped to the handler block only.
 
 ### 8.7 Program entry point
 
@@ -675,19 +684,27 @@ FUNC f(a AS A) AS T            =>   FUNC f(a AS A) AS Result OF T
 
   RETURN v         =>  RETURN Ok(v)          (body or trap)
 
+  LET x = g(y) TRAP(e)  =>  MATCH g(y)        ' inline TRAP
+    <handler>                CASE Ok(v)    : bind x = v ; continue after END TRAP
+  END TRAP                   CASE Error(e) : <handler>
+                           END MATCH
+                           ' RECOVER w  =>  bind x = w ; continue after END TRAP
+                           ' PROPAGATE  =>  jump __trap (else RETURN error carrying e)
+                           ' RETURN/FAIL diverge as above
+
   __trap:
     PROPAGATE      =>  RETURN error result carrying err
     FAIL e2        =>  RETURN error result carrying e2
     RETURN v       =>  RETURN Ok(v)
 ```
 
-A call used as a `MATCH` scrutinee is **not** rewritten — the raw `Result` is matched. No real exceptions, no stack unwinding — pure value flow.
+A call used as a `MATCH` scrutinee **is** rewritten like any other call (it auto-unwraps); only a `Result`-typed *value* is matched as a raw `Result`. No real exceptions, no stack unwinding — pure value flow.
 
 ---
 
 ## 9. Pattern Matching
 
-`MATCH` binds concrete union member values, matches raw `Result` calls, and matches literals; exhaustiveness is checked at compile time.
+`MATCH` binds concrete union member values, matches `Result`-typed values, and matches literals; exhaustiveness is checked at compile time. A call scrutinee auto-unwraps (use an inline `TRAP` for local error handling, §8.4).
 
 ```basic
 FUNC area(s AS Shape) AS Float
@@ -715,10 +732,10 @@ END MATCH
 - `NOTHING`, `TRUE`, `FALSE`, strings, and numbers are literal patterns.
 - Enum matches use qualified enum member patterns such as `Color.Red`.
 - Guards: `CASE Rect(r) WHEN r.w = r.h : ...`.
-- If the scrutinee is a direct call expression, `MATCH` sees the raw `Result`, so `CASE Ok(v)` and `CASE Error(e)` match the `Result` members.
+- If the scrutinee is a `Result`-typed *value* (e.g. a local or field of type `Result OF T`), `CASE Ok(v)` and `CASE Error(e)` match the `Result` members.
 - `CASE ELSE` is the catch-all fallback.
 - **Exhaustiveness**: unions must cover all member types. Open types (`Integer`, `String`, etc.) require a `CASE ELSE` or it is a compile error. Guarded `CASE` arms do not contribute to compile-time coverage because the guard can fail; use an unguarded arm or `CASE ELSE` to cover the remaining values.
-- A call as the scrutinee captures its `Result` (see §8.4).
+- A call scrutinee auto-unwraps to its `Ok` value; to handle its error locally, use an inline `TRAP` (see §8.4).
 
 ---
 
@@ -1449,7 +1466,7 @@ FUNC loadPoints(path AS String) AS List OF Vec3
   WEND
   RETURN pts                               ' f closed by lexical drop here; pts freezes automatically
 
-  TRAP err
+  TRAP(err)
     io::print("Load failed: " & err.message)
     RETURN []                              ' use empty list as the function result
   END TRAP
@@ -1462,7 +1479,7 @@ SUB main()
   io::print("Sum of x: " & toString(total))
   RETURN
 
-  TRAP err
+  TRAP(err)
     io::print("Fatal: " & err.message)   ' otherwise exits with err.code
     RETURN
   END TRAP

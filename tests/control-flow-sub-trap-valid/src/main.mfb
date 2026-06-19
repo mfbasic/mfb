@@ -4,7 +4,7 @@ SUB viaReturn(flag AS Boolean)
   ELSE
     FAIL Error[10, "return path failed"]
   END IF
-  TRAP err
+  TRAP(err)
   RETURN
   END TRAP
 END SUB
@@ -15,7 +15,7 @@ SUB viaReturnNothing(flag AS Boolean)
   ELSE
     FAIL Error[11, "nothing path failed"]
   END IF
-  TRAP err
+  TRAP(err)
   RETURN NOTHING
   END TRAP
 END SUB

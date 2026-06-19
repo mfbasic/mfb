@@ -1,7 +1,7 @@
 $ mfb build -ast tests/control-flow-sub-trap-invalid
    3 |     RETURN
    4 |   END IF
-   5 |   TRAP err
+   5 |   TRAP(err)
      | ^
 tests/control-flow-sub-trap-invalid/src/main.mfb:5 error[2-203-0012 TYPE_TRAP_FALLTHROUGH]: TRAP path can fall through
                Normal flow in `bad` reaches TRAP `err`; body paths before TRAP must end with RETURN or FAIL.
@@ -9,7 +9,7 @@ tests/control-flow-sub-trap-invalid/src/main.mfb:5 error[2-203-0012 TYPE_TRAP_FA
 $ mfb build -ir tests/control-flow-sub-trap-invalid
    3 |     RETURN
    4 |   END IF
-   5 |   TRAP err
+   5 |   TRAP(err)
      | ^
 tests/control-flow-sub-trap-invalid/src/main.mfb:5 error[2-203-0012 TYPE_TRAP_FALLTHROUGH]: TRAP path can fall through
                Normal flow in `bad` reaches TRAP `err`; body paths before TRAP must end with RETURN or FAIL.

@@ -35,31 +35,18 @@
       { "kind": "binding", "mutable": false, "name": "real", "type": "String", "value": { "kind": "call", "callee": "fs.readText", "arguments": [{ "kind": "string", "value": "tests/fs-nofollow-symlink-rt/data/real.txt" }] }, "line": 11 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "identifier", "value": "real" }] }, "line": 12 },
       { "kind": "binding", "mutable": true, "name": "code", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 13 },
-      {
-        "kind": "match",
-        "expression": { "kind": "call", "callee": "openNoFollow", "arguments": [{ "kind": "string", "value": "tests/fs-nofollow-symlink-rt/data/link.txt" }] },
+      { "kind": "expression", "expression": {
+        "kind": "trapped",
+        "binding": "e",
         "line": 14,
-        "cases": [
-        {
-          "pattern": { "kind": "union", "type": "Ok", "binding": "v" },
-          "guard": null,
-          "line": 15,
-          "body": [
-          { "kind": "assignment", "name": "code", "value": { "kind": "number", "value": "0" }, "line": 16 }
-          ]
-        },
-        {
-          "pattern": { "kind": "union", "type": "Error", "binding": "e" },
-          "guard": null,
-          "line": 17,
-          "body": [
-          { "kind": "assignment", "name": "code", "value": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "e" }, "member": "code" }, "line": 18 }
-          ]
-        }
+        "expression": { "kind": "call", "callee": "openNoFollow", "arguments": [{ "kind": "string", "value": "tests/fs-nofollow-symlink-rt/data/link.txt" }] },
+        "handler": [
+        { "kind": "assignment", "name": "code", "value": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "e" }, "member": "code" }, "line": 15 },
+        { "kind": "recover", "value": { "kind": "number", "value": "0" }, "line": 16 }
         ]
-      },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "code" }] }] }, "line": 20 },
-      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 21 }
+      }, "line": 14 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "code" }] }] }, "line": 18 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 19 }
       ]
     }
     ]

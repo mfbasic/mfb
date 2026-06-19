@@ -64,29 +64,16 @@
         "condition": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "which" }, "right": { "kind": "number", "value": "0" } },
         "line": 16,
         "then": [
-        {
-          "kind": "match",
-          "expression": { "kind": "call", "callee": "readText1", "arguments": [{ "kind": "identifier", "value": "p" }] },
+        { "kind": "expression", "expression": {
+          "kind": "trapped",
+          "binding": "e",
           "line": 17,
-          "cases": [
-          {
-            "pattern": { "kind": "union", "type": "Ok", "binding": "v" },
-            "guard": null,
-            "line": 18,
-            "body": [
-            { "kind": "assignment", "name": "code", "value": { "kind": "number", "value": "0" }, "line": 19 }
-            ]
-          },
-          {
-            "pattern": { "kind": "union", "type": "Error", "binding": "e" },
-            "guard": null,
-            "line": 20,
-            "body": [
-            { "kind": "assignment", "name": "code", "value": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "e" }, "member": "code" }, "line": 21 }
-            ]
-          }
+          "expression": { "kind": "call", "callee": "readText1", "arguments": [{ "kind": "identifier", "value": "p" }] },
+          "handler": [
+          { "kind": "assignment", "name": "code", "value": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "e" }, "member": "code" }, "line": 18 },
+          { "kind": "recover", "value": { "kind": "string", "value": "" }, "line": 19 }
           ]
-        }
+        }, "line": 17 }
         ],
         "else": [
         ]
@@ -94,31 +81,18 @@
       {
         "kind": "if",
         "condition": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "which" }, "right": { "kind": "number", "value": "1" } },
-        "line": 24,
+        "line": 22,
         "then": [
-        {
-          "kind": "match",
+        { "kind": "expression", "expression": {
+          "kind": "trapped",
+          "binding": "e",
+          "line": 23,
           "expression": { "kind": "call", "callee": "readAll1", "arguments": [{ "kind": "identifier", "value": "p" }] },
-          "line": 25,
-          "cases": [
-          {
-            "pattern": { "kind": "union", "type": "Ok", "binding": "v" },
-            "guard": null,
-            "line": 26,
-            "body": [
-            { "kind": "assignment", "name": "code", "value": { "kind": "number", "value": "0" }, "line": 27 }
-            ]
-          },
-          {
-            "pattern": { "kind": "union", "type": "Error", "binding": "e" },
-            "guard": null,
-            "line": 28,
-            "body": [
-            { "kind": "assignment", "name": "code", "value": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "e" }, "member": "code" }, "line": 29 }
-            ]
-          }
+          "handler": [
+          { "kind": "assignment", "name": "code", "value": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "e" }, "member": "code" }, "line": 24 },
+          { "kind": "recover", "value": { "kind": "string", "value": "" }, "line": 25 }
           ]
-        }
+        }, "line": 23 }
         ],
         "else": [
         ]
@@ -126,53 +100,40 @@
       {
         "kind": "if",
         "condition": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "which" }, "right": { "kind": "number", "value": "2" } },
-        "line": 32,
+        "line": 28,
         "then": [
-        {
-          "kind": "match",
+        { "kind": "expression", "expression": {
+          "kind": "trapped",
+          "binding": "e",
+          "line": 29,
           "expression": { "kind": "call", "callee": "readLine1", "arguments": [{ "kind": "identifier", "value": "p" }] },
-          "line": 33,
-          "cases": [
-          {
-            "pattern": { "kind": "union", "type": "Ok", "binding": "v" },
-            "guard": null,
-            "line": 34,
-            "body": [
-            { "kind": "assignment", "name": "code", "value": { "kind": "number", "value": "0" }, "line": 35 }
-            ]
-          },
-          {
-            "pattern": { "kind": "union", "type": "Error", "binding": "e" },
-            "guard": null,
-            "line": 36,
-            "body": [
-            { "kind": "assignment", "name": "code", "value": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "e" }, "member": "code" }, "line": 37 }
-            ]
-          }
+          "handler": [
+          { "kind": "assignment", "name": "code", "value": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "e" }, "member": "code" }, "line": 30 },
+          { "kind": "recover", "value": { "kind": "string", "value": "" }, "line": 31 }
           ]
-        }
+        }, "line": 29 }
         ],
         "else": [
         ]
       },
-      { "kind": "return", "value": { "kind": "identifier", "value": "code" }, "line": 40 }
+      { "kind": "return", "value": { "kind": "identifier", "value": "code" }, "line": 34 }
       ]
     },
     {
       "kind": "func",
       "visibility": "private",
       "name": "main",
-      "line": 43,
+      "line": 37,
       "params": [
       ],
       "returnType": "Integer",
       "body": [
-      { "kind": "binding", "mutable": false, "name": "good", "type": "String", "value": { "kind": "call", "callee": "fs.readText", "arguments": [{ "kind": "string", "value": "tests/fs-text-utf8-rt/good.txt" }] }, "line": 44 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "identifier", "value": "good" }] }, "line": 45 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "codeOf", "arguments": [{ "kind": "string", "value": "tests/fs-text-utf8-rt/bad.txt" }, { "kind": "number", "value": "0" }] }] }] }, "line": 46 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "codeOf", "arguments": [{ "kind": "string", "value": "tests/fs-text-utf8-rt/bad.txt" }, { "kind": "number", "value": "1" }] }] }] }, "line": 47 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "codeOf", "arguments": [{ "kind": "string", "value": "tests/fs-text-utf8-rt/bad.txt" }, { "kind": "number", "value": "2" }] }] }] }, "line": 48 },
-      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 49 }
+      { "kind": "binding", "mutable": false, "name": "good", "type": "String", "value": { "kind": "call", "callee": "fs.readText", "arguments": [{ "kind": "string", "value": "tests/fs-text-utf8-rt/good.txt" }] }, "line": 38 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "identifier", "value": "good" }] }, "line": 39 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "codeOf", "arguments": [{ "kind": "string", "value": "tests/fs-text-utf8-rt/bad.txt" }, { "kind": "number", "value": "0" }] }] }] }, "line": 40 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "codeOf", "arguments": [{ "kind": "string", "value": "tests/fs-text-utf8-rt/bad.txt" }, { "kind": "number", "value": "1" }] }] }] }, "line": 41 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "codeOf", "arguments": [{ "kind": "string", "value": "tests/fs-text-utf8-rt/bad.txt" }, { "kind": "number", "value": "2" }] }] }] }, "line": 42 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 43 }
       ]
     }
     ]

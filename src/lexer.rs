@@ -75,6 +75,7 @@ pub enum Keyword {
     Package,
     Private,
     Propagate,
+    Recover,
     Step,
     To,
     Type,
@@ -509,6 +510,8 @@ fn keyword(value: &str) -> Option<Keyword> {
         Some(Keyword::Private)
     } else if value.eq_ignore_ascii_case("PROPAGATE") {
         Some(Keyword::Propagate)
+    } else if value.eq_ignore_ascii_case("RECOVER") {
+        Some(Keyword::Recover)
     } else if value.eq_ignore_ascii_case("STEP") {
         Some(Keyword::Step)
     } else if value.eq_ignore_ascii_case("TO") {

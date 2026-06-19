@@ -8,7 +8,7 @@ FUNC fullQueueScenario(t AS Thread OF String TO Integer) AS Integer
   thread::send(t, "full", 0)
   io::print("unexpected send")
   RETURN 1
-  TRAP err
+  TRAP(err)
     io::print("timeout")
     LET raw AS Result OF Integer = t.result
     MATCH raw
@@ -32,7 +32,7 @@ FUNC cancelScenario(t AS Thread OF String TO Integer) AS Integer
   thread::send(t, "after-cancel", 0)
   io::print("unexpected cancel send")
   RETURN 1
-  TRAP err
+  TRAP(err)
     io::print("interrupted")
     LET raw AS Result OF Integer = t.result
     MATCH raw
@@ -48,7 +48,7 @@ END FUNC
 FUNC expectInterruptedWaitFor(t AS Thread OF String TO Integer) AS Integer
   LET code AS Integer = thread::waitFor(t)
   RETURN 1
-  TRAP err
+  TRAP(err)
     IF err.code <> 77050009 THEN
       RETURN 2
     END IF

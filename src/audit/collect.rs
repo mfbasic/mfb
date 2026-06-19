@@ -452,6 +452,11 @@ fn walk_statements(body: &[Statement], visit: &mut impl FnMut(&str, usize)) {
             }
             Statement::Fail { error, line } => walk_expression(error, *line, visit),
             Statement::Propagate { .. } => {}
+            Statement::Recover { value, line } => {
+                if let Some(expr) = value {
+                    walk_expression(expr, *line, visit);
+                }
+            }
             Statement::Assign { value, line, .. } => walk_expression(value, *line, visit),
             Statement::Expression { expression, line } => {
                 walk_expression(expression, *line, visit)
@@ -568,6 +573,15 @@ fn walk_expression(expression: &Expression, line: usize, visit: &mut impl FnMut(
             }
         }
         Expression::MemberAccess { target, .. } => walk_expression(target, line, visit),
+        Expression::Trapped {
+            expression,
+            handler,
+            line: trap_line,
+            ..
+        } => {
+            walk_expression(expression, *trap_line, visit);
+            walk_statements(handler, visit);
+        }
         Expression::String(_)
         | Expression::Number(_)
         | Expression::Boolean(_)

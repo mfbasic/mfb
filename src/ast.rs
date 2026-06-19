@@ -199,6 +199,10 @@ pub enum Statement {
     Propagate {
         line: usize,
     },
+    Recover {
+        value: Option<Expression>,
+        line: usize,
+    },
     Assign {
         name: String,
         value: Expression,
@@ -300,6 +304,12 @@ pub enum Expression {
     MemberAccess {
         target: Box<Expression>,
         member: String,
+    },
+    Trapped {
+        expression: Box<Expression>,
+        binding: String,
+        handler: Vec<Statement>,
+        line: usize,
     },
     Identifier(String),
 }
@@ -963,10 +973,24 @@ impl<'a> FileParser<'a> {
 
     fn parse_trap(&mut self) -> Option<Trap> {
         let token = self.advance().clone();
+        if !self.consume_kind(
+            TokenKind::LParen,
+            "TRAP must bind an error identifier with `TRAP(name)`.",
+        ) {
+            self.synchronize();
+            return None;
+        }
         let Some(name) = self.consume_identifier("TRAP must bind an error identifier.") else {
             self.synchronize();
             return None;
         };
+        if !self.consume_kind(
+            TokenKind::RParen,
+            "TRAP error binding must close with `)`.",
+        ) {
+            self.synchronize();
+            return None;
+        }
         self.consume_statement_end("Expected end of statement after TRAP header.");
         self.skip_separators();
 
@@ -1241,14 +1265,19 @@ impl<'a> FileParser<'a> {
                 None
             };
             let value = if self.match_kind(TokenKind::Equal) {
-                self.parse_expression()
+                match self.parse_expression() {
+                    Some(expr) => self.maybe_attach_postfix_trap(expr, allow_else_terminator),
+                    None => None,
+                }
             } else {
                 None
             };
-            self.consume_simple_statement_end(
-                "Expected end of statement after binding.",
-                allow_else_terminator,
-            );
+            if !matches!(value, Some(Expression::Trapped { .. })) {
+                self.consume_simple_statement_end(
+                    "Expected end of statement after binding.",
+                    allow_else_terminator,
+                );
+            }
             return Some(Statement::Let {
                 mutable,
                 name,
@@ -1299,6 +1328,25 @@ impl<'a> FileParser<'a> {
             return Some(Statement::Propagate { line: token.line });
         }
 
+        if self.match_keyword(Keyword::Recover) {
+            let token = self.previous().clone();
+            let value = if self.is_statement_end()
+                || (allow_else_terminator && self.check_keyword(Keyword::Else))
+            {
+                None
+            } else {
+                self.parse_expression()
+            };
+            self.consume_simple_statement_end(
+                "Expected end of statement after RECOVER.",
+                allow_else_terminator,
+            );
+            return Some(Statement::Recover {
+                value,
+                line: token.line,
+            });
+        }
+
         if let TokenKind::Identifier(name) = self.peek().kind.clone() {
             if self
                 .tokens
@@ -1308,10 +1356,13 @@ impl<'a> FileParser<'a> {
                 let token = self.advance().clone();
                 self.advance();
                 let value = self.parse_expression()?;
-                self.consume_simple_statement_end(
-                    "Expected end of statement after assignment.",
-                    allow_else_terminator,
-                );
+                let value = self.maybe_attach_postfix_trap(value, allow_else_terminator)?;
+                if !matches!(value, Expression::Trapped { .. }) {
+                    self.consume_simple_statement_end(
+                        "Expected end of statement after assignment.",
+                        allow_else_terminator,
+                    );
+                }
                 return Some(Statement::Assign {
                     name,
                     value,
@@ -1330,12 +1381,67 @@ impl<'a> FileParser<'a> {
             );
             return None;
         }
-        self.consume_simple_statement_end(
-            "Expected end of statement after expression.",
-            allow_else_terminator,
-        );
+        let expression =
+            self.maybe_attach_postfix_trap(expression.expect("checked expression"), allow_else_terminator)?;
+        if !matches!(expression, Expression::Trapped { .. }) {
+            self.consume_simple_statement_end(
+                "Expected end of statement after expression.",
+                allow_else_terminator,
+            );
+        }
         Some(Statement::Expression {
-            expression: expression.expect("checked expression"),
+            expression,
+            line: token.line,
+        })
+    }
+
+    /// Parse a postfix inline `TRAP(e) … END TRAP` if one immediately follows
+    /// the just-parsed expression. Returns the expression wrapped in
+    /// `Expression::Trapped` when a trap is attached, otherwise the expression
+    /// unchanged. Inline traps are only legal at the top level of a binding,
+    /// assignment, or bare-expression statement, so they are never attached
+    /// inside an inline `IF` branch (`allow_else_terminator`).
+    fn maybe_attach_postfix_trap(
+        &mut self,
+        subject: Expression,
+        allow_else_terminator: bool,
+    ) -> Option<Expression> {
+        if allow_else_terminator
+            || !self.check_keyword(Keyword::Trap)
+            || !self
+                .tokens
+                .get(self.current + 1)
+                .is_some_and(|token| matches!(token.kind, TokenKind::LParen))
+        {
+            return Some(subject);
+        }
+
+        let token = self.advance().clone();
+        self.advance();
+        let binding = self.consume_identifier("TRAP must bind an error identifier.")?;
+        if !self.consume_kind(TokenKind::RParen, "TRAP error binding must close with `)`.") {
+            self.synchronize();
+            return None;
+        }
+        self.consume_statement_end("Expected end of statement after TRAP header.");
+        self.skip_separators();
+
+        let mut handler = Vec::new();
+        while !self.is_at_end() && !self.is_end_block(Keyword::Trap) {
+            if let Some(statement) = self.parse_statement() {
+                handler.push(statement);
+            } else {
+                self.synchronize();
+            }
+            self.skip_separators();
+        }
+        if !self.consume_end_block(Keyword::Trap, "TRAP block must end with END TRAP.") {
+            return None;
+        }
+        Some(Expression::Trapped {
+            expression: Box::new(subject),
+            binding,
+            handler,
             line: token.line,
         })
     }
@@ -2909,6 +3015,16 @@ impl ToAstJson for Statement {
             Statement::Propagate { line } => {
                 format!("\n{}{{ \"kind\": \"propagate\", \"line\": {} }}", pad, line)
             }
+            Statement::Recover { value, line } => {
+                let value = value
+                    .as_ref()
+                    .map(|value| value.to_json(indent))
+                    .unwrap_or_else(|| "null".to_string());
+                format!(
+                    "\n{}{{ \"kind\": \"recover\", \"value\": {}, \"line\": {} }}",
+                    pad, value, line
+                )
+            }
             Statement::Assign { name, value, line } => {
                 format!(
                     "\n{}{{ \"kind\": \"assignment\", \"name\": {}, \"value\": {}, \"line\": {} }}",
@@ -3171,7 +3287,7 @@ impl ToAstJson for MatchPattern {
 }
 
 impl ToAstJson for Expression {
-    fn to_json(&self, _indent: usize) -> String {
+    fn to_json(&self, indent: usize) -> String {
         match self {
             Expression::String(value) => {
                 format!(
@@ -3296,6 +3412,36 @@ impl ToAstJson for Expression {
                     json_string(member)
                 )
             }
+            Expression::Trapped {
+                expression,
+                binding,
+                handler,
+                line,
+            } => {
+                let pad = " ".repeat(indent);
+                format!(
+                    concat!(
+                        "{{\n",
+                        "{}  \"kind\": \"trapped\",\n",
+                        "{}  \"binding\": {},\n",
+                        "{}  \"line\": {},\n",
+                        "{}  \"expression\": {},\n",
+                        "{}  \"handler\": [{}\n{}  ]\n",
+                        "{}}}"
+                    ),
+                    pad,
+                    pad,
+                    json_string(binding),
+                    pad,
+                    line,
+                    pad,
+                    expression.to_json(0),
+                    pad,
+                    join_indented(handler, indent + 2),
+                    pad,
+                    pad
+                )
+            }
             Expression::Identifier(value) => {
                 format!(
                     "{{ \"kind\": \"identifier\", \"value\": {} }}",
@@ -3391,6 +3537,7 @@ fn contains_placeholder(expression: &Expression) -> bool {
             .iter()
             .any(|(key, value)| contains_placeholder(key) || contains_placeholder(value)),
         Expression::MemberAccess { target, .. } => contains_placeholder(target),
+        Expression::Trapped { expression, .. } => contains_placeholder(expression),
         Expression::WithUpdate { target, updates } => {
             contains_placeholder(target)
                 || updates

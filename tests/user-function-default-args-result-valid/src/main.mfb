@@ -13,26 +13,20 @@ END FUNC
 FUNC main() AS Integer
   MUT total AS Integer = 0
 
-  MATCH compute(mark("arg1-value", 3))
-    CASE Ok(value)
-      total = total + value
-    CASE Error(err)
-      total = total + err.code
-  END MATCH
+  LET first = compute(mark("arg1-value", 3)) TRAP(err)
+    RECOVER err.code
+  END TRAP
+  total = total + first
 
-  MATCH compute(mark("arg2-value", 1), multiplier := mark("arg2-multiplier", 2))
-    CASE Ok(value)
-      total = total + value
-    CASE Error(err)
-      total = total + err.code
-  END MATCH
+  LET second = compute(mark("arg2-value", 1), multiplier := mark("arg2-multiplier", 2)) TRAP(err)
+    RECOVER err.code
+  END TRAP
+  total = total + second
 
-  MATCH compute(mark("arg3-value", -1))
-    CASE Ok(value)
-      total = total + value
-    CASE Error(err)
-      total = total + err.code
-  END MATCH
+  LET third = compute(mark("arg3-value", -1)) TRAP(err)
+    RECOVER err.code
+  END TRAP
+  total = total + third
 
   io::print(toString(total))
   RETURN 0

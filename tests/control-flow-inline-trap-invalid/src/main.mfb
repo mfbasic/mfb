@@ -1,0 +1,56 @@
+IMPORT io
+
+FUNC parsePositive(v AS Integer) AS Integer
+  IF v < 0 THEN FAIL Error[404, "missing"]
+  RETURN v + 1
+END FUNC
+
+' Handler neither recovers nor diverges on every path.
+FUNC fallsThrough(v AS Integer) AS Integer
+  LET a = parsePositive(v) TRAP(e)
+    io::print(e.message)
+  END TRAP
+  RETURN a
+END FUNC
+
+' RECOVER value type does not match the success type.
+FUNC recoverWrongType(v AS Integer) AS Integer
+  LET a = parsePositive(v) TRAP(e)
+    RECOVER "nope"
+  END TRAP
+  RETURN a
+END FUNC
+
+' RECOVER omits the value for a value-producing trap.
+FUNC recoverMissingValue(v AS Integer) AS Integer
+  LET a = parsePositive(v) TRAP(e)
+    RECOVER
+  END TRAP
+  RETURN a
+END FUNC
+
+' RECOVER in a function-level trap.
+FUNC recoverInFunctionTrap(v AS Integer) AS Integer
+  RETURN parsePositive(v)
+  TRAP(e)
+    RECOVER 0
+  END TRAP
+END FUNC
+
+' RECOVER with no enclosing trap at all.
+FUNC recoverOutside() AS Integer
+  RECOVER 5
+  RETURN 0
+END FUNC
+
+' Inline trap on an expression that cannot fail.
+FUNC infallibleTrap() AS Integer
+  LET a = 5 TRAP(e)
+    RECOVER 0
+  END TRAP
+  RETURN a
+END FUNC
+
+FUNC main AS Integer
+  RETURN 0
+END FUNC

@@ -60,81 +60,42 @@
       "returnType": "Integer",
       "body": [
       { "kind": "binding", "mutable": true, "name": "a", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 18 },
-      {
-        "kind": "match",
-        "expression": { "kind": "call", "callee": "readMissing", "arguments": [{ "kind": "string", "value": "target/fs_path_errors_rt_missing.txt" }] },
+      { "kind": "expression", "expression": {
+        "kind": "trapped",
+        "binding": "e",
         "line": 19,
-        "cases": [
-        {
-          "pattern": { "kind": "union", "type": "Ok", "binding": "v" },
-          "guard": null,
-          "line": 20,
-          "body": [
-          { "kind": "assignment", "name": "a", "value": { "kind": "number", "value": "0" }, "line": 21 }
-          ]
-        },
-        {
-          "pattern": { "kind": "union", "type": "Error", "binding": "e" },
-          "guard": null,
-          "line": 22,
-          "body": [
-          { "kind": "assignment", "name": "a", "value": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "e" }, "member": "code" }, "line": 23 }
-          ]
-        }
+        "expression": { "kind": "call", "callee": "readMissing", "arguments": [{ "kind": "string", "value": "target/fs_path_errors_rt_missing.txt" }] },
+        "handler": [
+        { "kind": "assignment", "name": "a", "value": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "e" }, "member": "code" }, "line": 20 },
+        { "kind": "recover", "value": { "kind": "string", "value": "" }, "line": 21 }
         ]
-      },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "a" }] }] }, "line": 25 },
-      { "kind": "binding", "mutable": true, "name": "b", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 26 },
-      {
-        "kind": "match",
+      }, "line": 19 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "a" }] }] }, "line": 23 },
+      { "kind": "binding", "mutable": true, "name": "b", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 24 },
+      { "kind": "expression", "expression": {
+        "kind": "trapped",
+        "binding": "e",
+        "line": 25,
         "expression": { "kind": "call", "callee": "openMissing", "arguments": [{ "kind": "string", "value": "target/fs_path_errors_rt_missing.txt" }] },
-        "line": 27,
-        "cases": [
-        {
-          "pattern": { "kind": "union", "type": "Ok", "binding": "v" },
-          "guard": null,
-          "line": 28,
-          "body": [
-          { "kind": "assignment", "name": "b", "value": { "kind": "number", "value": "0" }, "line": 29 }
-          ]
-        },
-        {
-          "pattern": { "kind": "union", "type": "Error", "binding": "e" },
-          "guard": null,
-          "line": 30,
-          "body": [
-          { "kind": "assignment", "name": "b", "value": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "e" }, "member": "code" }, "line": 31 }
-          ]
-        }
+        "handler": [
+        { "kind": "assignment", "name": "b", "value": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "e" }, "member": "code" }, "line": 26 },
+        { "kind": "recover", "value": { "kind": "number", "value": "0" }, "line": 27 }
         ]
-      },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "b" }] }] }, "line": 33 },
-      { "kind": "binding", "mutable": true, "name": "c", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 34 },
-      {
-        "kind": "match",
+      }, "line": 25 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "b" }] }] }, "line": 29 },
+      { "kind": "binding", "mutable": true, "name": "c", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 30 },
+      { "kind": "expression", "expression": {
+        "kind": "trapped",
+        "binding": "e",
+        "line": 31,
         "expression": { "kind": "call", "callee": "delMissing", "arguments": [{ "kind": "string", "value": "target/fs_path_errors_rt_missing.txt" }] },
-        "line": 35,
-        "cases": [
-        {
-          "pattern": { "kind": "union", "type": "Ok", "binding": "v" },
-          "guard": null,
-          "line": 36,
-          "body": [
-          { "kind": "assignment", "name": "c", "value": { "kind": "number", "value": "0" }, "line": 37 }
-          ]
-        },
-        {
-          "pattern": { "kind": "union", "type": "Error", "binding": "e" },
-          "guard": null,
-          "line": 38,
-          "body": [
-          { "kind": "assignment", "name": "c", "value": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "e" }, "member": "code" }, "line": 39 }
-          ]
-        }
+        "handler": [
+        { "kind": "assignment", "name": "c", "value": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "e" }, "member": "code" }, "line": 32 },
+        { "kind": "recover", "value": { "kind": "number", "value": "0" }, "line": 33 }
         ]
-      },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "c" }] }] }, "line": 41 },
-      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 42 }
+      }, "line": 31 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "c" }] }] }, "line": 35 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 36 }
       ]
     }
     ]

@@ -204,6 +204,10 @@ These codes correspond to `src/rules.rs` and are emitted directly by the compile
 | `2-203-0063` | `TYPE_THREAD_NOT_SENDABLE` | error | `thread boundary type is not sendable` |
 | `2-203-0064` | `TYPE_UNION_MEMBER_REQUIRES_TYPE` | error | `union members must name concrete TYPE declarations` |
 | `2-203-0065` | `TYPE_RECURSIVE_RECORD_REQUIRES_INDIRECTION` | error | `recursive record cycle must pass through a List, Map, or UNION` |
+| `2-203-0066` | `TYPE_INLINE_TRAP_FALLS_THROUGH` | error | `inline TRAP handler path neither recovers nor diverges` |
+| `2-203-0067` | `TYPE_RECOVER_TYPE_MISMATCH` | error | `RECOVER value does not match the trapped expression's success type` |
+| `2-203-0068` | `TYPE_RECOVER_OUTSIDE_INLINE_TRAP` | error | `RECOVER is valid only inside an inline TRAP handler` |
+| `2-203-0069` | `TYPE_INLINE_TRAP_REQUIRES_FALLIBLE` | error | `inline TRAP requires a fallible call` |
 
 ## Toolchain and Package Diagnostics
 
