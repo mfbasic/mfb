@@ -1,23 +1,37 @@
-# Plan: the `EXIT` family — loop, sub, and process early-exit
+# Plan: the `EXIT` / `CONTINUE` family — loop control, sub, and process early-exit
 
 Status: proposed (planning only — no spec or compiler changes yet)
 Owner: Justin
 Date: 2026-06-18
 Companion to: `plan-errors.md`, `plan-result-cleanup.md`
 
+**Implementation order across the plan set:** `plan-errors.md` →
+`plan-result-cleanup.md` → `plan-exit.md` (this one last). The earlier plans
+reference `EXIT`/`CONTINUE` as ways a diverging inline-`TRAP` handler can leave;
+those references become real once this plan lands, so no separate reconciliation
+pass is needed — implementing in this order resolves them.
+
 ## 1. Motivation
 
-MFBASIC currently has **no early-exit primitive at all** — no loop break, no
-value-less routine exit, no fast process termination. The only ways out of a
-block today are running to its end, `RETURN` (value), `FAIL`/`PROPAGATE` (error),
-or an auto-propagated error. This forces guard clauses into nested `IF`s and
-gives loops no way to stop early.
+MFBASIC currently has **no loop-control or early-exit primitive at all** — no
+loop break, no skip-to-next-iteration, no value-less routine exit, no process
+termination. The only ways out of a block today are running to its end, `RETURN`
+(value), `FAIL`/`PROPAGATE` (error), or an auto-propagated error. This forces
+guard clauses into nested `IF`s and gives loops no way to stop early or skip an
+iteration.
 
-`plan-result-cleanup.md` §6a makes `SUB` value-less and bans `RETURN` inside a
-`SUB`. That removes the only early-exit a `SUB` had, so a replacement is
-required. This plan adds one consistent BASIC-idiomatic keyword — `EXIT` —
-covering loops, subs, and the process, with the kind named explicitly so control
-flow stays readable and there is no `GOTO`-style ambiguity.
+Two earlier plans create the need:
+- `plan-result-cleanup.md` §6a makes `SUB` value-less and bans `RETURN` inside a
+  `SUB`, removing the only early-exit a `SUB` had.
+- `plan-errors.md` makes the inline `TRAP` handler *recover-or-diverge*. The
+  "handle the error and skip this loop iteration" shape needs a diverging
+  statement that means "next iteration" — i.e. `CONTINUE`. (`RECOVER` covers
+  "substitute a value and continue past the trap"; `CONTINUE` covers "abandon
+  the rest of this iteration.")
+
+This plan adds one consistent BASIC-idiomatic family — `EXIT` (break / leave) and
+`CONTINUE` (skip to next iteration) — with the loop kind named explicitly so
+control flow stays readable and there is no `GOTO`-style ambiguity.
 
 ## 2. The forms
 
@@ -26,13 +40,17 @@ flow stays readable and there is no `GOTO`-style ambiguity.
 | `EXIT FOR` | break out of the enclosing `FOR` / `FOR EACH` loop | inside a `FOR`/`FOR EACH` |
 | `EXIT DO` | break out of the enclosing `DO … LOOP` | inside a `DO` loop |
 | `EXIT WHILE` | break out of the enclosing `WHILE … WEND` | inside a `WHILE` loop |
+| `CONTINUE FOR` | skip to the next iteration of the enclosing `FOR` / `FOR EACH` | inside a `FOR`/`FOR EACH` |
+| `CONTINUE DO` | skip to the next iteration of the enclosing `DO … LOOP` | inside a `DO` loop |
+| `CONTINUE WHILE` | skip to the next iteration of the enclosing `WHILE … WEND` | inside a `WHILE` loop |
 | `EXIT SUB` | value-less early success exit from the enclosing `SUB` | inside a `SUB` |
 | `EXIT FUNC` | **always a compile error** — functions must `RETURN` a value | anywhere (diagnostic only) |
 | `EXIT PROGRAM <integer>` | terminate the program with the given exit code, running full RAII cleanup | anywhere |
 
-Loop-kind coverage note: `FOR` and `FOR EACH` both end in `NEXT`, so `EXIT FOR`
-serves both. `DO … LOOP UNTIL` and `DO WHILE … LOOP` are both `EXIT DO`.
-`WHILE … WEND` is `EXIT WHILE`.
+Loop-kind coverage note: `FOR` and `FOR EACH` both end in `NEXT`, so
+`EXIT FOR` / `CONTINUE FOR` serve both. `DO … LOOP UNTIL` and `DO WHILE … LOOP`
+are both `EXIT DO` / `CONTINUE DO`. `WHILE … WEND` is `EXIT WHILE` /
+`CONTINUE WHILE`.
 
 ## 3. Semantics
 
@@ -48,6 +66,22 @@ serves both. `DO … LOOP UNTIL` and `DO WHILE … LOOP` are both `EXIT DO`.
   loop's body (and any inner blocks unwound) are dropped in reverse declaration
   order on the way out (§14.7 / §15 / §16 rules — `EXIT` becomes a new drop
   edge alongside scope exit / `RETURN` / `FAIL` / `PROPAGATE`).
+
+### Loop skips (`CONTINUE FOR` / `CONTINUE DO` / `CONTINUE WHILE`)
+- End the current iteration and proceed to the matched loop's next-iteration
+  point: a `FOR`/`FOR EACH` advances to its step/next element and re-tests; a
+  `DO WHILE … LOOP` / `WHILE … WEND` jumps to the top condition test; a
+  `DO … LOOP UNTIL` jumps to the bottom `UNTIL` test.
+- **Target = the innermost enclosing loop whose kind matches the keyword**, same
+  rule and tie-break as `EXIT` (Q1 applies identically).
+- Compile error `CONTINUE_NO_MATCHING_LOOP` if there is no enclosing loop of that
+  kind.
+- Bindings/resources/threads declared in the current iteration's body scope (and
+  inner blocks unwound) are dropped before the next iteration begins — the same
+  drop edge as a normal end-of-iteration.
+- It is the loop counterpart to `RECOVER` in `plan-errors.md`: `RECOVER`
+  substitutes a value and continues *past the trap*; `CONTINUE` abandons the rest
+  of the iteration. See §3 example below.
 
 ### `EXIT SUB`
 - Value-less early exit from the enclosing `SUB`; semantically identical to
@@ -82,30 +116,51 @@ serves both. `DO … LOOP UNTIL` and `DO WHILE … LOOP` are both `EXIT DO`.
   value is truncated per host convention (e.g. `code & 0xFF` on POSIX).
 
 ### Terminator / reachability
-All `EXIT` forms (except the always-error `EXIT FUNC`) are **diverging
-statements**: control does not continue to the next statement in the same block.
-- Code textually after an `EXIT` in the same block is unreachable —
+All `EXIT` forms (except the always-error `EXIT FUNC`) and all `CONTINUE` forms
+are **diverging statements**: control does not continue to the next statement in
+the same block.
+- Code textually after an `EXIT`/`CONTINUE` in the same block is unreachable —
   `UNREACHABLE_AFTER_EXIT` (consistent with the existing post-`RETURN` rule).
-- `EXIT SUB` and `EXIT PROGRAM` count as valid block/function **terminators** for
-  the path-termination analysis in `plan-errors.md` §4 (a diverging inline-`TRAP`
-  handler may end in `EXIT SUB` or `EXIT PROGRAM`; a loop-body `EXIT FOR/DO/WHILE`
-  satisfies divergence within that loop).
+- `EXIT SUB`, `EXIT PROGRAM`, and `CONTINUE FOR/DO/WHILE` all count as valid
+  **terminators** for the path-termination analysis in `plan-errors.md` §4: a
+  diverging inline-`TRAP` handler inside a loop may end in `CONTINUE <kind>`
+  ("handle the error, skip this iteration"); `EXIT SUB`/`EXIT PROGRAM` terminate
+  anywhere; a loop-body `EXIT FOR/DO/WHILE` satisfies divergence within that loop.
+
+### Example: skip failed iterations
+The `CONTINUE` + inline-`TRAP` combination expresses "log the failure and move
+on" — where `RECOVER` (substitute a value) would be wrong because the rest of the
+iteration should not run:
+
+```basic
+MUT processed AS Integer = 0
+FOR EACH path IN paths
+  LET f = fs::openFile(path) TRAP(e)
+    io::print("skipping " & path & ": " & e.message)
+    CONTINUE FOR              ' abandon this iteration entirely
+  END TRAP
+  process(f)                  ' only reached when the open succeeded
+  processed = processed + 1   ' not counted for skipped files
+END FOR
+```
 
 ## 4. Grammar (§19 EBNF additions)
 
 ```
-ExitStmt   := "EXIT" LoopKind
-            | "EXIT" "SUB"
-            | "EXIT" "FUNC"          ' parsed, then rejected
-            | "EXIT" "PROGRAM" Expression
-LoopKind   := "FOR" | "DO" | "WHILE"
+ExitStmt     := "EXIT" LoopKind
+              | "EXIT" "SUB"
+              | "EXIT" "FUNC"          ' parsed, then rejected
+              | "EXIT" "PROGRAM" Expression
+ContinueStmt := "CONTINUE" LoopKind
+LoopKind     := "FOR" | "DO" | "WHILE"
 ```
 
 ## 5. Spec edits (`mfbasic.md`)
 
-- **§10 Control Flow:** add the loop-exit forms with the matching rule and a
-  short example; note `FOR EACH` uses `EXIT FOR`. State there is still no
-  `GOTO`; `EXIT` is structured, lexically-scoped, single-target.
+- **§10 Control Flow:** add the loop-exit **and loop-skip** forms with the
+  matching rule and short examples; note `FOR EACH` uses `EXIT FOR` /
+  `CONTINUE FOR`. State there is still no `GOTO`; `EXIT`/`CONTINUE` are
+  structured, lexically-scoped, single-target.
 - **§7 Subs:** add `EXIT SUB` as the value-less early-exit (ties into
   `plan-result-cleanup.md` §6a, which bans `RETURN` here).
 - **§6 Functions:** note `EXIT FUNC` is forbidden — functions `RETURN` a value.
@@ -114,57 +169,71 @@ LoopKind   := "FOR" | "DO" | "WHILE"
 - **§8.7 entry-point table (lines 656–658):** add a row — `EXIT PROGRAM <n>`
   terminates with code `n`, short-circuiting the normal return-to-exit-code
   mapping (after the stack-wide RAII unwind).
-- **§14.7 / §15 / §16:** add `EXIT FOR/DO/WHILE/SUB` to the list of drop edges,
+- **§14.7 / §15 / §16:** add `EXIT FOR/DO/WHILE/SUB` and `CONTINUE FOR/DO/WHILE`
+  to the list of drop edges (`CONTINUE` drops the current iteration's body scope),
   and add `EXIT PROGRAM` as a stack-wide drop edge that unwinds every live scope
   up to the entry point. No exception to the RAII close guarantee is introduced.
 
 ## 6. Compiler edits
 
-- **`src/lexer.rs`:** add `Keyword::Exit` and `Keyword::Program`
-  (`FOR`/`DO`/`WHILE`/`SUB`/`FUNC` already exist — lines 47–81). `PROGRAM` is only
-  meaningful after `EXIT`; simplest is a plain reserved keyword.
+- **`src/lexer.rs`:** add `Keyword::Exit`, `Keyword::Continue`, and
+  `Keyword::Program` (`FOR`/`DO`/`WHILE`/`SUB`/`FUNC` already exist — lines
+  47–81). `PROGRAM` is only meaningful after `EXIT`; simplest is a plain reserved
+  keyword.
 - **`src/ast.rs`:** add `Statement::Exit { target: ExitTarget, code:
   Option<Expression>, line }` with `enum ExitTarget { For, Do, While, Sub, Func,
-  Program }`. Parse after the statement dispatch in the parser; `code` is `Some`
-  only for `Program`.
+  Program }`, and `Statement::Continue { kind: LoopKind, line }` with
+  `enum LoopKind { For, Do, While }`. Parse after the statement dispatch; `code`
+  is `Some` only for `Program`.
 - **`src/typecheck.rs`:**
-  - `EXIT FOR/DO/WHILE`: walk the enclosing-loop stack; error
-    `EXIT_NO_MATCHING_LOOP` if no loop of that kind encloses the statement.
+  - `EXIT FOR/DO/WHILE` and `CONTINUE FOR/DO/WHILE`: walk the enclosing-loop
+    stack; error `EXIT_NO_MATCHING_LOOP` / `CONTINUE_NO_MATCHING_LOOP` if no loop
+    of that kind encloses the statement.
   - `EXIT SUB`: error `EXIT_SUB_IN_FUNC` if the enclosing routine is a `FUNC`.
   - `EXIT FUNC`: always `EXIT_FUNC_FORBIDDEN`.
   - `EXIT PROGRAM`: require the operand to be `Integer`; constant-fold and
     host-range check; emit `EXIT_PROGRAM_CODE_OUT_OF_RANGE` for an out-of-range
     constant.
   - Reachability: flag `UNREACHABLE_AFTER_EXIT`; register `EXIT SUB`/`EXIT
-    PROGRAM` as terminators in the path-termination pass (shared with
-    `plan-errors.md`).
+    PROGRAM`/`CONTINUE FOR/DO/WHILE` as terminators in the path-termination pass
+    (shared with `plan-errors.md`).
 - **`src/ir.rs`:**
-  - New `IrOp` for loop-break (jump to the loop's exit label) — needs a
-    loop-context stack during lowering mapping loop kind → exit label.
+  - New `IrOp`s for loop-break (jump to the loop's exit label) and loop-continue
+    (jump to the loop's next-iteration label) — the lowering loop-context stack
+    maps each loop kind to *both* labels.
   - `EXIT SUB` lowers to the sub's success-exit path (run scope drops, produce
     the internal `Ok(Nothing)`).
   - New `IrOp::ExitProgram { code }` — a stack-wide unwind intrinsic. Unlike a
     plain process-exit, lowering must ensure live-scope drops run for the current
     frame and propagate the terminate-and-drop signal through callers
     (uncatchable by `TRAP`) up to the entry point, then exit with the code.
-  - Insert lexical-drop ops on **all** `EXIT FOR/DO/WHILE/SUB/PROGRAM` paths;
-    `EXIT PROGRAM` additionally drops every enclosing/caller scope (full RAII).
+  - Insert lexical-drop ops on **all** `EXIT FOR/DO/WHILE/SUB/PROGRAM` and
+    `CONTINUE FOR/DO/WHILE` paths (`CONTINUE` drops only the current iteration's
+    body scope); `EXIT PROGRAM` additionally drops every enclosing/caller scope.
 - **`src/target/shared/code/mod.rs` + per-target backends:** loop-break → jump to
-  loop-end label; `EXIT SUB` reuses sub-return lowering; `EXIT PROGRAM` →
-  stack-wide RAII unwind (run drops for each live frame) then call the runtime/OS
-  exit with the code. The unwind reuses the existing drop/cleanup emission used
-  for error propagation, minus the `TRAP` routing.
+  loop-end label, loop-continue → jump to the next-iteration label; `EXIT SUB`
+  reuses sub-return lowering; `EXIT PROGRAM` → stack-wide RAII unwind (run drops
+  for each live frame) then call the runtime/OS exit with the code. The unwind
+  reuses the existing drop/cleanup emission used for error propagation, minus the
+  `TRAP` routing.
 
 ## 7. Tests
 
 Harness: `tests/<name>/` with `project.json`, `src/*.mfb`, `golden/`; regenerate
-with `scripts/test-accept.sh`. Runtime exit code / `.out` checks for `EXIT APP`.
+with `scripts/test-accept.sh`. Runtime exit code / `.out` checks for
+`EXIT PROGRAM` and loop behavior.
 
 - `exit-loop-valid` — `EXIT FOR` from `FOR` and `FOR EACH`; `EXIT DO` from both
   `DO` forms; `EXIT WHILE`; nested loops where the named kind selects the right
   target; a resource declared in the loop body is dropped on `EXIT`.
 - `exit-loop-invalid` — `EXIT FOR` with no enclosing `FOR`; code after `EXIT`
   (`UNREACHABLE_AFTER_EXIT`).
+- `continue-loop-valid-rt` — `CONTINUE FOR`/`DO`/`WHILE` skip the rest of the
+  iteration (observable via `.out`); `CONTINUE FOR` as the diverging tail of an
+  inline `TRAP` handler (the skip-failed-iterations example); body-scope resource
+  dropped before the next iteration.
+- `continue-loop-invalid` — `CONTINUE FOR` with no enclosing `FOR`
+  (`CONTINUE_NO_MATCHING_LOOP`); code after `CONTINUE` (`UNREACHABLE_AFTER_EXIT`).
 - `exit-sub-valid` — `EXIT SUB` guard clause; `EXIT SUB` from a `SUB` entry point
   → exit 0.
 - `exit-sub-invalid` — `EXIT SUB` inside a `FUNC` (`EXIT_SUB_IN_FUNC`);
@@ -175,19 +244,20 @@ with `scripts/test-accept.sh`. Runtime exit code / `.out` checks for `EXIT APP`.
 - `exit-program-invalid` — non-`Integer` operand; out-of-range constant
   (`EXIT_PROGRAM_CODE_OUT_OF_RANGE`).
 
-## 8. Reconciliation with existing plans
+## 8. Relationship to the other plans
 
-- `plan-errors.md` §4 and `plan-result-cleanup.md` §6a reference "loop control
-  (`EXIT`/`CONTINUE`)" as ways a diverging inline-`TRAP` handler can leave. After
-  this plan, **`EXIT` forms are real** and those references become valid for
-  `EXIT`. Update both plans to name the concrete forms.
-- **`CONTINUE` is still not added by this plan** (the request was the `EXIT`
-  family only). The "collect errors and continue iterating" loop pattern in
-  `plan-result-cleanup.md` §3 / §6 uses `CONTINUE`, which does not exist. Either
-  add `CONTINUE` (skip-to-next-iteration) in a follow-up, or rewrite that pattern
-  to not depend on it. Flagged in Q3 — recommend a small follow-up adding
-  `CONTINUE` for `FOR`/`DO`/`WHILE`, since the diverging-`TRAP`-in-a-loop case
-  genuinely needs "handle and continue the loop."
+No separate reconciliation pass is needed — implementing in the stated order
+(`plan-errors.md` → `plan-result-cleanup.md` → this plan) makes every forward
+reference real by the time it matters:
+
+- `plan-errors.md` and `plan-result-cleanup.md` §6a name `EXIT`/`CONTINUE` as
+  ways a diverging inline-`TRAP` handler leaves and as the `SUB` early-exit.
+  Those keywords land here, last, so the references resolve on completion.
+- Note (see §9, Q3): `RECOVER` (from `plan-errors.md`) can already express the
+  skip-failed-iteration shape by substituting a harmless value and neutralizing
+  the rest of the iteration with flags. `CONTINUE` is therefore an **ergonomic
+  convenience** — clearer when several downstream statements would otherwise need
+  neutralizing — not a strict necessity. It is included here for that clarity.
 
 ## 9. Decisions & open questions
 
@@ -197,14 +267,15 @@ Resolved:
   RAII close guarantee. (See §3.)
 - **Q4 — spelling → `EXIT PROGRAM`** (reserved word `PROGRAM`).
 
+- **Q3 — `CONTINUE` → included here.** Added as `CONTINUE FOR/DO/WHILE`,
+  mirroring the `EXIT` family. Positioned as an ergonomic convenience: `RECOVER`
+  + flags already covers the functional need (substitute a harmless value, count
+  via a flag), but `CONTINUE` reads cleaner when several downstream statements
+  would otherwise have to be neutralized.
+
 Open:
-- **Q1 — loop-target rule.** Recommended: `EXIT <kind>` targets the innermost
-  enclosing loop *of that kind*, even across inner loops of other kinds
-  (BASIC-traditional; explicit because the kind is named). Stricter alternative:
-  require the named kind to equal the innermost enclosing loop overall (no
-  multi-level break). Confirm.
-- **Q3 — add `CONTINUE`?** The diverging inline-`TRAP`-inside-a-loop pattern
-  needs "handle the error and continue the loop," which no `EXIT` form expresses
-  (`EXIT FOR` leaves the loop entirely). Likely spelled `CONTINUE FOR/DO/WHILE`
-  to mirror the `EXIT` family. Recommend a follow-up `plan-continue.md`. Confirm
-  scope.
+- **Q1 — loop-target rule** (applies to both `EXIT <kind>` and `CONTINUE
+  <kind>`). Recommended: target the innermost enclosing loop *of that kind*, even
+  across inner loops of other kinds (BASIC-traditional; explicit because the kind
+  is named). Stricter alternative: require the named kind to equal the innermost
+  enclosing loop overall (no multi-level break/skip). Confirm.
