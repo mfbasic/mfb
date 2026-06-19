@@ -27,8 +27,14 @@ tests/func_thread_result_invalid/src/main.mfb:11 error[2-203-0043 TYPE_UNKNOWN_V
   11 |   LET missing AS Integer = t.output
   12 |   LET wrongType AS String = t.result
      | ^
-tests/func_thread_result_invalid/src/main.mfb:12 error[2-203-0007 TYPE_BINDING_MISMATCH]: binding initializer type does not match declared type
-               Binding `wrongType` has initializer type Result OF Integer, expected String.
+tests/func_thread_result_invalid/src/main.mfb:12 error[2-203-0072 TYPE_THREAD_RESULT_REMOVED]: the thread result field is removed; use thread::waitFor
+               Thread values have no `result` field; use `thread::waitFor(t)` to retrieve the worker outcome.
+  10 |   LET t AS Thread OF Nothing TO Integer = thread::start(thread_workers::noMessages, 1, 1, 1)
+  11 |   LET missing AS Integer = t.output
+  12 |   LET wrongType AS String = t.result
+     | ^
+tests/func_thread_result_invalid/src/main.mfb:12 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `wrongType` does not have a known type.
 [exit 1]
 $ mfb build -ir tests/func_thread_result_invalid
    3 | 
@@ -59,6 +65,12 @@ tests/func_thread_result_invalid/src/main.mfb:11 error[2-203-0043 TYPE_UNKNOWN_V
   11 |   LET missing AS Integer = t.output
   12 |   LET wrongType AS String = t.result
      | ^
-tests/func_thread_result_invalid/src/main.mfb:12 error[2-203-0007 TYPE_BINDING_MISMATCH]: binding initializer type does not match declared type
-               Binding `wrongType` has initializer type Result OF Integer, expected String.
+tests/func_thread_result_invalid/src/main.mfb:12 error[2-203-0072 TYPE_THREAD_RESULT_REMOVED]: the thread result field is removed; use thread::waitFor
+               Thread values have no `result` field; use `thread::waitFor(t)` to retrieve the worker outcome.
+  10 |   LET t AS Thread OF Nothing TO Integer = thread::start(thread_workers::noMessages, 1, 1, 1)
+  11 |   LET missing AS Integer = t.output
+  12 |   LET wrongType AS String = t.result
+     | ^
+tests/func_thread_result_invalid/src/main.mfb:12 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `wrongType` does not have a known type.
 [exit 1]

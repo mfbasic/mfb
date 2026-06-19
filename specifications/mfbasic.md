@@ -2,7 +2,7 @@
 
 ## Modern Functional Basic (MFB)
 
-A modern, functional dialect of BASIC. Immutable by default, no objects, package-level imports, and an implicit-`Result` error model. Every function returns a `Result` that **auto-unwraps on success and auto-propagates on error**; errors auto-route to an inline `TRAP` on the failing expression, to a function-level `TRAP`, or propagate to the caller — no `TRY`, no `GOTO`, no exceptions. The language is designed for memory-safe implementation through owned values, explicit resource ownership, and lexical cleanup.
+A modern, functional dialect of BASIC. Immutable by default, no objects, package-level imports, and an implicit error model. Every function call **produces its value on success and fails with an `Error` on failure**; the value auto-unwraps and the `Error` auto-propagates. Errors auto-route to an inline `TRAP` on the failing expression, to a function-level `TRAP`, or propagate to the caller — no `TRY`, no `GOTO`, no exceptions. The language is designed for memory-safe implementation through owned values, explicit resource ownership, and lexical cleanup.
 
 ---
 
@@ -12,7 +12,7 @@ A modern, functional dialect of BASIC. Immutable by default, no objects, package
 2. **Functional, no OOP** — plain data (records/unions) + free functions. No classes, methods, `self`, or inheritance.
 3. **Immutable by default** — `LET` binds, `MUT` opts into reassignment. No implicit globals, no hidden aliasing.
 4. **Optional ceremony** — a 3-line script needs no module header; structure exists when you want it.
-5. **Errors as values, invisibly plumbed** — every function returns `Result`; success auto-unwraps, errors auto-route to an inline `TRAP` on the failing expression, to a function-level `TRAP`, or propagate. No exceptions, no unwinding.
+5. **Errors as values, invisibly plumbed** — every function call yields its value or fails with an `Error`; success auto-unwraps, errors auto-route to an inline `TRAP` on the failing expression, to a function-level `TRAP`, or propagate. No exceptions, no unwinding.
 6. **Package-owned closed domains** — a package owns the unions it defines and the free functions that operate on them. Extension is package layering through explicit composition (`UNION ... INCLUDES ...`), not open inheritance, traits, or retroactive interface implementation.
 7. **Predictable memory** — designed for memory-safe implementation through formal ownership, move, copy, freeze, resource, and lexical drop rules. No GC, no refcounting, no manual `free`.
 
@@ -47,7 +47,7 @@ MFBASIC supports monomorphized templates, not runtime generics.
 
 Template parameters may appear only on `TYPE`, `UNION`, `FUNC`, and `SUB` declarations. A template is not a runtime entity and is not emitted to bytecode as an open declaration. Every used instantiation is resolved during compilation into a concrete declaration before IR, bytecode, package metadata, or native lowering is produced.
 
-Built-in type constructors such as `List`, `Map`, `Result`, and `Thread` are compiler-owned templates. User code may define templates with the same `OF` syntax where allowed:
+Built-in type constructors such as `List`, `Map`, and `Thread` are compiler-owned templates. User code may define templates with the same `OF` syntax where allowed:
 
 ```basic
 TYPE Stack OF T
@@ -293,9 +293,9 @@ END UNION
 
 A non-template user-defined union introduces one concrete type name, even when it includes another union.
 
-### 4.4 `Result`, `Error`, and absence (built in)
+### 4.4 `Error` and absence (built in)
 
-The error model is built on two built-in public types and one compiler-owned private success member type:
+The error model is built on one built-in public type, `Error`:
 
 ```basic
 TYPE Error
@@ -304,17 +304,26 @@ TYPE Error
 END TYPE
 ```
 
-`Result OF T` is compiler-owned notation for a built-in union with two members:
+The mental model is simple: **a function call either produces its value or fails
+with an `Error`.** On success the value is delivered directly (auto-unwrapped); on
+failure the `Error` auto-propagates to the nearest `TRAP` or to the caller (see
+§8). Users never write a wrapper type around the result — there is nothing to
+name, construct, or match.
 
-- private compiler-owned `Ok OF T`
-- public `Error`
+- **A function may fail.** `FUNC F(...) AS T` yields a `T` on success and an
+  `Error` on failure; a `SUB` yields nothing on success and may still fail.
+- Failure always carries the single public `Error` type — no per-function error
+  types, no coercion. Users construct `Error[...]`, read `e.code` / `e.message`,
+  and bind it in `TRAP(e)`.
+- There is no built-in `Option`/`Maybe`. Absence is represented by an
+  `Error[code, message]`; use semantic error-code constants such as
+  `errorCode::ErrNotFound` for not found.
 
-Users may construct `Error[...]`, but may not construct `Result` or `Ok` directly. `Result` concrete instantiations are produced by the compiler.
-
-- **Every function returns `Result OF T`** where `T` is the declared return type.
-- The error member is **always** the single public `Error` type — no per-function error types, no coercion.
-- There is no built-in `Option`/`Maybe`. Absence is represented by `Error[code, message]` carried through `Result`; use semantic error-code constants such as `errorCode::ErrNotFound` for not found.
-- `Result` is rarely written by hand; it is produced and consumed implicitly (see §8).
+> **Implementation note.** Internally the runtime represents every fallible
+> outcome as a two-member union (a private success member plus the public
+> `Error`). That type is not nameable, constructible, or matchable in user code;
+> it exists only in compiler IR and bytecode metadata, and is never observable in
+> user syntax.
 
 ### 4.5 Enums
 
@@ -340,11 +349,14 @@ The `.` token is used for both enum member access and record field access. `Enum
 
 ### 4.6 `Nothing`
 
-`Nothing` is the unit type. It has one value, written `NOTHING`, and is the success value returned by `SUB` (see §7).
+`Nothing` is the unit type. It has one value, written `NOTHING`. It is used for
+marker union members and for the `FUNC(...) AS Nothing` callback bridge that lets
+a `SUB` be passed where a function value is expected. A `SUB` is value-less — it
+produces no success value (see §7) — so a `SUB` body does not name `Nothing`.
 
 ```basic
 SUB log(msg AS String)
-  IF msg = "" THEN RETURN       ' Ok(NOTHING)
+  IF msg = "" THEN RETURN       ' bare RETURN: early, value-less exit
   io::print(msg)
 END SUB
 ```
@@ -370,7 +382,7 @@ Thread OF Msg TO Out                 ' isolated running or completed thread
 ThreadWorker OF Msg TO Out           ' worker-side view of the same thread
 ```
 
-`Thread` and `ThreadWorker` are built-in templates for opaque handles to the same underlying package worker. `Thread` is the parent-side handle. `ThreadWorker` is the worker-side handle passed into the thread entry function. `Msg` is the message type used by `thread::send` and `thread::receive`; `Out` is the thread entry function's success type. A completed parent `Thread` exposes `result AS Result OF Out` for field access as `t.result`; retrieving that result consumes and closes the parent `Thread` handle.
+`Thread` and `ThreadWorker` are built-in templates for opaque handles to the same underlying package worker. `Thread` is the parent-side handle. `ThreadWorker` is the worker-side handle passed into the thread entry function. `Msg` is the message type used by `thread::send` and `thread::receive`; `Out` is the thread entry function's success type. A completed parent `Thread`'s outcome is retrieved only through `thread::waitFor(t)`, which auto-unwraps the `Out` value or auto-propagates the `Error`; retrieving the outcome consumes and closes the parent `Thread` handle.
 
 ### 4.9 Type Inference
 
@@ -396,7 +408,7 @@ A `MUT` binding may omit its initializer only when its type has a defined defaul
 | `Map OF K TO V` | Empty map, when `K` and `V` have default values |
 | Record type | A record with every field set to its default, if every field type has a default. |
 
-Defaultability is recursive and finite: nested lists, maps, and records are defaultable only when every transitively referenced element, key, value, and field type is also defaultable, and recursive record cycles (legal only through `List`, `Map`, or `UNION`; see §4.2) do not define a default value. Enums, unions, functions, lambdas, `Result`, threads, and resource handles do not have default values. A `MUT` binding of one of those types must have an initializer.
+Defaultability is recursive and finite: nested lists, maps, and records are defaultable only when every transitively referenced element, key, value, and field type is also defaultable, and recursive record cycles (legal only through `List`, `Map`, or `UNION`; see §4.2) do not define a default value. Enums, unions, functions, lambdas, threads, and resource handles do not have default values. A `MUT` binding of one of those types must have an initializer.
 
 ### 4.11 Comparable Types
 
@@ -461,7 +473,7 @@ SUB log(msg AS String)
 END SUB
 ```
 
-- **Every function returns `Result`.** `FUNC F(...) AS T` has effective type `Result OF T`. A `SUB` returns `Result OF Nothing` (see §7).
+- **Every function may fail.** `FUNC F(...) AS T` yields a `T` on success and an `Error` on failure. A `SUB` yields nothing on success and may still fail (see §7).
 - **Default args** allowed (trailing).
 - **Named args** at call site: `greet("Ada", greeting := "Hi")`. Named arguments bind by parameter name, may be mixed with positional arguments, and are evaluated/lowered in declaration order after omitted default parameters are filled.
 - **Parameter passing**: arguments are passed as owned values under the memory model (§14). Copyable values are copied when they remain needed by the caller; movable values are moved when ownership can be transferred. Containers own their contents, so passing a container never passes an aliasable reference.
@@ -486,7 +498,8 @@ END FUNC
 
 ## 7. Subs
 
-A `SUB` is the effect-only spelling of a function whose success type is `Nothing`.
+A `SUB` is **effect-only and value-less**: it produces no success value, and its
+call is a statement, not an expression.
 
 ```basic
 SUB logItem(x AS Integer)
@@ -494,7 +507,11 @@ SUB logItem(x AS Integer)
 END SUB
 ```
 
-At the call boundary, it has effective type `Result OF Nothing`, with success represented as `Ok(NOTHING)`. A bare `RETURN`, `RETURN NOTHING`, and fall-through to `END SUB` all produce `Ok(NOTHING)` where fall-through is allowed.
+A `SUB` still has an error channel — it can `FAIL`, auto-propagate, and drop
+resources on the way out — but it produces nothing on success. A bare `RETURN` is
+a value-less early exit, and fall-through to `END SUB` succeeds. `RETURN NOTHING`
+is **not** allowed in a `SUB` (a `SUB` has no value to return), and a `SUB` call
+may not be used in value position: `LET x = aSub()` is a compile error.
 
 For first-class function typing, a `SUB(A, B, ...)` is compatible with `FUNC(A, B, ...) AS Nothing`. This lets effect-only callbacks work without wrapper functions:
 
@@ -506,12 +523,16 @@ END SUB
 forEach(nums, printItem)
 ```
 
-`Nothing` is a normal concrete unit type, not a bottom type and not a non-returning marker. `Result OF Nothing` participates in auto-unwrapping, propagation, and inline `TRAP` handling exactly like any other `Result OF T`:
+`Nothing` remains a normal concrete unit type — it is still needed for marker
+union members and for the `FUNC(...) AS Nothing` callback bridge above — but a
+`SUB` body never names it. A value-less call (a `SUB`, or a fallible effect-only
+built-in such as `fs::writeAll`) participates in auto-propagation and inline
+`TRAP` handling like any other call; its inline `TRAP` `RECOVER` takes no operand:
 
 ```basic
 fs::writeAll(f, "done") TRAP(e)
   io::print(e.message)
-  RECOVER            ' value-less: the call produces Nothing
+  RECOVER            ' value-less: the call produces no value
 END TRAP
 io::print("saved")
 ```
@@ -520,20 +541,20 @@ Value-producing callbacks still require a value-producing `FUNC`. A `SUB` is val
 
 ---
 
-## 8. Error Model — Implicit `Result`, One `TRAP` per Function
+## 8. Error Model — Implicit Failure, One `TRAP` per Function
 
 ### 8.1 The core rule
 
-Every function returns `Result`. At a call site, a call **auto-unwraps** to its `Ok` value. If the call yields `Err`, control immediately transfers to the enclosing `TRAP`; if there is no `TRAP`, the function returns that `Err` to *its* caller.
+Every function call either **produces its value** or **fails with an `Error`**. On success the value is delivered directly (auto-unwrapped). On failure, control immediately transfers to the enclosing `TRAP`; if there is no `TRAP`, the function fails with that same `Error` to *its* caller.
 
 ```basic
-LET x = toFloat(input)    ' if Ok(v): x = v
-                            ' if Error(e): jump to TRAP, or return an error result carrying e
+LET x = toFloat(input)    ' on success: x = v
+                            ' on failure: jump to TRAP, or fail to the caller carrying e
 ```
 
 There is **no `TRY` keyword and no `GOTO`**. Propagation is the default behavior of calling a function; a call auto-propagates **unless** a postfix inline `TRAP` is attached to its expression (§8.4), which overrides the default for that one expression.
 
-Function arguments are evaluated left to right. If any argument expression returns `Err`, later arguments are not evaluated and the error routes to the enclosing `TRAP` or propagates to the caller.
+Function arguments are evaluated left to right. If any argument expression fails, later arguments are not evaluated and the error routes to the enclosing `TRAP` or propagates to the caller.
 
 When an error path leaves a scope, any live resource bindings in that scope are closed by lexical drop (§14.7, §15) before the final error reaches the enclosing `TRAP` or caller.
 
@@ -545,7 +566,7 @@ Use `FAIL` to fail explicitly with an `Error`:
 IF n < 0 THEN FAIL Error[77050002, "negative"]
 ```
 
-`FAIL e` routes to the enclosing `TRAP`; with no trap, the function returns an error result carrying `e`.
+`FAIL e` routes to the enclosing `TRAP`; with no trap, the function fails to its caller carrying `e`.
 
 ### 8.3 The `TRAP` block — one keyword, two scopes
 
@@ -553,7 +574,7 @@ IF n < 0 THEN FAIL Error[77050002, "negative"]
 
 ```basic
 FUNC readAge(input AS String) AS Integer
-  LET n = toInt(input)                 ' auto-propagates on Err
+  LET n = toInt(input)                 ' auto-propagates on failure
   IF n < 0 THEN FAIL Error[77050002, "negative"]
   RETURN n
 
@@ -571,9 +592,9 @@ Trap outcomes:
 | Statement | Meaning | Produces | Scope |
 |-----------|---------|----------|-------|
 | `RECOVER v` | bind `v` and continue after the trap | binding gets `v` | inline only |
-| `RETURN v` | function succeeds | `Ok(v)` | both (`FUNC` only) |
-| `PROPAGATE` | re-propagate the current `err` | error result carrying `err` | both |
-| `FAIL e2` | replace/wrap the error | error result carrying `e2` | both |
+| `RETURN v` | function succeeds | success value `v` | both (`FUNC` only) |
+| `PROPAGATE` | re-propagate the current `err` | failure carrying `err` | both |
+| `FAIL e2` | replace/wrap the error | failure carrying `e2` | both |
 
 The function-level `TRAP` is **diverging-only**: it has no `RECOVER`, because at function scope there is no failing statement to resume into. It may convert the error into the function's final success value with `RETURN` (in a `FUNC`), rethrow the same error with `PROPAGATE`, or replace it with `FAIL`. Once control enters a function-level `TRAP`, the failed expression is abandoned.
 
@@ -601,7 +622,7 @@ END TRAP
 LET line = fs::readLine(f)
 ```
 
-An inline `TRAP` is legal only as the value of a `LET`/`MUT` binding, an assignment, or a bare expression statement. It scopes to exactly **one** expression — to wrap several fallible calls, use the function-level `TRAP`. Every path through the handler must `RECOVER` or diverge; falling through to `END TRAP` is a compile error (there must be no path that leaves the binding unset). For a value-less trapped call (a `SUB`, or any `Result OF Nothing`), `RECOVER` takes no operand.
+An inline `TRAP` is legal only as the value of a `LET`/`MUT` binding, an assignment, or a bare expression statement. It scopes to exactly **one** expression — to wrap several fallible calls, use the function-level `TRAP`. Every path through the handler must `RECOVER` or diverge; falling through to `END TRAP` is a compile error (there must be no path that leaves the binding unset). For a value-less trapped call (a `SUB`, or a fallible effect-only built-in), `RECOVER` takes no operand.
 
 Use the same construct for ordinary absence — `RECOVER` the recoverable case, bail on the rest:
 
@@ -614,24 +635,24 @@ LET user = getUser(id) TRAP(e)
 END TRAP
 ```
 
-`MATCH` no longer intercepts call errors. A call used as a `MATCH` scrutinee auto-unwraps like every other call site; `MATCH` matches enum/union/`Result` **values** only (§9).
+`MATCH` no longer intercepts call errors. A call used as a `MATCH` scrutinee auto-unwraps like every other call site; `MATCH` matches enum/union **values** only (§9).
 
 ### 8.5 `RETURN` semantics
 
-`RETURN v` **always** means function success and produces the function's final `Ok(v)`, whether it appears in the body or in the `TRAP`. It does not resume at the failed expression. A bare `RETURN` in a `SUB` produces `Ok(NOTHING)`. `RETURN NOTHING` is also valid in a `SUB`. A `SUB` with no `TRAP` may fall through to `END SUB`, which implicitly returns `Ok(NOTHING)`. `RETURN` never produces an error. `FAIL` and `PROPAGATE` produce errors.
+`RETURN v` **always** means function success with the value `v`, whether it appears in the body or in the `TRAP`. It does not resume at the failed expression. A bare `RETURN` in a `SUB` is a value-less early exit; `RETURN NOTHING` is **not** allowed in a `SUB`. A `SUB` with no `TRAP` may fall through to `END SUB`, which succeeds. `RETURN` never produces an error. `FAIL` and `PROPAGATE` produce errors.
 
 ### 8.6 Rules
 
 1. At most one function-level `TRAP` per function, at the bottom, after normal flow.
 2. The trap payload is always `Error`; written `TRAP(err)` with no type. The same spelling is used for the inline and function-level forms.
-3. The function-level trap block is reachable only via `FAIL` (in the body), an auto-propagated `Err` from a call, or `FAIL`/`PROPAGATE` inside the trap. It is never reached by fall-through.
+3. The function-level trap block is reachable only via `FAIL` (in the body), an auto-propagated failure from a call, or `FAIL`/`PROPAGATE` inside the trap. It is never reached by fall-through.
 4. `PROPAGATE` is valid inside a function-level `TRAP` or an inline `TRAP` handler (it refers to the current `err`). Elsewhere it is a compile error; use `FAIL e` instead.
-5. With no enclosing `TRAP`, any `Err` (from `FAIL` or an auto-propagated call) becomes the function's returned `Err`.
+5. With no enclosing `TRAP`, any failure (from `FAIL` or an auto-propagated call) becomes the function's failure to its caller.
 6. Every function-level `TRAP` path must end in `RETURN`, `PROPAGATE`, or `FAIL`. Trap fall-through is a compile error.
 7. Every `FUNC` path must end in `RETURN value` or `FAIL error`. Function fall-through is a compile error.
-8. A `SUB` with no `TRAP` may fall through to `END SUB`, implicitly returning `Ok(NOTHING)`.
-9. A `SUB` with a `TRAP` must end every normal path before the `TRAP` with `RETURN`, `RETURN NOTHING`, or `FAIL error`. Falling through from the normal body into the `TRAP` is a compile error.
-10. An executable entry point's uncaught `Err` terminates the process as an unhandled runtime error: the process exits with code `255`, and stderr receives `Code: <err.code> Message: <err.message>`. Give the entry point a `TRAP` for graceful handling.
+8. A `SUB` with no `TRAP` may fall through to `END SUB`, which succeeds (value-less).
+9. A `SUB` with a `TRAP` must end every normal path before the `TRAP` with a bare `RETURN` or `FAIL error`. Falling through from the normal body into the `TRAP` is a compile error.
+10. An executable entry point's uncaught failure terminates the process as an unhandled runtime error: the process exits with code `255`, and stderr receives `Code: <err.code> Message: <err.message>`. Give the entry point a `TRAP` for graceful handling.
 11. An inline `TRAP` is legal only as the value of a `LET`/`MUT` binding, an assignment, or a bare expression statement, and traps exactly one expression. The trapped expression must be a fallible call; trapping an expression that cannot fail is a compile error.
 12. Every path through an inline `TRAP` handler must end in `RECOVER` or a diverging statement (`RETURN`, `FAIL`, `PROPAGATE`, or an `EXIT` form). Falling through to `END TRAP` is a compile error.
 13. `RECOVER` is valid only inside an inline `TRAP` handler; it is a compile error in a function-level `TRAP` or anywhere else. `RECOVER`'s value must be assignable to the trapped expression's success type; it carries a value iff that type is not `Nothing`. The handler binding is scoped to the handler block only.
@@ -662,13 +683,17 @@ Process result mapping:
 
 | Entry outcome | Process behavior |
 |---------------|------------------|
-| `SUB` returns `Ok(NOTHING)` | Exit code `0`. |
-| `FUNC ... AS Integer` returns `Ok(n)` | Exit code `n`. Implementations must reject or fail values outside the host process exit-code range. |
-| Entry returns an uncaught error result carrying `err` | Write `Code: <err.code> Message: <err.message>` to stderr and exit with code `255`. |
+| `SUB` entry succeeds | Exit code `0`. |
+| `FUNC ... AS Integer` succeeds with `n` | Exit code `n`. Implementations must reject or fail values outside the host process exit-code range. |
+| Entry fails with an uncaught error carrying `err` | Write `Code: <err.code> Message: <err.message>` to stderr and exit with code `255`. |
 
 Environment access outside command-line arguments is outside the core language specification and may be provided by a future standard package.
 
 ### 8.8 Desugaring
+
+This sketch is **compiler-internal**: `Result`, `Ok`, and `Err` below are the
+runtime's private representation of a fallible outcome (§4.4), not types a user
+writes. They appear here only to describe the lowering.
 
 ```text
 FUNC f(a AS A) AS T            =>   FUNC f(a AS A) AS Result OF T
@@ -698,13 +723,13 @@ FUNC f(a AS A) AS T            =>   FUNC f(a AS A) AS Result OF T
     RETURN v       =>  RETURN Ok(v)
 ```
 
-A call used as a `MATCH` scrutinee **is** rewritten like any other call (it auto-unwraps); only a `Result`-typed *value* is matched as a raw `Result`. No real exceptions, no stack unwinding — pure value flow.
+A call used as a `MATCH` scrutinee **is** rewritten like any other call (it auto-unwraps). No real exceptions, no stack unwinding — pure value flow.
 
 ---
 
 ## 9. Pattern Matching
 
-`MATCH` binds concrete union member values, matches `Result`-typed values, and matches literals; exhaustiveness is checked at compile time. A call scrutinee auto-unwraps (use an inline `TRAP` for local error handling, §8.4).
+`MATCH` binds concrete union member values and matches literals; exhaustiveness is checked at compile time. A call scrutinee auto-unwraps (use an inline `TRAP` for local error handling, §8.4).
 
 ```basic
 FUNC area(s AS Shape) AS Float
@@ -732,10 +757,9 @@ END MATCH
 - `NOTHING`, `TRUE`, `FALSE`, strings, and numbers are literal patterns.
 - Enum matches use qualified enum member patterns such as `Color.Red`.
 - Guards: `CASE Rect(r) WHEN r.w = r.h : ...`.
-- If the scrutinee is a `Result`-typed *value* (e.g. a local or field of type `Result OF T`), `CASE Ok(v)` and `CASE Error(e)` match the `Result` members.
 - `CASE ELSE` is the catch-all fallback.
 - **Exhaustiveness**: unions must cover all member types. Open types (`Integer`, `String`, etc.) require a `CASE ELSE` or it is a compile error. Guarded `CASE` arms do not contribute to compile-time coverage because the guard can fail; use an unguarded arm or `CASE ELSE` to cover the remaining values.
-- A call scrutinee auto-unwraps to its `Ok` value; to handle its error locally, use an inline `TRAP` (see §8.4).
+- A call scrutinee auto-unwraps to its value; to handle its failure locally, use an inline `TRAP` (see §8.4). `CASE Ok`/`CASE Error` are not valid match arms — a failure is never matched, only trapped.
 
 ---
 
@@ -801,7 +825,7 @@ Operator edge cases:
 - `&` has lower precedence than `+` and `-`, so `a & b + c` parses as `a & (b + c)`.
 - `^` is right-associative: `2 ^ 3 ^ 2` parses as `2 ^ (3 ^ 2)`.
 - Unary `-` has higher precedence than `^` in MFBASIC, so `-2^2` parses as `(-2) ^ 2`. Write `-(2 ^ 2)` when the negation should apply after exponentiation.
-- Checked numeric failures from operators are ordinary `Err` results and therefore auto-propagate unless handled by `MATCH` or `TRAP`.
+- Checked numeric failures from operators are ordinary failures and therefore auto-propagate unless handled by a `TRAP`.
 - `/` and `MOD` use the numeric promotion table in §4.1. `DIV` always returns `Float`.
 - `MOD` is available for every numeric operand pairing and uses a truncation-toward-zero quotient to compute the remainder.
 
@@ -832,7 +856,7 @@ MUT pts AS List OF Vec3 = []
 pts = append(pts, v)                            ' in-place append on the mutable buffer
 ```
 
-- `get` returns `Result` (missing key / out-of-range index yields an error result carrying `Error`) and therefore auto-propagates. Use `getOr(coll, key, default)` for the common defaulted read.
+- `get` can fail (missing key / out-of-range index fails with an `Error`) and therefore auto-propagates. Use `getOr(coll, key, default)` for the common defaulted read.
 - A collection bound with `LET` is an immutable snapshot. Update functions such as `append` and `set` may read it and produce a new collection value, but assigning back to the same `LET` binding or otherwise modifying it is a compile-time error.
 - A collection bound with `MUT` is a locally mutable buffer. When the result of an update function is assigned back to the same `MUT` binding, such as `pts = append(pts, v)`, the compiler performs the update destructively in place instead of allocating a replacement collection.
 - Update helpers are semantically pure functions. `append(pts, v)` by itself computes and discards a result; it has no lasting effect unless the result is assigned, returned, passed, or otherwise consumed. Destructive update is an optimization only for the assignment-back-to-the-same-`MUT` pattern.
@@ -1056,11 +1080,11 @@ At minimum, exported type shape metadata must remain sufficient to reconstruct c
 
 ## 15. Resource Management
 
-`RESOURCE` values, such as files and sockets, are unique handles. At any point in the program, exactly one live owner is responsible for each open handle. Resource handles are non-copyable owned values with additional close rules. They are closed automatically by lexical drop (§14.7) when their owning binding leaves scope, on every exit path: normal scope exit, `RETURN`, `FAIL`, `PROPAGATE`, an auto-propagated `Err`, and `TRAP` routing. There is no user-visible lifetime construct; a resource is released by the same ownership and drop rules as any other owned value.
+`RESOURCE` values, such as files and sockets, are unique handles. At any point in the program, exactly one live owner is responsible for each open handle. Resource handles are non-copyable owned values with additional close rules. They are closed automatically by lexical drop (§14.7) when their owning binding leaves scope, on every exit path: normal scope exit, `RETURN`, `FAIL`, `PROPAGATE`, an auto-propagated failure, and `TRAP` routing. There is no user-visible lifetime construct; a resource is released by the same ownership and drop rules as any other owned value.
 
 ```basic
 FUNC readFirstLine(path AS String) AS String
-  LET f = fs::openFile(path)   ' auto-propagates on Err
+  LET f = fs::openFile(path)   ' auto-propagates on failure
   LET line = fs::readLine(f)   ' if this fails, f is still closed on the error exit
   RETURN line                  ' f is dropped (closed) here, on the success exit
 END FUNC
@@ -1072,7 +1096,7 @@ A `RESOURCE` value may be passed only to a function whose signature explicitly n
 
 Borrow and consume are compiler rules inferred from the resource operation. They are not source-level annotations; MFBASIC does not add `BORROW`, `MOVE`, or similar parameter syntax for ordinary resource use.
 
-To release a resource earlier than the end of its scope, or to observe a close failure, call the resource's explicit close operation (such as `fs::close(f)`). That operation consumes the handle, returns a `Result`, and auto-propagates a close `Err` like any other call, so the close failure is directly observable. After an explicit close the binding is moved and is not closed again by lexical drop. Reassigning a `MUT` resource binding evaluates the right-hand side first; if that succeeds, the old handle is dropped (closed) before the binding stores the new handle.
+To release a resource earlier than the end of its scope, or to observe a close failure, call the resource's explicit close operation (such as `fs::close(f)`). That operation consumes the handle and auto-propagates a close failure like any other call, so the close failure is directly observable. After an explicit close the binding is moved and is not closed again by lexical drop. Reassigning a `MUT` resource binding evaluates the right-hand side first; if that succeeds, the old handle is dropped (closed) before the binding stores the new handle.
 
 A close that runs as part of an implicit lexical drop cannot inject an error into program flow, because a drop has no source-level result to route. If such a drop-close fails, the failure is emitted as diagnostic/audit metadata associated with the failed cleanup; it does not replace, wrap, or raise a source-level `Error`. Programs that must observe a close failure use the explicit close operation instead.
 
@@ -1114,11 +1138,11 @@ Rules:
 - A thread entry point must not be a closure or lambda. It must be a named package function.
 - Each started thread receives its own fresh instance of the entry function's package, including a distinct worker arena. Starting isolated functions from the same package more than once creates independent package state for each thread.
 - Thread arguments and messages are copied, moved, or frozen when they enter a thread. Values read from a thread are copied, moved, or frozen when they leave the thread. No sender and receiver can observe or mutate the same live value. Heap-backed boundary values are materialized in receiver-valid storage before user code observes them.
-- Thread boundary types must be thread-sendable. Primitive owned values, `String`, `Nothing`, records, unions, `Result`, and immutable containers are sendable when every contained field, payload, element, key, or value type is sendable. Functions, lambdas, `Thread`, `ThreadWorker`, and opaque resource handles are not sendable by default.
+- Thread boundary types must be thread-sendable. Primitive owned values, `String`, `Nothing`, records, unions, and immutable containers are sendable when every contained field, payload, element, key, or value type is sendable. Functions, lambdas, `Thread`, `ThreadWorker`, and opaque resource handles are not sendable by default. (A worker outcome — internally a fallible result — is sendable when its success type is.)
 - Concrete resource types opt in to thread sendability. Standard `File`, `Socket`, and `UdpSocket` handles are sendable. `Listener` is not sendable. A successful send of a non-copyable sendable resource moves ownership to the destination side immediately; a failed send leaves ownership with the sender.
 - A thread's top-level `MUT` state is private to that thread's package instance.
-- If the thread entry function returns `Ok(v)`, the thread's stored result becomes the success member with payload `v`. If it fails with `Error(e)`, including through auto-propagation, the thread's stored result becomes the error member carrying `e`. If the stored result still references worker-arena storage internally, the runtime keeps that worker arena live through the `Thread` result owner and materializes a receiver-owned copy before `t.result` or `thread::waitFor(t)` exposes the value to user code.
-- The `Thread` value owns the completed result after the thread ends until that result is retrieved. Field access `t.result` waits until completion, returns the stored `Result OF Out`, and consumes/closes the parent `Thread` handle. `thread::waitFor(t)` waits until completion, retrieves the same result, auto-unwraps or auto-propagates it like any other function call, and consumes/closes the parent `Thread` handle. After either retrieval path, any further use of the same `Thread` handle fails with `ErrResourceClosed`.
+- If the thread entry function succeeds with `v`, the thread's stored outcome carries the success value `v`. If it fails with `Error(e)`, including through auto-propagation, the stored outcome carries `e`. If the stored outcome still references worker-arena storage internally, the runtime keeps that worker arena live through the `Thread` outcome owner and materializes a receiver-owned copy before `thread::waitFor(t)` exposes the value to user code.
+- The `Thread` value owns the completed outcome after the thread ends until it is retrieved. `thread::waitFor(t)` waits until completion, retrieves the outcome, auto-unwraps the `Out` value or auto-propagates the `Error` like any other function call, and consumes/closes the parent `Thread` handle. After retrieval, any further use of the same `Thread` handle fails with `ErrResourceClosed`.
 
 The `thread` package exposes:
 
@@ -1143,9 +1167,9 @@ For queue operations, `timeoutMs = 0` means do not wait. A positive timeout wait
 
 `thread::cancel` requests cooperative cancellation. It does not kill the worker immediately. The worker observes cancellation with `thread::isCancelled(t)` and should return or fail promptly. After cancellation is requested, new parent-side `thread::send` calls fail with `ErrInterrupted`; unread inbound messages may be discarded. Outbound messages already sent by the worker remain readable until drained. Runtime-managed worker queue cancellation points, including `thread::receive(ThreadWorker, ...)` and `thread::send(ThreadWorker, ...)`, wake and fail with `ErrInterrupted` when cancellation is requested. Other blocking built-ins that are implemented as runtime-managed waits, such as terminal input, blocking file reads, or network waits, must use the same cooperative error-return model when cancellation integration is provided. Cancellation points do not asynchronously kill the worker or interrupt arbitrary user/native code.
 
-When a thread ends, its inbound queue is closed and further parent-side sends fail. Its outbound queue remains readable until drained; after it is empty, `thread::poll` returns `FALSE` and `thread::receive(Thread, ...)` fails with `ErrNotFound`. `thread::waitFor` and `t.result` may be used before or after draining messages, but either operation retrieves the stored result exactly once and closes the parent `Thread` handle. Closing the handle drops any remaining queued outbound messages. The worker arena may be released only after the worker result has been transferred out of that arena or the runtime has otherwise kept that arena live through result retrieval, and any outbound messages have either been transferred to queue-owned storage or dropped. Dropping a completed `Thread` handle releases all remaining queued messages. Dropping a running `Thread` handle requests cancellation and detaches the worker; the runtime must reclaim the worker when it exits, preventing zombie threads.
+When a thread ends, its inbound queue is closed and further parent-side sends fail. Its outbound queue remains readable until drained; after it is empty, `thread::poll` returns `FALSE` and `thread::receive(Thread, ...)` fails with `ErrNotFound`. `thread::waitFor` may be used before or after draining messages; it retrieves the stored outcome exactly once and closes the parent `Thread` handle. Closing the handle drops any remaining queued outbound messages. The worker arena may be released only after the worker result has been transferred out of that arena or the runtime has otherwise kept that arena live through result retrieval, and any outbound messages have either been transferred to queue-owned storage or dropped. Dropping a completed `Thread` handle releases all remaining queued messages. Dropping a running `Thread` handle requests cancellation and detaches the worker; the runtime must reclaim the worker when it exits, preventing zombie threads.
 
-`Thread` values are non-copyable owned handles and participate in lexical cleanup. Scope exit, `RETURN`, `FAIL`, `PROPAGATE`, auto-propagated errors, and trap routing drop live parent `Thread` handles in reverse declaration order together with other owned values. Reassigning a `MUT Thread` evaluates the right-hand side first; if that succeeds, the old handle is dropped before the binding stores the new handle. A `Thread` binding that has moved out through return or another consuming operation is not dropped by the source scope. `thread::waitFor(t)` and `t.result` close the underlying handle but do not make the source binding syntactically moved; later user-visible operations fail with `ErrResourceClosed`, while compiler-generated lexical cleanup is idempotent for an already closed handle.
+`Thread` values are non-copyable owned handles and participate in lexical cleanup. Scope exit, `RETURN`, `FAIL`, `PROPAGATE`, auto-propagated errors, and trap routing drop live parent `Thread` handles in reverse declaration order together with other owned values. Reassigning a `MUT Thread` evaluates the right-hand side first; if that succeeds, the old handle is dropped before the binding stores the new handle. A `Thread` binding that has moved out through return or another consuming operation is not dropped by the source scope. `thread::waitFor(t)` closes the underlying handle but does not make the source binding syntactically moved; later user-visible operations fail with `ErrResourceClosed`, while compiler-generated lexical cleanup is idempotent for an already closed handle.
 
 ---
 
@@ -1156,7 +1180,7 @@ Native libraries are host dynamic libraries loaded through reusable `.mfp` bindi
 Application packages do not repeat a dependency's `LINK` block. They import the binding package normally with `IMPORT`, call its exported wrapper functions, and use its resource types through ordinary ownership and lexical-drop behavior. Final executable builds collect native dependencies from all imported `.mfp` packages, resolve them once for the target platform, validate their manifests, and link or load the declared native libraries before `main`.
 
 * Native ABI details do not leak across package boundaries unless explicitly part of the binding package's public API.
-* Application code importing a binding package sees ordinary MFBASIC types, functions, resources, `Result` behavior, and lexical-drop cleanup behavior.
+* Application code importing a binding package sees ordinary MFBASIC types, functions, resources, failure/auto-propagation behavior, and lexical-drop cleanup behavior.
 * A source package that declares `LINK` is a binding package. It may also include ordinary MFBASIC wrapper code, validation, and higher-level helpers around the native symbols.
 
 ```basic
@@ -1255,12 +1279,12 @@ LINK "mylib" AS mylib
 END LINK
 ```
 
-`RETURN_OUT DivModResult[3, 4]` means: after the native call succeeds, convert the third and fourth ABI arguments from their output storage and return `Ok(DivModResult[out3, out4])`.
+`RETURN_OUT DivModResult[3, 4]` means: after the native call succeeds, convert the third and fourth ABI arguments from their output storage and succeed with `DivModResult[out3, out4]`.
 
 Rules:
 
 - `LINK` names and all declared `SYMBOL` names are resolved before `main` starts. Native libraries are not lazy-loaded.
-- If a required native library or symbol cannot be loaded before `main`, the program terminates before entering `main`. The diagnostic is written to stderr and the process exits with `55000001` (`ErrLinkFailed`). This startup failure is outside the `Result`/`TRAP` model because no MFBASIC function is running yet.
+- If a required native library or symbol cannot be loaded before `main`, the program terminates before entering `main`. The diagnostic is written to stderr and the process exits with `55000001` (`ErrLinkFailed`). This startup failure is outside the error/`TRAP` model because no MFBASIC function is running yet.
 - Linked names occupy a package-like namespace. A package-qualified name such as `sqlite::open` follows the same two-part rule as package access.
 - A native call may resolve only the symbols declared by `SYMBOL` entries in the binding package. Dynamic lookup by source strings or computed names is not available to ordinary MFBASIC code.
 - Native functions expose ordinary MFBASIC signatures. At call sites they auto-unwrap, auto-propagate, and participate in `MATCH` like any other fallible function.
@@ -1286,7 +1310,7 @@ Math: `math::pi`, `math::piFixed`, `math::e`, `math::eFixed`, `math::abs`, `math
 JSON: `json::parse`, `json::stringify`, `json::get`, `json::getOr`.
 Error codes: `errorCode::ErrInvalidArgument`, `errorCode::ErrNotFound`, and the other constants listed in the built-in error-code registry.
 
-Fallible built-ins (`fs::openFile`, `toInt`, `get`, …) return `Result` and auto-propagate like any call.
+Fallible built-ins (`fs::openFile`, `toInt`, `get`, …) can fail and auto-propagate like any call.
 
 ---
 
@@ -1451,7 +1475,7 @@ FUNC parseLine(line AS String) AS Vec3
   LET parts = strings::split(line, ",")
   IF len(parts) <> 3 THEN FAIL Error[77050002, "expected 3 fields"]
 
-  LET x = toFloat(strings::trim(get(parts, 0)))   ' auto-propagates on Err
+  LET x = toFloat(strings::trim(get(parts, 0)))   ' auto-propagates on failure
   LET y = toFloat(strings::trim(get(parts, 1)))
   LET z = toFloat(strings::trim(get(parts, 2)))
   RETURN Vec3[x, y, z]
@@ -1459,7 +1483,7 @@ END FUNC
 
 FUNC loadPoints(path AS String) AS List OF Vec3
   MUT pts AS List OF Vec3 = []
-  LET f = fs::openFile(path)                ' auto-propagates on Err
+  LET f = fs::openFile(path)                ' auto-propagates on failure
   WHILE NOT fs::eof(f)
     LET v = parseLine(fs::readLine(f))      ' auto-propagates to TRAP below on bad input
     pts = append(pts, v)                   ' optimized in place for MUT
@@ -1649,6 +1673,6 @@ mfb lsp
 
 `mfb fmt` applies the standard formatter. `--check` exits with a toolchain diagnostic when formatting would change files.
 
-`mfb test` discovers exported or private zero-argument `SUB` declarations whose names start with `test` in files included by the `project.json` test source entries. A test succeeds when it returns `Ok(NOTHING)` and fails when it returns an error result. Test builds use the same package resolver, verifier, resource rules, and audit metadata as executable builds.
+`mfb test` discovers exported or private zero-argument `SUB` declarations whose names start with `test` in files included by the `project.json` test source entries. A test succeeds when it completes without failing and fails when it produces an error. Test builds use the same package resolver, verifier, resource rules, and audit metadata as executable builds.
 
 `mfb lsp` starts the language-server protocol implementation. It must expose diagnostics for fallible calls, auto-propagation paths, `TRAP` recovery, resource moves/use-after-move, unsafe or invalid native links, permissions, package-version conflicts, lockfile mismatches, dense security-sensitive lines, and identifier near-collisions.

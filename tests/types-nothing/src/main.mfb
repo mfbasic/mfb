@@ -15,7 +15,7 @@ END SUB
 
 SUB explicitReturnSub
   io::print("explicit-return")
-  RETURN NOTHING
+  RETURN
 END SUB
 
 FUNC callSubAsNothing AS Nothing

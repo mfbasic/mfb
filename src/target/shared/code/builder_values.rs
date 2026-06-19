@@ -450,6 +450,14 @@ impl CodeBuilder<'_> {
                             });
                     }
                 }
+                // An inline `TRAP` on a helper-backed built-in (`thread::waitFor`,
+                // `fs::*`, …) traps the raw `Result`. The runtime helper leaves
+                // that `Result` in the standard tag/value/error registers just
+                // like a user-function call, so we invoke the helper without the
+                // auto-propagate branch and materialize the raw `Result`.
+                if let Some(helper) = runtime::helper_for_call(target) {
+                    return self.lower_runtime_helper_call(helper, target, args, true);
+                }
                 let symbol = self
                     .function_symbols
                     .get(target)
@@ -585,76 +593,7 @@ impl CodeBuilder<'_> {
                         text: format!("typeName({type_name})"),
                     });
                 }
-                let mut helper_args = args.clone();
-                if target == "io.input" && helper_args.is_empty() {
-                    helper_args.push(NirValue::Const {
-                        type_: "String".to_string(),
-                        value: String::new(),
-                    });
-                } else if target == "io.pollInput" && helper_args.is_empty() {
-                    helper_args.push(NirValue::Const {
-                        type_: "Integer".to_string(),
-                        value: "0".to_string(),
-                    });
-                } else if target == "thread.start" {
-                    while helper_args.len() < 4 {
-                        helper_args.push(NirValue::Const {
-                            type_: "Integer".to_string(),
-                            value: "64".to_string(),
-                        });
-                    }
-                } else if target == "thread.send" && helper_args.len() == 2 {
-                    helper_args.push(NirValue::Const {
-                        type_: "Integer".to_string(),
-                        value: "0".to_string(),
-                    });
-                } else if target == "thread.receive" && helper_args.len() == 1 {
-                    helper_args.push(NirValue::Const {
-                        type_: "Integer".to_string(),
-                        value: "0".to_string(),
-                    });
-                }
-                let result_type = self
-                    .thread_runtime_return_type(target, &helper_args)
-                    .or_else(|| builtins::call_return_type_name(target).map(str::to_string))
-                    .ok_or_else(|| format!("native runtime call '{target}' has no return type"))?;
-                let runtime_target = match target.as_str() {
-                    "thread.send" => {
-                        let handle = self
-                            .static_type_name(helper_args.first().ok_or_else(|| {
-                                "native runtime thread.send missing handle argument".to_string()
-                            })?)
-                            .ok_or_else(|| {
-                                "native runtime thread.send handle has unknown type".to_string()
-                            })?;
-                        if builtins::thread::is_worker_thread_type(&handle) {
-                            "thread.emit"
-                        } else {
-                            "thread.send"
-                        }
-                    }
-                    "thread.receive" => {
-                        let handle = self
-                            .static_type_name(helper_args.first().ok_or_else(|| {
-                                "native runtime thread.receive missing handle argument".to_string()
-                            })?)
-                            .ok_or_else(|| {
-                                "native runtime thread.receive handle has unknown type".to_string()
-                            })?;
-                        if builtins::thread::is_worker_thread_type(&handle) {
-                            "thread.receive"
-                        } else {
-                            "thread.read"
-                        }
-                    }
-                    _ => target,
-                };
-                self.emit_runtime_helper_call(
-                    runtime_target,
-                    &runtime::symbol_for_call(*helper, runtime_target),
-                    &helper_args,
-                    &result_type,
-                )
+                self.lower_runtime_helper_call(*helper, target, args, false)
             }
             NirValue::Constructor { type_, args } => {
                 let mut arg_values = Vec::new();
@@ -1087,5 +1026,90 @@ impl CodeBuilder<'_> {
             NirValue::ListLiteral { type_, values } => self.lower_list_literal(type_, values),
             NirValue::MapLiteral { type_, entries } => self.lower_map_literal(type_, entries),
         }
+    }
+
+    /// Lower a runtime-helper-backed call (`thread::*`, `fs::*`, `io::*`, …).
+    /// With `raw = false` the call auto-unwraps/auto-propagates (the normal call
+    /// site). With `raw = true` the call traps the raw `Result` for an inline
+    /// `TRAP`: the helper outcome is materialized as a `Result OF <success>`
+    /// value instead of propagating on error.
+    pub(super) fn lower_runtime_helper_call(
+        &mut self,
+        helper: runtime::RuntimeHelper,
+        target: &str,
+        args: &[NirValue],
+        raw: bool,
+    ) -> Result<ValueResult, String> {
+        let mut helper_args = args.to_vec();
+        if target == "io.input" && helper_args.is_empty() {
+            helper_args.push(NirValue::Const {
+                type_: "String".to_string(),
+                value: String::new(),
+            });
+        } else if target == "io.pollInput" && helper_args.is_empty() {
+            helper_args.push(NirValue::Const {
+                type_: "Integer".to_string(),
+                value: "0".to_string(),
+            });
+        } else if target == "thread.start" {
+            while helper_args.len() < 4 {
+                helper_args.push(NirValue::Const {
+                    type_: "Integer".to_string(),
+                    value: "64".to_string(),
+                });
+            }
+        } else if target == "thread.send" && helper_args.len() == 2 {
+            helper_args.push(NirValue::Const {
+                type_: "Integer".to_string(),
+                value: "0".to_string(),
+            });
+        } else if target == "thread.receive" && helper_args.len() == 1 {
+            helper_args.push(NirValue::Const {
+                type_: "Integer".to_string(),
+                value: "0".to_string(),
+            });
+        }
+        let result_type = self
+            .thread_runtime_return_type(target, &helper_args)
+            .or_else(|| builtins::call_return_type_name(target).map(str::to_string))
+            .ok_or_else(|| format!("native runtime call '{target}' has no return type"))?;
+        let runtime_target = match target {
+            "thread.send" => {
+                let handle = self
+                    .static_type_name(helper_args.first().ok_or_else(|| {
+                        "native runtime thread.send missing handle argument".to_string()
+                    })?)
+                    .ok_or_else(|| {
+                        "native runtime thread.send handle has unknown type".to_string()
+                    })?;
+                if builtins::thread::is_worker_thread_type(&handle) {
+                    "thread.emit"
+                } else {
+                    "thread.send"
+                }
+            }
+            "thread.receive" => {
+                let handle = self
+                    .static_type_name(helper_args.first().ok_or_else(|| {
+                        "native runtime thread.receive missing handle argument".to_string()
+                    })?)
+                    .ok_or_else(|| {
+                        "native runtime thread.receive handle has unknown type".to_string()
+                    })?;
+                if builtins::thread::is_worker_thread_type(&handle) {
+                    "thread.receive"
+                } else {
+                    "thread.read"
+                }
+            }
+            _ => target,
+        };
+        self.emit_runtime_helper_call(
+            runtime_target,
+            &runtime::symbol_for_call(helper, runtime_target),
+            &helper_args,
+            &result_type,
+            raw,
+        )
     }
 }

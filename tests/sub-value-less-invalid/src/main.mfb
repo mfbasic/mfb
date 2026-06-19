@@ -1,0 +1,22 @@
+' A SUB is value-less: it produces no success value. `RETURN NOTHING` is rejected
+' (TYPE_SUB_RETURN_TAKES_NO_VALUE) and a SUB call cannot be used in value
+' position (TYPE_SUB_HAS_NO_VALUE). A bare `RETURN` and a statement-position call
+' stay valid.
+
+SUB doThing(flag AS Boolean)
+  IF flag THEN
+    RETURN
+  END IF
+  RETURN NOTHING
+END SUB
+
+FUNC takesInt(value AS Integer) AS Integer
+  RETURN value
+END FUNC
+
+FUNC main AS Integer
+  doThing(TRUE)
+  LET captured = doThing(TRUE)
+  LET nested = takesInt(doThing(FALSE))
+  RETURN 0
+END FUNC

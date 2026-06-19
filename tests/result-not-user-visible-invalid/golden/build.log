@@ -1,0 +1,88 @@
+$ mfb build -ast tests/result-not-user-visible-invalid
+   5 | 
+   6 | TYPE Holder
+   7 |   slot AS Result OF Integer
+     | ^
+tests/result-not-user-visible-invalid/src/main.mfb:7 error[2-203-0070 TYPE_RESULT_NOT_USER_VISIBLE]: Result is an internal type and cannot be named in user code
+               `Result` is an internal type; declare the success type directly (a function call yields its value or fails with an `Error`).
+   8 | END TYPE
+   9 | 
+  10 | FUNC asReturn AS Result OF Integer
+     | ^
+tests/result-not-user-visible-invalid/src/main.mfb:10 error[2-203-0070 TYPE_RESULT_NOT_USER_VISIBLE]: Result is an internal type and cannot be named in user code
+               `Result` is an internal type; declare the success type directly (a function call yields its value or fails with an `Error`).
+  12 | END FUNC
+  13 | 
+  14 | FUNC asParam(value AS Result OF Integer) AS Integer
+     | ^
+tests/result-not-user-visible-invalid/src/main.mfb:14 error[2-203-0070 TYPE_RESULT_NOT_USER_VISIBLE]: Result is an internal type and cannot be named in user code
+               `Result` is an internal type; declare the success type directly (a function call yields its value or fails with an `Error`).
+  16 | END FUNC
+  17 | 
+  18 | FUNC asOkParam(value AS Ok) AS Integer
+     | ^
+tests/result-not-user-visible-invalid/src/main.mfb:18 error[2-203-0070 TYPE_RESULT_NOT_USER_VISIBLE]: Result is an internal type and cannot be named in user code
+               `Result` is an internal type; declare the success type directly (a function call yields its value or fails with an `Error`).
+  20 | END FUNC
+  21 | 
+  22 | FUNC asTemplateArg(items AS List OF Result OF Integer) AS Integer
+     | ^
+tests/result-not-user-visible-invalid/src/main.mfb:22 error[2-203-0070 TYPE_RESULT_NOT_USER_VISIBLE]: Result is an internal type and cannot be named in user code
+               `Result` is an internal type; declare the success type directly (a function call yields its value or fails with an `Error`).
+  25 | 
+  26 | FUNC main AS Integer
+  27 |   LET annotated AS Result OF Integer = 0
+     | ^
+tests/result-not-user-visible-invalid/src/main.mfb:27 error[2-203-0070 TYPE_RESULT_NOT_USER_VISIBLE]: Result is an internal type and cannot be named in user code
+               `Result` is an internal type; declare the success type directly (a function call yields its value or fails with an `Error`).
+  26 | FUNC main AS Integer
+  27 |   LET annotated AS Result OF Integer = 0
+  28 |   MUT mutated AS Result OF String
+     | ^
+tests/result-not-user-visible-invalid/src/main.mfb:28 error[2-203-0070 TYPE_RESULT_NOT_USER_VISIBLE]: Result is an internal type and cannot be named in user code
+               `Result` is an internal type; declare the success type directly (a function call yields its value or fails with an `Error`).
+[exit 1]
+$ mfb build -ir tests/result-not-user-visible-invalid
+   5 | 
+   6 | TYPE Holder
+   7 |   slot AS Result OF Integer
+     | ^
+tests/result-not-user-visible-invalid/src/main.mfb:7 error[2-203-0070 TYPE_RESULT_NOT_USER_VISIBLE]: Result is an internal type and cannot be named in user code
+               `Result` is an internal type; declare the success type directly (a function call yields its value or fails with an `Error`).
+   8 | END TYPE
+   9 | 
+  10 | FUNC asReturn AS Result OF Integer
+     | ^
+tests/result-not-user-visible-invalid/src/main.mfb:10 error[2-203-0070 TYPE_RESULT_NOT_USER_VISIBLE]: Result is an internal type and cannot be named in user code
+               `Result` is an internal type; declare the success type directly (a function call yields its value or fails with an `Error`).
+  12 | END FUNC
+  13 | 
+  14 | FUNC asParam(value AS Result OF Integer) AS Integer
+     | ^
+tests/result-not-user-visible-invalid/src/main.mfb:14 error[2-203-0070 TYPE_RESULT_NOT_USER_VISIBLE]: Result is an internal type and cannot be named in user code
+               `Result` is an internal type; declare the success type directly (a function call yields its value or fails with an `Error`).
+  16 | END FUNC
+  17 | 
+  18 | FUNC asOkParam(value AS Ok) AS Integer
+     | ^
+tests/result-not-user-visible-invalid/src/main.mfb:18 error[2-203-0070 TYPE_RESULT_NOT_USER_VISIBLE]: Result is an internal type and cannot be named in user code
+               `Result` is an internal type; declare the success type directly (a function call yields its value or fails with an `Error`).
+  20 | END FUNC
+  21 | 
+  22 | FUNC asTemplateArg(items AS List OF Result OF Integer) AS Integer
+     | ^
+tests/result-not-user-visible-invalid/src/main.mfb:22 error[2-203-0070 TYPE_RESULT_NOT_USER_VISIBLE]: Result is an internal type and cannot be named in user code
+               `Result` is an internal type; declare the success type directly (a function call yields its value or fails with an `Error`).
+  25 | 
+  26 | FUNC main AS Integer
+  27 |   LET annotated AS Result OF Integer = 0
+     | ^
+tests/result-not-user-visible-invalid/src/main.mfb:27 error[2-203-0070 TYPE_RESULT_NOT_USER_VISIBLE]: Result is an internal type and cannot be named in user code
+               `Result` is an internal type; declare the success type directly (a function call yields its value or fails with an `Error`).
+  26 | FUNC main AS Integer
+  27 |   LET annotated AS Result OF Integer = 0
+  28 |   MUT mutated AS Result OF String
+     | ^
+tests/result-not-user-visible-invalid/src/main.mfb:28 error[2-203-0070 TYPE_RESULT_NOT_USER_VISIBLE]: Result is an internal type and cannot be named in user code
+               `Result` is an internal type; declare the success type directly (a function call yields its value or fails with an `Error`).
+[exit 1]

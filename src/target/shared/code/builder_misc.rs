@@ -880,12 +880,25 @@ impl CodeBuilder<'_> {
         symbol: &str,
         args: &[NirValue],
         result_type: &str,
+        raw: bool,
     ) -> Result<ValueResult, String> {
         if matches!(target, "thread.send" | "thread.emit") {
-            return self.emit_thread_send_runtime_helper_call(target, symbol, args, result_type);
+            return self
+                .emit_thread_send_runtime_helper_call(target, symbol, args, result_type, raw);
         }
 
         let arg_values = self.emit_raw_call(symbol, args, "runtime_call_arg")?;
+
+        // An inline `TRAP` traps the raw `Result`: do not auto-propagate on
+        // error; materialize the outcome (with the success value copied into the
+        // current arena) for the trap to inspect. Owned handles/resources passed
+        // to a consuming helper are consumed regardless of success or failure.
+        if raw {
+            self.deactivate_moved_thread_arguments(target, args);
+            self.deactivate_moved_resource_arguments(target, args);
+            let _ = arg_values;
+            return self.materialize_current_result(result_type, format!("callResult {target}"));
+        }
 
         let ok_label = self.label("runtime_call_ok");
         self.emit(abi::compare_immediate(RESULT_TAG_REGISTER, RESULT_OK_TAG));
@@ -924,6 +937,7 @@ impl CodeBuilder<'_> {
         symbol: &str,
         args: &[NirValue],
         result_type: &str,
+        raw: bool,
     ) -> Result<ValueResult, String> {
         if args.len() < 2 {
             return Err(format!(
@@ -986,6 +1000,16 @@ impl CodeBuilder<'_> {
             self.emit(abi::move_register(&abi::argument_register(index)?, "x9"));
         }
         self.emit_symbol_call(symbol);
+
+        // An inline `TRAP` traps the raw send `Result`. On failure the sent value
+        // remains owned by the caller (the typechecker restores the binding into
+        // the handler scope); the success continuation treats it as moved.
+        if raw {
+            self.deactivate_moved_thread_arguments(target, args);
+            self.deactivate_moved_resource_arguments(target, args);
+            let _ = arg_values;
+            return self.materialize_current_result(result_type, format!("callResult {target}"));
+        }
 
         let ok_label = self.label("runtime_thread_send_ok");
         self.emit(abi::compare_immediate(RESULT_TAG_REGISTER, RESULT_OK_TAG));

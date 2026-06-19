@@ -26,7 +26,7 @@ The model has these requirements:
 - The parent communicates with the worker through bounded typed queues.
 - All values that cross a thread boundary have thread-sendable types.
 - Sendable resource handles move across thread queues without being copied.
-- The worker result is stored as `Result OF Out` and retrieved exactly once by `thread::waitFor(t)` or `t.result`, closing the parent `Thread` handle.
+- The worker outcome is stored internally and retrieved exactly once by `thread::waitFor(t)`, closing the parent `Thread` handle.
 - Package imports used by the worker must work inside the worker thread exactly
   as they work outside a thread.
 - Native code generation must resolve all worker and package calls at link time;
@@ -78,7 +78,7 @@ Thread sendability is derived by type:
 - `List OF T` is sendable when `T` is sendable.
 - `Map OF K TO V` is sendable when `K` and `V` are sendable.
 - Records are sendable when every field type is sendable.
-- Unions and `Result` values are sendable when every payload type is sendable.
+- Unions are sendable when every payload type is sendable; a worker outcome (internally a fallible result) is sendable when its success type is.
 - Opaque handles are not sendable by default. Each concrete handle type opts in.
 - Standard `File`, `Socket`, and `UdpSocket` handles are sendable.
 - `Listener`, `Thread`, and `ThreadWorker` handles are not sendable.
@@ -382,8 +382,8 @@ errors, and trap routing run the same drop helper in reverse declaration order.
 Reassigning a `MUT Thread` evaluates the new value first, then drops the old
 handle before storing the replacement. Bindings that have moved out through
 return or another consuming operation are removed from the cleanup set. Handles
-closed by `thread::waitFor(t)` or `t.result` remain safe for compiler-generated
-cleanup; the drop helper is idempotent for an already closed handle.
+closed by `thread::waitFor(t)` remain safe for compiler-generated cleanup; the
+drop helper is idempotent for an already closed handle.
 
 When the worker completes:
 
@@ -539,11 +539,9 @@ closes the parent `Thread` handle before behaving like a normal fallible call:
 - `Ok(value)` returns `value`.
 - `Error(error)` propagates as the caller's error.
 
-Parent-side field access `t.result` waits for the same completed control-block
-result, returns the raw `Result OF Out` value, and closes the parent `Thread`
-handle. The raw result payload follows the same transfer and
-receiver-materialization rules as `thread::waitFor`. After either retrieval
-path, later use of the same `Thread` handle fails with `ErrResourceClosed`.
+`thread::waitFor` is the only retrieval path; there is no `t.result` field. After
+it retrieves the outcome, later use of the same `Thread` handle fails with
+`ErrResourceClosed`.
 
 Package bridge lowering must preserve the same behavior for calls made inside a
 worker. If a worker calls an imported package function and that function returns

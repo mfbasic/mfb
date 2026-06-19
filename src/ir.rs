@@ -1579,11 +1579,8 @@ fn expression_type(
                 }
             }
             let target_type = expression_type(target, locals, context)?;
-            if member == "result" {
-                if let Some(output) = builtins::thread::parent_thread_output(&target_type) {
-                    return Some(format!("Result OF {output}"));
-                }
-            }
+            // `t.result` is removed; worker outcomes are retrieved only via
+            // `thread::waitFor`. (Typecheck rejects `.result` before IR.)
             if target_type == "Error" {
                 return match member.as_str() {
                     "code" => Some("Integer".to_string()),

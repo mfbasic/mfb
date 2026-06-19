@@ -1009,6 +1009,15 @@ fn validate_value(
                     used_helpers,
                 )?;
             }
+            // An inline `TRAP` on a helper-backed built-in lowers to a
+            // `CallResult` whose target resolves to a runtime helper rather than
+            // a user function; record the helper so its symbol is emitted.
+            if let Some(helper) = runtime::helper_for_call(target) {
+                if !runtime::is_native_direct_call(target) {
+                    push_unique(used_helpers, helper);
+                }
+                return Ok(());
+            }
             if function_names.contains(target)
                 || import_names.contains(target)
                 || target == "contains"

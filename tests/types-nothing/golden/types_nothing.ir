@@ -53,7 +53,7 @@
     "returns": "Nothing",
     "body": [
     { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "explicit-return" }] } },
-    { "op": "return", "value": { "kind": "const", "type": "Nothing", "value": "NOTHING" } }
+    { "op": "return", "value": null }
     ]
   },
   {

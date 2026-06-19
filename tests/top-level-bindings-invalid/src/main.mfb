@@ -1,5 +1,4 @@
 LET missing AS Integer
-MUT badUnion AS Result OF Integer
 LET typed AS Integer = "bad"
 LET locked AS Integer = 1
 

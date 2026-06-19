@@ -2,7 +2,6 @@ IMPORT thread
 
 EXPORT ISOLATED FUNC worker(t AS ThreadWorker OF Nothing TO Integer, seed AS Integer) AS Integer
   LET viaWaitFor AS Integer = thread::waitFor(t)
-  LET viaResult AS Result OF Integer = t.result
   RETURN seed
 END FUNC
 

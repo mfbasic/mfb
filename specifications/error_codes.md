@@ -208,6 +208,11 @@ These codes correspond to `src/rules.rs` and are emitted directly by the compile
 | `2-203-0067` | `TYPE_RECOVER_TYPE_MISMATCH` | error | `RECOVER value does not match the trapped expression's success type` |
 | `2-203-0068` | `TYPE_RECOVER_OUTSIDE_INLINE_TRAP` | error | `RECOVER is valid only inside an inline TRAP handler` |
 | `2-203-0069` | `TYPE_INLINE_TRAP_REQUIRES_FALLIBLE` | error | `inline TRAP requires a fallible call` |
+| `2-203-0070` | `TYPE_RESULT_NOT_USER_VISIBLE` | error | `Result is an internal type and cannot be named in user code` |
+| `2-203-0071` | `TYPE_RESULT_NOT_MATCHABLE` | error | `Ok and Error are not matchable as Result members in user code` |
+| `2-203-0072` | `TYPE_THREAD_RESULT_REMOVED` | error | `the thread result field is removed; use thread::waitFor` |
+| `2-203-0073` | `TYPE_SUB_RETURN_TAKES_NO_VALUE` | error | `RETURN in a SUB takes no value` |
+| `2-203-0074` | `TYPE_SUB_HAS_NO_VALUE` | error | `a SUB call produces no value and cannot be used in value position` |
 
 ## Toolchain and Package Diagnostics
 

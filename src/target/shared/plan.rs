@@ -512,8 +512,19 @@ fn collect_platform_imports_from_value(
             }
         }
         NirValue::Call { target, args } | NirValue::CallResult { target, args } => {
-            for import in platform.native_call_imports(target, required_by) {
-                push_platform_import(imports, import);
+            // A helper-backed `CallResult` (inline `TRAP` on a built-in) pulls in
+            // the same platform imports as the equivalent `RuntimeCall`.
+            if target != "typeName"
+                && !runtime::is_native_direct_call(target)
+                && runtime::helper_for_call(target).is_some()
+            {
+                for import in platform_imports_for_runtime_call(platform, target) {
+                    push_platform_import(imports, import);
+                }
+            } else {
+                for import in platform.native_call_imports(target, required_by) {
+                    push_platform_import(imports, import);
+                }
             }
             for arg in args {
                 collect_platform_imports_from_value(platform, required_by, arg, imports);
@@ -713,9 +724,20 @@ fn collect_runtime_symbols_from_value(
                 collect_runtime_symbols_from_value(arg, symbols, constants);
             }
         }
-        NirValue::Call { args, .. }
-        | NirValue::CallResult { args, .. }
-        | NirValue::Constructor { args, .. } => {
+        NirValue::CallResult { target, args } => {
+            // A helper-backed `CallResult` (inline `TRAP` on a built-in) invokes
+            // the runtime helper directly, so its symbol must be defined just
+            // like the equivalent `RuntimeCall`.
+            if !runtime::is_native_direct_call(target) {
+                if let Some(helper) = runtime::helper_for_call(target) {
+                    push_unique(symbols, runtime::symbol_for_call(helper, target));
+                }
+            }
+            for arg in args {
+                collect_runtime_symbols_from_value(arg, symbols, constants);
+            }
+        }
+        NirValue::Call { args, .. } | NirValue::Constructor { args, .. } => {
             for arg in args {
                 collect_runtime_symbols_from_value(arg, symbols, constants);
             }
@@ -1080,7 +1102,14 @@ impl FunctionPlanBuilder<'_> {
                 for arg in args {
                     self.lower_value(arg)?;
                 }
-                if !runtime::is_native_direct_call(target) {
+                if runtime::is_native_direct_call(target) {
+                    // direct call: nothing to register.
+                } else if let Some(helper) = runtime::helper_for_call(target) {
+                    // An inline `TRAP` on a helper-backed built-in (a
+                    // helper-targeted `CallResult`) needs the runtime helper
+                    // symbol registered, exactly like a `RuntimeCall`.
+                    self.add_runtime_call(helper, target, args);
+                } else {
                     self.add_call(target);
                 }
             }

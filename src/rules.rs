@@ -664,6 +664,36 @@ pub const RULES: &[Rule] = &[
         message: "inline TRAP requires a fallible call",
     },
     Rule {
+        code: "2-203-0070",
+        name: "TYPE_RESULT_NOT_USER_VISIBLE",
+        severity: Severity::Error,
+        message: "Result is an internal type and cannot be named in user code",
+    },
+    Rule {
+        code: "2-203-0071",
+        name: "TYPE_RESULT_NOT_MATCHABLE",
+        severity: Severity::Error,
+        message: "Ok and Error are not matchable as Result members in user code",
+    },
+    Rule {
+        code: "2-203-0072",
+        name: "TYPE_THREAD_RESULT_REMOVED",
+        severity: Severity::Error,
+        message: "the thread result field is removed; use thread::waitFor",
+    },
+    Rule {
+        code: "2-203-0073",
+        name: "TYPE_SUB_RETURN_TAKES_NO_VALUE",
+        severity: Severity::Error,
+        message: "RETURN in a SUB takes no value",
+    },
+    Rule {
+        code: "2-203-0074",
+        name: "TYPE_SUB_HAS_NO_VALUE",
+        severity: Severity::Error,
+        message: "a SUB call produces no value and cannot be used in value position",
+    },
+    Rule {
         code: "2-200-0011",
         name: "PROJECT_ENTRY_INVALID",
         severity: Severity::Error,

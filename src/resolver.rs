@@ -858,6 +858,20 @@ impl<'a> Resolver<'a> {
         line: usize,
         imports: &HashMap<String, String>,
     ) {
+        // `Result` (and its success member `Ok`) are internal runtime types: a
+        // user never names them in any type position. Intercept them here with a
+        // targeted diagnostic instead of resolving them as types or falling
+        // through to a generic "unknown type" error.
+        if type_name == "Result" || type_name == "Ok" || type_name.starts_with("Result OF ") {
+            self.report(
+                "TYPE_RESULT_NOT_USER_VISIBLE",
+                "`Result` is an internal type; declare the success type directly \
+                 (a function call yields its value or fails with an `Error`).",
+                file,
+                line,
+            );
+            return;
+        }
         if let Some(rest) = type_name.strip_prefix("ISOLATED FUNC(") {
             self.resolve_function_type_name(file, rest, line, imports);
             return;
@@ -868,10 +882,6 @@ impl<'a> Resolver<'a> {
         }
         if let Some(element) = type_name.strip_prefix("List OF ") {
             self.resolve_type_name(file, element, line, imports);
-            return;
-        }
-        if let Some(success) = type_name.strip_prefix("Result OF ") {
-            self.resolve_type_name(file, success, line, imports);
             return;
         }
         if let Some((_, message, output)) = crate::builtins::thread::thread_parts(type_name) {

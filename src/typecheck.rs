@@ -121,6 +121,15 @@ struct TypeChecker<'a> {
     /// `RETURN` inside an inline-`TRAP` handler, which is reached from
     /// `infer_expression` where the function context is otherwise unavailable.
     current_return: Type,
+    /// Whether the function currently being checked is a `SUB`. A `SUB` is
+    /// value-less: `RETURN` takes no value and a `SUB` call cannot be used in
+    /// value position.
+    current_is_sub: bool,
+    /// Set true only while inferring the top expression of a bare expression
+    /// statement (or the inner call of an inline `TRAP` in that position), where
+    /// a value-less `SUB` call is permitted. Reset to false on entry to every
+    /// other expression so a nested `SUB` call in value position is rejected.
+    allow_value_less_call: bool,
     /// Stack of success types for the inline-`TRAP` handlers currently being
     /// checked (innermost last). Non-empty means a `RECOVER` is legal and must
     /// match the top type. Empty means `RECOVER` is illegal.
@@ -165,6 +174,8 @@ impl<'a> TypeChecker<'a> {
             type_infos: HashMap::new(),
             had_error: false,
             current_return: Type::Nothing,
+            current_is_sub: false,
+            allow_value_less_call: false,
             inline_trap_types: Vec::new(),
         };
         checker.collect_types();
@@ -1045,14 +1056,10 @@ impl<'a> TypeChecker<'a> {
                     Type::Unknown
                 } else {
                     let return_type = self.parse_type(function.return_type.as_deref().unwrap());
+                    // `check_type_reference` reports `TYPE_RESULT_NOT_USER_VISIBLE`
+                    // for a `Result` in any type position, including this one.
                     self.check_type_reference(file, &return_type, function.line);
                     if matches!(return_type, Type::Result(_)) {
-                        self.report(
-                            "TYPE_RESULT_IS_IMPLICIT",
-                            "Functions declare their success type; Result wrapping is implicit.",
-                            file,
-                            function.line,
-                        );
                         Type::Unknown
                     } else {
                         return_type
@@ -1145,6 +1152,7 @@ impl<'a> TypeChecker<'a> {
         }
 
         self.current_return = expected_return.clone();
+        self.current_is_sub = matches!(function.kind, FunctionKind::Sub);
         self.inline_trap_types.clear();
         let flow = self.check_block(file, &function.body, &expected_return, &mut locals, None);
         if let Some(trap) = &function.trap {
@@ -1433,6 +1441,21 @@ impl<'a> TypeChecker<'a> {
                 Flow::FallsThrough
             }
             Statement::Return { value, line } => {
+                if self.current_is_sub {
+                    // A `SUB` is value-less: only a bare `RETURN` is allowed.
+                    // `RETURN NOTHING` and `RETURN <expr>` are rejected. (The
+                    // expression is still inferred so its own errors surface.)
+                    if let Some(value) = value {
+                        self.infer_expression(file, value, locals, *line, ExprMode::Transfer);
+                        self.report(
+                            "TYPE_SUB_RETURN_TAKES_NO_VALUE",
+                            "A SUB produces no value; use a bare `RETURN` to exit early.",
+                            file,
+                            *line,
+                        );
+                    }
+                    return Flow::AlwaysReturns;
+                }
                 let actual = value
                     .as_ref()
                     .map(|value| {
@@ -1453,18 +1476,6 @@ impl<'a> TypeChecker<'a> {
                         file,
                         *line,
                     );
-                }
-                if matches!(expected_return, Type::Nothing) && !matches!(actual, Type::Nothing) {
-                    self.report(
-                        "TYPE_SUB_CANNOT_RETURN_VALUE",
-                        &format!(
-                            "SUB return paths must produce Nothing, got {}.",
-                            self.type_name(&actual)
-                        ),
-                        file,
-                        *line,
-                    );
-                    return Flow::AlwaysReturns;
                 }
                 if !self.expression_compatible(expected_return, &actual, value.as_ref()) {
                     self.report(
@@ -1638,7 +1649,11 @@ impl<'a> TypeChecker<'a> {
                 Flow::FallsThrough
             }
             Statement::Expression { expression, line } => {
+                // A bare expression statement is the one position where a
+                // value-less `SUB` call is allowed (it discards no value).
+                self.allow_value_less_call = true;
                 self.infer_expression(file, expression, locals, *line, ExprMode::Read);
+                self.allow_value_less_call = false;
                 Flow::FallsThrough
             }
             Statement::If {
@@ -1768,7 +1783,13 @@ impl<'a> TypeChecker<'a> {
                 }
                 let exhaustive =
                     has_unguarded_else || self.match_is_exhaustive(&matched_type, &covered_cases);
-                if !exhaustive && !matches!(matched_type, Type::Unknown) {
+                // A `Result` scrutinee can only arise from an already-rejected
+                // type annotation; its `CASE Ok`/`CASE Error` arms already
+                // reported `TYPE_RESULT_NOT_MATCHABLE`, so suppress the secondary
+                // exhaustiveness cascade.
+                if !exhaustive
+                    && !matches!(matched_type, Type::Unknown | Type::Result(_))
+                {
                     self.report_match_not_exhaustive(file, *line, &matched_type, &covered_cases);
                 }
                 if all_return && exhaustive {
@@ -1964,6 +1985,12 @@ impl<'a> TypeChecker<'a> {
         expected: Option<&Type>,
         mode: ExprMode,
     ) -> Type {
+        // A value-less `SUB` call is permitted only as the top expression of a
+        // bare statement (or the inner call of an inline `TRAP` there). Consume
+        // the permission here so it applies to this expression alone; nested
+        // sub-expressions see it reset to false and reject `SUB` calls.
+        let value_less_call_ok = self.allow_value_less_call;
+        self.allow_value_less_call = false;
         match expression {
             Expression::String(_) => Type::String,
             Expression::Boolean(_) => Type::Boolean,
@@ -2040,6 +2067,9 @@ impl<'a> TypeChecker<'a> {
                 // the caller so the handler can release it. Capture it before
                 // the call consumes it, then restore it into the handler scope.
                 let send_failure_restore = self.thread_send_failure_restore(file, inner, locals);
+                // A trapped `SUB` call as a bare statement is value-less too;
+                // forward the permission to the inner call.
+                self.allow_value_less_call = value_less_call_ok;
                 let success_type = self
                     .infer_expression_with_expected(file, inner, locals, line, expected, mode);
                 if !fallible {
@@ -2154,6 +2184,17 @@ impl<'a> TypeChecker<'a> {
                     })
                 {
                     self.check_call(file, callee, &sig, arguments, locals, line);
+                    if matches!(sig.kind, FunctionKind::Sub) && !value_less_call_ok {
+                        self.report(
+                            "TYPE_SUB_HAS_NO_VALUE",
+                            &format!(
+                                "SUB `{callee}` produces no value; its call is a statement, \
+                                 not an expression."
+                            ),
+                            file,
+                            line,
+                        );
+                    }
                     return sig.return_type;
                 }
 
@@ -2274,7 +2315,23 @@ impl<'a> TypeChecker<'a> {
                     );
                 }
             }
-            MatchPattern::Union { type_name, binding } => match matched_type {
+            MatchPattern::Union { type_name, binding } => {
+                if matches!(type_name.as_str(), "Ok" | "Error" | "Err") {
+                    // `Result`/`Ok` are internal: a user `MATCH` can never
+                    // scrutinize a `Result`, so `CASE Ok`/`CASE Error` are not
+                    // valid match arms. Failures are handled with inline `TRAP`.
+                    self.report(
+                        "TYPE_RESULT_NOT_MATCHABLE",
+                        &format!(
+                            "`CASE {type_name}` is not a valid match arm; \
+                             handle failure with an inline `TRAP` instead."
+                        ),
+                        file,
+                        line,
+                    );
+                    return;
+                }
+                match matched_type {
                 Type::User(union_name) => {
                     let Some(info) = self.type_infos.get(union_name) else {
                         return;
@@ -2302,39 +2359,17 @@ impl<'a> TypeChecker<'a> {
                         },
                     );
                 }
-                Type::Result(success) => {
-                    let binding_type = match type_name.as_str() {
-                        "Ok" => *success.clone(),
-                        "Error" => Type::Error,
-                        _ => {
-                            self.report(
-                                "TYPE_MATCH_PATTERN_MISMATCH",
-                                &format!("CASE `{type_name}` is not valid when matching a Result."),
-                                file,
-                                line,
-                            );
-                            return;
-                        }
-                    };
-                    case_locals.insert(
-                        binding.clone(),
-                        LocalInfo {
-                            type_: binding_type,
-                            mutable: false,
-                            ownership: OwnershipState::Available,
-                        },
-                    );
-                }
                 _ => self.report(
                     "TYPE_MATCH_PATTERN_MISMATCH",
                     &format!(
-                        "CASE `{type_name}` requires a UNION or Result value, got {}.",
+                        "CASE `{type_name}` requires a UNION value, got {}.",
                         self.type_name(matched_type)
                     ),
                     file,
                     line,
                 ),
-            },
+            }
+            }
         }
     }
 
@@ -2353,9 +2388,6 @@ impl<'a> TypeChecker<'a> {
     }
 
     fn match_is_exhaustive(&self, matched_type: &Type, covered_cases: &HashSet<String>) -> bool {
-        if matches!(matched_type, Type::Result(_)) {
-            return covered_cases.contains("Ok") && covered_cases.contains("Error");
-        }
         let Type::User(type_name) = matched_type else {
             return false;
         };
@@ -2383,17 +2415,6 @@ impl<'a> TypeChecker<'a> {
         covered_cases: &HashSet<String>,
     ) {
         let detail = match matched_type {
-            Type::Result(_) => {
-                let missing = ["Ok", "Error"]
-                    .into_iter()
-                    .filter(|name| !covered_cases.contains(*name))
-                    .collect::<Vec<_>>();
-                format!(
-                    "MATCH on {} does not cover {}; add unguarded CASE arms or CASE ELSE.",
-                    self.type_name(matched_type),
-                    missing.join(", ")
-                )
-            }
             Type::User(type_name) => {
                 let Some(info) = self.type_infos.get(type_name) else {
                     return;
@@ -2813,9 +2834,19 @@ impl<'a> TypeChecker<'a> {
         }
 
         let target_type = self.infer_expression(file, target, locals, line, ExprMode::Read);
-        if let Type::Thread(_, output) = &target_type {
+        if let Type::Thread(_, _) = &target_type {
             if member == "result" {
-                return Type::Result(output.clone());
+                // The `t.result` field is removed: a worker outcome is retrieved
+                // only through `thread::waitFor(t)`, which auto-unwraps the value
+                // or auto-propagates the `Error` like any other call.
+                self.report(
+                    "TYPE_THREAD_RESULT_REMOVED",
+                    "Thread values have no `result` field; use `thread::waitFor(t)` \
+                     to retrieve the worker outcome.",
+                    file,
+                    line,
+                );
+                return Type::Unknown;
             }
             self.report(
                 "TYPE_UNKNOWN_FIELD",
@@ -3214,9 +3245,6 @@ impl<'a> TypeChecker<'a> {
             }
         }
 
-        if matches!(sig.kind, FunctionKind::Sub) {
-            // SUB calls auto-unwrap to successful Nothing under the implicit Result model.
-        }
     }
 
     fn check_function_value_call(
@@ -4840,7 +4868,18 @@ impl<'a> TypeChecker<'a> {
                 }
                 self.check_type_reference(file, return_type, line);
             }
-            Type::Result(success) => self.check_type_reference(file, success, line),
+            Type::Result(_) => {
+                // `Result` is internal: it is never nameable in a user type
+                // position. (The resolver normally catches this first; this keeps
+                // the invariant honest for any type that reaches the checker.)
+                self.report(
+                    "TYPE_RESULT_NOT_USER_VISIBLE",
+                    "`Result` is an internal type; declare the success type directly \
+                     (a function call yields its value or fails with an `Error`).",
+                    file,
+                    line,
+                );
+            }
             Type::Thread(message, output) | Type::ThreadWorker(message, output) => {
                 self.check_type_reference(file, message, line);
                 self.check_type_reference(file, output, line);
@@ -4848,6 +4887,18 @@ impl<'a> TypeChecker<'a> {
                 self.require_thread_sendable_type(file, line, "Thread output type", output);
             }
             Type::User(name) => {
+                if name == "Ok" {
+                    // `Ok` is the internal success member of `Result`; it is not a
+                    // user-nameable type.
+                    self.report(
+                        "TYPE_RESULT_NOT_USER_VISIBLE",
+                        "`Ok` is an internal type; declare the success type directly \
+                         (a function call yields its value or fails with an `Error`).",
+                        file,
+                        line,
+                    );
+                    return;
+                }
                 let Some(info) = self.type_infos.get(name) else {
                     return;
                 };

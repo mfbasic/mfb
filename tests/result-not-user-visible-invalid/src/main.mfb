@@ -1,0 +1,30 @@
+' `Result` (and its success member `Ok`) are internal runtime types. A user may
+' never name them in any type position: parameter, field, return type, LET/MUT
+' annotation, or template argument. Each line below is rejected with
+' TYPE_RESULT_NOT_USER_VISIBLE.
+
+TYPE Holder
+  slot AS Result OF Integer
+END TYPE
+
+FUNC asReturn AS Result OF Integer
+  RETURN 0
+END FUNC
+
+FUNC asParam(value AS Result OF Integer) AS Integer
+  RETURN 0
+END FUNC
+
+FUNC asOkParam(value AS Ok) AS Integer
+  RETURN 0
+END FUNC
+
+FUNC asTemplateArg(items AS List OF Result OF Integer) AS Integer
+  RETURN 0
+END FUNC
+
+FUNC main AS Integer
+  LET annotated AS Result OF Integer = 0
+  MUT mutated AS Result OF String
+  RETURN 0
+END FUNC

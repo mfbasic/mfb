@@ -11,18 +11,6 @@ tests/func_thread_waitFor_worker_invalid/src/main.mfb:4 error[2-203-0021 TYPE_CA
      | ^
 tests/func_thread_waitFor_worker_invalid/src/main.mfb:4 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `viaWaitFor` does not have a known type.
-   3 | EXPORT ISOLATED FUNC worker(t AS ThreadWorker OF Nothing TO Integer, seed AS Integer) AS Integer
-   4 |   LET viaWaitFor AS Integer = thread::waitFor(t)
-   5 |   LET viaResult AS Result OF Integer = t.result
-     | ^
-tests/func_thread_waitFor_worker_invalid/src/main.mfb:5 error[2-203-0034 TYPE_FIELD_ACCESS_REQUIRES_RECORD]: field access requires a record value
-               Field access `result` requires a record value, got ThreadWorker OF Nothing TO Integer.
-   3 | EXPORT ISOLATED FUNC worker(t AS ThreadWorker OF Nothing TO Integer, seed AS Integer) AS Integer
-   4 |   LET viaWaitFor AS Integer = thread::waitFor(t)
-   5 |   LET viaResult AS Result OF Integer = t.result
-     | ^
-tests/func_thread_waitFor_worker_invalid/src/main.mfb:5 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
-               Initializer for binding `viaResult` does not have a known type.
 [exit 1]
 $ mfb build -ir tests/func_thread_waitFor_worker_invalid
    2 | 
@@ -37,16 +25,4 @@ tests/func_thread_waitFor_worker_invalid/src/main.mfb:4 error[2-203-0021 TYPE_CA
      | ^
 tests/func_thread_waitFor_worker_invalid/src/main.mfb:4 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `viaWaitFor` does not have a known type.
-   3 | EXPORT ISOLATED FUNC worker(t AS ThreadWorker OF Nothing TO Integer, seed AS Integer) AS Integer
-   4 |   LET viaWaitFor AS Integer = thread::waitFor(t)
-   5 |   LET viaResult AS Result OF Integer = t.result
-     | ^
-tests/func_thread_waitFor_worker_invalid/src/main.mfb:5 error[2-203-0034 TYPE_FIELD_ACCESS_REQUIRES_RECORD]: field access requires a record value
-               Field access `result` requires a record value, got ThreadWorker OF Nothing TO Integer.
-   3 | EXPORT ISOLATED FUNC worker(t AS ThreadWorker OF Nothing TO Integer, seed AS Integer) AS Integer
-   4 |   LET viaWaitFor AS Integer = thread::waitFor(t)
-   5 |   LET viaResult AS Result OF Integer = t.result
-     | ^
-tests/func_thread_waitFor_worker_invalid/src/main.mfb:5 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
-               Initializer for binding `viaResult` does not have a known type.
 [exit 1]

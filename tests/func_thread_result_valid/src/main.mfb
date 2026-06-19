@@ -4,46 +4,29 @@ IMPORT thread_workers
 
 FUNC main AS Integer
   LET rawThread AS Thread OF Nothing TO Integer = thread::start(thread_workers::noMessages, 41, 1, 1)
-  LET raw AS Result OF Integer = rawThread.result
-  MUT matched AS Integer = 0
-
-  MATCH raw
-    CASE Ok(value)
-      matched = value
-    CASE Error(err)
-      RETURN err.code
-  END MATCH
+  LET matched AS Integer = thread::waitFor(rawThread) TRAP(err)
+    RETURN err.code
+  END TRAP
 
   LET directThread AS Thread OF Nothing TO Integer = thread::start(thread_workers::noMessages, 1, 1, 1)
-  LET directRaw AS Result OF Integer = directThread.result
-  MUT direct AS Integer = 0
-  MATCH directRaw
-    CASE Ok(value)
-      direct = value
-    CASE Error(err)
-      RETURN err.code
-  END MATCH
+  LET direct AS Integer = thread::waitFor(directThread) TRAP(err)
+    RETURN err.code
+  END TRAP
 
-  LET repeatedRaw AS Result OF Integer = rawThread.result
-  MATCH repeatedRaw
-    CASE Ok(value)
-      RETURN 3
-    CASE Error(err)
-      IF err.code <> 77030004 THEN RETURN 5
-  END MATCH
+  ' A second retrieval on an already-consumed handle fails; the inline TRAP
+  ' inspects the error without propagating.
+  LET repeated AS Integer = thread::waitFor(rawThread) TRAP(err)
+    IF err.code <> 77030004 THEN RETURN 5
+    RECOVER 0
+  END TRAP
 
   IF matched <> 41 THEN RETURN 1
   IF direct <> 1 THEN RETURN 2
 
   LET textThread AS Thread OF String TO String = thread::start(thread_runtime_workers::readTextPath, "tests/func_thread_result_valid/data/input.txt", 1, 1)
-  LET textRaw AS Result OF String = textThread.result
-  MUT text AS String = ""
-  MATCH textRaw
-    CASE Ok(value)
-      text = value
-    CASE Error(err)
-      RETURN err.code
-  END MATCH
+  LET text AS String = thread::waitFor(textThread) TRAP(err)
+    RETURN err.code
+  END TRAP
   IF text <> "thread result copied from worker arena\n" THEN RETURN 4
 
   RETURN 0

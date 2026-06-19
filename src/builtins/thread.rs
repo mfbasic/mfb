@@ -234,8 +234,8 @@ pub(crate) fn thread_output(name: &str) -> Option<&str> {
     thread_parts(name).map(|(_, _, output)| output)
 }
 
-/// Output type for `t.result` / `thread::waitFor`, which are only valid on a
-/// parent `Thread` handle (not a `ThreadWorker`).
+/// Output type for `thread::waitFor`, which is only valid on a parent `Thread`
+/// handle (not a `ThreadWorker`).
 pub(crate) fn parent_thread_output(name: &str) -> Option<&str> {
     thread_parts(name).and_then(|(kind, _, output)| (kind == THREAD_TYPE).then_some(output))
 }

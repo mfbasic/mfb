@@ -1,0 +1,14 @@
+' The `t.result` field is removed. A worker outcome is retrieved only through
+' `thread::waitFor(t)`, which auto-unwraps the value or auto-propagates the
+' `Error`. Accessing `.result` reports TYPE_THREAD_RESULT_REMOVED.
+
+IMPORT thread
+
+FUNC inspect(t AS Thread OF Nothing TO Integer) AS Integer
+  LET value AS Integer = t.result
+  RETURN value
+END FUNC
+
+FUNC main AS Integer
+  RETURN 0
+END FUNC

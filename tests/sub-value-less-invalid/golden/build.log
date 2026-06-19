@@ -1,0 +1,52 @@
+$ mfb build -ast tests/sub-value-less-invalid
+   8 |     RETURN
+   9 |   END IF
+  10 |   RETURN NOTHING
+     | ^
+tests/sub-value-less-invalid/src/main.mfb:10 error[2-203-0073 TYPE_SUB_RETURN_TAKES_NO_VALUE]: RETURN in a SUB takes no value
+               A SUB produces no value; use a bare `RETURN` to exit early.
+  17 | FUNC main AS Integer
+  18 |   doThing(TRUE)
+  19 |   LET captured = doThing(TRUE)
+     | ^
+tests/sub-value-less-invalid/src/main.mfb:19 error[2-203-0074 TYPE_SUB_HAS_NO_VALUE]: a SUB call produces no value and cannot be used in value position
+               SUB `doThing` produces no value; its call is a statement, not an expression.
+  18 |   doThing(TRUE)
+  19 |   LET captured = doThing(TRUE)
+  20 |   LET nested = takesInt(doThing(FALSE))
+     | ^
+tests/sub-value-less-invalid/src/main.mfb:20 error[2-203-0074 TYPE_SUB_HAS_NO_VALUE]: a SUB call produces no value and cannot be used in value position
+               SUB `doThing` produces no value; its call is a statement, not an expression.
+  18 |   doThing(TRUE)
+  19 |   LET captured = doThing(TRUE)
+  20 |   LET nested = takesInt(doThing(FALSE))
+     | ^
+tests/sub-value-less-invalid/src/main.mfb:20 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Argument 1 for `takesInt` has type Nothing, expected Integer.
+[exit 1]
+$ mfb build -ir tests/sub-value-less-invalid
+   8 |     RETURN
+   9 |   END IF
+  10 |   RETURN NOTHING
+     | ^
+tests/sub-value-less-invalid/src/main.mfb:10 error[2-203-0073 TYPE_SUB_RETURN_TAKES_NO_VALUE]: RETURN in a SUB takes no value
+               A SUB produces no value; use a bare `RETURN` to exit early.
+  17 | FUNC main AS Integer
+  18 |   doThing(TRUE)
+  19 |   LET captured = doThing(TRUE)
+     | ^
+tests/sub-value-less-invalid/src/main.mfb:19 error[2-203-0074 TYPE_SUB_HAS_NO_VALUE]: a SUB call produces no value and cannot be used in value position
+               SUB `doThing` produces no value; its call is a statement, not an expression.
+  18 |   doThing(TRUE)
+  19 |   LET captured = doThing(TRUE)
+  20 |   LET nested = takesInt(doThing(FALSE))
+     | ^
+tests/sub-value-less-invalid/src/main.mfb:20 error[2-203-0074 TYPE_SUB_HAS_NO_VALUE]: a SUB call produces no value and cannot be used in value position
+               SUB `doThing` produces no value; its call is a statement, not an expression.
+  18 |   doThing(TRUE)
+  19 |   LET captured = doThing(TRUE)
+  20 |   LET nested = takesInt(doThing(FALSE))
+     | ^
+tests/sub-value-less-invalid/src/main.mfb:20 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Argument 1 for `takesInt` has type Nothing, expected Integer.
+[exit 1]

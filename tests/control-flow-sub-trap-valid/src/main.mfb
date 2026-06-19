@@ -9,21 +9,21 @@ SUB viaReturn(flag AS Boolean)
   END TRAP
 END SUB
 
-SUB viaReturnNothing(flag AS Boolean)
+SUB viaTrapReturn(flag AS Boolean)
   IF flag THEN
-    RETURN NOTHING
+    RETURN
   ELSE
-    FAIL Error[11, "nothing path failed"]
+    FAIL Error[11, "trap path failed"]
   END IF
   TRAP(err)
-  RETURN NOTHING
+  RETURN
   END TRAP
 END SUB
 
 FUNC main AS Integer
   viaReturn(TRUE)
   viaReturn(FALSE)
-  viaReturnNothing(TRUE)
-  viaReturnNothing(FALSE)
+  viaTrapReturn(TRUE)
+  viaTrapReturn(FALSE)
   RETURN 0
 END FUNC

@@ -19,27 +19,21 @@ tests/mut-default-eligibility-invalid/src/main.mfb:30 error[2-203-0060 TYPE_MUT_
                Mutable binding `functionValue` cannot omit its initializer because type `FUNC() AS Integer` does not have a defined default value.
   29 |   MUT unionValue AS Choice
   30 |   MUT functionValue AS FUNC() AS Integer
-  31 |   MUT resultValue AS Result OF Integer
+  31 |   MUT fileValue AS File
      | ^
 tests/mut-default-eligibility-invalid/src/main.mfb:31 error[2-203-0060 TYPE_MUT_REQUIRES_DEFAULTABLE_TYPE]: uninitialized mutable binding requires a defaultable type
-               Mutable binding `resultValue` cannot omit its initializer because type `Result OF Integer` does not have a defined default value.
+               Mutable binding `fileValue` cannot omit its initializer because type `File` does not have a defined default value.
   30 |   MUT functionValue AS FUNC() AS Integer
-  31 |   MUT resultValue AS Result OF Integer
-  32 |   MUT fileValue AS File
+  31 |   MUT fileValue AS File
+  32 |   MUT nestedEnum AS WrappedFlag
      | ^
 tests/mut-default-eligibility-invalid/src/main.mfb:32 error[2-203-0060 TYPE_MUT_REQUIRES_DEFAULTABLE_TYPE]: uninitialized mutable binding requires a defaultable type
-               Mutable binding `fileValue` cannot omit its initializer because type `File` does not have a defined default value.
-  31 |   MUT resultValue AS Result OF Integer
-  32 |   MUT fileValue AS File
-  33 |   MUT nestedEnum AS WrappedFlag
+               Mutable binding `nestedEnum` cannot omit its initializer because type `WrappedFlag` does not have a defined default value.
+  31 |   MUT fileValue AS File
+  32 |   MUT nestedEnum AS WrappedFlag
+  33 |   MUT recursiveNode AS Node
      | ^
 tests/mut-default-eligibility-invalid/src/main.mfb:33 error[2-203-0060 TYPE_MUT_REQUIRES_DEFAULTABLE_TYPE]: uninitialized mutable binding requires a defaultable type
-               Mutable binding `nestedEnum` cannot omit its initializer because type `WrappedFlag` does not have a defined default value.
-  32 |   MUT fileValue AS File
-  33 |   MUT nestedEnum AS WrappedFlag
-  34 |   MUT recursiveNode AS Node
-     | ^
-tests/mut-default-eligibility-invalid/src/main.mfb:34 error[2-203-0060 TYPE_MUT_REQUIRES_DEFAULTABLE_TYPE]: uninitialized mutable binding requires a defaultable type
                Mutable binding `recursiveNode` cannot omit its initializer because type `Node` does not have a defined default value.
 [exit 1]
 $ mfb build -ir tests/mut-default-eligibility-invalid
@@ -63,26 +57,20 @@ tests/mut-default-eligibility-invalid/src/main.mfb:30 error[2-203-0060 TYPE_MUT_
                Mutable binding `functionValue` cannot omit its initializer because type `FUNC() AS Integer` does not have a defined default value.
   29 |   MUT unionValue AS Choice
   30 |   MUT functionValue AS FUNC() AS Integer
-  31 |   MUT resultValue AS Result OF Integer
+  31 |   MUT fileValue AS File
      | ^
 tests/mut-default-eligibility-invalid/src/main.mfb:31 error[2-203-0060 TYPE_MUT_REQUIRES_DEFAULTABLE_TYPE]: uninitialized mutable binding requires a defaultable type
-               Mutable binding `resultValue` cannot omit its initializer because type `Result OF Integer` does not have a defined default value.
+               Mutable binding `fileValue` cannot omit its initializer because type `File` does not have a defined default value.
   30 |   MUT functionValue AS FUNC() AS Integer
-  31 |   MUT resultValue AS Result OF Integer
-  32 |   MUT fileValue AS File
+  31 |   MUT fileValue AS File
+  32 |   MUT nestedEnum AS WrappedFlag
      | ^
 tests/mut-default-eligibility-invalid/src/main.mfb:32 error[2-203-0060 TYPE_MUT_REQUIRES_DEFAULTABLE_TYPE]: uninitialized mutable binding requires a defaultable type
-               Mutable binding `fileValue` cannot omit its initializer because type `File` does not have a defined default value.
-  31 |   MUT resultValue AS Result OF Integer
-  32 |   MUT fileValue AS File
-  33 |   MUT nestedEnum AS WrappedFlag
+               Mutable binding `nestedEnum` cannot omit its initializer because type `WrappedFlag` does not have a defined default value.
+  31 |   MUT fileValue AS File
+  32 |   MUT nestedEnum AS WrappedFlag
+  33 |   MUT recursiveNode AS Node
      | ^
 tests/mut-default-eligibility-invalid/src/main.mfb:33 error[2-203-0060 TYPE_MUT_REQUIRES_DEFAULTABLE_TYPE]: uninitialized mutable binding requires a defaultable type
-               Mutable binding `nestedEnum` cannot omit its initializer because type `WrappedFlag` does not have a defined default value.
-  32 |   MUT fileValue AS File
-  33 |   MUT nestedEnum AS WrappedFlag
-  34 |   MUT recursiveNode AS Node
-     | ^
-tests/mut-default-eligibility-invalid/src/main.mfb:34 error[2-203-0060 TYPE_MUT_REQUIRES_DEFAULTABLE_TYPE]: uninitialized mutable binding requires a defaultable type
                Mutable binding `recursiveNode` cannot omit its initializer because type `Node` does not have a defined default value.
 [exit 1]

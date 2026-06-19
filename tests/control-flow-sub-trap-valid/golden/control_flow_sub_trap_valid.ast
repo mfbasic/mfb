@@ -39,7 +39,7 @@
     {
       "kind": "sub",
       "visibility": "private",
-      "name": "viaReturnNothing",
+      "name": "viaTrapReturn",
       "line": 12,
       "params": [
       { "name": "flag", "type": "Boolean", "default": null }
@@ -51,10 +51,10 @@
         "condition": { "kind": "identifier", "value": "flag" },
         "line": 13,
         "then": [
-        { "kind": "return", "value": { "kind": "identifier", "value": "NOTHING" }, "line": 14 }
+        { "kind": "return", "value": null, "line": 14 }
         ],
         "else": [
-        { "kind": "fail", "error": { "kind": "constructor", "type": "Error", "arguments": [{ "kind": "number", "value": "11" }, { "kind": "string", "value": "nothing path failed" }] }, "line": 16 }
+        { "kind": "fail", "error": { "kind": "constructor", "type": "Error", "arguments": [{ "kind": "number", "value": "11" }, { "kind": "string", "value": "trap path failed" }] }, "line": 16 }
         ]
       }
       ],
@@ -62,7 +62,7 @@
       "name": "err",
       "line": 18,
       "body": [
-      { "kind": "return", "value": { "kind": "identifier", "value": "NOTHING" }, "line": 19 }
+      { "kind": "return", "value": null, "line": 19 }
       ]
     }
     },
@@ -77,8 +77,8 @@
       "body": [
       { "kind": "expression", "expression": { "kind": "call", "callee": "viaReturn", "arguments": [{ "kind": "boolean", "value": true }] }, "line": 24 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "viaReturn", "arguments": [{ "kind": "boolean", "value": false }] }, "line": 25 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "viaReturnNothing", "arguments": [{ "kind": "boolean", "value": true }] }, "line": 26 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "viaReturnNothing", "arguments": [{ "kind": "boolean", "value": false }] }, "line": 27 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "viaTrapReturn", "arguments": [{ "kind": "boolean", "value": true }] }, "line": 26 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "viaTrapReturn", "arguments": [{ "kind": "boolean", "value": false }] }, "line": 27 },
       { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 28 }
       ]
     }

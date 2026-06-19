@@ -54,7 +54,7 @@
       "returnType": null,
       "body": [
       { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "explicit-return" }] }, "line": 17 },
-      { "kind": "return", "value": { "kind": "identifier", "value": "NOTHING" }, "line": 18 }
+      { "kind": "return", "value": null, "line": 18 }
       ]
     },
     {

@@ -16,11 +16,10 @@ These types are always in scope. They do not require `IMPORT`.
 | `Byte` | Unsigned 8-bit integer. |
 | `Nothing` | Unit type with the single value `NOTHING`. |
 | `Error` | Standard error payload: `Error[code AS Integer, message AS String]`. |
-| `Result OF T` | Standard success/error union: private `Ok OF T` or public `Error`. |
 | `MapEntry OF K TO V` | Standard map iteration entry: `MapEntry[key AS K, value AS V]`. |
 | `Thread OF Msg TO Out` | Opaque handle to an isolated thread with message type `Msg` and result type `Out`. |
 
-The `Error` and `Result` shapes are built into the language:
+The `Error` shape is built into the language:
 
 ```basic
 TYPE Error
@@ -29,7 +28,12 @@ TYPE Error
 END TYPE
 ```
 
-`Result OF T` is compiler-owned notation. It describes the built-in `Result` template with a private success member `Ok OF T` and a public error member `Error`; concrete uses are monomorphized before bytecode generation. Users may construct `Error[...]`, but may not construct `Result` or `Ok` directly. Because `Result` is a built-in union shape, it is not eligible for uninitialized `MUT` defaults.
+A function call either produces its value or fails with an `Error`; the success
+value auto-unwraps and the `Error` auto-propagates. Users construct `Error[...]`,
+read `e.code`/`e.message`, and bind it in `TRAP(e)`. There is no user-visible
+wrapper type around a result: the runtime represents a fallible outcome internally
+as a private two-member union (a success member plus `Error`), which is not
+nameable, constructible, or matchable in user code (see `mfbasic.md` §4.4).
 
 `MapEntry OF K TO V` is a compiler-owned record shape produced by iterating a `Map OF K TO V`. It has public read-only fields:
 
@@ -66,7 +70,7 @@ LET ages = Map OF String TO Integer { "Ada" := 36, "Grace" := 85 }
 
 ## 3. Built-in Functions
 
-These functions are always in scope unless a package-qualified form is shown. Fallible functions return `Result` and therefore auto-propagate outside a direct `MATCH` scrutinee.
+These functions are always in scope unless a package-qualified form is shown. Fallible functions can fail and therefore auto-propagate unless their failure is caught by an inline or function-level `TRAP`.
 
 ### 3.1 General
 
@@ -325,7 +329,7 @@ Symlink behavior is explicit:
 
 Thread functions live in the `thread` package. Thread entry points must be exported `ISOLATED FUNC` declarations from imported packages with type `ISOLATED FUNC(ThreadWorker OF Msg TO Out, In) AS Out`; lambdas, closures, `SUB`s, non-isolated functions, current-package functions, and functions without the leading worker handle parameter are rejected at compile time.
 
-Thread boundary types must be thread-sendable. `thread::start` requires `In`, `Msg`, and `Out` to be thread-sendable. Both `thread::send` overloads require `Msg` to be thread-sendable, and worker return values require `Out` to be thread-sendable. Thread sendability is a type metadata property, not a per-value flag. Primitive owned values, strings, and standard immutable containers are sendable when their contained types are sendable. Records, unions, and `Result` values are sendable only when all field or payload types are sendable. Opaque handles are not sendable by default; each concrete handle type opts in explicitly. `Thread`, `ThreadWorker`, and `Listener` are not thread-sendable.
+Thread boundary types must be thread-sendable. `thread::start` requires `In`, `Msg`, and `Out` to be thread-sendable. Both `thread::send` overloads require `Msg` to be thread-sendable, and worker return values require `Out` to be thread-sendable. Thread sendability is a type metadata property, not a per-value flag. Primitive owned values, strings, and standard immutable containers are sendable when their contained types are sendable. Records and unions are sendable only when all field or payload types are sendable, and a worker outcome (internally a fallible result) is sendable when its success type is. Opaque handles are not sendable by default; each concrete handle type opts in explicitly. `Thread`, `ThreadWorker`, and `Listener` are not thread-sendable.
 
 | Function | Signature | Behavior |
 |----------|-----------|----------|
@@ -340,9 +344,9 @@ Thread boundary types must be thread-sendable. `thread::start` requires `In`, `M
 | `thread::receive` | `FUNC receive OF Msg, Out(t AS ThreadWorker OF Msg TO Out, timeoutMs AS Integer = 0) AS Msg` | Worker-side read from the inbound queue for `t`. Valid only inside the worker thread. `timeoutMs = 0` does not wait; `timeoutMs = -1` waits indefinitely until a message, queue closure, or cancellation. Other negative timeouts fail with `ErrInvalidArgument`. Cancellation fails with `ErrInterrupted`. |
 | `thread::isCancelled` | `FUNC isCancelled OF Msg, Out(t AS ThreadWorker OF Msg TO Out) AS Boolean` | Worker-side cancellation check. Returns `TRUE` after the parent requests cancellation. |
 
-When a thread ends, its `Thread` value owns `result AS Result OF Out` until the result is retrieved. Field access `t.result` waits for the completed result, returns the raw `Result OF Out`, and closes the parent `Thread` handle. `thread::waitFor(t)` waits for that result to exist, retrieves it with normal `Result` auto-unwrapping behavior, and closes the parent `Thread` handle. Either result-retrieval path is one-shot; any later use of the same `Thread` handle fails with `ErrResourceClosed`.
+When a thread ends, its `Thread` value owns the completed worker outcome until it is retrieved. `thread::waitFor(t)` waits for that outcome to exist, auto-unwraps the `Out` value or auto-propagates the `Error` like any other call, and closes the parent `Thread` handle. Retrieval is one-shot; any later use of the same `Thread` handle fails with `ErrResourceClosed`.
 
-`Thread` is a non-copyable owned handle. Lexical cleanup drops live parent `Thread` handles on normal scope exit, `RETURN`, `FAIL`, `PROPAGATE`, auto-propagated errors, and trap routing. Dropping a completed `Thread` releases the unretrieved result and any remaining queued parent-visible messages. Dropping a running `Thread` requests cancellation, wakes and closes the queues, detaches the worker, and leaves final runtime reclamation to worker completion. Reassigning a `MUT Thread` evaluates the replacement first, then drops the old handle before storing the new one. A binding moved out by return or another consuming operation is not dropped by the source scope. Compiler-generated cleanup is idempotent for handles already closed by `thread::waitFor(t)` or `t.result`.
+`Thread` is a non-copyable owned handle. Lexical cleanup drops live parent `Thread` handles on normal scope exit, `RETURN`, `FAIL`, `PROPAGATE`, auto-propagated errors, and trap routing. Dropping a completed `Thread` releases the unretrieved result and any remaining queued parent-visible messages. Dropping a running `Thread` requests cancellation, wakes and closes the queues, detaches the worker, and leaves final runtime reclamation to worker completion. Reassigning a `MUT Thread` evaluates the replacement first, then drops the old handle before storing the new one. A binding moved out by return or another consuming operation is not dropped by the source scope. Compiler-generated cleanup is idempotent for handles already closed by `thread::waitFor(t)`.
 
 Thread functions are ordinary built-in templates. Their `Msg` and `Out` parameters are resolved by the template rules in the language specification from argument types and expected result types. `thread::start` gets `Msg` and `Out` from the started function's first `ThreadWorker OF Msg TO Out` parameter, and gets `In` from the started function's second parameter and the `data` argument. If a thread does not exchange messages, `Msg` may be `Nothing`.
 
@@ -350,9 +354,9 @@ Thread functions are ordinary built-in templates. Their `Msg` and `Out` paramete
 
 `thread::cancel` wakes runtime-managed worker queue cancellation points inside the worker. These include `thread::receive(ThreadWorker, ...)` and `thread::send(ThreadWorker, ...)`. If cancellation is already set before entering one of these operations, it fails immediately with `ErrInterrupted`; if cancellation is requested while blocked, the runtime wakes the operation and it fails with `ErrInterrupted`. Other blocking built-ins that are implemented as runtime-managed waits, such as terminal input, blocking file reads, or network waits, must use the same cooperative error-return model when cancellation integration is provided. Cancellation does not asynchronously terminate the worker or interrupt arbitrary user/native code.
 
-For copyable values, `thread::send` copies or freezes the sent value and the sender's original binding remains usable. For non-copyable thread-sendable values, including sendable resource handles, a successful `thread::send` moves ownership to the destination side immediately. While the value is queued, the destination queue owns it in receiver-valid storage or runtime transfer storage independent of the sender arena. If the value is never received, the destination queue/runtime drops or closes it exactly once. If `thread::send` fails, ownership is not transferred and the sender still owns the value. Code may use `MATCH` on the send result to distinguish the success path, where the sent binding is moved, from the error path, where it remains owned by the sender. Using a moved handle is an after-move error.
+For copyable values, `thread::send` copies or freezes the sent value and the sender's original binding remains usable. For non-copyable thread-sendable values, including sendable resource handles, a successful `thread::send` moves ownership to the destination side immediately. While the value is queued, the destination queue owns it in receiver-valid storage or runtime transfer storage independent of the sender arena. If the value is never received, the destination queue/runtime drops or closes it exactly once. If `thread::send` fails, ownership is not transferred and the sender still owns the value. A `TRAP` on the failure can release or reuse the still-owned value, distinct from the success path where the sent binding is moved. Using a moved handle is an after-move error.
 
-Each started worker has a distinct package instance and worker arena. Thread start input, queued messages, and completed results are transferred across the thread boundary by copy, move, or freeze into storage whose lifetime is valid for the receiver. A completed result is materialized as receiver-owned storage before it is exposed through `t.result` or `thread::waitFor(t)`. The worker arena may be released only after the result has been transferred or the runtime keeps that arena live through result retrieval, and worker-to-parent messages have been transferred into queue storage or dropped.
+Each started worker has a distinct package instance and worker arena. Thread start input, queued messages, and completed results are transferred across the thread boundary by copy, move, or freeze into storage whose lifetime is valid for the receiver. A completed result is materialized as receiver-owned storage before it is exposed through `thread::waitFor(t)`. The worker arena may be released only after the result has been transferred or the runtime keeps that arena live through result retrieval, and worker-to-parent messages have been transferred into queue storage or dropped.
 
 ## 10. Built-in Math Package
 
