@@ -78,9 +78,8 @@ the binding or leave.
   and the observation point as resources drop. Sell the model as **one keyword,
   two scopes**: `expr TRAP(e) … END TRAP` traps one expression; a bottom-of-
   function `TRAP(e) … END TRAP` traps the whole body.
-- **D2 — Unify the trap spelling to `TRAP(e)`** at both scopes (today the
-  function trap is `TRAP err`, no parens). Recommendation: **unify**, so the two
-  scopes are visibly the same construct. This is a clean break (pre-1.0); no
+- **D2 — Unify the trap spelling to `TRAP(e)` (decided).** Both scopes use
+  `TRAP(e)`; the old `TRAP err` (no parens) is removed. Clean break (pre-1.0), no
   back-compat alias. Touches every existing trap test + spec snippet.
 - **D3 — Value-fallback (resolved).** Originally punted as a separate
   `expr ELSE value` operator. **Now folded into `RECOVER`** inside the inline
@@ -140,8 +139,10 @@ RecoverStmt   := "RECOVER" [ Expression ]   ' value required iff the trapped exp
 - **§8.3:** rename to cover both scopes. Document the inline `TRAP` recover-or-
   diverge rule and `RECOVER`; document that the function-level trap is diverging-
   only (no `RECOVER`). Extend the trap-outcomes table: `RECOVER v` (inline only)
-  → binding gets `v`, control continues; `RETURN`/`PROPAGATE`/`FAIL` apply to
-  both scopes.
+  → binding gets `v`, control continues; the "succeed" terminator is
+  `RETURN <value>` in a `FUNC` and `EXIT SUB` in a `SUB` (`RETURN` is `FUNC`-only,
+  banned in a `SUB` — see `plan-exit.md`); `PROPAGATE`/`FAIL` apply to both
+  scopes.
 - **§8.4:** rewrite. Remove "make the call the direct scrutinee of a `MATCH`."
   Replace the local-handling example and the `getUser`/`ErrNotFound` absence
   example with inline `TRAP`:
@@ -158,14 +159,17 @@ RecoverStmt   := "RECOVER" [ Expression ]   ' value required iff the trapped exp
   path ends in `RECOVER` or a diverging statement; no fall-through), one-
   expression scope, `RECOVER` legal inline only and never in a function trap,
   `RECOVER` value typed to the trapped expression's success type, `PROPAGATE`
-  valid in inline traps, binding scoped to the block. If D2 accepted, restate
-  trap spelling as `TRAP(e)` throughout.
-- **§4.4 / §7 (`Result`, `Nothing`):** clarify that `MATCH` over a genuinely
-  `Result`-typed **value** (e.g. `t.result` from a completed `Thread`, §6.x)
-  is still ordinary union matching with `CASE Ok(v)` / `CASE Error(e)`. Only the
-  call-as-scrutinee shortcut is removed. Update the §7 `Nothing` `MATCH` example
-  (lines ~512) accordingly (it matches a call today — change to inline `TRAP`
-  or to a held value).
+  valid in inline traps, binding scoped to the block. Restate the trap spelling
+  as `TRAP(e)` throughout (D2).
+- **§4.4 / §7 (`Result`, `Nothing`):** at this stage `MATCH` over a genuinely
+  `Result`-typed **value** (e.g. `t.result` from a completed `Thread`) is still
+  ordinary union matching with `CASE Ok(v)` / `CASE Error(e)` — only the
+  call-as-scrutinee shortcut is removed. This keeps **plan-errors self-contained**
+  (it does not force `plan-result-cleanup.md` to follow). Note forward:
+  `plan-result-cleanup.md` then removes `t.result` and makes `CASE Ok/Error`
+  illegal, retiring this `Result`-value path entirely. Update the §7 `Nothing`
+  `MATCH` example (lines ~512) to **inline `TRAP`** (not a held value — a held
+  `t.result` value disappears under cleanup).
 - **§3.x lint note (line 38):** add inline `TRAP` to the list of constructs the
   dense-line linter should flag.
 
@@ -174,7 +178,8 @@ RecoverStmt   := "RECOVER" [ Expression ]   ' value required iff the trapped exp
 Files and current anchors (from a read of the tree):
 
 - **`src/lexer.rs`** — `Keyword::Trap` already exists (line 81). Add
-  `Keyword::Recover`. If D2 accepted, no other lexer change (still `TRAP` + `(`).
+  `Keyword::Recover`. No other lexer change for the spelling unification (still
+  `TRAP` + `(`); the old `TRAP err` form is dropped (D2).
 - **`src/ast.rs`**
   - Add an inline-trap node. Preferred shape: an `Expression::Trapped {
     expression: Box<Expression>, binding: String, handler: Vec<Statement>,
@@ -256,8 +261,11 @@ with `scripts/test-accept.sh` after the implementation lands.
   inline trap.
 
 ### Migrate existing MATCH-on-call tests (8 dirs use `CASE Ok(`/`CASE Error(`)
-Audit each — keep `MATCH` where it matches a real `Result` **value**; convert to
-inline `TRAP` where it matched a call:
+Audit each — keep `MATCH` where it matches a real `Result` **value** (so this
+plan stays self-contained), convert to inline `TRAP` where it matched a call.
+Forward note: `plan-result-cleanup.md` later retires the kept `Result`-value
+`MATCH`es (it removes `t.result`), so those become its migrations, not throwaway
+work here:
 - `control-flow-match-destructuring`
 - `control-flow-match-exhaustiveness-invalid`
 - `func_thread_result_valid` — matches `t.result` (a value): **keep** `MATCH`.
@@ -268,7 +276,7 @@ inline `TRAP` where it matched a call:
 - `thread-queue-timeout-cancel`
 - `user-function-default-args-result-valid`
 
-### Function-trap tests (if D2 — spelling unification)
+### Function-trap tests (D2 — spelling unification)
 Update `TRAP err` → `TRAP(err)` across `control-flow-trap-valid`,
 `control-flow-trap-invalid`, `control-flow-sub-trap-valid/-invalid`,
 `audit-trap-recovery`, `project-entry-*-trap`, and any others. Mechanical;
@@ -281,12 +289,12 @@ regenerate goldens.
 3. Typecheck: remove MATCH call-suppression; add inline-trap checks + diagnostics.
 4. IR lowering (desugar preferred) + backend (only if new `IrOp`).
 5. Migrate the 8 MATCH tests; add the new inline-trap tests; regenerate goldens.
-6. If D2: mechanical `TRAP err` → `TRAP(err)` sweep across spec + tests.
+6. D2: mechanical `TRAP err` → `TRAP(err)` sweep across spec + tests.
 
 ## 9. Open questions
 
-- D1 (keep function-level trap) — recommend keep. Confirm.
-- D2 (unify spelling to `TRAP(e)`) — recommend unify. Confirm (drives test churn).
+- D1 (keep function-level trap) — **resolved**: kept (one keyword, two scopes).
+- D2 (unify spelling to `TRAP(e)`) — **resolved**: unified; `TRAP err` dropped.
 - D3 (value-fallback) — **resolved**: folded into inline-only `RECOVER`; function
   trap stays diverging-only.
 - Should an inline trap be allowed on a bare expression statement whose value is

@@ -56,10 +56,12 @@ are both `EXIT DO` / `CONTINUE DO`. `WHILE … WEND` is `EXIT WHILE` /
 
 ### Loop exits (`EXIT FOR` / `EXIT DO` / `EXIT WHILE`)
 - Transfer control to the statement immediately after the matched loop.
-- **Target = the innermost enclosing loop whose kind matches the keyword.**
-  Naming the kind makes the target explicit; an `EXIT FOR` inside a `DO` inside a
-  `FOR` exits that outer `FOR` and the `DO` it passed through (see open question
-  Q1 for the stricter "must match innermost loop overall" alternative).
+- **Target = the innermost enclosing loop whose kind matches the keyword
+  (Q1 resolved — multi-level break allowed).** Naming the kind makes the target
+  explicit, and `EXIT`/`CONTINUE` may break *through* inner loops of other kinds
+  to reach it. Example: inside a `FOR` nested in a `DO`, `EXIT DO` leaves the
+  `FOR` to break the enclosing `DO`. Compile error if no enclosing loop of that
+  kind exists.
 - Compile error `EXIT_NO_MATCHING_LOOP` if there is no enclosing loop of that
   kind.
 - Bindings, resources, and `Thread` handles declared **inside** the exited
@@ -91,6 +93,16 @@ are both `EXIT DO` / `CONTINUE DO`. `WHILE … WEND` is `EXIT WHILE` /
 - Drops all live bindings/resources/threads in the sub on the way out.
 - If the entry point is a `SUB`, `EXIT SUB` from it terminates with exit code `0`
   (same as `SUB` success, §8.7).
+- **Bans `RETURN` in a `SUB` (finalizes plan-result-cleanup §6a).** With `EXIT
+  SUB` providing the value-less early exit, any `RETURN` / `RETURN NOTHING` inside
+  a `SUB` is now a compile error `SUB_RETURN_FORBIDDEN` ("a `SUB` returns no
+  value — use `EXIT SUB`"). `RETURN` is `FUNC`-only.
+- **`EXIT SUB` is the success terminator for a `SUB`'s function-level `TRAP`.**
+  A trap may not fall through (§8.6 rule 6) and `RETURN` is banned in a `SUB`, so
+  a `SUB` trap that swallows an error and succeeds ends in `EXIT SUB` (its
+  `FAIL`/`PROPAGATE` paths are unchanged). `EXIT SUB` is therefore legal inside a
+  function-level trap as well as the body. (A `FUNC` trap still succeeds with
+  `RETURN <value>`.)
 
 ### `EXIT FUNC`
 - Recognized solely to emit a targeted compile error `EXIT_FUNC_FORBIDDEN`:
@@ -161,8 +173,14 @@ LoopKind     := "FOR" | "DO" | "WHILE"
   matching rule and short examples; note `FOR EACH` uses `EXIT FOR` /
   `CONTINUE FOR`. State there is still no `GOTO`; `EXIT`/`CONTINUE` are
   structured, lexically-scoped, single-target.
-- **§7 Subs:** add `EXIT SUB` as the value-less early-exit (ties into
-  `plan-result-cleanup.md` §6a, which bans `RETURN` here).
+- **§7 Subs:** add `EXIT SUB` as the value-less early-exit; state `RETURN` /
+  `RETURN NOTHING` are now compile errors in a `SUB` (finalizing
+  `plan-result-cleanup.md` §6a, which made the `SUB` value-less). State `EXIT
+  SUB` is the success terminator for a `SUB`'s function-level `TRAP`.
+- **§8.3 / §8.6 (error model):** the trap-outcomes table's "succeed" terminator
+  is `RETURN <value>` for a `FUNC` and `EXIT SUB` for a `SUB`; `FAIL`/`PROPAGATE`
+  unchanged. (Reconciles with `plan-errors.md` §8.3, which marks `RETURN`-succeeds
+  as `FUNC`-only.)
 - **§6 Functions:** note `EXIT FUNC` is forbidden — functions `RETURN` a value.
 - **New subsection (§10.x or §8.7-adjacent) `EXIT PROGRAM`:** define termination,
   exit-code rules, non-catchability, and the full-RAII unwind policy.
@@ -190,6 +208,10 @@ LoopKind     := "FOR" | "DO" | "WHILE"
     stack; error `EXIT_NO_MATCHING_LOOP` / `CONTINUE_NO_MATCHING_LOOP` if no loop
     of that kind encloses the statement.
   - `EXIT SUB`: error `EXIT_SUB_IN_FUNC` if the enclosing routine is a `FUNC`.
+    Legal in a `SUB` body and in a `SUB`'s function-level trap.
+  - `RETURN` inside a `SUB` (bare or `RETURN NOTHING`): error
+    `SUB_RETURN_FORBIDDEN` ("use `EXIT SUB`"). Supersedes
+    `plan-result-cleanup.md`'s interim `SUB_RETURN_TAKES_NO_VALUE`.
   - `EXIT FUNC`: always `EXIT_FUNC_FORBIDDEN`.
   - `EXIT PROGRAM`: require the operand to be `Integer`; constant-fold and
     host-range check; emit `EXIT_PROGRAM_CODE_OUT_OF_RANGE` for an out-of-range
@@ -235,9 +257,11 @@ with `scripts/test-accept.sh`. Runtime exit code / `.out` checks for
 - `continue-loop-invalid` — `CONTINUE FOR` with no enclosing `FOR`
   (`CONTINUE_NO_MATCHING_LOOP`); code after `CONTINUE` (`UNREACHABLE_AFTER_EXIT`).
 - `exit-sub-valid` — `EXIT SUB` guard clause; `EXIT SUB` from a `SUB` entry point
-  → exit 0.
+  → exit 0; `EXIT SUB` as the success terminator of a `SUB`'s function-level
+  `TRAP` (swallow-and-succeed).
 - `exit-sub-invalid` — `EXIT SUB` inside a `FUNC` (`EXIT_SUB_IN_FUNC`);
-  `EXIT FUNC` (`EXIT_FUNC_FORBIDDEN`).
+  `EXIT FUNC` (`EXIT_FUNC_FORBIDDEN`); `RETURN` and `RETURN NOTHING` inside a
+  `SUB` (`SUB_RETURN_FORBIDDEN`).
 - `exit-program-valid-rt` — `EXIT PROGRAM 3` terminates with code 3;
   `EXIT PROGRAM` with a computed code; assert a live resource opened up the call
   stack is closed during the unwind (RAII observed before exit).
@@ -273,9 +297,10 @@ Resolved:
   via a flag), but `CONTINUE` reads cleaner when several downstream statements
   would otherwise have to be neutralized.
 
-Open:
-- **Q1 — loop-target rule** (applies to both `EXIT <kind>` and `CONTINUE
-  <kind>`). Recommended: target the innermost enclosing loop *of that kind*, even
-  across inner loops of other kinds (BASIC-traditional; explicit because the kind
-  is named). Stricter alternative: require the named kind to equal the innermost
-  enclosing loop overall (no multi-level break/skip). Confirm.
+- **Q1 — loop-target rule → multi-level allowed.** `EXIT <kind>` / `CONTINUE
+  <kind>` target the innermost enclosing loop *of that kind*, breaking through
+  inner loops of other kinds to reach it (e.g. `EXIT DO` from a `FOR` nested in a
+  `DO` leaves the `FOR` to break the `DO`). Compile error if no enclosing loop of
+  that kind exists. (See §3.)
+
+No open questions remain.

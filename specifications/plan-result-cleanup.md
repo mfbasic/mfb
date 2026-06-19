@@ -206,8 +206,11 @@ it produces no success value, and its call is a statement, not an expression.
   (invisible, like `Result` itself).
 - A `SUB` **call is a statement**, not an expression. `LET x = aSub()` is a
   compile error (today it silently binds `x = NOTHING`).
-- **Remove `RETURN NOTHING`.** Bare `RETURN` is a value-less early exit;
-  fall-through to `END SUB` is success. (Keep both forms.)
+- **Remove `RETURN NOTHING`.** Bare `RETURN` remains a value-less early exit
+  *at this step only*; `plan-exit.md` then bans `RETURN` in a `SUB` entirely and
+  makes `EXIT SUB` the early exit. Fall-through to `END SUB` is success. (Keeping
+  bare `RETURN` here keeps this step self-contained — `EXIT SUB` does not exist
+  until plan-exit lands last.)
 - Failure is handled with inline `TRAP` (`plan-errors.md`), never `MATCH Ok/Error`.
 - `Nothing` **stays a nameable unit type** — it is still needed for marker union
   members (e.g. `value AS Nothing`) and the `FUNC(...) AS Nothing` callback bridge
@@ -218,7 +221,8 @@ it produces no success value, and its call is a statement, not an expression.
 
 ### Spec edits (`mfbasic.md` §7, §4.6)
 - **§7 line 497:** drop `RETURN NOTHING` and `Ok(NOTHING)`; state a `SUB`
-  produces no value, `RETURN` is a value-less early exit, fall-through succeeds.
+  produces no value and fall-through succeeds. (`RETURN`'s final disposition —
+  banned, replaced by `EXIT SUB` — is written by `plan-exit.md`.)
 - **§7 lines 509–515:** the `Result OF Nothing` `MATCH` example is already being
   replaced by an inline-`TRAP` example (§4 above) — the `fs::writeAll` failure
   case demonstrates the value-less + `TRAP` pattern.
@@ -228,7 +232,8 @@ it produces no success value, and its call is a statement, not an expression.
 
 ### Compiler edits
 - **Parser/typecheck:** reject `RETURN NOTHING` inside a `SUB`
-  (`SUB_RETURN_TAKES_NO_VALUE`); a bare `RETURN` and fall-through stay valid.
+  (`SUB_RETURN_TAKES_NO_VALUE`); a bare `RETURN` and fall-through stay valid at
+  this step (plan-exit later rejects bare `RETURN` too, via `SUB_RETURN_FORBIDDEN`).
 - **Typecheck:** a `SUB` call used in value position (`LET`/`MUT`/`Assign` RHS,
   argument, operand) is a compile error `TYPE_SUB_HAS_NO_VALUE`. A `SUB` call as
   a bare statement, and as a `FUNC(...) AS Nothing` callback value, stays valid.
