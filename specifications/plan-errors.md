@@ -21,28 +21,51 @@ intent, and every local handler carries a boilerplate `CASE Ok(v)` arm.
 
 ## 2. The change (agreed)
 
-Introduce a dedicated **inline, postfix, diverging** `TRAP` for single-expression
-error handling, and remove error handling from `MATCH`.
+Introduce a dedicated **inline, postfix** `TRAP` for single-expression error
+handling whose block either **recovers** (supplies a value for the binding and
+continues) or **diverges** (leaves), and remove error handling from `MATCH`.
 
 ```basic
+LET size = fs::sizeOf(path) TRAP(e)
+  io::print("using 0: " & e.message)
+  RECOVER 0          ' size = 0, continue at the next statement
+END TRAP
+
 LET f = fs::openFile(path) TRAP(e)
-  io::print(e.message)
-  RETURN 0            ' MUST diverge — see §4
+  FAIL e             ' or diverge — see §4
 END TRAP
 ```
 
 Reading rule: a call auto-propagates **unless** a postfix `TRAP` is attached;
 the `TRAP` is the local override of the default. The happy value auto-unwraps
-into the binding (`f`); the error block runs only on failure.
+into the binding; on error the block runs and must either `RECOVER` a value into
+the binding or leave.
 
 ### Decisions locked
 
 - **Postfix**, not prefix (`expr TRAP(e)`, not `TRAP(e) FOR expr`). Keeps the
   call as the subject and preserves left-to-right reading.
-- **Diverging-only.** The error block must leave via `RETURN`, `FAIL`,
-  `PROPAGATE`, or loop control (`EXIT`/`CONTINUE` where applicable). It may
-  **not** fall through `END TRAP`, because there would be no value to bind.
-  This mirrors the existing rule-7 discipline ("every path ends in RETURN/FAIL").
+- **Recover-or-diverge (inline only).** Every path through an inline trap block
+  must end in either:
+  - **`RECOVER <value>`** — bind that value (success type of the trapped
+    expression) and continue after the block; for a value-less trapped call
+    (a `SUB` / bare-statement form) `RECOVER` takes no value and just continues;
+    or
+  - a **diverging** statement — `FAIL`, `PROPAGATE`, `RETURN <v>`, or an `EXIT`
+    form (`EXIT FOR/DO/WHILE/SUB/PROGRAM`, see `plan-exit.md`).
+
+  Fall-through to `END TRAP` is a **compile error** — there must be no path that
+  leaves the binding unset. `RECOVER` cohesively absorbs the old "value-fallback"
+  idea (former D3) into the one construct; this is not MATCH-style overloading
+  because recover and diverge are two answers to the *same* question ("what on
+  error?"), not two unrelated concerns.
+- **`RECOVER` is inline-only.** The function-level `TRAP` (below) has **no**
+  `RECOVER` — at function scope you don't know which statement failed, so there
+  is no binding to recover into and no defined resume point. The function trap
+  stays diverging-only (`RETURN`/`FAIL`/`PROPAGATE`); its `RETURN v` already
+  expresses whole-function recovery (convert the error into the function's return
+  value), which is well-defined because it targets the return value, not a
+  mid-body resume.
 - **`MATCH` keeps only union/value matching.** The special "call-as-direct-
   scrutinee suppresses auto-unwrap" rule (§8.4) is removed. A `MATCH` whose
   scrutinee is a call now auto-unwraps like every other call site.
@@ -59,17 +82,17 @@ into the binding (`f`); the error block runs only on failure.
   function trap is `TRAP err`, no parens). Recommendation: **unify**, so the two
   scopes are visibly the same construct. This is a clean break (pre-1.0); no
   back-compat alias. Touches every existing trap test + spec snippet.
-- **D3 — Value-fallback (`expr ELSE value`)** is explicitly **out of scope** for
-  this change. If "on error, substitute a value and continue" is wanted later,
-  add a separate operator rather than letting the `TRAP` body fall through.
-  Recorded here so the diverging rule isn't quietly relaxed later.
+- **D3 — Value-fallback (resolved).** Originally punted as a separate
+  `expr ELSE value` operator. **Now folded into `RECOVER`** inside the inline
+  trap (see Decisions locked). No separate operator; no `TRAP` fall-through.
 
 ## 3. Grammar / syntax
 
 ```
 PostfixTrap   := Expression "TRAP" "(" Identifier ")" Newline
-                   StatementList
+                   StatementList            ' each path ends in RecoverStmt or a diverging stmt
                  "END" "TRAP"
+RecoverStmt   := "RECOVER" [ Expression ]   ' value required iff the trapped expr produces one
 ```
 
 - Legal only as the value/RHS of a `LET`/`MUT` binding, an `Assign`, or a
@@ -78,6 +101,7 @@ PostfixTrap   := Expression "TRAP" "(" Identifier ")" Newline
 - No type annotation on the binding (always `Error`), matching the function trap.
 - One expression per inline trap — there is intentionally no way to wrap several
   fallible calls in one inline trap. That is what the function-level trap is for.
+- `RECOVER` is legal only inside an inline trap, never in a function-level trap.
 
 ## 4. Semantics
 
@@ -87,9 +111,15 @@ PostfixTrap   := Expression "TRAP" "(" Identifier ")" Newline
   bindings in the enclosing scope that are already established are unaffected;
   resources created *by the trapped expression itself* are dropped before the
   block runs (same lexical-drop rules as §8.1/§14.7/§15).
-- **Divergence required:** every path through the inline trap block must end in
-  `RETURN`, `FAIL`, `PROPAGATE`, or valid loop control. Fall-through to
-  `END TRAP` is a **compile error** (new diagnostic, see §6).
+- **Recover or diverge — no fall-through:** every path through the inline trap
+  block must end in `RECOVER <value>` (recover) or a diverging statement
+  (`RETURN`, `FAIL`, `PROPAGATE`, or an `EXIT` form). Fall-through to `END TRAP`
+  is a **compile error** (new diagnostic, see §6).
+- **`RECOVER` typing:** the recovered value must be assignable to the success
+  type of the trapped expression (the same type the happy path would have bound).
+  After `RECOVER`, control continues at the statement following `END TRAP` with
+  the binding set. For a value-less trapped call, `RECOVER` carries no operand and
+  just continues.
 - **`PROPAGATE` inside an inline trap** re-raises `e`: routes to the enclosing
   function-level `TRAP` if present, else returns the error to the caller. (Same
   meaning as in a function trap; lift the "PROPAGATE only valid in a trap"
@@ -107,23 +137,29 @@ PostfixTrap   := Expression "TRAP" "(" Identifier ")" Newline
   propagate." Keep "no TRY, no GOTO, no exceptions."
 - **§8.1:** unchanged core; add a sentence that a call auto-propagates unless a
   postfix `TRAP` is attached.
-- **§8.3:** rename to cover both scopes; document inline `TRAP` and the
-  diverging rule. Keep the trap-outcomes table (RETURN/PROPAGATE/FAIL) — it
-  applies to both scopes.
+- **§8.3:** rename to cover both scopes. Document the inline `TRAP` recover-or-
+  diverge rule and `RECOVER`; document that the function-level trap is diverging-
+  only (no `RECOVER`). Extend the trap-outcomes table: `RECOVER v` (inline only)
+  → binding gets `v`, control continues; `RETURN`/`PROPAGATE`/`FAIL` apply to
+  both scopes.
 - **§8.4:** rewrite. Remove "make the call the direct scrutinee of a `MATCH`."
   Replace the local-handling example and the `getUser`/`ErrNotFound` absence
   example with inline `TRAP`:
   ```basic
   LET user = getUser(id) TRAP(e)
-    IF e.code = errorCode::ErrNotFound THEN RETURN defaultUser
-    FAIL e
+    IF e.code = errorCode::ErrNotFound THEN RECOVER defaultUser   ' use default, continue
+    FAIL e                                                        ' any other error: bail
   END TRAP
   ```
-  State plainly: `MATCH` no longer intercepts call errors; it matches enum/
-  union/`Result` **values** only.
-- **§8.6 rules:** add inline-trap rules — diverging requirement, one-expression
-  scope, `PROPAGATE` now valid in inline traps, binding scoped to the block.
-  If D2 accepted, restate trap spelling as `TRAP(e)` throughout.
+  This shows both arms: `RECOVER` for the recoverable not-found case, `FAIL` for
+  the rest. State plainly: `MATCH` no longer intercepts call errors; it matches
+  enum/union/`Result` **values** only.
+- **§8.6 rules:** add inline-trap rules — recover-or-diverge requirement (each
+  path ends in `RECOVER` or a diverging statement; no fall-through), one-
+  expression scope, `RECOVER` legal inline only and never in a function trap,
+  `RECOVER` value typed to the trapped expression's success type, `PROPAGATE`
+  valid in inline traps, binding scoped to the block. If D2 accepted, restate
+  trap spelling as `TRAP(e)` throughout.
 - **§4.4 / §7 (`Result`, `Nothing`):** clarify that `MATCH` over a genuinely
   `Result`-typed **value** (e.g. `t.result` from a completed `Thread`, §6.x)
   is still ordinary union matching with `CASE Ok(v)` / `CASE Error(e)`. Only the
@@ -137,14 +173,17 @@ PostfixTrap   := Expression "TRAP" "(" Identifier ")" Newline
 
 Files and current anchors (from a read of the tree):
 
-- **`src/lexer.rs`** — `Keyword::Trap` already exists (line 81); no new keyword.
-  If D2 accepted, no lexer change either (still `TRAP` + `(`).
+- **`src/lexer.rs`** — `Keyword::Trap` already exists (line 81). Add
+  `Keyword::Recover`. If D2 accepted, no other lexer change (still `TRAP` + `(`).
 - **`src/ast.rs`**
   - Add an inline-trap node. Preferred shape: an `Expression::Trapped {
     expression: Box<Expression>, binding: String, handler: Vec<Statement>,
     line }` so it composes anywhere an expression value is expected (LET/MUT/
     Assign/Expression statement). Alternative: a dedicated statement form — but
     the expression form reuses existing binding parsing.
+  - Add `Statement::Recover { value: Option<Expression>, line }`. It is parsed
+    only inside an inline-trap handler body; appearing anywhere else (including a
+    function-level trap) is rejected in typecheck.
   - Reuse the existing `Trap` struct (line 128) for the function-level trap.
   - Parser (parse functions begin ~line 750; function-trap parse ~line 899):
     after parsing a primary/postfix expression in binding/assign/expr-statement
@@ -161,20 +200,28 @@ Files and current anchors (from a read of the tree):
     for `Result`-typed *values*. Just no longer reachable via a call scrutinee.
   - New: type-check `Expression::Trapped` — infer the inner expression's
     `Result OF T`, bind the handler's `e : Error`, check the inner success type
-    `T` flows to the binding, and **verify the handler diverges** on every path
-    (reuse the body-terminator analysis used for function traps at lines
-    ~1138–1171). New diagnostics:
-    - `TYPE_INLINE_TRAP_MUST_DIVERGE` — handler falls through `END TRAP`.
+    `T` flows to the binding, and **verify every handler path ends in `RECOVER`
+    or a diverging statement** (extend the body-terminator analysis used for
+    function traps at lines ~1138–1171 to accept `RECOVER` as a terminator).
+    New diagnostics:
+    - `TYPE_INLINE_TRAP_FALLS_THROUGH` — a handler path neither recovers nor
+      diverges.
+    - `TYPE_RECOVER_TYPE_MISMATCH` — `RECOVER`'s value is not assignable to the
+      trapped expression's success type `T` (and `RECOVER` with no value on a
+      value-producing trap, or with a value on a value-less trap).
+    - `TYPE_RECOVER_OUTSIDE_INLINE_TRAP` — `RECOVER` in a function-level trap or
+      anywhere else.
     - `TYPE_INLINE_TRAP_REQUIRES_FALLIBLE` — trapped expression cannot fail
-      (no `Result`), so the trap is dead (warn or error — recommend error for
-      consistency with how unreachable handlers are treated).
+      (no `Result`), so the trap is dead (recommend error).
   - `Propagate` check (lines ~1483): widen "valid only inside a TRAP" to also
     accept inline-trap handler bodies.
 - **`src/ir.rs`**
   - `IrOp::Trap` (line 123) and lowering (line 445) cover the function trap.
     Lower `Expression::Trapped` to: evaluate inner → on `Ok` bind value and
-    continue → on `Err` bind `e`, run handler ops (which must terminate). Reuse
-    the `Propagate → Fail` rewrite (line 545) for `PROPAGATE` in inline handlers.
+    continue → on `Err` bind `e`, run handler ops. A `RECOVER v` path stores `v`
+    into the binding and jumps to the continuation after the trap; a diverging
+    path lowers as today. Reuse the `Propagate → Fail` rewrite (line 545) for
+    `PROPAGATE` in inline handlers.
   - Decide IR representation: either a new `IrOp::InlineTrap { … }` or desugar to
     the existing trap/branch primitives. Desugaring keeps backends unchanged;
     prefer it if the existing branch + fail ops are expressive enough.
@@ -192,11 +239,16 @@ with `scripts/test-accept.sh` after the implementation lands.
 
 ### New tests
 - `control-flow-inline-trap-valid` — happy unwrap into binding; error path with
-  `RETURN`, with `FAIL`, with `PROPAGATE`; inline trap in `LET`, `MUT`,
-  `Assign`, and bare-expression positions; the `ErrNotFound` absence idiom.
-- `control-flow-inline-trap-invalid` — handler falls through (`MUST_DIVERGE`);
-  inline trap on an infallible expression (`REQUIRES_FALLIBLE`); inline trap in
-  an illegal position; `PROPAGATE` semantics where no enclosing function trap.
+  `RECOVER value` (continues with the binding set), with `RETURN`, with `FAIL`,
+  with `PROPAGATE`; inline trap in `LET`, `MUT`, `Assign`, and bare-expression
+  positions; value-less `RECOVER` on a `SUB`/statement form; the `ErrNotFound`
+  recover-or-bail idiom.
+- `control-flow-inline-trap-invalid` — handler falls through
+  (`TYPE_INLINE_TRAP_FALLS_THROUGH`); `RECOVER` value of wrong type and missing/
+  extra-value mismatches (`TYPE_RECOVER_TYPE_MISMATCH`); `RECOVER` in a function-
+  level trap (`TYPE_RECOVER_OUTSIDE_INLINE_TRAP`); inline trap on an infallible
+  expression (`TYPE_INLINE_TRAP_REQUIRES_FALLIBLE`); inline trap in an illegal
+  position; `PROPAGATE` where no enclosing function trap.
 - `control-flow-inline-trap-resource-rt` — resource created by the trapped
   expression is dropped before the handler runs (assert via runtime `.out`).
 - `control-flow-inline-trap-nested-valid` — call inside the trapped expression
@@ -235,7 +287,8 @@ regenerate goldens.
 
 - D1 (keep function-level trap) — recommend keep. Confirm.
 - D2 (unify spelling to `TRAP(e)`) — recommend unify. Confirm (drives test churn).
-- D3 (no value-fallback now) — confirm out of scope.
+- D3 (value-fallback) — **resolved**: folded into inline-only `RECOVER`; function
+  trap stays diverging-only.
 - Should an inline trap be allowed on a bare expression statement whose value is
   discarded (e.g. `doThing() TRAP(e) … END TRAP` with no `LET`)? Recommend yes —
   it's the `SUB`/effectful-call case and is the cleanest replacement for a
