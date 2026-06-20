@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 
 use crate::builtins;
-use crate::ir::{IrFunction, IrMatchPattern, IrOp, IrProject, IrType, IrValue};
+use crate::ir::{IrFunction, IrOp, IrProject, IrType, IrValue};
 use crate::numeric;
 use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet};
@@ -19,6 +19,13 @@ const SECTION_FUNCTION_TABLE: u16 = 8;
 const SECTION_CODE: u16 = 9;
 const SECTION_RESOURCE_TABLE: u16 = 11;
 const SECTION_ABI_INDEX: u16 = 15;
+/// Structured Binary IR payload section. Replaces the old flat SECTION_CODE as
+/// the carrier of function bodies; see `crate::ir::encode_binary_ir`.
+const SECTION_IR: u16 = 16;
+
+/// MFBC container major version. Bumped to 2 for the clean break to the
+/// structured Binary IR payload — the reader rejects the old flat (v1) layout.
+const MFBC_MAJOR_VERSION: u16 = 2;
 
 const ABI_FORMAT_VERSION: u16 = 1;
 const ABI_HASH_LEN: usize = 32;
@@ -245,33 +252,11 @@ pub fn write_bytecode_hex(
     Ok(hex_path)
 }
 
-pub fn write_merged_bytecode_hex(
-    project_dir: &Path,
-    ir: &IrProject,
-    version: &str,
-    packages: &[PathBuf],
-) -> Result<PathBuf, String> {
-    let metadata = BytecodeMetadata::new(ir.name.clone(), version.to_string());
-    let bytes = build_merged_bytecode_bytes(ir, &metadata, packages)?;
-    let hex_path = project_dir.join(format!("{}.hex", ir.name));
-    fs::write(&hex_path, hex_dump(&bytes))
-        .map_err(|err| format!("failed to write '{}': {err}", hex_path.display()))?;
-    Ok(hex_path)
-}
-
 pub fn build_bytecode_bytes(
     ir: &IrProject,
     metadata: &BytecodeMetadata,
 ) -> Result<Vec<u8>, String> {
     Ok(lower_project(ir, metadata)?.encode())
-}
-
-pub fn build_merged_bytecode_bytes(
-    ir: &IrProject,
-    metadata: &BytecodeMetadata,
-    packages: &[PathBuf],
-) -> Result<Vec<u8>, String> {
-    Ok(lower_merged_project(ir, metadata, packages)?.encode())
 }
 
 pub fn build_package_bytecode_bytes(
@@ -435,315 +420,6 @@ pub struct BytecodePackageInfoUsedSymbol {
     pub sig_hash: String,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub enum NativeType {
-    Nothing,
-    Boolean,
-    Byte,
-    Integer,
-    Float,
-    Fixed,
-    String,
-    FileHandle,
-    Result,
-    Other,
-}
-
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub enum NativeImportKind {
-    RuntimeHelper,
-    LibSystem,
-}
-
-pub struct NativeImport {
-    pub symbol: &'static str,
-    pub kind: NativeImportKind,
-}
-
-pub struct NativeProgram {
-    pub entry_function: u32,
-    pub entry_returns_integer: bool,
-    pub types: NativeTypeLayouts,
-    pub functions: Vec<NativeFunction>,
-    pub constants: Vec<NativeConst>,
-    pub imports: Vec<NativeImport>,
-}
-
-pub struct NativeFunction {
-    pub param_count: usize,
-    pub registers: Vec<NativeRegister>,
-    pub code: Vec<NativeInstruction>,
-}
-
-pub struct NativeRegister {
-    pub type_id: u32,
-    pub type_: NativeType,
-}
-
-pub struct NativeTypeLayouts {
-    pub records: HashMap<u32, NativeRecordLayout>,
-    pub unions: HashMap<u32, NativeUnionLayout>,
-}
-
-#[derive(Clone)]
-pub struct NativeRecordLayout {
-    pub fields: HashMap<u32, NativeFieldLayout>,
-    pub ordered_fields: Vec<NativeFieldLayout>,
-    pub size_slots: usize,
-}
-
-#[derive(Clone)]
-pub struct NativeUnionLayout {
-    pub variants: HashMap<u32, NativeVariantLayout>,
-    pub size_slots: usize,
-}
-
-#[derive(Clone)]
-pub struct NativeVariantLayout {
-    pub tag: usize,
-    pub fields: Vec<NativeFieldLayout>,
-}
-
-#[derive(Clone)]
-pub struct NativeFieldLayout {
-    pub name: u32,
-    pub offset_slots: usize,
-    pub type_id: u32,
-}
-
-#[derive(Clone)]
-pub enum NativePackageTypeInfo {
-    Record(Vec<NativeFieldLayout>),
-    Enum,
-    Union(NativeUnionLayout),
-    List { element_type: u32 },
-    Map { key_type: u32, value_type: u32 },
-    Result { success_type: u32 },
-    Thread { message_type: u32, output_type: u32 },
-    ThreadWorker { message_type: u32, output_type: u32 },
-    Function,
-    Resource,
-}
-
-pub struct NativeInstruction {
-    pub opcode: u16,
-    pub operands: Vec<u32>,
-}
-
-#[derive(Clone)]
-pub enum NativeConst {
-    Nothing,
-    Boolean(bool),
-    Byte(u8),
-    Integer(i64),
-    Float(f64),
-    Fixed(i64),
-    String(String),
-    Other,
-}
-
-pub struct NativePackageExport {
-    pub package_name: String,
-    pub symbol: String,
-    pub name: String,
-    pub return_type_id: u32,
-    pub return_type: NativeType,
-    pub param_count: usize,
-    pub global_count: usize,
-    pub registers: Vec<NativeRegister>,
-    pub code: Vec<NativeInstruction>,
-    pub constants: Vec<NativeConst>,
-    pub external_calls: HashMap<u32, NativePackageCallTarget>,
-    pub type_info: HashMap<u32, NativePackageTypeInfo>,
-    pub type_name_strings: HashMap<u32, u32>,
-}
-
-#[derive(Clone)]
-pub struct NativePackageCallTarget {
-    pub symbol: String,
-    pub return_type: NativeType,
-}
-
-pub const NATIVE_OPCODE_LOAD_CONST: u16 = OPCODE_LOAD_CONST;
-pub const NATIVE_OPCODE_LOAD_DEFAULT: u16 = OPCODE_LOAD_DEFAULT;
-pub const NATIVE_OPCODE_LOAD_GLOBAL: u16 = OPCODE_LOAD_GLOBAL;
-pub const NATIVE_OPCODE_STORE_GLOBAL: u16 = OPCODE_STORE_GLOBAL;
-pub const NATIVE_OPCODE_MOVE: u16 = OPCODE_MOVE;
-pub const NATIVE_OPCODE_COPY: u16 = OPCODE_COPY;
-pub const NATIVE_OPCODE_ADD: u16 = OPCODE_ADD;
-pub const NATIVE_OPCODE_SUB: u16 = OPCODE_SUB;
-pub const NATIVE_OPCODE_MUL: u16 = OPCODE_MUL;
-pub const NATIVE_OPCODE_DIV: u16 = OPCODE_DIV;
-pub const NATIVE_OPCODE_EQUAL: u16 = OPCODE_EQUAL;
-pub const NATIVE_OPCODE_NOT_EQUAL: u16 = OPCODE_NOT_EQUAL;
-pub const NATIVE_OPCODE_LESS: u16 = OPCODE_LESS;
-pub const NATIVE_OPCODE_LESS_EQUAL: u16 = OPCODE_LESS_EQUAL;
-pub const NATIVE_OPCODE_GREATER: u16 = OPCODE_GREATER;
-pub const NATIVE_OPCODE_GREATER_EQUAL: u16 = OPCODE_GREATER_EQUAL;
-pub const NATIVE_OPCODE_MOD: u16 = OPCODE_MOD;
-pub const NATIVE_OPCODE_POW: u16 = OPCODE_POW;
-pub const NATIVE_OPCODE_NOT: u16 = OPCODE_NOT;
-pub const NATIVE_OPCODE_XOR: u16 = OPCODE_XOR;
-pub const NATIVE_OPCODE_NEG: u16 = OPCODE_NEG;
-pub const NATIVE_OPCODE_FLOAT_DIV: u16 = OPCODE_FLOAT_DIV;
-pub const NATIVE_OPCODE_CONCAT: u16 = OPCODE_CONCAT;
-pub const NATIVE_OPCODE_IO_WRITE: u16 = OPCODE_IO_WRITE;
-pub const NATIVE_OPCODE_IO_FLUSH: u16 = OPCODE_IO_FLUSH;
-pub const NATIVE_OPCODE_IO_READ_LINE: u16 = OPCODE_IO_READ_LINE;
-pub const NATIVE_OPCODE_IO_READ_CHAR: u16 = OPCODE_IO_READ_CHAR;
-pub const NATIVE_OPCODE_IO_READ_BYTE: u16 = OPCODE_IO_READ_BYTE;
-pub const NATIVE_OPCODE_IO_IS_TERMINAL: u16 = OPCODE_IO_IS_TERMINAL;
-pub const NATIVE_OPCODE_IO_TERMINAL_SIZE: u16 = OPCODE_IO_TERMINAL_SIZE;
-pub const NATIVE_OPCODE_IO_POLL_INPUT: u16 = OPCODE_IO_POLL_INPUT;
-pub const NATIVE_OPCODE_IO_OPEN: u16 = OPCODE_IO_OPEN;
-pub const NATIVE_OPCODE_IO_CLOSE: u16 = OPCODE_IO_CLOSE;
-pub const NATIVE_OPCODE_FS_FILE_EXISTS: u16 = OPCODE_FS_FILE_EXISTS;
-pub const NATIVE_OPCODE_FS_DIRECTORY_EXISTS: u16 = OPCODE_FS_DIRECTORY_EXISTS;
-pub const NATIVE_OPCODE_FS_EXISTS: u16 = OPCODE_FS_EXISTS;
-pub const NATIVE_OPCODE_FS_READ_TEXT: u16 = OPCODE_FS_READ_TEXT;
-pub const NATIVE_OPCODE_FS_WRITE_TEXT: u16 = OPCODE_FS_WRITE_TEXT;
-pub const NATIVE_OPCODE_FS_WRITE_TEXT_ATOMIC: u16 = OPCODE_FS_WRITE_TEXT_ATOMIC;
-pub const NATIVE_OPCODE_FS_APPEND_TEXT: u16 = OPCODE_FS_APPEND_TEXT;
-pub const NATIVE_OPCODE_FS_OPEN: u16 = OPCODE_FS_OPEN;
-pub const NATIVE_OPCODE_FS_OPEN_NO_FOLLOW: u16 = OPCODE_FS_OPEN_NO_FOLLOW;
-pub const NATIVE_OPCODE_FS_CREATE_TEMP_FILE: u16 = OPCODE_FS_CREATE_TEMP_FILE;
-pub const NATIVE_OPCODE_FS_READ_LINE: u16 = OPCODE_FS_READ_LINE;
-pub const NATIVE_OPCODE_FS_READ_ALL: u16 = OPCODE_FS_READ_ALL;
-pub const NATIVE_OPCODE_FS_WRITE_ALL: u16 = OPCODE_FS_WRITE_ALL;
-pub const NATIVE_OPCODE_FS_CLOSE: u16 = OPCODE_FS_CLOSE;
-pub const NATIVE_OPCODE_FS_EOF: u16 = OPCODE_FS_EOF;
-pub const NATIVE_OPCODE_FS_CANONICAL_PATH: u16 = OPCODE_FS_CANONICAL_PATH;
-pub const NATIVE_OPCODE_FS_IS_WITHIN: u16 = OPCODE_FS_IS_WITHIN;
-pub const NATIVE_OPCODE_FS_PATH_JOIN: u16 = OPCODE_FS_PATH_JOIN;
-pub const NATIVE_OPCODE_FS_PATH_DIR_NAME: u16 = OPCODE_FS_PATH_DIR_NAME;
-pub const NATIVE_OPCODE_FS_PATH_BASE_NAME: u16 = OPCODE_FS_PATH_BASE_NAME;
-pub const NATIVE_OPCODE_FS_PATH_EXTENSION: u16 = OPCODE_FS_PATH_EXTENSION;
-pub const NATIVE_OPCODE_FS_PATH_NORMALIZE: u16 = OPCODE_FS_PATH_NORMALIZE;
-pub const NATIVE_OPCODE_FS_DELETE_FILE: u16 = OPCODE_FS_DELETE_FILE;
-pub const NATIVE_OPCODE_FS_CREATE_DIRECTORY: u16 = OPCODE_FS_CREATE_DIRECTORY;
-pub const NATIVE_OPCODE_FS_CREATE_DIRECTORIES: u16 = OPCODE_FS_CREATE_DIRECTORIES;
-pub const NATIVE_OPCODE_FS_DELETE_DIRECTORY: u16 = OPCODE_FS_DELETE_DIRECTORY;
-pub const NATIVE_OPCODE_FS_LIST_DIRECTORY: u16 = OPCODE_FS_LIST_DIRECTORY;
-pub const NATIVE_OPCODE_FS_CURRENT_DIRECTORY: u16 = OPCODE_FS_CURRENT_DIRECTORY;
-pub const NATIVE_OPCODE_FS_TEMP_DIRECTORY: u16 = OPCODE_FS_TEMP_DIRECTORY;
-pub const NATIVE_OPCODE_FS_SET_CURRENT_DIRECTORY: u16 = OPCODE_FS_SET_CURRENT_DIRECTORY;
-pub const NATIVE_OPCODE_THREAD_START: u16 = OPCODE_THREAD_START;
-pub const NATIVE_OPCODE_THREAD_IS_RUNNING: u16 = OPCODE_THREAD_IS_RUNNING;
-pub const NATIVE_OPCODE_THREAD_WAIT_FOR: u16 = OPCODE_THREAD_WAIT_FOR;
-pub const NATIVE_OPCODE_THREAD_CANCEL: u16 = OPCODE_THREAD_CANCEL;
-pub const NATIVE_OPCODE_THREAD_SEND: u16 = OPCODE_THREAD_SEND;
-pub const NATIVE_OPCODE_THREAD_POLL: u16 = OPCODE_THREAD_POLL;
-pub const NATIVE_OPCODE_THREAD_READ: u16 = OPCODE_THREAD_READ;
-pub const NATIVE_OPCODE_THREAD_RECEIVE: u16 = OPCODE_THREAD_RECEIVE;
-pub const NATIVE_OPCODE_THREAD_EMIT: u16 = OPCODE_THREAD_EMIT;
-pub const NATIVE_OPCODE_THREAD_IS_CANCELLED: u16 = OPCODE_THREAD_IS_CANCELLED;
-pub const NATIVE_OPCODE_CALL_RESULT: u16 = OPCODE_CALL_RESULT;
-pub const NATIVE_OPCODE_UNWRAP_RESULT: u16 = OPCODE_UNWRAP_RESULT;
-pub const NATIVE_OPCODE_RESULT_IS_OK: u16 = OPCODE_RESULT_IS_OK;
-pub const NATIVE_OPCODE_RESULT_VALUE: u16 = OPCODE_RESULT_VALUE;
-pub const NATIVE_OPCODE_RESULT_ERROR: u16 = OPCODE_RESULT_ERROR;
-pub const NATIVE_OPCODE_LOAD_FUNCTION: u16 = OPCODE_LOAD_FUNCTION;
-pub const NATIVE_OPCODE_CALL_VALUE_RESULT: u16 = OPCODE_CALL_VALUE_RESULT;
-pub const NATIVE_OPCODE_LOAD_CAPTURE: u16 = OPCODE_LOAD_CAPTURE;
-pub const NATIVE_OPCODE_LOAD_CLOSURE: u16 = OPCODE_LOAD_CLOSURE;
-pub const NATIVE_OPCODE_RETURN_OK: u16 = OPCODE_RETURN_OK;
-pub const NATIVE_OPCODE_CONSTRUCT_RECORD: u16 = OPCODE_CONSTRUCT_RECORD;
-pub const NATIVE_OPCODE_CONSTRUCT_VARIANT: u16 = OPCODE_CONSTRUCT_VARIANT;
-pub const NATIVE_OPCODE_LOAD_FIELD: u16 = OPCODE_LOAD_FIELD;
-pub const NATIVE_OPCODE_LOAD_ENUM_MEMBER: u16 = OPCODE_LOAD_ENUM_MEMBER;
-pub const NATIVE_OPCODE_CONSTRUCT_LIST: u16 = OPCODE_CONSTRUCT_LIST;
-pub const NATIVE_OPCODE_CONSTRUCT_MAP: u16 = OPCODE_CONSTRUCT_MAP;
-pub const NATIVE_OPCODE_COLLECTION_ITER_BEGIN: u16 = OPCODE_COLLECTION_ITER_BEGIN;
-pub const NATIVE_OPCODE_COLLECTION_ITER_NEXT: u16 = OPCODE_COLLECTION_ITER_NEXT;
-pub const NATIVE_OPCODE_LOAD_MAP_ENTRY_FIELD: u16 = OPCODE_LOAD_MAP_ENTRY_FIELD;
-pub const NATIVE_OPCODE_BRANCH: u16 = OPCODE_BRANCH;
-pub const NATIVE_OPCODE_BRANCH_IF_FALSE: u16 = OPCODE_BRANCH_IF_FALSE;
-pub const NATIVE_OPCODE_VARIANT_MATCH: u16 = OPCODE_VARIANT_MATCH;
-pub const NATIVE_OPCODE_BRANCH_IF_TRUE: u16 = OPCODE_BRANCH_IF_TRUE;
-pub const NATIVE_OPCODE_GENERAL_LEN: u16 = OPCODE_GENERAL_LEN;
-pub const NATIVE_OPCODE_GENERAL_FIND: u16 = OPCODE_GENERAL_FIND;
-pub const NATIVE_OPCODE_GENERAL_MID: u16 = OPCODE_GENERAL_MID;
-pub const NATIVE_OPCODE_GENERAL_REPLACE: u16 = OPCODE_GENERAL_REPLACE;
-pub const NATIVE_OPCODE_GENERAL_TO_STRING: u16 = OPCODE_GENERAL_TO_STRING;
-pub const NATIVE_OPCODE_GENERAL_TO_INT: u16 = OPCODE_GENERAL_TO_INT;
-pub const NATIVE_OPCODE_GENERAL_TO_FLOAT: u16 = OPCODE_GENERAL_TO_FLOAT;
-pub const NATIVE_OPCODE_GENERAL_TO_FIXED: u16 = OPCODE_GENERAL_TO_FIXED;
-pub const NATIVE_OPCODE_GENERAL_TO_BYTE: u16 = OPCODE_GENERAL_TO_BYTE;
-pub const NATIVE_OPCODE_GENERAL_IS_NUMERIC: u16 = OPCODE_GENERAL_IS_NUMERIC;
-pub const NATIVE_OPCODE_GENERAL_IS_EVEN: u16 = OPCODE_GENERAL_IS_EVEN;
-pub const NATIVE_OPCODE_GENERAL_IS_ODD: u16 = OPCODE_GENERAL_IS_ODD;
-pub const NATIVE_OPCODE_GENERAL_IS_POSITIVE: u16 = OPCODE_GENERAL_IS_POSITIVE;
-pub const NATIVE_OPCODE_GENERAL_IS_NEGATIVE: u16 = OPCODE_GENERAL_IS_NEGATIVE;
-pub const NATIVE_OPCODE_GENERAL_IS_ZERO: u16 = OPCODE_GENERAL_IS_ZERO;
-pub const NATIVE_OPCODE_GENERAL_IS_EMPTY: u16 = OPCODE_GENERAL_IS_EMPTY;
-pub const NATIVE_OPCODE_GENERAL_IS_NOT_EMPTY: u16 = OPCODE_GENERAL_IS_NOT_EMPTY;
-pub const NATIVE_OPCODE_COLLECTION_GET: u16 = OPCODE_COLLECTION_GET;
-pub const NATIVE_OPCODE_COLLECTION_GET_OR: u16 = OPCODE_COLLECTION_GET_OR;
-pub const NATIVE_OPCODE_COLLECTION_FIND: u16 = OPCODE_COLLECTION_FIND;
-pub const NATIVE_OPCODE_COLLECTION_MID: u16 = OPCODE_COLLECTION_MID;
-pub const NATIVE_OPCODE_COLLECTION_REPLACE: u16 = OPCODE_COLLECTION_REPLACE;
-pub const NATIVE_OPCODE_COLLECTION_SET: u16 = OPCODE_COLLECTION_SET;
-pub const NATIVE_OPCODE_COLLECTION_APPEND: u16 = OPCODE_COLLECTION_APPEND;
-pub const NATIVE_OPCODE_COLLECTION_PREPEND: u16 = OPCODE_COLLECTION_PREPEND;
-pub const NATIVE_OPCODE_COLLECTION_INSERT: u16 = OPCODE_COLLECTION_INSERT;
-pub const NATIVE_OPCODE_COLLECTION_REMOVE_AT: u16 = OPCODE_COLLECTION_REMOVE_AT;
-pub const NATIVE_OPCODE_COLLECTION_REMOVE_KEY: u16 = OPCODE_COLLECTION_REMOVE_KEY;
-pub const NATIVE_OPCODE_COLLECTION_KEYS: u16 = OPCODE_COLLECTION_KEYS;
-pub const NATIVE_OPCODE_COLLECTION_VALUES: u16 = OPCODE_COLLECTION_VALUES;
-pub const NATIVE_OPCODE_COLLECTION_HAS_KEY: u16 = OPCODE_COLLECTION_HAS_KEY;
-pub const NATIVE_OPCODE_COLLECTION_CONTAINS: u16 = OPCODE_COLLECTION_CONTAINS;
-pub const NATIVE_OPCODE_COLLECTION_SUM: u16 = OPCODE_COLLECTION_SUM;
-pub const NATIVE_OPCODE_COLLECTION_FOR_EACH: u16 = OPCODE_COLLECTION_FOR_EACH;
-pub const NATIVE_OPCODE_COLLECTION_TRANSFORM: u16 = OPCODE_COLLECTION_TRANSFORM;
-pub const NATIVE_OPCODE_COLLECTION_FILTER: u16 = OPCODE_COLLECTION_FILTER;
-pub const NATIVE_OPCODE_COLLECTION_REDUCE: u16 = OPCODE_COLLECTION_REDUCE;
-pub const NATIVE_OPCODE_STRING_TRIM: u16 = OPCODE_STRING_TRIM;
-pub const NATIVE_OPCODE_STRING_TRIM_START: u16 = OPCODE_STRING_TRIM_START;
-pub const NATIVE_OPCODE_STRING_TRIM_END: u16 = OPCODE_STRING_TRIM_END;
-pub const NATIVE_OPCODE_STRING_UPPER: u16 = OPCODE_STRING_UPPER;
-pub const NATIVE_OPCODE_STRING_LOWER: u16 = OPCODE_STRING_LOWER;
-pub const NATIVE_OPCODE_STRING_CASE_FOLD: u16 = OPCODE_STRING_CASE_FOLD;
-pub const NATIVE_OPCODE_STRING_NORMALIZE_NFC: u16 = OPCODE_STRING_NORMALIZE_NFC;
-pub const NATIVE_OPCODE_STRING_GRAPHEMES: u16 = OPCODE_STRING_GRAPHEMES;
-pub const NATIVE_OPCODE_STRING_STARTS_WITH: u16 = OPCODE_STRING_STARTS_WITH;
-pub const NATIVE_OPCODE_STRING_ENDS_WITH: u16 = OPCODE_STRING_ENDS_WITH;
-pub const NATIVE_OPCODE_STRING_CONTAINS: u16 = OPCODE_STRING_CONTAINS;
-pub const NATIVE_OPCODE_STRING_SPLIT: u16 = OPCODE_STRING_SPLIT;
-pub const NATIVE_OPCODE_STRING_JOIN: u16 = OPCODE_STRING_JOIN;
-pub const NATIVE_OPCODE_STRING_BYTE_LEN: u16 = OPCODE_STRING_BYTE_LEN;
-pub const NATIVE_OPCODE_STRING_REGEX_MATCH: u16 = OPCODE_STRING_REGEX_MATCH;
-pub const NATIVE_OPCODE_STRING_REGEX_FIND: u16 = OPCODE_STRING_REGEX_FIND;
-pub const NATIVE_OPCODE_STRING_REGEX_REPLACE: u16 = OPCODE_STRING_REGEX_REPLACE;
-pub const NATIVE_OPCODE_MATH_PI: u16 = OPCODE_MATH_PI;
-pub const NATIVE_OPCODE_MATH_E: u16 = OPCODE_MATH_E;
-pub const NATIVE_OPCODE_MATH_ABS: u16 = OPCODE_MATH_ABS;
-pub const NATIVE_OPCODE_MATH_SIGN: u16 = OPCODE_MATH_SIGN;
-pub const NATIVE_OPCODE_MATH_MIN: u16 = OPCODE_MATH_MIN;
-pub const NATIVE_OPCODE_MATH_MAX: u16 = OPCODE_MATH_MAX;
-pub const NATIVE_OPCODE_MATH_CLAMP: u16 = OPCODE_MATH_CLAMP;
-pub const NATIVE_OPCODE_MATH_FLOOR: u16 = OPCODE_MATH_FLOOR;
-pub const NATIVE_OPCODE_MATH_CEIL: u16 = OPCODE_MATH_CEIL;
-pub const NATIVE_OPCODE_MATH_ROUND: u16 = OPCODE_MATH_ROUND;
-pub const NATIVE_OPCODE_MATH_TRUNC: u16 = OPCODE_MATH_TRUNC;
-pub const NATIVE_OPCODE_MATH_SQRT: u16 = OPCODE_MATH_SQRT;
-pub const NATIVE_OPCODE_MATH_POW: u16 = OPCODE_MATH_POW;
-pub const NATIVE_OPCODE_MATH_EXP: u16 = OPCODE_MATH_EXP;
-pub const NATIVE_OPCODE_MATH_LOG: u16 = OPCODE_MATH_LOG;
-pub const NATIVE_OPCODE_MATH_LOG10: u16 = OPCODE_MATH_LOG10;
-pub const NATIVE_OPCODE_MATH_SIN: u16 = OPCODE_MATH_SIN;
-pub const NATIVE_OPCODE_MATH_COS: u16 = OPCODE_MATH_COS;
-pub const NATIVE_OPCODE_MATH_TAN: u16 = OPCODE_MATH_TAN;
-pub const NATIVE_OPCODE_MATH_ASIN: u16 = OPCODE_MATH_ASIN;
-pub const NATIVE_OPCODE_MATH_ACOS: u16 = OPCODE_MATH_ACOS;
-pub const NATIVE_OPCODE_MATH_ATAN: u16 = OPCODE_MATH_ATAN;
-pub const NATIVE_OPCODE_MATH_ATAN2: u16 = OPCODE_MATH_ATAN2;
-pub const NATIVE_OPCODE_MATH_RADIANS: u16 = OPCODE_MATH_RADIANS;
-pub const NATIVE_OPCODE_MATH_DEGREES: u16 = OPCODE_MATH_DEGREES;
-pub const NATIVE_OPCODE_MATH_IS_FINITE: u16 = OPCODE_MATH_IS_FINITE;
-pub const NATIVE_OPCODE_RESOURCE_ENTER: u16 = OPCODE_RESOURCE_ENTER;
-pub const NATIVE_OPCODE_RESOURCE_LEAVE: u16 = OPCODE_RESOURCE_LEAVE;
-pub const NATIVE_OPCODE_CLOSE_RESOURCE: u16 = OPCODE_CLOSE_RESOURCE;
-
 const RESOURCE_FLAG_NATIVE: u32 = 1 << 0;
 const RESOURCE_FLAG_STANDARD: u32 = 1 << 1;
 const RESOURCE_FLAG_CLOSE_MAY_FAIL: u32 = 1 << 3;
@@ -766,22 +442,14 @@ pub fn read_package_type_exports(path: &Path) -> Result<Vec<BytecodeTypeExport>,
         .map_err(|err| format!("failed to read '{}': {err}", path.display()))
 }
 
-pub fn read_package_native_exports(path: &Path) -> Result<Vec<NativePackageExport>, String> {
+/// Decode a package's structured Binary IR payload back into an `IrProject`.
+///
+/// This is the consumer entry point for the single `IR -> NIR -> native` path:
+/// the returned IR is merged into the importing project and lowered like any
+/// other function, replacing the old flat bytecode -> native bridge.
+pub fn read_package_ir(path: &Path) -> Result<crate::ir::IrProject, String> {
     let package = read_package_bytecode(path)?;
-    package_native_exports(package, &[])
-        .map_err(|err| format!("failed to read '{}': {err}", path.display()))
-}
-
-pub fn read_package_native_exports_with_available_packages(
-    path: &Path,
-    available_packages: &[PathBuf],
-) -> Result<Vec<NativePackageExport>, String> {
-    let package = read_package_bytecode(path)?;
-    let available = available_packages
-        .iter()
-        .map(|path| read_package_bytecode(path))
-        .collect::<Result<Vec<_>, _>>()?;
-    package_native_exports(package, &available)
+    crate::ir::decode_binary_ir(&package.project.binary_ir)
         .map_err(|err| format!("failed to read '{}': {err}", path.display()))
 }
 
@@ -907,8 +575,11 @@ fn read_bytecode_package(bytes: &[u8]) -> Result<PackageBytecode, String> {
         return Err("package payload does not have the MFBC bytecode magic".to_string());
     }
     let major = checked_u16_at(bytes, 4)?;
-    if major != 1 {
-        return Err(format!("unsupported MFBC major version {major}"));
+    if major != MFBC_MAJOR_VERSION {
+        return Err(format!(
+            "unsupported MFBC major version {major} (expected {MFBC_MAJOR_VERSION}); \
+             this package predates the structured Binary IR format and must be rebuilt"
+        ));
     }
     let section_count = checked_u32_at(bytes, 12)? as usize;
     let table_end = 16usize
@@ -965,13 +636,17 @@ fn read_bytecode_package(bytes: &[u8]) -> Result<PackageBytecode, String> {
             .get(&SECTION_FUNCTION_TABLE)
             .copied()
             .ok_or_else(|| "MFBC is missing the function table section".to_string())?,
-        sections
-            .get(&SECTION_CODE)
-            .copied()
-            .ok_or_else(|| "MFBC is missing the code section".to_string())?,
+        // Function bodies are carried by SECTION_IR (structured Binary IR), not a
+        // flat code section; the function table records zero-length code regions.
+        &[],
         &strings.values,
         &type_names,
     )?;
+    let binary_ir = sections
+        .get(&SECTION_IR)
+        .copied()
+        .ok_or_else(|| "MFBC is missing the Binary IR section".to_string())?
+        .to_vec();
     let exports = read_export_table(
         sections
             .get(&SECTION_EXPORT_TABLE)
@@ -1027,6 +702,7 @@ fn read_bytecode_package(bytes: &[u8]) -> Result<PackageBytecode, String> {
             entry_function: u32::MAX,
             entry_flags: 0,
             functions,
+            binary_ir,
         },
         exports,
     })
@@ -1346,166 +1022,6 @@ fn decode_type_field(
     })
 }
 
-fn package_native_exports(
-    package: PackageBytecode,
-    available_packages: &[PackageBytecode],
-) -> Result<Vec<NativePackageExport>, String> {
-    let package_name = string_at(
-        &package.project.strings.values,
-        package.project.manifest.package_name,
-    )?
-    .to_string();
-    let external_calls = package_native_external_calls(&package, available_packages)?;
-    let mut strings = HashMap::new();
-    for (index, value) in package.project.strings.values.iter().enumerate() {
-        strings.insert(index as u32, value.clone());
-    }
-    let type_info = native_package_type_info(&package.project.types, &package.project.strings)?;
-    let mut type_name_strings = HashMap::new();
-    for (index, entry) in package.project.types.entries.iter().enumerate() {
-        type_name_strings.insert(FIRST_TABLE_TYPE_ID + index as u32, entry.name);
-    }
-    let mut result_success_types = HashMap::new();
-    for (index, entry) in package.project.types.entries.iter().enumerate() {
-        if entry.kind == 6 && entry.payload.len() >= 4 {
-            result_success_types.insert(index as u32, read_u32(&entry.payload, 0));
-        }
-    }
-    let constants = package
-        .project
-        .constants
-        .entries
-        .iter()
-        .map(|constant| native_const(constant, &strings))
-        .collect::<Result<Vec<_>, _>>()?;
-    let mut exports = Vec::new();
-    for export in package.exports {
-        let function = package
-            .project
-            .functions
-            .get(export.function_id as usize)
-            .ok_or_else(|| format!("export references missing function {}", export.function_id))?;
-        let export_name = string_at(&package.project.strings.values, export.name)?.to_string();
-        exports.push(NativePackageExport {
-            package_name: package_name.clone(),
-            symbol: format!(
-                "_mfb_pkg_{}_{}",
-                sanitize_symbol_part(&package_name),
-                sanitize_symbol_part(&export_name)
-            ),
-            name: format!("{package_name}.{export_name}"),
-            return_type_id: function.return_type,
-            return_type: native_type(function.return_type, &result_success_types),
-            param_count: function.params.len(),
-            global_count: package.project.globals.len(),
-            registers: function
-                .registers
-                .iter()
-                .map(|register| NativeRegister {
-                    type_id: register.type_id,
-                    type_: native_type(register.type_id, &result_success_types),
-                })
-                .collect(),
-            code: function
-                .code
-                .iter()
-                .map(|instruction| NativeInstruction {
-                    opcode: instruction.opcode,
-                    operands: instruction.operands.clone(),
-                })
-                .collect(),
-            constants: constants.clone(),
-            external_calls: external_calls.clone(),
-            type_info: type_info.clone(),
-            type_name_strings: type_name_strings.clone(),
-        });
-    }
-    Ok(exports)
-}
-
-fn package_native_external_calls(
-    package: &PackageBytecode,
-    available_packages: &[PackageBytecode],
-) -> Result<HashMap<u32, NativePackageCallTarget>, String> {
-    let package_strings = &package.project.strings.values;
-    let mut calls = HashMap::new();
-    let mut next_function_id = package.project.functions.len() as u32;
-
-    for import in &package.project.imports.entries {
-        let import_name = string_at(package_strings, import.package_name)?;
-        let import_ident = string_at(package_strings, import.package_ident)?;
-        let dependency = available_packages
-            .iter()
-            .find(|candidate| {
-                let strings = &candidate.project.strings.values;
-                let Ok(name) = string_at(strings, candidate.project.manifest.package_name) else {
-                    return false;
-                };
-                let Ok(ident) = string_at(strings, candidate.project.manifest.package_ident) else {
-                    return false;
-                };
-                name == import_name && ident == import_ident
-            })
-            .ok_or_else(|| {
-                format!(
-                    "package import `{import_name}` is not available for native package call resolution"
-                )
-            })?;
-        let dependency_strings = &dependency.project.strings.values;
-        let dependency_name =
-            string_at(dependency_strings, dependency.project.manifest.package_name)?;
-        let result_success_types = result_success_types(&dependency.project.types);
-        for export in &dependency.exports {
-            let function = dependency
-                .project
-                .functions
-                .get(export.function_id as usize)
-                .ok_or_else(|| {
-                    format!("export references missing function {}", export.function_id)
-                })?;
-            let export_name = string_at(dependency_strings, export.name)?;
-            calls.insert(
-                next_function_id + export.function_id,
-                NativePackageCallTarget {
-                    symbol: format!(
-                        "_mfb_pkg_{}_{}",
-                        sanitize_symbol_part(dependency_name),
-                        sanitize_symbol_part(export_name)
-                    ),
-                    return_type: native_type(function.return_type, &result_success_types),
-                },
-            );
-        }
-        next_function_id = next_function_id
-            .checked_add(dependency.project.functions.len() as u32)
-            .ok_or_else(|| "package bytecode has too many dependency functions".to_string())?;
-    }
-    Ok(calls)
-}
-
-fn result_success_types(types: &TypeTable) -> HashMap<u32, u32> {
-    let mut result_success_types = HashMap::new();
-    for (index, entry) in types.entries.iter().enumerate() {
-        if entry.kind == 6 && entry.payload.len() >= 4 {
-            result_success_types.insert(index as u32, read_u32(&entry.payload, 0));
-        }
-    }
-    result_success_types
-}
-
-fn sanitize_symbol_part(value: &str) -> String {
-    value
-        .chars()
-        .map(|ch| {
-            if ch.is_ascii_alphanumeric() || ch == '_' {
-                ch
-            } else {
-                '_'
-            }
-        })
-        .collect()
-}
-
 struct DecodedExport {
     name: u32,
     kind: BytecodeExportKind,
@@ -1759,6 +1275,12 @@ fn read_function_table(
         if code_end > code.len() {
             return Err("truncated function code".to_string());
         }
+        // Function bodies live in SECTION_IR (structured Binary IR), so the flat
+        // code region is always empty here.
+        if code_length != 0 {
+            return Err("flat function code stream is no longer supported".to_string());
+        }
+        let code = Vec::new();
         functions.push(Function {
             name,
             kind,
@@ -1766,7 +1288,7 @@ fn read_function_table(
             return_type,
             params,
             registers,
-            code: read_function_code(&code[code_offset..code_end])?,
+            code,
             cleanups,
         });
     }
@@ -1774,27 +1296,6 @@ fn read_function_table(
         return Err("invalid trailing bytes in function table".to_string());
     }
     Ok(functions)
-}
-
-fn read_function_code(bytes: &[u8]) -> Result<Vec<Instruction>, String> {
-    let mut offset = 0;
-    let count = cursor_u32(bytes, &mut offset)? as usize;
-    let mut instructions = Vec::with_capacity(count);
-    for _ in 0..count {
-        let opcode = cursor_u16(bytes, &mut offset)?;
-        let _reserved = cursor_u16(bytes, &mut offset)?;
-        let operand_count = cursor_u16(bytes, &mut offset)? as usize;
-        let _reserved = cursor_u16(bytes, &mut offset)?;
-        let mut operands = Vec::with_capacity(operand_count);
-        for _ in 0..operand_count {
-            operands.push(cursor_u32(bytes, &mut offset)?);
-        }
-        instructions.push(Instruction { opcode, operands });
-    }
-    if offset != bytes.len() {
-        return Err("invalid trailing bytes in function code".to_string());
-    }
-    Ok(instructions)
 }
 
 fn read_const_pool(bytes: &[u8]) -> Result<ConstPool, String> {
@@ -2479,459 +1980,6 @@ fn checked_u64_at(bytes: &[u8], offset: usize) -> Result<u64, String> {
     ]))
 }
 
-pub fn native_program(ir: &IrProject) -> Result<NativeProgram, String> {
-    let metadata = BytecodeMetadata::new(ir.name.clone(), "native".to_string());
-    let project = lower_project(ir, &metadata)?;
-    native_program_from_project(project)
-}
-
-pub fn native_program_with_packages(
-    ir: &IrProject,
-    packages: &[PathBuf],
-) -> Result<NativeProgram, String> {
-    let metadata = BytecodeMetadata::new(ir.name.clone(), "native".to_string());
-    let project = lower_merged_project(ir, &metadata, packages)?;
-    native_program_from_project(project)
-}
-
-fn native_program_from_project(project: BytecodeProject) -> Result<NativeProgram, String> {
-    if project.entry_function == u32::MAX {
-        return Err("native executable output requires an executable entry point".to_string());
-    }
-
-    let mut strings = HashMap::new();
-    for (index, value) in project.strings.values.iter().enumerate() {
-        strings.insert(index as u32, value.clone());
-    }
-
-    let mut result_success_types = HashMap::new();
-    for (index, entry) in project.types.entries.iter().enumerate() {
-        if entry.kind == 6 && entry.payload.len() >= 4 {
-            result_success_types.insert(index as u32, read_u32(&entry.payload, 0));
-        }
-    }
-
-    let constants = project
-        .constants
-        .entries
-        .iter()
-        .map(|constant| native_const(constant, &strings))
-        .collect::<Result<Vec<_>, _>>()?;
-
-    let functions = project
-        .functions
-        .iter()
-        .map(|function| native_function(function, &result_success_types))
-        .collect::<Result<Vec<_>, _>>()?;
-
-    Ok(NativeProgram {
-        entry_function: project.entry_function,
-        entry_returns_integer: project.entry_flags & (1 << 2) != 0,
-        types: native_type_layouts_from_bytecode(&project.types, &project.strings)?,
-        functions,
-        constants,
-        imports: native_imports(&project.functions),
-    })
-}
-
-fn native_imports(functions: &[Function]) -> Vec<NativeImport> {
-    let mut needs_open = false;
-    let mut needs_close = false;
-    for function in functions {
-        for instruction in &function.code {
-            needs_open |= matches!(instruction.opcode, OPCODE_IO_OPEN | OPCODE_FS_OPEN);
-            needs_close |= matches!(
-                instruction.opcode,
-                OPCODE_IO_CLOSE | OPCODE_FS_CLOSE | OPCODE_CLOSE_RESOURCE
-            );
-        }
-    }
-
-    let mut imports = Vec::new();
-    if needs_open {
-        imports.push(NativeImport {
-            symbol: "mfb_io_open",
-            kind: NativeImportKind::RuntimeHelper,
-        });
-        imports.push(NativeImport {
-            symbol: "_open",
-            kind: NativeImportKind::LibSystem,
-        });
-    }
-    if needs_close {
-        imports.push(NativeImport {
-            symbol: "mfb_io_close",
-            kind: NativeImportKind::RuntimeHelper,
-        });
-        imports.push(NativeImport {
-            symbol: "_close",
-            kind: NativeImportKind::LibSystem,
-        });
-    }
-    if needs_open || needs_close {
-        imports.push(NativeImport {
-            symbol: "___error",
-            kind: NativeImportKind::LibSystem,
-        });
-    }
-    imports
-}
-
-fn native_function(
-    function: &Function,
-    result_success_types: &HashMap<u32, u32>,
-) -> Result<NativeFunction, String> {
-    if function.kind != FUNCTION_BYTECODE {
-        return Err(format!(
-            "native output does not support function kind {}",
-            function.kind
-        ));
-    }
-
-    Ok(NativeFunction {
-        param_count: function.params.len(),
-        registers: function
-            .registers
-            .iter()
-            .map(|register| NativeRegister {
-                type_id: register.type_id,
-                type_: native_type(register.type_id, result_success_types),
-            })
-            .collect(),
-        code: function
-            .code
-            .iter()
-            .map(|instruction| NativeInstruction {
-                opcode: instruction.opcode,
-                operands: instruction.operands.clone(),
-            })
-            .collect(),
-    })
-}
-
-fn native_type(type_id: u32, result_success_types: &HashMap<u32, u32>) -> NativeType {
-    match type_id {
-        TYPE_NOTHING => NativeType::Nothing,
-        TYPE_BOOLEAN => NativeType::Boolean,
-        TYPE_BYTE => NativeType::Byte,
-        TYPE_INTEGER => NativeType::Integer,
-        TYPE_FLOAT => NativeType::Float,
-        TYPE_FIXED => NativeType::Fixed,
-        TYPE_STRING => NativeType::String,
-        TYPE_FILE_HANDLE => NativeType::FileHandle,
-        id if result_success_types.contains_key(&id) => NativeType::Result,
-        _ => NativeType::Other,
-    }
-}
-
-fn native_const(
-    constant: &ConstEntry,
-    strings: &HashMap<u32, String>,
-) -> Result<NativeConst, String> {
-    match constant.kind {
-        1 => Ok(NativeConst::Nothing),
-        2 => Ok(NativeConst::Boolean(
-            constant.payload.first().copied().unwrap_or(0) != 0,
-        )),
-        3 => Ok(NativeConst::Integer(read_i64(&constant.payload, 0))),
-        4 => Ok(NativeConst::Float(f64::from_bits(read_u64(
-            &constant.payload,
-            0,
-        )))),
-        5 => Ok(NativeConst::Fixed(read_i64(&constant.payload, 0))),
-        6 => {
-            let string_id = read_u32(&constant.payload, 0);
-            let value = strings.get(&string_id).cloned().ok_or_else(|| {
-                format!("String constant references missing string pool entry {string_id}")
-            })?;
-            Ok(NativeConst::String(value))
-        }
-        7 => Ok(NativeConst::Byte(
-            constant.payload.first().copied().unwrap_or(0),
-        )),
-        _ => Ok(NativeConst::Other),
-    }
-}
-
-fn native_type_layouts_from_bytecode(
-    types: &TypeTable,
-    strings: &StringPool,
-) -> Result<NativeTypeLayouts, String> {
-    let mut records = HashMap::new();
-    let mut unions = HashMap::new();
-
-    if let (Some(code), Some(message)) = (string_id(strings, "code"), string_id(strings, "message"))
-    {
-        let fields = vec![
-            NativeFieldLayout {
-                name: code,
-                offset_slots: 0,
-                type_id: TYPE_INTEGER,
-            },
-            NativeFieldLayout {
-                name: message,
-                offset_slots: 1,
-                type_id: TYPE_STRING,
-            },
-        ];
-        records.insert(
-            TYPE_ERROR,
-            NativeRecordLayout {
-                size_slots: 2,
-                fields: fields
-                    .iter()
-                    .cloned()
-                    .map(|field| (field.name, field))
-                    .collect(),
-                ordered_fields: fields,
-            },
-        );
-    }
-
-    if let (Some(columns), Some(rows)) = (string_id(strings, "columns"), string_id(strings, "rows"))
-    {
-        let fields = vec![
-            NativeFieldLayout {
-                name: columns,
-                offset_slots: 0,
-                type_id: TYPE_INTEGER,
-            },
-            NativeFieldLayout {
-                name: rows,
-                offset_slots: 1,
-                type_id: TYPE_INTEGER,
-            },
-        ];
-        records.insert(
-            TYPE_TERMINAL_SIZE,
-            NativeRecordLayout {
-                size_slots: 2,
-                fields: fields
-                    .iter()
-                    .cloned()
-                    .map(|field| (field.name, field))
-                    .collect(),
-                ordered_fields: fields,
-            },
-        );
-    }
-
-    for (index, entry) in types.entries.iter().enumerate() {
-        let type_id = FIRST_TABLE_TYPE_ID + index as u32;
-        match entry.kind {
-            1 if !entry.payload.is_empty() => {
-                let fields = native_record_field_layouts(&entry.payload, 0)?;
-                records.insert(
-                    type_id,
-                    NativeRecordLayout {
-                        size_slots: fields.len(),
-                        fields: fields
-                            .iter()
-                            .cloned()
-                            .map(|field| (field.name, field))
-                            .collect(),
-                        ordered_fields: fields,
-                    },
-                );
-            }
-            2 if !entry.payload.is_empty() => {
-                let mut offset = 0;
-                let variant_count = cursor_u32(&entry.payload, &mut offset)? as usize;
-                let mut variants = HashMap::new();
-                let mut max_payload_slots = 0usize;
-                for tag in 0..variant_count {
-                    let variant_name = cursor_u32(&entry.payload, &mut offset)?;
-                    let field_count = cursor_u32(&entry.payload, &mut offset)? as usize;
-                    max_payload_slots = max_payload_slots.max(field_count);
-                    let mut fields = Vec::with_capacity(field_count);
-                    for index in 0..field_count {
-                        let field_name = cursor_u32(&entry.payload, &mut offset)?;
-                        let field_type = cursor_u32(&entry.payload, &mut offset)?;
-                        fields.push(NativeFieldLayout {
-                            name: field_name,
-                            offset_slots: 1 + index,
-                            type_id: field_type,
-                        });
-                    }
-                    variants.insert(variant_name, NativeVariantLayout { tag, fields });
-                }
-                unions.insert(
-                    type_id,
-                    NativeUnionLayout {
-                        variants,
-                        size_slots: 1 + max_payload_slots,
-                    },
-                );
-            }
-            _ => {}
-        }
-    }
-
-    Ok(NativeTypeLayouts { records, unions })
-}
-
-fn native_record_field_layouts(
-    payload: &[u8],
-    base_offset_slots: usize,
-) -> Result<Vec<NativeFieldLayout>, String> {
-    let mut offset = 0;
-    let field_count = cursor_u32(payload, &mut offset)? as usize;
-    let mut fields = Vec::with_capacity(field_count);
-    for index in 0..field_count {
-        let name = cursor_u32(payload, &mut offset)?;
-        let field_type = cursor_u32(payload, &mut offset)?;
-        let _visibility = cursor_u32(payload, &mut offset)?;
-        fields.push(NativeFieldLayout {
-            name,
-            offset_slots: base_offset_slots + index,
-            type_id: field_type,
-        });
-    }
-    Ok(fields)
-}
-
-fn native_package_type_info(
-    types: &TypeTable,
-    strings: &StringPool,
-) -> Result<HashMap<u32, NativePackageTypeInfo>, String> {
-    let mut info = HashMap::new();
-    if let (Some(code), Some(message)) = (string_id(strings, "code"), string_id(strings, "message"))
-    {
-        info.insert(
-            TYPE_ERROR,
-            NativePackageTypeInfo::Record(vec![
-                NativeFieldLayout {
-                    name: code,
-                    offset_slots: 0,
-                    type_id: TYPE_INTEGER,
-                },
-                NativeFieldLayout {
-                    name: message,
-                    offset_slots: 1,
-                    type_id: TYPE_STRING,
-                },
-            ]),
-        );
-    }
-    if let (Some(columns), Some(rows)) = (string_id(strings, "columns"), string_id(strings, "rows"))
-    {
-        info.insert(
-            TYPE_TERMINAL_SIZE,
-            NativePackageTypeInfo::Record(vec![
-                NativeFieldLayout {
-                    name: columns,
-                    offset_slots: 0,
-                    type_id: TYPE_INTEGER,
-                },
-                NativeFieldLayout {
-                    name: rows,
-                    offset_slots: 1,
-                    type_id: TYPE_INTEGER,
-                },
-            ]),
-        );
-    }
-    for (index, entry) in types.entries.iter().enumerate() {
-        let type_id = FIRST_TABLE_TYPE_ID + index as u32;
-        let type_info = match entry.kind {
-            1 => NativePackageTypeInfo::Record(native_record_field_layouts(&entry.payload, 0)?),
-            2 => {
-                let mut offset = 0usize;
-                let variant_count = cursor_u32(&entry.payload, &mut offset)? as usize;
-                let mut variants = HashMap::new();
-                let mut max_payload_slots = 0usize;
-                for tag in 0..variant_count {
-                    let variant_name = cursor_u32(&entry.payload, &mut offset)?;
-                    let field_count = cursor_u32(&entry.payload, &mut offset)? as usize;
-                    max_payload_slots = max_payload_slots.max(field_count);
-                    let mut fields = Vec::with_capacity(field_count);
-                    for index in 0..field_count {
-                        let field_name = cursor_u32(&entry.payload, &mut offset)?;
-                        let field_type = cursor_u32(&entry.payload, &mut offset)?;
-                        fields.push(NativeFieldLayout {
-                            name: field_name,
-                            offset_slots: 1 + index,
-                            type_id: field_type,
-                        });
-                    }
-                    variants.insert(variant_name, NativeVariantLayout { tag, fields });
-                }
-                NativePackageTypeInfo::Union(NativeUnionLayout {
-                    variants,
-                    size_slots: 1 + max_payload_slots,
-                })
-            }
-            3 => NativePackageTypeInfo::Enum,
-            4 => NativePackageTypeInfo::List {
-                element_type: checked_u32_at(&entry.payload, 0)?,
-            },
-            5 => NativePackageTypeInfo::Map {
-                key_type: checked_u32_at(&entry.payload, 0)?,
-                value_type: checked_u32_at(&entry.payload, 4)?,
-            },
-            6 => NativePackageTypeInfo::Result {
-                success_type: checked_u32_at(&entry.payload, 0)?,
-            },
-            7 => NativePackageTypeInfo::Thread {
-                message_type: checked_u32_at(&entry.payload, 0)?,
-                output_type: checked_u32_at(&entry.payload, 4)?,
-            },
-            8 => NativePackageTypeInfo::Function,
-            9 => {
-                let key_name = string_id(strings, "key")
-                    .ok_or_else(|| "missing built-in `key` string id".to_string())?;
-                let value_name = string_id(strings, "value")
-                    .ok_or_else(|| "missing built-in `value` string id".to_string())?;
-                NativePackageTypeInfo::Record(vec![
-                    NativeFieldLayout {
-                        name: key_name,
-                        offset_slots: 0,
-                        type_id: checked_u32_at(&entry.payload, 0)?,
-                    },
-                    NativeFieldLayout {
-                        name: value_name,
-                        offset_slots: 1,
-                        type_id: checked_u32_at(&entry.payload, 4)?,
-                    },
-                ])
-            }
-            10 => NativePackageTypeInfo::ThreadWorker {
-                message_type: checked_u32_at(&entry.payload, 0)?,
-                output_type: checked_u32_at(&entry.payload, 4)?,
-            },
-            _ => NativePackageTypeInfo::Resource,
-        };
-        info.insert(type_id, type_info);
-    }
-    Ok(info)
-}
-
-fn string_id(strings: &StringPool, value: &str) -> Option<u32> {
-    strings
-        .values
-        .iter()
-        .position(|existing| existing == value)
-        .map(|index| index as u32)
-}
-
-fn read_u32(bytes: &[u8], offset: usize) -> u32 {
-    let mut value = [0; 4];
-    value.copy_from_slice(&bytes[offset..offset + 4]);
-    u32::from_le_bytes(value)
-}
-
-fn read_u64(bytes: &[u8], offset: usize) -> u64 {
-    let mut value = [0; 8];
-    value.copy_from_slice(&bytes[offset..offset + 8]);
-    u64::from_le_bytes(value)
-}
-
-fn read_i64(bytes: &[u8], offset: usize) -> i64 {
-    let mut value = [0; 8];
-    value.copy_from_slice(&bytes[offset..offset + 8]);
-    i64::from_le_bytes(value)
-}
-
 struct BytecodeProject {
     strings: StringPool,
     types: TypeTable,
@@ -2944,6 +1992,11 @@ struct BytecodeProject {
     entry_function: u32,
     entry_flags: u32,
     functions: Vec<Function>,
+    /// Structured Binary IR payload (the faithful serialization of the source
+    /// `IrProject`). This is the portable representation a consumer decodes and
+    /// lowers through the single `IR -> NIR -> native` path. Function bodies are
+    /// no longer flattened to opcodes; this blob is the body source of truth.
+    binary_ir: Vec<u8>,
 }
 
 struct GlobalEntry {
@@ -3233,38 +2286,6 @@ fn lower_package_project(
     )
 }
 
-fn lower_merged_project(
-    ir: &IrProject,
-    metadata: &BytecodeMetadata,
-    package_paths: &[PathBuf],
-) -> Result<BytecodeProject, String> {
-    let packages = package_paths
-        .iter()
-        .map(|path| read_package_bytecode(path))
-        .collect::<Result<Vec<_>, _>>()?;
-    let (external_function_ids, external_function_returns, external_function_abi_hashes) =
-        external_function_metadata(ir.functions.len() as u32, &packages)?;
-
-    let mut project = lower_project_with_external_functions(
-        ir,
-        metadata,
-        &external_function_ids,
-        &external_function_returns,
-        &external_function_abi_hashes,
-    )?;
-    for package in packages {
-        merge_package_bytecode(&mut project, package)?;
-    }
-    project.abi = AbiIndex::from_project(
-        &project.strings,
-        &project.types,
-        &project.constants,
-        &project.imports,
-        &project.functions,
-    )?;
-    Ok(project)
-}
-
 fn external_function_metadata(
     base_function_id: u32,
     packages: &[PackageBytecode],
@@ -3355,7 +2376,6 @@ fn lower_project_with_external_functions(
     if ir_uses_resource_type(ir) {
         resources.add_standard_file(&mut types, &mut strings);
     }
-    let type_model = TypeModel::new(ir);
     let globals = ir
         .bindings
         .iter()
@@ -3377,21 +2397,6 @@ fn lower_project_with_external_functions(
             }
         })
         .collect::<Vec<_>>();
-    let global_slots = ir
-        .bindings
-        .iter()
-        .enumerate()
-        .map(|(index, binding)| {
-            (
-                binding.name.clone(),
-                GlobalSlot {
-                    index: index as u32,
-                    type_id: types.type_id(&mut strings, &binding.type_),
-                    type_name: binding.type_.clone(),
-                },
-            )
-        })
-        .collect::<HashMap<_, _>>();
 
     let mut constants = ConstPool::new();
     let mut function_ids = HashMap::new();
@@ -3420,11 +2425,6 @@ fn lower_project_with_external_functions(
             &mut strings,
             &mut types,
             &mut constants,
-            &function_ids,
-            &function_return_types,
-            &function_return_type_names,
-            &global_slots,
-            &type_model,
             external_function_abi_hashes,
             &mut used_imported_functions,
         )?);
@@ -3467,392 +2467,8 @@ fn lower_project_with_external_functions(
         entry_function,
         entry_flags,
         functions,
+        binary_ir: crate::ir::encode_binary_ir(ir),
     })
-}
-
-struct MergeMap {
-    strings: HashMap<u32, u32>,
-    types: HashMap<u32, u32>,
-    constants: HashMap<u32, u32>,
-    globals: HashMap<u32, u32>,
-    functions: HashMap<u32, u32>,
-}
-
-fn merge_package_bytecode(
-    project: &mut BytecodeProject,
-    package: PackageBytecode,
-) -> Result<(), String> {
-    let package_name = string_at(
-        &package.project.strings.values,
-        package.project.manifest.package_name,
-    )?
-    .to_string();
-    let mut map = MergeMap {
-        strings: HashMap::new(),
-        types: HashMap::new(),
-        constants: HashMap::new(),
-        globals: HashMap::new(),
-        functions: HashMap::new(),
-    };
-
-    for (id, value) in package.project.strings.values.iter().enumerate() {
-        let merged = project.strings.intern(value);
-        map.strings.insert(id as u32, merged);
-    }
-
-    for primitive in [
-        TYPE_NOTHING,
-        TYPE_BOOLEAN,
-        TYPE_INTEGER,
-        TYPE_FLOAT,
-        TYPE_FIXED,
-        TYPE_STRING,
-        TYPE_BYTE,
-        TYPE_ERROR,
-        TYPE_TERMINAL_SIZE,
-        TYPE_FILE_HANDLE,
-    ] {
-        map.types.insert(primitive, primitive);
-    }
-
-    for (index, entry) in package.project.types.entries.iter().enumerate() {
-        let old_id = FIRST_TABLE_TYPE_ID + index as u32;
-        let name = remap_string(&map, entry.name)?;
-        let owner_package = remap_string(&map, entry.owner_package)?;
-        let new_id = FIRST_TABLE_TYPE_ID + project.types.entries.len() as u32;
-        let visible_name = merged_type_key(&project.strings, name, owner_package, &package_name)?;
-        project.types.ids.insert(visible_name, new_id);
-        project.types.entries.push(TypeEntry {
-            kind: entry.kind,
-            name,
-            owner_package,
-            abi_export_kind: None,
-            payload: Vec::new(),
-        });
-        map.types.insert(old_id, new_id);
-    }
-
-    let type_start = project.types.entries.len() - package.project.types.entries.len();
-    for (offset, entry) in package.project.types.entries.iter().enumerate() {
-        project.types.entries[type_start + offset].payload =
-            remap_type_payload(entry.kind, &entry.payload, &map)?;
-    }
-
-    for (index, constant) in package.project.constants.entries.iter().enumerate() {
-        let new_id = project.constants.entries.len() as u32;
-        project.constants.entries.push(ConstEntry {
-            kind: constant.kind,
-            payload: remap_const_payload(constant.kind, &constant.payload, &map)?,
-        });
-        map.constants.insert(index as u32, new_id);
-    }
-
-    for (index, global) in package.project.globals.iter().enumerate() {
-        let new_id = project.globals.len() as u32;
-        project.globals.push(GlobalEntry {
-            name: remap_string(&map, global.name)?,
-            type_id: remap_type(&map, global.type_id)?,
-            flags: global.flags,
-        });
-        map.globals.insert(index as u32, new_id);
-    }
-
-    let function_start = project.functions.len() as u32;
-    for index in 0..package.project.functions.len() {
-        map.functions
-            .insert(index as u32, function_start + index as u32);
-    }
-
-    for function in package.project.functions {
-        project.functions.push(remap_function(function, &map)?);
-    }
-
-    for resource in package.project.resources.entries {
-        project.resources.entries.push(ResourceEntry {
-            type_id: remap_type(&map, resource.type_id)?,
-            close_function_id: remap_function_id_if_needed(&map, resource.close_function_id)?,
-            flags: resource.flags,
-        });
-    }
-
-    Ok(())
-}
-
-fn merged_type_key(
-    strings: &StringPool,
-    name: u32,
-    owner_package: u32,
-    package_name: &str,
-) -> Result<String, String> {
-    let name = string_at(&strings.values, name)?;
-    let owner = string_at(&strings.values, owner_package).unwrap_or("");
-    if owner.is_empty() {
-        Ok(name.to_string())
-    } else {
-        Ok(format!("{package_name}.{name}"))
-    }
-}
-
-fn remap_function(function: Function, map: &MergeMap) -> Result<Function, String> {
-    Ok(Function {
-        name: remap_string(map, function.name)?,
-        kind: function.kind,
-        flags: function.flags,
-        return_type: remap_type(map, function.return_type)?,
-        params: function
-            .params
-            .into_iter()
-            .map(|param| {
-                Ok(Param {
-                    name: remap_string(map, param.name)?,
-                    type_id: remap_type(map, param.type_id)?,
-                    flags: param.flags,
-                    default_const: remap_const_id_if_needed(map, param.default_const)?,
-                })
-            })
-            .collect::<Result<Vec<_>, String>>()?,
-        registers: function
-            .registers
-            .into_iter()
-            .map(|register| {
-                Ok(Register {
-                    type_id: remap_type(map, register.type_id)?,
-                    flags: register.flags,
-                })
-            })
-            .collect::<Result<Vec<_>, String>>()?,
-        code: function
-            .code
-            .into_iter()
-            .map(|instruction| remap_instruction(instruction, map))
-            .collect::<Result<Vec<_>, _>>()?,
-        cleanups: function
-            .cleanups
-            .into_iter()
-            .map(|cleanup| {
-                Ok(Cleanup {
-                    id: cleanup.id,
-                    start_pc: cleanup.start_pc,
-                    end_pc: cleanup.end_pc,
-                    resource_register: cleanup.resource_register,
-                    close_function_id: remap_function_id_if_needed(map, cleanup.close_function_id)?,
-                    flags: cleanup.flags,
-                })
-            })
-            .collect::<Result<Vec<_>, String>>()?,
-    })
-}
-
-fn remap_instruction(mut instruction: Instruction, map: &MergeMap) -> Result<Instruction, String> {
-    match instruction.opcode {
-        OPCODE_LOAD_CONST => {
-            remap_operand(&mut instruction, 1, |value| remap_const(map, value))?;
-        }
-        OPCODE_LOAD_DEFAULT => {
-            remap_operand(&mut instruction, 1, |value| remap_type(map, value))?;
-        }
-        OPCODE_LOAD_GLOBAL => {
-            remap_operand(&mut instruction, 1, |value| remap_global(map, value))?;
-        }
-        OPCODE_STORE_GLOBAL => {
-            remap_operand(&mut instruction, 0, |value| remap_global(map, value))?;
-        }
-        OPCODE_LOAD_FUNCTION => {
-            remap_operand(&mut instruction, 1, |value| remap_function_id(map, value))?;
-        }
-        OPCODE_LOAD_CLOSURE => {
-            remap_operand(&mut instruction, 1, |value| remap_function_id(map, value))?;
-        }
-        OPCODE_CALL_RESULT => {
-            remap_operand(&mut instruction, 1, |value| remap_function_id(map, value))?;
-        }
-        OPCODE_CONSTRUCT_RECORD | OPCODE_CONSTRUCT_LIST | OPCODE_CONSTRUCT_MAP => {
-            remap_operand(&mut instruction, 1, |value| remap_type(map, value))?;
-        }
-        OPCODE_COLLECTION_ITER_BEGIN => {
-            remap_operand(&mut instruction, 2, |value| remap_type(map, value))?;
-        }
-        OPCODE_LOAD_MAP_ENTRY_FIELD => {
-            remap_operand(&mut instruction, 2, |value| remap_type(map, value))?;
-        }
-        OPCODE_CONSTRUCT_VARIANT => {
-            remap_operand(&mut instruction, 1, |value| remap_type(map, value))?;
-            remap_operand(&mut instruction, 2, |value| remap_string(map, value))?;
-        }
-        OPCODE_LOAD_ENUM_MEMBER => {
-            remap_operand(&mut instruction, 1, |value| remap_type(map, value))?;
-            remap_operand(&mut instruction, 2, |value| remap_string(map, value))?;
-        }
-        OPCODE_LOAD_FIELD | OPCODE_VARIANT_MATCH => {
-            remap_operand(&mut instruction, 2, |value| remap_string(map, value))?;
-        }
-        OPCODE_RESOURCE_ENTER | OPCODE_CLOSE_RESOURCE => {
-            remap_operand(&mut instruction, 1, |value| {
-                remap_function_id_if_needed(map, value)
-            })?;
-        }
-        _ => {}
-    }
-    Ok(instruction)
-}
-
-fn remap_operand<F>(instruction: &mut Instruction, index: usize, remap: F) -> Result<(), String>
-where
-    F: FnOnce(u32) -> Result<u32, String>,
-{
-    let operand = instruction
-        .operands
-        .get_mut(index)
-        .ok_or_else(|| format!("opcode {} is missing operand {index}", instruction.opcode))?;
-    *operand = remap(*operand)?;
-    Ok(())
-}
-
-fn remap_type_payload(kind: u16, payload: &[u8], map: &MergeMap) -> Result<Vec<u8>, String> {
-    if payload.is_empty() {
-        return Ok(Vec::new());
-    }
-
-    let mut out = Vec::new();
-    match kind {
-        1 => {
-            let mut offset = 0;
-            let field_count = cursor_u32(payload, &mut offset)?;
-            put_u32(&mut out, field_count);
-            for _ in 0..field_count {
-                put_u32(
-                    &mut out,
-                    remap_string(map, cursor_u32(payload, &mut offset)?)?,
-                );
-                put_u32(
-                    &mut out,
-                    remap_type(map, cursor_u32(payload, &mut offset)?)?,
-                );
-                put_u32(&mut out, cursor_u32(payload, &mut offset)?);
-            }
-        }
-        2 => {
-            let mut offset = 0;
-            let variant_count = cursor_u32(payload, &mut offset)?;
-            put_u32(&mut out, variant_count);
-            for _ in 0..variant_count {
-                put_u32(
-                    &mut out,
-                    remap_string(map, cursor_u32(payload, &mut offset)?)?,
-                );
-                let field_count = cursor_u32(payload, &mut offset)?;
-                put_u32(&mut out, field_count);
-                for _ in 0..field_count {
-                    put_u32(
-                        &mut out,
-                        remap_string(map, cursor_u32(payload, &mut offset)?)?,
-                    );
-                    put_u32(
-                        &mut out,
-                        remap_type(map, cursor_u32(payload, &mut offset)?)?,
-                    );
-                }
-            }
-        }
-        3 => {
-            let mut offset = 0;
-            let member_count = cursor_u32(payload, &mut offset)?;
-            put_u32(&mut out, member_count);
-            for _ in 0..member_count {
-                put_u32(
-                    &mut out,
-                    remap_string(map, cursor_u32(payload, &mut offset)?)?,
-                );
-                put_u32(&mut out, cursor_u32(payload, &mut offset)?);
-            }
-        }
-        4 | 6 => {
-            put_u32(&mut out, remap_type(map, checked_u32_at(payload, 0)?)?);
-        }
-        5 | 9 => {
-            put_u32(&mut out, remap_type(map, checked_u32_at(payload, 0)?)?);
-            put_u32(&mut out, remap_type(map, checked_u32_at(payload, 4)?)?);
-        }
-        8 => {
-            let mut offset = 0;
-            put_u32(&mut out, cursor_u32(payload, &mut offset)?);
-            let param_count = cursor_u32(payload, &mut offset)?;
-            put_u32(&mut out, param_count);
-            put_u32(
-                &mut out,
-                remap_type(map, cursor_u32(payload, &mut offset)?)?,
-            );
-            for _ in 0..param_count {
-                put_u32(
-                    &mut out,
-                    remap_type(map, cursor_u32(payload, &mut offset)?)?,
-                );
-            }
-        }
-        _ => out.extend_from_slice(payload),
-    }
-    Ok(out)
-}
-
-fn remap_const_payload(kind: u16, payload: &[u8], map: &MergeMap) -> Result<Vec<u8>, String> {
-    if kind == 6 {
-        let mut out = Vec::new();
-        put_u32(&mut out, remap_string(map, checked_u32_at(payload, 0)?)?);
-        Ok(out)
-    } else {
-        Ok(payload.to_vec())
-    }
-}
-
-fn remap_string(map: &MergeMap, id: u32) -> Result<u32, String> {
-    map.strings
-        .get(&id)
-        .copied()
-        .ok_or_else(|| format!("merged bytecode references unknown string id {id}"))
-}
-
-fn remap_type(map: &MergeMap, id: u32) -> Result<u32, String> {
-    map.types
-        .get(&id)
-        .copied()
-        .ok_or_else(|| format!("merged bytecode references unknown type id {id}"))
-}
-
-fn remap_const(map: &MergeMap, id: u32) -> Result<u32, String> {
-    map.constants
-        .get(&id)
-        .copied()
-        .ok_or_else(|| format!("merged bytecode references unknown const id {id}"))
-}
-
-fn remap_global(map: &MergeMap, id: u32) -> Result<u32, String> {
-    map.globals
-        .get(&id)
-        .copied()
-        .ok_or_else(|| format!("merged bytecode references unknown global id {id}"))
-}
-
-fn remap_function_id(map: &MergeMap, id: u32) -> Result<u32, String> {
-    map.functions
-        .get(&id)
-        .copied()
-        .ok_or_else(|| format!("merged bytecode references unknown function id {id}"))
-}
-
-fn remap_const_id_if_needed(map: &MergeMap, id: u32) -> Result<u32, String> {
-    if id == u32::MAX {
-        Ok(id)
-    } else {
-        remap_const(map, id)
-    }
-}
-
-fn remap_function_id_if_needed(map: &MergeMap, id: u32) -> Result<u32, String> {
-    if id == u32::MAX || id >= 0xffff_0000 {
-        Ok(id)
-    } else {
-        remap_function_id(map, id)
-    }
 }
 
 fn ir_uses_resource_type(ir: &IrProject) -> bool {
@@ -3945,84 +2561,39 @@ fn is_resource_type_name(type_name: &str) -> bool {
     builtins::is_resource_type(type_name)
 }
 
+/// Lower an `IrFunction` to its container *metadata* (`Function`): name, kind,
+/// flags, return type, and parameter signatures. Function *bodies* are no longer
+/// flattened to opcodes here — they are carried verbatim in the structured
+/// Binary IR payload (`SECTION_IR`). The flat `code`/`registers`/`cleanups`
+/// fields are therefore empty; only the signature-level tables (function table,
+/// export table, ABI index, import table) consume this metadata.
 fn lower_function(
     function: &IrFunction,
     strings: &mut StringPool,
     types: &mut TypeTable,
     constants: &mut ConstPool,
-    function_ids: &HashMap<String, u32>,
-    function_return_types: &HashMap<String, u32>,
-    function_return_type_names: &HashMap<String, String>,
-    globals: &HashMap<String, GlobalSlot>,
-    type_model: &TypeModel,
     external_function_abi_hashes: &HashMap<String, [u8; ABI_HASH_LEN]>,
     used_imported_functions: &mut HashSet<String>,
 ) -> Result<Function, String> {
-    let mut builder = FunctionBuilder::new(
-        strings,
-        types,
-        constants,
-        function_ids,
-        function_return_types,
-        function_return_type_names,
-        globals,
-        type_model,
-        external_function_abi_hashes,
-        used_imported_functions,
-    );
     let mut params = Vec::new();
-    let mut locals = HashMap::new();
-
     for param in &function.params {
-        let type_id = builder.type_id(&param.type_);
-        let register = builder.add_register(
-            type_id,
-            REGISTER_FLAG_PARAMETER | REGISTER_FLAG_INITIALIZED_AT_ENTRY,
-        );
-        locals.insert(
-            param.name.clone(),
-            ValueSlot {
-                register,
-                type_name: param.type_.clone(),
-            },
-        );
+        let type_id = types.type_id(strings, &param.type_);
         params.push(Param {
-            name: builder.strings.intern(&param.name),
+            name: strings.intern(&param.name),
             type_id,
             flags: if param.default.is_some() { 1 } else { 0 },
             default_const: match &param.default {
-                Some(default) => builder.const_id(default)?,
+                Some(default) => constants.add(strings, default)?,
                 None => u32::MAX,
             },
         });
     }
 
-    if let Some((trap_name, _)) = function.body.iter().find_map(|op| match op {
-        IrOp::Trap { name, body } => Some((name, body)),
-        _ => None,
-    }) {
-        let error_type = builder.type_id("Error");
-        let register = builder.add_register(error_type, 0);
-        locals.insert(
-            trap_name.clone(),
-            ValueSlot {
-                register,
-                type_name: "Error".to_string(),
-            },
-        );
-        builder.trap = Some(TrapState {
-            error_register: register,
-            jump_patches: Vec::new(),
-            in_trap_body: false,
-        });
-    }
-
-    builder.lower_ops(&function.body, &mut locals)?;
-
-    if !builder.ends_with_return() {
-        let nothing = builder.add_register(TYPE_NOTHING, 0);
-        builder.push(OPCODE_LOAD_DEFAULT, vec![nothing, TYPE_NOTHING]);
-        builder.push(OPCODE_RETURN_OK, vec![nothing]);
+    // Record which imported (cross-package) functions this body references so the
+    // import table can pin the exact used symbols. Imported targets are exactly
+    // the qualified names present in `external_function_abi_hashes`.
+    for op in &function.body {
+        collect_imported_calls_op(op, external_function_abi_hashes, used_imported_functions);
     }
 
     let mut flags = if function.visibility == "export" {
@@ -4041,60 +2612,151 @@ fn lower_function(
     }
 
     Ok(Function {
-        name: builder.strings.intern(&function.name),
+        name: strings.intern(&function.name),
         kind: FUNCTION_BYTECODE,
         flags,
-        return_type: builder.type_id(&function.returns),
+        return_type: types.type_id(strings, &function.returns),
         params,
-        registers: builder.registers,
-        code: builder.code,
-        cleanups: builder.cleanups,
+        registers: Vec::new(),
+        code: Vec::new(),
+        cleanups: Vec::new(),
     })
 }
 
-struct FunctionBuilder<'a> {
-    strings: &'a mut StringPool,
-    types: &'a mut TypeTable,
-    constants: &'a mut ConstPool,
-    function_ids: &'a HashMap<String, u32>,
-    function_return_types: &'a HashMap<String, u32>,
-    function_return_type_names: &'a HashMap<String, String>,
-    globals: &'a HashMap<String, GlobalSlot>,
-    type_model: &'a TypeModel,
-    external_function_abi_hashes: &'a HashMap<String, [u8; ABI_HASH_LEN]>,
-    used_imported_functions: &'a mut HashSet<String>,
-    registers: Vec<Register>,
-    code: Vec<Instruction>,
-    cleanups: Vec<Cleanup>,
-    next_cleanup_id: u32,
-    resource_scopes: Vec<Vec<PendingResource>>,
-    trap: Option<TrapState>,
+/// Walk an `IrOp`, recording any call/reference target that names an imported
+/// (cross-package) function into `used`.
+fn collect_imported_calls_op(
+    op: &IrOp,
+    imported: &HashMap<String, [u8; ABI_HASH_LEN]>,
+    used: &mut HashSet<String>,
+) {
+    match op {
+        IrOp::Bind { value, .. } => {
+            if let Some(v) = value {
+                collect_imported_calls_value(v, imported, used);
+            }
+        }
+        IrOp::Assign { value, .. }
+        | IrOp::AssignGlobal { value, .. }
+        | IrOp::Eval { value }
+        | IrOp::Fail { error: value } => collect_imported_calls_value(value, imported, used),
+        IrOp::Return { value } => {
+            if let Some(v) = value {
+                collect_imported_calls_value(v, imported, used);
+            }
+        }
+        IrOp::If {
+            condition,
+            then_body,
+            else_body,
+        } => {
+            collect_imported_calls_value(condition, imported, used);
+            for op in then_body.iter().chain(else_body) {
+                collect_imported_calls_op(op, imported, used);
+            }
+        }
+        IrOp::Match { value, cases } => {
+            collect_imported_calls_value(value, imported, used);
+            for case in cases {
+                if let Some(guard) = &case.guard {
+                    collect_imported_calls_value(guard, imported, used);
+                }
+                for op in &case.body {
+                    collect_imported_calls_op(op, imported, used);
+                }
+            }
+        }
+        IrOp::While { condition, body } => {
+            collect_imported_calls_value(condition, imported, used);
+            for op in body {
+                collect_imported_calls_op(op, imported, used);
+            }
+        }
+        IrOp::ForEach { iterable, body, .. } => {
+            collect_imported_calls_value(iterable, imported, used);
+            for op in body {
+                collect_imported_calls_op(op, imported, used);
+            }
+        }
+        IrOp::Trap { body, .. } => {
+            for op in body {
+                collect_imported_calls_op(op, imported, used);
+            }
+        }
+    }
 }
 
-struct PendingResource {
-    cleanup_id: u32,
-    enter_pc: u32,
-    register: u32,
-    close_function_id: u32,
-}
-
-struct TrapState {
-    error_register: u32,
-    jump_patches: Vec<usize>,
-    in_trap_body: bool,
+/// Walk an `IrValue`, recording imported function references into `used`.
+fn collect_imported_calls_value(
+    value: &IrValue,
+    imported: &HashMap<String, [u8; ABI_HASH_LEN]>,
+    used: &mut HashSet<String>,
+) {
+    let note = |target: &str, used: &mut HashSet<String>| {
+        if imported.contains_key(target) {
+            used.insert(target.to_string());
+        }
+    };
+    match value {
+        IrValue::Call { target, args } | IrValue::CallResult { target, args } => {
+            note(target, used);
+            for arg in args {
+                collect_imported_calls_value(arg, imported, used);
+            }
+        }
+        IrValue::FunctionRef { name, .. } => note(name, used),
+        IrValue::Closure { name, captures, .. } => {
+            note(name, used);
+            for capture in captures {
+                collect_imported_calls_value(capture, imported, used);
+            }
+        }
+        IrValue::Constructor { args, .. } => {
+            for arg in args {
+                collect_imported_calls_value(arg, imported, used);
+            }
+        }
+        IrValue::UnionWrap { value, .. }
+        | IrValue::UnionExtract { value, .. }
+        | IrValue::ResultIsOk { value }
+        | IrValue::ResultValue { value }
+        | IrValue::ResultError { value }
+        | IrValue::Unary { operand: value, .. }
+        | IrValue::MemberAccess { target: value, .. } => {
+            collect_imported_calls_value(value, imported, used)
+        }
+        IrValue::WithUpdate { target, updates, .. } => {
+            collect_imported_calls_value(target, imported, used);
+            for update in updates {
+                collect_imported_calls_value(&update.value, imported, used);
+            }
+        }
+        IrValue::ListLiteral { values, .. } => {
+            for v in values {
+                collect_imported_calls_value(v, imported, used);
+            }
+        }
+        IrValue::MapLiteral { entries, .. } => {
+            for (k, v) in entries {
+                collect_imported_calls_value(k, imported, used);
+                collect_imported_calls_value(v, imported, used);
+            }
+        }
+        IrValue::Binary { left, right, .. } => {
+            collect_imported_calls_value(left, imported, used);
+            collect_imported_calls_value(right, imported, used);
+        }
+        IrValue::Const { .. }
+        | IrValue::Local(_)
+        | IrValue::Global(_)
+        | IrValue::Capture { .. } => {}
+    }
 }
 
 #[derive(Clone)]
 pub(crate) struct ValueSlot {
     pub(crate) register: u32,
     pub(crate) type_name: String,
-}
-
-#[derive(Clone)]
-struct GlobalSlot {
-    index: u32,
-    type_id: u32,
-    type_name: String,
 }
 
 pub(crate) trait BuiltinCallLowerer {
@@ -4108,1236 +2770,6 @@ pub(crate) trait BuiltinCallLowerer {
     fn push(&mut self, opcode: u16, operands: Vec<u32>);
     fn push_string_const(&mut self, value: &str) -> Result<ValueSlot, String>;
     fn push_integer_const(&mut self, value: i64) -> Result<ValueSlot, String>;
-}
-
-impl<'a> FunctionBuilder<'a> {
-    fn new(
-        strings: &'a mut StringPool,
-        types: &'a mut TypeTable,
-        constants: &'a mut ConstPool,
-        function_ids: &'a HashMap<String, u32>,
-        function_return_types: &'a HashMap<String, u32>,
-        function_return_type_names: &'a HashMap<String, String>,
-        globals: &'a HashMap<String, GlobalSlot>,
-        type_model: &'a TypeModel,
-        external_function_abi_hashes: &'a HashMap<String, [u8; ABI_HASH_LEN]>,
-        used_imported_functions: &'a mut HashSet<String>,
-    ) -> Self {
-        Self {
-            strings,
-            types,
-            constants,
-            function_ids,
-            function_return_types,
-            function_return_type_names,
-            globals,
-            type_model,
-            external_function_abi_hashes,
-            used_imported_functions,
-            registers: Vec::new(),
-            code: Vec::new(),
-            cleanups: Vec::new(),
-            next_cleanup_id: 0,
-            resource_scopes: Vec::new(),
-            trap: None,
-        }
-    }
-
-    fn lower_op(
-        &mut self,
-        op: &IrOp,
-        locals: &mut HashMap<String, ValueSlot>,
-    ) -> Result<(), String> {
-        match op {
-            IrOp::Bind {
-                mutable,
-                name,
-                type_,
-                value,
-            } => {
-                let type_id = self.type_id(type_);
-                let close = builtins::resource_close_function(type_);
-                let mut flags = 0;
-                if *mutable {
-                    flags |= REGISTER_FLAG_MUTABLE_LOCAL_CELL;
-                }
-                if close.is_some() {
-                    flags |= REGISTER_FLAG_RESOURCE;
-                }
-                let register = self.add_register(type_id, flags);
-                locals.insert(
-                    name.clone(),
-                    ValueSlot {
-                        register,
-                        type_name: type_.clone(),
-                    },
-                );
-                if let Some(value) = value {
-                    let value_register = self.lower_value(value, locals)?;
-                    self.push_move_like(type_id, register, value_register.register);
-                } else {
-                    self.push(OPCODE_LOAD_DEFAULT, vec![register, type_id]);
-                }
-                if let Some(close) = close {
-                    let close_function_id = close_function_id(close)?;
-                    let cleanup_id = self.next_cleanup_id;
-                    self.next_cleanup_id += 1;
-                    let enter_pc = self.code.len() as u32;
-                    self.push(
-                        OPCODE_RESOURCE_ENTER,
-                        vec![register, close_function_id, cleanup_id],
-                    );
-                    self.resource_scopes
-                        .last_mut()
-                        .expect("resource scope must be active for resource bind")
-                        .push(PendingResource {
-                            cleanup_id,
-                            enter_pc,
-                            register,
-                            close_function_id,
-                        });
-                }
-                Ok(())
-            }
-            IrOp::Assign { name, value } => {
-                let target = locals
-                    .get(name)
-                    .cloned()
-                    .ok_or_else(|| format!("IR assigns unknown local `{name}`"))?;
-                let value = self.lower_value(value, locals)?;
-                self.push_move_like(
-                    self.registers[target.register as usize].type_id,
-                    target.register,
-                    value.register,
-                );
-                Ok(())
-            }
-            IrOp::AssignGlobal { name, value } => {
-                let target = self
-                    .globals
-                    .get(name)
-                    .cloned()
-                    .ok_or_else(|| format!("IR assigns unknown global `{name}`"))?;
-                let value = self.lower_value(value, locals)?;
-                self.push(OPCODE_STORE_GLOBAL, vec![target.index, value.register]);
-                Ok(())
-            }
-            IrOp::Return { value } => {
-                let register = match value {
-                    Some(value) => self.lower_value(value, locals)?.register,
-                    None => {
-                        let register = self.add_register(TYPE_NOTHING, 0);
-                        self.push(OPCODE_LOAD_DEFAULT, vec![register, TYPE_NOTHING]);
-                        register
-                    }
-                };
-                self.push(OPCODE_RETURN_OK, vec![register]);
-                Ok(())
-            }
-            IrOp::Fail { error } => {
-                let register = self.lower_value(error, locals)?.register;
-                if self.trap.is_some() && !self.trap.as_ref().is_some_and(|trap| trap.in_trap_body)
-                {
-                    let error_type = self.type_id("Error");
-                    let trap_register = self.trap.as_ref().unwrap().error_register;
-                    self.push_move_like(error_type, trap_register, register);
-                    self.branch_to_trap();
-                } else {
-                    self.push(OPCODE_RETURN_ERR, vec![register]);
-                }
-                Ok(())
-            }
-            IrOp::Eval { value } => {
-                self.lower_value(value, locals)?;
-                Ok(())
-            }
-            IrOp::If {
-                condition,
-                then_body,
-                else_body,
-            } => {
-                let condition = self.lower_value(condition, locals)?;
-                let else_jump = self.push_jump(OPCODE_BRANCH_IF_FALSE, vec![condition.register]);
-                let mut then_locals = locals.clone();
-                self.lower_ops(then_body, &mut then_locals)?;
-                let end_jump = self.push_jump(OPCODE_BRANCH, Vec::new());
-                self.patch_jump(else_jump);
-                let mut else_locals = locals.clone();
-                self.lower_ops(else_body, &mut else_locals)?;
-                self.patch_jump(end_jump);
-                Ok(())
-            }
-            IrOp::Match { value, cases } => {
-                let matched = self.lower_value(value, locals)?;
-                let end_jumps = self.lower_match_cases(&matched, cases, locals)?;
-                for jump in end_jumps {
-                    self.patch_jump(jump);
-                }
-                Ok(())
-            }
-            IrOp::While { condition, body } => {
-                let loop_pc = self.code.len() as u32;
-                let condition = self.lower_value(condition, locals)?;
-                let end_jump = self.push_jump(OPCODE_BRANCH_IF_FALSE, vec![condition.register]);
-                let mut nested = locals.clone();
-                self.lower_ops(body, &mut nested)?;
-                self.push(OPCODE_BRANCH, vec![loop_pc]);
-                self.patch_jump(end_jump);
-                Ok(())
-            }
-            IrOp::ForEach {
-                name,
-                type_,
-                iterable,
-                body,
-            } => {
-                let iterable = self.lower_value(iterable, locals)?;
-                let item_type = self.type_id(type_);
-                let item_register = self.add_register(item_type, 0);
-                let iterator_register = self.add_register(TYPE_INTEGER, 0);
-                let collection_type = self.type_id(&iterable.type_name);
-                let end_jump = self.push_jump(
-                    OPCODE_COLLECTION_ITER_BEGIN,
-                    vec![
-                        iterator_register,
-                        item_register,
-                        collection_type,
-                        iterable.register,
-                    ],
-                );
-                let loop_pc = self.code.len() as u32;
-                let mut nested = locals.clone();
-                nested.insert(
-                    name.clone(),
-                    ValueSlot {
-                        register: item_register,
-                        type_name: type_.clone(),
-                    },
-                );
-                self.lower_ops(body, &mut nested)?;
-                self.push(
-                    OPCODE_COLLECTION_ITER_NEXT,
-                    vec![
-                        iterator_register,
-                        item_register,
-                        collection_type,
-                        iterable.register,
-                        loop_pc,
-                    ],
-                );
-                self.patch_jump(end_jump);
-                Ok(())
-            }
-            IrOp::Trap { body, .. } => {
-                let pending_jumps = self
-                    .trap
-                    .as_mut()
-                    .map(|trap| trap.jump_patches.drain(..).collect::<Vec<_>>())
-                    .unwrap_or_default();
-                for jump in pending_jumps {
-                    self.patch_jump(jump);
-                }
-                if let Some(trap) = &mut self.trap {
-                    trap.in_trap_body = true;
-                }
-                self.lower_ops(body, locals)?;
-                if let Some(trap) = &mut self.trap {
-                    trap.in_trap_body = false;
-                }
-                Ok(())
-            }
-        }
-    }
-
-    fn lower_ops(
-        &mut self,
-        ops: &[IrOp],
-        locals: &mut HashMap<String, ValueSlot>,
-    ) -> Result<(), String> {
-        self.resource_scopes.push(Vec::new());
-        for op in ops {
-            self.lower_op(op, locals)?;
-        }
-        let scope = self
-            .resource_scopes
-            .pop()
-            .expect("resource scope must be present at block end");
-        for pending in scope.into_iter().rev() {
-            self.push(
-                OPCODE_CLOSE_RESOURCE,
-                vec![pending.register, pending.close_function_id],
-            );
-            let leave_pc = self.code.len() as u32;
-            self.push(OPCODE_RESOURCE_LEAVE, vec![pending.cleanup_id]);
-            self.cleanups.push(Cleanup {
-                id: pending.cleanup_id,
-                start_pc: pending.enter_pc,
-                end_pc: leave_pc,
-                resource_register: pending.register,
-                close_function_id: pending.close_function_id,
-                flags: CLEANUP_FLAG_RECORD_SECONDARY_CLOSE_FAILURE,
-            });
-        }
-        Ok(())
-    }
-
-    fn lower_match_cases(
-        &mut self,
-        matched: &ValueSlot,
-        cases: &[crate::ir::IrMatchCase],
-        locals: &HashMap<String, ValueSlot>,
-    ) -> Result<Vec<usize>, String> {
-        let mut end_jumps = Vec::new();
-        for case in cases {
-            let mut case_locals = locals.clone();
-            let mut body_start = 0;
-            while let Some(IrOp::Bind {
-                name,
-                type_,
-                value: Some(IrValue::UnionExtract { .. }),
-                ..
-            }) = case.body.get(body_start)
-            {
-                self.lower_ops(&case.body[body_start..body_start + 1], &mut case_locals)?;
-                let slot = case_locals.get(name).cloned().unwrap_or(ValueSlot {
-                    register: 0,
-                    type_name: type_.clone(),
-                });
-                case_locals.insert(name.clone(), slot);
-                body_start += 1;
-            }
-            let next_jump = match &case.pattern {
-                IrMatchPattern::Else => None,
-                IrMatchPattern::Value(pattern) => {
-                    let matched_case = self.lower_match_pattern(matched, pattern, &case_locals)?;
-                    Some(self.push_jump(OPCODE_BRANCH_IF_FALSE, vec![matched_case.register]))
-                }
-                IrMatchPattern::OneOf(patterns) => {
-                    let matched_case =
-                        self.lower_match_pattern_one_of(matched, patterns, &case_locals)?;
-                    Some(self.push_jump(OPCODE_BRANCH_IF_FALSE, vec![matched_case.register]))
-                }
-            };
-            let guard_jump = if let Some(guard) = &case.guard {
-                let guard = self.lower_value(guard, &case_locals)?;
-                Some(self.push_jump(OPCODE_BRANCH_IF_FALSE, vec![guard.register]))
-            } else {
-                None
-            };
-            self.lower_ops(&case.body[body_start..], &mut case_locals)?;
-            end_jumps.push(self.push_jump(OPCODE_BRANCH, Vec::new()));
-            if let Some(jump) = guard_jump {
-                self.patch_jump(jump);
-            }
-            if let Some(jump) = next_jump {
-                self.patch_jump(jump);
-            }
-        }
-        Ok(end_jumps)
-    }
-
-    fn lower_match_pattern(
-        &mut self,
-        matched: &ValueSlot,
-        pattern: &IrValue,
-        locals: &HashMap<String, ValueSlot>,
-    ) -> Result<ValueSlot, String> {
-        if let IrValue::Local(name) = pattern {
-            if self.type_model.variants.contains_key(name) {
-                let dst = self.add_register(TYPE_BOOLEAN, 0);
-                let variant_name = self.strings.intern(name);
-                self.push(
-                    OPCODE_VARIANT_MATCH,
-                    vec![dst, matched.register, variant_name],
-                );
-                return Ok(ValueSlot {
-                    register: dst,
-                    type_name: "Boolean".to_string(),
-                });
-            }
-            if matched.type_name.starts_with("Result OF ") {
-                let dst = self.add_register(TYPE_BOOLEAN, 0);
-                match name.as_str() {
-                    "Ok" => self.push(OPCODE_RESULT_IS_OK, vec![dst, matched.register]),
-                    "Error" => {
-                        self.push(OPCODE_RESULT_IS_OK, vec![dst, matched.register]);
-                        self.push(OPCODE_NOT, vec![dst, dst]);
-                    }
-                    _ => {}
-                }
-                if matches!(name.as_str(), "Ok" | "Error") {
-                    return Ok(ValueSlot {
-                        register: dst,
-                        type_name: "Boolean".to_string(),
-                    });
-                }
-            }
-        }
-
-        let pattern = self.lower_value(pattern, locals)?;
-        Ok(self.push_equal(matched.register, pattern.register))
-    }
-
-    fn lower_match_pattern_one_of(
-        &mut self,
-        matched: &ValueSlot,
-        patterns: &[IrValue],
-        locals: &HashMap<String, ValueSlot>,
-    ) -> Result<ValueSlot, String> {
-        let dst = self.add_register(TYPE_BOOLEAN, 0);
-        self.push(OPCODE_LOAD_DEFAULT, vec![dst, TYPE_BOOLEAN]);
-        let mut end_jumps = Vec::new();
-        for pattern in patterns {
-            let equal = self.lower_match_pattern(matched, pattern, locals)?;
-            let next_jump = self.push_jump(OPCODE_BRANCH_IF_FALSE, vec![equal.register]);
-            let true_reg = self.add_register(TYPE_BOOLEAN, 0);
-            let true_const = self.const_id(&IrValue::Const {
-                type_: "Boolean".to_string(),
-                value: "true".to_string(),
-            })?;
-            self.push(OPCODE_LOAD_CONST, vec![true_reg, true_const]);
-            self.push_move_like(TYPE_BOOLEAN, dst, true_reg);
-            end_jumps.push(self.push_jump(OPCODE_BRANCH, Vec::new()));
-            self.patch_jump(next_jump);
-        }
-        for jump in end_jumps {
-            self.patch_jump(jump);
-        }
-        Ok(ValueSlot {
-            register: dst,
-            type_name: "Boolean".to_string(),
-        })
-    }
-
-    fn lower_value(
-        &mut self,
-        value: &IrValue,
-        locals: &HashMap<String, ValueSlot>,
-    ) -> Result<ValueSlot, String> {
-        match value {
-            IrValue::Const { type_, .. } => {
-                let type_id = self.type_id(type_);
-                let register = self.add_register(type_id, 0);
-                if type_ == "Nothing" {
-                    self.push(OPCODE_LOAD_DEFAULT, vec![register, type_id]);
-                } else {
-                    let const_id = self.const_id(value)?;
-                    self.push(OPCODE_LOAD_CONST, vec![register, const_id]);
-                }
-                Ok(ValueSlot {
-                    register,
-                    type_name: type_.clone(),
-                })
-            }
-            IrValue::Local(name) => locals
-                .get(name)
-                .cloned()
-                .ok_or_else(|| format!("IR references unknown local `{name}`")),
-            IrValue::Global(name) => {
-                let global = self
-                    .globals
-                    .get(name)
-                    .cloned()
-                    .ok_or_else(|| format!("IR references unknown global `{name}`"))?;
-                let register = self.add_register(global.type_id, 0);
-                self.push(OPCODE_LOAD_GLOBAL, vec![register, global.index]);
-                Ok(ValueSlot {
-                    register,
-                    type_name: global.type_name,
-                })
-            }
-            IrValue::FunctionRef { name, type_ } => {
-                let function_id = self
-                    .function_ids
-                    .get(name)
-                    .copied()
-                    .or_else(|| builtins::general::builtin_function_id_for_type(name, type_))
-                    .ok_or_else(|| format!("IR references unknown function `{name}`"))?;
-                let type_id = self.type_id(type_);
-                let register = self.add_register(type_id, 0);
-                self.push(OPCODE_LOAD_FUNCTION, vec![register, function_id]);
-                Ok(ValueSlot {
-                    register,
-                    type_name: type_.clone(),
-                })
-            }
-            IrValue::Closure {
-                name,
-                type_,
-                captures,
-            } => {
-                let function_id = self
-                    .function_ids
-                    .get(name)
-                    .copied()
-                    .ok_or_else(|| format!("IR references unknown closure `{name}`"))?;
-                let type_id = self.type_id(type_);
-                let register = self.add_register(type_id, 0);
-                let mut operands = vec![register, function_id, captures.len() as u32];
-                for capture in captures {
-                    operands.push(self.lower_value(capture, locals)?.register);
-                }
-                self.push(OPCODE_LOAD_CLOSURE, operands);
-                Ok(ValueSlot {
-                    register,
-                    type_name: type_.clone(),
-                })
-            }
-            IrValue::Capture { index, type_ } => {
-                let type_id = self.type_id(type_);
-                let register = self.add_register(type_id, 0);
-                self.push(OPCODE_LOAD_CAPTURE, vec![register, *index as u32]);
-                Ok(ValueSlot {
-                    register,
-                    type_name: type_.clone(),
-                })
-            }
-            IrValue::Call { target, args } => {
-                if builtins::general::is_general_call(target) {
-                    return builtins::general::lower_bytecode_call(self, target, args, locals);
-                }
-                if builtins::strings::is_strings_call(target) {
-                    return builtins::strings::lower_bytecode_call(self, target, args, locals);
-                }
-                if builtins::math::is_math_call(target) {
-                    return builtins::math::lower_bytecode_call(self, target, args, locals);
-                }
-                if builtins::fs::is_fs_call(target) {
-                    return builtins::fs::lower_bytecode_call(self, target, args, locals);
-                }
-                if builtins::io::is_io_call(target) {
-                    return builtins::io::lower_bytecode_call(self, target, args, locals);
-                }
-                if builtins::thread::is_thread_call(target) {
-                    return builtins::thread::lower_bytecode_call(self, target, args, locals);
-                }
-
-                if let Some(callee) = locals.get(target) {
-                    if callee.type_name.starts_with("FUNC(") {
-                        let callee = callee.clone();
-                        let return_type_name = function_return_from_type(&callee.type_name)
-                            .ok_or_else(|| {
-                                format!(
-                                    "function value `{target}` has invalid type `{}`",
-                                    callee.type_name
-                                )
-                            })?;
-                        let return_type = self.type_id(&return_type_name);
-                        let result_type = self.types.result_type(self.strings, return_type);
-                        let result_register = self.add_register(result_type, 0);
-                        let mut operands = vec![result_register, callee.register];
-                        for arg in args {
-                            operands.push(self.lower_value(arg, locals)?.register);
-                        }
-                        self.push(OPCODE_CALL_VALUE_RESULT, operands);
-                        let value_register =
-                            self.unwrap_result_or_trap(result_register, return_type);
-                        return Ok(ValueSlot {
-                            register: value_register,
-                            type_name: return_type_name,
-                        });
-                    }
-                }
-
-                let function_id = *self
-                    .function_ids
-                    .get(target)
-                    .ok_or_else(|| format!("IR references unknown function `{target}`"))?;
-                if self.external_function_abi_hashes.contains_key(target) {
-                    self.used_imported_functions.insert(target.clone());
-                }
-                let return_type = self.call_return_type(target)?;
-                let return_type_name = self.call_return_type_name(target)?.to_string();
-                let result_type = self.types.result_type(self.strings, return_type);
-                let result_register = self.add_register(result_type, 0);
-                let mut operands = vec![result_register, function_id];
-                for arg in args {
-                    operands.push(self.lower_value(arg, locals)?.register);
-                }
-                self.push(OPCODE_CALL_RESULT, operands);
-
-                let value_register = self.unwrap_result_or_trap(result_register, return_type);
-                Ok(ValueSlot {
-                    register: value_register,
-                    type_name: return_type_name,
-                })
-            }
-            IrValue::CallResult { target, args } => {
-                if let Some(callee) = locals.get(target) {
-                    if callee.type_name.starts_with("FUNC(") {
-                        let callee = callee.clone();
-                        let return_type_name = function_return_from_type(&callee.type_name)
-                            .ok_or_else(|| {
-                                format!(
-                                    "function value `{target}` has invalid type `{}`",
-                                    callee.type_name
-                                )
-                            })?;
-                        let return_type = self.type_id(&return_type_name);
-                        let result_type = self.types.result_type(self.strings, return_type);
-                        let result_register = self.add_register(result_type, 0);
-                        let mut operands = vec![result_register, callee.register];
-                        for arg in args {
-                            operands.push(self.lower_value(arg, locals)?.register);
-                        }
-                        self.push(OPCODE_CALL_VALUE_RESULT, operands);
-                        return Ok(ValueSlot {
-                            register: result_register,
-                            type_name: format!("Result OF {return_type_name}"),
-                        });
-                    }
-                }
-
-                let function_id = *self
-                    .function_ids
-                    .get(target)
-                    .ok_or_else(|| format!("IR references unknown function `{target}`"))?;
-                if self.external_function_abi_hashes.contains_key(target) {
-                    self.used_imported_functions.insert(target.clone());
-                }
-                let return_type = self.call_return_type(target)?;
-                let return_type_name = self.call_return_type_name(target)?.to_string();
-                let result_type = self.types.result_type(self.strings, return_type);
-                let result_register = self.add_register(result_type, 0);
-                let mut operands = vec![result_register, function_id];
-                for arg in args {
-                    operands.push(self.lower_value(arg, locals)?.register);
-                }
-                self.push(OPCODE_CALL_RESULT, operands);
-                Ok(ValueSlot {
-                    register: result_register,
-                    type_name: format!("Result OF {return_type_name}"),
-                })
-            }
-            IrValue::Binary { op, left, right } => {
-                if op == "AND" {
-                    return self.lower_short_circuit_and(left, right, locals);
-                }
-                if op == "OR" {
-                    return self.lower_short_circuit_or(left, right, locals);
-                }
-                let left_register = self.lower_value(left, locals)?;
-                let right_register = self.lower_value(right, locals)?;
-                if let Some(opcode) = comparison_opcode(op) {
-                    return Ok(self.push_boolean_binary(
-                        opcode,
-                        left_register.register,
-                        right_register.register,
-                    ));
-                }
-                if op == "XOR" {
-                    return Ok(self.push_boolean_binary(
-                        OPCODE_XOR,
-                        left_register.register,
-                        right_register.register,
-                    ));
-                }
-                let left_type_id = self.registers[left_register.register as usize].type_id;
-                let right_type_id = self.registers[right_register.register as usize].type_id;
-                let type_id = if op == "&" {
-                    TYPE_STRING
-                } else {
-                    numeric_binary_type_id(op, left_type_id, right_type_id)
-                };
-                let dst = self.add_register(type_id, 0);
-                let opcode = match op.as_str() {
-                    "+" => OPCODE_ADD,
-                    "-" => OPCODE_SUB,
-                    "*" => OPCODE_MUL,
-                    "/" => OPCODE_DIV,
-                    "DIV" => OPCODE_FLOAT_DIV,
-                    "MOD" => OPCODE_MOD,
-                    "^" => OPCODE_POW,
-                    "&" => OPCODE_CONCAT,
-                    _ => return Err(format!("unsupported IR binary operator `{op}`")),
-                };
-                self.push(
-                    opcode,
-                    vec![dst, left_register.register, right_register.register],
-                );
-                Ok(ValueSlot {
-                    register: dst,
-                    type_name: if type_id == TYPE_STRING {
-                        "String".to_string()
-                    } else if type_id == TYPE_BYTE {
-                        "Byte".to_string()
-                    } else if type_id == TYPE_FLOAT {
-                        "Float".to_string()
-                    } else if type_id == TYPE_FIXED {
-                        "Fixed".to_string()
-                    } else {
-                        "Integer".to_string()
-                    },
-                })
-            }
-            IrValue::Unary { op, operand } => {
-                let operand = self.lower_value(operand, locals)?;
-                match op.as_str() {
-                    "NOT" => {
-                        Ok(self.push_unary(OPCODE_NOT, TYPE_BOOLEAN, "Boolean", operand.register))
-                    }
-                    "-" => {
-                        let type_id = self.registers[operand.register as usize].type_id;
-                        Ok(self.push_unary(
-                            OPCODE_NEG,
-                            type_id,
-                            &operand.type_name,
-                            operand.register,
-                        ))
-                    }
-                    _ => Err(format!("unsupported IR unary operator `{op}`")),
-                }
-            }
-            IrValue::UnionWrap {
-                union_type,
-                member_type,
-                value,
-            } => {
-                let wrapped = self.lower_value(value, locals)?;
-                let record = self
-                    .type_model
-                    .records
-                    .get(member_type)
-                    .cloned()
-                    .ok_or_else(|| {
-                        format!("IR union wrap member `{member_type}` is not a record")
-                    })?;
-                let variant = self
-                    .type_model
-                    .variants
-                    .get(member_type)
-                    .cloned()
-                    .ok_or_else(|| {
-                        format!("IR union wrap member `{member_type}` is not a union member")
-                    })?;
-                if variant.union_name != *union_type {
-                    return Err(format!(
-                        "IR union wrap expected `{union_type}`, got member of `{}`",
-                        variant.union_name
-                    ));
-                }
-                let union_type_id = self.type_id(union_type);
-                let dst = self.add_register(union_type_id, 0);
-                let variant_name = self.strings.intern(member_type);
-                let mut field_registers = Vec::new();
-                for field in &record.fields {
-                    let field_type = self.type_id(&field.type_name);
-                    let field_register = self.add_register(field_type, 0);
-                    let field_name = self.strings.intern(&field.name);
-                    self.push(
-                        OPCODE_LOAD_FIELD,
-                        vec![field_register, wrapped.register, field_name],
-                    );
-                    field_registers.push(field_register);
-                }
-                let mut operands = vec![dst, union_type_id, variant_name];
-                operands.extend(field_registers);
-                self.push(OPCODE_CONSTRUCT_VARIANT, operands);
-                Ok(ValueSlot {
-                    register: dst,
-                    type_name: union_type.clone(),
-                })
-            }
-            IrValue::UnionExtract { type_, value } => {
-                let extracted = self.lower_value(value, locals)?;
-                let record =
-                    self.type_model.records.get(type_).cloned().ok_or_else(|| {
-                        format!("IR union extract target `{type_}` is not a record")
-                    })?;
-                let type_id = self.type_id(type_);
-                let dst = self.add_register(type_id, 0);
-                let mut operands = vec![dst, type_id];
-                for field in &record.fields {
-                    let field_type = self.type_id(&field.type_name);
-                    let field_register = self.add_register(field_type, 0);
-                    let field_name = self.strings.intern(&field.name);
-                    self.push(
-                        OPCODE_LOAD_FIELD,
-                        vec![field_register, extracted.register, field_name],
-                    );
-                    operands.push(field_register);
-                }
-                self.push(OPCODE_CONSTRUCT_RECORD, operands);
-                Ok(ValueSlot {
-                    register: dst,
-                    type_name: type_.clone(),
-                })
-            }
-            IrValue::ResultIsOk { value } => {
-                let result = self.lower_value(value, locals)?;
-                let dst = self.add_register(TYPE_BOOLEAN, 0);
-                self.push(OPCODE_RESULT_IS_OK, vec![dst, result.register]);
-                Ok(ValueSlot {
-                    register: dst,
-                    type_name: "Boolean".to_string(),
-                })
-            }
-            IrValue::ResultValue { value } => {
-                let result = self.lower_value(value, locals)?;
-                let success_type = result
-                    .type_name
-                    .strip_prefix("Result OF ")
-                    .ok_or_else(|| {
-                        format!(
-                            "RESULT_VALUE requires a raw Result register, got `{}`",
-                            result.type_name
-                        )
-                    })?
-                    .to_string();
-                let type_id = self.type_id(&success_type);
-                let dst = self.add_register(type_id, 0);
-                self.push(OPCODE_RESULT_VALUE, vec![dst, result.register]);
-                Ok(ValueSlot {
-                    register: dst,
-                    type_name: success_type,
-                })
-            }
-            IrValue::ResultError { value } => {
-                let result = self.lower_value(value, locals)?;
-                let dst = self.add_register(TYPE_ERROR, 0);
-                self.push(OPCODE_RESULT_ERROR, vec![dst, result.register]);
-                Ok(ValueSlot {
-                    register: dst,
-                    type_name: "Error".to_string(),
-                })
-            }
-            IrValue::Constructor { type_, args } => {
-                if type_ == "Ok" {
-                    let success = args
-                        .first()
-                        .ok_or_else(|| "IR Ok constructor is missing success value".to_string())?;
-                    let success = self.lower_value(success, locals)?;
-                    let result_type = self.types.result_type(
-                        self.strings,
-                        self.registers[success.register as usize].type_id,
-                    );
-                    let dst = self.add_register(result_type, 0);
-                    self.push(OPCODE_LOAD_DEFAULT, vec![dst, result_type]);
-                    return Ok(ValueSlot {
-                        register: dst,
-                        type_name: format!("Result OF {}", success.type_name),
-                    });
-                }
-
-                if let Some(record) = self.type_model.records.get(type_).cloned() {
-                    let type_id = self.type_id(type_);
-                    let dst = self.add_register(type_id, 0);
-                    let mut operands = vec![dst, type_id];
-                    for arg in args {
-                        operands.push(self.lower_value(arg, locals)?.register);
-                    }
-                    if operands.len() != 2 + record.fields.len() {
-                        return Err(format!(
-                            "IR constructor `{type_}` has {} argument(s), expected {}",
-                            operands.len().saturating_sub(2),
-                            record.fields.len()
-                        ));
-                    }
-                    self.push(OPCODE_CONSTRUCT_RECORD, operands);
-                    return Ok(ValueSlot {
-                        register: dst,
-                        type_name: type_.clone(),
-                    });
-                }
-
-                if let Some(variant) = self.type_model.variants.get(type_).cloned() {
-                    let union_type = self.type_id(&variant.union_name);
-                    let dst = self.add_register(union_type, 0);
-                    let variant_name = self.strings.intern(type_);
-                    let mut operands = vec![dst, union_type, variant_name];
-                    for arg in args {
-                        operands.push(self.lower_value(arg, locals)?.register);
-                    }
-                    if operands.len() != 3 + variant.fields.len() {
-                        return Err(format!(
-                            "IR variant constructor `{type_}` has {} argument(s), expected {}",
-                            operands.len().saturating_sub(3),
-                            variant.fields.len()
-                        ));
-                    }
-                    self.push(OPCODE_CONSTRUCT_VARIANT, operands);
-                    return Ok(ValueSlot {
-                        register: dst,
-                        type_name: variant.union_name,
-                    });
-                }
-
-                Err(format!("IR references unknown constructor `{type_}`"))
-            }
-            IrValue::WithUpdate {
-                type_,
-                target,
-                updates,
-            } => {
-                let Some(record) = self.type_model.records.get(type_).cloned() else {
-                    return Err(format!("IR WITH update target `{type_}` is not a record"));
-                };
-                let target = self.lower_value(target, locals)?;
-                let type_id = self.type_id(type_);
-                let dst = self.add_register(type_id, 0);
-                let mut operands = vec![dst, type_id];
-                for field in &record.fields {
-                    if let Some(update) = updates.iter().find(|update| update.field == field.name) {
-                        operands.push(self.lower_value(&update.value, locals)?.register);
-                    } else {
-                        let field_type = self.type_id(&field.type_name);
-                        let field_dst = self.add_register(field_type, 0);
-                        let field_name = self.strings.intern(&field.name);
-                        self.push(
-                            OPCODE_LOAD_FIELD,
-                            vec![field_dst, target.register, field_name],
-                        );
-                        operands.push(field_dst);
-                    }
-                }
-                self.push(OPCODE_CONSTRUCT_RECORD, operands);
-                Ok(ValueSlot {
-                    register: dst,
-                    type_name: type_.clone(),
-                })
-            }
-            IrValue::ListLiteral { type_, values } => {
-                let mut value_registers = Vec::new();
-                for value in values {
-                    value_registers.push(self.lower_value(value, locals)?.register);
-                }
-                let type_id = self.type_id(type_);
-                let dst = self.add_register(type_id, 0);
-                let mut operands = vec![dst, type_id, values.len() as u32];
-                operands.extend(value_registers);
-                self.push(OPCODE_CONSTRUCT_LIST, operands);
-                Ok(ValueSlot {
-                    register: dst,
-                    type_name: type_.clone(),
-                })
-            }
-            IrValue::MapLiteral { type_, entries } => {
-                let mut entry_registers = Vec::new();
-                for (key, value) in entries {
-                    entry_registers.push(self.lower_value(key, locals)?.register);
-                    entry_registers.push(self.lower_value(value, locals)?.register);
-                }
-                let type_id = self.type_id(type_);
-                let dst = self.add_register(type_id, 0);
-                let mut operands = vec![dst, type_id, entries.len() as u32];
-                operands.extend(entry_registers);
-                self.push(OPCODE_CONSTRUCT_MAP, operands);
-                Ok(ValueSlot {
-                    register: dst,
-                    type_name: type_.clone(),
-                })
-            }
-            IrValue::MemberAccess { target, member } => {
-                if let IrValue::Local(type_name) = target.as_ref() {
-                    if let Some(enum_) = self.type_model.enums.get(type_name) {
-                        let Some(ordinal) = enum_.members.iter().position(|name| name == member)
-                        else {
-                            return Err(format!(
-                                "IR references unknown enum member `{type_name}::{member}`"
-                            ));
-                        };
-                        let type_id = self.type_id(type_name);
-                        let dst = self.add_register(type_id, 0);
-                        let member_name = self.strings.intern(member);
-                        self.push(
-                            OPCODE_LOAD_ENUM_MEMBER,
-                            vec![dst, type_id, member_name, ordinal as u32],
-                        );
-                        return Ok(ValueSlot {
-                            register: dst,
-                            type_name: type_name.clone(),
-                        });
-                    }
-                }
-
-                let target = self.lower_value(target, locals)?;
-                if member == "result" {
-                    if let Some(output_type) =
-                        builtins::thread::parent_thread_output(&target.type_name)
-                    {
-                        let output_type_id = self.type_id(output_type);
-                        let result_type_id = self.types.result_type(self.strings, output_type_id);
-                        let dst = self.add_register(result_type_id, 0);
-                        self.push(OPCODE_THREAD_WAIT_FOR, vec![dst, target.register]);
-                        return Ok(ValueSlot {
-                            register: dst,
-                            type_name: format!("Result OF {output_type}"),
-                        });
-                    }
-                }
-                if let Some((key_type, value_type)) = parse_map_entry_type(&target.type_name) {
-                    let (field_index, field_type) = match member.as_str() {
-                        "key" => (0, key_type),
-                        "value" => (1, value_type),
-                        _ => {
-                            return Err(format!(
-                                "IR map entry member access `{}` is not a field of `{}`",
-                                member, target.type_name
-                            ));
-                        }
-                    };
-                    let field_type_id = self.type_id(&field_type);
-                    let entry_type_id = self.type_id(&target.type_name);
-                    let dst = self.add_register(field_type_id, 0);
-                    self.push(
-                        OPCODE_LOAD_MAP_ENTRY_FIELD,
-                        vec![dst, target.register, entry_type_id, field_index],
-                    );
-                    return Ok(ValueSlot {
-                        register: dst,
-                        type_name: field_type,
-                    });
-                }
-                let Some(field) = self
-                    .type_model
-                    .records
-                    .get(&target.type_name)
-                    .and_then(|record| record.fields.iter().find(|field| field.name == *member))
-                    .or_else(|| {
-                        self.type_model
-                            .variants
-                            .get(&target.type_name)
-                            .and_then(|variant| {
-                                variant.fields.iter().find(|field| field.name == *member)
-                            })
-                    })
-                    .cloned()
-                else {
-                    return Err(format!(
-                        "IR member access `{}` is not a field of `{}`",
-                        member, target.type_name
-                    ));
-                };
-                let field_type = self.type_id(&field.type_name);
-                let dst = self.add_register(field_type, 0);
-                let field_name = self.strings.intern(member);
-                self.push(OPCODE_LOAD_FIELD, vec![dst, target.register, field_name]);
-                Ok(ValueSlot {
-                    register: dst,
-                    type_name: field.type_name,
-                })
-            }
-        }
-    }
-
-    fn push_move_like(&mut self, type_id: u32, dst: u32, src: u32) {
-        if dst == src {
-            return;
-        }
-        if matches!(
-            type_id,
-            TYPE_NOTHING
-                | TYPE_BOOLEAN
-                | TYPE_BYTE
-                | TYPE_INTEGER
-                | TYPE_FLOAT
-                | TYPE_FIXED
-                | TYPE_STRING
-        ) {
-            self.push(OPCODE_COPY, vec![dst, src]);
-        } else {
-            self.push(OPCODE_MOVE, vec![dst, src]);
-        }
-    }
-
-    fn call_return_type(&self, target: &str) -> Result<u32, String> {
-        if let Some(return_type) = builtins::call_return_type_name(target) {
-            return Ok(match return_type {
-                "Nothing" => TYPE_NOTHING,
-                "Boolean" => TYPE_BOOLEAN,
-                "Integer" => TYPE_INTEGER,
-                "Float" => TYPE_FLOAT,
-                "Fixed" => TYPE_FIXED,
-                "String" => TYPE_STRING,
-                "Byte" => TYPE_BYTE,
-                "File" => TYPE_FILE_HANDLE,
-                _ => return Err(format!("unsupported built-in return type `{return_type}`")),
-            });
-        }
-        self.function_return_types
-            .get(target)
-            .copied()
-            .ok_or_else(|| format!("unsupported call target `{target}`"))
-    }
-
-    fn call_return_type_name(&self, target: &str) -> Result<&str, String> {
-        if let Some(return_type) = builtins::call_return_type_name(target) {
-            return Ok(return_type);
-        }
-        self.function_return_type_names
-            .get(target)
-            .map(String::as_str)
-            .ok_or_else(|| format!("unsupported call target `{target}`"))
-    }
-
-    fn type_id(&mut self, name: &str) -> u32 {
-        self.types.type_id(self.strings, name)
-    }
-
-    fn const_id(&mut self, value: &IrValue) -> Result<u32, String> {
-        self.constants.add(self.strings, value)
-    }
-
-    fn add_register(&mut self, type_id: u32, flags: u32) -> u32 {
-        let id = self.registers.len() as u32;
-        self.registers.push(Register { type_id, flags });
-        id
-    }
-
-    fn push(&mut self, opcode: u16, operands: Vec<u32>) {
-        self.code.push(Instruction { opcode, operands });
-    }
-
-    fn push_jump(&mut self, opcode: u16, mut operands: Vec<u32>) -> usize {
-        operands.push(u32::MAX);
-        let index = self.code.len();
-        self.push(opcode, operands);
-        index
-    }
-
-    fn patch_jump(&mut self, instruction_index: usize) {
-        let target = self.code.len() as u32;
-        let operands = &mut self.code[instruction_index].operands;
-        let last = operands
-            .last_mut()
-            .expect("branch instructions reserve a target operand");
-        *last = target;
-    }
-
-    fn push_equal(&mut self, left: u32, right: u32) -> ValueSlot {
-        self.push_boolean_binary(OPCODE_EQUAL, left, right)
-    }
-
-    fn push_boolean_binary(&mut self, opcode: u16, left: u32, right: u32) -> ValueSlot {
-        let dst = self.add_register(TYPE_BOOLEAN, 0);
-        self.push(opcode, vec![dst, left, right]);
-        ValueSlot {
-            register: dst,
-            type_name: "Boolean".to_string(),
-        }
-    }
-
-    fn push_unary(
-        &mut self,
-        opcode: u16,
-        type_id: u32,
-        type_name: &str,
-        operand: u32,
-    ) -> ValueSlot {
-        let dst = self.add_register(type_id, 0);
-        self.push(opcode, vec![dst, operand]);
-        ValueSlot {
-            register: dst,
-            type_name: type_name.to_string(),
-        }
-    }
-
-    fn push_boolean_const(&mut self, value: bool) -> Result<u32, String> {
-        let register = self.add_register(TYPE_BOOLEAN, 0);
-        let constant = IrValue::Const {
-            type_: "Boolean".to_string(),
-            value: value.to_string(),
-        };
-        let constant_id = self.const_id(&constant)?;
-        self.push(OPCODE_LOAD_CONST, vec![register, constant_id]);
-        Ok(register)
-    }
-
-    fn lower_short_circuit_and(
-        &mut self,
-        left: &IrValue,
-        right: &IrValue,
-        locals: &HashMap<String, ValueSlot>,
-    ) -> Result<ValueSlot, String> {
-        let dst = self.push_boolean_const(false)?;
-        let left = self.lower_value(left, locals)?;
-        let end_jump = self.push_jump(OPCODE_BRANCH_IF_FALSE, vec![left.register]);
-        let right = self.lower_value(right, locals)?;
-        self.push(OPCODE_COPY, vec![dst, right.register]);
-        self.patch_jump(end_jump);
-        Ok(ValueSlot {
-            register: dst,
-            type_name: "Boolean".to_string(),
-        })
-    }
-
-    fn lower_short_circuit_or(
-        &mut self,
-        left: &IrValue,
-        right: &IrValue,
-        locals: &HashMap<String, ValueSlot>,
-    ) -> Result<ValueSlot, String> {
-        let dst = self.push_boolean_const(true)?;
-        let left = self.lower_value(left, locals)?;
-        let end_jump = self.push_jump(OPCODE_BRANCH_IF_TRUE, vec![left.register]);
-        let right = self.lower_value(right, locals)?;
-        self.push(OPCODE_COPY, vec![dst, right.register]);
-        self.patch_jump(end_jump);
-        Ok(ValueSlot {
-            register: dst,
-            type_name: "Boolean".to_string(),
-        })
-    }
-
-    fn ends_with_return(&self) -> bool {
-        self.code
-            .last()
-            .is_some_and(|instruction| instruction.opcode == OPCODE_RETURN_OK)
-    }
-
-    fn branch_to_trap(&mut self) {
-        let jump = self.push_jump(OPCODE_BRANCH, Vec::new());
-        self.trap
-            .as_mut()
-            .expect("trap branch requires active trap state")
-            .jump_patches
-            .push(jump);
-    }
-
-    fn unwrap_result_or_trap(&mut self, result_register: u32, success_type: u32) -> u32 {
-        if self.trap.is_none() {
-            let value_register = self.add_register(success_type, 0);
-            self.push(OPCODE_UNWRAP_RESULT, vec![value_register, result_register]);
-            return value_register;
-        }
-
-        let ok_register = self.add_register(TYPE_BOOLEAN, 0);
-        self.push(OPCODE_RESULT_IS_OK, vec![ok_register, result_register]);
-        let error_jump = self.push_jump(OPCODE_BRANCH_IF_FALSE, vec![ok_register]);
-        let value_register = self.add_register(success_type, 0);
-        self.push(OPCODE_RESULT_VALUE, vec![value_register, result_register]);
-        let end_jump = self.push_jump(OPCODE_BRANCH, Vec::new());
-        self.patch_jump(error_jump);
-        let error_register = self
-            .trap
-            .as_ref()
-            .expect("trap-aware unwrap requires trap state")
-            .error_register;
-        self.push(OPCODE_RESULT_ERROR, vec![error_register, result_register]);
-        self.branch_to_trap();
-        self.patch_jump(end_jump);
-        value_register
-    }
-}
-
-fn comparison_opcode(op: &str) -> Option<u16> {
-    match op {
-        "=" => Some(OPCODE_EQUAL),
-        "<>" => Some(OPCODE_NOT_EQUAL),
-        "<" => Some(OPCODE_LESS),
-        "<=" => Some(OPCODE_LESS_EQUAL),
-        ">" => Some(OPCODE_GREATER),
-        ">=" => Some(OPCODE_GREATER_EQUAL),
-        _ => None,
-    }
-}
-
-fn function_return_from_type(type_name: &str) -> Option<String> {
-    type_name
-        .strip_prefix("FUNC(")
-        .or_else(|| type_name.strip_prefix("ISOLATED FUNC("))
-        .and_then(|rest| rest.split_once(") AS "))
-        .map(|(_, return_type)| return_type.to_string())
 }
 
 struct FunctionTypeSignature {
@@ -5399,65 +2831,6 @@ fn split_top_level_types(params: &str) -> Vec<String> {
     result
 }
 
-fn close_function_id(name: &str) -> Result<u32, String> {
-    match name {
-        "fs.close" => Ok(BUILTIN_FS_CLOSE_FUNCTION_ID),
-        _ => Err(format!("unsupported resource close function `{name}`")),
-    }
-}
-
-impl BuiltinCallLowerer for FunctionBuilder<'_> {
-    fn lower_value(
-        &mut self,
-        value: &IrValue,
-        locals: &HashMap<String, ValueSlot>,
-    ) -> Result<ValueSlot, String> {
-        FunctionBuilder::lower_value(self, value, locals)
-    }
-
-    fn add_register(&mut self, type_id: u32, flags: u32) -> u32 {
-        FunctionBuilder::add_register(self, type_id, flags)
-    }
-
-    fn type_id(&mut self, type_name: &str) -> u32 {
-        FunctionBuilder::type_id(self, type_name)
-    }
-
-    fn push(&mut self, opcode: u16, operands: Vec<u32>) {
-        FunctionBuilder::push(self, opcode, operands);
-    }
-
-    fn push_string_const(&mut self, value: &str) -> Result<ValueSlot, String> {
-        let register = self.add_register(TYPE_STRING, 0);
-        let constant = IrValue::Const {
-            type_: "String".to_string(),
-            value: value.to_string(),
-        };
-        let constant_id = self.const_id(&constant)?;
-        self.push(OPCODE_LOAD_CONST, vec![register, constant_id]);
-        Ok(ValueSlot {
-            register,
-            type_name: "String".to_string(),
-        })
-    }
-
-    fn push_integer_const(&mut self, value: i64) -> Result<ValueSlot, String> {
-        let register = self.add_register(TYPE_INTEGER, 0);
-        let constant = IrValue::Const {
-            type_: "Integer".to_string(),
-            value: value.to_string(),
-        };
-        let constant_id = self.const_id(&constant)?;
-        self.push(OPCODE_LOAD_CONST, vec![register, constant_id]);
-        Ok(ValueSlot {
-            register,
-            type_name: "Integer".to_string(),
-        })
-    }
-}
-
-const OPCODE_MOVE: u16 = 10;
-const OPCODE_COPY: u16 = 11;
 
 impl StringPool {
     fn new() -> Self {
@@ -6147,15 +3520,10 @@ impl AbiIndex {
 
 impl BytecodeProject {
     fn encode(&self) -> Vec<u8> {
-        let mut code_section = Vec::new();
-        let mut code_offsets = Vec::new();
-        for function in &self.functions {
-            code_offsets.push((
-                code_section.len() as u64,
-                function_code_length(function) as u64,
-            ));
-            encode_function_code(&mut code_section, function);
-        }
+        // Function bodies live in the structured Binary IR payload, not a flat
+        // code stream. The function table still records signatures/metadata, so
+        // every per-function code region is zero-length.
+        let code_offsets: Vec<(u64, u64)> = self.functions.iter().map(|_| (0, 0)).collect();
 
         let mut sections = vec![
             Section::new(SECTION_MANIFEST, self.encode_manifest()),
@@ -6166,7 +3534,7 @@ impl BytecodeProject {
             Section::new(SECTION_EXPORT_TABLE, self.encode_exports()),
             Section::new(SECTION_GLOBAL_TABLE, self.encode_globals()),
             Section::new(SECTION_FUNCTION_TABLE, self.encode_functions(&code_offsets)),
-            Section::new(SECTION_CODE, code_section),
+            Section::new(SECTION_IR, self.binary_ir.clone()),
             Section::new(SECTION_ABI_INDEX, self.abi.encode()),
         ];
         if !self.resources.entries.is_empty() {
@@ -6311,7 +3679,7 @@ fn encode_sections(sections: &[Section]) -> Vec<u8> {
     let mut bytes = Vec::new();
 
     bytes.extend_from_slice(b"MFBC");
-    put_u16(&mut bytes, 1);
+    put_u16(&mut bytes, MFBC_MAJOR_VERSION);
     put_u16(&mut bytes, 0);
     put_u32(&mut bytes, 0);
     put_u32(&mut bytes, sections.len() as u32);
@@ -6336,27 +3704,6 @@ fn encode_empty_count() -> Vec<u8> {
     let mut bytes = Vec::new();
     put_u32(&mut bytes, 0);
     bytes
-}
-
-fn function_code_length(function: &Function) -> usize {
-    4 + function
-        .code
-        .iter()
-        .map(|instruction| 8 + instruction.operands.len() * 4)
-        .sum::<usize>()
-}
-
-fn encode_function_code(bytes: &mut Vec<u8>, function: &Function) {
-    put_u32(bytes, function.code.len() as u32);
-    for instruction in &function.code {
-        put_u16(bytes, instruction.opcode);
-        put_u16(bytes, 0);
-        put_u16(bytes, instruction.operands.len() as u16);
-        put_u16(bytes, 0);
-        for operand in &instruction.operands {
-            put_u32(bytes, *operand);
-        }
-    }
 }
 
 fn hex_dump(bytes: &[u8]) -> String {

@@ -1,15 +1,5 @@
-use crate::bytecode::{
-    BuiltinCallLowerer, ValueSlot, OPCODE_STRING_BYTE_LEN, OPCODE_STRING_CASE_FOLD,
-    OPCODE_STRING_CONTAINS, OPCODE_STRING_ENDS_WITH, OPCODE_STRING_GRAPHEMES, OPCODE_STRING_JOIN,
-    OPCODE_STRING_LOWER, OPCODE_STRING_NORMALIZE_NFC, OPCODE_STRING_SPLIT,
-    OPCODE_STRING_STARTS_WITH, OPCODE_STRING_TRIM, OPCODE_STRING_TRIM_END,
-    OPCODE_STRING_TRIM_START, OPCODE_STRING_UPPER, TYPE_BOOLEAN, TYPE_INTEGER, TYPE_STRING,
-};
-use crate::ir::IrValue;
 use std::borrow::Cow;
-use std::collections::HashMap;
 
-const PACKAGE: &str = "strings";
 const TRIM: &str = "strings.trim";
 const TRIM_START: &str = "strings.trimStart";
 const TRIM_END: &str = "strings.trimEnd";
@@ -99,72 +89,10 @@ pub(crate) fn arity(name: &str) -> Option<(usize, usize)> {
     }
 }
 
-pub(crate) fn lower_bytecode_call(
-    lowerer: &mut dyn BuiltinCallLowerer,
-    name: &str,
-    args: &[IrValue],
-    locals: &HashMap<String, ValueSlot>,
-) -> Result<ValueSlot, String> {
-    let lowered = args
-        .iter()
-        .map(|arg| lowerer.lower_value(arg, locals))
-        .collect::<Result<Vec<_>, _>>()?;
-    let arg_types = lowered
-        .iter()
-        .map(|slot| slot.type_name.clone())
-        .collect::<Vec<_>>();
-    let resolved = resolve_call(name, &arg_types).ok_or_else(|| {
-        format!(
-            "built-in `{name}` does not accept ({})",
-            arg_types.join(", ")
-        )
-    })?;
-
-    let dst_type_id = primitive_type_id(&resolved.return_type)
-        .unwrap_or_else(|| lowerer.type_id(&resolved.return_type));
-    let dst = lowerer.add_register(dst_type_id, 0);
-    let mut operands = vec![dst];
-    operands.extend(lowered.iter().map(|slot| slot.register));
-    lowerer.push(opcode_for(name)?, operands);
-    Ok(ValueSlot {
-        register: dst,
-        type_name: resolved.return_type.into_owned(),
-    })
-}
-
-fn opcode_for(name: &str) -> Result<u16, String> {
-    match name {
-        TRIM => Ok(OPCODE_STRING_TRIM),
-        TRIM_START => Ok(OPCODE_STRING_TRIM_START),
-        TRIM_END => Ok(OPCODE_STRING_TRIM_END),
-        UPPER => Ok(OPCODE_STRING_UPPER),
-        LOWER => Ok(OPCODE_STRING_LOWER),
-        CASE_FOLD => Ok(OPCODE_STRING_CASE_FOLD),
-        NORMALIZE_NFC => Ok(OPCODE_STRING_NORMALIZE_NFC),
-        GRAPHEMES => Ok(OPCODE_STRING_GRAPHEMES),
-        STARTS_WITH => Ok(OPCODE_STRING_STARTS_WITH),
-        ENDS_WITH => Ok(OPCODE_STRING_ENDS_WITH),
-        CONTAINS => Ok(OPCODE_STRING_CONTAINS),
-        SPLIT => Ok(OPCODE_STRING_SPLIT),
-        JOIN => Ok(OPCODE_STRING_JOIN),
-        BYTE_LEN => Ok(OPCODE_STRING_BYTE_LEN),
-        _ => Err(format!("unsupported {PACKAGE} built-in `{name}`")),
-    }
-}
-
 fn exact(arg_types: &[String], expected: &[&str]) -> bool {
     arg_types.len() == expected.len()
         && arg_types
             .iter()
             .zip(expected.iter())
             .all(|(actual, expected)| actual == expected)
-}
-
-fn primitive_type_id(type_name: &str) -> Option<u32> {
-    match type_name {
-        "Boolean" => Some(TYPE_BOOLEAN),
-        "Integer" => Some(TYPE_INTEGER),
-        "String" => Some(TYPE_STRING),
-        _ => None,
-    }
 }

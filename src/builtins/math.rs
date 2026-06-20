@@ -1,15 +1,5 @@
-use crate::bytecode::{
-    BuiltinCallLowerer, ValueSlot, OPCODE_MATH_ABS, OPCODE_MATH_ACOS, OPCODE_MATH_ASIN,
-    OPCODE_MATH_ATAN, OPCODE_MATH_ATAN2, OPCODE_MATH_CEIL, OPCODE_MATH_CLAMP, OPCODE_MATH_COS,
-    OPCODE_MATH_EXP, OPCODE_MATH_FLOOR, OPCODE_MATH_LOG, OPCODE_MATH_LOG10, OPCODE_MATH_MAX,
-    OPCODE_MATH_MIN, OPCODE_MATH_POW, OPCODE_MATH_ROUND, OPCODE_MATH_SIN, OPCODE_MATH_SQRT,
-    OPCODE_MATH_TAN, TYPE_FIXED, TYPE_FLOAT, TYPE_INTEGER,
-};
-use crate::ir::IrValue;
 use std::borrow::Cow;
-use std::collections::HashMap;
 
-const PACKAGE: &str = "math";
 
 const PI: &str = "math.pi";
 const PI_FIXED: &str = "math.piFixed";
@@ -170,64 +160,6 @@ pub(crate) fn arity(name: &str) -> Option<(usize, usize)> {
     }
 }
 
-pub(crate) fn lower_bytecode_call(
-    lowerer: &mut dyn BuiltinCallLowerer,
-    name: &str,
-    args: &[IrValue],
-    locals: &HashMap<String, ValueSlot>,
-) -> Result<ValueSlot, String> {
-    let lowered = args
-        .iter()
-        .map(|arg| lowerer.lower_value(arg, locals))
-        .collect::<Result<Vec<_>, _>>()?;
-    let arg_types = lowered
-        .iter()
-        .map(|slot| slot.type_name.clone())
-        .collect::<Vec<_>>();
-    let resolved = resolve_call(name, &arg_types).ok_or_else(|| {
-        format!(
-            "built-in `{name}` does not accept ({})",
-            arg_types.join(", ")
-        )
-    })?;
-
-    let dst_type_id = primitive_type_id(&resolved.return_type)
-        .unwrap_or_else(|| lowerer.type_id(&resolved.return_type));
-    let dst = lowerer.add_register(dst_type_id, 0);
-    let mut operands = vec![dst];
-    operands.extend(lowered.iter().map(|slot| slot.register));
-    lowerer.push(opcode_for(name)?, operands);
-    Ok(ValueSlot {
-        register: dst,
-        type_name: resolved.return_type.into_owned(),
-    })
-}
-
-fn opcode_for(name: &str) -> Result<u16, String> {
-    match name {
-        ABS => Ok(OPCODE_MATH_ABS),
-        MIN => Ok(OPCODE_MATH_MIN),
-        MAX => Ok(OPCODE_MATH_MAX),
-        CLAMP => Ok(OPCODE_MATH_CLAMP),
-        FLOOR => Ok(OPCODE_MATH_FLOOR),
-        CEIL => Ok(OPCODE_MATH_CEIL),
-        ROUND => Ok(OPCODE_MATH_ROUND),
-        SQRT => Ok(OPCODE_MATH_SQRT),
-        POW => Ok(OPCODE_MATH_POW),
-        EXP => Ok(OPCODE_MATH_EXP),
-        LOG => Ok(OPCODE_MATH_LOG),
-        LOG10 => Ok(OPCODE_MATH_LOG10),
-        SIN => Ok(OPCODE_MATH_SIN),
-        COS => Ok(OPCODE_MATH_COS),
-        TAN => Ok(OPCODE_MATH_TAN),
-        ASIN => Ok(OPCODE_MATH_ASIN),
-        ACOS => Ok(OPCODE_MATH_ACOS),
-        ATAN => Ok(OPCODE_MATH_ATAN),
-        ATAN2 => Ok(OPCODE_MATH_ATAN2),
-        _ => Err(format!("unsupported {PACKAGE} built-in `{name}`")),
-    }
-}
-
 fn all_same_numeric(arg_types: &[String], min: usize, max: usize) -> bool {
     (min..=max).contains(&arg_types.len())
         && arg_types.first().is_some_and(|first| is_numeric(first))
@@ -250,13 +182,4 @@ fn two_same_float_or_fixed(arg_types: &[String]) -> bool {
 
 fn is_numeric(type_name: &str) -> bool {
     matches!(type_name, "Integer" | "Float" | "Fixed")
-}
-
-fn primitive_type_id(type_name: &str) -> Option<u32> {
-    match type_name {
-        "Integer" => Some(TYPE_INTEGER),
-        "Float" => Some(TYPE_FLOAT),
-        "Fixed" => Some(TYPE_FIXED),
-        _ => None,
-    }
 }

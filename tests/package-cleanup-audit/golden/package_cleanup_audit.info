@@ -15,8 +15,8 @@ Container:
   flags: 0x00000000
   signature type: unsigned
   signature length: 0
-  content hash: 4e8fb90d154b5c86d6e3f894a9b5ce7b7216887d47e701af459c5b32a241f493
-  bytecode length: 829
+  content hash: 1c146f40876809973d723f428f4ee8ddd4ebac1763665483bc84ed0d61856067
+  bytecode length: 769
 
 Manifest:
   name: package_cleanup_audit
@@ -31,11 +31,11 @@ Manifest:
 Bytecode:
   ABI format version: 1
   types: 0
-  constants: 1
+  constants: 0
   resources: 1
   functions: 1
   globals: 0
-  cleanups: 1
+  cleanups: 0
   imports: 0
   exports: 1
 
@@ -47,11 +47,7 @@ Package State:
   <none>
 
 Resource Cleanups:
-  firstLine cleanup 0
-    pc: 3..7
-    resource register: 1
-    close function id: 4294967040
-    audit: records secondary close failure
+  <none>
 
 Imports:
   <none>

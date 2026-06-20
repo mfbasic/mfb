@@ -1,0 +1,12 @@
+IMPORT io
+IMPORT trap_builtin_pkg
+
+FUNC main AS Integer
+  ' success path: toInt succeeds, doubled
+  io::print(toString(trap_builtin_pkg::parseDoubled("21")))
+  ' trapped-error path: toInt fails on non-numeric, inline TRAP recovers -2
+  io::print(toString(trap_builtin_pkg::parseDoubled("notanumber")))
+  ' control-flow path: early RETURN before the trap
+  io::print(toString(trap_builtin_pkg::parseDoubled("skip")))
+  RETURN 0
+END FUNC

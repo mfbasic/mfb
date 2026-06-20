@@ -157,8 +157,6 @@ struct FieldInfo {
 struct VariantConstructor {
     name: String,
     union_name: String,
-    visibility: Visibility,
-    file_path: String,
     fields: Vec<FieldInfo>,
 }
 
@@ -586,8 +584,6 @@ impl<'a> TypeChecker<'a> {
         VariantConstructor {
             name: variant.name,
             union_name: String::new(),
-            visibility: Visibility::Export,
-            file_path: String::new(),
             fields: variant
                 .fields
                 .into_iter()
@@ -728,8 +724,6 @@ impl<'a> TypeChecker<'a> {
             .map(|variant| VariantConstructor {
                 name: variant.name.clone(),
                 union_name: type_decl.name.clone(),
-                visibility: type_decl.visibility,
-                file_path: file.path.clone(),
                 fields: Vec::new(),
             })
             .collect();

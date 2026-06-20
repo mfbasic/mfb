@@ -3,9 +3,7 @@ use std::path::PathBuf;
 
 use crate::arch::aarch64::abi;
 use crate::os::linux::flavor::LinuxFlavor;
-use crate::target::shared::code::{
-    self, CodeImport, CodeInstruction, CodeRelocation, NativeCodePlan,
-};
+use crate::target::shared::code::{self, CodeInstruction, CodeRelocation, NativeCodePlan};
 use crate::target::shared::nir::NirModule;
 use crate::target::shared::plan::NativePlan;
 
@@ -30,23 +28,6 @@ impl Platform {
         }
     }
 
-    fn libpthread(&self) -> &'static str {
-        match self.flavor {
-            LinuxFlavor::Glibc => "libpthread.so.0",
-            LinuxFlavor::Musl => self.libc(),
-        }
-    }
-
-    fn import(&self, library: &str, symbol: &str) -> CodeImport {
-        CodeImport {
-            library: library.to_string(),
-            symbol: symbol.to_string(),
-        }
-    }
-
-    fn libc_import(&self, symbol: &str) -> CodeImport {
-        self.import(self.libc(), symbol)
-    }
 }
 
 const LINUX_PROT_READ_WRITE: &str = "3";
@@ -62,132 +43,6 @@ impl code::CodegenPlatform for Platform {
     fn arch(&self) -> &'static str {
         "aarch64"
     }
-
-    fn package_runtime_imports(
-        &self,
-        spec: &crate::target::shared::runtime::RuntimeHelperSpec,
-    ) -> Vec<CodeImport> {
-        match spec.call {
-            "io.print" | "io.write" | "io.printError" | "io.writeError" => {
-                vec![self.libc_import("write")]
-            }
-            "io.flush" | "io.flushError" => {
-                vec![
-                    self.libc_import("fsync"),
-                    self.libc_import("__errno_location"),
-                ]
-            }
-            "io.input" | "io.readLine" | "io.readChar" | "io.readByte" => {
-                let mut imports = vec![self.libc_import("read")];
-                if spec.call == "io.input" {
-                    imports.push(self.libc_import("write"));
-                    imports.push(self.libc_import("fsync"));
-                    imports.push(self.libc_import("__errno_location"));
-                }
-                imports
-            }
-            "io.pollInput" => vec![self.libc_import("poll")],
-            "io.isInputTerminal" | "io.isOutputTerminal" | "io.isErrorTerminal" => {
-                vec![self.libc_import("isatty")]
-            }
-            "io.terminalSize" => vec![self.libc_import("ioctl")],
-            "fs.exists" => vec![self.libc_import("access")],
-            "fs.fileExists" | "fs.directoryExists" => vec![self.libc_import("stat")],
-            "fs.currentDirectory" => vec![self.libc_import("getcwd")],
-            "fs.tempDirectory" => vec![self.libc_import("getenv")],
-            "fs.setCurrentDirectory" => {
-                vec![
-                    self.libc_import("chdir"),
-                    self.libc_import("__errno_location"),
-                ]
-            }
-            "fs.deleteFile" => {
-                vec![
-                    self.libc_import("unlink"),
-                    self.libc_import("__errno_location"),
-                ]
-            }
-            "fs.createDirectory" | "fs.createDirectories" => {
-                vec![
-                    self.libc_import("mkdir"),
-                    self.libc_import("__errno_location"),
-                ]
-            }
-            "fs.deleteDirectory" => {
-                vec![
-                    self.libc_import("rmdir"),
-                    self.libc_import("__errno_location"),
-                ]
-            }
-            "fs.listDirectory" => vec![
-                self.libc_import("opendir"),
-                self.libc_import("readdir"),
-                self.libc_import("closedir"),
-                self.libc_import("__errno_location"),
-            ],
-            "fs.open"
-            | "fs.openFile"
-            | "fs.openFileNoFollow"
-            | "fs.createTempFile"
-            | "fs.readText"
-            | "fs.readBytes"
-            | "fs.writeText"
-            | "fs.writeBytes"
-            | "fs.writeTextAtomic"
-            | "fs.writeBytesAtomic"
-            | "fs.appendText"
-            | "fs.appendBytes"
-            | "fs.readAll"
-            | "fs.readAllBytes"
-            | "fs.writeAll"
-            | "fs.writeAllBytes"
-            | "fs.close"
-            | "fs.eof" => {
-                let mut imports = vec![
-                    self.libc_import("open"),
-                    self.libc_import("read"),
-                    self.libc_import("write"),
-                    self.libc_import("close"),
-                    self.libc_import("fsync"),
-                    self.libc_import("lseek"),
-                    self.libc_import("__errno_location"),
-                ];
-                if matches!(spec.call, "fs.createTempFile") {
-                    imports.push(self.libc_import("getentropy"));
-                }
-                if matches!(spec.call, "fs.writeTextAtomic" | "fs.writeBytesAtomic") {
-                    imports.push(self.libc_import("mkstemps"));
-                    imports.push(self.libc_import("rename"));
-                }
-                imports
-            }
-            "fs.canonicalPath" | "fs.isWithin" => {
-                vec![
-                    self.libc_import("realpath"),
-                    self.libc_import("__errno_location"),
-                ]
-            }
-            "thread.start" | "thread.isRunning" | "thread.waitFor" | "thread.cancel"
-            | "thread.send" | "thread.poll" | "thread.read" | "thread.receive" | "thread.emit"
-            | "thread.isCancelled" => [
-                "pthread_create",
-                "pthread_mutex_init",
-                "pthread_mutex_lock",
-                "pthread_mutex_unlock",
-                "pthread_cond_init",
-                "pthread_cond_wait",
-                "pthread_cond_timedwait",
-                "pthread_cond_signal",
-                "pthread_cond_broadcast",
-                "clock_gettime",
-            ]
-            .into_iter()
-            .map(|symbol| self.import(self.libpthread(), symbol))
-            .collect(),
-            _ => Vec::new(),
-        }
-    }
-
     fn preserves_link_register_in_runtime_helpers(&self) -> bool {
         true
     }

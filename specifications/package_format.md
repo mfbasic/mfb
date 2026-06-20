@@ -4,10 +4,12 @@ A `.mfp` file is a signed MFBASIC package. It contains:
 
 ```text
 MFP container header
-MFB architecture-independent package bytecode
+MFB architecture-independent package bytecode (structured Binary IR)
 ```
 
-The container header provides quick package identity and signature information. The bytecode payload contains the package manifest, dependency metadata, public API metadata, type tables, constants, functions, native binding declarations, and architecture-independent register bytecode.
+The container header provides quick package identity and signature information. The bytecode payload contains the package manifest, dependency metadata, public API metadata, type tables, constants, functions, native binding declarations, and the **structured Binary IR** that carries every function body.
+
+Throughout this document, "bytecode" means a *Binary IR representation*: a compact, **versioned, structured** binary serialization of the compiler's IR (`IrProject` / `IrFunction` / `IrOp` / `IrValue` / `IrType`), not a flat register/stack machine. There is no flat opcode ISA, no `JMP`/`JMP_FALSE`, and no register machine. Control flow stays nested (regions with explicit ends) and expressions stay as trees, exactly as in the compiler's in-memory IR. A consumer **decodes** the Binary IR back to IR and lowers it through the single `IR → NIR → native` path used for the executable's own code.
 
 All integers in `.mfp` files are little-endian. All strings are UTF-8 byte strings and are length-prefixed. No field is NUL-terminated.
 
@@ -78,8 +80,8 @@ The magic is deliberately not plain `"MFP1"` so corrupted text-mode transfers ar
 | `magic`           | File identification bytes.                                        |
 | `containerMajor`  | Major version of the `.mfp` container format.                     |
 | `containerMinor`  | Minor version of the `.mfp` container format.                     |
-| `bytecodeMajor`   | Required major version of the package bytecode format.            |
-| `bytecodeMinor`   | Required minor version of the package bytecode format.            |
+| `bytecodeMajor`   | Required major version of the package bytecode (Binary IR) format. Currently `2`. |
+| `bytecodeMinor`   | Required minor version of the package bytecode (Binary IR) format.            |
 | `flags`           | Container-level flags. Unknown required flags reject the package. |
 | `signatureType`   | Signature algorithm identifier.                                   |
 | `signatureLength` | Number of bytes in `signature`.                                   |
@@ -93,7 +95,7 @@ The magic is deliberately not plain `"MFP1"` so corrupted text-mode transfers ar
 | `author`          | Informational author string.                                      |
 | `url`             | Informational package/project URL.                                |
 | `bytecodeLength`  | Exact byte length of `packageBytecode`.                           |
-| `packageBytecode` | Architecture-independent MFB bytecode image.                      |
+| `packageBytecode` | Architecture-independent MFB bytecode image (structured Binary IR). |
 
 The header `name`, `ident`, `version`, `identKey`, `identFingerprint`, `signingFingerprint`, `author`, and `url` are for fast package scanning. The bytecode payload must also contain a signed manifest with the same package identity, owner ident key, owner ident fingerprint, and signing fingerprint. A verifier must reject the package if the header identity and bytecode manifest identity do not match.
 
@@ -216,7 +218,7 @@ A reader must reject an `.mfp` package when:
 
 * `magic` does not match. The current compiler reports this as `package does not have the MFP package magic`.
 * `containerMajor` is unsupported. The current compiler reports this as `unsupported MFP container major version <n>`.
-* `bytecodeMajor` is unsupported. The current compiler reports this as `unsupported MFBC major version <n>`.
+* `bytecodeMajor` is unsupported. The package bytecode (Binary IR) format is now at major version `2`; this is a **clean break** from the old flat opcode payload (major `1`). A reader rejects any package that predates the structured Binary IR format. The current compiler reports this as `unsupported MFBC major version <n> (expected 2); this package predates the structured Binary IR format and must be rebuilt`.
 * `signatureType` is unknown. The current compiler reports this as `unsupported .mfp signature type <n>`.
 * `signatureLength` is invalid for the signature type. The current compiler reports either `unsigned .mfp package must have zero signature length` or `Ed25519 .mfp package must have a 64 byte signature`.
 * The signature fails verification under the selected trust policy.
@@ -244,13 +246,15 @@ Package names should use the same identifier restrictions as source package name
 
 ---
 
-# MFB Package Bytecode
+# MFB Package Bytecode (structured Binary IR)
 
 The package bytecode is the architecture-independent payload stored after the `.mfp` header.
 
-The bytecode is not machine code. It contains no native addresses, host pointers, host object layouts, CPU instructions, or platform-specific calling conventions. It is a typed register bytecode plus metadata.
+The bytecode is not machine code. It contains no native addresses, host pointers, host object layouts, CPU instructions, or platform-specific calling conventions. It is the **structured Binary IR** — a faithful, versioned serialization of the compiler's IR — plus the metadata tables that describe the package.
 
-The package bytecode format is called **MFBBC**: MFB Bytecode.
+The package bytecode format is called **MFBC**. Its container major version is **2** (the clean break to the structured Binary IR; the old flat opcode payload was major `1` and is rejected outright).
+
+The Binary IR is *not* a flat opcode stream: control flow is encoded as nested regions with explicit ends (`IF/THEN/ELSE/END`, `WHILE/DO/END`, `FOREACH/IN/DO/END`, `MATCH/CASE/.../END`, `TRAP/.../END`) and expressions stay as trees (`Binary`, `Call`, `CallResult`, `ResultIsOk/Value/Error`, `Constructor`, `MemberAccess`, literals, identifiers, …). A reader walks the tree; structure is read, never reconstructed from jumps. This mirrors `src/ir.rs` one-to-one and is the same principle WebAssembly uses (structured control flow, no arbitrary jumps), kept at MFBASIC's own semantic level so the encoding still knows `List`, `Map`, `Result`, owned `File`, and threads.
 
 ```text
 packageBytecode
@@ -263,7 +267,7 @@ packageBytecode
 
 ```text
 bcMagic        4 bytes
-bcMajor        u16
+bcMajor        u16   = 2 (structured Binary IR; major 1 was the old flat payload and is rejected)
 bcMinor        u16
 bcFlags        u32
 sectionCount   u32
@@ -303,14 +307,16 @@ Sections may appear in any order, but section ranges must not overlap. Required 
 6  = EXPORT_TABLE
 7  = GLOBAL_TABLE
 8  = FUNCTION_TABLE
-9  = CODE
 10 = NATIVE_LINK_TABLE
 11 = RESOURCE_TABLE
 12 = DEBUG_INFO
 13 = SOURCE_MAP
 14 = AUDIT_INFO
 15 = ABI_INDEX
+16 = IR
 ```
+
+Section id `9` (the old flat `CODE` stream) is **retired**. Function bodies are now carried by the `IR` section (id `16`) as structured Binary IR; the function table records zero-length code regions.
 
 Required sections:
 
@@ -323,7 +329,7 @@ IMPORT_TABLE
 EXPORT_TABLE
 GLOBAL_TABLE
 FUNCTION_TABLE
-CODE
+IR
 ABI_INDEX
 ```
 
@@ -757,7 +763,7 @@ A package may have a package initializer function. The bytecode merger records p
 
 # Functions
 
-The `FUNCTION_TABLE` stores all bytecode functions, native wrapper functions, imported function references, and package initializer functions.
+The `FUNCTION_TABLE` stores all functions, native wrapper functions, imported function references, and package initializer functions. The table *describes* each function (name, signature, kind, flags, parameters, declared return/effect); the function *body* is the structured Binary IR carried in the `IR` section.
 
 ```text
 functionCount   u32
@@ -774,19 +780,16 @@ flags           u16
 paramCount      u32
 returnType      typeId
 
-registerCount   u32
 codeOffset      u64
 codeLength      u64
-
-trapPc          u32
-cleanupCount    u32
-cleanupOffset   u64
 ```
+
+Because function bodies are carried by the `IR` section as structured Binary IR, the function table records **zero-length** code regions (`codeOffset`/`codeLength` are retained for layout compatibility and are zero). There are no register tables, program counters, `trapPc`, or cleanup tables in the function entry: those flat-machine concepts do not exist in the structured form. A function's `IF`/`WHILE`/`FOREACH`/`MATCH`/`TRAP` structure, its resource regions, and its single bottom trap are all represented directly as nested Binary IR nodes.
 
 Function kinds:
 
 ```text
-1 = bytecode function
+1 = bytecode function (structured Binary IR body)
 2 = imported function
 3 = native wrapper function
 4 = built-in function reference
@@ -800,24 +803,14 @@ bit 0 = exported
 bit 1 = private
 bit 2 = isolated
 bit 3 = sub
-bit 4 = hasTrap
 bit 5 = returnsNothingOnSuccess
 ```
 
-The `returnType` is the declared success type. The effective runtime result is always `Result OF returnType`, consistent with the language rule that every function returns `Result` and call sites auto-unwrap or auto-propagate unless directly matched. 
-
-If `hasTrap` is false, `trapPc` must be `0xFFFFFFFF`.
+The `returnType` is the declared success type. The effective runtime result is always `Result OF returnType`, consistent with the language rule that every function returns `Result` and call sites auto-unwrap or auto-propagate unless directly matched. Whether a function contains a trap is read directly from its Binary IR body (a `Trap` region), not from a flag/PC pair.
 
 ## Parameters
 
-Immediately following each `FunctionEntry` or in an associated payload table:
-
-```text
-paramName       stringId
-paramType       typeId
-paramFlags      u32
-defaultConst    constId or 0xFFFFFFFF
-```
+Each function records its parameters (name, type, ownership annotations, default presence and default constant). Parameters with defaults carry the default value; ownership annotations record borrow/consume behavior.
 
 Parameter flags:
 
@@ -827,341 +820,82 @@ bit 1 = resource borrow
 bit 2 = resource consume
 ```
 
-No `BORROW` or `MOVE` source syntax is required. These are compiler/runtime metadata rules.
+No `BORROW` or `MOVE` source syntax is required. These are compiler/runtime metadata rules, and they round-trip through the Binary IR.
 
 ---
 
-# Code Section
+# IR Section (structured Binary IR)
 
-The `CODE` section contains instruction streams for bytecode functions.
+The `IR` section (id `16`) carries the structured Binary IR payload — the faithful, versioned serialization of the project's IR functions. It replaces the retired flat `CODE` stream as the carrier of every function body.
 
-A function’s `codeOffset` and `codeLength` point into the `CODE` section.
-
-## Function code layout
+## Payload header
 
 ```text
-instructionCount     u32
-Instruction[instructionCount]
+magic        4 bytes = "MFIR"
+version      u16
+IrProject    ...
 ```
 
-Program counters are instruction indexes, not byte offsets. Branch targets refer to instruction indexes within the same function.
-
-## Instruction encoding
+Recommended `magic`:
 
 ```text
-opcode          u16
-flags           u16
-operandCount    u16
-reserved        u16
-operands        u32[operandCount]
+4D 46 49 52
+M  F  I  R
 ```
 
-All large values are loaded from the constant pool. Operands are indexes into registers, constants, types, fields, union members, functions, globals, or instruction targets depending on the opcode.
+The Binary IR `version` is currently `1`. A reader rejects any payload whose magic is not `MFIR` or whose version it does not support (the package bytecode container is separately versioned at MFBC major `2`).
 
-This format is intentionally simple and verifier-friendly. A future compact encoding may be added under a new `bytecodeMajor` or `bytecodeMinor`.
+The payload is self-contained: integers are little-endian, strings are inline length-prefixed (`u32` byte length followed by UTF-8 bytes). The in-memory IR is free to change behind this format; the encoding is the stable contract, and `IR → Binary IR → IR` is an identity round-trip across every node kind.
+
+## Structured control flow (no jumps)
+
+Control flow is encoded as nested regions with explicit ends, matching IR exactly:
+
+```text
+IF      <cond-expr> THEN <ops...> ELSE <ops...> END
+WHILE   <cond-expr> DO <ops...> END
+FOREACH <name> IN <iterable-expr> DO <ops...> END
+MATCH   <scrutinee-expr> CASE <pattern> <ops...> ... [ELSE <ops...>] END
+TRAP    <binding> <ops...> END
+```
+
+There are no `JMP`, `JMP_FALSE`, label, or program-counter concepts in the format. A reader walks the tree; structure is read, never reconstructed.
+
+## Statements / ops
+
+`IrOp` is encoded faithfully, one tag byte per kind: `Let`/`Bind`, `Assign`, `Return`, `Fail`, `Propagate`, `Recover`, `Eval`, the control-flow ops above, and the resource region ops (`RESOURCE_ENTER`/`LEAVE`/`CLOSE`). The internal `Result`/`Ok` forms remain implementation-only — they appear in IR and therefore in Binary IR, but are never user-visible.
+
+## Expressions stay nested
+
+`IrValue` is encoded as a tree, one tag byte per kind: `Binary { op, left, right }`, `Call { target, args }`, `CallResult { … }`, `ResultIsOk` / `ResultValue` / `ResultError`, `Constructor`, `MemberAccess`, `UnionWrap` / `UnionExtract`, literals, and identifiers. There is no flattening into per-register temporaries. `CallResult` of a built-in is just an `IrValue::CallResult` node — there is no flat built-in dispatch, so the old "unknown function" emitter failure cannot occur, and an inline `TRAP` over a built-in serializes like any other expression.
+
+## Tables and references
+
+The Binary IR rides alongside the container's interned tables (strings, types, constants, globals, imports, exports). IR nodes that reference declarations resolve against those tables. Concrete type instantiations (such as `List OF Integer` or `Result OF Out`) appear in the `TYPE_TABLE`; the Binary IR references them.
+
+## Consumption
+
+A consumer **decodes** each imported package's `IR` section back into IR functions, applies the package identity prefix (`<id>.package.symbol`) as a link-time rename of every definition and reference, merges the package's types/constants/globals into the project, and lowers **everything** through the single `IR → NIR → native` path. There is no separate package bytecode→native bridge: package functions get every language feature — control flow, function-level and inline `TRAP`, all built-ins, inline-`TRAP`-on-built-in — for free, because they ride the same codegen as the executable's own code.
 
 ---
 
-# Registers
+# Resource regions
 
-Each function has a fixed number of virtual registers.
-
-Registers are typed. Register types are stored in function metadata:
+Resource lifetime is represented structurally in the Binary IR rather than by a side cleanup table.
 
 ```text
-registerCount     u32
-
-repeated registerCount times:
-  registerType    typeId
-  registerFlags   u32
+RESOURCE_ENTER  <binding> <closeFunction>
+  <ops...>
+RESOURCE_LEAVE
 ```
 
-Register flags:
-
-```text
-bit 0 = parameter register
-bit 1 = mutable local cell
-bit 2 = resource register
-bit 3 = initialized at entry
-```
-
-The verifier tracks whether each register is initialized at every program point.
-
-The verifier also tracks resource ownership. Resource registers cannot be copied. A resource register is either:
-
-```text
-uninitialized
-owned
-borrowed
-moved
-closed
-```
-
----
-
-# Core Instructions
-
-## No-op
-
-```text
-NOP
-```
-
-## Constants and defaults
-
-```text
-LOAD_CONST      dst, constId
-LOAD_DEFAULT    dst, typeId
-```
-
-## Movement and ownership
-
-```text
-MOVE            dst, src
-COPY            dst, src
-DROP            src
-FREEZE          dst, src
-```
-
-Rules:
-
-* `COPY` is valid only for copyable values.
-* `MOVE` transfers ownership and marks `src` moved.
-* Reading a moved register is a verifier error.
-* `FREEZE` converts a locally mutable collection buffer into an immutable owned value.
-* `DROP` releases a non-resource value or marks a register dead.
-* Resource values are not lost silently; they are closed, moved, or returned. A resource binding still owned when its lexical scope exits is closed by a compiler-generated lexical drop.
-
-## Global access
-
-```text
-LOAD_GLOBAL     dst, globalId
-STORE_GLOBAL    globalId, src
-```
-
-`STORE_GLOBAL` is valid only for top-level `MUT` globals.
-
-## Built-in IO and filesystem
-
-```text
-IO_WRITE          dst, stringReg, fdConst, appendNewlineConst
-IO_FLUSH          dst, fdConst
-IO_READ_LINE      dst, promptRegOrU32Max
-IO_READ_CHAR      dst
-IO_READ_BYTE      dst
-IO_IS_TERMINAL    dst, fdConst
-IO_TERMINAL_SIZE  dst
-IO_OPEN           dst, pathReg, modeReg
-IO_CLOSE          dst, fileHandleReg
-```
-
-`IO_OPEN` and `IO_CLOSE` are portable bytecode operations. `pathReg` and `modeReg` are `String` registers, `modeReg` contains a source-level portable mode string, and `dst` for `IO_OPEN` has built-in type `File`. Bytecode must not encode host constants such as POSIX `O_RDONLY`, Darwin syscall numbers, Windows access masks, or libc symbol names. Native backends lower these operations to the target runtime helper contract below.
-
-## Records
-
-```text
-MAKE_RECORD     dst, typeId, fieldReg...
-GET_FIELD       dst, src, fieldIndex
-WITH_FIELD      dst, src, fieldIndex, value
-```
-
-## Unions
-
-```text
-MAKE_MEMBER         dst, unionTypeId, memberIndex, valueReg
-MEMBER_TAG          dst, src
-GET_MEMBER_VALUE    dst, src, memberIndex
-```
-
-`GET_MEMBER_VALUE` is valid only on control-flow paths where the verifier knows the active union member matches, or immediately after a checked branch.
-
-## Enums
-
-```text
-LOAD_ENUM       dst, enumTypeId, ordinal
-```
-
-## Lists and maps
-
-These are used primarily for literals and compiler-generated construction. Most collection operations remain normal calls to built-in functions.
-
-```text
-LIST_NEW        dst, listTypeId, capacityConst
-LIST_PUSH       listReg, itemReg
-
-MAP_NEW         dst, mapTypeId, capacityConst
-MAP_PUT         mapReg, keyReg, valueReg
-```
-
-The verifier enforces element/key/value types.
-
-## Arithmetic and comparison
-
-```text
-NEG             dst, a
-ADD             dst, a, b
-SUB             dst, a, b
-MUL             dst, a, b
-DIV             dst, a, b
-MOD             dst, a, b
-POW             dst, a, b
-
-EQ              dst, a, b
-NE              dst, a, b
-LT              dst, a, b
-LE              dst, a, b
-GT              dst, a, b
-GE              dst, a, b
-
-AND             dst, a, b
-OR              dst, a, b
-XOR             dst, a, b
-NOT             dst, a
-
-CONCAT          dst, a, b
-```
-
-Arithmetic instructions use MFBASIC checked semantics. If an operation fails, for example due to overflow or divide-by-zero, it creates an `Error` and routes to the active trap or returns `Err`. In the current compiler/runtime source, numeric runtime errors use the same runtime codes documented in `specifications/error_codes.md`, for example `ErrOverflow = 77050010`.
-
-Short-circuiting `AND` and `OR` are normally compiled with branches rather than relying on the `AND`/`OR` opcodes.
-
-## Control flow
-
-```text
-JMP             targetPc
-JMP_TRUE        condReg, targetPc
-JMP_FALSE       condReg, targetPc
-```
-
-Branch targets must be valid instruction indexes.
-
-The verifier must reject jumps into trap blocks, cleanup regions, or the middle of compiler-generated structured regions.
-
-## Function calls and `Result`
-
-Every call produces a raw `Result` value in bytecode. Source-level auto-unwrapping is compiled as a call followed by `UNWRAP_RESULT`.
-
-```text
-CALL_RESULT     dstResult, functionId, argReg...
-UNWRAP_RESULT   dstValue, resultReg
-
-MAKE_OK         dstResult, valueReg
-MAKE_ERR        dstResult, errorReg
-
-RESULT_IS_OK    dstBool, resultReg
-RESULT_VALUE    dstValue, resultReg
-RESULT_ERROR    dstError, resultReg
-```
-
-Source:
-
-```basic
-LET x = toInt(s)
-```
-
-Bytecode pattern:
-
-```text
-CALL_RESULT     r1, toInt, r0
-UNWRAP_RESULT   r2, r1
-```
-
-Source inline `TRAP`:
-
-```basic
-LET n = toInt(s) TRAP(e)
-  ...
-  RECOVER 0
-END TRAP
-```
-
-Bytecode pattern:
-
-```text
-CALL_RESULT     r1, toInt, r0
-RESULT_IS_OK    r2, r1
-JMP_FALSE       r2, errCase
-RESULT_VALUE    r3, r1
-...
-JMP             endTrap
-errCase:
-RESULT_ERROR    r4, r1
-...
-endTrap:
-```
-
-This keeps the language clean while making the bytecode explicit and auditable.
-
-## Errors and traps
-
-```text
-MAKE_ERROR      dstError, codeReg, messageReg
-FAIL            errorReg
-PROPAGATE
-RETURN_OK       valueReg
-RETURN_ERR      errorReg
-```
-
-Rules:
-
-* `RETURN_OK` returns the success member carrying `value`.
-* `RETURN_ERR` returns the error member carrying `error`.
-* `FAIL` transfers to the function trap if one exists; otherwise it returns the error member carrying `error`.
-* `PROPAGATE` is valid only in trap code.
-* `UNWRAP_RESULT` behaves like `FAIL` when the result is the error member.
-
-The function table’s `trapPc` gives the single bottom trap entry point.
-
-## Resource cleanup
-
-```text
-RESOURCE_ENTER  resourceReg, closeFunctionId, cleanupId
-RESOURCE_LEAVE  cleanupId
-CLOSE_RESOURCE  resourceReg, closeFunctionId
-```
-
-Rules:
-
-* `RESOURCE_ENTER` registers a resource as owned by the current lexical cleanup region, established when the resource binding is declared.
+* `RESOURCE_ENTER` opens a lexically nested region that owns the resource binding.
 * `RESOURCE_LEAVE` ends the region and closes the resource exactly once if it is still owned (lexical drop).
-* `CLOSE_RESOURCE` is compiler-generated for explicit close operations and for lexical drop lowering. An explicit close marks the resource moved, so the region's `RESOURCE_LEAVE` does not close it again.
-* If control exits a region through `FAIL`, `UNWRAP_RESULT`, `RETURN_OK`, `RETURN_ERR`, or branch, the bytecode must either close the resource explicitly or have cleanup metadata that closes it.
-* The verifier rejects paths where an owned resource can be lost, copied, double-closed, used after close, or read after move.
+* An explicit close (`RESOURCE_CLOSE` / `CLOSE`) marks the resource moved, so the enclosing region's leave does not close it again.
+* Because the region is nested in the IR tree, every exit path (fall-through, `RETURN`, `FAIL`, `PROPAGATE`, loop break/continue) is bounded by the region's end; there are no PC ranges to reconstruct and no "jump into a cleanup region" to reject.
+* A resource binding still owned when its region exits is closed by a compiler-generated lexical drop, deterministically and on every exit path including error exits.
 
-The resource model closes files, sockets, and similar handles by lexical drop when their owning binding leaves scope, deterministically and on every exit path including error exits.  The bytecode makes that rule verifiable.
-
----
-
-# Cleanup Table
-
-Each bytecode function may contain cleanup metadata.
-
-```text
-cleanupCount      u32
-
-repeated cleanupCount times:
-  cleanupId       u32
-  startPc         u32
-  endPc           u32
-  resourceReg     u32
-  closeFunctionId u32
-  flags           u32
-```
-
-A cleanup region is active for instruction indexes:
-
-```text
-startPc <= pc < endPc
-```
-
-Verifier rules:
-
-* A cleanup region must begin at or after `RESOURCE_ENTER`.
-* A cleanup region must end at or before `RESOURCE_LEAVE`.
-* Control may not jump into a cleanup region from outside.
-* Control may leave a cleanup region only through paths that close the resource or through runtime cleanup transfer.
-* `flags & 0x00000001` means the runtime records a secondary close failure as cleanup-failure audit metadata when the body already has a pending error. The pending body error remains the source-level result.
-* `closeFunctionId` must accept the exact resource type.
+The resource model closes files, sockets, and similar handles by lexical drop when their owning binding leaves scope. The structured Binary IR makes that rule directly verifiable.
 
 ---
 
@@ -1341,6 +1075,8 @@ The `.mfp` verifier runs before a package can be imported or merged.
 
 The verifier must reject malformed, unsafe, or incompatible packages before any package code runs.
 
+Verification operates on **decoded IR**, not a flat opcode stream. The structured form is easier to verify — structure is explicit, so there is no CFG reconstruction and no "reject jumps into trap/cleanup regions." Most invariants reuse the compiler's existing IR-level passes (type checking, ownership/resource linearity, exhaustiveness, return/effect agreement) rather than a parallel flat-bytecode verifier.
+
 Current compiler source of truth:
 
 - Verification and package-read failures are currently surfaced as detailed package/container validation messages from the package reader and verifier implementation, not as a single emitted `rules.rs` diagnostic family.
@@ -1352,7 +1088,7 @@ The container verifier checks:
 
 * Magic bytes.
 * Container version.
-* Bytecode version.
+* Bytecode (Binary IR) version — MFBC major must be `2`; the old flat payload (major `1`) is rejected.
 * Signature type and signature length.
 * Signature validity.
 * Header string validity.
@@ -1385,23 +1121,21 @@ The type verifier checks:
 * Function types have valid parameter and return types.
 * `CPtr` does not appear in ordinary MFBASIC type signatures.
 
-## Function verifier
+## Function verifier (IR-level)
 
-The function verifier checks:
+The function verifier checks the decoded Binary IR of each function:
 
-* All registers have valid types.
-* All registers are initialized before read.
-* All instructions have valid operands.
-* Branch targets are valid instruction indexes.
-* No jump enters a trap block from outside except through error routing.
-* No jump enters a cleanup region from outside.
-* All function paths return `Ok` or `Err`.
-* `PROPAGATE` appears only in trap code.
-* `UNWRAP_RESULT` operates only on `Result` registers.
-* `RESULT_VALUE` is used only on proven-`Ok` paths.
-* `RESULT_ERROR` is used only on proven-`Err` paths.
+* Every IR node is type-correct — operands, calls, constructors, member access, and `Result` inspection (`ResultIsOk`/`ResultValue`/`ResultError`) are well-typed.
+* Every binding is defined before use; no use-after-move.
+* Every path through the body produces a `Result` consistent with the declared success type — declared return/effect agreement.
+* `PROPAGATE` appears only inside a `TRAP` region.
+* `CallResult`/`ResultValue`/`ResultError` apply only to fallible (`Result`) expressions, on the structurally correct branch.
+* `MATCH` is exhaustive (covers every value or has an `ELSE`).
+* There is at most one function-level bottom `TRAP`; error routing is via the structured `Trap`/`Fail`/`Propagate` ops, never via unwinding or arbitrary jumps.
 * Calls pass the correct number and type of arguments.
 * Isolated function restrictions are preserved.
+
+Because control flow is structured (nested regions with explicit ends), there are no branch targets to validate and no "jump into a trap or cleanup region" to reject.
 
 ## Resource verifier
 
@@ -1431,7 +1165,7 @@ The native verifier checks:
 * Resource ownership is declared through `RESOURCE_TABLE`.
 * A package containing native metadata sets the container native flag.
 
-This directly addresses the `.mfp` verifier gap identified in the review: type-checked bytecode, initialized register use, resource ownership, valid control flow, package signature validation, and native-link manifest validation. 
+This directly addresses the `.mfp` verifier gap identified in the review: type-correct IR, define-before-use, resource ownership, structured control flow, package signature validation, and native-link manifest validation. 
 
 ---
 
@@ -1490,19 +1224,18 @@ packageBytecode
   GLOBAL_TABLE
     empty
   FUNCTION_TABLE
-    function 0: add(Integer, Integer) AS Integer
-  CODE
-    LOAD / ADD / RETURN_OK instruction stream
+    function 0: add(Integer, Integer) AS Integer  (zero-length code region)
+  IR
+    "MFIR" + version + IrProject { function 0 body: Return(Binary{ Add, Ident a, Ident b }) }
 ```
 
-The function body could lower to:
+The function body is the structured Binary IR node for `add`, which decodes back to:
 
 ```text
-ADD        r2, r0, r1
-RETURN_OK  r2
+RETURN  ( a + b )
 ```
 
-If `ADD` overflows, it creates `ErrOverflow` (`77050010`) and routes to the trap or returns `Err`, depending on the function metadata.
+i.e. an `IrOp::Return` whose value is an `IrValue::Binary { op: Add, left: a, right: b }`. There are no registers or opcodes — the consumer decodes this back to IR and lowers it through `IR → NIR → native`. If `a + b` overflows at runtime, the checked `Add` produces `ErrOverflow` (`77050010`) and the function returns `Err` (or routes to a `TRAP` region if one encloses it).
 
 ---
 
@@ -1600,6 +1333,8 @@ offset         u64
 length         u64
 ```
 
+The bytecode container is at MFBC major version `2` (the structured Binary IR; the old flat opcode payload was major `1` and is rejected).
+
 Required sections are:
 
 ```text
@@ -1611,7 +1346,7 @@ IMPORT_TABLE
 EXPORT_TABLE
 GLOBAL_TABLE
 FUNCTION_TABLE
-CODE
+IR
 ABI_INDEX
 ```
 
@@ -1625,13 +1360,13 @@ SOURCE_MAP
 AUDIT_INFO
 ```
 
-The bytecode is a typed register bytecode. It contains no machine code, native addresses, host pointers, or platform-specific object layouts. Branch targets are bytecode instruction indexes. Constants, strings, types, imports, exports, globals, functions, native bindings, and resources are referenced by table indexes.
+The bytecode is **structured Binary IR**: a faithful, versioned serialization of the compiler's IR. It contains no machine code, native addresses, host pointers, platform-specific object layouts, opcodes, registers, or jumps. Control flow is nested (regions with explicit ends) and expressions are trees. Function bodies live in the `IR` section (id `16`, payload prefixed `"MFIR"` + `u16` version); the `FUNCTION_TABLE` describes functions and records zero-length code regions. Constants, strings, types, imports, exports, globals, functions, native bindings, and resources are referenced from the IR by table indexes.
 
-Every function returns `Result` at the bytecode level. Source-level auto-unwrapping is compiled as `CALL_RESULT` followed by `UNWRAP_RESULT`. A direct `MATCH` on a call compiles as `CALL_RESULT` followed by explicit `Result` inspection.
+Every function returns `Result` at the IR level. Source-level auto-unwrapping, inline `TRAP`, and direct `MATCH` on a call are all encoded as ordinary IR nodes (`CallResult`, `ResultIsOk`/`ResultValue`/`ResultError`, `Trap`, `Match`). A consumer decodes the Binary IR back to IR, applies the package identity prefix, merges it into the project, and lowers everything through the single `IR → NIR → native` path.
 
-The verifier must check section bounds, type references, initialized register use, valid branch targets, valid trap control flow, resource ownership, native binding metadata, and package signature validity before the package may be imported or merged.
+The verifier checks the decoded IR: section bounds, type references, type-correctness, define-before-use, resource ownership/linearity, exhaustive `MATCH`, single bottom trap, declared return/effect agreement, native binding metadata, and package signature validity before the package may be imported or merged.
 
 ```
 
-That gives you a concrete `.mfp` container and a sane bytecode foundation without turning MFBASIC into a giant VM spec too early.
+That gives you a concrete `.mfp` container and a structured Binary IR payload that rejoins the single native codegen, without a separate package VM or a second bytecode→native bridge.
 ```

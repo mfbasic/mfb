@@ -1,0 +1,5 @@
+IMPORT thread
+
+EXPORT FUNC drain(t AS Thread OF String TO Integer) AS String
+  RETURN thread::receive(t, 1000)
+END FUNC

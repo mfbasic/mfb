@@ -15,8 +15,8 @@ Container:
   flags: 0x00000000
   signature type: unsigned
   signature length: 0
-  content hash: 1128cd48ce4270d83aa003391fafc8b041af752ff458f4ae46d9b28e64113193
-  bytecode length: 705
+  content hash: 333f171b74880e8c161489c36ad818a722e6a37842c558857b1397585f98b133
+  bytecode length: 815
 
 Manifest:
   name: package_state_audit
@@ -31,7 +31,7 @@ Manifest:
 Bytecode:
   ABI format version: 1
   types: 0
-  constants: 1
+  constants: 0
   resources: 0
   functions: 1
   globals: 2

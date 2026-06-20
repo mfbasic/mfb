@@ -30,7 +30,8 @@ pub(crate) fn is_thread_sendable_resource_type(type_name: &str) -> bool {
 }
 
 pub(crate) fn call_return_type_name(name: &str) -> Option<&'static str> {
-    strings::call_return_type_name(name)
+    general::call_return_type_name(name)
+        .or_else(|| strings::call_return_type_name(name))
         .or_else(|| math::call_return_type_name(name))
         .or_else(|| fs::call_return_type_name(name))
         .or_else(|| io::call_return_type_name(name))

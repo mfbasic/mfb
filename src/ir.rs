@@ -9,6 +9,7 @@ use crate::numeric;
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
+#[derive(Clone)]
 
 pub struct IrProject {
     pub(crate) name: String,
@@ -24,6 +25,7 @@ pub(crate) struct EntryPoint {
     pub(crate) returns: String,
     pub(crate) accepts_args: bool,
 }
+#[derive(Clone)]
 
 pub(crate) struct IrType {
     pub(crate) kind: String,
@@ -56,10 +58,12 @@ pub(crate) struct IrVariant {
     pub(crate) name: String,
     pub(crate) fields: Vec<IrField>,
 }
+#[derive(Clone)]
 
 pub(crate) struct IrEnumMember {
     pub(crate) name: String,
 }
+#[derive(Clone)]
 
 pub(crate) struct IrFunction {
     pub(crate) name: String,
@@ -70,12 +74,14 @@ pub(crate) struct IrFunction {
     pub(crate) returns: String,
     pub(crate) body: Vec<IrOp>,
 }
+#[derive(Clone)]
 
 pub(crate) struct IrParam {
     pub(crate) name: String,
     pub(crate) type_: String,
     pub(crate) default: Option<IrValue>,
 }
+#[derive(Clone)]
 
 pub(crate) enum IrOp {
     Bind {
@@ -125,12 +131,14 @@ pub(crate) enum IrOp {
         body: Vec<IrOp>,
     },
 }
+#[derive(Clone)]
 
 pub(crate) struct IrMatchCase {
     pub(crate) pattern: IrMatchPattern,
     pub(crate) guard: Option<IrValue>,
     pub(crate) body: Vec<IrOp>,
 }
+#[derive(Clone)]
 
 pub(crate) enum IrMatchPattern {
     Else,
@@ -227,11 +235,6 @@ pub(crate) struct IrRecordUpdate {
 pub struct ExternalFunctionParam {
     pub name: String,
     pub type_: String,
-    pub has_default: bool,
-}
-
-pub fn lower_project(ast: &AstProject, entry: Option<EntryPoint>) -> IrProject {
-    lower_project_with_external_functions(ast, entry, &HashMap::new(), &HashMap::new())
 }
 
 pub fn lower_project_with_external_functions(
@@ -259,7 +262,6 @@ pub fn lower_project_with_external_functions(
                     name: param.name.clone(),
                     type_: param.type_.clone(),
                     default: None,
-                    has_default: param.has_default,
                 })
                 .collect(),
         );
@@ -281,6 +283,7 @@ pub fn lower_project_with_external_functions(
         lambdas: Vec::new(),
         next_lambda_id: 0,
         next_temp_id: 0,
+        current_return_type: None,
         recover_targets: Vec::new(),
     };
     infer_binding_types(ast, &mut context);
@@ -420,7 +423,10 @@ fn lower_function(function: &Function, context: &mut LowerContext<'_>) -> IrFunc
                 .expect("typecheck requires parameter type before IR lowering"),
         );
     }
+    let previous_return_type = context.current_return_type.take();
+    context.current_return_type = Some(returns.clone());
     let body = lower_function_body(function, &locals, context);
+    context.current_return_type = previous_return_type;
 
     IrFunction {
         name: function.name.clone(),
@@ -488,6 +494,10 @@ struct LowerContext<'a> {
     lambdas: Vec<IrFunction>,
     next_lambda_id: usize,
     next_temp_id: usize,
+    /// Declared return type of the function currently being lowered, used to
+    /// implicitly wrap a `RETURN`ed member constructor into its union (so the
+    /// wrap is explicit in the IR rather than re-derived during codegen).
+    current_return_type: Option<String>,
     /// Stack of inline-`TRAP` recover destinations (innermost last). Each entry
     /// is the local slot a `RECOVER` value should be stored into and its type,
     /// or `None` when the trapped value is discarded (bare-statement form).
@@ -505,7 +515,6 @@ struct CallParam {
     name: String,
     type_: String,
     default: Option<Expression>,
-    has_default: bool,
 }
 
 #[derive(Clone)]
@@ -570,9 +579,15 @@ fn lower_statement(
             }]
         }
         Statement::Return { value, .. } => vec![IrOp::Return {
-            value: value
-                .as_ref()
-                .map(|value| lower_expression(value, locals, context)),
+            value: value.as_ref().map(|value| {
+                let base = lower_expression(value, locals, context);
+                // Implicitly wrap a returned member constructor into the
+                // function's declared union return type, so the wrap is explicit
+                // in the IR (and faithfully serialized into Binary IR) rather
+                // than re-derived during native codegen.
+                let expected = context.current_return_type.clone();
+                wrap_union_value(base, value, expected.as_deref(), locals, context)
+            }),
         }],
         Statement::Fail { error, .. } => vec![IrOp::Fail {
             error: lower_expression(error, locals, context),
@@ -1474,7 +1489,6 @@ fn function_params(ast: &AstProject) -> HashMap<String, Vec<CallParam>> {
                                 .clone()
                                 .expect("typecheck requires parameter type before IR lowering"),
                             default: param.default.clone(),
-                            has_default: param.default.is_some(),
                         })
                         .collect(),
                 );
@@ -3264,5 +3278,1334 @@ fn visibility_name(visibility: Visibility) -> &'static str {
         Visibility::Private => "private",
         Visibility::Package => "package",
         Visibility::Export => "export",
+    }
+}
+
+// ===========================================================================
+// Binary IR (structured) encode/decode
+// ===========================================================================
+//
+// The package payload is a faithful, versioned binary serialization of the
+// compiler's IR (`IrProject` / `IrFunction` / `IrOp` / `IrValue` / `IrType`).
+// It is *not* a flat opcode stream: control flow stays nested (regions with
+// explicit ends) and expressions stay as trees, exactly as in memory. The
+// in-memory IR is free to change behind this format; this encoding is the
+// stable contract.
+//
+// The format is self-contained: strings are inline length-prefixed, integers
+// are little-endian. There is no separate interned pool here — the `.mfp`
+// container's tables (manifest/ABI/import/export) are kept and derived
+// alongside this payload by `bytecode.rs`, but a function body is faithfully
+// reconstructable from this payload alone.
+
+/// Magic bytes prefixing a Binary IR payload.
+pub const BINARY_IR_MAGIC: &[u8; 4] = b"MFIR";
+/// Binary IR format version. Bump on any incompatible change to the encoding.
+pub const BINARY_IR_VERSION: u16 = 1;
+
+// --- low-level writers -----------------------------------------------------
+
+fn put_u8(out: &mut Vec<u8>, v: u8) {
+    out.push(v);
+}
+
+fn put_u32(out: &mut Vec<u8>, v: u32) {
+    out.extend_from_slice(&v.to_le_bytes());
+}
+
+fn put_u16(out: &mut Vec<u8>, v: u16) {
+    out.extend_from_slice(&v.to_le_bytes());
+}
+
+fn put_bool(out: &mut Vec<u8>, v: bool) {
+    out.push(if v { 1 } else { 0 });
+}
+
+fn put_str(out: &mut Vec<u8>, s: &str) {
+    put_u32(out, s.len() as u32);
+    out.extend_from_slice(s.as_bytes());
+}
+
+fn put_opt_str(out: &mut Vec<u8>, s: &Option<String>) {
+    match s {
+        Some(v) => {
+            put_u8(out, 1);
+            put_str(out, v);
+        }
+        None => put_u8(out, 0),
+    }
+}
+
+fn put_vec<T, F: Fn(&mut Vec<u8>, &T)>(out: &mut Vec<u8>, items: &[T], f: F) {
+    put_u32(out, items.len() as u32);
+    for item in items {
+        f(out, item);
+    }
+}
+
+fn put_opt_value(out: &mut Vec<u8>, value: &Option<IrValue>) {
+    match value {
+        Some(v) => {
+            put_u8(out, 1);
+            encode_value(out, v);
+        }
+        None => put_u8(out, 0),
+    }
+}
+
+// --- low-level reader ------------------------------------------------------
+
+struct IrReader<'a> {
+    bytes: &'a [u8],
+    pos: usize,
+}
+
+impl<'a> IrReader<'a> {
+    fn new(bytes: &'a [u8]) -> Self {
+        IrReader { bytes, pos: 0 }
+    }
+
+    fn need(&self, n: usize) -> Result<(), String> {
+        if self.pos + n > self.bytes.len() {
+            Err(format!(
+                "Binary IR truncated: needed {n} bytes at offset {}, have {}",
+                self.pos,
+                self.bytes.len()
+            ))
+        } else {
+            Ok(())
+        }
+    }
+
+    fn u8(&mut self) -> Result<u8, String> {
+        self.need(1)?;
+        let v = self.bytes[self.pos];
+        self.pos += 1;
+        Ok(v)
+    }
+
+    fn u16(&mut self) -> Result<u16, String> {
+        self.need(2)?;
+        let v = u16::from_le_bytes([self.bytes[self.pos], self.bytes[self.pos + 1]]);
+        self.pos += 2;
+        Ok(v)
+    }
+
+    fn u32(&mut self) -> Result<u32, String> {
+        self.need(4)?;
+        let v = u32::from_le_bytes([
+            self.bytes[self.pos],
+            self.bytes[self.pos + 1],
+            self.bytes[self.pos + 2],
+            self.bytes[self.pos + 3],
+        ]);
+        self.pos += 4;
+        Ok(v)
+    }
+
+    fn bool(&mut self) -> Result<bool, String> {
+        Ok(self.u8()? != 0)
+    }
+
+    fn string(&mut self) -> Result<String, String> {
+        let len = self.u32()? as usize;
+        self.need(len)?;
+        let s = std::str::from_utf8(&self.bytes[self.pos..self.pos + len])
+            .map_err(|err| format!("Binary IR: invalid UTF-8 string: {err}"))?
+            .to_string();
+        self.pos += len;
+        Ok(s)
+    }
+
+    fn opt_string(&mut self) -> Result<Option<String>, String> {
+        if self.u8()? != 0 {
+            Ok(Some(self.string()?))
+        } else {
+            Ok(None)
+        }
+    }
+
+    fn count(&mut self) -> Result<usize, String> {
+        Ok(self.u32()? as usize)
+    }
+
+    fn opt_value(&mut self) -> Result<Option<IrValue>, String> {
+        if self.u8()? != 0 {
+            Ok(Some(decode_value(self)?))
+        } else {
+            Ok(None)
+        }
+    }
+}
+
+// --- public entry points ---------------------------------------------------
+
+/// Serialize an `IrProject` to the versioned Binary IR byte format.
+pub fn encode_binary_ir(project: &IrProject) -> Vec<u8> {
+    let mut out = Vec::new();
+    out.extend_from_slice(BINARY_IR_MAGIC);
+    put_u16(&mut out, BINARY_IR_VERSION);
+    encode_project(&mut out, project);
+    out
+}
+
+/// Decode a Binary IR byte payload back into an `IrProject`.
+pub fn decode_binary_ir(bytes: &[u8]) -> Result<IrProject, String> {
+    let mut r = IrReader::new(bytes);
+    r.need(4)?;
+    if &bytes[0..4] != BINARY_IR_MAGIC {
+        return Err("Binary IR: bad magic (expected MFIR)".to_string());
+    }
+    r.pos = 4;
+    let version = r.u16()?;
+    if version != BINARY_IR_VERSION {
+        return Err(format!(
+            "Binary IR version {version} unsupported (expected {BINARY_IR_VERSION})"
+        ));
+    }
+    decode_project(&mut r)
+}
+
+// --- IrProject -------------------------------------------------------------
+
+fn encode_project(out: &mut Vec<u8>, project: &IrProject) {
+    put_str(out, &project.name);
+    match &project.entry {
+        Some(entry) => {
+            put_u8(out, 1);
+            put_str(out, &entry.name);
+            put_str(out, &entry.returns);
+            put_bool(out, entry.accepts_args);
+        }
+        None => put_u8(out, 0),
+    }
+    put_vec(out, &project.bindings, encode_binding);
+    put_vec(out, &project.types, encode_type);
+    put_vec(out, &project.functions, encode_function);
+}
+
+fn decode_project(r: &mut IrReader) -> Result<IrProject, String> {
+    let name = r.string()?;
+    let entry = if r.u8()? != 0 {
+        Some(EntryPoint {
+            name: r.string()?,
+            returns: r.string()?,
+            accepts_args: r.bool()?,
+        })
+    } else {
+        None
+    };
+    let bindings = decode_vec(r, decode_binding)?;
+    let types = decode_vec(r, decode_type)?;
+    let functions = decode_vec(r, decode_function)?;
+    Ok(IrProject {
+        name,
+        entry,
+        bindings,
+        types,
+        functions,
+    })
+}
+
+fn decode_vec<T, F: Fn(&mut IrReader) -> Result<T, String>>(
+    r: &mut IrReader,
+    f: F,
+) -> Result<Vec<T>, String> {
+    let n = r.count()?;
+    let mut out = Vec::with_capacity(n);
+    for _ in 0..n {
+        out.push(f(r)?);
+    }
+    Ok(out)
+}
+
+// --- IrBinding -------------------------------------------------------------
+
+fn encode_binding(out: &mut Vec<u8>, b: &IrBinding) {
+    put_str(out, &b.name);
+    put_str(out, &b.visibility);
+    put_bool(out, b.mutable);
+    put_str(out, &b.type_);
+    put_opt_value(out, &b.value);
+}
+
+fn decode_binding(r: &mut IrReader) -> Result<IrBinding, String> {
+    Ok(IrBinding {
+        name: r.string()?,
+        visibility: r.string()?,
+        mutable: r.bool()?,
+        type_: r.string()?,
+        value: r.opt_value()?,
+    })
+}
+
+// --- IrType / IrField / IrVariant / IrEnumMember ---------------------------
+
+fn encode_field(out: &mut Vec<u8>, f: &IrField) {
+    put_opt_str(out, &f.visibility);
+    put_str(out, &f.name);
+    put_str(out, &f.type_);
+}
+
+fn decode_field(r: &mut IrReader) -> Result<IrField, String> {
+    Ok(IrField {
+        visibility: r.opt_string()?,
+        name: r.string()?,
+        type_: r.string()?,
+    })
+}
+
+fn encode_variant(out: &mut Vec<u8>, v: &IrVariant) {
+    put_str(out, &v.name);
+    put_vec(out, &v.fields, encode_field);
+}
+
+fn decode_variant(r: &mut IrReader) -> Result<IrVariant, String> {
+    Ok(IrVariant {
+        name: r.string()?,
+        fields: decode_vec(r, decode_field)?,
+    })
+}
+
+fn encode_type(out: &mut Vec<u8>, t: &IrType) {
+    put_str(out, &t.kind);
+    put_str(out, &t.visibility);
+    put_str(out, &t.name);
+    put_vec(out, &t.fields, encode_field);
+    put_vec(out, &t.includes, |o, s| put_str(o, s));
+    put_vec(out, &t.variants, encode_variant);
+    put_vec(out, &t.members, |o, m| put_str(o, &m.name));
+}
+
+fn decode_type(r: &mut IrReader) -> Result<IrType, String> {
+    Ok(IrType {
+        kind: r.string()?,
+        visibility: r.string()?,
+        name: r.string()?,
+        fields: decode_vec(r, decode_field)?,
+        includes: decode_vec(r, |r| r.string())?,
+        variants: decode_vec(r, decode_variant)?,
+        members: decode_vec(r, |r| Ok(IrEnumMember { name: r.string()? }))?,
+    })
+}
+
+// --- IrFunction / IrParam --------------------------------------------------
+
+fn encode_param(out: &mut Vec<u8>, p: &IrParam) {
+    put_str(out, &p.name);
+    put_str(out, &p.type_);
+    put_opt_value(out, &p.default);
+}
+
+fn decode_param(r: &mut IrReader) -> Result<IrParam, String> {
+    Ok(IrParam {
+        name: r.string()?,
+        type_: r.string()?,
+        default: r.opt_value()?,
+    })
+}
+
+fn encode_function(out: &mut Vec<u8>, f: &IrFunction) {
+    put_str(out, &f.name);
+    put_str(out, &f.visibility);
+    put_str(out, &f.kind);
+    put_bool(out, f.isolated);
+    put_vec(out, &f.params, encode_param);
+    put_str(out, &f.returns);
+    put_vec(out, &f.body, encode_op);
+}
+
+fn decode_function(r: &mut IrReader) -> Result<IrFunction, String> {
+    Ok(IrFunction {
+        name: r.string()?,
+        visibility: r.string()?,
+        kind: r.string()?,
+        isolated: r.bool()?,
+        params: decode_vec(r, decode_param)?,
+        returns: r.string()?,
+        body: decode_vec(r, decode_op)?,
+    })
+}
+
+// --- IrOp ------------------------------------------------------------------
+
+fn encode_op(out: &mut Vec<u8>, op: &IrOp) {
+    match op {
+        IrOp::Bind {
+            mutable,
+            name,
+            type_,
+            value,
+        } => {
+            put_u8(out, 0);
+            put_bool(out, *mutable);
+            put_str(out, name);
+            put_str(out, type_);
+            put_opt_value(out, value);
+        }
+        IrOp::Assign { name, value } => {
+            put_u8(out, 1);
+            put_str(out, name);
+            encode_value(out, value);
+        }
+        IrOp::AssignGlobal { name, value } => {
+            put_u8(out, 2);
+            put_str(out, name);
+            encode_value(out, value);
+        }
+        IrOp::Return { value } => {
+            put_u8(out, 3);
+            put_opt_value(out, value);
+        }
+        IrOp::Fail { error } => {
+            put_u8(out, 4);
+            encode_value(out, error);
+        }
+        IrOp::Eval { value } => {
+            put_u8(out, 5);
+            encode_value(out, value);
+        }
+        IrOp::If {
+            condition,
+            then_body,
+            else_body,
+        } => {
+            put_u8(out, 6);
+            encode_value(out, condition);
+            put_vec(out, then_body, encode_op);
+            put_vec(out, else_body, encode_op);
+        }
+        IrOp::Match { value, cases } => {
+            put_u8(out, 7);
+            encode_value(out, value);
+            put_vec(out, cases, encode_match_case);
+        }
+        IrOp::While { condition, body } => {
+            put_u8(out, 8);
+            encode_value(out, condition);
+            put_vec(out, body, encode_op);
+        }
+        IrOp::ForEach {
+            name,
+            type_,
+            iterable,
+            body,
+        } => {
+            put_u8(out, 9);
+            put_str(out, name);
+            put_str(out, type_);
+            encode_value(out, iterable);
+            put_vec(out, body, encode_op);
+        }
+        IrOp::Trap { name, body } => {
+            put_u8(out, 10);
+            put_str(out, name);
+            put_vec(out, body, encode_op);
+        }
+    }
+}
+
+fn decode_op(r: &mut IrReader) -> Result<IrOp, String> {
+    let tag = r.u8()?;
+    Ok(match tag {
+        0 => IrOp::Bind {
+            mutable: r.bool()?,
+            name: r.string()?,
+            type_: r.string()?,
+            value: r.opt_value()?,
+        },
+        1 => IrOp::Assign {
+            name: r.string()?,
+            value: decode_value(r)?,
+        },
+        2 => IrOp::AssignGlobal {
+            name: r.string()?,
+            value: decode_value(r)?,
+        },
+        3 => IrOp::Return {
+            value: r.opt_value()?,
+        },
+        4 => IrOp::Fail {
+            error: decode_value(r)?,
+        },
+        5 => IrOp::Eval {
+            value: decode_value(r)?,
+        },
+        6 => IrOp::If {
+            condition: decode_value(r)?,
+            then_body: decode_vec(r, decode_op)?,
+            else_body: decode_vec(r, decode_op)?,
+        },
+        7 => IrOp::Match {
+            value: decode_value(r)?,
+            cases: decode_vec(r, decode_match_case)?,
+        },
+        8 => IrOp::While {
+            condition: decode_value(r)?,
+            body: decode_vec(r, decode_op)?,
+        },
+        9 => IrOp::ForEach {
+            name: r.string()?,
+            type_: r.string()?,
+            iterable: decode_value(r)?,
+            body: decode_vec(r, decode_op)?,
+        },
+        10 => IrOp::Trap {
+            name: r.string()?,
+            body: decode_vec(r, decode_op)?,
+        },
+        other => return Err(format!("Binary IR: unknown IrOp tag {other}")),
+    })
+}
+
+// --- IrMatchCase / IrMatchPattern ------------------------------------------
+
+fn encode_match_case(out: &mut Vec<u8>, c: &IrMatchCase) {
+    encode_match_pattern(out, &c.pattern);
+    put_opt_value(out, &c.guard);
+    put_vec(out, &c.body, encode_op);
+}
+
+fn decode_match_case(r: &mut IrReader) -> Result<IrMatchCase, String> {
+    Ok(IrMatchCase {
+        pattern: decode_match_pattern(r)?,
+        guard: r.opt_value()?,
+        body: decode_vec(r, decode_op)?,
+    })
+}
+
+fn encode_match_pattern(out: &mut Vec<u8>, p: &IrMatchPattern) {
+    match p {
+        IrMatchPattern::Else => put_u8(out, 0),
+        IrMatchPattern::Value(v) => {
+            put_u8(out, 1);
+            encode_value(out, v);
+        }
+        IrMatchPattern::OneOf(vs) => {
+            put_u8(out, 2);
+            put_vec(out, vs, encode_value);
+        }
+    }
+}
+
+fn decode_match_pattern(r: &mut IrReader) -> Result<IrMatchPattern, String> {
+    let tag = r.u8()?;
+    Ok(match tag {
+        0 => IrMatchPattern::Else,
+        1 => IrMatchPattern::Value(decode_value(r)?),
+        2 => IrMatchPattern::OneOf(decode_vec(r, decode_value)?),
+        other => return Err(format!("Binary IR: unknown IrMatchPattern tag {other}")),
+    })
+}
+
+// --- IrValue / IrRecordUpdate ----------------------------------------------
+
+fn encode_value(out: &mut Vec<u8>, v: &IrValue) {
+    match v {
+        IrValue::Const { type_, value } => {
+            put_u8(out, 0);
+            put_str(out, type_);
+            put_str(out, value);
+        }
+        IrValue::Local(name) => {
+            put_u8(out, 1);
+            put_str(out, name);
+        }
+        IrValue::Global(name) => {
+            put_u8(out, 2);
+            put_str(out, name);
+        }
+        IrValue::FunctionRef { name, type_ } => {
+            put_u8(out, 3);
+            put_str(out, name);
+            put_str(out, type_);
+        }
+        IrValue::Closure {
+            name,
+            type_,
+            captures,
+        } => {
+            put_u8(out, 4);
+            put_str(out, name);
+            put_str(out, type_);
+            put_vec(out, captures, encode_value);
+        }
+        IrValue::Capture { index, type_ } => {
+            put_u8(out, 5);
+            put_u32(out, *index as u32);
+            put_str(out, type_);
+        }
+        IrValue::Call { target, args } => {
+            put_u8(out, 6);
+            put_str(out, target);
+            put_vec(out, args, encode_value);
+        }
+        IrValue::CallResult { target, args } => {
+            put_u8(out, 7);
+            put_str(out, target);
+            put_vec(out, args, encode_value);
+        }
+        IrValue::Constructor { type_, args } => {
+            put_u8(out, 8);
+            put_str(out, type_);
+            put_vec(out, args, encode_value);
+        }
+        IrValue::UnionWrap {
+            union_type,
+            member_type,
+            value,
+        } => {
+            put_u8(out, 9);
+            put_str(out, union_type);
+            put_str(out, member_type);
+            encode_value(out, value);
+        }
+        IrValue::UnionExtract { type_, value } => {
+            put_u8(out, 10);
+            put_str(out, type_);
+            encode_value(out, value);
+        }
+        IrValue::ResultIsOk { value } => {
+            put_u8(out, 11);
+            encode_value(out, value);
+        }
+        IrValue::ResultValue { value } => {
+            put_u8(out, 12);
+            encode_value(out, value);
+        }
+        IrValue::ResultError { value } => {
+            put_u8(out, 13);
+            encode_value(out, value);
+        }
+        IrValue::WithUpdate {
+            type_,
+            target,
+            updates,
+        } => {
+            put_u8(out, 14);
+            put_str(out, type_);
+            encode_value(out, target);
+            put_vec(out, updates, |o, u| {
+                put_str(o, &u.field);
+                encode_value(o, &u.value);
+            });
+        }
+        IrValue::ListLiteral { type_, values } => {
+            put_u8(out, 15);
+            put_str(out, type_);
+            put_vec(out, values, encode_value);
+        }
+        IrValue::MapLiteral { type_, entries } => {
+            put_u8(out, 16);
+            put_str(out, type_);
+            put_vec(out, entries, |o, (k, val)| {
+                encode_value(o, k);
+                encode_value(o, val);
+            });
+        }
+        IrValue::MemberAccess { target, member } => {
+            put_u8(out, 17);
+            encode_value(out, target);
+            put_str(out, member);
+        }
+        IrValue::Binary { op, left, right } => {
+            put_u8(out, 18);
+            put_str(out, op);
+            encode_value(out, left);
+            encode_value(out, right);
+        }
+        IrValue::Unary { op, operand } => {
+            put_u8(out, 19);
+            put_str(out, op);
+            encode_value(out, operand);
+        }
+    }
+}
+
+fn decode_value(r: &mut IrReader) -> Result<IrValue, String> {
+    let tag = r.u8()?;
+    Ok(match tag {
+        0 => IrValue::Const {
+            type_: r.string()?,
+            value: r.string()?,
+        },
+        1 => IrValue::Local(r.string()?),
+        2 => IrValue::Global(r.string()?),
+        3 => IrValue::FunctionRef {
+            name: r.string()?,
+            type_: r.string()?,
+        },
+        4 => IrValue::Closure {
+            name: r.string()?,
+            type_: r.string()?,
+            captures: decode_vec(r, decode_value)?,
+        },
+        5 => IrValue::Capture {
+            index: r.u32()? as usize,
+            type_: r.string()?,
+        },
+        6 => IrValue::Call {
+            target: r.string()?,
+            args: decode_vec(r, decode_value)?,
+        },
+        7 => IrValue::CallResult {
+            target: r.string()?,
+            args: decode_vec(r, decode_value)?,
+        },
+        8 => IrValue::Constructor {
+            type_: r.string()?,
+            args: decode_vec(r, decode_value)?,
+        },
+        9 => IrValue::UnionWrap {
+            union_type: r.string()?,
+            member_type: r.string()?,
+            value: Box::new(decode_value(r)?),
+        },
+        10 => IrValue::UnionExtract {
+            type_: r.string()?,
+            value: Box::new(decode_value(r)?),
+        },
+        11 => IrValue::ResultIsOk {
+            value: Box::new(decode_value(r)?),
+        },
+        12 => IrValue::ResultValue {
+            value: Box::new(decode_value(r)?),
+        },
+        13 => IrValue::ResultError {
+            value: Box::new(decode_value(r)?),
+        },
+        14 => IrValue::WithUpdate {
+            type_: r.string()?,
+            target: Box::new(decode_value(r)?),
+            updates: decode_vec(r, |r| {
+                Ok(IrRecordUpdate {
+                    field: r.string()?,
+                    value: decode_value(r)?,
+                })
+            })?,
+        },
+        15 => IrValue::ListLiteral {
+            type_: r.string()?,
+            values: decode_vec(r, decode_value)?,
+        },
+        16 => IrValue::MapLiteral {
+            type_: r.string()?,
+            entries: decode_vec(r, |r| {
+                let k = decode_value(r)?;
+                let v = decode_value(r)?;
+                Ok((k, v))
+            })?,
+        },
+        17 => IrValue::MemberAccess {
+            target: Box::new(decode_value(r)?),
+            member: r.string()?,
+        },
+        18 => IrValue::Binary {
+            op: r.string()?,
+            left: Box::new(decode_value(r)?),
+            right: Box::new(decode_value(r)?),
+        },
+        19 => IrValue::Unary {
+            op: r.string()?,
+            operand: Box::new(decode_value(r)?),
+        },
+        other => return Err(format!("Binary IR: unknown IrValue tag {other}")),
+    })
+}
+
+// ===========================================================================
+// Package IR merge
+// ===========================================================================
+//
+// A consumer decodes each imported package's Binary IR back to an `IrProject`
+// and merges it into the project that flows through `IR -> NIR -> native`. To
+// keep symbols unambiguous, a package's functions and globals are namespaced by
+// the package name (`pkg.symbol`) — exactly how the consumer already names them
+// (a `functionRef "thread_workers.echoText"` resolves to the merged function
+// `thread_workers.echoText`). Imported *types* are referenced by their bare name
+// by consumers, so type names stay unqualified and are de-duplicated by name.
+// Every internal reference inside the package (sibling calls, function refs,
+// global loads/stores) is rewritten to the namespaced form consistently.
+
+/// Verify a freshly decoded package `IrProject` before it is merged into the
+/// consuming project. The decoder already rejects a wrong magic/version
+/// (`PACKAGE_BINARY_IR_VERSION_UNSUPPORTED`) and malformed bytes
+/// (`PACKAGE_IR_DECODE_FAILED`); this pass re-states the package-format
+/// invariants at the IR level (the structured form makes them direct checks
+/// rather than CFG reconstruction). Checks here are conservative — they must
+/// never reject IR this compiler legitimately produced — and surface as
+/// `PACKAGE_IR_VERIFY_*` diagnostics.
+pub fn verify_package(pir: &IrProject) -> Result<(), String> {
+    // Structural well-formedness: names are non-empty and functions are unique
+    // (the link-time identity prefix relies on a function appearing once).
+    let mut seen_functions: HashSet<&str> = HashSet::new();
+    for function in &pir.functions {
+        if function.name.is_empty() {
+            return Err("PACKAGE_IR_VERIFY_TYPE: package contains an unnamed function".to_string());
+        }
+        if !seen_functions.insert(function.name.as_str()) {
+            return Err(format!(
+                "PACKAGE_IR_VERIFY_TYPE: duplicate function `{}` in package `{}`",
+                function.name, pir.name
+            ));
+        }
+    }
+    let mut seen_types: HashSet<&str> = HashSet::new();
+    for ty in &pir.types {
+        if !seen_types.insert(ty.name.as_str()) {
+            return Err(format!(
+                "PACKAGE_IR_VERIFY_TYPE: duplicate type `{}` in package `{}`",
+                ty.name, pir.name
+            ));
+        }
+    }
+    // Control-flow / trap structure: every MATCH must carry at least one case
+    // (an empty MATCH cannot be exhaustive), and is checked recursively.
+    for function in &pir.functions {
+        verify_ops(&function.body)?;
+    }
+    Ok(())
+}
+
+fn verify_ops(ops: &[IrOp]) -> Result<(), String> {
+    for op in ops {
+        match op {
+            IrOp::If {
+                then_body,
+                else_body,
+                ..
+            } => {
+                verify_ops(then_body)?;
+                verify_ops(else_body)?;
+            }
+            IrOp::While { body, .. }
+            | IrOp::ForEach { body, .. }
+            | IrOp::Trap { body, .. } => verify_ops(body)?,
+            IrOp::Match { cases, .. } => {
+                if cases.is_empty() {
+                    return Err(
+                        "PACKAGE_IR_VERIFY_MATCH: MATCH has no cases (not exhaustive)".to_string(),
+                    );
+                }
+                for case in cases {
+                    verify_ops(&case.body)?;
+                }
+            }
+            _ => {}
+        }
+    }
+    Ok(())
+}
+
+/// Namespace a decoded package's own functions and globals by its package name,
+/// rewriting every internal reference to match. Types are left unqualified.
+pub fn prefix_package_symbols(pir: &mut IrProject) {
+    let pkg = pir.name.clone();
+    let own_fns: HashSet<String> = pir.functions.iter().map(|f| f.name.clone()).collect();
+    let own_globals: HashSet<String> = pir.bindings.iter().map(|b| b.name.clone()).collect();
+
+    for function in &mut pir.functions {
+        for op in &mut function.body {
+            rewrite_op_targets(op, &own_fns, &own_globals, &pkg);
+        }
+        for param in &mut function.params {
+            if let Some(default) = &mut param.default {
+                rewrite_value_targets(default, &own_fns, &own_globals, &pkg);
+            }
+        }
+        function.name = format!("{pkg}.{}", function.name);
+    }
+    for binding in &mut pir.bindings {
+        if let Some(value) = &mut binding.value {
+            rewrite_value_targets(value, &own_fns, &own_globals, &pkg);
+        }
+        binding.name = format!("{pkg}.{}", binding.name);
+    }
+    if let Some(entry) = &mut pir.entry {
+        entry.name = format!("{pkg}.{}", entry.name);
+    }
+}
+
+/// Merge a namespaced package `IrProject` into `project`. Functions and globals
+/// are de-duplicated by their (already namespaced) name; types by bare name.
+/// Call `prefix_package_symbols` on `package` first.
+pub fn merge_package(project: &mut IrProject, package: IrProject) {
+    for ty in package.types {
+        if !project.types.iter().any(|existing| existing.name == ty.name) {
+            project.types.push(ty);
+        }
+    }
+    for binding in package.bindings {
+        if !project
+            .bindings
+            .iter()
+            .any(|existing| existing.name == binding.name)
+        {
+            project.bindings.push(binding);
+        }
+    }
+    for function in package.functions {
+        if !project
+            .functions
+            .iter()
+            .any(|existing| existing.name == function.name)
+        {
+            project.functions.push(function);
+        }
+    }
+}
+
+fn qualify_target(name: &mut String, pkg: &str) {
+    *name = format!("{pkg}.{name}");
+}
+
+fn rewrite_op_targets(op: &mut IrOp, fns: &HashSet<String>, globals: &HashSet<String>, pkg: &str) {
+    match op {
+        IrOp::Bind { value, .. } => {
+            if let Some(v) = value {
+                rewrite_value_targets(v, fns, globals, pkg);
+            }
+        }
+        IrOp::Assign { value, .. } | IrOp::Eval { value } | IrOp::Fail { error: value } => {
+            rewrite_value_targets(value, fns, globals, pkg)
+        }
+        IrOp::AssignGlobal { name, value } => {
+            if globals.contains(name) {
+                qualify_target(name, pkg);
+            }
+            rewrite_value_targets(value, fns, globals, pkg);
+        }
+        IrOp::Return { value } => {
+            if let Some(v) = value {
+                rewrite_value_targets(v, fns, globals, pkg);
+            }
+        }
+        IrOp::If {
+            condition,
+            then_body,
+            else_body,
+        } => {
+            rewrite_value_targets(condition, fns, globals, pkg);
+            for op in then_body.iter_mut().chain(else_body.iter_mut()) {
+                rewrite_op_targets(op, fns, globals, pkg);
+            }
+        }
+        IrOp::Match { value, cases } => {
+            rewrite_value_targets(value, fns, globals, pkg);
+            for case in cases {
+                match &mut case.pattern {
+                    IrMatchPattern::Else => {}
+                    IrMatchPattern::Value(v) => rewrite_value_targets(v, fns, globals, pkg),
+                    IrMatchPattern::OneOf(vs) => {
+                        for v in vs {
+                            rewrite_value_targets(v, fns, globals, pkg);
+                        }
+                    }
+                }
+                if let Some(guard) = &mut case.guard {
+                    rewrite_value_targets(guard, fns, globals, pkg);
+                }
+                for op in &mut case.body {
+                    rewrite_op_targets(op, fns, globals, pkg);
+                }
+            }
+        }
+        IrOp::While { condition, body } => {
+            rewrite_value_targets(condition, fns, globals, pkg);
+            for op in body {
+                rewrite_op_targets(op, fns, globals, pkg);
+            }
+        }
+        IrOp::ForEach { iterable, body, .. } => {
+            rewrite_value_targets(iterable, fns, globals, pkg);
+            for op in body {
+                rewrite_op_targets(op, fns, globals, pkg);
+            }
+        }
+        IrOp::Trap { body, .. } => {
+            for op in body {
+                rewrite_op_targets(op, fns, globals, pkg);
+            }
+        }
+    }
+}
+
+fn rewrite_value_targets(
+    value: &mut IrValue,
+    fns: &HashSet<String>,
+    globals: &HashSet<String>,
+    pkg: &str,
+) {
+    match value {
+        IrValue::Call { target, args } | IrValue::CallResult { target, args } => {
+            if fns.contains(target) {
+                qualify_target(target, pkg);
+            }
+            for arg in args {
+                rewrite_value_targets(arg, fns, globals, pkg);
+            }
+        }
+        IrValue::FunctionRef { name, .. } => {
+            if fns.contains(name) {
+                qualify_target(name, pkg);
+            }
+        }
+        IrValue::Closure { name, captures, .. } => {
+            if fns.contains(name) {
+                qualify_target(name, pkg);
+            }
+            for capture in captures {
+                rewrite_value_targets(capture, fns, globals, pkg);
+            }
+        }
+        IrValue::Global(name) => {
+            if globals.contains(name) {
+                qualify_target(name, pkg);
+            }
+        }
+        IrValue::Constructor { args, .. } => {
+            for arg in args {
+                rewrite_value_targets(arg, fns, globals, pkg);
+            }
+        }
+        IrValue::UnionWrap { value, .. }
+        | IrValue::UnionExtract { value, .. }
+        | IrValue::ResultIsOk { value }
+        | IrValue::ResultValue { value }
+        | IrValue::ResultError { value }
+        | IrValue::Unary { operand: value, .. }
+        | IrValue::MemberAccess { target: value, .. } => {
+            rewrite_value_targets(value, fns, globals, pkg)
+        }
+        IrValue::WithUpdate {
+            target, updates, ..
+        } => {
+            rewrite_value_targets(target, fns, globals, pkg);
+            for update in updates {
+                rewrite_value_targets(&mut update.value, fns, globals, pkg);
+            }
+        }
+        IrValue::ListLiteral { values, .. } => {
+            for v in values {
+                rewrite_value_targets(v, fns, globals, pkg);
+            }
+        }
+        IrValue::MapLiteral { entries, .. } => {
+            for (k, v) in entries {
+                rewrite_value_targets(k, fns, globals, pkg);
+                rewrite_value_targets(v, fns, globals, pkg);
+            }
+        }
+        IrValue::Binary { left, right, .. } => {
+            rewrite_value_targets(left, fns, globals, pkg);
+            rewrite_value_targets(right, fns, globals, pkg);
+        }
+        IrValue::Const { .. } | IrValue::Local(_) | IrValue::Capture { .. } => {}
+    }
+}
+
+#[cfg(test)]
+mod binary_ir_tests {
+    use super::*;
+
+    fn sample_value() -> IrValue {
+        IrValue::Binary {
+            op: "+".to_string(),
+            left: Box::new(IrValue::Const {
+                type_: "Integer".to_string(),
+                value: "1".to_string(),
+            }),
+            right: Box::new(IrValue::Unary {
+                op: "-".to_string(),
+                operand: Box::new(IrValue::Local("x".to_string())),
+            }),
+        }
+    }
+
+    // Build a project exercising every IrType, IrOp, IrValue, and IrMatchPattern kind.
+    fn corpus_project() -> IrProject {
+        let every_value = vec![
+            IrValue::Const {
+                type_: "String".to_string(),
+                value: "hi".to_string(),
+            },
+            IrValue::Local("a".to_string()),
+            IrValue::Global("g".to_string()),
+            IrValue::FunctionRef {
+                name: "f".to_string(),
+                type_: "() -> Integer".to_string(),
+            },
+            IrValue::Closure {
+                name: "lam".to_string(),
+                type_: "() -> Integer".to_string(),
+                captures: vec![IrValue::Local("a".to_string())],
+            },
+            IrValue::Capture {
+                index: 3,
+                type_: "Integer".to_string(),
+            },
+            IrValue::Call {
+                target: "g".to_string(),
+                args: vec![sample_value()],
+            },
+            IrValue::CallResult {
+                target: "toInt".to_string(),
+                args: vec![IrValue::Local("s".to_string())],
+            },
+            IrValue::Constructor {
+                type_: "Point".to_string(),
+                args: vec![sample_value(), sample_value()],
+            },
+            IrValue::UnionWrap {
+                union_type: "Shape".to_string(),
+                member_type: "Point".to_string(),
+                value: Box::new(IrValue::Local("p".to_string())),
+            },
+            IrValue::UnionExtract {
+                type_: "Point".to_string(),
+                value: Box::new(IrValue::Local("s".to_string())),
+            },
+            IrValue::ResultIsOk {
+                value: Box::new(IrValue::Local("r".to_string())),
+            },
+            IrValue::ResultValue {
+                value: Box::new(IrValue::Local("r".to_string())),
+            },
+            IrValue::ResultError {
+                value: Box::new(IrValue::Local("r".to_string())),
+            },
+            IrValue::WithUpdate {
+                type_: "Point".to_string(),
+                target: Box::new(IrValue::Local("p".to_string())),
+                updates: vec![IrRecordUpdate {
+                    field: "x".to_string(),
+                    value: sample_value(),
+                }],
+            },
+            IrValue::ListLiteral {
+                type_: "List OF Integer".to_string(),
+                values: vec![sample_value()],
+            },
+            IrValue::MapLiteral {
+                type_: "Map OF String TO Integer".to_string(),
+                entries: vec![(
+                    IrValue::Const {
+                        type_: "String".to_string(),
+                        value: "k".to_string(),
+                    },
+                    sample_value(),
+                )],
+            },
+            IrValue::MemberAccess {
+                target: Box::new(IrValue::Local("p".to_string())),
+                member: "x".to_string(),
+            },
+            sample_value(),
+            IrValue::Unary {
+                op: "NOT".to_string(),
+                operand: Box::new(IrValue::Local("b".to_string())),
+            },
+        ];
+
+        let body = vec![
+            IrOp::Bind {
+                mutable: true,
+                name: "a".to_string(),
+                type_: "Integer".to_string(),
+                value: Some(sample_value()),
+            },
+            IrOp::Assign {
+                name: "a".to_string(),
+                value: sample_value(),
+            },
+            IrOp::AssignGlobal {
+                name: "g".to_string(),
+                value: sample_value(),
+            },
+            IrOp::Eval {
+                value: IrValue::Call {
+                    target: "g".to_string(),
+                    args: every_value.clone(),
+                },
+            },
+            IrOp::If {
+                condition: IrValue::Local("b".to_string()),
+                then_body: vec![IrOp::Return {
+                    value: Some(IrValue::Local("a".to_string())),
+                }],
+                else_body: vec![IrOp::Return { value: None }],
+            },
+            IrOp::While {
+                condition: IrValue::Local("b".to_string()),
+                body: vec![IrOp::Eval {
+                    value: IrValue::Local("a".to_string()),
+                }],
+            },
+            IrOp::ForEach {
+                name: "item".to_string(),
+                type_: "Integer".to_string(),
+                iterable: IrValue::Local("list".to_string()),
+                body: vec![IrOp::Eval {
+                    value: IrValue::Local("item".to_string()),
+                }],
+            },
+            IrOp::Match {
+                value: IrValue::Local("s".to_string()),
+                cases: vec![
+                    IrMatchCase {
+                        pattern: IrMatchPattern::Value(IrValue::Local("p".to_string())),
+                        guard: Some(IrValue::Local("b".to_string())),
+                        body: vec![IrOp::Eval {
+                            value: IrValue::Local("p".to_string()),
+                        }],
+                    },
+                    IrMatchCase {
+                        pattern: IrMatchPattern::OneOf(vec![
+                            IrValue::Local("p".to_string()),
+                            IrValue::Local("q".to_string()),
+                        ]),
+                        guard: None,
+                        body: vec![],
+                    },
+                    IrMatchCase {
+                        pattern: IrMatchPattern::Else,
+                        guard: None,
+                        body: vec![IrOp::Fail {
+                            error: IrValue::Local("e".to_string()),
+                        }],
+                    },
+                ],
+            },
+            IrOp::Trap {
+                name: "err".to_string(),
+                body: vec![IrOp::Eval {
+                    value: IrValue::CallResult {
+                        target: "toInt".to_string(),
+                        args: vec![IrValue::Local("s".to_string())],
+                    },
+                }],
+            },
+        ];
+
+        IrProject {
+            name: "corpus".to_string(),
+            entry: Some(EntryPoint {
+                name: "main".to_string(),
+                returns: "Integer".to_string(),
+                accepts_args: true,
+            }),
+            bindings: vec![IrBinding {
+                name: "g".to_string(),
+                visibility: "package".to_string(),
+                mutable: false,
+                type_: "Integer".to_string(),
+                value: Some(sample_value()),
+            }],
+            types: vec![
+                IrType {
+                    kind: "type".to_string(),
+                    visibility: "export".to_string(),
+                    name: "Point".to_string(),
+                    fields: vec![
+                        IrField {
+                            visibility: Some("export".to_string()),
+                            name: "x".to_string(),
+                            type_: "Integer".to_string(),
+                        },
+                        IrField {
+                            visibility: None,
+                            name: "y".to_string(),
+                            type_: "Integer".to_string(),
+                        },
+                    ],
+                    includes: vec![],
+                    variants: vec![],
+                    members: vec![],
+                },
+                IrType {
+                    kind: "union".to_string(),
+                    visibility: "export".to_string(),
+                    name: "Shape".to_string(),
+                    fields: vec![],
+                    includes: vec!["Base".to_string()],
+                    variants: vec![IrVariant {
+                        name: "Point".to_string(),
+                        fields: vec![IrField {
+                            visibility: None,
+                            name: "x".to_string(),
+                            type_: "Integer".to_string(),
+                        }],
+                    }],
+                    members: vec![],
+                },
+                IrType {
+                    kind: "enum".to_string(),
+                    visibility: "private".to_string(),
+                    name: "Color".to_string(),
+                    fields: vec![],
+                    includes: vec![],
+                    variants: vec![],
+                    members: vec![
+                        IrEnumMember {
+                            name: "Red".to_string(),
+                        },
+                        IrEnumMember {
+                            name: "Green".to_string(),
+                        },
+                    ],
+                },
+            ],
+            functions: vec![IrFunction {
+                name: "main".to_string(),
+                visibility: "export".to_string(),
+                kind: "function".to_string(),
+                isolated: false,
+                params: vec![
+                    IrParam {
+                        name: "x".to_string(),
+                        type_: "Integer".to_string(),
+                        default: None,
+                    },
+                    IrParam {
+                        name: "y".to_string(),
+                        type_: "Integer".to_string(),
+                        default: Some(IrValue::Const {
+                            type_: "Integer".to_string(),
+                            value: "0".to_string(),
+                        }),
+                    },
+                ],
+                returns: "Integer".to_string(),
+                body,
+            }],
+        }
+    }
+
+    #[test]
+    fn binary_ir_round_trip_is_identity() {
+        let project = corpus_project();
+        let bytes = encode_binary_ir(&project);
+        let decoded = decode_binary_ir(&bytes).expect("decode");
+        // The JSON projection is a faithful view of every field; comparing it
+        // proves the decode reconstructed the project exactly.
+        assert_eq!(project.to_json(), decoded.to_json());
+        // Re-encoding the decoded project must be byte-identical.
+        let bytes2 = encode_binary_ir(&decoded);
+        assert_eq!(bytes, bytes2);
+    }
+
+    #[test]
+    fn binary_ir_rejects_bad_magic() {
+        let mut bytes = encode_binary_ir(&corpus_project());
+        bytes[0] = b'X';
+        assert!(decode_binary_ir(&bytes).is_err());
+    }
+
+    #[test]
+    fn binary_ir_rejects_bad_version() {
+        let mut bytes = encode_binary_ir(&corpus_project());
+        bytes[4] = 0xFF;
+        bytes[5] = 0xFF;
+        assert!(decode_binary_ir(&bytes).is_err());
     }
 }

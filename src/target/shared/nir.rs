@@ -1,4 +1,4 @@
-use crate::bytecode::{self, BytecodeExportKind};
+use crate::bytecode;
 use crate::ir::{
     EntryPoint, IrBinding, IrEnumMember, IrField, IrFunction, IrMatchCase, IrMatchPattern, IrOp,
     IrParam, IrProject, IrRecordUpdate, IrType, IrValue, IrVariant,
@@ -245,13 +245,15 @@ pub(crate) struct NirRecordUpdate {
     pub(crate) value: NirValue,
 }
 
+/// Lower an `IrProject` to a `NirModule`. By the time this runs, any imported
+/// packages have already been decoded and merged into `ir` (see
+/// `lower::lower_project`), so every function flows through this one codegen and
+/// there are no native-level imports to resolve.
 pub(crate) fn lower_module(
     ir: &IrProject,
     target: String,
     runtime_helpers: Vec<RuntimeHelper>,
-    packages: &[PathBuf],
 ) -> Result<NirModule, String> {
-    let imports = lower_imports(packages)?;
     Ok(NirModule {
         target,
         project: ir.name.clone(),
@@ -262,43 +264,27 @@ pub(crate) fn lower_module(
             .map(|binding| lower_global(&ir.name, binding))
             .collect(),
         types: ir.types.iter().map(lower_type).collect(),
-        imports,
+        imports: Vec::new(),
         runtime_helpers,
         functions: lower_functions(ir),
     })
 }
 
-pub(crate) fn lower_imports(packages: &[PathBuf]) -> Result<Vec<NirImport>, String> {
-    let mut imports = Vec::new();
+/// Decode each imported package's structured Binary IR and merge it into `ir`,
+/// namespacing package symbols so the consumer's existing `pkg.symbol` references
+/// resolve. The returned project carries the executable's and every package's
+/// functions/types/globals together.
+pub(crate) fn merge_packages(ir: &IrProject, packages: &[PathBuf]) -> Result<IrProject, String> {
+    let mut merged = ir.clone();
     for package in packages {
-        let info = bytecode::read_package_info(package)?;
-        for export in bytecode::read_package_exports(package)? {
-            let name = format!("{}.{}", info.manifest_name, export.name);
-            imports.push(NirImport {
-                symbol: import_symbol(&info.manifest_name, &export.name),
-                package: info.manifest_name.clone(),
-                name,
-                kind: match export.kind {
-                    BytecodeExportKind::Func => "func".to_string(),
-                    BytecodeExportKind::Sub => "sub".to_string(),
-                    BytecodeExportKind::Type
-                    | BytecodeExportKind::Union
-                    | BytecodeExportKind::Enum => continue,
-                },
-                isolated: export.isolated,
-                params: export
-                    .params
-                    .into_iter()
-                    .map(|param| NirImportParam {
-                        type_: param.type_,
-                        has_default: param.has_default,
-                    })
-                    .collect(),
-                returns: export.return_type,
-            });
-        }
+        let mut package_ir = bytecode::read_package_ir(package)?;
+        // Verify the decoded package IR against the package-format invariants
+        // before it is merged (decode already rejected bad version/bytes).
+        crate::ir::verify_package(&package_ir)?;
+        crate::ir::prefix_package_symbols(&mut package_ir);
+        crate::ir::merge_package(&mut merged, package_ir);
     }
-    Ok(imports)
+    Ok(merged)
 }
 
 pub(crate) fn function_symbol(name: &str) -> String {
@@ -317,13 +303,6 @@ pub(crate) fn global_initializer_name(project: &str) -> String {
     format!("__mfb_init_globals_{}", symbol_fragment(project))
 }
 
-pub(crate) fn import_symbol(package: &str, name: &str) -> String {
-    format!(
-        "_mfb_pkg_{}_{}",
-        symbol_fragment(package),
-        symbol_fragment(name)
-    )
-}
 
 pub(crate) fn symbol_fragment(name: &str) -> String {
     name.chars()

@@ -1,0 +1,53 @@
+Package: trap_builtin_pkg
+Ident: tests:trap-builtin-pkg
+Version: 0.1.0
+Ident Key: ed25519-public:test-trap-builtin-ident
+Ident Fingerprint: sha256:test-trap-builtin-ident
+Signing Fingerprint: sha256:test-trap-builtin-signing
+Author: <empty>
+URL: <empty>
+Path: tests/package-trap-builtin/trap_builtin_pkg.mfp
+
+Container:
+  format: MFP
+  version: 1.0
+  bytecode version: 1.0
+  flags: 0x00000000
+  signature type: unsigned
+  signature length: 0
+  content hash: e484d33a4c6efb22f5f16fa768dfe87d34bcd3bd972643591f2987a3166ddc05
+  bytecode length: 1109
+
+Manifest:
+  name: trap_builtin_pkg
+  ident: tests:trap-builtin-pkg
+  version: 0.1.0
+  ident key: ed25519-public:test-trap-builtin-ident
+  ident fingerprint: sha256:test-trap-builtin-ident
+  signing fingerprint: sha256:test-trap-builtin-signing
+  author: <empty>
+  url: <empty>
+
+Bytecode:
+  ABI format version: 1
+  types: 0
+  constants: 0
+  resources: 0
+  functions: 1
+  globals: 0
+  cleanups: 0
+  imports: 0
+  exports: 1
+
+Exports:
+  FUNC parseDoubled
+    sigHash: 2d76954d57c1e93c836f0915d8851c39acf29df2d69912d49119e18fbaee38ef
+
+Package State:
+  <none>
+
+Resource Cleanups:
+  <none>
+
+Imports:
+  <none>

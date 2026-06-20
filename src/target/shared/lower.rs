@@ -9,6 +9,9 @@ pub fn lower_project(
     target_name: String,
     packages: &[PathBuf],
 ) -> Result<NirModule, String> {
-    let helpers = runtime::required_helpers(ir);
-    nir::lower_module(ir, target_name, helpers, packages)
+    // Merge imported packages' Binary IR into the project up front so runtime
+    // helper detection and codegen both see the complete, unified function set.
+    let merged = nir::merge_packages(ir, packages)?;
+    let helpers = runtime::required_helpers(&merged);
+    nir::lower_module(&merged, target_name, helpers)
 }

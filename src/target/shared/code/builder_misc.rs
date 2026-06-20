@@ -1883,7 +1883,14 @@ impl CodeBuilder<'_> {
                 slot,
             ));
         }
-        self.emit(abi::return_());
+        // Inside a raw-capture region (inline `TRAP` on an inline built-in) the
+        // error is not propagated: leave the raw `Result` in the standard
+        // registers and join the capture point so it can be materialized.
+        if let Some(label) = self.raw_result_capture.clone() {
+            self.emit(abi::branch(&label));
+        } else {
+            self.emit(abi::return_());
+        }
         Ok(())
     }
 

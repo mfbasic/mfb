@@ -136,16 +136,17 @@ thread_imp_print
 If `callImpPrint` starts in a thread and calls `thread_imp_print::impPrint`, that
 call must be resolved from package metadata, not from app source text.
 
-Package builds do not merge dependency bytecode into the generated `.mfp`.
+Package builds do not merge dependency IR into the generated `.mfp`.
 Instead, a package build compiles against installed dependency ABI metadata and
-records the dependency in the package bytecode:
+records the dependency in the package's Binary IR:
 
 - `IMPORT_TABLE` records imported packages.
 - `IMPORT_TABLE.usedSymbols` records the imported public symbols used while
   compiling the package.
 - `ABI_INDEX` records the ABI hashes for exported symbols and dependency used
   symbols.
-- `FUNCTION_TABLE` stores the package's own bytecode functions.
+- `FUNCTION_TABLE` describes the package's own functions; their bodies are the
+  structured Binary IR carried in the `IR` section.
 - `EXPORT_TABLE` maps exported source names to package-local function ids.
 
 The package format remains architecture-independent. Native symbols are derived
@@ -153,63 +154,56 @@ later by the executable native backend.
 
 ## 5. Function Ids And Package Calls
 
-Bytecode calls use numeric function ids:
-
-```text
-CALL_RESULT   dstResult, functionId, argReg...
-UNWRAP_RESULT dstValue, resultReg
-```
+In the Binary IR, calls reference functions by id. A call is an `IrValue::Call`
+or `IrValue::CallResult` node naming the target; auto-unwrapping is the ordinary
+`Result` desugaring (a `MATCH`/`PROPAGATE` over the `CallResult`), not an opcode
+pair.
 
 Inside one package, local function ids are package-local. They are not globally
 unique across `.mfp` files.
 
 When compiling a package against dependencies, imported exported functions are
-assigned deterministic temporary ids after the package's own function ids. The
-order is:
+referenced by their imported logical identity (import name plus the resolved ABI
+identity recorded in `IMPORT_TABLE`/`ABI_INDEX`), not baked against another
+package's local ids.
 
-```text
-own package functions
-then imported packages in IMPORT_TABLE order
-then each imported package's exported function ids in EXPORT_TABLE order
-```
+At consumption time, the executable decodes each imported package's Binary IR
+back into IR functions and **merges** them into the project IR under each
+package's deterministic identity prefix (`<id>.package.symbol`). The merge applies
+that prefix as a consistent link-time rename of every definition and every
+reference, driven by the resolved dependency graph, and resolves logical
+inter-package references to concrete prefixed names. Identical content reached via
+two dependency paths shares one prefix and de-duplicates.
 
-Those ids are only a bytecode encoding device. At executable native-link time,
-the backend reconstructs the same imported-function id mapping from the
-importing package's `IMPORT_TABLE` and the installed package set, validates the
-ABI through package metadata, and resolves each imported call to the concrete
-native package export symbol.
+The consumer must not assume that package-local function id `0` in two packages is
+the same function. It resolves through package identity plus exported symbol
+during the IR merge, before anything is lowered.
 
-The linker must not assume that package-local function id `0` in two packages is
-the same function. It must resolve through package identity plus exported symbol.
+## 6. Worker And Package Functions In The Single Codegen
 
-## 6. Native Package Symbols
+Worker functions are ordinary IR carried in the package's Binary IR. There is no
+separate package bytecode-to-native bridge and no `lower_package_export_function`
+path: once the consumer decodes and merges a package's IR, **every** package
+function — including thread workers — is lowered through the same
+`IR -> NIR -> native` path as the executable's own code.
 
-Each package export that is callable by native code receives a stable internal
-symbol derived from package name and export name:
+Consequently package functions automatically get every language feature the
+executable path has: full control flow (`IF`/`WHILE`/`FOREACH`/`MATCH`),
+function-level and inline `TRAP`, all built-ins, and inline-`TRAP`-on-a-built-in.
+A worker body's `CallResult` of a built-in is just an IR node; there is no flat
+built-in dispatch to fail on.
+
+Each merged package function still receives a stable internal native symbol so
+the linker can resolve cross-package and worker entry points:
 
 ```text
 _mfb_pkg_<package>_<export>
 ```
 
 Characters outside ASCII letters, digits, and underscore are sanitized to
-underscore.
-
-Native package export lowering must support at least:
-
-- Constants needed by the export body.
-- Register moves and copies.
-- Built-in runtime helper calls used by package bytecode.
-- `CALL_RESULT` to another package export.
-- `UNWRAP_RESULT` after a package call.
-- Return of the success member carrying `value` or the error member carrying `error` using the native result ABI.
-
-For package-to-package calls, native lowering loads bytecode argument registers
-into ABI argument registers, branches to the resolved `_mfb_pkg_*` symbol,
-checks the returned result tag, propagates the error member immediately, and stores the
-returned value for the success member.
-
-For `Nothing` results, the destination value is initialized to the canonical
-zero value.
+underscore. Cross-package calls and worker entry points resolve to these symbols
+after the IR merge, with `Nothing` results initialized to the canonical zero
+value, the same as for the executable's own functions.
 
 ## 7. Thread Runtime Helpers
 
@@ -493,14 +487,16 @@ Executable native linking receives:
 - The installed `.mfp` package files listed by the app manifest.
 - Package exports from every installed package.
 - Package import and ABI metadata from every installed package.
-- Runtime helper symbols requested by app and package bytecode.
+- Runtime helper symbols requested by app and package IR.
 
 The native backend must:
 
 1. Read all installed package exports.
-2. Emit one native function for each reachable package export.
-3. Derive each package export symbol.
-4. Add runtime helper imports for built-ins used inside package bytecode.
+2. Decode each installed package's Binary IR and merge its IR functions into the
+   project IR under the package identity prefix.
+3. Lower every merged package function through `IR -> NIR -> native`, deriving
+   each package export symbol.
+4. Add runtime helper imports for built-ins used inside package IR.
 5. Resolve app calls to imported package exports.
 6. Resolve package calls to other imported package exports by using the
    importing package's `IMPORT_TABLE` and the installed package set.
@@ -510,7 +506,7 @@ The native backend must:
 9. Link the final executable so worker calls, package calls, and runtime helpers
    all resolve to native symbols.
 
-For Linux, runtime helpers used only inside package bytecode must still add the
+For Linux, runtime helpers used only inside package IR must still add the
 same platform dynamic imports as helpers used by the app package. For example,
 a worker package that calls `fs::readText`, `io::print`, or `thread::start`
 must cause the final Linux executable to import the required libc, libm, or
@@ -518,18 +514,17 @@ libpthread symbols even if the app source does not call those helpers directly.
 
 It is not valid to make a package-to-package call by preserving a raw
 package-local function id and hoping the executable package order makes it
-correct. Function ids are scoped to bytecode payloads; native symbols and ABI
+correct. Function ids are scoped to Binary IR payloads; the IR merge resolves
+them through package identity plus exported symbol, and native symbols plus ABI
 metadata define the executable-level call graph.
 
 ## 12. Error Propagation
 
-Every MFBASIC function call returns a `Result` at bytecode level. A source call
-that is not directly matched lowers to:
-
-```text
-CALL_RESULT
-UNWRAP_RESULT
-```
+Every MFBASIC function call returns a `Result` at the IR level. A source call
+that is not directly matched is the ordinary `Result` auto-unwrap: a `CallResult`
+whose `Ok` value flows on and whose `Error` propagates to the enclosing `TRAP`
+(or the function's error result). This is structured IR — a `MATCH`/`PROPAGATE`
+over the call — not an opcode pair.
 
 The thread trampoline stores the worker's returned result tag and value/error in
 the control block. `thread::waitFor` reads that stored result, materializes any
@@ -543,10 +538,12 @@ closes the parent `Thread` handle before behaving like a normal fallible call:
 it retrieves the outcome, later use of the same `Thread` handle fails with
 `ErrResourceClosed`.
 
-Package bridge lowering must preserve the same behavior for calls made inside a
+Because worker and package functions ride the same `IR -> NIR -> native` path as
+the executable's own code, this behavior is automatic for calls made inside a
 worker. If a worker calls an imported package function and that function returns
-`Err`, the worker returns or propagates the error according to normal bytecode
-semantics.
+`Err`, the worker returns or propagates the error according to the normal
+structured `Result`/`TRAP` semantics — there is no separate bridge to keep in
+sync.
 
 ## 13. Validation
 

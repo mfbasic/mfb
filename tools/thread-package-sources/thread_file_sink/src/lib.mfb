@@ -1,0 +1,7 @@
+IMPORT thread
+IMPORT fs
+
+EXPORT ISOLATED FUNC sizeOfReceived(t AS ThreadWorker OF File TO Integer, seed AS String) AS Integer
+  LET f AS File = thread::receive(t, 1000)
+  RETURN len(fs::readAll(f))
+END FUNC

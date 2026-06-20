@@ -1,0 +1,29 @@
+{
+  "project": "trap_builtin_consumer",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 },
+    { "module": "trap_builtin_pkg", "line": 2 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "main",
+      "line": 4,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "trap_builtin_pkg.parseDoubled", "arguments": [{ "kind": "string", "value": "21" }] }] }] }, "line": 6 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "trap_builtin_pkg.parseDoubled", "arguments": [{ "kind": "string", "value": "notanumber" }] }] }] }, "line": 8 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "trap_builtin_pkg.parseDoubled", "arguments": [{ "kind": "string", "value": "skip" }] }] }] }, "line": 10 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 11 }
+      ]
+    }
+    ]
+  }
+  ]
+}

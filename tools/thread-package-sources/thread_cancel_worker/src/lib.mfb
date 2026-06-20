@@ -1,0 +1,7 @@
+IMPORT thread
+
+EXPORT ISOLATED FUNC echoWorker(t AS ThreadWorker OF String TO Integer, seed AS String) AS Integer
+  LET message AS String = thread::receive(t, 1000)
+  thread::send(t, message)
+  RETURN len(message)
+END FUNC

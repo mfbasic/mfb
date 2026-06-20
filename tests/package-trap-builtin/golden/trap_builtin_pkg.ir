@@ -1,0 +1,45 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "trap_builtin_pkg",
+  "entry": null,
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "parseDoubled",
+    "visibility": "export",
+    "kind": "func",
+    "params": [
+    { "name": "s", "type": "String", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    {
+      "op": "if",
+      "condition": { "kind": "binary", "op": "=", "left": { "kind": "local", "name": "s" }, "right": { "kind": "const", "type": "String", "value": "skip" } },
+      "then": [
+      { "op": "return", "value": { "kind": "unary", "op": "-", "operand": { "kind": "const", "type": "Integer", "value": "1" } } }
+      ],
+      "else": [
+      ]
+    },
+    { "op": "bind", "mutable": false, "name": "$trap_res0", "type": "Result OF Integer", "value": { "kind": "callResult", "target": "toInt", "args": [{ "kind": "local", "name": "s" }] } },
+    { "op": "bind", "mutable": true, "name": "$trap_val1", "type": "Integer", "value": null },
+    {
+      "op": "if",
+      "condition": { "kind": "resultIsOk", "value": { "kind": "local", "name": "$trap_res0" } },
+      "then": [
+      { "op": "assign", "name": "$trap_val1", "value": { "kind": "resultValue", "value": { "kind": "local", "name": "$trap_res0" } } }
+      ],
+      "else": [
+      { "op": "bind", "mutable": false, "name": "e", "type": "Error", "value": { "kind": "resultError", "value": { "kind": "local", "name": "$trap_res0" } } },
+      { "op": "return", "value": { "kind": "unary", "op": "-", "operand": { "kind": "const", "type": "Integer", "value": "2" } } }
+      ]
+    },
+    { "op": "bind", "mutable": false, "name": "n", "type": "Integer", "value": { "kind": "local", "name": "$trap_val1" } },
+    { "op": "return", "value": { "kind": "binary", "op": "*", "left": { "kind": "local", "name": "n" }, "right": { "kind": "const", "type": "Integer", "value": "2" } } }
+    ]
+  }
+  ]
+}

@@ -348,14 +348,13 @@ fn build_project(options: &BuildOptions) -> Result<(), ()> {
                 .get("version")
                 .and_then(|value| value.get::<String>())
                 .expect("validated project version");
-            let bytecode_path = if packages.is_empty() {
-                bytecode::write_bytecode_hex(&options.location, &ir, version)
-            } else {
-                bytecode::write_merged_bytecode_hex(&options.location, &ir, version, &packages)
-            }
-            .map_err(|err| {
-                eprintln!("error: {err}");
-            })?;
+            // -bc dumps this project's own structured Binary IR. Imported
+            // packages are decoded and merged only in the native consumption
+            // path; the hex dump reflects the project's own IR, not a merge.
+            let bytecode_path = bytecode::write_bytecode_hex(&options.location, &ir, version)
+                .map_err(|err| {
+                    eprintln!("error: {err}");
+                })?;
             println!("Wrote bytecode hex to {}", bytecode_path.display());
         }
         BuildOutput::NativeIr => {
@@ -1868,7 +1867,6 @@ fn external_package_function_types_from_files(
                     .map(|param| ir::ExternalFunctionParam {
                         name: param.name.clone(),
                         type_: param.type_.clone(),
-                        has_default: param.has_default,
                     })
                     .collect(),
             );
@@ -1903,7 +1901,6 @@ fn external_package_function_types_from_files_lossy(
                     .map(|param| ir::ExternalFunctionParam {
                         name: param.name.clone(),
                         type_: param.type_.clone(),
-                        has_default: param.has_default,
                     })
                     .collect(),
             );

@@ -1,21 +1,4 @@
-use crate::bytecode::{
-    BuiltinCallLowerer, ValueSlot, OPCODE_COLLECTION_APPEND, OPCODE_COLLECTION_CONTAINS,
-    OPCODE_COLLECTION_FILTER, OPCODE_COLLECTION_FIND, OPCODE_COLLECTION_FOR_EACH,
-    OPCODE_COLLECTION_GET, OPCODE_COLLECTION_GET_OR, OPCODE_COLLECTION_HAS_KEY,
-    OPCODE_COLLECTION_INSERT, OPCODE_COLLECTION_KEYS, OPCODE_COLLECTION_MID,
-    OPCODE_COLLECTION_PREPEND, OPCODE_COLLECTION_REDUCE, OPCODE_COLLECTION_REMOVE_AT,
-    OPCODE_COLLECTION_REMOVE_KEY, OPCODE_COLLECTION_REPLACE, OPCODE_COLLECTION_SET,
-    OPCODE_COLLECTION_SUM, OPCODE_COLLECTION_TRANSFORM, OPCODE_COLLECTION_VALUES,
-    OPCODE_GENERAL_FIND, OPCODE_GENERAL_IS_EMPTY, OPCODE_GENERAL_IS_EVEN,
-    OPCODE_GENERAL_IS_NEGATIVE, OPCODE_GENERAL_IS_NOT_EMPTY, OPCODE_GENERAL_IS_NUMERIC,
-    OPCODE_GENERAL_IS_ODD, OPCODE_GENERAL_IS_POSITIVE, OPCODE_GENERAL_IS_ZERO, OPCODE_GENERAL_LEN,
-    OPCODE_GENERAL_MID, OPCODE_GENERAL_REPLACE, OPCODE_GENERAL_TO_BYTE, OPCODE_GENERAL_TO_FIXED,
-    OPCODE_GENERAL_TO_FLOAT, OPCODE_GENERAL_TO_INT, OPCODE_GENERAL_TO_STRING, TYPE_BOOLEAN,
-    TYPE_BYTE, TYPE_FIXED, TYPE_FLOAT, TYPE_INTEGER, TYPE_STRING,
-};
-use crate::ir::IrValue;
 use std::borrow::Cow;
-use std::collections::HashMap;
 
 const LEN: &str = "len";
 const FIND: &str = "find";
@@ -111,6 +94,16 @@ pub(crate) fn is_general_call(name: &str) -> bool {
             | REDUCE
             | SUM
     )
+}
+
+pub(crate) fn call_return_type_name(name: &str) -> Option<&'static str> {
+    match name {
+        TO_INT => Some("Integer"),
+        TO_FLOAT => Some("Float"),
+        TO_FIXED => Some("Fixed"),
+        TO_BYTE => Some("Byte"),
+        _ => None,
+    }
 }
 
 pub(crate) fn builtin_function_id(name: &str) -> Option<u32> {
@@ -411,50 +404,6 @@ pub(crate) fn arity(name: &str) -> Option<(usize, usize)> {
     }
 }
 
-pub(crate) fn lower_bytecode_call(
-    lowerer: &mut dyn BuiltinCallLowerer,
-    name: &str,
-    args: &[IrValue],
-    locals: &HashMap<String, ValueSlot>,
-) -> Result<ValueSlot, String> {
-    let lowered = args
-        .iter()
-        .map(|arg| lowerer.lower_value(arg, locals))
-        .collect::<Result<Vec<_>, _>>()?;
-    let arg_types = lowered
-        .iter()
-        .map(|slot| slot.type_name.clone())
-        .collect::<Vec<_>>();
-    let resolved = resolve_call(name, &arg_types).ok_or_else(|| {
-        format!(
-            "built-in `{name}` does not accept ({})",
-            arg_types.join(", ")
-        )
-    })?;
-
-    if name == TYPE_NAME {
-        return lowerer.push_string_const(&arg_types[0]);
-    }
-    if name == TO_STRING && arg_types[0] == "String" {
-        return Ok(lowered[0].clone());
-    }
-
-    let dst_type_id = primitive_type_id(&resolved.return_type)
-        .unwrap_or_else(|| lowerer.type_id(&resolved.return_type));
-    let dst = lowerer.add_register(dst_type_id, 0);
-    let opcode = opcode_for(name, &arg_types)?;
-    let mut operands = vec![dst];
-    operands.extend(lowered.iter().map(|slot| slot.register));
-    if name == APPEND {
-        operands.push(u32::from(arg_types[1] == arg_types[0]));
-    }
-    lowerer.push(opcode, operands);
-    Ok(ValueSlot {
-        register: dst,
-        type_name: resolved.return_type.into_owned(),
-    })
-}
-
 fn resolve_get<'a>(arg_types: &'a [String]) -> Option<ResolvedCall<'a>> {
     if arg_types.len() != 2 {
         return None;
@@ -664,78 +613,6 @@ fn exact(arg_types: &[String], expected: &[&str]) -> bool {
 fn exact_one_of(arg_types: &[String], expected: &[&str]) -> bool {
     arg_types.len() == 1 && expected.iter().any(|expected| arg_types[0] == *expected)
 }
-
-fn primitive_type_id(type_name: &str) -> Option<u32> {
-    match type_name {
-        "Boolean" => Some(TYPE_BOOLEAN),
-        "Byte" => Some(TYPE_BYTE),
-        "Integer" => Some(TYPE_INTEGER),
-        "Float" => Some(TYPE_FLOAT),
-        "Fixed" => Some(TYPE_FIXED),
-        "String" => Some(TYPE_STRING),
-        _ => None,
-    }
-}
-
-fn opcode_for(name: &str, arg_types: &[String]) -> Result<u16, String> {
-    match name {
-        LEN => Ok(OPCODE_GENERAL_LEN),
-        FIND if arg_types
-            .first()
-            .is_some_and(|type_| type_.starts_with("List OF ")) =>
-        {
-            Ok(OPCODE_COLLECTION_FIND)
-        }
-        FIND => Ok(OPCODE_GENERAL_FIND),
-        MID if arg_types
-            .first()
-            .is_some_and(|type_| type_.starts_with("List OF ")) =>
-        {
-            Ok(OPCODE_COLLECTION_MID)
-        }
-        MID => Ok(OPCODE_GENERAL_MID),
-        REPLACE
-            if arg_types
-                .first()
-                .is_some_and(|type_| type_.starts_with("List OF ")) =>
-        {
-            Ok(OPCODE_COLLECTION_REPLACE)
-        }
-        REPLACE => Ok(OPCODE_GENERAL_REPLACE),
-        TO_STRING => Ok(OPCODE_GENERAL_TO_STRING),
-        TO_INT => Ok(OPCODE_GENERAL_TO_INT),
-        TO_FLOAT => Ok(OPCODE_GENERAL_TO_FLOAT),
-        TO_FIXED => Ok(OPCODE_GENERAL_TO_FIXED),
-        TO_BYTE => Ok(OPCODE_GENERAL_TO_BYTE),
-        IS_NUMERIC => Ok(OPCODE_GENERAL_IS_NUMERIC),
-        IS_EVEN => Ok(OPCODE_GENERAL_IS_EVEN),
-        IS_ODD => Ok(OPCODE_GENERAL_IS_ODD),
-        IS_POSITIVE => Ok(OPCODE_GENERAL_IS_POSITIVE),
-        IS_NEGATIVE => Ok(OPCODE_GENERAL_IS_NEGATIVE),
-        IS_ZERO => Ok(OPCODE_GENERAL_IS_ZERO),
-        IS_EMPTY => Ok(OPCODE_GENERAL_IS_EMPTY),
-        IS_NOT_EMPTY => Ok(OPCODE_GENERAL_IS_NOT_EMPTY),
-        GET => Ok(OPCODE_COLLECTION_GET),
-        GET_OR => Ok(OPCODE_COLLECTION_GET_OR),
-        SET => Ok(OPCODE_COLLECTION_SET),
-        APPEND => Ok(OPCODE_COLLECTION_APPEND),
-        PREPEND => Ok(OPCODE_COLLECTION_PREPEND),
-        INSERT => Ok(OPCODE_COLLECTION_INSERT),
-        REMOVE_AT => Ok(OPCODE_COLLECTION_REMOVE_AT),
-        REMOVE_KEY => Ok(OPCODE_COLLECTION_REMOVE_KEY),
-        KEYS => Ok(OPCODE_COLLECTION_KEYS),
-        VALUES => Ok(OPCODE_COLLECTION_VALUES),
-        HAS_KEY => Ok(OPCODE_COLLECTION_HAS_KEY),
-        CONTAINS => Ok(OPCODE_COLLECTION_CONTAINS),
-        SUM => Ok(OPCODE_COLLECTION_SUM),
-        FOR_EACH => Ok(OPCODE_COLLECTION_FOR_EACH),
-        TRANSFORM => Ok(OPCODE_COLLECTION_TRANSFORM),
-        FILTER => Ok(OPCODE_COLLECTION_FILTER),
-        REDUCE => Ok(OPCODE_COLLECTION_REDUCE),
-        _ => Err(format!("unsupported General built-in `{name}`")),
-    }
-}
-
 fn list_element(type_name: &str) -> Option<&str> {
     type_name.strip_prefix("List OF ")
 }

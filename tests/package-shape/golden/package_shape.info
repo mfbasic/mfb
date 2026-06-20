@@ -15,8 +15,8 @@ Container:
   flags: 0x00000000
   signature type: unsigned
   signature length: 0
-  content hash: c775776978b65866c1afbd7e33a0b7c814a8e626a51fdd1bd4b971f75ae204ff
-  bytecode length: 2351
+  content hash: a3b406c71d99cb98a3a9335ccfc0e375b36f8595128a055045c7e95e28705ffa
+  bytecode length: 2692
 
 Manifest:
   name: package_shape

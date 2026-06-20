@@ -450,6 +450,15 @@ impl CodeBuilder<'_> {
                             });
                     }
                 }
+                // An inline `TRAP` on an inline-lowered conversion built-in
+                // (`toInt`, `toFloat`, `toFixed`, `toByte`) traps the raw
+                // `Result`: lower the conversion inline but capture its error
+                // instead of auto-propagating, then materialize the `Result`.
+                if matches!(target.as_str(), "toInt" | "toFloat" | "toFixed" | "toByte")
+                    && args.len() == 1
+                {
+                    return self.lower_inline_conversion_raw(target, &args[0]);
+                }
                 // An inline `TRAP` on a helper-backed built-in (`thread::waitFor`,
                 // `fs::*`, …) traps the raw `Result`. The runtime helper leaves
                 // that `Result` in the standard tag/value/error registers just
@@ -1026,6 +1035,41 @@ impl CodeBuilder<'_> {
             NirValue::ListLiteral { type_, values } => self.lower_list_literal(type_, values),
             NirValue::MapLiteral { type_, entries } => self.lower_map_literal(type_, entries),
         }
+    }
+
+    /// Lower an inline conversion built-in (`toInt`/`toFloat`/`toFixed`/`toByte`)
+    /// for an inline `TRAP`: emit the normal inline conversion but capture its
+    /// error return (which would otherwise auto-propagate) so the raw `Result`
+    /// is left in the standard registers, then materialize it as a value.
+    fn lower_inline_conversion_raw(
+        &mut self,
+        target: &str,
+        arg: &NirValue,
+    ) -> Result<ValueResult, String> {
+        let success_type = builtins::call_return_type_name(target)
+            .ok_or_else(|| format!("native raw conversion '{target}' has no return type"))?
+            .to_string();
+        let capture = self.label("raw_conversion_done");
+        let previous = self.raw_result_capture.take();
+        self.raw_result_capture = Some(capture.clone());
+        let lowered = match target {
+            "toInt" => self.lower_to_int(arg),
+            "toFloat" => self.lower_to_float(arg),
+            "toFixed" => self.lower_to_fixed(arg),
+            "toByte" => self.lower_to_byte(arg),
+            other => Err(format!("native raw conversion '{other}' is not supported")),
+        };
+        self.raw_result_capture = previous;
+        let success = lowered?;
+        // Success fall-through: tag the converted value as the `Ok` result.
+        self.emit(abi::move_register(RESULT_VALUE_REGISTER, &success.location));
+        self.emit(abi::move_immediate(
+            RESULT_TAG_REGISTER,
+            "Integer",
+            RESULT_OK_TAG,
+        ));
+        self.emit(abi::label(&capture));
+        self.materialize_current_result(&success_type, format!("callResult {target}"))
     }
 
     /// Lower a runtime-helper-backed call (`thread::*`, `fs::*`, `io::*`, …).

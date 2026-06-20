@@ -1,0 +1,13 @@
+IMPORT thread
+IMPORT fs
+
+EXPORT ISOLATED FUNC acceptFile(t AS ThreadWorker OF Nothing TO Integer, f AS File) AS Integer
+  fs::close(f)
+  RETURN 1
+END FUNC
+
+EXPORT ISOLATED FUNC receiveFile(t AS ThreadWorker OF File TO Integer, path AS String) AS Integer
+  LET f AS File = thread::receive(t, 1000)
+  fs::close(f)
+  RETURN 1
+END FUNC

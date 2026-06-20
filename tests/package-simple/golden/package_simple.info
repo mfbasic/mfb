@@ -15,8 +15,8 @@ Container:
   flags: 0x00000000
   signature type: unsigned
   signature length: 0
-  content hash: cb497e5f5048a6e1572f7b202508f1341ad63ae6d1f66788d9c8581dd28e2ed0
-  bytecode length: 2078
+  content hash: cb835e3469976e9eeb9244ca5ff752830219c1772f4d077d87012d6070915aea
+  bytecode length: 2520
 
 Manifest:
   name: package_simple
@@ -31,7 +31,7 @@ Manifest:
 Bytecode:
   ABI format version: 1
   types: 5
-  constants: 1
+  constants: 0
   resources: 0
   functions: 5
   globals: 0

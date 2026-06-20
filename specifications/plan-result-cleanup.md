@@ -272,3 +272,23 @@ it produces no success value, and its call is a statement, not an expression.
   (`LET x = aSub()` becomes illegal) and removing `RETURN NOTHING`. Recommend
   yes; keep `Nothing` as a nameable unit type for marker fields and the
   `FUNC(...) AS Nothing` callback bridge (full `Nothing` removal is out of scope).
+
+## 9. Package half: subsumed by `plan-new-bytecode.md`
+
+The package-side work to make inline-`TRAP`-on-a-built-in work inside a package
+export is **subsumed by `plan-new-bytecode.md`** (the `.mfp` payload is now
+structured Binary IR lowered through the single `IR → NIR → native` path):
+
+- **Task 9 — bytecode emitter `CallResult` of built-ins: SUBSUMED.** There is no
+  flat bytecode emitter and no flat built-in dispatch. `CallResult` of a built-in
+  is just an ordinary `IrValue::CallResult` node serialized into the Binary IR;
+  the old "unknown function `toInt`" failure cannot occur.
+- **Task 10 — bytecode→native bridge: SUBSUMED.** The
+  `lower_package_export_function` bridge is deleted. A consumer decodes a
+  package's Binary IR back into IR and lowers it through the same
+  `IR → NIR → native` path as the executable's own code, so package exports get
+  inline-`TRAP`-on-a-built-in (and all other features) for free.
+- **Task 11 — end-to-end package test: see the new acceptance test.** The
+  acceptance test for this capability is `tests/package-trap-builtin` (a package
+  whose export contains real control flow and inline-`TRAP`s a built-in) consumed
+  and run by `tests/trap-builtin-consumer`. See `plan-new-bytecode.md` §9.

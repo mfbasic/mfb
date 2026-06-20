@@ -1,0 +1,28 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "trap_builtin_consumer",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "trap_builtin_pkg.parseDoubled", "args": [{ "kind": "const", "type": "String", "value": "21" }] }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "trap_builtin_pkg.parseDoubled", "args": [{ "kind": "const", "type": "String", "value": "notanumber" }] }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "trap_builtin_pkg.parseDoubled", "args": [{ "kind": "const", "type": "String", "value": "skip" }] }] }] } },
+    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

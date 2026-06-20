@@ -1,0 +1,44 @@
+{
+  "project": "trap_builtin_pkg",
+  "files": [
+  {
+    "path": "src/lib.mfb",
+    "imports": [
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "export",
+      "name": "parseDoubled",
+      "line": 4,
+      "params": [
+      { "name": "s", "type": "String", "default": null }
+      ],
+      "returnType": "Integer",
+      "body": [
+      {
+        "kind": "if",
+        "condition": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "s" }, "right": { "kind": "string", "value": "skip" } },
+        "line": 5,
+        "then": [
+        { "kind": "return", "value": { "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "1" } }, "line": 6 }
+        ],
+        "else": [
+        ]
+      },
+      { "kind": "binding", "mutable": false, "name": "n", "type": "Integer", "value": {
+        "kind": "trapped",
+        "binding": "e",
+        "line": 8,
+        "expression": { "kind": "call", "callee": "toInt", "arguments": [{ "kind": "identifier", "value": "s" }] },
+        "handler": [
+        { "kind": "return", "value": { "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "2" } }, "line": 9 }
+        ]
+      }, "line": 8 },
+      { "kind": "return", "value": { "kind": "binary", "operator": "*", "left": { "kind": "identifier", "value": "n" }, "right": { "kind": "number", "value": "2" } }, "line": 11 }
+      ]
+    }
+    ]
+  }
+  ]
+}

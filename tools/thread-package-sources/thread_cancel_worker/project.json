@@ -1,0 +1,11 @@
+{
+  "name": "thread_cancel_worker",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "package",
+  "sources": [{ "root": "src", "role": "lib", "include": ["**/*.mfb"] }],
+  "ident": "tests:thread-cancel-worker",
+  "identKey": "ed25519-public:test-thread-cancel-worker-ident",
+  "identFingerprint": "sha256:test-thread-cancel-worker-ident",
+  "signingFingerprint": "sha256:test-thread-cancel-worker-signing"
+}

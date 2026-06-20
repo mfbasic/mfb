@@ -1,0 +1,12 @@
+' Exercises the feature this plan unblocks: a package export with real control
+' flow that inline-TRAPs a built-in (`toInt`). Before structured Binary IR this
+' could not even build to a package, and the consumer could not lower it.
+EXPORT FUNC parseDoubled(s AS String) AS Integer
+  IF s = "skip" THEN
+    RETURN -1
+  END IF
+  LET n AS Integer = toInt(s) TRAP(e)
+    RETURN -2
+  END TRAP
+  RETURN n * 2
+END FUNC

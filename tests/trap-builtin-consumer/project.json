@@ -1,0 +1,12 @@
+{
+  "name": "trap_builtin_consumer",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "executable",
+  "sources": [{ "root": "src", "role": "main", "include": ["**/*.mfb"] }],
+  "packages": [
+    { "name": "trap_builtin_pkg", "version": "=0.1.0", "source": "file:packages/trap_builtin_pkg.mfp" }
+  ],
+  "entry": "main",
+  "targets": ["native"]
+}

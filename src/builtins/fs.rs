@@ -1,22 +1,5 @@
-use crate::bytecode::{
-    BuiltinCallLowerer, ValueSlot, OPCODE_FS_APPEND_BYTES, OPCODE_FS_APPEND_TEXT,
-    OPCODE_FS_CANONICAL_PATH, OPCODE_FS_CLOSE, OPCODE_FS_CREATE_DIRECTORIES,
-    OPCODE_FS_CREATE_DIRECTORY, OPCODE_FS_CREATE_TEMP_FILE, OPCODE_FS_CURRENT_DIRECTORY,
-    OPCODE_FS_DELETE_DIRECTORY, OPCODE_FS_DELETE_FILE, OPCODE_FS_DIRECTORY_EXISTS, OPCODE_FS_EOF,
-    OPCODE_FS_EXISTS, OPCODE_FS_FILE_EXISTS, OPCODE_FS_IS_WITHIN, OPCODE_FS_LIST_DIRECTORY,
-    OPCODE_FS_OPEN, OPCODE_FS_OPEN_NO_FOLLOW, OPCODE_FS_PATH_BASE_NAME, OPCODE_FS_PATH_DIR_NAME,
-    OPCODE_FS_PATH_EXTENSION, OPCODE_FS_PATH_JOIN, OPCODE_FS_PATH_NORMALIZE, OPCODE_FS_READ_ALL,
-    OPCODE_FS_READ_ALL_BYTES, OPCODE_FS_READ_BYTES, OPCODE_FS_READ_LINE, OPCODE_FS_READ_TEXT,
-    OPCODE_FS_SET_CURRENT_DIRECTORY, OPCODE_FS_TEMP_DIRECTORY, OPCODE_FS_WRITE_ALL,
-    OPCODE_FS_WRITE_ALL_BYTES, OPCODE_FS_WRITE_BYTES, OPCODE_FS_WRITE_BYTES_ATOMIC,
-    OPCODE_FS_WRITE_TEXT, OPCODE_FS_WRITE_TEXT_ATOMIC, TYPE_BOOLEAN, TYPE_FILE_HANDLE,
-    TYPE_NOTHING, TYPE_STRING,
-};
-use crate::ir::IrValue;
 use std::borrow::Cow;
-use std::collections::HashMap;
 
-const PACKAGE: &str = "fs";
 
 pub(crate) const FILE_TYPE: &str = "File";
 
@@ -263,111 +246,10 @@ pub(crate) fn arity(name: &str) -> Option<(usize, usize)> {
     }
 }
 
-pub(crate) fn lower_bytecode_call(
-    lowerer: &mut dyn BuiltinCallLowerer,
-    name: &str,
-    args: &[IrValue],
-    locals: &HashMap<String, ValueSlot>,
-) -> Result<ValueSlot, String> {
-    let mut lowered = args
-        .iter()
-        .map(|arg| lowerer.lower_value(arg, locals))
-        .collect::<Result<Vec<_>, _>>()?;
-
-    match name {
-        OPEN_FILE | OPEN_FILE_NO_FOLLOW if lowered.len() == 1 => {
-            lowered.push(lowerer.push_string_const("read")?);
-        }
-        CREATE_TEMP_FILE if lowered.is_empty() => {
-            let register = lowerer.add_register(TYPE_STRING, 0);
-            lowerer.push(OPCODE_FS_TEMP_DIRECTORY, vec![register]);
-            lowered.push(ValueSlot {
-                register,
-                type_name: "String".to_string(),
-            });
-        }
-        _ => {}
-    }
-
-    let arg_types = lowered
-        .iter()
-        .map(|slot| slot.type_name.clone())
-        .collect::<Vec<_>>();
-    let resolved = resolve_call(name, &arg_types).ok_or_else(|| {
-        format!(
-            "built-in `{name}` does not accept ({})",
-            arg_types.join(", ")
-        )
-    })?;
-
-    let dst_type_id = primitive_type_id(&resolved.return_type)
-        .unwrap_or_else(|| lowerer.type_id(&resolved.return_type));
-    let dst = lowerer.add_register(dst_type_id, 0);
-    let mut operands = vec![dst];
-    operands.extend(lowered.iter().map(|slot| slot.register));
-    lowerer.push(opcode_for(name)?, operands);
-    Ok(ValueSlot {
-        register: dst,
-        type_name: resolved.return_type.into_owned(),
-    })
-}
-
-fn opcode_for(name: &str) -> Result<u16, String> {
-    match name {
-        FILE_EXISTS => Ok(OPCODE_FS_FILE_EXISTS),
-        DIRECTORY_EXISTS => Ok(OPCODE_FS_DIRECTORY_EXISTS),
-        EXISTS => Ok(OPCODE_FS_EXISTS),
-        READ_BYTES => Ok(OPCODE_FS_READ_BYTES),
-        READ_TEXT => Ok(OPCODE_FS_READ_TEXT),
-        WRITE_BYTES => Ok(OPCODE_FS_WRITE_BYTES),
-        WRITE_TEXT => Ok(OPCODE_FS_WRITE_TEXT),
-        WRITE_BYTES_ATOMIC => Ok(OPCODE_FS_WRITE_BYTES_ATOMIC),
-        WRITE_TEXT_ATOMIC => Ok(OPCODE_FS_WRITE_TEXT_ATOMIC),
-        APPEND_BYTES => Ok(OPCODE_FS_APPEND_BYTES),
-        APPEND_TEXT => Ok(OPCODE_FS_APPEND_TEXT),
-        OPEN | OPEN_FILE => Ok(OPCODE_FS_OPEN),
-        OPEN_FILE_NO_FOLLOW => Ok(OPCODE_FS_OPEN_NO_FOLLOW),
-        CREATE_TEMP_FILE => Ok(OPCODE_FS_CREATE_TEMP_FILE),
-        READ_LINE => Ok(OPCODE_FS_READ_LINE),
-        READ_ALL => Ok(OPCODE_FS_READ_ALL),
-        READ_ALL_BYTES => Ok(OPCODE_FS_READ_ALL_BYTES),
-        WRITE_ALL => Ok(OPCODE_FS_WRITE_ALL),
-        WRITE_ALL_BYTES => Ok(OPCODE_FS_WRITE_ALL_BYTES),
-        CLOSE => Ok(OPCODE_FS_CLOSE),
-        EOF => Ok(OPCODE_FS_EOF),
-        CANONICAL_PATH => Ok(OPCODE_FS_CANONICAL_PATH),
-        IS_WITHIN => Ok(OPCODE_FS_IS_WITHIN),
-        PATH_JOIN => Ok(OPCODE_FS_PATH_JOIN),
-        PATH_DIR_NAME => Ok(OPCODE_FS_PATH_DIR_NAME),
-        PATH_BASE_NAME => Ok(OPCODE_FS_PATH_BASE_NAME),
-        PATH_EXTENSION => Ok(OPCODE_FS_PATH_EXTENSION),
-        PATH_NORMALIZE => Ok(OPCODE_FS_PATH_NORMALIZE),
-        DELETE_FILE => Ok(OPCODE_FS_DELETE_FILE),
-        CREATE_DIRECTORY => Ok(OPCODE_FS_CREATE_DIRECTORY),
-        CREATE_DIRECTORIES => Ok(OPCODE_FS_CREATE_DIRECTORIES),
-        DELETE_DIRECTORY => Ok(OPCODE_FS_DELETE_DIRECTORY),
-        LIST_DIRECTORY => Ok(OPCODE_FS_LIST_DIRECTORY),
-        CURRENT_DIRECTORY => Ok(OPCODE_FS_CURRENT_DIRECTORY),
-        TEMP_DIRECTORY => Ok(OPCODE_FS_TEMP_DIRECTORY),
-        SET_CURRENT_DIRECTORY => Ok(OPCODE_FS_SET_CURRENT_DIRECTORY),
-        _ => Err(format!("unsupported {PACKAGE} built-in `{name}`")),
-    }
-}
-
 fn exact(arg_types: &[String], expected: &[&str]) -> bool {
     arg_types.len() == expected.len()
         && arg_types
             .iter()
             .zip(expected.iter())
             .all(|(actual, expected)| actual == expected)
-}
-
-fn primitive_type_id(type_name: &str) -> Option<u32> {
-    match type_name {
-        "Nothing" => Some(TYPE_NOTHING),
-        "Boolean" => Some(TYPE_BOOLEAN),
-        "String" => Some(TYPE_STRING),
-        FILE_TYPE => Some(TYPE_FILE_HANDLE),
-        _ => None,
-    }
 }

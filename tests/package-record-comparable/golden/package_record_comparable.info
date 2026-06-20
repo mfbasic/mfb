@@ -15,8 +15,8 @@ Container:
   flags: 0x00000000
   signature type: unsigned
   signature length: 0
-  content hash: 465f1de992926023847932b4e5e756054af943ff60305cf8367bc43f4797b19a
-  bytecode length: 1164
+  content hash: dfc1e1868a2bdb1865b20ece1a789e02abc3c01b4dc5d2ab15455283a1666888
+  bytecode length: 1496
 
 Manifest:
   name: package_record_comparable

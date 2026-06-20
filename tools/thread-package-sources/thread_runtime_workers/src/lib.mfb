@@ -95,7 +95,7 @@ END FUNC
 EXPORT ISOLATED FUNC waitForCancel(t AS ThreadWorker OF String TO Integer, seed AS String) AS Integer
   LET message AS String = thread::receive(t, 1000)
   RETURN len(message)
-  TRAP err
+  TRAP(err)
     RETURN 7
   END TRAP
 END FUNC
@@ -111,7 +111,7 @@ EXPORT ISOLATED FUNC blockOnOutbound(t AS ThreadWorker OF String TO Integer, see
   thread::send(t, "ready", 0)
   thread::send(t, "blocked", 100)
   RETURN 0
-  TRAP err
+  TRAP(err)
     RETURN 7
   END TRAP
 END FUNC

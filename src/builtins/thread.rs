@@ -1,14 +1,5 @@
-use crate::bytecode::{
-    BuiltinCallLowerer, ValueSlot, OPCODE_THREAD_CANCEL, OPCODE_THREAD_EMIT,
-    OPCODE_THREAD_IS_CANCELLED, OPCODE_THREAD_IS_RUNNING, OPCODE_THREAD_POLL, OPCODE_THREAD_READ,
-    OPCODE_THREAD_RECEIVE, OPCODE_THREAD_SEND, OPCODE_THREAD_START, OPCODE_THREAD_WAIT_FOR,
-    TYPE_BOOLEAN, TYPE_NOTHING,
-};
-use crate::ir::IrValue;
 use std::borrow::Cow;
-use std::collections::HashMap;
 
-const PACKAGE: &str = "thread";
 
 pub(crate) const THREAD_TYPE: &str = "Thread";
 pub(crate) const THREAD_WORKER_TYPE: &str = "ThreadWorker";
@@ -102,81 +93,6 @@ pub(crate) fn arity(name: &str) -> Option<(usize, usize)> {
         POLL => Some((2, 2)),
         RECEIVE => Some((1, 2)),
         _ => None,
-    }
-}
-
-pub(crate) fn lower_bytecode_call(
-    lowerer: &mut dyn BuiltinCallLowerer,
-    name: &str,
-    args: &[IrValue],
-    locals: &HashMap<String, ValueSlot>,
-) -> Result<ValueSlot, String> {
-    let mut lowered = args
-        .iter()
-        .map(|arg| lowerer.lower_value(arg, locals))
-        .collect::<Result<Vec<_>, _>>()?;
-
-    match name {
-        START if lowered.len() == 2 => {
-            lowered.push(lowerer.push_integer_const(64)?);
-            lowered.push(lowerer.push_integer_const(64)?);
-        }
-        START if lowered.len() == 3 => {
-            lowered.push(lowerer.push_integer_const(64)?);
-        }
-        SEND | RECEIVE if lowered.len() == arity(name).map(|(min, _)| min).unwrap_or(0) => {
-            lowered.push(lowerer.push_integer_const(0)?);
-        }
-        _ => {}
-    }
-
-    let arg_types = lowered
-        .iter()
-        .map(|slot| slot.type_name.clone())
-        .collect::<Vec<_>>();
-    let resolved = resolve_call(name, &arg_types).ok_or_else(|| {
-        format!(
-            "built-in `{name}` does not accept ({})",
-            arg_types.join(", ")
-        )
-    })?;
-
-    let dst_type_id = primitive_type_id(&resolved.return_type)
-        .unwrap_or_else(|| lowerer.type_id(&resolved.return_type));
-    let opcode = opcode_for(name, &arg_types)?;
-    let dst = lowerer.add_register(dst_type_id, 0);
-    let mut operands = vec![dst];
-    operands.extend(lowered.iter().map(|slot| slot.register));
-    lowerer.push(opcode, operands);
-    Ok(ValueSlot {
-        register: dst,
-        type_name: resolved.return_type.into_owned(),
-    })
-}
-
-fn opcode_for(name: &str, arg_types: &[String]) -> Result<u16, String> {
-    match name {
-        START => Ok(OPCODE_THREAD_START),
-        IS_RUNNING => Ok(OPCODE_THREAD_IS_RUNNING),
-        WAIT_FOR => Ok(OPCODE_THREAD_WAIT_FOR),
-        CANCEL => Ok(OPCODE_THREAD_CANCEL),
-        SEND => {
-            if is_worker_thread_type(arg_types.first().map(String::as_str).unwrap_or_default()) {
-                Ok(OPCODE_THREAD_EMIT)
-            } else {
-                Ok(OPCODE_THREAD_SEND)
-            }
-        }
-        POLL => Ok(OPCODE_THREAD_POLL),
-        RECEIVE => {
-            if is_worker_thread_type(arg_types.first().map(String::as_str).unwrap_or_default()) {
-                Ok(OPCODE_THREAD_RECEIVE)
-            } else {
-                Ok(OPCODE_THREAD_READ)
-            }
-        }
-        IS_CANCELLED => Ok(OPCODE_THREAD_IS_CANCELLED),
-        _ => Err(format!("unsupported {PACKAGE} built-in `{name}`")),
     }
 }
 
@@ -359,12 +275,4 @@ fn split_top_level_types(params: &str) -> Vec<String> {
     }
     parts.push(params[start..].trim().to_string());
     parts
-}
-
-fn primitive_type_id(type_name: &str) -> Option<u32> {
-    match type_name {
-        "Nothing" => Some(TYPE_NOTHING),
-        "Boolean" => Some(TYPE_BOOLEAN),
-        _ => None,
-    }
 }
