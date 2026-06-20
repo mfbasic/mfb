@@ -278,8 +278,8 @@ sectionData    byte[]
 Recommended `bcMagic`:
 
 ```text
-4D 46 42 43
-M  F  B  C
+4D 46 50 43
+M  F  P  C
 ```
 
 ## Section header
@@ -839,8 +839,8 @@ IrProject    ...
 Recommended `magic`:
 
 ```text
-4D 46 49 52
-M  F  I  R
+4D 46 42 52
+M  F  B  R
 ```
 
 The Binary Representation `version` is currently `1`. A reader rejects any payload whose magic is not `MFBR` or whose version it does not support (the package binary representation container is separately versioned at MFPC major `2`).
@@ -854,16 +854,18 @@ Control flow is encoded as nested regions with explicit ends, matching IR exactl
 ```text
 IF      <cond-expr> THEN <ops...> ELSE <ops...> END
 WHILE   <cond-expr> DO <ops...> END
+DO      <ops...> UNTIL <cond-expr>
+FOR     <name> = <start> TO <end> STEP <step> DO <ops...> END
 FOREACH <name> IN <iterable-expr> DO <ops...> END
-MATCH   <scrutinee-expr> CASE <pattern> <ops...> ... [ELSE <ops...>] END
+MATCH   <scrutinee-expr> CASE <pattern> [<guard>] <ops...> ... [ELSE <ops...>] END
 TRAP    <binding> <ops...> END
 ```
 
-There are no `JMP`, `JMP_FALSE`, label, or program-counter concepts in the format. A reader walks the tree; structure is read, never reconstructed.
+Structured exit out of these regions is itself encoded as leaf ops rather than jumps: `ExitLoop` (`EXIT FOR/DO/WHILE`), `ContinueLoop` (`CONTINUE FOR/DO/WHILE`), and `ExitProgram` (`EXIT PROGRAM`). There are no `JMP`, `JMP_FALSE`, label, or program-counter concepts in the format. A reader walks the tree; structure is read, never reconstructed.
 
 ## Statements / ops
 
-`IrOp` is encoded faithfully, one tag byte per kind: `Let`/`Bind`, `Assign`, `Return`, `Fail`, `Propagate`, `Recover`, `Eval`, the control-flow ops above, and the resource region ops (`RESOURCE_ENTER`/`LEAVE`/`CLOSE`). The internal `Result`/`Ok` forms remain implementation-only — they appear in IR and therefore in Binary Representation, but are never user-visible.
+`IrOp` is encoded faithfully, one tag byte per kind. The kinds are `Bind`, `Assign`, `AssignGlobal`, `Return`, `Fail`, `Eval`, the structured control-flow regions above (`If`, `Match`, `While`, `For`, `DoUntil`, `ForEach`, `Trap`), and the structured exit ops `ExitLoop`, `ContinueLoop`, and `ExitProgram`. Source-level `PROPAGATE` and `RECOVER` are lowered before serialization (`PROPAGATE` becomes `Fail`; `RECOVER` is lowered into ordinary ops), so they are not distinct Binary Representation ops. There are no resource ops: resource lifetime is implicit (see “Resource regions” below). The internal `Result`/`Ok` forms remain implementation-only — they appear in IR and therefore in Binary Representation, but are never user-visible.
 
 ## Expressions stay nested
 
@@ -883,21 +885,14 @@ A consumer **decodes** each imported package's `IR` section back into IR functio
 
 # Resource regions
 
-Resource lifetime is represented structurally in the Binary Representation rather than by a side cleanup table.
+Resource lifetime is represented implicitly by the lexical scope of the binding that owns the resource — not by explicit resource ops and not by a side cleanup table. There is **no** `RESOURCE_ENTER`, `RESOURCE_LEAVE`, or `RESOURCE_CLOSE` op in the Binary Representation.
 
-```text
-RESOURCE_ENTER  <binding> <closeFunction>
-  <ops...>
-RESOURCE_LEAVE
-```
+* A resource is owned by the `Bind` that introduces it and lives for the lexical extent of the region (function body, loop body, branch, or trap) that contains that `Bind`.
+* When the owning region exits, a compiler-generated lexical drop closes the resource exactly once if it is still owned. The drop is keyed off the binding's resource type and the close function recorded in `RESOURCE_TABLE`; it is not itself encoded as an op.
+* An explicit close (the resource's declared consuming close operation) marks the binding moved, so the lexical drop does not close it again.
+* Because regions are nested in the IR tree, every structured exit path — fall-through, `Return`, `Fail`, `ExitLoop`, `ContinueLoop`, `ExitProgram`, and trap routing — is bounded by the enclosing region; there are no PC ranges to reconstruct and no "jump into a cleanup region" to reject.
 
-* `RESOURCE_ENTER` opens a lexically nested region that owns the resource binding.
-* `RESOURCE_LEAVE` ends the region and closes the resource exactly once if it is still owned (lexical drop).
-* An explicit close (`RESOURCE_CLOSE` / `CLOSE`) marks the resource moved, so the enclosing region's leave does not close it again.
-* Because the region is nested in the IR tree, every exit path (fall-through, `RETURN`, `FAIL`, `PROPAGATE`, loop break/continue) is bounded by the region's end; there are no PC ranges to reconstruct and no "jump into a cleanup region" to reject.
-* A resource binding still owned when its region exits is closed by a compiler-generated lexical drop, deterministically and on every exit path including error exits.
-
-The resource model closes files, sockets, and similar handles by lexical drop when their owning binding leaves scope. The structured Binary Representation makes that rule directly verifiable.
+The resource model closes files, sockets, and similar handles by lexical drop when their owning binding leaves scope. The structured Binary Representation makes that rule directly verifiable from each binding's type and scope. (User-defined source resources reuse this same implicit-drop model; see `plan-resource.md`.)
 
 ---
 
@@ -1130,10 +1125,10 @@ The function verifier checks the decoded Binary Representation of each function:
 * Every IR node is type-correct — operands, calls, constructors, member access, and `Result` inspection (`ResultIsOk`/`ResultValue`/`ResultError`) are well-typed.
 * Every binding is defined before use; no use-after-move.
 * Every path through the body produces a `Result` consistent with the declared success type — declared return/effect agreement.
-* `PROPAGATE` appears only inside a `TRAP` region.
+* The source-level rule that `PROPAGATE` appears only inside a `TRAP` region is enforced during compilation; `PROPAGATE` is lowered to a `Fail` op before serialization, so decoded IR contains no separate propagate node.
 * `CallResult`/`ResultValue`/`ResultError` apply only to fallible (`Result`) expressions, on the structurally correct branch.
 * `MATCH` is exhaustive (covers every value or has an `ELSE`).
-* There is at most one function-level bottom `TRAP`; error routing is via the structured `Trap`/`Fail`/`Propagate` ops, never via unwinding or arbitrary jumps.
+* There is at most one function-level bottom `TRAP`; error routing is via the structured `Trap`/`Fail` ops, never via unwinding or arbitrary jumps.
 * Calls pass the correct number and type of arguments.
 * Isolated function restrictions are preserved.
 

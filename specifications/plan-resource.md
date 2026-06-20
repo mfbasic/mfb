@@ -373,22 +373,32 @@ The ABI hash for exported user-defined resources must include:
 - whether close may fail
 
 Importers must not need the private representation layout for ordinary
-typechecking, but package merging, bytecode verification, native lowering, and
-audit may need enough metadata to verify close and transfer behavior.
+typechecking, but package merging, Binary Representation verification, native
+lowering, and audit may need enough metadata to verify close and transfer
+behavior.
 
-## 12. Bytecode And Verification
+## 12. Binary Representation And Verification
 
-The existing bytecode resource instructions remain the right model:
+The structured Binary Representation does **not** carry explicit resource
+instructions. There is no `RESOURCE_ENTER`, `RESOURCE_LEAVE`, or
+`CLOSE_RESOURCE` op. Resource lifetime is represented implicitly: a resource is
+owned by the lexical scope of the `Bind` that introduces it, and cleanup is a
+compiler-generated lexical drop keyed off the binding's resource type and its
+`RESOURCE_TABLE` close function. Every structured exit path out of that scope
+(fall-through, `Return`, `Fail`, `ExitLoop`, `ContinueLoop`, `ExitProgram`, and
+trap routing) is bounded by the enclosing region, so the drop runs on every
+path without any PC ranges or cleanup tables.
 
-- `RESOURCE_ENTER`
-- `RESOURCE_LEAVE`
-- `CLOSE_RESOURCE`
+Source-defined resources reuse this model unchanged: the close lowering wires
+the user-declared close function into the same implicit lexical-drop path that
+already closes `File`, `Socket`, and other standard/native resources.
 
-The verifier must additionally understand source-defined resource types.
+The verifier operates on decoded IR and must additionally understand
+source-defined resource types.
 
 Checks:
 
-- resource registers cannot be copied
+- resource values cannot be copied
 - user-defined resources cannot be treated as their representation type
 - representation values cannot escape as public resources without the resource
   construction operation
@@ -400,8 +410,8 @@ Checks:
 - sendable resources move on successful thread transfer
 - failed thread transfer preserves sender ownership
 
-The bytecode format must not expose private representation fields as importer
-constructors or public field access.
+The Binary Representation must not expose private representation fields as
+importer constructors or public field access.
 
 ## 13. Diagnostics
 
@@ -482,7 +492,9 @@ authoritative.
 
 - Add package-local resource construction lowering.
 - Lower public explicit close operations to consuming close calls.
-- Lower lexical drop to existing resource cleanup bytecode.
+- Wire the declared close function into the existing implicit lexical-drop
+  lowering (the same path that closes `File` and other resources), keyed off the
+  binding's resource type; no new structured resource ops are introduced.
 - Preserve close failure metadata for implicit cleanup.
 
 ### Phase 4: Package Metadata
@@ -494,7 +506,7 @@ authoritative.
 
 ### Phase 5: Verification
 
-- Extend bytecode verifier to validate source-defined resources.
+- Extend the IR-level verifier to validate source-defined resources.
 - Reject representation/resource confusion.
 - Validate cleanup regions and close function signatures.
 - Validate thread boundary transfer rules.
