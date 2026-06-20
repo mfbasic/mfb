@@ -1,6 +1,6 @@
 # MFBASIC Compiler Architecture
 
-Last updated: 2026-06-16 HST
+Last updated: 2026-06-19 HST
 
 This document describes how the current compiler implementation moves an
 MFBASIC project from source files to either a native executable or a compiled
@@ -332,6 +332,7 @@ It contains:
 
 - Project name.
 - Optional executable entry point.
+- Top-level bindings (program globals).
 - User-defined types.
 - Functions.
 - Parameters and defaults.
@@ -342,20 +343,27 @@ The main IR operation forms are:
 
 - `Bind`
 - `Assign`
+- `AssignGlobal` — assignment to a top-level binding
 - `Return`
+- `ExitLoop` — structured `EXIT FOR/DO/WHILE` (carries the `LoopKind`)
+- `ContinueLoop` — structured `CONTINUE FOR/DO/WHILE` (carries the `LoopKind`)
+- `ExitProgram` — `EXIT PROGRAM` with a status code and full RAII unwind
 - `Fail`
 - `Eval`
 - `If`
 - `Match`
-- `While`
+- `While` — `WHILE`/`DO WHILE` loops (carries the `LoopKind`)
+- `For` — counted `FOR` loops with start/end/step
+- `DoUntil` — bottom-tested `DO ... UNTIL` loops
 - `ForEach`
-- `Using`
-- `Trap`
+- `Trap` — inline `TRAP` block; `RECOVER` is lowered into the trap body via
+  recover targets rather than a dedicated op
 
 The main IR value forms are:
 
 - `Const` — typed literal constants
 - `Local` — local variable references
+- `Global` — top-level binding references
 - `FunctionRef` — references to named functions
 - `Closure` — closure values with a name, type, and captured variable list
 - `Capture` — reference to a captured variable by index inside a closure body
@@ -473,7 +481,9 @@ The current package writer emits an unsigned MFP container:
 
 *NOTE: `package_format.md` specifies a `signatureType` field that allows
 signed containers. The current writer always emits `signatureType = 0` and
-`signatureLength = 0`.*
+`signatureLength = 0`. The reader's `validate_signature_header` already accepts
+an ed25519 signature header (`signatureType = 1`, `signatureLength = 64`) in
+addition to the unsigned form, but no signed containers are produced yet.*
 
 The package payload must start with `MFPC`. Metadata string lengths are checked
 before writing.
