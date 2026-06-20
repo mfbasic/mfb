@@ -3093,7 +3093,7 @@ fn lower_io_write_helper(
     }
 }
 
-const THREAD_BLOCK_SIZE: usize = 96;
+const THREAD_BLOCK_SIZE: usize = 104;
 const THREAD_OFFSET_STATE: usize = 0;
 const THREAD_OFFSET_CANCELLED: usize = 8;
 const THREAD_OFFSET_RESULT_TAG: usize = 16;
@@ -3106,6 +3106,9 @@ const THREAD_OFFSET_ENTRY: usize = 64;
 const THREAD_OFFSET_DATA: usize = 72;
 const THREAD_OFFSET_ARENA_STATE: usize = 80;
 const THREAD_OFFSET_PARENT_ARENA_STATE: usize = 88;
+// Origin `ErrorLoc` pointer of a worker's terminal error, captured by the
+// trampoline so `thread::waitFor` can recover the worker's source location.
+const THREAD_OFFSET_RESULT_SOURCE: usize = 96;
 const THREAD_STATE_RUNNING: &str = "0";
 const THREAD_STATE_COMPLETED: &str = "1";
 const THREAD_STATE_CLOSED: &str = "2";
@@ -3375,6 +3378,7 @@ fn lower_thread_start_helper(
         abi::store_u64("x31", "x9", THREAD_OFFSET_RESULT_TAG),
         abi::store_u64("x31", "x9", THREAD_OFFSET_RESULT_VALUE),
         abi::store_u64("x31", "x9", THREAD_OFFSET_RESULT_ERROR),
+        abi::store_u64("x31", "x9", THREAD_OFFSET_RESULT_SOURCE),
         abi::store_u64("x31", "x9", THREAD_OFFSET_INBOUND_QUEUE),
         abi::store_u64("x31", "x9", THREAD_OFFSET_OUTBOUND_QUEUE),
         abi::store_u64("x31", "x9", THREAD_OFFSET_OS_HANDLE),
@@ -3542,6 +3546,7 @@ fn lower_thread_trampoline(
     const TAG_OFFSET: usize = 40;
     const VALUE_OFFSET: usize = 48;
     const ERROR_OFFSET: usize = 56;
+    const SOURCE_OFFSET: usize = 64;
     let result_closed = format!("{THREAD_TRAMPOLINE_SYMBOL}_result_closed");
 
     let mut instructions = vec![
@@ -3566,6 +3571,11 @@ fn lower_thread_trampoline(
             RESULT_ERROR_MESSAGE_REGISTER,
             abi::stack_pointer(),
             ERROR_OFFSET,
+        ),
+        abi::store_u64(
+            RESULT_ERROR_SOURCE_REGISTER,
+            abi::stack_pointer(),
+            SOURCE_OFFSET,
         ),
         abi::load_u64("x20", abi::stack_pointer(), CB_OFFSET),
         abi::load_u64("x9", "x20", THREAD_OFFSET_INBOUND_QUEUE),
@@ -3645,6 +3655,8 @@ fn lower_thread_trampoline(
         abi::store_u64("x9", "x20", THREAD_OFFSET_RESULT_VALUE),
         abi::load_u64("x9", abi::stack_pointer(), ERROR_OFFSET),
         abi::store_u64("x9", "x20", THREAD_OFFSET_RESULT_ERROR),
+        abi::load_u64("x9", abi::stack_pointer(), SOURCE_OFFSET),
+        abi::store_u64("x9", "x20", THREAD_OFFSET_RESULT_SOURCE),
         abi::move_immediate("x10", "Integer", THREAD_STATE_COMPLETED),
         abi::store_u64("x10", "x20", THREAD_OFFSET_STATE),
         abi::load_u64("x9", "x20", THREAD_OFFSET_OUTBOUND_QUEUE),
@@ -3782,6 +3794,8 @@ fn simple_thread_handle_helper(
     const VALUE_OFFSET: usize = 16;
     const TAG_OFFSET: usize = 24;
     const ERROR_OFFSET: usize = 32;
+    // WaitFor only: origin ErrorLoc of a propagated worker error (0 otherwise).
+    const SOURCE_OFFSET: usize = 40;
 
     let mut instructions = vec![abi::label("entry"), abi::subtract_stack(FRAME_SIZE)];
     let mut relocations = Vec::new();
@@ -3893,6 +3907,11 @@ fn simple_thread_handle_helper(
                 ),
                 abi::load_u64(RESULT_VALUE_REGISTER, "x8", THREAD_OFFSET_RESULT_VALUE),
                 abi::load_u64(RESULT_TAG_REGISTER, "x8", THREAD_OFFSET_RESULT_TAG),
+                abi::load_u64(
+                    RESULT_ERROR_SOURCE_REGISTER,
+                    "x8",
+                    THREAD_OFFSET_RESULT_SOURCE,
+                ),
                 abi::store_u64(
                     RESULT_ERROR_MESSAGE_REGISTER,
                     abi::stack_pointer(),
@@ -3900,6 +3919,11 @@ fn simple_thread_handle_helper(
                 ),
                 abi::store_u64(RESULT_VALUE_REGISTER, abi::stack_pointer(), VALUE_OFFSET),
                 abi::store_u64(RESULT_TAG_REGISTER, abi::stack_pointer(), TAG_OFFSET),
+                abi::store_u64(
+                    RESULT_ERROR_SOURCE_REGISTER,
+                    abi::stack_pointer(),
+                    SOURCE_OFFSET,
+                ),
                 abi::move_immediate("x9", "Integer", THREAD_STATE_CLOSED),
                 abi::store_u64("x9", "x8", THREAD_OFFSET_STATE),
                 abi::load_u64("x10", "x8", THREAD_OFFSET_OUTBOUND_QUEUE),
@@ -3954,6 +3978,8 @@ fn simple_thread_handle_helper(
                 ),
                 abi::store_u64(RESULT_VALUE_REGISTER, abi::stack_pointer(), VALUE_OFFSET),
                 abi::store_u64(RESULT_TAG_REGISTER, abi::stack_pointer(), TAG_OFFSET),
+                // waitFor's own error (resource closed): no worker origin.
+                abi::store_u64("x31", abi::stack_pointer(), SOURCE_OFFSET),
                 abi::load_u64("x8", abi::stack_pointer(), HANDLE_OFFSET),
                 abi::load_u64("x0", "x8", THREAD_OFFSET_OUTBOUND_QUEUE),
             ]);
@@ -3974,6 +4000,11 @@ fn simple_thread_handle_helper(
                 abi::load_u64(RESULT_VALUE_REGISTER, abi::stack_pointer(), VALUE_OFFSET),
                 abi::load_u64(RESULT_TAG_REGISTER, abi::stack_pointer(), TAG_OFFSET),
                 abi::label(&done),
+                abi::load_u64(
+                    RESULT_ERROR_SOURCE_REGISTER,
+                    abi::stack_pointer(),
+                    SOURCE_OFFSET,
+                ),
             ]);
         }
         ThreadSimpleOp::Cancel => {

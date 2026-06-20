@@ -1,0 +1,36 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "thread_error_source_rt",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "mutable": false, "name": "t", "type": "Thread OF String TO Integer", "value": { "kind": "call", "target": "thread.start", "args": [{ "kind": "functionRef", "name": "thread_runtime_workers.failWithError", "type": "ISOLATED FUNC(ThreadWorker OF String TO Integer, String) AS Integer" }, { "kind": "const", "type": "String", "value": "seed" }] } },
+    { "op": "bind", "mutable": false, "name": "a", "type": "Integer", "value": { "kind": "call", "target": "thread.waitFor", "args": [{ "kind": "local", "name": "t" }] } },
+    { "op": "return", "value": { "kind": "local", "name": "a" } },
+    {
+      "op": "trap",
+      "name": "e",
+      "body": [
+      { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "binary", "op": "&", "left": { "kind": "binary", "op": "&", "left": { "kind": "call", "target": "toString", "args": [{ "kind": "memberAccess", "target": { "kind": "local", "name": "e" }, "member": "code" }] }, "right": { "kind": "const", "type": "String", "value": " " } }, "right": { "kind": "memberAccess", "target": { "kind": "local", "name": "e" }, "member": "message" } }] } },
+      { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "binary", "op": "&", "left": { "kind": "binary", "op": "&", "left": { "kind": "binary", "op": "&", "left": { "kind": "binary", "op": "&", "left": { "kind": "memberAccess", "target": { "kind": "memberAccess", "target": { "kind": "local", "name": "e" }, "member": "source" }, "member": "filename" }, "right": { "kind": "const", "type": "String", "value": ":" } }, "right": { "kind": "call", "target": "toString", "args": [{ "kind": "memberAccess", "target": { "kind": "memberAccess", "target": { "kind": "local", "name": "e" }, "member": "source" }, "member": "line" }] } }, "right": { "kind": "const", "type": "String", "value": ":" } }, "right": { "kind": "call", "target": "toString", "args": [{ "kind": "memberAccess", "target": { "kind": "memberAccess", "target": { "kind": "local", "name": "e" }, "member": "source" }, "member": "char" }] } }] } },
+      { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+      ]
+    }
+    ]
+  }
+  ]
+}

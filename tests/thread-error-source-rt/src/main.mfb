@@ -1,0 +1,16 @@
+IMPORT io
+IMPORT thread
+IMPORT thread_runtime_workers
+
+' A worker's terminal error keeps the worker's own source location after the
+' error is transferred across the thread boundary by thread::waitFor.
+FUNC main AS Integer
+  LET t = thread::start(thread_runtime_workers::failWithError, "seed")
+  LET a = thread::waitFor(t)
+  RETURN a
+  TRAP(e)
+    io::print(toString(e.code) & " " & e.message)
+    io::print(e.source.filename & ":" & toString(e.source.line) & ":" & toString(e.source.char))
+    RETURN 0
+  END TRAP
+END FUNC

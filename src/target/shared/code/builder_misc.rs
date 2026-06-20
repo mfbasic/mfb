@@ -909,7 +909,11 @@ impl CodeBuilder<'_> {
             self.deactivate_moved_thread_arguments(target, args);
             self.deactivate_moved_resource_arguments(target, args);
             let _ = arg_values;
-            return self.materialize_current_result(result_type, format!("callResult {target}"));
+            return self.materialize_current_result(
+                result_type,
+                format!("callResult {target}"),
+                target == "thread.waitFor",
+            );
         }
 
         let ok_label = self.label("runtime_call_ok");
@@ -917,7 +921,14 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch_eq(&ok_label));
         // A runtime helper error originates at this call site: stamp the origin
         // before propagating so a trapped error reports the true location.
-        self.emit_stamp_current_error_source()?;
+        // `thread.waitFor` instead propagates a worker's terminal error whose
+        // origin (and message) must be deep-copied out of the worker arena before
+        // the impending `thread.drop` cleanup frees it.
+        if target == "thread.waitFor" {
+            self.emit_finalize_worker_error_source()?;
+        } else {
+            self.emit_stamp_current_error_source()?;
+        }
         self.emit_current_result_exit(self.error_exit_destination())?;
         self.emit(abi::label(&ok_label));
         self.deactivate_moved_thread_arguments(target, args);
@@ -1023,7 +1034,12 @@ impl CodeBuilder<'_> {
             self.deactivate_moved_thread_arguments(target, args);
             self.deactivate_moved_resource_arguments(target, args);
             let _ = arg_values;
-            return self.materialize_current_result(result_type, format!("callResult {target}"));
+            // thread.send/emit errors originate at this call site, not a worker.
+            return self.materialize_current_result(
+                result_type,
+                format!("callResult {target}"),
+                false,
+            );
         }
 
         let ok_label = self.label("runtime_thread_send_ok");
@@ -1051,10 +1067,16 @@ impl CodeBuilder<'_> {
         &mut self,
         success_type: &str,
         text: String,
+        // When true (an inline-trapped `thread::waitFor`), the error's message and
+        // origin live in the worker arena and arrive in x2/x3; they are deep-copied
+        // into the caller arena. Otherwise the error originates at this inline
+        // expression and its `ErrorLoc` is built from the current source location.
+        worker_error_source: bool,
     ) -> Result<ValueResult, String> {
         let tag_slot = self.allocate_stack_object("raw_result_tag", 8);
         let value_slot = self.allocate_stack_object("raw_result_value", 8);
         let message_slot = self.allocate_stack_object("raw_result_message", 8);
+        let source_raw_slot = self.allocate_stack_object("raw_result_source_raw", 8);
         let payload_slot = self.allocate_stack_object("raw_result_payload", 8);
         let result_slot = self.allocate_stack_object("raw_result", 8);
         let alloc_ok = self.label("result_construct_alloc_ok");
@@ -1077,6 +1099,11 @@ impl CodeBuilder<'_> {
             abi::stack_pointer(),
             message_slot,
         ));
+        self.emit(abi::store_u64(
+            RESULT_ERROR_SOURCE_REGISTER,
+            abi::stack_pointer(),
+            source_raw_slot,
+        ));
         self.emit(abi::load_u64("x9", abi::stack_pointer(), tag_slot));
         self.emit(abi::compare_immediate("x9", RESULT_OK_TAG));
         self.emit(abi::branch_ne(&wrap_error_label));
@@ -1090,11 +1117,35 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch(&have_payload_label));
 
         self.emit(abi::label(&wrap_error_label));
-        // The error materialized here originates at the current inline expression,
-        // so build its `ErrorLoc` from the current source location.
         let source_slot = self.allocate_stack_object("raw_result_source", 8);
-        let loc_register = self.emit_build_error_loc()?;
-        self.emit(abi::store_u64(&loc_register, abi::stack_pointer(), source_slot));
+        if worker_error_source {
+            // A propagated worker error: deep-copy its message and origin out of
+            // the (still-alive) worker arena into the caller arena. If the helper
+            // raised its own error (source == 0), stamp this inline expression.
+            self.emit(abi::load_u64("x9", abi::stack_pointer(), message_slot));
+            let copied_message = self.copy_value_to_current_arena("String", "x9")?;
+            self.emit(abi::store_u64(
+                &copied_message,
+                abi::stack_pointer(),
+                message_slot,
+            ));
+            let own = self.label("raw_worker_error_own");
+            let done = self.label("raw_worker_error_done");
+            self.emit(abi::load_u64("x9", abi::stack_pointer(), source_raw_slot));
+            self.emit(abi::compare_immediate("x9", "0"));
+            self.emit(abi::branch_eq(&own));
+            let copied_source = self.copy_value_to_current_arena("ErrorLoc", "x9")?;
+            self.emit(abi::store_u64(&copied_source, abi::stack_pointer(), source_slot));
+            self.emit(abi::branch(&done));
+            self.emit(abi::label(&own));
+            let loc = self.emit_build_error_loc()?;
+            self.emit(abi::store_u64(&loc, abi::stack_pointer(), source_slot));
+            self.emit(abi::label(&done));
+        } else {
+            // The error originates at the current inline expression.
+            let loc_register = self.emit_build_error_loc()?;
+            self.emit(abi::store_u64(&loc_register, abi::stack_pointer(), source_slot));
+        }
         self.emit(abi::move_immediate(
             abi::return_register(),
             "Integer",
@@ -1989,6 +2040,80 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&done));
         self.emit(abi::load_u64("x9", abi::stack_pointer(), result_slot));
         Ok("x9".to_string())
+    }
+
+    /// Finalize a `thread::waitFor` error so it survives the worker arena being
+    /// freed by the impending `thread.drop` cleanup. A propagated worker error
+    /// arrives with its origin `ErrorLoc` in `x3` and its message in `x2`, both
+    /// living in the worker arena which is still alive at this point — so they are
+    /// deep-copied into the caller arena here. `waitFor`'s own errors arrive with
+    /// `x3 == 0` (their message is a static string) and are stamped with this call
+    /// site. All raw inputs are saved to the stack first because every copy/alloc
+    /// clobbers the caller-saved registers.
+    pub(super) fn emit_finalize_worker_error_source(&mut self) -> Result<(), String> {
+        let code_slot = self.allocate_stack_object("worker_error_code", 8);
+        let message_raw_slot = self.allocate_stack_object("worker_error_message_raw", 8);
+        let source_raw_slot = self.allocate_stack_object("worker_error_source_raw", 8);
+        let message_slot = self.allocate_stack_object("worker_error_message", 8);
+        let source_slot = self.allocate_stack_object("worker_error_source", 8);
+        self.emit(abi::store_u64(
+            RESULT_VALUE_REGISTER,
+            abi::stack_pointer(),
+            code_slot,
+        ));
+        self.emit(abi::store_u64(
+            RESULT_ERROR_MESSAGE_REGISTER,
+            abi::stack_pointer(),
+            message_raw_slot,
+        ));
+        self.emit(abi::store_u64(
+            RESULT_ERROR_SOURCE_REGISTER,
+            abi::stack_pointer(),
+            source_raw_slot,
+        ));
+        // Deep-copy the message into the caller arena.
+        self.emit(abi::load_u64("x9", abi::stack_pointer(), message_raw_slot));
+        let copied_message = self.copy_value_to_current_arena("String", "x9")?;
+        self.emit(abi::store_u64(
+            &copied_message,
+            abi::stack_pointer(),
+            message_slot,
+        ));
+        // Deep-copy the worker source `ErrorLoc`, or stamp the call site if the
+        // error originated in `waitFor` itself (no worker origin).
+        let own = self.label("worker_error_own_origin");
+        let done = self.label("worker_error_source_done");
+        self.emit(abi::load_u64("x9", abi::stack_pointer(), source_raw_slot));
+        self.emit(abi::compare_immediate("x9", "0"));
+        self.emit(abi::branch_eq(&own));
+        let copied_source = self.copy_value_to_current_arena("ErrorLoc", "x9")?;
+        self.emit(abi::store_u64(&copied_source, abi::stack_pointer(), source_slot));
+        self.emit(abi::branch(&done));
+        self.emit(abi::label(&own));
+        let loc = self.emit_build_error_loc()?;
+        self.emit(abi::store_u64(&loc, abi::stack_pointer(), source_slot));
+        self.emit(abi::label(&done));
+        self.emit(abi::move_immediate(
+            RESULT_TAG_REGISTER,
+            "Integer",
+            RESULT_ERR_TAG,
+        ));
+        self.emit(abi::load_u64(
+            RESULT_VALUE_REGISTER,
+            abi::stack_pointer(),
+            code_slot,
+        ));
+        self.emit(abi::load_u64(
+            RESULT_ERROR_MESSAGE_REGISTER,
+            abi::stack_pointer(),
+            message_slot,
+        ));
+        self.emit(abi::load_u64(
+            RESULT_ERROR_SOURCE_REGISTER,
+            abi::stack_pointer(),
+            source_slot,
+        ));
+        Ok(())
     }
 
     /// Stamp the current source location into the error-source register for an

@@ -1,0 +1,13 @@
+$ mfb build -ast tests/thread-error-source-rt
+Wrote AST to tests/thread-error-source-rt/thread_error_source_rt.ast
+[exit 0]
+$ mfb build -ir tests/thread-error-source-rt
+Wrote IR to tests/thread-error-source-rt/thread_error_source_rt.ir
+[exit 0]
+$ mfb build tests/thread-error-source-rt
+Wrote executable to tests/thread-error-source-rt/thread_error_source_rt.out
+[exit 0]
+$ tests/thread-error-source-rt/thread_error_source_rt.out
+77050099 worker boom
+src/lib.mfb:193:8
+[exit 0]

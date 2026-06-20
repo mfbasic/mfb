@@ -958,7 +958,7 @@ impl CodeBuilder<'_> {
                             "thread_result_arg",
                         )?;
                         return self
-                            .materialize_current_result(&output_type, "thread.result".to_string());
+                            .materialize_current_result(&output_type, "thread.result".to_string(), true);
                     }
                     self.lower_field_access(target, member)
                 }
@@ -1067,7 +1067,7 @@ impl CodeBuilder<'_> {
             RESULT_OK_TAG,
         ));
         self.emit(abi::label(&capture));
-        self.materialize_current_result(&success_type, format!("callResult {target}"))
+        self.materialize_current_result(&success_type, format!("callResult {target}"), false)
     }
 
     /// Lower a runtime-helper-backed call (`thread::*`, `fs::*`, `io::*`, …).

@@ -188,3 +188,7 @@ EXPORT ISOLATED FUNC returnUnion(t AS ThreadWorker OF String TO ReturnChoice, se
   io::print(message)
   RETURN ReturnOk["returned-union"]
 END FUNC
+
+EXPORT ISOLATED FUNC failWithError(t AS ThreadWorker OF String TO Integer, seed AS String) AS Integer
+  FAIL error(77050099, "worker boom")
+END FUNC
