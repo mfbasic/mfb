@@ -289,7 +289,7 @@ Filesystem and file-handle functions live in the `fs` package. Paths are `String
 One-shot path operations read, write, inspect, or modify filesystem entries without exposing resource handles. File-handle I/O uses `fs::open`, `fs::openFile`, `fs::openFileNoFollow`, or `fs::createTempFile`; the resulting `File` is closed automatically by lexical drop when its binding leaves scope, on every exit path, or by an explicit `fs::close`.
 
 ```basic
-LET file = fs::open("data.txt", "read")
+RES file = fs::open("data.txt", "read")
 ' file is in scope here
 ' file is closed by lexical drop when this scope ends
 ```
@@ -528,7 +528,7 @@ IMPORT net
 LET addresses = net::lookup("example.com", 80)
 LET address = get(addresses, 0)
 
-LET client = net::connectTcp(address, timeoutMs := 5000)
+RES client = net::connectTcp(address, timeoutMs := 5000)
 net::writeText(client, "ping")
 LET chunk = net::readText(client, 4096)
 io::print(chunk)

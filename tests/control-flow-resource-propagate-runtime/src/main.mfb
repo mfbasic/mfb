@@ -6,7 +6,7 @@ FUNC alwaysFail AS Nothing
 END FUNC
 
 FUNC propagateOnce(path AS String) AS Nothing
-  LET f = fs::openFile(path)
+  RES f = fs::openFile(path)
   alwaysFail()
   RETURN NOTHING
 END FUNC

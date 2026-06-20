@@ -2,7 +2,7 @@ IMPORT fs
 IMPORT io
 
 FUNC useOnce(path AS String) AS Nothing
-  LET f = fs::openFile(path)
+  RES f = fs::openFile(path)
   IF path <> "" THEN
     RETURN NOTHING
   END IF

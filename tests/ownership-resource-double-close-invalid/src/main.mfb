@@ -1,7 +1,7 @@
 IMPORT fs
 
 FUNC main AS Integer
-  LET file = fs::openFile("tests/ownership-resource-double-close-invalid/src/main.mfb")
+  RES file = fs::openFile("tests/ownership-resource-double-close-invalid/src/main.mfb")
   fs::close(file)
   fs::close(file)
   RETURN 0

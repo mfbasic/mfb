@@ -1,0 +1,16 @@
+$ mfb build -ast tests/resource-state-invalid
+   6 | 
+   7 | FUNC main AS Integer
+   8 |   RES f AS File STATE Color = fs::open("x", "r")
+     | ^
+tests/resource-state-invalid/src/main.mfb:8 error[2-203-0085 TYPE_STATE_INVALID]: STATE must be a copyable, defaultable data type
+               binding `f` STATE type `Color` must be a copyable, defaultable data type.
+[exit 1]
+$ mfb build -ir tests/resource-state-invalid
+   6 | 
+   7 | FUNC main AS Integer
+   8 |   RES f AS File STATE Color = fs::open("x", "r")
+     | ^
+tests/resource-state-invalid/src/main.mfb:8 error[2-203-0085 TYPE_STATE_INVALID]: STATE must be a copyable, defaultable data type
+               binding `f` STATE type `Color` must be a copyable, defaultable data type.
+[exit 1]

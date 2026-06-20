@@ -2,7 +2,7 @@ IMPORT fs
 IMPORT io
 
 FUNC closeOnce(p AS String) AS Integer
-  LET f AS File = fs::openFile(p)
+  RES f AS File = fs::openFile(p)
   fs::close(f)
   RETURN 0
 END FUNC

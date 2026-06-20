@@ -18,7 +18,7 @@ FUNC main AS Integer
   LET wrongMessage AS Nothing = thread::send(t, 1)
   LET wrongTimeout AS Nothing = thread::send(t, "b", "bad")
   LET tooMany AS Nothing = thread::send(t, "b", 0, 1)
-  LET movedFile AS File = fs::openFile("tests/func_thread_send_invalid/src/main.mfb")
+  RES movedFile AS File = fs::openFile("tests/func_thread_send_invalid/src/main.mfb")
   thread::send(fileThread, movedFile)
   fs::close(movedFile)
   RETURN 0

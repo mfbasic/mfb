@@ -736,6 +736,30 @@ pub const RULES: &[Rule] = &[
         message: "statement is unreachable after EXIT or CONTINUE",
     },
     Rule {
+        code: "2-203-0082",
+        name: "TYPE_RESOURCE_REQUIRES_RES",
+        severity: Severity::Error,
+        message: "resource must be bound with RES",
+    },
+    Rule {
+        code: "2-203-0083",
+        name: "TYPE_RES_REQUIRES_RESOURCE",
+        severity: Severity::Error,
+        message: "RES binds only resource types",
+    },
+    Rule {
+        code: "2-203-0084",
+        name: "TYPE_RESOURCE_FIELD_FORBIDDEN",
+        severity: Severity::Error,
+        message: "a record field cannot be a resource",
+    },
+    Rule {
+        code: "2-203-0085",
+        name: "TYPE_STATE_INVALID",
+        severity: Severity::Error,
+        message: "STATE must be a copyable, defaultable data type",
+    },
+    Rule {
         code: "2-200-0011",
         name: "PROJECT_ENTRY_INVALID",
         severity: Severity::Error,

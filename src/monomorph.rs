@@ -409,6 +409,8 @@ impl<'a> Monomorphizer<'a> {
         match statement {
             Statement::Let {
                 mutable,
+                resource,
+                state_type,
                 name,
                 type_name,
                 value,
@@ -417,6 +419,9 @@ impl<'a> Monomorphizer<'a> {
                 let lowered_type = type_name
                     .as_ref()
                     .map(|type_name| self.concrete_type_name(type_name, substitutions));
+                let lowered_state = state_type
+                    .as_ref()
+                    .map(|state_type| self.concrete_type_name(state_type, substitutions));
                 let expected_source_type = type_name
                     .as_ref()
                     .map(|type_name| substitute_type_params(type_name, substitutions));
@@ -439,6 +444,8 @@ impl<'a> Monomorphizer<'a> {
                 }
                 Statement::Let {
                     mutable: *mutable,
+                    resource: *resource,
+                    state_type: lowered_state,
                     name: name.clone(),
                     type_name: lowered_type,
                     value: lowered_value,

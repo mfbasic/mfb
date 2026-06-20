@@ -448,17 +448,35 @@ Equality operators `=` and `<>` require either numeric operands or any two compa
 
 ## 5. Bindings & Scope
 
-Only two binding forms:
+Three binding forms on two axes — `LET`/`MUT` choose **mutability**, `RES`
+chooses **ownership**:
 
-- **`LET`** — immutable binding.
-- **`MUT`** — reassignable binding.
+- **`LET`** — immutable binding (copyable data).
+- **`MUT`** — reassignable binding (copyable data).
+- **`RES`** — a uniquely-owned resource (a `File`, `Socket`, `Listener`, …).
+  A resource has no aliases, so mutability is moot and `RES` needs no
+  immutable/mutable sub-distinction. See §15.
 
 ```basic
 LET x = 10
 MUT total AS Float = 0.0
 total = total + 1         ' OK
 ' x = 5                   ' ERROR: x is immutable
+RES f AS File = fs::open("app.db", "read")   ' a resource is bound with RES
 ```
+
+The binding keyword is **required and enforced**; it *surfaces* a type property,
+it does not choose it:
+
+- A resource **must** be bound with `RES`; `LET`/`MUT` on a resource is an error
+  (`TYPE_RESOURCE_REQUIRES_RES`).
+- `RES` binds **only** resources; `RES` on copyable data is an error
+  (`TYPE_RES_REQUIRES_RESOURCE`).
+- A resource appears only in `RES` positions — binding, parameter (`RES f AS
+  File`), and return (`AS RES File`) — and **never inside a data type**: a record
+  field of a resource type is an error (`TYPE_RESOURCE_FIELD_FORBIDDEN`).
+- A `RES` binding may carry a copyable, defaultable data `STATE` (§15):
+  `RES f AS File STATE FileState = …`.
 
 Rules:
 
@@ -643,7 +661,7 @@ END TRAP
 To handle an error at the call site instead of auto-propagating, attach a **postfix inline `TRAP`** to the expression. The happy value auto-unwraps into the binding exactly as a normal call; on error the handler block runs with `e : Error` and must either **`RECOVER` a value** (bound into the binding, then continue at the statement after `END TRAP`) or **diverge** (`RETURN`, `FAIL`, `PROPAGATE`, or an `EXIT` form).
 
 ```basic
-LET f = fs::openFile(path) TRAP(e)
+RES f = fs::openFile(path) TRAP(e)
   io::print("could not open: " & e.message)
   RECOVER fs::openFile(fallbackPath)   ' supply a File and continue
 END TRAP
@@ -1141,23 +1159,38 @@ At minimum, exported type shape metadata must remain sufficient to reconstruct c
 
 ## 15. Resource Management
 
-`RESOURCE` values, such as files and sockets, are unique handles. At any point in the program, exactly one live owner is responsible for each open handle. Resource handles are non-copyable owned values with additional close rules. They are closed automatically by lexical drop (§14.7) when their owning binding leaves scope, on every exit path: normal scope exit, `RETURN`, `EXIT`/`CONTINUE`, `FAIL`, `PROPAGATE`, an auto-propagated failure, and `TRAP` routing. `EXIT PROGRAM` performs the same cleanup across every live caller frame before terminating. There is no user-visible lifetime construct; a resource is released by the same ownership and drop rules as any other owned value.
+Resource values, such as files and sockets, are unique handles. At any point in the program, exactly one live owner is responsible for each open handle. A resource is bound with the **`RES`** keyword (§5) — the ownership axis — and never with `LET`/`MUT`. Resources are closed automatically by lexical drop (§14.7) when their owning binding leaves scope, on every exit path: normal scope exit, `RETURN`, `EXIT`/`CONTINUE`, `FAIL`, `PROPAGATE`, an auto-propagated failure, and `TRAP` routing. `EXIT PROGRAM` performs the same cleanup across every live caller frame before terminating. There is no user-visible lifetime construct; a resource is released by the same ownership and drop rules as any other owned value.
 
 ```basic
 FUNC readFirstLine(path AS String) AS String
-  LET f = fs::openFile(path)   ' auto-propagates on failure
-  LET line = fs::readLine(f)   ' if this fails, f is still closed on the error exit
-  RETURN line                  ' f is dropped (closed) here, on the success exit
+  RES f AS File = fs::openFile(path)   ' auto-propagates on failure
+  LET line = fs::readLine(f)           ' if this fails, f is still closed on the error exit
+  RETURN line                          ' f is dropped (closed) here, on the success exit
 END FUNC
 ```
 
 A resource is closed exactly once. Standard resource operations borrow the handle for the duration of the call without transferring ownership. The explicit close operation consumes the handle, so the source binding is moved and cannot be used afterward; an already-moved binding is not dropped again. A resource handle cannot be copied, stored in an ordinary collection, printed, compared, serialized, or captured by a lambda or ordinary closure. A concrete resource handle may be sent to a thread only when that resource type is thread-sendable.
 
-A `RESOURCE` value may be passed only to a function whose signature explicitly names that concrete resource type, such as `File`, `Socket`, or a `LINK`-declared `RESOURCE`. There is no generic `RESOURCE` supertype, no structural matching of handles, and no implicit conversion between resource types.
+A resource value may be passed only to a function whose parameter is declared `RES` and explicitly names that concrete resource type, such as `RES f AS File`, `RES s AS Socket`, or a `LINK`-declared resource. A function returns a resource with an explicit `AS RES <Type>` return. There is no generic resource supertype, no structural matching of handles, and no implicit conversion between resource types.
 
-Borrow and consume are compiler rules inferred from the resource operation. They are not source-level annotations; MFBASIC does not add `BORROW`, `MOVE`, or similar parameter syntax for ordinary resource use.
+**Resources are atomic — records never hold them.** A record (product type) may never contain a resource field, directly or transitively (`TYPE_RESOURCE_FIELD_FORBIDDEN`): a resource field would either trap copyable data behind move-only semantics or let one value own several resources at once. Data that belongs *with* a resource travels in the resource's `STATE`, and to work with several resources you hold several `RES` bindings.
 
-To release a resource earlier than the end of its scope, or to observe a close failure, call the resource's explicit close operation (such as `fs::close(f)`). That operation consumes the handle and auto-propagates a close failure like any other call, so the close failure is directly observable. After an explicit close the binding is moved and is not closed again by lexical drop. Reassigning a `MUT` resource binding evaluates the right-hand side first; if that succeeds, the old handle is dropped (closed) before the binding stores the new handle.
+**`STATE` — data carried by a resource.** A `RES` binding may attach an associated data value with `STATE T`:
+
+```basic
+TYPE FileState        ' an ordinary, copyable data record
+  pos AS Integer
+  len AS Integer
+END TYPE
+
+RES s AS File STATE FileState = fs::open("app.db", "read")   ' state default-initialized
+```
+
+`T` must be an ordinary **copyable, defaultable data type** (`TYPE_STATE_INVALID` otherwise); since no data type may contain a resource, `T` is automatically resource-free. The state is owned by the resource, default-initializes when the resource is produced, rides through `RES` signatures (`RES s AS File STATE FileState`), and is freed when the resource drops or is closed. `STATE` is optional.
+
+Borrow and consume are compiler rules, not source-level annotations; MFBASIC does not add `BORROW`, `MOVE`, or similar parameter syntax for ordinary resource use.
+
+To release a resource earlier than the end of its scope, or to observe a close failure, call the resource's explicit close operation (such as `fs::close(f)`). That operation consumes the handle and auto-propagates a close failure like any other call, so the close failure is directly observable. After an explicit close the binding is moved and is not closed again by lexical drop.
 
 A close that runs as part of an implicit lexical drop cannot inject an error into program flow, because a drop has no source-level result to route. If such a drop-close fails, the failure is emitted as diagnostic/audit metadata associated with the failed cleanup; it does not replace, wrap, or raise a source-level `Error`. Programs that must observe a close failure use the explicit close operation instead.
 
@@ -1548,7 +1581,7 @@ END FUNC
 
 FUNC loadPoints(path AS String) AS List OF Vec3
   MUT pts AS List OF Vec3 = []
-  LET f = fs::openFile(path)                ' auto-propagates on failure
+  RES f = fs::openFile(path)                ' auto-propagates on failure
   WHILE NOT fs::eof(f)
     LET v = parseLine(fs::readLine(f))      ' auto-propagates to TRAP below on bad input
     pts = append(pts, v)                   ' optimized in place for MUT

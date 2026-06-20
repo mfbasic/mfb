@@ -16,10 +16,10 @@ DESCRIPTION
   an explicit fs::close.
 
 EXAMPLE
-  LET f = fs::createTempFile()
+  RES f = fs::createTempFile()
   fs::writeAll(f, "data")
   ' f is closed by lexical drop when this scope ends
 
-  LET g = fs::createTempFile("target")
+  RES g = fs::createTempFile("target")
   fs::writeAll(g, "data")
   ' g is closed by lexical drop when this scope ends

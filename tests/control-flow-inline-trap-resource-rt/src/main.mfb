@@ -4,12 +4,12 @@ IMPORT io
 ' Opens its own file resource, then fails. The resource is released by lexical
 ' drop as the error leaves the function, before any inline trap handler runs.
 FUNC openThenFail(p AS String) AS Integer
-  LET scratch AS File = fs::openFile(p)
+  RES scratch AS File = fs::openFile(p)
   FAIL error(700, "after open")
 END FUNC
 
 FUNC main AS Integer
-  LET outer AS File = fs::openFile("tests/control-flow-inline-trap-resource-rt/data/in.txt")
+  RES outer AS File = fs::openFile("tests/control-flow-inline-trap-resource-rt/data/in.txt")
   MUT code AS Integer = 0
   openThenFail("tests/control-flow-inline-trap-resource-rt/data/in.txt") TRAP(e)
     ' The enclosing `outer` resource is established before the trapped call and

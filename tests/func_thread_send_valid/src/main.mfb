@@ -11,9 +11,9 @@ FUNC main AS Integer
   thread::send(t1, "d")
   thread::send(t2, "e", 0)
   thread::send(t3, "f", 1)
-  LET sentFile AS File = fs::openFile("tests/func_thread_send_valid/src/main.mfb")
+  RES sentFile AS File = fs::openFile("tests/func_thread_send_valid/src/main.mfb")
   thread::send(fileThread, sentFile)
-  LET recoverFile AS File = fs::openFile("tests/func_thread_send_valid/src/main.mfb")
+  RES recoverFile AS File = fs::openFile("tests/func_thread_send_valid/src/main.mfb")
   thread::send(fileThread, recoverFile) TRAP(err)
     fs::close(recoverFile)
     RECOVER

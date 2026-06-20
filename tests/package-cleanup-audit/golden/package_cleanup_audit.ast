@@ -17,7 +17,7 @@
       ],
       "returnType": "String",
       "body": [
-      { "kind": "binding", "mutable": false, "name": "file", "type": null, "value": { "kind": "call", "callee": "fs.openFile", "arguments": [{ "kind": "identifier", "value": "path" }] }, "line": 4 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "file", "type": null, "value": { "kind": "call", "callee": "fs.openFile", "arguments": [{ "kind": "identifier", "value": "path" }] }, "line": 4 },
       { "kind": "return", "value": { "kind": "call", "callee": "fs.readLine", "arguments": [{ "kind": "identifier", "value": "file" }] }, "line": 5 }
       ]
     }

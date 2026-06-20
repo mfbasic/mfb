@@ -2,7 +2,7 @@ IMPORT fs
 IMPORT io
 
 FUNC readFirst(path AS String) AS String
-  LET file = fs::openFile(path)
+  RES file = fs::openFile(path)
   RETURN fs::readLine(file)
 END FUNC
 

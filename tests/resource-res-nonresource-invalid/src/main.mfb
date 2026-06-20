@@ -1,0 +1,4 @@
+FUNC main AS Integer
+  RES n AS Integer = 5
+  RETURN n
+END FUNC

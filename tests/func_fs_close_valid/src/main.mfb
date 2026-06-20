@@ -2,7 +2,7 @@ IMPORT fs
 IMPORT io
 
 FUNC main AS Integer
-  LET f AS File = fs::openFile("tests/func_fs_close_valid/src/main.mfb")
+  RES f AS File = fs::openFile("tests/func_fs_close_valid/src/main.mfb")
   fs::close(f)
   io::print("closed")
   RETURN 0

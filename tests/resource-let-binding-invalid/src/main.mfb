@@ -1,0 +1,7 @@
+IMPORT fs
+
+FUNC main AS Integer
+  LET f AS File = fs::open("x", "r")
+  fs::close(f)
+  RETURN 0
+END FUNC

@@ -2,13 +2,13 @@ IMPORT net
 IMPORT io
 
 FUNC main AS Integer
-  LET server = net::listenTcp("127.0.0.1", 0)
+  RES server = net::listenTcp("127.0.0.1", 0)
   LET bound = net::localAddress(server)
   LET address = get(net::lookup("127.0.0.1", bound.port), 0)
-  LET c1 = net::connectTcp("127.0.0.1", bound.port)
-  LET c2 = net::connectTcp("127.0.0.1", bound.port, 5000)
-  LET c3 = net::connectTcp(address)
-  LET c4 = net::connectTcp(address, 5000)
+  RES c1 = net::connectTcp("127.0.0.1", bound.port)
+  RES c2 = net::connectTcp("127.0.0.1", bound.port, 5000)
+  RES c3 = net::connectTcp(address)
+  RES c4 = net::connectTcp(address, 5000)
   io::print("connected all overloads")
   RETURN 0
 END FUNC

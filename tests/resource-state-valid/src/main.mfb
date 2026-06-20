@@ -1,0 +1,15 @@
+IMPORT fs
+IMPORT io
+
+TYPE FileState
+  pos AS Integer
+  len AS Integer
+END TYPE
+
+FUNC main AS Integer
+  RES f AS File STATE FileState = fs::createTempFile()
+  fs::writeAll(f, "data")
+  fs::close(f)
+  io::print("stated")
+  RETURN 0
+END FUNC

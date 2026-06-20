@@ -1,0 +1,12 @@
+$ mfb build -ast tests/resource-res-binding-valid
+Wrote AST to tests/resource-res-binding-valid/resource_res_binding_valid.ast
+[exit 0]
+$ mfb build -ir tests/resource-res-binding-valid
+Wrote IR to tests/resource-res-binding-valid/resource_res_binding_valid.ir
+[exit 0]
+$ mfb build tests/resource-res-binding-valid
+Wrote executable to tests/resource-res-binding-valid/resource_res_binding_valid.out
+[exit 0]
+$ tests/resource-res-binding-valid/resource_res_binding_valid.out
+ok
+[exit 0]

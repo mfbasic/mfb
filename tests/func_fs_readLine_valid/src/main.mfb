@@ -4,7 +4,7 @@ IMPORT io
 FUNC main AS Integer
   LET path AS String = "target/func_fs_readLine_valid.txt"
   fs::writeText(path, "alpha\nbeta é日😀\ngamma")
-  LET f AS File = fs::openFile(path)
+  RES f AS File = fs::openFile(path)
   io::print(fs::readLine(f))
   io::print(fs::readLine(f))
   io::print(fs::readAll(f))

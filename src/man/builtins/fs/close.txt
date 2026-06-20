@@ -8,5 +8,5 @@ DESCRIPTION
   Closes file. Calling close more than once on the same File is an error.
 
 EXAMPLES
-  LET f AS File = fs::openFile("data.txt")
+  RES f AS File = fs::openFile("data.txt")
   fs::close(f)

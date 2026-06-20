@@ -64,6 +64,10 @@ pub enum Item {
 pub struct TopLevelBinding {
     pub visibility: Visibility,
     pub mutable: bool,
+    /// Whether this binding was declared with `RES` (a uniquely-owned resource).
+    pub resource: bool,
+    /// The `STATE T` type attached to a `RES` binding, if any.
+    pub state_type: Option<String>,
     pub name: String,
     pub type_name: Option<String>,
     pub value: Option<Expression>,
@@ -119,6 +123,10 @@ pub struct Function {
     pub template_params: Vec<String>,
     pub params: Vec<Param>,
     pub return_type: Option<String>,
+    /// Whether the return type was declared with `RES` (returns a resource).
+    pub return_resource: bool,
+    /// The `STATE T` type attached to a `RES` return type, if any.
+    pub return_state_type: Option<String>,
     pub body: Vec<Statement>,
     pub trap: Option<Trap>,
     pub line: usize,
@@ -148,6 +156,10 @@ pub enum Visibility {
 pub struct Param {
     pub name: String,
     pub type_name: Option<String>,
+    /// Whether this parameter was declared with `RES` (a borrowed/owned resource).
+    pub resource: bool,
+    /// The `STATE T` type attached to a `RES` parameter, if any.
+    pub state_type: Option<String>,
     pub default: Option<Expression>,
     pub line: usize,
 }
@@ -183,6 +195,10 @@ pub struct RecordUpdate {
 pub enum Statement {
     Let {
         mutable: bool,
+        /// Whether this binding was declared with `RES`.
+        resource: bool,
+        /// The `STATE T` type attached to a `RES` binding, if any.
+        state_type: Option<String>,
         name: String,
         type_name: Option<String>,
         value: Option<Expression>,
@@ -869,12 +885,18 @@ impl<'a> FileParser<'a> {
     fn parse_top_level_binding(&mut self, visibility: Visibility) -> Option<TopLevelBinding> {
         let keyword = self.advance().clone();
         let mutable = matches!(keyword.kind, TokenKind::Keyword(Keyword::Mut));
+        let resource = matches!(keyword.kind, TokenKind::Keyword(Keyword::Res));
         let Some(name) = self.consume_identifier("Binding name must be an identifier.") else {
             self.synchronize();
             return None;
         };
         let type_name = if self.match_keyword(Keyword::As) {
             self.parse_type_name()
+        } else {
+            None
+        };
+        let state_type = if resource {
+            self.parse_optional_state()
         } else {
             None
         };
@@ -887,6 +909,8 @@ impl<'a> FileParser<'a> {
         Some(TopLevelBinding {
             visibility,
             mutable,
+            resource,
+            state_type,
             name,
             type_name,
             value,
@@ -930,11 +954,19 @@ impl<'a> FileParser<'a> {
             Vec::new()
         };
 
-        let return_type = if matches!(kind, FunctionKind::Func) && self.match_keyword(Keyword::As) {
-            self.parse_type_name()
-        } else {
-            None
-        };
+        let (return_type, return_resource, return_state_type) =
+            if matches!(kind, FunctionKind::Func) && self.match_keyword(Keyword::As) {
+                let return_resource = self.match_keyword(Keyword::Res);
+                let return_type = self.parse_type_name();
+                let return_state_type = if return_resource {
+                    self.parse_optional_state()
+                } else {
+                    None
+                };
+                (return_type, return_resource, return_state_type)
+            } else {
+                (None, false, None)
+            };
 
         self.consume_statement_end("Expected end of function header.");
         self.skip_separators();
@@ -976,6 +1008,8 @@ impl<'a> FileParser<'a> {
                     template_params,
                     params,
                     return_type,
+                    return_resource,
+                    return_state_type,
                     body,
                     trap,
                     line: kind_token.line,
@@ -1219,6 +1253,7 @@ impl<'a> FileParser<'a> {
 
         loop {
             let line = self.peek().line;
+            let resource = self.match_keyword(Keyword::Res);
             let Some(name) = self.consume_identifier("Parameter name must be an identifier.")
             else {
                 self.synchronize();
@@ -1226,6 +1261,11 @@ impl<'a> FileParser<'a> {
             };
             let type_name = if self.match_keyword(Keyword::As) {
                 self.parse_type_name()
+            } else {
+                None
+            };
+            let state_type = if resource {
+                self.parse_optional_state()
             } else {
                 None
             };
@@ -1237,6 +1277,8 @@ impl<'a> FileParser<'a> {
             params.push(Param {
                 name,
                 type_name,
+                resource,
+                state_type,
                 default,
                 line,
             });
@@ -1288,12 +1330,21 @@ impl<'a> FileParser<'a> {
             return None;
         }
 
-        if self.check_keyword(Keyword::Let) || self.check_keyword(Keyword::Mut) {
+        if self.check_keyword(Keyword::Let)
+            || self.check_keyword(Keyword::Mut)
+            || self.check_keyword(Keyword::Res)
+        {
             let keyword = self.advance().clone();
             let mutable = matches!(keyword.kind, TokenKind::Keyword(Keyword::Mut));
+            let resource = matches!(keyword.kind, TokenKind::Keyword(Keyword::Res));
             let name = self.consume_identifier("Binding name must be an identifier.")?;
             let type_name = if self.match_keyword(Keyword::As) {
                 self.parse_type_name()
+            } else {
+                None
+            };
+            let state_type = if resource {
+                self.parse_optional_state()
             } else {
                 None
             };
@@ -1313,6 +1364,8 @@ impl<'a> FileParser<'a> {
             }
             return Some(Statement::Let {
                 mutable,
+                resource,
+                state_type,
                 name,
                 type_name,
                 value,
@@ -2542,13 +2595,27 @@ impl<'a> FileParser<'a> {
     fn check_top_level_binding_start(&self) -> bool {
         self.check_keyword(Keyword::Let)
             || self.check_keyword(Keyword::Mut)
+            || self.check_keyword(Keyword::Res)
             || (self.check_visibility()
                 && self.tokens.get(self.current + 1).is_some_and(|token| {
                     matches!(
                         token.kind,
-                        TokenKind::Keyword(Keyword::Let) | TokenKind::Keyword(Keyword::Mut)
+                        TokenKind::Keyword(Keyword::Let)
+                            | TokenKind::Keyword(Keyword::Mut)
+                            | TokenKind::Keyword(Keyword::Res)
                     )
                 }))
+    }
+
+    /// Parse an optional `STATE T` clause that follows a `RES` type. `STATE` is a
+    /// contextual keyword (so `state` remains usable as an identifier).
+    fn parse_optional_state(&mut self) -> Option<String> {
+        if self.check_identifier_ci("STATE") {
+            self.advance();
+            self.parse_type_name()
+        } else {
+            None
+        }
     }
 
     fn check_visibility(&self) -> bool {
@@ -2846,10 +2913,11 @@ impl ToAstJson for TopLevelBinding {
             .map(|value| value.to_json(indent))
             .unwrap_or_else(|| "null".to_string());
         format!(
-            "\n{}{{ \"kind\": \"binding\", \"visibility\": {}, \"mutable\": {}, \"name\": {}, \"type\": {}, \"value\": {}, \"line\": {} }}",
+            "\n{}{{ \"kind\": \"binding\", \"visibility\": {}, \"mutable\": {}{}, \"name\": {}, \"type\": {}, \"value\": {}, \"line\": {} }}",
             pad,
             json_string(visibility_name(self.visibility)),
             self.mutable,
+            resource_json_suffix(self.resource, &self.state_type),
             json_string(&self.name),
             type_name,
             value,
@@ -3008,6 +3076,16 @@ impl ToAstJson for Function {
             .as_ref()
             .map(|value| json_string(value))
             .unwrap_or_else(|| "null".to_string());
+        let return_suffix = if self.return_resource {
+            let state = self
+                .return_state_type
+                .as_ref()
+                .map(|value| json_string(value))
+                .unwrap_or_else(|| "null".to_string());
+            format!(", \"returnResource\": true, \"returnState\": {state}")
+        } else {
+            String::new()
+        };
         let trap = self
             .trap
             .as_ref()
@@ -3023,7 +3101,7 @@ impl ToAstJson for Function {
                 "{}",
                 "{}  \"line\": {},\n",
                 "{}  \"params\": [{}\n{}  ],\n",
-                "{}  \"returnType\": {},\n",
+                "{}  \"returnType\": {}{},\n",
                 "{}  \"body\": [{}\n{}  ]{}",
                 "\n",
                 "{}}}"
@@ -3046,6 +3124,7 @@ impl ToAstJson for Function {
             pad,
             pad,
             return_type,
+            return_suffix,
             pad,
             join_indented(&self.body, indent + 2),
             pad,
@@ -3092,10 +3171,11 @@ impl ToAstJson for Param {
             .map(|value| value.to_json(indent))
             .unwrap_or_else(|| "null".to_string());
         format!(
-            "\n{}{{ \"name\": {}, \"type\": {}, \"default\": {} }}",
+            "\n{}{{ \"name\": {}, \"type\": {}{}, \"default\": {} }}",
             pad,
             json_string(&self.name),
             type_name,
+            resource_json_suffix(self.resource, &self.state_type),
             default
         )
     }
@@ -3107,6 +3187,8 @@ impl ToAstJson for Statement {
         match self {
             Statement::Let {
                 mutable,
+                resource,
+                state_type,
                 name,
                 type_name,
                 value,
@@ -3121,9 +3203,10 @@ impl ToAstJson for Statement {
                     .map(|value| value.to_json(indent))
                     .unwrap_or_else(|| "null".to_string());
                 format!(
-                    "\n{}{{ \"kind\": \"binding\", \"mutable\": {}, \"name\": {}, \"type\": {}, \"value\": {}, \"line\": {} }}",
+                    "\n{}{{ \"kind\": \"binding\", \"mutable\": {}{}, \"name\": {}, \"type\": {}, \"value\": {}, \"line\": {} }}",
                     pad,
                     mutable,
+                    resource_json_suffix(*resource, state_type),
                     json_string(name),
                     type_name,
                     value,
@@ -3660,6 +3743,20 @@ fn visibility_name(visibility: Visibility) -> &'static str {
         Visibility::Package => "package",
         Visibility::Export => "export",
     }
+}
+
+/// JSON fragment appended to a binding/parameter/return for `RES` declarations.
+/// Empty for non-resource declarations so ordinary `LET`/`MUT` output (and its
+/// goldens) is unchanged.
+fn resource_json_suffix(resource: bool, state_type: &Option<String>) -> String {
+    if !resource {
+        return String::new();
+    }
+    let state = state_type
+        .as_ref()
+        .map(|value| json_string(value))
+        .unwrap_or_else(|| "null".to_string());
+    format!(", \"resource\": true, \"state\": {state}")
 }
 
 fn exit_target_name(target: ExitTarget) -> &'static str {

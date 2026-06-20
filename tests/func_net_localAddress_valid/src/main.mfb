@@ -2,10 +2,10 @@ IMPORT net
 IMPORT io
 
 FUNC main AS Integer
-  LET server = net::listenTcp("127.0.0.1", 0)
+  RES server = net::listenTcp("127.0.0.1", 0)
   LET listenerAddr = net::localAddress(server)
   LET bound = net::localAddress(server)
-  LET client = net::connectTcp("127.0.0.1", bound.port)
+  RES client = net::connectTcp("127.0.0.1", bound.port)
   LET socketAddr = net::localAddress(client)
   io::print(listenerAddr.host & " " & socketAddr.host)
   RETURN 0

@@ -29,10 +29,10 @@
         { "kind": "expression", "expression": { "kind": "call", "callee": "fs.deleteFile", "arguments": [{ "kind": "call", "callee": "fs.pathJoin", "arguments": [{ "kind": "list", "values": [{ "kind": "string", "value": "target/func_fs_createTempFile_valid" }, { "kind": "identifier", "value": "oldName" }] }] }] }, "line": 9 }
         ]
       },
-      { "kind": "binding", "mutable": false, "name": "scratch", "type": "File", "value": { "kind": "call", "callee": "fs.createTempFile", "arguments": [] }, "line": 12 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "scratch", "type": "File", "value": { "kind": "call", "callee": "fs.createTempFile", "arguments": [] }, "line": 12 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "fs.writeAll", "arguments": [{ "kind": "identifier", "value": "scratch" }, { "kind": "string", "value": "scratch" }] }, "line": 13 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "fs.close", "arguments": [{ "kind": "identifier", "value": "scratch" }] }, "line": 14 },
-      { "kind": "binding", "mutable": false, "name": "f", "type": "File", "value": { "kind": "call", "callee": "fs.createTempFile", "arguments": [{ "kind": "string", "value": "target/func_fs_createTempFile_valid" }] }, "line": 16 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "f", "type": "File", "value": { "kind": "call", "callee": "fs.createTempFile", "arguments": [{ "kind": "string", "value": "target/func_fs_createTempFile_valid" }] }, "line": 16 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "fs.writeAll", "arguments": [{ "kind": "identifier", "value": "f" }, { "kind": "string", "value": "created" }] }, "line": 17 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "fs.close", "arguments": [{ "kind": "identifier", "value": "f" }] }, "line": 18 },
       { "kind": "binding", "mutable": false, "name": "names", "type": "List OF String", "value": { "kind": "call", "callee": "fs.listDirectory", "arguments": [{ "kind": "string", "value": "target/func_fs_createTempFile_valid" }] }, "line": 20 },

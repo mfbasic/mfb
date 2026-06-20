@@ -1,8 +1,0 @@
-IMPORT package_ownership_noncopyable AS owned
-
-FUNC main AS Integer
-  LET box = owned::makeBox("tests/package-ownership-import-use-after-move-invalid/src/main.mfb")
-  owned::closeBox(box)
-  owned::closeBox(box)
-  RETURN 0
-END FUNC

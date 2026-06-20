@@ -1,5 +1,3 @@
-IMPORT fs
-
 ENUM Flag
   On
 END ENUM
@@ -28,7 +26,6 @@ FUNC main AS Integer
   MUT enumValue AS Flag
   MUT unionValue AS Choice
   MUT functionValue AS FUNC() AS Integer
-  MUT fileValue AS File
   MUT nestedEnum AS WrappedFlag
   MUT recursiveNode AS Node
   RETURN 0

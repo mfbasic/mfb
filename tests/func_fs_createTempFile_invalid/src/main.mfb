@@ -1,7 +1,7 @@
 IMPORT fs
 
 FUNC main AS Integer
-  LET wrongDirectory AS File = fs::createTempFile(1)
-  LET tooMany AS File = fs::createTempFile("target", "extra")
+  RES wrongDirectory AS File = fs::createTempFile(1)
+  RES tooMany AS File = fs::createTempFile("target", "extra")
   RETURN 0
 END FUNC

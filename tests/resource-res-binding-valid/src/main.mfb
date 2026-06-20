@@ -1,0 +1,10 @@
+IMPORT fs
+IMPORT io
+
+FUNC main AS Integer
+  RES f AS File = fs::createTempFile()
+  fs::writeAll(f, "hello")
+  fs::close(f)
+  io::print("ok")
+  RETURN 0
+END FUNC

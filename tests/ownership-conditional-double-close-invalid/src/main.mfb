@@ -1,7 +1,7 @@
 IMPORT fs
 
 FUNC main AS Integer
-  LET file AS File = fs::openFile("tests/ownership-conditional-double-close-invalid/src/main.mfb")
+  RES file AS File = fs::openFile("tests/ownership-conditional-double-close-invalid/src/main.mfb")
   IF TRUE THEN
     fs::close(file)
   END IF

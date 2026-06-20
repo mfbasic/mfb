@@ -17,13 +17,13 @@
       ],
       "returnType": "Integer",
       "body": [
-      { "kind": "binding", "mutable": false, "name": "server", "type": null, "value": { "kind": "call", "callee": "net.listenTcp", "arguments": [{ "kind": "string", "value": "127.0.0.1" }, { "kind": "number", "value": "0" }] }, "line": 5 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "server", "type": null, "value": { "kind": "call", "callee": "net.listenTcp", "arguments": [{ "kind": "string", "value": "127.0.0.1" }, { "kind": "number", "value": "0" }] }, "line": 5 },
       { "kind": "binding", "mutable": false, "name": "bound", "type": null, "value": { "kind": "call", "callee": "net.localAddress", "arguments": [{ "kind": "identifier", "value": "server" }] }, "line": 6 },
       { "kind": "binding", "mutable": false, "name": "address", "type": null, "value": { "kind": "call", "callee": "get", "arguments": [{ "kind": "call", "callee": "net.lookup", "arguments": [{ "kind": "string", "value": "127.0.0.1" }, { "kind": "memberAccess", "target": { "kind": "identifier", "value": "bound" }, "member": "port" }] }, { "kind": "number", "value": "0" }] }, "line": 7 },
-      { "kind": "binding", "mutable": false, "name": "c1", "type": null, "value": { "kind": "call", "callee": "net.connectTcp", "arguments": [{ "kind": "string", "value": "127.0.0.1" }, { "kind": "memberAccess", "target": { "kind": "identifier", "value": "bound" }, "member": "port" }] }, "line": 8 },
-      { "kind": "binding", "mutable": false, "name": "c2", "type": null, "value": { "kind": "call", "callee": "net.connectTcp", "arguments": [{ "kind": "string", "value": "127.0.0.1" }, { "kind": "memberAccess", "target": { "kind": "identifier", "value": "bound" }, "member": "port" }, { "kind": "number", "value": "5000" }] }, "line": 9 },
-      { "kind": "binding", "mutable": false, "name": "c3", "type": null, "value": { "kind": "call", "callee": "net.connectTcp", "arguments": [{ "kind": "identifier", "value": "address" }] }, "line": 10 },
-      { "kind": "binding", "mutable": false, "name": "c4", "type": null, "value": { "kind": "call", "callee": "net.connectTcp", "arguments": [{ "kind": "identifier", "value": "address" }, { "kind": "number", "value": "5000" }] }, "line": 11 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "c1", "type": null, "value": { "kind": "call", "callee": "net.connectTcp", "arguments": [{ "kind": "string", "value": "127.0.0.1" }, { "kind": "memberAccess", "target": { "kind": "identifier", "value": "bound" }, "member": "port" }] }, "line": 8 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "c2", "type": null, "value": { "kind": "call", "callee": "net.connectTcp", "arguments": [{ "kind": "string", "value": "127.0.0.1" }, { "kind": "memberAccess", "target": { "kind": "identifier", "value": "bound" }, "member": "port" }, { "kind": "number", "value": "5000" }] }, "line": 9 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "c3", "type": null, "value": { "kind": "call", "callee": "net.connectTcp", "arguments": [{ "kind": "identifier", "value": "address" }] }, "line": 10 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "c4", "type": null, "value": { "kind": "call", "callee": "net.connectTcp", "arguments": [{ "kind": "identifier", "value": "address" }, { "kind": "number", "value": "5000" }] }, "line": 11 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "connected all overloads" }] }, "line": 12 },
       { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 13 }
       ]

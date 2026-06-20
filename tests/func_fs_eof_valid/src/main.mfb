@@ -4,7 +4,7 @@ IMPORT io
 FUNC main AS Integer
   LET path AS String = "target/func_fs_eof_valid.txt"
   fs::writeText(path, "x")
-  LET f AS File = fs::openFile(path)
+  RES f AS File = fs::openFile(path)
   io::print(toString(fs::eof(f)))
   io::print(fs::readAll(f))
   io::print(toString(fs::eof(f)))

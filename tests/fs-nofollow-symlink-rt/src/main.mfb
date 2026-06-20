@@ -2,7 +2,7 @@ IMPORT fs
 IMPORT io
 
 FUNC openNoFollow(p AS String) AS Integer
-  LET f AS File = fs::openFileNoFollow(p)
+  RES f AS File = fs::openFileNoFollow(p)
   fs::close(f)
   RETURN 1
 END FUNC

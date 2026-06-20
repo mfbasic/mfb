@@ -6,7 +6,7 @@ FUNC main AS Integer
   IF fs::fileExists(path) THEN
     fs::deleteFile(path)
   END IF
-  LET f AS File = fs::openFile(path, "write")
+  RES f AS File = fs::openFile(path, "write")
   fs::writeAll(f, "Hello é日😀")
   fs::close(f)
   io::print(toString(fs::fileExists(path)))

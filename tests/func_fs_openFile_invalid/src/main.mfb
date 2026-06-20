@@ -1,10 +1,10 @@
 IMPORT fs
 
 FUNC main AS Integer
-  LET missing AS File = fs::openFile()
-  LET wrongPath AS File = fs::openFile(1)
-  LET wrongMode AS File = fs::openFile("a", 1)
-  LET tooMany AS File = fs::openFile("a", "read", "x")
-  LET badName AS File = fs::openFile(file := "a")
+  RES missing AS File = fs::openFile()
+  RES wrongPath AS File = fs::openFile(1)
+  RES wrongMode AS File = fs::openFile("a", 1)
+  RES tooMany AS File = fs::openFile("a", "read", "x")
+  RES badName AS File = fs::openFile(file := "a")
   RETURN 0
 END FUNC

@@ -1,9 +1,9 @@
 IMPORT net
 
 FUNC main AS Integer
-  LET missing = net::listenTcp("h")
-  LET wrongHost = net::listenTcp(1, 80)
-  LET wrongBacklog = net::listenTcp("h", 80, "x")
-  LET tooMany = net::listenTcp("h", 80, 1, 2)
+  RES missing = net::listenTcp("h")
+  RES wrongHost = net::listenTcp(1, 80)
+  RES wrongBacklog = net::listenTcp("h", 80, "x")
+  RES tooMany = net::listenTcp("h", 80, 1, 2)
   RETURN 0
 END FUNC

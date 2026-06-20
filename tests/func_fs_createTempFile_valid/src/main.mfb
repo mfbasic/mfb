@@ -9,11 +9,11 @@ FUNC main AS Integer
     fs::deleteFile(fs::pathJoin(["target/func_fs_createTempFile_valid", oldName]))
   NEXT
 
-  LET scratch AS File = fs::createTempFile()
+  RES scratch AS File = fs::createTempFile()
   fs::writeAll(scratch, "scratch")
   fs::close(scratch)
 
-  LET f AS File = fs::createTempFile("target/func_fs_createTempFile_valid")
+  RES f AS File = fs::createTempFile("target/func_fs_createTempFile_valid")
   fs::writeAll(f, "created")
   fs::close(f)
 

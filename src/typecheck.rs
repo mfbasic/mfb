@@ -1001,6 +1001,14 @@ impl<'a> TypeChecker<'a> {
             binding.value.as_ref(),
         );
         let binding_type = declared.or(inferred).unwrap_or(Type::Unknown);
+        self.check_resource_declaration(
+            file,
+            binding.line,
+            binding.resource,
+            binding.state_type.as_deref(),
+            (binding_type != Type::Unknown).then_some(&binding_type),
+            &format!("binding `{}`", binding.name),
+        );
         if let Some(sig) = self.bindings.get_mut(&binding.name) {
             sig.type_ = binding_type;
         }
@@ -1012,6 +1020,22 @@ impl<'a> TypeChecker<'a> {
                 for field in &type_decl.fields {
                     let type_ = self.parse_type(&field.type_name);
                     self.check_type_reference(file, &type_, field.line);
+                    // A record (product) may never own a resource: it would trap
+                    // copyable data behind move-only semantics (ownership
+                    // contagion). Resource data travels in the resource's STATE.
+                    if self.is_resource_type(&type_) {
+                        self.report(
+                            "TYPE_RESOURCE_FIELD_FORBIDDEN",
+                            &format!(
+                                "Record `{}` field `{}` is resource `{}`; records cannot own resources. Hold a `RES` binding or carry the data in the resource's STATE.",
+                                type_decl.name,
+                                field.name,
+                                self.type_name(&type_)
+                            ),
+                            file,
+                            field.line,
+                        );
+                    }
                 }
                 if self.record_field_cycle(&type_decl.name) {
                     self.report(
@@ -1130,6 +1154,20 @@ impl<'a> TypeChecker<'a> {
             }
         };
 
+        if matches!(function.kind, FunctionKind::Func) {
+            if let Some(return_name) = function.return_type.as_deref() {
+                let return_type = self.parse_type(return_name);
+                self.check_resource_declaration(
+                    file,
+                    function.line,
+                    function.return_resource,
+                    function.return_state_type.as_deref(),
+                    Some(&return_type),
+                    "return type",
+                );
+            }
+        }
+
         let mut locals = HashMap::new();
         let mut seen_default = false;
         for param in &function.params {
@@ -1148,6 +1186,15 @@ impl<'a> TypeChecker<'a> {
                     param.line,
                 );
             }
+
+            self.check_resource_declaration(
+                file,
+                param.line,
+                param.resource,
+                param.state_type.as_deref(),
+                (param_type != Type::Unknown).then_some(&param_type),
+                &format!("parameter `{}`", param.name),
+            );
 
             if param.default.is_some() {
                 seen_default = true;
@@ -1381,6 +1428,59 @@ impl<'a> TypeChecker<'a> {
         }
     }
 
+    /// Enforce the `RES` ownership axis: the `RES` keyword must be present
+    /// exactly when the declared type is a resource, and any `STATE T` must be a
+    /// copyable, defaultable data type. `context` labels the declaration site.
+    fn check_resource_declaration(
+        &mut self,
+        file: &AstFile,
+        line: usize,
+        resource: bool,
+        state_type: Option<&str>,
+        declared: Option<&Type>,
+        context: &str,
+    ) {
+        let is_resource = declared.is_some_and(|type_| self.is_resource_type(type_));
+        if is_resource && !resource {
+            let type_name = declared.map(|t| self.type_name(t)).unwrap_or_default();
+            self.report(
+                "TYPE_RESOURCE_REQUIRES_RES",
+                &format!(
+                    "{context} holds resource `{type_name}`; bind it with `RES`, not `LET`/`MUT`."
+                ),
+                file,
+                line,
+            );
+        } else if resource && declared.is_some() && !is_resource {
+            let type_name = self.type_name(declared.unwrap());
+            self.report(
+                "TYPE_RES_REQUIRES_RESOURCE",
+                &format!(
+                    "{context} is declared `RES` but `{type_name}` is not a resource type; use `LET`/`MUT`."
+                ),
+                file,
+                line,
+            );
+        }
+
+        if let Some(state) = state_type {
+            let state_resolved = self.parse_type(state);
+            self.check_type_reference(file, &state_resolved, line);
+            if !self.is_copyable_type(&state_resolved)
+                || !self.is_defaultable_type(&state_resolved)
+            {
+                self.report(
+                    "TYPE_STATE_INVALID",
+                    &format!(
+                        "{context} STATE type `{state}` must be a copyable, defaultable data type."
+                    ),
+                    file,
+                    line,
+                );
+            }
+        }
+    }
+
     fn check_binding_shape(
         &mut self,
         file: &AstFile,
@@ -1466,7 +1566,8 @@ impl<'a> TypeChecker<'a> {
                 value,
                 line,
                 mutable,
-                ..
+                resource,
+                state_type,
             } => {
                 let declared = type_name.as_deref().map(|name| self.parse_type(name));
                 if let Some(declared) = &declared {
@@ -1494,6 +1595,14 @@ impl<'a> TypeChecker<'a> {
                 );
 
                 let binding_type = declared.or(inferred).unwrap_or(Type::Unknown);
+                self.check_resource_declaration(
+                    file,
+                    *line,
+                    *resource,
+                    state_type.as_deref(),
+                    (binding_type != Type::Unknown).then_some(&binding_type),
+                    &format!("binding `{name}`"),
+                );
                 locals.insert(
                     name.clone(),
                     LocalInfo {

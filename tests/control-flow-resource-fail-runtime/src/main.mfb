@@ -2,7 +2,7 @@ IMPORT fs
 IMPORT io
 
 FUNC failOnce(path AS String) AS Nothing
-  LET f = fs::openFile(path)
+  RES f = fs::openFile(path)
   FAIL error(77050002, "body fail")
 END FUNC
 

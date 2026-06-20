@@ -9,6 +9,6 @@ DESCRIPTION
   position and advances the file position to EOF.
 
 EXAMPLES
-  LET f = fs::openFile("data.txt")
+  RES f = fs::openFile("data.txt")
   LET value AS String = fs::readAll(f)
   ' f is closed by lexical drop when this scope ends

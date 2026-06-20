@@ -1,37 +1,37 @@
 $ mfb build -ast tests/func_net_accept_invalid
    2 | 
    3 | FUNC main AS Integer
-   4 |   LET missing = net::accept()
+   4 |   RES missing = net::accept()
      | ^
 tests/func_net_accept_invalid/src/main.mfb:4 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
                Call to `net.accept` has 0 argument(s), expected 1 to 2.
    2 | 
    3 | FUNC main AS Integer
-   4 |   LET missing = net::accept()
+   4 |   RES missing = net::accept()
      | ^
 tests/func_net_accept_invalid/src/main.mfb:4 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `missing` does not have a known type.
    3 | FUNC main AS Integer
-   4 |   LET missing = net::accept()
-   5 |   LET wrongType = net::accept(1)
+   4 |   RES missing = net::accept()
+   5 |   RES wrongType = net::accept(1)
      | ^
 tests/func_net_accept_invalid/src/main.mfb:5 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
                Call to `net.accept` has argument type(s) (Integer), expected Listener, Integer.
    3 | FUNC main AS Integer
-   4 |   LET missing = net::accept()
-   5 |   LET wrongType = net::accept(1)
+   4 |   RES missing = net::accept()
+   5 |   RES wrongType = net::accept(1)
      | ^
 tests/func_net_accept_invalid/src/main.mfb:5 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `wrongType` does not have a known type.
-   4 |   LET missing = net::accept()
-   5 |   LET wrongType = net::accept(1)
-   6 |   LET tooMany = net::accept(1, 2, 3)
+   4 |   RES missing = net::accept()
+   5 |   RES wrongType = net::accept(1)
+   6 |   RES tooMany = net::accept(1, 2, 3)
      | ^
 tests/func_net_accept_invalid/src/main.mfb:6 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
                Call to `net.accept` has 3 argument(s), expected 1 to 2.
-   4 |   LET missing = net::accept()
-   5 |   LET wrongType = net::accept(1)
-   6 |   LET tooMany = net::accept(1, 2, 3)
+   4 |   RES missing = net::accept()
+   5 |   RES wrongType = net::accept(1)
+   6 |   RES tooMany = net::accept(1, 2, 3)
      | ^
 tests/func_net_accept_invalid/src/main.mfb:6 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `tooMany` does not have a known type.
@@ -39,37 +39,37 @@ tests/func_net_accept_invalid/src/main.mfb:6 error[2-203-0043 TYPE_UNKNOWN_VALUE
 $ mfb build -ir tests/func_net_accept_invalid
    2 | 
    3 | FUNC main AS Integer
-   4 |   LET missing = net::accept()
+   4 |   RES missing = net::accept()
      | ^
 tests/func_net_accept_invalid/src/main.mfb:4 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
                Call to `net.accept` has 0 argument(s), expected 1 to 2.
    2 | 
    3 | FUNC main AS Integer
-   4 |   LET missing = net::accept()
+   4 |   RES missing = net::accept()
      | ^
 tests/func_net_accept_invalid/src/main.mfb:4 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `missing` does not have a known type.
    3 | FUNC main AS Integer
-   4 |   LET missing = net::accept()
-   5 |   LET wrongType = net::accept(1)
+   4 |   RES missing = net::accept()
+   5 |   RES wrongType = net::accept(1)
      | ^
 tests/func_net_accept_invalid/src/main.mfb:5 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
                Call to `net.accept` has argument type(s) (Integer), expected Listener, Integer.
    3 | FUNC main AS Integer
-   4 |   LET missing = net::accept()
-   5 |   LET wrongType = net::accept(1)
+   4 |   RES missing = net::accept()
+   5 |   RES wrongType = net::accept(1)
      | ^
 tests/func_net_accept_invalid/src/main.mfb:5 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `wrongType` does not have a known type.
-   4 |   LET missing = net::accept()
-   5 |   LET wrongType = net::accept(1)
-   6 |   LET tooMany = net::accept(1, 2, 3)
+   4 |   RES missing = net::accept()
+   5 |   RES wrongType = net::accept(1)
+   6 |   RES tooMany = net::accept(1, 2, 3)
      | ^
 tests/func_net_accept_invalid/src/main.mfb:6 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
                Call to `net.accept` has 3 argument(s), expected 1 to 2.
-   4 |   LET missing = net::accept()
-   5 |   LET wrongType = net::accept(1)
-   6 |   LET tooMany = net::accept(1, 2, 3)
+   4 |   RES missing = net::accept()
+   5 |   RES wrongType = net::accept(1)
+   6 |   RES tooMany = net::accept(1, 2, 3)
      | ^
 tests/func_net_accept_invalid/src/main.mfb:6 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `tooMany` does not have a known type.

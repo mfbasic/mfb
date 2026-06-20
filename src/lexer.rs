@@ -79,6 +79,7 @@ pub enum Keyword {
     Private,
     Propagate,
     Recover,
+    Res,
     Step,
     To,
     Type,
@@ -485,6 +486,8 @@ fn keyword(value: &str) -> Option<Keyword> {
         Some(Keyword::Match)
     } else if value.eq_ignore_ascii_case("MUT") {
         Some(Keyword::Mut)
+    } else if value.eq_ignore_ascii_case("RES") {
+        Some(Keyword::Res)
     } else if value.eq_ignore_ascii_case("NOTHING") {
         Some(Keyword::Nothing)
     } else if value.eq_ignore_ascii_case("AND") {

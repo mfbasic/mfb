@@ -1,12 +1,8 @@
 IMPORT fs
 
-TYPE FileBox
-  handle AS File
-END TYPE
-
 FUNC main AS Integer
-  LET first AS FileBox = FileBox[fs::openFile("tests/ownership-use-after-move-invalid/src/main.mfb")]
-  LET second AS FileBox = first
-  LET third AS FileBox = first
+  RES first = fs::openFile("tests/ownership-use-after-move-invalid/src/main.mfb")
+  RES second = first
+  RES third = first
   RETURN 0
 END FUNC

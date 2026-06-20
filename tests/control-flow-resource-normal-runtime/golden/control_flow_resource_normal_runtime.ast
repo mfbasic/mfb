@@ -18,7 +18,7 @@
       ],
       "returnType": "Nothing",
       "body": [
-      { "kind": "binding", "mutable": false, "name": "f", "type": null, "value": { "kind": "call", "callee": "fs.openFile", "arguments": [{ "kind": "identifier", "value": "path" }] }, "line": 5 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "f", "type": null, "value": { "kind": "call", "callee": "fs.openFile", "arguments": [{ "kind": "identifier", "value": "path" }] }, "line": 5 },
       { "kind": "return", "value": { "kind": "identifier", "value": "NOTHING" }, "line": 6 }
       ]
     },

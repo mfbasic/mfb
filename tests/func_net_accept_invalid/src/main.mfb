@@ -1,8 +1,8 @@
 IMPORT net
 
 FUNC main AS Integer
-  LET missing = net::accept()
-  LET wrongType = net::accept(1)
-  LET tooMany = net::accept(1, 2, 3)
+  RES missing = net::accept()
+  RES wrongType = net::accept(1)
+  RES tooMany = net::accept(1, 2, 3)
   RETURN 0
 END FUNC

@@ -17,7 +17,7 @@
       ],
       "returnType": "Integer",
       "body": [
-      { "kind": "binding", "mutable": false, "name": "file", "type": null, "value": { "kind": "call", "callee": "fs.openFile", "arguments": [{ "kind": "string", "value": "tests/ownership-resource-manual-close-valid/src/main.mfb" }] }, "line": 5 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "file", "type": null, "value": { "kind": "call", "callee": "fs.openFile", "arguments": [{ "kind": "string", "value": "tests/ownership-resource-manual-close-valid/src/main.mfb" }] }, "line": 5 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "fs.close", "arguments": [{ "kind": "identifier", "value": "file" }] }, "line": 6 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "closed" }] }, "line": 7 },
       { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 8 }

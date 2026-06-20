@@ -1,0 +1,14 @@
+$ mfb build -ast tests/resource-res-nonresource-invalid
+   1 | FUNC main AS Integer
+   2 |   RES n AS Integer = 5
+     | ^
+tests/resource-res-nonresource-invalid/src/main.mfb:2 error[2-203-0083 TYPE_RES_REQUIRES_RESOURCE]: RES binds only resource types
+               binding `n` is declared `RES` but `Integer` is not a resource type; use `LET`/`MUT`.
+[exit 1]
+$ mfb build -ir tests/resource-res-nonresource-invalid
+   1 | FUNC main AS Integer
+   2 |   RES n AS Integer = 5
+     | ^
+tests/resource-res-nonresource-invalid/src/main.mfb:2 error[2-203-0083 TYPE_RES_REQUIRES_RESOURCE]: RES binds only resource types
+               binding `n` is declared `RES` but `Integer` is not a resource type; use `LET`/`MUT`.
+[exit 1]

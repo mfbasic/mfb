@@ -18,7 +18,7 @@
       ],
       "returnType": "Integer",
       "body": [
-      { "kind": "binding", "mutable": false, "name": "scratch", "type": "File", "value": { "kind": "call", "callee": "fs.openFile", "arguments": [{ "kind": "identifier", "value": "p" }] }, "line": 7 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "scratch", "type": "File", "value": { "kind": "call", "callee": "fs.openFile", "arguments": [{ "kind": "identifier", "value": "p" }] }, "line": 7 },
       { "kind": "fail", "error": { "kind": "call", "callee": "error", "arguments": [{ "kind": "number", "value": "700" }, { "kind": "string", "value": "after open" }] }, "line": 8 }
       ]
     },
@@ -31,7 +31,7 @@
       ],
       "returnType": "Integer",
       "body": [
-      { "kind": "binding", "mutable": false, "name": "outer", "type": "File", "value": { "kind": "call", "callee": "fs.openFile", "arguments": [{ "kind": "string", "value": "tests/control-flow-inline-trap-resource-rt/data/in.txt" }] }, "line": 12 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "outer", "type": "File", "value": { "kind": "call", "callee": "fs.openFile", "arguments": [{ "kind": "string", "value": "tests/control-flow-inline-trap-resource-rt/data/in.txt" }] }, "line": 12 },
       { "kind": "binding", "mutable": true, "name": "code", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 13 },
       { "kind": "expression", "expression": {
         "kind": "trapped",

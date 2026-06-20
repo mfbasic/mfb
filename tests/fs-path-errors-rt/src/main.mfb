@@ -5,7 +5,7 @@ FUNC readMissing(p AS String) AS String
   RETURN fs::readText(p)
 END FUNC
 FUNC openMissing(p AS String) AS Integer
-  LET f AS File = fs::openFile(p)
+  RES f AS File = fs::openFile(p)
   fs::close(f)
   RETURN 1
 END FUNC

@@ -453,7 +453,7 @@ fn native_resource_cleanup_reports_secondary_close_failure_metadata() {
 IMPORT fs
 
 FUNC main AS Integer
-  LET file = fs::openFile("{}")
+  RES file = fs::openFile("{}")
   FAIL error(1234, "body failed")
 END FUNC
 "#,
@@ -515,7 +515,7 @@ FUNC leave AS Nothing
 END FUNC
 
 FUNC main AS Integer
-  LET file = fs::openFile("{}")
+  RES file = fs::openFile("{}")
   leave()
   RETURN 99
 END FUNC
@@ -572,12 +572,12 @@ IMPORT fs
 
 FUNC main AS Integer
   FOR i = 1 TO 1
-    LET exitFile = fs::openFile("{}")
+    RES exitFile = fs::openFile("{}")
     EXIT FOR
   NEXT
 
   FOR j = 1 TO 1
-    LET continueFile = fs::openFile("{}")
+    RES continueFile = fs::openFile("{}")
     CONTINUE FOR
   NEXT
 

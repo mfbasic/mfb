@@ -2,15 +2,15 @@ IMPORT fs
 IMPORT io
 
 FUNC main AS Integer
-  LET f AS File = fs::openFileNoFollow("tests/func_fs_openFileNoFollow_valid/src/main.mfb")
+  RES f AS File = fs::openFileNoFollow("tests/func_fs_openFileNoFollow_valid/src/main.mfb")
   fs::close(f)
   io::print("default")
 
-  LET read AS File = fs::openFileNoFollow("tests/func_fs_openFileNoFollow_valid/src/main.mfb", "read")
+  RES read AS File = fs::openFileNoFollow("tests/func_fs_openFileNoFollow_valid/src/main.mfb", "read")
   fs::close(read)
   io::print("read")
 
-  LET r AS File = fs::openFileNoFollow("tests/func_fs_openFileNoFollow_valid/src/main.mfb", "r")
+  RES r AS File = fs::openFileNoFollow("tests/func_fs_openFileNoFollow_valid/src/main.mfb", "r")
   fs::close(r)
   io::print("r")
 
@@ -18,7 +18,7 @@ FUNC main AS Integer
   IF fs::fileExists(writePath) THEN
     fs::deleteFile(writePath)
   END IF
-  LET w AS File = fs::openFileNoFollow(writePath, "w")
+  RES w AS File = fs::openFileNoFollow(writePath, "w")
   fs::writeAll(w, "w")
   fs::close(w)
   io::print(fs::readText(writePath))
@@ -26,7 +26,7 @@ FUNC main AS Integer
 
   LET readWritePath AS String = "target/func_fs_openFileNoFollow_valid_rw.txt"
   fs::writeText(readWritePath, "")
-  LET rw AS File = fs::openFileNoFollow(readWritePath, "rw")
+  RES rw AS File = fs::openFileNoFollow(readWritePath, "rw")
   fs::writeAll(rw, "rw")
   fs::close(rw)
   io::print(fs::readText(readWritePath))
@@ -34,7 +34,7 @@ FUNC main AS Integer
 
   LET readWriteNamePath AS String = "target/func_fs_openFileNoFollow_valid_readWrite.txt"
   fs::writeText(readWriteNamePath, "")
-  LET readWrite AS File = fs::openFileNoFollow(readWriteNamePath, "readWrite")
+  RES readWrite AS File = fs::openFileNoFollow(readWriteNamePath, "readWrite")
   fs::writeAll(readWrite, "readWrite")
   fs::close(readWrite)
   io::print(fs::readText(readWriteNamePath))
@@ -42,7 +42,7 @@ FUNC main AS Integer
 
   LET appendAliasPath AS String = "target/func_fs_openFileNoFollow_valid_a.txt"
   fs::writeText(appendAliasPath, "base")
-  LET a AS File = fs::openFileNoFollow(appendAliasPath, "a")
+  RES a AS File = fs::openFileNoFollow(appendAliasPath, "a")
   fs::writeAll(a, "+a")
   fs::close(a)
   io::print(fs::readText(appendAliasPath))
@@ -50,7 +50,7 @@ FUNC main AS Integer
 
   LET appendPath AS String = "target/func_fs_openFileNoFollow_valid_append.txt"
   fs::writeText(appendPath, "base")
-  LET append AS File = fs::openFileNoFollow(appendPath, "append")
+  RES append AS File = fs::openFileNoFollow(appendPath, "append")
   fs::writeAll(append, "+append")
   fs::close(append)
   io::print(fs::readText(appendPath))
@@ -60,7 +60,7 @@ FUNC main AS Integer
   IF fs::fileExists(writeNamePath) THEN
     fs::deleteFile(writeNamePath)
   END IF
-  LET write AS File = fs::openFileNoFollow(writeNamePath, "write")
+  RES write AS File = fs::openFileNoFollow(writeNamePath, "write")
   fs::writeAll(write, "write")
   fs::close(write)
   io::print(fs::readText(writeNamePath))
