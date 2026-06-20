@@ -11,12 +11,12 @@ Path: tests/package-record-comparable/package_record_comparable.mfp
 Container:
   format: MFP
   version: 1.0
-  bytecode version: 1.0
+  binary representation version: 1.0
   flags: 0x00000000
   signature type: unsigned
   signature length: 0
-  content hash: dfc1e1868a2bdb1865b20ece1a789e02abc3c01b4dc5d2ab15455283a1666888
-  bytecode length: 1496
+  content hash: 5654e96514dd30026ee9e6b738224110df278d944d68a36ff7056c8b67fc2bef
+  binary representation length: 1496
 
 Manifest:
   name: package_record_comparable
@@ -28,7 +28,7 @@ Manifest:
   author: <empty>
   url: <empty>
 
-Bytecode:
+Binary Representation:
   ABI format version: 1
   types: 1
   constants: 0

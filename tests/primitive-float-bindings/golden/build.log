@@ -4,8 +4,8 @@ Wrote AST to tests/primitive-float-bindings/primitive_float_bindings.ast
 $ mfb build -ir tests/primitive-float-bindings
 Wrote IR to tests/primitive-float-bindings/primitive_float_bindings.ir
 [exit 0]
-$ mfb build -bc tests/primitive-float-bindings
-Wrote bytecode hex to tests/primitive-float-bindings/primitive_float_bindings.hex
+$ mfb build -br tests/primitive-float-bindings
+Wrote binary representation hex to tests/primitive-float-bindings/primitive_float_bindings.hex
 [exit 0]
 $ mfb build tests/primitive-float-bindings
 Wrote executable to tests/primitive-float-bindings/primitive_float_bindings.out

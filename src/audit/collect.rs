@@ -165,7 +165,7 @@ fn collect_packages(
         }
         let display = format!("packages/{}.mfp", dependency.name);
         let header = crate::read_mfp_header(&package_file);
-        let info = crate::bytecode::read_package_info(&package_file);
+        let info = crate::binary_repr::read_package_info(&package_file);
         let content_hash = std::fs::read(&package_file)
             .ok()
             .and_then(|bytes| crate::target::package_mfp::package_content_hash(&bytes).ok())
@@ -894,7 +894,7 @@ fn package_findings(
         let package_file = project_dir
             .join("packages")
             .join(format!("{}.mfp", dependency.name));
-        let Ok(info) = crate::bytecode::read_package_info(&package_file) else {
+        let Ok(info) = crate::binary_repr::read_package_info(&package_file) else {
             continue;
         };
         let display = format!("packages/{}.mfp", dependency.name);

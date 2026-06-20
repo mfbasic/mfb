@@ -1,7 +1,7 @@
 use std::env;
 use std::path::{Path, PathBuf};
 
-use crate::bytecode::BytecodeMetadata;
+use crate::binary_repr::BinaryReprMetadata;
 use crate::ir::IrProject;
 
 pub mod linux_aarch64;
@@ -184,7 +184,7 @@ pub fn write_native_code_plan(
 pub fn write_package(
     project_dir: &Path,
     ir: &IrProject,
-    metadata: &BytecodeMetadata,
+    metadata: &BinaryReprMetadata,
     packages: &[PathBuf],
 ) -> Result<PathBuf, String> {
     package_mfp::write_package(project_dir, ir, metadata, packages)

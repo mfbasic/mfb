@@ -23,7 +23,7 @@ impl CodeBuilder<'_> {
     /// separator is inserted between components without producing duplicates.
     ///
     /// The work is delegated to the shared [`FS_PATH_JOIN_SYMBOL`] runtime helper
-    /// so that root native code and imported-package bytecode lower `pathJoin`
+    /// so that root native code and imported-package binary_repr lower `pathJoin`
     /// identically.
     fn lower_fs_path_join(&mut self, parts: &NirValue) -> Result<ValueResult, String> {
         let parts = self.lower_value(parts)?;

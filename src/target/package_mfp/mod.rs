@@ -1,4 +1,4 @@
-use crate::bytecode::{self, BytecodeMetadata};
+use crate::binary_repr::{self, BinaryReprMetadata};
 use crate::ir::IrProject;
 use sha2::{Digest, Sha256};
 use std::fs;
@@ -7,8 +7,8 @@ use std::path::{Path, PathBuf};
 const MFP_MAGIC: [u8; 8] = [0x4d, 0x46, 0x50, 0x0d, 0x0a, 0x1a, 0x0a, 0x00];
 const CONTAINER_MAJOR: u16 = 1;
 const CONTAINER_MINOR: u16 = 0;
-const BYTECODE_MAJOR: u16 = 1;
-const BYTECODE_MINOR: u16 = 0;
+const BINARY_REPR_MAJOR: u16 = 1;
+const BINARY_REPR_MINOR: u16 = 0;
 const SIGNATURE_UNSIGNED: u16 = 0;
 const SIGNATURE_ED25519: u16 = 1;
 const HEADER_PREFIX_LEN: usize = 26;
@@ -26,11 +26,11 @@ const URL_LIMIT: usize = 2048;
 pub fn write_package(
     project_dir: &Path,
     ir: &IrProject,
-    metadata: &BytecodeMetadata,
+    metadata: &BinaryReprMetadata,
     packages: &[PathBuf],
 ) -> Result<PathBuf, String> {
-    let bytecode = bytecode::build_package_bytecode_bytes(ir, metadata, packages)?;
-    let package = build_package_bytes(metadata, &bytecode)?;
+    let binary_repr = binary_repr::build_package_binary_repr_bytes(ir, metadata, packages)?;
+    let package = build_package_bytes(metadata, &binary_repr)?;
     let path = project_dir.join(format!("{}.mfp", metadata.name));
     fs::write(&path, package)
         .map_err(|err| format!("failed to write '{}': {err}", path.display()))?;
@@ -38,20 +38,20 @@ pub fn write_package(
 }
 
 pub fn build_package_bytes(
-    metadata: &BytecodeMetadata,
-    package_bytecode: &[u8],
+    metadata: &BinaryReprMetadata,
+    package_binary_repr: &[u8],
 ) -> Result<Vec<u8>, String> {
     validate_metadata(metadata)?;
-    if !package_bytecode.starts_with(b"MFBC") {
-        return Err("package payload must be MFB bytecode with MFBC magic".to_string());
+    if !package_binary_repr.starts_with(b"MFPC") {
+        return Err("package payload must be the binary representation container".to_string());
     }
 
     let mut bytes = Vec::new();
     bytes.extend_from_slice(&MFP_MAGIC);
     put_u16(&mut bytes, CONTAINER_MAJOR);
     put_u16(&mut bytes, CONTAINER_MINOR);
-    put_u16(&mut bytes, BYTECODE_MAJOR);
-    put_u16(&mut bytes, BYTECODE_MINOR);
+    put_u16(&mut bytes, BINARY_REPR_MAJOR);
+    put_u16(&mut bytes, BINARY_REPR_MINOR);
     put_u32(&mut bytes, container_flags(metadata));
     put_u16(&mut bytes, SIGNATURE_UNSIGNED);
     put_u32(&mut bytes, 0);
@@ -63,8 +63,8 @@ pub fn build_package_bytes(
     put_bytes(&mut bytes, metadata.signing_fingerprint.as_bytes());
     put_bytes(&mut bytes, metadata.author.as_bytes());
     put_bytes(&mut bytes, metadata.url.as_bytes());
-    put_u64(&mut bytes, package_bytecode.len() as u64);
-    bytes.extend_from_slice(package_bytecode);
+    put_u64(&mut bytes, package_binary_repr.len() as u64);
+    bytes.extend_from_slice(package_binary_repr);
     Ok(bytes)
 }
 
@@ -98,7 +98,7 @@ pub fn package_content_hash(bytes: &[u8]) -> Result<[u8; 32], String> {
     Ok(hash)
 }
 
-fn validate_metadata(metadata: &BytecodeMetadata) -> Result<(), String> {
+fn validate_metadata(metadata: &BinaryReprMetadata) -> Result<(), String> {
     validate_string("name", &metadata.name, NAME_LIMIT, true)?;
     validate_string("ident", package_ident(metadata), IDENT_LIMIT, true)?;
     validate_string("version", &metadata.version, VERSION_LIMIT, true)?;
@@ -133,7 +133,7 @@ fn validate_signature_header(signature_type: u16, signature_length: usize) -> Re
     }
 }
 
-fn package_ident(metadata: &BytecodeMetadata) -> &str {
+fn package_ident(metadata: &BinaryReprMetadata) -> &str {
     if metadata.ident.is_empty() {
         &metadata.name
     } else {
@@ -154,7 +154,7 @@ fn validate_string(field: &str, value: &str, limit: usize, required: bool) -> Re
     Ok(())
 }
 
-fn container_flags(metadata: &BytecodeMetadata) -> u32 {
+fn container_flags(metadata: &BinaryReprMetadata) -> u32 {
     if metadata.version.contains('-') {
         FLAG_PRE_RELEASE
     } else {
@@ -185,7 +185,7 @@ mod tests {
 
     #[test]
     fn wraps_mfbc_payload_in_unsigned_mfp_container() {
-        let metadata = BytecodeMetadata {
+        let metadata = BinaryReprMetadata {
             name: "shape".to_string(),
             ident: "ada#shape".to_string(),
             version: "1.2.3".to_string(),
@@ -196,15 +196,15 @@ mod tests {
             url: "https://example.invalid/shape".to_string(),
             dependencies: Vec::new(),
         };
-        let payload = b"MFBCpayload";
+        let payload = b"MFPCpayload";
 
         let package = build_package_bytes(&metadata, payload).expect("package bytes");
 
         assert!(package.starts_with(&MFP_MAGIC));
         assert_eq!(&package[8..10], &CONTAINER_MAJOR.to_le_bytes());
         assert_eq!(&package[10..12], &CONTAINER_MINOR.to_le_bytes());
-        assert_eq!(&package[12..14], &BYTECODE_MAJOR.to_le_bytes());
-        assert_eq!(&package[14..16], &BYTECODE_MINOR.to_le_bytes());
+        assert_eq!(&package[12..14], &BINARY_REPR_MAJOR.to_le_bytes());
+        assert_eq!(&package[14..16], &BINARY_REPR_MINOR.to_le_bytes());
         assert!(package.ends_with(payload));
         let hash = package_content_hash(&package).expect("content hash");
         assert_ne!(hash, [0; 32]);
@@ -212,7 +212,7 @@ mod tests {
 
     #[test]
     fn content_hash_zeroes_signature_bytes_but_covers_header_fields() {
-        let metadata = BytecodeMetadata {
+        let metadata = BinaryReprMetadata {
             name: "shape".to_string(),
             ident: "ada#shape".to_string(),
             version: "1.2.3".to_string(),
@@ -223,7 +223,7 @@ mod tests {
             url: "https://example.invalid/shape".to_string(),
             dependencies: Vec::new(),
         };
-        let mut package = build_package_bytes(&metadata, b"MFBCpayload").expect("package bytes");
+        let mut package = build_package_bytes(&metadata, b"MFPCpayload").expect("package bytes");
         package[20..22].copy_from_slice(&SIGNATURE_ED25519.to_le_bytes());
         package[22..26].copy_from_slice(&64_u32.to_le_bytes());
         package.splice(HEADER_PREFIX_LEN..HEADER_PREFIX_LEN, [0x7f; 64]);
@@ -237,8 +237,8 @@ mod tests {
     }
 
     #[test]
-    fn rejects_non_bytecode_payload() {
-        let metadata = BytecodeMetadata {
+    fn rejects_non_binary_repr_payload() {
+        let metadata = BinaryReprMetadata {
             name: "shape".to_string(),
             ident: "ada#shape".to_string(),
             version: "1.2.3".to_string(),
@@ -251,6 +251,6 @@ mod tests {
         };
 
         let err = build_package_bytes(&metadata, b"nope").expect_err("invalid payload");
-        assert_eq!(err, "package payload must be MFB bytecode with MFBC magic");
+        assert_eq!(err, "package payload must be the binary representation container");
     }
 }

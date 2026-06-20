@@ -11,12 +11,12 @@ Path: tests/package-trap-builtin/trap_builtin_pkg.mfp
 Container:
   format: MFP
   version: 1.0
-  bytecode version: 1.0
+  binary representation version: 1.0
   flags: 0x00000000
   signature type: unsigned
   signature length: 0
-  content hash: e484d33a4c6efb22f5f16fa768dfe87d34bcd3bd972643591f2987a3166ddc05
-  bytecode length: 1109
+  content hash: 28f8f7ac1f758abf8ddbe09b71e7c87a09a2db7495833ee0b1310891d07c61b7
+  binary representation length: 1109
 
 Manifest:
   name: trap_builtin_pkg
@@ -28,7 +28,7 @@ Manifest:
   author: <empty>
   url: <empty>
 
-Bytecode:
+Binary Representation:
   ABI format version: 1
   types: 0
   constants: 0

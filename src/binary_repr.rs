@@ -1,8 +1,6 @@
-#![allow(dead_code)]
 
 use crate::builtins;
 use crate::ir::{IrFunction, IrOp, IrProject, IrType, IrValue};
-use crate::numeric;
 use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet};
 use std::fs;
@@ -16,16 +14,15 @@ const SECTION_IMPORT_TABLE: u16 = 5;
 const SECTION_EXPORT_TABLE: u16 = 6;
 const SECTION_GLOBAL_TABLE: u16 = 7;
 const SECTION_FUNCTION_TABLE: u16 = 8;
-const SECTION_CODE: u16 = 9;
 const SECTION_RESOURCE_TABLE: u16 = 11;
 const SECTION_ABI_INDEX: u16 = 15;
-/// Structured Binary IR payload section. Replaces the old flat SECTION_CODE as
-/// the carrier of function bodies; see `crate::ir::encode_binary_ir`.
-const SECTION_IR: u16 = 16;
+/// Structured Binary Representation payload section. Replaces the old flat code section as
+/// the carrier of function bodies; see `crate::ir::encode_binary_repr`.
+const SECTION_BINARY_REPR: u16 = 16;
 
-/// MFBC container major version. Bumped to 2 for the clean break to the
-/// structured Binary IR payload — the reader rejects the old flat (v1) layout.
-const MFBC_MAJOR_VERSION: u16 = 2;
+/// MFPC container major version. Bumped to 2 for the clean break to the
+/// structured Binary Representation payload — the reader rejects the old flat (v1) layout.
+const MFPC_MAJOR_VERSION: u16 = 2;
 
 const ABI_FORMAT_VERSION: u16 = 1;
 const ABI_HASH_LEN: usize = 32;
@@ -42,233 +39,43 @@ pub(crate) const TYPE_TERMINAL_SIZE: u32 = 9;
 pub(crate) const TYPE_FILE_HANDLE: u32 = 0xffff_ff00;
 const FIRST_TABLE_TYPE_ID: u32 = 10;
 
-const FUNCTION_BYTECODE: u16 = 1;
+const FUNCTION_BINARY_REPR: u16 = 1;
 
 const FUNCTION_FLAG_ISOLATED: u16 = 1 << 2;
 const FUNCTION_FLAG_PRIVATE: u16 = 1 << 1;
 const FUNCTION_FLAG_SUB: u16 = 1 << 3;
 const FUNCTION_FLAG_RETURNS_NOTHING: u16 = 1 << 5;
 
-const REGISTER_FLAG_PARAMETER: u32 = 1 << 0;
-const REGISTER_FLAG_MUTABLE_LOCAL_CELL: u32 = 1 << 1;
-const REGISTER_FLAG_RESOURCE: u32 = 1 << 2;
-const REGISTER_FLAG_INITIALIZED_AT_ENTRY: u32 = 1 << 3;
-
-const OPCODE_LOAD_CONST: u16 = 1;
-const OPCODE_LOAD_DEFAULT: u16 = 2;
-const OPCODE_LOAD_GLOBAL: u16 = 3;
-const OPCODE_STORE_GLOBAL: u16 = 4;
-const OPCODE_ADD: u16 = 20;
-const OPCODE_SUB: u16 = 21;
-const OPCODE_MUL: u16 = 22;
-const OPCODE_DIV: u16 = 23;
-const OPCODE_EQUAL: u16 = 24;
-const OPCODE_NOT_EQUAL: u16 = 25;
-const OPCODE_LESS: u16 = 26;
-const OPCODE_LESS_EQUAL: u16 = 27;
-const OPCODE_GREATER: u16 = 28;
-const OPCODE_GREATER_EQUAL: u16 = 29;
-const OPCODE_MOD: u16 = 30;
-const OPCODE_POW: u16 = 31;
-const OPCODE_NOT: u16 = 32;
-const OPCODE_XOR: u16 = 33;
-const OPCODE_NEG: u16 = 34;
-const OPCODE_FLOAT_DIV: u16 = 35;
-const OPCODE_CONCAT: u16 = 40;
-pub(crate) const OPCODE_IO_WRITE: u16 = 50;
-pub(crate) const OPCODE_IO_FLUSH: u16 = 51;
-pub(crate) const OPCODE_IO_READ_LINE: u16 = 52;
-pub(crate) const OPCODE_IO_READ_CHAR: u16 = 53;
-pub(crate) const OPCODE_IO_READ_BYTE: u16 = 54;
-pub(crate) const OPCODE_IO_IS_TERMINAL: u16 = 55;
-pub(crate) const OPCODE_IO_TERMINAL_SIZE: u16 = 56;
-pub(crate) const OPCODE_IO_POLL_INPUT: u16 = 57;
-pub(crate) const OPCODE_IO_OPEN: u16 = 58;
-pub(crate) const OPCODE_IO_CLOSE: u16 = 59;
-pub(crate) const OPCODE_FS_FILE_EXISTS: u16 = 180;
-pub(crate) const OPCODE_FS_DIRECTORY_EXISTS: u16 = 181;
-pub(crate) const OPCODE_FS_EXISTS: u16 = 182;
-pub(crate) const OPCODE_FS_READ_TEXT: u16 = 183;
-pub(crate) const OPCODE_FS_WRITE_TEXT: u16 = 184;
-pub(crate) const OPCODE_FS_WRITE_TEXT_ATOMIC: u16 = 185;
-pub(crate) const OPCODE_FS_APPEND_TEXT: u16 = 186;
-pub(crate) const OPCODE_FS_OPEN: u16 = 187;
-pub(crate) const OPCODE_FS_OPEN_NO_FOLLOW: u16 = 188;
-pub(crate) const OPCODE_FS_CREATE_TEMP_FILE: u16 = 189;
-pub(crate) const OPCODE_FS_READ_LINE: u16 = 190;
-pub(crate) const OPCODE_FS_READ_ALL: u16 = 191;
-pub(crate) const OPCODE_FS_WRITE_ALL: u16 = 192;
-pub(crate) const OPCODE_FS_CLOSE: u16 = 193;
-pub(crate) const OPCODE_FS_EOF: u16 = 194;
-pub(crate) const OPCODE_FS_CANONICAL_PATH: u16 = 195;
-pub(crate) const OPCODE_FS_IS_WITHIN: u16 = 196;
-pub(crate) const OPCODE_FS_PATH_JOIN: u16 = 197;
-pub(crate) const OPCODE_FS_PATH_DIR_NAME: u16 = 198;
-pub(crate) const OPCODE_FS_PATH_BASE_NAME: u16 = 199;
-pub(crate) const OPCODE_FS_PATH_EXTENSION: u16 = 200;
-pub(crate) const OPCODE_FS_PATH_NORMALIZE: u16 = 201;
-pub(crate) const OPCODE_FS_DELETE_FILE: u16 = 202;
-pub(crate) const OPCODE_FS_CREATE_DIRECTORY: u16 = 203;
-pub(crate) const OPCODE_FS_CREATE_DIRECTORIES: u16 = 204;
-pub(crate) const OPCODE_FS_DELETE_DIRECTORY: u16 = 205;
-pub(crate) const OPCODE_FS_LIST_DIRECTORY: u16 = 206;
-pub(crate) const OPCODE_FS_CURRENT_DIRECTORY: u16 = 207;
-pub(crate) const OPCODE_FS_SET_CURRENT_DIRECTORY: u16 = 208;
-pub(crate) const OPCODE_FS_READ_BYTES: u16 = 209;
-pub(crate) const OPCODE_FS_WRITE_BYTES: u16 = 210;
-pub(crate) const OPCODE_FS_WRITE_BYTES_ATOMIC: u16 = 211;
-pub(crate) const OPCODE_FS_APPEND_BYTES: u16 = 212;
-pub(crate) const OPCODE_FS_READ_ALL_BYTES: u16 = 213;
-pub(crate) const OPCODE_FS_WRITE_ALL_BYTES: u16 = 214;
-pub(crate) const OPCODE_FS_TEMP_DIRECTORY: u16 = 215;
-pub(crate) const OPCODE_THREAD_START: u16 = 220;
-pub(crate) const OPCODE_THREAD_IS_RUNNING: u16 = 221;
-pub(crate) const OPCODE_THREAD_WAIT_FOR: u16 = 222;
-pub(crate) const OPCODE_THREAD_CANCEL: u16 = 223;
-pub(crate) const OPCODE_THREAD_SEND: u16 = 224;
-pub(crate) const OPCODE_THREAD_POLL: u16 = 225;
-pub(crate) const OPCODE_THREAD_READ: u16 = 226;
-pub(crate) const OPCODE_THREAD_RECEIVE: u16 = 227;
-pub(crate) const OPCODE_THREAD_EMIT: u16 = 228;
-pub(crate) const OPCODE_THREAD_IS_CANCELLED: u16 = 229;
-const OPCODE_CALL_RESULT: u16 = 60;
-const OPCODE_UNWRAP_RESULT: u16 = 61;
-const OPCODE_LOAD_FUNCTION: u16 = 62;
-const OPCODE_CALL_VALUE_RESULT: u16 = 63;
-const OPCODE_RESULT_IS_OK: u16 = 64;
-const OPCODE_RESULT_VALUE: u16 = 65;
-const OPCODE_RESULT_ERROR: u16 = 66;
-const OPCODE_LOAD_CAPTURE: u16 = 67;
-const OPCODE_LOAD_CLOSURE: u16 = 68;
-const OPCODE_RETURN_OK: u16 = 70;
-const OPCODE_RETURN_ERR: u16 = 71;
-const OPCODE_CONSTRUCT_RECORD: u16 = 80;
-const OPCODE_CONSTRUCT_VARIANT: u16 = 81;
-const OPCODE_LOAD_FIELD: u16 = 82;
-const OPCODE_LOAD_ENUM_MEMBER: u16 = 83;
-const OPCODE_CONSTRUCT_LIST: u16 = 84;
-const OPCODE_CONSTRUCT_MAP: u16 = 85;
-const OPCODE_COLLECTION_ITER_BEGIN: u16 = 86;
-const OPCODE_COLLECTION_ITER_NEXT: u16 = 87;
-const OPCODE_LOAD_MAP_ENTRY_FIELD: u16 = 88;
-const OPCODE_BRANCH: u16 = 90;
-const OPCODE_BRANCH_IF_FALSE: u16 = 91;
-const OPCODE_VARIANT_MATCH: u16 = 92;
-const OPCODE_BRANCH_IF_TRUE: u16 = 93;
-pub(crate) const OPCODE_GENERAL_LEN: u16 = 100;
-pub(crate) const OPCODE_GENERAL_FIND: u16 = 101;
-pub(crate) const OPCODE_GENERAL_MID: u16 = 102;
-pub(crate) const OPCODE_GENERAL_REPLACE: u16 = 103;
-pub(crate) const OPCODE_GENERAL_TO_STRING: u16 = 104;
-pub(crate) const OPCODE_GENERAL_TO_INT: u16 = 105;
-pub(crate) const OPCODE_GENERAL_TO_FLOAT: u16 = 106;
-pub(crate) const OPCODE_GENERAL_TO_FIXED: u16 = 107;
-pub(crate) const OPCODE_GENERAL_TO_BYTE: u16 = 108;
-pub(crate) const OPCODE_GENERAL_IS_NUMERIC: u16 = 109;
-pub(crate) const OPCODE_GENERAL_IS_EVEN: u16 = 110;
-pub(crate) const OPCODE_GENERAL_IS_ODD: u16 = 111;
-pub(crate) const OPCODE_GENERAL_IS_POSITIVE: u16 = 112;
-pub(crate) const OPCODE_GENERAL_IS_NEGATIVE: u16 = 113;
-pub(crate) const OPCODE_GENERAL_IS_ZERO: u16 = 114;
-pub(crate) const OPCODE_GENERAL_IS_EMPTY: u16 = 115;
-pub(crate) const OPCODE_GENERAL_IS_NOT_EMPTY: u16 = 116;
-pub(crate) const OPCODE_COLLECTION_GET: u16 = 120;
-pub(crate) const OPCODE_COLLECTION_GET_OR: u16 = 121;
-pub(crate) const OPCODE_COLLECTION_FIND: u16 = 122;
-pub(crate) const OPCODE_COLLECTION_MID: u16 = 123;
-pub(crate) const OPCODE_COLLECTION_REPLACE: u16 = 124;
-pub(crate) const OPCODE_COLLECTION_SET: u16 = 125;
-pub(crate) const OPCODE_COLLECTION_APPEND: u16 = 126;
-pub(crate) const OPCODE_COLLECTION_PREPEND: u16 = 127;
-pub(crate) const OPCODE_COLLECTION_INSERT: u16 = 128;
-pub(crate) const OPCODE_COLLECTION_REMOVE_AT: u16 = 129;
-pub(crate) const OPCODE_COLLECTION_REMOVE_KEY: u16 = 130;
-pub(crate) const OPCODE_COLLECTION_KEYS: u16 = 131;
-pub(crate) const OPCODE_COLLECTION_VALUES: u16 = 132;
-pub(crate) const OPCODE_COLLECTION_HAS_KEY: u16 = 133;
-pub(crate) const OPCODE_COLLECTION_CONTAINS: u16 = 134;
-pub(crate) const OPCODE_COLLECTION_SUM: u16 = 135;
-pub(crate) const OPCODE_COLLECTION_FOR_EACH: u16 = 136;
-pub(crate) const OPCODE_COLLECTION_TRANSFORM: u16 = 137;
-pub(crate) const OPCODE_COLLECTION_FILTER: u16 = 138;
-pub(crate) const OPCODE_COLLECTION_REDUCE: u16 = 139;
-pub(crate) const OPCODE_STRING_TRIM: u16 = 140;
-pub(crate) const OPCODE_STRING_TRIM_START: u16 = 141;
-pub(crate) const OPCODE_STRING_TRIM_END: u16 = 142;
-pub(crate) const OPCODE_STRING_UPPER: u16 = 143;
-pub(crate) const OPCODE_STRING_LOWER: u16 = 144;
-pub(crate) const OPCODE_STRING_CASE_FOLD: u16 = 145;
-pub(crate) const OPCODE_STRING_NORMALIZE_NFC: u16 = 146;
-pub(crate) const OPCODE_STRING_GRAPHEMES: u16 = 147;
-pub(crate) const OPCODE_STRING_STARTS_WITH: u16 = 148;
-pub(crate) const OPCODE_STRING_ENDS_WITH: u16 = 149;
-pub(crate) const OPCODE_STRING_CONTAINS: u16 = 150;
-pub(crate) const OPCODE_STRING_SPLIT: u16 = 151;
-pub(crate) const OPCODE_STRING_JOIN: u16 = 152;
-pub(crate) const OPCODE_STRING_BYTE_LEN: u16 = 153;
-pub(crate) const OPCODE_STRING_REGEX_MATCH: u16 = 154;
-pub(crate) const OPCODE_STRING_REGEX_FIND: u16 = 155;
-pub(crate) const OPCODE_STRING_REGEX_REPLACE: u16 = 156;
-pub(crate) const OPCODE_MATH_PI: u16 = 230;
-pub(crate) const OPCODE_MATH_E: u16 = 231;
-pub(crate) const OPCODE_MATH_ABS: u16 = 232;
-pub(crate) const OPCODE_MATH_SIGN: u16 = 233;
-pub(crate) const OPCODE_MATH_MIN: u16 = 234;
-pub(crate) const OPCODE_MATH_MAX: u16 = 235;
-pub(crate) const OPCODE_MATH_CLAMP: u16 = 236;
-pub(crate) const OPCODE_MATH_FLOOR: u16 = 237;
-pub(crate) const OPCODE_MATH_CEIL: u16 = 238;
-pub(crate) const OPCODE_MATH_ROUND: u16 = 239;
-pub(crate) const OPCODE_MATH_TRUNC: u16 = 240;
-pub(crate) const OPCODE_MATH_SQRT: u16 = 241;
-pub(crate) const OPCODE_MATH_POW: u16 = 242;
-pub(crate) const OPCODE_MATH_EXP: u16 = 243;
-pub(crate) const OPCODE_MATH_LOG: u16 = 244;
-pub(crate) const OPCODE_MATH_LOG10: u16 = 245;
-pub(crate) const OPCODE_MATH_SIN: u16 = 246;
-pub(crate) const OPCODE_MATH_COS: u16 = 247;
-pub(crate) const OPCODE_MATH_TAN: u16 = 248;
-pub(crate) const OPCODE_MATH_ASIN: u16 = 249;
-pub(crate) const OPCODE_MATH_ACOS: u16 = 250;
-pub(crate) const OPCODE_MATH_ATAN: u16 = 251;
-pub(crate) const OPCODE_MATH_ATAN2: u16 = 252;
-pub(crate) const OPCODE_MATH_RADIANS: u16 = 253;
-pub(crate) const OPCODE_MATH_DEGREES: u16 = 254;
-pub(crate) const OPCODE_MATH_IS_FINITE: u16 = 255;
-pub(crate) const OPCODE_RESOURCE_ENTER: u16 = 170;
-pub(crate) const OPCODE_RESOURCE_LEAVE: u16 = 171;
-pub(crate) const OPCODE_CLOSE_RESOURCE: u16 = 172;
-
-pub fn write_bytecode_hex(
+pub fn write_binary_repr_hex(
     project_dir: &Path,
     ir: &IrProject,
     version: &str,
 ) -> Result<PathBuf, String> {
-    let metadata = BytecodeMetadata::new(ir.name.clone(), version.to_string());
-    let bytes = build_bytecode_bytes(ir, &metadata)?;
+    let metadata = BinaryReprMetadata::new(ir.name.clone(), version.to_string());
+    let bytes = build_binary_repr_bytes(ir, &metadata)?;
     let hex_path = project_dir.join(format!("{}.hex", ir.name));
     fs::write(&hex_path, hex_dump(&bytes))
         .map_err(|err| format!("failed to write '{}': {err}", hex_path.display()))?;
     Ok(hex_path)
 }
 
-pub fn build_bytecode_bytes(
+pub fn build_binary_repr_bytes(
     ir: &IrProject,
-    metadata: &BytecodeMetadata,
+    metadata: &BinaryReprMetadata,
 ) -> Result<Vec<u8>, String> {
     Ok(lower_project(ir, metadata)?.encode())
 }
 
-pub fn build_package_bytecode_bytes(
+pub fn build_package_binary_repr_bytes(
     ir: &IrProject,
-    metadata: &BytecodeMetadata,
+    metadata: &BinaryReprMetadata,
     packages: &[PathBuf],
 ) -> Result<Vec<u8>, String> {
     Ok(lower_package_project(ir, metadata, packages)?.encode())
 }
 
 #[derive(Clone)]
-pub struct BytecodeMetadata {
+pub struct BinaryReprMetadata {
     pub name: String,
     pub ident: String,
     pub version: String,
@@ -277,10 +84,10 @@ pub struct BytecodeMetadata {
     pub signing_fingerprint: String,
     pub author: String,
     pub url: String,
-    pub dependencies: Vec<BytecodeDependency>,
+    pub dependencies: Vec<BinaryReprDependency>,
 }
 
-impl BytecodeMetadata {
+impl BinaryReprMetadata {
     pub fn new(name: String, version: String) -> Self {
         Self {
             name,
@@ -297,7 +104,7 @@ impl BytecodeMetadata {
 }
 
 #[derive(Clone)]
-pub struct BytecodeDependency {
+pub struct BinaryReprDependency {
     pub name: String,
     pub ident: String,
     pub version: String,
@@ -306,16 +113,16 @@ pub struct BytecodeDependency {
 }
 
 #[derive(Clone)]
-pub struct BytecodeExport {
+pub struct BinaryReprExport {
     pub name: String,
-    pub kind: BytecodeExportKind,
+    pub kind: BinaryReprExportKind,
     pub isolated: bool,
-    pub params: Vec<BytecodeExportParam>,
+    pub params: Vec<BinaryReprExportParam>,
     pub return_type: String,
 }
 
 #[derive(Clone, Copy, Eq, PartialEq, Hash)]
-pub enum BytecodeExportKind {
+pub enum BinaryReprExportKind {
     Func,
     Sub,
     Type,
@@ -324,42 +131,42 @@ pub enum BytecodeExportKind {
 }
 
 #[derive(Clone)]
-pub struct BytecodeExportParam {
+pub struct BinaryReprExportParam {
     pub name: String,
     pub type_: String,
     pub has_default: bool,
 }
 
 #[derive(Clone)]
-pub struct BytecodeTypeExport {
+pub struct BinaryReprTypeExport {
     pub name: String,
-    pub kind: BytecodeExportKind,
-    pub fields: Vec<BytecodeTypeField>,
-    pub variants: Vec<BytecodeTypeVariant>,
+    pub kind: BinaryReprExportKind,
+    pub fields: Vec<BinaryReprTypeField>,
+    pub variants: Vec<BinaryReprTypeVariant>,
     pub members: Vec<String>,
 }
 
 #[derive(Clone)]
-pub struct BytecodeTypeField {
+pub struct BinaryReprTypeField {
     pub name: String,
     pub type_: String,
-    pub visibility: BytecodeTypeVisibility,
+    pub visibility: BinaryReprTypeVisibility,
 }
 
 #[derive(Clone)]
-pub struct BytecodeTypeVariant {
+pub struct BinaryReprTypeVariant {
     pub name: String,
-    pub fields: Vec<BytecodeTypeField>,
+    pub fields: Vec<BinaryReprTypeField>,
 }
 
 #[derive(Clone, Copy, Eq, PartialEq)]
-pub enum BytecodeTypeVisibility {
+pub enum BinaryReprTypeVisibility {
     Private,
     Package,
     Export,
 }
 
-pub struct BytecodePackageInfo {
+pub struct BinaryReprPackageInfo {
     pub manifest_name: String,
     pub manifest_ident: String,
     pub manifest_version: String,
@@ -377,13 +184,13 @@ pub struct BytecodePackageInfo {
     pub import_count: usize,
     pub cleanup_count: usize,
     pub abi_format_version: u16,
-    pub exports: Vec<BytecodePackageInfoExport>,
-    pub globals: Vec<BytecodePackageInfoGlobal>,
-    pub imports: Vec<BytecodePackageInfoImport>,
-    pub cleanups: Vec<BytecodePackageInfoCleanup>,
+    pub exports: Vec<BinaryReprPackageInfoExport>,
+    pub globals: Vec<BinaryReprPackageInfoGlobal>,
+    pub imports: Vec<BinaryReprPackageInfoImport>,
+    pub cleanups: Vec<BinaryReprPackageInfoCleanup>,
 }
 
-pub struct BytecodePackageInfoCleanup {
+pub struct BinaryReprPackageInfoCleanup {
     pub function: String,
     pub cleanup_id: u32,
     pub start_pc: u32,
@@ -393,29 +200,29 @@ pub struct BytecodePackageInfoCleanup {
     pub records_secondary_close_failure: bool,
 }
 
-pub struct BytecodePackageInfoGlobal {
+pub struct BinaryReprPackageInfoGlobal {
     pub name: String,
     pub type_: String,
     pub mutable: bool,
     pub visibility: String,
 }
 
-pub struct BytecodePackageInfoExport {
+pub struct BinaryReprPackageInfoExport {
     pub name: String,
-    pub kind: BytecodeExportKind,
+    pub kind: BinaryReprExportKind,
     pub sig_hash: String,
 }
 
-pub struct BytecodePackageInfoImport {
+pub struct BinaryReprPackageInfoImport {
     pub package_name: String,
     pub package_ident: String,
     pub version: String,
     pub pin: bool,
     pub flags: u32,
-    pub used_symbols: Vec<BytecodePackageInfoUsedSymbol>,
+    pub used_symbols: Vec<BinaryReprPackageInfoUsedSymbol>,
 }
 
-pub struct BytecodePackageInfoUsedSymbol {
+pub struct BinaryReprPackageInfoUsedSymbol {
     pub name: String,
     pub sig_hash: String,
 }
@@ -426,39 +233,74 @@ const RESOURCE_FLAG_CLOSE_MAY_FAIL: u32 = 1 << 3;
 const CLEANUP_FLAG_RECORD_SECONDARY_CLOSE_FAILURE: u32 = 1 << 0;
 pub(crate) const BUILTIN_FS_CLOSE_FUNCTION_ID: u32 = 0xffff_ff00;
 
-pub fn read_package_exports(path: &Path) -> Result<Vec<BytecodeExport>, String> {
-    let package = read_package_bytecode(path)?;
+pub fn read_package_exports(path: &Path) -> Result<Vec<BinaryReprExport>, String> {
+    let package = read_package_binary_repr(path)?;
     package_exports(&package).map_err(|err| format!("failed to read '{}': {err}", path.display()))
 }
 
-pub fn read_package_info(path: &Path) -> Result<BytecodePackageInfo, String> {
-    let package = read_package_bytecode(path)?;
+pub fn read_package_info(path: &Path) -> Result<BinaryReprPackageInfo, String> {
+    let package = read_package_binary_repr(path)?;
     package_info(&package).map_err(|err| format!("failed to read '{}': {err}", path.display()))
 }
 
-pub fn read_package_type_exports(path: &Path) -> Result<Vec<BytecodeTypeExport>, String> {
-    let package = read_package_bytecode(path)?;
+pub fn read_package_type_exports(path: &Path) -> Result<Vec<BinaryReprTypeExport>, String> {
+    let package = read_package_binary_repr(path)?;
     package_type_exports(&package)
         .map_err(|err| format!("failed to read '{}': {err}", path.display()))
 }
 
-/// Decode a package's structured Binary IR payload back into an `IrProject`.
+/// Decode a package's structured Binary Representation payload back into an `IrProject`.
 ///
 /// This is the consumer entry point for the single `IR -> NIR -> native` path:
 /// the returned IR is merged into the importing project and lowered like any
-/// other function, replacing the old flat bytecode -> native bridge.
-pub fn read_package_ir(path: &Path) -> Result<crate::ir::IrProject, String> {
-    let package = read_package_bytecode(path)?;
-    crate::ir::decode_binary_ir(&package.project.binary_ir)
-        .map_err(|err| format!("failed to read '{}': {err}", path.display()))
+/// other function, replacing the old flat binary_repr -> native bridge.
+pub fn read_package_ir_with_identity(
+    path: &Path,
+) -> Result<(String, crate::ir::IrProject), String> {
+    let bytes =
+        fs::read(path).map_err(|err| format!("failed to read '{}': {err}", path.display()))?;
+    let container = mfp_binary_repr_payload(&bytes)
+        .map_err(|err| format!("failed to read '{}': {err}", path.display()))?;
+    let package = read_binary_repr_package(container.binary_repr)
+        .map_err(|err| format!("failed to read '{}': {err}", path.display()))?;
+    validate_container_manifest_identity(&container.identity, &package)
+        .map_err(|err| format!("failed to read '{}': {err}", path.display()))?;
+    let id = package_identity_id(&container.identity, container.binary_repr);
+    let ir = crate::ir::decode_binary_repr(&package.project.binary_repr)
+        .map_err(|err| format!("failed to read '{}': {err}", path.display()))?;
+    Ok((id, ir))
 }
 
-fn read_package_bytecode(path: &Path) -> Result<PackageBytecode, String> {
+/// Deterministic per-package identity prefix segment (`<id>` in
+/// `<id>.package.symbol`): a 16-hex-char content hash over the package's
+/// manifest identity (name, version, ident) and its inner binary_repr payload.
+///
+/// Being a pure content hash, the same package always yields the same id —
+/// giving reproducible builds and letting a diamond dependency de-duplicate to
+/// a single copy — while differing content yields a differing id, keeping two
+/// distinct packages (e.g. a version conflict) from colliding at merge time.
+fn package_identity_id(identity: &MfpIdentity, payload: &[u8]) -> String {
+    use std::fmt::Write as _;
+    let mut hasher = Sha256::new();
+    for field in [&identity.name, &identity.version, &identity.ident] {
+        hasher.update((field.len() as u64).to_le_bytes());
+        hasher.update(field.as_bytes());
+    }
+    hasher.update(payload);
+    let digest = hasher.finalize();
+    let mut id = String::with_capacity(16);
+    for byte in &digest[..8] {
+        let _ = write!(id, "{byte:02x}");
+    }
+    id
+}
+
+fn read_package_binary_repr(path: &Path) -> Result<PackageBinaryRepr, String> {
     let package =
         fs::read(path).map_err(|err| format!("failed to read '{}': {err}", path.display()))?;
-    let container = mfp_bytecode_payload(&package)
+    let container = mfp_binary_repr_payload(&package)
         .map_err(|err| format!("failed to read '{}': {err}", path.display()))?;
-    let package = read_bytecode_package(container.bytecode)
+    let package = read_binary_repr_package(container.binary_repr)
         .map_err(|err| format!("failed to read '{}': {err}", path.display()))?;
     validate_container_manifest_identity(&container.identity, &package)
         .map_err(|err| format!("failed to read '{}': {err}", path.display()))?;
@@ -467,7 +309,7 @@ fn read_package_bytecode(path: &Path) -> Result<PackageBytecode, String> {
 
 struct MfpContainer<'a> {
     identity: MfpIdentity,
-    bytecode: &'a [u8],
+    binary_repr: &'a [u8],
 }
 
 struct MfpIdentity {
@@ -479,7 +321,7 @@ struct MfpIdentity {
     signing_fingerprint: String,
 }
 
-fn mfp_bytecode_payload(bytes: &[u8]) -> Result<MfpContainer<'_>, String> {
+fn mfp_binary_repr_payload(bytes: &[u8]) -> Result<MfpContainer<'_>, String> {
     const MFP_MAGIC: [u8; 8] = [0x4d, 0x46, 0x50, 0x0d, 0x0a, 0x1a, 0x0a, 0x00];
     if bytes.len() < 26 {
         return Err("package is too small to be a valid .mfp package".to_string());
@@ -511,15 +353,15 @@ fn mfp_bytecode_payload(bytes: &[u8]) -> Result<MfpContainer<'_>, String> {
     let signing_fingerprint = read_length_prefixed(bytes, &mut offset, "signingFingerprint")?;
     skip_length_prefixed(bytes, &mut offset, "author")?;
     skip_length_prefixed(bytes, &mut offset, "url")?;
-    let bytecode_length = checked_u64_at(bytes, offset)? as usize;
+    let binary_repr_length = checked_u64_at(bytes, offset)? as usize;
     offset = offset
         .checked_add(8)
-        .ok_or_else(|| "invalid .mfp bytecode length".to_string())?;
+        .ok_or_else(|| "invalid .mfp binary representation length".to_string())?;
     let end = offset
-        .checked_add(bytecode_length)
-        .ok_or_else(|| "invalid .mfp bytecode length".to_string())?;
+        .checked_add(binary_repr_length)
+        .ok_or_else(|| "invalid .mfp binary representation length".to_string())?;
     if end != bytes.len() {
-        return Err("invalid .mfp bytecode length".to_string());
+        return Err("invalid .mfp binary representation length".to_string());
     }
     Ok(MfpContainer {
         identity: MfpIdentity {
@@ -530,7 +372,7 @@ fn mfp_bytecode_payload(bytes: &[u8]) -> Result<MfpContainer<'_>, String> {
             ident_fingerprint,
             signing_fingerprint,
         },
-        bytecode: &bytes[offset..end],
+        binary_repr: &bytes[offset..end],
     })
 }
 
@@ -548,7 +390,7 @@ fn validate_mfp_signature_header(
 
 fn validate_container_manifest_identity(
     identity: &MfpIdentity,
-    package: &PackageBytecode,
+    package: &PackageBinaryRepr,
 ) -> Result<(), String> {
     let strings = &package.project.strings.values;
     let manifest = &package.project.manifest;
@@ -565,20 +407,20 @@ fn validate_container_manifest_identity(
         || identity.ident_fingerprint != manifest_ident_fingerprint
         || identity.signing_fingerprint != manifest_signing_fingerprint
     {
-        return Err("MFP header identity does not match bytecode manifest identity".to_string());
+        return Err("MFP header identity does not match binary representation manifest identity".to_string());
     }
     Ok(())
 }
 
-fn read_bytecode_package(bytes: &[u8]) -> Result<PackageBytecode, String> {
-    if bytes.len() < 16 || &bytes[0..4] != b"MFBC" {
-        return Err("package payload does not have the MFBC bytecode magic".to_string());
+fn read_binary_repr_package(bytes: &[u8]) -> Result<PackageBinaryRepr, String> {
+    if bytes.len() < 16 || &bytes[0..4] != b"MFPC" {
+        return Err("package payload does not have the binary representation container magic".to_string());
     }
     let major = checked_u16_at(bytes, 4)?;
-    if major != MFBC_MAJOR_VERSION {
+    if major != MFPC_MAJOR_VERSION {
         return Err(format!(
-            "unsupported MFBC major version {major} (expected {MFBC_MAJOR_VERSION}); \
-             this package predates the structured Binary IR format and must be rebuilt"
+            "unsupported MFPC major version {major} (expected {MFPC_MAJOR_VERSION}); \
+             this package predates the structured Binary Representation format and must be rebuilt"
         ));
     }
     let section_count = checked_u32_at(bytes, 12)? as usize;
@@ -586,11 +428,11 @@ fn read_bytecode_package(bytes: &[u8]) -> Result<PackageBytecode, String> {
         .checked_add(
             section_count
                 .checked_mul(24)
-                .ok_or_else(|| "invalid MFBC section table length".to_string())?,
+                .ok_or_else(|| "invalid MFPC section table length".to_string())?,
         )
-        .ok_or_else(|| "invalid MFBC section table length".to_string())?;
+        .ok_or_else(|| "invalid MFPC section table length".to_string())?;
     if table_end > bytes.len() {
-        return Err("truncated MFBC section table".to_string());
+        return Err("truncated MFPC section table".to_string());
     }
 
     let mut sections = HashMap::new();
@@ -601,9 +443,9 @@ fn read_bytecode_package(bytes: &[u8]) -> Result<PackageBytecode, String> {
         let length = checked_u64_at(bytes, entry + 16)? as usize;
         let end = offset
             .checked_add(length)
-            .ok_or_else(|| "invalid MFBC section length".to_string())?;
+            .ok_or_else(|| "invalid MFPC section length".to_string())?;
         if end > bytes.len() {
-            return Err("truncated MFBC section".to_string());
+            return Err("truncated MFPC section".to_string());
         }
         sections.insert(id, &bytes[offset..end]);
     }
@@ -612,7 +454,7 @@ fn read_bytecode_package(bytes: &[u8]) -> Result<PackageBytecode, String> {
         sections
             .get(&SECTION_STRING_POOL)
             .copied()
-            .ok_or_else(|| "MFBC is missing the string pool section".to_string())?,
+            .ok_or_else(|| "MFPC is missing the string pool section".to_string())?,
     )?;
     let strings = StringPool {
         values: string_values,
@@ -621,7 +463,7 @@ fn read_bytecode_package(bytes: &[u8]) -> Result<PackageBytecode, String> {
         sections
             .get(&SECTION_TYPE_TABLE)
             .copied()
-            .ok_or_else(|| "MFBC is missing the type table section".to_string())?,
+            .ok_or_else(|| "MFPC is missing the type table section".to_string())?,
         &strings.values,
     )?;
     let type_names = type_entry_names(&types, &strings.values)?;
@@ -629,29 +471,29 @@ fn read_bytecode_package(bytes: &[u8]) -> Result<PackageBytecode, String> {
         sections
             .get(&SECTION_CONST_POOL)
             .copied()
-            .ok_or_else(|| "MFBC is missing the const pool section".to_string())?,
+            .ok_or_else(|| "MFPC is missing the const pool section".to_string())?,
     )?;
     let functions = read_function_table(
         sections
             .get(&SECTION_FUNCTION_TABLE)
             .copied()
-            .ok_or_else(|| "MFBC is missing the function table section".to_string())?,
-        // Function bodies are carried by SECTION_IR (structured Binary IR), not a
+            .ok_or_else(|| "MFPC is missing the function table section".to_string())?,
+        // Function bodies are carried by SECTION_BINARY_REPR (structured Binary Representation), not a
         // flat code section; the function table records zero-length code regions.
         &[],
         &strings.values,
         &type_names,
     )?;
-    let binary_ir = sections
-        .get(&SECTION_IR)
+    let binary_repr = sections
+        .get(&SECTION_BINARY_REPR)
         .copied()
-        .ok_or_else(|| "MFBC is missing the Binary IR section".to_string())?
+        .ok_or_else(|| "MFPC is missing the Binary Representation section".to_string())?
         .to_vec();
     let exports = read_export_table(
         sections
             .get(&SECTION_EXPORT_TABLE)
             .copied()
-            .ok_or_else(|| "MFBC is missing the export table section".to_string())?,
+            .ok_or_else(|| "MFPC is missing the export table section".to_string())?,
     )?;
     let resources = match sections.get(&SECTION_RESOURCE_TABLE).copied() {
         Some(section) => read_resource_table(section)?,
@@ -665,19 +507,19 @@ fn read_bytecode_package(bytes: &[u8]) -> Result<PackageBytecode, String> {
         sections
             .get(&SECTION_MANIFEST)
             .copied()
-            .ok_or_else(|| "MFBC is missing the manifest section".to_string())?,
+            .ok_or_else(|| "MFPC is missing the manifest section".to_string())?,
     )?;
     let imports = read_import_table(
         sections
             .get(&SECTION_IMPORT_TABLE)
             .copied()
-            .ok_or_else(|| "MFBC is missing the import table section".to_string())?,
+            .ok_or_else(|| "MFPC is missing the import table section".to_string())?,
     )?;
     let abi = read_abi_index(
         sections
             .get(&SECTION_ABI_INDEX)
             .copied()
-            .ok_or_else(|| "MFBC is missing the ABI_INDEX section".to_string())?,
+            .ok_or_else(|| "MFPC is missing the ABI_INDEX section".to_string())?,
     )?;
     validate_abi_index(
         &abi,
@@ -689,8 +531,8 @@ fn read_bytecode_package(bytes: &[u8]) -> Result<PackageBytecode, String> {
         &functions,
     )?;
 
-    Ok(PackageBytecode {
-        project: BytecodeProject {
+    Ok(PackageBinaryRepr {
+        project: BinaryReprProject {
             strings,
             types,
             constants,
@@ -702,13 +544,13 @@ fn read_bytecode_package(bytes: &[u8]) -> Result<PackageBytecode, String> {
             entry_function: u32::MAX,
             entry_flags: 0,
             functions,
-            binary_ir,
+            binary_repr,
         },
         exports,
     })
 }
 
-fn package_exports(package: &PackageBytecode) -> Result<Vec<BytecodeExport>, String> {
+fn package_exports(package: &PackageBinaryRepr) -> Result<Vec<BinaryReprExport>, String> {
     let type_names = type_entry_names(&package.project.types, &package.project.strings.values)?;
     package
         .exports
@@ -721,7 +563,7 @@ fn package_exports(package: &PackageBytecode) -> Result<Vec<BytecodeExport>, Str
                 .ok_or_else(|| {
                     format!("export references missing function {}", export.function_id)
                 })?;
-            Ok(BytecodeExport {
+            Ok(BinaryReprExport {
                 name: string_at(&package.project.strings.values, export.name)?.to_string(),
                 kind: export.kind,
                 isolated: function.flags & FUNCTION_FLAG_ISOLATED != 0,
@@ -729,7 +571,7 @@ fn package_exports(package: &PackageBytecode) -> Result<Vec<BytecodeExport>, Str
                     .params
                     .iter()
                     .map(|param| {
-                        Ok::<BytecodeExportParam, String>(BytecodeExportParam {
+                        Ok::<BinaryReprExportParam, String>(BinaryReprExportParam {
                             name: string_at(&package.project.strings.values, param.name)?
                                 .to_string(),
                             type_: type_name(&type_names, param.type_id)?.to_string(),
@@ -743,7 +585,7 @@ fn package_exports(package: &PackageBytecode) -> Result<Vec<BytecodeExport>, Str
         .collect()
 }
 
-fn package_info(package: &PackageBytecode) -> Result<BytecodePackageInfo, String> {
+fn package_info(package: &PackageBinaryRepr) -> Result<BinaryReprPackageInfo, String> {
     let strings = &package.project.strings.values;
     let type_names = type_entry_names(&package.project.types, strings)?;
     let exports = package
@@ -752,7 +594,7 @@ fn package_info(package: &PackageBytecode) -> Result<BytecodePackageInfo, String
         .exports
         .iter()
         .map(|abi_export| {
-            Ok(BytecodePackageInfoExport {
+            Ok(BinaryReprPackageInfoExport {
                 name: string_at(strings, abi_export.name)?.to_string(),
                 kind: abi_export.kind,
                 sig_hash: hex_hash(&abi_export.sig_hash),
@@ -770,7 +612,7 @@ fn package_info(package: &PackageBytecode) -> Result<BytecodePackageInfo, String
                 2 => "export",
                 _ => "private",
             };
-            Ok(BytecodePackageInfoGlobal {
+            Ok(BinaryReprPackageInfoGlobal {
                 name: string_at(strings, global.name)?.to_string(),
                 type_: type_name(&type_names, global.type_id)?.to_string(),
                 mutable: global.flags & 1 != 0,
@@ -809,7 +651,7 @@ fn package_info(package: &PackageBytecode) -> Result<BytecodePackageInfo, String
                     edge.used_symbols
                         .iter()
                         .map(|symbol| {
-                            Ok(BytecodePackageInfoUsedSymbol {
+                            Ok(BinaryReprPackageInfoUsedSymbol {
                                 name: string_at(strings, symbol.name)?.to_string(),
                                 sig_hash: hex_hash(&symbol.sig_hash),
                             })
@@ -818,7 +660,7 @@ fn package_info(package: &PackageBytecode) -> Result<BytecodePackageInfo, String
                 })
                 .transpose()?
                 .unwrap_or_default();
-            Ok(BytecodePackageInfoImport {
+            Ok(BinaryReprPackageInfoImport {
                 package_name,
                 package_ident,
                 version: string_at(strings, entry.version)?.to_string(),
@@ -840,7 +682,7 @@ fn package_info(package: &PackageBytecode) -> Result<BytecodePackageInfo, String
                 .map(move |cleanup| (function.name, cleanup))
         })
         .map(|(function_name, cleanup)| {
-            Ok(BytecodePackageInfoCleanup {
+            Ok(BinaryReprPackageInfoCleanup {
                 function: string_at(strings, function_name)?.to_string(),
                 cleanup_id: cleanup.id,
                 start_pc: cleanup.start_pc,
@@ -854,7 +696,7 @@ fn package_info(package: &PackageBytecode) -> Result<BytecodePackageInfo, String
         })
         .collect::<Result<Vec<_>, String>>()?;
 
-    Ok(BytecodePackageInfo {
+    Ok(BinaryReprPackageInfo {
         manifest_name: string_at(strings, package.project.manifest.package_name)?.to_string(),
         manifest_ident: string_at(strings, package.project.manifest.package_ident)?.to_string(),
         manifest_version: string_at(strings, package.project.manifest.package_version)?.to_string(),
@@ -884,7 +726,7 @@ fn package_info(package: &PackageBytecode) -> Result<BytecodePackageInfo, String
     })
 }
 
-fn package_type_exports(package: &PackageBytecode) -> Result<Vec<BytecodeTypeExport>, String> {
+fn package_type_exports(package: &PackageBinaryRepr) -> Result<Vec<BinaryReprTypeExport>, String> {
     let type_names = type_entry_names(&package.project.types, &package.project.strings.values)?;
     let type_by_name = package
         .project
@@ -903,7 +745,7 @@ fn package_type_exports(package: &PackageBytecode) -> Result<Vec<BytecodeTypeExp
     for export in &package.project.abi.exports {
         if !matches!(
             export.kind,
-            BytecodeExportKind::Type | BytecodeExportKind::Union | BytecodeExportKind::Enum
+            BinaryReprExportKind::Type | BinaryReprExportKind::Union | BinaryReprExportKind::Enum
         ) {
             continue;
         }
@@ -926,14 +768,14 @@ fn package_type_exports(package: &PackageBytecode) -> Result<Vec<BytecodeTypeExp
 
 fn decode_type_export(
     name: &str,
-    kind: BytecodeExportKind,
+    kind: BinaryReprExportKind,
     entry: &TypeEntry,
     type_names: &HashMap<u32, String>,
     strings: &[String],
-) -> Result<BytecodeTypeExport, String> {
+) -> Result<BinaryReprTypeExport, String> {
     let mut offset = 0usize;
     let (fields, variants, members) = match kind {
-        BytecodeExportKind::Type => {
+        BinaryReprExportKind::Type => {
             let field_count = cursor_u32(&entry.payload, &mut offset)? as usize;
             let mut fields = Vec::with_capacity(field_count);
             for _ in 0..field_count {
@@ -946,7 +788,7 @@ fn decode_type_export(
             }
             (fields, Vec::new(), Vec::new())
         }
-        BytecodeExportKind::Union => {
+        BinaryReprExportKind::Union => {
             let variant_count = cursor_u32(&entry.payload, &mut offset)? as usize;
             let mut variants = Vec::with_capacity(variant_count);
             for _ in 0..variant_count {
@@ -960,20 +802,20 @@ fn decode_type_export(
                     let field_type =
                         type_name(type_names, cursor_u32(&entry.payload, &mut offset)?)?
                             .to_string();
-                    fields.push(BytecodeTypeField {
+                    fields.push(BinaryReprTypeField {
                         name: field_name,
                         type_: field_type,
-                        visibility: BytecodeTypeVisibility::Export,
+                        visibility: BinaryReprTypeVisibility::Export,
                     });
                 }
-                variants.push(BytecodeTypeVariant {
+                variants.push(BinaryReprTypeVariant {
                     name: variant_name,
                     fields,
                 });
             }
             (Vec::new(), variants, Vec::new())
         }
-        BytecodeExportKind::Enum => {
+        BinaryReprExportKind::Enum => {
             let member_count = cursor_u32(&entry.payload, &mut offset)? as usize;
             let mut members = Vec::with_capacity(member_count);
             for _ in 0..member_count {
@@ -984,14 +826,14 @@ fn decode_type_export(
             }
             (Vec::new(), Vec::new(), members)
         }
-        BytecodeExportKind::Func | BytecodeExportKind::Sub => {
+        BinaryReprExportKind::Func | BinaryReprExportKind::Sub => {
             return Err(format!("export `{name}` is not a type export"));
         }
     };
     if offset != entry.payload.len() {
         return Err(format!("exported type `{name}` has trailing payload bytes"));
     }
-    Ok(BytecodeTypeExport {
+    Ok(BinaryReprTypeExport {
         name: name.to_string(),
         kind,
         fields,
@@ -1005,17 +847,17 @@ fn decode_type_field(
     offset: &mut usize,
     type_names: &HashMap<u32, String>,
     strings: &[String],
-) -> Result<BytecodeTypeField, String> {
+) -> Result<BinaryReprTypeField, String> {
     let name = string_at(strings, cursor_u32(payload, offset)?)?.to_string();
     let type_ = type_name(type_names, cursor_u32(payload, offset)?)?.to_string();
     let visibility = match cursor_u32(payload, offset)? {
-        0 => BytecodeTypeVisibility::Export,
-        1 => BytecodeTypeVisibility::Private,
-        2 => BytecodeTypeVisibility::Package,
-        3 => BytecodeTypeVisibility::Export,
+        0 => BinaryReprTypeVisibility::Export,
+        1 => BinaryReprTypeVisibility::Private,
+        2 => BinaryReprTypeVisibility::Package,
+        3 => BinaryReprTypeVisibility::Export,
         other => return Err(format!("unsupported type field visibility {other}")),
     };
-    Ok(BytecodeTypeField {
+    Ok(BinaryReprTypeField {
         name,
         type_,
         visibility,
@@ -1024,7 +866,7 @@ fn decode_type_field(
 
 struct DecodedExport {
     name: u32,
-    kind: BytecodeExportKind,
+    kind: BinaryReprExportKind,
     function_id: u32,
 }
 
@@ -1275,12 +1117,11 @@ fn read_function_table(
         if code_end > code.len() {
             return Err("truncated function code".to_string());
         }
-        // Function bodies live in SECTION_IR (structured Binary IR), so the flat
+        // Function bodies live in SECTION_BINARY_REPR (structured Binary Representation), so the flat
         // code region is always empty here.
         if code_length != 0 {
             return Err("flat function code stream is no longer supported".to_string());
         }
-        let code = Vec::new();
         functions.push(Function {
             name,
             kind,
@@ -1288,7 +1129,6 @@ fn read_function_table(
             return_type,
             params,
             registers,
-            code,
             cleanups,
         });
     }
@@ -1324,9 +1164,9 @@ fn read_const_pool(bytes: &[u8]) -> Result<ConstPool, String> {
     Ok(ConstPool { entries })
 }
 
-fn read_manifest(bytes: &[u8]) -> Result<BytecodeManifest, String> {
+fn read_manifest(bytes: &[u8]) -> Result<BinaryReprManifest, String> {
     let mut offset = 0;
-    let manifest = BytecodeManifest {
+    let manifest = BinaryReprManifest {
         package_name: cursor_u32(bytes, &mut offset)?,
         package_ident: cursor_u32(bytes, &mut offset)?,
         package_version: cursor_u32(bytes, &mut offset)?,
@@ -1336,8 +1176,8 @@ fn read_manifest(bytes: &[u8]) -> Result<BytecodeManifest, String> {
         author: cursor_u32(bytes, &mut offset)?,
         url: cursor_u32(bytes, &mut offset)?,
     };
-    let _bytecode_major = cursor_u16(bytes, &mut offset)?;
-    let _bytecode_minor = cursor_u16(bytes, &mut offset)?;
+    let _binary_repr_major = cursor_u16(bytes, &mut offset)?;
+    let _binary_repr_minor = cursor_u16(bytes, &mut offset)?;
     let _language_major = cursor_u16(bytes, &mut offset)?;
     let _language_minor = cursor_u16(bytes, &mut offset)?;
     let _minimum_runtime_major = cursor_u16(bytes, &mut offset)?;
@@ -1524,7 +1364,7 @@ fn validate_abi_index(
         let expected = function_sig_hash(function, export.kind, strings, types, constants)?;
         if abi_export.sig_hash != expected {
             return Err(format!(
-                "ABI_INDEX export `{name}` sigHash disagrees with bytecode (required {}, provided {})",
+                "ABI_INDEX export `{name}` sigHash disagrees with binary representation (required {}, provided {})",
                 hex_hash(&expected),
                 hex_hash(&abi_export.sig_hash)
             ));
@@ -1590,10 +1430,10 @@ fn abi_export_for_decoded<'a>(abi: &'a AbiIndex, export: &DecodedExport) -> Opti
         .find(|abi_export| abi_export.name == export.name && abi_export.kind == export.kind)
 }
 
-fn decode_callable_export_kind(value: u16) -> Result<BytecodeExportKind, String> {
+fn decode_callable_export_kind(value: u16) -> Result<BinaryReprExportKind, String> {
     match decode_export_kind(value)? {
-        BytecodeExportKind::Func => Ok(BytecodeExportKind::Func),
-        BytecodeExportKind::Sub => Ok(BytecodeExportKind::Sub),
+        BinaryReprExportKind::Func => Ok(BinaryReprExportKind::Func),
+        BinaryReprExportKind::Sub => Ok(BinaryReprExportKind::Sub),
         other => Err(format!(
             "unsupported callable export kind {}",
             encode_export_kind(other)
@@ -1601,24 +1441,24 @@ fn decode_callable_export_kind(value: u16) -> Result<BytecodeExportKind, String>
     }
 }
 
-fn decode_export_kind(value: u16) -> Result<BytecodeExportKind, String> {
+fn decode_export_kind(value: u16) -> Result<BinaryReprExportKind, String> {
     match value {
-        1 => Ok(BytecodeExportKind::Func),
-        2 => Ok(BytecodeExportKind::Sub),
-        3 => Ok(BytecodeExportKind::Type),
-        4 => Ok(BytecodeExportKind::Union),
-        5 => Ok(BytecodeExportKind::Enum),
+        1 => Ok(BinaryReprExportKind::Func),
+        2 => Ok(BinaryReprExportKind::Sub),
+        3 => Ok(BinaryReprExportKind::Type),
+        4 => Ok(BinaryReprExportKind::Union),
+        5 => Ok(BinaryReprExportKind::Enum),
         other => Err(format!("unsupported export kind {other}")),
     }
 }
 
-fn encode_export_kind(kind: BytecodeExportKind) -> u16 {
+fn encode_export_kind(kind: BinaryReprExportKind) -> u16 {
     match kind {
-        BytecodeExportKind::Func => 1,
-        BytecodeExportKind::Sub => 2,
-        BytecodeExportKind::Type => 3,
-        BytecodeExportKind::Union => 4,
-        BytecodeExportKind::Enum => 5,
+        BinaryReprExportKind::Func => 1,
+        BinaryReprExportKind::Sub => 2,
+        BinaryReprExportKind::Type => 3,
+        BinaryReprExportKind::Union => 4,
+        BinaryReprExportKind::Enum => 5,
     }
 }
 
@@ -1641,7 +1481,7 @@ fn string_at(strings: &[String], id: u32) -> Result<&str, String> {
 
 fn function_sig_hash(
     function: &Function,
-    export_kind: BytecodeExportKind,
+    export_kind: BinaryReprExportKind,
     strings: &[String],
     types: &TypeTable,
     constants: &ConstPool,
@@ -1668,7 +1508,7 @@ fn function_sig_hash(
 
 fn type_sig_hash(
     type_id: u32,
-    export_kind: BytecodeExportKind,
+    export_kind: BinaryReprExportKind,
     strings: &[String],
     types: &TypeTable,
     constants: &ConstPool,
@@ -1872,11 +1712,6 @@ fn hash_bytes(bytes: &[u8]) -> [u8; ABI_HASH_LEN] {
     hash
 }
 
-fn sorted_strings(mut values: Vec<String>) -> Vec<String> {
-    values.sort();
-    values
-}
-
 fn sorted_pairs(mut values: Vec<(String, String)>) -> Vec<(String, String)> {
     values.sort();
     values
@@ -1913,7 +1748,7 @@ fn read_length_prefixed(bytes: &[u8], offset: &mut usize, field: &str) -> Result
 fn cursor_u8(bytes: &[u8], offset: &mut usize) -> Result<u8, String> {
     let value = *bytes
         .get(*offset)
-        .ok_or_else(|| "truncated bytecode".to_string())?;
+        .ok_or_else(|| "truncated binary representation".to_string())?;
     *offset = offset
         .checked_add(1)
         .ok_or_else(|| "invalid u8 offset".to_string())?;
@@ -1960,43 +1795,43 @@ fn cursor_u64(bytes: &[u8], offset: &mut usize) -> Result<u64, String> {
 fn checked_u16_at(bytes: &[u8], offset: usize) -> Result<u16, String> {
     let value = bytes
         .get(offset..offset + 2)
-        .ok_or_else(|| "truncated bytecode".to_string())?;
+        .ok_or_else(|| "truncated binary representation".to_string())?;
     Ok(u16::from_le_bytes([value[0], value[1]]))
 }
 
 fn checked_u32_at(bytes: &[u8], offset: usize) -> Result<u32, String> {
     let value = bytes
         .get(offset..offset + 4)
-        .ok_or_else(|| "truncated bytecode".to_string())?;
+        .ok_or_else(|| "truncated binary representation".to_string())?;
     Ok(u32::from_le_bytes([value[0], value[1], value[2], value[3]]))
 }
 
 fn checked_u64_at(bytes: &[u8], offset: usize) -> Result<u64, String> {
     let value = bytes
         .get(offset..offset + 8)
-        .ok_or_else(|| "truncated bytecode".to_string())?;
+        .ok_or_else(|| "truncated binary representation".to_string())?;
     Ok(u64::from_le_bytes([
         value[0], value[1], value[2], value[3], value[4], value[5], value[6], value[7],
     ]))
 }
 
-struct BytecodeProject {
+struct BinaryReprProject {
     strings: StringPool,
     types: TypeTable,
     constants: ConstPool,
     resources: ResourceTable,
     globals: Vec<GlobalEntry>,
-    manifest: BytecodeManifest,
+    manifest: BinaryReprManifest,
     imports: ImportTable,
     abi: AbiIndex,
     entry_function: u32,
     entry_flags: u32,
     functions: Vec<Function>,
-    /// Structured Binary IR payload (the faithful serialization of the source
+    /// Structured Binary Representation payload (the faithful serialization of the source
     /// `IrProject`). This is the portable representation a consumer decodes and
     /// lowers through the single `IR -> NIR -> native` path. Function bodies are
     /// no longer flattened to opcodes; this blob is the body source of truth.
-    binary_ir: Vec<u8>,
+    binary_repr: Vec<u8>,
 }
 
 struct GlobalEntry {
@@ -2005,12 +1840,12 @@ struct GlobalEntry {
     flags: u32,
 }
 
-struct PackageBytecode {
-    project: BytecodeProject,
+struct PackageBinaryRepr {
+    project: BinaryReprProject,
     exports: Vec<DecodedExport>,
 }
 
-struct BytecodeManifest {
+struct BinaryReprManifest {
     package_name: u32,
     package_ident: u32,
     package_version: u32,
@@ -2034,7 +1869,7 @@ struct TypeEntry {
     kind: u16,
     name: u32,
     owner_package: u32,
-    abi_export_kind: Option<BytecodeExportKind>,
+    abi_export_kind: Option<BinaryReprExportKind>,
     payload: Vec<u8>,
 }
 
@@ -2079,7 +1914,7 @@ struct AbiIndex {
 #[derive(Clone)]
 struct AbiExport {
     name: u32,
-    kind: BytecodeExportKind,
+    kind: BinaryReprExportKind,
     sig_hash: [u8; ABI_HASH_LEN],
 }
 
@@ -2098,123 +1933,6 @@ struct AbiUsedSymbol {
     sig_hash: [u8; ABI_HASH_LEN],
 }
 
-struct TypeModel {
-    records: HashMap<String, RecordModel>,
-    variants: HashMap<String, VariantModel>,
-    enums: HashMap<String, EnumModel>,
-}
-
-#[derive(Clone)]
-struct RecordModel {
-    fields: Vec<FieldModel>,
-}
-
-#[derive(Clone)]
-struct VariantModel {
-    union_name: String,
-    fields: Vec<FieldModel>,
-}
-
-struct EnumModel {
-    members: Vec<String>,
-}
-
-#[derive(Clone)]
-struct FieldModel {
-    name: String,
-    type_name: String,
-}
-
-impl TypeModel {
-    fn new(ir: &IrProject) -> Self {
-        let mut records = HashMap::new();
-        let mut variants = HashMap::new();
-        let mut enums = HashMap::new();
-        records.insert(
-            "Error".to_string(),
-            RecordModel {
-                fields: vec![
-                    FieldModel {
-                        name: "code".to_string(),
-                        type_name: "Integer".to_string(),
-                    },
-                    FieldModel {
-                        name: "message".to_string(),
-                        type_name: "String".to_string(),
-                    },
-                ],
-            },
-        );
-        records.insert(
-            "TerminalSize".to_string(),
-            RecordModel {
-                fields: vec![
-                    FieldModel {
-                        name: "columns".to_string(),
-                        type_name: "Integer".to_string(),
-                    },
-                    FieldModel {
-                        name: "rows".to_string(),
-                        type_name: "Integer".to_string(),
-                    },
-                ],
-            },
-        );
-
-        for ir_type in &ir.types {
-            match ir_type.kind.as_str() {
-                "type" => {
-                    records.insert(
-                        ir_type.name.clone(),
-                        RecordModel {
-                            fields: ir_type.fields.iter().map(FieldModel::from_ir).collect(),
-                        },
-                    );
-                }
-                "union" => {
-                    for variant in &ir_type.variants {
-                        variants.insert(
-                            variant.name.clone(),
-                            VariantModel {
-                                union_name: ir_type.name.clone(),
-                                fields: variant.fields.iter().map(FieldModel::from_ir).collect(),
-                            },
-                        );
-                    }
-                }
-                "enum" => {
-                    enums.insert(
-                        ir_type.name.clone(),
-                        EnumModel {
-                            members: ir_type
-                                .members
-                                .iter()
-                                .map(|member| member.name.clone())
-                                .collect(),
-                        },
-                    );
-                }
-                _ => {}
-            }
-        }
-
-        Self {
-            records,
-            variants,
-            enums,
-        }
-    }
-}
-
-impl FieldModel {
-    fn from_ir(field: &crate::ir::IrField) -> Self {
-        Self {
-            name: field.name.clone(),
-            type_name: field.type_.clone(),
-        }
-    }
-}
-
 struct Function {
     name: u32,
     kind: u16,
@@ -2222,12 +1940,11 @@ struct Function {
     return_type: u32,
     params: Vec<Param>,
     registers: Vec<Register>,
-    code: Vec<Instruction>,
     cleanups: Vec<Cleanup>,
 }
 
 fn is_exported_function(function: &Function) -> bool {
-    function.kind == FUNCTION_BYTECODE && function.flags & FUNCTION_FLAG_PRIVATE == 0
+    function.kind == FUNCTION_BINARY_REPR && function.flags & FUNCTION_FLAG_PRIVATE == 0
 }
 
 struct Param {
@@ -2242,11 +1959,6 @@ struct Register {
     flags: u32,
 }
 
-struct Instruction {
-    opcode: u16,
-    operands: Vec<u32>,
-}
-
 struct Cleanup {
     id: u32,
     start_pc: u32,
@@ -2256,7 +1968,7 @@ struct Cleanup {
     flags: u32,
 }
 
-fn lower_project(ir: &IrProject, metadata: &BytecodeMetadata) -> Result<BytecodeProject, String> {
+fn lower_project(ir: &IrProject, metadata: &BinaryReprMetadata) -> Result<BinaryReprProject, String> {
     lower_project_with_external_functions(
         ir,
         metadata,
@@ -2268,12 +1980,12 @@ fn lower_project(ir: &IrProject, metadata: &BytecodeMetadata) -> Result<Bytecode
 
 fn lower_package_project(
     ir: &IrProject,
-    metadata: &BytecodeMetadata,
+    metadata: &BinaryReprMetadata,
     package_paths: &[PathBuf],
-) -> Result<BytecodeProject, String> {
+) -> Result<BinaryReprProject, String> {
     let packages = package_paths
         .iter()
-        .map(|path| read_package_bytecode(path))
+        .map(|path| read_package_binary_repr(path))
         .collect::<Result<Vec<_>, _>>()?;
     let (external_function_ids, external_function_returns, external_function_abi_hashes) =
         external_function_metadata(ir.functions.len() as u32, &packages)?;
@@ -2288,7 +2000,7 @@ fn lower_package_project(
 
 fn external_function_metadata(
     base_function_id: u32,
-    packages: &[PackageBytecode],
+    packages: &[PackageBinaryRepr],
 ) -> Result<
     (
         HashMap<String, u32>,
@@ -2333,7 +2045,7 @@ fn external_function_metadata(
         }
         next_function_id = next_function_id
             .checked_add(package.project.functions.len() as u32)
-            .ok_or_else(|| "merged bytecode has too many functions".to_string())?;
+            .ok_or_else(|| "merged binary representation has too many functions".to_string())?;
     }
     Ok((
         external_function_ids,
@@ -2344,18 +2056,18 @@ fn external_function_metadata(
 
 fn lower_project_with_external_functions(
     ir: &IrProject,
-    metadata: &BytecodeMetadata,
+    metadata: &BinaryReprMetadata,
     external_function_ids: &HashMap<String, u32>,
     external_function_returns: &HashMap<String, String>,
     external_function_abi_hashes: &HashMap<String, [u8; ABI_HASH_LEN]>,
-) -> Result<BytecodeProject, String> {
+) -> Result<BinaryReprProject, String> {
     let mut strings = StringPool::new();
     let ident = if metadata.ident.is_empty() {
         &metadata.name
     } else {
         &metadata.ident
     };
-    let manifest = BytecodeManifest {
+    let manifest = BinaryReprManifest {
         package_name: strings.intern(&metadata.name),
         package_ident: strings.intern(ident),
         package_version: strings.intern(&metadata.version),
@@ -2439,7 +2151,7 @@ fn lower_project_with_external_functions(
     let (entry_function, entry_flags) = if let Some(entry) = &ir.entry {
         let function_id = *function_ids.get(&entry.name).ok_or_else(|| {
             format!(
-                "entry function `{}` was not lowered to bytecode",
+                "entry function `{}` was not lowered to binary representation",
                 entry.name
             )
         })?;
@@ -2455,7 +2167,7 @@ fn lower_project_with_external_functions(
         (u32::MAX, 0)
     };
 
-    Ok(BytecodeProject {
+    Ok(BinaryReprProject {
         strings,
         types,
         constants,
@@ -2467,7 +2179,7 @@ fn lower_project_with_external_functions(
         entry_function,
         entry_flags,
         functions,
-        binary_ir: crate::ir::encode_binary_ir(ir),
+        binary_repr: crate::ir::encode_binary_repr(ir),
     })
 }
 
@@ -2564,7 +2276,7 @@ fn is_resource_type_name(type_name: &str) -> bool {
 /// Lower an `IrFunction` to its container *metadata* (`Function`): name, kind,
 /// flags, return type, and parameter signatures. Function *bodies* are no longer
 /// flattened to opcodes here — they are carried verbatim in the structured
-/// Binary IR payload (`SECTION_IR`). The flat `code`/`registers`/`cleanups`
+/// Binary Representation payload (`SECTION_BINARY_REPR`). The flat `code`/`registers`/`cleanups`
 /// fields are therefore empty; only the signature-level tables (function table,
 /// export table, ABI index, import table) consume this metadata.
 fn lower_function(
@@ -2613,12 +2325,11 @@ fn lower_function(
 
     Ok(Function {
         name: strings.intern(&function.name),
-        kind: FUNCTION_BYTECODE,
+        kind: FUNCTION_BINARY_REPR,
         flags,
         return_type: types.type_id(strings, &function.returns),
         params,
         registers: Vec::new(),
-        code: Vec::new(),
         cleanups: Vec::new(),
     })
 }
@@ -2754,24 +2465,6 @@ fn collect_imported_calls_value(
 }
 
 #[derive(Clone)]
-pub(crate) struct ValueSlot {
-    pub(crate) register: u32,
-    pub(crate) type_name: String,
-}
-
-pub(crate) trait BuiltinCallLowerer {
-    fn lower_value(
-        &mut self,
-        value: &IrValue,
-        locals: &HashMap<String, ValueSlot>,
-    ) -> Result<ValueSlot, String>;
-    fn type_id(&mut self, type_name: &str) -> u32;
-    fn add_register(&mut self, type_id: u32, flags: u32) -> u32;
-    fn push(&mut self, opcode: u16, operands: Vec<u32>);
-    fn push_string_const(&mut self, value: &str) -> Result<ValueSlot, String>;
-    fn push_integer_const(&mut self, value: i64) -> Result<ValueSlot, String>;
-}
-
 struct FunctionTypeSignature {
     isolated: bool,
     params: Vec<String>,
@@ -2871,10 +2564,10 @@ impl TypeTable {
         ir_type: &IrType,
     ) -> u32 {
         let (kind, abi_export_kind) = match ir_type.kind.as_str() {
-            "type" => (1, BytecodeExportKind::Type),
-            "union" => (2, BytecodeExportKind::Union),
-            "enum" => (3, BytecodeExportKind::Enum),
-            _ => (1, BytecodeExportKind::Type),
+            "type" => (1, BinaryReprExportKind::Type),
+            "union" => (2, BinaryReprExportKind::Union),
+            "enum" => (3, BinaryReprExportKind::Enum),
+            _ => (1, BinaryReprExportKind::Type),
         };
         let id = self.add_entry(strings, package, &ir_type.name, kind, Vec::new());
         if ir_type.visibility == "export" {
@@ -3355,7 +3048,7 @@ impl ResourceTable {
 }
 
 impl ImportTable {
-    fn from_metadata(strings: &mut StringPool, metadata: &BytecodeMetadata) -> Self {
+    fn from_metadata(strings: &mut StringPool, metadata: &BinaryReprMetadata) -> Self {
         let entries = metadata
             .dependencies
             .iter()
@@ -3450,9 +3143,9 @@ impl AbiIndex {
                 continue;
             }
             let kind = if function.flags & FUNCTION_FLAG_SUB != 0 {
-                BytecodeExportKind::Sub
+                BinaryReprExportKind::Sub
             } else {
-                BytecodeExportKind::Func
+                BinaryReprExportKind::Func
             };
             exports.push(AbiExport {
                 name: function.name,
@@ -3518,9 +3211,9 @@ impl AbiIndex {
     }
 }
 
-impl BytecodeProject {
+impl BinaryReprProject {
     fn encode(&self) -> Vec<u8> {
-        // Function bodies live in the structured Binary IR payload, not a flat
+        // Function bodies live in the structured Binary Representation payload, not a flat
         // code stream. The function table still records signatures/metadata, so
         // every per-function code region is zero-length.
         let code_offsets: Vec<(u64, u64)> = self.functions.iter().map(|_| (0, 0)).collect();
@@ -3534,7 +3227,7 @@ impl BytecodeProject {
             Section::new(SECTION_EXPORT_TABLE, self.encode_exports()),
             Section::new(SECTION_GLOBAL_TABLE, self.encode_globals()),
             Section::new(SECTION_FUNCTION_TABLE, self.encode_functions(&code_offsets)),
-            Section::new(SECTION_IR, self.binary_ir.clone()),
+            Section::new(SECTION_BINARY_REPR, self.binary_repr.clone()),
             Section::new(SECTION_ABI_INDEX, self.abi.encode()),
         ];
         if !self.resources.entries.is_empty() {
@@ -3678,8 +3371,8 @@ fn encode_sections(sections: &[Section]) -> Vec<u8> {
     let mut offset = 16 + section_table_size;
     let mut bytes = Vec::new();
 
-    bytes.extend_from_slice(b"MFBC");
-    put_u16(&mut bytes, MFBC_MAJOR_VERSION);
+    bytes.extend_from_slice(b"MFPC");
+    put_u16(&mut bytes, MFPC_MAJOR_VERSION);
     put_u16(&mut bytes, 0);
     put_u32(&mut bytes, 0);
     put_u32(&mut bytes, sections.len() as u32);
@@ -3700,12 +3393,6 @@ fn encode_sections(sections: &[Section]) -> Vec<u8> {
     bytes
 }
 
-fn encode_empty_count() -> Vec<u8> {
-    let mut bytes = Vec::new();
-    put_u32(&mut bytes, 0);
-    bytes
-}
-
 fn hex_dump(bytes: &[u8]) -> String {
     let mut output = String::new();
     for chunk in bytes.chunks(16) {
@@ -3718,38 +3405,6 @@ fn hex_dump(bytes: &[u8]) -> String {
         output.push('\n');
     }
     output
-}
-
-fn numeric_binary_type_id(op: &str, left: u32, right: u32) -> u32 {
-    let Some(left) = numeric_type_name(left) else {
-        return TYPE_INTEGER;
-    };
-    let Some(right) = numeric_type_name(right) else {
-        return TYPE_INTEGER;
-    };
-    match numeric::binary_result_type(op, left, right) {
-        Some(numeric::TYPE_BYTE) => TYPE_BYTE,
-        Some(numeric::TYPE_FIXED) => TYPE_FIXED,
-        Some(numeric::TYPE_FLOAT) => TYPE_FLOAT,
-        Some(numeric::TYPE_INTEGER) => TYPE_INTEGER,
-        _ => TYPE_INTEGER,
-    }
-}
-
-fn parse_map_entry_type(type_: &str) -> Option<(String, String)> {
-    let rest = type_.strip_prefix("MapEntry OF ")?;
-    let (key, value) = rest.split_once(" TO ")?;
-    Some((key.to_string(), value.to_string()))
-}
-
-fn numeric_type_name(type_id: u32) -> Option<&'static str> {
-    match type_id {
-        TYPE_BYTE => Some(numeric::TYPE_BYTE),
-        TYPE_FIXED => Some(numeric::TYPE_FIXED),
-        TYPE_FLOAT => Some(numeric::TYPE_FLOAT),
-        TYPE_INTEGER => Some(numeric::TYPE_INTEGER),
-        _ => None,
-    }
 }
 
 fn put_bytes(dst: &mut Vec<u8>, bytes: &[u8]) {

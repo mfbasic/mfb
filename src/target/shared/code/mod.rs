@@ -3,7 +3,7 @@ use std::path::PathBuf;
 
 use crate::arch::aarch64::{abi, ops::CodeOp};
 use crate::builtins;
-use crate::bytecode::{self};
+use crate::binary_repr::{self};
 use crate::json_string;
 use crate::numeric;
 
@@ -551,7 +551,7 @@ pub(crate) fn lower_module_for_platform(
     }
     // Imported packages are now decoded and merged into the project IR upstream
     // (see `lower::lower_project`) and lowered as ordinary functions through this
-    // same codegen. The legacy flat bytecode -> native package bridge is no
+    // same codegen. The legacy flat binary_repr -> native package bridge is no
     // longer used: there are no separate package exports to lower here.
     let _ = packages;
     let mut function_symbols = module
@@ -1065,16 +1065,16 @@ impl TypeModel {
     fn from_module_and_packages(module: &NirModule, packages: &[PathBuf]) -> Result<Self, String> {
         let mut model = Self::from_module(module)?;
         for package in packages {
-            for type_export in bytecode::read_package_type_exports(package)? {
+            for type_export in binary_repr::read_package_type_exports(package)? {
                 model.add_package_type_export(type_export);
             }
         }
         Ok(model)
     }
 
-    fn add_package_type_export(&mut self, type_export: bytecode::BytecodeTypeExport) {
+    fn add_package_type_export(&mut self, type_export: binary_repr::BinaryReprTypeExport) {
         match type_export.kind {
-            bytecode::BytecodeExportKind::Type => {
+            binary_repr::BinaryReprExportKind::Type => {
                 self.record_fields.insert(
                     type_export.name,
                     type_export
@@ -1084,13 +1084,13 @@ impl TypeModel {
                         .collect(),
                 );
             }
-            bytecode::BytecodeExportKind::Enum => {
+            binary_repr::BinaryReprExportKind::Enum => {
                 for (index, member) in type_export.members.into_iter().enumerate() {
                     self.enum_members
                         .insert((type_export.name.clone(), member), index);
                 }
             }
-            bytecode::BytecodeExportKind::Union => {
+            binary_repr::BinaryReprExportKind::Union => {
                 self.union_names.insert(type_export.name.clone());
                 for (index, variant) in type_export.variants.into_iter().enumerate() {
                     self.union_variants
@@ -1111,7 +1111,7 @@ impl TypeModel {
                     );
                 }
             }
-            bytecode::BytecodeExportKind::Func | bytecode::BytecodeExportKind::Sub => {}
+            binary_repr::BinaryReprExportKind::Func | binary_repr::BinaryReprExportKind::Sub => {}
         }
     }
 
@@ -11020,7 +11020,7 @@ const FS_PATH_JOIN_SYMBOL: &str = "_mfb_rt_fs_path_join";
 /// the tag (`RESULT_OK_TAG`/`RESULT_ERR_TAG`) and, on success, `x1` holds the
 /// resulting `String` pointer (on allocation failure it returns `ErrOutOfMemory`).
 /// Implementing it as a shared `bl`-reachable helper lets both root native code
-/// and imported-package bytecode lower `pathJoin` identically. Components are
+/// and imported-package binary_repr lower `pathJoin` identically. Components are
 /// joined with `/`, empty components are skipped, an absolute component discards
 /// everything accumulated so far, and duplicate separators are avoided.
 fn lower_fs_path_join_helper(platform: &dyn CodegenPlatform) -> CodeFunction {

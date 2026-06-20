@@ -19,7 +19,7 @@ This document is the canonical error-code registry for MFBASIC.
 | `2-200-*` | Compiler front / manifest, build orchestration, entrypoint       |
 | `2-201-*` | Compiler front / name resolution                                 |
 | `2-203-*` | Compiler front / type checking and static semantics              |
-| `2-205-*` | Compiler front / Binary IR package payload and package ABI       |
+| `2-205-*` | Compiler front / Binary Representation package payload and package ABI       |
 | `3-302-*` | Compiler back / native validation                                |
 | `3-304-*` | Compiler back / target-specific planning                         |
 | `5-500-*` | Linker / host object-plan and final link                         |
@@ -221,17 +221,17 @@ These are non-runtime diagnostics emitted by the `mfb` application and therefore
 | Code         | Rule                            | Severity | Message |
 |--------------|---------------------------------|----------|---------|
 | `2-200-0100` | `BUILD_FAILED`                  | error    | `build failed for an unclassified orchestration reason` |
-| `2-205-0001` | `PACKAGE_VERSION_UNSUPPORTED`   | error    | `package bytecode or metadata version is unsupported` |
+| `2-205-0001` | `PACKAGE_VERSION_UNSUPPORTED`   | error    | `package binary representation or metadata version is unsupported` |
 | `2-205-0002` | `NATIVE_MANIFEST_INVALID`       | error    | `native-link metadata in a package is malformed or inconsistent` |
-| `2-205-0003` | `PACKAGE_BINARY_IR_VERSION_UNSUPPORTED` | error | `package Binary IR payload version is unsupported (clean break: the old flat opcode payload, MFBC major 1, is rejected; structured Binary IR requires MFBC major 2)` |
-| `2-205-0004` | `PACKAGE_IR_DECODE_FAILED`      | error    | `package Binary IR payload could not be decoded (bad magic, truncated payload, unknown node tag, or invalid UTF-8)` |
-| `2-205-0005` | `PACKAGE_IR_VERIFY_TYPE`        | error    | `decoded package IR is not type-correct at some node` |
-| `2-205-0006` | `PACKAGE_IR_VERIFY_RESOURCE`    | error    | `decoded package IR violates resource linearity (double-drop, missing-drop, use-after-move, or use-after-close)` |
-| `2-205-0007` | `PACKAGE_IR_VERIFY_MATCH`       | error    | `decoded package IR has a non-exhaustive MATCH` |
-| `2-205-0008` | `PACKAGE_IR_VERIFY_TRAP`        | error    | `decoded package IR has invalid trap structure (more than one function-level bottom trap, or PROPAGATE outside a TRAP region)` |
-| `2-205-0009` | `PACKAGE_IR_VERIFY_RETURN`      | error    | `decoded package IR return or effect does not agree with the declared function signature` |
-| `2-205-0010` | `PACKAGE_IR_VERIFY_NATIVE_LINK` | error    | `decoded package IR references native bindings that are not declared in NATIVE_LINK_TABLE or whose signatures disagree` |
-| `3-302-0001` | `VERIFICATION_FAILED`           | error    | `Binary IR or native validation failed` |
+| `2-205-0003` | `PACKAGE_BINARY_REPRESENTATION_VERSION_UNSUPPORTED` | error | `package Binary Representation payload version is unsupported (clean break: the old flat opcode payload, MFPC major 1, is rejected; structured Binary Representation requires MFPC major 2)` |
+| `2-205-0004` | `PACKAGE_BINARY_REPRESENTATION_DECODE_FAILED`      | error    | `package Binary Representation payload could not be decoded (bad magic, truncated payload, unknown node tag, or invalid UTF-8)` |
+| `2-205-0005` | `PACKAGE_BINARY_REPRESENTATION_VERIFY_TYPE`        | error    | `decoded package IR is not type-correct at some node` |
+| `2-205-0006` | `PACKAGE_BINARY_REPRESENTATION_VERIFY_RESOURCE`    | error    | `decoded package IR violates resource linearity (double-drop, missing-drop, use-after-move, or use-after-close)` |
+| `2-205-0007` | `PACKAGE_BINARY_REPRESENTATION_VERIFY_MATCH`       | error    | `decoded package IR has a non-exhaustive MATCH` |
+| `2-205-0008` | `PACKAGE_BINARY_REPRESENTATION_VERIFY_TRAP`        | error    | `decoded package IR has invalid trap structure (more than one function-level bottom trap, or PROPAGATE outside a TRAP region)` |
+| `2-205-0009` | `PACKAGE_BINARY_REPRESENTATION_VERIFY_RETURN`      | error    | `decoded package IR return or effect does not agree with the declared function signature` |
+| `2-205-0010` | `PACKAGE_BINARY_REPRESENTATION_VERIFY_NATIVE_LINK` | error    | `decoded package IR references native bindings that are not declared in NATIVE_LINK_TABLE or whose signatures disagree` |
+| `3-302-0001` | `VERIFICATION_FAILED`           | error    | `Binary Representation or native validation failed` |
 | `3-304-0001` | `TARGET_UNSUPPORTED`            | error    | `requested target OS, CPU, or ABI is unsupported` |
 | `3-304-0002` | `PACKAGE_NATIVE_OUTPUT_UNSUPPORTED` | error | `package projects do not support the requested native output mode` |
 | `5-500-0001` | `LINK_FAILED`                   | error    | `linking packages, native libraries, symbols, objects, or executables failed` |

@@ -138,7 +138,7 @@ call must be resolved from package metadata, not from app source text.
 
 Package builds do not merge dependency IR into the generated `.mfp`.
 Instead, a package build compiles against installed dependency ABI metadata and
-records the dependency in the package's Binary IR:
+records the dependency in the package's Binary Representation:
 
 - `IMPORT_TABLE` records imported packages.
 - `IMPORT_TABLE.usedSymbols` records the imported public symbols used while
@@ -146,7 +146,7 @@ records the dependency in the package's Binary IR:
 - `ABI_INDEX` records the ABI hashes for exported symbols and dependency used
   symbols.
 - `FUNCTION_TABLE` describes the package's own functions; their bodies are the
-  structured Binary IR carried in the `IR` section.
+  structured Binary Representation carried in the `IR` section.
 - `EXPORT_TABLE` maps exported source names to package-local function ids.
 
 The package format remains architecture-independent. Native symbols are derived
@@ -154,7 +154,7 @@ later by the executable native backend.
 
 ## 5. Function Ids And Package Calls
 
-In the Binary IR, calls reference functions by id. A call is an `IrValue::Call`
+In the Binary Representation, calls reference functions by id. A call is an `IrValue::Call`
 or `IrValue::CallResult` node naming the target; auto-unwrapping is the ordinary
 `Result` desugaring (a `MATCH`/`PROPAGATE` over the `CallResult`), not an opcode
 pair.
@@ -167,7 +167,7 @@ referenced by their imported logical identity (import name plus the resolved ABI
 identity recorded in `IMPORT_TABLE`/`ABI_INDEX`), not baked against another
 package's local ids.
 
-At consumption time, the executable decodes each imported package's Binary IR
+At consumption time, the executable decodes each imported package's Binary Representation
 back into IR functions and **merges** them into the project IR under each
 package's deterministic identity prefix (`<id>.package.symbol`). The merge applies
 that prefix as a consistent link-time rename of every definition and every
@@ -181,8 +181,8 @@ during the IR merge, before anything is lowered.
 
 ## 6. Worker And Package Functions In The Single Codegen
 
-Worker functions are ordinary IR carried in the package's Binary IR. There is no
-separate package bytecode-to-native bridge and no `lower_package_export_function`
+Worker functions are ordinary IR carried in the package's Binary Representation. There is no
+separate package binary representation-to-native bridge and no `lower_package_export_function`
 path: once the consumer decodes and merges a package's IR, **every** package
 function — including thread workers — is lowered through the same
 `IR -> NIR -> native` path as the executable's own code.
@@ -492,7 +492,7 @@ Executable native linking receives:
 The native backend must:
 
 1. Read all installed package exports.
-2. Decode each installed package's Binary IR and merge its IR functions into the
+2. Decode each installed package's Binary Representation and merge its IR functions into the
    project IR under the package identity prefix.
 3. Lower every merged package function through `IR -> NIR -> native`, deriving
    each package export symbol.
@@ -514,7 +514,7 @@ libpthread symbols even if the app source does not call those helpers directly.
 
 It is not valid to make a package-to-package call by preserving a raw
 package-local function id and hoping the executable package order makes it
-correct. Function ids are scoped to Binary IR payloads; the IR merge resolves
+correct. Function ids are scoped to Binary Representation payloads; the IR merge resolves
 them through package identity plus exported symbol, and native symbols plus ABI
 metadata define the executable-level call graph.
 

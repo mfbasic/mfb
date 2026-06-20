@@ -4,12 +4,12 @@ A `.mfp` file is a signed MFBASIC package. It contains:
 
 ```text
 MFP container header
-MFB architecture-independent package bytecode (structured Binary IR)
+MFB architecture-independent Binary Representation
 ```
 
-The container header provides quick package identity and signature information. The bytecode payload contains the package manifest, dependency metadata, public API metadata, type tables, constants, functions, native binding declarations, and the **structured Binary IR** that carries every function body.
+The container header provides quick package identity and signature information. The **Binary Representation** payload contains the package manifest, dependency metadata, public API metadata, type tables, constants, functions, native binding declarations, and the structured encoding that carries every function body.
 
-Throughout this document, "bytecode" means a *Binary IR representation*: a compact, **versioned, structured** binary serialization of the compiler's IR (`IrProject` / `IrFunction` / `IrOp` / `IrValue` / `IrType`), not a flat register/stack machine. There is no flat opcode ISA, no `JMP`/`JMP_FALSE`, and no register machine. Control flow stays nested (regions with explicit ends) and expressions stay as trees, exactly as in the compiler's in-memory IR. A consumer **decodes** the Binary IR back to IR and lowers it through the single `IR → NIR → native` path used for the executable's own code.
+The **Binary Representation** is a compact, **versioned, structured** binary encoding of a compiled program. It is *not* a flat register/stack machine: there is no opcode ISA, no `JMP`/`JMP_FALSE`, and no program counter. Control flow stays nested (regions with explicit ends) and expressions stay as trees. A consumer **decodes** the Binary Representation and lowers it through the single codegen path used for the executable's own code, so package functions get every language feature for free. (The Binary Representation is a versioned external serialization of the compiler's internal program model; see `architecture.md` for how the two relate.)
 
 All integers in `.mfp` files are little-endian. All strings are UTF-8 byte strings and are length-prefixed. No field is NUL-terminated.
 
@@ -18,7 +18,7 @@ All integers in `.mfp` files are little-endian. All strings are UTF-8 byte strin
 ```text
 .mfp file
   MFPHeader
-  packageBytecode
+  packageBinaryRepr
 ```
 
 ## `MFPHeader`
@@ -27,8 +27,8 @@ All integers in `.mfp` files are little-endian. All strings are UTF-8 byte strin
 magic              8 bytes
 containerMajor     u16
 containerMinor     u16
-bytecodeMajor      u16
-bytecodeMinor      u16
+binaryReprMajor      u16
+binaryReprMinor      u16
 flags              u32
 
 signatureType      u16
@@ -59,9 +59,9 @@ author             byte[authorLength]
 urlLength          u32
 url                byte[urlLength]
 
-bytecodeLength     u64
+binaryReprLength     u64
 
-packageBytecode    byte[bytecodeLength]
+packageBinaryRepr    byte[binaryReprLength]
 ```
 
 Recommended magic:
@@ -80,8 +80,8 @@ The magic is deliberately not plain `"MFP1"` so corrupted text-mode transfers ar
 | `magic`           | File identification bytes.                                        |
 | `containerMajor`  | Major version of the `.mfp` container format.                     |
 | `containerMinor`  | Minor version of the `.mfp` container format.                     |
-| `bytecodeMajor`   | Required major version of the package bytecode (Binary IR) format. Currently `2`. |
-| `bytecodeMinor`   | Required minor version of the package bytecode (Binary IR) format.            |
+| `binaryReprMajor`   | Required major version of the package Binary Representation format. Currently `2`. |
+| `binaryReprMinor`   | Required minor version of the package Binary Representation format.            |
 | `flags`           | Container-level flags. Unknown required flags reject the package. |
 | `signatureType`   | Signature algorithm identifier.                                   |
 | `signatureLength` | Number of bytes in `signature`.                                   |
@@ -94,10 +94,10 @@ The magic is deliberately not plain `"MFP1"` so corrupted text-mode transfers ar
 | `signingFingerprint` | Fingerprint of the package signing key that verifies `signature`. |
 | `author`          | Informational author string.                                      |
 | `url`             | Informational package/project URL.                                |
-| `bytecodeLength`  | Exact byte length of `packageBytecode`.                           |
-| `packageBytecode` | Architecture-independent MFB bytecode image (structured Binary IR). |
+| `binaryReprLength`  | Exact byte length of `packageBinaryRepr`.                           |
+| `packageBinaryRepr` | Architecture-independent MFB Binary Representation image. |
 
-The header `name`, `ident`, `version`, `identKey`, `identFingerprint`, `signingFingerprint`, `author`, and `url` are for fast package scanning. The bytecode payload must also contain a signed manifest with the same package identity, owner ident key, owner ident fingerprint, and signing fingerprint. A verifier must reject the package if the header identity and bytecode manifest identity do not match.
+The header `name`, `ident`, `version`, `identKey`, `identFingerprint`, `signingFingerprint`, `author`, and `url` are for fast package scanning. The binary representation payload must also contain a signed manifest with the same package identity, owner ident key, owner ident fingerprint, and signing fingerprint. A verifier must reject the package if the header identity and binary representation manifest identity do not match.
 
 ## Signature coverage
 
@@ -134,8 +134,8 @@ The covered bytes include:
 magic
 containerMajor
 containerMinor
-bytecodeMajor
-bytecodeMinor
+binaryReprMajor
+binaryReprMinor
 flags
 signatureType
 signatureLength
@@ -156,8 +156,8 @@ authorLength
 author
 urlLength
 url
-bytecodeLength
-packageBytecode
+binaryReprLength
+packageBinaryRepr
 ```
 
 The covered bytes exclude only the actual signature bytes:
@@ -167,9 +167,9 @@ signature
 ```
 
 This signs the package import name, registry ident, owner ident key, owner ident
-fingerprint, signing fingerprint, version, container format versions, bytecode
-format versions, flags, metadata, and bytecode. `bytecodeLength` is covered, so
-truncation, extension, or bytecode replacement invalidates the signature.
+fingerprint, signing fingerprint, version, container format versions, binary representation
+format versions, flags, metadata, and binary representation. `binaryReprLength` is covered, so
+truncation, extension, or binary representation replacement invalidates the signature.
 
 Verification must use the raw byte sequence exactly as stored. There is no string normalization, metadata canonicalization, JSON normalization, or re-serialization before verification.
 
@@ -209,8 +209,8 @@ If an implementation sees an unknown required flag, it must reject the package b
 
 Current compiler source of truth:
 
-- Package/container rejection currently comes from detailed package-reader diagnostics in `src/bytecode.rs`, `src/target/package_mfp/mod.rs`, and `src/main.rs`.
-- These failures are currently surfaced as descriptive `error: ...` strings such as invalid magic, invalid signature header, truncated signature, or unsupported bytecode/container version rather than through a single package rule code path.
+- Package/container rejection currently comes from detailed package-reader diagnostics in `src/binary_repr.rs`, `src/target/package_mfp/mod.rs`, and `src/main.rs`.
+- These failures are currently surfaced as descriptive `error: ...` strings such as invalid magic, invalid signature header, truncated signature, or unsupported binary representation/container version rather than through a single package rule code path.
 
 ## Container validation
 
@@ -218,15 +218,15 @@ A reader must reject an `.mfp` package when:
 
 * `magic` does not match. The current compiler reports this as `package does not have the MFP package magic`.
 * `containerMajor` is unsupported. The current compiler reports this as `unsupported MFP container major version <n>`.
-* `bytecodeMajor` is unsupported. The package bytecode (Binary IR) format is now at major version `2`; this is a **clean break** from the old flat opcode payload (major `1`). A reader rejects any package that predates the structured Binary IR format. The current compiler reports this as `unsupported MFBC major version <n> (expected 2); this package predates the structured Binary IR format and must be rebuilt`.
+* `binaryReprMajor` is unsupported. The package Binary Representation format is now at major version `2`; this is a **clean break** from the old flat opcode payload (major `1`). A reader rejects any package that predates the structured Binary Representation format. The current compiler reports this as `unsupported MFPC major version <n> (expected 2); this package predates the structured Binary Representation format and must be rebuilt`.
 * `signatureType` is unknown. The current compiler reports this as `unsupported .mfp signature type <n>`.
 * `signatureLength` is invalid for the signature type. The current compiler reports either `unsigned .mfp package must have zero signature length` or `Ed25519 .mfp package must have a 64 byte signature`.
 * The signature fails verification under the selected trust policy.
 * Any string length exceeds the implementation limit.
-* `bytecodeLength` does not exactly match the remaining byte count. The current compiler reports this as `invalid .mfp bytecode length`.
-* There are trailing bytes after `packageBytecode`.
-* The container header identity does not match the embedded bytecode manifest identity. The current compiler reports this as `MFP header identity does not match bytecode manifest identity`.
-* The bytecode manifest package name, ident, version, identKey, identFingerprint, or signingFingerprint do not match the header name, ident, version, identKey, identFingerprint, or signingFingerprint.
+* `binaryReprLength` does not exactly match the remaining byte count. The current compiler reports this as `invalid .mfp binary representation length`.
+* There are trailing bytes after `packageBinaryRepr`.
+* The container header identity does not match the embedded binary representation manifest identity. The current compiler reports this as `MFP header identity does not match binary representation manifest identity`.
+* The binary representation manifest package name, ident, version, identKey, identFingerprint, or signingFingerprint do not match the header name, ident, version, identKey, identFingerprint, or signingFingerprint.
 
 Recommended limits:
 
@@ -239,35 +239,35 @@ identFingerprintLength    <= 255
 signingFingerprintLength  <= 255
 authorLength              <= 512
 urlLength                 <= 2048
-bytecodeLength            <= implementation-defined maximum
+binaryReprLength            <= implementation-defined maximum
 ```
 
 Package names should use the same identifier restrictions as source package names unless the package manager later defines a wider registry naming scheme.
 
 ---
 
-# MFB Package Bytecode (structured Binary IR)
+# MFB Package Binary Representation
 
-The package bytecode is the architecture-independent payload stored after the `.mfp` header.
+The package binary representation is the architecture-independent payload stored after the `.mfp` header.
 
-The bytecode is not machine code. It contains no native addresses, host pointers, host object layouts, CPU instructions, or platform-specific calling conventions. It is the **structured Binary IR** — a faithful, versioned serialization of the compiler's IR — plus the metadata tables that describe the package.
+The binary representation is not machine code. It contains no native addresses, host pointers, host object layouts, CPU instructions, or platform-specific calling conventions. It is the **structured Binary Representation** — a faithful, versioned serialization of the compiled program — plus the metadata tables that describe the package.
 
-The package bytecode format is called **MFBC**. Its container major version is **2** (the clean break to the structured Binary IR; the old flat opcode payload was major `1` and is rejected outright).
+The package container format is called **MFPC**. Its container major version is **2** (the clean break to the structured Binary Representation; the old flat opcode payload was major `1` and is rejected outright).
 
-The Binary IR is *not* a flat opcode stream: control flow is encoded as nested regions with explicit ends (`IF/THEN/ELSE/END`, `WHILE/DO/END`, `FOREACH/IN/DO/END`, `MATCH/CASE/.../END`, `TRAP/.../END`) and expressions stay as trees (`Binary`, `Call`, `CallResult`, `ResultIsOk/Value/Error`, `Constructor`, `MemberAccess`, literals, identifiers, …). A reader walks the tree; structure is read, never reconstructed from jumps. This mirrors `src/ir.rs` one-to-one and is the same principle WebAssembly uses (structured control flow, no arbitrary jumps), kept at MFBASIC's own semantic level so the encoding still knows `List`, `Map`, `Result`, owned `File`, and threads.
+The Binary Representation is *not* a flat opcode stream: control flow is encoded as nested regions with explicit ends (`IF/THEN/ELSE/END`, `WHILE/DO/END`, `FOREACH/IN/DO/END`, `MATCH/CASE/.../END`, `TRAP/.../END`) and expressions stay as trees (`Binary`, `Call`, `CallResult`, `ResultIsOk/Value/Error`, `Constructor`, `MemberAccess`, literals, identifiers, …). A reader walks the tree; structure is read, never reconstructed from jumps. This is the same principle WebAssembly uses (structured control flow, no arbitrary jumps), kept at MFBASIC's own semantic level so the encoding still knows `List`, `Map`, `Result`, owned `File`, and threads.
 
 ```text
-packageBytecode
-  BytecodeHeader
+packageBinaryRepr
+  BinaryReprHeader
   SectionTable
   SectionData...
 ```
 
-## Bytecode header
+## Binary Representation header
 
 ```text
 bcMagic        4 bytes
-bcMajor        u16   = 2 (structured Binary IR; major 1 was the old flat payload and is rejected)
+bcMajor        u16   = 2 (structured Binary Representation; major 1 was the old flat payload and is rejected)
 bcMinor        u16
 bcFlags        u32
 sectionCount   u32
@@ -292,7 +292,7 @@ offset         u64
 length         u64
 ```
 
-`offset` is relative to the start of `packageBytecode`, not the start of the file.
+`offset` is relative to the start of `packageBinaryRepr`, not the start of the file.
 
 Sections may appear in any order, but section ranges must not overlap. Required sections must be present exactly once.
 
@@ -316,7 +316,7 @@ Sections may appear in any order, but section ranges must not overlap. Required 
 16 = IR
 ```
 
-Section id `9` (the old flat `CODE` stream) is **retired**. Function bodies are now carried by the `IR` section (id `16`) as structured Binary IR; the function table records zero-length code regions.
+Section id `9` (the old flat `CODE` stream) is **retired**. Function bodies are now carried by the `IR` section (id `16`) as structured Binary Representation; the function table records zero-length code regions.
 
 Required sections:
 
@@ -379,8 +379,8 @@ signingFingerprint stringId
 author             stringId
 url                stringId
 
-bytecodeMajor     u16
-bytecodeMinor     u16
+binaryReprMajor     u16
+binaryReprMinor     u16
 languageMajor     u16
 languageMinor     u16
 
@@ -396,7 +396,7 @@ entryFlags        u32
 
 The manifest identity, `identKey`, `identFingerprint`, and `signingFingerprint` must match the `.mfp` header identity, `identKey`, `identFingerprint`, and `signingFingerprint`.
 
-`entryFunction` identifies the executable entry point when the bytecode payload is the root executable payload or has been produced by merging package bytecode into the root project bytecode. Reusable packages set it to `0xFFFFFFFF`. Entry flags:
+`entryFunction` identifies the executable entry point when the binary representation payload is the root executable payload or has been produced by merging package binary representation into the root project binary representation. Reusable packages set it to `0xFFFFFFFF`. Entry flags:
 
 ```text
 bit 0 = package has executable entry
@@ -434,11 +434,11 @@ Import flags:
 bit 0 = import contains native dependencies
 ```
 
-`packageName` is the source import name used by bytecode and package-qualified names. `packageIdent` is the resolver identity `<owner>#<package>`. `version` is the requested concrete semantic version. `pin = 0` means the resolver may choose the highest ABI-compatible version anchored at `version`; `pin = 1` means the resolver must choose exactly `version`.
+`packageName` is the source import name used by binary representation and package-qualified names. `packageIdent` is the resolver identity `<owner>#<package>`. `version` is the requested concrete semantic version. `pin = 0` means the resolver may choose the highest ABI-compatible version anchored at `version`; `pin = 1` means the resolver must choose exactly `version`.
 
-`usedSymbolCount` records the imported public ABI surface this package was compiled against. Each `abiHash` is the 32-byte ABI hash from the imported package's `ABI_INDEX` for `symbolName`. The resolver and bytecode merger use these hashes to prove that a selected package version still provides the imported symbols with compatible signatures.
+`usedSymbolCount` records the imported public ABI surface this package was compiled against. Each `abiHash` is the 32-byte ABI hash from the imported package's `ABI_INDEX` for `symbolName`. The resolver and binary representation merger use these hashes to prove that a selected package version still provides the imported symbols with compatible signatures.
 
-Import graph cycles remain compile-time or bytecode merge-time errors.
+Import graph cycles remain compile-time or binary representation merge-time errors.
 
 ## `EXPORT_TABLE`
 
@@ -533,7 +533,7 @@ For exported resource types, the hash input includes the resource type name, clo
 
 Future ABI index versions may add more declaration kinds or more detailed hashes, but v1 must include every exported declaration kind listed above so the resolver cannot report ABI compatibility while exported types, constants, globals, native wrappers, resource behavior, or caller-visible effects have changed.
 
-`exportAbiCount` must match the ABI-relevant entries in `EXPORT_TABLE` and must appear in the same order. The verifier must reject an `ABI_INDEX` whose export names, kinds, order, or hashes disagree with the bytecode metadata.
+`exportAbiCount` must match the ABI-relevant entries in `EXPORT_TABLE` and must appear in the same order. The verifier must reject an `ABI_INDEX` whose export names, kinds, order, or hashes disagree with the binary representation metadata.
 
 `dependencyAbiCount` must match `IMPORT_TABLE` by package import name and package ident. Each dependency ABI entry repeats the requested `version` and `pin` state and records every imported symbol whose ABI shape was used while compiling this package, including imported functions/subs, exported types, constants, globals, native wrappers, resource behavior, and caller-visible effects. These hashes are also present in `IMPORT_TABLE` so tools that only need dependency requirements can read one section; `ABI_INDEX` is the canonical ABI compatibility section when the two disagree.
 
@@ -541,7 +541,7 @@ Future ABI index versions may add more declaration kinds or more detailed hashes
 
 # Type Table
 
-The `TYPE_TABLE` defines all types referenced by the package bytecode.
+The `TYPE_TABLE` defines all types referenced by the package binary representation.
 
 ```text
 typeCount       u32
@@ -595,7 +595,7 @@ Type kinds:
 11 = standard resource
 ```
 
-There are no open template declarations in package bytecode. `List`, `Map`, `Result`, `Thread`, and `ThreadWorker` are compiler-owned templates, user templates are expanded by the source compiler, and the type table stores only concrete instantiations such as `List OF Integer`, `Result OF Vec3`, `ThreadWorker OF String TO Integer`, or a user-defined `Stack OF String`.
+There are no open template declarations in package binary representation. `List`, `Map`, `Result`, `Thread`, and `ThreadWorker` are compiler-owned templates, user templates are expanded by the source compiler, and the type table stores only concrete instantiations such as `List OF Integer`, `Result OF Vec3`, `ThreadWorker OF String TO Integer`, or a user-defined `Stack OF String`.
 
 ## Record payload
 
@@ -757,13 +757,13 @@ bit 2 = initialized by constant
 bit 3 = initialized by function
 ```
 
-A package may have a package initializer function. The bytecode merger records package initializers in dependency order so the executable runtime can run them before `main`. Isolated thread package instances run their own package initializers when the thread package instance starts.
+A package may have a package initializer function. The binary representation merger records package initializers in dependency order so the executable runtime can run them before `main`. Isolated thread package instances run their own package initializers when the thread package instance starts.
 
 ---
 
 # Functions
 
-The `FUNCTION_TABLE` stores all functions, native wrapper functions, imported function references, and package initializer functions. The table *describes* each function (name, signature, kind, flags, parameters, declared return/effect); the function *body* is the structured Binary IR carried in the `IR` section.
+The `FUNCTION_TABLE` stores all functions, native wrapper functions, imported function references, and package initializer functions. The table *describes* each function (name, signature, kind, flags, parameters, declared return/effect); the function *body* is the structured Binary Representation carried in the `IR` section.
 
 ```text
 functionCount   u32
@@ -784,12 +784,12 @@ codeOffset      u64
 codeLength      u64
 ```
 
-Because function bodies are carried by the `IR` section as structured Binary IR, the function table records **zero-length** code regions (`codeOffset`/`codeLength` are retained for layout compatibility and are zero). There are no register tables, program counters, `trapPc`, or cleanup tables in the function entry: those flat-machine concepts do not exist in the structured form. A function's `IF`/`WHILE`/`FOREACH`/`MATCH`/`TRAP` structure, its resource regions, and its single bottom trap are all represented directly as nested Binary IR nodes.
+Because function bodies are carried by the `IR` section as structured Binary Representation, the function table records **zero-length** code regions (`codeOffset`/`codeLength` are retained for layout compatibility and are zero). There are no register tables, program counters, `trapPc`, or cleanup tables in the function entry: those flat-machine concepts do not exist in the structured form. A function's `IF`/`WHILE`/`FOREACH`/`MATCH`/`TRAP` structure, its resource regions, and its single bottom trap are all represented directly as nested Binary Representation nodes.
 
 Function kinds:
 
 ```text
-1 = bytecode function (structured Binary IR body)
+1 = binary representation function (structured Binary Representation body)
 2 = imported function
 3 = native wrapper function
 4 = built-in function reference
@@ -806,7 +806,7 @@ bit 3 = sub
 bit 5 = returnsNothingOnSuccess
 ```
 
-The `returnType` is the declared success type. The effective runtime result is always `Result OF returnType`, consistent with the language rule that every function returns `Result` and call sites auto-unwrap or auto-propagate unless directly matched. Whether a function contains a trap is read directly from its Binary IR body (a `Trap` region), not from a flag/PC pair.
+The `returnType` is the declared success type. The effective runtime result is always `Result OF returnType`, consistent with the language rule that every function returns `Result` and call sites auto-unwrap or auto-propagate unless directly matched. Whether a function contains a trap is read directly from its Binary Representation body (a `Trap` region), not from a flag/PC pair.
 
 ## Parameters
 
@@ -820,18 +820,18 @@ bit 1 = resource borrow
 bit 2 = resource consume
 ```
 
-No `BORROW` or `MOVE` source syntax is required. These are compiler/runtime metadata rules, and they round-trip through the Binary IR.
+No `BORROW` or `MOVE` source syntax is required. These are compiler/runtime metadata rules, and they round-trip through the Binary Representation.
 
 ---
 
-# IR Section (structured Binary IR)
+# Binary Representation Section
 
-The `IR` section (id `16`) carries the structured Binary IR payload — the faithful, versioned serialization of the project's IR functions. It replaces the retired flat `CODE` stream as the carrier of every function body.
+The `IR` section (id `16`) carries the structured Binary Representation payload — the faithful, versioned serialization of the project's IR functions. It replaces the retired flat `CODE` stream as the carrier of every function body.
 
 ## Payload header
 
 ```text
-magic        4 bytes = "MFIR"
+magic        4 bytes = "MFBR"
 version      u16
 IrProject    ...
 ```
@@ -843,9 +843,9 @@ Recommended `magic`:
 M  F  I  R
 ```
 
-The Binary IR `version` is currently `1`. A reader rejects any payload whose magic is not `MFIR` or whose version it does not support (the package bytecode container is separately versioned at MFBC major `2`).
+The Binary Representation `version` is currently `1`. A reader rejects any payload whose magic is not `MFBR` or whose version it does not support (the package binary representation container is separately versioned at MFPC major `2`).
 
-The payload is self-contained: integers are little-endian, strings are inline length-prefixed (`u32` byte length followed by UTF-8 bytes). The in-memory IR is free to change behind this format; the encoding is the stable contract, and `IR → Binary IR → IR` is an identity round-trip across every node kind.
+The payload is self-contained: integers are little-endian, strings are inline length-prefixed (`u32` byte length followed by UTF-8 bytes). The in-memory IR is free to change behind this format; the encoding is the stable contract, and `IR → Binary Representation → IR` is an identity round-trip across every node kind.
 
 ## Structured control flow (no jumps)
 
@@ -863,7 +863,7 @@ There are no `JMP`, `JMP_FALSE`, label, or program-counter concepts in the forma
 
 ## Statements / ops
 
-`IrOp` is encoded faithfully, one tag byte per kind: `Let`/`Bind`, `Assign`, `Return`, `Fail`, `Propagate`, `Recover`, `Eval`, the control-flow ops above, and the resource region ops (`RESOURCE_ENTER`/`LEAVE`/`CLOSE`). The internal `Result`/`Ok` forms remain implementation-only — they appear in IR and therefore in Binary IR, but are never user-visible.
+`IrOp` is encoded faithfully, one tag byte per kind: `Let`/`Bind`, `Assign`, `Return`, `Fail`, `Propagate`, `Recover`, `Eval`, the control-flow ops above, and the resource region ops (`RESOURCE_ENTER`/`LEAVE`/`CLOSE`). The internal `Result`/`Ok` forms remain implementation-only — they appear in IR and therefore in Binary Representation, but are never user-visible.
 
 ## Expressions stay nested
 
@@ -871,17 +871,19 @@ There are no `JMP`, `JMP_FALSE`, label, or program-counter concepts in the forma
 
 ## Tables and references
 
-The Binary IR rides alongside the container's interned tables (strings, types, constants, globals, imports, exports). IR nodes that reference declarations resolve against those tables. Concrete type instantiations (such as `List OF Integer` or `Result OF Out`) appear in the `TYPE_TABLE`; the Binary IR references them.
+The Binary Representation rides alongside the container's interned tables (strings, types, constants, globals, imports, exports). IR nodes that reference declarations resolve against those tables. Concrete type instantiations (such as `List OF Integer` or `Result OF Out`) appear in the `TYPE_TABLE`; the Binary Representation references them.
 
 ## Consumption
 
-A consumer **decodes** each imported package's `IR` section back into IR functions, applies the package identity prefix (`<id>.package.symbol`) as a link-time rename of every definition and reference, merges the package's types/constants/globals into the project, and lowers **everything** through the single `IR → NIR → native` path. There is no separate package bytecode→native bridge: package functions get every language feature — control flow, function-level and inline `TRAP`, all built-ins, inline-`TRAP`-on-built-in — for free, because they ride the same codegen as the executable's own code.
+A consumer **decodes** each imported package's `IR` section back into IR functions, applies the package identity prefix (`<id>.package.symbol`) as a link-time rename of every definition and reference, merges the package's types/constants/globals into the project, and lowers **everything** through the single `IR → NIR → native` path. There is no separate package binary representation→native bridge: package functions get every language feature — control flow, function-level and inline `TRAP`, all built-ins, inline-`TRAP`-on-built-in — for free, because they ride the same codegen as the executable's own code.
+
+`<id>` is a **deterministic content hash** of the package's identity (its header `name`, `version`, and `ident`) and its binary representation payload — never a per-build random value. Because it is content-addressed, the same package reached through two dependency paths produces the same `<id>` and de-duplicates to a single merged copy, while two distinct packages that happen to share a name receive different `<id>`s and stay separate instead of colliding. The prefix is applied by the *consumer* at merge time as a consistent rename of the package's definitions **and** of every reference to them (from the executable and from other packages).
 
 ---
 
 # Resource regions
 
-Resource lifetime is represented structurally in the Binary IR rather than by a side cleanup table.
+Resource lifetime is represented structurally in the Binary Representation rather than by a side cleanup table.
 
 ```text
 RESOURCE_ENTER  <binding> <closeFunction>
@@ -895,13 +897,13 @@ RESOURCE_LEAVE
 * Because the region is nested in the IR tree, every exit path (fall-through, `RETURN`, `FAIL`, `PROPAGATE`, loop break/continue) is bounded by the region's end; there are no PC ranges to reconstruct and no "jump into a cleanup region" to reject.
 * A resource binding still owned when its region exits is closed by a compiler-generated lexical drop, deterministically and on every exit path including error exits.
 
-The resource model closes files, sockets, and similar handles by lexical drop when their owning binding leaves scope. The structured Binary IR makes that rule directly verifiable.
+The resource model closes files, sockets, and similar handles by lexical drop when their owning binding leaves scope. The structured Binary Representation makes that rule directly verifiable.
 
 ---
 
 # Native Binding Metadata
 
-A package containing `LINK` declarations is still a normal `.mfp` package. The application imports it normally. The binding metadata lives inside the signed bytecode payload.
+A package containing `LINK` declarations is still a normal `.mfp` package. The application imports it normally. The binding metadata lives inside the signed binary representation payload.
 
 The existing native interface separates MFBASIC-facing wrapper signatures from C-facing ABI signatures, with `CString`, `CPtr`, `OUT`, `REF`, `SUCCESS_ON`, and `ERROR_ON` rules.  The `.mfp` stores those rules so importers do not repeat the `LINK`.
 
@@ -1011,7 +1013,7 @@ Rules:
 * `CPtr` may appear only inside native binding metadata.
 * `CPtr` must not appear in ordinary exported MFBASIC function signatures.
 * `OUT` and `REF` storage lives only for the duration of the call unless explicitly converted into an owned MFBASIC value or resource.
-* Native symbols are whitelisted by this table. MFBASIC bytecode cannot perform dynamic native symbol lookup.
+* Native symbols are whitelisted by this table. MFBASIC binary representation cannot perform dynamic native symbol lookup.
 
 ## Built-in native runtime helpers
 
@@ -1075,7 +1077,7 @@ The `.mfp` verifier runs before a package can be imported or merged.
 
 The verifier must reject malformed, unsafe, or incompatible packages before any package code runs.
 
-Verification operates on **decoded IR**, not a flat opcode stream. The structured form is easier to verify — structure is explicit, so there is no CFG reconstruction and no "reject jumps into trap/cleanup regions." Most invariants reuse the compiler's existing IR-level passes (type checking, ownership/resource linearity, exhaustiveness, return/effect agreement) rather than a parallel flat-bytecode verifier.
+Verification operates on **decoded IR**, not a flat opcode stream. The structured form is easier to verify — structure is explicit, so there is no CFG reconstruction and no "reject jumps into trap/cleanup regions." Most invariants reuse the compiler's existing IR-level passes (type checking, ownership/resource linearity, exhaustiveness, return/effect agreement) rather than a parallel flat-binary representation verifier.
 
 Current compiler source of truth:
 
@@ -1088,11 +1090,11 @@ The container verifier checks:
 
 * Magic bytes.
 * Container version.
-* Bytecode (Binary IR) version — MFBC major must be `2`; the old flat payload (major `1`) is rejected.
+* Binary Representation (Binary Representation) version — MFPC major must be `2`; the old flat payload (major `1`) is rejected.
 * Signature type and signature length.
 * Signature validity.
 * Header string validity.
-* Exact `bytecodeLength`.
+* Exact `binaryReprLength`.
 * No trailing bytes.
 * Header identity, identKey, identFingerprint, and signingFingerprint match manifest identity, identKey, identFingerprint, and signingFingerprint.
 
@@ -1123,7 +1125,7 @@ The type verifier checks:
 
 ## Function verifier (IR-level)
 
-The function verifier checks the decoded Binary IR of each function:
+The function verifier checks the decoded Binary Representation of each function:
 
 * Every IR node is type-correct — operands, calls, constructors, member access, and `Result` inspection (`ResultIsOk`/`ResultValue`/`ResultError`) are well-typed.
 * Every binding is defined before use; no use-after-move.
@@ -1196,10 +1198,10 @@ MFPHeader
   signingFingerprint = "sha256:..."
   author = "..."
   url = "..."
-  bytecodeLength = N
+  binaryReprLength = N
 
-packageBytecode
-  BytecodeHeader
+packageBinaryRepr
+  BinaryReprHeader
   MANIFEST
   STRING_POOL
     "mathstuff"
@@ -1226,10 +1228,10 @@ packageBytecode
   FUNCTION_TABLE
     function 0: add(Integer, Integer) AS Integer  (zero-length code region)
   IR
-    "MFIR" + version + IrProject { function 0 body: Return(Binary{ Add, Ident a, Ident b }) }
+    "MFBR" + version + IrProject { function 0 body: Return(Binary{ Add, Ident a, Ident b }) }
 ```
 
-The function body is the structured Binary IR node for `add`, which decodes back to:
+The function body is the structured Binary Representation node for `add`, which decodes back to:
 
 ```text
 RETURN  ( a + b )
@@ -1246,7 +1248,7 @@ This is the compact version I would add to your current `Build Artifacts` sectio
 ````markdown
 ### `.mfp` Container Format
 
-A `.mfp` package is a signed binary container followed by architecture-independent MFB bytecode.
+A `.mfp` package is a signed binary container followed by architecture-independent MFB binary representation.
 
 All integers are little-endian. All strings are UTF-8 byte strings with a `u32` byte length. No strings are NUL-terminated.
 
@@ -1256,8 +1258,8 @@ The container header is:
 magic              8 bytes
 containerMajor     u16
 containerMinor     u16
-bytecodeMajor      u16
-bytecodeMinor      u16
+binaryReprMajor      u16
+binaryReprMinor      u16
 flags              u32
 
 signatureType      u16
@@ -1288,9 +1290,9 @@ author             byte[authorLength]
 urlLength          u32
 url                byte[urlLength]
 
-bytecodeLength     u64
+binaryReprLength     u64
 
-packageBytecode    byte[bytecodeLength]
+packageBinaryRepr    byte[binaryReprLength]
 ````
 
 The package content hash and package signature use the entire `.mfp` file with only the `signature` byte range replaced by zero bytes of the same length:
@@ -1303,18 +1305,18 @@ contentHash    = SHA-256(coveredBytes)
 signatureInput = "MFP-PACKAGE-v1" || contentHash || ident || version
 ```
 
-This covers the magic, container version, bytecode version, flags, signature type, signature length, header metadata, bytecode length, and bytecode. It excludes only the actual signature bytes.
+This covers the magic, container version, binary representation version, flags, signature type, signature length, header metadata, binary representation length, and binary representation. It excludes only the actual signature bytes.
 
 `signatureType = 0` means unsigned and requires `signatureLength = 0`. `signatureType = 1` means Ed25519 and requires `signatureLength = 64`. Unknown signature types reject the package. Public registry packages must use `signatureType = 1`; installs reject unsigned packages except for explicit `allowUnsignedLocal` exceptions on `path:` or `file:` sources.
 
-The bytecode payload must contain a signed package manifest. The manifest package name, ident, version, identKey, identFingerprint, and signingFingerprint must match the header package name, ident, version, identKey, identFingerprint, and signingFingerprint.
+The binary representation payload must contain a signed package manifest. The manifest package name, ident, version, identKey, identFingerprint, and signingFingerprint must match the header package name, ident, version, identKey, identFingerprint, and signingFingerprint.
 
-### Package Bytecode
+### Package Binary Representation
 
-The package bytecode begins with:
+The package binary representation begins with:
 
 ```text
-bcMagic        4 bytes = "MFBC"
+bcMagic        4 bytes = "MFPC"
 bcMajor        u16
 bcMinor        u16
 bcFlags        u32
@@ -1333,7 +1335,7 @@ offset         u64
 length         u64
 ```
 
-The bytecode container is at MFBC major version `2` (the structured Binary IR; the old flat opcode payload was major `1` and is rejected).
+The binary representation container is at MFPC major version `2` (the structured Binary Representation; the old flat opcode payload was major `1` and is rejected).
 
 Required sections are:
 
@@ -1360,13 +1362,13 @@ SOURCE_MAP
 AUDIT_INFO
 ```
 
-The bytecode is **structured Binary IR**: a faithful, versioned serialization of the compiler's IR. It contains no machine code, native addresses, host pointers, platform-specific object layouts, opcodes, registers, or jumps. Control flow is nested (regions with explicit ends) and expressions are trees. Function bodies live in the `IR` section (id `16`, payload prefixed `"MFIR"` + `u16` version); the `FUNCTION_TABLE` describes functions and records zero-length code regions. Constants, strings, types, imports, exports, globals, functions, native bindings, and resources are referenced from the IR by table indexes.
+The binary representation is **structured Binary Representation**: a faithful, versioned serialization of the compiler's IR. It contains no machine code, native addresses, host pointers, platform-specific object layouts, opcodes, registers, or jumps. Control flow is nested (regions with explicit ends) and expressions are trees. Function bodies live in the `IR` section (id `16`, payload prefixed `"MFBR"` + `u16` version); the `FUNCTION_TABLE` describes functions and records zero-length code regions. Constants, strings, types, imports, exports, globals, functions, native bindings, and resources are referenced from the IR by table indexes.
 
-Every function returns `Result` at the IR level. Source-level auto-unwrapping, inline `TRAP`, and direct `MATCH` on a call are all encoded as ordinary IR nodes (`CallResult`, `ResultIsOk`/`ResultValue`/`ResultError`, `Trap`, `Match`). A consumer decodes the Binary IR back to IR, applies the package identity prefix, merges it into the project, and lowers everything through the single `IR → NIR → native` path.
+Every function returns `Result` at the IR level. Source-level auto-unwrapping, inline `TRAP`, and direct `MATCH` on a call are all encoded as ordinary IR nodes (`CallResult`, `ResultIsOk`/`ResultValue`/`ResultError`, `Trap`, `Match`). A consumer decodes the Binary Representation back to IR, applies the package identity prefix, merges it into the project, and lowers everything through the single `IR → NIR → native` path.
 
 The verifier checks the decoded IR: section bounds, type references, type-correctness, define-before-use, resource ownership/linearity, exhaustive `MATCH`, single bottom trap, declared return/effect agreement, native binding metadata, and package signature validity before the package may be imported or merged.
 
 ```
 
-That gives you a concrete `.mfp` container and a structured Binary IR payload that rejoins the single native codegen, without a separate package VM or a second bytecode→native bridge.
+That gives you a concrete `.mfp` container and a structured Binary Representation payload that rejoins the single native codegen, without a separate package VM or a second binary representation→native bridge.
 ```

@@ -11,12 +11,12 @@ Path: tests/package-comparable-types/package_comparable_types.mfp
 Container:
   format: MFP
   version: 1.0
-  bytecode version: 1.0
+  binary representation version: 1.0
   flags: 0x00000000
   signature type: unsigned
   signature length: 0
-  content hash: 1b3b5a2fb10c6db1ffa22787a7e127c677692bc71f4f4a48509272f99146354c
-  bytecode length: 834
+  content hash: a1f96637c773057fd913f8daa5f47b511788bb105c45df8ef765f84a9c79558b
+  binary representation length: 834
 
 Manifest:
   name: package_comparable_types
@@ -28,7 +28,7 @@ Manifest:
   author: <empty>
   url: <empty>
 
-Bytecode:
+Binary Representation:
   ABI format version: 1
   types: 2
   constants: 0

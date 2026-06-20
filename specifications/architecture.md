@@ -51,7 +51,7 @@ Executable build:
 
 Package build:
   IR
-    -> MFBC architecture-independent bytecode
+    -> MFPC architecture-independent binary representation
     -> unsigned MFP container
     -> <package>.mfp
 ```
@@ -71,8 +71,8 @@ The CLI supports these build-related commands:
   project kind.
 - `mfb build -ast [location]` writes `<name>.ast`.
 - `mfb build -ir [location]` writes `<name>.ir`.
-- `mfb build -bc [location]` writes `<name>.hex`, a hexadecimal dump of MFBC
-  bytecode.
+- `mfb build -br [location]` writes `<name>.hex`, a hexadecimal dump of MFPC
+  binary representation.
 - `mfb build -nir [location]` writes `<name>.nir`.
 - `mfb build -nplan [location]` writes `<name>.nplan`.
 - `mfb build -nobj [location]` writes `<name>.nobj`.
@@ -87,7 +87,7 @@ The output flags are mutually exclusive. If no output flag is supplied,
 - `<name>.mfp` for `kind = "package"`.
 
 Native intermediate outputs are rejected for package projects. Package projects
-are emitted through the package bytecode path instead.
+are emitted through the package binary representation path instead.
 
 ## 3. Project Manifest Loading
 
@@ -274,7 +274,7 @@ Type checking is the last front-end validation pass before lowering to IR.
 
 ## 9. Package Dependencies
 
-Package dependency handling is split between `src/main.rs`, `src/bytecode.rs`,
+Package dependency handling is split between `src/main.rs`, `src/binary_repr.rs`,
 and `src/target/shared/nir.rs`.
 
 ### 9.1 Installing Packages
@@ -303,7 +303,7 @@ Pinned dependencies must match the installed package header version.
 ### 9.3 Using Packages During Compilation
 
 Executable builds load installed package files before IR lowering. The compiler
-reads each package header and exported bytecode ABI metadata, then creates
+reads each package header and exported binary representation ABI metadata, then creates
 external function signatures under qualified names such as:
 
 ```text
@@ -320,8 +320,8 @@ generated symbols:
 _mfb_pkg_<package>_<export>
 ```
 
-For bytecode merging, package bytecode is decoded and appended to the
-application bytecode function/type/constant/import/export structures.
+For binary representation merging, package binary representation is decoded and appended to the
+application binary representation function/type/constant/import/export structures.
 
 ## 10. IR Lowering
 
@@ -379,18 +379,40 @@ The main IR value forms are:
 IR is intentionally shared by both downstream products:
 
 - Native executable generation lowers IR to target-specific native structures.
-- Package generation lowers IR to architecture-independent MFBC bytecode.
+- Package generation lowers IR to architecture-independent MFPC binary representation.
 
-## 11. Bytecode And Package Generation
+## 11. Binary Representation And Package Generation
 
-Bytecode generation is implemented in `src/bytecode.rs`.
+Binary Representation generation is implemented in `src/binary_repr.rs`.
 MFP package wrapping is implemented in `src/target/package_mfp/mod.rs`.
 
-### 11.1 MFBC Bytecode
+### 11.1 What the Binary Representation Is
 
-The bytecode layer lowers IR into an architecture-independent package bytecode
-image. The bytecode image starts with `MFBC` magic and contains sectioned data.
-The implemented sections include:
+**The Binary Representation is the compiler's IR, exposed as a versioned external
+interface.** The in-memory IR of §10 (`IrProject` / `IrFunction` / `IrOp` /
+`IrValue` / `IrType`) is the compiler's private, in-process model and is free to
+change between builds. The Binary Representation is a defined, versioned binary
+*serialization* of that model: control flow stays nested, expressions stay as
+trees, and the structure is preserved faithfully — there is no lowering to a flat
+opcode/register machine. `src/binary_repr.rs` encodes IR → Binary Representation
+and decodes Binary Representation → IR.
+
+The two are related but **not the same thing**, and the distinction is the whole
+point of the boundary:
+
+- The **IR** is an unstable in-memory data structure. Nothing outside the
+  compiler process may depend on its layout.
+- The **Binary Representation** is the stable on-disk contract. It carries its own
+  format version (`MFBR` payload magic, `MFPC` container major `2`), so a future
+  compiler can change the IR freely as long as it can still encode/decode this
+  versioned format. Because the encoding is a faithful, structure-preserving
+  serialization, a consumer **decodes it straight back into IR** and lowers it
+  through the single `IR → NIR → native` codegen used for the executable's own
+  code — no second, package-only code path.
+
+The binary representation layer lowers IR into an architecture-independent package
+image that starts with `MFPC` magic and contains sectioned data. The implemented
+sections include:
 
 - manifest
 - string pool
@@ -400,24 +422,25 @@ The implemented sections include:
 - export table
 - global table
 - function table
-- code
+- binary representation (the structured function bodies, `MFBR` payload)
 - resource table
 - ABI index
 
-The bytecode writer builds:
+The binary representation writer builds:
 
 - A string pool for names, literals, package metadata, and version data.
 - A type table with primitive and user-defined types.
 - A constant pool for literal values.
 - Import and dependency metadata.
 - Export metadata for non-private functions.
-- Function tables with registers, parameters, instructions, and cleanups.
+- Function tables with parameters and cleanup metadata; each function body is the
+  structured Binary Representation node tree in the `MFBR` payload section.
 - ABI hashes used by package readers and dependency checks.
 
-`mfb build -bc` writes a hexadecimal dump of the bytecode to `<project>.hex`.
-When the executable project has package dependencies, the bytecode path can
-write merged bytecode by decoding installed packages and appending their
-contents to the application bytecode.
+`mfb build -br` writes a hexadecimal dump of the binary representation to `<project>.hex`.
+When the executable project has package dependencies, the binary representation path
+decodes installed packages back into IR and merges them, so every function flows
+through the one codegen.
 
 ### 11.2 MFP Package Container
 
@@ -427,7 +450,7 @@ The package path is:
 
 ```text
 IR
-  -> bytecode::build_bytecode_bytes
+  -> binary_repr::build_binary_repr_bytes
   -> package_mfp::build_package_bytes
   -> <package>.mfp
 ```
@@ -443,7 +466,7 @@ Package metadata is derived from `project.json`:
 The current package writer emits an unsigned MFP container:
 
 - container major/minor: `1.0`
-- bytecode major/minor: `1.0`
+- binary representation major/minor: `1.0`
 - signature type: unsigned
 - signature length: zero
 - pre-release flag set when the version contains `-`
@@ -452,7 +475,7 @@ The current package writer emits an unsigned MFP container:
 signed containers. The current writer always emits `signatureType = 0` and
 `signatureLength = 0`.*
 
-The package payload must start with `MFBC`. Metadata string lengths are checked
+The package payload must start with `MFPC`. Metadata string lengths are checked
 before writing.
 
 ## 12. Native Executable Generation
@@ -751,10 +774,10 @@ For a package project, `mfb build` performs this sequence:
 8. Skip executable entry-point selection.
 9. Type-check the concrete AST.
 10. Lower the concrete AST to IR.
-11. Build bytecode metadata from the manifest.
-12. Lower IR to MFBC package bytecode.
-13. Validate package metadata and MFBC payload magic.
-14. Wrap bytecode in an unsigned MFP container.
+11. Build binary representation metadata from the manifest.
+12. Lower IR to MFPC package binary representation.
+13. Validate package metadata and MFPC payload magic.
+14. Wrap binary representation in an unsigned MFP container.
 15. Write the package file.
 16. Print the output path.
 
@@ -765,8 +788,8 @@ The default output file is:
 ```
 
 Package projects do not support native intermediate outputs. Use plain
-`mfb build` for `.mfp` emission or `-ast`, `-ir`, and `-bc` for front-end and
-bytecode inspection.
+`mfb build` for `.mfp` emission or `-ast`, `-ir`, and `-br` for front-end and
+binary representation inspection.
 
 ## 15. Artifact Summary
 
@@ -774,7 +797,7 @@ bytecode inspection.
 | --- | --- | --- | --- |
 | `<name>.ast` | `mfb build -ast` | `src/ast.rs` | Parsed source tree before monomorphization. |
 | `<name>.ir` | `mfb build -ir` | `src/ir.rs` | Typed, architecture-independent compiler IR. |
-| `<name>.hex` | `mfb build -bc` | `src/bytecode.rs` | Hex dump of MFBC bytecode. |
+| `<name>.hex` | `mfb build -br` | `src/binary_repr.rs` | Hex dump of MFPC binary representation. |
 | `<name>.nir` | `mfb build -nir` | `src/target/shared/nir.rs` | Native IR for the selected target. |
 | `<name>.nplan` | `mfb build -nplan` | `src/target/shared/plan.rs` | Native function/storage/call plan. |
 | `<name>.nobj` | `mfb build -nobj` | `src/os/*/object.rs` | OS object/container layout plan. |
@@ -795,7 +818,7 @@ bytecode inspection.
 | `src/monomorph.rs` | Template/generic expansion into concrete AST. |
 | `src/typecheck.rs` | Type system, expression checking, flow validation. |
 | `src/ir.rs` | Shared compiler IR and AST-to-IR lowering. |
-| `src/bytecode.rs` | MFBC bytecode lowering, encoding, decoding, package ABI inspection. |
+| `src/binary_repr.rs` | MFPC binary representation lowering, encoding, decoding, package ABI inspection. |
 | `src/builtins/mod.rs` | Built-in package dispatch and parameter name tables. |
 | `src/builtins/fs.rs` | Filesystem built-in signatures and validation. |
 | `src/builtins/general.rs` | General and collection built-in signatures. |
@@ -834,7 +857,7 @@ The following boundaries are important when extending the compiler:
 - Native runtime-call support covers `io.*`, `fs.*`, and `thread.*` built-ins.
   `math` and `strings` operations are code-generated inline and do not go
   through the runtime-helper capability gate. `json` built-ins have no native
-  backend support and are bytecode-only.
+  backend support and are binary representation-only.
 - `target/shared/validate.rs::validate_project` is currently a no-op, so target
   project-level checks must be implemented elsewhere or added there.
 - Manifest source `include` and `exclude` patterns are not currently enforced
@@ -862,7 +885,7 @@ every layer that observes or emits that behavior:
 4. Monomorphization rules for generic forms.
 5. Type-checking rules and overload behavior.
 6. IR lowering.
-7. MFBC bytecode lowering, encoding, decoding, exports, and ABI hashing.
+7. MFPC binary representation lowering, encoding, decoding, exports, and ABI hashing.
 8. NIR lowering for native builds.
 9. Runtime helper detection and native backend capabilities.
 10. Native plan and native code-plan lowering.

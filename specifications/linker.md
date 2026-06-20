@@ -45,7 +45,7 @@ The native plan collects imports from:
 
 - Program entry support, such as process exit and entry error output.
 - Built-in runtime helpers used by the app package.
-- Built-in runtime helpers used only inside package bytecode.
+- Built-in runtime helpers used only inside package binary representation.
 - Native built-in calls, such as math functions lowered to platform libraries.
 - Platform runtime requirements, such as thread creation.
 
@@ -69,7 +69,7 @@ Runtime helper import selection is target-specific. For example:
 - `thread::start` requires a target thread creation primitive.
 - `math::sin` requires the target math library symbol.
 
-Package bytecode matters even when the app package does not directly call a
+Package binary representation matters even when the app package does not directly call a
 helper. If an imported package export uses `fs::readText`, `io::print`,
 `thread::start`, or another runtime helper, the final executable must still
 include the platform imports required by that package export.
@@ -266,10 +266,10 @@ _mfb_pkg_<package>_<export>
 ```
 
 Package-to-package calls resolve through package identity and ABI metadata, not
-raw bytecode function ids. The linker must not assume package-local function ids
+raw binary representation function ids. The linker must not assume package-local function ids
 are globally unique.
 
-When package bytecode uses runtime helpers, the final executable must include
+When package binary representation uses runtime helpers, the final executable must include
 the helper implementation and any platform imports required by that helper. This
 is true even if the app package does not directly call the helper.
 

@@ -140,8 +140,8 @@ for test_dir in "$TEST_ROOT"/*; do
     "$MFB_EXE" build -ir "tests/$test_name"
     echo "[exit $?]"
     if [ -f "$golden_dir/$package_name.hex" ]; then
-      echo "$ mfb build -bc tests/$test_name"
-      "$MFB_EXE" build -bc "tests/$test_name"
+      echo "$ mfb build -br tests/$test_name"
+      "$MFB_EXE" build -br "tests/$test_name"
       echo "[exit $?]"
     fi
     if [ -f "$golden_dir/$package_name.mfp" ] || [ -f "$golden_dir/$package_name.info" ]; then

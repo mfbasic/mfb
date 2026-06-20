@@ -8,7 +8,7 @@ The lockfile is JSON, UTF-8 encoded, and deterministic. Tools must preserve stab
 
 1. Reproduce dependency builds without consulting mutable registry indexes.
 2. Bind source import names to registry identities and content hashes.
-3. Preserve enough package, bytecode, ABI, native, and transparency-log metadata for audit and verification.
+3. Preserve enough package, binary representation, ABI, native, and transparency-log metadata for audit and verification.
 4. Stay portable across machines by storing registry aliases, not machine-local registry endpoint URLs.
 
 ## Top-Level Shape
@@ -38,7 +38,7 @@ The lockfile is JSON, UTF-8 encoded, and deterministic. Tools must preserve stab
         "major": 1,
         "minor": 0
       },
-      "bytecode": {
+      "binary representation": {
         "major": 1,
         "minor": 0
       },
@@ -99,7 +99,7 @@ The lockfile is JSON, UTF-8 encoded, and deterministic. Tools must preserve stab
 | `signingKeyRotatedAt` | Rotation timestamp when `signingKeyStatus` is `past`; otherwise `null`. |
 | `unsignedLocalException` | `null` for signed packages. For unsigned `path:` or `file:` packages, records the explicit local-only policy exception that allowed install. |
 | `container` | `.mfp` container format major/minor. |
-| `bytecode` | MFB bytecode format major/minor. |
+| `binary representation` | MFB binary representation format major/minor. |
 | `abi` | ABI index format version and hash of the package's `ABI_INDEX` section. |
 | `native` | Native dependency metadata hash and resolved native requirements. |
 | `depends` | Resolved direct dependencies of this package. |
@@ -138,6 +138,6 @@ Registry and mirror endpoint URLs are not stored in `mfb.lock`; `source` values 
 
 `mfb pkg install` with a mismatched `projectHash` re-resolves the changed dependency requests and rewrites `mfb.lock`.
 
-`mfb pkg install --frozen` fails on any `projectHash` mismatch, missing package hash, signature failure, unsigned package without a valid recorded unsigned-local exception, metadata mismatch, unsupported package format, unsupported bytecode format, or native metadata mismatch.
+`mfb pkg install --frozen` fails on any `projectHash` mismatch, missing package hash, signature failure, unsigned package without a valid recorded unsigned-local exception, metadata mismatch, unsupported package format, unsupported binary representation format, or native metadata mismatch.
 
 `mfb pkg update [ident]` explicitly re-runs resolution for one package identity or all package identities and rewrites the lockfile with visible diffs.

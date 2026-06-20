@@ -4,8 +4,8 @@ Wrote AST to tests/primitive-string-concatenation/primitive_string_concatenation
 $ mfb build -ir tests/primitive-string-concatenation
 Wrote IR to tests/primitive-string-concatenation/primitive_string_concatenation.ir
 [exit 0]
-$ mfb build -bc tests/primitive-string-concatenation
-Wrote bytecode hex to tests/primitive-string-concatenation/primitive_string_concatenation.hex
+$ mfb build -br tests/primitive-string-concatenation
+Wrote binary representation hex to tests/primitive-string-concatenation/primitive_string_concatenation.hex
 [exit 0]
 $ mfb build tests/primitive-string-concatenation
 Wrote executable to tests/primitive-string-concatenation/primitive_string_concatenation.out

@@ -2,7 +2,7 @@ mod arch;
 mod ast;
 mod audit;
 mod builtins;
-mod bytecode;
+mod binary_repr;
 mod ir;
 mod lexer;
 mod man;
@@ -23,7 +23,7 @@ use std::path::{Path, PathBuf};
 use std::process;
 use tinyjson::JsonValue;
 
-const USAGE: &str = "Usage: mfb <command> <arguments>\n\nCommands:\n  help                        Show this message\n  init <location>             Create a new MFBASIC executable project\n  init-pkg <location>         Create a new MFBASIC package project\n  pkg add <url>               Add a compiled package to the current project\n  pkg info <package>          Show information about a compiled package\n  pkg verify                  Verify packages declared by project.json\n  build [-ast|-ir|-bc|-nir|-nplan|-nobj|-ncode] [-target os-arch] [location] Validate and build an MFBASIC project\n  audit [--format text|json] [--locked] [path] Report audit findings for a project\n  man [package] [function]    Show built-in package and function help";
+const USAGE: &str = "Usage: mfb <command> <arguments>\n\nCommands:\n  help                        Show this message\n  init <location>             Create a new MFBASIC executable project\n  init-pkg <location>         Create a new MFBASIC package project\n  pkg add <url>               Add a compiled package to the current project\n  pkg info <package>          Show information about a compiled package\n  pkg verify                  Verify packages declared by project.json\n  build [-ast|-ir|-br|-nir|-nplan|-nobj|-ncode] [-target os-arch] [location] Validate and build an MFBASIC project\n  audit [--format text|json] [--locked] [path] Report audit findings for a project\n  man [package] [function]    Show built-in package and function help";
 
 const MFP_MAGIC: [u8; 8] = [0x4d, 0x46, 0x50, 0x0d, 0x0a, 0x1a, 0x0a, 0x00];
 
@@ -128,7 +128,7 @@ enum BuildOutput {
     Validate,
     Ast,
     Ir,
-    Bytecode,
+    BinaryRepr,
     NativeIr,
     NativePlan,
     NativeObjectPlan,
@@ -152,11 +152,11 @@ fn parse_build_options(args: Vec<String>) -> Result<BuildOptions, String> {
                 return Err("mfb build accepts only one output mode".to_string());
             }
             output = BuildOutput::Ir;
-        } else if arg == "-bc" {
+        } else if arg == "-br" {
             if !matches!(output, BuildOutput::Validate) {
                 return Err("mfb build accepts only one output mode".to_string());
             }
-            output = BuildOutput::Bytecode;
+            output = BuildOutput::BinaryRepr;
         } else if arg == "-nir" {
             if !matches!(output, BuildOutput::Validate) {
                 return Err("mfb build accepts only one output mode".to_string());
@@ -329,7 +329,7 @@ fn build_project(options: &BuildOptions) -> Result<(), ()> {
             })?;
             println!("Wrote IR to {}", ir_path.display());
         }
-        BuildOutput::Bytecode => {
+        BuildOutput::BinaryRepr => {
             let packages =
                 installed_package_files(&options.location, &manifest).map_err(|err| {
                     eprintln!("error: {err}");
@@ -348,14 +348,14 @@ fn build_project(options: &BuildOptions) -> Result<(), ()> {
                 .get("version")
                 .and_then(|value| value.get::<String>())
                 .expect("validated project version");
-            // -bc dumps this project's own structured Binary IR. Imported
+            // -br dumps this project's own structured Binary Representation. Imported
             // packages are decoded and merged only in the native consumption
             // path; the hex dump reflects the project's own IR, not a merge.
-            let bytecode_path = bytecode::write_bytecode_hex(&options.location, &ir, version)
+            let binary_repr_path = binary_repr::write_binary_repr_hex(&options.location, &ir, version)
                 .map_err(|err| {
                     eprintln!("error: {err}");
                 })?;
-            println!("Wrote bytecode hex to {}", bytecode_path.display());
+            println!("Wrote binary representation hex to {}", binary_repr_path.display());
         }
         BuildOutput::NativeIr => {
             if project_kind == "package" {
@@ -607,7 +607,7 @@ fn print_package_info(path: &Path) -> Result<(), String> {
         fs::read(path).map_err(|err| format!("failed to read '{}': {err}", path.display()))?;
     let content_hash = target::package_mfp::package_content_hash(&package_bytes)?;
     let header = read_mfp_header(path)?;
-    let info = bytecode::read_package_info(path)?;
+    let info = binary_repr::read_package_info(path)?;
 
     println!("Package: {}", header.name);
     println!("Ident: {}", empty_marker(&header.ident));
@@ -632,8 +632,8 @@ fn print_package_info(path: &Path) -> Result<(), String> {
         header.container_major, header.container_minor
     );
     println!(
-        "  bytecode version: {}.{}",
-        header.bytecode_major, header.bytecode_minor
+        "  binary representation version: {}.{}",
+        header.binary_repr_major, header.binary_repr_minor
     );
     println!("  flags: 0x{:08x}", header.flags);
     println!(
@@ -642,7 +642,7 @@ fn print_package_info(path: &Path) -> Result<(), String> {
     );
     println!("  signature length: {}", header.signature_length);
     println!("  content hash: {}", hex_bytes(&content_hash));
-    println!("  bytecode length: {}", header.bytecode_length);
+    println!("  binary representation length: {}", header.binary_repr_length);
     println!();
     println!("Manifest:");
     println!("  name: {}", info.manifest_name);
@@ -660,7 +660,7 @@ fn print_package_info(path: &Path) -> Result<(), String> {
     println!("  author: {}", empty_marker(&info.author));
     println!("  url: {}", empty_marker(&info.url));
     println!();
-    println!("Bytecode:");
+    println!("Binary Representation:");
     println!("  ABI format version: {}", info.abi_format_version);
     println!("  types: {}", info.type_count);
     println!("  constants: {}", info.const_count);
@@ -755,13 +755,13 @@ fn hex_bytes(bytes: &[u8]) -> String {
     bytes.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
-fn package_export_kind_name(kind: bytecode::BytecodeExportKind) -> &'static str {
+fn package_export_kind_name(kind: binary_repr::BinaryReprExportKind) -> &'static str {
     match kind {
-        bytecode::BytecodeExportKind::Func => "FUNC",
-        bytecode::BytecodeExportKind::Sub => "SUB",
-        bytecode::BytecodeExportKind::Type => "TYPE",
-        bytecode::BytecodeExportKind::Union => "UNION",
-        bytecode::BytecodeExportKind::Enum => "ENUM",
+        binary_repr::BinaryReprExportKind::Func => "FUNC",
+        binary_repr::BinaryReprExportKind::Sub => "SUB",
+        binary_repr::BinaryReprExportKind::Type => "TYPE",
+        binary_repr::BinaryReprExportKind::Union => "UNION",
+        binary_repr::BinaryReprExportKind::Enum => "ENUM",
     }
 }
 
@@ -1248,12 +1248,12 @@ struct MfpHeader {
     url: String,
     container_major: u16,
     container_minor: u16,
-    bytecode_major: u16,
-    bytecode_minor: u16,
+    binary_repr_major: u16,
+    binary_repr_minor: u16,
     flags: u32,
     signature_type: u16,
     signature_length: usize,
-    bytecode_length: usize,
+    binary_repr_length: usize,
 }
 
 struct ProjectPackageDependency {
@@ -1348,8 +1348,8 @@ fn read_mfp_header(path: &Path) -> Result<MfpHeader, String> {
         ));
     }
     let container_minor = read_u16(&bytes, 10)?;
-    let bytecode_major = read_u16(&bytes, 12)?;
-    let bytecode_minor = read_u16(&bytes, 14)?;
+    let binary_repr_major = read_u16(&bytes, 12)?;
+    let binary_repr_minor = read_u16(&bytes, 14)?;
     let flags = read_u32(&bytes, 16)?;
 
     let signature_type = read_u16(&bytes, 20)?;
@@ -1377,13 +1377,13 @@ fn read_mfp_header(path: &Path) -> Result<MfpHeader, String> {
         read_mfp_string(&bytes, &mut offset, "signingFingerprint", 255, false)?;
     let author = read_mfp_string(&bytes, &mut offset, "author", 512, false)?;
     let url = read_mfp_string(&bytes, &mut offset, "url", 2048, false)?;
-    let bytecode_length = read_u64(&bytes, offset)? as usize;
+    let binary_repr_length = read_u64(&bytes, offset)? as usize;
     offset = offset
         .checked_add(8)
-        .and_then(|offset| offset.checked_add(bytecode_length))
-        .ok_or_else(|| "invalid .mfp bytecode length".to_string())?;
+        .and_then(|offset| offset.checked_add(binary_repr_length))
+        .ok_or_else(|| "invalid .mfp binary representation length".to_string())?;
     if offset != bytes.len() {
-        return Err("invalid .mfp bytecode length".to_string());
+        return Err("invalid .mfp binary representation length".to_string());
     }
 
     Ok(MfpHeader {
@@ -1397,12 +1397,12 @@ fn read_mfp_header(path: &Path) -> Result<MfpHeader, String> {
         url,
         container_major,
         container_minor,
-        bytecode_major,
-        bytecode_minor,
+        binary_repr_major,
+        binary_repr_minor,
         flags,
         signature_type,
         signature_length,
-        bytecode_length,
+        binary_repr_length,
     })
 }
 
@@ -1821,7 +1821,7 @@ fn installed_package_files(
                 Ok(package_file)
             } else {
                 Err(format!(
-                    "package `{}` must be installed as '{}' before bytecode merging",
+                    "package `{}` must be installed as '{}' before binary representation merging",
                     dependency.name,
                     package_file.display()
                 ))
@@ -1856,7 +1856,7 @@ fn external_package_function_types_from_files(
     let mut params = HashMap::new();
     for package in packages {
         let header = read_mfp_header(package)?;
-        for export in bytecode::read_package_exports(package)? {
+        for export in binary_repr::read_package_exports(package)? {
             let name = format!("{}.{}", header.name, export.name);
             functions.insert(name.clone(), package_export_function_type(&export));
             params.insert(
@@ -1887,7 +1887,7 @@ fn external_package_function_types_from_files_lossy(
         let Ok(header) = read_mfp_header(package) else {
             continue;
         };
-        let Ok(exports) = bytecode::read_package_exports(package) else {
+        let Ok(exports) = binary_repr::read_package_exports(package) else {
             continue;
         };
         for export in exports {
@@ -1909,7 +1909,7 @@ fn external_package_function_types_from_files_lossy(
     (functions, params)
 }
 
-fn package_export_function_type(export: &bytecode::BytecodeExport) -> String {
+fn package_export_function_type(export: &binary_repr::BinaryReprExport) -> String {
     let params = export
         .params
         .iter()
@@ -1920,7 +1920,7 @@ fn package_export_function_type(export: &bytecode::BytecodeExport) -> String {
     format!("{prefix}FUNC({params}) AS {}", export.return_type)
 }
 
-fn package_metadata(manifest: &HashMap<String, JsonValue>) -> bytecode::BytecodeMetadata {
+fn package_metadata(manifest: &HashMap<String, JsonValue>) -> binary_repr::BinaryReprMetadata {
     let name = manifest
         .get("name")
         .and_then(|value| value.get::<String>())
@@ -1931,7 +1931,7 @@ fn package_metadata(manifest: &HashMap<String, JsonValue>) -> bytecode::Bytecode
         .and_then(|value| value.get::<String>())
         .expect("validated project version")
         .clone();
-    let mut metadata = bytecode::BytecodeMetadata::new(name, version);
+    let mut metadata = binary_repr::BinaryReprMetadata::new(name, version);
     metadata.ident = manifest
         .get("ident")
         .and_then(|value| value.get::<String>())
@@ -1971,7 +1971,7 @@ fn package_metadata(manifest: &HashMap<String, JsonValue>) -> bytecode::Bytecode
 
 fn package_dependencies(
     manifest: &HashMap<String, JsonValue>,
-) -> Vec<bytecode::BytecodeDependency> {
+) -> Vec<binary_repr::BinaryReprDependency> {
     manifest
         .get("packages")
         .and_then(|value| value.get::<Vec<JsonValue>>())
@@ -1995,7 +1995,7 @@ fn package_dependencies(
                 .and_then(|value| value.get::<bool>())
                 .copied()
                 .unwrap_or(false);
-            Some(bytecode::BytecodeDependency {
+            Some(binary_repr::BinaryReprDependency {
                 name,
                 ident,
                 version,

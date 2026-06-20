@@ -4,8 +4,8 @@ Wrote AST to tests/primitive-byte-bindings/primitive_byte_bindings.ast
 $ mfb build -ir tests/primitive-byte-bindings
 Wrote IR to tests/primitive-byte-bindings/primitive_byte_bindings.ir
 [exit 0]
-$ mfb build -bc tests/primitive-byte-bindings
-Wrote bytecode hex to tests/primitive-byte-bindings/primitive_byte_bindings.hex
+$ mfb build -br tests/primitive-byte-bindings
+Wrote binary representation hex to tests/primitive-byte-bindings/primitive_byte_bindings.hex
 [exit 0]
 $ mfb build -nir tests/primitive-byte-bindings
 Wrote native IR to tests/primitive-byte-bindings/primitive_byte_bindings.nir

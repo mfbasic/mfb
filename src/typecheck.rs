@@ -4,9 +4,9 @@ use crate::ast::{
     Visibility,
 };
 use crate::builtins;
-use crate::bytecode::{
-    self, BytecodeExportKind, BytecodeTypeExport, BytecodeTypeField, BytecodeTypeVariant,
-    BytecodeTypeVisibility,
+use crate::binary_repr::{
+    self, BinaryReprExportKind, BinaryReprTypeExport, BinaryReprTypeField, BinaryReprTypeVariant,
+    BinaryReprTypeVisibility,
 };
 use crate::numeric;
 use crate::rules;
@@ -235,7 +235,7 @@ impl<'a> TypeChecker<'a> {
                 if !package_file.is_file() {
                     continue;
                 }
-                let Ok(type_exports) = bytecode::read_package_type_exports(&package_file) else {
+                let Ok(type_exports) = binary_repr::read_package_type_exports(&package_file) else {
                     self.report(
                         "PACKAGE_INVALID",
                         &format!(
@@ -266,11 +266,11 @@ impl<'a> TypeChecker<'a> {
         file: &AstFile,
         line: usize,
         package_file: &Path,
-        type_export: &BytecodeTypeExport,
+        type_export: &BinaryReprTypeExport,
     ) {
         let mut seen = HashSet::new();
         match type_export.kind {
-            BytecodeExportKind::Type => {
+            BinaryReprExportKind::Type => {
                 let type_ = Type::User(type_export.name.clone());
                 self.validate_package_metadata_type(
                     file,
@@ -281,7 +281,7 @@ impl<'a> TypeChecker<'a> {
                     &mut seen,
                 );
             }
-            BytecodeExportKind::Union => {
+            BinaryReprExportKind::Union => {
                 let type_ = Type::User(type_export.name.clone());
                 self.validate_package_metadata_type(
                     file,
@@ -292,8 +292,8 @@ impl<'a> TypeChecker<'a> {
                     &mut seen,
                 );
             }
-            BytecodeExportKind::Enum => {}
-            BytecodeExportKind::Func | BytecodeExportKind::Sub => {}
+            BinaryReprExportKind::Enum => {}
+            BinaryReprExportKind::Func | BinaryReprExportKind::Sub => {}
         }
     }
 
@@ -450,7 +450,7 @@ impl<'a> TypeChecker<'a> {
                 if !package_file.is_file() {
                     continue;
                 }
-                let Ok(exports) = bytecode::read_package_exports(&package_file) else {
+                let Ok(exports) = binary_repr::read_package_exports(&package_file) else {
                     self.report(
                         "PACKAGE_INVALID",
                         &format!(
@@ -464,11 +464,11 @@ impl<'a> TypeChecker<'a> {
                 for export in exports {
                     let sig = FunctionSig {
                         kind: match export.kind {
-                            BytecodeExportKind::Func => FunctionKind::Func,
-                            BytecodeExportKind::Sub => FunctionKind::Sub,
-                            BytecodeExportKind::Type
-                            | BytecodeExportKind::Union
-                            | BytecodeExportKind::Enum => continue,
+                            BinaryReprExportKind::Func => FunctionKind::Func,
+                            BinaryReprExportKind::Sub => FunctionKind::Sub,
+                            BinaryReprExportKind::Type
+                            | BinaryReprExportKind::Union
+                            | BinaryReprExportKind::Enum => continue,
                         },
                         params: export
                             .params
@@ -533,8 +533,8 @@ impl<'a> TypeChecker<'a> {
         );
     }
 
-    fn install_package_type_info(&mut self, package_file: &Path, type_export: BytecodeTypeExport) {
-        let BytecodeTypeExport {
+    fn install_package_type_info(&mut self, package_file: &Path, type_export: BinaryReprTypeExport) {
+        let BinaryReprTypeExport {
             name,
             kind,
             fields,
@@ -543,10 +543,10 @@ impl<'a> TypeChecker<'a> {
         } = type_export;
         self.user_types.insert(name.clone());
         let kind = match kind {
-            BytecodeExportKind::Type => TypeDeclKind::Type,
-            BytecodeExportKind::Union => TypeDeclKind::Union,
-            BytecodeExportKind::Enum => TypeDeclKind::Enum,
-            BytecodeExportKind::Func | BytecodeExportKind::Sub => return,
+            BinaryReprExportKind::Type => TypeDeclKind::Type,
+            BinaryReprExportKind::Union => TypeDeclKind::Union,
+            BinaryReprExportKind::Enum => TypeDeclKind::Enum,
+            BinaryReprExportKind::Func | BinaryReprExportKind::Sub => return,
         };
         self.user_type_kinds.insert(name.clone(), kind);
         self.type_infos.insert(
@@ -568,19 +568,19 @@ impl<'a> TypeChecker<'a> {
         );
     }
 
-    fn package_field_info(&self, field: BytecodeTypeField) -> FieldInfo {
+    fn package_field_info(&self, field: BinaryReprTypeField) -> FieldInfo {
         FieldInfo {
             name: field.name,
             type_: self.parse_type(&field.type_),
             visibility: match field.visibility {
-                BytecodeTypeVisibility::Private => Visibility::Private,
-                BytecodeTypeVisibility::Package => Visibility::Package,
-                BytecodeTypeVisibility::Export => Visibility::Export,
+                BinaryReprTypeVisibility::Private => Visibility::Private,
+                BinaryReprTypeVisibility::Package => Visibility::Package,
+                BinaryReprTypeVisibility::Export => Visibility::Export,
             },
         }
     }
 
-    fn package_variant_info(&self, variant: BytecodeTypeVariant) -> VariantConstructor {
+    fn package_variant_info(&self, variant: BinaryReprTypeVariant) -> VariantConstructor {
         VariantConstructor {
             name: variant.name,
             union_name: String::new(),

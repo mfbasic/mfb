@@ -11,12 +11,12 @@ Path: tests/package-cleanup-audit/package_cleanup_audit.mfp
 Container:
   format: MFP
   version: 1.0
-  bytecode version: 1.0
+  binary representation version: 1.0
   flags: 0x00000000
   signature type: unsigned
   signature length: 0
-  content hash: 1c146f40876809973d723f428f4ee8ddd4ebac1763665483bc84ed0d61856067
-  bytecode length: 769
+  content hash: a34f5cd1c154ba35a537e1107ea374963a63bba91656234583bdad0d461d6a79
+  binary representation length: 769
 
 Manifest:
   name: package_cleanup_audit
@@ -28,7 +28,7 @@ Manifest:
   author: <empty>
   url: <empty>
 
-Bytecode:
+Binary Representation:
   ABI format version: 1
   types: 0
   constants: 0

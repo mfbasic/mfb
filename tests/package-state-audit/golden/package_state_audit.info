@@ -11,12 +11,12 @@ Path: tests/package-state-audit/package_state_audit.mfp
 Container:
   format: MFP
   version: 1.0
-  bytecode version: 1.0
+  binary representation version: 1.0
   flags: 0x00000000
   signature type: unsigned
   signature length: 0
-  content hash: 333f171b74880e8c161489c36ad818a722e6a37842c558857b1397585f98b133
-  bytecode length: 815
+  content hash: 727905e43f714daa7f15ad249d37f45968812545816f41407123cc0290e30e3b
+  binary representation length: 815
 
 Manifest:
   name: package_state_audit
@@ -28,7 +28,7 @@ Manifest:
   author: <empty>
   url: <empty>
 
-Bytecode:
+Binary Representation:
   ABI format version: 1
   types: 0
   constants: 0

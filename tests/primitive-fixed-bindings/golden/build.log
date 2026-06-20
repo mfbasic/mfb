@@ -4,8 +4,8 @@ Wrote AST to tests/primitive-fixed-bindings/primitive_fixed_bindings.ast
 $ mfb build -ir tests/primitive-fixed-bindings
 Wrote IR to tests/primitive-fixed-bindings/primitive_fixed_bindings.ir
 [exit 0]
-$ mfb build -bc tests/primitive-fixed-bindings
-Wrote bytecode hex to tests/primitive-fixed-bindings/primitive_fixed_bindings.hex
+$ mfb build -br tests/primitive-fixed-bindings
+Wrote binary representation hex to tests/primitive-fixed-bindings/primitive_fixed_bindings.hex
 [exit 0]
 $ mfb build tests/primitive-fixed-bindings
 Wrote executable to tests/primitive-fixed-bindings/primitive_fixed_bindings.out

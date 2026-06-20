@@ -45,7 +45,7 @@ Identifiers are case-sensitive, so `userId` and `userid` are distinct. Tooling s
 
 MFBASIC supports monomorphized templates, not runtime generics.
 
-Template parameters may appear only on `TYPE`, `UNION`, `FUNC`, and `SUB` declarations. A template is not a runtime entity and is not emitted to bytecode as an open declaration. Every used instantiation is resolved during compilation into a concrete declaration before IR, bytecode, package metadata, or native lowering is produced.
+Template parameters may appear only on `TYPE`, `UNION`, `FUNC`, and `SUB` declarations. A template is not a runtime entity and is not emitted to binary representation as an open declaration. Every used instantiation is resolved during compilation into a concrete declaration before IR, binary representation, package metadata, or native lowering is produced.
 
 Built-in type constructors such as `List`, `Map`, and `Thread` are compiler-owned templates. User code may define templates with the same `OF` syntax where allowed:
 
@@ -79,7 +79,7 @@ END FUNC
 
 The `K` parameter above must be comparable because every concrete `Map` key type must be comparable. The requirement is checked when `getOrDefault` is instantiated, not through a separate bound or trait declaration.
 
-Exported templates in source packages are instantiated by the importing compilation before bytecode is produced. A compiled `.mfp` package contains only concrete template instantiations; it does not expose templates for later instantiation unless a future package format explicitly adds signed template metadata.
+Exported templates in source packages are instantiated by the importing compilation before binary representation is produced. A compiled `.mfp` package contains only concrete template instantiations; it does not expose templates for later instantiation unless a future package format explicitly adds signed template metadata.
 
 ---
 
@@ -322,7 +322,7 @@ name, construct, or match.
 > **Implementation note.** Internally the runtime represents every fallible
 > outcome as a two-member union (a private success member plus the public
 > `Error`). That type is not nameable, constructible, or matchable in user code;
-> it exists only in compiler IR and bytecode metadata, and is never observable in
+> it exists only in compiler IR and binary representation metadata, and is never observable in
 > user syntax.
 
 ### 4.5 Enums
@@ -369,7 +369,7 @@ Map OF K TO V                      ' owned map
 MapEntry OF K TO V                 ' map iteration entry
 ```
 
-`List`, `Map`, and `MapEntry` are built-in templates. Each concrete use, such as `List OF Integer`, `Map OF String TO Float`, or `MapEntry OF String TO Float`, is monomorphized before bytecode generation. There is one sequence type, `List`. There are no fixed-size arrays and no `DIM`. See §12.
+`List`, `Map`, and `MapEntry` are built-in templates. Each concrete use, such as `List OF Integer`, `Map OF String TO Float`, or `MapEntry OF String TO Float`, is monomorphized before binary representation generation. There is one sequence type, `List`. There are no fixed-size arrays and no `DIM`. See §12.
 
 `MapEntry OF K TO V` is the compiler-owned record shape used when iterating a map. It has public read-only fields `key AS K` and `value AS V`.
 
@@ -692,7 +692,7 @@ Environment access outside command-line arguments is outside the core language s
 ### 8.8 Desugaring
 
 This sketch is **compiler-internal**: it describes how source desugars into
-**structured IR** (the same IR that is serialized as the package's Binary IR).
+**structured IR** (the same IR that is serialized as the package's Binary Representation).
 `Result`, `Ok`, and `Err` below are the runtime's private representation of a
 fallible outcome (§4.4), not types a user writes. The control flow is
 structured: a function-level `TRAP` is a nested region with an explicit end, not
@@ -727,7 +727,7 @@ FUNC f(a AS A) AS T            =>   FUNC f(a AS A) AS Result OF T
     RETURN v       =>  RETURN Ok(v)
 ```
 
-A call used as a `MATCH` scrutinee **is** rewritten like any other call (it auto-unwraps). No real exceptions, no stack unwinding, no jumps — pure structured value flow that serializes directly into the package's Binary IR.
+A call used as a `MATCH` scrutinee **is** rewritten like any other call (it auto-unwraps). No real exceptions, no stack unwinding, no jumps — pure structured value flow that serializes directly into the package's Binary Representation.
 
 ---
 
@@ -978,9 +978,9 @@ Version constraints use semantic-version ranges such as exact `=1.2.3`, compatib
 
 The package resolver produces one selected version for each package identity. If two constraints cannot be satisfied by the same version, resolution fails with a package-version diagnostic; the compiler does not load multiple versions of the same package identity into one program.
 
-A package may import a source package or an `.mfp` package. Imported `.mfp` packages must have a compatible bytecode/package format version, compatible public API metadata, and an MFBASIC language version supported by the compiler.
+A package may import a source package or an `.mfp` package. Imported `.mfp` packages must have a compatible binary representation/package format version, compatible public API metadata, and an MFBASIC language version supported by the compiler.
 
-Executable builds use a lockfile named `mfb.lock`. The lockfile records the exact selected package identity, version, source or registry alias, content hash, bytecode/package version, native dependency metadata hash, and transitive dependencies. Locked builds must use the lockfile selections exactly; a hash or version mismatch fails before compilation, IR merging, or native linking.
+Executable builds use a lockfile named `mfb.lock`. The lockfile records the exact selected package identity, version, source or registry alias, content hash, binary representation/package version, native dependency metadata hash, and transitive dependencies. Locked builds must use the lockfile selections exactly; a hash or version mismatch fails before compilation, IR merging, or native linking.
 
 An **isolated function** is an exported top-level `FUNC` declared with `ISOLATED`. When an isolated function is used as a thread entry point, the runtime starts it in a fresh instance of its package. Starting isolated functions from the same package multiple times creates multiple independent instances; their top-level `MUT` bindings are not shared with each other or with the importing package.
 
@@ -1077,7 +1077,7 @@ The compiler must diagnose:
 - Storing resources or thread handles in ordinary collections.
 - Any control-flow path that could drop the same resource or owned value more than once.
 
-`.mfp` packages must preserve enough ownership metadata for import-time type checking and Binary IR verification (§21).
+`.mfp` packages must preserve enough ownership metadata for import-time type checking and Binary Representation verification (§21).
 At minimum, exported type shape metadata must remain sufficient to reconstruct copyability, resource/thread containment, and drop-sensitive ownership checks when imported packages participate in move analysis.
 
 ---
@@ -1179,7 +1179,7 @@ When a thread ends, its inbound queue is closed and further parent-side sends fa
 
 ## 17. Native Libraries
 
-Native libraries are host dynamic libraries loaded through reusable `.mfp` binding packages. MFBASIC code cannot call arbitrary C symbols directly. A package that contains a `LINK` block declares the library name, its package-like namespace, opaque resource types, and the typed wrapper functions that are visible to MFBASIC code. Compiling that package emits a normal `.mfp` (structured Binary IR) plus native binding metadata.
+Native libraries are host dynamic libraries loaded through reusable `.mfp` binding packages. MFBASIC code cannot call arbitrary C symbols directly. A package that contains a `LINK` block declares the library name, its package-like namespace, opaque resource types, and the typed wrapper functions that are visible to MFBASIC code. Compiling that package emits a normal `.mfp` (structured Binary Representation) plus native binding metadata.
 
 Application packages do not repeat a dependency's `LINK` block. They import the binding package normally with `IMPORT`, call its exported wrapper functions, and use its resource types through ordinary ownership and lexical-drop behavior. Final executable builds collect native dependencies from all imported `.mfp` packages, resolve them once for the target platform, validate their manifests, and link or load the declared native libraries before `main`.
 
@@ -1297,7 +1297,7 @@ Rules:
 - `RESOURCE` is a declaration form for concrete opaque unique-handle types; it is not an inheritance base type and cannot be used as a generic catch-all type.
 - Native resource ownership must be declared with `TYPE ... AS RESOURCE` and `CLOSE`; raw `CPtr` values must not escape into ordinary MFBASIC APIs.
 - `REF` and `OUT` native pointer values are temporary call-frame values. Native code must not retain them after return; if a binding needs retained native storage, it must model that storage as a declared `RESOURCE`.
-- Native libraries are platform-specific dependencies. A `.mfp` package may declare that it needs a native library, including version, search policy, platform constraints, and content/hash requirements, but the native library itself is not portable bytecode.
+- Native libraries are platform-specific dependencies. A `.mfp` package may declare that it needs a native library, including version, search policy, platform constraints, and content/hash requirements, but the native library itself is not portable binary representation.
 
 ---
 
@@ -1599,12 +1599,12 @@ The resulting model is `extraShape = shape + extraShape additions`, but the type
 
 ## 21. Build Artifacts
 
-MFBASIC uses source files for authoring, portable bytecode packages, and native binaries for executables.
+MFBASIC uses source files for authoring, portable binary representation packages, and native binaries for executables.
 
 | Artifact | Extension | Purpose |
 |----------|-----------|---------|
 | Source file | `.mfb` | Human-authored source code. The `.mfb` files selected by a project's `project.json` together form that project's source package (§13). |
-| Package | `.mfp` | Architecture-neutral bytecode package. Its payload is **structured Binary IR** (a faithful, versioned serialization of the compiler's IR) plus an embedded package manifest, public API metadata, dependency metadata, and optional native-link metadata. A compiled package can be built on one platform and imported on any platform that supports the same MFB bytecode/package version. |
+| Package | `.mfp` | Architecture-neutral binary representation package. Its payload is **structured Binary Representation** (a faithful, versioned serialization of the compiler's IR) plus an embedded package manifest, public API metadata, dependency metadata, and optional native-link metadata. A compiled package can be built on one platform and imported on any platform that supports the same MFB binary representation/package version. |
 | Executable | platform-native | Final application binary for the target OS/CPU. Executables compile application code plus imported `.mfp` packages to native code. |
 
 The backend pipeline is:
@@ -1612,24 +1612,24 @@ The backend pipeline is:
 ```text
 .mfb source
   -> IR (typed, structured program representation)
-  -> Binary IR (.mfp package)
+  -> Binary Representation (.mfp package)
        or
   -> NIR -> native executable
 ```
 
-A package build stops at Binary IR: `IR -> Binary IR (.mfp)`, a faithful structured serialization with no flattening or structure loss. An executable build lowers the project's own IR through `IR -> NIR -> native`. Consuming a package **decodes** its Binary IR back into IR functions, merges them into the project IR, and lowers everything through that same single `IR -> NIR -> native` path — there is no separate package bytecode-to-native bridge.
+A package build stops at Binary Representation: `IR -> Binary Representation (.mfp)`, a faithful structured serialization with no flattening or structure loss. An executable build lowers the project's own IR through `IR -> NIR -> native`. Consuming a package **decodes** its Binary Representation back into IR functions, merges them into the project IR, and lowers everything through that same single `IR -> NIR -> native` path — there is no separate package binary representation-to-native bridge.
 
-Package compilation emits `.mfp` packages containing portable Binary IR plus the embedded package manifest, dependency metadata, native-link metadata, and public API metadata needed for import, type checking, IR merging, and verification. This metadata includes each exported type and function's ownership properties: copyability, movability, resource-handle status, closure-capture requirements, thread-sendability, drop requirements, and collection element constraints. A package containing `LINK` declarations emits a reusable native binding `.mfp`: importers consume the package API and do not repeat the `LINK` declarations.
+Package compilation emits `.mfp` packages containing portable Binary Representation plus the embedded package manifest, dependency metadata, native-link metadata, and public API metadata needed for import, type checking, IR merging, and verification. This metadata includes each exported type and function's ownership properties: copyability, movability, resource-handle status, closure-capture requirements, thread-sendability, drop requirements, and collection element constraints. A package containing `LINK` declarations emits a reusable native binding `.mfp`: importers consume the package API and do not repeat the `LINK` declarations.
 
-Executable compilation consumes `.mfb` application source, the resolved `mfb.lock`, and imported `.mfp` packages. The compiler decodes each imported package's Binary IR and merges its IR functions into the project IR under the package's identity prefix, resolving package-qualified MFBASIC calls to functions in the merged IR. After the IR merge, the native backend lowers everything through `IR -> NIR -> native`, resolves all native dependencies declared by the merged packages, performs target OS/native linking as needed, and emits a native binary for the selected target platform.
+Executable compilation consumes `.mfb` application source, the resolved `mfb.lock`, and imported `.mfp` packages. The compiler decodes each imported package's Binary Representation and merges its IR functions into the project IR under the package's identity prefix, resolving package-qualified MFBASIC calls to functions in the merged IR. After the IR merge, the native backend lowers everything through `IR -> NIR -> native`, resolves all native dependencies declared by the merged packages, performs target OS/native linking as needed, and emits a native binary for the selected target platform.
 
-### 21.1 `.mfp` Binary IR verification
+### 21.1 `.mfp` Binary Representation verification
 
-Every `.mfp` package is verified before its Binary IR can be decoded, merged into the project IR, or lowered. Verification operates on the **decoded IR**, not a flat opcode stream, and is deterministic: it must reject malformed packages before any package code runs. Because the Binary IR is structured (nested regions with explicit ends), structure is explicit — there is no control-flow graph to reconstruct and no "jump into a trap or cleanup region" to reject — and most invariants reuse the compiler's existing IR-level passes.
+Every `.mfp` package is verified before its Binary Representation can be decoded, merged into the project IR, or lowered. Verification operates on the **decoded IR**, not a flat opcode stream, and is deterministic: it must reject malformed packages before any package code runs. Because the Binary Representation is structured (nested regions with explicit ends), structure is explicit — there is no control-flow graph to reconstruct and no "jump into a trap or cleanup region" to reject — and most invariants reuse the compiler's existing IR-level passes.
 
 The verifier must check:
 
-- Package metadata is well-formed, uses a supported bytecode/package (Binary IR) version, satisfies the resolved manifest and lockfile entries, and matches the Binary IR body.
+- Package metadata is well-formed, uses a supported binary representation/package (Binary Representation) version, satisfies the resolved manifest and lockfile entries, and matches the Binary Representation body.
 - The package signature, hash, or trust record is valid when the build mode requires signed or locked dependencies.
 - Public API metadata is consistent with the IR definitions, including exported names, type shapes, function signatures, ownership properties, and native-link declarations.
 - Every IR node is type-correct. Operand types, result types, call signatures, record fields, union member types, collection element types, and `Result` handling (`CallResult`, `ResultIsOk`/`ResultValue`/`ResultError`) must match the typed metadata.
@@ -1643,7 +1643,7 @@ The verifier must check:
 
 Verification failure rejects the package with a toolchain diagnostic. It is not recoverable by program `TRAP` code because no package code has started running.
 
-A future VM is not foreclosed: it would either interpret the structured, typed Binary IR directly or lower it through the same `IR -> NIR -> native` path. The artifact contract remains: packages are portable `.mfp` Binary IR packages; executables are native platform binaries.
+A future VM is not foreclosed: it would either interpret the structured, typed Binary Representation directly or lower it through the same `IR -> NIR -> native` path. The artifact contract remains: packages are portable `.mfp` Binary Representation packages; executables are native platform binaries.
 
 ---
 

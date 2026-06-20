@@ -1,0 +1,17 @@
+' `Result` is a runtime-only type: a call's outcome is auto-unwrapped on
+' success or auto-propagated (or caught by an inline `TRAP`) on failure. A user
+' can never scrutinize the implicit `Result` with `MATCH`, so `CASE Ok` and
+' `CASE Error` are rejected with TYPE_RESULT_NOT_MATCHABLE.
+FUNC parse(value AS Integer) AS Integer
+  IF value < 0 THEN FAIL Error[900, "negative"]
+  RETURN value
+END FUNC
+
+FUNC main AS Integer
+  MATCH parse(5)
+    CASE Ok(value)
+      RETURN value
+    CASE Error(err)
+      RETURN err.code
+  END MATCH
+END FUNC

@@ -1,9 +1,10 @@
-use crate::bytecode;
+use crate::binary_repr;
 use crate::ir::{
     EntryPoint, IrBinding, IrEnumMember, IrField, IrFunction, IrMatchCase, IrMatchPattern, IrOp,
     IrParam, IrProject, IrRecordUpdate, IrType, IrValue, IrVariant,
 };
 use crate::json_string;
+use std::collections::HashSet;
 use std::path::PathBuf;
 
 use super::runtime::RuntimeHelper;
@@ -270,19 +271,30 @@ pub(crate) fn lower_module(
     })
 }
 
-/// Decode each imported package's structured Binary IR and merge it into `ir`,
+/// Decode each imported package's structured Binary Representation and merge it into `ir`,
 /// namespacing package symbols so the consumer's existing `pkg.symbol` references
 /// resolve. The returned project carries the executable's and every package's
 /// functions/types/globals together.
 pub(crate) fn merge_packages(ir: &IrProject, packages: &[PathBuf]) -> Result<IrProject, String> {
     let mut merged = ir.clone();
+    // Per package: (identity id, the `package.symbol` names the consumer/other
+    // packages reference). Collected so external references can be rewritten to
+    // the identity-prefixed definitions after every package is merged.
+    let mut identities: Vec<(String, HashSet<String>, HashSet<String>)> = Vec::new();
     for package in packages {
-        let mut package_ir = bytecode::read_package_ir(package)?;
+        let (id, mut package_ir) = binary_repr::read_package_ir_with_identity(package)?;
         // Verify the decoded package IR against the package-format invariants
         // before it is merged (decode already rejected bad version/bytes).
         crate::ir::verify_package(&package_ir)?;
-        crate::ir::prefix_package_symbols(&mut package_ir);
+        let (ref_fns, ref_globals) = crate::ir::package_qualified_reference_names(&package_ir);
+        crate::ir::prefix_package_symbols(&mut package_ir, &id);
+        identities.push((id, ref_fns, ref_globals));
         crate::ir::merge_package(&mut merged, package_ir);
+    }
+    // Rewrite the consumer's (and inter-package) references from `package.symbol`
+    // to the merged definitions' identity-prefixed `<id>.package.symbol` form.
+    for (id, ref_fns, ref_globals) in &identities {
+        crate::ir::apply_package_identity(&mut merged, ref_fns, ref_globals, id);
     }
     Ok(merged)
 }

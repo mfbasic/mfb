@@ -11,12 +11,12 @@ Path: tests/package-workers/package_workers.mfp
 Container:
   format: MFP
   version: 1.0
-  bytecode version: 1.0
+  binary representation version: 1.0
   flags: 0x00000000
   signature type: unsigned
   signature length: 0
-  content hash: b5d74294ca4adf3875fa5c1f2490d105a1b1da01c1e7bc3e113f1d95bbf3c322
-  bytecode length: 2026
+  content hash: c229288de4eaa689b1a59b8ae746dc736ce9267915a977b229078da6ea26d297
+  binary representation length: 2026
 
 Manifest:
   name: package_workers
@@ -28,7 +28,7 @@ Manifest:
   author: <empty>
   url: <empty>
 
-Bytecode:
+Binary Representation:
   ABI format version: 1
   types: 5
   constants: 0

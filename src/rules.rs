@@ -709,7 +709,7 @@ pub const RULES: &[Rule] = &[
         code: "2-205-0001",
         name: "PACKAGE_VERSION_UNSUPPORTED",
         severity: Severity::Error,
-        message: "package bytecode or metadata version is unsupported",
+        message: "package binary representation or metadata version is unsupported",
     },
     Rule {
         code: "2-205-0002",
@@ -721,7 +721,7 @@ pub const RULES: &[Rule] = &[
         code: "3-302-0001",
         name: "VERIFICATION_FAILED",
         severity: Severity::Error,
-        message: "bytecode or native validation failed",
+        message: "binary representation or native validation failed",
     },
     Rule {
         code: "3-304-0001",

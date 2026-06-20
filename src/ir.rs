@@ -583,7 +583,7 @@ fn lower_statement(
                 let base = lower_expression(value, locals, context);
                 // Implicitly wrap a returned member constructor into the
                 // function's declared union return type, so the wrap is explicit
-                // in the IR (and faithfully serialized into Binary IR) rather
+                // in the IR (and faithfully serialized into Binary Representation) rather
                 // than re-derived during native codegen.
                 let expected = context.current_return_type.clone();
                 wrap_union_value(base, value, expected.as_deref(), locals, context)
@@ -3282,7 +3282,7 @@ fn visibility_name(visibility: Visibility) -> &'static str {
 }
 
 // ===========================================================================
-// Binary IR (structured) encode/decode
+// Binary Representation (structured) encode/decode
 // ===========================================================================
 //
 // The package payload is a faithful, versioned binary serialization of the
@@ -3295,13 +3295,13 @@ fn visibility_name(visibility: Visibility) -> &'static str {
 // The format is self-contained: strings are inline length-prefixed, integers
 // are little-endian. There is no separate interned pool here — the `.mfp`
 // container's tables (manifest/ABI/import/export) are kept and derived
-// alongside this payload by `bytecode.rs`, but a function body is faithfully
+// alongside this payload by `binary_repr.rs`, but a function body is faithfully
 // reconstructable from this payload alone.
 
-/// Magic bytes prefixing a Binary IR payload.
-pub const BINARY_IR_MAGIC: &[u8; 4] = b"MFIR";
-/// Binary IR format version. Bump on any incompatible change to the encoding.
-pub const BINARY_IR_VERSION: u16 = 1;
+/// Magic bytes prefixing a Binary Representation payload.
+pub const BINARY_REPR_MAGIC: &[u8; 4] = b"MFBR";
+/// Binary Representation format version. Bump on any incompatible change to the encoding.
+pub const BINARY_REPR_VERSION: u16 = 1;
 
 // --- low-level writers -----------------------------------------------------
 
@@ -3368,7 +3368,7 @@ impl<'a> IrReader<'a> {
     fn need(&self, n: usize) -> Result<(), String> {
         if self.pos + n > self.bytes.len() {
             Err(format!(
-                "Binary IR truncated: needed {n} bytes at offset {}, have {}",
+                "Binary Representation truncated: needed {n} bytes at offset {}, have {}",
                 self.pos,
                 self.bytes.len()
             ))
@@ -3411,7 +3411,7 @@ impl<'a> IrReader<'a> {
         let len = self.u32()? as usize;
         self.need(len)?;
         let s = std::str::from_utf8(&self.bytes[self.pos..self.pos + len])
-            .map_err(|err| format!("Binary IR: invalid UTF-8 string: {err}"))?
+            .map_err(|err| format!("Binary Representation: invalid UTF-8 string: {err}"))?
             .to_string();
         self.pos += len;
         Ok(s)
@@ -3440,27 +3440,27 @@ impl<'a> IrReader<'a> {
 
 // --- public entry points ---------------------------------------------------
 
-/// Serialize an `IrProject` to the versioned Binary IR byte format.
-pub fn encode_binary_ir(project: &IrProject) -> Vec<u8> {
+/// Serialize an `IrProject` to the versioned Binary Representation byte format.
+pub fn encode_binary_repr(project: &IrProject) -> Vec<u8> {
     let mut out = Vec::new();
-    out.extend_from_slice(BINARY_IR_MAGIC);
-    put_u16(&mut out, BINARY_IR_VERSION);
+    out.extend_from_slice(BINARY_REPR_MAGIC);
+    put_u16(&mut out, BINARY_REPR_VERSION);
     encode_project(&mut out, project);
     out
 }
 
-/// Decode a Binary IR byte payload back into an `IrProject`.
-pub fn decode_binary_ir(bytes: &[u8]) -> Result<IrProject, String> {
+/// Decode a Binary Representation byte payload back into an `IrProject`.
+pub fn decode_binary_repr(bytes: &[u8]) -> Result<IrProject, String> {
     let mut r = IrReader::new(bytes);
     r.need(4)?;
-    if &bytes[0..4] != BINARY_IR_MAGIC {
-        return Err("Binary IR: bad magic (expected MFIR)".to_string());
+    if &bytes[0..4] != BINARY_REPR_MAGIC {
+        return Err("Binary Representation: bad magic (expected MFBR)".to_string());
     }
     r.pos = 4;
     let version = r.u16()?;
-    if version != BINARY_IR_VERSION {
+    if version != BINARY_REPR_VERSION {
         return Err(format!(
-            "Binary IR version {version} unsupported (expected {BINARY_IR_VERSION})"
+            "Binary Representation version {version} unsupported (expected {BINARY_REPR_VERSION})"
         ));
     }
     decode_project(&mut r)
@@ -3754,7 +3754,7 @@ fn decode_op(r: &mut IrReader) -> Result<IrOp, String> {
             name: r.string()?,
             body: decode_vec(r, decode_op)?,
         },
-        other => return Err(format!("Binary IR: unknown IrOp tag {other}")),
+        other => return Err(format!("Binary Representation: unknown IrOp tag {other}")),
     })
 }
 
@@ -3794,7 +3794,7 @@ fn decode_match_pattern(r: &mut IrReader) -> Result<IrMatchPattern, String> {
         0 => IrMatchPattern::Else,
         1 => IrMatchPattern::Value(decode_value(r)?),
         2 => IrMatchPattern::OneOf(decode_vec(r, decode_value)?),
-        other => return Err(format!("Binary IR: unknown IrMatchPattern tag {other}")),
+        other => return Err(format!("Binary Representation: unknown IrMatchPattern tag {other}")),
     })
 }
 
@@ -4009,7 +4009,7 @@ fn decode_value(r: &mut IrReader) -> Result<IrValue, String> {
             op: r.string()?,
             operand: Box::new(decode_value(r)?),
         },
-        other => return Err(format!("Binary IR: unknown IrValue tag {other}")),
+        other => return Err(format!("Binary Representation: unknown IrValue tag {other}")),
     })
 }
 
@@ -4017,7 +4017,7 @@ fn decode_value(r: &mut IrReader) -> Result<IrValue, String> {
 // Package IR merge
 // ===========================================================================
 //
-// A consumer decodes each imported package's Binary IR back to an `IrProject`
+// A consumer decodes each imported package's Binary Representation back to an `IrProject`
 // and merges it into the project that flows through `IR -> NIR -> native`. To
 // keep symbols unambiguous, a package's functions and globals are namespaced by
 // the package name (`pkg.symbol`) — exactly how the consumer already names them
@@ -4029,23 +4029,23 @@ fn decode_value(r: &mut IrReader) -> Result<IrValue, String> {
 
 /// Verify a freshly decoded package `IrProject` before it is merged into the
 /// consuming project. The decoder already rejects a wrong magic/version
-/// (`PACKAGE_BINARY_IR_VERSION_UNSUPPORTED`) and malformed bytes
-/// (`PACKAGE_IR_DECODE_FAILED`); this pass re-states the package-format
+/// (`PACKAGE_BINARY_REPRESENTATION_VERSION_UNSUPPORTED`) and malformed bytes
+/// (`PACKAGE_BINARY_REPRESENTATION_DECODE_FAILED`); this pass re-states the package-format
 /// invariants at the IR level (the structured form makes them direct checks
 /// rather than CFG reconstruction). Checks here are conservative — they must
 /// never reject IR this compiler legitimately produced — and surface as
-/// `PACKAGE_IR_VERIFY_*` diagnostics.
+/// `PACKAGE_BINARY_REPRESENTATION_VERIFY_*` diagnostics.
 pub fn verify_package(pir: &IrProject) -> Result<(), String> {
     // Structural well-formedness: names are non-empty and functions are unique
     // (the link-time identity prefix relies on a function appearing once).
     let mut seen_functions: HashSet<&str> = HashSet::new();
     for function in &pir.functions {
         if function.name.is_empty() {
-            return Err("PACKAGE_IR_VERIFY_TYPE: package contains an unnamed function".to_string());
+            return Err("PACKAGE_BINARY_REPRESENTATION_VERIFY_TYPE: package contains an unnamed function".to_string());
         }
         if !seen_functions.insert(function.name.as_str()) {
             return Err(format!(
-                "PACKAGE_IR_VERIFY_TYPE: duplicate function `{}` in package `{}`",
+                "PACKAGE_BINARY_REPRESENTATION_VERIFY_TYPE: duplicate function `{}` in package `{}`",
                 function.name, pir.name
             ));
         }
@@ -4054,7 +4054,7 @@ pub fn verify_package(pir: &IrProject) -> Result<(), String> {
     for ty in &pir.types {
         if !seen_types.insert(ty.name.as_str()) {
             return Err(format!(
-                "PACKAGE_IR_VERIFY_TYPE: duplicate type `{}` in package `{}`",
+                "PACKAGE_BINARY_REPRESENTATION_VERIFY_TYPE: duplicate type `{}` in package `{}`",
                 ty.name, pir.name
             ));
         }
@@ -4084,7 +4084,7 @@ fn verify_ops(ops: &[IrOp]) -> Result<(), String> {
             IrOp::Match { cases, .. } => {
                 if cases.is_empty() {
                     return Err(
-                        "PACKAGE_IR_VERIFY_MATCH: MATCH has no cases (not exhaustive)".to_string(),
+                        "PACKAGE_BINARY_REPRESENTATION_VERIFY_MATCH: MATCH has no cases (not exhaustive)".to_string(),
                     );
                 }
                 for case in cases {
@@ -4097,32 +4097,85 @@ fn verify_ops(ops: &[IrOp]) -> Result<(), String> {
     Ok(())
 }
 
-/// Namespace a decoded package's own functions and globals by its package name,
+/// Namespace a decoded package's own functions and globals by its deterministic
+/// identity prefix `<id>.<package>` (see `binary_repr::package_identity_id`),
 /// rewriting every internal reference to match. Types are left unqualified.
-pub fn prefix_package_symbols(pir: &mut IrProject) {
-    let pkg = pir.name.clone();
+///
+/// The `<id>` segment makes the prefix content-addressed: identical packages
+/// reached via two dependency paths collapse to one copy at merge time, while
+/// two distinct packages that share a name stay separate instead of colliding.
+pub fn prefix_package_symbols(pir: &mut IrProject, id: &str) {
+    let prefix = format!("{id}.{}", pir.name);
     let own_fns: HashSet<String> = pir.functions.iter().map(|f| f.name.clone()).collect();
     let own_globals: HashSet<String> = pir.bindings.iter().map(|b| b.name.clone()).collect();
 
     for function in &mut pir.functions {
         for op in &mut function.body {
-            rewrite_op_targets(op, &own_fns, &own_globals, &pkg);
+            rewrite_op_targets(op, &own_fns, &own_globals, &prefix);
         }
         for param in &mut function.params {
             if let Some(default) = &mut param.default {
-                rewrite_value_targets(default, &own_fns, &own_globals, &pkg);
+                rewrite_value_targets(default, &own_fns, &own_globals, &prefix);
             }
         }
-        function.name = format!("{pkg}.{}", function.name);
+        function.name = format!("{prefix}.{}", function.name);
     }
     for binding in &mut pir.bindings {
         if let Some(value) = &mut binding.value {
-            rewrite_value_targets(value, &own_fns, &own_globals, &pkg);
+            rewrite_value_targets(value, &own_fns, &own_globals, &prefix);
         }
-        binding.name = format!("{pkg}.{}", binding.name);
+        binding.name = format!("{prefix}.{}", binding.name);
     }
     if let Some(entry) = &mut pir.entry {
-        entry.name = format!("{pkg}.{}", entry.name);
+        entry.name = format!("{prefix}.{}", entry.name);
+    }
+}
+
+/// The package-qualified names (`package.symbol`) by which a *consumer* and
+/// other packages reference this package's functions and globals. Computed
+/// *before* `prefix_package_symbols` rewrites the definitions into their
+/// identity-prefixed `<id>.package.symbol` form, so `apply_package_identity`
+/// can rewrite those external references to match.
+pub fn package_qualified_reference_names(pir: &IrProject) -> (HashSet<String>, HashSet<String>) {
+    let pkg = &pir.name;
+    let fns = pir
+        .functions
+        .iter()
+        .map(|f| format!("{pkg}.{}", f.name))
+        .collect();
+    let globals = pir
+        .bindings
+        .iter()
+        .map(|b| format!("{pkg}.{}", b.name))
+        .collect();
+    (fns, globals)
+}
+
+/// Rewrite every *external* reference to a package's symbols — from the
+/// consumer and from other packages — from `package.symbol` to the
+/// identity-prefixed `<id>.package.symbol` produced by `prefix_package_symbols`.
+/// The package's own internal references are already identity-prefixed and so
+/// are not in `fns`/`globals`; they are left untouched.
+pub fn apply_package_identity(
+    project: &mut IrProject,
+    fns: &HashSet<String>,
+    globals: &HashSet<String>,
+    id: &str,
+) {
+    for function in &mut project.functions {
+        for op in &mut function.body {
+            rewrite_op_targets(op, fns, globals, id);
+        }
+        for param in &mut function.params {
+            if let Some(default) = &mut param.default {
+                rewrite_value_targets(default, fns, globals, id);
+            }
+        }
+    }
+    for binding in &mut project.bindings {
+        if let Some(value) = &mut binding.value {
+            rewrite_value_targets(value, fns, globals, id);
+        }
     }
 }
 
@@ -4305,7 +4358,7 @@ fn rewrite_value_targets(
 }
 
 #[cfg(test)]
-mod binary_ir_tests {
+mod binary_repr_tests {
     use super::*;
 
     fn sample_value() -> IrValue {
@@ -4582,30 +4635,143 @@ mod binary_ir_tests {
     }
 
     #[test]
-    fn binary_ir_round_trip_is_identity() {
+    fn binary_repr_round_trip_is_identity() {
         let project = corpus_project();
-        let bytes = encode_binary_ir(&project);
-        let decoded = decode_binary_ir(&bytes).expect("decode");
+        let bytes = encode_binary_repr(&project);
+        let decoded = decode_binary_repr(&bytes).expect("decode");
         // The JSON projection is a faithful view of every field; comparing it
         // proves the decode reconstructed the project exactly.
         assert_eq!(project.to_json(), decoded.to_json());
         // Re-encoding the decoded project must be byte-identical.
-        let bytes2 = encode_binary_ir(&decoded);
+        let bytes2 = encode_binary_repr(&decoded);
         assert_eq!(bytes, bytes2);
     }
 
     #[test]
-    fn binary_ir_rejects_bad_magic() {
-        let mut bytes = encode_binary_ir(&corpus_project());
+    fn binary_repr_rejects_bad_magic() {
+        let mut bytes = encode_binary_repr(&corpus_project());
         bytes[0] = b'X';
-        assert!(decode_binary_ir(&bytes).is_err());
+        assert!(decode_binary_repr(&bytes).is_err());
     }
 
     #[test]
-    fn binary_ir_rejects_bad_version() {
-        let mut bytes = encode_binary_ir(&corpus_project());
+    fn binary_repr_rejects_bad_version() {
+        let mut bytes = encode_binary_repr(&corpus_project());
         bytes[4] = 0xFF;
         bytes[5] = 0xFF;
-        assert!(decode_binary_ir(&bytes).is_err());
+        assert!(decode_binary_repr(&bytes).is_err());
+    }
+
+    fn fn_named(name: &str, body: Vec<IrOp>) -> IrFunction {
+        IrFunction {
+            name: name.to_string(),
+            visibility: "export".to_string(),
+            kind: "function".to_string(),
+            isolated: false,
+            params: vec![],
+            returns: "Integer".to_string(),
+            body,
+        }
+    }
+
+    fn project_named(name: &str, functions: Vec<IrFunction>) -> IrProject {
+        IrProject {
+            name: name.to_string(),
+            entry: None,
+            bindings: vec![],
+            types: vec![],
+            functions,
+        }
+    }
+
+    // The identity prefix `<id>.package.symbol` must be applied consistently to
+    // a package's definitions and to every external reference, so the consumer's
+    // `package.symbol` call resolves to the merged, identity-prefixed definition.
+    #[test]
+    fn package_identity_prefix_is_applied_consistently() {
+        // Package `pkg`: `f` calls its own `g`.
+        let mut pkg = project_named(
+            "pkg",
+            vec![
+                fn_named(
+                    "f",
+                    vec![IrOp::Eval {
+                        value: IrValue::Call {
+                            target: "g".to_string(),
+                            args: vec![],
+                        },
+                    }],
+                ),
+                fn_named("g", vec![]),
+            ],
+        );
+
+        // Names the consumer references, captured before the rename.
+        let (ref_fns, ref_globals) = package_qualified_reference_names(&pkg);
+        assert!(ref_fns.contains("pkg.f"));
+        assert!(ref_fns.contains("pkg.g"));
+
+        let id = "abcd1234";
+        prefix_package_symbols(&mut pkg, id);
+
+        // Definitions carry the full `<id>.package.symbol` prefix...
+        assert_eq!(pkg.functions[0].name, "abcd1234.pkg.f");
+        assert_eq!(pkg.functions[1].name, "abcd1234.pkg.g");
+        // ...and the package's own internal reference was rewritten to match.
+        match &pkg.functions[0].body[0] {
+            IrOp::Eval {
+                value: IrValue::Call { target, .. },
+            } => assert_eq!(target, "abcd1234.pkg.g"),
+            _ => panic!("expected an Eval(Call) op"),
+        }
+
+        // A consumer that calls `pkg.f` has that reference rewritten to the
+        // identity-prefixed definition name.
+        let mut consumer = project_named(
+            "app",
+            vec![fn_named(
+                "main",
+                vec![IrOp::Eval {
+                    value: IrValue::Call {
+                        target: "pkg.f".to_string(),
+                        args: vec![],
+                    },
+                }],
+            )],
+        );
+        apply_package_identity(&mut consumer, &ref_fns, &ref_globals, id);
+        match &consumer.functions[0].body[0] {
+            IrOp::Eval {
+                value: IrValue::Call { target, .. },
+            } => assert_eq!(target, "abcd1234.pkg.f"),
+            _ => panic!("expected an Eval(Call) op"),
+        }
+    }
+
+    // Decoded package IR is verified against the package-format invariants
+    // before it is merged; these exercise the PACKAGE_BINARY_REPRESENTATION_VERIFY_* diagnostics.
+    #[test]
+    fn verify_package_rejects_duplicate_function() {
+        let pir = project_named("pkg", vec![fn_named("f", vec![]), fn_named("f", vec![])]);
+        let err = verify_package(&pir).expect_err("duplicate function must be rejected");
+        assert!(err.contains("PACKAGE_BINARY_REPRESENTATION_VERIFY_TYPE"), "{err}");
+    }
+
+    #[test]
+    fn verify_package_rejects_unnamed_function() {
+        let pir = project_named("pkg", vec![fn_named("", vec![])]);
+        let err = verify_package(&pir).expect_err("unnamed function must be rejected");
+        assert!(err.contains("PACKAGE_BINARY_REPRESENTATION_VERIFY_TYPE"), "{err}");
+    }
+
+    #[test]
+    fn verify_package_rejects_empty_match() {
+        let body = vec![IrOp::Match {
+            value: IrValue::Local("x".to_string()),
+            cases: vec![],
+        }];
+        let pir = project_named("pkg", vec![fn_named("f", body)]);
+        let err = verify_package(&pir).expect_err("non-exhaustive MATCH must be rejected");
+        assert!(err.contains("PACKAGE_BINARY_REPRESENTATION_VERIFY_MATCH"), "{err}");
     }
 }

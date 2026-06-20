@@ -11,12 +11,12 @@ Path: tests/package-simple/package_simple.mfp
 Container:
   format: MFP
   version: 1.0
-  bytecode version: 1.0
+  binary representation version: 1.0
   flags: 0x00000000
   signature type: unsigned
   signature length: 0
-  content hash: cb835e3469976e9eeb9244ca5ff752830219c1772f4d077d87012d6070915aea
-  bytecode length: 2520
+  content hash: 5a026be02bc4e31b92092e94ab8cc00e1a237adbe1161458255dbdcfcbfaee7a
+  binary representation length: 2520
 
 Manifest:
   name: package_simple
@@ -28,7 +28,7 @@ Manifest:
   author: <empty>
   url: <empty>
 
-Bytecode:
+Binary Representation:
   ABI format version: 1
   types: 5
   constants: 0

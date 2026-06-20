@@ -238,7 +238,7 @@ Supported `source` forms:
 | `git+https://...` | Git repository fetched by the package manager. |
 | `https://...` | Registry-specific package URL or package archive. |
 
-Import graph cycles remain compile-time or bytecode merge-time errors.
+Import graph cycles remain compile-time or binary representation merge-time errors.
 
 The package resolver produces one selected version for each package `ident`. Executable builds must write or consume `mfb.lock`; its format is specified in `lockfile.md`.
 
@@ -288,7 +288,7 @@ Built-in standard packages may require platform baseline libraries without user 
 
 | Field | Type | Meaning |
 | ----- | ---- | ------- |
-| `targets` | array of strings | Requested build targets such as `native`, `bytecode`, or platform triples. |
+| `targets` | array of strings | Requested build targets such as `native`, `binary representation`, or platform triples. |
 | `kind` | string | Required project kind: `executable` or `package`. |
 | `entry` | string | Executable entry point symbol, defaulting to `main`. |
 | `build` | object | Toolchain-specific build settings. |

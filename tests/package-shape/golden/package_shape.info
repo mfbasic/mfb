@@ -11,12 +11,12 @@ Path: tests/package-shape/package_shape.mfp
 Container:
   format: MFP
   version: 1.0
-  bytecode version: 1.0
+  binary representation version: 1.0
   flags: 0x00000000
   signature type: unsigned
   signature length: 0
-  content hash: a3b406c71d99cb98a3a9335ccfc0e375b36f8595128a055045c7e95e28705ffa
-  bytecode length: 2692
+  content hash: b77886a6592286c183953dbcac88567183fd4f7df2e021513ce451756e8659ca
+  binary representation length: 2692
 
 Manifest:
   name: package_shape
@@ -28,7 +28,7 @@ Manifest:
   author: <empty>
   url: <empty>
 
-Bytecode:
+Binary Representation:
   ABI format version: 1
   types: 6
   constants: 0

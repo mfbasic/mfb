@@ -4,8 +4,8 @@ Wrote AST to tests/control-flow-match/control_flow_match.ast
 $ mfb build -ir tests/control-flow-match
 Wrote IR to tests/control-flow-match/control_flow_match.ir
 [exit 0]
-$ mfb build -bc tests/control-flow-match
-Wrote bytecode hex to tests/control-flow-match/control_flow_match.hex
+$ mfb build -br tests/control-flow-match
+Wrote binary representation hex to tests/control-flow-match/control_flow_match.hex
 [exit 0]
 $ mfb build -nir tests/control-flow-match
 Wrote native IR to tests/control-flow-match/control_flow_match.nir

@@ -3,7 +3,7 @@ use crate::ast::{
     TopLevelBinding, TypeDecl, TypeDeclKind, TypeField, Visibility,
 };
 use crate::builtins;
-use crate::bytecode;
+use crate::binary_repr;
 use crate::rules;
 use std::collections::{HashMap, HashSet};
 use std::fs;
@@ -1072,7 +1072,7 @@ impl<'a> Resolver<'a> {
         package_file: &Path,
         line: usize,
     ) {
-        let exports = match bytecode::read_package_type_exports(package_file) {
+        let exports = match binary_repr::read_package_type_exports(package_file) {
             Ok(exports) => exports,
             Err(err) => {
                 self.report(

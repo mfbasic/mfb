@@ -4,8 +4,8 @@ Wrote AST to tests/primitive-boolean-bindings/primitive_boolean_bindings.ast
 $ mfb build -ir tests/primitive-boolean-bindings
 Wrote IR to tests/primitive-boolean-bindings/primitive_boolean_bindings.ir
 [exit 0]
-$ mfb build -bc tests/primitive-boolean-bindings
-Wrote bytecode hex to tests/primitive-boolean-bindings/primitive_boolean_bindings.hex
+$ mfb build -br tests/primitive-boolean-bindings
+Wrote binary representation hex to tests/primitive-boolean-bindings/primitive_boolean_bindings.hex
 [exit 0]
 $ mfb build tests/primitive-boolean-bindings
 Wrote executable to tests/primitive-boolean-bindings/primitive_boolean_bindings.out
