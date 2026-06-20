@@ -1,5 +1,5 @@
 FUNC leaf AS Integer
-  FAIL Error[123, "leaf failed"]
+  FAIL error(123, "leaf failed")
 END FUNC
 
 FUNC relay AS Integer

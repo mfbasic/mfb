@@ -22,7 +22,7 @@
         "condition": { "kind": "binary", "operator": "<", "left": { "kind": "identifier", "value": "v" }, "right": { "kind": "number", "value": "0" } },
         "line": 4,
         "then": [
-        { "kind": "fail", "error": { "kind": "constructor", "type": "Error", "arguments": [{ "kind": "number", "value": "404" }, { "kind": "string", "value": "missing" }] }, "line": 4 }
+        { "kind": "fail", "error": { "kind": "call", "callee": "error", "arguments": [{ "kind": "number", "value": "404" }, { "kind": "string", "value": "missing" }] }, "line": 4 }
         ],
         "else": [
         ]
@@ -45,7 +45,7 @@
         "condition": { "kind": "binary", "operator": "<", "left": { "kind": "identifier", "value": "v" }, "right": { "kind": "number", "value": "0" } },
         "line": 9,
         "then": [
-        { "kind": "fail", "error": { "kind": "constructor", "type": "Error", "arguments": [{ "kind": "number", "value": "500" }, { "kind": "string", "value": "effect failed" }] }, "line": 9 }
+        { "kind": "fail", "error": { "kind": "call", "callee": "error", "arguments": [{ "kind": "number", "value": "500" }, { "kind": "string", "value": "effect failed" }] }, "line": 9 }
         ],
         "else": [
         ]

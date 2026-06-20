@@ -1,5 +1,6 @@
 use std::borrow::Cow;
 
+const ERROR: &str = "error";
 const LEN: &str = "len";
 const FIND: &str = "find";
 const MID: &str = "mid";
@@ -59,7 +60,9 @@ pub(crate) struct ResolvedCall<'a> {
 pub(crate) fn is_general_call(name: &str) -> bool {
     matches!(
         name,
-        LEN | FIND
+        ERROR
+            | LEN
+            | FIND
             | MID
             | REPLACE
             | TYPE_NAME
@@ -144,6 +147,15 @@ pub(crate) fn filter_predicate_type(name: &str, element_type: &str) -> Option<St
 
 pub(crate) fn resolve_call<'a>(name: &str, arg_types: &'a [String]) -> Option<ResolvedCall<'a>> {
     let resolved = match name {
+        ERROR => {
+            if exact(arg_types, &["Integer", "String"]) {
+                ResolvedCall {
+                    return_type: Cow::Borrowed("Error"),
+                }
+            } else {
+                return None;
+            }
+        }
         LEN => {
             if arg_types.len() != 1 {
                 return None;

@@ -1,5 +1,5 @@
 SUB foobar(args AS List OF String)
-  FAIL Error[100, "This is a message"]
+  FAIL error(100, "This is a message")
 
   TRAP(err)
   EXIT SUB

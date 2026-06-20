@@ -1,0 +1,12 @@
+FUNC main AS Integer
+  ' Too few arguments to error().
+  LET tooFew AS Error = error(100)
+  ' Too many arguments to error().
+  LET tooMany AS Error = error(100, "message", 200)
+  ' Wrong code type (String, expected Integer).
+  LET wrongCode AS Error = error("bad", "message")
+  ' Wrong message type (Integer, expected String).
+  LET wrongMessage AS Error = error(100, 200)
+
+  RETURN tooFew.code + tooMany.code + wrongCode.code + wrongMessage.code
+END FUNC

@@ -328,7 +328,7 @@ fn native_constant_value(
         NirValue::Const { .. } => Some(value.clone()),
         NirValue::Local(name) => constants.get(name).cloned(),
         NirValue::Global { .. } => None,
-        NirValue::Call { target, args } if target == "toString" && args.len() == 1 => {
+        NirValue::Call { target, args, .. } if target == "toString" && args.len() == 1 => {
             native_primitive_text(&args[0], constants).map(|value| NirValue::Const {
                 type_: "String".to_string(),
                 value,
@@ -359,16 +359,16 @@ fn native_static_string_value(
             .get(name)
             .and_then(|constant| native_static_string_value(constant, constants)),
         NirValue::Global { .. } => None,
-        NirValue::Call { target, args } if target == "toString" && args.len() == 1 => {
+        NirValue::Call { target, args, .. } if target == "toString" && args.len() == 1 => {
             native_primitive_text(&args[0], constants)
         }
         NirValue::RuntimeCall { target, args, .. } if target == "toString" && args.len() == 1 => {
             native_primitive_text(&args[0], constants)
         }
-        NirValue::Call { target, args } | NirValue::RuntimeCall { target, args, .. } => {
+        NirValue::Call { target, args, .. } | NirValue::RuntimeCall { target, args, .. } => {
             native_strings_package_static_string_value(target, args, constants)
         }
-        NirValue::Binary { op, left, right } if op == "&" => {
+        NirValue::Binary { op, left, right, .. } if op == "&" => {
             let left = native_static_string_value(left, constants)?;
             let right = native_static_string_value(right, constants)?;
             Some(format!("{left}{right}"))
@@ -929,6 +929,7 @@ fn validate_ops(
                 end,
                 step,
                 body,
+                ..
             } => {
                 if name.is_empty() || type_.is_empty() {
                     return Err("NIR for op has empty name or type".to_string());
@@ -1112,7 +1113,7 @@ fn validate_value(
             Ok(())
         }
         NirValue::Capture { type_, .. } => validate_type_name(type_),
-        NirValue::Call { target, args } | NirValue::CallResult { target, args } => {
+        NirValue::Call { target, args, .. } | NirValue::CallResult { target, args, .. } => {
             for arg in args {
                 validate_value(
                     arg,
@@ -1176,6 +1177,7 @@ fn validate_value(
             helper,
             target,
             args,
+                ..
         } => {
             for arg in args {
                 validate_value(
@@ -1404,7 +1406,9 @@ struct LocalBinding {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::target::shared::nir::{NirEntryPoint, NirFunction, NirModule, NirOp, NirValue};
+    use crate::target::shared::nir::{
+        NirEntryPoint, NirFunction, NirModule, NirOp, NirSourceLoc, NirValue,
+    };
 
     fn module(runtime_helpers: Vec<RuntimeHelper>) -> NirModule {
         NirModule {
@@ -1434,8 +1438,10 @@ mod tests {
                             type_: "String".to_string(),
                             value: "Hello World".to_string(),
                         }],
+                        loc: NirSourceLoc::default(),
                     },
                 }],
+                file: "src/main.mfb".to_string(),
             }],
         }
     }

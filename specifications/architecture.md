@@ -488,6 +488,31 @@ addition to the unsigned form, but no signed containers are produced yet.*
 The package payload must start with `MFPC`. Metadata string lengths are checked
 before writing.
 
+### 11.3 Error Source Locations
+
+Every user-visible `Error` carries an `ErrorLoc source` recording where it
+originated. The location flows through every layer:
+
+- **AST** (`src/ast.rs`): `Expression::Call`/`Binary`/`Unary` and `Statement::For`
+  carry an internal `(line, column)`; the source file is the enclosing `AstFile`.
+  These are not serialized to the `.ast` JSON.
+- **IR** (`src/ir.rs`): `IrValue::Call`/`CallResult`/`Binary`/`Unary` and
+  `IrOp::For` carry an `IrSourceLoc { line, column }`; each `IrFunction` carries
+  its source `file`. The `error(code, message)` built-in lowers to nested record
+  constructors — `Error[code, message, ErrorLoc[file, line, char]]` — so
+  `Error`/`ErrorLoc` are ordinary records for the rest of the pipeline. These
+  fields are not serialized to the `.ir` JSON but are encoded into the Binary
+  Representation, so an imported package's functions retain their own source
+  locations.
+- **NIR** (`src/target/shared/nir.rs`): mirrors the IR fields (`NirSourceLoc`,
+  `NirFunction::file`).
+- **Native runtime** (`src/target/shared/code`): the code generator tracks the
+  current function file and the current node location, builds a real `ErrorLoc`
+  at every error origin (user `error(...)`, arithmetic overflow/divide-by-zero,
+  failing built-in/helper calls), and threads the origin through the four-register
+  result ABI (see `memory_layouts.md`). Propagation preserves the origin; trapping
+  materializes the 3-field `Error`.
+
 ## 12. Native Executable Generation
 
 Native executable generation is implemented under `src/target`,

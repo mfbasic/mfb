@@ -1,5 +1,5 @@
 FUNC leaf AS Integer
-  FAIL Error[1, "boom"]
+  FAIL error(1, "boom")
 END FUNC
 
 FUNC propagates AS Integer
@@ -12,7 +12,7 @@ END FUNC
 FUNC reraises AS Integer
   RETURN leaf()
   TRAP(err)
-  FAIL Error[2, "wrapped"]
+  FAIL error(2, "wrapped")
   END TRAP
 END FUNC
 

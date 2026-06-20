@@ -51,7 +51,7 @@
         "condition": { "kind": "binary", "operator": "<", "left": { "kind": "identifier", "value": "value" }, "right": { "kind": "number", "value": "0" } },
         "line": 16,
         "then": [
-        { "kind": "fail", "error": { "kind": "constructor", "type": "Error", "arguments": [{ "kind": "number", "value": "100" }, { "kind": "string", "value": "negative" }] }, "line": 16 }
+        { "kind": "fail", "error": { "kind": "call", "callee": "error", "arguments": [{ "kind": "number", "value": "100" }, { "kind": "string", "value": "negative" }] }, "line": 16 }
         ],
         "else": [
         ]

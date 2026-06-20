@@ -39,7 +39,7 @@
         "condition": { "kind": "binary", "operator": "<", "left": { "kind": "identifier", "value": "value" }, "right": { "kind": "number", "value": "0" } },
         "line": 9,
         "then": [
-        { "kind": "fail", "error": { "kind": "constructor", "type": "Error", "arguments": [{ "kind": "binary", "operator": "+", "left": { "kind": "number", "value": "100" }, "right": { "kind": "identifier", "value": "extra" } }, { "kind": "string", "value": "negative" }] }, "line": 9 }
+        { "kind": "fail", "error": { "kind": "call", "callee": "error", "arguments": [{ "kind": "binary", "operator": "+", "left": { "kind": "number", "value": "100" }, "right": { "kind": "identifier", "value": "extra" } }, { "kind": "string", "value": "negative" }] }, "line": 9 }
         ],
         "else": [
         ]

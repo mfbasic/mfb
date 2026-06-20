@@ -665,7 +665,12 @@ impl<'a> Monomorphizer<'a> {
         line: usize,
     ) -> Expression {
         match expression {
-            Expression::Call { callee, arguments } => {
+            Expression::Call {
+                callee,
+                arguments,
+                line: call_line,
+                column,
+            } => {
                 let lowered_args =
                     arguments
                         .iter()
@@ -700,6 +705,8 @@ impl<'a> Monomorphizer<'a> {
                 Expression::Call {
                     callee: target,
                     arguments: lowered_args,
+                    line: *call_line,
+                    column: *column,
                 }
             }
             Expression::Constructor {
@@ -822,12 +829,21 @@ impl<'a> Monomorphizer<'a> {
                 left,
                 operator,
                 right,
+                line: op_line,
+                column,
             } => Expression::Binary {
                 left: Box::new(self.lower_expression(left, substitutions, context, None, line)),
                 operator: operator.clone(),
                 right: Box::new(self.lower_expression(right, substitutions, context, None, line)),
+                line: *op_line,
+                column: *column,
             },
-            Expression::Unary { operator, operand } => Expression::Unary {
+            Expression::Unary {
+                operator,
+                operand,
+                line: op_line,
+                column,
+            } => Expression::Unary {
                 operator: operator.clone(),
                 operand: Box::new(self.lower_expression(
                     operand,
@@ -836,6 +852,8 @@ impl<'a> Monomorphizer<'a> {
                     None,
                     line,
                 )),
+                line: *op_line,
+                column: *column,
             },
             Expression::Lambda { params, body } => {
                 let mut nested = context.clone();
@@ -1170,6 +1188,7 @@ impl<'a> Monomorphizer<'a> {
                 operator,
                 left,
                 right,
+                ..
             } => {
                 if matches!(
                     operator.as_str(),
@@ -1184,7 +1203,9 @@ impl<'a> Monomorphizer<'a> {
                 let right = self.expression_type(right, context)?;
                 Some(numeric_binary_result_type(operator, &left, &right).to_string())
             }
-            Expression::Unary { operator, operand } => {
+            Expression::Unary {
+                operator, operand, ..
+            } => {
                 if operator == "NOT" {
                     Some("Boolean".to_string())
                 } else {

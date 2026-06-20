@@ -26,7 +26,7 @@
         "else": [
         ]
       },
-      { "kind": "fail", "error": { "kind": "constructor", "type": "Error", "arguments": [{ "kind": "number", "value": "10" }, { "kind": "string", "value": "guard failed" }] }, "line": 5 }
+      { "kind": "fail", "error": { "kind": "call", "callee": "error", "arguments": [{ "kind": "number", "value": "10" }, { "kind": "string", "value": "guard failed" }] }, "line": 5 }
       ]
     },
     {
@@ -49,7 +49,7 @@
         "else": [
         ]
       },
-      { "kind": "fail", "error": { "kind": "constructor", "type": "Error", "arguments": [{ "kind": "number", "value": "11" }, { "kind": "string", "value": "swallowed" }] }, "line": 12 }
+      { "kind": "fail", "error": { "kind": "call", "callee": "error", "arguments": [{ "kind": "number", "value": "11" }, { "kind": "string", "value": "swallowed" }] }, "line": 12 }
       ],
       "trap": {
       "name": "err",

@@ -1,15 +1,24 @@
+IMPORT io
+
+' `Error` and `ErrorLoc` are read-only built-in records. Programs create errors
+' with the `error(...)` built-in and inspect their fields, including the
+' compiler-generated `source` location.
 FUNC makeError(code AS Integer, message AS String) AS Error
-  RETURN Error[code, message]
+  RETURN error(code, message)
 END FUNC
 
 FUNC main AS Integer
-  LET positional AS Error = makeError(123, "positional")
-  LET named AS Error = Error[code := 456, message := "named"]
+  LET value AS Error = makeError(123, "boom")
 
-  IF positional.code <> 123 THEN RETURN 1
-  IF positional.message <> "positional" THEN RETURN 2
-  IF named.code <> 456 THEN RETURN 3
-  IF named.message <> "named" THEN RETURN 4
+  IF value.code <> 123 THEN RETURN 1
+  IF value.message <> "boom" THEN RETURN 2
+
+  LET where AS ErrorLoc = value.source
+  io::print(where.filename & ":" & toString(where.line) & ":" & toString(where.char))
+
+  ' Binding and propagation preserve the value unchanged.
+  LET copy AS Error = value
+  IF copy.code <> 123 THEN RETURN 3
 
   RETURN 0
 END FUNC

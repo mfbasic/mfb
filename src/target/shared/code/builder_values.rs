@@ -2,6 +2,21 @@ use super::*;
 
 impl CodeBuilder<'_> {
     pub(super) fn lower_value(&mut self, value: &NirValue) -> Result<ValueResult, String> {
+        // Track the source location of the node being lowered so that any error
+        // freshly created while lowering it (overflow, divide-by-zero, helper
+        // failure, conversion failure) stamps a real `ErrorLoc`. The save/restore
+        // ensures that after recursively lowering operands/arguments the outer
+        // node's location is back in place before its own fallible emit runs.
+        let saved_loc = self.current_loc;
+        if let Some(loc) = value_loc(value) {
+            self.current_loc = loc;
+        }
+        let result = self.lower_value_inner(value);
+        self.current_loc = saved_loc;
+        result
+    }
+
+    fn lower_value_inner(&mut self, value: &NirValue) -> Result<ValueResult, String> {
         if let Some(string_value) = self.static_string_value(value) {
             let register = self.load_string_constant(&string_value)?;
             return Ok(ValueResult {
@@ -268,7 +283,7 @@ impl CodeBuilder<'_> {
                     text: format!("capture[{index}]"),
                 })
             }
-            NirValue::Call { target, args } => {
+            NirValue::Call { target, args, .. } => {
                 if let Some(local) = self.locals.get(target).cloned() {
                     if local.type_.starts_with("FUNC(") {
                         let return_type = callable_return_type(&local.type_).ok_or_else(|| {
@@ -420,7 +435,7 @@ impl CodeBuilder<'_> {
                     .unwrap_or_else(|| target.to_string());
                 self.emit_call(target, &symbol, args, None)
             }
-            NirValue::CallResult { target, args } => {
+            NirValue::CallResult { target, args, .. } => {
                 if let Some(local) = self.locals.get(target).cloned() {
                     if local.type_.starts_with("FUNC(") {
                         let return_type = callable_return_type(&local.type_).ok_or_else(|| {
@@ -484,6 +499,7 @@ impl CodeBuilder<'_> {
                 let tag_slot = self.allocate_stack_object("raw_result_tag", 8);
                 let value_slot = self.allocate_stack_object("raw_result_value", 8);
                 let message_slot = self.allocate_stack_object("raw_result_message", 8);
+                let source_slot = self.allocate_stack_object("raw_result_source", 8);
                 let payload_slot = self.allocate_stack_object("raw_result_payload", 8);
                 let alloc_ok = self.label("result_construct_alloc_ok");
                 let error_alloc_ok = self.label("result_error_alloc_ok");
@@ -506,6 +522,13 @@ impl CodeBuilder<'_> {
                     abi::stack_pointer(),
                     message_slot,
                 ));
+                // Preserve the callee's error origin (x3) so an inline-trapped
+                // error keeps its original source location.
+                self.emit(abi::store_u64(
+                    RESULT_ERROR_SOURCE_REGISTER,
+                    abi::stack_pointer(),
+                    source_slot,
+                ));
                 self.emit(abi::load_u64("x9", abi::stack_pointer(), tag_slot));
                 self.emit(abi::compare_immediate("x9", RESULT_OK_TAG));
                 self.emit(abi::branch_ne(&wrap_error_label));
@@ -513,7 +536,11 @@ impl CodeBuilder<'_> {
                 self.emit(abi::store_u64("x9", abi::stack_pointer(), payload_slot));
                 self.emit(abi::branch(&have_payload_label));
                 self.emit(abi::label(&wrap_error_label));
-                self.emit(abi::move_immediate(abi::return_register(), "Integer", "16"));
+                self.emit(abi::move_immediate(
+                    abi::return_register(),
+                    "Integer",
+                    &ERROR_OBJECT_SIZE.to_string(),
+                ));
                 self.emit(abi::move_immediate("x1", "Integer", "8"));
                 self.emit(abi::branch_link(ARENA_ALLOC_SYMBOL));
                 self.relocations.push(CodeRelocation {
@@ -534,6 +561,8 @@ impl CodeBuilder<'_> {
                 self.emit(abi::store_u64("x9", "x1", 0));
                 self.emit(abi::load_u64("x9", abi::stack_pointer(), message_slot));
                 self.emit(abi::store_u64("x9", "x1", 8));
+                self.emit(abi::load_u64("x9", abi::stack_pointer(), source_slot));
+                self.emit(abi::store_u64("x9", "x1", 16));
                 self.emit(abi::store_u64("x1", abi::stack_pointer(), payload_slot));
                 self.emit(abi::label(&have_payload_label));
                 self.emit(abi::move_immediate(abi::return_register(), "Integer", "16"));
@@ -570,6 +599,7 @@ impl CodeBuilder<'_> {
                 helper,
                 target,
                 args,
+                ..
             } => {
                 if let Some(result) = self.lower_fs_path_call(target, args)? {
                     return Ok(result);
@@ -615,38 +645,6 @@ impl CodeBuilder<'_> {
                     arg_slots.push(slot);
                 }
                 let register = self.allocate_register()?;
-                if type_ == "Error" {
-                    let result_slot = self.allocate_stack_object("error_result", 8);
-                    let alloc_ok = self.label("error_construct_alloc_ok");
-                    self.emit(abi::move_immediate(abi::return_register(), "Integer", "16"));
-                    self.emit(abi::move_immediate("x1", "Integer", "8"));
-                    self.emit(abi::branch_link(ARENA_ALLOC_SYMBOL));
-                    self.relocations.push(CodeRelocation {
-                        from: self.current_symbol.clone(),
-                        to: ARENA_ALLOC_SYMBOL.to_string(),
-                        kind: "branch26".to_string(),
-                        binding: "internal".to_string(),
-                        library: None,
-                    });
-                    self.emit(abi::compare_immediate(
-                        abi::return_register(),
-                        RESULT_OK_TAG,
-                    ));
-                    self.emit(abi::branch_eq(&alloc_ok));
-                    self.emit_allocation_error_return()?;
-                    self.emit(abi::label(&alloc_ok));
-                    self.emit(abi::store_u64("x1", abi::stack_pointer(), result_slot));
-                    for (index, slot) in arg_slots.iter().take(2).enumerate() {
-                        self.emit(abi::load_u64("x9", abi::stack_pointer(), *slot));
-                        self.emit(abi::store_u64("x9", "x1", 8 * index));
-                    }
-                    self.emit(abi::load_u64(&register, abi::stack_pointer(), result_slot));
-                    return Ok(ValueResult {
-                        type_: type_.clone(),
-                        location: register,
-                        text: format!("construct {type_}({})", join_texts(&arg_values)),
-                    });
-                }
                 if self.type_model.record_fields.contains_key(type_) {
                     let result_slot = self.allocate_stack_object("record_result", 8);
                     let alloc_ok = self.label("record_construct_alloc_ok");
@@ -987,7 +985,7 @@ impl CodeBuilder<'_> {
                 }
                 _ => self.lower_field_access(target, member),
             },
-            NirValue::Binary { op, left, right } => {
+            NirValue::Binary { op, left, right, .. } => {
                 if op == "&" {
                     return self.lower_string_concat(left, right);
                 }
@@ -999,7 +997,7 @@ impl CodeBuilder<'_> {
                 }
                 self.lower_arithmetic_binary(op, left, right)
             }
-            NirValue::Unary { op, operand } => {
+            NirValue::Unary { op, operand, .. } => {
                 let operand = self.lower_value(operand)?;
                 if op == "NOT" && operand.type_ == "Boolean" {
                     let register = self.allocate_register()?;
@@ -1155,5 +1153,17 @@ impl CodeBuilder<'_> {
             &result_type,
             raw,
         )
+    }
+}
+
+/// Extract the source location carried by an error-originating NIR value, if any.
+fn value_loc(value: &NirValue) -> Option<NirSourceLoc> {
+    match value {
+        NirValue::Call { loc, .. }
+        | NirValue::CallResult { loc, .. }
+        | NirValue::RuntimeCall { loc, .. }
+        | NirValue::Binary { loc, .. }
+        | NirValue::Unary { loc, .. } => Some(*loc),
+        _ => None,
     }
 }

@@ -4,74 +4,67 @@
   {
     "path": "src/main.mfb",
     "imports": [
+    { "module": "io", "line": 1 }
     ],
     "items": [
     {
       "kind": "func",
       "visibility": "private",
       "name": "makeError",
-      "line": 1,
+      "line": 6,
       "params": [
       { "name": "code", "type": "Integer", "default": null },
       { "name": "message", "type": "String", "default": null }
       ],
       "returnType": "Error",
       "body": [
-      { "kind": "return", "value": { "kind": "constructor", "type": "Error", "arguments": [{ "kind": "identifier", "value": "code" }, { "kind": "identifier", "value": "message" }] }, "line": 2 }
+      { "kind": "return", "value": { "kind": "call", "callee": "error", "arguments": [{ "kind": "identifier", "value": "code" }, { "kind": "identifier", "value": "message" }] }, "line": 7 }
       ]
     },
     {
       "kind": "func",
       "visibility": "private",
       "name": "main",
-      "line": 5,
+      "line": 10,
       "params": [
       ],
       "returnType": "Integer",
       "body": [
-      { "kind": "binding", "mutable": false, "name": "positional", "type": "Error", "value": { "kind": "call", "callee": "makeError", "arguments": [{ "kind": "number", "value": "123" }, { "kind": "string", "value": "positional" }] }, "line": 6 },
-      { "kind": "binding", "mutable": false, "name": "named", "type": "Error", "value": { "kind": "constructor", "type": "Error", "arguments": [{ "kind": "named", "name": "code", "value": { "kind": "number", "value": "456" } }, { "kind": "named", "name": "message", "value": { "kind": "string", "value": "named" } }] }, "line": 7 },
+      { "kind": "binding", "mutable": false, "name": "value", "type": "Error", "value": { "kind": "call", "callee": "makeError", "arguments": [{ "kind": "number", "value": "123" }, { "kind": "string", "value": "boom" }] }, "line": 11 },
       {
         "kind": "if",
-        "condition": { "kind": "binary", "operator": "<>", "left": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "positional" }, "member": "code" }, "right": { "kind": "number", "value": "123" } },
-        "line": 9,
+        "condition": { "kind": "binary", "operator": "<>", "left": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "value" }, "member": "code" }, "right": { "kind": "number", "value": "123" } },
+        "line": 13,
         "then": [
-        { "kind": "return", "value": { "kind": "number", "value": "1" }, "line": 9 }
+        { "kind": "return", "value": { "kind": "number", "value": "1" }, "line": 13 }
         ],
         "else": [
         ]
       },
       {
         "kind": "if",
-        "condition": { "kind": "binary", "operator": "<>", "left": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "positional" }, "member": "message" }, "right": { "kind": "string", "value": "positional" } },
-        "line": 10,
+        "condition": { "kind": "binary", "operator": "<>", "left": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "value" }, "member": "message" }, "right": { "kind": "string", "value": "boom" } },
+        "line": 14,
         "then": [
-        { "kind": "return", "value": { "kind": "number", "value": "2" }, "line": 10 }
+        { "kind": "return", "value": { "kind": "number", "value": "2" }, "line": 14 }
         ],
         "else": [
         ]
       },
+      { "kind": "binding", "mutable": false, "name": "where", "type": "ErrorLoc", "value": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "value" }, "member": "source" }, "line": 16 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "where" }, "member": "filename" }, "right": { "kind": "string", "value": ":" } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "where" }, "member": "line" }] } }, "right": { "kind": "string", "value": ":" } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "where" }, "member": "char" }] } }] }, "line": 17 },
+      { "kind": "binding", "mutable": false, "name": "copy", "type": "Error", "value": { "kind": "identifier", "value": "value" }, "line": 20 },
       {
         "kind": "if",
-        "condition": { "kind": "binary", "operator": "<>", "left": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "named" }, "member": "code" }, "right": { "kind": "number", "value": "456" } },
-        "line": 11,
+        "condition": { "kind": "binary", "operator": "<>", "left": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "copy" }, "member": "code" }, "right": { "kind": "number", "value": "123" } },
+        "line": 21,
         "then": [
-        { "kind": "return", "value": { "kind": "number", "value": "3" }, "line": 11 }
+        { "kind": "return", "value": { "kind": "number", "value": "3" }, "line": 21 }
         ],
         "else": [
         ]
       },
-      {
-        "kind": "if",
-        "condition": { "kind": "binary", "operator": "<>", "left": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "named" }, "member": "message" }, "right": { "kind": "string", "value": "named" } },
-        "line": 12,
-        "then": [
-        { "kind": "return", "value": { "kind": "number", "value": "4" }, "line": 12 }
-        ],
-        "else": [
-        ]
-      },
-      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 14 }
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 23 }
       ]
     }
     ]

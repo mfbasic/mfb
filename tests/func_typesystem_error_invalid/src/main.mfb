@@ -1,8 +1,15 @@
 FUNC main AS Integer
-  LET missing AS Error = Error[100]
-  LET wrongCode AS Error = Error["bad", "message"]
-  LET wrongMessage AS Error = Error[100, 200]
-  LET unknownField AS Error = Error[code := 100, detail := "bad"]
+  ' `Error` and `ErrorLoc` are read-only built-in records: they cannot be
+  ' constructed with `[...]`, updated with `WITH`, and have no unknown fields.
+  LET constructed AS Error = Error[100, "message"]
+  LET constructedLoc AS ErrorLoc = ErrorLoc["file", 1, 2]
 
-  RETURN missing.code + wrongCode.code + wrongMessage.code + unknownField.code
+  LET base AS Error = error(100, "message")
+  LET updated AS Error = WITH base { code := 200 }
+  LET updatedLoc AS ErrorLoc = WITH base.source { line := 9 }
+
+  LET unknownErrorField AS Integer = base.detail
+  LET unknownLocField AS Integer = base.source.offset
+
+  RETURN updated.code + updatedLoc.line + unknownErrorField + unknownLocField
 END FUNC

@@ -1,0 +1,43 @@
+IMPORT io
+
+' A user-authored error carries the source location of the error(...) call.
+FUNC load(path AS String) AS String
+  IF path = "" THEN
+    FAIL error(77050002, "path is empty")
+  END IF
+  RETURN path
+END FUNC
+
+' A propagated error keeps the original origin, not the propagation point.
+FUNC reload(path AS String) AS String
+  RETURN load(path)
+END FUNC
+
+' A runtime-generated error uses the location of the failing expression.
+FUNC divide(a AS Integer, b AS Integer) AS Integer
+  RETURN a / b
+END FUNC
+
+SUB show(label AS String, e AS Error)
+  io::print(label & " " & toString(e.code) & " " & e.message)
+  io::print("  at " & e.source.filename & ":" & toString(e.source.line) & ":" & toString(e.source.char))
+END SUB
+
+FUNC main AS Integer
+  LET direct = load("") TRAP(e)
+    show("direct", e)
+    RECOVER ""
+  END TRAP
+
+  LET propagated = reload("") TRAP(e)
+    show("propagated", e)
+    RECOVER ""
+  END TRAP
+
+  LET quotient = divide(10, 0) TRAP(e)
+    show("divide", e)
+    RECOVER 0
+  END TRAP
+
+  RETURN 0
+END FUNC

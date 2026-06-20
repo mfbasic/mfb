@@ -39,7 +39,7 @@
       "op": "if",
       "condition": { "kind": "binary", "op": "<", "left": { "kind": "local", "name": "value" }, "right": { "kind": "const", "type": "Integer", "value": "0" } },
       "then": [
-      { "op": "fail", "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "binary", "op": "+", "left": { "kind": "const", "type": "Integer", "value": "100" }, "right": { "kind": "local", "name": "extra" } }, { "kind": "const", "type": "String", "value": "negative" }] } }
+      { "op": "fail", "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "binary", "op": "+", "left": { "kind": "const", "type": "Integer", "value": "100" }, "right": { "kind": "local", "name": "extra" } }, { "kind": "const", "type": "String", "value": "negative" }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "src/main.mfb" }, { "kind": "const", "type": "Integer", "value": "9" }, { "kind": "const", "type": "Integer", "value": "26" }] }] } }
       ],
       "else": [
       ]

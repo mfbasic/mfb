@@ -84,6 +84,9 @@ pub(crate) struct NirFunction {
     pub(crate) params: Vec<NirParam>,
     pub(crate) returns: String,
     pub(crate) body: Vec<NirOp>,
+    /// Project-relative source file this function was lowered from. Used to build
+    /// `ErrorLoc.filename` for errors that originate inside this function.
+    pub(crate) file: String,
 }
 
 pub(crate) struct NirParam {
@@ -147,6 +150,8 @@ pub(crate) enum NirOp {
         end: NirValue,
         step: NirValue,
         body: Vec<NirOp>,
+        // Source location of the loop header; origin for increment overflow.
+        loc: NirSourceLoc,
     },
     DoUntil {
         body: Vec<NirOp>,
@@ -203,15 +208,18 @@ pub(crate) enum NirValue {
     Call {
         target: String,
         args: Vec<NirValue>,
+        loc: NirSourceLoc,
     },
     CallResult {
         target: String,
         args: Vec<NirValue>,
+        loc: NirSourceLoc,
     },
     RuntimeCall {
         helper: RuntimeHelper,
         target: String,
         args: Vec<NirValue>,
+        loc: NirSourceLoc,
     },
     Constructor {
         type_: String,
@@ -256,11 +264,22 @@ pub(crate) enum NirValue {
         op: String,
         left: Box<NirValue>,
         right: Box<NirValue>,
+        loc: NirSourceLoc,
     },
     Unary {
         op: String,
         operand: Box<NirValue>,
+        loc: NirSourceLoc,
     },
+}
+
+/// Source location (line/column within the owning function's file) attached to
+/// NIR nodes that can originate a runtime error. The file is carried on
+/// [`NirFunction::file`].
+#[derive(Clone, Copy, Default)]
+pub(crate) struct NirSourceLoc {
+    pub(crate) line: u32,
+    pub(crate) column: u32,
 }
 
 #[derive(Clone)]
@@ -399,6 +418,7 @@ fn lower_global_initializer(ir: &IrProject) -> NirFunction {
                 value: binding.value.as_ref().map(lower_value),
             })
             .collect(),
+        file: String::new(),
     }
 }
 
@@ -444,6 +464,7 @@ fn lower_function(function: &IrFunction) -> NirFunction {
         params: function.params.iter().map(lower_param).collect(),
         returns: function.returns.clone(),
         body: lower_ops(&function.body),
+        file: function.file.clone(),
     }
 }
 
@@ -520,6 +541,7 @@ fn lower_op(op: &IrOp) -> NirOp {
             end,
             step,
             body,
+            loc,
         } => NirOp::For {
             name: name.clone(),
             type_: type_.clone(),
@@ -527,6 +549,7 @@ fn lower_op(op: &IrOp) -> NirOp {
             end: lower_value(end),
             step: lower_value(step),
             body: lower_ops(body),
+            loc: lower_loc(*loc),
         },
         IrOp::DoUntil { body, condition } => NirOp::DoUntil {
             body: lower_ops(body),
@@ -596,7 +619,8 @@ fn lower_value(value: &IrValue) -> NirValue {
             index: *index,
             type_: type_.clone(),
         },
-        IrValue::Call { target, args } => {
+        IrValue::Call { target, args, loc } => {
+            let loc = lower_loc(*loc);
             let mut args = args.iter().map(lower_value).collect::<Vec<_>>();
             match (target.as_str(), args.len()) {
                 ("fs.openFile" | "fs.openFileNoFollow", 1) => {
@@ -610,6 +634,7 @@ fn lower_value(value: &IrValue) -> NirValue {
                         helper: super::runtime::RuntimeHelper::Fs,
                         target: "fs.tempDirectory".to_string(),
                         args: Vec::new(),
+                        loc,
                     });
                 }
                 _ => {}
@@ -618,23 +643,27 @@ fn lower_value(value: &IrValue) -> NirValue {
                 NirValue::Call {
                     target: target.clone(),
                     args,
+                    loc,
                 }
             } else if let Some(helper) = super::runtime::helper_for_call(target) {
                 NirValue::RuntimeCall {
                     helper,
                     target: target.clone(),
                     args,
+                    loc,
                 }
             } else {
                 NirValue::Call {
                     target: target.clone(),
                     args,
+                    loc,
                 }
             }
         }
-        IrValue::CallResult { target, args } => NirValue::CallResult {
+        IrValue::CallResult { target, args, loc } => NirValue::CallResult {
             target: target.clone(),
             args: args.iter().map(lower_value).collect(),
+            loc: lower_loc(*loc),
         },
         IrValue::Constructor { type_, args } => NirValue::Constructor {
             type_: type_.clone(),
@@ -686,15 +715,29 @@ fn lower_value(value: &IrValue) -> NirValue {
             target: Box::new(lower_value(target)),
             member: member.clone(),
         },
-        IrValue::Binary { op, left, right } => NirValue::Binary {
+        IrValue::Binary {
+            op,
+            left,
+            right,
+            loc,
+        } => NirValue::Binary {
             op: op.clone(),
             left: Box::new(lower_value(left)),
             right: Box::new(lower_value(right)),
+            loc: lower_loc(*loc),
         },
-        IrValue::Unary { op, operand } => NirValue::Unary {
+        IrValue::Unary { op, operand, loc } => NirValue::Unary {
             op: op.clone(),
             operand: Box::new(lower_value(operand)),
+            loc: lower_loc(*loc),
         },
+    }
+}
+
+fn lower_loc(loc: crate::ir::IrSourceLoc) -> NirSourceLoc {
+    NirSourceLoc {
+        line: loc.line,
+        column: loc.column,
     }
 }
 
@@ -1180,6 +1223,7 @@ impl ToNirJson for NirOp {
                 end,
                 step,
                 body,
+                ..
             } => format!(
                 concat!(
                     "\n{}{{\n",
@@ -1360,12 +1404,12 @@ impl ToNirJson for NirValue {
                 index,
                 json_string(type_)
             ),
-            NirValue::Call { target, args } => format!(
+            NirValue::Call { target, args, .. } => format!(
                 "{{ \"kind\": \"call\", \"target\": {}, \"args\": [{}] }}",
                 json_string(target),
                 join_values(args)
             ),
-            NirValue::CallResult { target, args } => format!(
+            NirValue::CallResult { target, args, .. } => format!(
                 "{{ \"kind\": \"callResult\", \"target\": {}, \"args\": [{}] }}",
                 json_string(target),
                 join_values(args)
@@ -1374,6 +1418,7 @@ impl ToNirJson for NirValue {
                 helper,
                 target,
                 args,
+                ..
             } => format!(
                 "{{ \"kind\": \"runtimeCall\", \"helper\": {}, \"target\": {}, \"args\": [{}] }}",
                 json_string(helper.name()),
@@ -1454,13 +1499,13 @@ impl ToNirJson for NirValue {
                 target.to_json(0),
                 json_string(member)
             ),
-            NirValue::Binary { op, left, right } => format!(
+            NirValue::Binary { op, left, right, .. } => format!(
                 "{{ \"kind\": \"binary\", \"op\": {}, \"left\": {}, \"right\": {} }}",
                 json_string(op),
                 left.to_json(0),
                 right.to_json(0)
             ),
-            NirValue::Unary { op, operand } => format!(
+            NirValue::Unary { op, operand, .. } => format!(
                 "{{ \"kind\": \"unary\", \"op\": {}, \"operand\": {} }}",
                 json_string(op),
                 operand.to_json(0)

@@ -101,7 +101,7 @@
       "returnType": "Integer",
       "body": [
       { "kind": "binding", "mutable": false, "name": "t", "type": "Thread OF String TO Integer", "value": { "kind": "call", "callee": "thread.start", "arguments": [{ "kind": "identifier", "value": "thread_runtime_workers.waitForCancel" }, { "kind": "string", "value": "fail" }, { "kind": "number", "value": "1" }, { "kind": "number", "value": "1" }] }, "line": 37 },
-      { "kind": "fail", "error": { "kind": "constructor", "type": "Error", "arguments": [{ "kind": "number", "value": "77050002" }, { "kind": "string", "value": "forced" }] }, "line": 38 }
+      { "kind": "fail", "error": { "kind": "call", "callee": "error", "arguments": [{ "kind": "number", "value": "77050002" }, { "kind": "string", "value": "forced" }] }, "line": 38 }
       ],
       "trap": {
       "name": "err",

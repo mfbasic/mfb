@@ -19,7 +19,7 @@
       "returnType": "Integer",
       "body": [
       { "kind": "binding", "mutable": false, "name": "scratch", "type": "File", "value": { "kind": "call", "callee": "fs.openFile", "arguments": [{ "kind": "identifier", "value": "p" }] }, "line": 7 },
-      { "kind": "fail", "error": { "kind": "constructor", "type": "Error", "arguments": [{ "kind": "number", "value": "700" }, { "kind": "string", "value": "after open" }] }, "line": 8 }
+      { "kind": "fail", "error": { "kind": "call", "callee": "error", "arguments": [{ "kind": "number", "value": "700" }, { "kind": "string", "value": "after open" }] }, "line": 8 }
       ]
     },
     {

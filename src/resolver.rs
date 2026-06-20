@@ -14,6 +14,7 @@ const BUILTIN_TYPES: &[&str] = &[
     "Boolean",
     "Byte",
     "Error",
+    "ErrorLoc",
     "Fixed",
     "Float",
     "Integer",
@@ -711,7 +712,9 @@ impl<'a> Resolver<'a> {
             Expression::Unary { operand, .. } => {
                 self.resolve_expression(file, operand, line, imports, locals);
             }
-            Expression::Call { callee, arguments } => {
+            Expression::Call {
+                callee, arguments, ..
+            } => {
                 self.resolve_callable(file, callee, line, imports, locals);
                 for argument in arguments {
                     self.resolve_expression(file, call_arg_value(argument), line, imports, locals);

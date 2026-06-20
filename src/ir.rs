@@ -73,6 +73,9 @@ pub(crate) struct IrFunction {
     pub(crate) params: Vec<IrParam>,
     pub(crate) returns: String,
     pub(crate) body: Vec<IrOp>,
+    // Source file (project-relative path) this function was lowered from. Used to
+    // build `ErrorLoc.filename` for errors that originate inside this function.
+    pub(crate) file: String,
 }
 #[derive(Clone)]
 
@@ -137,6 +140,8 @@ pub(crate) enum IrOp {
         end: IrValue,
         step: IrValue,
         body: Vec<IrOp>,
+        // Source location of the loop header; origin for increment overflow.
+        loc: IrSourceLoc,
     },
     DoUntil {
         body: Vec<IrOp>,
@@ -192,10 +197,14 @@ pub(crate) enum IrValue {
     Call {
         target: String,
         args: Vec<IrValue>,
+        // Source location of the call expression (origin for helper-generated errors).
+        loc: IrSourceLoc,
     },
     CallResult {
         target: String,
         args: Vec<IrValue>,
+        // Source location of the call expression (origin for helper-generated errors).
+        loc: IrSourceLoc,
     },
     Constructor {
         type_: String,
@@ -240,11 +249,24 @@ pub(crate) enum IrValue {
         op: String,
         left: Box<IrValue>,
         right: Box<IrValue>,
+        // Source location of the operator (origin for arithmetic-generated errors).
+        loc: IrSourceLoc,
     },
     Unary {
         op: String,
         operand: Box<IrValue>,
+        // Source location of the operator (origin for arithmetic-generated errors).
+        loc: IrSourceLoc,
     },
+}
+
+/// Compile-time source location attached to error-originating IR nodes. The
+/// `file` is carried per-function (see `IrFunction::file`); nodes only need the
+/// line and column within that file.
+#[derive(Clone, Copy, Default)]
+pub(crate) struct IrSourceLoc {
+    pub(crate) line: u32,
+    pub(crate) column: u32,
 }
 
 #[derive(Clone)]
@@ -301,6 +323,7 @@ pub fn lower_project_with_external_functions(
         binding_types,
         type_index: &type_index,
         current_imports: HashMap::new(),
+        current_file: String::new(),
         bindings: Vec::new(),
         lambdas: Vec::new(),
         next_lambda_id: 0,
@@ -314,6 +337,7 @@ pub fn lower_project_with_external_functions(
 
     for file in &ast.files {
         context.current_imports = file.import_bindings();
+        context.current_file = file.path.clone();
         for item in &file.items {
             match item {
                 Item::Binding(_) => {}
@@ -389,6 +413,7 @@ fn lower_bindings(ast: &AstProject, context: &mut LowerContext<'_>) -> Vec<IrBin
     let mut lowered = Vec::new();
     for file in &ast.files {
         context.current_imports = file.import_bindings();
+        context.current_file = file.path.clone();
         for item in &file.items {
             if let Item::Binding(binding) = item {
                 lowered.push(lower_binding(binding, context));
@@ -462,6 +487,7 @@ fn lower_function(function: &Function, context: &mut LowerContext<'_>) -> IrFunc
             .collect(),
         returns,
         body,
+        file: context.current_file.clone(),
     }
 }
 
@@ -513,6 +539,9 @@ struct LowerContext<'a> {
     bindings: Vec<IrBinding>,
     type_index: &'a TypeIndex,
     current_imports: HashMap<String, String>,
+    /// Project-relative path of the source file currently being lowered, used to
+    /// populate `IrFunction::file` and `ErrorLoc.filename` for generated errors.
+    current_file: String,
     lambdas: Vec<IrFunction>,
     next_lambda_id: usize,
     next_temp_id: usize,
@@ -784,7 +813,7 @@ fn lower_statement(
             end,
             step,
             body,
-            ..
+            line,
         } => {
             let start_type = expression_type(start, locals, context)
                 .expect("typecheck requires FOR start type before IR lowering");
@@ -847,6 +876,10 @@ fn lower_statement(
                     end: end_local,
                     step: step_local,
                     body: loop_body,
+                    loc: IrSourceLoc {
+                        line: *line as u32,
+                        column: 0,
+                    },
                 },
             ]
         }
@@ -934,7 +967,7 @@ fn lower_inline_trap(
     let result_type = format!("Result OF {success_type}");
     let raw = lower_expression(inner, locals, context);
     let call_result = match raw {
-        IrValue::Call { target, args } => IrValue::CallResult { target, args },
+        IrValue::Call { target, args, loc } => IrValue::CallResult { target, args, loc },
         other => other,
     };
 
@@ -1598,7 +1631,9 @@ fn expression_type(
             }
             context.type_index.record_field_type(&target_type, member)
         }
-        Expression::Call { callee, arguments } => {
+        Expression::Call {
+            callee, arguments, ..
+        } => {
             let canonical_callee = canonical_import_name(callee, context);
             if builtins::general::is_general_call(&canonical_callee) {
                 let normalized =
@@ -1715,6 +1750,7 @@ fn expression_type(
             left,
             operator,
             right,
+            ..
         } => {
             if matches!(
                 operator.as_str(),
@@ -1729,7 +1765,9 @@ fn expression_type(
             let right = expression_type(right, locals, context)?;
             Some(numeric_binary_result_type(operator, &left, &right).to_string())
         }
-        Expression::Unary { operator, operand } => {
+        Expression::Unary {
+            operator, operand, ..
+        } => {
             if operator == "NOT" {
                 Some("Boolean".to_string())
             } else {
@@ -2009,8 +2047,36 @@ fn lower_expression_with_expected(
             };
             wrap_union_value(base, expression, expected, locals, context)
         }
-        Expression::Call { callee, arguments } => {
+        Expression::Call {
+            callee,
+            arguments,
+            line,
+            column,
+        } => {
             let canonical_callee = canonical_import_name(callee, context);
+            let loc = IrSourceLoc {
+                line: *line as u32,
+                column: *column as u32,
+            };
+            // `error(code, message)` is a language built-in that produces a
+            // read-only `Error` record stamped with the source location of this
+            // call expression. Lower it to ordinary record constructors so the
+            // rest of the pipeline treats `Error`/`ErrorLoc` as plain records.
+            if canonical_callee == "error"
+                && !context.function_params.contains_key(callee)
+                && !context.function_params.contains_key(&canonical_callee)
+            {
+                let mut lowered = arguments
+                    .iter()
+                    .map(|argument| lower_expression(call_arg_value(argument), locals, context));
+                let code = lowered
+                    .next()
+                    .expect("typecheck requires error() code argument before IR lowering");
+                let message = lowered
+                    .next()
+                    .expect("typecheck requires error() message argument before IR lowering");
+                return build_error_value(code, message, &context.current_file, loc);
+            }
             let normalized_builtin =
                 normalize_builtin_call_arguments(canonical_callee.as_str(), arguments);
             let args = if callee == "filter" && normalized_builtin.len() == 2 {
@@ -2068,6 +2134,7 @@ fn lower_expression_with_expected(
                     .unwrap_or(&canonical_callee)
                     .to_string(),
                 args,
+                loc,
             }
         }
         Expression::Lambda { params, body } => {
@@ -2122,6 +2189,7 @@ fn lower_expression_with_expected(
                 params: ir_params,
                 returns: returns.clone(),
                 body: body_ops,
+                file: context.current_file.clone(),
             });
             let params = params
                 .iter()
@@ -2240,15 +2308,59 @@ fn lower_expression_with_expected(
             left,
             operator,
             right,
+            line,
+            column,
         } => IrValue::Binary {
             op: operator.clone(),
             left: Box::new(lower_expression(left, locals, context)),
             right: Box::new(lower_expression(right, locals, context)),
+            loc: IrSourceLoc {
+                line: *line as u32,
+                column: *column as u32,
+            },
         },
-        Expression::Unary { operator, operand } => IrValue::Unary {
+        Expression::Unary {
+            operator,
+            operand,
+            line,
+            column,
+        } => IrValue::Unary {
             op: operator.clone(),
             operand: Box::new(lower_expression(operand, locals, context)),
+            loc: IrSourceLoc {
+                line: *line as u32,
+                column: *column as u32,
+            },
         },
+    }
+}
+
+/// Build an `ErrorLoc` record value for a compile-time source location.
+fn error_loc_value(file: &str, loc: IrSourceLoc) -> IrValue {
+    IrValue::Constructor {
+        type_: "ErrorLoc".to_string(),
+        args: vec![
+            IrValue::Const {
+                type_: "String".to_string(),
+                value: file.to_string(),
+            },
+            IrValue::Const {
+                type_: "Integer".to_string(),
+                value: loc.line.to_string(),
+            },
+            IrValue::Const {
+                type_: "Integer".to_string(),
+                value: loc.column.to_string(),
+            },
+        ],
+    }
+}
+
+/// Build an `Error` record value (code, message, source) for `error(...)`.
+fn build_error_value(code: IrValue, message: IrValue, file: &str, loc: IrSourceLoc) -> IrValue {
+    IrValue::Constructor {
+        type_: "Error".to_string(),
+        args: vec![code, message, error_loc_value(file, loc)],
     }
 }
 
@@ -2363,7 +2475,9 @@ fn collect_captured_locals(
                 }
             }
         }
-        Expression::Call { callee, arguments } => {
+        Expression::Call {
+            callee, arguments, ..
+        } => {
             if let Some(type_) = outer_locals.get(callee) {
                 if !local_names.contains(callee) && seen.insert(callee.clone()) {
                     captures.push(CapturedLocal {
@@ -2989,6 +3103,7 @@ impl ToIrJson for IrOp {
                 end,
                 step,
                 body,
+                ..
             } => {
                 format!(
                     concat!(
@@ -3191,7 +3306,7 @@ impl ToIrJson for IrValue {
                     json_string(type_)
                 )
             }
-            IrValue::Call { target, args } => {
+            IrValue::Call { target, args, .. } => {
                 let args = args
                     .iter()
                     .map(|arg| arg.to_json(0))
@@ -3203,7 +3318,7 @@ impl ToIrJson for IrValue {
                     args
                 )
             }
-            IrValue::CallResult { target, args } => {
+            IrValue::CallResult { target, args, .. } => {
                 let args = args
                     .iter()
                     .map(|arg| arg.to_json(0))
@@ -3308,7 +3423,9 @@ impl ToIrJson for IrValue {
                     json_string(member)
                 )
             }
-            IrValue::Binary { op, left, right } => {
+            IrValue::Binary {
+                op, left, right, ..
+            } => {
                 format!(
                     "{{ \"kind\": \"binary\", \"op\": {}, \"left\": {}, \"right\": {} }}",
                     json_string(op),
@@ -3316,7 +3433,7 @@ impl ToIrJson for IrValue {
                     right.to_json(0)
                 )
             }
-            IrValue::Unary { op, operand } => {
+            IrValue::Unary { op, operand, .. } => {
                 format!(
                     "{{ \"kind\": \"unary\", \"op\": {}, \"operand\": {} }}",
                     json_string(op),
@@ -3381,7 +3498,9 @@ fn visibility_name(visibility: Visibility) -> &'static str {
 /// Magic bytes prefixing a Binary Representation payload.
 pub const BINARY_REPR_MAGIC: &[u8; 4] = b"MFBR";
 /// Binary Representation format version. Bump on any incompatible change to the encoding.
-pub const BINARY_REPR_VERSION: u16 = 1;
+/// Version 2 adds per-node source locations (`loc` on Call/CallResult/Binary/Unary/For)
+/// and a per-function source `file`, backing read-only `Error.source` / `ErrorLoc`.
+pub const BINARY_REPR_VERSION: u16 = 2;
 
 // --- low-level writers -----------------------------------------------------
 
@@ -3704,6 +3823,7 @@ fn encode_function(out: &mut Vec<u8>, f: &IrFunction) {
     put_vec(out, &f.params, encode_param);
     put_str(out, &f.returns);
     put_vec(out, &f.body, encode_op);
+    put_str(out, &f.file);
 }
 
 fn decode_function(r: &mut IrReader) -> Result<IrFunction, String> {
@@ -3715,6 +3835,7 @@ fn decode_function(r: &mut IrReader) -> Result<IrFunction, String> {
         params: decode_vec(r, decode_param)?,
         returns: r.string()?,
         body: decode_vec(r, decode_op)?,
+        file: r.string()?,
     })
 }
 
@@ -3804,6 +3925,7 @@ fn encode_op(out: &mut Vec<u8>, op: &IrOp) {
             end,
             step,
             body,
+            loc,
         } => {
             put_u8(out, 14);
             put_str(out, name);
@@ -3812,6 +3934,7 @@ fn encode_op(out: &mut Vec<u8>, op: &IrOp) {
             encode_value(out, end);
             encode_value(out, step);
             put_vec(out, body, encode_op);
+            put_loc(out, *loc);
         }
         IrOp::DoUntil { body, condition } => {
             put_u8(out, 15);
@@ -3904,6 +4027,7 @@ fn decode_op(r: &mut IrReader) -> Result<IrOp, String> {
             end: decode_value(r)?,
             step: decode_value(r)?,
             body: decode_vec(r, decode_op)?,
+            loc: get_loc(r)?,
         },
         15 => IrOp::DoUntil {
             body: decode_vec(r, decode_op)?,
@@ -4010,15 +4134,17 @@ fn encode_value(out: &mut Vec<u8>, v: &IrValue) {
             put_u32(out, *index as u32);
             put_str(out, type_);
         }
-        IrValue::Call { target, args } => {
+        IrValue::Call { target, args, loc } => {
             put_u8(out, 6);
             put_str(out, target);
             put_vec(out, args, encode_value);
+            put_loc(out, *loc);
         }
-        IrValue::CallResult { target, args } => {
+        IrValue::CallResult { target, args, loc } => {
             put_u8(out, 7);
             put_str(out, target);
             put_vec(out, args, encode_value);
+            put_loc(out, *loc);
         }
         IrValue::Constructor { type_, args } => {
             put_u8(out, 8);
@@ -4083,18 +4209,36 @@ fn encode_value(out: &mut Vec<u8>, v: &IrValue) {
             encode_value(out, target);
             put_str(out, member);
         }
-        IrValue::Binary { op, left, right } => {
+        IrValue::Binary {
+            op,
+            left,
+            right,
+            loc,
+        } => {
             put_u8(out, 18);
             put_str(out, op);
             encode_value(out, left);
             encode_value(out, right);
+            put_loc(out, *loc);
         }
-        IrValue::Unary { op, operand } => {
+        IrValue::Unary { op, operand, loc } => {
             put_u8(out, 19);
             put_str(out, op);
             encode_value(out, operand);
+            put_loc(out, *loc);
         }
     }
+}
+
+fn put_loc(out: &mut Vec<u8>, loc: IrSourceLoc) {
+    put_u32(out, loc.line);
+    put_u32(out, loc.column);
+}
+
+fn get_loc(r: &mut IrReader) -> Result<IrSourceLoc, String> {
+    let line = r.u32()?;
+    let column = r.u32()?;
+    Ok(IrSourceLoc { line, column })
 }
 
 fn decode_value(r: &mut IrReader) -> Result<IrValue, String> {
@@ -4122,10 +4266,12 @@ fn decode_value(r: &mut IrReader) -> Result<IrValue, String> {
         6 => IrValue::Call {
             target: r.string()?,
             args: decode_vec(r, decode_value)?,
+            loc: get_loc(r)?,
         },
         7 => IrValue::CallResult {
             target: r.string()?,
             args: decode_vec(r, decode_value)?,
+            loc: get_loc(r)?,
         },
         8 => IrValue::Constructor {
             type_: r.string()?,
@@ -4179,10 +4325,12 @@ fn decode_value(r: &mut IrReader) -> Result<IrValue, String> {
             op: r.string()?,
             left: Box::new(decode_value(r)?),
             right: Box::new(decode_value(r)?),
+            loc: get_loc(r)?,
         },
         19 => IrValue::Unary {
             op: r.string()?,
             operand: Box::new(decode_value(r)?),
+            loc: get_loc(r)?,
         },
         other => {
             return Err(format!(
@@ -4500,7 +4648,7 @@ fn rewrite_value_targets(
     pkg: &str,
 ) {
     match value {
-        IrValue::Call { target, args } | IrValue::CallResult { target, args } => {
+        IrValue::Call { target, args, .. } | IrValue::CallResult { target, args, .. } => {
             if fns.contains(target) {
                 qualify_target(target, pkg);
             }
@@ -4581,7 +4729,9 @@ mod binary_repr_tests {
             right: Box::new(IrValue::Unary {
                 op: "-".to_string(),
                 operand: Box::new(IrValue::Local("x".to_string())),
+                loc: IrSourceLoc::default(),
             }),
+            loc: IrSourceLoc::default(),
         }
     }
 
@@ -4610,10 +4760,12 @@ mod binary_repr_tests {
             IrValue::Call {
                 target: "g".to_string(),
                 args: vec![sample_value()],
+                loc: IrSourceLoc::default(),
             },
             IrValue::CallResult {
                 target: "toInt".to_string(),
                 args: vec![IrValue::Local("s".to_string())],
+                loc: IrSourceLoc::default(),
             },
             IrValue::Constructor {
                 type_: "Point".to_string(),
@@ -4667,6 +4819,7 @@ mod binary_repr_tests {
             IrValue::Unary {
                 op: "NOT".to_string(),
                 operand: Box::new(IrValue::Local("b".to_string())),
+                loc: IrSourceLoc::default(),
             },
         ];
 
@@ -4689,6 +4842,7 @@ mod binary_repr_tests {
                 value: IrValue::Call {
                     target: "g".to_string(),
                     args: every_value.clone(),
+                    loc: IrSourceLoc::default(),
                 },
             },
             IrOp::If {
@@ -4746,6 +4900,7 @@ mod binary_repr_tests {
                     value: IrValue::CallResult {
                         target: "toInt".to_string(),
                         args: vec![IrValue::Local("s".to_string())],
+                        loc: IrSourceLoc::default(),
                     },
                 }],
             },
@@ -4841,6 +4996,7 @@ mod binary_repr_tests {
                 ],
                 returns: "Integer".to_string(),
                 body,
+                file: "src/main.mfb".to_string(),
             }],
         }
     }
@@ -4882,6 +5038,7 @@ mod binary_repr_tests {
             params: vec![],
             returns: "Integer".to_string(),
             body,
+            file: "src/main.mfb".to_string(),
         }
     }
 
@@ -4910,6 +5067,7 @@ mod binary_repr_tests {
                         value: IrValue::Call {
                             target: "g".to_string(),
                             args: vec![],
+                            loc: IrSourceLoc::default(),
                         },
                     }],
                 ),
@@ -4946,6 +5104,7 @@ mod binary_repr_tests {
                     value: IrValue::Call {
                         target: "pkg.f".to_string(),
                         args: vec![],
+                        loc: IrSourceLoc::default(),
                     },
                 }],
             )],

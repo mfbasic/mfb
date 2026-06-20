@@ -18,6 +18,7 @@ enum Type {
     Boolean,
     Byte,
     Error,
+    ErrorLoc,
     Fixed,
     Float,
     Integer,
@@ -427,6 +428,7 @@ impl<'a> TypeChecker<'a> {
             Type::Boolean
             | Type::Byte
             | Type::Error
+            | Type::ErrorLoc
             | Type::Fixed
             | Type::Float
             | Type::Integer
@@ -2223,12 +2225,15 @@ impl<'a> TypeChecker<'a> {
                 left,
                 operator,
                 right,
+                ..
             } => {
                 let left_type = self.infer_expression(file, left, locals, line, ExprMode::Read);
                 let right_type = self.infer_expression(file, right, locals, line, ExprMode::Read);
                 self.infer_binary(file, operator, &left_type, &right_type, line)
             }
-            Expression::Unary { operator, operand } => {
+            Expression::Unary {
+                operator, operand, ..
+            } => {
                 if operator == "-" && !integer_literal_in_range(expression) {
                     if let Expression::Number(value) = operand.as_ref() {
                         self.report(
@@ -2249,7 +2254,9 @@ impl<'a> TypeChecker<'a> {
                     self.infer_expression(file, operand, locals, line, ExprMode::Read);
                 self.infer_unary(file, operator, &operand_type, line)
             }
-            Expression::Call { callee, arguments } => {
+            Expression::Call {
+                callee, arguments, ..
+            } => {
                 let canonical_callee = self.canonical_import_name(file, callee);
                 if builtins::math::is_math_constant(&canonical_callee) {
                     self.report(
@@ -2366,7 +2373,10 @@ impl<'a> TypeChecker<'a> {
         expression: &Expression,
         locals: &HashMap<String, LocalInfo>,
     ) -> Option<(String, LocalInfo)> {
-        let Expression::Call { callee, arguments } = expression else {
+        let Expression::Call {
+            callee, arguments, ..
+        } = expression
+        else {
             return None;
         };
         if self.canonical_import_name(file, callee) != "thread.send" {
@@ -2701,23 +2711,32 @@ impl<'a> TypeChecker<'a> {
         line: usize,
         _expected: Option<&Type>,
     ) -> Type {
-        if type_name == "Error" {
-            let fields = vec![
-                FieldInfo {
-                    name: "code".to_string(),
-                    type_: Type::Integer,
-                    visibility: Visibility::Export,
-                },
-                FieldInfo {
-                    name: "message".to_string(),
-                    type_: Type::String,
-                    visibility: Visibility::Export,
-                },
-            ];
-            self.check_constructor_arguments(
-                file, type_name, &fields, &file.path, arguments, locals, line,
+        // `Error` and `ErrorLoc` are read-only compiler/runtime-generated records.
+        // Direct construction is rejected; user errors are created with the
+        // `error(code, message)` built-in instead.
+        if matches!(type_name, "Error" | "ErrorLoc") {
+            self.report(
+                "TYPE_READ_ONLY_RECORD_CONSTRUCTOR",
+                &format!(
+                    "`{type_name}` is a read-only built-in record and cannot be constructed; use `error(code, message)` to create an Error."
+                ),
+                file,
+                line,
             );
-            return Type::Error;
+            for argument in arguments {
+                self.infer_expression(
+                    file,
+                    constructor_arg_value(argument),
+                    locals,
+                    line,
+                    ExprMode::Transfer,
+                );
+            }
+            return if type_name == "Error" {
+                Type::Error
+            } else {
+                Type::ErrorLoc
+            };
         }
 
         if matches!(type_name, "Ok" | "Result") {
@@ -2813,6 +2832,21 @@ impl<'a> TypeChecker<'a> {
         line: usize,
     ) -> Type {
         let target_type = self.infer_expression(file, target, locals, line, ExprMode::Transfer);
+        if matches!(target_type, Type::Error | Type::ErrorLoc) {
+            self.report(
+                "TYPE_READ_ONLY_RECORD_UPDATE",
+                &format!(
+                    "`{}` is a read-only built-in record and cannot be updated.",
+                    self.type_name(&target_type)
+                ),
+                file,
+                line,
+            );
+            for update in updates {
+                self.infer_expression(file, &update.value, locals, update.line, ExprMode::Transfer);
+            }
+            return target_type;
+        }
         let Type::User(type_name) = &target_type else {
             self.report(
                 "TYPE_FIELD_ACCESS_REQUIRES_RECORD",
@@ -2969,10 +3003,27 @@ impl<'a> TypeChecker<'a> {
             return match member {
                 "code" => Type::Integer,
                 "message" => Type::String,
+                "source" => Type::ErrorLoc,
                 _ => {
                     self.report(
                         "TYPE_UNKNOWN_FIELD",
                         &format!("Error value has no field `{member}`."),
+                        file,
+                        line,
+                    );
+                    Type::Unknown
+                }
+            };
+        }
+        if matches!(target_type, Type::ErrorLoc) {
+            return match member {
+                "filename" => Type::String,
+                "line" => Type::Integer,
+                "char" => Type::Integer,
+                _ => {
+                    self.report(
+                        "TYPE_UNKNOWN_FIELD",
+                        &format!("ErrorLoc value has no field `{member}`."),
                         file,
                         line,
                     );
@@ -4398,6 +4449,7 @@ impl<'a> TypeChecker<'a> {
             "Boolean" => Type::Boolean,
             "Byte" => Type::Byte,
             "Error" => Type::Error,
+            "ErrorLoc" => Type::ErrorLoc,
             "Fixed" => Type::Fixed,
             "Float" => Type::Float,
             "Integer" => Type::Integer,
@@ -4506,7 +4558,9 @@ impl<'a> TypeChecker<'a> {
             (
                 Type::Fixed,
                 Type::Integer | Type::Float,
-                Some(Expression::Unary { operator, operand }),
+                Some(Expression::Unary {
+                    operator, operand, ..
+                }),
             ) if operator == "-" && matches!(operand.as_ref(), Expression::Number(_)) => true,
             (
                 Type::List(expected_element),
@@ -4538,6 +4592,7 @@ impl<'a> TypeChecker<'a> {
             Type::Boolean
             | Type::Byte
             | Type::Error
+            | Type::ErrorLoc
             | Type::Fixed
             | Type::Float
             | Type::Integer
@@ -4725,6 +4780,7 @@ impl<'a> TypeChecker<'a> {
             Type::Boolean
             | Type::Byte
             | Type::Error
+            | Type::ErrorLoc
             | Type::Fixed
             | Type::Float
             | Type::Integer
@@ -4768,6 +4824,7 @@ impl<'a> TypeChecker<'a> {
             Type::Boolean
             | Type::Byte
             | Type::Error
+            | Type::ErrorLoc
             | Type::Fixed
             | Type::Float
             | Type::Integer
@@ -4816,6 +4873,7 @@ impl<'a> TypeChecker<'a> {
             Type::Boolean
             | Type::Byte
             | Type::Error
+            | Type::ErrorLoc
             | Type::Fixed
             | Type::Float
             | Type::Integer
@@ -5022,6 +5080,7 @@ impl<'a> TypeChecker<'a> {
             Type::Boolean
             | Type::Byte
             | Type::Error
+            | Type::ErrorLoc
             | Type::Fixed
             | Type::Float
             | Type::Integer
@@ -5036,6 +5095,7 @@ impl<'a> TypeChecker<'a> {
             Type::Boolean => "Boolean".to_string(),
             Type::Byte => "Byte".to_string(),
             Type::Error => "Error".to_string(),
+            Type::ErrorLoc => "ErrorLoc".to_string(),
             Type::Fixed => "Fixed".to_string(),
             Type::Float => "Float".to_string(),
             Type::Integer => "Integer".to_string(),
@@ -5186,7 +5246,7 @@ fn byte_literal_range_error(expression: &Expression) -> Option<ByteLiteralRangeE
             .map_or(Some(ByteLiteralRangeError::Overflow(value)), |number| {
                 (number > u8::MAX as u16).then_some(ByteLiteralRangeError::Overflow(value))
             }),
-        Expression::Unary { operator, operand } if operator == "-" => {
+        Expression::Unary { operator, operand, .. } if operator == "-" => {
             let Expression::Number(value) = operand.as_ref() else {
                 return None;
             };
@@ -5259,7 +5319,7 @@ fn loop_kind_keyword(kind: LoopKind) -> &'static str {
 fn integer_constant_value(expression: &Expression) -> Option<i128> {
     match expression {
         Expression::Number(value) => value.parse::<i128>().ok(),
-        Expression::Unary { operator, operand } if operator == "-" => {
+        Expression::Unary { operator, operand, .. } if operator == "-" => {
             integer_constant_value(operand).map(|value| -value)
         }
         _ => None,
@@ -5269,7 +5329,7 @@ fn integer_constant_value(expression: &Expression) -> Option<i128> {
 fn signed_numeric_literal(expression: &Expression) -> Option<(&str, bool)> {
     match expression {
         Expression::Number(value) => Some((value.as_str(), false)),
-        Expression::Unary { operator, operand } if operator == "-" => {
+        Expression::Unary { operator, operand, .. } if operator == "-" => {
             let Expression::Number(value) = operand.as_ref() else {
                 return None;
             };
@@ -5282,7 +5342,7 @@ fn signed_numeric_literal(expression: &Expression) -> Option<(&str, bool)> {
 fn integer_literal_in_range(expression: &Expression) -> bool {
     match expression {
         Expression::Number(value) if !value.contains('.') => value.parse::<i64>().is_ok(),
-        Expression::Unary { operator, operand } if operator == "-" => {
+        Expression::Unary { operator, operand, .. } if operator == "-" => {
             let Expression::Number(value) = operand.as_ref() else {
                 return true;
             };
@@ -5351,7 +5411,9 @@ fn collect_captured_locals(
                 }
             }
         }
-        Expression::Call { callee, arguments } => {
+        Expression::Call {
+            callee, arguments, ..
+        } => {
             if let Some(local) = outer_locals.get(callee) {
                 if !local_names.contains(callee) && seen.insert(callee.clone()) {
                     captures.push(CapturedLocal {
@@ -5443,7 +5505,7 @@ fn numeric_literal_type(expression: &Expression) -> Option<Type> {
     match expression {
         Expression::Number(number) if number.contains('.') => Some(Type::Float),
         Expression::Number(_) => Some(Type::Integer),
-        Expression::Unary { operator, operand }
+        Expression::Unary { operator, operand, .. }
             if operator == "-" && matches!(operand.as_ref(), Expression::Number(_)) =>
         {
             numeric_literal_type(operand)
@@ -5455,7 +5517,7 @@ fn numeric_literal_type(expression: &Expression) -> Option<Type> {
 fn numeric_literal_is_zero(expression: &Expression) -> bool {
     match expression {
         Expression::Number(value) => value.parse::<f64>().is_ok_and(|number| number == 0.0),
-        Expression::Unary { operator, operand }
+        Expression::Unary { operator, operand, .. }
             if operator == "-" && matches!(operand.as_ref(), Expression::Number(_)) =>
         {
             numeric_literal_is_zero(operand)

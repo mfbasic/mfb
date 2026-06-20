@@ -35,7 +35,7 @@ END FUNC
 
 FUNC failTrapDrop AS Integer
   LET t AS Thread OF String TO Integer = thread::start(thread_runtime_workers::waitForCancel, "fail", 1, 1)
-  FAIL Error[77050002, "forced"]
+  FAIL error(77050002, "forced")
   TRAP(err)
     RETURN 0
   END TRAP

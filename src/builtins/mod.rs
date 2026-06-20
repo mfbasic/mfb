@@ -55,6 +55,7 @@ pub(crate) fn is_builtin_member(name: &str) -> bool {
 
 pub(crate) fn call_param_names(name: &str) -> Option<&'static [&'static [&'static str]]> {
     match name {
+        "error" => Some(&[&["code"], &["message"]]),
         "len" => Some(&[&["value"]]),
         "find" => Some(&[&["value"], &["needle", "item"], &["start"]]),
         "mid" => Some(&[&["value"], &["start"], &["count"]]),

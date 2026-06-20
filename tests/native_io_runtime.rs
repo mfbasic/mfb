@@ -454,7 +454,7 @@ IMPORT fs
 
 FUNC main AS Integer
   LET file = fs::openFile("{}")
-  FAIL Error[1234, "body failed"]
+  FAIL error(1234, "body failed")
 END FUNC
 "#,
             target_file.display()

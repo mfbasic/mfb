@@ -7,7 +7,9 @@ use crate::builtins;
 use crate::json_string;
 use crate::numeric;
 
-use super::nir::{self, NirFunction, NirMatchPattern, NirModule, NirOp, NirRecordUpdate, NirValue};
+use super::nir::{
+    self, NirFunction, NirMatchPattern, NirModule, NirOp, NirRecordUpdate, NirSourceLoc, NirValue,
+};
 use super::plan::NativePlan;
 use super::runtime;
 
@@ -80,6 +82,14 @@ const CLEANUP_FAILURE_SEPARATOR_SYMBOL: &str = ENTRY_ERROR_SEPARATOR_SYMBOL;
 const RESULT_TAG_REGISTER: &str = abi::RETURN_REGISTER;
 const RESULT_VALUE_REGISTER: &str = "x1";
 const RESULT_ERROR_MESSAGE_REGISTER: &str = "x2";
+/// Fourth error-result register: pointer to the `ErrorLoc` recording where the
+/// error originated. Carried alongside code (x1) and message (x2) so propagation
+/// preserves the origin and trap materialization can build a 3-field `Error`.
+const RESULT_ERROR_SOURCE_REGISTER: &str = "x3";
+/// Byte size of an allocated `Error` record: code(+0), message(+8), source(+16).
+const ERROR_OBJECT_SIZE: usize = 24;
+/// Byte size of an allocated `ErrorLoc` record: filename(+0), line(+8), char(+16).
+const ERROR_LOC_OBJECT_SIZE: usize = 24;
 pub(crate) const ARENA_ALLOC_SYMBOL: &str = "_mfb_arena_alloc";
 const ARENA_DESTROY_SYMBOL: &str = "_mfb_arena_destroy";
 const ARENA_STATE_REGISTER: &str = "x19";
@@ -450,6 +460,14 @@ struct CodeBuilder<'a> {
     /// (`toInt`, …) trappable: an inline `TRAP` materializes the raw `Result`
     /// rather than auto-propagating.
     raw_result_capture: Option<String>,
+    /// Project-relative source file of the function currently being lowered. Used
+    /// to build `ErrorLoc.filename` for errors that originate in this function.
+    current_file: String,
+    /// Source location of the error-originating node currently being lowered.
+    /// Updated as `lower_value` descends into call/arithmetic nodes and consulted
+    /// when an error is freshly created (overflow, divide-by-zero, helper failure)
+    /// so its `ErrorLoc` records the true origin.
+    current_loc: NirSourceLoc,
 }
 
 #[derive(Clone)]
@@ -509,6 +527,8 @@ struct PendingResultSlots {
     value: usize,
     tag: usize,
     message: usize,
+    // Stashed error-source pointer (`ErrorLoc`) for the pending error result.
+    source: usize,
 }
 
 #[derive(Clone, Copy)]
@@ -1061,6 +1081,25 @@ impl TypeModel {
                     .collect(),
             );
         }
+        // `Error` and `ErrorLoc` are read-only compiler/runtime records laid out
+        // as ordinary 3-field records so construction, field access, copying, and
+        // cleanup reuse the generic record machinery.
+        record_fields.insert(
+            "Error".to_string(),
+            vec![
+                ("code".to_string(), "Integer".to_string()),
+                ("message".to_string(), "String".to_string()),
+                ("source".to_string(), "ErrorLoc".to_string()),
+            ],
+        );
+        record_fields.insert(
+            "ErrorLoc".to_string(),
+            vec![
+                ("filename".to_string(), "String".to_string()),
+                ("line".to_string(), "Integer".to_string()),
+                ("char".to_string(), "Integer".to_string()),
+            ],
+        );
         Ok(Self {
             enum_members,
             record_fields,
@@ -1851,6 +1890,8 @@ fn lower_function(
         pending_result_slots: None,
         error_arena_restore_slot: None,
         raw_result_capture: None,
+        current_file: function.file.clone(),
+        current_loc: NirSourceLoc::default(),
     };
     for param in &params {
         let stack_offset = builder.allocate_stack_object(&param.name, 8);
@@ -1970,6 +2011,8 @@ fn lower_builtin_function_wrapper(
         pending_result_slots: None,
         error_arena_restore_slot: None,
         raw_result_capture: None,
+        current_file: String::new(),
+        current_loc: NirSourceLoc::default(),
     };
 
     let stack_offset = builder.allocate_stack_object("value", 8);
@@ -1990,6 +2033,7 @@ fn lower_builtin_function_wrapper(
     let result = builder.lower_value(&NirValue::Call {
         target: name.to_string(),
         args: vec![NirValue::Local("value".to_string())],
+        loc: NirSourceLoc::default(),
     })?;
     builder.emit(abi::move_register(RESULT_VALUE_REGISTER, &result.location));
     builder.emit(abi::move_immediate(
@@ -2853,6 +2897,8 @@ fn lower_direct_builtin_runtime_helper(
         pending_result_slots: None,
         error_arena_restore_slot: None,
         raw_result_capture: None,
+        current_file: String::new(),
+        current_loc: NirSourceLoc::default(),
     };
 
     let args = spec
@@ -2882,6 +2928,7 @@ fn lower_direct_builtin_runtime_helper(
     let result = builder.lower_value(&NirValue::Call {
         target: spec.call.to_string(),
         args,
+        loc: NirSourceLoc::default(),
     })?;
     if spec.abi.returns != "Nothing" {
         builder.emit(abi::move_register(RESULT_VALUE_REGISTER, &result.location));
@@ -11918,6 +11965,13 @@ fn string_symbols(module: &NirModule) -> HashMap<String, String> {
     for function in &module.functions {
         collect_string_values_from_ops(&function.body, &mut values);
     }
+    // Source file paths back `ErrorLoc.filename` for errors that originate in
+    // each function; emit them as string constants so the origin can load them.
+    for function in &module.functions {
+        if !function.file.is_empty() {
+            push_string_value(&mut values, function.file.clone());
+        }
+    }
     for value in [
         ERR_INVALID_ARGUMENT_MESSAGE,
         ERR_OVERFLOW_MESSAGE,
@@ -12354,6 +12408,7 @@ fn ops_may_emit_float_arithmetic_error(
                 end,
                 step,
                 body,
+                ..
             } => {
                 let mut body_locals = locals.clone();
                 body_locals.insert(name.clone(), type_.clone());
@@ -12394,7 +12449,7 @@ fn value_may_emit_float_arithmetic_error(
     locals: &HashMap<String, String>,
 ) -> bool {
     match value {
-        NirValue::Binary { op, left, right } => {
+        NirValue::Binary { op, left, right, .. } => {
             let result_type = static_nir_value_type(left, locals)
                 .zip(static_nir_value_type(right, locals))
                 .map(|(left_type, right_type)| {
@@ -12434,7 +12489,7 @@ fn value_may_emit_float_arithmetic_error(
         NirValue::MemberAccess { target, .. } => {
             value_may_emit_float_arithmetic_error(target, locals)
         }
-        NirValue::Unary { op, operand } => {
+        NirValue::Unary { op, operand, .. } => {
             (op == "-" && static_nir_value_type(operand, locals).as_deref() == Some("Float"))
                 || value_may_emit_float_arithmetic_error(operand, locals)
         }
@@ -12461,13 +12516,13 @@ fn static_nir_value_type(value: &NirValue, locals: &HashMap<String, String>) -> 
         | NirValue::ListLiteral { type_, .. }
         | NirValue::MapLiteral { type_, .. } => Some(type_.clone()),
         NirValue::Local(name) => locals.get(name).cloned(),
-        NirValue::Binary { op, left, right } => static_nir_value_type(left, locals)
+        NirValue::Binary { op, left, right, .. } => static_nir_value_type(left, locals)
             .zip(static_nir_value_type(right, locals))
             .map(|(left_type, right_type)| {
                 numeric_binary_result_type(op, &left_type, &right_type).to_string()
             }),
         NirValue::Unary { operand, .. } => static_nir_value_type(operand, locals),
-        NirValue::Call { target, args } | NirValue::CallResult { target, args } => {
+        NirValue::Call { target, args, .. } | NirValue::CallResult { target, args, .. } => {
             let arg_types = args
                 .iter()
                 .map(|arg| static_nir_value_type(arg, locals))
@@ -12549,8 +12604,12 @@ fn ops_use_call(ops: &[NirOp], target: &str) -> bool {
 
 fn value_uses_call(value: &NirValue, target: &str) -> bool {
     match value {
-        NirValue::Call { target: call, args }
-        | NirValue::CallResult { target: call, args }
+        NirValue::Call {
+            target: call, args, ..
+        }
+        | NirValue::CallResult {
+            target: call, args, ..
+        }
         | NirValue::RuntimeCall {
             target: call, args, ..
         } => call == target || args.iter().any(|arg| value_uses_call(arg, target)),
@@ -13022,6 +13081,7 @@ fn ops_use_unicode_runtime_tables(
                 end,
                 step,
                 body,
+                ..
             } => {
                 if value_uses_unicode_runtime_tables(start, constants, types)
                     || value_uses_unicode_runtime_tables(end, constants, types)
@@ -13081,8 +13141,8 @@ fn value_uses_unicode_runtime_tables(
     types: &HashMap<String, String>,
 ) -> bool {
     match value {
-        NirValue::Call { target, args }
-        | NirValue::CallResult { target, args }
+        NirValue::Call { target, args, .. }
+        | NirValue::CallResult { target, args, .. }
         | NirValue::RuntimeCall { target, args, .. } => {
             matches!(
                 target.as_str(),
@@ -13399,6 +13459,7 @@ fn collect_string_values_from_ops_with_constants(
                 end,
                 step,
                 body,
+                ..
             } => {
                 collect_string_values_from_value(start, values, constants, types);
                 collect_string_values_from_value(end, values, constants, types);
@@ -13466,8 +13527,8 @@ fn collect_string_values_from_value(
     if let Some(value) = static_string_value_with_constants(value, constants, types) {
         push_string_value(values, value);
     }
-    if let NirValue::Call { target, args }
-    | NirValue::CallResult { target, args }
+    if let NirValue::Call { target, args, .. }
+    | NirValue::CallResult { target, args, .. }
     | NirValue::RuntimeCall { target, args, .. } = value
     {
         if target == "strings.graphemes" && args.len() == 1 {
@@ -13605,8 +13666,8 @@ fn value_may_return_invalid_format(
     types: &HashMap<String, String>,
 ) -> bool {
     (match value {
-        NirValue::Call { target, args }
-        | NirValue::CallResult { target, args }
+        NirValue::Call { target, args, .. }
+        | NirValue::CallResult { target, args, .. }
         | NirValue::RuntimeCall { target, args, .. } => match target.as_str() {
             "toInt" if args.len() == 1 => {
                 static_type_name_with_types(&args[0], types).as_deref() != Some("Byte")
@@ -13647,7 +13708,7 @@ fn value_may_return_invalid_format(
         NirValue::MemberAccess { target, .. } => {
             value_may_return_invalid_format(target, constants, types)
         }
-        NirValue::Binary { op, left, right } => {
+        NirValue::Binary { op, left, right, .. } => {
             binary_may_promote_float_to_fixed(op, left, right, types)
                 || value_may_return_invalid_format(left, constants, types)
                 || value_may_return_invalid_format(right, constants, types)
@@ -13680,7 +13741,7 @@ fn local_constant_value_with_constants(
     match value {
         NirValue::Const { .. } => Some(value.clone()),
         NirValue::Local(name) => constants.get(name).cloned(),
-        NirValue::Call { target, args } if target == "toString" && args.len() == 1 => {
+        NirValue::Call { target, args, .. } if target == "toString" && args.len() == 1 => {
             static_primitive_text_with_constants(&args[0], constants).map(|value| NirValue::Const {
                 type_: "String".to_string(),
                 value,
@@ -13692,8 +13753,8 @@ fn local_constant_value_with_constants(
                 value,
             })
         }
-        NirValue::Call { target, args }
-        | NirValue::CallResult { target, args }
+        NirValue::Call { target, args, .. }
+        | NirValue::CallResult { target, args, .. }
         | NirValue::RuntimeCall { target, args, .. }
             if target == "typeName" && args.len() == 1 =>
         {
@@ -13702,8 +13763,8 @@ fn local_constant_value_with_constants(
                 value,
             })
         }
-        NirValue::Call { target, args }
-        | NirValue::CallResult { target, args }
+        NirValue::Call { target, args, .. }
+        | NirValue::CallResult { target, args, .. }
         | NirValue::RuntimeCall { target, args, .. }
             if strings_package_static_string_value(target, args, constants, types).is_some() =>
         {
@@ -13736,25 +13797,25 @@ fn static_string_value_with_constants(
         NirValue::Local(name) => constants
             .get(name)
             .and_then(|constant| static_string_value_with_constants(constant, constants, types)),
-        NirValue::Call { target, args } if target == "toString" && args.len() == 1 => {
+        NirValue::Call { target, args, .. } if target == "toString" && args.len() == 1 => {
             static_primitive_text_with_constants(&args[0], constants)
         }
         NirValue::RuntimeCall { target, args, .. } if target == "toString" && args.len() == 1 => {
             static_primitive_text_with_constants(&args[0], constants)
         }
-        NirValue::Call { target, args }
-        | NirValue::CallResult { target, args }
+        NirValue::Call { target, args, .. }
+        | NirValue::CallResult { target, args, .. }
         | NirValue::RuntimeCall { target, args, .. }
             if target == "typeName" && args.len() == 1 =>
         {
             static_type_name_with_types(&args[0], types)
         }
-        NirValue::Call { target, args }
-        | NirValue::CallResult { target, args }
+        NirValue::Call { target, args, .. }
+        | NirValue::CallResult { target, args, .. }
         | NirValue::RuntimeCall { target, args, .. } => {
             strings_package_static_string_value(target, args, constants, types)
         }
-        NirValue::Binary { op, left, right } if op == "&" => {
+        NirValue::Binary { op, left, right, .. } if op == "&" => {
             let left = static_string_value_with_constants(left, constants, types)?;
             let right = static_string_value_with_constants(right, constants, types)?;
             Some(format!("{left}{right}"))
@@ -13850,7 +13911,7 @@ fn static_type_name_with_types(
             .and_then(|type_| type_.strip_prefix("Result OF ").map(str::to_string))
             .or_else(|| static_type_name_with_types(value, types)),
         NirValue::ResultError { .. } => Some("Error".to_string()),
-        NirValue::Binary { op, left, right } => {
+        NirValue::Binary { op, left, right, .. } => {
             if matches!(
                 op.as_str(),
                 "=" | "<>" | "<" | ">" | "<=" | ">=" | "AND" | "OR" | "XOR"
@@ -13864,7 +13925,7 @@ fn static_type_name_with_types(
             let right = static_type_name_with_types(right, types)?;
             Some(numeric_binary_result_type(op, &left, &right).to_string())
         }
-        NirValue::Unary { op, operand } => {
+        NirValue::Unary { op, operand, .. } => {
             if op == "NOT" {
                 Some("Boolean".to_string())
             } else {

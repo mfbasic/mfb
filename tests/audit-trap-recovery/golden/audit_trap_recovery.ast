@@ -15,7 +15,7 @@
       ],
       "returnType": "Integer",
       "body": [
-      { "kind": "fail", "error": { "kind": "constructor", "type": "Error", "arguments": [{ "kind": "number", "value": "1" }, { "kind": "string", "value": "boom" }] }, "line": 2 }
+      { "kind": "fail", "error": { "kind": "call", "callee": "error", "arguments": [{ "kind": "number", "value": "1" }, { "kind": "string", "value": "boom" }] }, "line": 2 }
       ]
     },
     {
@@ -52,7 +52,7 @@
       "name": "err",
       "line": 14,
       "body": [
-      { "kind": "fail", "error": { "kind": "constructor", "type": "Error", "arguments": [{ "kind": "number", "value": "2" }, { "kind": "string", "value": "wrapped" }] }, "line": 15 }
+      { "kind": "fail", "error": { "kind": "call", "callee": "error", "arguments": [{ "kind": "number", "value": "2" }, { "kind": "string", "value": "wrapped" }] }, "line": 15 }
       ]
     }
     },

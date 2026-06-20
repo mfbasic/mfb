@@ -96,7 +96,7 @@ Exported templates in source packages are instantiated by the importing compilat
 | `String` | UTF-8, immutable |
 | `Byte` | unsigned 8-bit |
 
-`Fixed` is a binary fixed-point number stored as a signed 32-bit integer part and a 32-bit fractional part. Its range is approximately `-2147483648.0` through `2147483647.9999999998`, with a resolution of `1 / 2^32`. Fixed-point arithmetic is deterministic across targets, but it is not exact decimal currency arithmetic because most decimal fractions are rounded to binary fixed-point values. Overflow produces an error result carrying `Error[77050010, ...]`; divide-by-zero and invalid numeric domains produce an error result carrying `Error[77050002, ...]`.
+`Fixed` is a binary fixed-point number stored as a signed 32-bit integer part and a 32-bit fractional part. Its range is approximately `-2147483648.0` through `2147483647.9999999998`, with a resolution of `1 / 2^32`. Fixed-point arithmetic is deterministic across targets, but it is not exact decimal currency arithmetic because most decimal fractions are rounded to binary fixed-point values. Overflow produces an error result with code `77050010`; divide-by-zero and invalid numeric domains produce an error result with code `77050002`.
 
 The name `Fixed` is retained for deterministic binary fixed-point arithmetic. A future exact base-10 financial type, if added, should use a distinct name such as `Decimal` and must specify decimal scale, rounding, and overflow rules separately.
 
@@ -247,7 +247,7 @@ FUNC area(s AS ExtraShape) AS Float
       RETURN triangleArea(t.a, t.b, t.c)
 
     CASE ELSE
-      FAIL Error[77050004, "shape member not handled"]
+      FAIL error(77050004, "shape member not handled")
   END MATCH
 END FUNC
 ```
@@ -295,14 +295,36 @@ A non-template user-defined union introduces one concrete type name, even when i
 
 ### 4.4 `Error` and absence (built in)
 
-The error model is built on one built-in public type, `Error`:
+The error model is built on two built-in read-only types, `Error` and
+`ErrorLoc`:
 
 ```basic
+TYPE ErrorLoc
+  filename AS String
+  line     AS Integer
+  char     AS Integer
+END TYPE
+
 TYPE Error
   code    AS Integer
   message AS String
+  source  AS ErrorLoc
 END TYPE
 ```
+
+Both are compiler/runtime-generated **read-only** record shapes. A program may
+read their fields, but may **not** construct them with `[...]`, update them with
+`WITH`, or assign to their fields. User-authored errors are created with the
+`error` built-in function:
+
+```basic
+FUNC error(code AS Integer, message AS String) AS Error
+```
+
+`error(...)` is always in scope like `toString`. The returned `Error.source`
+records the source location of the `error(...)` call expression. `Error.source`
+records where the error *originated*; it is not rewritten as the error
+propagates.
 
 The mental model is simple: **a function call either produces its value or fails
 with an `Error`.** On success the value is delivered directly (auto-unwrapped); on
@@ -313,10 +335,14 @@ name, construct, or match.
 - **A function may fail.** `FUNC F(...) AS T` yields a `T` on success and an
   `Error` on failure; a `SUB` yields nothing on success and may still fail.
 - Failure always carries the single public `Error` type — no per-function error
-  types, no coercion. Users construct `Error[...]`, read `e.code` / `e.message`,
-  and bind it in `TRAP(e)`.
+  types, no coercion. Users create errors with `error(code, message)`, read
+  `e.code` / `e.message` / `e.source`, and bind the error in `TRAP(e)`.
+- A runtime-generated error (divide-by-zero, overflow, a failing built-in or
+  package helper) carries the source location of the failing expression. A
+  propagated error keeps the original origin, not the propagation point. An error
+  raised inside an imported package carries the package's own source location.
 - There is no built-in `Option`/`Maybe`. Absence is represented by an
-  `Error[code, message]`; use semantic error-code constants such as
+  `error(code, message)`; use semantic error-code constants such as
   `errorCode::ErrNotFound` for not found.
 
 > **Implementation note.** Internally the runtime represents every fallible
@@ -564,7 +590,7 @@ When an error path leaves a scope, any live resource bindings in that scope are 
 Use `FAIL` to fail explicitly with an `Error`:
 
 ```basic
-IF n < 0 THEN FAIL Error[77050002, "negative"]
+IF n < 0 THEN FAIL error(77050002, "negative")
 ```
 
 `FAIL e` routes to the enclosing `TRAP`; with no trap, the function fails to its caller carrying `e`.
@@ -576,7 +602,7 @@ IF n < 0 THEN FAIL Error[77050002, "negative"]
 ```basic
 FUNC readAge(input AS String) AS Integer
   LET n = toInt(input)                 ' auto-propagates on failure
-  IF n < 0 THEN FAIL Error[77050002, "negative"]
+  IF n < 0 THEN FAIL error(77050002, "negative")
   RETURN n
 
   TRAP(err)
@@ -608,7 +634,7 @@ END TRAP
 
 ```basic
 TRAP(err)
-  FAIL Error[77060001, "load failed: " & err.message]   ' wrap with context
+  FAIL error(77060001, "load failed: " & err.message)   ' wrap with context
 END TRAP
 ```
 
@@ -1512,7 +1538,7 @@ END TYPE
 
 FUNC parseLine(line AS String) AS Vec3
   LET parts = strings::split(line, ",")
-  IF len(parts) <> 3 THEN FAIL Error[77050002, "expected 3 fields"]
+  IF len(parts) <> 3 THEN FAIL error(77050002, "expected 3 fields")
 
   LET x = toFloat(strings::trim(get(parts, 0)))   ' auto-propagates on failure
   LET y = toFloat(strings::trim(get(parts, 1)))
@@ -1603,7 +1629,7 @@ EXPORT FUNC area(s AS ExtraShape) AS Float
       RETURN triangleArea(t.a, t.b, t.c)
 
     CASE ELSE
-      FAIL Error[77050004, "shape member not handled"]
+      FAIL error(77050004, "shape member not handled")
   END MATCH
 END FUNC
 

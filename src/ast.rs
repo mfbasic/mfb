@@ -301,14 +301,23 @@ pub enum Expression {
         left: Box<Expression>,
         operator: String,
         right: Box<Expression>,
+        // Internal source location of the operator; not serialized to AST JSON.
+        line: usize,
+        column: usize,
     },
     Unary {
         operator: String,
         operand: Box<Expression>,
+        // Internal source location of the operator; not serialized to AST JSON.
+        line: usize,
+        column: usize,
     },
     Call {
         callee: String,
         arguments: Vec<CallArg>,
+        // Internal source location of the call expression; not serialized to AST JSON.
+        line: usize,
+        column: usize,
     },
     Lambda {
         params: Vec<Param>,
@@ -1884,11 +1893,14 @@ impl<'a> FileParser<'a> {
                 TokenKind::Keyword(Keyword::Xor) => "XOR",
                 _ => unreachable!(),
             };
+            let (line, column) = (self.previous().line, self.previous().start);
             let right = self.parse_and()?;
             expression = Expression::Binary {
                 left: Box::new(expression),
                 operator: operator.to_string(),
                 right: Box::new(right),
+                line,
+                column,
             };
         }
         Some(expression)
@@ -1897,11 +1909,14 @@ impl<'a> FileParser<'a> {
     fn parse_and(&mut self) -> Option<Expression> {
         let mut expression = self.parse_not()?;
         while self.match_keyword(Keyword::And) {
+            let (line, column) = (self.previous().line, self.previous().start);
             let right = self.parse_not()?;
             expression = Expression::Binary {
                 left: Box::new(expression),
                 operator: "AND".to_string(),
                 right: Box::new(right),
+                line,
+                column,
             };
         }
         Some(expression)
@@ -1909,10 +1924,13 @@ impl<'a> FileParser<'a> {
 
     fn parse_not(&mut self) -> Option<Expression> {
         if self.match_keyword(Keyword::Not) {
+            let (line, column) = (self.previous().line, self.previous().start);
             let operand = self.parse_not()?;
             return Some(Expression::Unary {
                 operator: "NOT".to_string(),
                 operand: Box::new(operand),
+                line,
+                column,
             });
         }
         self.parse_comparison()
@@ -1937,11 +1955,14 @@ impl<'a> FileParser<'a> {
                 TokenKind::GreaterEqual => ">=",
                 _ => unreachable!(),
             };
+            let (line, column) = (self.previous().line, self.previous().start);
             let right = self.parse_concat()?;
             expression = Expression::Binary {
                 left: Box::new(expression),
                 operator: operator.to_string(),
                 right: Box::new(right),
+                line,
+                column,
             };
         }
         Some(expression)
@@ -1950,11 +1971,14 @@ impl<'a> FileParser<'a> {
     fn parse_concat(&mut self) -> Option<Expression> {
         let mut expression = self.parse_addition()?;
         while self.match_kind(TokenKind::Ampersand) {
+            let (line, column) = (self.previous().line, self.previous().start);
             let right = self.parse_addition()?;
             expression = Expression::Binary {
                 left: Box::new(expression),
                 operator: "&".to_string(),
                 right: Box::new(right),
+                line,
+                column,
             };
         }
         Some(expression)
@@ -1968,11 +1992,14 @@ impl<'a> FileParser<'a> {
                 TokenKind::Minus => "-",
                 _ => unreachable!(),
             };
+            let (line, column) = (self.previous().line, self.previous().start);
             let right = self.parse_multiplication()?;
             expression = Expression::Binary {
                 left: Box::new(expression),
                 operator: operator.to_string(),
                 right: Box::new(right),
+                line,
+                column,
             };
         }
         Some(expression)
@@ -1990,11 +2017,14 @@ impl<'a> FileParser<'a> {
                 TokenKind::Keyword(Keyword::Div) => "DIV",
                 _ => unreachable!(),
             };
+            let (line, column) = (self.previous().line, self.previous().start);
             let right = self.parse_power()?;
             expression = Expression::Binary {
                 left: Box::new(expression),
                 operator: operator.to_string(),
                 right: Box::new(right),
+                line,
+                column,
             };
         }
         Some(expression)
@@ -2003,11 +2033,14 @@ impl<'a> FileParser<'a> {
     fn parse_power(&mut self) -> Option<Expression> {
         let mut expression = self.parse_unary()?;
         if self.match_kind(TokenKind::Caret) {
+            let (line, column) = (self.previous().line, self.previous().start);
             let right = self.parse_power()?;
             expression = Expression::Binary {
                 left: Box::new(expression),
                 operator: "^".to_string(),
                 right: Box::new(right),
+                line,
+                column,
             };
         }
         Some(expression)
@@ -2015,10 +2048,13 @@ impl<'a> FileParser<'a> {
 
     fn parse_unary(&mut self) -> Option<Expression> {
         if self.match_kind(TokenKind::Minus) {
+            let (line, column) = (self.previous().line, self.previous().start);
             let operand = self.parse_unary()?;
             return Some(Expression::Unary {
                 operator: "-".to_string(),
                 operand: Box::new(operand),
+                line,
+                column,
             });
         }
         if self.match_keyword(Keyword::With) {
@@ -2077,6 +2113,7 @@ impl<'a> FileParser<'a> {
     }
 
     fn parse_call_or_constructor(&mut self) -> Option<Expression> {
+        let start = self.peek().clone();
         let mut expression = self.parse_primary()?;
         loop {
             if self.match_kind(TokenKind::LParen) {
@@ -2093,7 +2130,12 @@ impl<'a> FileParser<'a> {
                     }
                 };
                 let arguments = self.parse_argument_list(TokenKind::RParen)?;
-                expression = Expression::Call { callee, arguments };
+                expression = Expression::Call {
+                    callee,
+                    arguments,
+                    line: start.line,
+                    column: start.start,
+                };
             } else if self.match_kind(TokenKind::LBracket) {
                 let type_name = match expression {
                     Expression::Identifier(value) => value,
@@ -3427,6 +3469,7 @@ impl ToAstJson for Expression {
                 left,
                 operator,
                 right,
+                ..
             } => {
                 format!(
                     "{{ \"kind\": \"binary\", \"operator\": {}, \"left\": {}, \"right\": {} }}",
@@ -3435,14 +3478,18 @@ impl ToAstJson for Expression {
                     right.to_json(0)
                 )
             }
-            Expression::Unary { operator, operand } => {
+            Expression::Unary {
+                operator, operand, ..
+            } => {
                 format!(
                     "{{ \"kind\": \"unary\", \"operator\": {}, \"operand\": {} }}",
                     json_string(operator),
                     operand.to_json(0)
                 )
             }
-            Expression::Call { callee, arguments } => {
+            Expression::Call {
+                callee, arguments, ..
+            } => {
                 let args = arguments
                     .iter()
                     .map(|arg| arg.to_json(0))
@@ -3707,21 +3754,39 @@ fn substitute_placeholder(expression: Expression, input: &Expression) -> Express
             left,
             operator,
             right,
+            line,
+            column,
         } => Expression::Binary {
             left: Box::new(substitute_placeholder(*left, input)),
             operator,
             right: Box::new(substitute_placeholder(*right, input)),
+            line,
+            column,
         },
-        Expression::Unary { operator, operand } => Expression::Unary {
+        Expression::Unary {
+            operator,
+            operand,
+            line,
+            column,
+        } => Expression::Unary {
             operator,
             operand: Box::new(substitute_placeholder(*operand, input)),
+            line,
+            column,
         },
-        Expression::Call { callee, arguments } => Expression::Call {
+        Expression::Call {
+            callee,
+            arguments,
+            line,
+            column,
+        } => Expression::Call {
             callee,
             arguments: arguments
                 .into_iter()
                 .map(|argument| substitute_placeholder_call_arg(argument, input))
                 .collect(),
+            line,
+            column,
         },
         Expression::Lambda { params, body } => Expression::Lambda {
             params,
@@ -3869,6 +3934,7 @@ mod tests {
             left,
             operator,
             right,
+            ..
         } = expression
         else {
             panic!("expected binary expression");
@@ -3880,6 +3946,7 @@ mod tests {
             left: add_left,
             operator: add_operator,
             right: add_right,
+            ..
         } = &**right
         else {
             panic!("expected addition on concat right side");

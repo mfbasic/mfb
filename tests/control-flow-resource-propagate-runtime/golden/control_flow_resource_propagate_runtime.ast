@@ -17,7 +17,7 @@
       ],
       "returnType": "Nothing",
       "body": [
-      { "kind": "fail", "error": { "kind": "constructor", "type": "Error", "arguments": [{ "kind": "number", "value": "77050002" }, { "kind": "string", "value": "propagate fail" }] }, "line": 5 }
+      { "kind": "fail", "error": { "kind": "call", "callee": "error", "arguments": [{ "kind": "number", "value": "77050002" }, { "kind": "string", "value": "propagate fail" }] }, "line": 5 }
       ]
     },
     {

@@ -287,8 +287,9 @@ impl CodeBuilder<'_> {
                         end,
                         step,
                         body,
+                        loc,
                     } => {
-                        self.lower_numeric_for(name, type_, start, end, step, body)?;
+                        self.lower_numeric_for(name, type_, start, end, step, body, *loc)?;
                     }
                     NirOp::DoUntil { body, condition } => {
                         let loop_label = self.label("do_loop");
@@ -365,6 +366,7 @@ impl CodeBuilder<'_> {
         end: &NirValue,
         step: &NirValue,
         body: &[NirOp],
+        loc: NirSourceLoc,
     ) -> Result<(), String> {
         let local_slot = self.allocate_stack_object(name, 8);
         let start_value = self.lower_value(start)?;
@@ -391,6 +393,10 @@ impl CodeBuilder<'_> {
             type_: type_.to_string(),
             value: "0".to_string(),
         };
+        // The loop bound comparisons are infallible (comparisons never overflow),
+        // so a default source location is correct here; only the increment below
+        // can originate an overflow error and it carries the loop's location.
+        let cmp = NirSourceLoc::default();
         let condition = NirValue::Binary {
             op: "OR".to_string(),
             left: Box::new(NirValue::Binary {
@@ -399,12 +405,15 @@ impl CodeBuilder<'_> {
                     op: ">=".to_string(),
                     left: Box::new(step.clone()),
                     right: Box::new(zero.clone()),
+                    loc: cmp,
                 }),
                 right: Box::new(NirValue::Binary {
                     op: "<=".to_string(),
                     left: Box::new(iter.clone()),
                     right: Box::new(end.clone()),
+                    loc: cmp,
                 }),
+                loc: cmp,
             }),
             right: Box::new(NirValue::Binary {
                 op: "AND".to_string(),
@@ -412,13 +421,17 @@ impl CodeBuilder<'_> {
                     op: "<".to_string(),
                     left: Box::new(step.clone()),
                     right: Box::new(zero),
+                    loc: cmp,
                 }),
                 right: Box::new(NirValue::Binary {
                     op: ">=".to_string(),
                     left: Box::new(iter.clone()),
                     right: Box::new(end.clone()),
+                    loc: cmp,
                 }),
+                loc: cmp,
             }),
+            loc: cmp,
         };
         let condition = self.lower_value(&condition)?;
         self.emit(abi::compare_immediate(&condition.location, "0"));
@@ -437,6 +450,7 @@ impl CodeBuilder<'_> {
             op: "+".to_string(),
             left: Box::new(iter),
             right: Box::new(step.clone()),
+            loc,
         };
         let increment = self.lower_value(&increment)?;
         self.emit(abi::store_u64(

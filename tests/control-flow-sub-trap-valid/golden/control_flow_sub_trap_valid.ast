@@ -24,7 +24,7 @@
         { "kind": "exit", "target": "sub", "code": null, "line": 3 }
         ],
         "else": [
-        { "kind": "fail", "error": { "kind": "constructor", "type": "Error", "arguments": [{ "kind": "number", "value": "10" }, { "kind": "string", "value": "return path failed" }] }, "line": 5 }
+        { "kind": "fail", "error": { "kind": "call", "callee": "error", "arguments": [{ "kind": "number", "value": "10" }, { "kind": "string", "value": "return path failed" }] }, "line": 5 }
         ]
       }
       ],
@@ -54,7 +54,7 @@
         { "kind": "exit", "target": "sub", "code": null, "line": 14 }
         ],
         "else": [
-        { "kind": "fail", "error": { "kind": "constructor", "type": "Error", "arguments": [{ "kind": "number", "value": "11" }, { "kind": "string", "value": "trap path failed" }] }, "line": 16 }
+        { "kind": "fail", "error": { "kind": "call", "callee": "error", "arguments": [{ "kind": "number", "value": "11" }, { "kind": "string", "value": "trap path failed" }] }, "line": 16 }
         ]
       }
       ],

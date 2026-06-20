@@ -538,7 +538,9 @@ fn walk_statements(body: &[Statement], visit: &mut impl FnMut(&str, usize)) {
 
 fn walk_expression(expression: &Expression, line: usize, visit: &mut impl FnMut(&str, usize)) {
     match expression {
-        Expression::Call { callee, arguments } => {
+        Expression::Call {
+            callee, arguments, ..
+        } => {
             for argument in arguments {
                 match argument {
                     CallArg::Positional(value) => walk_expression(value, line, visit),

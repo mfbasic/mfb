@@ -13,7 +13,7 @@ UNION Shape
 END UNION
 
 FUNC parsePositive(value AS Integer) AS Integer
-  IF value < 0 THEN FAIL Error[100, "negative"]
+  IF value < 0 THEN FAIL error(100, "negative")
   RETURN value + 1
 END FUNC
 

@@ -1,7 +1,7 @@
 IMPORT io
 
 FUNC parsePositive(v AS Integer) AS Integer
-  IF v < 0 THEN FAIL Error[404, "missing"]
+  IF v < 0 THEN FAIL error(404, "missing")
   RETURN v + 1
 END FUNC
 

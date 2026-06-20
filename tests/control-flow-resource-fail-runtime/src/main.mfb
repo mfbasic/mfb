@@ -3,7 +3,7 @@ IMPORT io
 
 FUNC failOnce(path AS String) AS Nothing
   LET f = fs::openFile(path)
-  FAIL Error[77050002, "body fail"]
+  FAIL error(77050002, "body fail")
 END FUNC
 
 FUNC trapFail(path AS String) AS Nothing

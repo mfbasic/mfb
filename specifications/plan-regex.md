@@ -1,6 +1,6 @@
 # MFBASIC Regex Implementation Plan
 
-Last updated: 2026-06-14
+Last updated: 2026-06-19
 
 This document plans how to implement the `regex` package specified in
 `specifications/standard_package.md` with identical behavior across current and
@@ -24,7 +24,7 @@ Implement:
 while preserving one semantic contract across:
 
 - native executable backends
-- package bytecode output
+- Binary Representation (MFP package) output
 - current targets (`macos-aarch64`, `linux-aarch64`)
 - future targets
 

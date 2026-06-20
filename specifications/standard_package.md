@@ -15,25 +15,43 @@ These types are always in scope. They do not require `IMPORT`.
 | `String` | Immutable UTF-8 string. |
 | `Byte` | Unsigned 8-bit integer. |
 | `Nothing` | Unit type with the single value `NOTHING`. |
-| `Error` | Standard error payload: `Error[code AS Integer, message AS String]`. |
+| `Error` | Read-only error payload: `code AS Integer`, `message AS String`, `source AS ErrorLoc`. |
+| `ErrorLoc` | Read-only source location of an error: `filename AS String`, `line AS Integer`, `char AS Integer`. |
 | `MapEntry OF K TO V` | Standard map iteration entry: `MapEntry[key AS K, value AS V]`. |
 | `Thread OF Msg TO Out` | Opaque handle to an isolated thread with message type `Msg` and result type `Out`. |
 
-The `Error` shape is built into the language:
+The `Error` and `ErrorLoc` shapes are built into the language as read-only,
+compiler/runtime-generated records:
 
 ```basic
+TYPE ErrorLoc
+  filename AS String
+  line     AS Integer
+  char     AS Integer
+END TYPE
+
 TYPE Error
   code    AS Integer
   message AS String
+  source  AS ErrorLoc
 END TYPE
 ```
 
 A function call either produces its value or fails with an `Error`; the success
-value auto-unwraps and the `Error` auto-propagates. Users construct `Error[...]`,
-read `e.code`/`e.message`, and bind it in `TRAP(e)`. There is no user-visible
-wrapper type around a result: the runtime represents a fallible outcome internally
-as a private two-member union (a success member plus `Error`), which is not
-nameable, constructible, or matchable in user code (see `mfbasic.md` §4.4).
+value auto-unwraps and the `Error` auto-propagates. Programs create errors with
+the `error` built-in, read `e.code`/`e.message`/`e.source`, and bind the error in
+`TRAP(e)`. Neither `Error` nor `ErrorLoc` may be constructed with `[...]`, updated
+with `WITH`, or have their fields assigned. `Error.source` records where the error
+originated (preserved across propagation; an imported-package error reports the
+package's source). There is no user-visible wrapper type around a result: the
+runtime represents a fallible outcome internally as a private two-member union (a
+success member plus `Error`), which is not nameable, constructible, or matchable
+in user code (see `mfbasic.md` §4.4).
+
+```basic
+' Create a user-authored error (always in scope, like toString):
+FUNC error(code AS Integer, message AS String) AS Error
+```
 
 `MapEntry OF K TO V` is a compiler-owned record shape produced by iterating a `Map OF K TO V`. It has public read-only fields:
 
@@ -78,6 +96,7 @@ String length, search, substring, and regex indexes are zero-based Unicode scala
 
 | Function | Signature | Behavior |
 |----------|-----------|----------|
+| `error` | `FUNC error(code AS Integer, message AS String) AS Error` | Creates a read-only `Error` whose `source` is the location of this `error(...)` call. Always in scope. |
 | `len` | `FUNC len(value AS String) AS Integer` | Number of Unicode scalar values in `value`. |
 | `len` | `FUNC len OF T(value AS List OF T) AS Integer` | Number of items in `value`. |
 | `len` | `FUNC len OF K, V(value AS Map OF K TO V) AS Integer` | Number of entries in `value`. |

@@ -1,5 +1,5 @@
 FUNC parseNonNegative(value AS Integer) AS Integer
-  IF value < 0 THEN FAIL Error[100, "skip"]
+  IF value < 0 THEN FAIL error(100, "skip")
   RETURN value * 10
 END FUNC
 

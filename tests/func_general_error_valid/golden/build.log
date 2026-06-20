@@ -1,0 +1,17 @@
+$ mfb build -ast tests/func_general_error_valid
+Wrote AST to tests/func_general_error_valid/func_general_error_valid.ast
+[exit 0]
+$ mfb build -ir tests/func_general_error_valid
+Wrote IR to tests/func_general_error_valid/func_general_error_valid.ir
+[exit 0]
+$ mfb build tests/func_general_error_valid
+Wrote executable to tests/func_general_error_valid/func_general_error_valid.out
+[exit 0]
+$ tests/func_general_error_valid/func_general_error_valid.out
+direct 77050002 path is empty
+  at src/main.mfb:6:10
+propagated 77050002 path is empty
+  at src/main.mfb:6:10
+divide 77050002 invalid argument
+  at src/main.mfb:18:12
+[exit 0]

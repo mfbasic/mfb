@@ -15,8 +15,8 @@ Container:
   flags: 0x00000000
   signature type: unsigned
   signature length: 0
-  content hash: a34f5cd1c154ba35a537e1107ea374963a63bba91656234583bdad0d461d6a79
-  binary representation length: 769
+  content hash: aac0b1c49a4c4430a56bd015f1118ada56245bb36807bb85cfb14ff99a41235b
+  binary representation length: 800
 
 Manifest:
   name: package_cleanup_audit

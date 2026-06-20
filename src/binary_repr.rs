@@ -2267,7 +2267,7 @@ fn value_uses_resource_type(value: &IrValue) -> bool {
         | IrValue::Constructor { type_, .. }
         | IrValue::ListLiteral { type_, .. }
         | IrValue::MapLiteral { type_, .. } => is_resource_type_name(type_),
-        IrValue::Call { target, args } | IrValue::CallResult { target, args } => {
+        IrValue::Call { target, args, .. } | IrValue::CallResult { target, args, .. } => {
             builtins::call_return_type_name(target).is_some_and(is_resource_type_name)
                 || args.iter().any(value_uses_resource_type)
         }
@@ -2457,7 +2457,7 @@ fn collect_imported_calls_value(
         }
     };
     match value {
-        IrValue::Call { target, args } | IrValue::CallResult { target, args } => {
+        IrValue::Call { target, args, .. } | IrValue::CallResult { target, args, .. } => {
             note(target, used);
             for arg in args {
                 collect_imported_calls_value(arg, imported, used);

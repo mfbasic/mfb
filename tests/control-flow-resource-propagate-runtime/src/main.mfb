@@ -2,7 +2,7 @@ IMPORT fs
 IMPORT io
 
 FUNC alwaysFail AS Nothing
-  FAIL Error[77050002, "propagate fail"]
+  FAIL error(77050002, "propagate fail")
 END FUNC
 
 FUNC propagateOnce(path AS String) AS Nothing

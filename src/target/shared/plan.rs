@@ -542,7 +542,7 @@ fn collect_platform_imports_from_value(
                 collect_platform_imports_from_value(platform, required_by, arg, imports);
             }
         }
-        NirValue::Call { target, args } | NirValue::CallResult { target, args } => {
+        NirValue::Call { target, args, .. } | NirValue::CallResult { target, args, .. } => {
             // A helper-backed `CallResult` (inline `TRAP` on a built-in) pulls in
             // the same platform imports as the equivalent `RuntimeCall`.
             if target != "typeName"
@@ -595,7 +595,7 @@ fn collect_platform_imports_from_value(
         NirValue::MemberAccess { target, .. } => {
             collect_platform_imports_from_value(platform, required_by, target, imports)
         }
-        NirValue::Binary { op, left, right } => {
+        NirValue::Binary { op, left, right, .. } => {
             if op == "MOD" {
                 for import in platform.native_call_imports("math.fmod", required_by) {
                     push_platform_import(imports, import);
@@ -767,6 +767,7 @@ fn collect_runtime_symbols_from_value(
             helper,
             target,
             args,
+                ..
         } => {
             if target != "typeName"
                 && !runtime::is_native_direct_call(target)
@@ -779,7 +780,7 @@ fn collect_runtime_symbols_from_value(
                 collect_runtime_symbols_from_value(arg, symbols, constants);
             }
         }
-        NirValue::CallResult { target, args } => {
+        NirValue::CallResult { target, args, .. } => {
             // A helper-backed `CallResult` (inline `TRAP` on a built-in) invokes
             // the runtime helper directly, so its symbol must be defined just
             // like the equivalent `RuntimeCall`.
@@ -860,7 +861,7 @@ fn native_constant_value(
         NirValue::Const { .. } => Some(value.clone()),
         NirValue::Local(name) => constants.get(name).cloned(),
         NirValue::Global { .. } => None,
-        NirValue::Call { target, args } if target == "toString" && args.len() == 1 => {
+        NirValue::Call { target, args, .. } if target == "toString" && args.len() == 1 => {
             native_primitive_text(&args[0], constants).map(|value| NirValue::Const {
                 type_: "String".to_string(),
                 value,
@@ -891,16 +892,16 @@ fn native_static_string_value(
             .get(name)
             .and_then(|constant| native_static_string_value(constant, constants)),
         NirValue::Global { .. } => None,
-        NirValue::Call { target, args } if target == "toString" && args.len() == 1 => {
+        NirValue::Call { target, args, .. } if target == "toString" && args.len() == 1 => {
             native_primitive_text(&args[0], constants)
         }
         NirValue::RuntimeCall { target, args, .. } if target == "toString" && args.len() == 1 => {
             native_primitive_text(&args[0], constants)
         }
-        NirValue::Call { target, args } | NirValue::RuntimeCall { target, args, .. } => {
+        NirValue::Call { target, args, .. } | NirValue::RuntimeCall { target, args, .. } => {
             native_strings_package_static_string_value(target, args, constants)
         }
-        NirValue::Binary { op, left, right } if op == "&" => {
+        NirValue::Binary { op, left, right, .. } if op == "&" => {
             let left = native_static_string_value(left, constants)?;
             let right = native_static_string_value(right, constants)?;
             Some(format!("{left}{right}"))
@@ -1135,6 +1136,7 @@ impl FunctionPlanBuilder<'_> {
                     end,
                     step,
                     body,
+                ..
                 } => {
                     self.lower_value(start)?;
                     self.lower_value(end)?;
@@ -1199,15 +1201,15 @@ impl FunctionPlanBuilder<'_> {
             return Ok(());
         }
         if let NirValue::RuntimeCall { target, args, .. }
-        | NirValue::Call { target, args }
-        | NirValue::CallResult { target, args } = value
+        | NirValue::Call { target, args, .. }
+        | NirValue::CallResult { target, args, .. } = value
         {
             if native_static_graphemes_value(target, args, &self.constants).is_some() {
                 return Ok(());
             }
         }
         match value {
-            NirValue::Call { target, args } | NirValue::CallResult { target, args } => {
+            NirValue::Call { target, args, .. } | NirValue::CallResult { target, args, .. } => {
                 for arg in args {
                     self.lower_value(arg)?;
                 }
@@ -1226,6 +1228,7 @@ impl FunctionPlanBuilder<'_> {
                 helper,
                 target,
                 args,
+                ..
             } => {
                 if target == "typeName" {
                     for arg in args {
@@ -1493,7 +1496,7 @@ fn describe_value(value: &NirValue) -> String {
                 .join(", ")
         ),
         NirValue::Capture { index, .. } => format!("capture[{index}]"),
-        NirValue::Call { target, args } => {
+        NirValue::Call { target, args, .. } => {
             let args = args
                 .iter()
                 .map(describe_value)
@@ -1501,7 +1504,7 @@ fn describe_value(value: &NirValue) -> String {
                 .join(", ");
             format!("call {target}({args})")
         }
-        NirValue::CallResult { target, args } => {
+        NirValue::CallResult { target, args, .. } => {
             let args = args
                 .iter()
                 .map(describe_value)
@@ -1513,6 +1516,7 @@ fn describe_value(value: &NirValue) -> String {
             helper,
             target,
             args,
+                ..
         } => {
             let args = args
                 .iter()
@@ -1581,7 +1585,7 @@ fn describe_value(value: &NirValue) -> String {
             NirValue::Local(name) => format!("{name}.{member}"),
             _ => format!("{}.{}", describe_value(target), member),
         },
-        NirValue::Binary { op, left, right } => {
+        NirValue::Binary { op, left, right, .. } => {
             format!(
                 "({} {} {})",
                 describe_value(left),
@@ -1589,7 +1593,7 @@ fn describe_value(value: &NirValue) -> String {
                 describe_value(right)
             )
         }
-        NirValue::Unary { op, operand } => format!("({op} {})", describe_value(operand)),
+        NirValue::Unary { op, operand, .. } => format!("({op} {})", describe_value(operand)),
     }
 }
 
@@ -1968,8 +1972,10 @@ mod tests {
                             type_: "String".to_string(),
                             value: "Hello World".to_string(),
                         }],
+                        loc: nir::NirSourceLoc::default(),
                     },
                 }],
+                file: "src/main.mfb".to_string(),
             }],
         };
 

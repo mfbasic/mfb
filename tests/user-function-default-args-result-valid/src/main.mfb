@@ -6,7 +6,7 @@ FUNC mark(label AS String, value AS Integer) AS Integer
 END FUNC
 
 FUNC compute(value AS Integer, extra AS Integer = mark("default-extra", 2), multiplier AS Integer = mark("default-multiplier", 5)) AS Integer
-  IF value < 0 THEN FAIL Error[100 + extra, "negative"]
+  IF value < 0 THEN FAIL error(100 + extra, "negative")
   RETURN (value + extra) * multiplier
 END FUNC
 

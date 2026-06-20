@@ -3,7 +3,7 @@
 ' can never scrutinize the implicit `Result` with `MATCH`, so `CASE Ok` and
 ' `CASE Error` are rejected with TYPE_RESULT_NOT_MATCHABLE.
 FUNC parse(value AS Integer) AS Integer
-  IF value < 0 THEN FAIL Error[900, "negative"]
+  IF value < 0 THEN FAIL error(900, "negative")
   RETURN value
 END FUNC
 

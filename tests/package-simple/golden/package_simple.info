@@ -15,8 +15,8 @@ Container:
   flags: 0x00000000
   signature type: unsigned
   signature length: 0
-  content hash: 5a026be02bc4e31b92092e94ab8cc00e1a237adbe1161458255dbdcfcbfaee7a
-  binary representation length: 2520
+  content hash: 8eec88252fa98d488048a43a720bcb61f314449951de06ab98f7d6081c557eb9
+  binary representation length: 2619
 
 Manifest:
   name: package_simple

@@ -15,7 +15,7 @@
       ],
       "returnType": "Integer",
       "body": [
-      { "kind": "fail", "error": { "kind": "constructor", "type": "Error", "arguments": [{ "kind": "number", "value": "123" }, { "kind": "string", "value": "leaf failed" }] }, "line": 2 }
+      { "kind": "fail", "error": { "kind": "call", "callee": "error", "arguments": [{ "kind": "number", "value": "123" }, { "kind": "string", "value": "leaf failed" }] }, "line": 2 }
       ]
     },
     {
