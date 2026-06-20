@@ -1,0 +1,16 @@
+IMPORT io
+
+FUNC leave(code AS Integer) AS Nothing
+  EXIT PROGRAM code
+END FUNC
+
+FUNC main AS Integer
+  LET code AS Integer = 3
+  leave(code)
+  io::print("caught")
+  RETURN 99
+  TRAP(err)
+  io::print("trap")
+  RETURN err.code
+  END TRAP
+END FUNC

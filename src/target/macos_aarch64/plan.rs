@@ -35,6 +35,14 @@ impl plan::NativePlanPlatform for Platform {
         }]
     }
 
+    fn program_exit_imports(&self, required_by: &str) -> Vec<PlatformImport> {
+        vec![PlatformImport {
+            library: "libSystem".to_string(),
+            symbol: "_exit".to_string(),
+            required_by: required_by.to_string(),
+        }]
+    }
+
     fn runtime_imports(&self, spec: &RuntimeHelperSpec) -> Vec<PlatformImport> {
         match spec.call {
             "io.print" | "io.write" | "io.printError" | "io.writeError" => vec![PlatformImport {

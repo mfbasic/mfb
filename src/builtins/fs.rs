@@ -1,6 +1,5 @@
 use std::borrow::Cow;
 
-
 pub(crate) const FILE_TYPE: &str = "File";
 
 const FILE_EXISTS: &str = "fs.fileExists";

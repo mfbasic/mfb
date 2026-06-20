@@ -75,6 +75,7 @@
     { "op": "bind", "mutable": true, "name": "i", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
     {
       "op": "while",
+      "loop": "while",
       "condition": { "kind": "binary", "op": "<", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "4000" } },
       "body": [
       { "op": "eval", "value": { "kind": "call", "target": "trapPropagate", "args": [{ "kind": "const", "type": "String", "value": "tests/control-flow-resource-propagate-runtime/src/main.mfb" }] } },

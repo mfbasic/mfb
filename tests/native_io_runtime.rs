@@ -42,10 +42,7 @@ fn build_project(project: &Path) -> PathBuf {
     PathBuf::from(path)
 }
 
-fn run_capture_with_env(
-    executable: &Path,
-    envs: &[(&str, String)],
-) -> (i32, String, String) {
+fn run_capture_with_env(executable: &Path, envs: &[(&str, String)]) -> (i32, String, String) {
     let mut command = Command::new(executable);
     for (key, value) in envs {
         command.env(key, value);
@@ -468,16 +465,10 @@ END FUNC
     let executable = build_project(&root);
     let interposer = build_close_interposer(&root);
     let marker = root.join("interposer.loaded");
-    let mut envs = vec![(
-        "MFB_FAIL_CLOSE_PATH",
-        "*".to_string(),
-    )];
+    let mut envs = vec![("MFB_FAIL_CLOSE_PATH", "*".to_string())];
     envs.push(("MFB_INTERPOSER_MARKER", marker.display().to_string()));
     if cfg!(target_os = "macos") {
-        envs.push((
-            "DYLD_INSERT_LIBRARIES",
-            interposer.display().to_string(),
-        ));
+        envs.push(("DYLD_INSERT_LIBRARIES", interposer.display().to_string()));
         envs.push(("DYLD_FORCE_FLAT_NAMESPACE", "1".to_string()));
     } else {
         envs.push(("LD_PRELOAD", interposer.display().to_string()));
@@ -495,6 +486,132 @@ END FUNC
     assert_eq!(
         stderr,
         "Code: 1234 Message: body failed\nCleanup failure: Code: 77030006 Message: close failed\n"
+    );
+}
+
+#[test]
+fn native_exit_program_runs_caller_resource_cleanup() {
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("clock before epoch")
+        .as_nanos();
+    let root = std::env::temp_dir().join(format!("mfb_native_exit_program_cleanup_{nonce}"));
+    fs::create_dir_all(root.join("src")).expect("create temp project");
+    let target_file = root.join("data.txt");
+    fs::write(&target_file, "data").expect("write target file");
+    fs::write(
+        root.join("project.json"),
+        "{\"name\":\"native_exit_program_cleanup\",\"version\":\"0.1.0\",\"mfb\":\"1.0\",\"kind\":\"executable\",\"sources\":[{\"root\":\"src\",\"role\":\"main\",\"include\":[\"**/*.mfb\"]}],\"entry\":\"main\",\"targets\":[\"native\"]}\n",
+    )
+    .expect("write project.json");
+    fs::write(
+        root.join("src/main.mfb"),
+        format!(
+            r#"
+IMPORT fs
+
+FUNC leave AS Nothing
+  EXIT PROGRAM 7
+END FUNC
+
+FUNC main AS Integer
+  LET file = fs::openFile("{}")
+  leave()
+  RETURN 99
+END FUNC
+"#,
+            target_file.display()
+        ),
+    )
+    .expect("write source");
+
+    let executable = build_project(&root);
+    let interposer = build_close_interposer(&root);
+    let marker = root.join("interposer.loaded");
+    let mut envs = vec![("MFB_FAIL_CLOSE_PATH", "*".to_string())];
+    envs.push(("MFB_INTERPOSER_MARKER", marker.display().to_string()));
+    if cfg!(target_os = "macos") {
+        envs.push(("DYLD_INSERT_LIBRARIES", interposer.display().to_string()));
+        envs.push(("DYLD_FORCE_FLAT_NAMESPACE", "1".to_string()));
+    } else {
+        envs.push(("LD_PRELOAD", interposer.display().to_string()));
+    }
+
+    let (status, stdout, stderr) = run_capture_with_env(&executable, &envs);
+    assert_eq!(status, 7, "stdout:\n{stdout}\nstderr:\n{stderr}");
+    assert_eq!(stdout, "");
+    assert_eq!(stderr, "");
+    assert!(marker.exists(), "interposer was not loaded");
+    let marker_text = fs::read_to_string(&marker).expect("read marker");
+    assert!(
+        marker_text.contains("fail\n"),
+        "caller resource cleanup did not call close before EXIT PROGRAM; marker: {marker_text:?}"
+    );
+}
+
+#[test]
+fn native_loop_exit_and_continue_run_body_resource_cleanup() {
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("clock before epoch")
+        .as_nanos();
+    let root = std::env::temp_dir().join(format!("mfb_native_loop_cleanup_{nonce}"));
+    fs::create_dir_all(root.join("src")).expect("create temp project");
+    let target_file = root.join("data.txt");
+    fs::write(&target_file, "data").expect("write target file");
+    fs::write(
+        root.join("project.json"),
+        "{\"name\":\"native_loop_cleanup\",\"version\":\"0.1.0\",\"mfb\":\"1.0\",\"kind\":\"executable\",\"sources\":[{\"root\":\"src\",\"role\":\"main\",\"include\":[\"**/*.mfb\"]}],\"entry\":\"main\",\"targets\":[\"native\"]}\n",
+    )
+    .expect("write project.json");
+    fs::write(
+        root.join("src/main.mfb"),
+        format!(
+            r#"
+IMPORT fs
+
+FUNC main AS Integer
+  FOR i = 1 TO 1
+    LET exitFile = fs::openFile("{}")
+    EXIT FOR
+  NEXT
+
+  FOR j = 1 TO 1
+    LET continueFile = fs::openFile("{}")
+    CONTINUE FOR
+  NEXT
+
+  RETURN 0
+END FUNC
+"#,
+            target_file.display(),
+            target_file.display()
+        ),
+    )
+    .expect("write source");
+
+    let executable = build_project(&root);
+    let interposer = build_close_interposer(&root);
+    let marker = root.join("interposer.loaded");
+    let mut envs = vec![("MFB_FAIL_CLOSE_PATH", "*".to_string())];
+    envs.push(("MFB_INTERPOSER_MARKER", marker.display().to_string()));
+    if cfg!(target_os = "macos") {
+        envs.push(("DYLD_INSERT_LIBRARIES", interposer.display().to_string()));
+        envs.push(("DYLD_FORCE_FLAT_NAMESPACE", "1".to_string()));
+    } else {
+        envs.push(("LD_PRELOAD", interposer.display().to_string()));
+    }
+
+    let (status, stdout, stderr) = run_capture_with_env(&executable, &envs);
+    assert_eq!(status, 0, "stdout:\n{stdout}\nstderr:\n{stderr}");
+    assert_eq!(stdout, "");
+    assert_eq!(stderr, "");
+    assert!(marker.exists(), "interposer was not loaded");
+    let marker_text = fs::read_to_string(&marker).expect("read marker");
+    let close_failures = marker_text.matches("fail\n").count();
+    assert!(
+        close_failures >= 2,
+        "loop EXIT/CONTINUE cleanup did not close both files; marker: {marker_text:?}"
     );
 }
 

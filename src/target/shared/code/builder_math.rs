@@ -475,7 +475,11 @@ impl CodeBuilder<'_> {
             "atan2" => self.emit_fixed_atan2(&values[0].location, &values[1].location)?,
             "atan" => {
                 let one = self.allocate_register()?;
-                self.emit(abi::move_immediate(&one, "Fixed", &(1u64 << 32).to_string()));
+                self.emit(abi::move_immediate(
+                    &one,
+                    "Fixed",
+                    &(1u64 << 32).to_string(),
+                ));
                 self.emit_fixed_atan2(&values[0].location, &one)?
             }
             "asin" => self.emit_fixed_asin(&values[0].location, false)?,
@@ -535,7 +539,6 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&ok));
         Ok(())
     }
-
 }
 
 pub(super) fn external_math_symbol(

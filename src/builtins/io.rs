@@ -1,6 +1,5 @@
 use std::borrow::Cow;
 
-
 pub(crate) const TERMINAL_SIZE_TYPE: &str = "TerminalSize";
 
 const PRINT: &str = "io.print";

@@ -1,0 +1,150 @@
+{
+  "project": "continue_loop_valid_rt",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "parseNonNegative",
+      "line": 1,
+      "params": [
+      { "name": "value", "type": "Integer", "default": null }
+      ],
+      "returnType": "Integer",
+      "body": [
+      {
+        "kind": "if",
+        "condition": { "kind": "binary", "operator": "<", "left": { "kind": "identifier", "value": "value" }, "right": { "kind": "number", "value": "0" } },
+        "line": 2,
+        "then": [
+        { "kind": "fail", "error": { "kind": "constructor", "type": "Error", "arguments": [{ "kind": "number", "value": "100" }, { "kind": "string", "value": "skip" }] }, "line": 2 }
+        ],
+        "else": [
+        ]
+      },
+      { "kind": "return", "value": { "kind": "binary", "operator": "*", "left": { "kind": "identifier", "value": "value" }, "right": { "kind": "number", "value": "10" } }, "line": 3 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "main",
+      "line": 6,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": true, "name": "total", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 7 },
+      {
+        "kind": "for",
+        "name": "i",
+        "start": { "kind": "number", "value": "1" },
+        "end": { "kind": "number", "value": "5" },
+        "step": null,
+        "line": 9,
+        "body": [
+        {
+          "kind": "if",
+          "condition": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "i" }, "right": { "kind": "number", "value": "3" } },
+          "line": 10,
+          "then": [
+          { "kind": "continue", "loop": "for", "line": 10 }
+          ],
+          "else": [
+          ]
+        },
+        { "kind": "assignment", "name": "total", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "total" }, "right": { "kind": "identifier", "value": "i" } }, "line": 11 }
+        ]
+      },
+      { "kind": "binding", "mutable": true, "name": "d", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 14 },
+      {
+        "kind": "doUntil",
+        "condition": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "d" }, "right": { "kind": "number", "value": "2" } },
+        "line": 15,
+        "body": [
+        { "kind": "assignment", "name": "d", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "d" }, "right": { "kind": "number", "value": "1" } }, "line": 16 },
+        {
+          "kind": "if",
+          "condition": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "d" }, "right": { "kind": "number", "value": "1" } },
+          "line": 17,
+          "then": [
+          { "kind": "continue", "loop": "do", "line": 17 }
+          ],
+          "else": [
+          ]
+        },
+        { "kind": "assignment", "name": "total", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "total" }, "right": { "kind": "number", "value": "10" } }, "line": 18 }
+        ]
+      },
+      { "kind": "binding", "mutable": true, "name": "dw", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 21 },
+      {
+        "kind": "while",
+        "loop": "do",
+        "condition": { "kind": "binary", "operator": "<", "left": { "kind": "identifier", "value": "dw" }, "right": { "kind": "number", "value": "3" } },
+        "line": 22,
+        "body": [
+        { "kind": "assignment", "name": "dw", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "dw" }, "right": { "kind": "number", "value": "1" } }, "line": 23 },
+        {
+          "kind": "if",
+          "condition": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "dw" }, "right": { "kind": "number", "value": "1" } },
+          "line": 24,
+          "then": [
+          { "kind": "continue", "loop": "do", "line": 24 }
+          ],
+          "else": [
+          ]
+        },
+        { "kind": "assignment", "name": "total", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "total" }, "right": { "kind": "number", "value": "1" } }, "line": 25 }
+        ]
+      },
+      { "kind": "binding", "mutable": true, "name": "w", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 28 },
+      {
+        "kind": "while",
+        "loop": "while",
+        "condition": { "kind": "binary", "operator": "<", "left": { "kind": "identifier", "value": "w" }, "right": { "kind": "number", "value": "3" } },
+        "line": 29,
+        "body": [
+        { "kind": "assignment", "name": "w", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "w" }, "right": { "kind": "number", "value": "1" } }, "line": 30 },
+        {
+          "kind": "if",
+          "condition": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "w" }, "right": { "kind": "number", "value": "2" } },
+          "line": 31,
+          "then": [
+          { "kind": "continue", "loop": "while", "line": 31 }
+          ],
+          "else": [
+          ]
+        },
+        { "kind": "assignment", "name": "total", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "total" }, "right": { "kind": "number", "value": "100" } }, "line": 32 }
+        ]
+      },
+      { "kind": "binding", "mutable": false, "name": "values", "type": "List OF Integer", "value": { "kind": "list", "values": [{ "kind": "number", "value": "1" }, { "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "1" } }, { "kind": "number", "value": "2" }] }, "line": 35 },
+      {
+        "kind": "forEach",
+        "name": "value",
+        "iterable": { "kind": "identifier", "value": "values" },
+        "line": 36,
+        "body": [
+        { "kind": "binding", "mutable": false, "name": "parsed", "type": null, "value": {
+          "kind": "trapped",
+          "binding": "err",
+          "line": 37,
+          "expression": { "kind": "call", "callee": "parseNonNegative", "arguments": [{ "kind": "identifier", "value": "value" }] },
+          "handler": [
+          { "kind": "continue", "loop": "for", "line": 38 }
+          ]
+        }, "line": 37 },
+        { "kind": "assignment", "name": "total", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "total" }, "right": { "kind": "identifier", "value": "parsed" } }, "line": 40 }
+        ]
+      },
+      { "kind": "return", "value": { "kind": "identifier", "value": "total" }, "line": 43 }
+      ]
+    }
+    ]
+  }
+  ]
+}

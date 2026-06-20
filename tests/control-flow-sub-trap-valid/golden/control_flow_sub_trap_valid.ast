@@ -21,7 +21,7 @@
         "condition": { "kind": "identifier", "value": "flag" },
         "line": 2,
         "then": [
-        { "kind": "return", "value": null, "line": 3 }
+        { "kind": "exit", "target": "sub", "code": null, "line": 3 }
         ],
         "else": [
         { "kind": "fail", "error": { "kind": "constructor", "type": "Error", "arguments": [{ "kind": "number", "value": "10" }, { "kind": "string", "value": "return path failed" }] }, "line": 5 }
@@ -32,7 +32,7 @@
       "name": "err",
       "line": 7,
       "body": [
-      { "kind": "return", "value": null, "line": 8 }
+      { "kind": "exit", "target": "sub", "code": null, "line": 8 }
       ]
     }
     },
@@ -51,7 +51,7 @@
         "condition": { "kind": "identifier", "value": "flag" },
         "line": 13,
         "then": [
-        { "kind": "return", "value": null, "line": 14 }
+        { "kind": "exit", "target": "sub", "code": null, "line": 14 }
         ],
         "else": [
         { "kind": "fail", "error": { "kind": "constructor", "type": "Error", "arguments": [{ "kind": "number", "value": "11" }, { "kind": "string", "value": "trap path failed" }] }, "line": 16 }
@@ -62,7 +62,7 @@
       "name": "err",
       "line": 18,
       "body": [
-      { "kind": "return", "value": null, "line": 19 }
+      { "kind": "exit", "target": "sub", "code": null, "line": 19 }
       ]
     }
     },

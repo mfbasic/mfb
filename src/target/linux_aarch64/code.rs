@@ -27,7 +27,6 @@ impl Platform {
             LinuxFlavor::Musl => "libc.musl-aarch64.so.1",
         }
     }
-
 }
 
 const LINUX_PROT_READ_WRITE: &str = "3";

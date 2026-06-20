@@ -1,3 +1,4 @@
+use crate::ast::LoopKind;
 use crate::binary_repr;
 use crate::ir::{
     EntryPoint, IrBinding, IrEnumMember, IrField, IrFunction, IrMatchCase, IrMatchPattern, IrOp,
@@ -110,6 +111,15 @@ pub(crate) enum NirOp {
     Return {
         value: Option<NirValue>,
     },
+    ExitLoop {
+        kind: LoopKind,
+    },
+    ContinueLoop {
+        kind: LoopKind,
+    },
+    ExitProgram {
+        code: NirValue,
+    },
     Fail {
         error: NirValue,
     },
@@ -126,8 +136,21 @@ pub(crate) enum NirOp {
         cases: Vec<NirMatchCase>,
     },
     While {
+        kind: LoopKind,
         condition: NirValue,
         body: Vec<NirOp>,
+    },
+    For {
+        name: String,
+        type_: String,
+        start: NirValue,
+        end: NirValue,
+        step: NirValue,
+        body: Vec<NirOp>,
+    },
+    DoUntil {
+        body: Vec<NirOp>,
+        condition: NirValue,
     },
     ForEach {
         name: String,
@@ -315,7 +338,6 @@ pub(crate) fn global_initializer_name(project: &str) -> String {
     format!("__mfb_init_globals_{}", symbol_fragment(project))
 }
 
-
 pub(crate) fn symbol_fragment(name: &str) -> String {
     name.chars()
         .map(|ch| {
@@ -458,6 +480,11 @@ fn lower_op(op: &IrOp) -> NirOp {
         IrOp::Return { value } => NirOp::Return {
             value: value.as_ref().map(lower_value),
         },
+        IrOp::ExitLoop { kind } => NirOp::ExitLoop { kind: *kind },
+        IrOp::ContinueLoop { kind } => NirOp::ContinueLoop { kind: *kind },
+        IrOp::ExitProgram { code } => NirOp::ExitProgram {
+            code: lower_value(code),
+        },
         IrOp::Fail { error } => NirOp::Fail {
             error: lower_value(error),
         },
@@ -477,9 +504,33 @@ fn lower_op(op: &IrOp) -> NirOp {
             value: lower_value(value),
             cases: cases.iter().map(lower_match_case).collect(),
         },
-        IrOp::While { condition, body } => NirOp::While {
+        IrOp::While {
+            kind,
+            condition,
+            body,
+        } => NirOp::While {
+            kind: *kind,
             condition: lower_value(condition),
             body: lower_ops(body),
+        },
+        IrOp::For {
+            name,
+            type_,
+            start,
+            end,
+            step,
+            body,
+        } => NirOp::For {
+            name: name.clone(),
+            type_: type_.clone(),
+            start: lower_value(start),
+            end: lower_value(end),
+            step: lower_value(step),
+            body: lower_ops(body),
+        },
+        IrOp::DoUntil { body, condition } => NirOp::DoUntil {
+            body: lower_ops(body),
+            condition: lower_value(condition),
         },
         IrOp::ForEach {
             name,
@@ -1023,6 +1074,27 @@ impl ToNirJson for NirOp {
                     .unwrap_or_else(|| "null".to_string());
                 format!("\n{}{{ \"op\": \"return\", \"value\": {} }}", pad, value)
             }
+            NirOp::ExitLoop { kind } => {
+                format!(
+                    "\n{}{{ \"op\": \"exitLoop\", \"loop\": {} }}",
+                    pad,
+                    json_string(loop_kind_name(*kind))
+                )
+            }
+            NirOp::ContinueLoop { kind } => {
+                format!(
+                    "\n{}{{ \"op\": \"continueLoop\", \"loop\": {} }}",
+                    pad,
+                    json_string(loop_kind_name(*kind))
+                )
+            }
+            NirOp::ExitProgram { code } => {
+                format!(
+                    "\n{}{{ \"op\": \"exitProgram\", \"code\": {} }}",
+                    pad,
+                    code.to_json(indent)
+                )
+            }
             NirOp::Fail { error } => {
                 format!(
                     "\n{}{{ \"op\": \"fail\", \"error\": {} }}",
@@ -1077,10 +1149,70 @@ impl ToNirJson for NirOp {
                 pad,
                 pad
             ),
-            NirOp::While { condition, body } => format!(
+            NirOp::While {
+                kind,
+                condition,
+                body,
+            } => format!(
                 concat!(
                     "\n{}{{\n",
                     "{}  \"op\": \"while\",\n",
+                    "{}  \"loop\": {},\n",
+                    "{}  \"condition\": {},\n",
+                    "{}  \"body\": [{}\n{}  ]\n",
+                    "{}}}"
+                ),
+                pad,
+                pad,
+                pad,
+                json_string(loop_kind_name(*kind)),
+                pad,
+                condition.to_json(indent),
+                pad,
+                join_json(body, indent + 2),
+                pad,
+                pad
+            ),
+            NirOp::For {
+                name,
+                type_,
+                start,
+                end,
+                step,
+                body,
+            } => format!(
+                concat!(
+                    "\n{}{{\n",
+                    "{}  \"op\": \"for\",\n",
+                    "{}  \"name\": {},\n",
+                    "{}  \"type\": {},\n",
+                    "{}  \"start\": {},\n",
+                    "{}  \"end\": {},\n",
+                    "{}  \"step\": {},\n",
+                    "{}  \"body\": [{}\n{}  ]\n",
+                    "{}}}"
+                ),
+                pad,
+                pad,
+                pad,
+                json_string(name),
+                pad,
+                json_string(type_),
+                pad,
+                start.to_json(indent),
+                pad,
+                end.to_json(indent),
+                pad,
+                step.to_json(indent),
+                pad,
+                join_json(body, indent + 2),
+                pad,
+                pad
+            ),
+            NirOp::DoUntil { body, condition } => format!(
+                concat!(
+                    "\n{}{{\n",
+                    "{}  \"op\": \"doUntil\",\n",
                     "{}  \"condition\": {},\n",
                     "{}  \"body\": [{}\n{}  ]\n",
                     "{}}}"
@@ -1353,6 +1485,14 @@ fn join_json<T: ToNirJson>(items: &[T], indent: usize) -> String {
         .map(|item| item.to_json(indent))
         .collect::<Vec<_>>()
         .join(",")
+}
+
+fn loop_kind_name(kind: LoopKind) -> &'static str {
+    match kind {
+        LoopKind::For => "for",
+        LoopKind::Do => "do",
+        LoopKind::While => "while",
+    }
 }
 
 fn join_values(values: &[NirValue]) -> String {

@@ -1,0 +1,118 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "exit_loop_valid",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "mutable": true, "name": "total", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    { "op": "bind", "mutable": false, "name": "$for_end1", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "5" } },
+    { "op": "bind", "mutable": false, "name": "$for_step2", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "1" } },
+    {
+      "op": "for",
+      "name": "$for_iter0",
+      "type": "Integer",
+      "start": { "kind": "const", "type": "Integer", "value": "1" },
+      "end": { "kind": "local", "name": "$for_end1" },
+      "step": { "kind": "local", "name": "$for_step2" },
+      "body": [
+      { "op": "bind", "mutable": false, "name": "i", "type": "Integer", "value": { "kind": "local", "name": "$for_iter0" } },
+      {
+        "op": "if",
+        "condition": { "kind": "binary", "op": "=", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "3" } },
+        "then": [
+        { "op": "exitLoop", "loop": "for" }
+        ],
+        "else": [
+        ]
+      },
+      { "op": "assign", "name": "total", "value": { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "total" }, "right": { "kind": "local", "name": "i" } } }
+      ]
+    },
+    { "op": "bind", "mutable": false, "name": "numbers", "type": "List OF Integer", "value": { "kind": "list", "type": "List OF Integer", "values": [{ "kind": "const", "type": "Integer", "value": "4" }, { "kind": "const", "type": "Integer", "value": "5" }, { "kind": "const", "type": "Integer", "value": "6" }] } },
+    {
+      "op": "forEach",
+      "name": "n",
+      "type": "Integer",
+      "iterable": { "kind": "local", "name": "numbers" },
+      "body": [
+      {
+        "op": "if",
+        "condition": { "kind": "binary", "op": "=", "left": { "kind": "local", "name": "n" }, "right": { "kind": "const", "type": "Integer", "value": "5" } },
+        "then": [
+        { "op": "exitLoop", "loop": "for" }
+        ],
+        "else": [
+        ]
+      },
+      { "op": "assign", "name": "total", "value": { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "total" }, "right": { "kind": "local", "name": "n" } } }
+      ]
+    },
+    {
+      "op": "doUntil",
+      "condition": { "kind": "binary", "op": ">", "left": { "kind": "local", "name": "total" }, "right": { "kind": "const", "type": "Integer", "value": "1000" } },
+      "body": [
+      { "op": "assign", "name": "total", "value": { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "total" }, "right": { "kind": "const", "type": "Integer", "value": "10" } } },
+      { "op": "bind", "mutable": false, "name": "$for_end4", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "2" } },
+      { "op": "bind", "mutable": false, "name": "$for_step5", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "1" } },
+      {
+        "op": "for",
+        "name": "$for_iter3",
+        "type": "Integer",
+        "start": { "kind": "const", "type": "Integer", "value": "1" },
+        "end": { "kind": "local", "name": "$for_end4" },
+        "step": { "kind": "local", "name": "$for_step5" },
+        "body": [
+        { "op": "bind", "mutable": false, "name": "j", "type": "Integer", "value": { "kind": "local", "name": "$for_iter3" } },
+        { "op": "exitLoop", "loop": "do" }
+        ]
+      },
+      { "op": "assign", "name": "total", "value": { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "total" }, "right": { "kind": "const", "type": "Integer", "value": "100" } } }
+      ]
+    },
+    { "op": "bind", "mutable": true, "name": "ready", "type": "Boolean", "value": { "kind": "const", "type": "Boolean", "value": "true" } },
+    {
+      "op": "while",
+      "loop": "do",
+      "condition": { "kind": "local", "name": "ready" },
+      "body": [
+      { "op": "assign", "name": "total", "value": { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "total" }, "right": { "kind": "const", "type": "Integer", "value": "20" } } },
+      { "op": "exitLoop", "loop": "do" }
+      ]
+    },
+    { "op": "bind", "mutable": true, "name": "w", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    {
+      "op": "while",
+      "loop": "while",
+      "condition": { "kind": "const", "type": "Boolean", "value": "true" },
+      "body": [
+      { "op": "assign", "name": "w", "value": { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "w" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } },
+      {
+        "op": "if",
+        "condition": { "kind": "binary", "op": "=", "left": { "kind": "local", "name": "w" }, "right": { "kind": "const", "type": "Integer", "value": "2" } },
+        "then": [
+        { "op": "exitLoop", "loop": "while" }
+        ],
+        "else": [
+        ]
+      }
+      ]
+    },
+    { "op": "return", "value": { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "total" }, "right": { "kind": "local", "name": "w" } } }
+    ]
+  }
+  ]
+}

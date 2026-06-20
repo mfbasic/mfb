@@ -1,0 +1,48 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "exit_program_valid_rt",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "leave",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    { "name": "code", "type": "Integer", "default": null }
+    ],
+    "returns": "Nothing",
+    "body": [
+    { "op": "exitProgram", "code": { "kind": "local", "name": "code" } }
+    ]
+  },
+  {
+    "name": "main",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "mutable": false, "name": "code", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "3" } },
+    { "op": "eval", "value": { "kind": "call", "target": "leave", "args": [{ "kind": "local", "name": "code" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "caught" }] } },
+    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "99" } },
+    {
+      "op": "trap",
+      "name": "err",
+      "body": [
+      { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "trap" }] } },
+      { "op": "return", "value": { "kind": "memberAccess", "target": { "kind": "local", "name": "err" }, "member": "code" } }
+      ]
+    }
+    ]
+  }
+  ]
+}

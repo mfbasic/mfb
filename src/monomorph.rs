@@ -451,6 +451,17 @@ impl<'a> Monomorphizer<'a> {
                     .map(|value| self.lower_expression(value, substitutions, context, None, *line)),
                 line: *line,
             },
+            Statement::Exit { target, code, line } => Statement::Exit {
+                target: *target,
+                code: code
+                    .as_ref()
+                    .map(|value| self.lower_expression(value, substitutions, context, None, *line)),
+                line: *line,
+            },
+            Statement::Continue { kind, line } => Statement::Continue {
+                kind: *kind,
+                line: *line,
+            },
             Statement::Fail { error, line } => Statement::Fail {
                 error: self.lower_expression(error, substitutions, context, None, *line),
                 line: *line,
@@ -623,10 +634,12 @@ impl<'a> Monomorphizer<'a> {
                 }
             }
             Statement::While {
+                kind,
                 condition,
                 body,
                 line,
             } => Statement::While {
+                kind: *kind,
                 condition: self.lower_expression(condition, substitutions, context, None, *line),
                 body: self.lower_statements(body, substitutions, &mut context.clone()),
                 line: *line,

@@ -95,6 +95,7 @@ pub(crate) trait NativePlanPlatform {
     fn target(&self) -> &'static str;
     fn entry_imports(&self, module: &NirModule) -> Vec<PlatformImport>;
     fn entry_error_imports(&self, module: &NirModule) -> Vec<PlatformImport>;
+    fn program_exit_imports(&self, required_by: &str) -> Vec<PlatformImport>;
     fn runtime_imports(&self, spec: &runtime::RuntimeHelperSpec) -> Vec<PlatformImport>;
     fn native_call_imports(&self, target: &str, required_by: &str) -> Vec<PlatformImport>;
 }
@@ -437,9 +438,14 @@ fn ops_have_thread_owner(ops: &[NirOp]) -> bool {
         } => ops_have_thread_owner(then_body) || ops_have_thread_owner(else_body),
         NirOp::Match { cases, .. } => cases.iter().any(|case| ops_have_thread_owner(&case.body)),
         NirOp::While { body, .. } | NirOp::Trap { body, .. } => ops_have_thread_owner(body),
-        NirOp::Assign { .. } | NirOp::Return { .. } | NirOp::Fail { .. } | NirOp::Eval { .. } => {
-            false
-        }
+        NirOp::For { body, .. } | NirOp::DoUntil { body, .. } => ops_have_thread_owner(body),
+        NirOp::Assign { .. }
+        | NirOp::Return { .. }
+        | NirOp::ExitLoop { .. }
+        | NirOp::ContinueLoop { .. }
+        | NirOp::ExitProgram { .. }
+        | NirOp::Fail { .. }
+        | NirOp::Eval { .. } => false,
     })
 }
 
@@ -456,6 +462,13 @@ fn collect_platform_imports_from_ops(
             | NirOp::Return { value } => {
                 if let Some(value) = value {
                     collect_platform_imports_from_value(platform, required_by, value, imports);
+                }
+            }
+            NirOp::ExitLoop { .. } | NirOp::ContinueLoop { .. } => {}
+            NirOp::ExitProgram { code } => {
+                collect_platform_imports_from_value(platform, required_by, code, imports);
+                for import in platform.program_exit_imports(required_by) {
+                    push_platform_import(imports, import);
                 }
             }
             NirOp::Fail { error } => {
@@ -479,9 +492,27 @@ fn collect_platform_imports_from_ops(
                     collect_platform_imports_from_ops(platform, required_by, &case.body, imports);
                 }
             }
-            NirOp::While { condition, body } => {
+            NirOp::While {
+                condition, body, ..
+            } => {
                 collect_platform_imports_from_value(platform, required_by, condition, imports);
                 collect_platform_imports_from_ops(platform, required_by, body, imports);
+            }
+            NirOp::For {
+                start,
+                end,
+                step,
+                body,
+                ..
+            } => {
+                collect_platform_imports_from_value(platform, required_by, start, imports);
+                collect_platform_imports_from_value(platform, required_by, end, imports);
+                collect_platform_imports_from_value(platform, required_by, step, imports);
+                collect_platform_imports_from_ops(platform, required_by, body, imports);
+            }
+            NirOp::DoUntil { body, condition } => {
+                collect_platform_imports_from_ops(platform, required_by, body, imports);
+                collect_platform_imports_from_value(platform, required_by, condition, imports);
             }
             NirOp::ForEach { iterable, body, .. } => {
                 collect_platform_imports_from_value(platform, required_by, iterable, imports);
@@ -640,6 +671,10 @@ fn collect_runtime_symbols_from_ops_with_constants(
                     collect_runtime_symbols_from_value(value, symbols, constants);
                 }
             }
+            NirOp::ExitLoop { .. } | NirOp::ContinueLoop { .. } => {}
+            NirOp::ExitProgram { code } => {
+                collect_runtime_symbols_from_value(code, symbols, constants);
+            }
             NirOp::Fail { error } => {
                 collect_runtime_symbols_from_value(error, symbols, constants);
             }
@@ -684,10 +719,30 @@ fn collect_runtime_symbols_from_ops_with_constants(
                     );
                 }
             }
-            NirOp::While { condition, body } => {
+            NirOp::While {
+                condition, body, ..
+            } => {
                 collect_runtime_symbols_from_value(condition, symbols, constants);
                 let mut body_constants = constants.clone();
                 collect_runtime_symbols_from_ops_with_constants(body, symbols, &mut body_constants);
+            }
+            NirOp::For {
+                start,
+                end,
+                step,
+                body,
+                ..
+            } => {
+                collect_runtime_symbols_from_value(start, symbols, constants);
+                collect_runtime_symbols_from_value(end, symbols, constants);
+                collect_runtime_symbols_from_value(step, symbols, constants);
+                let mut body_constants = constants.clone();
+                collect_runtime_symbols_from_ops_with_constants(body, symbols, &mut body_constants);
+            }
+            NirOp::DoUntil { body, condition } => {
+                let mut body_constants = constants.clone();
+                collect_runtime_symbols_from_ops_with_constants(body, symbols, &mut body_constants);
+                collect_runtime_symbols_from_value(condition, symbols, constants);
             }
             NirOp::ForEach { iterable, body, .. } => {
                 collect_runtime_symbols_from_value(iterable, symbols, constants);
@@ -994,6 +1049,19 @@ impl FunctionPlanBuilder<'_> {
                         self.operations.push("return".to_string());
                     }
                 }
+                NirOp::ExitLoop { kind } => {
+                    self.operations
+                        .push(format!("exit {}", plan_loop_kind_name(*kind)));
+                }
+                NirOp::ContinueLoop { kind } => {
+                    self.operations
+                        .push(format!("continue {}", plan_loop_kind_name(*kind)));
+                }
+                NirOp::ExitProgram { code } => {
+                    self.lower_value(code)?;
+                    self.operations
+                        .push(format!("exitProgram {}", describe_value(code)));
+                }
                 NirOp::Fail { error } => {
                     self.lower_value(error)?;
                     self.operations
@@ -1044,7 +1112,9 @@ impl FunctionPlanBuilder<'_> {
                     self.operations.push(format!("label {end_label}"));
                     self.constants.clear();
                 }
-                NirOp::While { condition, body } => {
+                NirOp::While {
+                    condition, body, ..
+                } => {
                     let loop_label = self.add_label(LabelKind::WhileLoop);
                     let end_label = self.add_label(LabelKind::WhileEnd);
                     self.operations.push(format!("label {loop_label}"));
@@ -1055,6 +1125,45 @@ impl FunctionPlanBuilder<'_> {
                     ));
                     self.lower_ops(body)?;
                     self.operations.push(format!("branch -> {loop_label}"));
+                    self.operations.push(format!("label {end_label}"));
+                    self.constants.clear();
+                }
+                NirOp::For {
+                    name,
+                    type_,
+                    start,
+                    end,
+                    step,
+                    body,
+                } => {
+                    self.lower_value(start)?;
+                    self.lower_value(end)?;
+                    self.lower_value(step)?;
+                    let loop_label = self.add_label(LabelKind::WhileLoop);
+                    let end_label = self.add_label(LabelKind::WhileEnd);
+                    self.operations.push(format!(
+                        "for {name} AS {type_} = {} TO {} STEP {}",
+                        describe_value(start),
+                        describe_value(end),
+                        describe_value(step)
+                    ));
+                    self.operations.push(format!("label {loop_label}"));
+                    self.add_stack_slot(name, type_, true)?;
+                    self.lower_ops(body)?;
+                    self.operations.push(format!("branch -> {loop_label}"));
+                    self.operations.push(format!("label {end_label}"));
+                    self.constants.clear();
+                }
+                NirOp::DoUntil { body, condition } => {
+                    let loop_label = self.add_label(LabelKind::WhileLoop);
+                    let end_label = self.add_label(LabelKind::WhileEnd);
+                    self.operations.push(format!("label {loop_label}"));
+                    self.lower_ops(body)?;
+                    self.lower_value(condition)?;
+                    self.operations.push(format!(
+                        "branchIfFalse {} -> {loop_label}",
+                        describe_value(condition)
+                    ));
                     self.operations.push(format!("label {end_label}"));
                     self.constants.clear();
                 }
@@ -1484,6 +1593,14 @@ fn describe_value(value: &NirValue) -> String {
     }
 }
 
+fn plan_loop_kind_name(kind: crate::ast::LoopKind) -> &'static str {
+    match kind {
+        crate::ast::LoopKind::For => "FOR",
+        crate::ast::LoopKind::Do => "DO",
+        crate::ast::LoopKind::While => "WHILE",
+    }
+}
+
 fn describe_match_pattern(pattern: &super::nir::NirMatchPattern) -> String {
     match pattern {
         super::nir::NirMatchPattern::Else => "else".to_string(),
@@ -1781,6 +1898,14 @@ mod tests {
                 library: "testRuntime".to_string(),
                 symbol: "test_error_output".to_string(),
                 required_by: "_main".to_string(),
+            }]
+        }
+
+        fn program_exit_imports(&self, required_by: &str) -> Vec<PlatformImport> {
+            vec![PlatformImport {
+                library: "testRuntime".to_string(),
+                symbol: "test_program_exit".to_string(),
+                required_by: required_by.to_string(),
             }]
         }
 

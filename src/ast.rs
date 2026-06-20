@@ -192,6 +192,15 @@ pub enum Statement {
         value: Option<Expression>,
         line: usize,
     },
+    Exit {
+        target: ExitTarget,
+        code: Option<Expression>,
+        line: usize,
+    },
+    Continue {
+        kind: LoopKind,
+        line: usize,
+    },
     Fail {
         error: Expression,
         line: usize,
@@ -238,6 +247,7 @@ pub enum Statement {
         line: usize,
     },
     While {
+        kind: LoopKind,
         condition: Expression,
         body: Vec<Statement>,
         line: usize,
@@ -247,6 +257,23 @@ pub enum Statement {
         condition: Expression,
         line: usize,
     },
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ExitTarget {
+    For,
+    Do,
+    While,
+    Sub,
+    Func,
+    Program,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum LoopKind {
+    For,
+    Do,
+    While,
 }
 
 #[derive(Clone, Debug)]
@@ -984,10 +1011,7 @@ impl<'a> FileParser<'a> {
             self.synchronize();
             return None;
         };
-        if !self.consume_kind(
-            TokenKind::RParen,
-            "TRAP error binding must close with `)`.",
-        ) {
+        if !self.consume_kind(TokenKind::RParen, "TRAP error binding must close with `)`.") {
             self.synchronize();
             return None;
         }
@@ -1306,6 +1330,72 @@ impl<'a> FileParser<'a> {
             });
         }
 
+        if self.match_keyword(Keyword::Exit) {
+            let token = self.previous().clone();
+            let target = if self.match_keyword(Keyword::For) {
+                ExitTarget::For
+            } else if self.match_keyword(Keyword::Do) {
+                ExitTarget::Do
+            } else if self.match_keyword(Keyword::While) {
+                ExitTarget::While
+            } else if self.match_keyword(Keyword::Sub) {
+                ExitTarget::Sub
+            } else if self.match_keyword(Keyword::Func) {
+                ExitTarget::Func
+            } else if self.match_keyword(Keyword::Program) {
+                ExitTarget::Program
+            } else {
+                let unexpected = self.peek().clone();
+                self.report(
+                    "MFB_PARSE_UNEXPECTED_TOKEN",
+                    "EXIT must be followed by FOR, DO, WHILE, SUB, FUNC, or PROGRAM.",
+                    &unexpected,
+                );
+                return None;
+            };
+            let code = if matches!(target, ExitTarget::Program) {
+                Some(self.parse_expression()?)
+            } else {
+                None
+            };
+            self.consume_simple_statement_end(
+                "Expected end of statement after EXIT.",
+                allow_else_terminator,
+            );
+            return Some(Statement::Exit {
+                target,
+                code,
+                line: token.line,
+            });
+        }
+
+        if self.match_keyword(Keyword::Continue) {
+            let token = self.previous().clone();
+            let kind = if self.match_keyword(Keyword::For) {
+                LoopKind::For
+            } else if self.match_keyword(Keyword::Do) {
+                LoopKind::Do
+            } else if self.match_keyword(Keyword::While) {
+                LoopKind::While
+            } else {
+                let unexpected = self.peek().clone();
+                self.report(
+                    "MFB_PARSE_UNEXPECTED_TOKEN",
+                    "CONTINUE must be followed by FOR, DO, or WHILE.",
+                    &unexpected,
+                );
+                return None;
+            };
+            self.consume_simple_statement_end(
+                "Expected end of statement after CONTINUE.",
+                allow_else_terminator,
+            );
+            return Some(Statement::Continue {
+                kind,
+                line: token.line,
+            });
+        }
+
         if self.match_keyword(Keyword::Fail) {
             let token = self.previous().clone();
             let error = self.parse_expression()?;
@@ -1381,8 +1471,10 @@ impl<'a> FileParser<'a> {
             );
             return None;
         }
-        let expression =
-            self.maybe_attach_postfix_trap(expression.expect("checked expression"), allow_else_terminator)?;
+        let expression = self.maybe_attach_postfix_trap(
+            expression.expect("checked expression"),
+            allow_else_terminator,
+        )?;
         if !matches!(expression, Expression::Trapped { .. }) {
             self.consume_simple_statement_end(
                 "Expected end of statement after expression.",
@@ -1702,6 +1794,7 @@ impl<'a> FileParser<'a> {
         }
         self.consume_statement_end("Expected end of statement after WEND.");
         Some(Statement::While {
+            kind: LoopKind::While,
             condition,
             body,
             line: token.line,
@@ -1720,6 +1813,7 @@ impl<'a> FileParser<'a> {
             }
             self.consume_statement_end("Expected end of statement after LOOP.");
             return Some(Statement::While {
+                kind: LoopKind::Do,
                 condition,
                 body,
                 line: token.line,
@@ -3004,6 +3098,27 @@ impl ToAstJson for Statement {
                     pad, value, line
                 )
             }
+            Statement::Exit { target, code, line } => {
+                let code = code
+                    .as_ref()
+                    .map(|value| value.to_json(indent))
+                    .unwrap_or_else(|| "null".to_string());
+                format!(
+                    "\n{}{{ \"kind\": \"exit\", \"target\": {}, \"code\": {}, \"line\": {} }}",
+                    pad,
+                    json_string(exit_target_name(*target)),
+                    code,
+                    line
+                )
+            }
+            Statement::Continue { kind, line } => {
+                format!(
+                    "\n{}{{ \"kind\": \"continue\", \"loop\": {}, \"line\": {} }}",
+                    pad,
+                    json_string(loop_kind_name(*kind)),
+                    line
+                )
+            }
             Statement::Fail { error, line } => {
                 format!(
                     "\n{}{{ \"kind\": \"fail\", \"error\": {}, \"line\": {} }}",
@@ -3142,6 +3257,7 @@ impl ToAstJson for Statement {
                 )
             }
             Statement::While {
+                kind,
                 condition,
                 body,
                 line,
@@ -3150,6 +3266,7 @@ impl ToAstJson for Statement {
                     concat!(
                         "\n{}{{\n",
                         "{}  \"kind\": \"while\",\n",
+                        "{}  \"loop\": {},\n",
                         "{}  \"condition\": {},\n",
                         "{}  \"line\": {},\n",
                         "{}  \"body\": [{}\n{}  ]\n",
@@ -3157,6 +3274,8 @@ impl ToAstJson for Statement {
                     ),
                     pad,
                     pad,
+                    pad,
+                    json_string(loop_kind_name(*kind)),
                     pad,
                     condition.to_json(0),
                     pad,
@@ -3493,6 +3612,25 @@ fn visibility_name(visibility: Visibility) -> &'static str {
         Visibility::Private => "private",
         Visibility::Package => "package",
         Visibility::Export => "export",
+    }
+}
+
+fn exit_target_name(target: ExitTarget) -> &'static str {
+    match target {
+        ExitTarget::For => "for",
+        ExitTarget::Do => "do",
+        ExitTarget::While => "while",
+        ExitTarget::Sub => "sub",
+        ExitTarget::Func => "func",
+        ExitTarget::Program => "program",
+    }
+}
+
+fn loop_kind_name(kind: LoopKind) -> &'static str {
+    match kind {
+        LoopKind::For => "for",
+        LoopKind::Do => "do",
+        LoopKind::While => "while",
     }
 }
 

@@ -1,0 +1,150 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "continue_loop_valid_rt",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "parseNonNegative",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    { "name": "value", "type": "Integer", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    {
+      "op": "if",
+      "condition": { "kind": "binary", "op": "<", "left": { "kind": "local", "name": "value" }, "right": { "kind": "const", "type": "Integer", "value": "0" } },
+      "then": [
+      { "op": "fail", "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "100" }, { "kind": "const", "type": "String", "value": "skip" }] } }
+      ],
+      "else": [
+      ]
+    },
+    { "op": "return", "value": { "kind": "binary", "op": "*", "left": { "kind": "local", "name": "value" }, "right": { "kind": "const", "type": "Integer", "value": "10" } } }
+    ]
+  },
+  {
+    "name": "main",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "mutable": true, "name": "total", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    { "op": "bind", "mutable": false, "name": "$for_end1", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "5" } },
+    { "op": "bind", "mutable": false, "name": "$for_step2", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "1" } },
+    {
+      "op": "for",
+      "name": "$for_iter0",
+      "type": "Integer",
+      "start": { "kind": "const", "type": "Integer", "value": "1" },
+      "end": { "kind": "local", "name": "$for_end1" },
+      "step": { "kind": "local", "name": "$for_step2" },
+      "body": [
+      { "op": "bind", "mutable": false, "name": "i", "type": "Integer", "value": { "kind": "local", "name": "$for_iter0" } },
+      {
+        "op": "if",
+        "condition": { "kind": "binary", "op": "=", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "3" } },
+        "then": [
+        { "op": "continueLoop", "loop": "for" }
+        ],
+        "else": [
+        ]
+      },
+      { "op": "assign", "name": "total", "value": { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "total" }, "right": { "kind": "local", "name": "i" } } }
+      ]
+    },
+    { "op": "bind", "mutable": true, "name": "d", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    {
+      "op": "doUntil",
+      "condition": { "kind": "binary", "op": "=", "left": { "kind": "local", "name": "d" }, "right": { "kind": "const", "type": "Integer", "value": "2" } },
+      "body": [
+      { "op": "assign", "name": "d", "value": { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "d" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } },
+      {
+        "op": "if",
+        "condition": { "kind": "binary", "op": "=", "left": { "kind": "local", "name": "d" }, "right": { "kind": "const", "type": "Integer", "value": "1" } },
+        "then": [
+        { "op": "continueLoop", "loop": "do" }
+        ],
+        "else": [
+        ]
+      },
+      { "op": "assign", "name": "total", "value": { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "total" }, "right": { "kind": "const", "type": "Integer", "value": "10" } } }
+      ]
+    },
+    { "op": "bind", "mutable": true, "name": "dw", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    {
+      "op": "while",
+      "loop": "do",
+      "condition": { "kind": "binary", "op": "<", "left": { "kind": "local", "name": "dw" }, "right": { "kind": "const", "type": "Integer", "value": "3" } },
+      "body": [
+      { "op": "assign", "name": "dw", "value": { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "dw" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } },
+      {
+        "op": "if",
+        "condition": { "kind": "binary", "op": "=", "left": { "kind": "local", "name": "dw" }, "right": { "kind": "const", "type": "Integer", "value": "1" } },
+        "then": [
+        { "op": "continueLoop", "loop": "do" }
+        ],
+        "else": [
+        ]
+      },
+      { "op": "assign", "name": "total", "value": { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "total" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+      ]
+    },
+    { "op": "bind", "mutable": true, "name": "w", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    {
+      "op": "while",
+      "loop": "while",
+      "condition": { "kind": "binary", "op": "<", "left": { "kind": "local", "name": "w" }, "right": { "kind": "const", "type": "Integer", "value": "3" } },
+      "body": [
+      { "op": "assign", "name": "w", "value": { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "w" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } },
+      {
+        "op": "if",
+        "condition": { "kind": "binary", "op": "=", "left": { "kind": "local", "name": "w" }, "right": { "kind": "const", "type": "Integer", "value": "2" } },
+        "then": [
+        { "op": "continueLoop", "loop": "while" }
+        ],
+        "else": [
+        ]
+      },
+      { "op": "assign", "name": "total", "value": { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "total" }, "right": { "kind": "const", "type": "Integer", "value": "100" } } }
+      ]
+    },
+    { "op": "bind", "mutable": false, "name": "values", "type": "List OF Integer", "value": { "kind": "list", "type": "List OF Integer", "values": [{ "kind": "const", "type": "Integer", "value": "1" }, { "kind": "unary", "op": "-", "operand": { "kind": "const", "type": "Integer", "value": "1" } }, { "kind": "const", "type": "Integer", "value": "2" }] } },
+    {
+      "op": "forEach",
+      "name": "value",
+      "type": "Integer",
+      "iterable": { "kind": "local", "name": "values" },
+      "body": [
+      { "op": "bind", "mutable": false, "name": "$trap_res3", "type": "Result OF Integer", "value": { "kind": "callResult", "target": "parseNonNegative", "args": [{ "kind": "local", "name": "value" }] } },
+      { "op": "bind", "mutable": true, "name": "$trap_val4", "type": "Integer", "value": null },
+      {
+        "op": "if",
+        "condition": { "kind": "resultIsOk", "value": { "kind": "local", "name": "$trap_res3" } },
+        "then": [
+        { "op": "assign", "name": "$trap_val4", "value": { "kind": "resultValue", "value": { "kind": "local", "name": "$trap_res3" } } }
+        ],
+        "else": [
+        { "op": "bind", "mutable": false, "name": "err", "type": "Error", "value": { "kind": "resultError", "value": { "kind": "local", "name": "$trap_res3" } } },
+        { "op": "continueLoop", "loop": "for" }
+        ]
+      },
+      { "op": "bind", "mutable": false, "name": "parsed", "type": "Integer", "value": { "kind": "local", "name": "$trap_val4" } },
+      { "op": "assign", "name": "total", "value": { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "total" }, "right": { "kind": "local", "name": "parsed" } } }
+      ]
+    },
+    { "op": "return", "value": { "kind": "local", "name": "total" } }
+    ]
+  }
+  ]
+}

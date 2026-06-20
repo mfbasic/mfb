@@ -94,7 +94,11 @@ pub fn render(report: &AuditReport) -> String {
             } else {
                 format!("close {}", resource.close_op)
             };
-            let kind = if resource.native { "native" } else { "standard" };
+            let kind = if resource.native {
+                "native"
+            } else {
+                "standard"
+            };
             let _ = writeln!(
                 out,
                 "  {} {} at {}:{} ({}, {})",
@@ -118,7 +122,9 @@ pub fn render(report: &AuditReport) -> String {
     let flow: Vec<&FlowFunction> = report
         .source_flow
         .iter()
-        .filter(|function| function.fallible || function.trap.is_some() || !function.calls.is_empty())
+        .filter(|function| {
+            function.fallible || function.trap.is_some() || !function.calls.is_empty()
+        })
         .collect();
     if !flow.is_empty() {
         let _ = writeln!(out);

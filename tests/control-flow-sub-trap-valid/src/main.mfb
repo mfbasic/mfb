@@ -1,22 +1,22 @@
 SUB viaReturn(flag AS Boolean)
   IF flag THEN
-    RETURN
+    EXIT SUB
   ELSE
     FAIL Error[10, "return path failed"]
   END IF
   TRAP(err)
-  RETURN
+  EXIT SUB
   END TRAP
 END SUB
 
 SUB viaTrapReturn(flag AS Boolean)
   IF flag THEN
-    RETURN
+    EXIT SUB
   ELSE
     FAIL Error[11, "trap path failed"]
   END IF
   TRAP(err)
-  RETURN
+  EXIT SUB
   END TRAP
 END SUB
 

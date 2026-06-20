@@ -1,8 +1,8 @@
 mod arch;
 mod ast;
 mod audit;
-mod builtins;
 mod binary_repr;
+mod builtins;
 mod ir;
 mod lexer;
 mod man;
@@ -351,11 +351,16 @@ fn build_project(options: &BuildOptions) -> Result<(), ()> {
             // -br dumps this project's own structured Binary Representation. Imported
             // packages are decoded and merged only in the native consumption
             // path; the hex dump reflects the project's own IR, not a merge.
-            let binary_repr_path = binary_repr::write_binary_repr_hex(&options.location, &ir, version)
-                .map_err(|err| {
-                    eprintln!("error: {err}");
-                })?;
-            println!("Wrote binary representation hex to {}", binary_repr_path.display());
+            let binary_repr_path =
+                binary_repr::write_binary_repr_hex(&options.location, &ir, version).map_err(
+                    |err| {
+                        eprintln!("error: {err}");
+                    },
+                )?;
+            println!(
+                "Wrote binary representation hex to {}",
+                binary_repr_path.display()
+            );
         }
         BuildOutput::NativeIr => {
             if project_kind == "package" {
@@ -642,7 +647,10 @@ fn print_package_info(path: &Path) -> Result<(), String> {
     );
     println!("  signature length: {}", header.signature_length);
     println!("  content hash: {}", hex_bytes(&content_hash));
-    println!("  binary representation length: {}", header.binary_repr_length);
+    println!(
+        "  binary representation length: {}",
+        header.binary_repr_length
+    );
     println!();
     println!("Manifest:");
     println!("  name: {}", info.manifest_name);

@@ -2,6 +2,6 @@ SUB foobar
   FAIL Error[100, "This is a message"]
 
   TRAP(err)
-  RETURN
+  EXIT SUB
   END TRAP
 END SUB

@@ -1,4 +1,3 @@
-
 use crate::builtins;
 use crate::ir::{IrFunction, IrOp, IrProject, IrType, IrValue};
 use sha2::{Digest, Sha256};
@@ -407,14 +406,19 @@ fn validate_container_manifest_identity(
         || identity.ident_fingerprint != manifest_ident_fingerprint
         || identity.signing_fingerprint != manifest_signing_fingerprint
     {
-        return Err("MFP header identity does not match binary representation manifest identity".to_string());
+        return Err(
+            "MFP header identity does not match binary representation manifest identity"
+                .to_string(),
+        );
     }
     Ok(())
 }
 
 fn read_binary_repr_package(bytes: &[u8]) -> Result<PackageBinaryRepr, String> {
     if bytes.len() < 16 || &bytes[0..4] != b"MFPC" {
-        return Err("package payload does not have the binary representation container magic".to_string());
+        return Err(
+            "package payload does not have the binary representation container magic".to_string(),
+        );
     }
     let major = checked_u16_at(bytes, 4)?;
     if major != MFPC_MAJOR_VERSION {
@@ -1968,7 +1972,10 @@ struct Cleanup {
     flags: u32,
 }
 
-fn lower_project(ir: &IrProject, metadata: &BinaryReprMetadata) -> Result<BinaryReprProject, String> {
+fn lower_project(
+    ir: &IrProject,
+    metadata: &BinaryReprMetadata,
+) -> Result<BinaryReprProject, String> {
     lower_project_with_external_functions(
         ir,
         metadata,
@@ -2203,6 +2210,8 @@ fn ops_use_resource_type(ops: &[IrOp]) -> bool {
             value_uses_resource_type(value)
         }
         IrOp::Return { value } => value.as_ref().is_some_and(value_uses_resource_type),
+        IrOp::ExitLoop { .. } | IrOp::ContinueLoop { .. } => false,
+        IrOp::ExitProgram { code } => value_uses_resource_type(code),
         IrOp::Fail { error } => value_uses_resource_type(error),
         IrOp::If {
             condition,
@@ -2217,8 +2226,23 @@ fn ops_use_resource_type(ops: &[IrOp]) -> bool {
             value_uses_resource_type(value)
                 || cases.iter().any(|case| ops_use_resource_type(&case.body))
         }
-        IrOp::While { condition, body } => {
-            value_uses_resource_type(condition) || ops_use_resource_type(body)
+        IrOp::While {
+            condition, body, ..
+        } => value_uses_resource_type(condition) || ops_use_resource_type(body),
+        IrOp::For {
+            start,
+            end,
+            step,
+            body,
+            ..
+        } => {
+            value_uses_resource_type(start)
+                || value_uses_resource_type(end)
+                || value_uses_resource_type(step)
+                || ops_use_resource_type(body)
+        }
+        IrOp::DoUntil { body, condition } => {
+            ops_use_resource_type(body) || value_uses_resource_type(condition)
         }
         IrOp::ForEach {
             type_,
@@ -2356,6 +2380,8 @@ fn collect_imported_calls_op(
                 collect_imported_calls_value(v, imported, used);
             }
         }
+        IrOp::ExitLoop { .. } | IrOp::ContinueLoop { .. } => {}
+        IrOp::ExitProgram { code } => collect_imported_calls_value(code, imported, used),
         IrOp::If {
             condition,
             then_body,
@@ -2377,11 +2403,33 @@ fn collect_imported_calls_op(
                 }
             }
         }
-        IrOp::While { condition, body } => {
+        IrOp::While {
+            condition, body, ..
+        } => {
             collect_imported_calls_value(condition, imported, used);
             for op in body {
                 collect_imported_calls_op(op, imported, used);
             }
+        }
+        IrOp::For {
+            start,
+            end,
+            step,
+            body,
+            ..
+        } => {
+            collect_imported_calls_value(start, imported, used);
+            collect_imported_calls_value(end, imported, used);
+            collect_imported_calls_value(step, imported, used);
+            for op in body {
+                collect_imported_calls_op(op, imported, used);
+            }
+        }
+        IrOp::DoUntil { body, condition } => {
+            for op in body {
+                collect_imported_calls_op(op, imported, used);
+            }
+            collect_imported_calls_value(condition, imported, used);
         }
         IrOp::ForEach { iterable, body, .. } => {
             collect_imported_calls_value(iterable, imported, used);
@@ -2436,7 +2484,9 @@ fn collect_imported_calls_value(
         | IrValue::MemberAccess { target: value, .. } => {
             collect_imported_calls_value(value, imported, used)
         }
-        IrValue::WithUpdate { target, updates, .. } => {
+        IrValue::WithUpdate {
+            target, updates, ..
+        } => {
             collect_imported_calls_value(target, imported, used);
             for update in updates {
                 collect_imported_calls_value(&update.value, imported, used);
@@ -2523,7 +2573,6 @@ fn split_top_level_types(params: &str) -> Vec<String> {
     result.push(params[start..].trim().to_string());
     result
 }
-
 
 impl StringPool {
     fn new() -> Self {

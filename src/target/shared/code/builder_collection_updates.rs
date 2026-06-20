@@ -1017,7 +1017,13 @@ impl CodeBuilder<'_> {
         )?;
         self.emit(abi::label(&copy_keep));
         self.emit_copy_one_map_entry(
-            "x12", "x20", "x17", "x21", "x13", key_payload_align, value_payload_align,
+            "x12",
+            "x20",
+            "x17",
+            "x21",
+            "x13",
+            key_payload_align,
+            value_payload_align,
         );
         self.emit(abi::label(&copy_next));
         self.emit(abi::add_immediate("x12", "x12", COLLECTION_ENTRY_SIZE));

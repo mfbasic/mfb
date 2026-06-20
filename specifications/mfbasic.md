@@ -508,10 +508,11 @@ END SUB
 ```
 
 A `SUB` still has an error channel — it can `FAIL`, auto-propagate, and drop
-resources on the way out — but it produces nothing on success. A bare `RETURN` is
-a value-less early exit, and fall-through to `END SUB` succeeds. `RETURN NOTHING`
-is **not** allowed in a `SUB` (a `SUB` has no value to return), and a `SUB` call
-may not be used in value position: `LET x = aSub()` is a compile error.
+resources on the way out — but it produces nothing on success. `EXIT SUB` is the
+value-less early success exit, and fall-through to `END SUB` succeeds. `RETURN`
+and `RETURN NOTHING` are compile errors in a `SUB`; `RETURN` is for value-producing
+`FUNC` bodies. A `SUB` call may not be used in value position: `LET x = aSub()`
+is a compile error.
 
 For first-class function typing, a `SUB(A, B, ...)` is compatible with `FUNC(A, B, ...) AS Nothing`. This lets effect-only callbacks work without wrapper functions:
 
@@ -592,11 +593,12 @@ Trap outcomes:
 | Statement | Meaning | Produces | Scope |
 |-----------|---------|----------|-------|
 | `RECOVER v` | bind `v` and continue after the trap | binding gets `v` | inline only |
-| `RETURN v` | function succeeds | success value `v` | both (`FUNC` only) |
+| `RETURN v` | function succeeds | success value `v` | `FUNC` only |
+| `EXIT SUB` | sub succeeds | no value | `SUB` only |
 | `PROPAGATE` | re-propagate the current `err` | failure carrying `err` | both |
 | `FAIL e2` | replace/wrap the error | failure carrying `e2` | both |
 
-The function-level `TRAP` is **diverging-only**: it has no `RECOVER`, because at function scope there is no failing statement to resume into. It may convert the error into the function's final success value with `RETURN` (in a `FUNC`), rethrow the same error with `PROPAGATE`, or replace it with `FAIL`. Once control enters a function-level `TRAP`, the failed expression is abandoned.
+The function-level `TRAP` is **diverging-only**: it has no `RECOVER`, because at function scope there is no failing statement to resume into. It may convert the error into the function's final success value with `RETURN` (in a `FUNC`) or `EXIT SUB` (in a `SUB`), rethrow the same error with `PROPAGATE`, or replace it with `FAIL`. Once control enters a function-level `TRAP`, the failed expression is abandoned.
 
 ```basic
 TRAP(err)
@@ -639,7 +641,7 @@ END TRAP
 
 ### 8.5 `RETURN` semantics
 
-`RETURN v` **always** means function success with the value `v`, whether it appears in the body or in the `TRAP`. It does not resume at the failed expression. A bare `RETURN` in a `SUB` is a value-less early exit; `RETURN NOTHING` is **not** allowed in a `SUB`. A `SUB` with no `TRAP` may fall through to `END SUB`, which succeeds. `RETURN` never produces an error. `FAIL` and `PROPAGATE` produce errors.
+`RETURN v` **always** means function success with the value `v`, whether it appears in the body or in the `TRAP`. It does not resume at the failed expression. `RETURN` is forbidden in a `SUB`; use `EXIT SUB` for a value-less early success exit. A `SUB` with no `TRAP` may fall through to `END SUB`, which succeeds. `RETURN` never produces an error. `FAIL` and `PROPAGATE` produce errors.
 
 ### 8.6 Rules
 
@@ -648,10 +650,10 @@ END TRAP
 3. The function-level trap block is reachable only via `FAIL` (in the body), an auto-propagated failure from a call, or `FAIL`/`PROPAGATE` inside the trap. It is never reached by fall-through.
 4. `PROPAGATE` is valid inside a function-level `TRAP` or an inline `TRAP` handler (it refers to the current `err`). Elsewhere it is a compile error; use `FAIL e` instead.
 5. With no enclosing `TRAP`, any failure (from `FAIL` or an auto-propagated call) becomes the function's failure to its caller.
-6. Every function-level `TRAP` path must end in `RETURN`, `PROPAGATE`, or `FAIL`. Trap fall-through is a compile error.
+6. Every function-level `TRAP` path must end in `RETURN` (for a `FUNC`), `EXIT SUB` (for a `SUB`), `PROPAGATE`, or `FAIL`. Trap fall-through is a compile error.
 7. Every `FUNC` path must end in `RETURN value` or `FAIL error`. Function fall-through is a compile error.
 8. A `SUB` with no `TRAP` may fall through to `END SUB`, which succeeds (value-less).
-9. A `SUB` with a `TRAP` must end every normal path before the `TRAP` with a bare `RETURN` or `FAIL error`. Falling through from the normal body into the `TRAP` is a compile error.
+9. A `SUB` with a `TRAP` must end every normal path before the `TRAP` with `EXIT SUB` or `FAIL error`. Falling through from the normal body into the `TRAP` is a compile error.
 10. An executable entry point's uncaught failure terminates the process as an unhandled runtime error: the process exits with code `255`, and stderr receives `Code: <err.code> Message: <err.message>`. Give the entry point a `TRAP` for graceful handling.
 11. An inline `TRAP` is legal only as the value of a `LET`/`MUT` binding, an assignment, or a bare expression statement, and traps exactly one expression. The trapped expression must be a fallible call; trapping an expression that cannot fail is a compile error.
 12. Every path through an inline `TRAP` handler must end in `RECOVER` or a diverging statement (`RETURN`, `FAIL`, `PROPAGATE`, or an `EXIT` form). Falling through to `END TRAP` is a compile error.
@@ -685,6 +687,7 @@ Process result mapping:
 |---------------|------------------|
 | `SUB` entry succeeds | Exit code `0`. |
 | `FUNC ... AS Integer` succeeds with `n` | Exit code `n`. Implementations must reject or fail values outside the host process exit-code range. |
+| `EXIT PROGRAM n` executes | Run stack-wide lexical cleanup, then exit with code `n`. |
 | Entry fails with an uncaught error carrying `err` | Write `Code: <err.code> Message: <err.message>` to stderr and exit with code `255`. |
 
 Environment access outside command-line arguments is outside the core language specification and may be provided by a future standard package.
@@ -790,7 +793,27 @@ END IF
 
 `FOR EACH` accepts `List OF T` and `Map OF K TO V` sources. A list loop binds the loop variable as `T`. A map loop binds the loop variable as `MapEntry OF K TO V`; `entry.key` has type `K` and `entry.value` has type `V`. Map loop order is implementation-defined but stable for a given unchanged map value, matching the order used by `keys` and `values`.
 
-There is **no `GOTO`** and **no `SELECT CASE`** (use `MATCH`).
+`EXIT FOR`, `EXIT DO`, and `EXIT WHILE` leave the innermost enclosing loop whose
+kind matches the keyword and continue after that loop. `CONTINUE FOR`,
+`CONTINUE DO`, and `CONTINUE WHILE` skip the rest of the current iteration of
+the innermost enclosing matching loop. `FOR EACH` uses `EXIT FOR` and
+`CONTINUE FOR`; both `DO ... LOOP UNTIL` and `DO WHILE ... LOOP` use `EXIT DO`
+and `CONTINUE DO`. The named kind may target an outer matching loop through
+inner loops of other kinds; it is a compile error when no matching loop encloses
+the statement.
+
+`EXIT SUB` leaves the enclosing `SUB` successfully with no value. `EXIT FUNC` is
+always a compile error because a `FUNC` must `RETURN` a value.
+
+`EXIT PROGRAM <integer>` terminates the process with the given exit code from
+any call depth. It is not catchable by `TRAP`. Before termination, the runtime
+runs lexical cleanup for all live scopes in the current call chain up to the
+entry point. Constant exit codes outside the host process range are compile
+errors; non-constant values follow the host convention.
+
+There is **no `GOTO`** and **no `SELECT CASE`** (use `MATCH`). `EXIT` and
+`CONTINUE` are structured, lexically scoped loop/routine exits, not arbitrary
+jumps.
 
 ---
 
@@ -1060,7 +1083,15 @@ No two live mutable bindings may refer to the same collection buffer. A `MUT` co
 
 ### 14.7 Drop order
 
-At normal scope exit, `RETURN`, `FAIL`, `PROPAGATE`, or auto-propagated errors, live bindings are dropped in reverse declaration order within each scope. Nested scopes drop before enclosing scopes continue. Record fields drop in declaration order. Union member values drop according to the active member's record layout. List elements drop from highest index to lowest. Map entries drop in implementation-defined storage order; programs must not depend on map drop order.
+At normal scope exit, `RETURN`, `EXIT FOR`/`EXIT DO`/`EXIT WHILE`, `EXIT SUB`,
+`CONTINUE FOR`/`CONTINUE DO`/`CONTINUE WHILE`, `FAIL`, `PROPAGATE`, or
+auto-propagated errors, live bindings are dropped in reverse declaration order
+within each scope. `EXIT PROGRAM` is a stack-wide drop edge that unwinds every
+live scope up to the entry point before process termination. Nested scopes drop
+before enclosing scopes continue. Record fields drop in declaration order. Union
+member values drop according to the active member's record layout. List elements
+drop from highest index to lowest. Map entries drop in implementation-defined
+storage order; programs must not depend on map drop order.
 
 Moved-from bindings are not dropped. Frozen buffers are dropped as immutable collection values by their final owner.
 
@@ -1084,7 +1115,7 @@ At minimum, exported type shape metadata must remain sufficient to reconstruct c
 
 ## 15. Resource Management
 
-`RESOURCE` values, such as files and sockets, are unique handles. At any point in the program, exactly one live owner is responsible for each open handle. Resource handles are non-copyable owned values with additional close rules. They are closed automatically by lexical drop (§14.7) when their owning binding leaves scope, on every exit path: normal scope exit, `RETURN`, `FAIL`, `PROPAGATE`, an auto-propagated failure, and `TRAP` routing. There is no user-visible lifetime construct; a resource is released by the same ownership and drop rules as any other owned value.
+`RESOURCE` values, such as files and sockets, are unique handles. At any point in the program, exactly one live owner is responsible for each open handle. Resource handles are non-copyable owned values with additional close rules. They are closed automatically by lexical drop (§14.7) when their owning binding leaves scope, on every exit path: normal scope exit, `RETURN`, `EXIT`/`CONTINUE`, `FAIL`, `PROPAGATE`, an auto-propagated failure, and `TRAP` routing. `EXIT PROGRAM` performs the same cleanup across every live caller frame before terminating. There is no user-visible lifetime construct; a resource is released by the same ownership and drop rules as any other owned value.
 
 ```basic
 FUNC readFirstLine(path AS String) AS String
@@ -1401,7 +1432,7 @@ blockIfStmt    = "IF" expr "THEN" block
                    [ "ELSE" block ]
                    "END" "IF" ;
 simpleStmt     = letStmt | mutStmt | assignStmt | failStmt | propagateStmt
-               | returnStmt | exprStmt ;
+               | returnStmt | exitStmt | continueStmt | exprStmt ;
 forStmt        = "FOR" ident "=" expr "TO" expr [ "STEP" expr ]
                    block "NEXT" ;
 foreachStmt    = "FOR" "EACH" ident "IN" expr block "NEXT" ;
@@ -1412,6 +1443,10 @@ doStmt         = "DO" block "LOOP" "UNTIL" expr
 failStmt       = "FAIL" expr ;
 propagateStmt  = "PROPAGATE" ;
 returnStmt     = "RETURN" [ expr ] ;
+exitStmt       = "EXIT" loopKind | "EXIT" "SUB" | "EXIT" "FUNC"
+               | "EXIT" "PROGRAM" expr ;
+continueStmt   = "CONTINUE" loopKind ;
+loopKind       = "FOR" | "DO" | "WHILE" ;
 exprStmt       = expr ;
 
 matchStmt      = "MATCH" expr { caseClause } "END" "MATCH" ;

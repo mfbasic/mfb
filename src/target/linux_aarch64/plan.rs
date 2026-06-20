@@ -61,6 +61,10 @@ impl plan::NativePlanPlatform for Platform {
         vec![self.libc_import("write", "_main")]
     }
 
+    fn program_exit_imports(&self, required_by: &str) -> Vec<PlatformImport> {
+        vec![self.libc_import("_exit", required_by)]
+    }
+
     fn runtime_imports(&self, spec: &RuntimeHelperSpec) -> Vec<PlatformImport> {
         match spec.call {
             "io.print" | "io.write" | "io.printError" | "io.writeError" => {

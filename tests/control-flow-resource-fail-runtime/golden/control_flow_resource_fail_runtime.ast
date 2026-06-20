@@ -65,6 +65,7 @@
       { "kind": "binding", "mutable": true, "name": "i", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 19 },
       {
         "kind": "while",
+        "loop": "while",
         "condition": { "kind": "binary", "operator": "<", "left": { "kind": "identifier", "value": "i" }, "right": { "kind": "number", "value": "4000" } },
         "line": 20,
         "body": [

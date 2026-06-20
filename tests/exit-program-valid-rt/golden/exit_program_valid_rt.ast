@@ -1,0 +1,49 @@
+{
+  "project": "exit_program_valid_rt",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "leave",
+      "line": 3,
+      "params": [
+      { "name": "code", "type": "Integer", "default": null }
+      ],
+      "returnType": "Nothing",
+      "body": [
+      { "kind": "exit", "target": "program", "code": { "kind": "identifier", "value": "code" }, "line": 4 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "main",
+      "line": 7,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "code", "type": "Integer", "value": { "kind": "number", "value": "3" }, "line": 8 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "leave", "arguments": [{ "kind": "identifier", "value": "code" }] }, "line": 9 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "caught" }] }, "line": 10 },
+      { "kind": "return", "value": { "kind": "number", "value": "99" }, "line": 11 }
+      ],
+      "trap": {
+      "name": "err",
+      "line": 12,
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "trap" }] }, "line": 13 },
+      { "kind": "return", "value": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }, "line": 14 }
+      ]
+    }
+    }
+    ]
+  }
+  ]
+}

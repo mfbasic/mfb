@@ -1,0 +1,44 @@
+FUNC parseNonNegative(value AS Integer) AS Integer
+  IF value < 0 THEN FAIL Error[100, "skip"]
+  RETURN value * 10
+END FUNC
+
+FUNC main AS Integer
+  MUT total AS Integer = 0
+
+  FOR i = 1 TO 5
+    IF i = 3 THEN CONTINUE FOR
+    total = total + i
+  NEXT
+
+  MUT d AS Integer = 0
+  DO
+    d = d + 1
+    IF d = 1 THEN CONTINUE DO
+    total = total + 10
+  LOOP UNTIL d = 2
+
+  MUT dw AS Integer = 0
+  DO WHILE dw < 3
+    dw = dw + 1
+    IF dw = 1 THEN CONTINUE DO
+    total = total + 1
+  LOOP
+
+  MUT w AS Integer = 0
+  WHILE w < 3
+    w = w + 1
+    IF w = 2 THEN CONTINUE WHILE
+    total = total + 100
+  WEND
+
+  LET values AS List OF Integer = [1, -1, 2]
+  FOR EACH value IN values
+    LET parsed = parseNonNegative(value) TRAP(err)
+      CONTINUE FOR
+    END TRAP
+    total = total + parsed
+  NEXT
+
+  RETURN total
+END FUNC

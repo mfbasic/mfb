@@ -31,7 +31,12 @@ pub fn collect(inputs: &AuditInputs) -> AuditReport {
     let mut findings = Vec::new();
     lockfile_findings(&lockfile, &dependencies, inputs, &mut findings);
     dependency_findings(&dependencies, &mut findings);
-    package_findings(inputs.project_dir, inputs.manifest, &packages, &mut findings);
+    package_findings(
+        inputs.project_dir,
+        inputs.manifest,
+        &packages,
+        &mut findings,
+    );
     resource_findings(&resources, &mut findings);
     permission_findings(&permissions, &mut findings);
     sort_findings(&mut findings);
@@ -156,7 +161,10 @@ fn collect_packages(
     };
 
     let mut entries = Vec::new();
-    for dependency in packages.iter().filter_map(crate::project_package_dependency) {
+    for dependency in packages
+        .iter()
+        .filter_map(crate::project_package_dependency)
+    {
         let package_file = project_dir
             .join("packages")
             .join(format!("{}.mfp", dependency.name));
@@ -385,12 +393,7 @@ fn collect_source(
     (flow, permissions, resources)
 }
 
-fn collect_resources(
-    function: &str,
-    path: &str,
-    body: &[Statement],
-    out: &mut Vec<ResourceEntry>,
-) {
+fn collect_resources(function: &str, path: &str, body: &[Statement], out: &mut Vec<ResourceEntry>) {
     for statement in body {
         match statement {
             Statement::Let {
@@ -450,6 +453,12 @@ fn walk_statements(body: &[Statement], visit: &mut impl FnMut(&str, usize)) {
                     walk_expression(expr, *line, visit);
                 }
             }
+            Statement::Exit { code, line, .. } => {
+                if let Some(expr) = code {
+                    walk_expression(expr, *line, visit);
+                }
+            }
+            Statement::Continue { .. } => {}
             Statement::Fail { error, line } => walk_expression(error, *line, visit),
             Statement::Propagate { .. } => {}
             Statement::Recover { value, line } => {
@@ -458,9 +467,7 @@ fn walk_statements(body: &[Statement], visit: &mut impl FnMut(&str, usize)) {
                 }
             }
             Statement::Assign { value, line, .. } => walk_expression(value, *line, visit),
-            Statement::Expression { expression, line } => {
-                walk_expression(expression, *line, visit)
-            }
+            Statement::Expression { expression, line } => walk_expression(expression, *line, visit),
             Statement::If {
                 condition,
                 then_body,
@@ -509,6 +516,7 @@ fn walk_statements(body: &[Statement], visit: &mut impl FnMut(&str, usize)) {
                 walk_statements(body, visit);
             }
             Statement::While {
+                kind: _,
                 condition,
                 body,
                 line,
@@ -680,9 +688,9 @@ fn statements_contain_propagate(body: &[Statement]) -> bool {
             else_body,
             ..
         } => statements_contain_propagate(then_body) || statements_contain_propagate(else_body),
-        Statement::Match { cases, .. } => {
-            cases.iter().any(|case| statements_contain_propagate(&case.body))
-        }
+        Statement::Match { cases, .. } => cases
+            .iter()
+            .any(|case| statements_contain_propagate(&case.body)),
         Statement::For { body, .. }
         | Statement::ForEach { body, .. }
         | Statement::While { body, .. }
@@ -718,8 +726,7 @@ fn statements_contain_return_value(body: &[Statement]) -> bool {
             else_body,
             ..
         } => {
-            statements_contain_return_value(then_body)
-                || statements_contain_return_value(else_body)
+            statements_contain_return_value(then_body) || statements_contain_return_value(else_body)
         }
         Statement::Match { cases, .. } => cases
             .iter()
@@ -890,7 +897,10 @@ fn package_findings(
     else {
         return;
     };
-    for dependency in declared.iter().filter_map(crate::project_package_dependency) {
+    for dependency in declared
+        .iter()
+        .filter_map(crate::project_package_dependency)
+    {
         let package_file = project_dir
             .join("packages")
             .join(format!("{}.mfp", dependency.name));

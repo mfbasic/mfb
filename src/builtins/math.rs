@@ -1,6 +1,5 @@
 use std::borrow::Cow;
 
-
 const PI: &str = "math.pi";
 const PI_FIXED: &str = "math.piFixed";
 const TWO_OVER_PI: &str = "math.twoOverPi";

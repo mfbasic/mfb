@@ -2,8 +2,8 @@ use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
 use crate::arch::aarch64::{abi, ops::CodeOp};
-use crate::builtins;
 use crate::binary_repr::{self};
+use crate::builtins;
 use crate::json_string;
 use crate::numeric;
 
@@ -13,6 +13,7 @@ use super::runtime;
 
 const RESULT_OK_TAG: &str = "0";
 const RESULT_ERR_TAG: &str = "1";
+const RESULT_PROGRAM_EXIT_TAG: &str = "2";
 const ERR_OVERFLOW_CODE: &str = "77050010";
 const ERR_OVERFLOW_MESSAGE: &str = "numeric overflow";
 const ERR_OVERFLOW_SYMBOL: &str = "_mfb_str_error_overflow";
@@ -439,6 +440,7 @@ struct CodeBuilder<'a> {
     next_register: usize,
     next_label: usize,
     trap: Option<TrapState>,
+    loop_stack: Vec<LoopLabels>,
     active_cleanups: Vec<ActiveCleanup>,
     pending_result_slots: Option<PendingResultSlots>,
     error_arena_restore_slot: Option<usize>,
@@ -474,6 +476,14 @@ struct TrapState {
     name: String,
     label: String,
     in_trap_body: bool,
+}
+
+#[derive(Clone)]
+struct LoopLabels {
+    kind: crate::ast::LoopKind,
+    continue_label: String,
+    exit_label: String,
+    cleanup_depth: usize,
 }
 
 #[derive(Clone)]
@@ -1170,7 +1180,11 @@ fn lower_program_entry(
                 ARENA_STATE_REGISTER,
                 ARENA_CLEANUP_FAILURE_COUNT_OFFSET,
             ),
-            abi::store_u64("x31", ARENA_STATE_REGISTER, ARENA_CLEANUP_FAILURE_CODE_OFFSET),
+            abi::store_u64(
+                "x31",
+                ARENA_STATE_REGISTER,
+                ARENA_CLEANUP_FAILURE_CODE_OFFSET,
+            ),
             abi::store_u64(
                 "x31",
                 ARENA_STATE_REGISTER,
@@ -1198,6 +1212,13 @@ fn lower_program_entry(
             library: None,
         });
         instructions.extend([
+            abi::compare_immediate(RESULT_TAG_REGISTER, RESULT_PROGRAM_EXIT_TAG),
+            abi::branch_ne("global_initializer_not_program_exit"),
+            abi::move_register(abi::return_register(), RESULT_VALUE_REGISTER),
+            abi::branch(exit_label),
+            abi::label("global_initializer_not_program_exit"),
+        ]);
+        instructions.extend([
             abi::compare_immediate(RESULT_TAG_REGISTER, RESULT_OK_TAG),
             abi::branch_ne(error_label),
         ]);
@@ -1222,6 +1243,13 @@ fn lower_program_entry(
         binding: "internal".to_string(),
         library: None,
     });
+    instructions.extend([
+        abi::compare_immediate(RESULT_TAG_REGISTER, RESULT_PROGRAM_EXIT_TAG),
+        abi::branch_ne("entry_not_program_exit"),
+        abi::move_register(abi::return_register(), RESULT_VALUE_REGISTER),
+        abi::branch(exit_label),
+        abi::label("entry_not_program_exit"),
+    ]);
     instructions.extend([
         abi::compare_immediate(RESULT_TAG_REGISTER, RESULT_OK_TAG),
         abi::branch_ne(error_label),
@@ -1475,7 +1503,11 @@ fn emit_cleanup_failure_audit_report(
 ) -> Result<(), String> {
     let done = "entry_cleanup_failure_audit_done";
     instructions.extend([
-        abi::load_u64("x9", ARENA_STATE_REGISTER, ARENA_CLEANUP_FAILURE_COUNT_OFFSET),
+        abi::load_u64(
+            "x9",
+            ARENA_STATE_REGISTER,
+            ARENA_CLEANUP_FAILURE_COUNT_OFFSET,
+        ),
         abi::compare_immediate("x9", "0"),
         abi::branch_eq(done),
     ]);
@@ -1814,6 +1846,7 @@ fn lower_function(
         next_register: 8,
         next_label: 0,
         trap: None,
+        loop_stack: Vec::new(),
         active_cleanups: Vec::new(),
         pending_result_slots: None,
         error_arena_restore_slot: None,
@@ -1932,6 +1965,7 @@ fn lower_builtin_function_wrapper(
         next_register: 8,
         next_label: 0,
         trap: None,
+        loop_stack: Vec::new(),
         active_cleanups: Vec::new(),
         pending_result_slots: None,
         error_arena_restore_slot: None,
@@ -2018,9 +2052,7 @@ fn op_requires_empty_string_constant(op: &NirOp, type_model: &TypeModel) -> bool
                 .iter()
                 .any(|op| op_requires_empty_string_constant(op, type_model))
         }),
-        NirOp::While { body, .. }
-        | NirOp::ForEach { body, .. }
-        | NirOp::Trap { body, .. } => body
+        NirOp::While { body, .. } | NirOp::ForEach { body, .. } | NirOp::Trap { body, .. } => body
             .iter()
             .any(|op| op_requires_empty_string_constant(op, type_model)),
         _ => false,
@@ -2816,6 +2848,7 @@ fn lower_direct_builtin_runtime_helper(
         next_register: 8,
         next_label: 0,
         trap: None,
+        loop_stack: Vec::new(),
         active_cleanups: Vec::new(),
         pending_result_slots: None,
         error_arena_restore_slot: None,
@@ -11336,35 +11369,36 @@ fn lower_validate_utf8_helper() -> CodeFunction {
     let invalid = format!("{symbol}_invalid");
     let mut instructions = vec![abi::label("entry")];
     if std::env::var("MFB_ASCII").is_ok() {
-        let lp=format!("{symbol}_lp"); let ok=format!("{symbol}_ok");
+        let lp = format!("{symbol}_lp");
+        let ok = format!("{symbol}_ok");
         instructions.extend([
-            abi::move_register("x9","x0"),
-            abi::move_register("x10","x1"),
+            abi::move_register("x9", "x0"),
+            abi::move_register("x10", "x1"),
             abi::label(&lp),
-            abi::compare_immediate("x10","0"),
+            abi::compare_immediate("x10", "0"),
             abi::branch_eq(&ok),
-            abi::load_u8("x11","x9",0),
-            abi::compare_immediate("x11","127"),
+            abi::load_u8("x11", "x9", 0),
+            abi::compare_immediate("x11", "127"),
             abi::branch_hi(&invalid),
-            abi::add_immediate("x9","x9",1),
-            abi::subtract_immediate("x10","x10",1),
+            abi::add_immediate("x9", "x9", 1),
+            abi::subtract_immediate("x10", "x10", 1),
             abi::branch(&lp),
             abi::label(&ok),
-            abi::move_immediate("x0","Integer","0"),
+            abi::move_immediate("x0", "Integer", "0"),
             abi::return_(),
             abi::label(&invalid),
-            abi::move_immediate("x0","Integer","1"),
+            abi::move_immediate("x0", "Integer", "1"),
             abi::return_(),
         ]);
     } else {
-    emit_validate_utf8(symbol, "x0", "x1", &invalid, &mut instructions);
-    instructions.extend([
-        abi::move_immediate("x0", "Integer", "0"),
-        abi::return_(),
-        abi::label(&invalid),
-        abi::move_immediate("x0", "Integer", "1"),
-        abi::return_(),
-    ]);
+        emit_validate_utf8(symbol, "x0", "x1", &invalid, &mut instructions);
+        instructions.extend([
+            abi::move_immediate("x0", "Integer", "0"),
+            abi::return_(),
+            abi::label(&invalid),
+            abi::move_immediate("x0", "Integer", "1"),
+            abi::return_(),
+        ]);
     }
     CodeFunction {
         name: "runtime.validateUtf8".to_string(),
@@ -12017,7 +12051,11 @@ fn string_symbols(module: &NirModule) -> HashMap<String, String> {
         push_string_value(&mut values, FLOAT_TO_STRING_FORMAT.to_string());
         push_string_value(&mut values, ERR_ENCODING_MESSAGE.to_string());
     }
-    for value in [ENTRY_ERROR_PREFIX, ENTRY_ERROR_SEPARATOR, ENTRY_ERROR_NEWLINE] {
+    for value in [
+        ENTRY_ERROR_PREFIX,
+        ENTRY_ERROR_SEPARATOR,
+        ENTRY_ERROR_NEWLINE,
+    ] {
         if !values.contains(&value.to_string()) {
             values.push(value.to_string());
         }
@@ -12194,19 +12232,21 @@ fn ops_may_record_cleanup_failure(ops: &[NirOp]) -> bool {
             then_body,
             else_body,
             ..
-        } => {
-            ops_may_record_cleanup_failure(then_body)
-                || ops_may_record_cleanup_failure(else_body)
-        }
+        } => ops_may_record_cleanup_failure(then_body) || ops_may_record_cleanup_failure(else_body),
         NirOp::Match { cases, .. } => cases
             .iter()
             .any(|case| ops_may_record_cleanup_failure(&case.body)),
         NirOp::While { body, .. }
+        | NirOp::For { body, .. }
+        | NirOp::DoUntil { body, .. }
         | NirOp::ForEach { body, .. }
         | NirOp::Trap { body, .. } => ops_may_record_cleanup_failure(body),
         NirOp::StoreGlobal { .. }
         | NirOp::Assign { .. }
         | NirOp::Return { .. }
+        | NirOp::ExitLoop { .. }
+        | NirOp::ContinueLoop { .. }
+        | NirOp::ExitProgram { .. }
         | NirOp::Fail { .. }
         | NirOp::Eval { .. } => false,
     })
@@ -12276,6 +12316,8 @@ fn ops_may_emit_float_arithmetic_error(
             NirOp::StoreGlobal { value, .. } | NirOp::Return { value } => value
                 .as_ref()
                 .is_some_and(|value| value_may_emit_float_arithmetic_error(value, locals)),
+            NirOp::ExitLoop { .. } | NirOp::ContinueLoop { .. } => false,
+            NirOp::ExitProgram { code } => value_may_emit_float_arithmetic_error(code, locals),
             NirOp::Fail { error } => value_may_emit_float_arithmetic_error(error, locals),
             NirOp::Assign { value, .. } | NirOp::Eval { value } => {
                 value_may_emit_float_arithmetic_error(value, locals)
@@ -12299,9 +12341,31 @@ fn ops_may_emit_float_arithmetic_error(
                         ) || ops_may_emit_float_arithmetic_error(&case.body, &mut locals.clone())
                     })
             }
-            NirOp::While { condition, body } => {
+            NirOp::While {
+                condition, body, ..
+            } => {
                 value_may_emit_float_arithmetic_error(condition, locals)
                     || ops_may_emit_float_arithmetic_error(body, &mut locals.clone())
+            }
+            NirOp::For {
+                name,
+                type_,
+                start,
+                end,
+                step,
+                body,
+            } => {
+                let mut body_locals = locals.clone();
+                body_locals.insert(name.clone(), type_.clone());
+                type_ == "Float"
+                    || value_may_emit_float_arithmetic_error(start, locals)
+                    || value_may_emit_float_arithmetic_error(end, locals)
+                    || value_may_emit_float_arithmetic_error(step, locals)
+                    || ops_may_emit_float_arithmetic_error(body, &mut body_locals)
+            }
+            NirOp::DoUntil { body, condition } => {
+                ops_may_emit_float_arithmetic_error(body, &mut locals.clone())
+                    || value_may_emit_float_arithmetic_error(condition, locals)
             }
             NirOp::ForEach {
                 name,
@@ -12438,6 +12502,8 @@ fn ops_use_call(ops: &[NirOp], target: &str) -> bool {
         | NirOp::Return { value } => {
             value.as_ref().is_some_and(|value| value_uses_call(value, target))
         }
+        NirOp::ExitLoop { .. } | NirOp::ContinueLoop { .. } => false,
+        NirOp::ExitProgram { code } => value_uses_call(code, target),
         NirOp::Fail { error } => value_uses_call(error, target),
         NirOp::Assign { value, .. } | NirOp::Eval { value } => value_uses_call(value, target),
         NirOp::If {
@@ -12456,8 +12522,23 @@ fn ops_use_call(ops: &[NirOp], target: &str) -> bool {
                         || ops_use_call(&case.body, target)
                 })
         }
-        NirOp::While { condition, body } => {
+        NirOp::While { condition, body, .. } => {
             value_uses_call(condition, target) || ops_use_call(body, target)
+        }
+        NirOp::For {
+            start,
+            end,
+            step,
+            body,
+            ..
+        } => {
+            value_uses_call(start, target)
+                || value_uses_call(end, target)
+                || value_uses_call(step, target)
+                || ops_use_call(body, target)
+        }
+        NirOp::DoUntil { body, condition } => {
+            ops_use_call(body, target) || value_uses_call(condition, target)
         }
         NirOp::ForEach { iterable, body, .. } => {
             value_uses_call(iterable, target) || ops_use_call(body, target)
@@ -12516,6 +12597,8 @@ fn ops_use_type_name(ops: &[NirOp]) -> bool {
         NirOp::Bind { value, .. } | NirOp::StoreGlobal { value, .. } | NirOp::Return { value } => {
             value.as_ref().is_some_and(value_uses_type_name)
         }
+        NirOp::ExitLoop { .. } | NirOp::ContinueLoop { .. } => false,
+        NirOp::ExitProgram { code } => value_uses_type_name(code),
         NirOp::Fail { error } => value_uses_type_name(error),
         NirOp::Assign { value, .. } | NirOp::Eval { value } => value_uses_type_name(value),
         NirOp::If {
@@ -12531,8 +12614,23 @@ fn ops_use_type_name(ops: &[NirOp]) -> bool {
             matches!(&case.pattern, NirMatchPattern::Value(value) if value_uses_type_name(value))
                 || ops_use_type_name(&case.body)
         }),
-        NirOp::While { condition, body } => {
-            value_uses_type_name(condition) || ops_use_type_name(body)
+        NirOp::While {
+            condition, body, ..
+        } => value_uses_type_name(condition) || ops_use_type_name(body),
+        NirOp::For {
+            start,
+            end,
+            step,
+            body,
+            ..
+        } => {
+            value_uses_type_name(start)
+                || value_uses_type_name(end)
+                || value_uses_type_name(step)
+                || ops_use_type_name(body)
+        }
+        NirOp::DoUntil { body, condition } => {
+            ops_use_type_name(body) || value_uses_type_name(condition)
         }
         NirOp::ForEach { iterable, body, .. } => {
             value_uses_type_name(iterable) || ops_use_type_name(body)
@@ -12644,6 +12742,8 @@ fn collect_type_name_values_from_ops(ops: &[NirOp], values: &mut Vec<String>) {
                     collect_type_name_values_from_value(value, values);
                 }
             }
+            NirOp::ExitLoop { .. } | NirOp::ContinueLoop { .. } => {}
+            NirOp::ExitProgram { code } => collect_type_name_values_from_value(code, values),
             NirOp::Fail { error } => collect_type_name_values_from_value(error, values),
             NirOp::Assign { value, .. } | NirOp::Eval { value } => {
                 collect_type_name_values_from_value(value, values);
@@ -12666,9 +12766,29 @@ fn collect_type_name_values_from_ops(ops: &[NirOp], values: &mut Vec<String>) {
                     collect_type_name_values_from_ops(&case.body, values);
                 }
             }
-            NirOp::While { condition, body } => {
+            NirOp::While {
+                condition, body, ..
+            } => {
                 collect_type_name_values_from_value(condition, values);
                 collect_type_name_values_from_ops(body, values);
+            }
+            NirOp::For {
+                type_,
+                start,
+                end,
+                step,
+                body,
+                ..
+            } => {
+                push_string_value(values, type_.clone());
+                collect_type_name_values_from_value(start, values);
+                collect_type_name_values_from_value(end, values);
+                collect_type_name_values_from_value(step, values);
+                collect_type_name_values_from_ops(body, values);
+            }
+            NirOp::DoUntil { body, condition } => {
+                collect_type_name_values_from_ops(body, values);
+                collect_type_name_values_from_value(condition, values);
             }
             NirOp::ForEach {
                 type_,
@@ -12834,6 +12954,12 @@ fn ops_use_unicode_runtime_tables(
                     return true;
                 }
             }
+            NirOp::ExitLoop { .. } | NirOp::ContinueLoop { .. } => {}
+            NirOp::ExitProgram { code } => {
+                if value_uses_unicode_runtime_tables(code, constants, types) {
+                    return true;
+                }
+            }
             NirOp::If {
                 condition,
                 then_body,
@@ -12877,13 +13003,46 @@ fn ops_use_unicode_runtime_tables(
                     }
                 }
             }
-            NirOp::While { condition, body } => {
+            NirOp::While {
+                condition, body, ..
+            } => {
                 if value_uses_unicode_runtime_tables(condition, constants, types) {
                     return true;
                 }
                 let mut body_constants = constants.clone();
                 let mut body_types = types.clone();
                 if ops_use_unicode_runtime_tables(body, &mut body_constants, &mut body_types) {
+                    return true;
+                }
+            }
+            NirOp::For {
+                name,
+                type_,
+                start,
+                end,
+                step,
+                body,
+            } => {
+                if value_uses_unicode_runtime_tables(start, constants, types)
+                    || value_uses_unicode_runtime_tables(end, constants, types)
+                    || value_uses_unicode_runtime_tables(step, constants, types)
+                {
+                    return true;
+                }
+                let mut body_constants = constants.clone();
+                let mut body_types = types.clone();
+                body_constants.remove(name);
+                body_types.insert(name.clone(), type_.clone());
+                if ops_use_unicode_runtime_tables(body, &mut body_constants, &mut body_types) {
+                    return true;
+                }
+            }
+            NirOp::DoUntil { body, condition } => {
+                let mut body_constants = constants.clone();
+                let mut body_types = types.clone();
+                if ops_use_unicode_runtime_tables(body, &mut body_constants, &mut body_types)
+                    || value_uses_unicode_runtime_tables(condition, constants, types)
+                {
                     return true;
                 }
             }
@@ -13162,6 +13321,10 @@ fn collect_string_values_from_ops_with_constants(
                     collect_string_values_from_value(value, values, constants, types);
                 }
             }
+            NirOp::ExitLoop { .. } | NirOp::ContinueLoop { .. } => {}
+            NirOp::ExitProgram { code } => {
+                collect_string_values_from_value(code, values, constants, types);
+            }
             NirOp::Fail { error } => {
                 collect_string_values_from_value(error, values, constants, types);
             }
@@ -13216,7 +13379,9 @@ fn collect_string_values_from_ops_with_constants(
                     );
                 }
             }
-            NirOp::While { condition, body } => {
+            NirOp::While {
+                condition, body, ..
+            } => {
                 collect_string_values_from_value(condition, values, constants, types);
                 let mut body_constants = constants.clone();
                 let mut body_types = types.clone();
@@ -13226,6 +13391,39 @@ fn collect_string_values_from_ops_with_constants(
                     &mut body_constants,
                     &mut body_types,
                 );
+            }
+            NirOp::For {
+                name,
+                type_,
+                start,
+                end,
+                step,
+                body,
+            } => {
+                collect_string_values_from_value(start, values, constants, types);
+                collect_string_values_from_value(end, values, constants, types);
+                collect_string_values_from_value(step, values, constants, types);
+                let mut body_constants = constants.clone();
+                let mut body_types = types.clone();
+                body_constants.remove(name);
+                body_types.insert(name.clone(), type_.clone());
+                collect_string_values_from_ops_with_constants(
+                    body,
+                    values,
+                    &mut body_constants,
+                    &mut body_types,
+                );
+            }
+            NirOp::DoUntil { body, condition } => {
+                let mut body_constants = constants.clone();
+                let mut body_types = types.clone();
+                collect_string_values_from_ops_with_constants(
+                    body,
+                    values,
+                    &mut body_constants,
+                    &mut body_types,
+                );
+                collect_string_values_from_value(condition, values, constants, types);
             }
             NirOp::ForEach {
                 name,
@@ -13794,6 +13992,10 @@ fn collect_builtin_function_refs_in_ops(
                     collect_builtin_function_refs_in_value(value, refs, seen);
                 }
             }
+            NirOp::ExitLoop { .. } | NirOp::ContinueLoop { .. } => {}
+            NirOp::ExitProgram { code } => {
+                collect_builtin_function_refs_in_value(code, refs, seen);
+            }
             NirOp::If {
                 condition,
                 then_body,
@@ -13812,9 +14014,27 @@ fn collect_builtin_function_refs_in_ops(
                     collect_builtin_function_refs_in_ops(&case.body, refs, seen);
                 }
             }
-            NirOp::While { condition, body } => {
+            NirOp::While {
+                condition, body, ..
+            } => {
                 collect_builtin_function_refs_in_value(condition, refs, seen);
                 collect_builtin_function_refs_in_ops(body, refs, seen);
+            }
+            NirOp::For {
+                start,
+                end,
+                step,
+                body,
+                ..
+            } => {
+                collect_builtin_function_refs_in_value(start, refs, seen);
+                collect_builtin_function_refs_in_value(end, refs, seen);
+                collect_builtin_function_refs_in_value(step, refs, seen);
+                collect_builtin_function_refs_in_ops(body, refs, seen);
+            }
+            NirOp::DoUntil { body, condition } => {
+                collect_builtin_function_refs_in_ops(body, refs, seen);
+                collect_builtin_function_refs_in_value(condition, refs, seen);
             }
             NirOp::ForEach { iterable, body, .. } => {
                 collect_builtin_function_refs_in_value(iterable, refs, seen);
@@ -14077,5 +14297,4 @@ mod tests {
             Err(77010001)
         );
     }
-
 }

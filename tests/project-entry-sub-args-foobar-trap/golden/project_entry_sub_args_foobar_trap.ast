@@ -22,7 +22,7 @@
       "name": "err",
       "line": 4,
       "body": [
-      { "kind": "return", "value": null, "line": 5 }
+      { "kind": "exit", "target": "sub", "code": null, "line": 5 }
       ]
     }
     }

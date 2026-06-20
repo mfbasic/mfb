@@ -1329,6 +1329,8 @@ fn push_op_helpers(ops: &[IrOp], helpers: &mut Vec<RuntimeHelper>) {
                     push_value_helpers(value, helpers);
                 }
             }
+            IrOp::ExitLoop { .. } | IrOp::ContinueLoop { .. } => {}
+            IrOp::ExitProgram { code } => push_value_helpers(code, helpers),
             IrOp::If {
                 condition,
                 then_body,
@@ -1344,9 +1346,27 @@ fn push_op_helpers(ops: &[IrOp], helpers: &mut Vec<RuntimeHelper>) {
                     push_op_helpers(&case.body, helpers);
                 }
             }
-            IrOp::While { condition, body } => {
+            IrOp::While {
+                condition, body, ..
+            } => {
                 push_value_helpers(condition, helpers);
                 push_op_helpers(body, helpers);
+            }
+            IrOp::For {
+                start,
+                end,
+                step,
+                body,
+                ..
+            } => {
+                push_value_helpers(start, helpers);
+                push_value_helpers(end, helpers);
+                push_value_helpers(step, helpers);
+                push_op_helpers(body, helpers);
+            }
+            IrOp::DoUntil { body, condition } => {
+                push_op_helpers(body, helpers);
+                push_value_helpers(condition, helpers);
             }
             IrOp::ForEach { iterable, body, .. } => {
                 push_value_helpers(iterable, helpers);

@@ -251,6 +251,9 @@ mod tests {
         };
 
         let err = build_package_bytes(&metadata, b"nope").expect_err("invalid payload");
-        assert_eq!(err, "package payload must be the binary representation container");
+        assert_eq!(
+            err,
+            "package payload must be the binary representation container"
+        );
     }
 }

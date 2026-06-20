@@ -2,8 +2,8 @@ use crate::ast::{
     AstFile, AstProject, ConstructorArg, Expression, Item, MatchPattern, Statement,
     TopLevelBinding, TypeDecl, TypeDeclKind, TypeField, Visibility,
 };
-use crate::builtins;
 use crate::binary_repr;
+use crate::builtins;
 use crate::rules;
 use std::collections::{HashMap, HashSet};
 use std::fs;
@@ -507,6 +507,12 @@ impl<'a> Resolver<'a> {
                     self.resolve_expression(file, value, *line, imports, locals);
                 }
             }
+            Statement::Exit { code, line, .. } => {
+                if let Some(code) = code {
+                    self.resolve_expression(file, code, *line, imports, locals);
+                }
+            }
+            Statement::Continue { .. } => {}
             Statement::Fail { error, line } => {
                 self.resolve_expression(file, error, *line, imports, locals);
             }
@@ -632,6 +638,7 @@ impl<'a> Resolver<'a> {
                 self.resolve_block(file, body, imports, &mut nested);
             }
             Statement::While {
+                kind: _,
                 condition,
                 body,
                 line,

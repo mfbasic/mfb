@@ -1,0 +1,5 @@
+FUNC main AS Integer
+  EXIT FOR
+  LET unreachable AS Integer = 1
+  RETURN unreachable
+END FUNC

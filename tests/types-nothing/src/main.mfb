@@ -10,12 +10,12 @@ END SUB
 
 SUB bareReturnSub
   io::print("bare-return")
-  RETURN
+  EXIT SUB
 END SUB
 
 SUB explicitReturnSub
   io::print("explicit-return")
-  RETURN
+  EXIT SUB
 END SUB
 
 FUNC callSubAsNothing AS Nothing

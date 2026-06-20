@@ -1,10 +1,16 @@
 $ mfb build -ast tests/sub-value-less-invalid
+   6 | SUB doThing(flag AS Boolean)
+   7 |   IF flag THEN
+   8 |     RETURN
+     | ^
+tests/sub-value-less-invalid/src/main.mfb:8 error[2-203-0073 SUB_RETURN_FORBIDDEN]: RETURN is forbidden in a SUB; use EXIT SUB
+               A SUB returns no value; use `EXIT SUB`.
    8 |     RETURN
    9 |   END IF
   10 |   RETURN NOTHING
      | ^
-tests/sub-value-less-invalid/src/main.mfb:10 error[2-203-0073 TYPE_SUB_RETURN_TAKES_NO_VALUE]: RETURN in a SUB takes no value
-               A SUB produces no value; use a bare `RETURN` to exit early.
+tests/sub-value-less-invalid/src/main.mfb:10 error[2-203-0073 SUB_RETURN_FORBIDDEN]: RETURN is forbidden in a SUB; use EXIT SUB
+               A SUB returns no value; use `EXIT SUB`.
   17 | FUNC main AS Integer
   18 |   doThing(TRUE)
   19 |   LET captured = doThing(TRUE)
@@ -25,12 +31,18 @@ tests/sub-value-less-invalid/src/main.mfb:20 error[2-203-0021 TYPE_CALL_ARGUMENT
                Argument 1 for `takesInt` has type Nothing, expected Integer.
 [exit 1]
 $ mfb build -ir tests/sub-value-less-invalid
+   6 | SUB doThing(flag AS Boolean)
+   7 |   IF flag THEN
+   8 |     RETURN
+     | ^
+tests/sub-value-less-invalid/src/main.mfb:8 error[2-203-0073 SUB_RETURN_FORBIDDEN]: RETURN is forbidden in a SUB; use EXIT SUB
+               A SUB returns no value; use `EXIT SUB`.
    8 |     RETURN
    9 |   END IF
   10 |   RETURN NOTHING
      | ^
-tests/sub-value-less-invalid/src/main.mfb:10 error[2-203-0073 TYPE_SUB_RETURN_TAKES_NO_VALUE]: RETURN in a SUB takes no value
-               A SUB produces no value; use a bare `RETURN` to exit early.
+tests/sub-value-less-invalid/src/main.mfb:10 error[2-203-0073 SUB_RETURN_FORBIDDEN]: RETURN is forbidden in a SUB; use EXIT SUB
+               A SUB returns no value; use `EXIT SUB`.
   17 | FUNC main AS Integer
   18 |   doThing(TRUE)
   19 |   LET captured = doThing(TRUE)

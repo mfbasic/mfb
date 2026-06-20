@@ -155,6 +155,10 @@ fn collect_runtime_calls_from_ops_with_constants(
                     collect_runtime_calls_from_value(value, calls, constants);
                 }
             }
+            NirOp::ExitLoop { .. } | NirOp::ContinueLoop { .. } => {}
+            NirOp::ExitProgram { code } => {
+                collect_runtime_calls_from_value(code, calls, constants);
+            }
             NirOp::Fail { error } => {
                 collect_runtime_calls_from_value(error, calls, constants);
             }
@@ -204,10 +208,30 @@ fn collect_runtime_calls_from_ops_with_constants(
                     );
                 }
             }
-            NirOp::While { condition, body } => {
+            NirOp::While {
+                condition, body, ..
+            } => {
                 collect_runtime_calls_from_value(condition, calls, constants);
                 let mut body_constants = constants.clone();
                 collect_runtime_calls_from_ops_with_constants(body, calls, &mut body_constants);
+            }
+            NirOp::For {
+                start,
+                end,
+                step,
+                body,
+                ..
+            } => {
+                collect_runtime_calls_from_value(start, calls, constants);
+                collect_runtime_calls_from_value(end, calls, constants);
+                collect_runtime_calls_from_value(step, calls, constants);
+                let mut body_constants = constants.clone();
+                collect_runtime_calls_from_ops_with_constants(body, calls, &mut body_constants);
+            }
+            NirOp::DoUntil { body, condition } => {
+                let mut body_constants = constants.clone();
+                collect_runtime_calls_from_ops_with_constants(body, calls, &mut body_constants);
+                collect_runtime_calls_from_value(condition, calls, constants);
             }
             NirOp::ForEach { iterable, body, .. } => {
                 collect_runtime_calls_from_value(iterable, calls, constants);
@@ -711,6 +735,18 @@ fn validate_ops(
                     )?;
                 }
             }
+            NirOp::ExitLoop { .. } | NirOp::ContinueLoop { .. } => {}
+            NirOp::ExitProgram { code } => {
+                validate_value(
+                    code,
+                    locals,
+                    function_names,
+                    global_names,
+                    import_names,
+                    type_value_names,
+                    used_helpers,
+                )?;
+            }
             NirOp::Fail { error } => {
                 validate_value(
                     error,
@@ -886,7 +922,65 @@ fn validate_ops(
                     used_helpers,
                 )?;
             }
-            NirOp::While { condition, body } => {
+            NirOp::For {
+                name,
+                type_,
+                start,
+                end,
+                step,
+                body,
+            } => {
+                if name.is_empty() || type_.is_empty() {
+                    return Err("NIR for op has empty name or type".to_string());
+                }
+                validate_value(
+                    start,
+                    locals,
+                    function_names,
+                    global_names,
+                    import_names,
+                    type_value_names,
+                    used_helpers,
+                )?;
+                validate_value(
+                    end,
+                    locals,
+                    function_names,
+                    global_names,
+                    import_names,
+                    type_value_names,
+                    used_helpers,
+                )?;
+                validate_value(
+                    step,
+                    locals,
+                    function_names,
+                    global_names,
+                    import_names,
+                    type_value_names,
+                    used_helpers,
+                )?;
+                let mut body_locals = locals.clone();
+                body_locals.insert(
+                    name.clone(),
+                    LocalBinding {
+                        mutable: true,
+                        type_: type_.clone(),
+                    },
+                );
+                validate_ops(
+                    body,
+                    &mut body_locals,
+                    function_names,
+                    global_names,
+                    import_names,
+                    type_value_names,
+                    used_helpers,
+                )?;
+            }
+            NirOp::While {
+                condition, body, ..
+            } => {
                 validate_value(
                     condition,
                     locals,
@@ -900,6 +994,27 @@ fn validate_ops(
                 validate_ops(
                     body,
                     &mut body_locals,
+                    function_names,
+                    global_names,
+                    import_names,
+                    type_value_names,
+                    used_helpers,
+                )?;
+            }
+            NirOp::DoUntil { body, condition } => {
+                let mut body_locals = locals.clone();
+                validate_ops(
+                    body,
+                    &mut body_locals,
+                    function_names,
+                    global_names,
+                    import_names,
+                    type_value_names,
+                    used_helpers,
+                )?;
+                validate_value(
+                    condition,
+                    locals,
                     function_names,
                     global_names,
                     import_names,

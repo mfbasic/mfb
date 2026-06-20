@@ -1,0 +1,80 @@
+{
+  "project": "exit_sub_valid",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    ],
+    "items": [
+    {
+      "kind": "sub",
+      "visibility": "private",
+      "name": "guard",
+      "line": 1,
+      "params": [
+      { "name": "flag", "type": "Boolean", "default": null }
+      ],
+      "returnType": null,
+      "body": [
+      {
+        "kind": "if",
+        "condition": { "kind": "identifier", "value": "flag" },
+        "line": 2,
+        "then": [
+        { "kind": "exit", "target": "sub", "code": null, "line": 3 }
+        ],
+        "else": [
+        ]
+      },
+      { "kind": "fail", "error": { "kind": "constructor", "type": "Error", "arguments": [{ "kind": "number", "value": "10" }, { "kind": "string", "value": "guard failed" }] }, "line": 5 }
+      ]
+    },
+    {
+      "kind": "sub",
+      "visibility": "private",
+      "name": "swallow",
+      "line": 8,
+      "params": [
+      { "name": "flag", "type": "Boolean", "default": null }
+      ],
+      "returnType": null,
+      "body": [
+      {
+        "kind": "if",
+        "condition": { "kind": "identifier", "value": "flag" },
+        "line": 9,
+        "then": [
+        { "kind": "exit", "target": "sub", "code": null, "line": 10 }
+        ],
+        "else": [
+        ]
+      },
+      { "kind": "fail", "error": { "kind": "constructor", "type": "Error", "arguments": [{ "kind": "number", "value": "11" }, { "kind": "string", "value": "swallowed" }] }, "line": 12 }
+      ],
+      "trap": {
+      "name": "err",
+      "line": 13,
+      "body": [
+      { "kind": "exit", "target": "sub", "code": null, "line": 14 }
+      ]
+    }
+    },
+    {
+      "kind": "sub",
+      "visibility": "private",
+      "name": "main",
+      "line": 18,
+      "params": [
+      ],
+      "returnType": null,
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "guard", "arguments": [{ "kind": "boolean", "value": true }] }, "line": 19 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "swallow", "arguments": [{ "kind": "boolean", "value": true }] }, "line": 20 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "swallow", "arguments": [{ "kind": "boolean", "value": false }] }, "line": 21 },
+      { "kind": "exit", "target": "sub", "code": null, "line": 22 }
+      ]
+    }
+    ]
+  }
+  ]
+}

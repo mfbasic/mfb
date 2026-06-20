@@ -1,0 +1,23 @@
+SUB guard(flag AS Boolean)
+  IF flag THEN
+    EXIT SUB
+  END IF
+  FAIL Error[10, "guard failed"]
+END SUB
+
+SUB swallow(flag AS Boolean)
+  IF flag THEN
+    EXIT SUB
+  END IF
+  FAIL Error[11, "swallowed"]
+  TRAP(err)
+  EXIT SUB
+  END TRAP
+END SUB
+
+SUB main
+  guard(TRUE)
+  swallow(TRUE)
+  swallow(FALSE)
+  EXIT SUB
+END SUB

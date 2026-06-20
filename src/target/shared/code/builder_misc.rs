@@ -672,7 +672,8 @@ impl CodeBuilder<'_> {
             NirValue::MemberAccess { target, member } => {
                 let target_type = self.static_type_name(target)?;
                 if member == "result" {
-                    if let Some(output_type) = builtins::thread::parent_thread_output(&target_type) {
+                    if let Some(output_type) = builtins::thread::parent_thread_output(&target_type)
+                    {
                         return Some(format!("Result OF {output_type}"));
                     }
                 }
@@ -781,6 +782,13 @@ impl CodeBuilder<'_> {
             .or_else(|| self.package_return_types.get(target).cloned())
             .unwrap_or_else(|| "Unknown".to_string());
         if result_type == "Nothing" {
+            if return_type.is_none() {
+                let ok_label = self.label("call_ok");
+                self.emit(abi::compare_immediate(RESULT_TAG_REGISTER, RESULT_OK_TAG));
+                self.emit(abi::branch_eq(&ok_label));
+                self.emit_current_result_exit(self.error_exit_destination())?;
+                self.emit(abi::label(&ok_label));
+            }
             self.deactivate_moved_thread_arguments(target, args);
             self.deactivate_moved_resource_arguments(target, args);
             return Ok(ValueResult {
@@ -844,6 +852,13 @@ impl CodeBuilder<'_> {
             .map(|type_| type_.to_string())
             .unwrap_or_else(|| "Unknown".to_string());
         if result_type == "Nothing" {
+            if return_type.is_none() {
+                let ok_label = self.label("call_value_ok");
+                self.emit(abi::compare_immediate(RESULT_TAG_REGISTER, RESULT_OK_TAG));
+                self.emit(abi::branch_eq(&ok_label));
+                self.emit_current_result_exit(self.error_exit_destination())?;
+                self.emit(abi::label(&ok_label));
+            }
             for arg in args {
                 self.maybe_deactivate_moved_thread_local(arg);
             }
@@ -883,8 +898,13 @@ impl CodeBuilder<'_> {
         raw: bool,
     ) -> Result<ValueResult, String> {
         if matches!(target, "thread.send" | "thread.emit") {
-            return self
-                .emit_thread_send_runtime_helper_call(target, symbol, args, result_type, raw);
+            return self.emit_thread_send_runtime_helper_call(
+                target,
+                symbol,
+                args,
+                result_type,
+                raw,
+            );
         }
 
         let arg_values = self.emit_raw_call(symbol, args, "runtime_call_arg")?;
@@ -2026,7 +2046,22 @@ impl CodeBuilder<'_> {
     }
 
     fn store_pending_current_result(&mut self) {
-        self.store_pending_error_registers(RESULT_VALUE_REGISTER, RESULT_ERROR_MESSAGE_REGISTER);
+        let slots = self.ensure_pending_result_slots();
+        self.emit(abi::store_u64(
+            RESULT_VALUE_REGISTER,
+            abi::stack_pointer(),
+            slots.value,
+        ));
+        self.emit(abi::store_u64(
+            RESULT_TAG_REGISTER,
+            abi::stack_pointer(),
+            slots.tag,
+        ));
+        self.emit(abi::store_u64(
+            RESULT_ERROR_MESSAGE_REGISTER,
+            abi::stack_pointer(),
+            slots.message,
+        ));
     }
 
     fn load_pending_result_registers(&mut self) {
@@ -2233,6 +2268,42 @@ impl CodeBuilder<'_> {
         Ok(())
     }
 
+    pub(super) fn emit_cleanup_branch_to_depth(
+        &mut self,
+        target: &str,
+        cleanup_depth: usize,
+    ) -> Result<(), String> {
+        let cleanups = self.active_cleanups[cleanup_depth..].to_vec();
+        for cleanup in cleanups.iter().rev() {
+            match cleanup {
+                ActiveCleanup::Thread(cleanup) => self.emit_thread_cleanup_call(cleanup)?,
+                ActiveCleanup::Resource(cleanup) => self.emit_resource_cleanup_call(cleanup)?,
+            }
+        }
+        self.emit(abi::branch(target));
+        Ok(())
+    }
+
+    pub(super) fn emit_program_exit_value(&mut self, code: &NirValue) -> Result<(), String> {
+        let result = self.lower_value(code)?;
+        self.emit(abi::move_register(abi::return_register(), &result.location));
+        self.emit(abi::move_register(
+            RESULT_VALUE_REGISTER,
+            abi::return_register(),
+        ));
+        self.emit(abi::move_immediate(
+            RESULT_TAG_REGISTER,
+            "Integer",
+            RESULT_PROGRAM_EXIT_TAG,
+        ));
+        self.emit(abi::move_immediate(
+            RESULT_ERROR_MESSAGE_REGISTER,
+            "Integer",
+            "0",
+        ));
+        self.emit_current_result_exit(ExitDestination::Return)
+    }
+
     pub(super) fn emit_current_result_exit(
         &mut self,
         destination: ExitDestination,
@@ -2325,6 +2396,15 @@ impl CodeBuilder<'_> {
     }
 
     pub(super) fn route_current_result_to_trap(&mut self) -> Result<(), String> {
+        self.emit(abi::compare_immediate(
+            RESULT_TAG_REGISTER,
+            RESULT_PROGRAM_EXIT_TAG,
+        ));
+        let trap_label = self.label("trap_route_error");
+        self.emit(abi::branch_ne(&trap_label));
+        self.emit(abi::return_());
+        self.emit(abi::label(&trap_label));
+
         let code_slot = self.allocate_stack_object("trap_error_code", 8);
         let message_slot = self.allocate_stack_object("trap_error_message", 8);
         let error_slot = self.allocate_stack_object("trap_error", 8);

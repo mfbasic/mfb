@@ -1,0 +1,21 @@
+FUNC badExitSub AS Integer
+  EXIT SUB
+  RETURN 0
+END FUNC
+
+FUNC badExitFunc AS Integer
+  EXIT FUNC
+  RETURN 0
+END FUNC
+
+SUB badReturn
+  RETURN
+END SUB
+
+SUB badReturnNothing
+  RETURN NOTHING
+END SUB
+
+FUNC main AS Integer
+  RETURN 0
+END FUNC

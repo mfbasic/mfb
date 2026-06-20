@@ -1,0 +1,8 @@
+FUNC main AS Integer
+  IF TRUE THEN
+    EXIT PROGRAM "bad"
+  ELSE
+    EXIT PROGRAM 300
+  END IF
+  RETURN 0
+END FUNC

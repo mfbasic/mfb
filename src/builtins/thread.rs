@@ -1,6 +1,5 @@
 use std::borrow::Cow;
 
-
 pub(crate) const THREAD_TYPE: &str = "Thread";
 pub(crate) const THREAD_WORKER_TYPE: &str = "ThreadWorker";
 

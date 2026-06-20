@@ -1,13 +1,13 @@
 use crate::ast::{
-    AstFile, AstProject, CallArg, ConstructorArg, Expression, Function, FunctionKind, Item,
-    MatchPattern, RecordUpdate, Statement, TopLevelBinding, TypeDecl, TypeDeclKind, TypeField,
-    Visibility,
+    AstFile, AstProject, CallArg, ConstructorArg, ExitTarget, Expression, Function, FunctionKind,
+    Item, LoopKind, MatchPattern, RecordUpdate, Statement, TopLevelBinding, TypeDecl, TypeDeclKind,
+    TypeField, Visibility,
 };
-use crate::builtins;
 use crate::binary_repr::{
     self, BinaryReprExportKind, BinaryReprTypeExport, BinaryReprTypeField, BinaryReprTypeVariant,
     BinaryReprTypeVisibility,
 };
+use crate::builtins;
 use crate::numeric;
 use crate::rules;
 use std::collections::{HashMap, HashSet};
@@ -134,6 +134,7 @@ struct TypeChecker<'a> {
     /// checked (innermost last). Non-empty means a `RECOVER` is legal and must
     /// match the top type. Empty means `RECOVER` is illegal.
     inline_trap_types: Vec<Type>,
+    loop_stack: Vec<LoopKind>,
 }
 
 #[derive(Clone)]
@@ -175,6 +176,7 @@ impl<'a> TypeChecker<'a> {
             current_is_sub: false,
             allow_value_less_call: false,
             inline_trap_types: Vec::new(),
+            loop_stack: Vec::new(),
         };
         checker.collect_types();
         checker.collect_package_types();
@@ -533,7 +535,11 @@ impl<'a> TypeChecker<'a> {
         );
     }
 
-    fn install_package_type_info(&mut self, package_file: &Path, type_export: BinaryReprTypeExport) {
+    fn install_package_type_info(
+        &mut self,
+        package_file: &Path,
+        type_export: BinaryReprTypeExport,
+    ) {
         let BinaryReprTypeExport {
             name,
             kind,
@@ -1209,9 +1215,22 @@ impl<'a> TypeChecker<'a> {
         locals: &mut HashMap<String, LocalInfo>,
         trap_name: Option<&str>,
     ) -> Flow {
-        for statement in body {
+        for (index, statement) in body.iter().enumerate() {
             let flow = self.check_statement(file, statement, expected_return, locals, trap_name);
             if flow == Flow::AlwaysReturns {
+                if matches!(
+                    statement,
+                    Statement::Exit { .. } | Statement::Continue { .. }
+                ) {
+                    for unreachable in &body[index + 1..] {
+                        self.report(
+                            "UNREACHABLE_AFTER_EXIT",
+                            "Statement is unreachable after EXIT or CONTINUE.",
+                            file,
+                            statement_line(unreachable),
+                        );
+                    }
+                }
                 return Flow::AlwaysReturns;
             }
         }
@@ -1436,18 +1455,15 @@ impl<'a> TypeChecker<'a> {
             }
             Statement::Return { value, line } => {
                 if self.current_is_sub {
-                    // A `SUB` is value-less: only a bare `RETURN` is allowed.
-                    // `RETURN NOTHING` and `RETURN <expr>` are rejected. (The
-                    // expression is still inferred so its own errors surface.)
                     if let Some(value) = value {
                         self.infer_expression(file, value, locals, *line, ExprMode::Transfer);
-                        self.report(
-                            "TYPE_SUB_RETURN_TAKES_NO_VALUE",
-                            "A SUB produces no value; use a bare `RETURN` to exit early.",
-                            file,
-                            *line,
-                        );
                     }
+                    self.report(
+                        "SUB_RETURN_FORBIDDEN",
+                        "A SUB returns no value; use `EXIT SUB`.",
+                        file,
+                        *line,
+                    );
                     return Flow::AlwaysReturns;
                 }
                 let actual = value
@@ -1478,6 +1494,96 @@ impl<'a> TypeChecker<'a> {
                             "RETURN has type {}, expected {}.",
                             self.type_name(&actual),
                             self.type_name(expected_return)
+                        ),
+                        file,
+                        *line,
+                    );
+                }
+                Flow::AlwaysReturns
+            }
+            Statement::Exit { target, code, line } => {
+                match target {
+                    ExitTarget::For | ExitTarget::Do | ExitTarget::While => {
+                        let kind = match target {
+                            ExitTarget::For => LoopKind::For,
+                            ExitTarget::Do => LoopKind::Do,
+                            ExitTarget::While => LoopKind::While,
+                            _ => unreachable!(),
+                        };
+                        if !self.loop_stack.iter().rev().any(|item| *item == kind) {
+                            self.report(
+                                "EXIT_NO_MATCHING_LOOP",
+                                &format!(
+                                    "EXIT {} has no matching enclosing loop.",
+                                    loop_kind_keyword(kind)
+                                ),
+                                file,
+                                *line,
+                            );
+                        }
+                    }
+                    ExitTarget::Sub => {
+                        if !self.current_is_sub {
+                            self.report(
+                                "EXIT_SUB_IN_FUNC",
+                                "EXIT SUB is valid only inside a SUB; use RETURN <value> in a FUNC.",
+                                file,
+                                *line,
+                            );
+                        }
+                    }
+                    ExitTarget::Func => {
+                        self.report(
+                            "EXIT_FUNC_FORBIDDEN",
+                            "Functions must RETURN a value; EXIT FUNC is not allowed.",
+                            file,
+                            *line,
+                        );
+                    }
+                    ExitTarget::Program => {
+                        let Some(code) = code else {
+                            self.report(
+                                "TYPE_UNKNOWN_VALUE",
+                                "EXIT PROGRAM requires an Integer exit code.",
+                                file,
+                                *line,
+                            );
+                            return Flow::AlwaysReturns;
+                        };
+                        let actual =
+                            self.infer_expression(file, code, locals, *line, ExprMode::Read);
+                        if !self.expression_compatible(&Type::Integer, &actual, Some(code)) {
+                            self.report(
+                                "TYPE_EXIT_PROGRAM_REQUIRES_INTEGER",
+                                &format!(
+                                    "EXIT PROGRAM code has type {}, expected Integer.",
+                                    self.type_name(&actual)
+                                ),
+                                file,
+                                *line,
+                            );
+                        }
+                        if let Some(value) = integer_constant_value(code) {
+                            if !(0..=255).contains(&value) {
+                                self.report(
+                                    "EXIT_PROGRAM_CODE_OUT_OF_RANGE",
+                                    "EXIT PROGRAM constant exit code must be in the host range 0..255.",
+                                    file,
+                                    *line,
+                                );
+                            }
+                        }
+                    }
+                }
+                Flow::AlwaysReturns
+            }
+            Statement::Continue { kind, line } => {
+                if !self.loop_stack.iter().rev().any(|item| *item == *kind) {
+                    self.report(
+                        "CONTINUE_NO_MATCHING_LOOP",
+                        &format!(
+                            "CONTINUE {} has no matching enclosing loop.",
+                            loop_kind_keyword(*kind)
                         ),
                         file,
                         *line,
@@ -1781,9 +1887,7 @@ impl<'a> TypeChecker<'a> {
                 // type annotation; its `CASE Ok`/`CASE Error` arms already
                 // reported `TYPE_RESULT_NOT_MATCHABLE`, so suppress the secondary
                 // exhaustiveness cascade.
-                if !exhaustive
-                    && !matches!(matched_type, Type::Unknown | Type::Result(_))
-                {
+                if !exhaustive && !matches!(matched_type, Type::Unknown | Type::Result(_)) {
                     self.report_match_not_exhaustive(file, *line, &matched_type, &covered_cases);
                 }
                 if all_return && exhaustive {
@@ -1853,8 +1957,10 @@ impl<'a> TypeChecker<'a> {
                         ownership: OwnershipState::Available,
                     },
                 );
+                self.loop_stack.push(LoopKind::For);
                 let body_flow =
                     self.check_block(file, body, expected_return, &mut nested, trap_name);
+                self.loop_stack.pop();
                 if body_flow == Flow::FallsThrough {
                     self.merge_branch_locals(locals, vec![nested]);
                 }
@@ -1897,14 +2003,17 @@ impl<'a> TypeChecker<'a> {
                         ownership: OwnershipState::Available,
                     },
                 );
+                self.loop_stack.push(LoopKind::For);
                 let body_flow =
                     self.check_block(file, body, expected_return, &mut nested, trap_name);
+                self.loop_stack.pop();
                 if body_flow == Flow::FallsThrough {
                     self.merge_branch_locals(locals, vec![nested]);
                 }
                 Flow::FallsThrough
             }
             Statement::While {
+                kind,
                 condition,
                 body,
                 line,
@@ -1923,8 +2032,10 @@ impl<'a> TypeChecker<'a> {
                     );
                 }
                 let mut nested = locals.clone();
+                self.loop_stack.push(*kind);
                 let body_flow =
                     self.check_block(file, body, expected_return, &mut nested, trap_name);
+                self.loop_stack.pop();
                 if body_flow == Flow::FallsThrough {
                     self.merge_branch_locals(locals, vec![nested]);
                 }
@@ -1936,8 +2047,10 @@ impl<'a> TypeChecker<'a> {
                 line,
             } => {
                 let mut nested = locals.clone();
+                self.loop_stack.push(LoopKind::Do);
                 let body_flow =
                     self.check_block(file, body, expected_return, &mut nested, trap_name);
+                self.loop_stack.pop();
                 let condition_type =
                     self.infer_expression(file, condition, locals, *line, ExprMode::Read);
                 if !self.expression_compatible(&Type::Boolean, &condition_type, Some(condition)) {
@@ -2064,8 +2177,8 @@ impl<'a> TypeChecker<'a> {
                 // A trapped `SUB` call as a bare statement is value-less too;
                 // forward the permission to the inner call.
                 self.allow_value_less_call = value_less_call_ok;
-                let success_type = self
-                    .infer_expression_with_expected(file, inner, locals, line, expected, mode);
+                let success_type =
+                    self.infer_expression_with_expected(file, inner, locals, line, expected, mode);
                 if !fallible {
                     self.report(
                         "TYPE_INLINE_TRAP_REQUIRES_FALLIBLE",
@@ -2326,43 +2439,45 @@ impl<'a> TypeChecker<'a> {
                     return;
                 }
                 match matched_type {
-                Type::User(union_name) => {
-                    let Some(info) = self.type_infos.get(union_name) else {
-                        return;
-                    };
-                    if !matches!(info.kind, TypeDeclKind::Union)
-                        || !info
-                            .variants
-                            .iter()
-                            .any(|variant| variant.name == *type_name)
-                    {
-                        self.report(
-                            "TYPE_MATCH_PATTERN_MISMATCH",
-                            &format!("CASE `{type_name}` is not a member of UNION `{union_name}`."),
-                            file,
-                            line,
+                    Type::User(union_name) => {
+                        let Some(info) = self.type_infos.get(union_name) else {
+                            return;
+                        };
+                        if !matches!(info.kind, TypeDeclKind::Union)
+                            || !info
+                                .variants
+                                .iter()
+                                .any(|variant| variant.name == *type_name)
+                        {
+                            self.report(
+                                "TYPE_MATCH_PATTERN_MISMATCH",
+                                &format!(
+                                    "CASE `{type_name}` is not a member of UNION `{union_name}`."
+                                ),
+                                file,
+                                line,
+                            );
+                            return;
+                        }
+                        case_locals.insert(
+                            binding.clone(),
+                            LocalInfo {
+                                type_: Type::User(type_name.clone()),
+                                mutable: false,
+                                ownership: OwnershipState::Available,
+                            },
                         );
-                        return;
                     }
-                    case_locals.insert(
-                        binding.clone(),
-                        LocalInfo {
-                            type_: Type::User(type_name.clone()),
-                            mutable: false,
-                            ownership: OwnershipState::Available,
-                        },
-                    );
-                }
-                _ => self.report(
-                    "TYPE_MATCH_PATTERN_MISMATCH",
-                    &format!(
-                        "CASE `{type_name}` requires a UNION value, got {}.",
-                        self.type_name(matched_type)
+                    _ => self.report(
+                        "TYPE_MATCH_PATTERN_MISMATCH",
+                        &format!(
+                            "CASE `{type_name}` requires a UNION value, got {}.",
+                            self.type_name(matched_type)
+                        ),
+                        file,
+                        line,
                     ),
-                    file,
-                    line,
-                ),
-            }
+                }
             }
         }
     }
@@ -3238,7 +3353,6 @@ impl<'a> TypeChecker<'a> {
                 );
             }
         }
-
     }
 
     fn check_function_value_call(
@@ -5111,6 +5225,44 @@ fn fixed_literal_range_error(expression: &Expression) -> Option<SignedLiteralRan
         Some(SignedLiteralRangeError::Overflow(text.to_string()))
     } else {
         None
+    }
+}
+
+fn statement_line(statement: &Statement) -> usize {
+    match statement {
+        Statement::Let { line, .. }
+        | Statement::Return { line, .. }
+        | Statement::Exit { line, .. }
+        | Statement::Continue { line, .. }
+        | Statement::Fail { line, .. }
+        | Statement::Propagate { line }
+        | Statement::Recover { line, .. }
+        | Statement::Assign { line, .. }
+        | Statement::Expression { line, .. }
+        | Statement::If { line, .. }
+        | Statement::Match { line, .. }
+        | Statement::For { line, .. }
+        | Statement::ForEach { line, .. }
+        | Statement::While { line, .. }
+        | Statement::DoUntil { line, .. } => *line,
+    }
+}
+
+fn loop_kind_keyword(kind: LoopKind) -> &'static str {
+    match kind {
+        LoopKind::For => "FOR",
+        LoopKind::Do => "DO",
+        LoopKind::While => "WHILE",
+    }
+}
+
+fn integer_constant_value(expression: &Expression) -> Option<i128> {
+    match expression {
+        Expression::Number(value) => value.parse::<i128>().ok(),
+        Expression::Unary { operator, operand } if operator == "-" => {
+            integer_constant_value(operand).map(|value| -value)
+        }
+        _ => None,
     }
 }
 

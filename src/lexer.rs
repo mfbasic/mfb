@@ -40,11 +40,13 @@ pub enum TokenKind {
 pub enum Keyword {
     As,
     Case,
+    Continue,
     Do,
     Else,
     ElseIf,
     False,
     Fail,
+    Exit,
     For,
     Each,
     Func,
@@ -73,6 +75,7 @@ pub enum Keyword {
     Enum,
     Export,
     Package,
+    Program,
     Private,
     Propagate,
     Recover,
@@ -440,6 +443,8 @@ fn keyword(value: &str) -> Option<Keyword> {
         Some(Keyword::As)
     } else if value.eq_ignore_ascii_case("CASE") {
         Some(Keyword::Case)
+    } else if value.eq_ignore_ascii_case("CONTINUE") {
+        Some(Keyword::Continue)
     } else if value.eq_ignore_ascii_case("DO") {
         Some(Keyword::Do)
     } else if value.eq_ignore_ascii_case("ELSE") {
@@ -450,6 +455,8 @@ fn keyword(value: &str) -> Option<Keyword> {
         Some(Keyword::False)
     } else if value.eq_ignore_ascii_case("FAIL") {
         Some(Keyword::Fail)
+    } else if value.eq_ignore_ascii_case("EXIT") {
+        Some(Keyword::Exit)
     } else if value.eq_ignore_ascii_case("FOR") {
         Some(Keyword::For)
     } else if value.eq_ignore_ascii_case("EACH") {
@@ -506,6 +513,8 @@ fn keyword(value: &str) -> Option<Keyword> {
         Some(Keyword::Export)
     } else if value.eq_ignore_ascii_case("PACKAGE") {
         Some(Keyword::Package)
+    } else if value.eq_ignore_ascii_case("PROGRAM") {
+        Some(Keyword::Program)
     } else if value.eq_ignore_ascii_case("PRIVATE") {
         Some(Keyword::Private)
     } else if value.eq_ignore_ascii_case("PROPAGATE") {

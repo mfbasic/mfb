@@ -94,6 +94,7 @@
       { "kind": "binding", "mutable": true, "name": "counter", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 16 },
       {
         "kind": "while",
+        "loop": "while",
         "condition": { "kind": "binary", "operator": "<", "left": { "kind": "identifier", "value": "counter" }, "right": { "kind": "number", "value": "3" } },
         "line": 17,
         "body": [
@@ -115,6 +116,7 @@
       { "kind": "binding", "mutable": true, "name": "spins", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 23 },
       {
         "kind": "while",
+        "loop": "do",
         "condition": { "kind": "identifier", "value": "ready" },
         "line": 24,
         "body": [
@@ -126,6 +128,7 @@
       { "kind": "binding", "mutable": true, "name": "skipped", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 26 },
       {
         "kind": "while",
+        "loop": "do",
         "condition": { "kind": "binary", "operator": "<", "left": { "kind": "identifier", "value": "skipped" }, "right": { "kind": "number", "value": "0" } },
         "line": 27,
         "body": [

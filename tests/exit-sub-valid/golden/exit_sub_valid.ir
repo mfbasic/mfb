@@ -1,0 +1,77 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "exit_sub_valid",
+  "entry": {
+    "name": "main",
+    "returns": "Nothing",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "guard",
+    "visibility": "private",
+    "kind": "sub",
+    "params": [
+    { "name": "flag", "type": "Boolean", "default": null }
+    ],
+    "returns": "Nothing",
+    "body": [
+    {
+      "op": "if",
+      "condition": { "kind": "local", "name": "flag" },
+      "then": [
+      { "op": "return", "value": null }
+      ],
+      "else": [
+      ]
+    },
+    { "op": "fail", "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "10" }, { "kind": "const", "type": "String", "value": "guard failed" }] } }
+    ]
+  },
+  {
+    "name": "swallow",
+    "visibility": "private",
+    "kind": "sub",
+    "params": [
+    { "name": "flag", "type": "Boolean", "default": null }
+    ],
+    "returns": "Nothing",
+    "body": [
+    {
+      "op": "if",
+      "condition": { "kind": "local", "name": "flag" },
+      "then": [
+      { "op": "return", "value": null }
+      ],
+      "else": [
+      ]
+    },
+    { "op": "fail", "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "11" }, { "kind": "const", "type": "String", "value": "swallowed" }] } },
+    {
+      "op": "trap",
+      "name": "err",
+      "body": [
+      { "op": "return", "value": null }
+      ]
+    }
+    ]
+  },
+  {
+    "name": "main",
+    "visibility": "private",
+    "kind": "sub",
+    "params": [
+    ],
+    "returns": "Nothing",
+    "body": [
+    { "op": "eval", "value": { "kind": "call", "target": "guard", "args": [{ "kind": "const", "type": "Boolean", "value": "true" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "swallow", "args": [{ "kind": "const", "type": "Boolean", "value": "true" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "swallow", "args": [{ "kind": "const", "type": "Boolean", "value": "false" }] } },
+    { "op": "return", "value": null }
+    ]
+  }
+  ]
+}

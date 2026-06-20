@@ -175,7 +175,11 @@ impl CodeBuilder<'_> {
 
     /// Move a signed 64-bit constant into `reg`.
     fn emit_const_i64(&mut self, reg: &str, value: i64) {
-        self.emit(abi::move_immediate(reg, "Integer", &(value as u64).to_string()));
+        self.emit(abi::move_immediate(
+            reg,
+            "Integer",
+            &(value as u64).to_string(),
+        ));
     }
 
     /// Round-to-nearest Q32.32 multiply `(a * b) / 2^32` into a fresh register.
@@ -199,7 +203,7 @@ impl CodeBuilder<'_> {
     fn emit_fixed_mul_inplace(&mut self, dst: &str, a: &str, b: &str, s0: &str, s1: &str) {
         self.emit(abi::multiply_registers(s0, a, b)); // low 64 bits
         self.emit(abi::signed_multiply_high_registers(s1, a, b)); // high 64 bits
-        // Combined middle word = (s1 << 32) | (s0 >>u 32) = bits[95:32].
+                                                                  // Combined middle word = (s1 << 32) | (s0 >>u 32) = bits[95:32].
         self.emit(abi::shift_left_immediate(s1, s1, 32));
         self.emit(abi::shift_right_immediate(dst, s0, 32));
         self.emit(abi::or_registers(dst, dst, s1));
@@ -488,7 +492,11 @@ impl CodeBuilder<'_> {
         // s = sqrt(1 - x^2).
         let x2 = self.emit_fixed_mul(&x, &x)?;
         let one_minus = self.allocate_register()?;
-        self.emit(abi::move_immediate(&one_minus, "Fixed", &FIXED_ONE.to_string()));
+        self.emit(abi::move_immediate(
+            &one_minus,
+            "Fixed",
+            &FIXED_ONE.to_string(),
+        ));
         self.emit(abi::subtract_registers(&one_minus, &one_minus, &x2));
         let s = self.emit_fixed_sqrt(&one_minus)?; // resets register file
         let xr = self.allocate_register()?;
@@ -622,8 +630,16 @@ impl CodeBuilder<'_> {
         let lower = self.allocate_register()?;
         self.emit(abi::move_register(&m, &x));
         self.emit(abi::move_immediate(&e, "Integer", "0"));
-        self.emit(abi::move_immediate(&upper, "Integer", &(FIXED_ONE << 1).to_string()));
-        self.emit(abi::move_immediate(&lower, "Integer", &FIXED_ONE.to_string()));
+        self.emit(abi::move_immediate(
+            &upper,
+            "Integer",
+            &(FIXED_ONE << 1).to_string(),
+        ));
+        self.emit(abi::move_immediate(
+            &lower,
+            "Integer",
+            &FIXED_ONE.to_string(),
+        ));
         let norm_high = self.label("fixed_log_norm_high");
         let norm_high_done = self.label("fixed_log_norm_high_done");
         self.emit(abi::label(&norm_high));
@@ -751,7 +767,11 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&base_reg, abi::stack_pointer(), base_slot));
         let result = self.allocate_register()?;
         let product = self.allocate_register()?;
-        self.emit(abi::move_immediate(&result, "Fixed", &FIXED_ONE.to_string()));
+        self.emit(abi::move_immediate(
+            &result,
+            "Fixed",
+            &FIXED_ONE.to_string(),
+        ));
         let mul_loop = self.label("fixed_pow_int_loop");
         let mul_done = self.label("fixed_pow_int_done");
         self.emit(abi::label(&mul_loop));
@@ -766,27 +786,51 @@ impl CodeBuilder<'_> {
         let nonneg = self.label("fixed_pow_int_nonneg");
         self.emit(abi::compare_immediate(&n, "0"));
         self.emit(abi::branch_ge(&nonneg));
-        self.emit(abi::store_u64(&result, abi::stack_pointer(), integer_result_slot));
+        self.emit(abi::store_u64(
+            &result,
+            abi::stack_pointer(),
+            integer_result_slot,
+        ));
         self.reset_temporary_registers();
         let denom = self.allocate_register()?;
         let one = self.allocate_register()?;
         let recip = self.allocate_register()?;
-        self.emit(abi::load_u64(&denom, abi::stack_pointer(), integer_result_slot));
+        self.emit(abi::load_u64(
+            &denom,
+            abi::stack_pointer(),
+            integer_result_slot,
+        ));
         self.emit(abi::move_immediate(&one, "Fixed", &FIXED_ONE.to_string()));
         self.emit_fixed_divide(&recip, &one, &denom)?;
-        self.emit(abi::store_u64(&recip, abi::stack_pointer(), integer_result_slot));
+        self.emit(abi::store_u64(
+            &recip,
+            abi::stack_pointer(),
+            integer_result_slot,
+        ));
         let reload = self.label("fixed_pow_int_reload");
         self.emit(abi::branch(&reload));
         self.emit(abi::label(&nonneg));
-        self.emit(abi::store_u64(&result, abi::stack_pointer(), integer_result_slot));
+        self.emit(abi::store_u64(
+            &result,
+            abi::stack_pointer(),
+            integer_result_slot,
+        ));
         self.emit(abi::label(&reload));
         self.reset_temporary_registers();
         let int_result = self.allocate_register()?;
-        self.emit(abi::load_u64(&int_result, abi::stack_pointer(), integer_result_slot));
+        self.emit(abi::load_u64(
+            &int_result,
+            abi::stack_pointer(),
+            integer_result_slot,
+        ));
         let finish = self.label("fixed_pow_finish");
         // Stash the integer result and branch past the fractional path.
         let result_slot = self.allocate_stack_object("fixed_pow_result", 8);
-        self.emit(abi::store_u64(&int_result, abi::stack_pointer(), result_slot));
+        self.emit(abi::store_u64(
+            &int_result,
+            abi::stack_pointer(),
+            result_slot,
+        ));
         self.emit(abi::branch(&finish));
 
         // Fractional exponent: exp(exponent * ln(base)), requires base > 0.
@@ -805,12 +849,20 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&ln_reg, abi::stack_pointer(), ln_slot));
         let product = self.emit_fixed_mul(&exp_reg, &ln_reg)?;
         let frac_result = self.emit_fixed_exp(&product)?;
-        self.emit(abi::store_u64(&frac_result, abi::stack_pointer(), result_slot));
+        self.emit(abi::store_u64(
+            &frac_result,
+            abi::stack_pointer(),
+            result_slot,
+        ));
 
         self.emit(abi::label(&finish));
         self.reset_temporary_registers();
         let final_result = self.allocate_register()?;
-        self.emit(abi::load_u64(&final_result, abi::stack_pointer(), result_slot));
+        self.emit(abi::load_u64(
+            &final_result,
+            abi::stack_pointer(),
+            result_slot,
+        ));
         Ok(final_result)
     }
 }

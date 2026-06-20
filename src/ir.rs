@@ -1,7 +1,7 @@
 use crate::ast::{
-    AstProject, CallArg, ConstructorArg, EnumMember, Expression, Function, FunctionKind, Item,
-    MatchCase, MatchPattern, Param, Statement, TypeDecl, TypeDeclKind, TypeField, UnionVariant,
-    Visibility,
+    AstProject, CallArg, ConstructorArg, EnumMember, ExitTarget, Expression, Function,
+    FunctionKind, Item, LoopKind, MatchCase, MatchPattern, Param, Statement, TypeDecl,
+    TypeDeclKind, TypeField, UnionVariant, Visibility,
 };
 use crate::builtins;
 use crate::json_string;
@@ -101,6 +101,15 @@ pub(crate) enum IrOp {
     Return {
         value: Option<IrValue>,
     },
+    ExitLoop {
+        kind: LoopKind,
+    },
+    ContinueLoop {
+        kind: LoopKind,
+    },
+    ExitProgram {
+        code: IrValue,
+    },
     Fail {
         error: IrValue,
     },
@@ -117,8 +126,21 @@ pub(crate) enum IrOp {
         cases: Vec<IrMatchCase>,
     },
     While {
+        kind: LoopKind,
         condition: IrValue,
         body: Vec<IrOp>,
+    },
+    For {
+        name: String,
+        type_: String,
+        start: IrValue,
+        end: IrValue,
+        step: IrValue,
+        body: Vec<IrOp>,
+    },
+    DoUntil {
+        body: Vec<IrOp>,
+        condition: IrValue,
     },
     ForEach {
         name: String,
@@ -589,6 +611,26 @@ fn lower_statement(
                 wrap_union_value(base, value, expected.as_deref(), locals, context)
             }),
         }],
+        Statement::Exit { target, code, .. } => match target {
+            ExitTarget::For => vec![IrOp::ExitLoop {
+                kind: LoopKind::For,
+            }],
+            ExitTarget::Do => vec![IrOp::ExitLoop { kind: LoopKind::Do }],
+            ExitTarget::While => vec![IrOp::ExitLoop {
+                kind: LoopKind::While,
+            }],
+            ExitTarget::Sub => vec![IrOp::Return { value: None }],
+            ExitTarget::Func => Vec::new(),
+            ExitTarget::Program => vec![IrOp::ExitProgram {
+                code: lower_expression(
+                    code.as_ref()
+                        .expect("parser requires EXIT PROGRAM to include a code expression"),
+                    locals,
+                    context,
+                ),
+            }],
+        },
+        Statement::Continue { kind, .. } => vec![IrOp::ContinueLoop { kind: *kind }],
         Statement::Fail { error, .. } => vec![IrOp::Fail {
             error: lower_expression(error, locals, context),
         }],
@@ -607,12 +649,8 @@ fn lower_statement(
                 .expect("typecheck requires RECOVER to appear only in inline TRAP handlers");
             match (target.slot, value) {
                 (Some(slot), Some(value)) => {
-                    let lowered = lower_expression_with_expected(
-                        value,
-                        Some(&target.type_),
-                        locals,
-                        context,
-                    );
+                    let lowered =
+                        lower_expression_with_expected(value, Some(&target.type_), locals, context);
                     vec![IrOp::Assign {
                         name: slot,
                         value: lowered,
@@ -778,62 +816,18 @@ fn lower_statement(
             let step_local = IrValue::Local(step_name.clone());
             let iter_local = IrValue::Local(iter_name.clone());
             let end_local = IrValue::Local(end_name.clone());
-            let zero = numeric_constant_for_type(&loop_type, "0");
-            let condition = IrValue::Binary {
-                op: "OR".to_string(),
-                left: Box::new(IrValue::Binary {
-                    op: "AND".to_string(),
-                    left: Box::new(IrValue::Binary {
-                        op: ">=".to_string(),
-                        left: Box::new(step_local.clone()),
-                        right: Box::new(zero.clone()),
-                    }),
-                    right: Box::new(IrValue::Binary {
-                        op: "<=".to_string(),
-                        left: Box::new(iter_local.clone()),
-                        right: Box::new(end_local.clone()),
-                    }),
-                }),
-                right: Box::new(IrValue::Binary {
-                    op: "AND".to_string(),
-                    left: Box::new(IrValue::Binary {
-                        op: "<".to_string(),
-                        left: Box::new(step_local.clone()),
-                        right: Box::new(zero),
-                    }),
-                    right: Box::new(IrValue::Binary {
-                        op: ">=".to_string(),
-                        left: Box::new(iter_local.clone()),
-                        right: Box::new(end_local.clone()),
-                    }),
-                }),
-            };
 
             let mut nested = locals.clone();
             nested.insert(name.clone(), loop_type.clone());
-            let mut while_body = vec![IrOp::Bind {
+            let mut loop_body = vec![IrOp::Bind {
                 mutable: false,
                 name: name.clone(),
                 type_: loop_type.clone(),
                 value: Some(iter_local.clone()),
             }];
-            while_body.extend(lower_statement_block(body, &nested, context, trap_name));
-            while_body.push(IrOp::Assign {
-                name: iter_name.clone(),
-                value: IrValue::Binary {
-                    op: "+".to_string(),
-                    left: Box::new(iter_local),
-                    right: Box::new(step_local),
-                },
-            });
+            loop_body.extend(lower_statement_block(body, &nested, context, trap_name));
 
             vec![
-                IrOp::Bind {
-                    mutable: true,
-                    name: iter_name,
-                    type_: loop_type.clone(),
-                    value: Some(start_value),
-                },
                 IrOp::Bind {
                     mutable: false,
                     name: end_name,
@@ -843,12 +837,16 @@ fn lower_statement(
                 IrOp::Bind {
                     mutable: false,
                     name: step_name,
-                    type_: loop_type,
+                    type_: loop_type.clone(),
                     value: Some(step_value),
                 },
-                IrOp::While {
-                    condition,
-                    body: while_body,
+                IrOp::For {
+                    name: iter_name,
+                    type_: loop_type.clone(),
+                    start: start_value,
+                    end: end_local,
+                    step: step_local,
+                    body: loop_body,
                 },
             ]
         }
@@ -872,30 +870,21 @@ fn lower_statement(
             }]
         }
         Statement::While {
-            condition, body, ..
+            kind,
+            condition,
+            body,
+            ..
         } => vec![IrOp::While {
+            kind: *kind,
             condition: lower_expression(condition, locals, context),
             body: lower_statement_block(body, locals, context, trap_name),
         }],
         Statement::DoUntil {
             body, condition, ..
-        } => {
-            let body_ops = lower_statement_block(body, locals, context, trap_name);
-            let loop_body = lower_statement_block(body, locals, context, trap_name);
-            vec![
-                body_ops,
-                vec![IrOp::While {
-                    condition: IrValue::Unary {
-                        op: "NOT".to_string(),
-                        operand: Box::new(lower_expression(condition, locals, context)),
-                    },
-                    body: loop_body,
-                }],
-            ]
-            .into_iter()
-            .flatten()
-            .collect()
-        }
+        } => vec![IrOp::DoUntil {
+            body: lower_statement_block(body, locals, context, trap_name),
+            condition: lower_expression(condition, locals, context),
+        }],
     }
 }
 
@@ -1167,10 +1156,12 @@ fn treeify_statement(statement: &Statement) -> Statement {
             line: *line,
         },
         Statement::While {
+            kind,
             condition,
             body,
             line,
         } => Statement::While {
+            kind: *kind,
             condition: condition.clone(),
             body: treeify_handler(body),
             line: *line,
@@ -1226,6 +1217,8 @@ fn block_terminates(stmts: &[Statement]) -> bool {
 fn statement_terminates(statement: &Statement) -> bool {
     match statement {
         Statement::Return { .. }
+        | Statement::Exit { .. }
+        | Statement::Continue { .. }
         | Statement::Fail { .. }
         | Statement::Propagate { .. }
         | Statement::Recover { .. } => true,
@@ -1233,18 +1226,12 @@ fn statement_terminates(statement: &Statement) -> bool {
             then_body,
             else_body,
             ..
-        } => {
-            !else_body.is_empty()
-                && block_terminates(then_body)
-                && block_terminates(else_body)
-        }
+        } => !else_body.is_empty() && block_terminates(then_body) && block_terminates(else_body),
         Statement::Match { cases, .. } => {
             let has_else = cases
                 .iter()
                 .any(|case| matches!(case.pattern, MatchPattern::Else) && case.guard.is_none());
-            has_else
-                && !cases.is_empty()
-                && cases.iter().all(|case| block_terminates(&case.body))
+            has_else && !cases.is_empty() && cases.iter().all(|case| block_terminates(&case.body))
         }
         _ => false,
     }
@@ -2880,6 +2867,27 @@ impl ToIrJson for IrOp {
                     .unwrap_or_else(|| "null".to_string());
                 format!("\n{}{{ \"op\": \"return\", \"value\": {} }}", pad, value)
             }
+            IrOp::ExitLoop { kind } => {
+                format!(
+                    "\n{}{{ \"op\": \"exitLoop\", \"loop\": {} }}",
+                    pad,
+                    json_string(loop_kind_name(*kind))
+                )
+            }
+            IrOp::ContinueLoop { kind } => {
+                format!(
+                    "\n{}{{ \"op\": \"continueLoop\", \"loop\": {} }}",
+                    pad,
+                    json_string(loop_kind_name(*kind))
+                )
+            }
+            IrOp::ExitProgram { code } => {
+                format!(
+                    "\n{}{{ \"op\": \"exitProgram\", \"code\": {} }}",
+                    pad,
+                    code.to_json(indent)
+                )
+            }
             IrOp::Fail { error } => {
                 format!(
                     "\n{}{{ \"op\": \"fail\", \"error\": {} }}",
@@ -2948,11 +2956,75 @@ impl ToIrJson for IrOp {
                     pad
                 )
             }
-            IrOp::While { condition, body } => {
+            IrOp::While {
+                kind,
+                condition,
+                body,
+            } => {
                 format!(
                     concat!(
                         "\n{}{{\n",
                         "{}  \"op\": \"while\",\n",
+                        "{}  \"loop\": {},\n",
+                        "{}  \"condition\": {},\n",
+                        "{}  \"body\": [{}\n{}  ]\n",
+                        "{}}}"
+                    ),
+                    pad,
+                    pad,
+                    pad,
+                    json_string(loop_kind_name(*kind)),
+                    pad,
+                    condition.to_json(indent),
+                    pad,
+                    join_json(body, indent + 2),
+                    pad,
+                    pad
+                )
+            }
+            IrOp::For {
+                name,
+                type_,
+                start,
+                end,
+                step,
+                body,
+            } => {
+                format!(
+                    concat!(
+                        "\n{}{{\n",
+                        "{}  \"op\": \"for\",\n",
+                        "{}  \"name\": {},\n",
+                        "{}  \"type\": {},\n",
+                        "{}  \"start\": {},\n",
+                        "{}  \"end\": {},\n",
+                        "{}  \"step\": {},\n",
+                        "{}  \"body\": [{}\n{}  ]\n",
+                        "{}}}"
+                    ),
+                    pad,
+                    pad,
+                    pad,
+                    json_string(name),
+                    pad,
+                    json_string(type_),
+                    pad,
+                    start.to_json(indent),
+                    pad,
+                    end.to_json(indent),
+                    pad,
+                    step.to_json(indent),
+                    pad,
+                    join_json(body, indent + 2),
+                    pad,
+                    pad
+                )
+            }
+            IrOp::DoUntil { body, condition } => {
+                format!(
+                    concat!(
+                        "\n{}{{\n",
+                        "{}  \"op\": \"doUntil\",\n",
                         "{}  \"condition\": {},\n",
                         "{}  \"body\": [{}\n{}  ]\n",
                         "{}}}"
@@ -3273,6 +3345,14 @@ fn join_json<T: ToIrJson>(items: &[T], indent: usize) -> String {
         .join(",")
 }
 
+fn loop_kind_name(kind: LoopKind) -> &'static str {
+    match kind {
+        LoopKind::For => "for",
+        LoopKind::Do => "do",
+        LoopKind::While => "while",
+    }
+}
+
 fn visibility_name(visibility: Visibility) -> &'static str {
     match visibility {
         Visibility::Private => "private",
@@ -3319,6 +3399,17 @@ fn put_u16(out: &mut Vec<u8>, v: u16) {
 
 fn put_bool(out: &mut Vec<u8>, v: bool) {
     out.push(if v { 1 } else { 0 });
+}
+
+fn put_loop_kind(out: &mut Vec<u8>, kind: LoopKind) {
+    put_u8(
+        out,
+        match kind {
+            LoopKind::For => 0,
+            LoopKind::Do => 1,
+            LoopKind::While => 2,
+        },
+    );
 }
 
 fn put_str(out: &mut Vec<u8>, s: &str) {
@@ -3657,6 +3748,18 @@ fn encode_op(out: &mut Vec<u8>, op: &IrOp) {
             put_u8(out, 3);
             put_opt_value(out, value);
         }
+        IrOp::ExitLoop { kind } => {
+            put_u8(out, 11);
+            put_loop_kind(out, *kind);
+        }
+        IrOp::ContinueLoop { kind } => {
+            put_u8(out, 12);
+            put_loop_kind(out, *kind);
+        }
+        IrOp::ExitProgram { code } => {
+            put_u8(out, 13);
+            encode_value(out, code);
+        }
         IrOp::Fail { error } => {
             put_u8(out, 4);
             encode_value(out, error);
@@ -3680,10 +3783,40 @@ fn encode_op(out: &mut Vec<u8>, op: &IrOp) {
             encode_value(out, value);
             put_vec(out, cases, encode_match_case);
         }
-        IrOp::While { condition, body } => {
-            put_u8(out, 8);
+        IrOp::While {
+            kind,
+            condition,
+            body,
+        } => {
+            if matches!(kind, LoopKind::While) {
+                put_u8(out, 8);
+            } else {
+                put_u8(out, 16);
+                put_loop_kind(out, *kind);
+            }
             encode_value(out, condition);
             put_vec(out, body, encode_op);
+        }
+        IrOp::For {
+            name,
+            type_,
+            start,
+            end,
+            step,
+            body,
+        } => {
+            put_u8(out, 14);
+            put_str(out, name);
+            put_str(out, type_);
+            encode_value(out, start);
+            encode_value(out, end);
+            encode_value(out, step);
+            put_vec(out, body, encode_op);
+        }
+        IrOp::DoUntil { body, condition } => {
+            put_u8(out, 15);
+            put_vec(out, body, encode_op);
+            encode_value(out, condition);
         }
         IrOp::ForEach {
             name,
@@ -3725,6 +3858,15 @@ fn decode_op(r: &mut IrReader) -> Result<IrOp, String> {
         3 => IrOp::Return {
             value: r.opt_value()?,
         },
+        11 => IrOp::ExitLoop {
+            kind: decode_loop_kind(r)?,
+        },
+        12 => IrOp::ContinueLoop {
+            kind: decode_loop_kind(r)?,
+        },
+        13 => IrOp::ExitProgram {
+            code: decode_value(r)?,
+        },
         4 => IrOp::Fail {
             error: decode_value(r)?,
         },
@@ -3741,6 +3883,7 @@ fn decode_op(r: &mut IrReader) -> Result<IrOp, String> {
             cases: decode_vec(r, decode_match_case)?,
         },
         8 => IrOp::While {
+            kind: LoopKind::While,
             condition: decode_value(r)?,
             body: decode_vec(r, decode_op)?,
         },
@@ -3754,8 +3897,36 @@ fn decode_op(r: &mut IrReader) -> Result<IrOp, String> {
             name: r.string()?,
             body: decode_vec(r, decode_op)?,
         },
+        14 => IrOp::For {
+            name: r.string()?,
+            type_: r.string()?,
+            start: decode_value(r)?,
+            end: decode_value(r)?,
+            step: decode_value(r)?,
+            body: decode_vec(r, decode_op)?,
+        },
+        15 => IrOp::DoUntil {
+            body: decode_vec(r, decode_op)?,
+            condition: decode_value(r)?,
+        },
+        16 => IrOp::While {
+            kind: decode_loop_kind(r)?,
+            condition: decode_value(r)?,
+            body: decode_vec(r, decode_op)?,
+        },
         other => return Err(format!("Binary Representation: unknown IrOp tag {other}")),
     })
+}
+
+fn decode_loop_kind(r: &mut IrReader) -> Result<LoopKind, String> {
+    match r.u8()? {
+        0 => Ok(LoopKind::For),
+        1 => Ok(LoopKind::Do),
+        2 => Ok(LoopKind::While),
+        other => Err(format!(
+            "Binary Representation: unknown loop kind tag {other}"
+        )),
+    }
 }
 
 // --- IrMatchCase / IrMatchPattern ------------------------------------------
@@ -3794,7 +3965,11 @@ fn decode_match_pattern(r: &mut IrReader) -> Result<IrMatchPattern, String> {
         0 => IrMatchPattern::Else,
         1 => IrMatchPattern::Value(decode_value(r)?),
         2 => IrMatchPattern::OneOf(decode_vec(r, decode_value)?),
-        other => return Err(format!("Binary Representation: unknown IrMatchPattern tag {other}")),
+        other => {
+            return Err(format!(
+                "Binary Representation: unknown IrMatchPattern tag {other}"
+            ))
+        }
     })
 }
 
@@ -4009,7 +4184,11 @@ fn decode_value(r: &mut IrReader) -> Result<IrValue, String> {
             op: r.string()?,
             operand: Box::new(decode_value(r)?),
         },
-        other => return Err(format!("Binary Representation: unknown IrValue tag {other}")),
+        other => {
+            return Err(format!(
+                "Binary Representation: unknown IrValue tag {other}"
+            ))
+        }
     })
 }
 
@@ -4041,7 +4220,10 @@ pub fn verify_package(pir: &IrProject) -> Result<(), String> {
     let mut seen_functions: HashSet<&str> = HashSet::new();
     for function in &pir.functions {
         if function.name.is_empty() {
-            return Err("PACKAGE_BINARY_REPRESENTATION_VERIFY_TYPE: package contains an unnamed function".to_string());
+            return Err(
+                "PACKAGE_BINARY_REPRESENTATION_VERIFY_TYPE: package contains an unnamed function"
+                    .to_string(),
+            );
         }
         if !seen_functions.insert(function.name.as_str()) {
             return Err(format!(
@@ -4078,9 +4260,9 @@ fn verify_ops(ops: &[IrOp]) -> Result<(), String> {
                 verify_ops(then_body)?;
                 verify_ops(else_body)?;
             }
-            IrOp::While { body, .. }
-            | IrOp::ForEach { body, .. }
-            | IrOp::Trap { body, .. } => verify_ops(body)?,
+            IrOp::While { body, .. } | IrOp::ForEach { body, .. } | IrOp::Trap { body, .. } => {
+                verify_ops(body)?
+            }
             IrOp::Match { cases, .. } => {
                 if cases.is_empty() {
                     return Err(
@@ -4184,7 +4366,11 @@ pub fn apply_package_identity(
 /// Call `prefix_package_symbols` on `package` first.
 pub fn merge_package(project: &mut IrProject, package: IrProject) {
     for ty in package.types {
-        if !project.types.iter().any(|existing| existing.name == ty.name) {
+        if !project
+            .types
+            .iter()
+            .any(|existing| existing.name == ty.name)
+        {
             project.types.push(ty);
         }
     }
@@ -4233,6 +4419,8 @@ fn rewrite_op_targets(op: &mut IrOp, fns: &HashSet<String>, globals: &HashSet<St
                 rewrite_value_targets(v, fns, globals, pkg);
             }
         }
+        IrOp::ExitLoop { .. } | IrOp::ContinueLoop { .. } => {}
+        IrOp::ExitProgram { code } => rewrite_value_targets(code, fns, globals, pkg),
         IrOp::If {
             condition,
             then_body,
@@ -4263,11 +4451,33 @@ fn rewrite_op_targets(op: &mut IrOp, fns: &HashSet<String>, globals: &HashSet<St
                 }
             }
         }
-        IrOp::While { condition, body } => {
+        IrOp::While {
+            condition, body, ..
+        } => {
             rewrite_value_targets(condition, fns, globals, pkg);
             for op in body {
                 rewrite_op_targets(op, fns, globals, pkg);
             }
+        }
+        IrOp::For {
+            start,
+            end,
+            step,
+            body,
+            ..
+        } => {
+            rewrite_value_targets(start, fns, globals, pkg);
+            rewrite_value_targets(end, fns, globals, pkg);
+            rewrite_value_targets(step, fns, globals, pkg);
+            for op in body {
+                rewrite_op_targets(op, fns, globals, pkg);
+            }
+        }
+        IrOp::DoUntil { body, condition } => {
+            for op in body {
+                rewrite_op_targets(op, fns, globals, pkg);
+            }
+            rewrite_value_targets(condition, fns, globals, pkg);
         }
         IrOp::ForEach { iterable, body, .. } => {
             rewrite_value_targets(iterable, fns, globals, pkg);
@@ -4489,6 +4699,7 @@ mod binary_repr_tests {
                 else_body: vec![IrOp::Return { value: None }],
             },
             IrOp::While {
+                kind: LoopKind::While,
                 condition: IrValue::Local("b".to_string()),
                 body: vec![IrOp::Eval {
                     value: IrValue::Local("a".to_string()),
@@ -4754,14 +4965,20 @@ mod binary_repr_tests {
     fn verify_package_rejects_duplicate_function() {
         let pir = project_named("pkg", vec![fn_named("f", vec![]), fn_named("f", vec![])]);
         let err = verify_package(&pir).expect_err("duplicate function must be rejected");
-        assert!(err.contains("PACKAGE_BINARY_REPRESENTATION_VERIFY_TYPE"), "{err}");
+        assert!(
+            err.contains("PACKAGE_BINARY_REPRESENTATION_VERIFY_TYPE"),
+            "{err}"
+        );
     }
 
     #[test]
     fn verify_package_rejects_unnamed_function() {
         let pir = project_named("pkg", vec![fn_named("", vec![])]);
         let err = verify_package(&pir).expect_err("unnamed function must be rejected");
-        assert!(err.contains("PACKAGE_BINARY_REPRESENTATION_VERIFY_TYPE"), "{err}");
+        assert!(
+            err.contains("PACKAGE_BINARY_REPRESENTATION_VERIFY_TYPE"),
+            "{err}"
+        );
     }
 
     #[test]
@@ -4772,6 +4989,9 @@ mod binary_repr_tests {
         }];
         let pir = project_named("pkg", vec![fn_named("f", body)]);
         let err = verify_package(&pir).expect_err("non-exhaustive MATCH must be rejected");
-        assert!(err.contains("PACKAGE_BINARY_REPRESENTATION_VERIFY_MATCH"), "{err}");
+        assert!(
+            err.contains("PACKAGE_BINARY_REPRESENTATION_VERIFY_MATCH"),
+            "{err}"
+        );
     }
 }

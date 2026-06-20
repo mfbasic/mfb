@@ -1,0 +1,117 @@
+{
+  "project": "exit_loop_valid",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "main",
+      "line": 1,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": true, "name": "total", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 2 },
+      {
+        "kind": "for",
+        "name": "i",
+        "start": { "kind": "number", "value": "1" },
+        "end": { "kind": "number", "value": "5" },
+        "step": null,
+        "line": 4,
+        "body": [
+        {
+          "kind": "if",
+          "condition": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "i" }, "right": { "kind": "number", "value": "3" } },
+          "line": 5,
+          "then": [
+          { "kind": "exit", "target": "for", "code": null, "line": 5 }
+          ],
+          "else": [
+          ]
+        },
+        { "kind": "assignment", "name": "total", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "total" }, "right": { "kind": "identifier", "value": "i" } }, "line": 6 }
+        ]
+      },
+      { "kind": "binding", "mutable": false, "name": "numbers", "type": "List OF Integer", "value": { "kind": "list", "values": [{ "kind": "number", "value": "4" }, { "kind": "number", "value": "5" }, { "kind": "number", "value": "6" }] }, "line": 9 },
+      {
+        "kind": "forEach",
+        "name": "n",
+        "iterable": { "kind": "identifier", "value": "numbers" },
+        "line": 10,
+        "body": [
+        {
+          "kind": "if",
+          "condition": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "n" }, "right": { "kind": "number", "value": "5" } },
+          "line": 11,
+          "then": [
+          { "kind": "exit", "target": "for", "code": null, "line": 11 }
+          ],
+          "else": [
+          ]
+        },
+        { "kind": "assignment", "name": "total", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "total" }, "right": { "kind": "identifier", "value": "n" } }, "line": 12 }
+        ]
+      },
+      {
+        "kind": "doUntil",
+        "condition": { "kind": "binary", "operator": ">", "left": { "kind": "identifier", "value": "total" }, "right": { "kind": "number", "value": "1000" } },
+        "line": 15,
+        "body": [
+        { "kind": "assignment", "name": "total", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "total" }, "right": { "kind": "number", "value": "10" } }, "line": 16 },
+        {
+          "kind": "for",
+          "name": "j",
+          "start": { "kind": "number", "value": "1" },
+          "end": { "kind": "number", "value": "2" },
+          "step": null,
+          "line": 17,
+          "body": [
+          { "kind": "exit", "target": "do", "code": null, "line": 18 }
+          ]
+        },
+        { "kind": "assignment", "name": "total", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "total" }, "right": { "kind": "number", "value": "100" } }, "line": 20 }
+        ]
+      },
+      { "kind": "binding", "mutable": true, "name": "ready", "type": "Boolean", "value": { "kind": "boolean", "value": true }, "line": 23 },
+      {
+        "kind": "while",
+        "loop": "do",
+        "condition": { "kind": "identifier", "value": "ready" },
+        "line": 24,
+        "body": [
+        { "kind": "assignment", "name": "total", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "total" }, "right": { "kind": "number", "value": "20" } }, "line": 25 },
+        { "kind": "exit", "target": "do", "code": null, "line": 26 }
+        ]
+      },
+      { "kind": "binding", "mutable": true, "name": "w", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 29 },
+      {
+        "kind": "while",
+        "loop": "while",
+        "condition": { "kind": "boolean", "value": true },
+        "line": 30,
+        "body": [
+        { "kind": "assignment", "name": "w", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "w" }, "right": { "kind": "number", "value": "1" } }, "line": 31 },
+        {
+          "kind": "if",
+          "condition": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "w" }, "right": { "kind": "number", "value": "2" } },
+          "line": 32,
+          "then": [
+          { "kind": "exit", "target": "while", "code": null, "line": 32 }
+          ],
+          "else": [
+          ]
+        }
+        ]
+      },
+      { "kind": "return", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "total" }, "right": { "kind": "identifier", "value": "w" } }, "line": 35 }
+      ]
+    }
+    ]
+  }
+  ]
+}

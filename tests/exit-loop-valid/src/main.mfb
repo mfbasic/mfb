@@ -1,0 +1,36 @@
+FUNC main AS Integer
+  MUT total AS Integer = 0
+
+  FOR i = 1 TO 5
+    IF i = 3 THEN EXIT FOR
+    total = total + i
+  NEXT
+
+  LET numbers AS List OF Integer = [4, 5, 6]
+  FOR EACH n IN numbers
+    IF n = 5 THEN EXIT FOR
+    total = total + n
+  NEXT
+
+  DO
+    total = total + 10
+    FOR j = 1 TO 2
+      EXIT DO
+    NEXT
+    total = total + 100
+  LOOP UNTIL total > 1000
+
+  MUT ready AS Boolean = TRUE
+  DO WHILE ready
+    total = total + 20
+    EXIT DO
+  LOOP
+
+  MUT w AS Integer = 0
+  WHILE TRUE
+    w = w + 1
+    IF w = 2 THEN EXIT WHILE
+  WEND
+
+  RETURN total + w
+END FUNC

@@ -41,7 +41,7 @@
       "returnType": null,
       "body": [
       { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "bare-return" }] }, "line": 12 },
-      { "kind": "return", "value": null, "line": 13 }
+      { "kind": "exit", "target": "sub", "code": null, "line": 13 }
       ]
     },
     {
@@ -54,7 +54,7 @@
       "returnType": null,
       "body": [
       { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "explicit-return" }] }, "line": 17 },
-      { "kind": "return", "value": null, "line": 18 }
+      { "kind": "exit", "target": "sub", "code": null, "line": 18 }
       ]
     },
     {

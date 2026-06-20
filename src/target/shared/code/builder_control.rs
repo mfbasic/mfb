@@ -114,6 +114,37 @@ impl CodeBuilder<'_> {
                     NirOp::Return { value } => {
                         self.emit_return_exit(value.as_ref())?;
                     }
+                    NirOp::ExitLoop { kind } => {
+                        let target = self
+                            .loop_stack
+                            .iter()
+                            .rev()
+                            .find(|labels| labels.kind == *kind)
+                            .cloned()
+                            .ok_or_else(|| "native code EXIT has no matching loop".to_string())?;
+                        self.emit_cleanup_branch_to_depth(
+                            &target.exit_label,
+                            target.cleanup_depth,
+                        )?;
+                    }
+                    NirOp::ContinueLoop { kind } => {
+                        let target = self
+                            .loop_stack
+                            .iter()
+                            .rev()
+                            .find(|labels| labels.kind == *kind)
+                            .cloned()
+                            .ok_or_else(|| {
+                                "native code CONTINUE has no matching loop".to_string()
+                            })?;
+                        self.emit_cleanup_branch_to_depth(
+                            &target.continue_label,
+                            target.cleanup_depth,
+                        )?;
+                    }
+                    NirOp::ExitProgram { code } => {
+                        self.emit_program_exit_value(code)?;
+                    }
                     NirOp::Fail { error } => {
                         self.emit_error_value_exit(error, self.error_exit_destination())?;
                     }
@@ -225,7 +256,11 @@ impl CodeBuilder<'_> {
                         self.emit(abi::label(&end_label));
                         self.clear_local_constants();
                     }
-                    NirOp::While { condition, body } => {
+                    NirOp::While {
+                        kind,
+                        condition,
+                        body,
+                    } => {
                         let loop_label = self.label("while_loop");
                         let end_label = self.label("while_end");
                         self.emit(abi::label(&loop_label));
@@ -233,8 +268,45 @@ impl CodeBuilder<'_> {
                         self.emit(abi::compare_immediate(&condition.location, "0"));
                         self.emit(abi::branch_eq(&end_label));
                         self.clear_local_constants();
+                        self.loop_stack.push(LoopLabels {
+                            kind: *kind,
+                            continue_label: loop_label.clone(),
+                            exit_label: end_label.clone(),
+                            cleanup_depth: self.active_cleanups.len(),
+                        });
                         self.lower_ops(body)?;
+                        self.loop_stack.pop();
                         self.emit(abi::branch(&loop_label));
+                        self.emit(abi::label(&end_label));
+                        self.clear_local_constants();
+                    }
+                    NirOp::For {
+                        name,
+                        type_,
+                        start,
+                        end,
+                        step,
+                        body,
+                    } => {
+                        self.lower_numeric_for(name, type_, start, end, step, body)?;
+                    }
+                    NirOp::DoUntil { body, condition } => {
+                        let loop_label = self.label("do_loop");
+                        let condition_label = self.label("do_until");
+                        let end_label = self.label("do_end");
+                        self.emit(abi::label(&loop_label));
+                        self.loop_stack.push(LoopLabels {
+                            kind: crate::ast::LoopKind::Do,
+                            continue_label: condition_label.clone(),
+                            exit_label: end_label.clone(),
+                            cleanup_depth: self.active_cleanups.len(),
+                        });
+                        self.lower_ops(body)?;
+                        self.loop_stack.pop();
+                        self.emit(abi::label(&condition_label));
+                        let condition = self.lower_value(condition)?;
+                        self.emit(abi::compare_immediate(&condition.location, "0"));
+                        self.emit(abi::branch_eq(&loop_label));
                         self.emit(abi::label(&end_label));
                         self.clear_local_constants();
                     }
@@ -282,6 +354,104 @@ impl CodeBuilder<'_> {
                 }
             }
         }
+        Ok(())
+    }
+
+    pub(super) fn lower_numeric_for(
+        &mut self,
+        name: &str,
+        type_: &str,
+        start: &NirValue,
+        end: &NirValue,
+        step: &NirValue,
+        body: &[NirOp],
+    ) -> Result<(), String> {
+        let local_slot = self.allocate_stack_object(name, 8);
+        let start_value = self.lower_value(start)?;
+        self.emit(abi::store_u64(
+            &start_value.location,
+            abi::stack_pointer(),
+            local_slot,
+        ));
+        let previous = self.locals.insert(
+            name.to_string(),
+            LocalValue {
+                type_: type_.to_string(),
+                stack_offset: local_slot,
+                constant: None,
+            },
+        );
+
+        let loop_label = self.label("for_loop");
+        let continue_label = self.label("for_continue");
+        let end_label = self.label("for_end");
+        self.emit(abi::label(&loop_label));
+        let iter = NirValue::Local(name.to_string());
+        let zero = NirValue::Const {
+            type_: type_.to_string(),
+            value: "0".to_string(),
+        };
+        let condition = NirValue::Binary {
+            op: "OR".to_string(),
+            left: Box::new(NirValue::Binary {
+                op: "AND".to_string(),
+                left: Box::new(NirValue::Binary {
+                    op: ">=".to_string(),
+                    left: Box::new(step.clone()),
+                    right: Box::new(zero.clone()),
+                }),
+                right: Box::new(NirValue::Binary {
+                    op: "<=".to_string(),
+                    left: Box::new(iter.clone()),
+                    right: Box::new(end.clone()),
+                }),
+            }),
+            right: Box::new(NirValue::Binary {
+                op: "AND".to_string(),
+                left: Box::new(NirValue::Binary {
+                    op: "<".to_string(),
+                    left: Box::new(step.clone()),
+                    right: Box::new(zero),
+                }),
+                right: Box::new(NirValue::Binary {
+                    op: ">=".to_string(),
+                    left: Box::new(iter.clone()),
+                    right: Box::new(end.clone()),
+                }),
+            }),
+        };
+        let condition = self.lower_value(&condition)?;
+        self.emit(abi::compare_immediate(&condition.location, "0"));
+        self.emit(abi::branch_eq(&end_label));
+        self.clear_local_constants();
+        self.loop_stack.push(LoopLabels {
+            kind: crate::ast::LoopKind::For,
+            continue_label: continue_label.clone(),
+            exit_label: end_label.clone(),
+            cleanup_depth: self.active_cleanups.len(),
+        });
+        self.lower_ops(body)?;
+        self.loop_stack.pop();
+        self.emit(abi::label(&continue_label));
+        let increment = NirValue::Binary {
+            op: "+".to_string(),
+            left: Box::new(iter),
+            right: Box::new(step.clone()),
+        };
+        let increment = self.lower_value(&increment)?;
+        self.emit(abi::store_u64(
+            &increment.location,
+            abi::stack_pointer(),
+            local_slot,
+        ));
+        self.emit(abi::branch(&loop_label));
+        self.emit(abi::label(&end_label));
+        if let Some(previous) = previous {
+            self.locals.insert(name.to_string(), previous);
+        } else {
+            self.locals.remove(name);
+        }
+        self.clear_local_constants();
         Ok(())
     }
 
@@ -428,7 +598,14 @@ impl CodeBuilder<'_> {
             },
         );
         self.clear_local_constants();
+        self.loop_stack.push(LoopLabels {
+            kind: crate::ast::LoopKind::For,
+            continue_label: loop_label.clone(),
+            exit_label: end_label.clone(),
+            cleanup_depth: self.active_cleanups.len(),
+        });
         self.lower_ops(body)?;
+        self.loop_stack.pop();
         if let Some(previous) = previous {
             self.locals.insert(name.to_string(), previous);
         } else {
@@ -447,11 +624,16 @@ fn nir_op_context(op: &NirOp) -> String {
         NirOp::StoreGlobal { name, .. } => format!("store global {name}"),
         NirOp::Assign { name, .. } => format!("assign {name}"),
         NirOp::Return { .. } => "return".to_string(),
+        NirOp::ExitLoop { .. } => "exit loop".to_string(),
+        NirOp::ContinueLoop { .. } => "continue loop".to_string(),
+        NirOp::ExitProgram { .. } => "exit program".to_string(),
         NirOp::Fail { .. } => "fail".to_string(),
         NirOp::Eval { value } => format!("eval {}", nir_value_context(value)),
         NirOp::If { .. } => "if".to_string(),
         NirOp::Match { .. } => "match".to_string(),
         NirOp::While { .. } => "while".to_string(),
+        NirOp::For { name, .. } => format!("for {name}"),
+        NirOp::DoUntil { .. } => "do until".to_string(),
         NirOp::ForEach { name, .. } => format!("for each {name}"),
         NirOp::Trap { .. } => "trap".to_string(),
     }

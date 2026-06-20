@@ -1,0 +1,11 @@
+$ mfb build -ast tests/exit-program-valid-rt
+Wrote AST to tests/exit-program-valid-rt/exit_program_valid_rt.ast
+[exit 0]
+$ mfb build -ir tests/exit-program-valid-rt
+Wrote IR to tests/exit-program-valid-rt/exit_program_valid_rt.ir
+[exit 0]
+$ mfb build tests/exit-program-valid-rt
+Wrote executable to tests/exit-program-valid-rt/exit_program_valid_rt.out
+[exit 0]
+$ tests/exit-program-valid-rt/exit_program_valid_rt.out
+[exit 3]

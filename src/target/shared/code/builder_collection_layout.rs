@@ -548,9 +548,8 @@ impl CodeBuilder<'_> {
         if let Some(key_len_slot) = key_len_slot {
             // Align the key payload start to its type alignment before recording
             // its offset (map entries only; lists have no key).
-            let key_alignment = self.collection_payload_alignment(
-                &slot.key.as_ref().unwrap().type_,
-            );
+            let key_alignment =
+                self.collection_payload_alignment(&slot.key.as_ref().unwrap().type_);
             self.emit_align_offset_slot(data_offset_slot, key_alignment);
             self.emit(abi::load_u64(
                 collection_register,

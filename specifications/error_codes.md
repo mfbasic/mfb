@@ -211,8 +211,15 @@ These codes correspond to `src/rules.rs` and are emitted directly by the compile
 | `2-203-0070` | `TYPE_RESULT_NOT_USER_VISIBLE` | error | `Result is an internal type and cannot be named in user code` |
 | `2-203-0071` | `TYPE_RESULT_NOT_MATCHABLE` | error | `Ok and Error are not matchable as Result members in user code` |
 | `2-203-0072` | `TYPE_THREAD_RESULT_REMOVED` | error | `the thread result field is removed; use thread::waitFor` |
-| `2-203-0073` | `TYPE_SUB_RETURN_TAKES_NO_VALUE` | error | `RETURN in a SUB takes no value` |
+| `2-203-0073` | `SUB_RETURN_FORBIDDEN` | error | `RETURN is forbidden in a SUB; use EXIT SUB` |
 | `2-203-0074` | `TYPE_SUB_HAS_NO_VALUE` | error | `a SUB call produces no value and cannot be used in value position` |
+| `2-203-0075` | `EXIT_NO_MATCHING_LOOP` | error | `EXIT has no matching enclosing loop` |
+| `2-203-0076` | `CONTINUE_NO_MATCHING_LOOP` | error | `CONTINUE has no matching enclosing loop` |
+| `2-203-0077` | `EXIT_SUB_IN_FUNC` | error | `EXIT SUB is valid only inside a SUB` |
+| `2-203-0078` | `EXIT_FUNC_FORBIDDEN` | error | `EXIT FUNC is forbidden; functions must RETURN a value` |
+| `2-203-0079` | `TYPE_EXIT_PROGRAM_REQUIRES_INTEGER` | error | `EXIT PROGRAM requires an Integer exit code` |
+| `2-203-0080` | `EXIT_PROGRAM_CODE_OUT_OF_RANGE` | error | `EXIT PROGRAM constant exit code is outside the host range` |
+| `2-203-0081` | `UNREACHABLE_AFTER_EXIT` | error | `statement is unreachable after EXIT or CONTINUE` |
 
 ## Toolchain and Package Diagnostics
 
