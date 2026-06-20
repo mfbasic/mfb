@@ -467,6 +467,7 @@ fn walk_statements(body: &[Statement], visit: &mut impl FnMut(&str, usize)) {
                 }
             }
             Statement::Assign { value, line, .. } => walk_expression(value, *line, visit),
+            Statement::StateAssign { value, line, .. } => walk_expression(value, *line, visit),
             Statement::Expression { expression, line } => walk_expression(expression, *line, visit),
             Statement::If {
                 condition,

@@ -47,6 +47,9 @@ struct LocalInfo {
     /// the callee may use it and mutate its `STATE` but may not invalidate it
     /// (close, `RETURN`, or `thread::transfer` require ownership).
     borrowed: bool,
+    /// The `STATE T` type attached to a `RES` binding/parameter, if any. Drives
+    /// `s.state` member access typing.
+    state_type: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -1244,6 +1247,7 @@ impl<'a> TypeChecker<'a> {
             }
 
             let borrowed = self.is_resource_type(&param_type);
+            let state_type = param.state_type.clone();
             locals.insert(
                 param.name.clone(),
                 LocalInfo {
@@ -1251,6 +1255,7 @@ impl<'a> TypeChecker<'a> {
                     mutable: false,
                     ownership: OwnershipState::Available,
                     borrowed,
+                    state_type,
                 },
             );
         }
@@ -1268,6 +1273,7 @@ impl<'a> TypeChecker<'a> {
                     mutable: false,
                     ownership: OwnershipState::Available,
                     borrowed: false,
+                    state_type: None,
                 },
             );
             let trap_flow = self.check_block(
@@ -1381,6 +1387,7 @@ impl<'a> TypeChecker<'a> {
             mutable: left.mutable,
             ownership,
             borrowed: left.borrowed,
+            state_type: left.state_type,
         }
     }
 
@@ -1631,6 +1638,7 @@ impl<'a> TypeChecker<'a> {
                         mutable: *mutable,
                         ownership: OwnershipState::Available,
                         borrowed: false,
+                        state_type: state_type.clone(),
                     },
                 );
                 Flow::FallsThrough
@@ -1930,6 +1938,61 @@ impl<'a> TypeChecker<'a> {
                 }
                 Flow::FallsThrough
             }
+            Statement::StateAssign {
+                resource,
+                value,
+                line,
+            } => {
+                let Some(local) = locals.get(resource).cloned() else {
+                    self.report(
+                        "TYPE_UNKNOWN_VALUE",
+                        &format!("State assignment target `{resource}` is not a local binding."),
+                        file,
+                        *line,
+                    );
+                    self.infer_expression(file, value, locals, *line, ExprMode::Read);
+                    return Flow::FallsThrough;
+                };
+                let Some(state_name) = local.state_type.clone() else {
+                    self.report(
+                        "TYPE_STATE_INVALID",
+                        &format!(
+                            "`{resource}` has no STATE to assign; declare the resource with `STATE T`."
+                        ),
+                        file,
+                        *line,
+                    );
+                    self.infer_expression(file, value, locals, *line, ExprMode::Read);
+                    return Flow::FallsThrough;
+                };
+                // Both the owner and a borrower may mutate STATE; only liveness
+                // (not ownership) is required.
+                if !self.require_local_owned(file, *line, resource, &local) {
+                    return Flow::FallsThrough;
+                }
+                let state_type = self.parse_type(&state_name);
+                let actual = self.infer_expression_with_expected(
+                    file,
+                    value,
+                    locals,
+                    *line,
+                    Some(&state_type),
+                    ExprMode::Transfer,
+                );
+                if !self.expression_compatible(&state_type, &actual, Some(value)) {
+                    self.report(
+                        "TYPE_ASSIGNMENT_MISMATCH",
+                        &format!(
+                            "State assignment to `{resource}.state` has type {}, expected {}.",
+                            self.type_name(&actual),
+                            self.type_name(&state_type)
+                        ),
+                        file,
+                        *line,
+                    );
+                }
+                Flow::FallsThrough
+            }
             Statement::Expression { expression, line } => {
                 // A bare expression statement is the one position where a
                 // value-less `SUB` call is allowed (it discards no value).
@@ -2138,6 +2201,7 @@ impl<'a> TypeChecker<'a> {
                         mutable: false,
                         ownership: OwnershipState::Available,
                         borrowed: false,
+                        state_type: None,
                     },
                 );
                 self.loop_stack.push(LoopKind::For);
@@ -2185,6 +2249,7 @@ impl<'a> TypeChecker<'a> {
                         mutable: false,
                         ownership: OwnershipState::Available,
                         borrowed: false,
+                        state_type: None,
                     },
                 );
                 self.loop_stack.push(LoopKind::For);
@@ -2382,6 +2447,7 @@ impl<'a> TypeChecker<'a> {
                         mutable: false,
                         ownership: OwnershipState::Available,
                         borrowed: false,
+                        state_type: None,
                     },
                 );
                 self.inline_trap_types.push(success_type.clone());
@@ -2659,6 +2725,7 @@ impl<'a> TypeChecker<'a> {
                                 mutable: false,
                                 ownership: OwnershipState::Available,
                                 borrowed: false,
+                                state_type: None,
                             },
                         );
                     }
@@ -3134,6 +3201,22 @@ impl<'a> TypeChecker<'a> {
         locals: &mut HashMap<String, LocalInfo>,
         line: usize,
     ) -> Type {
+        // `s.state` on a `RES` binding/parameter yields its declared `STATE`
+        // record. The owner and a borrower may both read it (and replace it via
+        // `s.state = WITH s.state { ... }`).
+        if member == "state" {
+            if let Expression::Identifier(name) = target {
+                if let Some(state) = locals.get(name).and_then(|info| info.state_type.clone()) {
+                    if let Some(info) = locals.get(name).cloned() {
+                        if !self.require_local_owned(file, line, name, &info) {
+                            return Type::Unknown;
+                        }
+                    }
+                    return self.parse_type(&state);
+                }
+            }
+        }
+
         if let Expression::Identifier(type_name) = target {
             if let Some(info) = self.type_infos.get(type_name).cloned() {
                 if matches!(info.kind, TypeDeclKind::Enum) {
@@ -3717,6 +3800,7 @@ impl<'a> TypeChecker<'a> {
                     mutable: false,
                     ownership: OwnershipState::Available,
                     borrowed: false,
+                    state_type: None,
                 },
             );
             param_types.push(type_);
@@ -5563,6 +5647,7 @@ fn statement_line(statement: &Statement) -> usize {
         | Statement::Propagate { line }
         | Statement::Recover { line, .. }
         | Statement::Assign { line, .. }
+        | Statement::StateAssign { line, .. }
         | Statement::Expression { line, .. }
         | Statement::If { line, .. }
         | Statement::Match { line, .. }

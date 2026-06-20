@@ -233,6 +233,15 @@ pub enum Statement {
         value: Expression,
         line: usize,
     },
+    /// `resource.state = value` — replace a `RES` binding's `STATE` payload. The
+    /// language has no general field assignment; this is the one member-target
+    /// assignment, mirroring the functional `WITH` update idiom
+    /// (`s.state = WITH s.state { field := ... }`).
+    StateAssign {
+        resource: String,
+        value: Expression,
+        line: usize,
+    },
     Expression {
         expression: Expression,
         line: usize,
@@ -1497,6 +1506,41 @@ impl<'a> FileParser<'a> {
                 value,
                 line: token.line,
             });
+        }
+
+        // `resource.state = value` — the one member-target assignment, used to
+        // replace a `RES` binding's `STATE` payload.
+        if let TokenKind::Identifier(resource) = self.peek().kind.clone() {
+            let is_state_assign = self
+                .tokens
+                .get(self.current + 1)
+                .is_some_and(|token| matches!(token.kind, TokenKind::Dot))
+                && self.tokens.get(self.current + 2).is_some_and(|token| {
+                    matches!(&token.kind, TokenKind::Identifier(member) if member == "state")
+                })
+                && self
+                    .tokens
+                    .get(self.current + 3)
+                    .is_some_and(|token| matches!(token.kind, TokenKind::Equal));
+            if is_state_assign {
+                let token = self.advance().clone(); // resource
+                self.advance(); // .
+                self.advance(); // state
+                self.advance(); // =
+                let value = self.parse_expression()?;
+                let value = self.maybe_attach_postfix_trap(value, allow_else_terminator)?;
+                if !matches!(value, Expression::Trapped { .. }) {
+                    self.consume_simple_statement_end(
+                        "Expected end of statement after assignment.",
+                        allow_else_terminator,
+                    );
+                }
+                return Some(Statement::StateAssign {
+                    resource,
+                    value,
+                    line: token.line,
+                });
+            }
         }
 
         if let TokenKind::Identifier(name) = self.peek().kind.clone() {
@@ -3270,6 +3314,19 @@ impl ToAstJson for Statement {
                     "\n{}{{ \"kind\": \"assignment\", \"name\": {}, \"value\": {}, \"line\": {} }}",
                     pad,
                     json_string(name),
+                    value.to_json(indent),
+                    line
+                )
+            }
+            Statement::StateAssign {
+                resource,
+                value,
+                line,
+            } => {
+                format!(
+                    "\n{}{{ \"kind\": \"stateAssignment\", \"resource\": {}, \"value\": {}, \"line\": {} }}",
+                    pad,
+                    json_string(resource),
                     value.to_json(indent),
                     line
                 )

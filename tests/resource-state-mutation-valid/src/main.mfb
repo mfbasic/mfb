@@ -1,0 +1,25 @@
+IMPORT fs
+IMPORT io
+
+TYPE FileState
+  pos AS Integer
+  len AS Integer
+END TYPE
+
+SUB advance(RES f AS File STATE FileState, by AS Integer)
+  f.state = WITH f.state { pos := f.state.pos + by }
+END SUB
+
+FUNC main AS Integer
+  RES f AS File STATE FileState = fs::createTempFile()
+  io::print(toString(f.state.pos))
+  f.state = WITH f.state { pos := 10 }
+  io::print(toString(f.state.pos))
+  advance(f, 5)
+  io::print(toString(f.state.pos))
+  f.state = WITH f.state { len := 99 }
+  io::print(toString(f.state.pos))
+  io::print(toString(f.state.len))
+  fs::close(f)
+  RETURN 0
+END FUNC

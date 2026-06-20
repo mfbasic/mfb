@@ -1,0 +1,57 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "resource_state_mutation_valid",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  {
+    "kind": "type",
+    "visibility": "private",
+    "name": "FileState",
+    "fields": [
+    { "visibility": null, "name": "pos", "type": "Integer" },
+    { "visibility": null, "name": "len", "type": "Integer" }
+    ]
+  }
+  ],
+  "functions": [
+  {
+    "name": "advance",
+    "visibility": "private",
+    "kind": "sub",
+    "params": [
+    { "name": "f", "type": "File STATE FileState", "default": null },
+    { "name": "by", "type": "Integer", "default": null }
+    ],
+    "returns": "Nothing",
+    "body": [
+    { "op": "stateAssign", "resource": "f", "value": { "kind": "with", "type": "FileState", "target": { "kind": "memberAccess", "target": { "kind": "local", "name": "f" }, "member": "state" }, "updates": [{ "field": "pos", "value": { "kind": "binary", "op": "+", "left": { "kind": "memberAccess", "target": { "kind": "memberAccess", "target": { "kind": "local", "name": "f" }, "member": "state" }, "member": "pos" }, "right": { "kind": "local", "name": "by" } } }] } }
+    ]
+  },
+  {
+    "name": "main",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "mutable": false, "name": "f", "type": "File STATE FileState", "value": { "kind": "call", "target": "fs.createTempFile", "args": [] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "memberAccess", "target": { "kind": "memberAccess", "target": { "kind": "local", "name": "f" }, "member": "state" }, "member": "pos" }] }] } },
+    { "op": "stateAssign", "resource": "f", "value": { "kind": "with", "type": "FileState", "target": { "kind": "memberAccess", "target": { "kind": "local", "name": "f" }, "member": "state" }, "updates": [{ "field": "pos", "value": { "kind": "const", "type": "Integer", "value": "10" } }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "memberAccess", "target": { "kind": "memberAccess", "target": { "kind": "local", "name": "f" }, "member": "state" }, "member": "pos" }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "advance", "args": [{ "kind": "local", "name": "f" }, { "kind": "const", "type": "Integer", "value": "5" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "memberAccess", "target": { "kind": "memberAccess", "target": { "kind": "local", "name": "f" }, "member": "state" }, "member": "pos" }] }] } },
+    { "op": "stateAssign", "resource": "f", "value": { "kind": "with", "type": "FileState", "target": { "kind": "memberAccess", "target": { "kind": "local", "name": "f" }, "member": "state" }, "updates": [{ "field": "len", "value": { "kind": "const", "type": "Integer", "value": "99" } }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "memberAccess", "target": { "kind": "memberAccess", "target": { "kind": "local", "name": "f" }, "member": "state" }, "member": "pos" }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "memberAccess", "target": { "kind": "memberAccess", "target": { "kind": "local", "name": "f" }, "member": "state" }, "member": "len" }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "fs.close", "args": [{ "kind": "local", "name": "f" }] } },
+    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

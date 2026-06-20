@@ -63,6 +63,40 @@ impl CodeBuilder<'_> {
         Ok(register)
     }
 
+    /// Default-initialize a `RES` binding's `STATE` payload. The resource value
+    /// at `resource_slot` is a pointer to its record; if the state slot
+    /// (`FILE_OFFSET_STATE`) is null, allocate and store a default `state_type`
+    /// record. A resource that already carries state (moved/returned in) is left
+    /// untouched. Values are spilled to the stack across allocations to avoid
+    /// register aliasing.
+    pub(super) fn emit_resource_state_init(
+        &mut self,
+        resource_slot: usize,
+        state_type: &str,
+    ) -> Result<(), String> {
+        let ptr = self.allocate_register()?;
+        self.emit(abi::load_u64(&ptr, abi::stack_pointer(), resource_slot));
+        let current = self.allocate_register()?;
+        self.emit(abi::load_u64(&current, &ptr, FILE_OFFSET_STATE));
+        let done = self.label("resource_state_init_done");
+        self.emit(abi::compare_immediate(&current, "0"));
+        self.emit(abi::branch_ne(&done));
+        let default = self.lower_default_value(state_type)?;
+        let default_slot = self.allocate_stack_object("resource_state_default", 8);
+        self.emit(abi::store_u64(
+            &default.location,
+            abi::stack_pointer(),
+            default_slot,
+        ));
+        let ptr2 = self.allocate_register()?;
+        self.emit(abi::load_u64(&ptr2, abi::stack_pointer(), resource_slot));
+        let value = self.allocate_register()?;
+        self.emit(abi::load_u64(&value, abi::stack_pointer(), default_slot));
+        self.emit(abi::store_u64(&value, &ptr2, FILE_OFFSET_STATE));
+        self.emit(abi::label(&done));
+        Ok(())
+    }
+
     pub(super) fn lower_default_value(&mut self, type_: &str) -> Result<ValueResult, String> {
         match type_ {
             "Nothing" => {
@@ -166,6 +200,27 @@ impl CodeBuilder<'_> {
         member: &str,
     ) -> Result<ValueResult, String> {
         let target_value = self.lower_value(target)?;
+        // `s.state` on a `RES` value loads the shared `STATE` payload pointer
+        // from the resource record. Because a resource value is a pointer to its
+        // record, a borrow and the owner address the same payload.
+        if member == "state" {
+            if let Some(state_type) =
+                crate::builtins::resource::state_type_name(&target_value.type_)
+            {
+                let state_type = state_type.to_string();
+                let register = self.allocate_register()?;
+                self.emit(abi::load_u64(
+                    &register,
+                    &target_value.location,
+                    FILE_OFFSET_STATE,
+                ));
+                return Ok(ValueResult {
+                    type_: state_type,
+                    location: register,
+                    text: "state".to_string(),
+                });
+            }
+        }
         let (field_index, field_type, payload_offset) =
             if let Some((key_type, value_type)) = parse_map_entry_type(&target_value.type_) {
                 match member {
@@ -1317,7 +1372,11 @@ impl CodeBuilder<'_> {
         let result_slot = self.allocate_stack_object("thread_copy_resource_result", 8);
         let alloc_ok = self.label("thread_copy_resource_alloc_ok");
         self.emit(abi::store_u64(source, abi::stack_pointer(), source_slot));
-        self.emit(abi::move_immediate(abi::return_register(), "Integer", "16"));
+        self.emit(abi::move_immediate(
+            abi::return_register(),
+            "Integer",
+            RESOURCE_RECORD_SIZE,
+        ));
         self.emit(abi::move_immediate("x1", "Integer", "8"));
         self.emit(abi::branch_link(ARENA_ALLOC_SYMBOL));
         self.relocations.push(CodeRelocation {
@@ -1340,6 +1399,8 @@ impl CodeBuilder<'_> {
         self.emit(abi::store_u64("x10", "x1", 0));
         self.emit(abi::load_u64("x10", "x9", 8));
         self.emit(abi::store_u64("x10", "x1", 8));
+        self.emit(abi::load_u64("x10", "x9", FILE_OFFSET_STATE));
+        self.emit(abi::store_u64("x10", "x1", FILE_OFFSET_STATE));
         let result = self.allocate_register()?;
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         Ok(result)

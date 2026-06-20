@@ -245,7 +245,7 @@ fn emit_make_handle(
     alloc_fail: &str,
 ) {
     instructions.extend([
-        abi::move_immediate(abi::return_register(), "Integer", "16"),
+        abi::move_immediate(abi::return_register(), "Integer", RESOURCE_RECORD_SIZE),
         abi::move_immediate("x1", "Integer", "8"),
     ]);
     emit_alloc(symbol, instructions, relocations, alloc_fail);
@@ -253,6 +253,7 @@ fn emit_make_handle(
         abi::load_u64("x9", abi::stack_pointer(), fd_off),
         abi::store_u64("x9", "x1", FILE_OFFSET_FD),
         abi::store_u64("x31", "x1", FILE_OFFSET_CLOSED),
+        abi::store_u64("x31", "x1", FILE_OFFSET_STATE),
     ]);
 }
 

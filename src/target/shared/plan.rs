@@ -478,6 +478,7 @@ fn ops_have_thread_owner(ops: &[NirOp]) -> bool {
         NirOp::While { body, .. } | NirOp::Trap { body, .. } => ops_have_thread_owner(body),
         NirOp::For { body, .. } | NirOp::DoUntil { body, .. } => ops_have_thread_owner(body),
         NirOp::Assign { .. }
+        | NirOp::StateAssign { .. }
         | NirOp::Return { .. }
         | NirOp::ExitLoop { .. }
         | NirOp::ContinueLoop { .. }
@@ -512,7 +513,7 @@ fn collect_platform_imports_from_ops(
             NirOp::Fail { error } => {
                 collect_platform_imports_from_value(platform, required_by, error, imports);
             }
-            NirOp::Assign { value, .. } | NirOp::Eval { value } => {
+            NirOp::Assign { value, .. } | NirOp::StateAssign { value, .. } | NirOp::Eval { value } => {
                 collect_platform_imports_from_value(platform, required_by, value, imports);
             }
             NirOp::If {
@@ -715,6 +716,9 @@ fn collect_runtime_symbols_from_ops_with_constants(
             }
             NirOp::Fail { error } => {
                 collect_runtime_symbols_from_value(error, symbols, constants);
+            }
+            NirOp::StateAssign { value, .. } => {
+                collect_runtime_symbols_from_value(value, symbols, constants);
             }
             NirOp::Assign { name, value } => {
                 collect_runtime_symbols_from_value(value, symbols, constants);
@@ -1047,6 +1051,9 @@ impl FunctionPlanBuilder<'_> {
                         initializer
                     ));
                     self.add_stack_slot(name, type_, *mutable)?;
+                }
+                NirOp::StateAssign { value, .. } => {
+                    self.lower_value(value)?;
                 }
                 NirOp::Assign { name, value } => {
                     self.lower_value(value)?;
@@ -1447,6 +1454,9 @@ fn storage_for_type(
     } else if type_ == "Fixed" {
         (StorageClass::Fixed, 8, 8)
     } else if is_reference_type(type_) {
+        (StorageClass::Reference, 8, 8)
+    } else if crate::builtins::is_resource_type(type_) {
+        // A resource (optionally `File STATE T`) is a pointer to its record.
         (StorageClass::Reference, 8, 8)
     } else if is_user_type_name(type_) {
         (StorageClass::Reference, 8, 8)

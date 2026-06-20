@@ -162,6 +162,9 @@ fn collect_runtime_calls_from_ops_with_constants(
             NirOp::Fail { error } => {
                 collect_runtime_calls_from_value(error, calls, constants);
             }
+            NirOp::StateAssign { value, .. } => {
+                collect_runtime_calls_from_value(value, calls, constants);
+            }
             NirOp::Assign { name, value } => {
                 collect_runtime_calls_from_value(value, calls, constants);
                 if let Some(constant) = native_constant_value(value, constants) {
@@ -695,6 +698,22 @@ fn validate_ops(
                     .ok_or_else(|| format!("NIR assignment targets unknown local '{name}'"))?;
                 if !local.mutable {
                     return Err(format!("NIR assignment targets immutable local '{name}'"));
+                }
+                validate_value(
+                    value,
+                    locals,
+                    function_names,
+                    global_names,
+                    import_names,
+                    type_value_names,
+                    used_helpers,
+                )?;
+            }
+            NirOp::StateAssign { resource, value } => {
+                if !locals.contains_key(resource) {
+                    return Err(format!(
+                        "NIR state assignment targets unknown local '{resource}'"
+                    ));
                 }
                 validate_value(
                     value,

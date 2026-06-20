@@ -101,6 +101,11 @@ pub(crate) enum IrOp {
         name: String,
         value: IrValue,
     },
+    /// Replace the `STATE` payload of a `RES` binding (`resource.state = value`).
+    StateAssign {
+        resource: String,
+        value: IrValue,
+    },
     Return {
         value: Option<IrValue>,
     },
@@ -462,13 +467,17 @@ fn lower_function(function: &Function, context: &mut LowerContext<'_>) -> IrFunc
     };
     let mut locals = HashMap::new();
     for param in &function.params {
-        locals.insert(
-            param.name.clone(),
-            param
-                .type_name
-                .clone()
-                .expect("typecheck requires parameter type before IR lowering"),
-        );
+        let type_ = param
+            .type_name
+            .clone()
+            .expect("typecheck requires parameter type before IR lowering");
+        // Carry a `RES` parameter's `STATE T` in the local type string so
+        // `s.state` resolves inside the callee, matching `lower_param`.
+        let type_ = match &param.state_type {
+            Some(state) => format!("{type_} STATE {state}"),
+            None => type_,
+        };
+        locals.insert(param.name.clone(), type_);
     }
     let previous_return_type = context.current_return_type.take();
     context.current_return_type = Some(returns.clone());
@@ -518,12 +527,19 @@ fn lower_param(
     locals: &HashMap<String, String>,
     context: &mut LowerContext<'_>,
 ) -> IrParam {
+    let type_ = param
+        .type_name
+        .clone()
+        .expect("typecheck requires parameter type before IR lowering");
+    // A `RES` parameter's `STATE T` rides in the type string so the callee can
+    // address the borrowed resource's shared state payload.
+    let type_ = match &param.state_type {
+        Some(state) => format!("{type_} STATE {state}"),
+        None => type_,
+    };
     IrParam {
         name: param.name.clone(),
-        type_: param
-            .type_name
-            .clone()
-            .expect("typecheck requires parameter type before IR lowering"),
+        type_,
         default: param
             .default
             .as_ref()
@@ -586,6 +602,7 @@ fn lower_statement(
             name,
             type_name,
             value,
+            state_type,
             ..
         } => {
             if let Some(Expression::Trapped {
@@ -621,6 +638,13 @@ fn lower_statement(
             let lowered_value = value.as_ref().map(|value| {
                 lower_expression_with_expected(value, Some(&lowered_type), locals, context)
             });
+            // A `RES` binding's `STATE T` rides in the lowered type string
+            // (`File STATE T`) so codegen can default-initialize and address the
+            // state payload; the bare resource name is recovered for recognition.
+            let lowered_type = match state_type {
+                Some(state) => format!("{lowered_type} STATE {state}"),
+                None => lowered_type,
+            };
             locals.insert(name.clone(), lowered_type.clone());
             vec![IrOp::Bind {
                 mutable: *mutable,
@@ -730,6 +754,24 @@ fn lower_statement(
                     value: lowered,
                 }]
             }
+        }
+        Statement::StateAssign {
+            resource, value, ..
+        } => {
+            let resource_type = locals
+                .get(resource)
+                .or_else(|| context.binding_types.get(resource))
+                .cloned();
+            let state_type = resource_type
+                .as_deref()
+                .and_then(crate::builtins::resource::state_type_name)
+                .map(str::to_string);
+            let lowered =
+                lower_expression_with_expected(value, state_type.as_deref(), locals, context);
+            vec![IrOp::StateAssign {
+                resource: resource.clone(),
+                value: lowered,
+            }]
         }
         Statement::Expression { expression, .. } => {
             if let Expression::Trapped {
@@ -1613,6 +1655,13 @@ fn expression_type(
                 }
             }
             let target_type = expression_type(target, locals, context)?;
+            // `s.state` on a `RES` value yields its `STATE` record type, carried
+            // in the resource type string (`File STATE FileState`).
+            if member == "state" {
+                if let Some(state) = crate::builtins::resource::state_type_name(&target_type) {
+                    return Some(state.to_string());
+                }
+            }
             // `t.result` is removed; worker outcomes are retrieved only via
             // `thread::waitFor`. (Typecheck rejects `.result` before IR.)
             if target_type == "Error" {
@@ -3028,6 +3077,14 @@ impl ToIrJson for IrOp {
                     value.to_json(indent)
                 )
             }
+            IrOp::StateAssign { resource, value } => {
+                format!(
+                    "\n{}{{ \"op\": \"stateAssign\", \"resource\": {}, \"value\": {} }}",
+                    pad,
+                    json_string(resource),
+                    value.to_json(indent)
+                )
+            }
             IrOp::Eval { value } => {
                 format!(
                     "\n{}{{ \"op\": \"eval\", \"value\": {} }}",
@@ -3876,6 +3933,11 @@ fn encode_op(out: &mut Vec<u8>, op: &IrOp) {
             put_str(out, name);
             encode_value(out, value);
         }
+        IrOp::StateAssign { resource, value } => {
+            put_u8(out, 17);
+            put_str(out, resource);
+            encode_value(out, value);
+        }
         IrOp::Return { value } => {
             put_u8(out, 3);
             put_opt_value(out, value);
@@ -3987,6 +4049,10 @@ fn decode_op(r: &mut IrReader) -> Result<IrOp, String> {
         },
         2 => IrOp::AssignGlobal {
             name: r.string()?,
+            value: decode_value(r)?,
+        },
+        17 => IrOp::StateAssign {
+            resource: r.string()?,
             value: decode_value(r)?,
         },
         3 => IrOp::Return {
@@ -4564,9 +4630,10 @@ fn rewrite_op_targets(op: &mut IrOp, fns: &HashSet<String>, globals: &HashSet<St
                 rewrite_value_targets(v, fns, globals, pkg);
             }
         }
-        IrOp::Assign { value, .. } | IrOp::Eval { value } | IrOp::Fail { error: value } => {
-            rewrite_value_targets(value, fns, globals, pkg)
-        }
+        IrOp::Assign { value, .. }
+        | IrOp::StateAssign { value, .. }
+        | IrOp::Eval { value }
+        | IrOp::Fail { error: value } => rewrite_value_targets(value, fns, globals, pkg),
         IrOp::AssignGlobal { name, value } => {
             if globals.contains(name) {
                 qualify_target(name, pkg);

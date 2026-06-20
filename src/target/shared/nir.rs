@@ -111,6 +111,11 @@ pub(crate) enum NirOp {
         name: String,
         value: NirValue,
     },
+    /// Replace the `STATE` payload of a `RES` binding (`resource.state = value`).
+    StateAssign {
+        resource: String,
+        value: NirValue,
+    },
     Return {
         value: Option<NirValue>,
     },
@@ -491,6 +496,10 @@ fn lower_op(op: &IrOp) -> NirOp {
         },
         IrOp::Assign { name, value } => NirOp::Assign {
             name: name.clone(),
+            value: lower_value(value),
+        },
+        IrOp::StateAssign { resource, value } => NirOp::StateAssign {
+            resource: resource.clone(),
             value: lower_value(value),
         },
         IrOp::AssignGlobal { name, value } => NirOp::StoreGlobal {
@@ -1095,6 +1104,12 @@ impl ToNirJson for NirOp {
                 "\n{}{{ \"op\": \"assign\", \"name\": {}, \"value\": {} }}",
                 pad,
                 json_string(name),
+                value.to_json(indent)
+            ),
+            NirOp::StateAssign { resource, value } => format!(
+                "\n{}{{ \"op\": \"stateAssign\", \"resource\": {}, \"value\": {} }}",
+                pad,
+                json_string(resource),
                 value.to_json(indent)
             ),
             NirOp::StoreGlobal { name, type_, value } => {

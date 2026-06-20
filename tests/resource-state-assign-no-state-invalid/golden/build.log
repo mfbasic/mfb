@@ -1,0 +1,28 @@
+$ mfb build -ast tests/resource-state-assign-no-state-invalid
+   7 | FUNC main AS Integer
+   8 |   RES f AS File = fs::createTempFile()
+   9 |   f.state = WITH f.state { pos := 1 }
+     | ^
+tests/resource-state-assign-no-state-invalid/src/main.mfb:9 error[2-203-0085 TYPE_STATE_INVALID]: STATE must be a copyable, defaultable data type
+               `f` has no STATE to assign; declare the resource with `STATE T`.
+   7 | FUNC main AS Integer
+   8 |   RES f AS File = fs::createTempFile()
+   9 |   f.state = WITH f.state { pos := 1 }
+     | ^
+tests/resource-state-assign-no-state-invalid/src/main.mfb:9 error[2-203-0034 TYPE_FIELD_ACCESS_REQUIRES_RECORD]: field access requires a record value
+               WITH update requires a record value, got Unknown.
+[exit 1]
+$ mfb build -ir tests/resource-state-assign-no-state-invalid
+   7 | FUNC main AS Integer
+   8 |   RES f AS File = fs::createTempFile()
+   9 |   f.state = WITH f.state { pos := 1 }
+     | ^
+tests/resource-state-assign-no-state-invalid/src/main.mfb:9 error[2-203-0085 TYPE_STATE_INVALID]: STATE must be a copyable, defaultable data type
+               `f` has no STATE to assign; declare the resource with `STATE T`.
+   7 | FUNC main AS Integer
+   8 |   RES f AS File = fs::createTempFile()
+   9 |   f.state = WITH f.state { pos := 1 }
+     | ^
+tests/resource-state-assign-no-state-invalid/src/main.mfb:9 error[2-203-0034 TYPE_FIELD_ACCESS_REQUIRES_RECORD]: field access requires a record value
+               WITH update requires a record value, got Unknown.
+[exit 1]

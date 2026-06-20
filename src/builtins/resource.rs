@@ -151,23 +151,38 @@ fn builtin_resources() -> &'static HashMap<String, ResourceInfo> {
     &BUILTIN_RESOURCES
 }
 
+/// The bare resource type name, with any `STATE T` suffix removed. A stateful
+/// resource carries its `STATE` type in the type string (`File STATE FileState`)
+/// once lowered to IR/NIR; recognition keys on the bare resource name.
+pub(crate) fn base_resource_name(type_name: &str) -> &str {
+    match type_name.split_once(" STATE ") {
+        Some((base, _)) => base,
+        None => type_name,
+    }
+}
+
+/// The `STATE` record type carried by a resource type string, if any.
+pub(crate) fn state_type_name(type_name: &str) -> Option<&str> {
+    type_name.split_once(" STATE ").map(|(_, state)| state)
+}
+
 /// Whether `type_name` is a built-in resource type. Used by stages that only
 /// ever see built-in resources (codegen, binary-representation writer).
 pub(crate) fn is_builtin_resource_type(type_name: &str) -> bool {
-    BUILTIN_RESOURCES.contains_key(type_name)
+    BUILTIN_RESOURCES.contains_key(base_resource_name(type_name))
 }
 
 /// The built-in close op for `type_name`, if it is a built-in resource.
 pub(crate) fn builtin_resource_close_function(type_name: &str) -> Option<&'static str> {
     BUILTIN_RESOURCES
-        .get(type_name)
+        .get(base_resource_name(type_name))
         .map(|info| info.close_function.as_str())
 }
 
 /// Whether `type_name` is a built-in resource that may cross a thread boundary.
 pub(crate) fn is_builtin_sendable_resource_type(type_name: &str) -> bool {
     BUILTIN_RESOURCES
-        .get(type_name)
+        .get(base_resource_name(type_name))
         .is_some_and(|info| info.sendable)
 }
 

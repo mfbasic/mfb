@@ -1638,6 +1638,7 @@ fn push_op_helpers(ops: &[IrOp], helpers: &mut Vec<RuntimeHelper>) {
             }
             IrOp::Assign { value, .. }
             | IrOp::AssignGlobal { value, .. }
+            | IrOp::StateAssign { value, .. }
             | IrOp::Eval { value } => {
                 push_value_helpers(value, helpers);
             }

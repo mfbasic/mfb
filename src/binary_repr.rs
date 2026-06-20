@@ -2289,9 +2289,10 @@ fn ops_use_resource_type(ops: &[IrOp]) -> bool {
         IrOp::Bind { type_, value, .. } => {
             is_resource_type_name(type_) || value.as_ref().is_some_and(value_uses_resource_type)
         }
-        IrOp::Assign { value, .. } | IrOp::AssignGlobal { value, .. } | IrOp::Eval { value } => {
-            value_uses_resource_type(value)
-        }
+        IrOp::Assign { value, .. }
+        | IrOp::AssignGlobal { value, .. }
+        | IrOp::StateAssign { value, .. }
+        | IrOp::Eval { value } => value_uses_resource_type(value),
         IrOp::Return { value } => value.as_ref().is_some_and(value_uses_resource_type),
         IrOp::ExitLoop { .. } | IrOp::ContinueLoop { .. } => false,
         IrOp::ExitProgram { code } => value_uses_resource_type(code),
@@ -2414,6 +2415,7 @@ fn collect_resource_names_in_ops(
             }
             IrOp::Assign { value, .. }
             | IrOp::AssignGlobal { value, .. }
+            | IrOp::StateAssign { value, .. }
             | IrOp::Eval { value } => collect_resource_names_in_value(value, names, record),
             IrOp::Return { value } => {
                 if let Some(value) = value {
@@ -2601,6 +2603,7 @@ fn collect_imported_calls_op(
         }
         IrOp::Assign { value, .. }
         | IrOp::AssignGlobal { value, .. }
+        | IrOp::StateAssign { value, .. }
         | IrOp::Eval { value }
         | IrOp::Fail { error: value } => collect_imported_calls_value(value, imported, used),
         IrOp::Return { value } => {

@@ -159,6 +159,13 @@ const FS_MODE_DIRECTORY: &str = "16384";
 const FS_MODE_REGULAR: &str = "32768";
 const FILE_OFFSET_FD: usize = 0;
 const FILE_OFFSET_CLOSED: usize = 8;
+/// Offset of the optional `STATE` payload pointer in a resource record. A
+/// resource value is a pointer to its arena record, so a borrow shares the same
+/// record and therefore the same `STATE`. The slot is null until the owning
+/// `RES` binding default-initializes it.
+pub(crate) const FILE_OFFSET_STATE: usize = 16;
+/// Size of a resource record: fd, closed flag, and the `STATE` pointer.
+pub(crate) const RESOURCE_RECORD_SIZE: &str = "24";
 const COLLECTION_KIND_LIST: usize = 0;
 const COLLECTION_KIND_MAP: usize = 1;
 const COLLECTION_HEADER_SIZE: usize = 40;
@@ -7848,7 +7855,7 @@ fn lower_fs_create_temp_file_helper(
         abi::branch(&open_error),
         abi::label(&fd_ok),
         abi::store_u64(abi::return_register(), abi::stack_pointer(), FD_OFFSET),
-        abi::move_immediate(abi::return_register(), "Integer", "16"),
+        abi::move_immediate(abi::return_register(), "Integer", RESOURCE_RECORD_SIZE),
         abi::move_immediate("x1", "Integer", "8"),
         abi::branch_link(ARENA_ALLOC_SYMBOL),
     ]);
@@ -7868,6 +7875,7 @@ fn lower_fs_create_temp_file_helper(
         abi::load_u64("x9", abi::stack_pointer(), FD_OFFSET),
         abi::store_u64("x9", "x1", FILE_OFFSET_FD),
         abi::store_u64("x31", "x1", FILE_OFFSET_CLOSED),
+        abi::store_u64("x31", "x1", FILE_OFFSET_STATE),
         abi::move_register(RESULT_VALUE_REGISTER, "x1"),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
         abi::branch(&done),
@@ -8124,7 +8132,7 @@ fn lower_fs_open_helper(
         abi::branch(&open_error),
         abi::label(&open_ok),
         abi::store_u64(abi::return_register(), abi::stack_pointer(), FLAGS_OFFSET),
-        abi::move_immediate(abi::return_register(), "Integer", "16"),
+        abi::move_immediate(abi::return_register(), "Integer", RESOURCE_RECORD_SIZE),
         abi::move_immediate("x1", "Integer", "8"),
         abi::branch_link(ARENA_ALLOC_SYMBOL),
     ]);
@@ -8153,6 +8161,7 @@ fn lower_fs_open_helper(
         abi::load_u64("x9", abi::stack_pointer(), FLAGS_OFFSET),
         abi::store_u64("x9", "x1", FILE_OFFSET_FD),
         abi::store_u64("x31", "x1", FILE_OFFSET_CLOSED),
+        abi::store_u64("x31", "x1", FILE_OFFSET_STATE),
         abi::move_register(RESULT_VALUE_REGISTER, "x1"),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
         abi::branch(&done),
@@ -10643,7 +10652,7 @@ fn lower_fs_read_bytes_path_helper(
         abi::branch(&open_error),
         abi::label(&open_ok),
         abi::store_u64(abi::return_register(), abi::stack_pointer(), FD_OFFSET),
-        abi::move_immediate(abi::return_register(), "Integer", "16"),
+        abi::move_immediate(abi::return_register(), "Integer", RESOURCE_RECORD_SIZE),
         abi::move_immediate("x1", "Integer", "8"),
         abi::branch_link(ARENA_ALLOC_SYMBOL),
     ]);
@@ -10663,6 +10672,7 @@ fn lower_fs_read_bytes_path_helper(
         abi::load_u64("x9", abi::stack_pointer(), FD_OFFSET),
         abi::store_u64("x9", "x1", FILE_OFFSET_FD),
         abi::store_u64("x31", "x1", FILE_OFFSET_CLOSED),
+        abi::store_u64("x31", "x1", FILE_OFFSET_STATE),
         abi::move_register(abi::return_register(), "x1"),
         abi::branch_link("_mfb_rt_fs_fs_readAllBytes"),
     ]);
@@ -12544,6 +12554,7 @@ fn ops_may_record_cleanup_failure(ops: &[NirOp]) -> bool {
         | NirOp::Trap { body, .. } => ops_may_record_cleanup_failure(body),
         NirOp::StoreGlobal { .. }
         | NirOp::Assign { .. }
+        | NirOp::StateAssign { .. }
         | NirOp::Return { .. }
         | NirOp::ExitLoop { .. }
         | NirOp::ContinueLoop { .. }
@@ -12620,7 +12631,7 @@ fn ops_may_emit_float_arithmetic_error(
             NirOp::ExitLoop { .. } | NirOp::ContinueLoop { .. } => false,
             NirOp::ExitProgram { code } => value_may_emit_float_arithmetic_error(code, locals),
             NirOp::Fail { error } => value_may_emit_float_arithmetic_error(error, locals),
-            NirOp::Assign { value, .. } | NirOp::Eval { value } => {
+            NirOp::Assign { value, .. } | NirOp::StateAssign { value, .. } | NirOp::Eval { value } => {
                 value_may_emit_float_arithmetic_error(value, locals)
             }
             NirOp::If {
@@ -12807,7 +12818,7 @@ fn ops_use_call(ops: &[NirOp], target: &str) -> bool {
         NirOp::ExitLoop { .. } | NirOp::ContinueLoop { .. } => false,
         NirOp::ExitProgram { code } => value_uses_call(code, target),
         NirOp::Fail { error } => value_uses_call(error, target),
-        NirOp::Assign { value, .. } | NirOp::Eval { value } => value_uses_call(value, target),
+        NirOp::Assign { value, .. } | NirOp::StateAssign { value, .. } | NirOp::Eval { value } => value_uses_call(value, target),
         NirOp::If {
             condition,
             then_body,
@@ -12906,7 +12917,7 @@ fn ops_use_type_name(ops: &[NirOp]) -> bool {
         NirOp::ExitLoop { .. } | NirOp::ContinueLoop { .. } => false,
         NirOp::ExitProgram { code } => value_uses_type_name(code),
         NirOp::Fail { error } => value_uses_type_name(error),
-        NirOp::Assign { value, .. } | NirOp::Eval { value } => value_uses_type_name(value),
+        NirOp::Assign { value, .. } | NirOp::StateAssign { value, .. } | NirOp::Eval { value } => value_uses_type_name(value),
         NirOp::If {
             condition,
             then_body,
@@ -13051,7 +13062,7 @@ fn collect_type_name_values_from_ops(ops: &[NirOp], values: &mut Vec<String>) {
             NirOp::ExitLoop { .. } | NirOp::ContinueLoop { .. } => {}
             NirOp::ExitProgram { code } => collect_type_name_values_from_value(code, values),
             NirOp::Fail { error } => collect_type_name_values_from_value(error, values),
-            NirOp::Assign { value, .. } | NirOp::Eval { value } => {
+            NirOp::Assign { value, .. } | NirOp::StateAssign { value, .. } | NirOp::Eval { value } => {
                 collect_type_name_values_from_value(value, values);
             }
             NirOp::If {
@@ -13226,6 +13237,11 @@ fn ops_use_unicode_runtime_tables(
                     }
                 } else {
                     constants.remove(name);
+                }
+            }
+            NirOp::StateAssign { value, .. } => {
+                if value_uses_unicode_runtime_tables(value, constants, types) {
+                    return true;
                 }
             }
             NirOp::Assign { name, value } => {
@@ -13634,6 +13650,9 @@ fn collect_string_values_from_ops_with_constants(
             }
             NirOp::Fail { error } => {
                 collect_string_values_from_value(error, values, constants, types);
+            }
+            NirOp::StateAssign { value, .. } => {
+                collect_string_values_from_value(value, values, constants, types);
             }
             NirOp::Assign { name, value } => {
                 collect_string_values_from_value(value, values, constants, types);
@@ -14292,7 +14311,7 @@ fn collect_builtin_function_refs_in_ops(
                     collect_builtin_function_refs_in_value(value, refs, seen);
                 }
             }
-            NirOp::Assign { value, .. } | NirOp::Eval { value } | NirOp::Fail { error: value } => {
+            NirOp::Assign { value, .. } | NirOp::StateAssign { value, .. } | NirOp::Eval { value } | NirOp::Fail { error: value } => {
                 collect_builtin_function_refs_in_value(value, refs, seen);
             }
             NirOp::Return { value } => {

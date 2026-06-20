@@ -485,6 +485,15 @@ impl<'a> Monomorphizer<'a> {
                 value: self.lower_expression(value, substitutions, context, None, *line),
                 line: *line,
             },
+            Statement::StateAssign {
+                resource,
+                value,
+                line,
+            } => Statement::StateAssign {
+                resource: resource.clone(),
+                value: self.lower_expression(value, substitutions, context, None, *line),
+                line: *line,
+            },
             Statement::Expression { expression, line } => Statement::Expression {
                 expression: self.lower_expression(expression, substitutions, context, None, *line),
                 line: *line,

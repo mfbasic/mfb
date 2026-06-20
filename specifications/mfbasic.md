@@ -1199,9 +1199,13 @@ TYPE FileState        ' an ordinary, copyable data record
 END TYPE
 
 RES s AS File STATE FileState = fs::open("app.db", "read")   ' state default-initialized
+LET here = s.state.pos                                       ' read a state field
+s.state = WITH s.state { pos := 10 }                         ' update the state
 ```
 
 `T` must be an ordinary **copyable, defaultable data type** (`TYPE_STATE_INVALID` otherwise); since no data type may contain a resource, `T` is automatically resource-free. The state is owned by the resource, default-initializes when the resource is produced, rides through `RES` signatures (`RES s AS File STATE FileState`), and is freed when the resource drops or is closed. `STATE` is optional.
+
+`s.state` reads the state record; it is updated with the functional `WITH` idiom assigned back to `s.state` (`s.state = WITH s.state { field := value }`) — the one member-target assignment in the language. Because a resource value is a shared handle, a state update made through a borrowed `RES` parameter is visible to the owner after the call.
 
 To release a resource earlier than the end of its scope, or to observe a close failure, call the resource's explicit close operation (such as `fs::close(f)`). That operation consumes the handle and auto-propagates a close failure like any other call, so the close failure is directly observable. After an explicit close the binding is moved and is not closed again by lexical drop.
 

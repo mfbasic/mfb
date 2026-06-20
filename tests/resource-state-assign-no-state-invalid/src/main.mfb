@@ -1,0 +1,12 @@
+IMPORT fs
+
+TYPE FileState
+  pos AS Integer
+END TYPE
+
+FUNC main AS Integer
+  RES f AS File = fs::createTempFile()
+  f.state = WITH f.state { pos := 1 }
+  fs::close(f)
+  RETURN 0
+END FUNC

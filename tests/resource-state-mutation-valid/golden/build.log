@@ -1,0 +1,16 @@
+$ mfb build -ast tests/resource-state-mutation-valid
+Wrote AST to tests/resource-state-mutation-valid/resource_state_mutation_valid.ast
+[exit 0]
+$ mfb build -ir tests/resource-state-mutation-valid
+Wrote IR to tests/resource-state-mutation-valid/resource_state_mutation_valid.ir
+[exit 0]
+$ mfb build tests/resource-state-mutation-valid
+Wrote executable to tests/resource-state-mutation-valid/resource_state_mutation_valid.out
+[exit 0]
+$ tests/resource-state-mutation-valid/resource_state_mutation_valid.out
+0
+10
+15
+15
+99
+[exit 0]

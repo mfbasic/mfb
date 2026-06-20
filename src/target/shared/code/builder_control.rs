@@ -49,6 +49,16 @@ impl CodeBuilder<'_> {
                                     symbol,
                                 }));
                         }
+                        // Default-initialize a `RES` binding's `STATE` payload.
+                        // The owning binding allocates the state record on first
+                        // bind; a moved/returned resource that already carries a
+                        // state keeps it (the slot is non-null).
+                        if let Some(state_type) =
+                            crate::builtins::resource::state_type_name(type_)
+                        {
+                            let state_type = state_type.to_string();
+                            self.emit_resource_state_init(stack_offset, &state_type)?;
+                        }
                     }
                     NirOp::StoreGlobal { name, type_, value } => {
                         let global = self.global_value(name)?;
@@ -107,6 +117,34 @@ impl CodeBuilder<'_> {
                         if let Some(local) = self.locals.get_mut(name) {
                             local.constant = constant;
                         }
+                    }
+                    NirOp::StateAssign { resource, value } => {
+                        // Replace the resource's `STATE` payload: store the new
+                        // record pointer into the resource record's state slot.
+                        // The resource value is itself a pointer, so the update
+                        // is visible to the owner and any borrower.
+                        let stack_offset = self
+                            .locals
+                            .get(resource)
+                            .ok_or_else(|| {
+                                format!(
+                                    "native code state assignment unknown local '{resource}'"
+                                )
+                            })?
+                            .stack_offset;
+                        let result = self.lower_value(value)?;
+                        let value_slot =
+                            self.allocate_stack_object("state_assign_value", 8);
+                        self.emit(abi::store_u64(
+                            &result.location,
+                            abi::stack_pointer(),
+                            value_slot,
+                        ));
+                        let ptr = self.allocate_register()?;
+                        self.emit(abi::load_u64(&ptr, abi::stack_pointer(), stack_offset));
+                        let val = self.allocate_register()?;
+                        self.emit(abi::load_u64(&val, abi::stack_pointer(), value_slot));
+                        self.emit(abi::store_u64(&val, &ptr, FILE_OFFSET_STATE));
                     }
                     NirOp::Eval { value } => {
                         self.lower_value(value)?;
@@ -637,6 +675,7 @@ fn nir_op_context(op: &NirOp) -> String {
         NirOp::Bind { name, type_, .. } => format!("bind {name} AS {type_}"),
         NirOp::StoreGlobal { name, .. } => format!("store global {name}"),
         NirOp::Assign { name, .. } => format!("assign {name}"),
+        NirOp::StateAssign { resource, .. } => format!("state assign {resource}"),
         NirOp::Return { .. } => "return".to_string(),
         NirOp::ExitLoop { .. } => "exit loop".to_string(),
         NirOp::ContinueLoop { .. } => "continue loop".to_string(),
