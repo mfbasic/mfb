@@ -136,6 +136,10 @@ struct TypeChecker<'a> {
     /// match the top type. Empty means `RECOVER` is illegal.
     inline_trap_types: Vec<Type>,
     loop_stack: Vec<LoopKind>,
+    /// Resource types known to this compilation: the built-ins plus any
+    /// contributed by imported packages' `RESOURCE_TABLE`. Replaces hardcoded
+    /// resource recognition.
+    resource_registry: builtins::ResourceRegistry,
 }
 
 #[derive(Clone)]
@@ -178,6 +182,7 @@ impl<'a> TypeChecker<'a> {
             allow_value_less_call: false,
             inline_trap_types: Vec::new(),
             loop_stack: Vec::new(),
+            resource_registry: builtins::ResourceRegistry::with_builtins(),
         };
         checker.collect_types();
         checker.collect_package_types();
@@ -260,7 +265,51 @@ impl<'a> TypeChecker<'a> {
                         &type_export,
                     );
                 }
+                self.collect_package_resources(file, import.line, &package_file);
             }
+        }
+    }
+
+    /// Register the resource types declared by an imported package's
+    /// `RESOURCE_TABLE` so resource recognition, sendability, and the close op
+    /// are driven by package metadata rather than hardcoded names.
+    fn collect_package_resources(&mut self, file: &AstFile, line: usize, package_file: &Path) {
+        let resources = match binary_repr::read_package_resources(package_file) {
+            Ok(resources) => resources,
+            Err(_) => {
+                self.report(
+                    "PACKAGE_INVALID",
+                    &format!(
+                        "Imported package `{}` has an unreadable resource table.",
+                        package_file.display()
+                    ),
+                    file,
+                    line,
+                );
+                return;
+            }
+        };
+        for resource in resources {
+            // Built-in resources are authoritative: a package's table merely
+            // references them (and older packages predate the sendable bit), so
+            // never let an imported entry override the built-in's semantics.
+            if builtins::is_resource_type(&resource.type_name) {
+                continue;
+            }
+            let Some(close_function) = resource.close_function else {
+                // A resource entry with an unresolvable close op cannot be
+                // closed safely; skip rather than register a half-formed type.
+                continue;
+            };
+            self.resource_registry.register(
+                resource.type_name,
+                builtins::ResourceInfo {
+                    close_function,
+                    sendable: resource.sendable,
+                    close_may_fail: resource.close_may_fail,
+                    kind: builtins::ResourceKind::Imported,
+                },
+            );
         }
     }
 
@@ -379,7 +428,7 @@ impl<'a> TypeChecker<'a> {
                 );
             }
             Type::User(name) => {
-                if builtins::is_resource_type(name) || !seen.insert(name.clone()) {
+                if self.resource_registry.is_resource(name) || !seen.insert(name.clone()) {
                     return;
                 }
                 let Some(info) = self.type_infos.get(name).cloned() else {
@@ -4681,7 +4730,7 @@ impl<'a> TypeChecker<'a> {
             | Type::Thread(_, _)
             | Type::ThreadWorker(_, _) => false,
             Type::User(name) => {
-                if builtins::is_resource_type(name) || !seen.insert(name.clone()) {
+                if self.resource_registry.is_resource(name) || !seen.insert(name.clone()) {
                     return false;
                 }
                 let Some(info) = self.type_infos.get(name) else {
@@ -4771,7 +4820,7 @@ impl<'a> TypeChecker<'a> {
 
     fn is_resource_type(&self, type_: &Type) -> bool {
         match type_ {
-            Type::User(name) => builtins::is_resource_type(name),
+            Type::User(name) => self.resource_registry.is_resource(name),
             _ => false,
         }
     }
@@ -4787,7 +4836,7 @@ impl<'a> TypeChecker<'a> {
     ) -> bool {
         match type_ {
             Type::Thread(_, _) | Type::ThreadWorker(_, _) => true,
-            Type::User(name) if builtins::is_resource_type(name) => true,
+            Type::User(name) if self.resource_registry.is_resource(name) => true,
             Type::List(element) => self.contains_resource_or_thread_with_seen(element, seen),
             Type::Map(key, value) => {
                 self.contains_resource_or_thread_with_seen(key, seen)
@@ -4872,7 +4921,7 @@ impl<'a> TypeChecker<'a> {
             | Type::Thread(_, _)
             | Type::ThreadWorker(_, _) => false,
             Type::User(name) => {
-                if builtins::is_resource_type(name) {
+                if self.resource_registry.is_resource(name) {
                     return false;
                 }
                 if !seen.insert(name.clone()) {
@@ -4915,7 +4964,7 @@ impl<'a> TypeChecker<'a> {
             Type::Function { .. } => true,
             Type::Thread(_, _) | Type::ThreadWorker(_, _) => false,
             Type::User(name) => {
-                if builtins::is_resource_type(name) {
+                if self.resource_registry.is_resource(name) {
                     return false;
                 }
                 if !seen.insert(name.clone()) {
@@ -4963,8 +5012,8 @@ impl<'a> TypeChecker<'a> {
             Type::Result(success) => self.is_thread_sendable_type_with_seen(success, seen),
             Type::Function { .. } | Type::Thread(_, _) | Type::ThreadWorker(_, _) => false,
             Type::User(name) => {
-                if builtins::is_resource_type(name) {
-                    return builtins::is_thread_sendable_resource_type(name);
+                if self.resource_registry.is_resource(name) {
+                    return self.resource_registry.is_sendable(name);
                 }
                 if !seen.insert(name.clone()) {
                     return true;

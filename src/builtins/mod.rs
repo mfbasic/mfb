@@ -4,8 +4,11 @@ pub(crate) mod io;
 pub(crate) mod json;
 pub(crate) mod math;
 pub(crate) mod net;
+pub(crate) mod resource;
 pub(crate) mod strings;
 pub(crate) mod thread;
+
+pub(crate) use resource::{ResourceInfo, ResourceKind, ResourceRegistry};
 
 pub(crate) fn is_builtin_import(name: &str) -> bool {
     matches!(
@@ -23,15 +26,15 @@ pub(crate) fn is_builtin_type(name: &str) -> bool {
 }
 
 pub(crate) fn resource_close_function(type_name: &str) -> Option<&'static str> {
-    fs::resource_close_function(type_name).or_else(|| net::resource_close_function(type_name))
+    resource::builtin_resource_close_function(type_name)
 }
 
 pub(crate) fn is_resource_type(type_name: &str) -> bool {
-    resource_close_function(type_name).is_some()
+    resource::is_builtin_resource_type(type_name)
 }
 
 pub(crate) fn is_thread_sendable_resource_type(type_name: &str) -> bool {
-    matches!(type_name, "File" | "Socket" | "UdpSocket")
+    resource::is_builtin_sendable_resource_type(type_name)
 }
 
 pub(crate) fn call_return_type_name(name: &str) -> Option<&'static str> {

@@ -230,6 +230,7 @@ pub struct BinaryReprPackageInfoUsedSymbol {
 
 const RESOURCE_FLAG_NATIVE: u32 = 1 << 0;
 const RESOURCE_FLAG_STANDARD: u32 = 1 << 1;
+const RESOURCE_FLAG_SENDABLE: u32 = 1 << 2;
 const RESOURCE_FLAG_CLOSE_MAY_FAIL: u32 = 1 << 3;
 const CLEANUP_FLAG_RECORD_SECONDARY_CLOSE_FAILURE: u32 = 1 << 0;
 pub(crate) const BUILTIN_FS_CLOSE_FUNCTION_ID: u32 = 0xffff_ff00;
@@ -249,6 +250,73 @@ pub fn read_package_type_exports(path: &Path) -> Result<Vec<BinaryReprTypeExport
     let package = read_package_binary_repr(path)?;
     package_type_exports(&package)
         .map_err(|err| format!("failed to read '{}': {err}", path.display()))
+}
+
+/// One resource type contributed by an imported package's `RESOURCE_TABLE`.
+//
+// `native` distinguishes native (`LINK`) resources from standard ones; it is
+// read by the later native-resource phase (`plan-link-update`).
+#[allow(dead_code)]
+pub struct BinaryReprResourceExport {
+    pub type_name: String,
+    /// Resolved close-op name (`fs.close`/`net.close` for built-ins, or the
+    /// declaring package's close function name). `None` when the close function
+    /// id cannot be resolved.
+    pub close_function: Option<String>,
+    pub sendable: bool,
+    pub close_may_fail: bool,
+    pub native: bool,
+}
+
+/// Decode an imported package's `RESOURCE_TABLE` so the importer can register
+/// the package's resource types (recognition, sendability, and close op) instead
+/// of relying on hardcoded knowledge of the standard built-ins.
+pub fn read_package_resources(path: &Path) -> Result<Vec<BinaryReprResourceExport>, String> {
+    let package = read_package_binary_repr(path)?;
+    package_resource_exports(&package)
+        .map_err(|err| format!("failed to read '{}': {err}", path.display()))
+}
+
+fn package_resource_exports(
+    package: &PackageBinaryRepr,
+) -> Result<Vec<BinaryReprResourceExport>, String> {
+    let type_names = type_entry_names(&package.project.types, &package.project.strings.values)?;
+    let mut exports = Vec::with_capacity(package.project.resources.entries.len());
+    for entry in &package.project.resources.entries {
+        let type_name = type_name(&type_names, entry.type_id)?.to_string();
+        let close_function = resolve_resource_close_name(package, entry.close_function_id)?;
+        exports.push(BinaryReprResourceExport {
+            type_name,
+            close_function,
+            sendable: entry.flags & RESOURCE_FLAG_SENDABLE != 0,
+            close_may_fail: entry.flags & RESOURCE_FLAG_CLOSE_MAY_FAIL != 0,
+            native: entry.flags & RESOURCE_FLAG_NATIVE != 0,
+        });
+    }
+    Ok(exports)
+}
+
+/// Resolve a `RESOURCE_TABLE` close-function id to a call name. The two built-in
+/// sentinels map to the standard `fs.close`/`net.close` ops; any other id is a
+/// `functionId` index into the package's function table.
+fn resolve_resource_close_name(
+    package: &PackageBinaryRepr,
+    close_function_id: u32,
+) -> Result<Option<String>, String> {
+    match close_function_id {
+        BUILTIN_FS_CLOSE_FUNCTION_ID => {
+            Ok(builtins::resource_close_function(builtins::fs::FILE_TYPE).map(str::to_string))
+        }
+        BUILTIN_NET_CLOSE_FUNCTION_ID => {
+            Ok(builtins::resource_close_function(builtins::net::SOCKET_TYPE).map(str::to_string))
+        }
+        id => match package.project.functions.get(id as usize) {
+            Some(function) => Ok(Some(
+                string_at(&package.project.strings.values, function.name)?.to_string(),
+            )),
+            None => Ok(None),
+        },
+    }
 }
 
 /// Decode a package's structured Binary Representation payload back into an `IrProject`.
@@ -3230,6 +3298,16 @@ fn fixed_raw_from_decimal(value: &str) -> Result<i64, String> {
     i64::try_from(raw).map_err(|_| format!("Fixed constant `{value}` is out of range"))
 }
 
+/// The `RESOURCE_TABLE` flags for a standard built-in resource, including the
+/// "sendable to thread" bit (bit 2) when the registry marks the type sendable.
+fn standard_resource_flags(type_name: &str) -> u32 {
+    let mut flags = RESOURCE_FLAG_NATIVE | RESOURCE_FLAG_STANDARD | RESOURCE_FLAG_CLOSE_MAY_FAIL;
+    if builtins::resource::is_builtin_sendable_resource_type(type_name) {
+        flags |= RESOURCE_FLAG_SENDABLE;
+    }
+    flags
+}
+
 impl ResourceTable {
     fn new() -> Self {
         Self {
@@ -3242,7 +3320,7 @@ impl ResourceTable {
         self.entries.push(ResourceEntry {
             type_id,
             close_function_id: BUILTIN_FS_CLOSE_FUNCTION_ID,
-            flags: RESOURCE_FLAG_NATIVE | RESOURCE_FLAG_STANDARD | RESOURCE_FLAG_CLOSE_MAY_FAIL,
+            flags: standard_resource_flags(builtins::fs::FILE_TYPE),
         });
     }
 
@@ -3251,7 +3329,7 @@ impl ResourceTable {
         self.entries.push(ResourceEntry {
             type_id,
             close_function_id: BUILTIN_NET_CLOSE_FUNCTION_ID,
-            flags: RESOURCE_FLAG_NATIVE | RESOURCE_FLAG_STANDARD | RESOURCE_FLAG_CLOSE_MAY_FAIL,
+            flags: standard_resource_flags(builtins::net::SOCKET_TYPE),
         });
     }
 
@@ -3260,7 +3338,7 @@ impl ResourceTable {
         self.entries.push(ResourceEntry {
             type_id,
             close_function_id: BUILTIN_NET_CLOSE_FUNCTION_ID,
-            flags: RESOURCE_FLAG_NATIVE | RESOURCE_FLAG_STANDARD | RESOURCE_FLAG_CLOSE_MAY_FAIL,
+            flags: standard_resource_flags(builtins::net::LISTENER_TYPE),
         });
     }
 
@@ -3651,4 +3729,57 @@ fn put_u32(dst: &mut Vec<u8>, value: u32) {
 
 fn put_u64(dst: &mut Vec<u8>, value: u64) {
     dst.extend_from_slice(&value.to_le_bytes());
+}
+
+#[cfg(test)]
+mod resource_table_tests {
+    use super::*;
+
+    #[test]
+    fn standard_flags_set_sendable_bit_for_movable_resources() {
+        let file = standard_resource_flags(builtins::fs::FILE_TYPE);
+        let socket = standard_resource_flags(builtins::net::SOCKET_TYPE);
+        let listener = standard_resource_flags(builtins::net::LISTENER_TYPE);
+        assert!(file & RESOURCE_FLAG_SENDABLE != 0, "File must be sendable");
+        assert!(socket & RESOURCE_FLAG_SENDABLE != 0, "Socket must be sendable");
+        assert!(
+            listener & RESOURCE_FLAG_SENDABLE == 0,
+            "Listener must not be sendable"
+        );
+        // The other standard flags remain set.
+        for flags in [file, socket, listener] {
+            assert!(flags & RESOURCE_FLAG_NATIVE != 0);
+            assert!(flags & RESOURCE_FLAG_STANDARD != 0);
+            assert!(flags & RESOURCE_FLAG_CLOSE_MAY_FAIL != 0);
+        }
+    }
+
+    #[test]
+    fn resource_table_round_trips_flags() {
+        let table = ResourceTable {
+            entries: vec![
+                ResourceEntry {
+                    type_id: 10,
+                    close_function_id: BUILTIN_FS_CLOSE_FUNCTION_ID,
+                    flags: standard_resource_flags(builtins::fs::FILE_TYPE),
+                },
+                ResourceEntry {
+                    type_id: 11,
+                    close_function_id: BUILTIN_NET_CLOSE_FUNCTION_ID,
+                    flags: standard_resource_flags(builtins::net::LISTENER_TYPE),
+                },
+            ],
+        };
+        let bytes = table.encode();
+        let decoded = read_resource_table(&bytes).expect("decode resource table");
+        assert_eq!(decoded.entries.len(), 2);
+        assert_eq!(decoded.entries[0].type_id, 10);
+        assert_eq!(
+            decoded.entries[0].close_function_id,
+            BUILTIN_FS_CLOSE_FUNCTION_ID
+        );
+        assert!(decoded.entries[0].flags & RESOURCE_FLAG_SENDABLE != 0);
+        assert!(decoded.entries[1].flags & RESOURCE_FLAG_SENDABLE == 0);
+        assert_eq!(decoded.entries[1].close_function_id, BUILTIN_NET_CLOSE_FUNCTION_ID);
+    }
 }
