@@ -2507,7 +2507,11 @@ impl CodeBuilder<'_> {
             } else if crate::builtins::is_builtin_call(target) {
                 false
             } else {
-                true
+                // Ordinary user calls borrow the resource: the caller retains
+                // ownership and its scope-drop cleanup. Only the fixed
+                // invalidation events (registered close, thread transfer,
+                // `RETURN`) hand off ownership.
+                false
             };
             if consumed {
                 self.deactivate_resource_cleanup(name);

@@ -1,0 +1,45 @@
+{
+  "project": "resource_borrow_across_ops_valid",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "fs", "line": 1 },
+    { "module": "io", "line": 2 }
+    ],
+    "items": [
+    {
+      "kind": "sub",
+      "visibility": "private",
+      "name": "logLine",
+      "line": 4,
+      "params": [
+      { "name": "f", "type": "File", "resource": true, "state": null, "default": null },
+      { "name": "msg", "type": "String", "default": null }
+      ],
+      "returnType": null,
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "fs.writeAll", "arguments": [{ "kind": "identifier", "value": "f" }, { "kind": "identifier", "value": "msg" }] }, "line": 5 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "main",
+      "line": 8,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "f", "type": "File", "value": { "kind": "call", "callee": "fs.createTempFile", "arguments": [] }, "line": 9 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "logLine", "arguments": [{ "kind": "identifier", "value": "f" }, { "kind": "string", "value": "first" }] }, "line": 10 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "logLine", "arguments": [{ "kind": "identifier", "value": "f" }, { "kind": "string", "value": "second" }] }, "line": 11 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "fs.close", "arguments": [{ "kind": "identifier", "value": "f" }] }, "line": 12 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "borrowed" }] }, "line": 13 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 14 }
+      ]
+    }
+    ]
+  }
+  ]
+}

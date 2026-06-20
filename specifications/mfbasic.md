@@ -1169,7 +1169,22 @@ FUNC readFirstLine(path AS String) AS String
 END FUNC
 ```
 
-A resource is closed exactly once. Standard resource operations borrow the handle for the duration of the call without transferring ownership. The explicit close operation consumes the handle, so the source binding is moved and cannot be used afterward; an already-moved binding is not dropped again. A resource handle cannot be copied, stored in an ordinary collection, printed, compared, serialized, or captured by a lambda or ordinary closure. A concrete resource handle may be sent to a thread only when that resource type is thread-sendable.
+A resource is closed exactly once. **Ordinary calls borrow.** Passing a `RES` binding to an ordinary function creates an exclusive, call-scoped borrow: the callee may use the handle and mutate its `STATE`, but does not take ownership, and the caller's binding stays live after the call. A `RES` binding is invalidated **only** by this fixed set of events, all visible at the call site:
+
+1. the resource's **registered close op** (e.g. `fs::close(f)`) and its re-export aliases;
+2. **`thread::transfer`** of the resource (§16);
+3. **`RETURN`** of the resource (move out to the caller);
+4. **scope-drop** at the end of the binding's lexical scope (auto-close).
+
+A borrow grants *use* but never the right to *invalidate*: a callee that only borrowed a resource cannot close it, `RETURN` it, or `thread::transfer` it (`TYPE_RESOURCE_BORROW_INVALIDATE`) — those require ownership. There is no per-function borrow/consume inference and no `BORROW`/`MOVE` annotations: a call either is one of the four events or it borrows. A resource handle cannot be copied, stored in an ordinary collection, printed, compared, serialized, or captured by a lambda or ordinary closure. A concrete resource handle may be sent to a thread only when that resource type is thread-sendable.
+
+```basic
+RES f AS File = fs::open("app.db", "read")
+exec(f, "...")        ' borrow — f still live
+exec(f, "...")        ' borrow — f still live
+fs::close(f)          ' registered close → f invalidated
+' exec(f, "...")      ' COMPILE ERROR: f used after close
+```
 
 A resource value may be passed only to a function whose parameter is declared `RES` and explicitly names that concrete resource type, such as `RES f AS File`, `RES s AS Socket`, or a `LINK`-declared resource. A function returns a resource with an explicit `AS RES <Type>` return. There is no generic resource supertype, no structural matching of handles, and no implicit conversion between resource types.
 
@@ -1187,8 +1202,6 @@ RES s AS File STATE FileState = fs::open("app.db", "read")   ' state default-ini
 ```
 
 `T` must be an ordinary **copyable, defaultable data type** (`TYPE_STATE_INVALID` otherwise); since no data type may contain a resource, `T` is automatically resource-free. The state is owned by the resource, default-initializes when the resource is produced, rides through `RES` signatures (`RES s AS File STATE FileState`), and is freed when the resource drops or is closed. `STATE` is optional.
-
-Borrow and consume are compiler rules, not source-level annotations; MFBASIC does not add `BORROW`, `MOVE`, or similar parameter syntax for ordinary resource use.
 
 To release a resource earlier than the end of its scope, or to observe a close failure, call the resource's explicit close operation (such as `fs::close(f)`). That operation consumes the handle and auto-propagates a close failure like any other call, so the close failure is directly observable. After an explicit close the binding is moved and is not closed again by lexical drop.
 

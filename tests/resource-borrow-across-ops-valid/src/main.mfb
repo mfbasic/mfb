@@ -1,0 +1,15 @@
+IMPORT fs
+IMPORT io
+
+SUB logLine(RES f AS File, msg AS String)
+  fs::writeAll(f, msg)
+END SUB
+
+FUNC main AS Integer
+  RES f AS File = fs::createTempFile()
+  logLine(f, "first")
+  logLine(f, "second")
+  fs::close(f)
+  io::print("borrowed")
+  RETURN 0
+END FUNC

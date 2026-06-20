@@ -760,6 +760,12 @@ pub const RULES: &[Rule] = &[
         message: "STATE must be a copyable, defaultable data type",
     },
     Rule {
+        code: "2-203-0086",
+        name: "TYPE_RESOURCE_BORROW_INVALIDATE",
+        severity: Severity::Error,
+        message: "a borrowed resource cannot be closed, returned, or transferred",
+    },
+    Rule {
         code: "2-200-0011",
         name: "PROJECT_ENTRY_INVALID",
         severity: Severity::Error,

@@ -43,6 +43,10 @@ struct LocalInfo {
     type_: Type,
     mutable: bool,
     ownership: OwnershipState,
+    /// A borrowed resource (a `RES` parameter): the caller retains ownership, so
+    /// the callee may use it and mutate its `STATE` but may not invalidate it
+    /// (close, `RETURN`, or `thread::transfer` require ownership).
+    borrowed: bool,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -1239,12 +1243,14 @@ impl<'a> TypeChecker<'a> {
                 }
             }
 
+            let borrowed = self.is_resource_type(&param_type);
             locals.insert(
                 param.name.clone(),
                 LocalInfo {
                     type_: param_type,
                     mutable: false,
                     ownership: OwnershipState::Available,
+                    borrowed,
                 },
             );
         }
@@ -1261,6 +1267,7 @@ impl<'a> TypeChecker<'a> {
                     type_: Type::Error,
                     mutable: false,
                     ownership: OwnershipState::Available,
+                    borrowed: false,
                 },
             );
             let trap_flow = self.check_block(
@@ -1373,6 +1380,7 @@ impl<'a> TypeChecker<'a> {
             type_: left.type_,
             mutable: left.mutable,
             ownership,
+            borrowed: left.borrowed,
         }
     }
 
@@ -1419,6 +1427,19 @@ impl<'a> TypeChecker<'a> {
             return;
         };
         if !self.require_local_owned(file, line, name, &info) {
+            return;
+        }
+        // A borrowed resource cannot be invalidated: close, `RETURN`, and
+        // `thread::transfer` all require ownership, which a borrow does not grant.
+        if info.borrowed && self.is_resource_type(&info.type_) {
+            self.report(
+                "TYPE_RESOURCE_BORROW_INVALIDATE",
+                &format!(
+                    "Binding `{name}` is a borrowed resource; only its owner may close, `RETURN`, or transfer it."
+                ),
+                file,
+                line,
+            );
             return;
         }
         if !self.is_copyable_type(&info.type_) {
@@ -1609,6 +1630,7 @@ impl<'a> TypeChecker<'a> {
                         type_: binding_type,
                         mutable: *mutable,
                         ownership: OwnershipState::Available,
+                        borrowed: false,
                     },
                 );
                 Flow::FallsThrough
@@ -2115,6 +2137,7 @@ impl<'a> TypeChecker<'a> {
                         type_: loop_type,
                         mutable: false,
                         ownership: OwnershipState::Available,
+                        borrowed: false,
                     },
                 );
                 self.loop_stack.push(LoopKind::For);
@@ -2161,6 +2184,7 @@ impl<'a> TypeChecker<'a> {
                         type_: element_type,
                         mutable: false,
                         ownership: OwnershipState::Available,
+                        borrowed: false,
                     },
                 );
                 self.loop_stack.push(LoopKind::For);
@@ -2357,6 +2381,7 @@ impl<'a> TypeChecker<'a> {
                         type_: Type::Error,
                         mutable: false,
                         ownership: OwnershipState::Available,
+                        borrowed: false,
                     },
                 );
                 self.inline_trap_types.push(success_type.clone());
@@ -2633,6 +2658,7 @@ impl<'a> TypeChecker<'a> {
                                 type_: Type::User(type_name.clone()),
                                 mutable: false,
                                 ownership: OwnershipState::Available,
+                                borrowed: false,
                             },
                         );
                     }
@@ -3690,6 +3716,7 @@ impl<'a> TypeChecker<'a> {
                     type_: type_.clone(),
                     mutable: false,
                     ownership: OwnershipState::Available,
+                    borrowed: false,
                 },
             );
             param_types.push(type_);
@@ -4882,6 +4909,11 @@ impl<'a> TypeChecker<'a> {
 
     fn argument_mode_for_type(&self, expected: &Option<&Type>) -> ExprMode {
         match expected {
+            // Resources borrow by default: an ordinary call uses the handle for
+            // the duration of the call but does not take ownership. Only the
+            // fixed invalidation events (a registered close op, `thread::transfer`,
+            // `RETURN`, and scope-drop) end a resource's life.
+            Some(type_) if self.is_resource_type(type_) => ExprMode::Borrow,
             Some(type_) if !self.is_copyable_type(type_) => ExprMode::Transfer,
             _ => ExprMode::Read,
         }
