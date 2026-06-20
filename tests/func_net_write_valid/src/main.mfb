@@ -1,0 +1,13 @@
+IMPORT net
+IMPORT io
+
+FUNC main AS Integer
+  LET server = net::listenTcp("127.0.0.1", 0)
+  LET bound = net::localAddress(server)
+  LET client = net::connectTcp("127.0.0.1", bound.port)
+  LET conn = net::accept(server)
+  LET payload AS List OF Byte = [65, 66, 67]
+  net::write(client, payload)
+  io::print(net::readText(conn, 16))
+  RETURN 0
+END FUNC

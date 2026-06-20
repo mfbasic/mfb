@@ -1,0 +1,9 @@
+IMPORT net
+
+FUNC main AS Integer
+  LET missing = net::connectTcp()
+  LET wrongHost = net::connectTcp(1, 80)
+  LET wrongPort = net::connectTcp("h", "p")
+  LET tooMany = net::connectTcp("h", 80, 0, 0)
+  RETURN 0
+END FUNC

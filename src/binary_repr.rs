@@ -36,6 +36,8 @@ pub(crate) const TYPE_BYTE: u32 = 7;
 pub(crate) const TYPE_ERROR: u32 = 8;
 pub(crate) const TYPE_TERMINAL_SIZE: u32 = 9;
 pub(crate) const TYPE_FILE_HANDLE: u32 = 0xffff_ff00;
+pub(crate) const TYPE_SOCKET_HANDLE: u32 = 0xffff_feff;
+pub(crate) const TYPE_LISTENER_HANDLE: u32 = 0xffff_fefe;
 const FIRST_TABLE_TYPE_ID: u32 = 10;
 
 const FUNCTION_BINARY_REPR: u16 = 1;
@@ -231,6 +233,7 @@ const RESOURCE_FLAG_STANDARD: u32 = 1 << 1;
 const RESOURCE_FLAG_CLOSE_MAY_FAIL: u32 = 1 << 3;
 const CLEANUP_FLAG_RECORD_SECONDARY_CLOSE_FAILURE: u32 = 1 << 0;
 pub(crate) const BUILTIN_FS_CLOSE_FUNCTION_ID: u32 = 0xffff_ff00;
+pub(crate) const BUILTIN_NET_CLOSE_FUNCTION_ID: u32 = 0xffff_feff;
 
 pub fn read_package_exports(path: &Path) -> Result<Vec<BinaryReprExport>, String> {
     let package = read_package_binary_repr(path)?;
@@ -1056,6 +1059,8 @@ fn primitive_type_name(id: u32) -> Option<&'static str> {
         TYPE_ERROR => Some("Error"),
         TYPE_TERMINAL_SIZE => Some("TerminalSize"),
         TYPE_FILE_HANDLE => Some("File"),
+        TYPE_SOCKET_HANDLE => Some("Socket"),
+        TYPE_LISTENER_HANDLE => Some("Listener"),
         _ => None,
     }
 }
@@ -2093,7 +2098,17 @@ fn lower_project_with_external_functions(
     types.populate_source_payloads(&mut strings, &ir.types)?;
     let mut resources = ResourceTable::new();
     if ir_uses_resource_type(ir) {
-        resources.add_standard_file(&mut types, &mut strings);
+        let mut used = HashSet::new();
+        collect_resource_type_names(ir, &mut used);
+        if used.contains("File") {
+            resources.add_standard_file(&mut types, &mut strings);
+        }
+        if used.contains("Socket") {
+            resources.add_standard_socket(&mut types, &mut strings);
+        }
+        if used.contains("Listener") {
+            resources.add_standard_listener(&mut types, &mut strings);
+        }
     }
     let globals = ir
         .bindings
@@ -2295,6 +2310,151 @@ fn value_uses_resource_type(value: &IrValue) -> bool {
 
 fn is_resource_type_name(type_name: &str) -> bool {
     builtins::is_resource_type(type_name)
+}
+
+/// Collect the bare resource type names (`File`, `Socket`, `Listener`) actually
+/// referenced by the project so only the resource tables that are used get
+/// emitted. Resource handles cannot appear inside collections, so resource type
+/// strings are always bare names.
+fn collect_resource_type_names(ir: &IrProject, names: &mut HashSet<String>) {
+    let mut record = |type_: &str, names: &mut HashSet<String>| {
+        if is_resource_type_name(type_) {
+            names.insert(type_.to_string());
+        }
+    };
+    for function in &ir.functions {
+        for param in &function.params {
+            record(&param.type_, names);
+        }
+        record(&function.returns, names);
+        collect_resource_names_in_ops(&function.body, names, &mut record);
+    }
+}
+
+fn collect_resource_names_in_ops(
+    ops: &[IrOp],
+    names: &mut HashSet<String>,
+    record: &mut impl FnMut(&str, &mut HashSet<String>),
+) {
+    for op in ops {
+        match op {
+            IrOp::Bind { type_, value, .. } => {
+                record(type_, names);
+                if let Some(value) = value {
+                    collect_resource_names_in_value(value, names, record);
+                }
+            }
+            IrOp::Assign { value, .. }
+            | IrOp::AssignGlobal { value, .. }
+            | IrOp::Eval { value } => collect_resource_names_in_value(value, names, record),
+            IrOp::Return { value } => {
+                if let Some(value) = value {
+                    collect_resource_names_in_value(value, names, record);
+                }
+            }
+            IrOp::ExitLoop { .. } | IrOp::ContinueLoop { .. } => {}
+            IrOp::ExitProgram { code } => collect_resource_names_in_value(code, names, record),
+            IrOp::Fail { error } => collect_resource_names_in_value(error, names, record),
+            IrOp::If {
+                condition,
+                then_body,
+                else_body,
+            } => {
+                collect_resource_names_in_value(condition, names, record);
+                collect_resource_names_in_ops(then_body, names, record);
+                collect_resource_names_in_ops(else_body, names, record);
+            }
+            IrOp::Match { value, cases } => {
+                collect_resource_names_in_value(value, names, record);
+                for case in cases {
+                    collect_resource_names_in_ops(&case.body, names, record);
+                }
+            }
+            IrOp::While {
+                condition, body, ..
+            } => {
+                collect_resource_names_in_value(condition, names, record);
+                collect_resource_names_in_ops(body, names, record);
+            }
+            IrOp::For {
+                start,
+                end,
+                step,
+                body,
+                ..
+            } => {
+                collect_resource_names_in_value(start, names, record);
+                collect_resource_names_in_value(end, names, record);
+                collect_resource_names_in_value(step, names, record);
+                collect_resource_names_in_ops(body, names, record);
+            }
+            IrOp::DoUntil { body, condition } => {
+                collect_resource_names_in_ops(body, names, record);
+                collect_resource_names_in_value(condition, names, record);
+            }
+            IrOp::ForEach {
+                type_,
+                iterable,
+                body,
+                ..
+            } => {
+                record(type_, names);
+                collect_resource_names_in_value(iterable, names, record);
+                collect_resource_names_in_ops(body, names, record);
+            }
+            IrOp::Trap { body, .. } => collect_resource_names_in_ops(body, names, record),
+        }
+    }
+}
+
+fn collect_resource_names_in_value(
+    value: &IrValue,
+    names: &mut HashSet<String>,
+    record: &mut impl FnMut(&str, &mut HashSet<String>),
+) {
+    match value {
+        IrValue::Const { type_, .. }
+        | IrValue::FunctionRef { type_, .. }
+        | IrValue::Closure { type_, .. }
+        | IrValue::Capture { type_, .. }
+        | IrValue::Constructor { type_, .. }
+        | IrValue::ListLiteral { type_, .. }
+        | IrValue::MapLiteral { type_, .. } => record(type_, names),
+        IrValue::Call { target, args, .. } | IrValue::CallResult { target, args, .. } => {
+            if let Some(returns) = builtins::call_return_type_name(target) {
+                record(returns, names);
+            }
+            for arg in args {
+                collect_resource_names_in_value(arg, names, record);
+            }
+        }
+        IrValue::UnionWrap { value, .. }
+        | IrValue::UnionExtract { value, .. }
+        | IrValue::ResultIsOk { value }
+        | IrValue::ResultValue { value }
+        | IrValue::ResultError { value } => {
+            collect_resource_names_in_value(value, names, record)
+        }
+        IrValue::MemberAccess { target, .. } => {
+            collect_resource_names_in_value(target, names, record)
+        }
+        IrValue::WithUpdate {
+            target, updates, ..
+        } => {
+            collect_resource_names_in_value(target, names, record);
+            for update in updates {
+                collect_resource_names_in_value(&update.value, names, record);
+            }
+        }
+        IrValue::Binary { left, right, .. } => {
+            collect_resource_names_in_value(left, names, record);
+            collect_resource_names_in_value(right, names, record);
+        }
+        IrValue::Unary { operand, .. } => {
+            collect_resource_names_in_value(operand, names, record)
+        }
+        IrValue::Local(_) | IrValue::Global(_) => {}
+    }
 }
 
 /// Lower an `IrFunction` to its container *metadata* (`Function`): name, kind,
@@ -2657,6 +2817,8 @@ impl TypeTable {
             "Fixed" => TYPE_FIXED,
             "String" => TYPE_STRING,
             "File" => TYPE_FILE_HANDLE,
+            "Socket" => TYPE_SOCKET_HANDLE,
+            "Listener" => TYPE_LISTENER_HANDLE,
             name if name.starts_with("List OF ") => {
                 let element = self.type_id(strings, name.trim_start_matches("List OF "));
                 self.list_type(strings, element)
@@ -3080,6 +3242,24 @@ impl ResourceTable {
         self.entries.push(ResourceEntry {
             type_id,
             close_function_id: BUILTIN_FS_CLOSE_FUNCTION_ID,
+            flags: RESOURCE_FLAG_NATIVE | RESOURCE_FLAG_STANDARD | RESOURCE_FLAG_CLOSE_MAY_FAIL,
+        });
+    }
+
+    fn add_standard_socket(&mut self, types: &mut TypeTable, strings: &mut StringPool) {
+        let type_id = types.type_id(strings, builtins::net::SOCKET_TYPE);
+        self.entries.push(ResourceEntry {
+            type_id,
+            close_function_id: BUILTIN_NET_CLOSE_FUNCTION_ID,
+            flags: RESOURCE_FLAG_NATIVE | RESOURCE_FLAG_STANDARD | RESOURCE_FLAG_CLOSE_MAY_FAIL,
+        });
+    }
+
+    fn add_standard_listener(&mut self, types: &mut TypeTable, strings: &mut StringPool) {
+        let type_id = types.type_id(strings, builtins::net::LISTENER_TYPE);
+        self.entries.push(ResourceEntry {
+            type_id,
+            close_function_id: BUILTIN_NET_CLOSE_FUNCTION_ID,
             flags: RESOURCE_FLAG_NATIVE | RESOURCE_FLAG_STANDARD | RESOURCE_FLAG_CLOSE_MAY_FAIL,
         });
     }

@@ -308,6 +308,22 @@ impl plan::NativePlanPlatform for Platform {
                 required_by: spec.symbol.to_string(),
             })
             .collect(),
+            call if crate::builtins::net::is_net_call(call) => {
+                let mut imports = plan::net_libc_symbols(call)
+                    .iter()
+                    .map(|base| PlatformImport {
+                        library: "libSystem".to_string(),
+                        symbol: format!("_{base}"),
+                        required_by: spec.symbol.to_string(),
+                    })
+                    .collect::<Vec<_>>();
+                imports.push(PlatformImport {
+                    library: "libSystem".to_string(),
+                    symbol: "___error".to_string(),
+                    required_by: spec.symbol.to_string(),
+                });
+                imports
+            }
             _ => Vec::new(),
         }
     }

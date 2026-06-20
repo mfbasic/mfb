@@ -1,0 +1,9 @@
+IMPORT net
+
+FUNC main AS Integer
+  LET missing = net::setReadTimeout()
+  LET wrongType = net::setReadTimeout(1, 100)
+  LET wrongMs = net::setReadTimeout("s", "x")
+  LET tooMany = net::setReadTimeout(1, 2, 3)
+  RETURN 0
+END FUNC

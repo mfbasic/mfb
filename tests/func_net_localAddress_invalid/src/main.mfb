@@ -1,0 +1,8 @@
+IMPORT net
+
+FUNC main AS Integer
+  LET missing = net::localAddress()
+  LET wrongType = net::localAddress(1)
+  LET tooMany = net::localAddress(1, 2)
+  RETURN 0
+END FUNC

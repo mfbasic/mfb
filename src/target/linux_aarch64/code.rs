@@ -186,6 +186,30 @@ impl code::CodegenPlatform for Platform {
         Ok(())
     }
 
+    fn emit_libc_call(
+        &self,
+        base: &str,
+        from: &str,
+        platform_imports: &HashMap<String, String>,
+        instructions: &mut Vec<CodeInstruction>,
+        relocations: &mut Vec<CodeRelocation>,
+    ) -> Result<(), String> {
+        emit_linux_c_call(from, base, platform_imports, instructions, relocations)
+    }
+
+    fn emit_variadic_call(
+        &self,
+        base: &str,
+        from: &str,
+        platform_imports: &HashMap<String, String>,
+        instructions: &mut Vec<CodeInstruction>,
+        relocations: &mut Vec<CodeRelocation>,
+    ) -> Result<(), String> {
+        // The Linux AArch64 ABI passes variadic GP arguments in registers, so the
+        // trailing variadic argument in `x2` needs no special handling.
+        emit_linux_c_call(from, base, platform_imports, instructions, relocations)
+    }
+
     fn emit_open_file(
         &self,
         from: &str,
@@ -193,8 +217,7 @@ impl code::CodegenPlatform for Platform {
         instructions: &mut Vec<CodeInstruction>,
         relocations: &mut Vec<CodeRelocation>,
     ) -> Result<(), String> {
-        emit_linux_c_call(from, "open", platform_imports, instructions, relocations)?;
-        Ok(())
+        self.emit_variadic_call("open", from, platform_imports, instructions, relocations)
     }
 
     fn emit_read_file(
@@ -452,6 +475,44 @@ impl code::CodegenPlatform for Platform {
             abi::syscall(),
         ]);
         Ok(())
+    }
+
+    fn addrinfo_addr_offset(&self) -> usize {
+        // glibc/musl `struct addrinfo` orders `ai_addr` (offset 24) before
+        // `ai_canonname` (offset 32).
+        24
+    }
+
+    fn sol_socket(&self) -> &'static str {
+        "1" // SOL_SOCKET on Linux
+    }
+
+    fn so_reuseaddr(&self) -> &'static str {
+        "2" // SO_REUSEADDR on Linux
+    }
+
+    fn so_rcvtimeo(&self) -> &'static str {
+        "20" // SO_RCVTIMEO on Linux
+    }
+
+    fn so_sndtimeo(&self) -> &'static str {
+        "21" // SO_SNDTIMEO on Linux
+    }
+
+    fn eagain(&self) -> &'static str {
+        "11" // EAGAIN on Linux
+    }
+
+    fn o_nonblock(&self) -> &'static str {
+        "2048" // O_NONBLOCK (0o4000 = 0x800) on Linux aarch64
+    }
+
+    fn einprogress(&self) -> &'static str {
+        "115" // EINPROGRESS on Linux
+    }
+
+    fn so_error(&self) -> &'static str {
+        "4" // SO_ERROR on Linux
     }
 }
 

@@ -176,6 +176,14 @@ impl plan::NativePlanPlatform for Platform {
                 required_by: spec.symbol.to_string(),
             })
             .collect(),
+            call if crate::builtins::net::is_net_call(call) => {
+                let mut imports = plan::net_libc_symbols(call)
+                    .iter()
+                    .map(|base| self.libc_import(base, spec.symbol))
+                    .collect::<Vec<_>>();
+                imports.push(self.libc_import("__errno_location", spec.symbol));
+                imports
+            }
             _ => Vec::new(),
         }
     }

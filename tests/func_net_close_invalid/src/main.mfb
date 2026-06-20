@@ -1,0 +1,8 @@
+IMPORT net
+
+FUNC main AS Integer
+  LET missing = net::close()
+  LET wrongType = net::close(1)
+  LET tooMany = net::close(1, 2)
+  RETURN 0
+END FUNC

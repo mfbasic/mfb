@@ -1,6 +1,6 @@
 # MFBASIC User-Defined Resource Plan
 
-Last updated: 2026-06-17
+Last updated: 2026-06-20
 
 This document plans how to formalize user-defined `RESOURCE` declarations for
 ordinary source packages while preserving the existing resource ownership model.
@@ -60,18 +60,35 @@ The language already defines resource semantics:
 - resources are not thread-sendable by default.
 - concrete resource types may opt in to thread sendability.
 
-The standard library already exposes opaque resource handles such as `File`,
-`Socket`, `UdpSocket`, `Listener`, and `TlsSocket`.
+The standard library and compiler are less complete than the spec text implies,
+and the implementation gap matters for this plan:
 
-Native `LINK` blocks already support resource declarations through:
+- Only `File`, `Socket`, and `Listener` are actually wired up in the compiler
+  (`src/builtins/fs.rs`, `src/builtins/net.rs`). `UdpSocket` and `TlsSocket` are
+  documented in `standard_package.md` and `mfbasic.md` but are **not yet
+  implemented** as resource handles. Do not assume their machinery exists to
+  reuse.
+- Resource identity is currently **hardcoded by type name**. Every consumer —
+  `typecheck.rs`, `binary_repr.rs`, `target/shared/plan.rs`,
+  `target/shared/runtime.rs`, `target/shared/code/builder_misc.rs`, and
+  `target/shared/code/mod.rs` — recognizes a resource by calling
+  `builtins::is_resource_type(name)` / `resource_close_function(name)` /
+  `is_thread_sendable_resource_type(name)`, all of which `match` string
+  literals. There is **no registry** mapping a user type to its close function,
+  sendability, or close-may-fail behavior. See §11a for the registry work this
+  plan depends on.
+- Native `LINK` blocks are **non-functional**. They parse, but a `LINK` block
+  and its `TYPE Db AS RESOURCE ... CLOSE close` declaration do not currently
+  reach a usable AST or any later stage. The spec describes the intended syntax;
+  the compiler does not implement it.
 
-```basic
-LINK "sqlite3" AS sqlite
-  TYPE Db AS RESOURCE
-    CLOSE close
-  END TYPE
-END LINK
-```
+This plan therefore also requires that `LINK` blocks parse and build a real AST
+node, including `TYPE ... AS RESOURCE [CLOSE ident]` resource declarations, so
+that native resources and source-defined resources share one resource model.
+Full native `LINK` lowering remains out of scope here (it is `plan-linker.md`'s
+job); the requirement here is only parse → AST with resource declarations
+represented, so the resource registry (§11a) can be populated from both source
+`RESOURCE` declarations and `LINK` resource declarations.
 
 The missing feature is a source-level way for ordinary packages to declare an
 exported resource whose hidden representation is package-owned MFBASIC data
@@ -96,6 +113,16 @@ This plan does not add:
 Resources remain nominal, concrete handle types. A resource is not an opaque
 record with a destructor attached; it is a compiler-recognized owned handle
 with package-private representation and declared cleanup behavior.
+
+Storing resources in `List`/`Map` (and resource-typed record/union fields stored
+in collections) stays a non-goal for this plan and is **explicitly deferred**.
+The current cleanup model is per-binding lexical drop, not per-element: codegen
+tracks each owning `Bind` on an `active_cleanups` stack and emits its close on
+scope exit, and collections have no per-element drop machinery. Making this sound
+would require element-wise close at every drop/overwrite/remove site, per-slot
+ownership tracking, a borrow-from-container rule (resources are not copyable, so
+`list[i]` cannot return by copy), and verifier coverage for all of it. That is a
+separate subsystem and belongs in a future plan, not this one.
 
 ## 4. Proposed Syntax
 
@@ -188,15 +215,52 @@ PRIVATE FUNC closeResource(state AS MyResourceState) AS Nothing
 END FUNC
 ```
 
-When a `MyResource` handle is dropped, the compiler consumes the handle,
-extracts its representation, and calls `closeResource(state)`.
+The close function is an **ordinary function**. It is special only in that its
+signature must match the rules above; it has no implicit consume semantics, no
+special calling convention, and is not itself the public close operation. The
+compiler-owned resource machinery is what drives close:
+
+1. it consumes the resource handle (lexical drop or explicit close),
+2. it borrows the handle's representation and calls `closeResource(state)`,
+3. after that call returns, the resource machinery **frees the representation
+   state** by running the normal owned-value drop on the representation record
+   (releasing its strings, nested collections, and any nested resources per the
+   existing memory rules).
+
+This keeps consume/free ownership inside the compiler, not inside user code: the
+user close function only performs the package's logical cleanup (flush a buffer,
+release a native handle, etc.) and never has to free or re-close its own
+representation.
 
 When close runs as lexical drop, a close failure cannot alter source-level
-control flow. It is retained as cleanup diagnostic/audit metadata, matching the
-existing resource rule.
+control flow. It is recorded through the cleanup-failure path described below
+(§6a), matching the existing resource rule. The representation is still freed
+even when the user close function fails — a failed logical close must not leak
+the representation storage.
 
 When close is called explicitly through the exported close operation, close
-failure is observable through ordinary `Result` propagation.
+failure is observable through ordinary `Result` propagation, and the
+representation is freed after the user close function returns (success or
+failure).
+
+## 6a. Close Failure Handling
+
+A close that fails during implicit lexical drop has no source-level result to
+route, so it cannot surface as an `Error`. The existing codegen already records
+this through `record_secondary_cleanup_failure()`. Source-defined resources
+reuse that path, but the plan extends the runtime contract:
+
+- The runtime maintains an internal **cleanup-failure ledger** of resources
+  whose drop-close failed.
+- The ledger is not visible as a source-level value and cannot be caught.
+- On program exit the runtime drains the ledger to diagnostic/audit output (and
+  `mfb audit` reports it as secondary close failure metadata, §14).
+- Open design point: whether the runtime should also support a delayed/retry
+  close pass over the ledger, or only log-on-exit. v1 may log-on-exit only; the
+  ledger structure should not preclude a later retry pass.
+
+Explicit close (through the public close operation) bypasses the ledger because
+its failure is already observable as a `Result`.
 
 ## 7. Public Close Operation
 
@@ -224,8 +288,15 @@ If `AS publicName` is omitted, the compiler may either:
   exported, or
 - require an explicit `AS publicName` for exported resources.
 
-The stricter v1 recommendation is to require `AS publicName` for exported
-resources, to avoid name collisions and implicit public API additions:
+Cross-package name collisions are not possible: importers always see
+package-qualified names (`package::publicName`), and at merge time every package
+definition is link-prefixed by a deterministic content-hash `<id>`
+(`<id>.package.symbol`, see `package_format.md`). The only collision risk is
+**intra-package** — the public close name colliding with another top-level
+declaration in the same package — which still needs a diagnostic (§13). The
+stricter v1 recommendation is to require `AS publicName` for exported resources,
+to avoid implicit public API additions and make that intra-package name explicit
+and checkable:
 
 ```basic
 EXPORT RESOURCE MyResource
@@ -341,26 +412,37 @@ received.
 `.mfp` packages must preserve resource metadata for imported user-defined
 resources.
 
-`RESOURCE_TABLE` already records:
+Implementation reality (do not trust the spec's "already records" framing): the
+`RESOURCE_TABLE` section exists and is **written for the three built-in
+resources**, but nothing currently **consumes** it to recognize a type as a
+resource — recognition is still the hardcoded name match described in §2. For
+imported user-defined resources to work at all, the importer must read
+`RESOURCE_TABLE` and register each entry into the resource registry (§11a). This
+is net-new wiring, not a metadata tweak.
 
-- resource type
-- close function
-- flags
-- close error behavior
-- cleanup metadata
+`RESOURCE_TABLE` encodes per entry: `type_id`, `close_function_id`, `flags`
+(`src/binary_repr.rs`).
 
-User-defined resources should use the same table with a new flag or resource
-kind that distinguishes them from native and standard resources.
+Flags as **actually implemented** in `binary_repr.rs`:
 
-Current flags include:
+- bit 0 = native resource (`RESOURCE_FLAG_NATIVE`)
+- bit 1 = standard resource (`RESOURCE_FLAG_STANDARD`)
+- bit 3 = close may fail (`RESOURCE_FLAG_CLOSE_MAY_FAIL`)
 
-- native resource
-- standard resource
-- sendable to thread
+Note the discrepancy to resolve: `package_format.md` documents `bit 2 = sendable
+to thread`, but the compiler never writes or reads bit 2. Today sendability is
+decided entirely by the hardcoded `is_thread_sendable_resource_type` match, so it
+does **not** round-trip through a package at all. Source-defined and imported
+resources cannot use that hardcoded list, so this plan must:
 
-Add one resource kind representation without changing ownership semantics:
+- start writing/reading the sendable bit (bit 2) in `RESOURCE_TABLE`, and
+- source sendability from the registry, not from the hardcoded match.
 
-- source resource
+Add one resource kind distinction without changing ownership semantics. A
+dedicated bit is preferred over deriving "source resource" from the absence of
+native/standard (Open Question 5, now resolved toward an explicit bit):
+
+- bit 4 = source resource (`RESOURCE_FLAG_SOURCE`)
 
 The ABI hash for exported user-defined resources must include:
 
@@ -376,6 +458,51 @@ Importers must not need the private representation layout for ordinary
 typechecking, but package merging, Binary Representation verification, native
 lowering, and audit may need enough metadata to verify close and transfer
 behavior.
+
+## 11a. Resource Registry (Prerequisite)
+
+This is the foundational change the rest of the plan depends on. Resource
+recognition must move from hardcoded name matching to a **data-driven registry**.
+
+Today, `builtins::is_resource_type`, `resource_close_function`, and
+`is_thread_sendable_resource_type` all `match` literal type names, and ~8 call
+sites across `typecheck.rs`, `binary_repr.rs`, `target/shared/plan.rs`,
+`target/shared/runtime.rs`, and `target/shared/code/*` consult them. Source and
+imported resources have type names the compiler cannot know ahead of time, so
+the registry must be populated at compile time.
+
+Decision (resolves the "two-tier LUT vs dynamic LUT" question): use a **single
+dynamic registry**, seeded with the built-ins and then extended, rather than
+trying the hardcoded LUT first and a second tracked table second. A two-tier
+lookup duplicates every call site's logic and creates ordering hazards; one
+registry keyed by resolved type name is simpler and is the canonical source of
+truth for all consumers.
+
+Registry entry (per resolved resource type name):
+
+- close function reference (built-in symbol, source function, or native `LINK`
+  close)
+- representation type (for source-defined resources; `None` for opaque
+  built-in/native handles)
+- public close operation name/signature (for source-defined resources)
+- consume behavior (which operation consumes the handle — for source-defined
+  resources this is the compiler-synthesized public close op, not the user close
+  function)
+- thread-sendable flag
+- close-may-fail flag
+- kind: built-in / standard / native (`LINK`) / source
+
+Population order:
+
+1. seed built-ins (`File`, `Socket`, `Listener`; add `UdpSocket`/`TlsSocket`
+   when implemented),
+2. add source `RESOURCE ... END RESOURCE` declarations during resolve,
+3. add native `LINK` `TYPE ... AS RESOURCE` declarations during resolve,
+4. add imported resources by decoding each dependency's `RESOURCE_TABLE`.
+
+Every existing call site is then rewritten to consult the registry instead of
+the hardcoded `match`. The hardcoded `builtins::*` helpers either become the
+seed step or thin wrappers over the registry.
 
 ## 12. Binary Representation And Verification
 

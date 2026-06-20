@@ -1,0 +1,9 @@
+IMPORT net
+
+FUNC main AS Integer
+  LET missing = net::write()
+  LET wrongType = net::write(1, 2)
+  LET wrongBytes = net::write("s", "b")
+  LET tooMany = net::write(1, 2, 3)
+  RETURN 0
+END FUNC

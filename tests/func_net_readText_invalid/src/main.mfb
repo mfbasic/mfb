@@ -1,0 +1,9 @@
+IMPORT net
+
+FUNC main AS Integer
+  LET missing = net::readText()
+  LET wrongType = net::readText(1, 16)
+  LET wrongCount = net::readText("s")
+  LET tooMany = net::readText(1, 2, 3)
+  RETURN 0
+END FUNC

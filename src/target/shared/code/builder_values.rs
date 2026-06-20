@@ -1075,6 +1075,21 @@ impl CodeBuilder<'_> {
     /// site). With `raw = true` the call traps the raw `Result` for an inline
     /// `TRAP`: the helper outcome is materialized as a `Result OF <success>`
     /// value instead of propagating on error.
+    /// `net::connectTcp` is overloaded on its first argument. The single-argument
+    /// call is unambiguously the `Address` overload (typecheck rejects a lone
+    /// host); the two-argument call is the `Address` overload only when the first
+    /// argument is statically an `Address` (otherwise it is `host, port`).
+    fn net_connect_is_address_form(&self, args: &[NirValue]) -> bool {
+        match args.len() {
+            1 => true,
+            2 => {
+                args.first().and_then(|arg| self.static_type_name(arg)).as_deref()
+                    == Some("Address")
+            }
+            _ => false,
+        }
+    }
+
     pub(super) fn lower_runtime_helper_call(
         &mut self,
         helper: runtime::RuntimeHelper,
@@ -1106,6 +1121,33 @@ impl CodeBuilder<'_> {
                 value: "0".to_string(),
             });
         } else if target == "thread.receive" && helper_args.len() == 1 {
+            helper_args.push(NirValue::Const {
+                type_: "Integer".to_string(),
+                value: "0".to_string(),
+            });
+        } else if target == "net.lookup" && helper_args.len() == 1 {
+            helper_args.push(NirValue::Const {
+                type_: "Integer".to_string(),
+                value: "0".to_string(),
+            });
+        } else if target == "net.connectTcp" {
+            // `connectTcp(Address, timeoutMs?)` keeps its single Address argument
+            // and is routed to the `net.connectTcpAddr` helper below; the
+            // `connectTcp(host, port, timeoutMs?)` form fills the default timeout.
+            let is_address = self.net_connect_is_address_form(args);
+            let target_args = if is_address { 2 } else { 3 };
+            while helper_args.len() < target_args {
+                helper_args.push(NirValue::Const {
+                    type_: "Integer".to_string(),
+                    value: "0".to_string(),
+                });
+            }
+        } else if target == "net.listenTcp" && helper_args.len() == 2 {
+            helper_args.push(NirValue::Const {
+                type_: "Integer".to_string(),
+                value: "128".to_string(),
+            });
+        } else if matches!(target, "net.accept" | "net.poll") && helper_args.len() == 1 {
             helper_args.push(NirValue::Const {
                 type_: "Integer".to_string(),
                 value: "0".to_string(),
@@ -1142,6 +1184,13 @@ impl CodeBuilder<'_> {
                     "thread.receive"
                 } else {
                     "thread.read"
+                }
+            }
+            "net.connectTcp" => {
+                if self.net_connect_is_address_form(args) {
+                    "net.connectTcpAddr"
+                } else {
+                    "net.connectTcp"
                 }
             }
             _ => target,

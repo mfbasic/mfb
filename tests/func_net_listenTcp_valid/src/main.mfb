@@ -1,0 +1,10 @@
+IMPORT net
+IMPORT io
+
+FUNC main AS Integer
+  LET s1 = net::listenTcp("127.0.0.1", 0)
+  LET s2 = net::listenTcp("127.0.0.1", 0, 16)
+  LET s3 = net::listenTcp("", 0)
+  io::print("listening all overloads")
+  RETURN 0
+END FUNC

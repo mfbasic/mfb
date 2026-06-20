@@ -24,6 +24,9 @@ const BUILTIN_TYPES: &[&str] = &[
     "String",
     builtins::fs::FILE_TYPE,
     builtins::io::TERMINAL_SIZE_TYPE,
+    builtins::net::SOCKET_TYPE,
+    builtins::net::LISTENER_TYPE,
+    builtins::net::ADDRESS_TYPE,
 ];
 
 pub fn resolve_project(

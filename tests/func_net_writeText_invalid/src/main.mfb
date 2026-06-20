@@ -1,0 +1,9 @@
+IMPORT net
+
+FUNC main AS Integer
+  LET missing = net::writeText()
+  LET wrongType = net::writeText(1, "v")
+  LET wrongValue = net::writeText("s", 5)
+  LET tooMany = net::writeText(1, "v", 3)
+  RETURN 0
+END FUNC

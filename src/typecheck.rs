@@ -3062,6 +3062,7 @@ impl<'a> TypeChecker<'a> {
         }
         let Some(info) = self.type_infos.get(&type_name).cloned() else {
             if let Some(field_type) = builtins::io::builtin_type_fields(&type_name)
+                .or_else(|| builtins::net::builtin_type_fields(&type_name))
                 .and_then(|fields| fields.iter().find(|(name, _)| *name == member))
                 .map(|(_, type_name)| self.parse_type(type_name))
             {
@@ -3631,6 +3632,16 @@ impl<'a> TypeChecker<'a> {
                 line,
             );
         }
+        if builtins::net::is_net_call(callee) {
+            return self.check_net_builtin_call(
+                file,
+                display_callee,
+                callee,
+                arguments,
+                locals,
+                line,
+            );
+        }
         if builtins::io::is_io_call(callee) {
             return self.check_io_builtin_call(
                 file,
@@ -3715,6 +3726,70 @@ impl<'a> TypeChecker<'a> {
 
         let Some(resolved) = builtins::fs::resolve_call(callee, &arg_types) else {
             let expected = builtins::fs::expected_arguments(callee).unwrap_or("supported overload");
+            self.report(
+                "TYPE_CALL_ARGUMENT_MISMATCH",
+                &format!(
+                    "Call to `{display_callee}` has argument type(s) ({}), expected {expected}.",
+                    arg_types.join(", ")
+                ),
+                file,
+                line,
+            );
+            return Type::Unknown;
+        };
+
+        self.parse_type(&resolved.return_type)
+    }
+
+    fn check_net_builtin_call(
+        &mut self,
+        file: &AstFile,
+        display_callee: &str,
+        callee: &str,
+        arguments: &[CallArg],
+        locals: &mut HashMap<String, LocalInfo>,
+        line: usize,
+    ) -> Type {
+        let arguments =
+            self.normalize_builtin_call_arguments(file, display_callee, callee, arguments, line);
+        let arg_types = arguments
+            .iter()
+            .enumerate()
+            .map(|(index, argument)| {
+                // `net.close` consumes the socket/listener handle it closes.
+                let mode = if callee == "net.close" && index == 0 {
+                    ExprMode::Transfer
+                } else {
+                    ExprMode::Borrow
+                };
+                let type_ = self.infer_expression(file, argument, locals, line, mode);
+                self.type_name(&type_)
+            })
+            .collect::<Vec<_>>();
+
+        if let Some((min, max)) = builtins::net::arity(callee) {
+            if arguments.len() < min || arguments.len() > max {
+                let expected = if min == max {
+                    min.to_string()
+                } else {
+                    format!("{min} to {max}")
+                };
+                self.report(
+                    "TYPE_CALL_ARITY_MISMATCH",
+                    &format!(
+                        "Call to `{display_callee}` has {} argument(s), expected {expected}.",
+                        arguments.len()
+                    ),
+                    file,
+                    line,
+                );
+                return Type::Unknown;
+            }
+        }
+
+        let Some(resolved) = builtins::net::resolve_call(callee, &arg_types) else {
+            let expected =
+                builtins::net::expected_arguments(callee).unwrap_or("supported overload");
             self.report(
                 "TYPE_CALL_ARGUMENT_MISMATCH",
                 &format!(
@@ -5580,5 +5655,7 @@ fn numeric_type_name(type_: &Type) -> Option<&'static str> {
 }
 
 fn read_only_record_type(type_name: &str) -> bool {
-    type_name == builtins::io::TERMINAL_SIZE_TYPE || type_name.starts_with("MapEntry OF ")
+    type_name == builtins::io::TERMINAL_SIZE_TYPE
+        || type_name == builtins::net::ADDRESS_TYPE
+        || type_name.starts_with("MapEntry OF ")
 }

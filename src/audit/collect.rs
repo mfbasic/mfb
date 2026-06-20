@@ -759,7 +759,7 @@ fn builtin_capability(callee: &str) -> Option<&'static str> {
 }
 
 fn is_fallible_call(callee: &str, fallible: &HashSet<String>) -> bool {
-    if matches!(package_of(callee), "fs" | "io" | "json" | "thread") {
+    if matches!(package_of(callee), "fs" | "io" | "json" | "net" | "thread") {
         return true;
     }
     fallible.contains(callee)
@@ -771,6 +771,8 @@ fn resource_producer(callee: &str) -> Option<(&'static str, &'static str)> {
             Some(("File", "fs.close"))
         }
         "thread.start" => Some(("Thread", "thread.waitFor")),
+        "net.connectTcp" | "net.accept" => Some(("Socket", "net.close")),
+        "net.listenTcp" => Some(("Listener", "net.close")),
         _ => None,
     }
 }

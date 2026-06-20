@@ -21,6 +21,44 @@ pub(crate) struct PlatformImport {
     pub(crate) required_by: String,
 }
 
+/// Base libc symbol names required by each `net` runtime helper. These are
+/// platform independent; macOS prepends a leading `_` (libSystem) and Linux uses
+/// them verbatim (libc). The platform's `errno` accessor (`___error` /
+/// `__errno_location`) is added separately because its name differs by platform.
+pub(crate) fn net_libc_symbols(call: &str) -> &'static [&'static str] {
+    match call {
+        "net.lookup" => &["getaddrinfo", "freeaddrinfo", "inet_ntop"],
+        "net.connectTcp" => &[
+            "getaddrinfo",
+            "freeaddrinfo",
+            "socket",
+            "connect",
+            "close",
+            "fcntl",
+            "poll",
+            "getsockopt",
+        ],
+        "net.listenTcp" => &[
+            "getaddrinfo",
+            "freeaddrinfo",
+            "socket",
+            "setsockopt",
+            "bind",
+            "listen",
+            "close",
+        ],
+        "net.accept" => &["accept", "poll", "close"],
+        "net.poll" => &["poll"],
+        "net.read" | "net.readText" => &["read"],
+        "net.write" | "net.writeText" => &["write"],
+        "net.close" => &["close"],
+        "net.localAddress" => &["getsockname", "inet_ntop"],
+        "net.remoteAddress" => &["getpeername", "inet_ntop"],
+        "net.setReadTimeout" | "net.setWriteTimeout" => &["setsockopt"],
+        _ => &[],
+    }
+}
+
 pub(crate) struct PlannedFunction {
     pub(crate) name: String,
     pub(crate) symbol: String,

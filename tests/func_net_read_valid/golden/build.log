@@ -1,0 +1,12 @@
+$ mfb build -ast tests/func_net_read_valid
+Wrote AST to tests/func_net_read_valid/func_net_read_valid.ast
+[exit 0]
+$ mfb build -ir tests/func_net_read_valid
+Wrote IR to tests/func_net_read_valid/func_net_read_valid.ir
+[exit 0]
+$ mfb build tests/func_net_read_valid
+Wrote executable to tests/func_net_read_valid/func_net_read_valid.out
+[exit 0]
+$ tests/func_net_read_valid/func_net_read_valid.out
+3 abc
+[exit 0]

@@ -1702,6 +1702,15 @@ fn expression_type(
                 return builtins::io::resolve_call(&canonical_callee, &arg_types)
                     .map(|resolved| resolved.return_type.to_string());
             }
+            if builtins::net::is_net_call(&canonical_callee) {
+                let arg_types =
+                    normalize_builtin_call_arguments(canonical_callee.as_str(), arguments)
+                        .iter()
+                        .map(|argument| expression_type(argument, locals, context))
+                        .collect::<Option<Vec<_>>>()?;
+                return builtins::net::resolve_call(&canonical_callee, &arg_types)
+                    .map(|resolved| resolved.return_type.to_string());
+            }
             if builtins::json::is_json_call(&canonical_callee) {
                 let arg_types =
                     normalize_builtin_call_arguments(canonical_callee.as_str(), arguments)
@@ -1841,6 +1850,7 @@ fn builtin_argument_types(callee: &str) -> Option<Vec<String>> {
         .or_else(|| builtins::fs::expected_arguments(callee))
         .or_else(|| builtins::io::expected_arguments(callee))
         .or_else(|| builtins::json::expected_arguments(callee))
+        .or_else(|| builtins::net::argument_types(callee))
         .or_else(|| builtins::thread::expected_arguments(callee))?;
     let params = expected.split(", ").map(str::to_string).collect::<Vec<_>>();
     if params.iter().any(|param| uses_generic_placeholder(param)) {
@@ -2655,6 +2665,7 @@ impl TypeIndex {
 
     fn record_field_type(&self, type_name: &str, member: &str) -> Option<String> {
         if let Some(type_) = builtins::io::builtin_type_fields(type_name)
+            .or_else(|| builtins::net::builtin_type_fields(type_name))
             .and_then(|fields| fields.iter().find(|(name, _)| *name == member))
             .map(|(_, type_)| (*type_).to_string())
         {

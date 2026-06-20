@@ -3,22 +3,27 @@ pub(crate) mod general;
 pub(crate) mod io;
 pub(crate) mod json;
 pub(crate) mod math;
+pub(crate) mod net;
 pub(crate) mod strings;
 pub(crate) mod thread;
 
 pub(crate) fn is_builtin_import(name: &str) -> bool {
-    matches!(name, "fs" | "io" | "json" | "math" | "strings" | "thread")
+    matches!(
+        name,
+        "fs" | "io" | "json" | "math" | "net" | "strings" | "thread"
+    )
 }
 
 pub(crate) fn is_builtin_type(name: &str) -> bool {
     fs::is_builtin_type(name)
         || io::is_builtin_type(name)
         || json::is_builtin_type(name)
+        || net::is_builtin_type(name)
         || thread::is_builtin_type(name)
 }
 
 pub(crate) fn resource_close_function(type_name: &str) -> Option<&'static str> {
-    fs::resource_close_function(type_name)
+    fs::resource_close_function(type_name).or_else(|| net::resource_close_function(type_name))
 }
 
 pub(crate) fn is_resource_type(type_name: &str) -> bool {
@@ -36,6 +41,7 @@ pub(crate) fn call_return_type_name(name: &str) -> Option<&'static str> {
         .or_else(|| fs::call_return_type_name(name))
         .or_else(|| io::call_return_type_name(name))
         .or_else(|| json::call_return_type_name(name))
+        .or_else(|| net::call_return_type_name(name))
 }
 
 pub(crate) fn is_builtin_call(name: &str) -> bool {
@@ -45,6 +51,7 @@ pub(crate) fn is_builtin_call(name: &str) -> bool {
         || fs::is_fs_call(name)
         || io::is_io_call(name)
         || json::is_json_call(name)
+        || net::is_net_call(name)
         || thread::is_thread_call(name)
         || call_return_type_name(name).is_some()
 }
@@ -150,6 +157,20 @@ pub(crate) fn call_param_names(name: &str) -> Option<&'static [&'static [&'stati
         "fs.listDirectory" => Some(&[&["path"]]),
         "fs.currentDirectory" => Some(&[]),
         "fs.setCurrentDirectory" => Some(&[&["path"]]),
+        "net.lookup" => Some(&[&["host"], &["port"]]),
+        "net.connectTcp" => Some(&[&["host", "address"], &["port", "timeoutMs"], &["timeoutMs"]]),
+        "net.listenTcp" => Some(&[&["host"], &["port"], &["backlog"]]),
+        "net.accept" => Some(&[&["listener"], &["timeoutMs"]]),
+        "net.poll" => Some(&[&["sock"], &["timeoutMs"]]),
+        "net.read" => Some(&[&["sock"], &["maxBytes"]]),
+        "net.readText" => Some(&[&["sock"], &["maxBytes"]]),
+        "net.write" => Some(&[&["sock"], &["bytes"]]),
+        "net.writeText" => Some(&[&["sock"], &["value"]]),
+        "net.close" => Some(&[&["resource", "sock", "listener"]]),
+        "net.localAddress" => Some(&[&["sock", "listener"]]),
+        "net.remoteAddress" => Some(&[&["sock"]]),
+        "net.setReadTimeout" => Some(&[&["sock"], &["timeoutMs"]]),
+        "net.setWriteTimeout" => Some(&[&["sock"], &["timeoutMs"]]),
         "io.print" => Some(&[&["value"]]),
         "io.write" => Some(&[&["value"]]),
         "io.flush" => Some(&[]),

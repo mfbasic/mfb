@@ -1,0 +1,12 @@
+IMPORT net
+IMPORT io
+
+FUNC main AS Integer
+  LET one = net::lookup("127.0.0.1")
+  LET two = net::lookup("127.0.0.1", 443)
+  LET a = get(one, 0)
+  LET b = get(two, 0)
+  io::print(a.host & " " & toString(a.port))
+  io::print(b.host & " " & toString(b.port))
+  RETURN 0
+END FUNC

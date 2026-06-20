@@ -1,0 +1,9 @@
+IMPORT net
+
+FUNC main AS Integer
+  LET missing = net::lookup()
+  LET wrongHost = net::lookup(1)
+  LET wrongPort = net::lookup("h", "p")
+  LET tooMany = net::lookup("h", 1, 2)
+  RETURN 0
+END FUNC

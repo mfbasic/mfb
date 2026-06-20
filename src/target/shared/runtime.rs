@@ -8,6 +8,7 @@ pub enum RuntimeHelper {
     General,
     Io,
     Math,
+    Net,
     Strings,
     Thread,
 }
@@ -19,6 +20,7 @@ impl RuntimeHelper {
             RuntimeHelper::General => "general",
             RuntimeHelper::Io => "io",
             RuntimeHelper::Math => "math",
+            RuntimeHelper::Net => "net",
             RuntimeHelper::Strings => "strings",
             RuntimeHelper::Thread => "thread",
         }
@@ -1110,6 +1112,304 @@ pub(crate) const THREAD_IS_CANCELLED_SPEC: RuntimeHelperSpec = RuntimeHelperSpec
     },
 };
 
+const NET_HOST_PORT_PARAMS: &[RuntimeAbiParam] = &[
+    RuntimeAbiParam {
+        name: "host",
+        type_: "String",
+        location: "x0",
+    },
+    RuntimeAbiParam {
+        name: "port",
+        type_: "Integer",
+        location: "x1",
+    },
+];
+
+const NET_CONNECT_TCP_PARAMS: &[RuntimeAbiParam] = &[
+    RuntimeAbiParam {
+        name: "host",
+        type_: "String",
+        location: "x0",
+    },
+    RuntimeAbiParam {
+        name: "port",
+        type_: "Integer",
+        location: "x1",
+    },
+    RuntimeAbiParam {
+        name: "timeoutMs",
+        type_: "Integer",
+        location: "x2",
+    },
+];
+
+const NET_LISTEN_TCP_PARAMS: &[RuntimeAbiParam] = &[
+    RuntimeAbiParam {
+        name: "host",
+        type_: "String",
+        location: "x0",
+    },
+    RuntimeAbiParam {
+        name: "port",
+        type_: "Integer",
+        location: "x1",
+    },
+    RuntimeAbiParam {
+        name: "backlog",
+        type_: "Integer",
+        location: "x2",
+    },
+];
+
+const NET_SOCKET_PARAMS: &[RuntimeAbiParam] = &[RuntimeAbiParam {
+    name: "sock",
+    type_: "Socket",
+    location: "x0",
+}];
+
+const NET_SOCKET_TIMEOUT_PARAMS: &[RuntimeAbiParam] = &[
+    RuntimeAbiParam {
+        name: "sock",
+        type_: "Socket",
+        location: "x0",
+    },
+    RuntimeAbiParam {
+        name: "timeoutMs",
+        type_: "Integer",
+        location: "x1",
+    },
+];
+
+const NET_LISTENER_TIMEOUT_PARAMS: &[RuntimeAbiParam] = &[
+    RuntimeAbiParam {
+        name: "listener",
+        type_: "Listener",
+        location: "x0",
+    },
+    RuntimeAbiParam {
+        name: "timeoutMs",
+        type_: "Integer",
+        location: "x1",
+    },
+];
+
+const NET_SOCKET_INT_PARAMS: &[RuntimeAbiParam] = &[
+    RuntimeAbiParam {
+        name: "sock",
+        type_: "Socket",
+        location: "x0",
+    },
+    RuntimeAbiParam {
+        name: "maxBytes",
+        type_: "Integer",
+        location: "x1",
+    },
+];
+
+const NET_SOCKET_BYTES_PARAMS: &[RuntimeAbiParam] = &[
+    RuntimeAbiParam {
+        name: "sock",
+        type_: "Socket",
+        location: "x0",
+    },
+    RuntimeAbiParam {
+        name: "bytes",
+        type_: "List OF Byte",
+        location: "x1",
+    },
+];
+
+const NET_SOCKET_STRING_PARAMS: &[RuntimeAbiParam] = &[
+    RuntimeAbiParam {
+        name: "sock",
+        type_: "Socket",
+        location: "x0",
+    },
+    RuntimeAbiParam {
+        name: "value",
+        type_: "String",
+        location: "x1",
+    },
+];
+
+pub(crate) const NET_LOOKUP_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
+    helper: RuntimeHelper::Net,
+    call: "net.lookup",
+    symbol: "_mfb_rt_net_net_lookup",
+    abi: RuntimeHelperAbi {
+        params: NET_HOST_PORT_PARAMS,
+        returns: "List OF Address",
+        clobbers: abi::IO_PRINT_CLOBBERS,
+    },
+};
+
+pub(crate) const NET_CONNECT_TCP_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
+    helper: RuntimeHelper::Net,
+    call: "net.connectTcp",
+    symbol: "_mfb_rt_net_net_connectTcp",
+    abi: RuntimeHelperAbi {
+        params: NET_CONNECT_TCP_PARAMS,
+        returns: "Socket",
+        clobbers: abi::IO_PRINT_CLOBBERS,
+    },
+};
+
+const NET_CONNECT_TCP_ADDR_PARAMS: &[RuntimeAbiParam] = &[
+    RuntimeAbiParam {
+        name: "address",
+        type_: "Address",
+        location: "x0",
+    },
+    RuntimeAbiParam {
+        name: "timeoutMs",
+        type_: "Integer",
+        location: "x1",
+    },
+];
+
+pub(crate) const NET_CONNECT_TCP_ADDR_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
+    helper: RuntimeHelper::Net,
+    call: "net.connectTcpAddr",
+    symbol: "_mfb_rt_net_net_connectTcpAddr",
+    abi: RuntimeHelperAbi {
+        params: NET_CONNECT_TCP_ADDR_PARAMS,
+        returns: "Socket",
+        clobbers: abi::IO_PRINT_CLOBBERS,
+    },
+};
+
+pub(crate) const NET_LISTEN_TCP_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
+    helper: RuntimeHelper::Net,
+    call: "net.listenTcp",
+    symbol: "_mfb_rt_net_net_listenTcp",
+    abi: RuntimeHelperAbi {
+        params: NET_LISTEN_TCP_PARAMS,
+        returns: "Listener",
+        clobbers: abi::IO_PRINT_CLOBBERS,
+    },
+};
+
+pub(crate) const NET_ACCEPT_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
+    helper: RuntimeHelper::Net,
+    call: "net.accept",
+    symbol: "_mfb_rt_net_net_accept",
+    abi: RuntimeHelperAbi {
+        params: NET_LISTENER_TIMEOUT_PARAMS,
+        returns: "Socket",
+        clobbers: abi::IO_PRINT_CLOBBERS,
+    },
+};
+
+pub(crate) const NET_POLL_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
+    helper: RuntimeHelper::Net,
+    call: "net.poll",
+    symbol: "_mfb_rt_net_net_poll",
+    abi: RuntimeHelperAbi {
+        params: NET_SOCKET_TIMEOUT_PARAMS,
+        returns: "Boolean",
+        clobbers: abi::IO_PRINT_CLOBBERS,
+    },
+};
+
+pub(crate) const NET_READ_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
+    helper: RuntimeHelper::Net,
+    call: "net.read",
+    symbol: "_mfb_rt_net_net_read",
+    abi: RuntimeHelperAbi {
+        params: NET_SOCKET_INT_PARAMS,
+        returns: "List OF Byte",
+        clobbers: abi::IO_PRINT_CLOBBERS,
+    },
+};
+
+pub(crate) const NET_READ_TEXT_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
+    helper: RuntimeHelper::Net,
+    call: "net.readText",
+    symbol: "_mfb_rt_net_net_readText",
+    abi: RuntimeHelperAbi {
+        params: NET_SOCKET_INT_PARAMS,
+        returns: "String",
+        clobbers: abi::IO_PRINT_CLOBBERS,
+    },
+};
+
+pub(crate) const NET_WRITE_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
+    helper: RuntimeHelper::Net,
+    call: "net.write",
+    symbol: "_mfb_rt_net_net_write",
+    abi: RuntimeHelperAbi {
+        params: NET_SOCKET_BYTES_PARAMS,
+        returns: "Nothing",
+        clobbers: abi::IO_PRINT_CLOBBERS,
+    },
+};
+
+pub(crate) const NET_WRITE_TEXT_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
+    helper: RuntimeHelper::Net,
+    call: "net.writeText",
+    symbol: "_mfb_rt_net_net_writeText",
+    abi: RuntimeHelperAbi {
+        params: NET_SOCKET_STRING_PARAMS,
+        returns: "Nothing",
+        clobbers: abi::IO_PRINT_CLOBBERS,
+    },
+};
+
+pub(crate) const NET_CLOSE_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
+    helper: RuntimeHelper::Net,
+    call: "net.close",
+    symbol: "_mfb_rt_net_net_close",
+    abi: RuntimeHelperAbi {
+        params: NET_SOCKET_PARAMS,
+        returns: "Nothing",
+        clobbers: abi::IO_PRINT_CLOBBERS,
+    },
+};
+
+pub(crate) const NET_LOCAL_ADDRESS_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
+    helper: RuntimeHelper::Net,
+    call: "net.localAddress",
+    symbol: "_mfb_rt_net_net_localAddress",
+    abi: RuntimeHelperAbi {
+        params: NET_SOCKET_PARAMS,
+        returns: "Address",
+        clobbers: abi::IO_PRINT_CLOBBERS,
+    },
+};
+
+pub(crate) const NET_REMOTE_ADDRESS_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
+    helper: RuntimeHelper::Net,
+    call: "net.remoteAddress",
+    symbol: "_mfb_rt_net_net_remoteAddress",
+    abi: RuntimeHelperAbi {
+        params: NET_SOCKET_PARAMS,
+        returns: "Address",
+        clobbers: abi::IO_PRINT_CLOBBERS,
+    },
+};
+
+pub(crate) const NET_SET_READ_TIMEOUT_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
+    helper: RuntimeHelper::Net,
+    call: "net.setReadTimeout",
+    symbol: "_mfb_rt_net_net_setReadTimeout",
+    abi: RuntimeHelperAbi {
+        params: NET_SOCKET_TIMEOUT_PARAMS,
+        returns: "Nothing",
+        clobbers: abi::IO_PRINT_CLOBBERS,
+    },
+};
+
+pub(crate) const NET_SET_WRITE_TIMEOUT_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
+    helper: RuntimeHelper::Net,
+    call: "net.setWriteTimeout",
+    symbol: "_mfb_rt_net_net_setWriteTimeout",
+    abi: RuntimeHelperAbi {
+        params: NET_SOCKET_TIMEOUT_PARAMS,
+        returns: "Nothing",
+        clobbers: abi::IO_PRINT_CLOBBERS,
+    },
+};
+
 pub(crate) fn supported_helper_specs() -> &'static [RuntimeHelperSpec] {
     &[
         IO_PRINT_SPEC,
@@ -1184,6 +1484,21 @@ pub(crate) fn supported_helper_specs() -> &'static [RuntimeHelperSpec] {
         THREAD_RECEIVE_SPEC,
         THREAD_EMIT_SPEC,
         THREAD_IS_CANCELLED_SPEC,
+        NET_LOOKUP_SPEC,
+        NET_CONNECT_TCP_SPEC,
+        NET_CONNECT_TCP_ADDR_SPEC,
+        NET_LISTEN_TCP_SPEC,
+        NET_ACCEPT_SPEC,
+        NET_POLL_SPEC,
+        NET_READ_SPEC,
+        NET_READ_TEXT_SPEC,
+        NET_WRITE_SPEC,
+        NET_WRITE_TEXT_SPEC,
+        NET_CLOSE_SPEC,
+        NET_LOCAL_ADDRESS_SPEC,
+        NET_REMOTE_ADDRESS_SPEC,
+        NET_SET_READ_TIMEOUT_SPEC,
+        NET_SET_WRITE_TIMEOUT_SPEC,
     ]
 }
 
@@ -1212,6 +1527,8 @@ pub fn helper_for_call(name: &str) -> Option<RuntimeHelper> {
         Some(RuntimeHelper::Strings)
     } else if builtins::thread::is_thread_call(name) {
         Some(RuntimeHelper::Thread)
+    } else if builtins::net::is_net_call(name) {
+        Some(RuntimeHelper::Net)
     } else {
         None
     }

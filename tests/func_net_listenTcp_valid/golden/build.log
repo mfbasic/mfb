@@ -1,0 +1,12 @@
+$ mfb build -ast tests/func_net_listenTcp_valid
+Wrote AST to tests/func_net_listenTcp_valid/func_net_listenTcp_valid.ast
+[exit 0]
+$ mfb build -ir tests/func_net_listenTcp_valid
+Wrote IR to tests/func_net_listenTcp_valid/func_net_listenTcp_valid.ir
+[exit 0]
+$ mfb build tests/func_net_listenTcp_valid
+Wrote executable to tests/func_net_listenTcp_valid/func_net_listenTcp_valid.out
+[exit 0]
+$ tests/func_net_listenTcp_valid/func_net_listenTcp_valid.out
+Code: 77070001 Message: address invalid
+[exit 255]

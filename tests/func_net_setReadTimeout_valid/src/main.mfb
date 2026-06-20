@@ -1,0 +1,13 @@
+IMPORT net
+IMPORT io
+
+FUNC main AS Integer
+  LET server = net::listenTcp("127.0.0.1", 0)
+  LET bound = net::localAddress(server)
+  LET client = net::connectTcp("127.0.0.1", bound.port)
+  LET conn = net::accept(server)
+  net::setReadTimeout(conn, 1000)
+  net::setReadTimeout(conn, 0)
+  io::print("read timeout set")
+  RETURN 0
+END FUNC

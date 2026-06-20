@@ -135,6 +135,24 @@ const ERR_PATH_NOT_FOUND_SYMBOL: &str = "_mfb_str_error_path_not_found";
 const ERR_INVALID_PATH_CODE: &str = "77030002";
 const ERR_INVALID_PATH_MESSAGE: &str = "invalid path";
 const ERR_INVALID_PATH_SYMBOL: &str = "_mfb_str_error_invalid_path";
+const ERR_ADDRESS_INVALID_CODE: &str = "77070001";
+const ERR_ADDRESS_INVALID_MESSAGE: &str = "address invalid";
+const ERR_ADDRESS_INVALID_SYMBOL: &str = "_mfb_str_error_address_invalid";
+const ERR_ADDRESS_NOT_FOUND_CODE: &str = "77070002";
+const ERR_ADDRESS_NOT_FOUND_MESSAGE: &str = "address not found";
+const ERR_ADDRESS_NOT_FOUND_SYMBOL: &str = "_mfb_str_error_address_not_found";
+const ERR_NETWORK_FAILED_CODE: &str = "77070003";
+const ERR_NETWORK_FAILED_MESSAGE: &str = "network failed";
+const ERR_NETWORK_FAILED_SYMBOL: &str = "_mfb_str_error_network_failed";
+const ERR_CONNECTION_CLOSED_CODE: &str = "77070004";
+const ERR_CONNECTION_CLOSED_MESSAGE: &str = "connection closed";
+const ERR_CONNECTION_CLOSED_SYMBOL: &str = "_mfb_str_error_connection_closed";
+const ERR_READ_TIMEOUT_CODE: &str = "77070005";
+const ERR_READ_TIMEOUT_MESSAGE: &str = "read timeout";
+const ERR_READ_TIMEOUT_SYMBOL: &str = "_mfb_str_error_read_timeout";
+const ERR_WRITE_TIMEOUT_CODE: &str = "77070006";
+const ERR_WRITE_TIMEOUT_MESSAGE: &str = "write timeout";
+const ERR_WRITE_TIMEOUT_SYMBOL: &str = "_mfb_str_error_write_timeout";
 const EMPTY_STRING_SYMBOL: &str = "_mfb_str_empty";
 const FS_MODE_TYPE_MASK: &str = "61440";
 const FS_MODE_DIRECTORY: &str = "16384";
@@ -321,6 +339,19 @@ pub(crate) trait CodegenPlatform {
         instructions: &mut Vec<CodeInstruction>,
         relocations: &mut Vec<CodeRelocation>,
     ) -> Result<(), String>;
+    /// Emit a `bl` to a libc function named by its platform-independent base
+    /// name (e.g. `socket`, `getaddrinfo`). macOS prepends a leading `_`
+    /// (libSystem); Linux uses the name verbatim (libc). Arguments must already
+    /// be in `x0..`, the result is returned in `x0`. Used by the `net` runtime
+    /// helpers, which marshal socket calls onto libc.
+    fn emit_libc_call(
+        &self,
+        base: &str,
+        from: &str,
+        platform_imports: &HashMap<String, String>,
+        instructions: &mut Vec<CodeInstruction>,
+        relocations: &mut Vec<CodeRelocation>,
+    ) -> Result<(), String>;
     fn emit_open_file(
         &self,
         from: &str,
@@ -416,6 +447,36 @@ pub(crate) trait CodegenPlatform {
     ) -> Result<(), String>;
     fn emit_arena_map(&self, instructions: &mut Vec<CodeInstruction>) -> Result<(), String>;
     fn emit_arena_unmap(&self, instructions: &mut Vec<CodeInstruction>) -> Result<(), String>;
+    /// Byte offset of `ai_addr` within `struct addrinfo`. macOS orders
+    /// `ai_canonname` before `ai_addr` (offset 32); Linux orders `ai_addr` first
+    /// (offset 24).
+    fn addrinfo_addr_offset(&self) -> usize;
+    /// `setsockopt` level/option constants, which differ between platforms.
+    fn sol_socket(&self) -> &'static str;
+    fn so_reuseaddr(&self) -> &'static str;
+    fn so_rcvtimeo(&self) -> &'static str;
+    fn so_sndtimeo(&self) -> &'static str;
+    /// `EAGAIN`/`EWOULDBLOCK` errno value, used to distinguish a socket
+    /// read/write timeout from a connection failure.
+    fn eagain(&self) -> &'static str;
+    /// `O_NONBLOCK` open/`fcntl` flag, `EINPROGRESS` errno, and `SO_ERROR`
+    /// socket option, used by the non-blocking `connect` + `poll` timeout path.
+    fn o_nonblock(&self) -> &'static str;
+    fn einprogress(&self) -> &'static str;
+    fn so_error(&self) -> &'static str;
+    /// Emit a `bl` to a libc function that takes a single trailing variadic
+    /// argument in `x2` (e.g. `open(path, flags, mode)`, `fcntl(fd, cmd, arg)`).
+    /// On the Darwin AArch64 ABI variadic arguments are passed on the stack, so
+    /// the value in `x2` is spilled to the stack top across the call; on Linux it
+    /// is passed in `x2` like a normal argument. Result is returned in `x0`.
+    fn emit_variadic_call(
+        &self,
+        base: &str,
+        from: &str,
+        platform_imports: &HashMap<String, String>,
+        instructions: &mut Vec<CodeInstruction>,
+        relocations: &mut Vec<CodeRelocation>,
+    ) -> Result<(), String>;
 }
 
 #[derive(Clone, Copy)]
@@ -778,13 +839,27 @@ pub(crate) fn lower_module_for_platform(
     {
         runtime_symbols.push("_mfb_rt_thread_thread_emit".to_string());
     }
+    // The `connectTcp(Address)` overload routes to a paired helper that shares
+    // `connectTcp`'s libc imports; emit it whenever `connectTcp` is present.
+    if runtime_symbols
+        .iter()
+        .any(|symbol| symbol == "_mfb_rt_net_net_connectTcp")
+        && !runtime_symbols
+            .iter()
+            .any(|symbol| symbol == "_mfb_rt_net_net_connectTcpAddr")
+    {
+        runtime_symbols.push("_mfb_rt_net_net_connectTcpAddr".to_string());
+    }
     for symbol in &runtime_symbols {
         code_functions.push(lower_runtime_helper(symbol, &platform_imports, platform)?);
     }
     if runtime_symbols.iter().any(|symbol| {
         matches!(
             symbol.as_str(),
-            "_mfb_rt_fs_fs_readText" | "_mfb_rt_fs_fs_readAll" | "_mfb_rt_fs_fs_readLine"
+            "_mfb_rt_fs_fs_readText"
+                | "_mfb_rt_fs_fs_readAll"
+                | "_mfb_rt_fs_fs_readLine"
+                | "_mfb_rt_net_net_readText"
         )
     }) {
         code_functions.push(lower_validate_utf8_helper());
@@ -1075,6 +1150,15 @@ impl TypeModel {
         if let Some(fields) = builtins::io::builtin_type_fields("TerminalSize") {
             record_fields.insert(
                 "TerminalSize".to_string(),
+                fields
+                    .iter()
+                    .map(|(name, type_)| ((*name).to_string(), (*type_).to_string()))
+                    .collect(),
+            );
+        }
+        if let Some(fields) = builtins::net::builtin_type_fields("Address") {
+            record_fields.insert(
+                "Address".to_string(),
                 fields
                     .iter()
                     .map(|(name, type_)| ((*name).to_string(), (*type_).to_string()))
@@ -2835,6 +2919,73 @@ fn lower_runtime_helper(
         | "thread.emit" | "thread.isCancelled" => {
             let (frame, instructions, relocations) =
                 lower_thread_helper(symbol, spec.call, platform_imports, platform)?;
+            Ok(CodeFunction {
+                name: format!("runtime.{}", spec.call),
+                symbol: symbol.to_string(),
+                params: spec
+                    .abi
+                    .params
+                    .iter()
+                    .map(|param| CodeParam {
+                        name: param.name.to_string(),
+                        type_: param.type_.to_string(),
+                        location: param.location.to_string(),
+                    })
+                    .collect(),
+                returns: spec.abi.returns.to_string(),
+                frame,
+                stack_slots: Vec::new(),
+                instructions,
+                relocations,
+            })
+        }
+        call if call.starts_with("net.") => {
+            let (frame, instructions, relocations) = match call {
+                "net.lookup" => net::lower_net_lookup_helper(symbol, platform_imports, platform)?,
+                "net.connectTcp" => {
+                    net::lower_net_connect_tcp_helper(symbol, platform_imports, platform)?
+                }
+                "net.connectTcpAddr" => {
+                    net::lower_net_connect_tcp_addr_helper(symbol, platform_imports, platform)?
+                }
+                "net.listenTcp" => {
+                    net::lower_net_listen_tcp_helper(symbol, platform_imports, platform)?
+                }
+                "net.accept" => net::lower_net_accept_helper(symbol, platform_imports, platform)?,
+                "net.poll" => net::lower_net_poll_helper(symbol, platform_imports, platform)?,
+                "net.read" => {
+                    net::lower_net_read_helper(symbol, platform_imports, platform, false)?
+                }
+                "net.readText" => {
+                    net::lower_net_read_helper(symbol, platform_imports, platform, true)?
+                }
+                "net.write" => {
+                    net::lower_net_write_helper(symbol, platform_imports, platform, false)?
+                }
+                "net.writeText" => {
+                    net::lower_net_write_helper(symbol, platform_imports, platform, true)?
+                }
+                // A socket/listener handle shares the `File` record layout, so the
+                // standard file close helper closes net handles too.
+                "net.close" => lower_fs_close_helper(symbol, platform_imports, platform)?,
+                "net.localAddress" => {
+                    net::lower_net_address_helper(symbol, platform_imports, platform, false)?
+                }
+                "net.remoteAddress" => {
+                    net::lower_net_address_helper(symbol, platform_imports, platform, true)?
+                }
+                "net.setReadTimeout" => {
+                    net::lower_net_set_timeout_helper(symbol, platform_imports, platform, false)?
+                }
+                "net.setWriteTimeout" => {
+                    net::lower_net_set_timeout_helper(symbol, platform_imports, platform, true)?
+                }
+                other => {
+                    return Err(format!(
+                        "native code plan does not emit runtime call '{other}'"
+                    ));
+                }
+            };
             Ok(CodeFunction {
                 name: format!("runtime.{}", spec.call),
                 symbol: symbol.to_string(),
@@ -11743,6 +11894,7 @@ fn adjust_stack_instruction_offsets(instructions: &mut [CodeInstruction], offset
     }
 }
 
+mod net;
 mod builder_collection_layout;
 mod builder_collection_queries;
 mod builder_collection_updates;
@@ -12114,6 +12266,40 @@ fn string_symbols(module: &NirModule) -> HashMap<String, String> {
     if module_uses_call(module, "io.terminalSize") {
         push_string_value(&mut values, ERR_UNSUPPORTED_MESSAGE.to_string());
     }
+    if module_uses_any_call(
+        module,
+        &[
+            "net.lookup",
+            "net.connectTcp",
+            "net.listenTcp",
+            "net.accept",
+            "net.poll",
+            "net.read",
+            "net.readText",
+            "net.write",
+            "net.writeText",
+            "net.close",
+            "net.localAddress",
+            "net.remoteAddress",
+            "net.setReadTimeout",
+            "net.setWriteTimeout",
+        ],
+    ) {
+        for value in [
+            ERR_ADDRESS_INVALID_MESSAGE,
+            ERR_ADDRESS_NOT_FOUND_MESSAGE,
+            ERR_NETWORK_FAILED_MESSAGE,
+            ERR_CONNECTION_CLOSED_MESSAGE,
+            ERR_READ_TIMEOUT_MESSAGE,
+            ERR_WRITE_TIMEOUT_MESSAGE,
+            ERR_RESOURCE_CLOSED_MESSAGE,
+            ERR_CLOSE_FAILED_MESSAGE,
+            ERR_ENCODING_MESSAGE,
+            ERR_TIMEOUT_MESSAGE,
+        ] {
+            push_string_value(&mut values, value.to_string());
+        }
+    }
     if module_uses_call(module, "find")
         || module_uses_call(module, "mid")
         || module_uses_call(module, "get")
@@ -12280,6 +12466,36 @@ fn standard_error_messages() -> &'static [(&'static str, &'static str, &'static 
         (ERR_EOF_CODE, ERR_EOF_MESSAGE, ERR_EOF_SYMBOL),
         (ERR_ENCODING_CODE, ERR_ENCODING_MESSAGE, ERR_ENCODING_SYMBOL),
         (ERR_INPUT_CODE, ERR_INPUT_MESSAGE, ERR_INPUT_SYMBOL),
+        (
+            ERR_ADDRESS_INVALID_CODE,
+            ERR_ADDRESS_INVALID_MESSAGE,
+            ERR_ADDRESS_INVALID_SYMBOL,
+        ),
+        (
+            ERR_ADDRESS_NOT_FOUND_CODE,
+            ERR_ADDRESS_NOT_FOUND_MESSAGE,
+            ERR_ADDRESS_NOT_FOUND_SYMBOL,
+        ),
+        (
+            ERR_NETWORK_FAILED_CODE,
+            ERR_NETWORK_FAILED_MESSAGE,
+            ERR_NETWORK_FAILED_SYMBOL,
+        ),
+        (
+            ERR_CONNECTION_CLOSED_CODE,
+            ERR_CONNECTION_CLOSED_MESSAGE,
+            ERR_CONNECTION_CLOSED_SYMBOL,
+        ),
+        (
+            ERR_READ_TIMEOUT_CODE,
+            ERR_READ_TIMEOUT_MESSAGE,
+            ERR_READ_TIMEOUT_SYMBOL,
+        ),
+        (
+            ERR_WRITE_TIMEOUT_CODE,
+            ERR_WRITE_TIMEOUT_MESSAGE,
+            ERR_WRITE_TIMEOUT_SYMBOL,
+        ),
     ]
 }
 

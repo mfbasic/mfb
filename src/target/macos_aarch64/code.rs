@@ -251,6 +251,47 @@ impl code::CodegenPlatform for Platform {
         Ok(())
     }
 
+    fn emit_libc_call(
+        &self,
+        base: &str,
+        from: &str,
+        platform_imports: &HashMap<String, String>,
+        instructions: &mut Vec<CodeInstruction>,
+        relocations: &mut Vec<CodeRelocation>,
+    ) -> Result<(), String> {
+        emit_libsystem_call(
+            from,
+            &format!("_{base}"),
+            platform_imports,
+            instructions,
+            relocations,
+        )
+    }
+
+    fn emit_variadic_call(
+        &self,
+        base: &str,
+        from: &str,
+        platform_imports: &HashMap<String, String>,
+        instructions: &mut Vec<CodeInstruction>,
+        relocations: &mut Vec<CodeRelocation>,
+    ) -> Result<(), String> {
+        // The Apple AArch64 calling convention passes variadic arguments on the
+        // stack, so spill the trailing variadic argument from `x2` to the stack
+        // top across the call (16-byte aligned).
+        instructions.push(abi::subtract_stack(16));
+        instructions.push(abi::store_u64("x2", abi::stack_pointer(), 0));
+        emit_libsystem_call(
+            from,
+            &format!("_{base}"),
+            platform_imports,
+            instructions,
+            relocations,
+        )?;
+        instructions.push(abi::add_stack(16));
+        Ok(())
+    }
+
     fn emit_open_file(
         &self,
         from: &str,
@@ -262,17 +303,9 @@ impl code::CodegenPlatform for Platform {
         // helper observes the standard `-1` failure return with a populated libc
         // `errno`. A raw Darwin syscall reports failure via the carry flag and
         // returns the positive errno in `x0`, which the fd checks would otherwise
-        // mistake for a valid descriptor.
-        //
-        // `open(path, flags, mode)` is variadic, and the Apple AArch64 calling
-        // convention passes variadic arguments on the stack. Callers place the
-        // creation `mode` in `x2` (as the raw syscall required); move it to the
-        // top of the stack so the wrapper reads it as the variadic argument.
-        instructions.push(abi::subtract_stack(16));
-        instructions.push(abi::store_u64("x2", abi::stack_pointer(), 0));
-        emit_libsystem_call(from, "_open", platform_imports, instructions, relocations)?;
-        instructions.push(abi::add_stack(16));
-        Ok(())
+        // mistake for a valid descriptor. `open(path, flags, mode)`'s `mode` is a
+        // variadic argument, so route through `emit_variadic_call`.
+        self.emit_variadic_call("open", from, platform_imports, instructions, relocations)
     }
 
     fn emit_read_file(
@@ -476,6 +509,44 @@ impl code::CodegenPlatform for Platform {
             abi::syscall(),
         ]);
         Ok(())
+    }
+
+    fn addrinfo_addr_offset(&self) -> usize {
+        // Darwin `struct addrinfo` orders `ai_canonname` (offset 24) before
+        // `ai_addr` (offset 32).
+        32
+    }
+
+    fn sol_socket(&self) -> &'static str {
+        "65535" // SOL_SOCKET (0xffff) on Darwin
+    }
+
+    fn so_reuseaddr(&self) -> &'static str {
+        "4" // SO_REUSEADDR (0x0004) on Darwin
+    }
+
+    fn so_rcvtimeo(&self) -> &'static str {
+        "4102" // SO_RCVTIMEO (0x1006) on Darwin
+    }
+
+    fn so_sndtimeo(&self) -> &'static str {
+        "4101" // SO_SNDTIMEO (0x1005) on Darwin
+    }
+
+    fn eagain(&self) -> &'static str {
+        "35" // EAGAIN on Darwin
+    }
+
+    fn o_nonblock(&self) -> &'static str {
+        "4" // O_NONBLOCK (0x0004) on Darwin
+    }
+
+    fn einprogress(&self) -> &'static str {
+        "36" // EINPROGRESS on Darwin
+    }
+
+    fn so_error(&self) -> &'static str {
+        "4103" // SO_ERROR (0x1007) on Darwin
     }
 }
 

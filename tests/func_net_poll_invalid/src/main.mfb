@@ -1,0 +1,8 @@
+IMPORT net
+
+FUNC main AS Integer
+  LET missing = net::poll()
+  LET wrongType = net::poll(1, 0)
+  LET tooMany = net::poll(1, 2, 3)
+  RETURN 0
+END FUNC
