@@ -1,4 +1,4 @@
-use crate::arch::aarch64::encode::{EncodedImage, EncodedSection};
+use crate::arch::aarch64::encode::{EncodedImage, EncodedSection, ImportKind};
 use crate::os::linux::flavor::LinuxFlavor;
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
@@ -7,6 +7,7 @@ use std::path::{Path, PathBuf};
 const IMAGE_BASE: u64 = 0x400000;
 const TEXT_FILE_OFFSET: usize = 0x1000;
 const PAGE_SIZE: usize = 0x1000;
+const R_AARCH64_GLOB_DAT: u32 = 1025;
 const R_AARCH64_JUMP_SLOT: u32 = 1026;
 
 pub(crate) fn write_executable(
@@ -109,6 +110,46 @@ fn patch_relocations(
                     | branch_imm26(text_vmaddr as usize + relocation.offset, target as usize);
                 write_u32(text, relocation.offset, word);
             }
+            // Imported data global addressed through its GOT slot (plan-linker.md
+            // §6.1): the slot is filled by a GLOB_DAT dynamic relocation.
+            "external" if relocation.kind == "page21" => {
+                let Some(&target) = import_locations.got_entries.get(&relocation.target) else {
+                    return Err(format!(
+                        "linux-aarch64 linker cannot bind external data symbol '{}' from {}",
+                        relocation.target,
+                        relocation.library.as_deref().unwrap_or("<unknown library>")
+                    ));
+                };
+                let pc = text_vmaddr + relocation.offset as u64;
+                let page_delta = ((target & !0xfff) as i64 - (pc & !0xfff) as i64) >> 12;
+                let encoded = page_delta as u32;
+                let immlo = encoded & 0b11;
+                let immhi = (encoded >> 2) & 0x7ffff;
+                let rd = read_u32(text, relocation.offset) & 0x1f;
+                write_u32(
+                    text,
+                    relocation.offset,
+                    0x9000_0000 | (immlo << 29) | (immhi << 5) | rd,
+                );
+            }
+            "external" if relocation.kind == "pageoff12" => {
+                let Some(&target) = import_locations.got_entries.get(&relocation.target) else {
+                    return Err(format!(
+                        "linux-aarch64 linker cannot bind external data symbol '{}' from {}",
+                        relocation.target,
+                        relocation.library.as_deref().unwrap_or("<unknown library>")
+                    ));
+                };
+                let imm12 = (target & 0xfff) as u32;
+                let word = read_u32(text, relocation.offset);
+                let rd = word & 0x1f;
+                let rn = (word >> 5) & 0x1f;
+                write_u32(
+                    text,
+                    relocation.offset,
+                    0x9100_0000 | (imm12 << 10) | (rn << 5) | rd,
+                );
+            }
             _ => {
                 return Err(format!(
                     "linux-aarch64 linker does not support relocation {} {}",
@@ -123,6 +164,9 @@ fn patch_relocations(
 #[derive(Default)]
 struct ImportLocations {
     stubs: std::collections::HashMap<String, u64>,
+    /// GOT entry vmaddr per imported symbol, used to address imported data
+    /// globals directly (plan-linker.md §6.1).
+    got_entries: std::collections::HashMap<String, u64>,
 }
 
 fn append_import_stubs(
@@ -139,8 +183,14 @@ fn append_import_stubs(
     for (index, import) in image.imports.iter().enumerate() {
         let stub_vmaddr = text_vmaddr + text.len() as u64;
         let entry_vmaddr = got_vmaddr + (index * 8) as u64;
+        // Every import gets a GOT slot. Function imports also get a call stub
+        // that branches through it; data globals are addressed via the GOT slot
+        // directly (their stub is unused).
         emit_import_stub(text, stub_vmaddr, entry_vmaddr);
         locations.stubs.insert(import.symbol.clone(), stub_vmaddr);
+        locations
+            .got_entries
+            .insert(import.symbol.clone(), entry_vmaddr);
     }
     Ok(locations)
 }
@@ -449,8 +499,15 @@ impl DynamicPayload {
         } else {
             0
         };
-        let dynamic_offset = align(verneed_offset + verneed_size, 8);
-        let dynamic_count = libraries.len() + 14 + if versioned { 3 } else { 0 };
+        // Load-time initializers (plan-linker.md §5.3/§6.4): an array of absolute
+        // text addresses the loader runs after relocation and before the entry.
+        let init_array_offset = align(verneed_offset + verneed_size, 8);
+        let init_array_size = image.initializers.len() * 8;
+        let dynamic_offset = align(init_array_offset + init_array_size, 8);
+        let dynamic_count = libraries.len()
+            + 14
+            + if versioned { 3 } else { 0 }
+            + if image.initializers.is_empty() { 0 } else { 2 };
         let dynamic_size = dynamic_count * 16;
         let data_offset = align(
             TEXT_FILE_OFFSET + image.text.len() + image.imports.len() * 12,
@@ -465,12 +522,16 @@ impl DynamicPayload {
         bytes.resize(bytes.len() + 24, 0);
         for (index, import) in image.imports.iter().enumerate() {
             put_u32(&mut bytes, symbol_name_offsets[index] as u32);
-            bytes.push(0x12);
+            // st_info: GLOBAL OBJECT (0x11) for a data global, GLOBAL FUNC (0x12)
+            // for a function.
+            bytes.push(match import.kind {
+                ImportKind::Data => 0x11,
+                ImportKind::Function => 0x12,
+            });
             bytes.push(0);
             put_u16(&mut bytes, 0);
             put_u64(&mut bytes, 0);
             put_u64(&mut bytes, 0);
-            let _ = import;
         }
 
         bytes.resize(hash_offset - payload_start, 0);
@@ -488,16 +549,20 @@ impl DynamicPayload {
         put_u32(&mut bytes, 0);
 
         bytes.resize(rela_offset - payload_start, 0);
-        for index in 0..image.imports.len() {
+        for (index, import) in image.imports.iter().enumerate() {
             let symbol_index = index + 1;
+            // GLOB_DAT binds a data global's GOT slot to the symbol's address;
+            // JUMP_SLOT binds a function's GOT slot for its call stub
+            // (plan-linker.md §6.1).
+            let reloc_type = match import.kind {
+                ImportKind::Data => R_AARCH64_GLOB_DAT,
+                ImportKind::Function => R_AARCH64_JUMP_SLOT,
+            };
             put_u64(
                 &mut bytes,
                 data_vmaddr + got_offset as u64 + (index * 8) as u64,
             );
-            put_u64(
-                &mut bytes,
-                ((symbol_index as u64) << 32) | R_AARCH64_JUMP_SLOT as u64,
-            );
+            put_u64(&mut bytes, ((symbol_index as u64) << 32) | reloc_type as u64);
             put_u64(&mut bytes, 0);
         }
 
@@ -538,6 +603,25 @@ impl DynamicPayload {
             }
         }
 
+        if !image.initializers.is_empty() {
+            bytes.resize(init_array_offset - payload_start, 0);
+            for name in &image.initializers {
+                let symbol = image
+                    .symbols
+                    .iter()
+                    .find(|symbol| {
+                        symbol.name == *name && symbol.section == EncodedSection::Text
+                    })
+                    .ok_or_else(|| {
+                        format!("initializer '{name}' does not resolve to a text symbol")
+                    })?;
+                put_u64(
+                    &mut bytes,
+                    IMAGE_BASE + TEXT_FILE_OFFSET as u64 + symbol.offset as u64,
+                );
+            }
+        }
+
         bytes.resize(dynamic_offset - payload_start, 0);
         for offset in library_offsets {
             put_dynamic(&mut bytes, 1, offset as u64);
@@ -560,6 +644,11 @@ impl DynamicPayload {
             put_dynamic(&mut bytes, 0x6fff_fff0, data_vmaddr + versym_offset as u64);
             put_dynamic(&mut bytes, 0x6fff_fffe, data_vmaddr + verneed_offset as u64);
             put_dynamic(&mut bytes, 0x6fff_ffff, needs_by_library.len() as u64);
+        }
+        if !image.initializers.is_empty() {
+            // DT_INIT_ARRAY, DT_INIT_ARRAYSZ.
+            put_dynamic(&mut bytes, 25, data_vmaddr + init_array_offset as u64);
+            put_dynamic(&mut bytes, 27, init_array_size as u64);
         }
         put_dynamic(&mut bytes, 0, 0);
 
@@ -615,6 +704,162 @@ mod tests {
             entry: "_main".to_string(),
             initializers: Vec::new(),
         }
+    }
+
+    // A program whose load-time initializer sets a data global that `main` reads
+    // (plan-linker.md §6.4): `main` exits 0 only if the initializer ran first.
+    fn init_array_image() -> EncodedImage {
+        let mut text = Vec::new();
+        // _init0 @0: _flag = 42.
+        put_u32(&mut text, 0x9000_0000); // adrp x0, _flag         (page21)
+        put_u32(&mut text, 0x9100_0000); // add  x0, x0, :lo12:_flag (pageoff12)
+        put_u32(&mut text, 0xd280_0541); // movz x1, #42
+        put_u32(&mut text, 0xf900_0001); // str  x1, [x0]
+        put_u32(&mut text, 0xd65f_03c0); // ret
+        // _main @20: exit(_flag == 42 ? 0 : 1).
+        put_u32(&mut text, 0x9000_0000); // adrp x0, _flag         (page21)
+        put_u32(&mut text, 0x9100_0000); // add  x0, x0, :lo12:_flag (pageoff12)
+        put_u32(&mut text, 0xf940_0000); // ldr  x0, [x0]
+        put_u32(&mut text, 0xf100_a81f); // cmp  x0, #42
+        put_u32(&mut text, 0x5280_0000); // movz w0, #0
+        put_u32(&mut text, 0x5400_0040); // b.eq +8
+        put_u32(&mut text, 0x5280_0020); // movz w0, #1
+        put_u32(&mut text, 0x9400_0000); // bl   _exit             (branch26)
+        let data_reloc = |offset: usize, kind: &str| EncodedRelocation {
+            offset,
+            target: "_flag".to_string(),
+            kind: kind.to_string(),
+            binding: "data".to_string(),
+            library: None,
+        };
+        EncodedImage {
+            text,
+            data: vec![0; 8],
+            symbols: vec![
+                EncodedSymbol {
+                    name: "_init0".to_string(),
+                    section: EncodedSection::Text,
+                    offset: 0,
+                },
+                EncodedSymbol {
+                    name: "_main".to_string(),
+                    section: EncodedSection::Text,
+                    offset: 20,
+                },
+                EncodedSymbol {
+                    name: "_flag".to_string(),
+                    section: EncodedSection::Data,
+                    offset: 0,
+                },
+            ],
+            relocations: vec![
+                data_reloc(0, "page21"),
+                data_reloc(4, "pageoff12"),
+                data_reloc(20, "page21"),
+                data_reloc(24, "pageoff12"),
+                EncodedRelocation {
+                    offset: 48,
+                    target: "_exit".to_string(),
+                    kind: "branch26".to_string(),
+                    binding: "external".to_string(),
+                    library: Some("libc.so.6".to_string()),
+                },
+            ],
+            imports: vec![EncodedImport {
+                library: "libc.so.6".to_string(),
+                symbol: "_exit".to_string(),
+                kind: ImportKind::Function,
+                version: None,
+            }],
+            entry: "_main".to_string(),
+            initializers: vec!["_init0".to_string()],
+        }
+    }
+
+    // Reads the real glibc data global `environ` (a `char**`) through the GOT via
+    // a GLOB_DAT relocation (plan-linker.md §6.1) and exits 0 iff it is non-null,
+    // proving the import resolved to libc's data symbol.
+    fn glob_dat_image() -> EncodedImage {
+        let mut text = Vec::new();
+        put_u32(&mut text, 0x9000_0000); // adrp x0, environ        (external page21)
+        put_u32(&mut text, 0x9100_0000); // add  x0, x0, :got_lo12  (external pageoff12)
+        put_u32(&mut text, 0xf940_0000); // ldr  x0, [x0]   ; x0 = &environ
+        put_u32(&mut text, 0xf940_0000); // ldr  x0, [x0]   ; x0 = environ (envp)
+        put_u32(&mut text, 0xf100_001f); // cmp  x0, #0
+        put_u32(&mut text, 0x5280_0000); // movz w0, #0     ; success default
+        put_u32(&mut text, 0x5400_0041); // b.ne +8         ; non-null -> keep 0
+        put_u32(&mut text, 0x5280_0020); // movz w0, #1
+        put_u32(&mut text, 0x9400_0000); // bl   _exit              (external branch26)
+        EncodedImage {
+            text,
+            data: Vec::new(),
+            symbols: vec![EncodedSymbol {
+                name: "_main".to_string(),
+                section: EncodedSection::Text,
+                offset: 0,
+            }],
+            relocations: vec![
+                EncodedRelocation {
+                    offset: 0,
+                    target: "environ".to_string(),
+                    kind: "page21".to_string(),
+                    binding: "external".to_string(),
+                    library: Some("libc.so.6".to_string()),
+                },
+                EncodedRelocation {
+                    offset: 4,
+                    target: "environ".to_string(),
+                    kind: "pageoff12".to_string(),
+                    binding: "external".to_string(),
+                    library: Some("libc.so.6".to_string()),
+                },
+                EncodedRelocation {
+                    offset: 32,
+                    target: "_exit".to_string(),
+                    kind: "branch26".to_string(),
+                    binding: "external".to_string(),
+                    library: Some("libc.so.6".to_string()),
+                },
+            ],
+            imports: vec![
+                EncodedImport {
+                    library: "libc.so.6".to_string(),
+                    symbol: "environ".to_string(),
+                    kind: ImportKind::Data,
+                    version: None,
+                },
+                EncodedImport {
+                    library: "libc.so.6".to_string(),
+                    symbol: "_exit".to_string(),
+                    kind: ImportKind::Function,
+                    version: None,
+                },
+            ],
+            entry: "_main".to_string(),
+            initializers: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn writes_glob_dat_glibc_elf() {
+        let image = glob_dat_image();
+        let dir = std::path::PathBuf::from("tmp/globlx");
+        std::fs::create_dir_all(&dir).expect("temp dir");
+        write_executable(&dir, "glob", LinuxFlavor::Glibc, &image).expect("link glob_dat elf");
+    }
+
+    // Confirms DT_INIT_ARRAY / DT_INIT_ARRAYSZ are emitted for the listed
+    // initializers (verified with `readelf -d`). Note: glibc runs the *main
+    // executable's* init_array from the CRT (`__libc_start_main`), not from
+    // `ld.so`, so a custom-entry binary like this one does not invoke it at load;
+    // the array is emitted for CRT/shared-object scenarios and for parity with
+    // the macOS mod-init path (plan-linker.md §6.4).
+    #[test]
+    fn writes_init_array_glibc_elf() {
+        let image = init_array_image();
+        let dir = std::path::PathBuf::from("tmp/initlx");
+        std::fs::create_dir_all(&dir).expect("temp dir");
+        write_executable(&dir, "init", LinuxFlavor::Glibc, &image).expect("link init-array elf");
     }
 
     // Emits a dynamic glibc ELF whose single import requires `_exit@GLIBC_2.17`,
