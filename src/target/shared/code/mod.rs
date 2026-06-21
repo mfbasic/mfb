@@ -63,6 +63,12 @@ const ERR_EOF_SYMBOL: &str = "_mfb_str_error_eof";
 const ERR_RESOURCE_CLOSED_CODE: &str = "77030004";
 const ERR_RESOURCE_CLOSED_MESSAGE: &str = "resource closed";
 const ERR_RESOURCE_CLOSED_SYMBOL: &str = "_mfb_str_error_resource_closed";
+const ERR_NATIVE_LINK_LOAD_CODE: &str = "77030007";
+const ERR_NATIVE_LINK_LOAD_MESSAGE: &str = "native binding library unavailable";
+const ERR_NATIVE_LINK_LOAD_SYMBOL: &str = "_mfb_str_error_native_link_load";
+const ERR_NATIVE_LINK_CALL_CODE: &str = "77030008";
+const ERR_NATIVE_LINK_CALL_MESSAGE: &str = "native binding call failed";
+const ERR_NATIVE_LINK_CALL_SYMBOL: &str = "_mfb_str_error_native_link_call";
 const ERR_ENCODING_CODE: &str = "77020004";
 const ERR_ENCODING_MESSAGE: &str = "invalid encoding";
 const ERR_ENCODING_SYMBOL: &str = "_mfb_str_error_encoding";
@@ -701,7 +707,31 @@ pub(crate) fn lower_module_for_platform(
             symbol: import.symbol.clone(),
         })
         .collect::<Vec<_>>();
-    let package_return_types: HashMap<String, String> = HashMap::new();
+    // Native `LINK` function return types (keyed `alias.func`) so calls used in
+    // expressions resolve their result type (plan-linker.md §12).
+    let mut package_return_types: HashMap<String, String> = HashMap::new();
+    for function in &module.link_functions {
+        package_return_types.insert(
+            format!("{}.{}", function.alias, function.name),
+            function.return_type.clone(),
+        );
+    }
+    for import in &module.imports {
+        // Re-export aliases route to a thunk; map the alias call name to the
+        // thunk's return type too (plan-link-update.md §5a).
+        if let Some(returns) = module
+            .link_functions
+            .iter()
+            .find(|function| {
+                nir::link_thunk_symbol(&function.alias, &function.name) == import.symbol
+            })
+            .map(|function| function.return_type.clone())
+        {
+            package_return_types
+                .entry(import.name.clone())
+                .or_insert(returns);
+        }
+    }
     let package_global_count = 0usize;
     let string_symbols = string_symbols(module);
     let mut string_objects = string_symbols.iter().collect::<Vec<_>>();
@@ -767,6 +797,16 @@ pub(crate) fn lower_module_for_platform(
         )))
     };
 
+    // Native `LINK` bindings reserve one writable global slot per function (just
+    // past the program's own globals) for their dlopen/dlsym-resolved pointers
+    // (plan-linker.md §12.1).
+    let globals_base = module.globals.len() + package_global_count;
+    let link_count = module.link_functions.len();
+    let link_init_symbol = if link_count > 0 {
+        Some(nir::LINK_INIT_SYMBOL)
+    } else {
+        None
+    };
     if let Some(entry) = &module.entry {
         let entry_symbol = nir::function_symbol(&entry.name);
         code_functions.push(lower_program_entry(
@@ -774,8 +814,9 @@ pub(crate) fn lower_module_for_platform(
             &entry.returns,
             entry.accepts_args,
             global_initializer_symbol.as_deref(),
-            ENTRY_STACK_SIZE + (module.globals.len() + package_global_count) * 8,
-            module.globals.len() + package_global_count,
+            link_init_symbol,
+            align(ENTRY_STACK_SIZE + (globals_base + link_count) * 8, 16),
+            globals_base + link_count,
             &platform_imports,
             platform,
             skip_entry_arena_destroy,
@@ -894,6 +935,31 @@ pub(crate) fn lower_module_for_platform(
         .any(|symbol| symbol == "_mfb_rt_thread_thread_start")
     {
         code_functions.push(lower_thread_trampoline(&platform_imports, platform)?);
+    }
+
+    // Native `LINK` marshaling thunks + load-time initializer (plan-linker.md §12).
+    if link_count > 0 {
+        let support = link_thunk::emit_link_support(
+            &module.link_functions,
+            globals_base,
+            &platform_imports,
+            platform,
+        )?;
+        code_functions.extend(support.functions);
+        data_objects.extend(support.data_objects);
+        for (_, message, symbol) in native_link_error_messages() {
+            if !data_objects.iter().any(|object| object.symbol == *symbol) {
+                data_objects.push(CodeDataObject {
+                    symbol: symbol.to_string(),
+                    kind: "constant".to_string(),
+                    layout: "mfb.string.v1 { u64 byteLength; u8 bytes[byteLength]; u8 nul }"
+                        .to_string(),
+                    align: 8,
+                    size: align(8 + message.len() + 1, 8),
+                    value: message.to_string(),
+                });
+            }
+        }
     }
 
     let plan = NativeCodePlan {
@@ -1214,7 +1280,21 @@ impl TypeModel {
     fn from_module_and_packages(module: &NirModule, packages: &[PathBuf]) -> Result<Self, String> {
         let mut model = Self::from_module(module)?;
         for package in packages {
+            // A native `LINK` resource is exported as a zero-field opaque type for
+            // naming, but its runtime value is a raw `CPtr` scalar handle — never a
+            // record. Registering it as a record would make the backend copy it by
+            // value on bind/return (an empty copy that loses the handle), so skip
+            // native resource type exports and let them default to 8-byte scalars
+            // (plan-linker.md §12, plan-link-update.md §10).
+            let native_resources: HashSet<String> = binary_repr::read_package_resources(package)?
+                .into_iter()
+                .filter(|resource| resource.native)
+                .map(|resource| resource.type_name)
+                .collect();
             for type_export in binary_repr::read_package_type_exports(package)? {
+                if native_resources.contains(&type_export.name) {
+                    continue;
+                }
                 model.add_package_type_export(type_export);
             }
         }
@@ -1296,6 +1376,7 @@ fn lower_program_entry(
     language_entry_returns: &str,
     language_entry_accepts_args: bool,
     global_initializer_symbol: Option<&str>,
+    link_init_symbol: Option<&str>,
     entry_stack_size: usize,
     global_slot_count: usize,
     platform_imports: &HashMap<String, String>,
@@ -1341,6 +1422,23 @@ fn lower_program_entry(
     let mut relocations = Vec::new();
     let error_label = "entry_error";
     let exit_label = "entry_exit";
+    // Resolve native `LINK` bindings (dlopen/dlsym) before anything runs; a load
+    // failure aborts before `main` through the standard error path
+    // (plan-linker.md §12.1).
+    if let Some(symbol) = link_init_symbol {
+        instructions.push(abi::branch_link(symbol));
+        relocations.push(CodeRelocation {
+            from: "_main".to_string(),
+            to: symbol.to_string(),
+            kind: "branch26".to_string(),
+            binding: "internal".to_string(),
+            library: None,
+        });
+        instructions.extend([
+            abi::compare_immediate(RESULT_TAG_REGISTER, RESULT_OK_TAG),
+            abi::branch_ne(error_label),
+        ]);
+    }
     if let Some(symbol) = global_initializer_symbol {
         instructions.push(abi::branch_link(symbol));
         relocations.push(CodeRelocation {
@@ -12004,6 +12102,7 @@ fn adjust_stack_instruction_offsets(instructions: &mut [CodeInstruction], offset
 }
 
 mod net;
+mod link_thunk;
 mod builder_collection_layout;
 mod builder_collection_queries;
 mod builder_collection_updates;
@@ -12469,6 +12568,29 @@ fn string_symbols(module: &NirModule) -> HashMap<String, String> {
             (value, symbol)
         })
         .collect()
+}
+
+/// Error messages emitted by native `LINK` thunks and their initializer
+/// (plan-linker.md §12): the allocation message is already covered by the
+/// standard set, so only the two binding-specific messages are listed here.
+fn native_link_error_messages() -> &'static [(&'static str, &'static str, &'static str)] {
+    &[
+        (
+            ERR_NATIVE_LINK_LOAD_CODE,
+            ERR_NATIVE_LINK_LOAD_MESSAGE,
+            ERR_NATIVE_LINK_LOAD_SYMBOL,
+        ),
+        (
+            ERR_NATIVE_LINK_CALL_CODE,
+            ERR_NATIVE_LINK_CALL_MESSAGE,
+            ERR_NATIVE_LINK_CALL_SYMBOL,
+        ),
+        (
+            ERR_OUT_OF_MEMORY_CODE,
+            ERR_ALLOCATION_MESSAGE,
+            ERR_ALLOCATION_SYMBOL,
+        ),
+    ]
 }
 
 fn standard_error_messages() -> &'static [(&'static str, &'static str, &'static str)] {

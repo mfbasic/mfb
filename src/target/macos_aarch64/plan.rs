@@ -43,6 +43,17 @@ impl plan::NativePlanPlatform for Platform {
         }]
     }
 
+    fn link_imports(&self, required_by: &str) -> Vec<PlatformImport> {
+        ["_dlopen", "_dlsym"]
+            .iter()
+            .map(|symbol| PlatformImport {
+                library: "libSystem".to_string(),
+                symbol: (*symbol).to_string(),
+                required_by: required_by.to_string(),
+            })
+            .collect()
+    }
+
     fn runtime_imports(&self, spec: &RuntimeHelperSpec) -> Vec<PlatformImport> {
         match spec.call {
             "io.print" | "io.write" | "io.printError" | "io.writeError" => vec![PlatformImport {

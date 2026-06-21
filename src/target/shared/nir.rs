@@ -19,6 +19,30 @@ pub(crate) struct NirModule {
     pub(crate) imports: Vec<NirImport>,
     pub(crate) runtime_helpers: Vec<RuntimeHelper>,
     pub(crate) functions: Vec<NirFunction>,
+    /// Native `LINK` functions whose marshaling thunks the backend emits
+    /// (plan-linker.md §12). Carried verbatim from the IR.
+    pub(crate) link_functions: Vec<crate::ir::IrLinkFunction>,
+}
+
+/// The internal text symbol of the per-program native `LINK` load-time
+/// initializer (plan-linker.md §12.1): runs `dlopen`/`dlsym` before `main`.
+pub(crate) const LINK_INIT_SYMBOL: &str = "_mfb_linker_init";
+
+/// The internal text symbol for a native `LINK` function's marshaling thunk
+/// (plan-linker.md §12.2): `_mfb_linker_<alias>_<name>`.
+pub(crate) fn link_thunk_symbol(alias: &str, name: &str) -> String {
+    let sanitize = |part: &str| {
+        part.chars()
+            .map(|ch| {
+                if ch.is_ascii_alphanumeric() || ch == '_' {
+                    ch
+                } else {
+                    '_'
+                }
+            })
+            .collect::<String>()
+    };
+    format!("_mfb_linker_{}_{}", sanitize(alias), sanitize(name))
 }
 
 pub(crate) struct NirEntryPoint {
@@ -312,10 +336,51 @@ pub(crate) fn lower_module(
             .map(|binding| lower_global(&ir.name, binding))
             .collect(),
         types: ir.types.iter().map(lower_type).collect(),
-        imports: Vec::new(),
+        imports: link_routing_imports(ir),
         runtime_helpers,
         functions: lower_functions(ir),
+        link_functions: ir.link_functions.clone(),
     })
+}
+
+/// Build the call-routing entries (name → thunk symbol) for every native `LINK`
+/// function and re-export alias, so a call to `alias.func` (or an exported alias)
+/// resolves to its generated marshaling thunk through the existing import path.
+fn link_routing_imports(ir: &IrProject) -> Vec<NirImport> {
+    let mut imports = Vec::new();
+    let mut thunk_for: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+    for function in &ir.link_functions {
+        let target = format!("{}.{}", function.alias, function.name);
+        let symbol = link_thunk_symbol(&function.alias, &function.name);
+        thunk_for.insert(target.clone(), symbol.clone());
+        imports.push(NirImport {
+            package: "link".to_string(),
+            name: target,
+            symbol,
+            kind: "func".to_string(),
+            isolated: false,
+            params: Vec::new(),
+            returns: String::new(),
+        });
+    }
+    // A re-export alias routes to the same thunk as its LINK target
+    // (plan-link-update.md §5a). The alias is referenced by importers as
+    // `binding.alias`, but inside this project as the bare alias name; register
+    // both so either resolves.
+    for (alias_name, target) in &ir.link_aliases {
+        if let Some(symbol) = thunk_for.get(target) {
+            imports.push(NirImport {
+                package: "link".to_string(),
+                name: alias_name.clone(),
+                symbol: symbol.clone(),
+                kind: "func".to_string(),
+                isolated: false,
+                params: Vec::new(),
+                returns: String::new(),
+            });
+        }
+    }
+    imports
 }
 
 /// Decode each imported package's structured Binary Representation and merge it into `ir`,

@@ -328,6 +328,19 @@ fn code_units(plan: &NativePlan, entry: &str, data_units: &[DataUnitPlan]) -> Ve
         });
         offset += 64;
     }
+    // Native `LINK` initializer + marshaling thunks (plan-linker.md §12).
+    for link_symbol in &plan.link_symbols {
+        units.push(CodeUnitPlan {
+            symbol: link_symbol.clone(),
+            section: ".text".to_string(),
+            offset,
+            planned_size: 64,
+            operations: vec!["native link binding".to_string()],
+            calls: Vec::new(),
+            data_refs: Vec::new(),
+        });
+        offset += 64;
+    }
     units
 }
 
@@ -337,6 +350,9 @@ fn defined_symbols(entry: &str, plan: &NativePlan, data_units: &[DataUnitPlan]) 
         push_unique(&mut defined, function.symbol.clone());
     }
     for symbol in &plan.runtime_symbols {
+        push_unique(&mut defined, symbol.clone());
+    }
+    for symbol in &plan.link_symbols {
         push_unique(&mut defined, symbol.clone());
     }
     for unit in data_units {

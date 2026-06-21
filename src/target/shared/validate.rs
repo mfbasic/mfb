@@ -1588,6 +1588,7 @@ mod tests {
                 }],
                 file: "src/main.mfb".to_string(),
             }],
+            link_functions: Vec::new(),
         }
     }
 

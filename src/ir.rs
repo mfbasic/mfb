@@ -21,6 +21,14 @@ pub struct IrProject {
     /// metadata (`RESOURCE_TABLE`) since they carry no executable IR
     /// (plan-link-update.md §10).
     pub(crate) native_resources: Vec<IrNativeResource>,
+    /// Native `LINK` functions declared in this project, carried to the backend
+    /// so it can emit marshaling thunks + dlopen/dlsym initializers
+    /// (plan-linker.md §12).
+    pub(crate) link_functions: Vec<IrLinkFunction>,
+    /// Re-export aliases targeting a native `LINK` function:
+    /// `(alias_name, target_alias.func)` (plan-link-update.md §5a). Lets the
+    /// backend route a call to the exported alias to the target's thunk.
+    pub(crate) link_aliases: Vec<(String, String)>,
 }
 
 /// A native `LINK` resource declaration carried through to package metadata.
@@ -32,6 +40,68 @@ pub(crate) struct IrNativeResource {
     pub(crate) close_function: String,
     pub(crate) sendable: bool,
     pub(crate) close_may_fail: bool,
+}
+
+/// A native `LINK` function carried end to end so the backend can emit its MFB↔C
+/// marshaling thunk and the per-library dlopen/dlsym initializer (plan-linker.md
+/// §12). Unlike [`IrNativeResource`], this carries the full ABI surface.
+#[derive(Clone)]
+pub(crate) struct IrLinkFunction {
+    /// The block binding, e.g. `sqliteLink`.
+    pub(crate) alias: String,
+    /// The MFBASIC-facing function name, e.g. `open`.
+    pub(crate) name: String,
+    /// The native library logical name, e.g. `sqlite3`.
+    pub(crate) library: String,
+    /// The native C symbol, e.g. `sqlite3_open`.
+    pub(crate) symbol: String,
+    /// Wrapper parameters in declared order: `(name, mfb_type)`.
+    pub(crate) params: Vec<(String, String)>,
+    /// The wrapper return type (`Db`, `Integer`, `String`, `Boolean`, `Nothing`).
+    pub(crate) return_type: String,
+    /// Whether the return was declared `RES` (a produced resource handle).
+    pub(crate) return_resource: bool,
+    /// ABI slots in native C argument order.
+    pub(crate) abi_slots: Vec<IrAbiSlot>,
+    /// The native return-slot name (`return` ⇒ the C return is the wrapper result;
+    /// any other name ⇒ a status used only by `SUCCESS_ON`/`RESULT`).
+    pub(crate) abi_return_name: String,
+    /// The native return C type, e.g. `CInt32` or `CPtr`.
+    pub(crate) abi_return_ctype: String,
+    /// `CONST slot = value` pins resolved to an integer immediate.
+    pub(crate) consts: Vec<(String, i64)>,
+    /// `SUCCESS_ON <expr>` over the native return variable.
+    pub(crate) success_on: Option<IrLinkExpr>,
+    /// `RESULT <expr>` value mapping over the native return variable.
+    pub(crate) result: Option<IrLinkExpr>,
+}
+
+/// One `ABI (...)` slot: `name ctype` or `name OUT ctype`.
+#[derive(Clone)]
+pub(crate) struct IrAbiSlot {
+    pub(crate) name: String,
+    pub(crate) ctype: String,
+    pub(crate) is_out: bool,
+}
+
+/// A boolean/integer expression over the single native return variable, used for
+/// `SUCCESS_ON`/`RESULT`. Kept deliberately small: comparisons and boolean
+/// connectives over the return variable and integer literals cover the surface.
+#[derive(Clone)]
+pub(crate) enum IrLinkExpr {
+    /// The native return variable (the `AS <name> <ctype>` value).
+    Var,
+    Int(i64),
+    /// A comparison `lhs <op> rhs` producing `0`/`1`. `op` is one of
+    /// `= <> < > <= >=`.
+    Compare {
+        op: String,
+        lhs: Box<IrLinkExpr>,
+        rhs: Box<IrLinkExpr>,
+    },
+    And(Box<IrLinkExpr>, Box<IrLinkExpr>),
+    Or(Box<IrLinkExpr>, Box<IrLinkExpr>),
+    Not(Box<IrLinkExpr>),
 }
 
 #[derive(Clone)]
@@ -380,6 +450,160 @@ pub fn lower_project_with_external_functions(
         types,
         functions,
         native_resources: native_resources(ast),
+        link_functions: link_functions(ast),
+        link_aliases: link_aliases(ast),
+    }
+}
+
+/// Collect native `LINK` functions from the AST with their full ABI surface so
+/// the backend can emit marshaling thunks and dlopen/dlsym initializers
+/// (plan-linker.md §12).
+fn link_functions(ast: &AstProject) -> Vec<IrLinkFunction> {
+    let mut functions = Vec::new();
+    for file in &ast.files {
+        for item in &file.items {
+            if let Item::Link(link) = item {
+                for native in &link.functions {
+                    functions.push(IrLinkFunction {
+                        alias: link.alias.clone(),
+                        name: native.name.clone(),
+                        library: link.library.clone(),
+                        symbol: native.symbol.clone(),
+                        params: native
+                            .params
+                            .iter()
+                            .map(|param| {
+                                (
+                                    param.name.clone(),
+                                    param
+                                        .type_name
+                                        .clone()
+                                        .unwrap_or_else(|| "Unknown".to_string()),
+                                )
+                            })
+                            .collect(),
+                        return_type: native
+                            .return_type
+                            .clone()
+                            .unwrap_or_else(|| "Nothing".to_string()),
+                        return_resource: native.return_resource,
+                        abi_slots: native
+                            .abi
+                            .slots
+                            .iter()
+                            .map(|slot| IrAbiSlot {
+                                name: slot.name.clone(),
+                                ctype: slot.ctype.clone(),
+                                is_out: slot.is_out,
+                            })
+                            .collect(),
+                        abi_return_name: native.abi.return_name.clone(),
+                        abi_return_ctype: native.abi.return_ctype.clone(),
+                        consts: native
+                            .consts
+                            .iter()
+                            .map(|pin| (pin.slot.clone(), eval_link_const(&pin.value)))
+                            .collect(),
+                        success_on: native
+                            .success_on
+                            .as_ref()
+                            .map(|expr| lower_link_expr(expr, &native.abi.return_name)),
+                        result: native
+                            .result
+                            .as_ref()
+                            .map(|expr| lower_link_expr(expr, &native.abi.return_name)),
+                    });
+                }
+            }
+        }
+    }
+    functions
+}
+
+/// Collect re-export aliases whose target is a native `LINK` function
+/// (plan-link-update.md §5a).
+fn link_aliases(ast: &AstProject) -> Vec<(String, String)> {
+    let mut link_targets: HashSet<String> = HashSet::new();
+    for file in &ast.files {
+        for item in &file.items {
+            if let Item::Link(link) = item {
+                for native in &link.functions {
+                    link_targets.insert(format!("{}.{}", link.alias, native.name));
+                }
+            }
+        }
+    }
+    let mut aliases = Vec::new();
+    for file in &ast.files {
+        for item in &file.items {
+            if let Item::FuncAlias(alias) = item {
+                if link_targets.contains(&alias.target) {
+                    aliases.push((alias.name.clone(), alias.target.clone()));
+                }
+            }
+        }
+    }
+    aliases
+}
+
+/// Resolve a `CONST slot = value` pin to an integer immediate (plan-link-update.md
+/// §5c). `NOTHING` is a NULL pointer (`0`); numbers and a leading unary minus are
+/// honored; booleans map to `0`/`1`.
+fn eval_link_const(expr: &Expression) -> i64 {
+    match expr {
+        Expression::Number(text) => text.parse::<i64>().unwrap_or(0),
+        Expression::Boolean(value) => i64::from(*value),
+        Expression::Identifier(name) if name == "NOTHING" => 0,
+        Expression::Unary {
+            operator, operand, ..
+        } if operator == "-" => -eval_link_const(operand),
+        Expression::Unary {
+            operator, operand, ..
+        } if operator == "+" => eval_link_const(operand),
+        _ => 0,
+    }
+}
+
+/// Lower a `SUCCESS_ON`/`RESULT` expression to [`IrLinkExpr`] over the native
+/// return variable named `var`.
+fn lower_link_expr(expr: &Expression, var: &str) -> IrLinkExpr {
+    match expr {
+        Expression::Number(text) => IrLinkExpr::Int(text.parse::<i64>().unwrap_or(0)),
+        Expression::Boolean(value) => IrLinkExpr::Int(i64::from(*value)),
+        Expression::Identifier(name) if name == var => IrLinkExpr::Var,
+        Expression::Identifier(name) if name == "NOTHING" => IrLinkExpr::Int(0),
+        Expression::Identifier(_) => IrLinkExpr::Var,
+        Expression::Unary {
+            operator, operand, ..
+        } if operator == "-" => match lower_link_expr(operand, var) {
+            IrLinkExpr::Int(value) => IrLinkExpr::Int(-value),
+            other => other,
+        },
+        Expression::Unary {
+            operator, operand, ..
+        } if operator.eq_ignore_ascii_case("NOT") => {
+            IrLinkExpr::Not(Box::new(lower_link_expr(operand, var)))
+        }
+        Expression::Binary {
+            left,
+            operator,
+            right,
+            ..
+        } => {
+            let lhs = Box::new(lower_link_expr(left, var));
+            let rhs = Box::new(lower_link_expr(right, var));
+            match operator.to_ascii_uppercase().as_str() {
+                "AND" => IrLinkExpr::And(lhs, rhs),
+                "OR" => IrLinkExpr::Or(lhs, rhs),
+                "=" | "<>" | "<" | ">" | "<=" | ">=" => IrLinkExpr::Compare {
+                    op: operator.clone(),
+                    lhs,
+                    rhs,
+                },
+                _ => IrLinkExpr::Int(0),
+            }
+        }
+        _ => IrLinkExpr::Int(0),
     }
 }
 
@@ -3861,6 +4085,13 @@ impl<'a> IrReader<'a> {
         Ok(self.u32()? as usize)
     }
 
+    /// Whether the reader has consumed all bytes. Used to keep the native `LINK`
+    /// tables an optional, append-only trailer so older `version 2` packages
+    /// (which lack them) still decode (plan-linker.md §12).
+    fn at_end(&self) -> bool {
+        self.pos >= self.bytes.len()
+    }
+
     fn opt_value(&mut self) -> Result<Option<IrValue>, String> {
         if self.u8()? != 0 {
             Ok(Some(decode_value(self)?))
@@ -3914,6 +4145,83 @@ fn encode_project(out: &mut Vec<u8>, project: &IrProject) {
     put_vec(out, &project.bindings, encode_binding);
     put_vec(out, &project.types, encode_type);
     put_vec(out, &project.functions, encode_function);
+    // Native `LINK` functions + re-export aliases so an importer can rebuild the
+    // marshaling thunks and routing (plan-linker.md §12). Written only when
+    // present, as an optional append-only trailer, so packages without `LINK`
+    // blocks stay byte-identical to the pre-feature `version 2` encoding.
+    if !project.link_functions.is_empty() || !project.link_aliases.is_empty() {
+        put_vec(out, &project.link_functions, encode_link_function);
+        put_vec(out, &project.link_aliases, |o, (alias, target)| {
+            put_str(o, alias);
+            put_str(o, target);
+        });
+    }
+}
+
+fn encode_link_function(out: &mut Vec<u8>, f: &IrLinkFunction) {
+    put_str(out, &f.alias);
+    put_str(out, &f.name);
+    put_str(out, &f.library);
+    put_str(out, &f.symbol);
+    put_vec(out, &f.params, |o, (name, type_)| {
+        put_str(o, name);
+        put_str(o, type_);
+    });
+    put_str(out, &f.return_type);
+    put_bool(out, f.return_resource);
+    put_vec(out, &f.abi_slots, |o, slot| {
+        put_str(o, &slot.name);
+        put_str(o, &slot.ctype);
+        put_bool(o, slot.is_out);
+    });
+    put_str(out, &f.abi_return_name);
+    put_str(out, &f.abi_return_ctype);
+    put_vec(out, &f.consts, |o, (slot, value)| {
+        put_str(o, slot);
+        put_str(o, &value.to_string());
+    });
+    encode_opt_link_expr(out, &f.success_on);
+    encode_opt_link_expr(out, &f.result);
+}
+
+fn encode_opt_link_expr(out: &mut Vec<u8>, expr: &Option<IrLinkExpr>) {
+    match expr {
+        Some(expr) => {
+            put_u8(out, 1);
+            encode_link_expr(out, expr);
+        }
+        None => put_u8(out, 0),
+    }
+}
+
+fn encode_link_expr(out: &mut Vec<u8>, expr: &IrLinkExpr) {
+    match expr {
+        IrLinkExpr::Var => put_u8(out, 0),
+        IrLinkExpr::Int(value) => {
+            put_u8(out, 1);
+            put_str(out, &value.to_string());
+        }
+        IrLinkExpr::Compare { op, lhs, rhs } => {
+            put_u8(out, 2);
+            put_str(out, op);
+            encode_link_expr(out, lhs);
+            encode_link_expr(out, rhs);
+        }
+        IrLinkExpr::And(lhs, rhs) => {
+            put_u8(out, 3);
+            encode_link_expr(out, lhs);
+            encode_link_expr(out, rhs);
+        }
+        IrLinkExpr::Or(lhs, rhs) => {
+            put_u8(out, 4);
+            encode_link_expr(out, lhs);
+            encode_link_expr(out, rhs);
+        }
+        IrLinkExpr::Not(inner) => {
+            put_u8(out, 5);
+            encode_link_expr(out, inner);
+        }
+    }
 }
 
 fn decode_project(r: &mut IrReader) -> Result<IrProject, String> {
@@ -3930,6 +4238,15 @@ fn decode_project(r: &mut IrReader) -> Result<IrProject, String> {
     let bindings = decode_vec(r, decode_binding)?;
     let types = decode_vec(r, decode_type)?;
     let functions = decode_vec(r, decode_function)?;
+    // Native `LINK` tables are an optional append-only trailer: packages built
+    // before this feature simply end after `functions` (plan-linker.md §12).
+    let (link_functions, link_aliases) = if r.at_end() {
+        (Vec::new(), Vec::new())
+    } else {
+        let link_functions = decode_vec(r, decode_link_function)?;
+        let link_aliases = decode_vec(r, |r| Ok((r.string()?, r.string()?)))?;
+        (link_functions, link_aliases)
+    };
     Ok(IrProject {
         name,
         entry,
@@ -3939,7 +4256,75 @@ fn decode_project(r: &mut IrReader) -> Result<IrProject, String> {
         // Native resource metadata is consumed directly from the package's
         // RESOURCE_TABLE on import; the decoded IR carries none.
         native_resources: Vec::new(),
+        link_functions,
+        link_aliases,
     })
+}
+
+fn decode_link_function(r: &mut IrReader) -> Result<IrLinkFunction, String> {
+    Ok(IrLinkFunction {
+        alias: r.string()?,
+        name: r.string()?,
+        library: r.string()?,
+        symbol: r.string()?,
+        params: decode_vec(r, |r| Ok((r.string()?, r.string()?)))?,
+        return_type: r.string()?,
+        return_resource: r.bool()?,
+        abi_slots: decode_vec(r, |r| {
+            Ok(IrAbiSlot {
+                name: r.string()?,
+                ctype: r.string()?,
+                is_out: r.bool()?,
+            })
+        })?,
+        abi_return_name: r.string()?,
+        abi_return_ctype: r.string()?,
+        consts: decode_vec(r, |r| {
+            let slot = r.string()?;
+            let value = r
+                .string()?
+                .parse::<i64>()
+                .map_err(|_| "invalid LINK const value".to_string())?;
+            Ok((slot, value))
+        })?,
+        success_on: decode_opt_link_expr(r)?,
+        result: decode_opt_link_expr(r)?,
+    })
+}
+
+fn decode_opt_link_expr(r: &mut IrReader) -> Result<Option<IrLinkExpr>, String> {
+    if r.u8()? != 0 {
+        Ok(Some(decode_link_expr(r)?))
+    } else {
+        Ok(None)
+    }
+}
+
+fn decode_link_expr(r: &mut IrReader) -> Result<IrLinkExpr, String> {
+    match r.u8()? {
+        0 => Ok(IrLinkExpr::Var),
+        1 => Ok(IrLinkExpr::Int(
+            r.string()?
+                .parse::<i64>()
+                .map_err(|_| "invalid LINK expr int".to_string())?,
+        )),
+        2 => {
+            let op = r.string()?;
+            let lhs = Box::new(decode_link_expr(r)?);
+            let rhs = Box::new(decode_link_expr(r)?);
+            Ok(IrLinkExpr::Compare { op, lhs, rhs })
+        }
+        3 => Ok(IrLinkExpr::And(
+            Box::new(decode_link_expr(r)?),
+            Box::new(decode_link_expr(r)?),
+        )),
+        4 => Ok(IrLinkExpr::Or(
+            Box::new(decode_link_expr(r)?),
+            Box::new(decode_link_expr(r)?),
+        )),
+        5 => Ok(IrLinkExpr::Not(Box::new(decode_link_expr(r)?))),
+        other => Err(format!("invalid LINK expr tag {other}")),
+    }
 }
 
 fn decode_vec<T, F: Fn(&mut IrReader) -> Result<T, String>>(
@@ -4774,6 +5159,31 @@ pub fn merge_package(project: &mut IrProject, package: IrProject) {
             project.functions.push(function);
         }
     }
+    // Native `LINK` functions keep their package-internal `alias.func` routing
+    // names (wrapper bodies reference them unprefixed), de-duplicated across
+    // diamond imports (plan-linker.md §12).
+    for link in package.link_functions {
+        if !project
+            .link_functions
+            .iter()
+            .any(|existing| existing.alias == link.alias && existing.name == link.name)
+        {
+            project.link_functions.push(link);
+        }
+    }
+    // A re-export alias is reached by importers as `<package>.<alias>` (the IR
+    // normalizes any `IMPORT … AS` binding to the package name), so qualify the
+    // bare alias name with the package for routing (plan-link-update.md §5a).
+    for (alias_name, target) in package.link_aliases {
+        let qualified = format!("{}.{}", package.name, alias_name);
+        if !project
+            .link_aliases
+            .iter()
+            .any(|(existing, _)| existing == &qualified)
+        {
+            project.link_aliases.push((qualified, target));
+        }
+    }
 }
 
 fn qualify_target(name: &mut String, pkg: &str) {
@@ -5234,6 +5644,8 @@ mod binary_repr_tests {
                 file: "src/main.mfb".to_string(),
             }],
             native_resources: vec![],
+            link_functions: vec![],
+            link_aliases: vec![],
         }
     }
 
@@ -5286,6 +5698,8 @@ mod binary_repr_tests {
             types: vec![],
             functions,
             native_resources: vec![],
+            link_functions: vec![],
+            link_aliases: vec![],
         }
     }
 

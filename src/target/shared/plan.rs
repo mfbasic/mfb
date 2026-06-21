@@ -13,6 +13,10 @@ pub(crate) struct NativePlan {
     pub(crate) external_symbols: Vec<String>,
     pub(crate) platform_imports: Vec<PlatformImport>,
     pub(crate) functions: Vec<PlannedFunction>,
+    /// Internal symbols the backend defines for native `LINK` bindings: the
+    /// load-time initializer (`_mfb_linker_init`) and one marshaling thunk per
+    /// function (plan-linker.md §12). The object plan treats these as defined.
+    pub(crate) link_symbols: Vec<String>,
 }
 
 pub(crate) struct PlatformImport {
@@ -136,6 +140,9 @@ pub(crate) trait NativePlanPlatform {
     fn program_exit_imports(&self, required_by: &str) -> Vec<PlatformImport>;
     fn runtime_imports(&self, spec: &runtime::RuntimeHelperSpec) -> Vec<PlatformImport>;
     fn native_call_imports(&self, target: &str, required_by: &str) -> Vec<PlatformImport>;
+    /// The libc imports (`dlopen`/`dlsym`) the per-library `LINK` initializer
+    /// needs to resolve user binding symbols at load time (plan-linker.md §12.1).
+    fn link_imports(&self, required_by: &str) -> Vec<PlatformImport>;
 }
 
 pub(crate) fn lower_module_for_platform(
@@ -149,25 +156,34 @@ pub(crate) fn lower_module_for_platform(
             module.target
         ));
     }
-    let function_symbols = module
+    let mut function_symbols = module
         .functions
         .iter()
         .map(|function| (function.name.clone(), nir::function_symbol(&function.name)))
         .collect::<HashMap<_, _>>();
-    let import_symbols = module
-        .imports
-        .iter()
-        .map(|import| (import.name.clone(), import.symbol.clone()))
-        .collect::<HashMap<_, _>>();
+    // A native `LINK` call routes to its internal marshaling thunk
+    // (plan-linker.md §12), so treat the routing entries as local functions.
+    for import in &module.imports {
+        function_symbols.insert(import.name.clone(), import.symbol.clone());
+    }
+    let import_symbols = HashMap::new();
     let entry_symbol = module
         .entry
         .as_ref()
         .map(|entry| nir::function_symbol(&entry.name));
-    let external_symbols = module
-        .imports
-        .iter()
-        .map(|import| import.symbol.clone())
-        .collect::<Vec<_>>();
+    let external_symbols: Vec<String> = Vec::new();
+    // The internal symbols the backend defines for native `LINK` bindings: the
+    // load-time initializer plus one marshaling thunk per function. The object
+    // plan must treat these as defined symbols (plan-linker.md §12).
+    let link_symbols = if module.link_functions.is_empty() {
+        Vec::new()
+    } else {
+        let mut symbols = vec![nir::LINK_INIT_SYMBOL.to_string()];
+        for function in &module.link_functions {
+            symbols.push(nir::link_thunk_symbol(&function.alias, &function.name));
+        }
+        symbols
+    };
     let runtime_symbols = runtime_symbols(module);
     let platform_imports = platform_imports(module, platform);
     let type_storage = type_storage(module)?;
@@ -190,6 +206,7 @@ pub(crate) fn lower_module_for_platform(
         external_symbols,
         platform_imports,
         functions,
+        link_symbols,
     })
 }
 
@@ -499,6 +516,11 @@ fn platform_imports(module: &NirModule, platform: &dyn NativePlanPlatform) -> Ve
     }
     if module_has_thread_owner(module) {
         for import in platform_imports_for_runtime_call(platform, "thread.drop") {
+            push_platform_import(&mut imports, import);
+        }
+    }
+    if !module.link_functions.is_empty() {
+        for import in platform.link_imports(nir::LINK_INIT_SYMBOL) {
             push_platform_import(&mut imports, import);
         }
     }
@@ -2043,6 +2065,10 @@ mod tests {
         fn native_call_imports(&self, _target: &str, _required_by: &str) -> Vec<PlatformImport> {
             Vec::new()
         }
+
+        fn link_imports(&self, _required_by: &str) -> Vec<PlatformImport> {
+            Vec::new()
+        }
     }
 
     #[test]
@@ -2079,6 +2105,7 @@ mod tests {
                 }],
                 file: "src/main.mfb".to_string(),
             }],
+            link_functions: Vec::new(),
         };
 
         let plan = lower_module_for_platform(&module, &TestPlatform).expect("native plan");

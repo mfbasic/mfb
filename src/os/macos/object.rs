@@ -426,6 +426,26 @@ fn code_units(plan: &NativePlan, entry: &str, data_units: &[DataUnitPlan]) -> Ve
         });
         offset += 32;
     }
+    // Native `LINK` initializer + marshaling thunks (plan-linker.md §12): defined
+    // internal code, each carrying its dlopen/dlsym (or no) platform-import calls.
+    for link_symbol in &plan.link_symbols {
+        let mut calls = Vec::new();
+        for import in &plan.platform_imports {
+            if &import.required_by == link_symbol {
+                push_unique(&mut calls, import.symbol.clone());
+            }
+        }
+        units.push(CodeUnitPlan {
+            symbol: link_symbol.clone(),
+            section: "__TEXT,__text".to_string(),
+            offset,
+            planned_size: 32,
+            operations: vec!["native link binding".to_string()],
+            calls,
+            data_refs: Vec::new(),
+        });
+        offset += 32;
+    }
     units
 }
 
@@ -439,6 +459,9 @@ fn defined_symbols(entry: &str, plan: &NativePlan, data_units: &[DataUnitPlan]) 
         push_unique(&mut defined, function.symbol.clone());
     }
     for symbol in &plan.runtime_symbols {
+        push_unique(&mut defined, symbol.clone());
+    }
+    for symbol in &plan.link_symbols {
         push_unique(&mut defined, symbol.clone());
     }
     for unit in data_units {
@@ -938,6 +961,7 @@ mod tests {
                     string_literals: vec!["Hello World".to_string()],
                 }],
             }],
+            link_symbols: Vec::new(),
         };
 
         let object = lower_plan(&plan).expect("object plan");

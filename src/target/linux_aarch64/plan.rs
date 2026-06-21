@@ -65,6 +65,14 @@ impl plan::NativePlanPlatform for Platform {
         vec![self.libc_import("_exit", required_by)]
     }
 
+    fn link_imports(&self, required_by: &str) -> Vec<PlatformImport> {
+        // glibc ≥ 2.34 folds `dlopen`/`dlsym` into libc (plan-linker.md §3.1).
+        vec![
+            self.libc_import("dlopen", required_by),
+            self.libc_import("dlsym", required_by),
+        ]
+    }
+
     fn runtime_imports(&self, spec: &RuntimeHelperSpec) -> Vec<PlatformImport> {
         match spec.call {
             "io.print" | "io.write" | "io.printError" | "io.writeError" => {

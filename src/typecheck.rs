@@ -5310,14 +5310,27 @@ impl<'a> TypeChecker<'a> {
                     && self.compatible(expected_return, actual_return)
             }
             (Type::User(expected_name), Type::User(actual_name)) => {
+                // An imported package's types are registered under their bare name
+                // (`Db`), while a qualified reference written by the importer
+                // resolves to `binding.Db` (plan-link-update.md §5a). Treat a
+                // qualified name as equal to its bare form so an imported
+                // resource/user type returned from a package function matches the
+                // importer's `binding::Type` annotation.
+                let expected_bare = expected_name.rsplit('.').next().unwrap_or(expected_name);
+                let actual_bare = actual_name.rsplit('.').next().unwrap_or(actual_name);
                 expected_name == actual_name
-                    || self.type_infos.get(expected_name).is_some_and(|info| {
-                        matches!(info.kind, TypeDeclKind::Union)
-                            && info
-                                .variants
-                                .iter()
-                                .any(|variant| variant.name == *actual_name)
-                    })
+                    || expected_bare == actual_bare
+                    || self
+                        .type_infos
+                        .get(expected_name)
+                        .or_else(|| self.type_infos.get(expected_bare))
+                        .is_some_and(|info| {
+                            matches!(info.kind, TypeDeclKind::Union)
+                                && info
+                                    .variants
+                                    .iter()
+                                    .any(|variant| variant.name == *actual_bare)
+                        })
             }
             _ => expected == actual,
         }

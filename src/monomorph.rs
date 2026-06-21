@@ -27,10 +27,28 @@ struct Monomorphizer<'a> {
     concrete_functions: HashMap<String, Function>,
     function_overloads: HashMap<String, Vec<Function>>,
     overload_names: HashMap<String, String>,
+    /// Overloaded functions exported by imported packages, keyed by the
+    /// importer-facing `binding.base` name. Lets a call to an imported overload
+    /// be rewritten to the package's mangled `package.base$Types` name, which the
+    /// package merge then identity-prefixes (plan-linker.md §12, overloads).
+    imported_overloads: HashMap<String, Vec<ImportedOverload>>,
+    /// All known import-binding/package qualifier prefixes (e.g. `sqlite.`), used
+    /// to normalize an argument's qualified user/resource type to the bare name
+    /// the package stored in its mangled overload names.
+    package_qualifiers: Vec<String>,
     type_instantiations: HashMap<String, (String, Vec<String>)>,
     emitted_type_keys: HashSet<String>,
     emitted_function_keys: HashSet<String>,
     had_error: bool,
+}
+
+/// One overload of an imported package function.
+struct ImportedOverload {
+    /// Declared parameter types in order (bare, as the package stored them).
+    param_types: Vec<String>,
+    /// The fully package-qualified mangled name (`package.base$Types`) the merge
+    /// expects.
+    qualified_name: String,
 }
 
 #[derive(Default)]
@@ -90,6 +108,9 @@ impl<'a> Monomorphizer<'a> {
             }
         }
 
+        let (imported_overloads, package_qualifiers) =
+            collect_imported_overloads(project_dir, source);
+
         Self {
             project_dir,
             source,
@@ -99,11 +120,63 @@ impl<'a> Monomorphizer<'a> {
             concrete_functions,
             function_overloads,
             overload_names,
+            imported_overloads,
+            package_qualifiers,
             type_instantiations: HashMap::new(),
             emitted_type_keys: HashSet::new(),
             emitted_function_keys: HashSet::new(),
             had_error: false,
         }
+    }
+
+    /// Rewrite a call to an imported overloaded function to the package's mangled
+    /// name, selecting the overload whose declared parameter types match the
+    /// argument types (after stripping package qualifiers). Returns `None` for a
+    /// non-imported call, a non-overloaded import, or an unresolved match.
+    fn resolve_imported_overload(&self, callee: &str, arg_types: &[String]) -> Option<String> {
+        let candidates = self.imported_overloads.get(callee)?;
+        candidates
+            .iter()
+            .find(|candidate| {
+                candidate.param_types.len() == arg_types.len()
+                    && candidate
+                        .param_types
+                        .iter()
+                        .zip(arg_types.iter())
+                        .all(|(param, actual)| {
+                            self.types_compatible(
+                                &self.normalize_type(param),
+                                &self.normalize_type(actual),
+                            )
+                        })
+            })
+            .map(|candidate| candidate.qualified_name.clone())
+    }
+
+    /// Whether a declared parameter type and an actual argument type match,
+    /// token-wise, treating `Unknown` (e.g. from an empty `[]` literal) as a
+    /// wildcard so an untyped empty collection still selects an overload.
+    fn types_compatible(&self, param: &str, actual: &str) -> bool {
+        if param == actual {
+            return true;
+        }
+        let param_tokens: Vec<&str> = param.split_whitespace().collect();
+        let actual_tokens: Vec<&str> = actual.split_whitespace().collect();
+        param_tokens.len() == actual_tokens.len()
+            && param_tokens
+                .iter()
+                .zip(actual_tokens.iter())
+                .all(|(p, a)| p == a || *p == "Unknown" || *a == "Unknown")
+    }
+
+    /// Strip package/import-binding qualifiers from each user/resource type name
+    /// inside `type_` so an importer's `sqlite.Db` matches the package's bare `Db`.
+    fn normalize_type(&self, type_: &str) -> String {
+        let mut normalized = type_.to_string();
+        for qualifier in &self.package_qualifiers {
+            normalized = normalized.replace(qualifier, "");
+        }
+        normalized
     }
 
     fn run(&mut self) {
@@ -730,6 +803,7 @@ impl<'a> Monomorphizer<'a> {
                 let target = self
                     .instantiate_function(callee, &arg_types, line)
                     .or_else(|| self.resolve_overload(callee, &arg_types))
+                    .or_else(|| self.resolve_imported_overload(callee, &arg_types))
                     .unwrap_or_else(|| callee.clone());
                 if target != *callee {
                     self.add_function_to_context(&target, context);
@@ -1464,6 +1538,70 @@ fn split_top_level_to(value: &str) -> Option<(String, String)> {
 
 fn split_top_level_commas(value: &str) -> Vec<String> {
     value.split(", ").map(str::to_string).collect()
+}
+
+/// Read each imported package's exported functions and collect the overloaded
+/// ones (more than one export sharing a base name), keyed by the importer-facing
+/// `binding.base` name. Also returns the set of `binding.`/`package.` qualifier
+/// prefixes for argument-type normalization (plan-linker.md §12, overloads).
+fn collect_imported_overloads(
+    project_dir: &Path,
+    source: &AstProject,
+) -> (HashMap<String, Vec<ImportedOverload>>, Vec<String>) {
+    let mut overloads: HashMap<String, Vec<ImportedOverload>> = HashMap::new();
+    let mut qualifiers: HashSet<String> = HashSet::new();
+    // Distinct (binding, package) pairs across all files.
+    let mut bindings: HashMap<String, String> = HashMap::new();
+    for file in &source.files {
+        for (binding, package) in file.import_bindings() {
+            qualifiers.insert(format!("{binding}."));
+            qualifiers.insert(format!("{package}."));
+            bindings.insert(binding, package);
+        }
+    }
+    for (binding, package) in &bindings {
+        let package_file = project_dir
+            .join("packages")
+            .join(format!("{package}.mfp"));
+        let Ok(exports) = crate::binary_repr::read_package_exports(&package_file) else {
+            continue;
+        };
+        // Group exported functions/subs by base name (the part before `$`).
+        let mut by_base: HashMap<String, Vec<crate::binary_repr::BinaryReprExport>> = HashMap::new();
+        for export in exports {
+            if !matches!(
+                export.kind,
+                crate::binary_repr::BinaryReprExportKind::Func
+                    | crate::binary_repr::BinaryReprExportKind::Sub
+            ) {
+                continue;
+            }
+            let base = export
+                .name
+                .split('$')
+                .next()
+                .unwrap_or(&export.name)
+                .to_string();
+            by_base.entry(base).or_default().push(export);
+        }
+        for (base, exports) in by_base {
+            if exports.len() < 2 {
+                continue; // Non-overloaded imports resolve by their bare name.
+            }
+            let entry = overloads.entry(format!("{binding}.{base}")).or_default();
+            for export in exports {
+                entry.push(ImportedOverload {
+                    param_types: export
+                        .params
+                        .iter()
+                        .map(|param| param.type_.clone())
+                        .collect(),
+                    qualified_name: format!("{package}.{}", export.name),
+                });
+            }
+        }
+    }
+    (overloads, qualifiers.into_iter().collect())
 }
 
 fn mangle_name(name: &str, args: &[String]) -> String {

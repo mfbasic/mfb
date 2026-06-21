@@ -68,6 +68,8 @@ These are the canonical `errorCode::*` values and the integer payloads used by `
 | `7-707-0007` | `77070007` | `ErrMessageTooLarge`  | Datagram or message exceeds the requested or supported size. | |
 | `7-705-0010` | `77050010` | `ErrOverflow`         | Arithmetic overflow or numeric conversion outside the destination range. | |
 | `7-703-0006` | `77030006` | `ErrCloseFailed`      | Resource close operation failed. | |
+| `7-703-0007` | `77030007` | `ErrNativeBindingUnavailable` | Native `LINK` binding library or symbol could not be loaded at startup (`dlopen`/`dlsym` failed). | plan-linker.md §12.1. |
+| `7-703-0008` | `77030008` | `ErrNativeBindingCallFailed` | Native `LINK` binding call failed its `SUCCESS_ON` gate. | plan-linker.md §12.2. |
 | `7-707-0008` | `77070008` | `ErrTlsFailed`        | TLS handshake, certificate validation, SNI validation, or protocol operation failed. | |
 | `7-705-0011` | `77050011` | `ErrUnderflow`        | Arithmetic underflow below the destination range. | |
 | `7-705-0012` | `77050012` | `ErrFloatDomain`      | Floating-point operation domain is invalid, including divide-by-zero. | |

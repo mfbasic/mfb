@@ -647,7 +647,7 @@ fn package_exports(package: &PackageBinaryRepr) -> Result<Vec<BinaryReprExport>,
                 .ok_or_else(|| {
                     format!("export references missing function {}", export.function_id)
                 })?;
-            Ok(BinaryReprExport {
+            let built = BinaryReprExport {
                 name: string_at(&package.project.strings.values, export.name)?.to_string(),
                 kind: export.kind,
                 isolated: function.flags & FUNCTION_FLAG_ISOLATED != 0,
@@ -664,7 +664,8 @@ fn package_exports(package: &PackageBinaryRepr) -> Result<Vec<BinaryReprExport>,
                     })
                     .collect::<Result<Vec<_>, _>>()?,
                 return_type: type_name(&type_names, function.return_type)?.to_string(),
-            })
+            };
+            Ok(built)
         })
         .collect()
 }
@@ -2936,11 +2937,15 @@ impl TypeTable {
             "Socket" => TYPE_SOCKET_HANDLE,
             "Listener" => TYPE_LISTENER_HANDLE,
             name if name.starts_with("List OF ") => {
-                let element = self.type_id(strings, name.trim_start_matches("List OF "));
+                // `strip_prefix` (not `trim_start_matches`, which is greedy and
+                // would collapse `List OF List OF X` to `List OF X`).
+                let element =
+                    self.type_id(strings, name.strip_prefix("List OF ").unwrap_or(name));
                 self.list_type(strings, element)
             }
             name if name.starts_with("Result OF ") => {
-                let success = self.type_id(strings, name.trim_start_matches("Result OF "));
+                let success =
+                    self.type_id(strings, name.strip_prefix("Result OF ").unwrap_or(name));
                 self.result_type(strings, success)
             }
             name if name.starts_with("Thread OF ") => {
@@ -2970,7 +2975,7 @@ impl TypeTable {
             name if name.starts_with("FUNC(") => self.function_type(strings, name),
             name if name.starts_with("ISOLATED FUNC(") => self.function_type(strings, name),
             name if name.starts_with("Map OF ") => {
-                let rest = name.trim_start_matches("Map OF ");
+                let rest = name.strip_prefix("Map OF ").unwrap_or(name);
                 if let Some((key, value)) = rest.split_once(" TO ") {
                     let key = self.type_id(strings, key);
                     let value = self.type_id(strings, value);
@@ -2980,7 +2985,7 @@ impl TypeTable {
                 }
             }
             name if name.starts_with("MapEntry OF ") => {
-                let rest = name.trim_start_matches("MapEntry OF ");
+                let rest = name.strip_prefix("MapEntry OF ").unwrap_or(name);
                 if let Some((key, value)) = rest.split_once(" TO ") {
                     let key = self.type_id(strings, key);
                     let value = self.type_id(strings, value);

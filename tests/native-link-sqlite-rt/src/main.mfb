@@ -1,0 +1,78 @@
+' Runtime test for native LINK bindings (plan-linker.md §12): an inline LINK
+' block binds libsqlite3, and the program drives a full CRUD cycle against an
+' in-memory database. This exercises the generated dlopen/dlsym initializer and
+' the MFB<->C marshaling thunks: CString in (sql/text), OUT-pointer producers
+' (open/prepare), CInt32 status with SUCCESS_ON gating, the compound SUCCESS_ON
+' and RESULT mapping on step, and the CString-return copy on columnText.
+IMPORT io
+
+RESOURCE Db CLOSE BY sql::close
+RESOURCE Stmt CLOSE BY sql::finalize
+
+LINK "sqlite3" AS sql
+  FUNC open(path AS String) AS RES Db
+    SYMBOL "sqlite3_open"
+    ABI (path CString, return OUT CPtr) AS status CInt32
+    SUCCESS_ON status = 0
+  END FUNC
+  FUNC exec(RES db AS Db, statement AS String) AS Nothing
+    SYMBOL "sqlite3_exec"
+    ABI (db CPtr, statement CString, callback CPtr, arg CPtr, errmsg CPtr) AS status CInt32
+    CONST callback = NOTHING
+    CONST arg = NOTHING
+    CONST errmsg = NOTHING
+    SUCCESS_ON status = 0
+  END FUNC
+  FUNC prepare(RES db AS Db, statement AS String) AS RES Stmt
+    SYMBOL "sqlite3_prepare_v2"
+    ABI (db CPtr, statement CString, nByte CInt32, return OUT CPtr, pzTail CPtr) AS status CInt32
+    CONST nByte = -1
+    CONST pzTail = NOTHING
+    SUCCESS_ON status = 0
+  END FUNC
+  FUNC bindText(RES stmt AS Stmt, iCol AS Integer, value AS String) AS Nothing
+    SYMBOL "sqlite3_bind_text"
+    ABI (stmt CPtr, iCol CInt32, value CString, nByte CInt32, destructor CPtr) AS status CInt32
+    CONST nByte = -1
+    CONST destructor = -1
+    SUCCESS_ON status = 0
+  END FUNC
+  FUNC step(RES stmt AS Stmt) AS Boolean
+    SYMBOL "sqlite3_step"
+    ABI (stmt CPtr) AS status CInt32
+    SUCCESS_ON status = 100 OR status = 101
+    RESULT status = 100
+  END FUNC
+  FUNC columnText(RES stmt AS Stmt, col AS Integer) AS String
+    SYMBOL "sqlite3_column_text"
+    ABI (stmt CPtr, col CInt32) AS return CPtr
+  END FUNC
+  FUNC finalize(RES stmt AS Stmt) AS Nothing
+    SYMBOL "sqlite3_finalize"
+    ABI (stmt CPtr) AS status CInt32
+    SUCCESS_ON status = 0
+  END FUNC
+  FUNC close(RES db AS Db) AS Nothing
+    SYMBOL "sqlite3_close"
+    ABI (db CPtr) AS status CInt32
+    SUCCESS_ON status = 0
+  END FUNC
+END LINK
+
+FUNC main AS Integer
+  RES db AS Db = sql::open(":memory:")
+  sql::exec(db, "CREATE TABLE users (id INTEGER, name TEXT)")
+  RES ins AS Stmt = sql::prepare(db, "INSERT INTO users VALUES (1, ?)")
+  sql::bindText(ins, 1, "alice")
+  LET inserted = sql::step(ins)
+  sql::finalize(ins)
+  sql::exec(db, "INSERT INTO users VALUES (2, 'bob')")
+  RES rows AS Stmt = sql::prepare(db, "SELECT id, name FROM users ORDER BY id")
+  WHILE sql::step(rows)
+    io::print(sql::columnText(rows, 0) & "=" & sql::columnText(rows, 1))
+  WEND
+  sql::finalize(rows)
+  sql::close(db)
+  io::print("done")
+  RETURN 0
+END FUNC
