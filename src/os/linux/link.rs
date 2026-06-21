@@ -779,7 +779,7 @@ mod tests {
     // Reads the real glibc data global `environ` (a `char**`) through the GOT via
     // a GLOB_DAT relocation (plan-linker.md §6.1) and exits 0 iff it is non-null,
     // proving the import resolved to libc's data symbol.
-    fn glob_dat_image() -> EncodedImage {
+    fn glob_dat_image(libc: &str) -> EncodedImage {
         let mut text = Vec::new();
         put_u32(&mut text, 0x9000_0000); // adrp x0, environ        (external page21)
         put_u32(&mut text, 0x9100_0000); // add  x0, x0, :got_lo12  (external pageoff12)
@@ -790,6 +790,13 @@ mod tests {
         put_u32(&mut text, 0x5400_0041); // b.ne +8         ; non-null -> keep 0
         put_u32(&mut text, 0x5280_0020); // movz w0, #1
         put_u32(&mut text, 0x9400_0000); // bl   _exit              (external branch26)
+        let ext = |offset: usize, target: &str, kind: &str| EncodedRelocation {
+            offset,
+            target: target.to_string(),
+            kind: kind.to_string(),
+            binding: "external".to_string(),
+            library: Some(libc.to_string()),
+        };
         EncodedImage {
             text,
             data: Vec::new(),
@@ -799,37 +806,19 @@ mod tests {
                 offset: 0,
             }],
             relocations: vec![
-                EncodedRelocation {
-                    offset: 0,
-                    target: "environ".to_string(),
-                    kind: "page21".to_string(),
-                    binding: "external".to_string(),
-                    library: Some("libc.so.6".to_string()),
-                },
-                EncodedRelocation {
-                    offset: 4,
-                    target: "environ".to_string(),
-                    kind: "pageoff12".to_string(),
-                    binding: "external".to_string(),
-                    library: Some("libc.so.6".to_string()),
-                },
-                EncodedRelocation {
-                    offset: 32,
-                    target: "_exit".to_string(),
-                    kind: "branch26".to_string(),
-                    binding: "external".to_string(),
-                    library: Some("libc.so.6".to_string()),
-                },
+                ext(0, "environ", "page21"),
+                ext(4, "environ", "pageoff12"),
+                ext(32, "_exit", "branch26"),
             ],
             imports: vec![
                 EncodedImport {
-                    library: "libc.so.6".to_string(),
+                    library: libc.to_string(),
                     symbol: "environ".to_string(),
                     kind: ImportKind::Data,
                     version: None,
                 },
                 EncodedImport {
-                    library: "libc.so.6".to_string(),
+                    library: libc.to_string(),
                     symbol: "_exit".to_string(),
                     kind: ImportKind::Function,
                     version: None,
@@ -842,10 +831,18 @@ mod tests {
 
     #[test]
     fn writes_glob_dat_glibc_elf() {
-        let image = glob_dat_image();
+        let image = glob_dat_image("libc.so.6");
         let dir = std::path::PathBuf::from("tmp/globlx");
         std::fs::create_dir_all(&dir).expect("temp dir");
         write_executable(&dir, "glob", LinuxFlavor::Glibc, &image).expect("link glob_dat elf");
+    }
+
+    #[test]
+    fn writes_glob_dat_musl_elf() {
+        let image = glob_dat_image("libc.musl-aarch64.so.1");
+        let dir = std::path::PathBuf::from("tmp/globlx");
+        std::fs::create_dir_all(&dir).expect("temp dir");
+        write_executable(&dir, "globmusl", LinuxFlavor::Musl, &image).expect("link musl glob_dat");
     }
 
     // Confirms DT_INIT_ARRAY / DT_INIT_ARRAYSZ are emitted for the listed
