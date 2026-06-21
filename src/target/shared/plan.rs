@@ -424,7 +424,61 @@ fn runtime_symbols(module: &NirModule) -> Vec<String> {
             runtime::symbol_for_call(runtime::RuntimeHelper::Thread, "thread.drop"),
         );
     }
+    // A resource-union bind drops by dispatching to each variant's close op
+    // (codegen-emitted on scope exit), so pull in every variant's close helper.
+    let mut bind_types = std::collections::HashSet::new();
+    for function in &module.functions {
+        collect_bind_type_names(&function.body, &mut bind_types);
+    }
+    for type_ in &module.types {
+        if type_.kind != "union"
+            || !bind_types.contains(&type_.name)
+            || type_.variants.is_empty()
+            || !type_
+                .variants
+                .iter()
+                .all(|variant| crate::builtins::is_resource_type(&variant.name))
+        {
+            continue;
+        }
+        for variant in &type_.variants {
+            if let Some(close) = crate::builtins::resource_close_function(&variant.name) {
+                if let Some(helper) = runtime::helper_for_call(close) {
+                    push_unique(&mut symbols, runtime::symbol_for_call(helper, close));
+                }
+            }
+        }
+    }
     symbols
+}
+
+fn collect_bind_type_names(ops: &[NirOp], types: &mut std::collections::HashSet<String>) {
+    for op in ops {
+        match op {
+            NirOp::Bind { type_, .. } => {
+                types.insert(type_.clone());
+            }
+            NirOp::If {
+                then_body,
+                else_body,
+                ..
+            } => {
+                collect_bind_type_names(then_body, types);
+                collect_bind_type_names(else_body, types);
+            }
+            NirOp::Match { cases, .. } => {
+                for case in cases {
+                    collect_bind_type_names(&case.body, types);
+                }
+            }
+            NirOp::While { body, .. }
+            | NirOp::For { body, .. }
+            | NirOp::DoUntil { body, .. }
+            | NirOp::ForEach { body, .. }
+            | NirOp::Trap { body, .. } => collect_bind_type_names(body, types),
+            _ => {}
+        }
+    }
 }
 
 fn platform_imports(module: &NirModule, platform: &dyn NativePlanPlatform) -> Vec<PlatformImport> {

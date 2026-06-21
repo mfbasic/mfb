@@ -1,6 +1,7 @@
 use crate::arch::aarch64::abi;
 use crate::builtins;
 use crate::ir::{IrOp, IrProject, IrValue};
+use std::collections::HashMap;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum RuntimeHelper {
@@ -1614,19 +1615,48 @@ pub(crate) fn is_native_direct_call(name: &str) -> bool {
 
 pub fn required_helpers(ir: &IrProject) -> Vec<RuntimeHelper> {
     let mut helpers = Vec::new();
+    // Resource unions drop by dispatching to each variant's close op, so a bind
+    // of a resource-union type pulls in every variant's close helper.
+    let resource_union_closes: HashMap<String, Vec<&'static str>> = ir
+        .types
+        .iter()
+        .filter(|type_| type_.kind == "union")
+        .filter_map(|type_| {
+            let closes: Vec<&'static str> = type_
+                .variants
+                .iter()
+                .map(|variant| crate::builtins::resource_close_function(&variant.name))
+                .collect::<Option<Vec<_>>>()?;
+            if closes.is_empty() {
+                return None;
+            }
+            Some((type_.name.clone(), closes))
+        })
+        .collect();
     for function in &ir.functions {
-        push_op_helpers(&function.body, &mut helpers);
+        push_op_helpers(&function.body, &resource_union_closes, &mut helpers);
     }
     helpers
 }
 
-fn push_op_helpers(ops: &[IrOp], helpers: &mut Vec<RuntimeHelper>) {
+fn push_op_helpers(
+    ops: &[IrOp],
+    resource_union_closes: &HashMap<String, Vec<&'static str>>,
+    helpers: &mut Vec<RuntimeHelper>,
+) {
     for op in ops {
         match op {
             IrOp::Bind { type_, value, .. } => {
                 if let Some(close) = crate::builtins::resource_close_function(type_) {
                     if let Some(helper) = helper_for_call(close) {
                         push_unique(helpers, helper);
+                    }
+                }
+                if let Some(closes) = resource_union_closes.get(type_) {
+                    for close in closes {
+                        if let Some(helper) = helper_for_call(close) {
+                            push_unique(helpers, helper);
+                        }
                     }
                 }
                 if let Some(value) = value {
@@ -1655,20 +1685,20 @@ fn push_op_helpers(ops: &[IrOp], helpers: &mut Vec<RuntimeHelper>) {
                 else_body,
             } => {
                 push_value_helpers(condition, helpers);
-                push_op_helpers(then_body, helpers);
-                push_op_helpers(else_body, helpers);
+                push_op_helpers(then_body, resource_union_closes, helpers);
+                push_op_helpers(else_body, resource_union_closes, helpers);
             }
             IrOp::Match { value, cases } => {
                 push_value_helpers(value, helpers);
                 for case in cases {
-                    push_op_helpers(&case.body, helpers);
+                    push_op_helpers(&case.body, resource_union_closes, helpers);
                 }
             }
             IrOp::While {
                 condition, body, ..
             } => {
                 push_value_helpers(condition, helpers);
-                push_op_helpers(body, helpers);
+                push_op_helpers(body, resource_union_closes, helpers);
             }
             IrOp::For {
                 start,
@@ -1680,18 +1710,18 @@ fn push_op_helpers(ops: &[IrOp], helpers: &mut Vec<RuntimeHelper>) {
                 push_value_helpers(start, helpers);
                 push_value_helpers(end, helpers);
                 push_value_helpers(step, helpers);
-                push_op_helpers(body, helpers);
+                push_op_helpers(body, resource_union_closes, helpers);
             }
             IrOp::DoUntil { body, condition } => {
-                push_op_helpers(body, helpers);
+                push_op_helpers(body, resource_union_closes, helpers);
                 push_value_helpers(condition, helpers);
             }
             IrOp::ForEach { iterable, body, .. } => {
                 push_value_helpers(iterable, helpers);
-                push_op_helpers(body, helpers);
+                push_op_helpers(body, resource_union_closes, helpers);
             }
             IrOp::Trap { body, .. } => {
-                push_op_helpers(body, helpers);
+                push_op_helpers(body, resource_union_closes, helpers);
             }
         }
     }

@@ -1,0 +1,16 @@
+$ mfb build -ast tests/resource-union-mixed-invalid
+   5 | END TYPE
+   6 | 
+   7 | UNION Mixed
+     | ^
+tests/resource-union-mixed-invalid/src/main.mfb:7 error[2-203-0087 TYPE_MIXED_RESOURCE_UNION]: a union must be all-data or all-resource, never mixed
+               UNION `Mixed` mixes data and resource variants; a union must be all-data or all-resource.
+[exit 1]
+$ mfb build -ir tests/resource-union-mixed-invalid
+   5 | END TYPE
+   6 | 
+   7 | UNION Mixed
+     | ^
+tests/resource-union-mixed-invalid/src/main.mfb:7 error[2-203-0087 TYPE_MIXED_RESOURCE_UNION]: a union must be all-data or all-resource, never mixed
+               UNION `Mixed` mixes data and resource variants; a union must be all-data or all-resource.
+[exit 1]

@@ -1207,6 +1207,26 @@ s.state = WITH s.state { pos := 10 }                         ' update the state
 
 `s.state` reads the state record; it is updated with the functional `WITH` idiom assigned back to `s.state` (`s.state = WITH s.state { field := value }`) — the one member-target assignment in the language. Because a resource value is a shared handle, a state update made through a borrowed `RES` parameter is visible to the owner after the call.
 
+**Resource unions.** A union whose every variant is a resource type is itself a resource — a *resource union* — and is `RES`-bound like any other resource:
+
+```basic
+UNION Stream            ' every variant is a resource → Stream is a resource
+  File
+  Socket
+END UNION
+
+RES s AS Stream = fs::open("app.db", "read")   ' a File wraps into the union
+MATCH s
+  CASE File(f)
+    LET line = fs::readLine(f)
+  CASE Socket(sock)
+    LET data = net::read(sock, 1024)
+END MATCH
+' scope end → drop closes the active variant via its registered close op
+```
+
+A resource union owns exactly one resource at a time (the active variant), so it is atomic — a *choice* among resources, not a bundle. **Drop is tag-dispatched**: cleanup reads the union tag and calls the active variant's registered close op. Matching a resource union *borrows* the active variant (the union retains ownership and closes it on drop). A union may **not mix** data and resource variants (`TYPE_MIXED_RESOURCE_UNION`), and a resource union carries no `STATE`.
+
 To release a resource earlier than the end of its scope, or to observe a close failure, call the resource's explicit close operation (such as `fs::close(f)`). That operation consumes the handle and auto-propagates a close failure like any other call, so the close failure is directly observable. After an explicit close the binding is moved and is not closed again by lexical drop.
 
 A close that runs as part of an implicit lexical drop cannot inject an error into program flow, because a drop has no source-level result to route. If such a drop-close fails, the failure is emitted as diagnostic/audit metadata associated with the failed cleanup; it does not replace, wrap, or raise a source-level `Error`. Programs that must observe a close failure use the explicit close operation instead.

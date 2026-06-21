@@ -1,0 +1,68 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "resource_union_valid",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  {
+    "kind": "union",
+    "visibility": "private",
+    "name": "Stream",
+    "includes": [],
+    "variants": [
+    {
+      "name": "File",
+      "fields": [
+      ]
+    },
+    {
+      "name": "Socket",
+      "fields": [
+      ]
+    }
+    ]
+  }
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "mutable": false, "name": "s", "type": "Stream", "value": { "kind": "unionWrap", "union": "Stream", "member": "File", "value": { "kind": "call", "target": "fs.createTempFile", "args": [] } } },
+    { "op": "bind", "mutable": false, "name": "$match0", "type": "Stream", "value": { "kind": "local", "name": "s" } },
+    {
+      "op": "match",
+      "value": { "kind": "local", "name": "$match0" },
+      "cases": [
+      {
+        "pattern": { "kind": "value", "value": { "kind": "local", "name": "File" } },
+        "guard": null,
+        "body": [
+        { "op": "bind", "mutable": false, "name": "f", "type": "File", "value": { "kind": "unionExtract", "type": "File", "value": { "kind": "local", "name": "$match0" } } },
+        { "op": "eval", "value": { "kind": "call", "target": "fs.writeAll", "args": [{ "kind": "local", "name": "f" }, { "kind": "const", "type": "String", "value": "union-data" }] } },
+        { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "file" }] } }
+        ]
+      },
+      {
+        "pattern": { "kind": "value", "value": { "kind": "local", "name": "Socket" } },
+        "guard": null,
+        "body": [
+        { "op": "bind", "mutable": false, "name": "sock", "type": "Socket", "value": { "kind": "unionExtract", "type": "Socket", "value": { "kind": "local", "name": "$match0" } } },
+        { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "socket" }] } }
+        ]
+      }
+      ]
+    },
+    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

@@ -2538,12 +2538,93 @@ impl CodeBuilder<'_> {
         Some(symbol)
     }
 
+    /// If `type_` is a resource union (every variant is a resource), the
+    /// `(tag, close_symbol)` pairs for tag-dispatched drop; otherwise `None`.
+    pub(super) fn resource_union_cleanup(&self, type_: &str) -> Option<Vec<(usize, String)>> {
+        if !self.type_model.union_names.contains(type_) {
+            return None;
+        }
+        let variants: Vec<String> = self
+            .type_model
+            .variants_for_union(type_)
+            .cloned()
+            .collect();
+        if variants.is_empty() {
+            return None;
+        }
+        let mut out = Vec::new();
+        for variant in variants {
+            if !crate::builtins::is_resource_type(&variant) {
+                return None;
+            }
+            let tag = *self.type_model.union_variant_tags.get(&variant)?;
+            let symbol = self.resource_cleanup_symbol(&variant)?;
+            out.push((tag, symbol));
+        }
+        Some(out)
+    }
+
     pub(super) fn deactivate_resource_cleanup(&mut self, name: &str) {
-        if let Some(index) = self.active_cleanups.iter().rposition(
-            |cleanup| matches!(cleanup, ActiveCleanup::Resource(resource) if resource.name == name),
-        ) {
+        if let Some(index) = self.active_cleanups.iter().rposition(|cleanup| {
+            matches!(cleanup, ActiveCleanup::Resource(resource) if resource.name == name)
+                || matches!(cleanup, ActiveCleanup::ResourceUnion(u) if u.name == name)
+        }) {
             self.active_cleanups.remove(index);
         }
+    }
+
+    /// Tag-dispatched drop of a resource union: read the union tag and call the
+    /// active variant's registered close op on its resource pointer (offset 8).
+    pub(super) fn emit_resource_union_cleanup_call(
+        &mut self,
+        cleanup: &ResourceUnionCleanup,
+    ) -> Result<(), String> {
+        let stack_offset = match self.locals.get(&cleanup.name) {
+            Some(local) => local.stack_offset,
+            None => return Ok(()),
+        };
+        let union_ptr = self.allocate_register()?;
+        self.emit(abi::load_u64(&union_ptr, abi::stack_pointer(), stack_offset));
+        let union_slot = self.allocate_stack_object("resource_union_drop_ptr", 8);
+        self.emit(abi::store_u64(&union_ptr, abi::stack_pointer(), union_slot));
+        let tag_register = self.allocate_register()?;
+        self.emit(abi::load_u64(&tag_register, &union_ptr, 0));
+        let tag_slot = self.allocate_stack_object("resource_union_drop_tag", 8);
+        self.emit(abi::store_u64(&tag_register, abi::stack_pointer(), tag_slot));
+        let done = self.label("resource_union_drop_done");
+        let payload_slot = self.allocate_stack_object("resource_union_drop_payload", 8);
+        for (tag, symbol) in cleanup.variants.clone() {
+            let next = self.label("resource_union_drop_next");
+            let tag_reg = self.allocate_register()?;
+            self.emit(abi::load_u64(&tag_reg, abi::stack_pointer(), tag_slot));
+            self.emit(abi::compare_immediate(&tag_reg, &tag.to_string()));
+            self.emit(abi::branch_ne(&next));
+            // Load the variant's resource pointer (payload at offset 8) and close it.
+            let base = self.allocate_register()?;
+            self.emit(abi::load_u64(&base, abi::stack_pointer(), union_slot));
+            let payload = self.allocate_register()?;
+            self.emit(abi::load_u64(&payload, &base, 8));
+            self.emit(abi::store_u64(&payload, abi::stack_pointer(), payload_slot));
+            let arg = NirValue::Local(format!("__resource_union_payload@{payload_slot}"));
+            self.locals.insert(
+                format!("__resource_union_payload@{payload_slot}"),
+                LocalValue {
+                    type_: "File".to_string(),
+                    stack_offset: payload_slot,
+                    constant: None,
+                },
+            );
+            self.emit_raw_call(&symbol, std::slice::from_ref(&arg), "resource_union_drop_arg")?;
+            let after = self.label("resource_union_drop_check");
+            self.emit(abi::compare_immediate(RESULT_TAG_REGISTER, RESULT_OK_TAG));
+            self.emit(abi::branch_eq(&after));
+            self.record_secondary_cleanup_failure();
+            self.emit(abi::label(&after));
+            self.emit(abi::branch(&done));
+            self.emit(abi::label(&next));
+        }
+        self.emit(abi::label(&done));
+        Ok(())
     }
 
     fn deactivate_moved_resource_arguments(&mut self, target: &str, args: &[NirValue]) {
@@ -2653,6 +2734,9 @@ impl CodeBuilder<'_> {
                 ActiveCleanup::Resource(cleanup) => {
                     self.emit_resource_cleanup_call(cleanup)?;
                 }
+                ActiveCleanup::ResourceUnion(cleanup) => {
+                    self.emit_resource_union_cleanup_call(cleanup)?;
+                }
             }
         }
         Ok(())
@@ -2668,6 +2752,9 @@ impl CodeBuilder<'_> {
             match cleanup {
                 ActiveCleanup::Thread(cleanup) => self.emit_thread_cleanup_call(cleanup)?,
                 ActiveCleanup::Resource(cleanup) => self.emit_resource_cleanup_call(cleanup)?,
+                ActiveCleanup::ResourceUnion(cleanup) => {
+                    self.emit_resource_union_cleanup_call(cleanup)?
+                }
             }
         }
         self.emit(abi::branch(target));

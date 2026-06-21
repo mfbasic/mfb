@@ -766,6 +766,12 @@ pub const RULES: &[Rule] = &[
         message: "a borrowed resource cannot be closed, returned, or transferred",
     },
     Rule {
+        code: "2-203-0087",
+        name: "TYPE_MIXED_RESOURCE_UNION",
+        severity: Severity::Error,
+        message: "a union must be all-data or all-resource, never mixed",
+    },
+    Rule {
         code: "2-200-0011",
         name: "PROJECT_ENTRY_INVALID",
         severity: Severity::Error,

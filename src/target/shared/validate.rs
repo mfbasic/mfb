@@ -66,6 +66,33 @@ pub fn validate_nir(module: &NirModule) -> Result<(), String> {
         )?;
     }
 
+    // A resource-union bind drops by dispatching to each variant's close op
+    // (codegen-emitted, not an NIR call), so count those closes as used helpers
+    // to match `required_helpers`.
+    let mut bind_types = HashSet::new();
+    for function in &module.functions {
+        collect_bind_types(&function.body, &mut bind_types);
+    }
+    for type_ in &module.types {
+        if type_.kind != "union" || !bind_types.contains(&type_.name) {
+            continue;
+        }
+        let closes: Option<Vec<&'static str>> = type_
+            .variants
+            .iter()
+            .map(|variant| crate::builtins::resource_close_function(&variant.name))
+            .collect();
+        if let Some(closes) = closes {
+            for close in closes {
+                if let Some(helper) = runtime::helper_for_call(close) {
+                    if !used_helpers.contains(&helper) {
+                        used_helpers.push(helper);
+                    }
+                }
+            }
+        }
+    }
+
     for helper in &used_helpers {
         if !module.runtime_helpers.contains(helper) {
             return Err(format!(
@@ -191,6 +218,38 @@ pub(crate) fn validate_capabilities(
         }
     }
     Ok(())
+}
+
+/// Collect the type strings of every `Bind` op (recursively) so resource-union
+/// binds can be matched against union type definitions.
+fn collect_bind_types(ops: &[NirOp], types: &mut HashSet<String>) {
+    for op in ops {
+        match op {
+            NirOp::Bind { type_, .. } => {
+                types.insert(type_.clone());
+            }
+            NirOp::If {
+                then_body,
+                else_body,
+                ..
+            } => {
+                collect_bind_types(then_body, types);
+                collect_bind_types(else_body, types);
+            }
+            NirOp::Match { cases, .. } => {
+                for case in cases {
+                    collect_bind_types(&case.body, types);
+                }
+            }
+            NirOp::While { body, .. }
+            | NirOp::For { body, .. }
+            | NirOp::DoUntil { body, .. }
+            | NirOp::Trap { body, .. } => {
+                collect_bind_types(body, types);
+            }
+            _ => {}
+        }
+    }
 }
 
 fn collect_runtime_calls_from_ops(ops: &[NirOp], calls: &mut Vec<String>) {

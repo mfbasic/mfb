@@ -36,17 +36,33 @@ impl CodeBuilder<'_> {
                                 stack_offset,
                             ));
                         }
+                        // A resource extracted from a union (a `MATCH` variant
+                        // binding) is a borrow: the union still owns it and
+                        // closes the active variant on drop, so the extracted
+                        // binding registers no cleanup of its own.
+                        let borrows_union_variant =
+                            matches!(value, Some(NirValue::UnionExtract { .. }));
                         if Self::is_thread_type(type_) {
                             self.active_cleanups
                                 .push(ActiveCleanup::Thread(ThreadCleanup {
                                     name: name.clone(),
                                     symbol: Self::thread_drop_symbol(),
                                 }));
+                        } else if borrows_union_variant {
+                            // Borrowed — no cleanup.
                         } else if let Some(symbol) = self.resource_cleanup_symbol(type_) {
                             self.active_cleanups
                                 .push(ActiveCleanup::Resource(ResourceCleanup {
                                     name: name.clone(),
                                     symbol,
+                                }));
+                        } else if let Some(variants) = self.resource_union_cleanup(type_) {
+                            // A resource union drops by dispatching on its tag to
+                            // the active variant's registered close op.
+                            self.active_cleanups
+                                .push(ActiveCleanup::ResourceUnion(ResourceUnionCleanup {
+                                    name: name.clone(),
+                                    variants,
                                 }));
                         }
                         // Default-initialize a `RES` binding's `STATE` payload.
@@ -389,6 +405,9 @@ impl CodeBuilder<'_> {
                     ActiveCleanup::Thread(cleanup) => self.emit_thread_cleanup_call(&cleanup)?,
                     ActiveCleanup::Resource(cleanup) => {
                         self.emit_resource_cleanup_call(&cleanup)?
+                    }
+                    ActiveCleanup::ResourceUnion(cleanup) => {
+                        self.emit_resource_union_cleanup_call(&cleanup)?
                     }
                 }
             }

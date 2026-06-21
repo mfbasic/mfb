@@ -1,0 +1,14 @@
+IMPORT fs
+
+TYPE Circle
+  r AS Integer
+END TYPE
+
+UNION Mixed
+  File
+  Circle
+END UNION
+
+FUNC main AS Integer
+  RETURN 0
+END FUNC

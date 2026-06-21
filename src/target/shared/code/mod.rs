@@ -585,9 +585,18 @@ struct ResourceCleanup {
 }
 
 #[derive(Clone)]
+struct ResourceUnionCleanup {
+    name: String,
+    /// `(tag, close_symbol)` per active variant; drop reads the union tag and
+    /// calls the matching close op on the variant's resource pointer.
+    variants: Vec<(usize, String)>,
+}
+
+#[derive(Clone)]
 enum ActiveCleanup {
     Thread(ThreadCleanup),
     Resource(ResourceCleanup),
+    ResourceUnion(ResourceUnionCleanup),
 }
 
 #[derive(Clone, Copy)]
@@ -12527,6 +12536,57 @@ fn module_uses_call(module: &NirModule, target: &str) -> bool {
         .functions
         .iter()
         .any(|function| ops_use_call(&function.body, target))
+        || module_drops_resource_union_close(module, target)
+}
+
+/// Whether the module binds a resource union whose tag-dispatched drop calls
+/// `target` (a variant's close op). These calls are codegen-emitted rather than
+/// NIR calls, so they must still pull in the close helper.
+fn module_drops_resource_union_close(module: &NirModule, target: &str) -> bool {
+    let unions: std::collections::HashSet<&str> = module
+        .types
+        .iter()
+        .filter(|type_| {
+            type_.kind == "union"
+                && !type_.variants.is_empty()
+                && type_
+                    .variants
+                    .iter()
+                    .all(|variant| crate::builtins::is_resource_type(&variant.name))
+                && type_
+                    .variants
+                    .iter()
+                    .any(|variant| crate::builtins::resource_close_function(&variant.name) == Some(target))
+        })
+        .map(|type_| type_.name.as_str())
+        .collect();
+    if unions.is_empty() {
+        return false;
+    }
+    module
+        .functions
+        .iter()
+        .any(|function| ops_bind_type_in(&function.body, &unions))
+}
+
+fn ops_bind_type_in(ops: &[NirOp], names: &std::collections::HashSet<&str>) -> bool {
+    ops.iter().any(|op| match op {
+        NirOp::Bind { type_, .. } => names.contains(type_.as_str()),
+        NirOp::If {
+            then_body,
+            else_body,
+            ..
+        } => ops_bind_type_in(then_body, names) || ops_bind_type_in(else_body, names),
+        NirOp::Match { cases, .. } => {
+            cases.iter().any(|case| ops_bind_type_in(&case.body, names))
+        }
+        NirOp::While { body, .. }
+        | NirOp::For { body, .. }
+        | NirOp::DoUntil { body, .. }
+        | NirOp::ForEach { body, .. }
+        | NirOp::Trap { body, .. } => ops_bind_type_in(body, names),
+        _ => false,
+    })
 }
 
 fn module_may_record_cleanup_failure(module: &NirModule) -> bool {

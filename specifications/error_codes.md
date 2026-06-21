@@ -225,6 +225,7 @@ These codes correspond to `src/rules.rs` and are emitted directly by the compile
 | `2-203-0084` | `TYPE_RESOURCE_FIELD_FORBIDDEN` | error | `a record field cannot be a resource` |
 | `2-203-0085` | `TYPE_STATE_INVALID` | error | `STATE must be a copyable, defaultable data type` |
 | `2-203-0086` | `TYPE_RESOURCE_BORROW_INVALIDATE` | error | `a borrowed resource cannot be closed, returned, or transferred` |
+| `2-203-0087` | `TYPE_MIXED_RESOURCE_UNION` | error | `a union must be all-data or all-resource, never mixed` |
 
 ## Toolchain and Package Diagnostics
 

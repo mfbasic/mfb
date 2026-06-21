@@ -1093,6 +1093,26 @@ impl<'a> TypeChecker<'a> {
                         }
                     }
                 }
+                // A union must be uniformly data or uniformly resource: a union
+                // whose copyability would depend on the runtime tag (the
+                // contagion + conditional-drop problem) is rejected. An
+                // all-resource union is a resource union (§4a).
+                let resource_variants = type_decl
+                    .variants
+                    .iter()
+                    .filter(|variant| self.resource_registry.is_resource(&variant.name))
+                    .count();
+                if resource_variants > 0 && resource_variants < type_decl.variants.len() {
+                    self.report(
+                        "TYPE_MIXED_RESOURCE_UNION",
+                        &format!(
+                            "UNION `{}` mixes data and resource variants; a union must be all-data or all-resource.",
+                            type_decl.name
+                        ),
+                        file,
+                        type_decl.line,
+                    );
+                }
             }
             TypeDeclKind::Enum => {
                 if type_decl.members.is_empty() {
@@ -5045,9 +5065,26 @@ impl<'a> TypeChecker<'a> {
 
     fn is_resource_type(&self, type_: &Type) -> bool {
         match type_ {
-            Type::User(name) => self.resource_registry.is_resource(name),
+            Type::User(name) => {
+                self.resource_registry.is_resource(name) || self.is_resource_union(name)
+            }
             _ => false,
         }
+    }
+
+    /// A union whose every variant is a resource type is itself a resource (a
+    /// resource union): move-only, `RES`-bound, dropped by dispatching on the
+    /// tag to the active variant's close op. Variants are bare resource types.
+    fn is_resource_union(&self, name: &str) -> bool {
+        let Some(info) = self.type_infos.get(name) else {
+            return false;
+        };
+        matches!(info.kind, TypeDeclKind::Union)
+            && !info.variants.is_empty()
+            && info
+                .variants
+                .iter()
+                .all(|variant| self.resource_registry.is_resource(&variant.name))
     }
 
     fn contains_resource_or_thread(&self, type_: &Type) -> bool {

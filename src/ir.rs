@@ -636,7 +636,12 @@ fn lower_statement(
                     .expect("typecheck requires inferred binding type before IR lowering")
             });
             let lowered_value = value.as_ref().map(|value| {
-                lower_expression_with_expected(value, Some(&lowered_type), locals, context)
+                let base =
+                    lower_expression_with_expected(value, Some(&lowered_type), locals, context);
+                // Wrap a resource (or data) variant value into its union when the
+                // binding is union-typed, so a `RES s AS Stream = <a File>` carries
+                // the variant tag for tag-dispatched drop.
+                wrap_union_value(base, value, Some(&lowered_type), locals, context)
             });
             // A `RES` binding's `STATE T` rides in the lowered type string
             // (`File STATE T`) so codegen can default-initialize and address the
@@ -2433,6 +2438,11 @@ fn wrap_union_value(
     let Some(union_type) = expected else {
         return base;
     };
+    // Avoid double-wrapping when the value's own lowering already wrapped it
+    // (e.g. a variant constructor assigned to a union-typed binding).
+    if matches!(base, IrValue::UnionWrap { .. }) {
+        return base;
+    }
     let Some(actual_type) = expression_type(expression, locals, context) else {
         return base;
     };

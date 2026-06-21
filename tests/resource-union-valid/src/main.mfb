@@ -1,0 +1,20 @@
+IMPORT fs
+IMPORT net
+IMPORT io
+
+UNION Stream
+  File
+  Socket
+END UNION
+
+FUNC main AS Integer
+  RES s AS Stream = fs::createTempFile()
+  MATCH s
+    CASE File(f)
+      fs::writeAll(f, "union-data")
+      io::print("file")
+    CASE Socket(sock)
+      io::print("socket")
+  END MATCH
+  RETURN 0
+END FUNC

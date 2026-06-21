@@ -763,14 +763,21 @@ impl CodeBuilder<'_> {
                     abi::stack_pointer(),
                     wrapped_slot,
                 ));
-                let fields = self
-                    .type_model
-                    .record_fields
-                    .get(member_type)
-                    .cloned()
-                    .ok_or_else(|| {
-                        format!("native code union wrap member '{member_type}' is not a record")
-                    })?;
+                // A resource-union variant is a bare resource whose payload is
+                // the resource pointer itself (one word at offset 8), not record
+                // fields.
+                let is_resource_variant = crate::builtins::is_resource_type(member_type);
+                let fields = if is_resource_variant {
+                    Vec::new()
+                } else {
+                    self.type_model
+                        .record_fields
+                        .get(member_type)
+                        .cloned()
+                        .ok_or_else(|| {
+                            format!("native code union wrap member '{member_type}' is not a record")
+                        })?
+                };
                 let tag = self
                     .type_model
                     .union_variant_tags
@@ -779,14 +786,26 @@ impl CodeBuilder<'_> {
                     .ok_or_else(|| {
                         format!("native code union variant '{member_type}' does not resolve")
                     })?;
-                let union_size = self
+                // Payload words across all variants: a resource variant occupies
+                // one word (the handle pointer); a record variant occupies its
+                // field count.
+                let max_payload = self
                     .type_model
                     .variants_for_union(union_type)
-                    .filter_map(|variant| self.type_model.union_variant_fields.get(variant))
-                    .map(Vec::len)
+                    .map(|variant| {
+                        if crate::builtins::is_resource_type(variant) {
+                            1
+                        } else {
+                            self.type_model
+                                .union_variant_fields
+                                .get(variant)
+                                .map(Vec::len)
+                                .unwrap_or(0)
+                        }
+                    })
                     .max()
-                    .map(|max_fields| 8 * (1 + max_fields))
-                    .unwrap_or(8 * (fields.len() + 1));
+                    .unwrap_or(if is_resource_variant { 1 } else { fields.len() });
+                let union_size = 8 * (1 + max_payload.max(1));
                 let result_slot = self.allocate_stack_object("union_result", 8);
                 let alloc_ok = self.label("union_construct_alloc_ok");
                 self.emit(abi::move_immediate(
@@ -823,11 +842,18 @@ impl CodeBuilder<'_> {
                     &tag.to_string(),
                 ));
                 self.emit(abi::store_u64(&tag_register, "x1", 0));
-                for (index, _) in fields.iter().enumerate() {
-                    self.emit(abi::load_u64("x11", abi::stack_pointer(), wrapped_slot));
-                    self.emit(abi::load_u64("x9", "x11", 8 * index));
+                if is_resource_variant {
+                    // Store the resource handle pointer directly as the payload.
+                    self.emit(abi::load_u64("x9", abi::stack_pointer(), wrapped_slot));
                     self.emit(abi::load_u64("x10", abi::stack_pointer(), result_slot));
-                    self.emit(abi::store_u64("x9", "x10", 8 * (index + 1)));
+                    self.emit(abi::store_u64("x9", "x10", 8));
+                } else {
+                    for (index, _) in fields.iter().enumerate() {
+                        self.emit(abi::load_u64("x11", abi::stack_pointer(), wrapped_slot));
+                        self.emit(abi::load_u64("x9", "x11", 8 * index));
+                        self.emit(abi::load_u64("x10", abi::stack_pointer(), result_slot));
+                        self.emit(abi::store_u64("x9", "x10", 8 * (index + 1)));
+                    }
                 }
                 let register = self.allocate_register()?;
                 self.emit(abi::load_u64(&register, abi::stack_pointer(), result_slot));
@@ -838,6 +864,18 @@ impl CodeBuilder<'_> {
                 })
             }
             NirValue::UnionExtract { type_, value } => {
+                // A resource-union variant's payload is the resource pointer
+                // itself (offset 8): extracting it yields that pointer directly.
+                if crate::builtins::is_resource_type(type_) {
+                    let source = self.lower_value(value)?;
+                    let register = self.allocate_register()?;
+                    self.emit(abi::load_u64(&register, &source.location, 8));
+                    return Ok(ValueResult {
+                        type_: type_.clone(),
+                        location: register,
+                        text: format!("extract {type_} from {}", source.text),
+                    });
+                }
                 let fields = self
                     .type_model
                     .record_fields
