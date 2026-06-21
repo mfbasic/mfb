@@ -76,6 +76,13 @@ fn run_mfb(repo: &RepoProcess, home: &std::path::Path, args: &[&str]) -> std::pr
         .expect("run mfb")
 }
 
+fn run_mfb_plain(args: &[&str]) -> std::process::Output {
+    Command::new(mfb_exe())
+        .args(args)
+        .output()
+        .expect("run mfb")
+}
+
 #[test]
 fn repo_register_and_authenticate_owner() {
     let repo_dir = tempfile::tempdir().unwrap();
@@ -163,4 +170,63 @@ fn repo_auth_requires_local_private_key_and_keeps_sessions_per_owner() {
     assert!(run_mfb(&repo, home.path(), &["repo", "auth", "bob"]).status.success());
     assert!(home.path().join(".mfb/session/bob.ses").is_file());
     assert!(!home.path().join(".mfb/session/alice.ses").exists());
+}
+
+#[test]
+fn repo_signs_package_and_embeds_executable_metadata() {
+    let repo_dir = tempfile::tempdir().unwrap();
+    let home = tempfile::tempdir().unwrap();
+    let work = tempfile::tempdir().unwrap();
+    let repo = start_repo(repo_dir.path());
+
+    assert!(run_mfb(&repo, home.path(), &["repo", "register", "alice"]).status.success());
+    assert!(run_mfb(&repo, home.path(), &["repo", "auth", "alice"]).status.success());
+
+    let package_dir = work.path().join("signed_pkg");
+    let package_dir_arg = package_dir.to_str().unwrap();
+    assert!(run_mfb_plain(&["init-pkg", package_dir_arg]).status.success());
+    let output = run_mfb(&repo, home.path(), &["build", "--sign", "alice", package_dir_arg]);
+    assert!(
+        output.status.success(),
+        "signed package build failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let package = std::fs::read(package_dir.join("signed_pkg.mfp")).unwrap();
+    assert_eq!(u16::from_le_bytes([package[20], package[21]]), 1);
+    assert_eq!(
+        u32::from_le_bytes([package[22], package[23], package[24], package[25]]),
+        64
+    );
+    assert!(package.windows(b"alice".len()).any(|window| window == b"alice"));
+
+    let app_dir = work.path().join("signed_app");
+    let app_dir_arg = app_dir.to_str().unwrap();
+    assert!(run_mfb_plain(&["init", app_dir_arg]).status.success());
+    std::fs::write(
+        app_dir.join("src/main.mfb"),
+        "FUNC main AS Integer\n  RETURN 0\nEND FUNC\n",
+    )
+    .unwrap();
+    let output = run_mfb(&repo, home.path(), &["build", "--sign", "alice", app_dir_arg]);
+    assert!(
+        output.status.success(),
+        "signed executable build failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let executable = std::fs::read_dir(&app_dir)
+        .unwrap()
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .find(|path| {
+            path.file_name()
+                .and_then(|name| name.to_str())
+                .map(|name| name.ends_with(".out"))
+                .unwrap_or(false)
+        })
+        .expect("signed executable");
+    let executable = std::fs::read(executable).unwrap();
+    assert!(executable
+        .windows(b"mfb-signing-v1".len())
+        .any(|window| window == b"mfb-signing-v1"));
+    assert!(executable.windows(b"alice".len()).any(|window| window == b"alice"));
 }

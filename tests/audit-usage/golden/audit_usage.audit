@@ -12,7 +12,7 @@ Commands:
   pkg add <url>               Add a compiled package to the current project
   pkg info <package>          Show information about a compiled package
   pkg verify                  Verify packages declared by project.json
-  build [-ast|-ir|-br|-nir|-nplan|-nobj|-ncode] [-target os-arch] [location] Validate and build an MFBASIC project
+  build [--sign owner] [-ast|-ir|-br|-nir|-nplan|-nobj|-ncode] [-target os-arch] [location] Validate and build an MFBASIC project
   audit [--format text|json] [--locked] [path] Report audit findings for a project
   man [package] [function]    Show built-in package and function help
 [exit 2]
@@ -30,7 +30,7 @@ Commands:
   pkg add <url>               Add a compiled package to the current project
   pkg info <package>          Show information about a compiled package
   pkg verify                  Verify packages declared by project.json
-  build [-ast|-ir|-br|-nir|-nplan|-nobj|-ncode] [-target os-arch] [location] Validate and build an MFBASIC project
+  build [--sign owner] [-ast|-ir|-br|-nir|-nplan|-nobj|-ncode] [-target os-arch] [location] Validate and build an MFBASIC project
   audit [--format text|json] [--locked] [path] Report audit findings for a project
   man [package] [function]    Show built-in package and function help
 [exit 2]

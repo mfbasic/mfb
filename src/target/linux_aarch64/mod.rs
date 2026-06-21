@@ -114,8 +114,9 @@ impl NativeBackend for Backend {
         project_dir: &Path,
         ir: &IrProject,
         packages: &[PathBuf],
+        signing_metadata: Option<&[u8]>,
     ) -> Result<Vec<PathBuf>, String> {
-        write_executable(project_dir, ir, &self.target(), packages)
+        write_executable(project_dir, ir, &self.target(), packages, signing_metadata)
     }
 
     fn write_nir(
@@ -160,6 +161,7 @@ fn write_executable(
     ir: &IrProject,
     target: &BuildTarget,
     packages: &[PathBuf],
+    signing_metadata: Option<&[u8]>,
 ) -> Result<Vec<PathBuf>, String> {
     let module = lower_validated_module(ir, target, packages)?;
     let mut paths = Vec::new();
@@ -169,7 +171,8 @@ fn write_executable(
         os::linux::validate_native_object_plan(&native_plan)?;
         let native_code = code::lower_module(&module, &native_plan, packages, flavor)?;
         native_code.validate()?;
-        let image = arch::aarch64::encode::encode(&native_code)?;
+        let mut image = arch::aarch64::encode::encode(&native_code)?;
+        image.signing_metadata = signing_metadata.map(|metadata| metadata.to_vec());
         paths.push(os::linux::write_linked_executable(
             project_dir,
             &ir.name,

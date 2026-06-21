@@ -113,8 +113,9 @@ impl NativeBackend for Backend {
         project_dir: &Path,
         ir: &IrProject,
         packages: &[PathBuf],
+        signing_metadata: Option<&[u8]>,
     ) -> Result<Vec<PathBuf>, String> {
-        write_executable(project_dir, ir, &self.target(), packages)
+        write_executable(project_dir, ir, &self.target(), packages, signing_metadata)
     }
 
     fn write_nir(
@@ -159,6 +160,7 @@ fn write_executable(
     ir: &IrProject,
     target: &BuildTarget,
     packages: &[PathBuf],
+    signing_metadata: Option<&[u8]>,
 ) -> Result<Vec<PathBuf>, String> {
     validate::validate_target(target)?;
     validate::validate_project(ir, packages)?;
@@ -170,7 +172,8 @@ fn write_executable(
     os::macos::validate_native_object_plan(&native_plan)?;
     let native_code = code::lower_module(&module, &native_plan, packages)?;
     native_code.validate()?;
-    let image = arch::aarch64::encode::encode(&native_code)?;
+    let mut image = arch::aarch64::encode::encode(&native_code)?;
+    image.signing_metadata = signing_metadata.map(|metadata| metadata.to_vec());
     os::macos::write_linked_executable(project_dir, &ir.name, &image).map(|path| vec![path])
 }
 

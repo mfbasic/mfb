@@ -28,9 +28,13 @@ pub fn write_package(
     ir: &IrProject,
     metadata: &BinaryReprMetadata,
     packages: &[PathBuf],
+    signing_key: Option<&[u8]>,
 ) -> Result<PathBuf, String> {
     let binary_repr = binary_repr::build_package_binary_repr_bytes(ir, metadata, packages)?;
-    let package = build_package_bytes(metadata, &binary_repr)?;
+    let package = match signing_key {
+        Some(signing_key) => build_signed_package_bytes(metadata, &binary_repr, signing_key)?,
+        None => build_package_bytes(metadata, &binary_repr)?,
+    };
     let path = project_dir.join(format!("{}.mfp", metadata.name));
     fs::write(&path, package)
         .map_err(|err| format!("failed to write '{}': {err}", path.display()))?;
@@ -66,6 +70,61 @@ pub fn build_package_bytes(
     put_u64(&mut bytes, package_binary_repr.len() as u64);
     bytes.extend_from_slice(package_binary_repr);
     Ok(bytes)
+}
+
+pub fn build_signed_package_bytes(
+    metadata: &BinaryReprMetadata,
+    package_binary_repr: &[u8],
+    signing_private_key: &[u8],
+) -> Result<Vec<u8>, String> {
+    validate_metadata(metadata)?;
+    if !package_binary_repr.starts_with(b"MFPC") {
+        return Err("package payload must be the binary representation container".to_string());
+    }
+
+    let mut bytes = Vec::new();
+    bytes.extend_from_slice(&MFP_MAGIC);
+    put_u16(&mut bytes, CONTAINER_MAJOR);
+    put_u16(&mut bytes, CONTAINER_MINOR);
+    put_u16(&mut bytes, BINARY_REPR_MAJOR);
+    put_u16(&mut bytes, BINARY_REPR_MINOR);
+    put_u32(&mut bytes, container_flags(metadata));
+    put_u16(&mut bytes, SIGNATURE_ED25519);
+    put_u32(&mut bytes, 64);
+    let signature_start = bytes.len();
+    bytes.resize(bytes.len() + 64, 0);
+    put_bytes(&mut bytes, metadata.name.as_bytes());
+    put_bytes(&mut bytes, package_ident(metadata).as_bytes());
+    put_bytes(&mut bytes, metadata.version.as_bytes());
+    put_bytes(&mut bytes, metadata.ident_key.as_bytes());
+    put_bytes(&mut bytes, metadata.ident_fingerprint.as_bytes());
+    put_bytes(&mut bytes, metadata.signing_fingerprint.as_bytes());
+    put_bytes(&mut bytes, metadata.author.as_bytes());
+    put_bytes(&mut bytes, metadata.url.as_bytes());
+    put_u64(&mut bytes, package_binary_repr.len() as u64);
+    bytes.extend_from_slice(package_binary_repr);
+
+    let hash = package_content_hash(&bytes)?;
+    let message = package_signature_message(
+        &hash,
+        package_ident(metadata).as_bytes(),
+        metadata.version.as_bytes(),
+    );
+    let signature = mfb_repository::crypto::sign(signing_private_key, &message)?;
+    if signature.len() != 64 {
+        return Err("Ed25519 package signature must be 64 bytes".to_string());
+    }
+    bytes[signature_start..signature_start + 64].copy_from_slice(&signature);
+    Ok(bytes)
+}
+
+pub fn package_signature_message(content_hash: &[u8; 32], ident: &[u8], version: &[u8]) -> Vec<u8> {
+    let mut message = Vec::new();
+    message.extend_from_slice(b"MFP-PACKAGE-v1");
+    message.extend_from_slice(content_hash);
+    message.extend_from_slice(ident);
+    message.extend_from_slice(version);
+    message
 }
 
 pub fn package_content_hash(bytes: &[u8]) -> Result<[u8; 32], String> {
@@ -255,5 +314,37 @@ mod tests {
             err,
             "package payload must be the binary representation container"
         );
+    }
+
+    #[test]
+    fn signed_package_carries_verifiable_ed25519_signature() {
+        let (public, private) = mfb_repository::crypto::generate_keypair();
+        let fingerprint = mfb_repository::crypto::fingerprint(&public);
+        let public = format!("ed25519:{}", mfb_repository::crypto::encode_bytes(&public));
+        let metadata = BinaryReprMetadata {
+            name: "shape".to_string(),
+            ident: "ada#shape".to_string(),
+            version: "1.2.3".to_string(),
+            ident_key: public,
+            ident_fingerprint: fingerprint.clone(),
+            signing_fingerprint: fingerprint,
+            author: "Ada".to_string(),
+            url: "https://example.invalid/shape".to_string(),
+            dependencies: Vec::new(),
+        };
+
+        let package =
+            build_signed_package_bytes(&metadata, b"MFPCpayload", &private).expect("signed package");
+
+        assert_eq!(u16::from_le_bytes([package[20], package[21]]), SIGNATURE_ED25519);
+        assert_eq!(
+            u32::from_le_bytes([package[22], package[23], package[24], package[25]]),
+            64
+        );
+        let hash = package_content_hash(&package).expect("content hash");
+        let message = package_signature_message(&hash, b"ada#shape", b"1.2.3");
+        let public = mfb_repository::crypto::public_from_private(&private).unwrap();
+        mfb_repository::crypto::verify(&public, &message, &package[HEADER_PREFIX_LEN..HEADER_PREFIX_LEN + 64])
+            .expect("signature verifies");
     }
 }

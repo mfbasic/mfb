@@ -14,6 +14,7 @@ pub(crate) struct EncodedImage {
     /// the program entry (plan-linker.md §5.3). Materialized as ELF
     /// `DT_INIT_ARRAY` / Mach-O `S_MOD_INIT_FUNC_POINTERS`.
     pub(crate) initializers: Vec<String>,
+    pub(crate) signing_metadata: Option<Vec<u8>>,
 }
 
 /// Whether an imported symbol names a function (called through a stub) or a data
@@ -144,6 +145,7 @@ pub(crate) fn encode(plan: &NativeCodePlan) -> Result<EncodedImage, String> {
             .clone()
             .ok_or_else(|| "encoded image requires entry symbol".to_string())?,
         initializers: Vec::new(),
+        signing_metadata: None,
     })
 }
 

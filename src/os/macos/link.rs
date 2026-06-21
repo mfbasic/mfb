@@ -17,7 +17,8 @@ pub(crate) fn write_executable(
 ) -> Result<PathBuf, String> {
     let libraries = import_libraries(image)?;
     let has_imports = !libraries.is_empty();
-    let code_offset = code_offset(&libraries);
+    let has_signing_metadata = image.signing_metadata.is_some();
+    let code_offset = code_offset(&libraries, has_signing_metadata);
     let mut text = image.text.clone();
     let import_locations = if has_imports {
         append_import_stubs(
@@ -230,7 +231,7 @@ fn append_import_stubs(
     // the total across a `PAGE_SIZE` boundary, which sends each stub's `br` to a
     // garbage address.
     let final_code_len = text.len() + image.imports.len() * IMPORT_STUB_SIZE;
-    let layout = macho_layout(code_offset, final_code_len, data_len, true);
+    let layout = macho_layout(code_offset, final_code_len, data_len, true, 0);
     for (index, import) in image.imports.iter().enumerate() {
         let stub_offset = text.len();
         let stub_vmaddr = text_vmaddr + stub_offset as u64;
@@ -318,18 +319,26 @@ fn encode_unsigned_mach_o(
     image: &EncodedImage,
 ) -> Vec<u8> {
     let has_imports = !libraries.is_empty();
-    let layout = macho_layout(code_offset, code.len(), data.len(), has_imports);
+    let signing_metadata = image.signing_metadata.as_deref();
+    let signing_metadata_len = signing_metadata.map_or(0, |metadata| metadata.len());
+    let layout = macho_layout(
+        code_offset,
+        code.len(),
+        data.len(),
+        has_imports,
+        signing_metadata_len,
+    );
     let linkedit = linkedit_layout(image, libraries, layout.linkedit_file_offset);
     let signature_offset = align(linkedit.data_in_code_offset, 16);
     let linkedit_file_size = signature_offset + signature_size - layout.linkedit_file_offset;
-    let load_commands_size = load_commands_size(libraries);
+    let load_commands_size = load_commands_size(libraries, signing_metadata.is_some());
     let mut bytes = Vec::new();
 
     put_u32(&mut bytes, 0xfeed_facf);
     put_u32(&mut bytes, 0x0100_000c);
     put_u32(&mut bytes, 0);
     put_u32(&mut bytes, 2);
-    put_u32(&mut bytes, load_command_count(libraries));
+    put_u32(&mut bytes, load_command_count(libraries, signing_metadata.is_some()));
     put_u32(&mut bytes, load_commands_size as u32);
     put_u32(&mut bytes, 0x0020_0085);
     put_u32(&mut bytes, 0);
@@ -348,6 +357,9 @@ fn encode_unsigned_mach_o(
             layout.data_const_file_offset,
             image.imports.len(),
         );
+    }
+    if let Some(metadata) = signing_metadata {
+        mfb_sign_segment(&mut bytes, layout.mfb_sign_file_offset, metadata.len());
     }
     segment(
         &mut bytes,
@@ -392,7 +404,13 @@ fn encode_unsigned_mach_o(
     if has_imports {
         bytes.resize(layout.data_const_file_offset, 0);
         bytes.resize(layout.data_const_file_offset + image.imports.len() * 8, 0);
-        bytes.resize(layout.linkedit_file_offset, 0);
+    }
+    if let Some(metadata) = signing_metadata {
+        bytes.resize(layout.mfb_sign_file_offset, 0);
+        bytes.extend_from_slice(metadata);
+    }
+    bytes.resize(layout.linkedit_file_offset, 0);
+    if has_imports {
         bytes.extend_from_slice(&bind_info(image, libraries));
         bytes.resize(linkedit.symtab_offset, 0);
         bytes.extend_from_slice(&symbol_table(image));
@@ -414,6 +432,7 @@ fn encode_unsigned_mach_o(
 struct MachOLayout {
     text_file_size: usize,
     data_const_file_offset: usize,
+    mfb_sign_file_offset: usize,
     linkedit_file_offset: usize,
 }
 
@@ -422,28 +441,41 @@ fn macho_layout(
     code_len: usize,
     data_len: usize,
     imports_libsystem: bool,
+    signing_metadata_len: usize,
 ) -> MachOLayout {
     let text_file_size = align(code_offset + code_len + data_len, PAGE_SIZE);
     let data_const_file_offset = text_file_size;
-    let linkedit_file_offset = if imports_libsystem {
+    let after_data_const = if imports_libsystem {
         data_const_file_offset + PAGE_SIZE
     } else {
         text_file_size
     };
+    let mfb_sign_file_offset = if signing_metadata_len == 0 {
+        after_data_const
+    } else {
+        align(after_data_const, 16)
+    };
+    let linkedit_file_offset = if signing_metadata_len == 0 {
+        after_data_const
+    } else {
+        align(mfb_sign_file_offset + signing_metadata_len, PAGE_SIZE)
+    };
     MachOLayout {
         text_file_size,
         data_const_file_offset,
+        mfb_sign_file_offset,
         linkedit_file_offset,
     }
 }
 
-fn code_offset(libraries: &[(String, String)]) -> usize {
-    align(32 + load_commands_size(libraries), 4)
+fn code_offset(libraries: &[(String, String)], has_signing_metadata: bool) -> usize {
+    align(32 + load_commands_size(libraries, has_signing_metadata), 4)
 }
 
-fn load_commands_size(libraries: &[(String, String)]) -> usize {
+fn load_commands_size(libraries: &[(String, String)], has_signing_metadata: bool) -> usize {
     let base = 72 + 232 + 72 + 24 + 80 + dylinker_command_size() + 24 + 32 + 16 + 24 + 16 + 16 + 16;
-    if libraries.is_empty() {
+    let signing = if has_signing_metadata { 152 } else { 0 };
+    (if libraries.is_empty() {
         base + 16 + 16
     } else {
         // __DATA_CONST segment + LC_DYLD_INFO_ONLY + one LC_LOAD_DYLIB per library.
@@ -452,16 +484,17 @@ fn load_commands_size(libraries: &[(String, String)]) -> usize {
             .map(|(_, path)| dylib_command_size(path))
             .sum();
         base + 152 + 48 + dylibs
-    }
+    }) + signing
 }
 
-fn load_command_count(libraries: &[(String, String)]) -> u32 {
+fn load_command_count(libraries: &[(String, String)], has_signing_metadata: bool) -> u32 {
+    let signing = if has_signing_metadata { 1 } else { 0 };
     if libraries.is_empty() {
-        15
+        15 + signing
     } else {
         // Base imported-program commands (15 with one dylib) plus one extra
         // LC_LOAD_DYLIB per additional library.
-        15 + libraries.len() as u32
+        15 + libraries.len() as u32 + signing
     }
 }
 
@@ -532,6 +565,32 @@ fn data_const_segment(bytes: &mut Vec<u8>, file_offset: usize, import_count: usi
         0,
         0,
         3,
+    );
+}
+
+fn mfb_sign_segment(bytes: &mut Vec<u8>, file_offset: usize, metadata_len: usize) {
+    put_u32(bytes, 0x19);
+    put_u32(bytes, 152);
+    fixed_name(bytes, "__MFB");
+    put_u64(bytes, VM_BASE + file_offset as u64);
+    put_u64(bytes, align(metadata_len, PAGE_SIZE) as u64);
+    put_u64(bytes, file_offset as u64);
+    put_u64(bytes, metadata_len as u64);
+    put_u32(bytes, 1);
+    put_u32(bytes, 1);
+    put_u32(bytes, 1);
+    put_u32(bytes, 0);
+    section_with_segment(
+        bytes,
+        "__sign",
+        "__MFB",
+        VM_BASE + file_offset as u64,
+        metadata_len as u64,
+        file_offset,
+        0,
+        0,
+        0,
+        0,
     );
 }
 
@@ -988,6 +1047,7 @@ mod tests {
             imports: vec![import("libSystem", "_mach_task_self_")],
             entry: "_main".to_string(),
             initializers: Vec::new(),
+            signing_metadata: None,
         };
         let text_vmaddr = VM_BASE + 0x4000;
         let locations =
@@ -1012,6 +1072,7 @@ mod tests {
             ],
             entry: "_main".to_string(),
             initializers: Vec::new(),
+            signing_metadata: None,
         };
         let libraries = import_libraries(&image).expect("libraries");
         assert_eq!(libraries.len(), 2);
@@ -1020,6 +1081,32 @@ mod tests {
         // The bind stream tags _nw_path_monitor_create with dylib ordinal 2.
         let bind = bind_info(&image, &libraries);
         assert!(bind.contains(&0x12)); // SET_DYLIB_ORDINAL_IMM(2)
+    }
+
+    #[test]
+    fn writes_mfb_sign_section_to_mach_o() {
+        let image = EncodedImage {
+            text: vec![0xc0, 0x03, 0x5f, 0xd6],
+            data: Vec::new(),
+            symbols: vec![EncodedSymbol {
+                name: "_main".to_string(),
+                section: EncodedSection::Text,
+                offset: 0,
+            }],
+            relocations: Vec::new(),
+            imports: Vec::new(),
+            entry: "_main".to_string(),
+            initializers: Vec::new(),
+            signing_metadata: Some(br#"{"owner":"alice"}"#.to_vec()),
+        };
+        let dir = tempfile::tempdir().unwrap();
+        let path = write_executable(dir.path(), "signed", &image).expect("link signed mach-o");
+        let bytes = std::fs::read(path).unwrap();
+        assert!(bytes.windows(b"__MFB".len()).any(|window| window == b"__MFB"));
+        assert!(bytes.windows(b"__sign".len()).any(|window| window == b"__sign"));
+        assert!(bytes
+            .windows(br#"{"owner":"alice"}"#.len())
+            .any(|window| window == br#"{"owner":"alice"}"#));
     }
 
     // Drives the multi-library Mach-O path (plan-linker.md §7) end to end against
@@ -1074,6 +1161,7 @@ mod tests {
             ],
             entry: "_main".to_string(),
             initializers: Vec::new(),
+            signing_metadata: None,
         };
 
         let dir = std::env::temp_dir().join(format!("mfb_nwlink_{}", std::process::id()));

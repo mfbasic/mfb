@@ -2,7 +2,7 @@ use crate::crypto;
 use crate::local::{self, LocalPaths};
 use crate::server::{
     ChallengeRequest, ChallengeResponse, ErrorResponse, LoginRequest, LoginResponse,
-    RegisterRequest, RegisterResponse,
+    RegisterRequest, RegisterResponse, SigningInfoRequest, SigningInfoResponse,
 };
 use crate::validation::validate_owner_name;
 use crate::DEFAULT_REPO_URL;
@@ -83,6 +83,23 @@ pub fn auth(repo_url: &str, paths: &LocalPaths, owner: &str) -> Result<LoginResp
     )?;
     local::write_session(paths, owner, &login.session_token)?;
     Ok(login)
+}
+
+pub fn signing_info(
+    repo_url: &str,
+    paths: &LocalPaths,
+    owner: &str,
+) -> Result<SigningInfoResponse, String> {
+    validate_owner_name(owner)?;
+    let session_token = local::read_session(paths, owner)?;
+    post_json::<SigningInfoResponse>(
+        repo_url,
+        "/keys/signing",
+        &SigningInfoRequest {
+            owner: owner.to_string(),
+            session_token,
+        },
+    )
 }
 
 fn post_json<T: DeserializeOwned>(

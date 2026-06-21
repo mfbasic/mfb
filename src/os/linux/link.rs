@@ -41,7 +41,7 @@ pub(crate) fn write_executable(
     )?;
     let entry_offset = main_entry_offset;
     let bytes = if image.imports.is_empty() {
-        encode_static_elf(entry_offset, &text, &image.data)
+        encode_static_elf(entry_offset, &text, &image.data, image.signing_metadata.as_deref())
     } else {
         encode_dynamic_elf(flavor, entry_offset, &text, &image.data, image)?
     };
@@ -225,7 +225,12 @@ fn symbol_vmaddr(
     })
 }
 
-fn encode_static_elf(entry_offset: usize, text: &[u8], data: &[u8]) -> Vec<u8> {
+fn encode_static_elf(
+    entry_offset: usize,
+    text: &[u8],
+    data: &[u8],
+    signing_metadata: Option<&[u8]>,
+) -> Vec<u8> {
     let file_size = TEXT_FILE_OFFSET + text.len() + data.len();
     let mut bytes = Vec::new();
     bytes.extend_from_slice(&[0x7f, b'E', b'L', b'F']);
@@ -260,6 +265,9 @@ fn encode_static_elf(entry_offset: usize, text: &[u8], data: &[u8]) -> Vec<u8> {
     bytes.resize(TEXT_FILE_OFFSET, 0);
     bytes.extend_from_slice(text);
     bytes.extend_from_slice(data);
+    if let Some(metadata) = signing_metadata {
+        append_elf_signing_section(&mut bytes, metadata);
+    }
     bytes
 }
 
@@ -367,7 +375,69 @@ fn encode_dynamic_elf(
     bytes.extend_from_slice(data);
     bytes.extend_from_slice(&dynamic.bytes);
     bytes.resize(file_size, 0);
+    if let Some(metadata) = image.signing_metadata.as_deref() {
+        append_elf_signing_section(&mut bytes, metadata);
+    }
     Ok(bytes)
+}
+
+fn append_elf_signing_section(bytes: &mut Vec<u8>, metadata: &[u8]) {
+    const SHDR_SIZE: usize = 64;
+    let metadata_offset = align(bytes.len(), 8);
+    bytes.resize(metadata_offset, 0);
+    bytes.extend_from_slice(metadata);
+    let shstrtab_offset = align(bytes.len(), 1);
+    let shstrtab = b"\0.mfb_sign\0.shstrtab\0";
+    bytes.extend_from_slice(shstrtab);
+    let shoff = align(bytes.len(), 8);
+    bytes.resize(shoff, 0);
+
+    bytes.resize(bytes.len() + SHDR_SIZE, 0);
+    section_header(bytes, 1, 1, 0, 0, metadata_offset as u64, metadata.len() as u64, 0, 0, 1, 0);
+    section_header(
+        bytes,
+        11,
+        3,
+        0,
+        0,
+        shstrtab_offset as u64,
+        shstrtab.len() as u64,
+        0,
+        0,
+        1,
+        0,
+    );
+
+    bytes[40..48].copy_from_slice(&(shoff as u64).to_le_bytes());
+    bytes[58..60].copy_from_slice(&(SHDR_SIZE as u16).to_le_bytes());
+    bytes[60..62].copy_from_slice(&3_u16.to_le_bytes());
+    bytes[62..64].copy_from_slice(&2_u16.to_le_bytes());
+}
+
+#[allow(clippy::too_many_arguments)]
+fn section_header(
+    bytes: &mut Vec<u8>,
+    name: u32,
+    type_: u32,
+    flags: u64,
+    addr: u64,
+    offset: u64,
+    size: u64,
+    link: u32,
+    info: u32,
+    addralign: u64,
+    entsize: u64,
+) {
+    put_u32(bytes, name);
+    put_u32(bytes, type_);
+    put_u64(bytes, flags);
+    put_u64(bytes, addr);
+    put_u64(bytes, offset);
+    put_u64(bytes, size);
+    put_u32(bytes, link);
+    put_u32(bytes, info);
+    put_u64(bytes, addralign);
+    put_u64(bytes, entsize);
 }
 
 fn program_header(
@@ -703,6 +773,7 @@ mod tests {
             }],
             entry: "_main".to_string(),
             initializers: Vec::new(),
+            signing_metadata: None,
         }
     }
 
@@ -773,6 +844,7 @@ mod tests {
             }],
             entry: "_main".to_string(),
             initializers: vec!["_init0".to_string()],
+            signing_metadata: None,
         }
     }
 
@@ -826,6 +898,7 @@ mod tests {
             ],
             entry: "_main".to_string(),
             initializers: Vec::new(),
+            signing_metadata: None,
         }
     }
 
@@ -843,6 +916,37 @@ mod tests {
         let dir = std::path::PathBuf::from("tmp/globlx");
         std::fs::create_dir_all(&dir).expect("temp dir");
         write_executable(&dir, "globmusl", LinuxFlavor::Musl, &image).expect("link musl glob_dat");
+    }
+
+    #[test]
+    fn writes_mfb_sign_section_to_static_elf() {
+        let mut image = EncodedImage {
+            text: vec![0xd6, 0x5f, 0x03, 0xc0],
+            data: Vec::new(),
+            symbols: vec![EncodedSymbol {
+                name: "_main".to_string(),
+                section: EncodedSection::Text,
+                offset: 0,
+            }],
+            relocations: Vec::new(),
+            imports: Vec::new(),
+            entry: "_main".to_string(),
+            initializers: Vec::new(),
+            signing_metadata: Some(br#"{"owner":"alice"}"#.to_vec()),
+        };
+        let dir = tempfile::tempdir().unwrap();
+        let path = write_executable(dir.path(), "signed", LinuxFlavor::Glibc, &image)
+            .expect("link signed elf");
+        let bytes = std::fs::read(path).unwrap();
+        assert!(bytes.windows(b".mfb_sign".len()).any(|window| window == b".mfb_sign"));
+        assert!(bytes
+            .windows(br#"{"owner":"alice"}"#.len())
+            .any(|window| window == br#"{"owner":"alice"}"#));
+        assert_eq!(u16::from_le_bytes([bytes[60], bytes[61]]), 3);
+        assert_eq!(u16::from_le_bytes([bytes[62], bytes[63]]), 2);
+        image.signing_metadata = None;
+        let unsigned = encode_static_elf(0, &image.text, &image.data, None);
+        assert_eq!(u64::from_le_bytes(unsigned[40..48].try_into().unwrap()), 0);
     }
 
     // Confirms DT_INIT_ARRAY / DT_INIT_ARRAYSZ are emitted for the listed

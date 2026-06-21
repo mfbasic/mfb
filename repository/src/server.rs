@@ -63,6 +63,26 @@ pub struct LoginResponse {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+pub struct SigningInfoRequest {
+    pub owner: String,
+    #[serde(rename = "sessionToken")]
+    pub session_token: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct SigningInfoResponse {
+    pub owner: String,
+    #[serde(rename = "identKey")]
+    pub ident_key: String,
+    #[serde(rename = "identFingerprint")]
+    pub ident_fingerprint: String,
+    #[serde(rename = "signingKey")]
+    pub signing_key: String,
+    #[serde(rename = "signingFingerprint")]
+    pub signing_fingerprint: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
 pub struct ErrorResponse {
     pub error: String,
 }
@@ -89,6 +109,7 @@ pub async fn serve(store: Store, listen: SocketAddr) -> Result<SocketAddr, Strin
         .route("/accounts/register", post(register))
         .route("/auth/challenge", post(challenge))
         .route("/auth/login", post(login))
+        .route("/keys/signing", post(signing_info))
         .with_state(state);
     let listener = TcpListener::bind(listen)
         .await
@@ -189,6 +210,36 @@ async fn login(
         session_token: token,
         owner: owner.owner_display,
         expires_at,
+    }))
+}
+
+async fn signing_info(
+    State(state): State<AppState>,
+    Json(request): Json<SigningInfoRequest>,
+) -> Result<Json<SigningInfoResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let claims = verify_session_token(&state.store, &request.session_token).map_err(bad_request)?;
+    if claims.sub != request.owner {
+        return Err(bad_request("session owner does not match requested owner".to_string()));
+    }
+    let Some((owner, key)) = state
+        .store
+        .owner_with_auth_key(&request.owner)
+        .map_err(internal)?
+    else {
+        return Err(bad_request("unknown owner".to_string()));
+    };
+    if owner.id != claims.owner_id || key.fingerprint != claims.auth_fingerprint {
+        return Err(bad_request(
+            "session key does not match current signing key".to_string(),
+        ));
+    }
+    let public_key = crypto::encode_bytes(&key.public_key);
+    Ok(Json(SigningInfoResponse {
+        owner: owner.owner_display,
+        ident_key: public_key.clone(),
+        ident_fingerprint: key.fingerprint.clone(),
+        signing_key: public_key,
+        signing_fingerprint: key.fingerprint,
     }))
 }
 

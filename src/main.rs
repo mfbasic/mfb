@@ -23,7 +23,7 @@ use std::path::{Path, PathBuf};
 use std::process;
 use tinyjson::JsonValue;
 
-const USAGE: &str = "Usage: mfb <command> <arguments>\n\nCommands:\n  help                        Show this message\n  init <location>             Create a new MFBASIC executable project\n  init-pkg <location>         Create a new MFBASIC package project\n  repo register <owner_name>  Register a repository owner\n  repo auth <owner_name>      Authenticate as a repository owner\n  pkg add <url>               Add a compiled package to the current project\n  pkg info <package>          Show information about a compiled package\n  pkg verify                  Verify packages declared by project.json\n  build [-ast|-ir|-br|-nir|-nplan|-nobj|-ncode] [-target os-arch] [location] Validate and build an MFBASIC project\n  audit [--format text|json] [--locked] [path] Report audit findings for a project\n  man [package] [function]    Show built-in package and function help";
+const USAGE: &str = "Usage: mfb <command> <arguments>\n\nCommands:\n  help                        Show this message\n  init <location>             Create a new MFBASIC executable project\n  init-pkg <location>         Create a new MFBASIC package project\n  repo register <owner_name>  Register a repository owner\n  repo auth <owner_name>      Authenticate as a repository owner\n  pkg add <url>               Add a compiled package to the current project\n  pkg info <package>          Show information about a compiled package\n  pkg verify                  Verify packages declared by project.json\n  build [--sign owner] [-ast|-ir|-br|-nir|-nplan|-nobj|-ncode] [-target os-arch] [location] Validate and build an MFBASIC project\n  audit [--format text|json] [--locked] [path] Report audit findings for a project\n  man [package] [function]    Show built-in package and function help";
 
 const MFP_MAGIC: [u8; 8] = [0x4d, 0x46, 0x50, 0x0d, 0x0a, 0x1a, 0x0a, 0x00];
 
@@ -183,6 +183,7 @@ struct BuildOptions {
     location: PathBuf,
     output: BuildOutput,
     target: target::BuildTarget,
+    sign_owner: Option<String>,
 }
 
 enum BuildOutput {
@@ -200,6 +201,7 @@ fn parse_build_options(args: Vec<String>) -> Result<BuildOptions, String> {
     let mut location = None;
     let mut output = BuildOutput::Validate;
     let mut target = None;
+    let mut sign_owner = None;
     let mut iter = args.into_iter();
 
     while let Some(arg) = iter.next() {
@@ -245,6 +247,17 @@ fn parse_build_options(args: Vec<String>) -> Result<BuildOptions, String> {
             target = Some(target::BuildTarget::parse(&value)?);
         } else if let Some(value) = arg.strip_prefix("-target=") {
             target = Some(target::BuildTarget::parse(value)?);
+        } else if arg == "--sign" {
+            let Some(value) = iter.next() else {
+                return Err("mfb build --sign requires <owner_name>".to_string());
+            };
+            if sign_owner.replace(value).is_some() {
+                return Err("mfb build accepts at most one --sign option".to_string());
+            }
+        } else if let Some(value) = arg.strip_prefix("--sign=") {
+            if sign_owner.replace(value.to_string()).is_some() {
+                return Err("mfb build accepts at most one --sign option".to_string());
+            }
         } else if arg.starts_with('-') {
             return Err(format!("unknown build option `{arg}`"));
         } else if location.replace(PathBuf::from(&arg)).is_some() {
@@ -256,6 +269,7 @@ fn parse_build_options(args: Vec<String>) -> Result<BuildOptions, String> {
         location: location.unwrap_or_else(|| PathBuf::from(".")),
         output,
         target: target.unwrap_or_else(target::BuildTarget::host),
+        sign_owner,
     })
 }
 
@@ -313,6 +327,18 @@ fn build_project(options: &BuildOptions) -> Result<(), ()> {
     resolver::resolve_project(&options.location, &manifest, &concrete_ast)?;
     let entry = validate_entry_point(&options.location, &manifest, &concrete_ast)?;
     typecheck::check_project(&options.location, &concrete_ast)?;
+    let signing = match &options.sign_owner {
+        Some(owner) if matches!(options.output, BuildOutput::Validate) => {
+            Some(load_build_signing_info(owner).map_err(|err| {
+                eprintln!("error: {err}");
+            })?)
+        }
+        Some(_) => {
+            eprintln!("error: mfb build --sign is only supported for package and executable builds");
+            return Err(());
+        }
+        None => None,
+    };
 
     match options.output {
         BuildOutput::Validate => {
@@ -332,11 +358,18 @@ fn build_project(options: &BuildOptions) -> Result<(), ()> {
                     &external_params,
                 );
                 let executable_paths =
-                    target::write_executable(&options.location, &ir, &target, &packages).map_err(
-                        |err| {
-                            eprintln!("error: {err}");
-                        },
-                    )?;
+                    target::write_executable(
+                        &options.location,
+                        &ir,
+                        &target,
+                        &packages,
+                        signing
+                            .as_ref()
+                            .map(|signing| signing.executable_metadata.as_slice()),
+                    )
+                    .map_err(|err| {
+                        eprintln!("error: {err}");
+                    })?;
                 for executable_path in executable_paths {
                     println!("Wrote executable to {}", executable_path.display());
                 }
@@ -355,13 +388,21 @@ fn build_project(options: &BuildOptions) -> Result<(), ()> {
                     &external_functions,
                     &external_params,
                 );
-                let metadata = package_metadata(&manifest);
+                let mut metadata = package_metadata(&manifest);
+                if let Some(signing) = &signing {
+                    apply_signing_metadata(&mut metadata, signing);
+                }
                 let package_path =
-                    target::write_package(&options.location, &ir, &metadata, &packages).map_err(
-                        |err| {
-                            eprintln!("error: {err}");
-                        },
-                    )?;
+                    target::write_package(
+                        &options.location,
+                        &ir,
+                        &metadata,
+                        &packages,
+                        signing.as_ref().map(|signing| signing.private_key.as_slice()),
+                    )
+                    .map_err(|err| {
+                        eprintln!("error: {err}");
+                    })?;
                 println!("Wrote package to {}", package_path.display());
             } else {
                 println!(
@@ -561,6 +602,80 @@ fn build_project(options: &BuildOptions) -> Result<(), ()> {
     }
 
     Ok(())
+}
+
+struct BuildSigningInfo {
+    owner: String,
+    ident_key: String,
+    ident_fingerprint: String,
+    signing_fingerprint: String,
+    private_key: Vec<u8>,
+    executable_metadata: Vec<u8>,
+}
+
+fn load_build_signing_info(owner: &str) -> Result<BuildSigningInfo, String> {
+    let repo_url = mfb_repository::client::repo_url_from_env();
+    let paths = mfb_repository::local::LocalPaths::from_env()?;
+    let signing_info = mfb_repository::client::signing_info(&repo_url, &paths, owner)?;
+    let private_key = mfb_repository::local::read_private_key(&paths, owner)?;
+    let local_public = mfb_repository::crypto::public_from_private(&private_key)?;
+    let server_signing_public =
+        mfb_repository::crypto::decode_bytes(&signing_info.signing_key, "signingKey")?;
+    if local_public != server_signing_public {
+        return Err("local private key does not match repository signing key".to_string());
+    }
+    let local_fingerprint = mfb_repository::crypto::fingerprint(&local_public);
+    if local_fingerprint != signing_info.signing_fingerprint {
+        return Err("local private key fingerprint does not match repository signing key".to_string());
+    }
+
+    let ident_key = format!("ed25519:{}", signing_info.ident_key);
+    let signing_key = format!("ed25519:{}", signing_info.signing_key);
+    let executable_metadata = executable_signing_metadata_json(
+        &signing_info.owner,
+        &ident_key,
+        &signing_info.ident_fingerprint,
+        &signing_key,
+        &signing_info.signing_fingerprint,
+    )
+    .into_bytes();
+
+    Ok(BuildSigningInfo {
+        owner: signing_info.owner,
+        ident_key,
+        ident_fingerprint: signing_info.ident_fingerprint,
+        signing_fingerprint: signing_info.signing_fingerprint,
+        private_key,
+        executable_metadata,
+    })
+}
+
+fn apply_signing_metadata(
+    metadata: &mut binary_repr::BinaryReprMetadata,
+    signing: &BuildSigningInfo,
+) {
+    metadata.ident_key = signing.ident_key.clone();
+    metadata.ident_fingerprint = signing.ident_fingerprint.clone();
+    metadata.signing_fingerprint = signing.signing_fingerprint.clone();
+    metadata.author = signing.owner.clone();
+}
+
+fn executable_signing_metadata_json(
+    owner: &str,
+    ident_key: &str,
+    ident_fingerprint: &str,
+    signing_key: &str,
+    signing_fingerprint: &str,
+) -> String {
+    format!(
+        "{{\"format\":\"mfb-signing-v1\",\"owner\":{},\"author\":{},\"identKey\":{},\"identFingerprint\":{},\"signingKey\":{},\"signingFingerprint\":{},\"signatureType\":\"Ed25519\"}}\n",
+        json_string(owner),
+        json_string(owner),
+        json_string(ident_key),
+        json_string(ident_fingerprint),
+        json_string(signing_key),
+        json_string(signing_fingerprint),
+    )
 }
 
 enum PkgCommandError {
