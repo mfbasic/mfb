@@ -1113,6 +1113,30 @@ pub(crate) const THREAD_IS_CANCELLED_SPEC: RuntimeHelperSpec = RuntimeHelperSpec
     },
 };
 
+// Resource plane (§7): `thread::transfer`/`thread::accept` mirror `send`/`receive`
+// but run on a separate per-thread resource queue.
+pub(crate) const THREAD_TRANSFER_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
+    helper: RuntimeHelper::Thread,
+    call: "thread.transferResource",
+    symbol: "_mfb_rt_thread_thread_transferResource",
+    abi: RuntimeHelperAbi {
+        params: THREAD_SEND_PARAMS,
+        returns: "Nothing",
+        clobbers: abi::IO_PRINT_CLOBBERS,
+    },
+};
+
+pub(crate) const THREAD_ACCEPT_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
+    helper: RuntimeHelper::Thread,
+    call: "thread.acceptResource",
+    symbol: "_mfb_rt_thread_thread_acceptResource",
+    abi: RuntimeHelperAbi {
+        params: THREAD_RECEIVE_PARAMS,
+        returns: "Msg",
+        clobbers: abi::IO_PRINT_CLOBBERS,
+    },
+};
+
 const NET_HOST_PORT_PARAMS: &[RuntimeAbiParam] = &[
     RuntimeAbiParam {
         name: "host",
@@ -1484,6 +1508,8 @@ pub(crate) fn supported_helper_specs() -> &'static [RuntimeHelperSpec] {
         THREAD_READ_SPEC,
         THREAD_RECEIVE_SPEC,
         THREAD_EMIT_SPEC,
+        THREAD_TRANSFER_SPEC,
+        THREAD_ACCEPT_SPEC,
         THREAD_IS_CANCELLED_SPEC,
         NET_LOOKUP_SPEC,
         NET_CONNECT_TCP_SPEC,

@@ -12,24 +12,24 @@ tests/func_thread_send_invalid/src/main.mfb:10 error[2-203-0063 TYPE_THREAD_NOT_
 tests/func_thread_send_invalid/src/main.mfb:11 error[2-203-0063 TYPE_THREAD_NOT_SENDABLE]: thread boundary type is not sendable
                Call to `thread.send` message type requires a thread-sendable type, got `BadMessage`.
   15 |   LET t AS Thread OF String TO Integer = thread::start(thread_workers::echoText, "a", 1, 1)
-  16 |   LET fileThread AS Thread OF File TO Integer = thread::start(thread_file_workers::receiveFile, "file", 2, 1)
+  16 |   LET fileThread AS Thread OF RES File TO Integer = thread::start(thread_file_workers::receiveFile, "file", 2, 1)
   17 |   LET missing AS Nothing = thread::send()
      | ^
 tests/func_thread_send_invalid/src/main.mfb:17 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
                Call to `thread.send` has 0 argument(s), expected 2 to 3.
   15 |   LET t AS Thread OF String TO Integer = thread::start(thread_workers::echoText, "a", 1, 1)
-  16 |   LET fileThread AS Thread OF File TO Integer = thread::start(thread_file_workers::receiveFile, "file", 2, 1)
+  16 |   LET fileThread AS Thread OF RES File TO Integer = thread::start(thread_file_workers::receiveFile, "file", 2, 1)
   17 |   LET missing AS Nothing = thread::send()
      | ^
 tests/func_thread_send_invalid/src/main.mfb:17 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `missing` does not have a known type.
-  16 |   LET fileThread AS Thread OF File TO Integer = thread::start(thread_file_workers::receiveFile, "file", 2, 1)
+  16 |   LET fileThread AS Thread OF RES File TO Integer = thread::start(thread_file_workers::receiveFile, "file", 2, 1)
   17 |   LET missing AS Nothing = thread::send()
   18 |   LET wrongMessage AS Nothing = thread::send(t, 1)
      | ^
 tests/func_thread_send_invalid/src/main.mfb:18 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
                Call to `thread.send` has argument type(s) (Thread OF String TO Integer, Integer), expected Thread OF Msg TO Out or ThreadWorker OF Msg TO Out, Msg, Integer.
-  16 |   LET fileThread AS Thread OF File TO Integer = thread::start(thread_file_workers::receiveFile, "file", 2, 1)
+  16 |   LET fileThread AS Thread OF RES File TO Integer = thread::start(thread_file_workers::receiveFile, "file", 2, 1)
   17 |   LET missing AS Nothing = thread::send()
   18 |   LET wrongMessage AS Nothing = thread::send(t, 1)
      | ^
@@ -63,8 +63,8 @@ tests/func_thread_send_invalid/src/main.mfb:20 error[2-203-0043 TYPE_UNKNOWN_VAL
   21 |   RES movedFile AS File = fs::openFile("tests/func_thread_send_invalid/src/main.mfb")
   22 |   thread::send(fileThread, movedFile)
      | ^
-tests/func_thread_send_invalid/src/main.mfb:22 error[2-203-0063 TYPE_THREAD_NOT_SENDABLE]: thread boundary type is not sendable
-               Call to `thread.send` message type `File` is a resource; the message channel is resource-free — use `thread::transfer`.
+tests/func_thread_send_invalid/src/main.mfb:22 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `thread.send` has argument type(s) (Thread OF RES File TO Integer, File), expected Thread OF Msg TO Out or ThreadWorker OF Msg TO Out, Msg, Integer.
   21 |   RES movedFile AS File = fs::openFile("tests/func_thread_send_invalid/src/main.mfb")
   22 |   thread::send(fileThread, movedFile)
   23 |   fs::close(movedFile)
@@ -92,24 +92,24 @@ tests/func_thread_send_invalid/src/main.mfb:10 error[2-203-0063 TYPE_THREAD_NOT_
 tests/func_thread_send_invalid/src/main.mfb:11 error[2-203-0063 TYPE_THREAD_NOT_SENDABLE]: thread boundary type is not sendable
                Call to `thread.send` message type requires a thread-sendable type, got `BadMessage`.
   15 |   LET t AS Thread OF String TO Integer = thread::start(thread_workers::echoText, "a", 1, 1)
-  16 |   LET fileThread AS Thread OF File TO Integer = thread::start(thread_file_workers::receiveFile, "file", 2, 1)
+  16 |   LET fileThread AS Thread OF RES File TO Integer = thread::start(thread_file_workers::receiveFile, "file", 2, 1)
   17 |   LET missing AS Nothing = thread::send()
      | ^
 tests/func_thread_send_invalid/src/main.mfb:17 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
                Call to `thread.send` has 0 argument(s), expected 2 to 3.
   15 |   LET t AS Thread OF String TO Integer = thread::start(thread_workers::echoText, "a", 1, 1)
-  16 |   LET fileThread AS Thread OF File TO Integer = thread::start(thread_file_workers::receiveFile, "file", 2, 1)
+  16 |   LET fileThread AS Thread OF RES File TO Integer = thread::start(thread_file_workers::receiveFile, "file", 2, 1)
   17 |   LET missing AS Nothing = thread::send()
      | ^
 tests/func_thread_send_invalid/src/main.mfb:17 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `missing` does not have a known type.
-  16 |   LET fileThread AS Thread OF File TO Integer = thread::start(thread_file_workers::receiveFile, "file", 2, 1)
+  16 |   LET fileThread AS Thread OF RES File TO Integer = thread::start(thread_file_workers::receiveFile, "file", 2, 1)
   17 |   LET missing AS Nothing = thread::send()
   18 |   LET wrongMessage AS Nothing = thread::send(t, 1)
      | ^
 tests/func_thread_send_invalid/src/main.mfb:18 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
                Call to `thread.send` has argument type(s) (Thread OF String TO Integer, Integer), expected Thread OF Msg TO Out or ThreadWorker OF Msg TO Out, Msg, Integer.
-  16 |   LET fileThread AS Thread OF File TO Integer = thread::start(thread_file_workers::receiveFile, "file", 2, 1)
+  16 |   LET fileThread AS Thread OF RES File TO Integer = thread::start(thread_file_workers::receiveFile, "file", 2, 1)
   17 |   LET missing AS Nothing = thread::send()
   18 |   LET wrongMessage AS Nothing = thread::send(t, 1)
      | ^
@@ -143,8 +143,8 @@ tests/func_thread_send_invalid/src/main.mfb:20 error[2-203-0043 TYPE_UNKNOWN_VAL
   21 |   RES movedFile AS File = fs::openFile("tests/func_thread_send_invalid/src/main.mfb")
   22 |   thread::send(fileThread, movedFile)
      | ^
-tests/func_thread_send_invalid/src/main.mfb:22 error[2-203-0063 TYPE_THREAD_NOT_SENDABLE]: thread boundary type is not sendable
-               Call to `thread.send` message type `File` is a resource; the message channel is resource-free — use `thread::transfer`.
+tests/func_thread_send_invalid/src/main.mfb:22 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `thread.send` has argument type(s) (Thread OF RES File TO Integer, File), expected Thread OF Msg TO Out or ThreadWorker OF Msg TO Out, Msg, Integer.
   21 |   RES movedFile AS File = fs::openFile("tests/func_thread_send_invalid/src/main.mfb")
   22 |   thread::send(fileThread, movedFile)
   23 |   fs::close(movedFile)

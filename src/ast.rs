@@ -1509,24 +1509,52 @@ impl<'a> FileParser<'a> {
         }
 
         // `resource.state = value` — the one member-target assignment, used to
-        // replace a `RES` binding's `STATE` payload.
+        // replace a `RES` binding's `STATE` payload. The nested form
+        // `resource.state.field = value` desugars to a `STATE` replacement with a
+        // single-field `WITH` update, giving in-place field mutation (§4) while
+        // reusing the one member-target assignment.
         if let TokenKind::Identifier(resource) = self.peek().kind.clone() {
-            let is_state_assign = self
+            let on_state = self
                 .tokens
                 .get(self.current + 1)
                 .is_some_and(|token| matches!(token.kind, TokenKind::Dot))
                 && self.tokens.get(self.current + 2).is_some_and(|token| {
                     matches!(&token.kind, TokenKind::Identifier(member) if member == "state")
-                })
+                });
+            let state_assign = on_state
                 && self
                     .tokens
                     .get(self.current + 3)
                     .is_some_and(|token| matches!(token.kind, TokenKind::Equal));
-            if is_state_assign {
+            // `resource.state.field =`
+            let state_field_assign = on_state
+                && self
+                    .tokens
+                    .get(self.current + 3)
+                    .is_some_and(|token| matches!(token.kind, TokenKind::Dot))
+                && self
+                    .tokens
+                    .get(self.current + 4)
+                    .is_some_and(|token| matches!(token.kind, TokenKind::Identifier(_)))
+                && self
+                    .tokens
+                    .get(self.current + 5)
+                    .is_some_and(|token| matches!(token.kind, TokenKind::Equal));
+            if state_assign || state_field_assign {
                 let token = self.advance().clone(); // resource
                 self.advance(); // .
                 self.advance(); // state
+                let field = if state_field_assign {
+                    self.advance(); // .
+                    let TokenKind::Identifier(field) = self.advance().kind.clone() else {
+                        return None;
+                    };
+                    Some(field)
+                } else {
+                    None
+                };
                 self.advance(); // =
+                let line = token.line;
                 let value = self.parse_expression()?;
                 let value = self.maybe_attach_postfix_trap(value, allow_else_terminator)?;
                 if !matches!(value, Expression::Trapped { .. }) {
@@ -1535,10 +1563,26 @@ impl<'a> FileParser<'a> {
                         allow_else_terminator,
                     );
                 }
+                // Desugar the nested-field form into a single-field `WITH` update
+                // over the current state.
+                let value = match field {
+                    Some(field) => Expression::WithUpdate {
+                        target: Box::new(Expression::MemberAccess {
+                            target: Box::new(Expression::Identifier(resource.clone())),
+                            member: "state".to_string(),
+                        }),
+                        updates: vec![RecordUpdate {
+                            field,
+                            value,
+                            line,
+                        }],
+                    },
+                    None => value,
+                };
                 return Some(Statement::StateAssign {
                     resource,
                     value,
-                    line: token.line,
+                    line,
                 });
             }
         }
@@ -2423,23 +2467,17 @@ impl<'a> FileParser<'a> {
         let mut name = self.parse_type_base_name("Expected a type name.")?;
         if self.check_identifier_ci("OF") {
             self.advance();
-            if name.eq_ignore_ascii_case("Map")
-                || name.eq_ignore_ascii_case("MapEntry")
-                || name.eq_ignore_ascii_case("Thread")
-                || name.eq_ignore_ascii_case("ThreadWorker")
-            {
+            if name.eq_ignore_ascii_case("Thread") || name.eq_ignore_ascii_case("ThreadWorker") {
+                return self.parse_thread_type_name(name);
+            }
+
+            if name.eq_ignore_ascii_case("Map") || name.eq_ignore_ascii_case("MapEntry") {
                 let first = self.parse_type_name()?;
                 if !self.check_identifier_ci("TO") && !self.check_keyword(Keyword::To) {
                     let token = self.peek().clone();
                     self.report(
                         "MFB_PARSE_UNEXPECTED_TOKEN",
-                        if name.eq_ignore_ascii_case("Thread")
-                            || name.eq_ignore_ascii_case("ThreadWorker")
-                        {
-                            "Expected `TO` in thread type."
-                        } else {
-                            "Expected `TO` in map type."
-                        },
+                        "Expected `TO` in map type.",
                         &token,
                     );
                     return None;
@@ -2477,6 +2515,51 @@ impl<'a> FileParser<'a> {
             name.push_str(&args.join(", "));
         }
         Some(name)
+    }
+
+    /// Parse a thread type body after `<kind> OF`, supporting the optional
+    /// resource plane: `Thread OF Msg TO Out`, `Thread OF Msg RES Res TO Out`,
+    /// or the resource-only `Thread OF RES Res TO Out` (message defaults to
+    /// `Nothing`). `kind` is the leading `Thread`/`ThreadWorker` token.
+    fn parse_thread_type_name(&mut self, kind: String) -> Option<String> {
+        let canonical = if kind.eq_ignore_ascii_case("ThreadWorker") {
+            "ThreadWorker"
+        } else {
+            "Thread"
+        };
+
+        let mut message: Option<String> = None;
+        let mut resource: Option<String> = None;
+
+        if self.match_keyword(Keyword::Res) {
+            resource = Some(self.parse_type_name()?);
+        } else {
+            message = Some(self.parse_type_name()?);
+            if self.match_keyword(Keyword::Res) {
+                resource = Some(self.parse_type_name()?);
+            }
+        }
+
+        if !self.check_identifier_ci("TO") && !self.check_keyword(Keyword::To) {
+            let token = self.peek().clone();
+            self.report(
+                "MFB_PARSE_UNEXPECTED_TOKEN",
+                "Expected `TO` in thread type.",
+                &token,
+            );
+            return None;
+        }
+        self.advance();
+        let output = self.parse_type_name()?;
+
+        let message = message.unwrap_or_else(|| "Nothing".to_string());
+        Some(match resource {
+            Some(resource) if message == "Nothing" => {
+                format!("{canonical} OF RES {resource} TO {output}")
+            }
+            Some(resource) => format!("{canonical} OF {message} RES {resource} TO {output}"),
+            None => format!("{canonical} OF {message} TO {output}"),
+        })
     }
 
     fn parse_function_type_name(&mut self, isolated: bool) -> Option<String> {

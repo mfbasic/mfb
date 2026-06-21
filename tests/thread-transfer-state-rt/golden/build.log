@@ -1,0 +1,12 @@
+$ mfb build -ast tests/thread-transfer-state-rt
+Wrote AST to tests/thread-transfer-state-rt/thread_transfer_state_rt.ast
+[exit 0]
+$ mfb build -ir tests/thread-transfer-state-rt
+Wrote IR to tests/thread-transfer-state-rt/thread_transfer_state_rt.ir
+[exit 0]
+$ mfb build tests/thread-transfer-state-rt
+Wrote executable to tests/thread-transfer-state-rt/thread_transfer_state_rt.out
+[exit 0]
+$ tests/thread-transfer-state-rt/thread_transfer_state_rt.out
+99
+[exit 0]

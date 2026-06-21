@@ -406,6 +406,8 @@ Runtime collection storage is specified in `specifications/memory_layouts.md`.
 ```basic
 Thread OF Msg TO Out                 ' isolated running or completed thread
 ThreadWorker OF Msg TO Out           ' worker-side view of the same thread
+Thread OF Msg RES Res TO Out         ' with a resource plane (thread::transfer/accept)
+Thread OF RES Res TO Out             ' resource plane only (message slot is Nothing)
 ```
 
 `Thread` and `ThreadWorker` are built-in templates for opaque handles to the same underlying package worker. `Thread` is the parent-side handle. `ThreadWorker` is the worker-side handle passed into the thread entry function. `Msg` is the message type used by `thread::send` and `thread::receive`; `Out` is the thread entry function's success type. A completed parent `Thread`'s outcome is retrieved only through `thread::waitFor(t)`, which auto-unwraps the `Out` value or auto-propagates the `Error`; retrieving the outcome consumes and closes the parent `Thread` handle.
@@ -1200,12 +1202,13 @@ END TYPE
 
 RES s AS File STATE FileState = fs::open("app.db", "read")   ' state default-initialized
 LET here = s.state.pos                                       ' read a state field
-s.state = WITH s.state { pos := 10 }                         ' update the state
+s.state.pos = 10                                             ' update one field in place
+s.state = WITH s.state { pos := 10 }                         ' or replace the whole state
 ```
 
 `T` must be an ordinary **copyable, defaultable data type** (`TYPE_STATE_INVALID` otherwise); since no data type may contain a resource, `T` is automatically resource-free. The state is owned by the resource, default-initializes when the resource is produced, rides through `RES` signatures (`RES s AS File STATE FileState`), and is freed when the resource drops or is closed. `STATE` is optional.
 
-`s.state` reads the state record; it is updated with the functional `WITH` idiom assigned back to `s.state` (`s.state = WITH s.state { field := value }`) — the one member-target assignment in the language. Because a resource value is a shared handle, a state update made through a borrowed `RES` parameter is visible to the owner after the call.
+`s.state` reads the state record. It is updated either by assigning a single field in place (`s.state.field = value`) or by assigning a whole-state `WITH` update (`s.state = WITH s.state { field := value }`); the former is shorthand for the latter. These are the only member-target assignments in the language. Because a resource value is a shared handle, a state update made through a borrowed `RES` parameter is visible to the owner after the call.
 
 **Resource unions.** A union whose every variant is a resource type is itself a resource — a *resource union* — and is `RES`-bound like any other resource:
 
@@ -1288,13 +1291,13 @@ thread::receive OF Msg, Out(t AS Thread OF Msg TO Out, timeoutMs AS Integer = 0)
 thread::send OF Msg, Out(t AS ThreadWorker OF Msg TO Out, data AS Msg, timeoutMs AS Integer = 0) AS Nothing
 thread::receive OF Msg, Out(t AS ThreadWorker OF Msg TO Out, timeoutMs AS Integer = 0) AS Msg
 thread::isCancelled OF Msg, Out(t AS ThreadWorker OF Msg TO Out) AS Boolean
-thread::transfer OF Res, Out(t AS Thread OF Res TO Out, res AS RES Res, timeoutMs AS Integer = 0) AS Nothing
-thread::accept OF Res, Out(t AS Thread OF Res TO Out, timeoutMs AS Integer = 0) AS RES Res
-thread::transfer OF Res, Out(t AS ThreadWorker OF Res TO Out, res AS RES Res, timeoutMs AS Integer = 0) AS Nothing
-thread::accept OF Res, Out(t AS ThreadWorker OF Res TO Out, timeoutMs AS Integer = 0) AS RES Res
+thread::transfer OF Msg, Res, Out(t AS Thread OF Msg RES Res TO Out, res AS RES Res, timeoutMs AS Integer = 0) AS Nothing
+thread::accept OF Msg, Res, Out(t AS Thread OF Msg RES Res TO Out, timeoutMs AS Integer = 0) AS RES Res
+thread::transfer OF Msg, Res, Out(t AS ThreadWorker OF Msg RES Res TO Out, res AS RES Res, timeoutMs AS Integer = 0) AS Nothing
+thread::accept OF Msg, Res, Out(t AS ThreadWorker OF Msg RES Res TO Out, timeoutMs AS Integer = 0) AS RES Res
 ```
 
-**Two planes across a thread boundary.** The message channel (`thread::send` / `thread::receive` / `thread::poll`) carries **copyable, resource-free data**: a resource is not a valid message (`TYPE_THREAD_NOT_SENDABLE` — use `thread::transfer`). Resources cross on a dedicated **resource plane** (`thread::transfer` / `thread::accept`), where the message type is itself a resource (`Thread OF File TO Out`). `thread::transfer(t, res)` **moves** `res` to `t` (invalidation event #2, §15): the sender binding is consumed, with ownership returned to the sender on failure (a `TRAP` handler may reuse it). `thread::accept(t)` receives a transferred resource and binds it with `RES`. Only thread-sendable resource types may cross.
+**Two planes across a thread boundary.** A thread type carries an optional resource plane: `Thread OF Msg RES Res TO Out` (and `ThreadWorker OF …`), where `RES Res` is the resource channel and may be omitted for a data-only thread (`Thread OF Msg TO Out`). A thread with only a resource channel is spelled `Thread OF RES Res TO Out` (the message slot defaults to `Nothing`). The two planes use **separate per-thread queues**, so a thread may carry both at once. The message channel (`thread::send` / `thread::receive` / `thread::poll`) carries **copyable, resource-free data**: a resource in the `Msg` slot is rejected (`TYPE_THREAD_NOT_SENDABLE` — declare it on the `RES` plane). Resources cross on the **resource plane** (`thread::transfer` / `thread::accept`), typed by `Res`. `thread::transfer(t, res)` **moves** `res` to `t` (invalidation event #2, §15): the sender binding is consumed, with ownership returned to the sender on failure (a `TRAP` handler may reuse it). `thread::accept(t)` receives a transferred resource and binds it with `RES`; a resource's `STATE` is declared on that binding and moves with the resource. Only thread-sendable resource types may cross.
 
 Thread functions are ordinary built-in templates. Their `Msg` and `Out` parameters are resolved by the template rules in §3 from argument types and expected result types. `thread::start` gets `Msg` and `Out` from the started function's first `ThreadWorker OF Msg TO Out` parameter, and gets `In` from the started function's second parameter and the `data` argument. If a thread does not exchange messages, `Msg` may be `Nothing`.
 

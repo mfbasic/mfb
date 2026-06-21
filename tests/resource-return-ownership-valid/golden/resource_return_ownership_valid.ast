@@ -1,0 +1,59 @@
+{
+  "project": "resource_return_ownership_valid",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "fs", "line": 1 },
+    { "module": "io", "line": 2 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "reopen",
+      "line": 5,
+      "params": [
+      { "name": "path", "type": "String", "default": null }
+      ],
+      "returnType": "File", "returnResource": true, "returnState": null,
+      "body": [
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "f", "type": null, "value": { "kind": "call", "callee": "fs.openFile", "arguments": [{ "kind": "identifier", "value": "path" }] }, "line": 6 },
+      { "kind": "return", "value": { "kind": "identifier", "value": "f" }, "line": 7 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "main",
+      "line": 10,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "path", "type": "String", "value": { "kind": "string", "value": "target/resource_return_ownership_valid.txt" }, "line": 11 },
+      {
+        "kind": "if",
+        "condition": { "kind": "call", "callee": "fs.fileExists", "arguments": [{ "kind": "identifier", "value": "path" }] },
+        "line": 12,
+        "then": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "fs.deleteFile", "arguments": [{ "kind": "identifier", "value": "path" }] }, "line": 13 }
+        ],
+        "else": [
+        ]
+      },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "w", "type": "File", "value": { "kind": "call", "callee": "fs.openFile", "arguments": [{ "kind": "identifier", "value": "path" }, { "kind": "string", "value": "write" }] }, "line": 15 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "fs.writeAll", "arguments": [{ "kind": "identifier", "value": "w" }, { "kind": "string", "value": "returned-handle" }] }, "line": 16 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "fs.close", "arguments": [{ "kind": "identifier", "value": "w" }] }, "line": 17 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "g", "type": "File", "value": { "kind": "call", "callee": "reopen", "arguments": [{ "kind": "identifier", "value": "path" }] }, "line": 18 },
+      { "kind": "binding", "mutable": false, "name": "back", "type": "String", "value": { "kind": "call", "callee": "fs.readAll", "arguments": [{ "kind": "identifier", "value": "g" }] }, "line": 19 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "fs.close", "arguments": [{ "kind": "identifier", "value": "g" }] }, "line": 20 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "identifier", "value": "back" }] }, "line": 21 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "fs.deleteFile", "arguments": [{ "kind": "identifier", "value": "path" }] }, "line": 22 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 23 }
+      ]
+    }
+    ]
+  }
+  ]
+}

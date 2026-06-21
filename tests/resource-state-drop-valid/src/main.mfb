@@ -1,0 +1,32 @@
+IMPORT fs
+IMPORT io
+
+TYPE Cursor
+  pos AS Integer
+END TYPE
+
+' Opens a stateful resource and lets it drop WITHOUT an explicit close: the
+' scope-drop closes the file and structurally frees the attached STATE. Looped
+' many times so a leaked fd (file not closed) or leaked STATE would fail.
+SUB touch(path AS String)
+  RES f AS File STATE Cursor = fs::openFile(path)
+  f.state.pos = 42
+END SUB
+
+FUNC main AS Integer
+  LET path AS String = "target/resource_state_drop_valid.txt"
+  IF fs::fileExists(path) THEN
+    fs::deleteFile(path)
+  END IF
+  RES seed AS File = fs::openFile(path, "write")
+  fs::writeAll(seed, "x")
+  fs::close(seed)
+  MUT i AS Integer = 0
+  WHILE i < 2000
+    touch(path)
+    i = i + 1
+  WEND
+  io::print("ok")
+  fs::deleteFile(path)
+  RETURN 0
+END FUNC

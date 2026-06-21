@@ -1065,7 +1065,12 @@ fn decode_type_name(
         7 => {
             let message = read_payload_type(payload, 0, raw, strings, decoded)?;
             let output = read_payload_type(payload, 4, raw, strings, decoded)?;
-            format!("Thread OF {message} TO {output}")
+            let resource = if payload.len() >= 12 {
+                Some(read_payload_type(payload, 8, raw, strings, decoded)?)
+            } else {
+                None
+            };
+            builtins::thread::format_thread_type("Thread", &message, resource.as_deref(), &output)
         }
         8 => decode_function_type(payload, raw, strings, decoded)?,
         9 => {
@@ -1076,7 +1081,17 @@ fn decode_type_name(
         10 => {
             let message = read_payload_type(payload, 0, raw, strings, decoded)?;
             let output = read_payload_type(payload, 4, raw, strings, decoded)?;
-            format!("ThreadWorker OF {message} TO {output}")
+            let resource = if payload.len() >= 12 {
+                Some(read_payload_type(payload, 8, raw, strings, decoded)?)
+            } else {
+                None
+            };
+            builtins::thread::format_thread_type(
+                "ThreadWorker",
+                &message,
+                resource.as_deref(),
+                &output,
+            )
         }
         _ => string_at(strings, *name)?.to_string(),
     };
@@ -1669,7 +1684,12 @@ impl<'a> AbiSerializer<'a> {
             7 => {
                 self.put_str("thread");
                 self.serialize_type(checked_u32_at(&entry.payload, 0)?)?;
-                self.serialize_type(checked_u32_at(&entry.payload, 4)?)
+                self.serialize_type(checked_u32_at(&entry.payload, 4)?)?;
+                // The resource plane (if present) is part of the signature hash.
+                if entry.payload.len() >= 12 {
+                    self.serialize_type(checked_u32_at(&entry.payload, 8)?)?;
+                }
+                Ok(())
             }
             8 => self.serialize_function_type(entry),
             _ => {
@@ -2899,19 +2919,25 @@ impl TypeTable {
                 self.result_type(strings, success)
             }
             name if name.starts_with("Thread OF ") => {
-                if let Some((_, message, output)) = builtins::thread::thread_parts(name) {
+                if let Some((_, message, resource, output)) =
+                    builtins::thread::thread_parts_full(name)
+                {
                     let message = self.type_id(strings, message);
+                    let resource = resource.map(|resource| self.type_id(strings, resource));
                     let output = self.type_id(strings, output);
-                    self.thread_type(strings, message, output)
+                    self.thread_type(strings, message, resource, output)
                 } else {
                     self.add_entry(strings, "", name, 7, Vec::new())
                 }
             }
             name if name.starts_with("ThreadWorker OF ") => {
-                if let Some((_, message, output)) = builtins::thread::thread_parts(name) {
+                if let Some((_, message, resource, output)) =
+                    builtins::thread::thread_parts_full(name)
+                {
                     let message = self.type_id(strings, message);
+                    let resource = resource.map(|resource| self.type_id(strings, resource));
                     let output = self.type_id(strings, output);
-                    self.thread_worker_type(strings, message, output)
+                    self.thread_worker_type(strings, message, resource, output)
                 } else {
                     self.add_entry(strings, "", name, 10, Vec::new())
                 }
@@ -3027,9 +3053,14 @@ impl TypeTable {
         &mut self,
         strings: &mut StringPool,
         message_type: u32,
+        resource_type: Option<u32>,
         output_type: u32,
     ) -> u32 {
-        let name = format!("Thread#{message_type}#{output_type}");
+        // A data-only thread encodes exactly as before (message, output); the
+        // resource type-id is appended only when the resource plane is present,
+        // keeping data-only packages byte-compatible.
+        let resource_key = resource_type.map_or(String::new(), |id| format!("#r{id}"));
+        let name = format!("Thread#{message_type}#{output_type}{resource_key}");
         if let Some(id) = self.ids.get(&name) {
             return *id;
         }
@@ -3037,6 +3068,9 @@ impl TypeTable {
         let mut payload = Vec::new();
         put_u32(&mut payload, message_type);
         put_u32(&mut payload, output_type);
+        if let Some(resource_type) = resource_type {
+            put_u32(&mut payload, resource_type);
+        }
         self.add_entry(strings, "thread", &name, 7, payload)
     }
 
@@ -3044,9 +3078,11 @@ impl TypeTable {
         &mut self,
         strings: &mut StringPool,
         message_type: u32,
+        resource_type: Option<u32>,
         output_type: u32,
     ) -> u32 {
-        let name = format!("ThreadWorker#{message_type}#{output_type}");
+        let resource_key = resource_type.map_or(String::new(), |id| format!("#r{id}"));
+        let name = format!("ThreadWorker#{message_type}#{output_type}{resource_key}");
         if let Some(id) = self.ids.get(&name) {
             return *id;
         }
@@ -3054,6 +3090,9 @@ impl TypeTable {
         let mut payload = Vec::new();
         put_u32(&mut payload, message_type);
         put_u32(&mut payload, output_type);
+        if let Some(resource_type) = resource_type {
+            put_u32(&mut payload, resource_type);
+        }
         self.add_entry(strings, "thread", &name, 10, payload)
     }
 

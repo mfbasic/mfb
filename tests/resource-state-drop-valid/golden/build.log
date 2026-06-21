@@ -1,0 +1,12 @@
+$ mfb build -ast tests/resource-state-drop-valid
+Wrote AST to tests/resource-state-drop-valid/resource_state_drop_valid.ast
+[exit 0]
+$ mfb build -ir tests/resource-state-drop-valid
+Wrote IR to tests/resource-state-drop-valid/resource_state_drop_valid.ir
+[exit 0]
+$ mfb build tests/resource-state-drop-valid
+Wrote executable to tests/resource-state-drop-valid/resource_state_drop_valid.out
+[exit 0]
+$ tests/resource-state-drop-valid/resource_state_drop_valid.out
+ok
+[exit 0]

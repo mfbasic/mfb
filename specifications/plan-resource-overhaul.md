@@ -1,6 +1,6 @@
 # MFBASIC Resource Model Overhaul Plan
 
-Last updated: 2026-06-20
+Last updated: 2026-06-20 (all phases implemented; see §10 Phases status)
 
 This plan redefines how resources work in MFBASIC. It replaces the current model —
 where a resource is a non-copyable *type* threaded through the same copy/move
@@ -342,10 +342,20 @@ ThreadWorker OF Msg RES Res TO Out
 
 `thread::transfer(t, r AS Res)` is checked against `Res`, and
 `thread::accept(worker) AS Result OF Res` yields it. `RES Res` is **optional** — a
-data-only thread is just `Thread OF Msg TO Out`. To carry several resource kinds,
-make `Res` a **resource union** (§4a); `transfer` moves "a `Res`", `accept` yields
-it, and you match to the concrete handle. The names `transfer`/`accept` are
-tentative.
+data-only thread is just `Thread OF Msg TO Out`. A thread with only a resource
+channel and no data channel is spelled `Thread OF RES Res TO Out` (the message
+slot defaults to `Nothing`). To carry several resource kinds, make `Res` a
+**resource union** (§4a); `transfer` moves "a `Res`", `accept` yields it, and you
+match to the concrete handle. The names `transfer`/`accept` are **kept**.
+
+**Implementation note (settled).** This is implemented end to end: the data plane
+(`send`/`receive`) and the resource plane (`transfer`/`accept`) run on
+**separate per-thread queues**, so a thread can carry both at once. The resource
+type slot holds a **bare** resource (`RES File`); a resource's `STATE` is declared
+on the binding (`RES f AS File STATE T = thread::accept(t)`), not in the thread
+type, and the runtime moves the `STATE` payload with the resource across the
+boundary. `Msg` is enforced **resource-free** at the type level — a resource in
+the message slot is rejected and directed to the `RES` plane.
 
 ## 8. Out of Scope (explicitly)
 
@@ -383,13 +393,17 @@ tentative.
   the resource plane).
 - `plan-link-update.md` **depends on this plan** and is implemented after it. Its
   resource-ownership sections (§5–§7, §11) defer here; it adds only what is
-  specific to native `LINK` resources (the `TYPE ... AS RESOURCE` declaration, the
-  `CPtr` representation, the ABI surface, the transparent re-export, and *writing*
-  native entries into the registry/`RESOURCE_TABLE` that this plan establishes).
-- A native `LINK` resource declares its close op via `CLOSE`; that close op is the
-  registered close (invalidation event #1), and a re-exported close wrapper is an
-  alias of it. From this plan's perspective a native resource is just another
-  registry entry — same `RES`/LUT/four-event behavior as a built-in.
+  specific to native `LINK` resources, including **how a new resource type is
+  declared** — this plan establishes the resource *model* but not the declaration
+  syntax. New resources are introduced at package scope with
+  `[EXPORT] RESOURCE Name CLOSE BY closeFn` (`plan-link-update.md` §5), naming a
+  native `LINK` close op; plan-link-update also owns the `CPtr` representation, the
+  ABI surface, the close-op re-export (a function alias), and *writing* native
+  entries into the registry/`RESOURCE_TABLE` that this plan establishes.
+- A native `LINK` resource names its close op via `CLOSE BY`; that close op is the
+  registered close (invalidation event #1), and a re-exported close op (a function
+  alias) is an alias of it. From this plan's perspective a native resource is just
+  another registry entry — same `RES`/LUT/four-event behavior as a built-in.
 
 ## 10. Implementation Impact
 
@@ -416,9 +430,14 @@ This is a breaking surface change (`RES` keyword) plus an internal model change.
   active variant's registered close op. Manual close marks the entry closed; drop
   no-ops a closed entry.
 - **Verifier:** enforce the four-event rule, single ownership, no resource copy,
-  no resource field in a record, no mixed union, no `CPtr`/pointer escape,
-  state-freed-on-close, resource-free message types, and thread-plane separation
-  (`transfer`/`accept` for resources, `send`/`receive` for data).
+  no resource field in a record, no mixed union, state-freed-on-close,
+  resource-free message types, and thread-plane separation (`transfer`/`accept`
+  for resources, `send`/`receive` for data). The `CPtr`/pointer-escape check is
+  **deferred to `plan-link-update.md`**: `CPtr` is the hidden representation of a
+  *native* `LINK` resource and does not exist in this plan's surface (built-in
+  resources expose fds/host pointers only through the LUT, never as a source
+  type), so there is nothing to leak until native resources are introduced. The
+  escape check lands together with the `CPtr` type that it guards.
 - **Registry (this plan's foundation, lands first):** replace hardcoded
   `builtins::is_resource_type` matching with a single dynamic table keyed by
   resolved type name, consulted at every call site. Each entry records the close
@@ -430,6 +449,14 @@ This is a breaking surface change (`RES` keyword) plus an internal model change.
   register into this table later (`plan-link-update.md`).
 
 ### Phases
+
+**Status: all phases (0–7) implemented and covered by the acceptance suite.**
+The data-plane message slot is enforced resource-free at the type level; the
+resource plane (`transfer`/`accept`) runs on a dedicated per-thread queue with
+its `STATE` payload moved across the boundary; and `s.state.field = value`
+performs in-place single-field `STATE` mutation (§4). The only deliberately
+deferred item is the `CPtr`/pointer-escape verifier check, which lands with
+native `CPtr` in `plan-link-update.md` (Phase 6 note above).
 
 0. **Resource registry & `RESOURCE_TABLE` round-trip** — the table-driven
    recognition above; rewrite the ~8 hardcoded call sites; consume the table on
@@ -448,7 +475,8 @@ This is a breaking surface change (`RES` keyword) plus an internal model change.
    the resource plane; the optional `RES Res` thread type parameter; resource-free
    `Msg` enforcement on `send`/`receive`.
 6. **Verification** — four-event rule, no resource field in a record, no mixed
-   union, `CPtr`-escape, resource-free messages, thread-plane separation.
+   union, resource-free messages, thread-plane separation. (`CPtr`-escape defers
+   to `plan-link-update.md`, where `CPtr` is introduced.)
 7. **Migration & tests** — see §11/§12.
 
 ## 11. Migration
@@ -472,26 +500,34 @@ collection, **a record with a resource-typed field**, **a mixed data/resource
 union**, **a resource as a `thread::send` message**, and **invalidating a resource
 through a borrow** — close / `RETURN` / `thread::transfer` of a borrowed handle).
 
-## 12. Open Questions
+## 12. Resolved Decisions
 
-1. **Return-position spelling.** Is `AS RES File` required, or is `AS File`
-   sufficient since `File` is a known resource type? And how is the `STATE` carried
-   on a returned resource spelled (`AS RES File STATE T`)?
-2. **`Result OF` a resource.** `fs::open` returns a fallible resource. How does
-   `RES f = fs::open(...)` interact with auto-unwrap, and how is a resource-typed
-   success value spelled in signatures?
-3. **`STATE` initialization.** Default-init requires `T` to be defaultable; should
-   an explicit initial-state form exist (e.g. `STATE FileState[pos := 0]`), or is
-   default-only sufficient for v1?
-4. **Migration policy** (§11) — hard break with fix-it, or deprecation window?
-5. **Naming.** Keep `RES`, or a fuller keyword? (`RES` is terse; the binding kind
-   is "resource," not a general unique kind, so `RES` reads accurately.)
-6. **`thread::transfer`/`thread::accept` names** — confirm or replace these
-   (everything else about the resource plane is settled: §7).
+All open questions are now resolved and implemented:
 
-Resolved this round and folded into the body: resource unions are **implemented in
-v1** as their own phase (§4a, Phase 4), carry **no `STATE`**, and the thread
-resource channel is the optional **`RES Res`** type parameter (§7).
+1. **Return-position spelling — `AS RES File`.** The `RES` marker is **required** in
+   a return position (`FUNC open(...) AS RES File`); ownership moves out to the
+   caller (invalidation event #3). A returned resource's `STATE` rides on the
+   caller's binding (`RES f AS File STATE T = open(...)`), not on the return type,
+   mirroring the thread resource plane (§7).
+2. **`Result OF` a resource — auto-unwrap.** A fallible producer such as
+   `fs::open`/`fs::openFile` yields `Result OF <resource>`; `RES f = fs::open(...)`
+   auto-unwraps to bind the live resource (or propagates the `Error`). `Result` is
+   the one wrapper allowed to carry a resource (also used by `thread::accept`).
+3. **`STATE` initialization — default-only for v1.** `T` must be defaultable; the
+   `STATE` default-initializes when the resource is produced. There is no explicit
+   initial-state literal; set fields afterward with in-place field assignment
+   (`s.state.pos = 10`) or a whole-state `WITH` update. (No `STATE T[…]` form.)
+4. **Migration policy — hard break.** `RES` is mandatory for resources; binding a
+   resource with `LET`/`MUT` is an error (`TYPE_RESOURCE_REQUIRES_RES`) with a
+   message pointing at `RES`. No deprecation window.
+5. **Naming — keep `RES`.** The binding kind is "resource," not a general unique
+   kind, so `RES` reads accurately.
+6. **`thread::transfer`/`thread::accept` names — kept.**
+
+Also folded into the body: resource unions are **implemented in v1** (§4a, Phase
+4), carry **no `STATE`**; the thread resource channel is the optional **`RES Res`**
+type parameter on a **dedicated per-thread queue** (§7); and `s.state.field =
+value` is in-place single-field `STATE` mutation (§4).
 
 ## 13. Recommendation
 

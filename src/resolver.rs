@@ -905,8 +905,13 @@ impl<'a> Resolver<'a> {
             self.resolve_type_name(file, element, line, imports);
             return;
         }
-        if let Some((_, message, output)) = crate::builtins::thread::thread_parts(type_name) {
+        if let Some((_, message, resource, output)) =
+            crate::builtins::thread::thread_parts_full(type_name)
+        {
             self.resolve_type_name(file, message, line, imports);
+            if let Some(resource) = resource {
+                self.resolve_type_name(file, resource, line, imports);
+            }
             self.resolve_type_name(file, output, line, imports);
             return;
         }

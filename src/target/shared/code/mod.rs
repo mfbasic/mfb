@@ -2932,7 +2932,8 @@ fn lower_runtime_helper(
         | "strings.byteLen" => lower_direct_builtin_runtime_helper(symbol, spec, platform_imports),
         "thread.start" | "thread.isRunning" | "thread.waitFor" | "thread.cancel"
         | "thread.drop" | "thread.send" | "thread.poll" | "thread.read" | "thread.receive"
-        | "thread.emit" | "thread.isCancelled" => {
+        | "thread.emit" | "thread.transferResource" | "thread.acceptResource"
+        | "thread.isCancelled" => {
             let (frame, instructions, relocations) =
                 lower_thread_helper(symbol, spec.call, platform_imports, platform)?;
             Ok(CodeFunction {
@@ -3260,7 +3261,7 @@ fn lower_io_write_helper(
     }
 }
 
-const THREAD_BLOCK_SIZE: usize = 104;
+const THREAD_BLOCK_SIZE: usize = 112;
 const THREAD_OFFSET_STATE: usize = 0;
 const THREAD_OFFSET_CANCELLED: usize = 8;
 const THREAD_OFFSET_RESULT_TAG: usize = 16;
@@ -3276,6 +3277,10 @@ const THREAD_OFFSET_PARENT_ARENA_STATE: usize = 88;
 // Origin `ErrorLoc` pointer of a worker's terminal error, captured by the
 // trampoline so `thread::waitFor` can recover the worker's source location.
 const THREAD_OFFSET_RESULT_SOURCE: usize = 96;
+// Resource plane (§7): a dedicated parent→worker queue for `thread::transfer`/
+// `thread::accept`, independent of the data-channel inbound/outbound queues so a
+// thread can carry both planes at once.
+const THREAD_OFFSET_RESOURCE_QUEUE: usize = 104;
 const THREAD_STATE_RUNNING: &str = "0";
 const THREAD_STATE_COMPLETED: &str = "1";
 const THREAD_STATE_CLOSED: &str = "2";
@@ -3481,6 +3486,22 @@ fn lower_thread_helper(
             platform_imports,
             platform,
         ),
+        // Resource plane: transfer/accept mirror send/receive on the dedicated
+        // resource queue (parent → worker).
+        "thread.transferResource" => thread_queue_write_helper(
+            symbol,
+            THREAD_OFFSET_RESOURCE_QUEUE,
+            true,
+            platform_imports,
+            platform,
+        ),
+        "thread.acceptResource" => thread_queue_read_helper(
+            symbol,
+            THREAD_OFFSET_RESOURCE_QUEUE,
+            true,
+            platform_imports,
+            platform,
+        ),
         "thread.isCancelled" => Ok(thread_is_cancelled_helper()),
         _ => Err(format!("native thread helper does not implement {call}")),
     }
@@ -3548,6 +3569,7 @@ fn lower_thread_start_helper(
         abi::store_u64("x31", "x9", THREAD_OFFSET_RESULT_SOURCE),
         abi::store_u64("x31", "x9", THREAD_OFFSET_INBOUND_QUEUE),
         abi::store_u64("x31", "x9", THREAD_OFFSET_OUTBOUND_QUEUE),
+        abi::store_u64("x31", "x9", THREAD_OFFSET_RESOURCE_QUEUE),
         abi::store_u64("x31", "x9", THREAD_OFFSET_OS_HANDLE),
         abi::store_u64("x31", "x9", THREAD_OFFSET_PARENT_ARENA_STATE),
         abi::load_u64("x10", abi::stack_pointer(), ENTRY_OFFSET),
@@ -3610,6 +3632,19 @@ fn lower_thread_start_helper(
         CB_OFFSET,
         QUEUE_OFFSET,
         THREAD_OFFSET_OUTBOUND_QUEUE,
+        &parent_done,
+        &mut instructions,
+        &mut relocations,
+    )?;
+    // Resource plane queue (§7): bounded like the inbound data queue.
+    emit_thread_queue_alloc(
+        symbol,
+        platform_imports,
+        platform,
+        IN_LIMIT_OFFSET,
+        CB_OFFSET,
+        QUEUE_OFFSET,
+        THREAD_OFFSET_RESOURCE_QUEUE,
         &parent_done,
         &mut instructions,
         &mut relocations,
@@ -3788,6 +3823,61 @@ fn lower_thread_trampoline(
     instructions.extend([
         abi::load_u64("x20", abi::stack_pointer(), CB_OFFSET),
         abi::load_u64("x0", "x20", THREAD_OFFSET_INBOUND_QUEUE),
+    ]);
+    emit_thread_external_call(
+        THREAD_TRAMPOLINE_SYMBOL,
+        platform_imports,
+        platform,
+        "pthread_mutex_unlock",
+        &mut instructions,
+        &mut relocations,
+    )?;
+    // Close the resource-plane queue on worker exit, mirroring the inbound data
+    // queue: wake any parent blocked in `thread::transfer`.
+    instructions.extend([
+        abi::load_u64("x20", abi::stack_pointer(), CB_OFFSET),
+        abi::load_u64("x9", "x20", THREAD_OFFSET_RESOURCE_QUEUE),
+        abi::move_register("x0", "x9"),
+    ]);
+    emit_thread_external_call(
+        THREAD_TRAMPOLINE_SYMBOL,
+        platform_imports,
+        platform,
+        "pthread_mutex_lock",
+        &mut instructions,
+        &mut relocations,
+    )?;
+    instructions.extend([
+        abi::load_u64("x20", abi::stack_pointer(), CB_OFFSET),
+        abi::load_u64("x9", "x20", THREAD_OFFSET_RESOURCE_QUEUE),
+        abi::move_immediate("x10", "Integer", "1"),
+        abi::store_u64("x10", "x9", THREAD_QUEUE_CLOSED_OFFSET),
+        abi::add_immediate("x0", "x9", THREAD_QUEUE_NOT_EMPTY_OFFSET),
+    ]);
+    emit_thread_external_call(
+        THREAD_TRAMPOLINE_SYMBOL,
+        platform_imports,
+        platform,
+        "pthread_cond_broadcast",
+        &mut instructions,
+        &mut relocations,
+    )?;
+    instructions.extend([
+        abi::load_u64("x20", abi::stack_pointer(), CB_OFFSET),
+        abi::load_u64("x9", "x20", THREAD_OFFSET_RESOURCE_QUEUE),
+        abi::add_immediate("x0", "x9", THREAD_QUEUE_NOT_FULL_OFFSET),
+    ]);
+    emit_thread_external_call(
+        THREAD_TRAMPOLINE_SYMBOL,
+        platform_imports,
+        platform,
+        "pthread_cond_broadcast",
+        &mut instructions,
+        &mut relocations,
+    )?;
+    instructions.extend([
+        abi::load_u64("x20", abi::stack_pointer(), CB_OFFSET),
+        abi::load_u64("x0", "x20", THREAD_OFFSET_RESOURCE_QUEUE),
     ]);
     emit_thread_external_call(
         THREAD_TRAMPOLINE_SYMBOL,

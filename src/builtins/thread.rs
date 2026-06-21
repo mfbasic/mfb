@@ -16,6 +16,11 @@ const IS_CANCELLED: &str = "thread.isCancelled";
 /// rather than data, keeping the data channel resource-free.
 pub(crate) const TRANSFER: &str = "thread.transfer";
 pub(crate) const ACCEPT: &str = "thread.accept";
+/// Internal lowered targets for the resource plane. `thread::transfer`/`accept`
+/// lower to these so codegen routes them to the dedicated resource queue (they
+/// never appear in source).
+pub(crate) const TRANSFER_RESOURCE: &str = "thread.transferResource";
+pub(crate) const ACCEPT_RESOURCE: &str = "thread.acceptResource";
 
 #[derive(Clone)]
 pub(crate) struct ResolvedCall<'a> {
@@ -34,6 +39,8 @@ pub(crate) fn is_thread_call(name: &str) -> bool {
             | IS_CANCELLED
             | TRANSFER
             | ACCEPT
+            | TRANSFER_RESOURCE
+            | ACCEPT_RESOURCE
     )
 }
 
@@ -80,8 +87,8 @@ pub(crate) fn resolve_call<'a>(name: &str, arg_types: &'a [String]) -> Option<Re
         TRANSFER
             if (arg_types.len() == 2 || arg_types.len() == 3)
                 && is_thread_type(&arg_types[0])
-                && thread_message(&arg_types[0])
-                    .is_some_and(|message| message == "Unknown" || message == arg_types[1])
+                && thread_resource(&arg_types[0])
+                    .is_some_and(|resource| resource == "Unknown" || resource == arg_types[1])
                 && arg_types.get(2).is_none_or(|timeout| timeout == "Integer") =>
         {
             Cow::Borrowed("Nothing")
@@ -91,7 +98,7 @@ pub(crate) fn resolve_call<'a>(name: &str, arg_types: &'a [String]) -> Option<Re
                 && is_thread_type(&arg_types[0])
                 && arg_types.get(1).is_none_or(|timeout| timeout == "Integer") =>
         {
-            thread_message(&arg_types[0]).map(Cow::Borrowed)?
+            thread_resource(&arg_types[0]).map(Cow::Borrowed)?
         }
         IS_CANCELLED if arg_types.len() == 1 && is_worker_thread_type(&arg_types[0]) => {
             Cow::Borrowed("Boolean")
@@ -109,8 +116,12 @@ pub(crate) fn expected_arguments(name: &str) -> Option<&'static str> {
         POLL => Some("Thread OF Msg TO Out, Integer"),
         RECEIVE => Some("Thread OF Msg TO Out or ThreadWorker OF Msg TO Out, Integer"),
         IS_CANCELLED => Some("ThreadWorker OF Msg TO Out"),
-        TRANSFER => Some("Thread OF Res TO Out or ThreadWorker OF Res TO Out, Res, Integer"),
-        ACCEPT => Some("Thread OF Res TO Out or ThreadWorker OF Res TO Out, Integer"),
+        TRANSFER => {
+            Some("Thread OF Msg RES Res TO Out or ThreadWorker OF Msg RES Res TO Out, Res, Integer")
+        }
+        ACCEPT => {
+            Some("Thread OF Msg RES Res TO Out or ThreadWorker OF Msg RES Res TO Out, Integer")
+        }
         _ => None,
     }
 }
@@ -147,8 +158,26 @@ fn matches_start(arg_types: &[String]) -> bool {
 
 fn start_thread_type(name: &str) -> Option<String> {
     let worker = function_params(name)?.first()?.clone();
-    let (_, message, output) = thread_parts(&worker)?;
-    Some(format!("Thread OF {message} TO {output}"))
+    let (_, message, resource, output) = thread_parts_full(&worker)?;
+    Some(format_thread_type(THREAD_TYPE, message, resource, output))
+}
+
+/// Render a thread type string from its parts, emitting the optional `RES Res`
+/// clause and the resource-only spelling (`message == "Nothing"`) symmetrically
+/// with `split_thread_types`.
+pub(crate) fn format_thread_type(
+    kind: &str,
+    message: &str,
+    resource: Option<&str>,
+    output: &str,
+) -> String {
+    match resource {
+        Some(resource) if message == "Nothing" => {
+            format!("{kind} OF RES {resource} TO {output}")
+        }
+        Some(resource) => format!("{kind} OF {message} RES {resource} TO {output}"),
+        None => format!("{kind} OF {message} TO {output}"),
+    }
 }
 
 fn function_params(name: &str) -> Option<Vec<String>> {
@@ -182,6 +211,15 @@ pub(crate) fn thread_output(name: &str) -> Option<&str> {
     thread_parts(name).map(|(_, _, output)| output)
 }
 
+/// The resource type carried on the thread's resource plane
+/// (`thread::transfer`/`thread::accept`), or `None` for a data-only thread. A
+/// data-only thread is spelled `Thread OF Msg TO Out`; the resource plane is the
+/// optional `RES Res` clause: `Thread OF Msg RES Res TO Out` (or `Thread OF RES
+/// Res TO Out` when there is no data channel).
+pub(crate) fn thread_resource(name: &str) -> Option<&str> {
+    thread_parts_full(name).and_then(|(_, _, resource, _)| resource)
+}
+
 /// Output type for `thread::waitFor`, which is only valid on a parent `Thread`
 /// handle (not a `ThreadWorker`).
 pub(crate) fn parent_thread_output(name: &str) -> Option<&str> {
@@ -189,29 +227,60 @@ pub(crate) fn parent_thread_output(name: &str) -> Option<&str> {
 }
 
 pub(crate) fn thread_parts(name: &str) -> Option<(&str, &str, &str)> {
-    if let Some(rest) = name.strip_prefix("Thread OF ") {
-        let (message, output) = split_thread_types(rest)?;
-        return Some((
-            THREAD_TYPE,
-            strip_type_group(message),
-            strip_type_group(output),
-        ));
-    }
-    let rest = name.strip_prefix("ThreadWorker OF ")?;
-    let (message, output) = split_thread_types(rest)?;
+    thread_parts_full(name).map(|(kind, message, _, output)| (kind, message, output))
+}
+
+/// Full structural view of a thread type: `(kind, message, resource, output)`.
+/// `message` is the data-plane message type (`"Nothing"` for a resource-only
+/// thread); `resource` is the resource-plane type, present only when the type
+/// carries a `RES Res` clause.
+pub(crate) fn thread_parts_full(name: &str) -> Option<(&'static str, &str, Option<&str>, &str)> {
+    let (kind, rest) = if let Some(rest) = name.strip_prefix("Thread OF ") {
+        (THREAD_TYPE, rest)
+    } else if let Some(rest) = name.strip_prefix("ThreadWorker OF ") {
+        (THREAD_WORKER_TYPE, rest)
+    } else {
+        return None;
+    };
+    let (message, resource, output) = split_thread_types(rest)?;
     Some((
-        THREAD_WORKER_TYPE,
+        kind,
         strip_type_group(message),
+        resource.map(strip_type_group),
         strip_type_group(output),
     ))
 }
 
-fn split_thread_types(rest: &str) -> Option<(&str, &str)> {
-    let message_end = type_prefix_len(rest.trim())?;
+/// Parse the body after `Thread OF ` / `ThreadWorker OF ` into
+/// `(message, resource, output)`. Accepts three shapes:
+///   `<msg> TO <out>`              (data-only)
+///   `<msg> RES <res> TO <out>`    (data + resource planes)
+///   `RES <res> TO <out>`          (resource-only; message defaults to Nothing)
+fn split_thread_types(rest: &str) -> Option<(&str, Option<&str>, &str)> {
     let rest = rest.trim();
-    let separator = rest.get(message_end..)?;
-    let output = separator.strip_prefix(" TO ")?;
-    Some((rest[..message_end].trim(), output.trim()))
+
+    // Resource-only: no data message before the `RES` clause.
+    if let Some(after_res) = rest.strip_prefix("RES ") {
+        let res_end = type_prefix_len(after_res)?;
+        let resource = after_res[..res_end].trim();
+        let output = after_res.get(res_end..)?.strip_prefix(" TO ")?.trim();
+        return Some(("Nothing", Some(resource), output));
+    }
+
+    let message_end = type_prefix_len(rest)?;
+    let message = rest[..message_end].trim();
+    let tail = rest.get(message_end..)?;
+
+    // Optional ` RES <res>` clause between the message and ` TO `.
+    if let Some(after_res) = tail.strip_prefix(" RES ") {
+        let res_end = type_prefix_len(after_res)?;
+        let resource = after_res[..res_end].trim();
+        let output = after_res.get(res_end..)?.strip_prefix(" TO ")?.trim();
+        return Some((message, Some(resource), output));
+    }
+
+    let output = tail.strip_prefix(" TO ")?.trim();
+    Some((message, None, output))
 }
 
 pub(crate) fn strip_type_group(type_: &str) -> &str {
@@ -276,7 +345,7 @@ fn type_prefix_len(input: &str) -> Option<usize> {
         return type_prefix_len(after_of).map(|len| base_end + 4 + len);
     }
 
-    if matches!(base, "Map" | "MapEntry" | "Thread" | "ThreadWorker") {
+    if matches!(base, "Map" | "MapEntry") {
         let first_len = type_prefix_len(after_of)?;
         let after_first = after_of.get(first_len..)?;
         let second_input = after_first.strip_prefix(" TO ")?;
@@ -284,7 +353,40 @@ fn type_prefix_len(input: &str) -> Option<usize> {
         return Some(base_end + 4 + first_len + 4 + second_len);
     }
 
+    if matches!(base, "Thread" | "ThreadWorker") {
+        // `[msg] [RES res] TO out` — mirror split_thread_types' three shapes.
+        return thread_body_len(after_of).map(|len| base_end + 4 + len);
+    }
+
     Some(base_end)
+}
+
+/// Length consumed by a thread type body (`[msg] [RES res] TO out`) starting at
+/// `rest`. Used by `type_prefix_len` to measure a nested thread type.
+fn thread_body_len(rest: &str) -> Option<usize> {
+    if let Some(after_res) = rest.strip_prefix("RES ") {
+        let res_len = type_prefix_len(after_res)?;
+        let to = after_res.get(res_len..)?.strip_prefix(" TO ")?;
+        let out_len = type_prefix_len(to)?;
+        // "RES " (4) + res + " TO " (4) + out
+        return Some(4 + res_len + 4 + out_len);
+    }
+
+    let msg_len = type_prefix_len(rest)?;
+    let tail = rest.get(msg_len..)?;
+
+    if let Some(after_res) = tail.strip_prefix(" RES ") {
+        let res_len = type_prefix_len(after_res)?;
+        let to = after_res.get(res_len..)?.strip_prefix(" TO ")?;
+        let out_len = type_prefix_len(to)?;
+        // msg + " RES " (5) + res + " TO " (4) + out
+        return Some(msg_len + 5 + res_len + 4 + out_len);
+    }
+
+    let to = tail.strip_prefix(" TO ")?;
+    let out_len = type_prefix_len(to)?;
+    // msg + " TO " (4) + out
+    Some(msg_len + 4 + out_len)
 }
 
 fn split_top_level_types(params: &str) -> Vec<String> {

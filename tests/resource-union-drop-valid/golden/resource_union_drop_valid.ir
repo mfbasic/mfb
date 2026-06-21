@@ -1,0 +1,95 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "resource_union_drop_valid",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  {
+    "kind": "union",
+    "visibility": "private",
+    "name": "Stream",
+    "includes": [],
+    "variants": [
+    {
+      "name": "File",
+      "fields": [
+      ]
+    },
+    {
+      "name": "Socket",
+      "fields": [
+      ]
+    }
+    ]
+  }
+  ],
+  "functions": [
+  {
+    "name": "writeVia",
+    "visibility": "private",
+    "kind": "sub",
+    "params": [
+    { "name": "path", "type": "String", "default": null },
+    { "name": "data", "type": "String", "default": null }
+    ],
+    "returns": "Nothing",
+    "body": [
+    { "op": "bind", "mutable": false, "name": "s", "type": "Stream", "value": { "kind": "unionWrap", "union": "Stream", "member": "File", "value": { "kind": "call", "target": "fs.openFile", "args": [{ "kind": "local", "name": "path" }, { "kind": "const", "type": "String", "value": "write" }] } } },
+    { "op": "bind", "mutable": false, "name": "$match0", "type": "Stream", "value": { "kind": "local", "name": "s" } },
+    {
+      "op": "match",
+      "value": { "kind": "local", "name": "$match0" },
+      "cases": [
+      {
+        "pattern": { "kind": "value", "value": { "kind": "local", "name": "File" } },
+        "guard": null,
+        "body": [
+        { "op": "bind", "mutable": false, "name": "f", "type": "File", "value": { "kind": "unionExtract", "type": "File", "value": { "kind": "local", "name": "$match0" } } },
+        { "op": "eval", "value": { "kind": "call", "target": "fs.writeAll", "args": [{ "kind": "local", "name": "f" }, { "kind": "local", "name": "data" }] } }
+        ]
+      },
+      {
+        "pattern": { "kind": "value", "value": { "kind": "local", "name": "Socket" } },
+        "guard": null,
+        "body": [
+        { "op": "bind", "mutable": false, "name": "sock", "type": "Socket", "value": { "kind": "unionExtract", "type": "Socket", "value": { "kind": "local", "name": "$match0" } } },
+        { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "unexpected socket" }] } }
+        ]
+      }
+      ]
+    }
+    ]
+  },
+  {
+    "name": "main",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "mutable": false, "name": "path", "type": "String", "value": { "kind": "const", "type": "String", "value": "target/resource_union_drop_valid.txt" } },
+    {
+      "op": "if",
+      "condition": { "kind": "call", "target": "fs.fileExists", "args": [{ "kind": "local", "name": "path" }] },
+      "then": [
+      { "op": "eval", "value": { "kind": "call", "target": "fs.deleteFile", "args": [{ "kind": "local", "name": "path" }] } }
+      ],
+      "else": [
+      ]
+    },
+    { "op": "eval", "value": { "kind": "call", "target": "writeVia", "args": [{ "kind": "local", "name": "path" }, { "kind": "const", "type": "String", "value": "union-drop-9" }] } },
+    { "op": "bind", "mutable": false, "name": "r", "type": "File", "value": { "kind": "call", "target": "fs.openFile", "args": [{ "kind": "local", "name": "path" }] } },
+    { "op": "bind", "mutable": false, "name": "back", "type": "String", "value": { "kind": "call", "target": "fs.readAll", "args": [{ "kind": "local", "name": "r" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "fs.close", "args": [{ "kind": "local", "name": "r" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "local", "name": "back" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "fs.deleteFile", "args": [{ "kind": "local", "name": "path" }] } },
+    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

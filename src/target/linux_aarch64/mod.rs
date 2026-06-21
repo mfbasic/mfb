@@ -84,6 +84,8 @@ impl NativeBackend for Backend {
                 "thread.send",
                 "thread.poll",
                 "thread.receive",
+                "thread.transferResource",
+                "thread.acceptResource",
                 "thread.isCancelled",
                 "net.lookup",
                 "net.connectTcp",

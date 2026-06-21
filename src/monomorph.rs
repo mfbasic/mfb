@@ -998,11 +998,16 @@ impl<'a> Monomorphizer<'a> {
                 );
             }
         }
-        if let Some((kind, message, output)) = crate::builtins::thread::thread_parts(type_name) {
-            return format!(
-                "{kind} OF {} TO {}",
-                self.concrete_type_name(message, substitutions),
-                self.concrete_type_name(output, substitutions)
+        if let Some((kind, message, resource, output)) =
+            crate::builtins::thread::thread_parts_full(type_name)
+        {
+            let resource =
+                resource.map(|resource| self.concrete_type_name(resource, substitutions));
+            return crate::builtins::thread::format_thread_type(
+                kind,
+                &self.concrete_type_name(message, substitutions),
+                resource.as_deref(),
+                &self.concrete_type_name(output, substitutions),
             );
         }
         if let Some((name, args)) = user_template_parts(type_name) {
@@ -1040,11 +1045,15 @@ impl<'a> Monomorphizer<'a> {
                 );
             }
         }
-        if let Some((kind, message, output)) = crate::builtins::thread::thread_parts(type_name) {
-            return format!(
-                "{kind} OF {} TO {}",
-                self.template_view_type(message),
-                self.template_view_type(output)
+        if let Some((kind, message, resource, output)) =
+            crate::builtins::thread::thread_parts_full(type_name)
+        {
+            let resource = resource.map(|resource| self.template_view_type(resource));
+            return crate::builtins::thread::format_thread_type(
+                kind,
+                &self.template_view_type(message),
+                resource.as_deref(),
+                &self.template_view_type(output),
             );
         }
         if let Some((name, args)) = self.type_instantiations.get(type_name) {
@@ -1329,16 +1338,24 @@ fn unify_type(
         return unify_type(&pattern_key, &actual_key, params, substitutions)
             && unify_type(&pattern_value, &actual_value, params, substitutions);
     }
-    if let Some((pattern_kind, pattern_message, pattern_output)) =
-        crate::builtins::thread::thread_parts(pattern)
+    if let Some((pattern_kind, pattern_message, pattern_resource, pattern_output)) =
+        crate::builtins::thread::thread_parts_full(pattern)
     {
-        let Some((actual_kind, actual_message, actual_output)) =
-            crate::builtins::thread::thread_parts(actual)
+        let Some((actual_kind, actual_message, actual_resource, actual_output)) =
+            crate::builtins::thread::thread_parts_full(actual)
         else {
             return false;
         };
+        let resource_unifies = match (pattern_resource, actual_resource) {
+            (None, None) => true,
+            (Some(pattern_resource), Some(actual_resource)) => {
+                unify_type(pattern_resource, actual_resource, params, substitutions)
+            }
+            _ => false,
+        };
         return pattern_kind == actual_kind
             && unify_type(pattern_message, actual_message, params, substitutions)
+            && resource_unifies
             && unify_type(pattern_output, actual_output, params, substitutions);
     }
     if let (Some((pattern_name, pattern_args)), Some((actual_name, actual_args))) =
@@ -1402,11 +1419,15 @@ fn substitute_type_params(type_name: &str, substitutions: &HashMap<String, Strin
             );
         }
     }
-    if let Some((kind, message, output)) = crate::builtins::thread::thread_parts(type_name) {
-        return format!(
-            "{kind} OF {} TO {}",
-            substitute_type_params(message, substitutions),
-            substitute_type_params(output, substitutions)
+    if let Some((kind, message, resource, output)) =
+        crate::builtins::thread::thread_parts_full(type_name)
+    {
+        let resource = resource.map(|resource| substitute_type_params(resource, substitutions));
+        return crate::builtins::thread::format_thread_type(
+            kind,
+            &substitute_type_params(message, substitutions),
+            resource.as_deref(),
+            &substitute_type_params(output, substitutions),
         );
     }
     if let Some((name, args)) = user_template_parts(type_name) {

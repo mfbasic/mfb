@@ -1,0 +1,16 @@
+$ mfb build -ast tests/resource-union-state-invalid
+  12 | 
+  13 | FUNC main AS Integer
+  14 |   RES s AS Stream STATE StreamState = fs::createTempFile()
+     | ^
+tests/resource-union-state-invalid/src/main.mfb:14 error[2-203-0088 TYPE_UNION_STATE_FORBIDDEN]: a resource union carries no STATE
+               binding `s` attaches STATE to resource union `Stream`; a resource union carries no STATE — use a concrete stateful resource.
+[exit 1]
+$ mfb build -ir tests/resource-union-state-invalid
+  12 | 
+  13 | FUNC main AS Integer
+  14 |   RES s AS Stream STATE StreamState = fs::createTempFile()
+     | ^
+tests/resource-union-state-invalid/src/main.mfb:14 error[2-203-0088 TYPE_UNION_STATE_FORBIDDEN]: a resource union carries no STATE
+               binding `s` attaches STATE to resource union `Stream`; a resource union carries no STATE — use a concrete stateful resource.
+[exit 1]

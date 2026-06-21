@@ -1,0 +1,36 @@
+IMPORT fs
+IMPORT net
+IMPORT io
+
+UNION Stream
+  File
+  Socket
+END UNION
+
+' The union's active variant is File. On scope-drop the tag-dispatched cleanup
+' must run the File variant's close op, which flushes and closes the file.
+SUB writeVia(path AS String, data AS String)
+  RES s AS Stream = fs::openFile(path, "write")
+  MATCH s
+    CASE File(f)
+      fs::writeAll(f, data)
+    CASE Socket(sock)
+      io::print("unexpected socket")
+  END MATCH
+END SUB
+
+FUNC main AS Integer
+  LET path AS String = "target/resource_union_drop_valid.txt"
+  IF fs::fileExists(path) THEN
+    fs::deleteFile(path)
+  END IF
+  writeVia(path, "union-drop-9")
+  ' If the union drop had not closed the File variant, the bytes would not be
+  ' flushed and this readback would fail.
+  RES r AS File = fs::openFile(path)
+  LET back AS String = fs::readAll(r)
+  fs::close(r)
+  io::print(back)
+  fs::deleteFile(path)
+  RETURN 0
+END FUNC

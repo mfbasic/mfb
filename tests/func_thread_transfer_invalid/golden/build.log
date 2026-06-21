@@ -1,28 +1,16 @@
 $ mfb build -ast tests/func_thread_transfer_invalid
-   4 | FUNC main AS Integer
    5 |   LET t AS Thread OF String TO Integer = thread::start(thread_workers::echoText, "a", 1, 1)
-   6 |   thread::transfer(t, "x")
+   6 |   ' A data-only thread has no resource plane, so `transfer`/`accept` are invalid.
+   7 |   thread::transfer(t, "x")
      | ^
-tests/func_thread_transfer_invalid/src/main.mfb:6 error[2-203-0063 TYPE_THREAD_NOT_SENDABLE]: thread boundary type is not sendable
-               Call to `thread.transfer` carries `String`, which is not a resource; the resource plane moves only resources.
-   5 |   LET t AS Thread OF String TO Integer = thread::start(thread_workers::echoText, "a", 1, 1)
-   6 |   thread::transfer(t, "x")
-   7 |   LET bad AS String = thread::accept(t)
-     | ^
-tests/func_thread_transfer_invalid/src/main.mfb:7 error[2-203-0063 TYPE_THREAD_NOT_SENDABLE]: thread boundary type is not sendable
-               Call to `thread.accept` carries `String`, which is not a resource; the resource plane moves only resources.
+tests/func_thread_transfer_invalid/src/main.mfb:7 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `thread.transfer` has argument type(s) (Thread OF String TO Integer, String), expected Thread OF Msg RES Res TO Out or ThreadWorker OF Msg RES Res TO Out, Res, Integer.
 [exit 1]
 $ mfb build -ir tests/func_thread_transfer_invalid
-   4 | FUNC main AS Integer
    5 |   LET t AS Thread OF String TO Integer = thread::start(thread_workers::echoText, "a", 1, 1)
-   6 |   thread::transfer(t, "x")
+   6 |   ' A data-only thread has no resource plane, so `transfer`/`accept` are invalid.
+   7 |   thread::transfer(t, "x")
      | ^
-tests/func_thread_transfer_invalid/src/main.mfb:6 error[2-203-0063 TYPE_THREAD_NOT_SENDABLE]: thread boundary type is not sendable
-               Call to `thread.transfer` carries `String`, which is not a resource; the resource plane moves only resources.
-   5 |   LET t AS Thread OF String TO Integer = thread::start(thread_workers::echoText, "a", 1, 1)
-   6 |   thread::transfer(t, "x")
-   7 |   LET bad AS String = thread::accept(t)
-     | ^
-tests/func_thread_transfer_invalid/src/main.mfb:7 error[2-203-0063 TYPE_THREAD_NOT_SENDABLE]: thread boundary type is not sendable
-               Call to `thread.accept` carries `String`, which is not a resource; the resource plane moves only resources.
+tests/func_thread_transfer_invalid/src/main.mfb:7 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `thread.transfer` has argument type(s) (Thread OF String TO Integer, String), expected Thread OF Msg RES Res TO Out or ThreadWorker OF Msg RES Res TO Out, Res, Integer.
 [exit 1]

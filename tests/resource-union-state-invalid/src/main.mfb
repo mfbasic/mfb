@@ -1,0 +1,16 @@
+IMPORT fs
+IMPORT net
+
+TYPE StreamState
+  bytes AS Integer
+END TYPE
+
+UNION Stream
+  File
+  Socket
+END UNION
+
+FUNC main AS Integer
+  RES s AS Stream STATE StreamState = fs::createTempFile()
+  RETURN 0
+END FUNC

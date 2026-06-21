@@ -32,8 +32,10 @@ enum Type {
     Nothing,
     Result(Box<Type>),
     String,
-    Thread(Box<Type>, Box<Type>),
-    ThreadWorker(Box<Type>, Box<Type>),
+    // (message, resource, output). `resource` is the optional resource-plane
+    // type carried by thread::transfer/accept; `None` for a data-only thread.
+    Thread(Box<Type>, Option<Box<Type>>, Box<Type>),
+    ThreadWorker(Box<Type>, Option<Box<Type>>, Box<Type>),
     User(String),
     Unknown,
 }
@@ -416,7 +418,8 @@ impl<'a> TypeChecker<'a> {
                     seen,
                 );
             }
-            Type::Thread(message, output) | Type::ThreadWorker(message, output) => {
+            Type::Thread(message, resource, output)
+            | Type::ThreadWorker(message, resource, output) => {
                 self.validate_package_metadata_type(
                     file,
                     line,
@@ -425,6 +428,16 @@ impl<'a> TypeChecker<'a> {
                     context,
                     seen,
                 );
+                if let Some(resource) = resource {
+                    self.validate_package_metadata_type(
+                        file,
+                        line,
+                        package_file,
+                        resource,
+                        context,
+                        seen,
+                    );
+                }
                 self.validate_package_metadata_type(
                     file,
                     line,
@@ -1512,6 +1525,21 @@ impl<'a> TypeChecker<'a> {
         }
 
         if let Some(state) = state_type {
+            // A resource union abstracts over *which* resource it holds, so a
+            // union-level STATE is undefined — it would vary by tag and be absent
+            // for stateless variants. STATE belongs to one concrete resource.
+            let on_resource_union = matches!(declared, Some(Type::User(name)) if self.is_resource_union(name));
+            if on_resource_union {
+                let type_name = self.type_name(declared.unwrap());
+                self.report(
+                    "TYPE_UNION_STATE_FORBIDDEN",
+                    &format!(
+                        "{context} attaches STATE to resource union `{type_name}`; a resource union carries no STATE — use a concrete stateful resource."
+                    ),
+                    file,
+                    line,
+                );
+            }
             let state_resolved = self.parse_type(state);
             self.check_type_reference(file, &state_resolved, line);
             if !self.is_copyable_type(&state_resolved)
@@ -3268,7 +3296,7 @@ impl<'a> TypeChecker<'a> {
         }
 
         let target_type = self.infer_expression(file, target, locals, line, ExprMode::Read);
-        if let Type::Thread(_, _) = &target_type {
+        if let Type::Thread(..) = &target_type {
             if member == "result" {
                 // The `t.result` field is removed: a worker outcome is retrieved
                 // only through `thread::waitFor(t)`, which auto-unwraps the value
@@ -4792,15 +4820,18 @@ impl<'a> TypeChecker<'a> {
         if let Some(success) = name.strip_prefix("Result OF ") {
             return Type::Result(Box::new(self.parse_type(success)));
         }
-        if let Some((kind, message, output)) = builtins::thread::thread_parts(name) {
+        if let Some((kind, message, resource, output)) = builtins::thread::thread_parts_full(name) {
+            let resource = resource.map(|resource| Box::new(self.parse_type(resource)));
             if kind == builtins::thread::THREAD_WORKER_TYPE {
                 return Type::ThreadWorker(
                     Box::new(self.parse_type(message)),
+                    resource,
                     Box::new(self.parse_type(output)),
                 );
             }
             return Type::Thread(
                 Box::new(self.parse_type(message)),
+                resource,
                 Box::new(self.parse_type(output)),
             );
         }
@@ -4862,17 +4893,19 @@ impl<'a> TypeChecker<'a> {
             }
             (Type::Result(expected), Type::Result(actual)) => self.compatible(expected, actual),
             (
-                Type::Thread(expected_message, expected_output),
-                Type::Thread(actual_message, actual_output),
+                Type::Thread(expected_message, expected_resource, expected_output),
+                Type::Thread(actual_message, actual_resource, actual_output),
             ) => {
                 self.compatible(expected_message, actual_message)
+                    && self.compatible_optional(expected_resource, actual_resource)
                     && self.compatible(expected_output, actual_output)
             }
             (
-                Type::ThreadWorker(expected_message, expected_output),
-                Type::ThreadWorker(actual_message, actual_output),
+                Type::ThreadWorker(expected_message, expected_resource, expected_output),
+                Type::ThreadWorker(actual_message, actual_resource, actual_output),
             ) => {
                 self.compatible(expected_message, actual_message)
+                    && self.compatible_optional(expected_resource, actual_resource)
                     && self.compatible(expected_output, actual_output)
             }
             (
@@ -4906,6 +4939,16 @@ impl<'a> TypeChecker<'a> {
                     })
             }
             _ => expected == actual,
+        }
+    }
+
+    /// Compatibility for the optional resource plane of a thread type: both
+    /// absent, or both present and compatible.
+    fn compatible_optional(&self, expected: &Option<Box<Type>>, actual: &Option<Box<Type>>) -> bool {
+        match (expected, actual) {
+            (None, None) => true,
+            (Some(expected), Some(actual)) => self.compatible(expected, actual),
+            _ => false,
         }
     }
 
@@ -4971,8 +5014,8 @@ impl<'a> TypeChecker<'a> {
             | Type::Map(_, _)
             | Type::Function { .. }
             | Type::Result(_)
-            | Type::Thread(_, _)
-            | Type::ThreadWorker(_, _) => false,
+            | Type::Thread(..)
+            | Type::ThreadWorker(..) => false,
             Type::User(name) => {
                 if self.resource_registry.is_resource(name) || !seen.insert(name.clone()) {
                     return false;
@@ -5105,7 +5148,7 @@ impl<'a> TypeChecker<'a> {
         seen: &mut HashSet<String>,
     ) -> bool {
         match type_ {
-            Type::Thread(_, _) | Type::ThreadWorker(_, _) => true,
+            Type::Thread(..) | Type::ThreadWorker(..) => true,
             Type::User(name) if self.resource_registry.is_resource(name) => true,
             Type::List(element) => self.contains_resource_or_thread_with_seen(element, seen),
             Type::Map(key, value) => {
@@ -5188,8 +5231,8 @@ impl<'a> TypeChecker<'a> {
             }
             Type::Function { .. }
             | Type::Result(_)
-            | Type::Thread(_, _)
-            | Type::ThreadWorker(_, _) => false,
+            | Type::Thread(..)
+            | Type::ThreadWorker(..) => false,
             Type::User(name) => {
                 if self.resource_registry.is_resource(name) {
                     return false;
@@ -5232,7 +5275,7 @@ impl<'a> TypeChecker<'a> {
             }
             Type::Result(success) => self.is_copyable_type_with_seen(success, seen),
             Type::Function { .. } => true,
-            Type::Thread(_, _) | Type::ThreadWorker(_, _) => false,
+            Type::Thread(..) | Type::ThreadWorker(..) => false,
             Type::User(name) => {
                 if self.resource_registry.is_resource(name) {
                     return false;
@@ -5280,7 +5323,7 @@ impl<'a> TypeChecker<'a> {
                     && self.is_thread_sendable_type_with_seen(value, seen)
             }
             Type::Result(success) => self.is_thread_sendable_type_with_seen(success, seen),
-            Type::Function { .. } | Type::Thread(_, _) | Type::ThreadWorker(_, _) => false,
+            Type::Function { .. } | Type::Thread(..) | Type::ThreadWorker(..) => false,
             Type::User(name) => {
                 if self.resource_registry.is_resource(name) {
                     return self.resource_registry.is_sendable(name);
@@ -5358,13 +5401,22 @@ impl<'a> TypeChecker<'a> {
                         input,
                     );
                 }
-                if let Type::Thread(message, output) = return_type {
+                if let Type::Thread(message, resource, output) = return_type {
                     self.require_thread_sendable_type(
                         file,
                         line,
                         &format!("Call to `{display_callee}` message type"),
                         message,
                     );
+                    if let Some(resource) = resource {
+                        // The resource plane carries only thread-sendable resources.
+                        self.require_thread_sendable_type(
+                            file,
+                            line,
+                            &format!("Call to `{display_callee}` resource type"),
+                            resource,
+                        );
+                    }
                     self.require_thread_sendable_type(
                         file,
                         line,
@@ -5376,7 +5428,7 @@ impl<'a> TypeChecker<'a> {
             "thread.send" => {
                 if let Some(handle) = arg_types.first() {
                     match handle {
-                        Type::Thread(message, _) | Type::ThreadWorker(message, _) => {
+                        Type::Thread(message, _, _) | Type::ThreadWorker(message, _, _) => {
                             self.require_thread_sendable_type(
                                 file,
                                 line,
@@ -5403,26 +5455,40 @@ impl<'a> TypeChecker<'a> {
             }
             "thread.transfer" | "thread.accept" => {
                 if let Some(handle) = arg_types.first() {
-                    if let Type::Thread(message, _) | Type::ThreadWorker(message, _) = handle {
-                        // The resource plane carries only thread-sendable
-                        // resources.
-                        if self.is_resource_type(message) {
-                            self.require_thread_sendable_type(
-                                file,
-                                line,
-                                &format!("Call to `{display_callee}` resource type"),
-                                message,
-                            );
-                        } else {
-                            self.report(
-                                "TYPE_THREAD_NOT_SENDABLE",
-                                &format!(
-                                    "Call to `{display_callee}` carries `{}`, which is not a resource; the resource plane moves only resources.",
-                                    self.type_name(message)
-                                ),
-                                file,
-                                line,
-                            );
+                    if let Type::Thread(_, resource, _) | Type::ThreadWorker(_, resource, _) = handle
+                    {
+                        match resource {
+                            // The resource plane carries only thread-sendable
+                            // resources, and only when the thread declares one.
+                            Some(resource) if self.is_resource_type(resource) => {
+                                self.require_thread_sendable_type(
+                                    file,
+                                    line,
+                                    &format!("Call to `{display_callee}` resource type"),
+                                    resource,
+                                );
+                            }
+                            Some(resource) => {
+                                self.report(
+                                    "TYPE_THREAD_NOT_SENDABLE",
+                                    &format!(
+                                        "Call to `{display_callee}` carries `{}`, which is not a resource; the resource plane moves only resources.",
+                                        self.type_name(resource)
+                                    ),
+                                    file,
+                                    line,
+                                );
+                            }
+                            None => {
+                                self.report(
+                                    "TYPE_THREAD_NOT_SENDABLE",
+                                    &format!(
+                                        "Call to `{display_callee}` requires a thread with a resource plane (`Thread OF … RES Res TO …`); this thread has no resource channel."
+                                    ),
+                                    file,
+                                    line,
+                                );
+                            }
                         }
                     }
                 }
@@ -5479,11 +5545,35 @@ impl<'a> TypeChecker<'a> {
                     line,
                 );
             }
-            Type::Thread(message, output) | Type::ThreadWorker(message, output) => {
+            Type::Thread(message, resource, output)
+            | Type::ThreadWorker(message, resource, output) => {
                 self.check_type_reference(file, message, line);
                 self.check_type_reference(file, output, line);
                 self.require_thread_sendable_type(file, line, "Thread message type", message);
                 self.require_thread_sendable_type(file, line, "Thread output type", output);
+                // The data plane is resource-free (§7): a resource may only ride
+                // the `RES Res` resource plane, never the message slot.
+                if self.is_resource_type(message) {
+                    self.report(
+                        "TYPE_THREAD_NOT_SENDABLE",
+                        &format!(
+                            "Thread message type `{}` is a resource; the data channel is resource-free — declare it on the resource plane (`Thread OF … RES {} TO …`).",
+                            self.type_name(message),
+                            self.type_name(message)
+                        ),
+                        file,
+                        line,
+                    );
+                }
+                if let Some(resource) = resource {
+                    self.check_type_reference(file, resource, line);
+                    self.require_thread_sendable_type(
+                        file,
+                        line,
+                        "Thread resource type",
+                        resource,
+                    );
+                }
             }
             Type::User(name) => {
                 if name == "Ok" {
@@ -5560,16 +5650,15 @@ impl<'a> TypeChecker<'a> {
             Type::Nothing => "Nothing".to_string(),
             Type::Result(success) => format!("Result OF {}", self.type_name(success)),
             Type::String => "String".to_string(),
-            Type::Thread(message, output) => {
-                let message = self.thread_type_argument_name(message);
-                let output = self.thread_type_argument_name(output);
-                format!("Thread OF {message} TO {output}")
+            Type::Thread(message, resource, output) => {
+                self.format_thread_type_name(builtins::thread::THREAD_TYPE, message, resource, output)
             }
-            Type::ThreadWorker(message, output) => {
-                let message = self.thread_type_argument_name(message);
-                let output = self.thread_type_argument_name(output);
-                format!("ThreadWorker OF {message} TO {output}")
-            }
+            Type::ThreadWorker(message, resource, output) => self.format_thread_type_name(
+                builtins::thread::THREAD_WORKER_TYPE,
+                message,
+                resource,
+                output,
+            ),
             Type::User(name) => name.clone(),
             Type::Unknown => "Unknown".to_string(),
         }
@@ -5582,6 +5671,24 @@ impl<'a> TypeChecker<'a> {
         } else {
             name
         }
+    }
+
+    /// Format a `Thread`/`ThreadWorker` type, emitting the optional `RES Res`
+    /// clause and the resource-only spelling (message `Nothing`) symmetrically
+    /// with the parser.
+    fn format_thread_type_name(
+        &self,
+        kind: &str,
+        message: &Type,
+        resource: &Option<Box<Type>>,
+        output: &Type,
+    ) -> String {
+        let message = self.thread_type_argument_name(message);
+        let output = self.thread_type_argument_name(output);
+        let resource = resource
+            .as_ref()
+            .map(|resource| self.thread_type_argument_name(resource));
+        builtins::thread::format_thread_type(kind, &message, resource.as_deref(), &output)
     }
 
     fn report(&mut self, rule: &str, detail: &str, file: &AstFile, line: usize) {

@@ -1,0 +1,92 @@
+{
+  "project": "resource_union_drop_valid",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "fs", "line": 1 },
+    { "module": "net", "line": 2 },
+    { "module": "io", "line": 3 }
+    ],
+    "items": [
+    {
+      "kind": "union",
+      "visibility": "private",
+      "name": "Stream",
+      "line": 5,
+      "includes": [],
+      "variants": [
+      { "name": "File", "line": 6 },
+      { "name": "Socket", "line": 7 }
+      ]
+    },
+    {
+      "kind": "sub",
+      "visibility": "private",
+      "name": "writeVia",
+      "line": 12,
+      "params": [
+      { "name": "path", "type": "String", "default": null },
+      { "name": "data", "type": "String", "default": null }
+      ],
+      "returnType": null,
+      "body": [
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "s", "type": "Stream", "value": { "kind": "call", "callee": "fs.openFile", "arguments": [{ "kind": "identifier", "value": "path" }, { "kind": "string", "value": "write" }] }, "line": 13 },
+      {
+        "kind": "match",
+        "expression": { "kind": "identifier", "value": "s" },
+        "line": 14,
+        "cases": [
+        {
+          "pattern": { "kind": "union", "type": "File", "binding": "f" },
+          "guard": null,
+          "line": 15,
+          "body": [
+          { "kind": "expression", "expression": { "kind": "call", "callee": "fs.writeAll", "arguments": [{ "kind": "identifier", "value": "f" }, { "kind": "identifier", "value": "data" }] }, "line": 16 }
+          ]
+        },
+        {
+          "pattern": { "kind": "union", "type": "Socket", "binding": "sock" },
+          "guard": null,
+          "line": 17,
+          "body": [
+          { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "unexpected socket" }] }, "line": 18 }
+          ]
+        }
+        ]
+      }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "main",
+      "line": 22,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "path", "type": "String", "value": { "kind": "string", "value": "target/resource_union_drop_valid.txt" }, "line": 23 },
+      {
+        "kind": "if",
+        "condition": { "kind": "call", "callee": "fs.fileExists", "arguments": [{ "kind": "identifier", "value": "path" }] },
+        "line": 24,
+        "then": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "fs.deleteFile", "arguments": [{ "kind": "identifier", "value": "path" }] }, "line": 25 }
+        ],
+        "else": [
+        ]
+      },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "writeVia", "arguments": [{ "kind": "identifier", "value": "path" }, { "kind": "string", "value": "union-drop-9" }] }, "line": 27 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "r", "type": "File", "value": { "kind": "call", "callee": "fs.openFile", "arguments": [{ "kind": "identifier", "value": "path" }] }, "line": 30 },
+      { "kind": "binding", "mutable": false, "name": "back", "type": "String", "value": { "kind": "call", "callee": "fs.readAll", "arguments": [{ "kind": "identifier", "value": "r" }] }, "line": 31 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "fs.close", "arguments": [{ "kind": "identifier", "value": "r" }] }, "line": 32 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "identifier", "value": "back" }] }, "line": 33 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "fs.deleteFile", "arguments": [{ "kind": "identifier", "value": "path" }] }, "line": 34 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 35 }
+      ]
+    }
+    ]
+  }
+  ]
+}

@@ -3,7 +3,7 @@ IMPORT thread_workers
 
 FUNC main AS Integer
   LET t AS Thread OF String TO Integer = thread::start(thread_workers::echoText, "a", 1, 1)
+  ' A data-only thread has no resource plane, so `transfer`/`accept` are invalid.
   thread::transfer(t, "x")
-  LET bad AS String = thread::accept(t)
   RETURN 0
 END FUNC

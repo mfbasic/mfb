@@ -1860,11 +1860,14 @@ fn function_param_types_from_type(type_: &str) -> Option<Vec<String>> {
     Some(params.split(", ").map(str::to_string).collect())
 }
 
-/// Map resource-plane thread calls onto the data-channel runtime they reuse.
+/// Lower resource-plane thread calls to their dedicated runtime helpers. The
+/// resource plane mirrors `send`/`receive` but runs on a separate per-thread
+/// resource queue so a thread can carry both a data channel and a resource
+/// channel at once (§7).
 fn thread_resource_plane_target(name: &str) -> &str {
     match name {
-        "thread.transfer" => "thread.send",
-        "thread.accept" => "thread.receive",
+        "thread.transfer" => "thread.transferResource",
+        "thread.accept" => "thread.acceptResource",
         other => other,
     }
 }

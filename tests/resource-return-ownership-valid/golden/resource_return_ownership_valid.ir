@@ -1,0 +1,56 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "resource_return_ownership_valid",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "reopen",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    { "name": "path", "type": "String", "default": null }
+    ],
+    "returns": "File",
+    "body": [
+    { "op": "bind", "mutable": false, "name": "f", "type": "File", "value": { "kind": "call", "target": "fs.openFile", "args": [{ "kind": "local", "name": "path" }] } },
+    { "op": "return", "value": { "kind": "local", "name": "f" } }
+    ]
+  },
+  {
+    "name": "main",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "mutable": false, "name": "path", "type": "String", "value": { "kind": "const", "type": "String", "value": "target/resource_return_ownership_valid.txt" } },
+    {
+      "op": "if",
+      "condition": { "kind": "call", "target": "fs.fileExists", "args": [{ "kind": "local", "name": "path" }] },
+      "then": [
+      { "op": "eval", "value": { "kind": "call", "target": "fs.deleteFile", "args": [{ "kind": "local", "name": "path" }] } }
+      ],
+      "else": [
+      ]
+    },
+    { "op": "bind", "mutable": false, "name": "w", "type": "File", "value": { "kind": "call", "target": "fs.openFile", "args": [{ "kind": "local", "name": "path" }, { "kind": "const", "type": "String", "value": "write" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "fs.writeAll", "args": [{ "kind": "local", "name": "w" }, { "kind": "const", "type": "String", "value": "returned-handle" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "fs.close", "args": [{ "kind": "local", "name": "w" }] } },
+    { "op": "bind", "mutable": false, "name": "g", "type": "File", "value": { "kind": "call", "target": "reopen", "args": [{ "kind": "local", "name": "path" }] } },
+    { "op": "bind", "mutable": false, "name": "back", "type": "String", "value": { "kind": "call", "target": "fs.readAll", "args": [{ "kind": "local", "name": "g" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "fs.close", "args": [{ "kind": "local", "name": "g" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "local", "name": "back" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "fs.deleteFile", "args": [{ "kind": "local", "name": "path" }] } },
+    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

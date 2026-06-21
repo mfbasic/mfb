@@ -772,6 +772,12 @@ pub const RULES: &[Rule] = &[
         message: "a union must be all-data or all-resource, never mixed",
     },
     Rule {
+        code: "2-203-0088",
+        name: "TYPE_UNION_STATE_FORBIDDEN",
+        severity: Severity::Error,
+        message: "a resource union carries no STATE",
+    },
+    Rule {
         code: "2-200-0011",
         name: "PROJECT_ENTRY_INVALID",
         severity: Severity::Error,
