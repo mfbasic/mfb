@@ -1288,7 +1288,13 @@ thread::receive OF Msg, Out(t AS Thread OF Msg TO Out, timeoutMs AS Integer = 0)
 thread::send OF Msg, Out(t AS ThreadWorker OF Msg TO Out, data AS Msg, timeoutMs AS Integer = 0) AS Nothing
 thread::receive OF Msg, Out(t AS ThreadWorker OF Msg TO Out, timeoutMs AS Integer = 0) AS Msg
 thread::isCancelled OF Msg, Out(t AS ThreadWorker OF Msg TO Out) AS Boolean
+thread::transfer OF Res, Out(t AS Thread OF Res TO Out, res AS RES Res, timeoutMs AS Integer = 0) AS Nothing
+thread::accept OF Res, Out(t AS Thread OF Res TO Out, timeoutMs AS Integer = 0) AS RES Res
+thread::transfer OF Res, Out(t AS ThreadWorker OF Res TO Out, res AS RES Res, timeoutMs AS Integer = 0) AS Nothing
+thread::accept OF Res, Out(t AS ThreadWorker OF Res TO Out, timeoutMs AS Integer = 0) AS RES Res
 ```
+
+**Two planes across a thread boundary.** The message channel (`thread::send` / `thread::receive` / `thread::poll`) carries **copyable, resource-free data**: a resource is not a valid message (`TYPE_THREAD_NOT_SENDABLE` — use `thread::transfer`). Resources cross on a dedicated **resource plane** (`thread::transfer` / `thread::accept`), where the message type is itself a resource (`Thread OF File TO Out`). `thread::transfer(t, res)` **moves** `res` to `t` (invalidation event #2, §15): the sender binding is consumed, with ownership returned to the sender on failure (a `TRAP` handler may reuse it). `thread::accept(t)` receives a transferred resource and binds it with `RES`. Only thread-sendable resource types may cross.
 
 Thread functions are ordinary built-in templates. Their `Msg` and `Out` parameters are resolved by the template rules in §3 from argument types and expected result types. `thread::start` gets `Msg` and `Out` from the started function's first `ThreadWorker OF Msg TO Out` parameter, and gets `In` from the started function's second parameter and the `data` argument. If a thread does not exchange messages, `Msg` may be `Nothing`.
 

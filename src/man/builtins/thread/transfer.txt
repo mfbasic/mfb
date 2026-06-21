@@ -1,0 +1,24 @@
+NAME
+  transfer - move a resource across a thread boundary
+
+SYNOPSIS
+  thread::transfer(t AS Thread OF Res TO Out, res AS RES Res, timeoutMs AS Integer = 0) AS Nothing
+  thread::transfer(t AS ThreadWorker OF Res TO Out, res AS RES Res, timeoutMs AS Integer = 0) AS Nothing
+
+DESCRIPTION
+  The resource plane of the thread boundary. transfer MOVES a thread-sendable
+  resource to the thread selected by the handle type: the sender's RES binding
+  is consumed and cannot be used again on a successful path. On failure,
+  ownership returns to the sender, so a TRAP handler may reuse the binding.
+
+  Res must be a resource type; transferring a non-resource fails to type-check
+  (use thread::send for data). The data channel (thread::send / thread::receive)
+  is resource-free.
+
+  timeoutMs = 0 does not wait for queue space; a positive timeout waits up to
+  that many milliseconds. Fails with ErrInterrupted when the thread has ended or
+  cancellation was requested, and with ErrTimeout when the timeout expires.
+
+EXAMPLES
+  RES f AS File = fs::openFile("data.txt")
+  thread::transfer(t, f)

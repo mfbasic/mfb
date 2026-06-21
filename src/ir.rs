@@ -1860,6 +1860,15 @@ fn function_param_types_from_type(type_: &str) -> Option<Vec<String>> {
     Some(params.split(", ").map(str::to_string).collect())
 }
 
+/// Map resource-plane thread calls onto the data-channel runtime they reuse.
+fn thread_resource_plane_target(name: &str) -> &str {
+    match name {
+        "thread.transfer" => "thread.send",
+        "thread.accept" => "thread.receive",
+        other => other,
+    }
+}
+
 fn canonical_import_name(name: &str, context: &LowerContext<'_>) -> String {
     let Some((binding, rest)) = name.split_once('.') else {
         return name.to_string();
@@ -2193,10 +2202,13 @@ fn lower_expression_with_expected(
                     })
                     .collect()
             };
+            let resolved_target = builtins::json::implementation_name(&canonical_callee)
+                .unwrap_or(&canonical_callee);
             IrValue::Call {
-                target: builtins::json::implementation_name(&canonical_callee)
-                    .unwrap_or(&canonical_callee)
-                    .to_string(),
+                // The resource plane reuses the proven data-channel runtime:
+                // `thread::transfer`/`accept` lower exactly like `send`/`receive`
+                // (typecheck already enforced their resource semantics).
+                target: thread_resource_plane_target(resolved_target).to_string(),
                 args,
                 loc,
             }

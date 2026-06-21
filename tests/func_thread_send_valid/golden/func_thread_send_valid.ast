@@ -27,13 +27,13 @@
       { "kind": "expression", "expression": { "kind": "call", "callee": "thread.send", "arguments": [{ "kind": "identifier", "value": "t2" }, { "kind": "string", "value": "e" }, { "kind": "number", "value": "0" }] }, "line": 12 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "thread.send", "arguments": [{ "kind": "identifier", "value": "t3" }, { "kind": "string", "value": "f" }, { "kind": "number", "value": "1" }] }, "line": 13 },
       { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "sentFile", "type": "File", "value": { "kind": "call", "callee": "fs.openFile", "arguments": [{ "kind": "string", "value": "tests/func_thread_send_valid/src/main.mfb" }] }, "line": 14 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "thread.send", "arguments": [{ "kind": "identifier", "value": "fileThread" }, { "kind": "identifier", "value": "sentFile" }] }, "line": 15 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "thread.transfer", "arguments": [{ "kind": "identifier", "value": "fileThread" }, { "kind": "identifier", "value": "sentFile" }] }, "line": 15 },
       { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "recoverFile", "type": "File", "value": { "kind": "call", "callee": "fs.openFile", "arguments": [{ "kind": "string", "value": "tests/func_thread_send_valid/src/main.mfb" }] }, "line": 16 },
       { "kind": "expression", "expression": {
         "kind": "trapped",
         "binding": "err",
         "line": 17,
-        "expression": { "kind": "call", "callee": "thread.send", "arguments": [{ "kind": "identifier", "value": "fileThread" }, { "kind": "identifier", "value": "recoverFile" }] },
+        "expression": { "kind": "call", "callee": "thread.transfer", "arguments": [{ "kind": "identifier", "value": "fileThread" }, { "kind": "identifier", "value": "recoverFile" }] },
         "handler": [
         { "kind": "expression", "expression": { "kind": "call", "callee": "fs.close", "arguments": [{ "kind": "identifier", "value": "recoverFile" }] }, "line": 18 },
         { "kind": "recover", "value": null, "line": 19 }

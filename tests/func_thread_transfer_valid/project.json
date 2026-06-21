@@ -1,0 +1,12 @@
+{
+  "name": "func_thread_transfer_valid",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "executable",
+  "sources": [{ "root": "src", "role": "main", "include": ["**/*.mfb"] }],
+  "packages": [
+    { "name": "thread_file_sink", "version": "=1.0.0", "source": "file:packages/thread_file_sink.mfp" }
+  ],
+  "entry": "main",
+  "targets": ["native"]
+}

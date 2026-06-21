@@ -12,9 +12,9 @@ FUNC main AS Integer
   thread::send(t2, "e", 0)
   thread::send(t3, "f", 1)
   RES sentFile AS File = fs::openFile("tests/func_thread_send_valid/src/main.mfb")
-  thread::send(fileThread, sentFile)
+  thread::transfer(fileThread, sentFile)
   RES recoverFile AS File = fs::openFile("tests/func_thread_send_valid/src/main.mfb")
-  thread::send(fileThread, recoverFile) TRAP(err)
+  thread::transfer(fileThread, recoverFile) TRAP(err)
     fs::close(recoverFile)
     RECOVER
   END TRAP

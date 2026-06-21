@@ -1,0 +1,12 @@
+$ mfb build -ast tests/func_thread_transfer_valid
+Wrote AST to tests/func_thread_transfer_valid/func_thread_transfer_valid.ast
+[exit 0]
+$ mfb build -ir tests/func_thread_transfer_valid
+Wrote IR to tests/func_thread_transfer_valid/func_thread_transfer_valid.ir
+[exit 0]
+$ mfb build tests/func_thread_transfer_valid
+Wrote executable to tests/func_thread_transfer_valid/func_thread_transfer_valid.out
+[exit 0]
+$ tests/func_thread_transfer_valid/func_thread_transfer_valid.out
+20
+[exit 0]

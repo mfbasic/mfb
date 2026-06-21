@@ -2648,7 +2648,11 @@ impl<'a> TypeChecker<'a> {
         else {
             return None;
         };
-        if self.canonical_import_name(file, callee) != "thread.send" {
+        // Both `thread.send` and the resource-plane `thread.transfer` move on
+        // success and return ownership to the sender on failure, so a `TRAP`
+        // handler may use the binding again.
+        let canonical = self.canonical_import_name(file, callee);
+        if canonical != "thread.send" && canonical != "thread.transfer" {
             return None;
         }
         let Some(argument) = arguments.get(1).map(call_arg_value) else {
@@ -5025,8 +5029,12 @@ impl<'a> TypeChecker<'a> {
 
     fn thread_argument_mode(&self, callee: &str, index: usize) -> ExprMode {
         match (callee, index) {
-            ("thread.start", 1) | ("thread.send", 1) => ExprMode::Transfer,
-            ("thread.start", _) | ("thread.send", _) => ExprMode::Borrow,
+            // `thread.transfer` is resource-plane invalidation event #2: the
+            // resource moves to the worker, so the sender binding is consumed.
+            ("thread.start", 1) | ("thread.send", 1) | ("thread.transfer", 1) => {
+                ExprMode::Transfer
+            }
+            ("thread.start", _) | ("thread.send", _) | ("thread.transfer", _) => ExprMode::Borrow,
             _ => ExprMode::Borrow,
         }
     }
@@ -5375,8 +5383,47 @@ impl<'a> TypeChecker<'a> {
                                 &format!("Call to `{display_callee}` message type"),
                                 message,
                             );
+                            // The data plane is resource-free: a resource moves
+                            // across a thread only via `thread::transfer` (§7).
+                            if self.is_resource_type(message) {
+                                self.report(
+                                    "TYPE_THREAD_NOT_SENDABLE",
+                                    &format!(
+                                        "Call to `{display_callee}` message type `{}` is a resource; the message channel is resource-free — use `thread::transfer`.",
+                                        self.type_name(message)
+                                    ),
+                                    file,
+                                    line,
+                                );
+                            }
                         }
                         _ => {}
+                    }
+                }
+            }
+            "thread.transfer" | "thread.accept" => {
+                if let Some(handle) = arg_types.first() {
+                    if let Type::Thread(message, _) | Type::ThreadWorker(message, _) = handle {
+                        // The resource plane carries only thread-sendable
+                        // resources.
+                        if self.is_resource_type(message) {
+                            self.require_thread_sendable_type(
+                                file,
+                                line,
+                                &format!("Call to `{display_callee}` resource type"),
+                                message,
+                            );
+                        } else {
+                            self.report(
+                                "TYPE_THREAD_NOT_SENDABLE",
+                                &format!(
+                                    "Call to `{display_callee}` carries `{}`, which is not a resource; the resource plane moves only resources.",
+                                    self.type_name(message)
+                                ),
+                                file,
+                                line,
+                            );
+                        }
                     }
                 }
             }

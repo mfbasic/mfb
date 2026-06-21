@@ -59,6 +59,12 @@ tests/func_thread_send_invalid/src/main.mfb:20 error[2-203-0022 TYPE_CALL_ARITY_
      | ^
 tests/func_thread_send_invalid/src/main.mfb:20 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `tooMany` does not have a known type.
+  20 |   LET tooMany AS Nothing = thread::send(t, "b", 0, 1)
+  21 |   RES movedFile AS File = fs::openFile("tests/func_thread_send_invalid/src/main.mfb")
+  22 |   thread::send(fileThread, movedFile)
+     | ^
+tests/func_thread_send_invalid/src/main.mfb:22 error[2-203-0063 TYPE_THREAD_NOT_SENDABLE]: thread boundary type is not sendable
+               Call to `thread.send` message type `File` is a resource; the message channel is resource-free — use `thread::transfer`.
   21 |   RES movedFile AS File = fs::openFile("tests/func_thread_send_invalid/src/main.mfb")
   22 |   thread::send(fileThread, movedFile)
   23 |   fs::close(movedFile)
@@ -133,6 +139,12 @@ tests/func_thread_send_invalid/src/main.mfb:20 error[2-203-0022 TYPE_CALL_ARITY_
      | ^
 tests/func_thread_send_invalid/src/main.mfb:20 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `tooMany` does not have a known type.
+  20 |   LET tooMany AS Nothing = thread::send(t, "b", 0, 1)
+  21 |   RES movedFile AS File = fs::openFile("tests/func_thread_send_invalid/src/main.mfb")
+  22 |   thread::send(fileThread, movedFile)
+     | ^
+tests/func_thread_send_invalid/src/main.mfb:22 error[2-203-0063 TYPE_THREAD_NOT_SENDABLE]: thread boundary type is not sendable
+               Call to `thread.send` message type `File` is a resource; the message channel is resource-free — use `thread::transfer`.
   21 |   RES movedFile AS File = fs::openFile("tests/func_thread_send_invalid/src/main.mfb")
   22 |   thread::send(fileThread, movedFile)
   23 |   fs::close(movedFile)

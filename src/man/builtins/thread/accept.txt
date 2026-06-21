@@ -1,0 +1,20 @@
+NAME
+  accept - receive a transferred resource
+
+SYNOPSIS
+  thread::accept(t AS Thread OF Res TO Out, timeoutMs AS Integer = 0) AS RES Res
+  thread::accept(t AS ThreadWorker OF Res TO Out, timeoutMs AS Integer = 0) AS RES Res
+
+DESCRIPTION
+  The receiving side of the resource plane. accept receives a resource moved
+  across the thread boundary by thread::transfer and binds it with RES, taking
+  ownership on the receiving side.
+
+  Res must be a resource type (use thread::receive for data). timeoutMs = 0 does
+  not wait for a message; a positive timeout waits up to that many milliseconds.
+  Unavailable resources fail with ErrNotFound and timeout expiry with
+  ErrTimeout; a worker-side accept interrupted by cancellation fails with
+  ErrInterrupted.
+
+EXAMPLES
+  RES f AS File = thread::accept(t)

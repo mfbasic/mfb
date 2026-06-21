@@ -11,6 +11,11 @@ const SEND: &str = "thread.send";
 const POLL: &str = "thread.poll";
 const RECEIVE: &str = "thread.receive";
 const IS_CANCELLED: &str = "thread.isCancelled";
+/// Resource plane: move a resource across a thread boundary. `transfer` mirrors
+/// `send` and `accept` mirrors `receive`, but they carry a resource message
+/// rather than data, keeping the data channel resource-free.
+pub(crate) const TRANSFER: &str = "thread.transfer";
+pub(crate) const ACCEPT: &str = "thread.accept";
 
 #[derive(Clone)]
 pub(crate) struct ResolvedCall<'a> {
@@ -20,7 +25,15 @@ pub(crate) struct ResolvedCall<'a> {
 pub(crate) fn is_thread_call(name: &str) -> bool {
     matches!(
         name,
-        START | IS_RUNNING | WAIT_FOR | CANCEL | SEND | POLL | RECEIVE | IS_CANCELLED
+        START | IS_RUNNING
+            | WAIT_FOR
+            | CANCEL
+            | SEND
+            | POLL
+            | RECEIVE
+            | IS_CANCELLED
+            | TRANSFER
+            | ACCEPT
     )
 }
 
@@ -64,6 +77,22 @@ pub(crate) fn resolve_call<'a>(name: &str, arg_types: &'a [String]) -> Option<Re
         {
             thread_message(&arg_types[0]).map(Cow::Borrowed)?
         }
+        TRANSFER
+            if (arg_types.len() == 2 || arg_types.len() == 3)
+                && is_thread_type(&arg_types[0])
+                && thread_message(&arg_types[0])
+                    .is_some_and(|message| message == "Unknown" || message == arg_types[1])
+                && arg_types.get(2).is_none_or(|timeout| timeout == "Integer") =>
+        {
+            Cow::Borrowed("Nothing")
+        }
+        ACCEPT
+            if (arg_types.len() == 1 || arg_types.len() == 2)
+                && is_thread_type(&arg_types[0])
+                && arg_types.get(1).is_none_or(|timeout| timeout == "Integer") =>
+        {
+            thread_message(&arg_types[0]).map(Cow::Borrowed)?
+        }
         IS_CANCELLED if arg_types.len() == 1 && is_worker_thread_type(&arg_types[0]) => {
             Cow::Borrowed("Boolean")
         }
@@ -80,6 +109,8 @@ pub(crate) fn expected_arguments(name: &str) -> Option<&'static str> {
         POLL => Some("Thread OF Msg TO Out, Integer"),
         RECEIVE => Some("Thread OF Msg TO Out or ThreadWorker OF Msg TO Out, Integer"),
         IS_CANCELLED => Some("ThreadWorker OF Msg TO Out"),
+        TRANSFER => Some("Thread OF Res TO Out or ThreadWorker OF Res TO Out, Res, Integer"),
+        ACCEPT => Some("Thread OF Res TO Out or ThreadWorker OF Res TO Out, Integer"),
         _ => None,
     }
 }
@@ -91,6 +122,8 @@ pub(crate) fn arity(name: &str) -> Option<(usize, usize)> {
         SEND => Some((2, 3)),
         POLL => Some((2, 2)),
         RECEIVE => Some((1, 2)),
+        TRANSFER => Some((2, 3)),
+        ACCEPT => Some((1, 2)),
         _ => None,
     }
 }
