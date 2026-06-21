@@ -10,6 +10,19 @@ pub(crate) struct EncodedImage {
     pub(crate) relocations: Vec<EncodedRelocation>,
     pub(crate) imports: Vec<EncodedImport>,
     pub(crate) entry: String,
+    /// Internal text symbols run, in order, after dynamic relocations and before
+    /// the program entry (plan-linker.md §5.3). Materialized as ELF
+    /// `DT_INIT_ARRAY` / Mach-O `S_MOD_INIT_FUNC_POINTERS`.
+    pub(crate) initializers: Vec<String>,
+}
+
+/// Whether an imported symbol names a function (called through a stub) or a data
+/// global (addressed through the GOT). Makes linker layout deterministic without
+/// scanning relocations (plan-linker.md §5.1).
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ImportKind {
+    Function,
+    Data,
 }
 
 pub(crate) struct EncodedSymbol {
@@ -35,6 +48,12 @@ pub(crate) struct EncodedRelocation {
 pub(crate) struct EncodedImport {
     pub(crate) library: String,
     pub(crate) symbol: String,
+    /// Function (stub) vs data global (GOT-only) (plan-linker.md §5.1).
+    pub(crate) kind: ImportKind,
+    /// glibc symbol version this reference requires, e.g. `Some("GLIBC_2.17")`
+    /// (plan-linker.md §5.2). `None` emits an unversioned reference. Ignored on
+    /// Mach-O, which selects by dylib ordinal.
+    pub(crate) version: Option<String>,
 }
 
 pub(crate) fn encode(plan: &NativeCodePlan) -> Result<EncodedImage, String> {
@@ -103,6 +122,11 @@ pub(crate) fn encode(plan: &NativeCodePlan) -> Result<EncodedImage, String> {
         .map(|import| EncodedImport {
             library: import.library.clone(),
             symbol: import.symbol.clone(),
+            // The built-in surface is function-only and unversioned; a versioned
+            // or data import is supplied by a `tls`/app-mode consumer once one
+            // exists (plan-linker.md §3.1). Default accordingly.
+            kind: ImportKind::Function,
+            version: None,
         })
         .collect();
 
@@ -116,6 +140,7 @@ pub(crate) fn encode(plan: &NativeCodePlan) -> Result<EncodedImage, String> {
             .entry_symbol
             .clone()
             .ok_or_else(|| "encoded image requires entry symbol".to_string())?,
+        initializers: Vec::new(),
     })
 }
 

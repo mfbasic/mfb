@@ -944,7 +944,16 @@ fn put_uleb128(bytes: &mut Vec<u8>, mut value: u64) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::arch::aarch64::encode::{EncodedImport, EncodedRelocation, EncodedSymbol};
+    use crate::arch::aarch64::encode::{EncodedImport, EncodedRelocation, EncodedSymbol, ImportKind};
+
+    fn import(library: &str, symbol: &str) -> EncodedImport {
+        EncodedImport {
+            library: library.to_string(),
+            symbol: symbol.to_string(),
+            kind: ImportKind::Function,
+            version: None,
+        }
+    }
 
     #[test]
     fn patches_external_data_relocations_to_got_entry() {
@@ -976,11 +985,9 @@ mod tests {
                     library: Some("libSystem".to_string()),
                 },
             ],
-            imports: vec![EncodedImport {
-                library: "libSystem".to_string(),
-                symbol: "_mach_task_self_".to_string(),
-            }],
+            imports: vec![import("libSystem", "_mach_task_self_")],
             entry: "_main".to_string(),
+            initializers: Vec::new(),
         };
         let text_vmaddr = VM_BASE + 0x4000;
         let locations =
@@ -999,20 +1006,12 @@ mod tests {
             symbols: Vec::new(),
             relocations: Vec::new(),
             imports: vec![
-                EncodedImport {
-                    library: "libSystem".to_string(),
-                    symbol: "_exit".to_string(),
-                },
-                EncodedImport {
-                    library: "Network".to_string(),
-                    symbol: "_nw_path_monitor_create".to_string(),
-                },
-                EncodedImport {
-                    library: "libSystem".to_string(),
-                    symbol: "_write".to_string(),
-                },
+                import("libSystem", "_exit"),
+                import("Network", "_nw_path_monitor_create"),
+                import("libSystem", "_write"),
             ],
             entry: "_main".to_string(),
+            initializers: Vec::new(),
         };
         let libraries = import_libraries(&image).expect("libraries");
         assert_eq!(libraries.len(), 2);
@@ -1070,16 +1069,11 @@ mod tests {
                 },
             ],
             imports: vec![
-                EncodedImport {
-                    library: "libSystem".to_string(),
-                    symbol: "_exit".to_string(),
-                },
-                EncodedImport {
-                    library: "Network".to_string(),
-                    symbol: "_nw_path_monitor_create".to_string(),
-                },
+                import("libSystem", "_exit"),
+                import("Network", "_nw_path_monitor_create"),
             ],
             entry: "_main".to_string(),
+            initializers: Vec::new(),
         };
 
         let dir = std::env::temp_dir().join(format!("mfb_nwlink_{}", std::process::id()));

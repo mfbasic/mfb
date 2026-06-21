@@ -378,6 +378,43 @@ impl DynamicPayload {
             dynstr.push(0);
         }
 
+        // Symbol versioning (plan-linker.md §6.2). Each distinct (library, version)
+        // pair becomes one Vernaux with a unique version index (>= 2); each
+        // imported symbol's `.gnu.version` entry names its index (1 = unversioned
+        // global). Driven by OpenSSL 3's `@@OPENSSL_3.0.0` exports, validated here
+        // against glibc's `GLIBC_2.17` aarch64 baseline.
+        let versioned = image.imports.iter().any(|import| import.version.is_some());
+        let mut version_needs: Vec<(usize, String)> = Vec::new();
+        let mut import_versym: Vec<u16> = Vec::with_capacity(image.imports.len());
+        for import in &image.imports {
+            match &import.version {
+                Some(version) => {
+                    let library_index = libraries
+                        .iter()
+                        .position(|library| library == &import.library)
+                        .expect("import library is in the library list");
+                    let index = version_needs
+                        .iter()
+                        .position(|(lib, ver)| *lib == library_index && ver == version)
+                        .unwrap_or_else(|| {
+                            version_needs.push((library_index, version.clone()));
+                            version_needs.len() - 1
+                        });
+                    import_versym.push((index + 2) as u16);
+                }
+                None => import_versym.push(1),
+            }
+        }
+        let mut version_string_offsets: std::collections::HashMap<String, usize> =
+            std::collections::HashMap::new();
+        for (_, version) in &version_needs {
+            if !version_string_offsets.contains_key(version) {
+                version_string_offsets.insert(version.clone(), dynstr.len());
+                dynstr.extend_from_slice(version.as_bytes());
+                dynstr.push(0);
+            }
+        }
+
         let dynstr_offset = data_base_offset;
         let dynsym_offset = align(dynstr_offset + dynstr.len(), 8);
         let dynsym_size = (image.imports.len() + 1) * 24;
@@ -387,8 +424,33 @@ impl DynamicPayload {
         let rela_size = image.imports.len() * 24;
         let got_offset = align(rela_offset + rela_size, 8);
         let got_size = image.imports.len() * 8;
-        let dynamic_offset = align(got_offset + got_size, 8);
-        let dynamic_count = libraries.len() + 14;
+        // `.gnu.version` (one Elf64_Half per dynsym) and `.gnu.version_r` follow
+        // the GOT, before the dynamic table, only when versioning is active.
+        let versym_offset = align(got_offset + got_size, 8);
+        let versym_size = if versioned {
+            (image.imports.len() + 1) * 2
+        } else {
+            0
+        };
+        // Group needs by library to size the Verneed/Vernaux records.
+        let mut needs_by_library: Vec<(usize, Vec<(String, usize)>)> = Vec::new();
+        for (global, (library_index, version)) in version_needs.iter().enumerate() {
+            let entry = needs_by_library
+                .iter_mut()
+                .find(|(lib, _)| lib == library_index);
+            match entry {
+                Some((_, versions)) => versions.push((version.clone(), global + 2)),
+                None => needs_by_library.push((*library_index, vec![(version.clone(), global + 2)])),
+            }
+        }
+        let verneed_offset = align(versym_offset + versym_size, 8);
+        let verneed_size = if versioned {
+            needs_by_library.len() * 16 + version_needs.len() * 16
+        } else {
+            0
+        };
+        let dynamic_offset = align(verneed_offset + verneed_size, 8);
+        let dynamic_count = libraries.len() + 14 + if versioned { 3 } else { 0 };
         let dynamic_size = dynamic_count * 16;
         let data_offset = align(
             TEXT_FILE_OFFSET + image.text.len() + image.imports.len() * 12,
@@ -442,6 +504,40 @@ impl DynamicPayload {
         bytes.resize(got_offset - payload_start, 0);
         bytes.resize(bytes.len() + got_size, 0);
 
+        if versioned {
+            // .gnu.version: index 0 (null sym) then one per imported symbol.
+            bytes.resize(versym_offset - payload_start, 0);
+            put_u16(&mut bytes, 0);
+            for value in &import_versym {
+                put_u16(&mut bytes, *value);
+            }
+            // .gnu.version_r: one Verneed per library, one Vernaux per version.
+            bytes.resize(verneed_offset - payload_start, 0);
+            for (need_index, (library_index, versions)) in needs_by_library.iter().enumerate() {
+                let last_need = need_index + 1 == needs_by_library.len();
+                put_u16(&mut bytes, 1); // vn_version
+                put_u16(&mut bytes, versions.len() as u16); // vn_cnt
+                put_u32(&mut bytes, library_offsets[*library_index] as u32); // vn_file
+                put_u32(&mut bytes, 16); // vn_aux: first Vernaux follows
+                put_u32(
+                    &mut bytes,
+                    if last_need {
+                        0
+                    } else {
+                        (16 + versions.len() * 16) as u32
+                    },
+                ); // vn_next
+                for (aux_index, (version, version_index)) in versions.iter().enumerate() {
+                    let last_aux = aux_index + 1 == versions.len();
+                    put_u32(&mut bytes, elf_hash(version.as_bytes())); // vna_hash
+                    put_u16(&mut bytes, 0); // vna_flags
+                    put_u16(&mut bytes, *version_index as u16); // vna_other
+                    put_u32(&mut bytes, version_string_offsets[version] as u32); // vna_name
+                    put_u32(&mut bytes, if last_aux { 0 } else { 16 }); // vna_next
+                }
+            }
+        }
+
         bytes.resize(dynamic_offset - payload_start, 0);
         for offset in library_offsets {
             put_dynamic(&mut bytes, 1, offset as u64);
@@ -459,6 +555,12 @@ impl DynamicPayload {
         put_dynamic(&mut bytes, 23, data_vmaddr + rela_offset as u64);
         put_dynamic(&mut bytes, 2, rela_size as u64);
         put_dynamic(&mut bytes, 30, 8);
+        if versioned {
+            // DT_VERSYM, DT_VERNEED, DT_VERNEEDNUM.
+            put_dynamic(&mut bytes, 0x6fff_fff0, data_vmaddr + versym_offset as u64);
+            put_dynamic(&mut bytes, 0x6fff_fffe, data_vmaddr + verneed_offset as u64);
+            put_dynamic(&mut bytes, 0x6fff_ffff, needs_by_library.len() as u64);
+        }
         put_dynamic(&mut bytes, 0, 0);
 
         let expected_dynamic_size = bytes.len() - (dynamic_offset - payload_start);
@@ -477,11 +579,97 @@ impl DynamicPayload {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::arch::aarch64::encode::{
+        EncodedImport, EncodedRelocation, EncodedSymbol, ImportKind,
+    };
+
+    fn versioned_exit_image() -> EncodedImage {
+        // _main: movz w0, #0 ; bl _exit  (exit(0) through a versioned reference).
+        let mut text = Vec::new();
+        put_u32(&mut text, 0xd280_0000);
+        put_u32(&mut text, 0x9400_0000);
+        EncodedImage {
+            text,
+            data: Vec::new(),
+            symbols: vec![EncodedSymbol {
+                name: "_main".to_string(),
+                section: EncodedSection::Text,
+                offset: 0,
+            }],
+            relocations: vec![EncodedRelocation {
+                offset: 4,
+                target: "_exit".to_string(),
+                kind: "branch26".to_string(),
+                binding: "external".to_string(),
+                library: Some("libc.so.6".to_string()),
+            }],
+            imports: vec![EncodedImport {
+                library: "libc.so.6".to_string(),
+                symbol: "_exit".to_string(),
+                kind: ImportKind::Function,
+                version: Some("GLIBC_2.17".to_string()),
+            }],
+            entry: "_main".to_string(),
+            initializers: Vec::new(),
+        }
+    }
+
+    // Emits a dynamic glibc ELF whose single import requires `_exit@GLIBC_2.17`,
+    // exercising the verneed/versym path (plan-linker.md §6.2). The byte check
+    // confirms the version string reaches `.dynstr`; the file is left under
+    // `tmp/verlx` so it can be executed against a real glibc `ld.so` (which
+    // rejects a missing/mismatched version at load) to prove the structure.
+    #[test]
+    fn writes_versioned_glibc_elf() {
+        let image = versioned_exit_image();
+        let dir = std::path::PathBuf::from("tmp/verlx");
+        std::fs::create_dir_all(&dir).expect("temp dir");
+        let path =
+            write_executable(&dir, "ver", LinuxFlavor::Glibc, &image).expect("link versioned elf");
+        let bytes = std::fs::read(&path).expect("read elf");
+        assert!(
+            bytes
+                .windows("GLIBC_2.17".len())
+                .any(|window| window == b"GLIBC_2.17"),
+            ".dynstr should contain the required version GLIBC_2.17"
+        );
+    }
+}
+
+/// The classic SysV/ELF symbol hash, used for `Vernaux.vna_hash`
+/// (plan-linker.md §6.2).
+fn elf_hash(name: &[u8]) -> u32 {
+    let mut hash: u32 = 0;
+    for &byte in name {
+        hash = (hash << 4).wrapping_add(byte as u32);
+        let high = hash & 0xf000_0000;
+        if high != 0 {
+            hash ^= high >> 24;
+        }
+        hash &= !high;
+    }
+    hash
+}
+
 fn dynamic_prefix_size(image: &EncodedImage, text_len_with_stubs: usize) -> usize {
     let mut libraries = Vec::<&str>::new();
     for import in &image.imports {
         if !libraries.contains(&import.library.as_str()) {
             libraries.push(import.library.as_str());
+        }
+    }
+    // Distinct version strings also live in `.dynstr` (plan-linker.md §6.2); they
+    // must be counted here so the GOT offset baked into each stub matches the
+    // offset `DynamicPayload::build` computes after appending them.
+    let mut version_strings = Vec::<&str>::new();
+    for import in &image.imports {
+        if let Some(version) = &import.version {
+            if !version_strings.contains(&version.as_str()) {
+                version_strings.push(version.as_str());
+            }
         }
     }
     let dynstr_len = 1
@@ -493,6 +681,10 @@ fn dynamic_prefix_size(image: &EncodedImage, text_len_with_stubs: usize) -> usiz
             .imports
             .iter()
             .map(|import| import.symbol.len() + 1)
+            .sum::<usize>()
+        + version_strings
+            .iter()
+            .map(|version| version.len() + 1)
             .sum::<usize>();
     let dynstr_offset = align(image.data.len(), 8);
     let dynsym_offset = align(dynstr_offset + dynstr_len, 8);
