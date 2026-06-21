@@ -1,0 +1,241 @@
+' ---------------------------------------------------------------------------
+' sqlite — a reusable native binding package for SQLite3.
+'
+' This is a *binding package*: it declares a LINK block and exports ordinary
+' MFBASIC wrapper functions around the native symbols. Importers never repeat
+' the LINK block — they IMPORT sqlite and call its wrappers.
+'
+' `Db` is a NATIVE resource (plan-link-update.md §5). Its hidden representation
+' is the raw `sqlite3*` pointer (a `CPtr`) — there is no MFBASIC backing record.
+' It slots into the resource model of plan-resource-overhaul.md exactly like the
+' built-in `File`/`Socket`: it is bound with `RES`, uniquely owned, borrowed at
+' ordinary calls, and auto-closed on scope-drop through its registered close op.
+'
+' Importer usage (in an application package that does `IMPORT sqlite`):
+'
+'   IMPORT sqlite
+'
+'   FUNC main() AS Integer
+'     RES db AS sqlite::Db = sqlite::create("app.db")   ' or sqlite::open(...)
+'     ' ... borrow db through wrappers that take `RES db AS Db` ...
+'     ' db is closed automatically by lexical drop when main's scope ends, on
+'     ' every exit path, or explicitly with sqlite::close(db).
+'     sqlite::close(db)                                  ' optional early close
+'     RETURN 0
+'   END FUNC
+' ---------------------------------------------------------------------------
+
+' Db and Stmt are opaque unique native handles, backed by `sqlite3*` and
+' `sqlite3_stmt*`. Source code cannot inspect, copy, compare, store, or send
+' them; each only flows through functions whose signatures name it, and only in
+' a `RES` position. Each is closed by lexical drop, or explicitly through its
+' registered close op (overhaul invalidation event #1). `CLOSE BY` names that op
+' — a native `LINK` function declared below. Declaring the resource at package
+' scope means it is named and exported like any other type: `Db` is exported, so
+' importers write `sqlite::Db`; `Stmt` is package-private.
+EXPORT RESOURCE Db CLOSE BY sqliteLink::close
+RESOURCE Stmt CLOSE BY sqliteLink::finalize
+
+LINK "sqlite3" AS sqliteLink
+
+  ' int sqlite3_open(const char *filename, sqlite3 **ppDb)
+  ' The handle is produced through the OUT pointer; the C return is a status
+  ' code where 0 means success. The single OUT becomes the wrapper's `RES Db`.
+  ' This is the minimal single-OUT producer the plan uses as its canonical
+  ' example; it always creates-or-opens. The package's higher-level `open`/
+  ' `create` wrappers build on `openV2` below so they can choose that behavior.
+  FUNC open(path AS String) AS RES Db
+    SYMBOL "sqlite3_open"
+    ABI (path CString, return OUT CPtr) AS status CInt32
+    SUCCESS_ON status = 0
+  END FUNC
+
+  ' int sqlite3_open_v2(const char *filename, sqlite3 **ppDb, int flags,
+  '                     const char *zVfs)
+  ' Like sqlite3_open but takes an explicit `flags` bitmask, letting the caller
+  ' decide whether a missing file is created (SQLITE_OPEN_CREATE) or opening a
+  ' nonexistent database fails. `flags` arrives as an ordinary wrapper parameter,
+  ' so — unlike the constant `nByte`/`pzTail` of `prepare` — it needs no pinned-
+  ' constant ABI form. `zVfs = NULL` (the default VFS) is the 4th C argument; it
+  ' is omitted because the ABI has no NULL/optional-pointer form yet. (Design gap.)
+  FUNC openV2(path AS String, flags AS Integer) AS RES Db
+    SYMBOL "sqlite3_open_v2"
+    ABI (path CString, return OUT CPtr, flags CInt32) AS status CInt32
+    SUCCESS_ON status = 0
+  END FUNC
+
+  ' int sqlite3_close(sqlite3 *db)
+  ' The registered close op for `Db` (the CLOSE wrapper named above). It is one
+  ' of the four invalidation events: it consumes the `RES` binding. It runs
+  ' automatically at scope exit (lexical drop) and may also be called explicitly
+  ' to release early or observe a close failure.
+  FUNC close(RES db AS Db) AS Nothing
+    SYMBOL "sqlite3_close"
+    ABI (db CPtr) AS status CInt32
+    SUCCESS_ON status = 0
+  END FUNC
+
+  ' int sqlite3_busy_timeout(sqlite3 *db, int ms)
+  ' An ordinary call: it borrows the handle (borrow-by-default) without
+  ' consuming it, so the caller keeps `db` live afterward.
+  FUNC busyTimeout(RES db AS Db, ms AS Integer) AS Nothing
+    SYMBOL "sqlite3_busy_timeout"
+    ABI (db CPtr, ms CInt32) AS status CInt32
+    SUCCESS_ON status = 0
+  END FUNC
+
+  ' int sqlite3_exec(sqlite3*, const char *sql, callback, void*, char **errmsg)
+  ' Borrows db; runs one or more statements with no result rows. The real C
+  ' function takes three trailing pointers (callback, callback-arg, errmsg) that
+  ' we want as NULL — the current ABI has no NULL/optional-pointer form, so they
+  ' are omitted here. (Design gap.)
+  FUNC exec(RES db AS Db, sql AS String) AS Nothing
+    SYMBOL "sqlite3_exec"
+    ABI (db CPtr, sql CString) AS status CInt32
+    SUCCESS_ON status = 0
+  END FUNC
+
+  ' int sqlite3_prepare_v2(sqlite3*, const char *sql, int nByte,
+  '                        sqlite3_stmt **ppStmt, const char **pzTail)
+  ' Borrows db, produces a `RES Stmt`. nByte = -1 (read to NUL) and pzTail = NULL
+  ' are fixed values the ABI cannot yet pin (no constant/NULL argument form), so
+  ' only the variable slots are shown. (Design gap.)
+  FUNC prepare(RES db AS Db, sql AS String) AS RES Stmt
+    SYMBOL "sqlite3_prepare_v2"
+    ABI (db CPtr, sql CString, return OUT CPtr) AS status CInt32
+    SUCCESS_ON status = 0
+  END FUNC
+
+  ' int sqlite3_step(sqlite3_stmt*)
+  ' Borrows stmt — an ordinary call, so the caller may step the same statement
+  ' again on the next loop iteration. Returns SQLITE_ROW (100) when a row is
+  ' ready, SQLITE_DONE (101) when finished, or an error code. The Boolean wrapper
+  ' means "a row is available". A three-way row/done/error outcome is NOT
+  ' expressible with SUCCESS_ON/ERROR_ON today — it needs the raw result code
+  ' surfaced to the wrapper, e.g. RESULT (status = 100) with
+  ' SUCCESS_ON status = 100 OR 101. (Design gap.)
+  FUNC step(RES stmt AS Stmt) AS Boolean
+    SYMBOL "sqlite3_step"
+    ABI (stmt CPtr) AS status CInt32
+  END FUNC
+
+  ' const unsigned char *sqlite3_column_text(sqlite3_stmt*, int iCol)
+  ' Borrows stmt. Returns a UTF-8 C string owned by SQLite (valid until the next
+  ' step/finalize). Marshaling a returned C string back INTO an MFBASIC String is
+  ' not in the current ABI — CString is described as input-only. (Design gap.)
+  FUNC columnText(RES stmt AS Stmt, col AS Integer) AS String
+    SYMBOL "sqlite3_column_text"
+    ABI (stmt CPtr, col CInt32) AS return CPtr
+  END FUNC
+
+  ' int sqlite3_finalize(sqlite3_stmt*)
+  ' The registered close op for `Stmt` — consumes the statement (invalidation
+  ' event #1), named by `TYPE Stmt`.
+  FUNC finalize(RES stmt AS Stmt) AS Nothing
+    SYMBOL "sqlite3_finalize"
+    ABI (stmt CPtr) AS status CInt32
+    SUCCESS_ON status = 0
+  END FUNC
+END LINK
+
+' ---------------------------------------------------------------------------
+' Higher-level wrappers exported to importers. A binding package may add
+' validation and ergonomics around the raw native symbols. Each producer returns
+' `AS RES Db` (ownership moves to the caller); each operation takes `RES db AS Db`
+' and borrows it by default.
+' ---------------------------------------------------------------------------
+
+' Open an EXISTING database (read/write) and apply a default 5-second busy
+' timeout. Uses SQLITE_OPEN_READWRITE *without* SQLITE_OPEN_CREATE, so opening a
+' path that does not yet exist fails rather than silently creating an empty
+' database — call `create` for that. Both native calls auto-propagate: if the
+' open fails the function returns its error; if `busyTimeout` fails, the
+' already-open `db` is closed by lexical drop on the error exit before the error
+' propagates — no leak.
+EXPORT FUNC open(path AS String) AS RES Db
+  LET SQLITE_OPEN_READWRITE = 2          ' open for reading and writing
+  RES db AS Db = sqliteLink::openV2(path, SQLITE_OPEN_READWRITE)
+  sqliteLink::busyTimeout(db, 5000)      ' borrows db
+  RETURN db                              ' ownership moves to the caller (event #3)
+END FUNC
+
+' Create a NEW database and apply the same default 5-second busy timeout. Uses
+' SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE; the two flag bits are disjoint, so a
+' plain `+` composes them exactly as a bitwise OR would (MFBASIC has no bitwise
+' operators). SQLite has no portable "fail if the file already exists" flag for
+' the main database, so `create` opens the existing file if one is already there;
+' it differs from `open` only in that a missing file is created instead of being
+' an error. Native calls auto-propagate and lexical drop closes `db` on any error
+' exit, exactly as in `open`.
+EXPORT FUNC create(path AS String) AS RES Db
+  LET SQLITE_OPEN_READWRITE = 2          ' open for reading and writing
+  LET SQLITE_OPEN_CREATE = 4             ' create the file if it does not exist
+  RES db AS Db = sqliteLink::openV2(path, SQLITE_OPEN_READWRITE + SQLITE_OPEN_CREATE)
+  sqliteLink::busyTimeout(db, 5000)      ' borrows db
+  RETURN db                              ' ownership moves to the caller (event #3)
+END FUNC
+
+' Open an existing database OR create one if the path does not yet exist — the
+' original `open` behavior, preserved under an explicit name. Builds on the bare
+' `sqlite3_open` symbol, which always creates-or-opens, so there is no flag to
+' set. Use this when "give me a usable handle either way" is what you mean and
+' the open/create distinction does not matter.
+EXPORT FUNC openOrCreate(path AS String) AS RES Db
+  RES db AS Db = sqliteLink::open(path)
+  sqliteLink::busyTimeout(db, 5000)      ' borrows db
+  RETURN db                              ' ownership moves to the caller (event #3)
+END FUNC
+
+' Explicitly close a database, consuming the handle. Two reasons to call this
+' instead of letting lexical drop do it:
+'   1. Release the connection early, before the binding's scope ends.
+'   2. OBSERVE a close failure — the native close auto-propagates, whereas a
+'      close that runs via lexical drop can only record its failure in the
+'      runtime cleanup-failure ledger (it has no source-level result to route).
+'
+' STRESS-TEST FINDING: this cannot be an ordinary wrapper `FUNC close(RES db AS
+' Db) ... sqliteLink::close(db)`. A parameter is a *borrow* (overhaul §3.3), and a
+' borrow may never invalidate — calling the registered close op on a borrowed
+' `db` is rejected (`TYPE_RESOURCE_BORROW_INVALIDATE`). Since the language has no
+' `MOVE` annotation, a user function can never consume a resource parameter. The
+' correct construct is therefore a **re-export alias** of the registered close op
+' (overhaul §3.3 invalidation event #1 "and its re-export aliases"): `sqlite::close`
+' is the same close op as `sqliteLink::close`, so calling it consumes `db` and
+' lexical drop will not close it again.
+EXPORT FUNC close AS sqliteLink::close
+
+' ---------------------------------------------------------------------------
+' Table operations. Each of these BORROWS `db` — ordinary calls borrow by
+' default (plan-resource-overhaul.md §3.3), so the caller still owns the handle
+' after the call and may keep using it. Only the four fixed events (the
+' registered close op, thread::transfer, RETURN, and scope-drop) end a
+' resource's life; native `exec`/`prepare` are ordinary borrows, native
+' `close`/`finalize` are the registered close ops. Identifier quoting is omitted
+' for brevity.
+' ---------------------------------------------------------------------------
+
+' CREATE TABLE <name> (<columns>), e.g. createTable(db, "users", "id INTEGER")
+EXPORT FUNC createTable(RES db AS Db, name AS String, columns AS String) AS Nothing
+  sqliteLink::exec(db, "CREATE TABLE " & name & " (" & columns & ")")
+END FUNC
+
+' DROP TABLE <name>
+EXPORT FUNC dropTable(RES db AS Db, name AS String) AS Nothing
+  sqliteLink::exec(db, "DROP TABLE " & name)
+END FUNC
+
+' Return the names of all tables in the database. Demonstrates a result-set
+' loop over a `RES Stmt`: prepare (produces the statement), step (borrows it,
+' once per row), columnText (borrows it), finalize (consumes it). Because
+' ordinary calls borrow, `stmt` stays live across every loop iteration. If `step`
+' fails partway, the still-owned `stmt` is finalized by lexical drop on the error
+' exit — no leak.
+EXPORT FUNC listTables(RES db AS Db) AS List OF String
+  RES stmt AS Stmt = sqliteLink::prepare(db, "SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name")
+  MUT names AS List OF String = []
+  WHILE sqliteLink::step(stmt)              ' borrows stmt each iteration
+    names = append(names, sqliteLink::columnText(stmt, 0))   ' borrows stmt
+  WEND
+  sqliteLink::finalize(stmt)                ' explicit consume; lexical drop would do it otherwise
+  RETURN names
+END FUNC

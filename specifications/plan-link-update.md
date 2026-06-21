@@ -3,7 +3,7 @@
 Last updated: 2026-06-20
 
 This document plans how binding packages declare new resource types through the
-native `LINK` `TYPE ... AS RESOURCE` form.
+native `LINK` package-scope `RESOURCE … CLOSE BY …` declaration.
 
 It **assumes `specifications/plan-resource-overhaul.md` is implemented first.**
 The overhaul establishes the resource model this plan builds on — the `RES`
@@ -22,8 +22,8 @@ is the native `LINK` declaration.
 >   four-event invalidation, `STATE`, borrow-by-default, drop/close, the
 >   cleanup-failure ledger, ownership verification, **and the resource registry**.
 > - **This document** owns what is specific to native `LINK` resources: the
->   `TYPE ... AS RESOURCE` declaration and its `CPtr` representation (§5), the
->   transparent re-export (§5a), the native ABI surface (§5b), `RESOURCE_TABLE`
+>   `RESOURCE … CLOSE BY …` declaration and its `CPtr` representation (§5), the
+>   package-scope naming and close-op re-export (§5a), the native ABI surface (§5b), `RESOURCE_TABLE`
 >   serialization and the sendable/native flags (§10), and **registering** native
 >   resources into the overhaul's registry (§9).
 >
@@ -48,32 +48,37 @@ it behave as an ordinary resource under the overhaul's model (RES-bound,
 borrow-by-default, LUT-tracked, closed via its registered close op):
 
 ```basic
-LINK "sqlite3" AS sqliteLink
-  TYPE Db AS RESOURCE
-    CLOSE close
-  END TYPE
+' Declare the native resource at PACKAGE scope. `CLOSE BY` names its registered
+' close op — a native LINK function. `EXPORT` makes the type nameable by
+' importers as `sqlite::Db`, like any exported type.
+EXPORT RESOURCE Db CLOSE BY sqliteLink::close
 
-  FUNC open(path AS String) AS Db
+LINK "sqlite3" AS sqliteLink
+  FUNC open(path AS String) AS RES Db
     SYMBOL "sqlite3_open"
     ABI (path CString, return OUT CPtr) AS status CInt32
     SUCCESS_ON status = 0
   END FUNC
 
-  FUNC close(db AS Db) AS Nothing
+  FUNC close(RES db AS Db) AS Nothing
     SYMBOL "sqlite3_close"
     ABI (db CPtr) AS status CInt32
     SUCCESS_ON status = 0
   END FUNC
 END LINK
 
-' Publish the link-private resource type under the package's public name,
-' so importers can write `sqlite::Db` (§5a).
-EXPORT TYPE Db AS sqliteLink::Db
+' Re-export the registered close op under the package name so importers can close
+' explicitly through `sqlite::close`. A consuming wrapper is impossible — §6.
+EXPORT FUNC close AS sqliteLink::close
 ```
 
+Resource positions use the overhaul's explicit `RES` / `AS RES` spelling
+(`RES db AS Db`, `AS RES Db`) — a resource is `RES` in every binding, parameter,
+and return position, native `LINK` functions included.
+
 The `ABI (...)` / `SUCCESS_ON` shape above is the **proposed named-slot surface**
-(§5b), not the current spec's positional form. The `EXPORT TYPE … AS …` line is
-the **transparent re-export** (§5a).
+(§5b), not the current spec's positional form. The resource declaration form
+(`RESOURCE … CLOSE BY …`) is specified in §5.
 
 Importers bind `Db` with `RES` and use it under the overhaul's model:
 
@@ -101,7 +106,7 @@ sendable bit round-trips; `RES`/LUT/four-event ownership is enforced). What
 remains specific to native `LINK` resources:
 
 - Native `LINK` blocks are **non-functional**. They parse, but a `LINK` block and
-  its `TYPE ... AS RESOURCE` declaration do not reach a usable AST or any later
+  its `RESOURCE … CLOSE BY …` declaration do not reach a usable AST or any later
   stage. This plan makes them real.
 - Only `File`, `Socket`, and `Listener` are actually wired up as built-in
   resources (`src/builtins/fs.rs`, `src/builtins/net.rs`). `UdpSocket` and
@@ -157,76 +162,76 @@ MFBASIC representation; without it, both remaining kinds share one opaque path.
 
 ## 5. Native Resource Declaration
 
-A binding package introduces a native resource with the `LINK` form:
+The overhaul defines the resource *model* but no syntax for **introducing** a new
+resource type. That declaration form is native-specific and lives here. A binding
+package introduces a resource at **package scope** with:
 
 ```basic
-TYPE Db AS RESOURCE
-  CLOSE close
-END TYPE
+EXPORT RESOURCE Db CLOSE BY sqliteLink::close
 ```
 
-Rules:
+`[visibility] RESOURCE <Name> CLOSE BY <closeFn>`:
 
 - `Db` is an opaque unique native handle. Its hidden representation is a `CPtr`.
   Source code cannot inspect, cast, compare, serialize, print, copy, capture in a
   closure, store in a collection, do arithmetic on it, or name its `CPtr`.
 - A `CPtr` may exist **only** as the hidden representation of a declared
   `RESOURCE` (`mfbasic.md`). It must never escape into an ordinary MFBASIC API.
-  This is exactly why the resource declaration lives inside `LINK`: it is the
-  only legal home for a retained native pointer.
-- `CLOSE close` names a native wrapper function **in the same `LINK` block** that
-  releases the handle. It is the consuming close operation.
-- A resource is **produced** by a native function whose MFBASIC return type is
-  the resource type. The underlying ABI yields the pointer through an `OUT CPtr`
-  parameter (e.g. `sqlite3_open`) or a pointer return; the compiler maps it into
-  the owned handle — a LUT entry whose `Pointer` is the `CPtr` — without ever
-  exposing a bare `CPtr`.
+  The retained native pointer is produced and freed exclusively by the `LINK`
+  functions named below.
+- **`CLOSE BY <closeFn>`** names the resource's registered close op — a native
+  `LINK` function (e.g. `sqliteLink::close`) whose single `RES` parameter is this
+  resource type. It is the consuming close operation (overhaul invalidation event
+  #1). `closeFn` must be a native `LINK` function (or a built-in close op); naming
+  an ordinary MFBASIC function would reintroduce the cut source-defined-resource
+  design (§3) and is rejected.
+- The resource is **declared at package scope, not inside the `LINK` block.** This
+  is the deliberate fix for the old naming problem (below): the type is named and
+  exported exactly like any other type — bare `Db` resolves in the package's
+  wrapper code, and `EXPORT` makes importers able to write `sqlite::Db`. Omitting
+  `EXPORT` keeps it package-private (e.g. `RESOURCE Stmt CLOSE BY sqliteLink::finalize`).
+  The declaration may forward-reference a `LINK` function defined later in the file.
+- A resource is **produced** by a native function whose MFBASIC return type is the
+  resource type (`AS RES Db`). The underlying ABI yields the pointer through an
+  `OUT CPtr` parameter (e.g. `sqlite3_open`) or a pointer return; the compiler maps
+  it into the owned handle — a LUT entry whose `Pointer` is the `CPtr` — without
+  ever exposing a bare `CPtr`.
 - Ownership, borrow, drop, and `STATE` all follow the overhaul. A native resource
   may carry data-only `STATE` like any resource (`RES db AS Db STATE Foo`); its
   `CPtr` lives in the LUT `Pointer` slot, never in user `STATE`.
 
-## 5a. Naming & Re-exporting Resource Types
+## 5a. Naming & Re-exporting
 
-A `LINK` block declares its types inside the link's package-like namespace, so a
-resource declared as `Db` in `LINK "sqlite3" AS sqliteLink` is named
-`sqliteLink::Db`. Two problems follow:
+Declaring the resource at **package scope** (§5) resolves the naming problem that
+an earlier draft solved with a type self-alias. Because `EXPORT RESOURCE Db …`
+introduces `Db` at package scope directly:
 
-1. Package-level wrapper code outside the `LINK` block (e.g.
-   `EXPORT FUNC open(...) AS Db`) needs the bare name `Db` to resolve.
-2. Importers can only write two-part qualified names (`package::identifier`,
-   `mfbasic.md:1504`); they can reach `sqlite::Db` but never the package-internal
-   `sqliteLink::Db`. Today nothing surfaces the link type under the package name,
-   so importers can only *use* the type by inference (`LET db = sqlite::open(...)`)
-   and can never *name* it (`FUNC useDb(db AS sqlite::Db)` fails to resolve).
+1. Package-level wrapper code (`EXPORT FUNC open(...) AS RES Db`) resolves the bare
+   name `Db`; and
+2. importers can both *use* the type by inference (`RES db = sqlite::open(...)`)
+   **and** *name* it (`FUNC useDb(RES db AS sqlite::Db)`), because `sqlite::Db` is
+   an ordinary exported type.
 
-Resolution: a **transparent type re-export**, spelled with the existing `TYPE`
-vocabulary because a resource **is a type** (consistent with `File`/`Socket` and
-with `TYPE … AS RESOURCE`):
+No `EXPORT TYPE Db AS sqliteLink::Db` self-alias is needed or used — that earlier
+form aliased a type to itself across the link namespace and is dropped.
+
+**Re-exporting the close op (a function alias).** The package still needs to
+publish a close op under its own name so importers can close explicitly
+(`sqlite::close(db)`). This must be a **function alias**, not a wrapper:
 
 ```basic
-EXPORT TYPE Db AS sqliteLink::Db
+EXPORT FUNC close AS sqliteLink::close
 ```
 
-Rules:
-
-- This is a **general type alias** — `[visibility] TYPE Alias AS QualifiedType`,
-  usable for any type, not a resource-specific construct. Resources get no
-  parallel export grammar; they are exported like any other type.
-- It is **transparent**: `Db` and `sqliteLink::Db` are the **same nominal type**
-  — same identity, same registry entry, same close op, same sendability. It is
-  **not** a newtype; there is no conversion, because there is nothing to convert.
-  All resource metadata is inherited from the target.
-- It introduces the name `Db` at package scope, which (a) makes bare `Db` resolve
-  in the package's wrapper code, and (b) exports it so importers see `sqlite::Db`.
-- Visibility is per-alias, giving **per-type export control**: re-export `Db`,
-  leave `Stmt` un-aliased and therefore package-private.
-
-Decision record: an earlier idea spelled the declaration `RESOURCE Db … END
-RESOURCE` and the export `EXPORT RESOURCE Db AS …`. Both were rejected in favor
-of staying under `TYPE`, because resource-ness is an *attribute of a type* in
-MFBASIC and is never re-stated at use sites; re-stating it at the export site
-would be the inconsistency. Keep `TYPE … AS RESOURCE` for declaration and
-`EXPORT TYPE … AS …` for re-export.
+`[visibility] FUNC alias AS qualified::func` re-exports a `LINK` function under the
+package name as a transparent alias — same function, same signature, and, for the
+close op, the **same registered close op**. It is required, not cosmetic: the
+registered close op consumes its argument (invalidation event #1), but a
+hand-written wrapper `FUNC close(RES db AS Db) … sqliteLink::close(db)` cannot —
+its parameter is a *borrow*, and a borrow may never invalidate (overhaul §3.3),
+with no `MOVE` annotation to make a parameter consuming. So calling `sqlite::close(db)`
+is invalidation event #1 on `db` exactly as the native close op is. (Surfaced by
+the `bindings/sqlite` stress test.)
 
 ## 5b. Native Binding ABI Surface (proposed)
 
@@ -313,7 +318,7 @@ resource **opts in**, and getting that opt-in to round-trip:
   to move across threads).
 - A native resource opts in through its declaration; the exact surface is an open
   question (§17) — most likely a `THREAD_SENDABLE` keyword on the
-  `TYPE ... AS RESOURCE` form. The compiler must reject an opt-in it cannot honor.
+  `RESOURCE … CLOSE BY …` declaration. The compiler must reject an opt-in it cannot honor.
 - Sendability is a per-resource registry property, serialized via the
   `RESOURCE_TABLE` sendable bit (§10) so it survives import. (The registry and
   the bit-2 fix land with the overhaul; this plan ensures native declarations set
@@ -327,15 +332,15 @@ instead of the old hardcoded matching. It is seeded with built-ins and populated
 from imported `RESOURCE_TABLE`s.
 
 This plan's job is to **register native `LINK` resources** into it during resolve.
-For each `TYPE ... AS RESOURCE`, add an entry with:
+For each `RESOURCE … CLOSE BY …` declaration, add an entry with:
 
 - close operation = the `LINK` `CLOSE` wrapper (the registered close op);
 - thread-sendable flag from the declaration (§8);
 - close-may-fail flag (derived from the native close wrapper);
 - `kind = native`.
 
-The transparent re-export (§5a) does not add a second entry — it publishes another
-*name* for the same registry entry.
+The close-op re-export and the package-scope declaration (§5a) do not add a second
+registry entry — the resource has exactly one entry, keyed by its type name.
 
 ## 10. Package Metadata
 
@@ -417,11 +422,11 @@ These two plans are layered and must not overlap:
   ordinals, load-time initializers. It does not touch `LINK`-block grammar, ABI
   mapping, or resource semantics.
 - **This plan** owns the **resource model**: the registry, the
-  `TYPE ... AS RESOURCE` declaration semantics, drop/close/borrow/consume wiring,
+  `RESOURCE … CLOSE BY …` declaration semantics, drop/close/borrow/consume wiring,
   sendability, `RESOURCE_TABLE`, verification, and audit.
 - **The `LINK`-block frontend — parsing and lowering — is not yet owned by either
   plan.** This plan now specifies the resource-facing *surface design*: the
-  `TYPE ... AS RESOURCE` declaration and re-export (§5/§5a), producing a handle
+  `RESOURCE … CLOSE BY …` declaration and close-op re-export (§5/§5a), producing a handle
   from `OUT`/pointer return, the close wrapper, and the proposed named-slot ABI /
   `SUCCESS_ON`-expression shape (§5b). What remains unowned is the *implementation*
   of the general native-binding frontend — block parsing to AST, the full
@@ -438,7 +443,7 @@ that foundation.
 ### Phase 1: LINK Parse To AST
 
 - Make `LINK` blocks parse into a real AST node, including
-  `TYPE ... AS RESOURCE [CLOSE ident]` declarations and native function
+  package-scope `RESOURCE … CLOSE BY …` declarations and native function
   declarations. (The broader ABI/native-call frontend is the dependency noted in
   §14; coordinate scope with `plan-linker.md`.)
 
@@ -447,7 +452,8 @@ that foundation.
 - Resolve native resource names as `LINK`-scoped declarations and **register them
   into the overhaul's registry** (§9) as `kind = native`.
 - Enforce the `CLOSE` wrapper rules (same `LINK` block, arity, parameter type).
-- Wire the transparent re-export (§5a) to publish the package-level name.
+- Register the package-scope `RESOURCE … CLOSE BY …` declaration and wire the
+  close-op function alias (§5a).
 - Enforce `CPtr` containment (cannot escape an ordinary API).
 - Set thread-sendability from the declaration (§8).
 - (Ownership/borrow/`STATE`/use-after-close fall out of the overhaul — no
@@ -522,7 +528,7 @@ scope — are resolved or owned by `plan-resource-overhaul.md`. What remains her
 native-`LINK`-specific.)
 
 1. **Sendability opt-in surface.** How does a native resource declare
-   thread-sendability — a `THREAD_SENDABLE` keyword on `TYPE ... AS RESOURCE`, or
+   thread-sendability — a `THREAD_SENDABLE` keyword on the `RESOURCE … CLOSE BY …` declaration, or
    a flag elsewhere? (Default stays non-sendable.)
 2. **Native-binding frontend ownership.** Where is the `LINK` ABI/native-call
    frontend specified — extend `plan-linker.md`, or a new plan? This plan depends
@@ -541,14 +547,13 @@ and registry. Then add native `LINK` resources as the single user-facing way to
 declare a new resource type, slotting into that model:
 
 ```basic
+EXPORT RESOURCE Db CLOSE BY sqliteLink::close
+
 LINK "sqlite3" AS sqliteLink
-  TYPE Db AS RESOURCE
-    CLOSE close
-  END TYPE
   ' ... native open/close wrappers ...
 END LINK
 
-EXPORT TYPE Db AS sqliteLink::Db
+EXPORT FUNC close AS sqliteLink::close   ' publish the close op (§5a)
 ```
 
 A native resource then behaves exactly like any other resource — `RES`-bound,
