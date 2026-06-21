@@ -18,8 +18,11 @@ pub(crate) struct EncodedImage {
 
 /// Whether an imported symbol names a function (called through a stub) or a data
 /// global (addressed through the GOT). Makes linker layout deterministic without
-/// scanning relocations (plan-linker.md §5.1).
+/// scanning relocations (plan-linker.md §5.1). `Data` is produced by a
+/// `tls`/app-mode consumer (and the linker tests) once one exists; the built-in
+/// surface is function-only, so allow it to be otherwise-unconstructed for now.
 #[derive(Clone, Copy, PartialEq, Eq)]
+#[allow(dead_code)]
 pub(crate) enum ImportKind {
     Function,
     Data,
