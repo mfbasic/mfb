@@ -71,3 +71,6 @@ Guidelines:
 - Mention user-facing behavior changes separately from internal refactors.
 - Mention validation commands when they were run.
 - Do not include unrelated dirty worktree changes in a commit.
+- NEVER create a branch unless the user explicitly asks for one. Always commit on
+  the current branch, even when that is the default/main branch. Do not create,
+  switch, or rename branches on your own initiative.
