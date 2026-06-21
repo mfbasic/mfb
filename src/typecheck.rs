@@ -149,6 +149,11 @@ struct TypeChecker<'a> {
     /// contributed by imported packages' `RESOURCE_TABLE`. Replaces hardcoded
     /// resource recognition.
     resource_registry: builtins::ResourceRegistry,
+    /// Callee names that act as a *re-export alias* of a registered close op,
+    /// mapped to the bare resource type they close. Calling such an alias is
+    /// invalidation event #1 just like the registered close op itself
+    /// (plan-link-update.md §5a).
+    close_op_aliases: HashMap<String, String>,
 }
 
 #[derive(Clone)]
@@ -192,13 +197,274 @@ impl<'a> TypeChecker<'a> {
             inline_trap_types: Vec::new(),
             loop_stack: Vec::new(),
             resource_registry: builtins::ResourceRegistry::with_builtins(),
+            close_op_aliases: HashMap::new(),
         };
         checker.collect_types();
         checker.collect_package_types();
+        checker.collect_native_resources();
         checker.collect_bindings();
         checker.collect_functions();
+        checker.collect_native_functions();
         checker.collect_package_functions();
+        checker.collect_close_op_aliases();
         checker
+    }
+
+    /// Record each `FUNC alias AS pkg::func` re-export whose target is a
+    /// resource's registered close op, so calling the alias consumes its resource
+    /// argument exactly as the close op does (plan-link-update.md §5a).
+    fn collect_close_op_aliases(&mut self) {
+        // close op (dotted `alias.func`) -> bare resource type it closes.
+        let mut close_to_type: HashMap<String, String> = HashMap::new();
+        for file in &self.ast.files {
+            for item in &file.items {
+                if let Item::Resource(resource) = item {
+                    close_to_type.insert(resource.close_fn.clone(), resource.name.clone());
+                }
+            }
+        }
+        for file in &self.ast.files {
+            for item in &file.items {
+                if let Item::FuncAlias(alias) = item {
+                    if let Some(type_name) = close_to_type.get(&alias.target) {
+                        self.close_op_aliases
+                            .insert(alias.name.clone(), type_name.clone());
+                    }
+                }
+            }
+        }
+    }
+
+    /// Register native `LINK` resources declared in this package into the
+    /// resource registry as `kind = native` (plan-link-update.md §9). The close
+    /// op is the dotted `alias.func`; `close_may_fail` is derived from whether the
+    /// close wrapper has a `SUCCESS_ON` gate; sendability comes from the
+    /// declaration's `THREAD_SENDABLE` opt-in (plan-link-update.md §8).
+    fn collect_native_resources(&mut self) {
+        // Map every LINK function `alias.func` to whether it can fail (has a
+        // SUCCESS_ON / ERROR_ON gate).
+        let mut close_may_fail: HashMap<String, bool> = HashMap::new();
+        for file in &self.ast.files {
+            for item in &file.items {
+                if let Item::Link(link) = item {
+                    for function in &link.functions {
+                        close_may_fail.insert(
+                            format!("{}.{}", link.alias, function.name),
+                            function.success_on.is_some(),
+                        );
+                    }
+                }
+            }
+        }
+
+        for file in &self.ast.files {
+            for item in &file.items {
+                if let Item::Resource(resource) = item {
+                    let close_function = resource.close_fn.clone();
+                    let may_fail = close_may_fail
+                        .get(&close_function)
+                        .copied()
+                        .unwrap_or(false);
+                    self.resource_registry.register(
+                        resource.name.clone(),
+                        builtins::ResourceInfo {
+                            close_function,
+                            sendable: resource.thread_sendable,
+                            close_may_fail: may_fail,
+                            kind: builtins::ResourceKind::Native,
+                        },
+                    );
+                }
+            }
+        }
+    }
+
+    /// Native-specific checks on a `RESOURCE … CLOSE BY …` declaration. The
+    /// structural close-op checks run during resolve; the sendability opt-in is
+    /// recorded into the registry (and the `RESOURCE_TABLE` sendable bit) by
+    /// `collect_native_resources` (plan-link-update.md §8/§10).
+    fn check_resource_decl(&mut self, _file: &AstFile, _resource: &crate::ast::ResourceDecl) {}
+
+    /// Native-specific checks on a `LINK` block: `CPtr` containment and ABI
+    /// slot/parameter consistency (plan-link-update.md §5b/§5c/§11/§12).
+    fn check_link_block(&mut self, file: &AstFile, link: &crate::ast::LinkBlock) {
+        for function in &link.functions {
+            self.check_link_function(file, function);
+        }
+    }
+
+    fn check_link_function(&mut self, file: &AstFile, function: &crate::ast::LinkFunction) {
+        // `CPtr` (and other raw C ABI types) may never appear in a wrapper's
+        // MFBASIC-facing signature — only inside `ABI (...)` slots. A wrapper
+        // param or return typed as a C type would let a raw pointer escape into an
+        // ordinary API (plan-link-update.md §5/§11).
+        for param in &function.params {
+            if let Some(type_name) = &param.type_name {
+                if is_c_abi_type(type_name) {
+                    self.report(
+                        "NATIVE_CPTR_ESCAPE",
+                        &format!(
+                            "Native function `{}` parameter `{}` uses C ABI type `{}`; raw C types may appear only in ABI slots.",
+                            function.name, param.name, type_name
+                        ),
+                        file,
+                        param.line,
+                    );
+                }
+            }
+        }
+        if let Some(return_type) = &function.return_type {
+            if is_c_abi_type(return_type) {
+                self.report(
+                    "NATIVE_CPTR_ESCAPE",
+                    &format!(
+                        "Native function `{}` returns C ABI type `{}`; raw C types may appear only in ABI slots.",
+                        function.name, return_type
+                    ),
+                    file,
+                    function.line,
+                );
+            }
+        }
+
+        // Every ABI slot must be satisfied by exactly one of: a wrapper parameter
+        // (matched by name), the OUT/return result marker, or a CONST pin
+        // (plan-link-update.md §5c).
+        let const_slots: HashSet<&str> =
+            function.consts.iter().map(|pin| pin.slot.as_str()).collect();
+        let param_names: HashSet<&str> =
+            function.params.iter().map(|param| param.name.as_str()).collect();
+
+        let mut result_markers = 0;
+        for slot in &function.abi.slots {
+            if slot.name == "return" {
+                result_markers += 1;
+                if !slot.is_out {
+                    self.report(
+                        "NATIVE_ABI_RESULT_MARKER",
+                        &format!(
+                            "Native function `{}` ABI slot `return` must be marked `OUT`.",
+                            function.name
+                        ),
+                        file,
+                        slot.line,
+                    );
+                }
+                continue;
+            }
+            // A CONST pin satisfies the slot and is input-only.
+            if const_slots.contains(slot.name.as_str()) {
+                if slot.is_out {
+                    self.report(
+                        "NATIVE_CONST_OUT",
+                        &format!(
+                            "Native function `{}` pins ABI slot `{}` with CONST, which cannot also be OUT.",
+                            function.name, slot.name
+                        ),
+                        file,
+                        slot.line,
+                    );
+                }
+                continue;
+            }
+            // An OUT slot not named `return` is unsupported here (multi-out
+            // RETURN_OUT is a deferred ABI form, plan-link-update.md §5b).
+            if slot.is_out {
+                self.report(
+                    "NATIVE_ABI_UNBOUND_SLOT",
+                    &format!(
+                        "Native function `{}` ABI slot `{}` is OUT but is not the `return` result marker.",
+                        function.name, slot.name
+                    ),
+                    file,
+                    slot.line,
+                );
+                continue;
+            }
+            // An ordinary input slot must bind to a wrapper parameter by name.
+            if !param_names.contains(slot.name.as_str()) {
+                self.report(
+                    "NATIVE_ABI_UNBOUND_SLOT",
+                    &format!(
+                        "Native function `{}` ABI slot `{}` does not bind to a parameter, CONST pin, or the result marker.",
+                        function.name, slot.name
+                    ),
+                    file,
+                    slot.line,
+                );
+            }
+        }
+
+        // The native return slot named `return` is also a result marker.
+        if function.abi.return_name == "return" {
+            result_markers += 1;
+        }
+
+        // A producer (`AS RES X`) and any non-Nothing value-returning wrapper must
+        // surface exactly one result; a `Nothing` wrapper surfaces none.
+        let wants_result = function.return_resource
+            || function
+                .return_type
+                .as_deref()
+                .is_some_and(|return_type| return_type != "Nothing");
+        if wants_result && result_markers == 0 && function.result.is_none() {
+            self.report(
+                "NATIVE_ABI_NO_RESULT",
+                &format!(
+                    "Native function `{}` returns a value but no ABI slot is marked as the result (`return` or `RESULT`).",
+                    function.name
+                ),
+                file,
+                function.line,
+            );
+        }
+        if result_markers > 1 {
+            self.report(
+                "NATIVE_ABI_RESULT_MARKER",
+                &format!(
+                    "Native function `{}` declares more than one `return` result marker.",
+                    function.name
+                ),
+                file,
+                function.line,
+            );
+        }
+
+        // Every wrapper parameter must map to an ABI slot of the same name.
+        let abi_slot_names: HashSet<&str> = function
+            .abi
+            .slots
+            .iter()
+            .map(|slot| slot.name.as_str())
+            .collect();
+        for param in &function.params {
+            if !abi_slot_names.contains(param.name.as_str()) {
+                self.report(
+                    "NATIVE_ABI_UNBOUND_PARAM",
+                    &format!(
+                        "Native function `{}` parameter `{}` has no matching ABI slot.",
+                        function.name, param.name
+                    ),
+                    file,
+                    param.line,
+                );
+            }
+        }
+
+        // A CONST pin must name a real ABI slot.
+        for pin in &function.consts {
+            if !abi_slot_names.contains(pin.slot.as_str()) {
+                self.report(
+                    "NATIVE_CONST_UNKNOWN_SLOT",
+                    &format!(
+                        "Native function `{}` CONST pins unknown ABI slot `{}`.",
+                        function.name, pin.slot
+                    ),
+                    file,
+                    pin.line,
+                );
+            }
+        }
     }
 
     fn collect_types(&mut self) {
@@ -274,15 +540,28 @@ impl<'a> TypeChecker<'a> {
                         &type_export,
                     );
                 }
-                self.collect_package_resources(file, import.line, &package_file);
+                self.collect_package_resources(
+                    file,
+                    import.binding_name(),
+                    import.line,
+                    &package_file,
+                );
             }
         }
     }
 
     /// Register the resource types declared by an imported package's
     /// `RESOURCE_TABLE` so resource recognition, sendability, and the close op
-    /// are driven by package metadata rather than hardcoded names.
-    fn collect_package_resources(&mut self, file: &AstFile, line: usize, package_file: &Path) {
+    /// are driven by package metadata rather than hardcoded names. Entries are
+    /// keyed by the importer-facing qualified name `binding.Type` (how the type
+    /// appears in source), so `RES db AS sqlite::Db` is recognized as a resource.
+    fn collect_package_resources(
+        &mut self,
+        file: &AstFile,
+        binding: &str,
+        line: usize,
+        package_file: &Path,
+    ) {
         let resources = match binary_repr::read_package_resources(package_file) {
             Ok(resources) => resources,
             Err(_) => {
@@ -310,15 +589,26 @@ impl<'a> TypeChecker<'a> {
                 // closed safely; skip rather than register a half-formed type.
                 continue;
             };
-            self.resource_registry.register(
-                resource.type_name,
-                builtins::ResourceInfo {
-                    close_function,
-                    sendable: resource.sendable,
-                    close_may_fail: resource.close_may_fail,
-                    kind: builtins::ResourceKind::Imported,
-                },
-            );
+            // A native resource serializes its close op as the bare exported
+            // alias name (plan-link-update.md §5a); importers call it qualified as
+            // `binding.alias`, so qualify it to match (built-in close names like
+            // `fs.close` are already dotted and stay as-is).
+            let close_function = if resource.native && !close_function.contains('.') {
+                format!("{binding}.{close_function}")
+            } else {
+                close_function
+            };
+            let info = builtins::ResourceInfo {
+                close_function,
+                sendable: resource.sendable,
+                close_may_fail: resource.close_may_fail,
+                kind: builtins::ResourceKind::Imported,
+            };
+            // Importer source names the type as `binding.Type`; register under
+            // that key (and the bare name, for unqualified internal references).
+            self.resource_registry
+                .register(format!("{binding}.{}", resource.type_name), info.clone());
+            self.resource_registry.register(resource.type_name, info);
         }
     }
 
@@ -892,6 +1182,86 @@ impl<'a> TypeChecker<'a> {
         }
     }
 
+    /// Register native `LINK` function signatures (keyed `alias.func`) and any
+    /// `FUNC alias AS alias::func` re-exports, so wrapper code that calls
+    /// `sqliteLink::open(...)` or importers that call `sqlite::close(...)` get a
+    /// type (plan-link-update.md §5a/§5b).
+    fn collect_native_functions(&mut self) {
+        // First gather every LINK function's signature so aliases can adopt them.
+        let mut link_sigs: HashMap<String, (FunctionSig, String)> = HashMap::new();
+        for file in &self.ast.files {
+            for item in &file.items {
+                let Item::Link(link) = item else {
+                    continue;
+                };
+                for function in &link.functions {
+                    let sig = self.native_function_sig(function, &file.path);
+                    let key = format!("{}.{}", link.alias, function.name);
+                    self.functions
+                        .entry(key.clone())
+                        .or_default()
+                        .push(sig.clone());
+                    link_sigs.insert(key, (sig, file.path.clone()));
+                }
+            }
+        }
+
+        // Then register re-export aliases, adopting the target's signature with
+        // the alias's declared visibility (plan-link-update.md §5a).
+        for file in &self.ast.files {
+            for item in &file.items {
+                let Item::FuncAlias(alias) = item else {
+                    continue;
+                };
+                if let Some((sig, _)) = link_sigs.get(&alias.target) {
+                    let mut adopted = sig.clone();
+                    adopted.visibility = alias.visibility;
+                    adopted.owner_file_path = file.path.clone();
+                    self.functions
+                        .entry(alias.name.clone())
+                        .or_default()
+                        .push(adopted);
+                }
+            }
+        }
+    }
+
+    fn native_function_sig(
+        &self,
+        function: &crate::ast::LinkFunction,
+        owner_file_path: &str,
+    ) -> FunctionSig {
+        let return_type = function
+            .return_type
+            .as_deref()
+            .map(|name| self.parse_type(name))
+            .unwrap_or(Type::Nothing);
+        let params = function
+            .params
+            .iter()
+            .map(|param| ParamSig {
+                name: param.name.clone(),
+                type_: param
+                    .type_name
+                    .as_deref()
+                    .map(|name| self.parse_type(name))
+                    .unwrap_or(Type::Unknown),
+                has_default: param.default.is_some(),
+            })
+            .collect();
+        FunctionSig {
+            kind: FunctionKind::Func,
+            params,
+            return_type,
+            isolated: false,
+            imported_package_export: false,
+            // A LINK block is package-local; its functions are reachable from any
+            // file of the declaring package via the alias namespace.
+            visibility: Visibility::Package,
+            owner_file_path: owner_file_path.to_string(),
+        }
+    }
+
     fn canonical_import_name(&self, file: &AstFile, name: &str) -> String {
         let Some((binding, rest)) = name.split_once('.') else {
             return name.to_string();
@@ -987,6 +1357,11 @@ impl<'a> TypeChecker<'a> {
                     Item::Binding(binding) => self.check_binding(file, binding),
                     Item::Function(function) => self.check_function(file, function),
                     Item::Type(type_decl) => self.check_type_decl(file, type_decl),
+                    Item::Resource(resource) => self.check_resource_decl(file, resource),
+                    Item::Link(link) => self.check_link_block(file, link),
+                    // A re-export alias carries no body to check; its target was
+                    // validated during resolve (plan-link-update.md §5a).
+                    Item::FuncAlias(_) => {}
                 }
             }
         }
@@ -1337,7 +1712,13 @@ impl<'a> TypeChecker<'a> {
             }
         }
 
-        if matches!(function.kind, FunctionKind::Func) && flow != Flow::AlwaysReturns {
+        // A `FUNC … AS Nothing` produces no value, so — like a `SUB` — it may
+        // fall through with an implicit `RETURN NOTHING`. Only value-producing
+        // FUNCs must return on every path.
+        if matches!(function.kind, FunctionKind::Func)
+            && !matches!(expected_return, Type::Nothing)
+            && flow != Flow::AlwaysReturns
+        {
             self.report(
                 "TYPE_FUNC_MISSING_RETURN",
                 &format!(
@@ -3705,7 +4086,7 @@ impl<'a> TypeChecker<'a> {
                 argument,
                 locals,
                 line,
-                self.argument_mode_for_type(&sig.params.get(index).map(|param| &param.type_)),
+                self.call_argument_mode(callee, index, sig),
             );
             let Some(param) = sig.params.get(index) else {
                 continue;
@@ -5058,6 +5439,31 @@ impl<'a> TypeChecker<'a> {
         );
     }
 
+    /// The argument mode for argument `index` of a call to `callee`. A call to a
+    /// resource's *registered close op* consumes its single resource argument
+    /// (overhaul invalidation event #1) — for native LINK resources this is the
+    /// `LINK` CLOSE wrapper (plan-link-update.md §6). All other resource arguments
+    /// borrow by default.
+    fn call_argument_mode(&self, callee: &str, index: usize, sig: &FunctionSig) -> ExprMode {
+        let param_type = sig.params.get(index).map(|param| &param.type_);
+        if index == 0 {
+            if let Some(Type::User(name)) = param_type {
+                let base = builtins::resource::base_resource_name(name);
+                let is_close_op = self.resource_registry.close_function(base) == Some(callee)
+                    || self.resource_registry.close_function(name.as_str()) == Some(callee)
+                    // A re-export alias of the close op consumes too (§5a).
+                    || self
+                        .close_op_aliases
+                        .get(callee)
+                        .is_some_and(|type_name| type_name == base || type_name == name);
+                if is_close_op {
+                    return ExprMode::Transfer;
+                }
+            }
+        }
+        self.argument_mode_for_type(&param_type)
+    }
+
     fn argument_mode_for_type(&self, expected: &Option<&Type>) -> ExprMode {
         match expected {
             // Resources borrow by default: an ordinary call uses the handle for
@@ -6032,6 +6438,28 @@ fn call_arg_value(argument: &CallArg) -> &Expression {
         CallArg::Positional(value) => value,
         CallArg::Named { value, .. } => value,
     }
+}
+
+/// Whether `type_name` is a raw C ABI type that may appear only inside an
+/// `ABI (...)` slot, never in a wrapper's MFBASIC-facing signature
+/// (plan-link-update.md §5/§11). `CPtr` is the resource representation; the
+/// others are scalar marshaling types.
+fn is_c_abi_type(type_name: &str) -> bool {
+    matches!(
+        type_name,
+        "CPtr"
+            | "CString"
+            | "CInt8"
+            | "CInt16"
+            | "CInt32"
+            | "CInt64"
+            | "CUInt8"
+            | "CUInt16"
+            | "CUInt32"
+            | "CUInt64"
+            | "CFloat"
+            | "CDouble"
+    )
 }
 
 fn type_kind_name(kind: TypeDeclKind) -> &'static str {

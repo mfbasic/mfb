@@ -549,6 +549,67 @@ fn keyword(value: &str) -> Option<Keyword> {
     }
 }
 
+/// The canonical lexeme for a keyword, used when a keyword token is accepted in
+/// a name position (e.g. a native `LINK` function named `step`, which collides
+/// with the `STEP` keyword). Definition and call sites both canonicalize through
+/// here, so they match consistently.
+pub fn keyword_lexeme(keyword: Keyword) -> &'static str {
+    match keyword {
+        Keyword::As => "as",
+        Keyword::Case => "case",
+        Keyword::Continue => "continue",
+        Keyword::Do => "do",
+        Keyword::Else => "else",
+        Keyword::ElseIf => "elseif",
+        Keyword::False => "false",
+        Keyword::Fail => "fail",
+        Keyword::Exit => "exit",
+        Keyword::For => "for",
+        Keyword::Each => "each",
+        Keyword::Func => "func",
+        Keyword::If => "if",
+        Keyword::In => "in",
+        Keyword::Import => "import",
+        Keyword::Isolated => "isolated",
+        Keyword::Let => "let",
+        Keyword::Lambda => "lambda",
+        Keyword::Loop => "loop",
+        Keyword::Div => "div",
+        Keyword::Mod => "mod",
+        Keyword::Match => "match",
+        Keyword::Mut => "mut",
+        Keyword::Nothing => "nothing",
+        Keyword::And => "and",
+        Keyword::Or => "or",
+        Keyword::Not => "not",
+        Keyword::Next => "next",
+        Keyword::Xor => "xor",
+        Keyword::Return => "return",
+        Keyword::Sub => "sub",
+        Keyword::Then => "then",
+        Keyword::True => "true",
+        Keyword::End => "end",
+        Keyword::Enum => "enum",
+        Keyword::Export => "export",
+        Keyword::Package => "package",
+        Keyword::Program => "program",
+        Keyword::Private => "private",
+        Keyword::Propagate => "propagate",
+        Keyword::Recover => "recover",
+        Keyword::Res => "res",
+        Keyword::Step => "step",
+        Keyword::To => "to",
+        Keyword::Type => "type",
+        Keyword::Trap => "trap",
+        Keyword::Until => "until",
+        Keyword::Union => "union",
+        Keyword::When => "when",
+        Keyword::While => "while",
+        Keyword::Wend => "wend",
+        Keyword::With => "with",
+    }
+}
+
 fn is_identifier_continue(ch: char) -> bool {
     ch.is_ascii_alphanumeric() || ch == '_'
 }

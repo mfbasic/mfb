@@ -70,6 +70,7 @@ $ mfb audit --format json tests/audit-dependency-missing
   ],
   "resources": [],
   "nativeLinks": [],
+  "nativeResources": [],
   "permissions": [],
   "findings": [
     {

@@ -58,6 +58,35 @@ fn call_arg_value(argument: &crate::ast::CallArg) -> &Expression {
     }
 }
 
+/// Whether `type_name` is a raw C ABI type (mirrors `typecheck::is_c_abi_type`),
+/// which may appear only inside ABI slots (plan-link-update.md §5/§11).
+fn is_c_abi_type(type_name: &str) -> bool {
+    matches!(
+        type_name,
+        "CPtr"
+            | "CString"
+            | "CInt8"
+            | "CInt16"
+            | "CInt32"
+            | "CInt64"
+            | "CUInt8"
+            | "CUInt16"
+            | "CUInt32"
+            | "CUInt64"
+            | "CFloat"
+            | "CDouble"
+    )
+}
+
+/// The bare resource type name with any `STATE T` suffix removed, mirroring
+/// `builtins::resource::base_resource_name`.
+fn resource_base_type(type_name: &str) -> &str {
+    match type_name.split_once(" STATE ") {
+        Some((base, _)) => base,
+        None => type_name,
+    }
+}
+
 struct Resolver<'a> {
     project_dir: &'a Path,
     ast: &'a AstProject,
@@ -65,8 +94,24 @@ struct Resolver<'a> {
     top_levels: HashMap<String, Symbol>,
     functions: HashMap<String, Vec<FunctionSymbol>>,
     types: HashSet<String>,
+    /// LINK alias namespaces: alias (e.g. `sqliteLink`) → its native functions
+    /// keyed by name. Members are resolved as `alias::func` qualified names
+    /// (plan-link-update.md §5b).
+    link_functions: HashMap<String, HashMap<String, LinkFnSig>>,
     active_template_params: HashSet<String>,
     had_error: bool,
+}
+
+#[derive(Clone)]
+struct LinkFnSig {
+    params: Vec<Option<String>>,
+    param_resource: Vec<bool>,
+    // Consumed by later native-resource phases (producer typing); recorded now.
+    #[allow(dead_code)]
+    return_type: Option<String>,
+    #[allow(dead_code)]
+    return_resource: bool,
+    line: usize,
 }
 
 #[derive(Clone)]
@@ -98,6 +143,7 @@ impl<'a> Resolver<'a> {
                 .iter()
                 .map(|name| (*name).to_string())
                 .collect(),
+            link_functions: HashMap::new(),
             active_template_params: HashSet::new(),
             had_error: false,
         };
@@ -106,6 +152,36 @@ impl<'a> Resolver<'a> {
     }
 
     fn collect_top_level_symbols(&mut self, ast: &AstProject) {
+        // First pass: register LINK namespaces so resource declarations and
+        // re-export aliases (which reference `alias::func`) can be resolved.
+        for file in &ast.files {
+            for item in &file.items {
+                if let Item::Link(link) = item {
+                    let entry = self.link_functions.entry(link.alias.clone()).or_default();
+                    for function in &link.functions {
+                        entry.insert(
+                            function.name.clone(),
+                            LinkFnSig {
+                                params: function
+                                    .params
+                                    .iter()
+                                    .map(|param| param.type_name.clone())
+                                    .collect(),
+                                param_resource: function
+                                    .params
+                                    .iter()
+                                    .map(|param| param.resource)
+                                    .collect(),
+                                return_type: function.return_type.clone(),
+                                return_resource: function.return_resource,
+                                line: function.line,
+                            },
+                        );
+                    }
+                }
+            }
+        }
+
         for file in &ast.files {
             for item in &file.items {
                 match item {
@@ -130,9 +206,71 @@ impl<'a> Resolver<'a> {
                             self.types.insert(type_decl.name.clone());
                         }
                     }
+                    // A native resource declaration introduces an opaque type at
+                    // package scope (plan-link-update.md §5/§5a).
+                    Item::Resource(resource) => {
+                        if self.insert_top_level(
+                            file,
+                            &resource.name,
+                            resource.line,
+                            resource.visibility,
+                        ) {
+                            self.types.insert(resource.name.clone());
+                        }
+                    }
+                    // A re-export alias publishes a LINK function under a package
+                    // name; register it as a callable carrying the target's
+                    // parameter types (plan-link-update.md §5a).
+                    Item::FuncAlias(alias) => {
+                        let params = self
+                            .link_target_signature(&alias.target)
+                            .map(|sig| sig.params.clone())
+                            .unwrap_or_default();
+                        self.insert_alias_function(file, &alias.name, alias.line, alias.visibility, params);
+                    }
+                    Item::Link(_) => {}
                 }
             }
         }
+    }
+
+    /// Look up a LINK function signature from a dotted `alias.func` target.
+    fn link_target_signature(&self, target: &str) -> Option<&LinkFnSig> {
+        let (alias, func) = target.split_once('.')?;
+        self.link_functions.get(alias)?.get(func)
+    }
+
+    fn insert_alias_function(
+        &mut self,
+        file: &AstFile,
+        name: &str,
+        line: usize,
+        visibility: Visibility,
+        params: Vec<Option<String>>,
+    ) {
+        if let Some(previous) = self.top_levels.get(name).cloned() {
+            self.report(
+                "SYMBOL_DUPLICATE_TOP_LEVEL",
+                &format!(
+                    "Top-level symbol `{name}` was already declared in {}:{}.",
+                    previous.file_path, previous.line
+                ),
+                file,
+                line,
+            );
+            return;
+        }
+        self.functions
+            .entry(name.to_string())
+            .or_default()
+            .push(FunctionSymbol {
+                symbol: Symbol {
+                    file_path: file.path.clone(),
+                    line,
+                    visibility,
+                },
+                params,
+            });
     }
 
     fn insert_function(&mut self, file: &AstFile, function: &crate::ast::Function) {
@@ -293,6 +431,123 @@ impl<'a> Resolver<'a> {
                 Item::Binding(binding) => self.resolve_binding(file, binding, &imports),
                 Item::Function(function) => self.resolve_function(file, function, &imports),
                 Item::Type(type_decl) => self.resolve_type_decl(file, type_decl, &imports),
+                Item::Resource(resource) => self.resolve_resource_decl(file, resource, &imports),
+                Item::FuncAlias(alias) => self.resolve_func_alias(file, alias, &imports),
+                Item::Link(link) => self.resolve_link_block(file, link, &imports),
+            }
+        }
+    }
+
+    fn resolve_resource_decl(
+        &mut self,
+        file: &AstFile,
+        resource: &crate::ast::ResourceDecl,
+        imports: &HashMap<String, String>,
+    ) {
+        // The close op must name a LINK function in this package (plan-link-update.md
+        // §5/§12). Naming an ordinary MFBASIC function would reintroduce the cut
+        // source-defined-resource design.
+        let Some((alias, func)) = resource.close_fn.split_once('.') else {
+            self.report(
+                "RESOURCE_CLOSE_NOT_NATIVE",
+                &format!(
+                    "RESOURCE `{}` CLOSE BY `{}` must name a native LINK function (alias::func).",
+                    resource.name, resource.close_fn
+                ),
+                file,
+                resource.line,
+            );
+            return;
+        };
+        let Some(link) = self.link_functions.get(alias) else {
+            self.report(
+                "RESOURCE_CLOSE_NOT_NATIVE",
+                &format!(
+                    "RESOURCE `{}` CLOSE BY `{}` references unknown LINK alias `{alias}`.",
+                    resource.name, resource.close_fn
+                ),
+                file,
+                resource.line,
+            );
+            return;
+        };
+        let Some(close_sig) = link.get(func) else {
+            self.report(
+                "RESOURCE_CLOSE_MISSING",
+                &format!(
+                    "RESOURCE `{}` CLOSE BY `{}` names a function not declared in LINK `{alias}`.",
+                    resource.name, resource.close_fn
+                ),
+                file,
+                resource.line,
+            );
+            return;
+        };
+        // The close op must consume exactly one `RES` parameter of this resource.
+        let single_resource_param = close_sig.params.len() == 1
+            && close_sig.param_resource.first().copied().unwrap_or(false)
+            && close_sig
+                .params
+                .first()
+                .and_then(|param| param.as_deref())
+                .is_some_and(|param| resource_base_type(param) == resource.name);
+        if !single_resource_param {
+            self.report(
+                "RESOURCE_CLOSE_SIGNATURE",
+                &format!(
+                    "Close op `{}` for resource `{}` must take exactly one `RES {} ...` parameter.",
+                    resource.close_fn, resource.name, resource.name
+                ),
+                file,
+                close_sig.line,
+            );
+        }
+        let _ = imports;
+    }
+
+    fn resolve_func_alias(
+        &mut self,
+        file: &AstFile,
+        alias: &crate::ast::FuncAlias,
+        imports: &HashMap<String, String>,
+    ) {
+        // The alias target must be a known LINK function (plan-link-update.md §5a).
+        if self.link_target_signature(&alias.target).is_none() {
+            self.report(
+                "SYMBOL_UNKNOWN_IDENTIFIER",
+                &format!(
+                    "Function alias `{}` targets `{}`, which is not a native LINK function.",
+                    alias.name, alias.target
+                ),
+                file,
+                alias.line,
+            );
+        }
+        let _ = imports;
+    }
+
+    fn resolve_link_block(
+        &mut self,
+        file: &AstFile,
+        link: &crate::ast::LinkBlock,
+        imports: &HashMap<String, String>,
+    ) {
+        for function in &link.functions {
+            for param in &function.params {
+                if let Some(type_name) = &param.type_name {
+                    // A raw C ABI type in a wrapper signature is reported by
+                    // typecheck as NATIVE_CPTR_ESCAPE; don't double-report it here
+                    // as an unknown type.
+                    if is_c_abi_type(type_name) {
+                        continue;
+                    }
+                    self.resolve_type_name(file, type_name, param.line, imports);
+                }
+            }
+            if let Some(return_type) = &function.return_type {
+                if !is_c_abi_type(return_type) {
+                    self.resolve_type_name(file, return_type, function.line, imports);
+                }
             }
         }
     }
@@ -987,6 +1242,20 @@ impl<'a> Resolver<'a> {
         imports: &HashMap<String, String>,
     ) {
         let root = name.split('.').next().unwrap_or(name);
+        // A LINK alias is a package-local namespace, not an import: resolve its
+        // members against the block's native functions (plan-link-update.md §5b).
+        if let Some(link) = self.link_functions.get(root) {
+            let member = name.split_once('.').map(|(_, rest)| rest).unwrap_or("");
+            if !link.contains_key(member) {
+                self.report(
+                    "SYMBOL_UNKNOWN_IDENTIFIER",
+                    &format!("LINK `{root}` does not declare a native function `{member}`."),
+                    file,
+                    line,
+                );
+            }
+            return;
+        }
         let Some(package) = imports.get(root) else {
             self.report(
                 "SYMBOL_UNKNOWN_IMPORT",

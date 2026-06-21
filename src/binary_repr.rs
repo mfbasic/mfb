@@ -284,7 +284,16 @@ fn package_resource_exports(
     let mut exports = Vec::with_capacity(package.project.resources.entries.len());
     for entry in &package.project.resources.entries {
         let type_name = type_name(&type_names, entry.type_id)?.to_string();
-        let close_function = resolve_resource_close_name(package, entry.close_function_id)?;
+        // A native LINK resource (NATIVE set, STANDARD clear) stores its close op
+        // name directly in the string pool (plan-link-update.md §10); built-ins
+        // and source resources reference a function id / sentinel.
+        let close_function = if entry.flags & RESOURCE_FLAG_NATIVE != 0
+            && entry.flags & RESOURCE_FLAG_STANDARD == 0
+        {
+            Some(string_at(&package.project.strings.values, entry.close_function_id)?.to_string())
+        } else {
+            resolve_resource_close_name(package, entry.close_function_id)?
+        };
         exports.push(BinaryReprResourceExport {
             type_name,
             close_function,
@@ -2198,6 +2207,22 @@ fn lower_project_with_external_functions(
             resources.add_standard_listener(&mut types, &mut strings);
         }
     }
+    // Native LINK resources (plan-link-update.md §10): each becomes an opaque
+    // type (exported when the declaration is `EXPORT`) plus a RESOURCE_TABLE
+    // entry whose close op is referenced by name.
+    for native in &ir.native_resources {
+        // An opaque native resource has no fields; encode it as a zero-field
+        // record so the type table round-trips. Its resource-ness (which blocks
+        // construction and field access) comes from the RESOURCE_TABLE.
+        let mut payload = Vec::new();
+        put_u32(&mut payload, 0);
+        let type_id = types.add_entry(&mut strings, &metadata.name, &native.name, 1, payload);
+        if native.visibility == "export" {
+            let index = (type_id - FIRST_TABLE_TYPE_ID) as usize;
+            types.entries[index].abi_export_kind = Some(BinaryReprExportKind::Type);
+        }
+        resources.add_native(&mut strings, type_id, native);
+    }
     let globals = ir
         .bindings
         .iter()
@@ -3384,6 +3409,30 @@ impl ResourceTable {
         });
     }
 
+    /// Add a native LINK resource (plan-link-update.md §10). Native resources
+    /// carry the `NATIVE` flag *without* `STANDARD`, which is how decode tells a
+    /// native LINK resource (whose `close_function_id` is the string id of its
+    /// close op name) from a built-in (whose id is a sentinel).
+    fn add_native(
+        &mut self,
+        strings: &mut StringPool,
+        type_id: u32,
+        native: &crate::ir::IrNativeResource,
+    ) {
+        let mut flags = RESOURCE_FLAG_NATIVE;
+        if native.sendable {
+            flags |= RESOURCE_FLAG_SENDABLE;
+        }
+        if native.close_may_fail {
+            flags |= RESOURCE_FLAG_CLOSE_MAY_FAIL;
+        }
+        self.entries.push(ResourceEntry {
+            type_id,
+            close_function_id: strings.intern(&native.close_function),
+            flags,
+        });
+    }
+
     fn encode(&self) -> Vec<u8> {
         let mut bytes = Vec::new();
         put_u32(&mut bytes, self.entries.len() as u32);
@@ -3823,5 +3872,52 @@ mod resource_table_tests {
         assert!(decoded.entries[0].flags & RESOURCE_FLAG_SENDABLE != 0);
         assert!(decoded.entries[1].flags & RESOURCE_FLAG_SENDABLE == 0);
         assert_eq!(decoded.entries[1].close_function_id, BUILTIN_NET_CLOSE_FUNCTION_ID);
+    }
+
+    #[test]
+    fn native_resource_entry_has_native_flag_without_standard() {
+        // A native LINK resource carries NATIVE but not STANDARD; this is how
+        // decode tells it from a built-in (plan-link-update.md §10).
+        let mut strings = StringPool::new();
+        let mut table = ResourceTable::new();
+        let native = crate::ir::IrNativeResource {
+            name: "Db".to_string(),
+            visibility: "export".to_string(),
+            close_function: "sqliteLink.close".to_string(),
+            sendable: false,
+            close_may_fail: true,
+        };
+        table.add_native(&mut strings, 42, &native);
+        let entry = &table.entries[0];
+        assert!(entry.flags & RESOURCE_FLAG_NATIVE != 0);
+        assert!(entry.flags & RESOURCE_FLAG_STANDARD == 0);
+        assert!(entry.flags & RESOURCE_FLAG_CLOSE_MAY_FAIL != 0);
+        assert!(entry.flags & RESOURCE_FLAG_SENDABLE == 0);
+        // The close op name round-trips through the string pool.
+        let bytes = table.encode();
+        let decoded = read_resource_table(&bytes).expect("decode resource table");
+        assert_eq!(decoded.entries[0].type_id, 42);
+        assert_eq!(
+            string_at(&strings.values, decoded.entries[0].close_function_id).unwrap(),
+            "sqliteLink.close"
+        );
+    }
+
+    #[test]
+    fn native_resource_sendable_bit_round_trips() {
+        let mut strings = StringPool::new();
+        let mut table = ResourceTable::new();
+        let native = crate::ir::IrNativeResource {
+            name: "Conn".to_string(),
+            visibility: "export".to_string(),
+            close_function: "lib.close".to_string(),
+            sendable: true,
+            close_may_fail: false,
+        };
+        table.add_native(&mut strings, 7, &native);
+        let bytes = table.encode();
+        let decoded = read_resource_table(&bytes).expect("decode resource table");
+        assert!(decoded.entries[0].flags & RESOURCE_FLAG_SENDABLE != 0);
+        assert!(decoded.entries[0].flags & RESOURCE_FLAG_CLOSE_MAY_FAIL == 0);
     }
 }

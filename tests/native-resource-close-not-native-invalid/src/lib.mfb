@@ -1,0 +1,5 @@
+' CLOSE BY must name a native LINK function, not an ordinary FUNC (§5/§12).
+EXPORT RESOURCE Db CLOSE BY closeDb
+
+FUNC closeDb(x AS Integer) AS Nothing
+END FUNC

@@ -160,6 +160,7 @@ pub fn render(report: &AuditReport) -> String {
         ("sourceFlow", source_flow(report)),
         ("resources", resources(report)),
         ("nativeLinks", native_links(report)),
+        ("nativeResources", native_resources(report)),
         ("permissions", permissions(report)),
         ("findings", findings(report)),
     ]);
@@ -290,6 +291,28 @@ fn native_links(report: &AuditReport) -> Json {
                     ("symbol", Json::Str(link.symbol.clone())),
                     ("closeFunction", Json::Str(link.close_function.clone())),
                     ("mayFail", Json::Bool(link.may_fail)),
+                ])
+            })
+            .collect(),
+    )
+}
+
+fn native_resources(report: &AuditReport) -> Json {
+    Json::Arr(
+        report
+            .native_resources
+            .iter()
+            .map(|resource| {
+                Json::Obj(vec![
+                    ("package", Json::Str(resource.package.clone())),
+                    ("resourceType", Json::Str(resource.resource_type.clone())),
+                    ("closeOp", Json::Str(resource.close_op.clone())),
+                    ("closeMayFail", Json::Bool(resource.close_may_fail)),
+                    ("threadSendable", Json::Bool(resource.sendable)),
+                    ("exported", Json::Bool(resource.exported)),
+                    ("kind", Json::Str("native".to_string())),
+                    ("path", Json::Str(resource.path.clone())),
+                    ("line", Json::Int(resource.line as i64)),
                 ])
             })
             .collect(),

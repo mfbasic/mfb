@@ -70,6 +70,7 @@ $ mfb audit --format json tests/audit-basic
   ],
   "resources": [],
   "nativeLinks": [],
+  "nativeResources": [],
   "permissions": [
     {
       "capability": "terminal",

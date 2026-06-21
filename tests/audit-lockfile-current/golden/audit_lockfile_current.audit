@@ -52,6 +52,7 @@ $ mfb audit --format json tests/audit-lockfile-current
   ],
   "resources": [],
   "nativeLinks": [],
+  "nativeResources": [],
   "permissions": [],
   "findings": []
 }

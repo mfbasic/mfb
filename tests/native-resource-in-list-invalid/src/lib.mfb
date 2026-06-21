@@ -1,0 +1,24 @@
+' A native resource cannot be stored in an ordinary List (a non-goal, §3).
+EXPORT RESOURCE Db CLOSE BY demoLink::close
+LINK "demo" AS demoLink
+  FUNC open(path AS String) AS RES Db
+    SYMBOL "demo_open"
+    ABI (path CString, return OUT CPtr) AS status CInt32
+    SUCCESS_ON status = 0
+  END FUNC
+  FUNC close(RES db AS Db) AS Nothing
+    SYMBOL "demo_close"
+    ABI (db CPtr) AS status CInt32
+    SUCCESS_ON status = 0
+  END FUNC
+  FUNC busy(RES db AS Db, ms AS Integer) AS Nothing
+    SYMBOL "demo_busy"
+    ABI (db CPtr, ms CInt32) AS status CInt32
+    SUCCESS_ON status = 0
+  END FUNC
+END LINK
+
+EXPORT FUNC bad(path AS String) AS Nothing
+  RES db AS Db = demoLink::open(path)
+  LET xs AS List OF Db = [db]
+END FUNC

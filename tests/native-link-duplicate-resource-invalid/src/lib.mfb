@@ -1,0 +1,11 @@
+' A resource name may be declared only once (§12).
+EXPORT RESOURCE Db CLOSE BY demoLink::close
+RESOURCE Db CLOSE BY demoLink::close
+
+LINK "demo" AS demoLink
+  FUNC close(RES db AS Db) AS Nothing
+    SYMBOL "demo_close"
+    ABI (db CPtr) AS status CInt32
+    SUCCESS_ON status = 0
+  END FUNC
+END LINK

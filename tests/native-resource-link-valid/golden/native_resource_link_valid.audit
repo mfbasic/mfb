@@ -1,0 +1,76 @@
+$ mfb audit --format text tests/native-resource-link-valid
+Audit: native_resource_link_valid 0.1.0 (package)
+Root: tests/native-resource-link-valid
+Language: 1.0
+Lockfile: absent
+
+Summary:
+  errors: 0
+  warnings: 0
+  infos: 0
+
+Native resources:
+  Db (exported) in native_resource_link_valid at src/lib.mfb:3 (native, close demoLink.close, may fail, not thread-sendable, no pointer exposed)
+  Stmt (package-private) in native_resource_link_valid at src/lib.mfb:4 (native, close demoLink.finalize, may fail, not thread-sendable, no pointer exposed)
+[exit 0]
+$ mfb audit --format json tests/native-resource-link-valid
+{
+  "schema": "mfb.audit.v1",
+  "tool": {
+    "name": "mfb",
+    "version": "0.1.0"
+  },
+  "project": {
+    "name": "native_resource_link_valid",
+    "ident": "native_resource_link_valid",
+    "version": "0.1.0",
+    "kind": "package",
+    "root": "tests/native-resource-link-valid",
+    "entry": null,
+    "languageVersion": "1.0"
+  },
+  "summary": {
+    "errors": 0,
+    "warnings": 0,
+    "infos": 0
+  },
+  "lockfile": {
+    "path": "mfb.lock",
+    "present": false,
+    "locked": false,
+    "lockfileVersion": null,
+    "projectHashMatches": null
+  },
+  "dependencies": [],
+  "packages": [],
+  "sourceFlow": [],
+  "resources": [],
+  "nativeLinks": [],
+  "nativeResources": [
+    {
+      "package": "native_resource_link_valid",
+      "resourceType": "Db",
+      "closeOp": "demoLink.close",
+      "closeMayFail": true,
+      "threadSendable": false,
+      "exported": true,
+      "kind": "native",
+      "path": "src/lib.mfb",
+      "line": 3
+    },
+    {
+      "package": "native_resource_link_valid",
+      "resourceType": "Stmt",
+      "closeOp": "demoLink.finalize",
+      "closeMayFail": true,
+      "threadSendable": false,
+      "exported": false,
+      "kind": "native",
+      "path": "src/lib.mfb",
+      "line": 4
+    }
+  ],
+  "permissions": [],
+  "findings": []
+}
+[exit 0]

@@ -129,6 +129,7 @@ $ mfb audit --format json tests/audit-trap-recovery
   ],
   "resources": [],
   "nativeLinks": [],
+  "nativeResources": [],
   "permissions": [],
   "findings": []
 }

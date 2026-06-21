@@ -344,6 +344,8 @@ Symlink behavior is explicit:
 
 `File` is an opaque standard `RESOURCE` type and unique handle. It is closed automatically with `fs::close` by lexical drop when its binding leaves scope, on every exit path, and may also be closed explicitly with `fs::close`. `File` is thread-transferable: it crosses a thread boundary through `thread::transfer` (the resource plane), which moves ownership to the destination side so the sender cannot use the handle again on a successful path. Resources are not valid `thread::send` messages.
 
+`File`, `Socket`, and `Listener` are the standard built-in resource types. Beyond these, a **binding package may introduce its own native resource types** through a package-scope `RESOURCE <Name> CLOSE BY <pkg>::close` declaration paired with a `LINK` block (mfbasic.md §17). An imported native resource behaves exactly like a standard one: it is bound with `RES`, borrowed at ordinary calls, auto-closed by lexical drop through its registered close op, never copied/stored/field-accessed, and reported by `mfb audit` — and is thread-sendable only when the binding declares `THREAD_SENDABLE`. Diagnostics specific to declaring native bindings are listed in `specifications/error_codes.md` (`1-102-0008`–`0009`, `2-203-0089`–`0098`).
+
 ## 9. Built-in Thread Package
 
 Thread functions live in the `thread` package. Thread entry points must be exported `ISOLATED FUNC` declarations from imported packages with type `ISOLATED FUNC(ThreadWorker OF Msg TO Out, In) AS Out`; lambdas, closures, `SUB`s, non-isolated functions, current-package functions, and functions without the leading worker handle parameter are rejected at compile time.

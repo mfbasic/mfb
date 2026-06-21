@@ -58,6 +58,109 @@ pub enum Item {
     Binding(TopLevelBinding),
     Function(Function),
     Type(TypeDecl),
+    /// A package-scope `[vis] RESOURCE Name CLOSE BY pkg::close` declaration
+    /// that introduces a native resource type (plan-link-update.md §5).
+    Resource(ResourceDecl),
+    /// A `[vis] FUNC alias AS qualified::func` transparent re-export of a `LINK`
+    /// function — required to re-export a registered close op (plan-link-update.md §5a).
+    FuncAlias(FuncAlias),
+    /// A `LINK "lib" AS alias … END LINK` native binding block (plan-link-update.md §5b).
+    Link(LinkBlock),
+}
+
+/// A package-scope native resource declaration: `[vis] RESOURCE Name CLOSE BY
+/// closeFn [THREAD_SENDABLE]` (plan-link-update.md §5). `close_fn` is the
+/// (possibly qualified) registered close op; `Name` is an opaque unique native
+/// handle whose hidden representation is a `CPtr`.
+#[derive(Clone, Debug)]
+pub struct ResourceDecl {
+    pub visibility: Visibility,
+    pub name: String,
+    /// The registered close op, qualified as `alias.func` (dotted, like other
+    /// qualified names in the AST).
+    pub close_fn: String,
+    /// Whether the resource opts into thread sendability (plan-link-update.md §8).
+    pub thread_sendable: bool,
+    pub line: usize,
+}
+
+/// A transparent function alias `[vis] FUNC alias AS qualified::func`
+/// (plan-link-update.md §5a). The alias names the *same* function — same
+/// signature, and, for a close op, the same registered close op.
+#[derive(Clone, Debug)]
+pub struct FuncAlias {
+    pub visibility: Visibility,
+    pub name: String,
+    /// The aliased target, qualified as `alias.func` (dotted).
+    pub target: String,
+    pub line: usize,
+}
+
+/// A `LINK "library" AS alias` native binding block (plan-link-update.md §5b).
+#[derive(Clone, Debug)]
+pub struct LinkBlock {
+    /// The native library name, e.g. `"sqlite3"`.
+    pub library: String,
+    /// The local binding name for the block's functions, e.g. `sqliteLink`.
+    pub alias: String,
+    pub functions: Vec<LinkFunction>,
+    pub line: usize,
+}
+
+/// A native function declaration inside a `LINK` block: an MFBASIC-facing
+/// signature plus its native `SYMBOL`, `ABI` mapping, `CONST` pins, and success
+/// gate (plan-link-update.md §5b/§5c).
+#[derive(Clone, Debug)]
+pub struct LinkFunction {
+    pub name: String,
+    pub params: Vec<Param>,
+    pub return_type: Option<String>,
+    /// Whether the return type was declared with `RES` (produces a resource).
+    pub return_resource: bool,
+    /// The native C symbol, e.g. `"sqlite3_open"`.
+    pub symbol: String,
+    /// The named-slot ABI signature.
+    pub abi: AbiSpec,
+    /// `CONST slot = value` pins (plan-link-update.md §5c).
+    pub consts: Vec<ConstPin>,
+    /// `SUCCESS_ON <expr>` gate, if any (the De Morgan complement of `ERROR_ON`).
+    pub success_on: Option<Expression>,
+    /// `RESULT <expr>` value mapping, if any (plan-link-update.md §5b).
+    pub result: Option<Expression>,
+    pub line: usize,
+}
+
+/// The `ABI (slot, …) AS retname rettype` named-slot signature
+/// (plan-link-update.md §5b).
+#[derive(Clone, Debug)]
+pub struct AbiSpec {
+    /// The parenthesized ABI slots, in native C argument order.
+    pub slots: Vec<AbiSlot>,
+    /// The native return slot: name and C type after `)` `AS`.
+    pub return_name: String,
+    pub return_ctype: String,
+    /// Source line of the `ABI` clause; retained for diagnostics.
+    #[allow(dead_code)]
+    pub line: usize,
+}
+
+/// One `ABI (...)` slot: `name ctype`, `name OUT ctype`, or `return OUT ctype`.
+#[derive(Clone, Debug)]
+pub struct AbiSlot {
+    /// Slot name; the literal `return` marks the wrapper-result OUT slot.
+    pub name: String,
+    pub ctype: String,
+    /// Whether the slot is an `OUT` parameter (produces a value through a pointer).
+    pub is_out: bool,
+    pub line: usize,
+}
+
+/// A `CONST slot = value` pin (plan-link-update.md §5c).
+#[derive(Clone, Debug)]
+pub struct ConstPin {
+    pub slot: String,
+    pub value: Expression,
+    pub line: usize,
 }
 
 #[derive(Clone, Debug)]
@@ -850,6 +953,14 @@ impl<'a> FileParser<'a> {
                 continue;
             }
 
+            if self.check_top_level_func_alias() {
+                if let Some(alias) = self.parse_top_level_func_alias() {
+                    items.push(Item::FuncAlias(alias));
+                }
+                self.skip_separators();
+                continue;
+            }
+
             if self.check_top_level_item_start() {
                 let visibility = self.parse_visibility().unwrap_or(Visibility::Private);
                 if let Some(function) = self.parse_function() {
@@ -857,6 +968,22 @@ impl<'a> FileParser<'a> {
                         visibility,
                         ..function
                     }));
+                }
+                self.skip_separators();
+                continue;
+            }
+
+            if self.check_top_level_resource_start() {
+                if let Some(resource) = self.parse_top_level_resource() {
+                    items.push(Item::Resource(resource));
+                }
+                self.skip_separators();
+                continue;
+            }
+
+            if self.check_top_level_link_start() {
+                if let Some(link) = self.parse_link_block() {
+                    items.push(Item::Link(link));
                 }
                 self.skip_separators();
                 continue;
@@ -877,7 +1004,7 @@ impl<'a> FileParser<'a> {
             let token = self.peek().clone();
             self.report(
                 "MFB_PARSE_UNEXPECTED_STATEMENT",
-                "Expected an IMPORT, LET, MUT, SUB, FUNC, TYPE, UNION, or ENUM declaration at the top level.",
+                "Expected an IMPORT, LET, MUT, SUB, FUNC, TYPE, UNION, ENUM, RESOURCE, or LINK declaration at the top level.",
                 &token,
             );
             self.synchronize();
@@ -2734,6 +2861,442 @@ impl<'a> FileParser<'a> {
                 }))
     }
 
+    fn check_top_level_resource_start(&self) -> bool {
+        self.check_identifier_ci("RESOURCE")
+            || (self.check_visibility()
+                && self.peek_next().is_some_and(|token| {
+                    matches!(&token.kind, TokenKind::Identifier(value) if value.eq_ignore_ascii_case("RESOURCE"))
+                }))
+    }
+
+    fn check_top_level_link_start(&self) -> bool {
+        self.check_identifier_ci("LINK")
+    }
+
+    /// Detect a function-alias item: `[vis] FUNC name AS qualified::func`. The
+    /// `::`-qualified target distinguishes the alias (plan-link-update.md §5a)
+    /// from an ordinary function declaration with a body.
+    fn check_top_level_func_alias(&self) -> bool {
+        let mut index = self.current;
+        if matches!(
+            self.tokens.get(index).map(|token| &token.kind),
+            Some(TokenKind::Keyword(
+                Keyword::Private | Keyword::Package | Keyword::Export
+            ))
+        ) {
+            index += 1;
+        }
+        if !matches!(
+            self.tokens.get(index).map(|token| &token.kind),
+            Some(TokenKind::Keyword(Keyword::Func))
+        ) {
+            return false;
+        }
+        index += 1;
+        if !matches!(
+            self.tokens.get(index).map(|token| &token.kind),
+            Some(TokenKind::Identifier(_))
+        ) {
+            return false;
+        }
+        index += 1;
+        if !matches!(
+            self.tokens.get(index).map(|token| &token.kind),
+            Some(TokenKind::Keyword(Keyword::As))
+        ) {
+            return false;
+        }
+        index += 1;
+        if !matches!(
+            self.tokens.get(index).map(|token| &token.kind),
+            Some(TokenKind::Identifier(_))
+        ) {
+            return false;
+        }
+        index += 1;
+        matches!(
+            self.tokens.get(index).map(|token| &token.kind),
+            Some(TokenKind::DoubleColon)
+        )
+    }
+
+    fn parse_top_level_resource(&mut self) -> Option<ResourceDecl> {
+        let visibility = self.parse_visibility().unwrap_or(Visibility::Private);
+        let keyword = self.advance().clone(); // the `RESOURCE` contextual keyword
+        let Some(name) = self.consume_identifier("Resource name must be an identifier.") else {
+            self.synchronize();
+            return None;
+        };
+        if !self.consume_contextual(
+            "CLOSE",
+            "RESOURCE declaration requires `CLOSE BY <closeFn>`.",
+        ) {
+            self.synchronize();
+            return None;
+        }
+        if !self.consume_contextual("BY", "RESOURCE `CLOSE` must be followed by `BY`.") {
+            self.synchronize();
+            return None;
+        }
+        let Some(close_fn) = self.parse_qualified_name("Expected a close op after `CLOSE BY`.")
+        else {
+            self.synchronize();
+            return None;
+        };
+        let thread_sendable = self.match_identifier_ci("THREAD_SENDABLE");
+        self.consume_statement_end("Expected end of statement after RESOURCE declaration.");
+        Some(ResourceDecl {
+            visibility,
+            name,
+            close_fn,
+            thread_sendable,
+            line: keyword.line,
+        })
+    }
+
+    fn parse_top_level_func_alias(&mut self) -> Option<FuncAlias> {
+        let visibility = self.parse_visibility().unwrap_or(Visibility::Private);
+        let func_token = self.advance().clone(); // FUNC
+        let Some(name) = self.consume_identifier("Function alias name must be an identifier.")
+        else {
+            self.synchronize();
+            return None;
+        };
+        if !self.consume_keyword(Keyword::As, "Function alias requires `AS qualified::func`.") {
+            self.synchronize();
+            return None;
+        }
+        let Some(target) = self.parse_qualified_name("Expected `qualified::func` after `AS`.")
+        else {
+            self.synchronize();
+            return None;
+        };
+        self.consume_statement_end("Expected end of statement after function alias.");
+        Some(FuncAlias {
+            visibility,
+            name,
+            target,
+            line: func_token.line,
+        })
+    }
+
+    fn parse_link_block(&mut self) -> Option<LinkBlock> {
+        let keyword = self.advance().clone(); // the `LINK` contextual keyword
+        let library = match self.peek().kind.clone() {
+            TokenKind::String(value) => {
+                self.advance();
+                value
+            }
+            _ => {
+                let token = self.peek().clone();
+                self.report(
+                    "MFB_PARSE_UNEXPECTED_TOKEN",
+                    "LINK requires a native library name string, e.g. `LINK \"sqlite3\" AS ...`.",
+                    &token,
+                );
+                self.synchronize();
+                return None;
+            }
+        };
+        if !self.consume_keyword(Keyword::As, "LINK requires `AS <alias>`.") {
+            self.synchronize();
+            return None;
+        }
+        let Some(alias) = self.consume_identifier("Expected a LINK alias name after `AS`.") else {
+            self.synchronize();
+            return None;
+        };
+        self.consume_statement_end("Expected end of statement after LINK header.");
+        self.skip_separators();
+
+        let mut functions = Vec::new();
+        while !self.is_at_end() {
+            if self.is_end_link() {
+                self.advance(); // END
+                self.advance(); // LINK
+                self.consume_statement_end("Expected end of statement after END LINK.");
+                return Some(LinkBlock {
+                    library,
+                    alias,
+                    functions,
+                    line: keyword.line,
+                });
+            }
+            if self.check_keyword(Keyword::Func) {
+                if let Some(function) = self.parse_link_function() {
+                    functions.push(function);
+                } else {
+                    self.synchronize();
+                }
+                self.skip_separators();
+                continue;
+            }
+            let token = self.peek().clone();
+            self.report(
+                "MFB_PARSE_UNEXPECTED_STATEMENT",
+                "A LINK block may only contain native FUNC declarations.",
+                &token,
+            );
+            self.synchronize();
+            self.skip_separators();
+        }
+        self.report(
+            "MFB_PARSE_UNTERMINATED_BLOCK",
+            "LINK block reached end-of-file before its END LINK statement.",
+            &keyword,
+        );
+        None
+    }
+
+    fn parse_link_function(&mut self) -> Option<LinkFunction> {
+        let func_token = self.advance().clone(); // FUNC
+        // A native function may be named after a keyword (e.g. `step`, which
+        // collides with `STEP`); accept a keyword token in this name position.
+        let Some(name) = self.consume_name_or_keyword("Native function name must be an identifier.")
+        else {
+            self.synchronize();
+            return None;
+        };
+        let params = if self.match_kind(TokenKind::LParen) {
+            let params = self.parse_params();
+            if !self.consume_kind(
+                TokenKind::RParen,
+                "Native function declarations must close the parameter list.",
+            ) {
+                self.synchronize();
+                return None;
+            }
+            params
+        } else {
+            Vec::new()
+        };
+        let (return_type, return_resource) = if self.match_keyword(Keyword::As) {
+            let return_resource = self.match_keyword(Keyword::Res);
+            (self.parse_type_name(), return_resource)
+        } else {
+            (None, false)
+        };
+        self.consume_statement_end("Expected end of native function header.");
+        self.skip_separators();
+
+        let mut symbol: Option<String> = None;
+        let mut abi: Option<AbiSpec> = None;
+        let mut consts = Vec::new();
+        let mut success_on: Option<Expression> = None;
+        let mut result: Option<Expression> = None;
+
+        while !self.is_at_end() {
+            if self.check_keyword(Keyword::End) {
+                self.advance(); // END
+                if !self.consume_keyword(
+                    Keyword::Func,
+                    "END must name the block kind it closes (END FUNC).",
+                ) {
+                    self.synchronize();
+                    return None;
+                }
+                self.consume_statement_end("Expected end of statement after END FUNC.");
+                break;
+            }
+            if self.match_identifier_ci("SYMBOL") {
+                symbol = self.parse_string_literal("SYMBOL requires a native symbol name string.");
+                self.consume_statement_end("Expected end of statement after SYMBOL.");
+                self.skip_separators();
+                continue;
+            }
+            if self.match_identifier_ci("ABI") {
+                abi = self.parse_abi_spec();
+                self.consume_statement_end("Expected end of statement after ABI.");
+                self.skip_separators();
+                continue;
+            }
+            if self.match_identifier_ci("CONST") {
+                if let Some(pin) = self.parse_const_pin() {
+                    consts.push(pin);
+                }
+                self.consume_statement_end("Expected end of statement after CONST.");
+                self.skip_separators();
+                continue;
+            }
+            if self.match_identifier_ci("SUCCESS_ON") {
+                success_on = self.parse_expression();
+                self.consume_statement_end("Expected end of statement after SUCCESS_ON.");
+                self.skip_separators();
+                continue;
+            }
+            if self.match_identifier_ci("ERROR_ON") {
+                // ERROR_ON is the De Morgan complement of SUCCESS_ON; store the
+                // negation so downstream stages see a single success condition.
+                let (error_line, error_column) =
+                    (self.previous().line, self.previous().start);
+                if let Some(expr) = self.parse_expression() {
+                    success_on = Some(Expression::Unary {
+                        operator: "NOT".to_string(),
+                        operand: Box::new(expr),
+                        line: error_line,
+                        column: error_column,
+                    });
+                }
+                self.consume_statement_end("Expected end of statement after ERROR_ON.");
+                self.skip_separators();
+                continue;
+            }
+            if self.match_identifier_ci("RESULT") {
+                result = self.parse_expression();
+                self.consume_statement_end("Expected end of statement after RESULT.");
+                self.skip_separators();
+                continue;
+            }
+            let token = self.peek().clone();
+            self.report(
+                "MFB_PARSE_UNEXPECTED_STATEMENT",
+                "A native FUNC body may only contain SYMBOL, ABI, CONST, SUCCESS_ON, ERROR_ON, or RESULT clauses.",
+                &token,
+            );
+            self.synchronize();
+            self.skip_separators();
+        }
+
+        let Some(symbol) = symbol else {
+            self.report(
+                "MFB_PARSE_MISSING_NATIVE_SYMBOL",
+                "A native FUNC must declare its native SYMBOL.",
+                &func_token,
+            );
+            return None;
+        };
+        let Some(abi) = abi else {
+            self.report(
+                "MFB_PARSE_MISSING_NATIVE_ABI",
+                "A native FUNC must declare its ABI signature.",
+                &func_token,
+            );
+            return None;
+        };
+
+        Some(LinkFunction {
+            name,
+            params,
+            return_type,
+            return_resource,
+            symbol,
+            abi,
+            consts,
+            success_on,
+            result,
+            line: func_token.line,
+        })
+    }
+
+    fn parse_abi_spec(&mut self) -> Option<AbiSpec> {
+        let line = self.previous().line;
+        if !self.consume_kind(TokenKind::LParen, "ABI requires a `(` to open its slot list.") {
+            self.synchronize();
+            return None;
+        }
+        let mut slots = Vec::new();
+        if !self.check_kind(&TokenKind::RParen) {
+            loop {
+                let slot_line = self.peek().line;
+                let name = self.parse_abi_slot_name()?;
+                let is_out = self.match_identifier_ci("OUT");
+                let ctype = self.parse_c_type_name()?;
+                slots.push(AbiSlot {
+                    name,
+                    ctype,
+                    is_out,
+                    line: slot_line,
+                });
+                if !self.match_kind(TokenKind::Comma) {
+                    break;
+                }
+            }
+        }
+        if !self.consume_kind(TokenKind::RParen, "ABI slot list must close with `)`.") {
+            self.synchronize();
+            return None;
+        }
+        if !self.consume_keyword(Keyword::As, "ABI requires `AS <name> <ctype>` for the native return.") {
+            self.synchronize();
+            return None;
+        }
+        let return_name = self.parse_abi_slot_name()?;
+        let return_ctype = self.parse_c_type_name()?;
+        Some(AbiSpec {
+            slots,
+            return_name,
+            return_ctype,
+            line,
+        })
+    }
+
+    /// Parse an ABI slot name: an identifier, or the `return` keyword (the
+    /// wrapper-result marker, plan-link-update.md §5b).
+    fn parse_abi_slot_name(&mut self) -> Option<String> {
+        if self.match_keyword(Keyword::Return) {
+            return Some("return".to_string());
+        }
+        self.consume_identifier("Expected an ABI slot name.")
+    }
+
+    fn parse_c_type_name(&mut self) -> Option<String> {
+        self.consume_identifier("Expected an ABI slot C type (e.g. CPtr, CString, CInt32).")
+    }
+
+    fn parse_const_pin(&mut self) -> Option<ConstPin> {
+        let line = self.peek().line;
+        let Some(slot) = self.consume_identifier("CONST requires an ABI slot name.") else {
+            self.synchronize();
+            return None;
+        };
+        if !self.consume_kind(TokenKind::Equal, "CONST requires `= <value>`.") {
+            self.synchronize();
+            return None;
+        }
+        let value = self.parse_expression()?;
+        Some(ConstPin { slot, value, line })
+    }
+
+    fn parse_string_literal(&mut self, detail: &str) -> Option<String> {
+        match self.peek().kind.clone() {
+            TokenKind::String(value) => {
+                self.advance();
+                Some(value)
+            }
+            _ => {
+                let token = self.peek().clone();
+                self.report("MFB_PARSE_UNEXPECTED_TOKEN", detail, &token);
+                None
+            }
+        }
+    }
+
+    fn is_end_link(&self) -> bool {
+        self.check_keyword(Keyword::End)
+            && self.peek_next().is_some_and(|token| {
+                matches!(&token.kind, TokenKind::Identifier(value) if value.eq_ignore_ascii_case("LINK"))
+            })
+    }
+
+    fn match_identifier_ci(&mut self, expected: &str) -> bool {
+        if self.check_identifier_ci(expected) {
+            self.advance();
+            true
+        } else {
+            false
+        }
+    }
+
+    fn consume_contextual(&mut self, expected: &str, detail: &str) -> bool {
+        if self.match_identifier_ci(expected) {
+            true
+        } else {
+            let token = self.peek().clone();
+            self.report("MFB_PARSE_UNEXPECTED_TOKEN", detail, &token);
+            false
+        }
+    }
+
     /// Parse an optional `STATE T` clause that follows a `RES` type. `STATE` is a
     /// contextual keyword (so `state` remains usable as an identifier).
     fn parse_optional_state(&mut self) -> Option<String> {
@@ -2796,7 +3359,29 @@ impl<'a> FileParser<'a> {
         if let Some(part) = self.consume_numeric_identifier_part() {
             return Some(part);
         }
-        self.consume_identifier("Expected identifier after `::`.")
+        // A qualified member may be named after a keyword (e.g. `sqliteLink::step`).
+        self.consume_name_or_keyword("Expected identifier after `::`.")
+    }
+
+    /// Consume an identifier, or a keyword token used in a name position
+    /// (canonicalized through `lexer::keyword_lexeme` so definitions and call
+    /// sites agree).
+    fn consume_name_or_keyword(&mut self, detail: &str) -> Option<String> {
+        match self.peek().kind.clone() {
+            TokenKind::Identifier(value) => {
+                self.advance();
+                Some(value)
+            }
+            TokenKind::Keyword(keyword) => {
+                self.advance();
+                Some(lexer::keyword_lexeme(keyword).to_string())
+            }
+            _ => {
+                let token = self.peek().clone();
+                self.report("MFB_PARSE_INVALID_IDENTIFIER", detail, &token);
+                None
+            }
+        }
     }
 
     fn consume_numeric_identifier_part(&mut self) -> Option<String> {
@@ -3022,7 +3607,181 @@ impl ToAstJson for Item {
             Item::Binding(binding) => binding.to_json(indent),
             Item::Function(function) => function.to_json(indent),
             Item::Type(type_decl) => type_decl.to_json(indent),
+            Item::Resource(resource) => resource.to_json(indent),
+            Item::FuncAlias(alias) => alias.to_json(indent),
+            Item::Link(link) => link.to_json(indent),
         }
+    }
+}
+
+impl ToAstJson for ResourceDecl {
+    fn to_json(&self, indent: usize) -> String {
+        let pad = " ".repeat(indent);
+        format!(
+            "\n{}{{ \"kind\": \"resource\", \"visibility\": {}, \"name\": {}, \"closeFn\": {}, \"threadSendable\": {}, \"line\": {} }}",
+            pad,
+            json_string(visibility_name(self.visibility)),
+            json_string(&self.name),
+            json_string(&self.close_fn),
+            self.thread_sendable,
+            self.line
+        )
+    }
+}
+
+impl ToAstJson for FuncAlias {
+    fn to_json(&self, indent: usize) -> String {
+        let pad = " ".repeat(indent);
+        format!(
+            "\n{}{{ \"kind\": \"funcAlias\", \"visibility\": {}, \"name\": {}, \"target\": {}, \"line\": {} }}",
+            pad,
+            json_string(visibility_name(self.visibility)),
+            json_string(&self.name),
+            json_string(&self.target),
+            self.line
+        )
+    }
+}
+
+impl ToAstJson for LinkBlock {
+    fn to_json(&self, indent: usize) -> String {
+        let pad = " ".repeat(indent);
+        format!(
+            concat!(
+                "\n{}{{\n",
+                "{}  \"kind\": \"link\",\n",
+                "{}  \"library\": {},\n",
+                "{}  \"alias\": {},\n",
+                "{}  \"line\": {},\n",
+                "{}  \"functions\": [{}\n{}  ]\n",
+                "{}}}"
+            ),
+            pad,
+            pad,
+            pad,
+            json_string(&self.library),
+            pad,
+            json_string(&self.alias),
+            pad,
+            self.line,
+            pad,
+            join_indented(&self.functions, indent + 2),
+            pad,
+            pad
+        )
+    }
+}
+
+impl ToAstJson for LinkFunction {
+    fn to_json(&self, indent: usize) -> String {
+        let pad = " ".repeat(indent);
+        let return_type = self
+            .return_type
+            .as_ref()
+            .map(|value| json_string(value))
+            .unwrap_or_else(|| "null".to_string());
+        let success_on = self
+            .success_on
+            .as_ref()
+            .map(|value| value.to_json(indent + 2))
+            .unwrap_or_else(|| "null".to_string());
+        let result = self
+            .result
+            .as_ref()
+            .map(|value| value.to_json(indent + 2))
+            .unwrap_or_else(|| "null".to_string());
+        format!(
+            concat!(
+                "\n{}{{\n",
+                "{}  \"kind\": \"linkFunc\",\n",
+                "{}  \"name\": {},\n",
+                "{}  \"symbol\": {},\n",
+                "{}  \"returnResource\": {},\n",
+                "{}  \"returnType\": {},\n",
+                "{}  \"line\": {},\n",
+                "{}  \"params\": [{}\n{}  ],\n",
+                "{}  \"abi\": {},\n",
+                "{}  \"consts\": [{}\n{}  ],\n",
+                "{}  \"successOn\": {},\n",
+                "{}  \"result\": {}\n",
+                "{}}}"
+            ),
+            pad,
+            pad,
+            pad,
+            json_string(&self.name),
+            pad,
+            json_string(&self.symbol),
+            pad,
+            self.return_resource,
+            pad,
+            return_type,
+            pad,
+            self.line,
+            pad,
+            join_indented(&self.params, indent + 2),
+            pad,
+            pad,
+            self.abi.to_json(indent + 2),
+            pad,
+            join_indented(&self.consts, indent + 2),
+            pad,
+            pad,
+            success_on,
+            pad,
+            result,
+            pad
+        )
+    }
+}
+
+impl AbiSpec {
+    fn to_json(&self, indent: usize) -> String {
+        let pad = " ".repeat(indent);
+        format!(
+            concat!(
+                "{{\n",
+                "{}  \"slots\": [{}\n{}  ],\n",
+                "{}  \"returnName\": {},\n",
+                "{}  \"returnCType\": {}\n",
+                "{}}}"
+            ),
+            pad,
+            join_indented(&self.slots, indent + 2),
+            pad,
+            pad,
+            json_string(&self.return_name),
+            pad,
+            json_string(&self.return_ctype),
+            pad
+        )
+    }
+}
+
+impl ToAstJson for AbiSlot {
+    fn to_json(&self, indent: usize) -> String {
+        let pad = " ".repeat(indent);
+        format!(
+            "\n{}{{ \"name\": {}, \"ctype\": {}, \"out\": {}, \"line\": {} }}",
+            pad,
+            json_string(&self.name),
+            json_string(&self.ctype),
+            self.is_out,
+            self.line
+        )
+    }
+}
+
+impl ToAstJson for ConstPin {
+    fn to_json(&self, indent: usize) -> String {
+        let pad = " ".repeat(indent);
+        format!(
+            "\n{}{{ \"slot\": {}, \"value\": {}, \"line\": {} }}",
+            pad,
+            json_string(&self.slot),
+            self.value.to_json(indent),
+            self.line
+        )
     }
 }
 

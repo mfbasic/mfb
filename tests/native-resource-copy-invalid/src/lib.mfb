@@ -1,0 +1,21 @@
+' A native resource is move-only: copying it then using both is rejected (§3).
+EXPORT RESOURCE Db CLOSE BY demoLink::close
+LINK "demo" AS demoLink
+  FUNC open(path AS String) AS RES Db
+    SYMBOL "demo_open"
+    ABI (path CString, return OUT CPtr) AS status CInt32
+    SUCCESS_ON status = 0
+  END FUNC
+  FUNC close(RES db AS Db) AS Nothing
+    SYMBOL "demo_close"
+    ABI (db CPtr) AS status CInt32
+    SUCCESS_ON status = 0
+  END FUNC
+END LINK
+
+EXPORT FUNC bad(path AS String) AS Nothing
+  RES a AS Db = demoLink::open(path)
+  RES b AS Db = a
+  demoLink::close(a)
+  demoLink::close(b)
+END FUNC

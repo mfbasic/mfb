@@ -1,0 +1,53 @@
+Package: native_resource_link_valid
+Ident: native_resource_link_valid
+Version: 0.1.0
+Ident Key: <empty>
+Ident Fingerprint: <empty>
+Signing Fingerprint: <empty>
+Author: <empty>
+URL: <empty>
+Path: tests/native-resource-link-valid/native_resource_link_valid.mfp
+
+Container:
+  format: MFP
+  version: 1.0
+  binary representation version: 1.0
+  flags: 0x00000000
+  signature type: unsigned
+  signature length: 0
+  content hash: 336b20c95dafc602d92b3d017b74958cc4518cf53629cf9e8f6127a65fdc9a05
+  binary representation length: 634
+
+Manifest:
+  name: native_resource_link_valid
+  ident: native_resource_link_valid
+  version: 0.1.0
+  ident key: <empty>
+  ident fingerprint: <empty>
+  signing fingerprint: <empty>
+  author: <empty>
+  url: <empty>
+
+Binary Representation:
+  ABI format version: 1
+  types: 2
+  constants: 0
+  resources: 2
+  functions: 0
+  globals: 0
+  cleanups: 0
+  imports: 0
+  exports: 1
+
+Exports:
+  TYPE Db
+    sigHash: 35959289dc9cb37004eb8a9fb7180d0a483fc9e1aedd9aaf130e1aa29ea92064
+
+Package State:
+  <none>
+
+Resource Cleanups:
+  <none>
+
+Imports:
+  <none>

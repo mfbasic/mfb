@@ -1,0 +1,9 @@
+$ mfb build -ast tests/native-resource-link-valid
+Wrote AST to tests/native-resource-link-valid/native_resource_link_valid.ast
+[exit 0]
+$ mfb build -ir tests/native-resource-link-valid
+Wrote IR to tests/native-resource-link-valid/native_resource_link_valid.ir
+[exit 0]
+$ mfb build tests/native-resource-link-valid
+Wrote package to tests/native-resource-link-valid/native_resource_link_valid.mfp
+[exit 0]

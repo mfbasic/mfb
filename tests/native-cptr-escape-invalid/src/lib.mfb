@@ -1,0 +1,16 @@
+' A `CPtr` may appear only inside ABI slots, never in a wrapper signature (§11).
+EXPORT RESOURCE Db CLOSE BY demoLink::close
+
+LINK "demo" AS demoLink
+  FUNC close(RES db AS Db) AS Nothing
+    SYMBOL "demo_close"
+    ABI (db CPtr) AS status CInt32
+    SUCCESS_ON status = 0
+  END FUNC
+
+  FUNC leak(handle AS CPtr) AS Nothing
+    SYMBOL "demo_leak"
+    ABI (handle CPtr) AS status CInt32
+    SUCCESS_ON status = 0
+  END FUNC
+END LINK

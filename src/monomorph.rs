@@ -69,6 +69,10 @@ impl<'a> Monomorphizer<'a> {
                             .or_default()
                             .push(function.clone());
                     }
+                    // Native LINK resources, re-export aliases, and LINK blocks
+                    // carry no template parameters and are passed through
+                    // unchanged (plan-link-update.md §15 Phase 1).
+                    Item::Resource(_) | Item::FuncAlias(_) | Item::Link(_) => {}
                 }
             }
         }
@@ -151,6 +155,18 @@ impl<'a> Monomorphizer<'a> {
                                 emitted_functions.insert(concrete.name.clone());
                                 items.push(Item::Function(concrete.clone()));
                             }
+                        }
+                        // Native LINK constructs are not monomorphized; preserve
+                        // them verbatim so later stages (resolve, typecheck,
+                        // package metadata) still see them.
+                        Item::Resource(resource) => {
+                            items.push(Item::Resource(resource.clone()));
+                        }
+                        Item::FuncAlias(alias) => {
+                            items.push(Item::FuncAlias(alias.clone()));
+                        }
+                        Item::Link(link) => {
+                            items.push(Item::Link(link.clone()));
                         }
                         _ => {}
                     }

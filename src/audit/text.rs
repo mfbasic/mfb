@@ -119,6 +119,39 @@ pub fn render(report: &AuditReport) -> String {
         }
     }
 
+    if !report.native_resources.is_empty() {
+        let _ = writeln!(out);
+        let _ = writeln!(out, "Native resources:");
+        for resource in &report.native_resources {
+            let visibility = if resource.exported {
+                "exported"
+            } else {
+                "package-private"
+            };
+            let close = if resource.close_may_fail {
+                format!("close {}, may fail", resource.close_op)
+            } else {
+                format!("close {}", resource.close_op)
+            };
+            let _ = writeln!(
+                out,
+                "  {} ({}) in {} at {}:{} (native, {}, {}, {})",
+                resource.resource_type,
+                visibility,
+                resource.package,
+                resource.path,
+                resource.line,
+                close,
+                if resource.sendable {
+                    "thread-sendable"
+                } else {
+                    "not thread-sendable"
+                },
+                "no pointer exposed",
+            );
+        }
+    }
+
     let flow: Vec<&FlowFunction> = report
         .source_flow
         .iter()

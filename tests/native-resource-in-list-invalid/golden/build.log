@@ -1,0 +1,28 @@
+$ mfb build -ast tests/native-resource-in-list-invalid
+  21 | EXPORT FUNC bad(path AS String) AS Nothing
+  22 |   RES db AS Db = demoLink::open(path)
+  23 |   LET xs AS List OF Db = [db]
+     | ^
+tests/native-resource-in-list-invalid/src/lib.mfb:23 error[2-203-0056 TYPE_COLLECTION_OWNERSHIP_VIOLATION]: ordinary collections cannot store resource or thread ownership
+               Ordinary collections cannot store element values of type `Db` because they contain a resource or thread handle.
+  21 | EXPORT FUNC bad(path AS String) AS Nothing
+  22 |   RES db AS Db = demoLink::open(path)
+  23 |   LET xs AS List OF Db = [db]
+     | ^
+tests/native-resource-in-list-invalid/src/lib.mfb:23 error[2-203-0056 TYPE_COLLECTION_OWNERSHIP_VIOLATION]: ordinary collections cannot store resource or thread ownership
+               Ordinary collections cannot store element values of type `Db` because they contain a resource or thread handle.
+[exit 1]
+$ mfb build -ir tests/native-resource-in-list-invalid
+  21 | EXPORT FUNC bad(path AS String) AS Nothing
+  22 |   RES db AS Db = demoLink::open(path)
+  23 |   LET xs AS List OF Db = [db]
+     | ^
+tests/native-resource-in-list-invalid/src/lib.mfb:23 error[2-203-0056 TYPE_COLLECTION_OWNERSHIP_VIOLATION]: ordinary collections cannot store resource or thread ownership
+               Ordinary collections cannot store element values of type `Db` because they contain a resource or thread handle.
+  21 | EXPORT FUNC bad(path AS String) AS Nothing
+  22 |   RES db AS Db = demoLink::open(path)
+  23 |   LET xs AS List OF Db = [db]
+     | ^
+tests/native-resource-in-list-invalid/src/lib.mfb:23 error[2-203-0056 TYPE_COLLECTION_OWNERSHIP_VIOLATION]: ordinary collections cannot store resource or thread ownership
+               Ordinary collections cannot store element values of type `Db` because they contain a resource or thread handle.
+[exit 1]

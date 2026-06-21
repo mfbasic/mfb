@@ -1,0 +1,16 @@
+' An importer names the imported native resource type by inference and in a
+' parameter position, proving the exported resource type and RESOURCE_TABLE
+' round-trip through the package (plan-link-update.md §5a/§10).
+IMPORT native_resource_link_valid AS demo
+IMPORT io
+
+' `demo::Db` is recognized as a resource (RES binds only resource types), so this
+' parameter type-checks; the function borrows `db` by default.
+FUNC describe(RES db AS demo::Db) AS Nothing
+  io::print("has db")
+END FUNC
+
+FUNC main AS Integer
+  io::print("importer ok")
+  RETURN 0
+END FUNC

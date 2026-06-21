@@ -1,0 +1,33 @@
+' A native binding package: an opaque native resource `Db` plus its LINK block
+' and a re-exported close op (plan-link-update.md §5/§5a).
+EXPORT RESOURCE Db CLOSE BY demoLink::close
+RESOURCE Stmt CLOSE BY demoLink::finalize
+
+LINK "demo" AS demoLink
+  FUNC open(path AS String) AS RES Db
+    SYMBOL "demo_open"
+    ABI (path CString, return OUT CPtr) AS status CInt32
+    SUCCESS_ON status = 0
+  END FUNC
+
+  FUNC close(RES db AS Db) AS Nothing
+    SYMBOL "demo_close"
+    ABI (db CPtr) AS status CInt32
+    SUCCESS_ON status = 0
+  END FUNC
+
+  FUNC prepare(RES db AS Db, sql AS String) AS RES Stmt
+    SYMBOL "demo_prepare"
+    ABI (db CPtr, sql CString, return OUT CPtr) AS status CInt32
+    SUCCESS_ON status = 0
+  END FUNC
+
+  FUNC finalize(RES stmt AS Stmt) AS Nothing
+    SYMBOL "demo_finalize"
+    ABI (stmt CPtr) AS status CInt32
+    SUCCESS_ON status = 0
+  END FUNC
+END LINK
+
+' Re-export the registered close op so importers can close explicitly.
+EXPORT FUNC close AS demoLink::close

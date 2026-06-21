@@ -1315,7 +1315,7 @@ When a thread ends, its inbound queue is closed and further parent-side sends fa
 
 ## 17. Native Libraries
 
-Native libraries are host dynamic libraries loaded through reusable `.mfp` binding packages. MFBASIC code cannot call arbitrary C symbols directly. A package that contains a `LINK` block declares the library name, its package-like namespace, opaque resource types, and the typed wrapper functions that are visible to MFBASIC code. Compiling that package emits a normal `.mfp` (structured Binary Representation) plus native binding metadata.
+Native libraries are host dynamic libraries loaded through reusable `.mfp` binding packages. MFBASIC code cannot call arbitrary C symbols directly. A binding package introduces its **native resource types at package scope** (`RESOURCE … CLOSE BY …`) and declares a `LINK` block holding the library name, its package-like namespace, and the typed native wrapper functions visible to MFBASIC code. Compiling that package emits a normal `.mfp` (structured Binary Representation) plus native binding metadata.
 
 Application packages do not repeat a dependency's `LINK` block. They import the binding package normally with `IMPORT`, call its exported wrapper functions, and use its resource types through ordinary ownership and lexical-drop behavior. Final executable builds collect native dependencies from all imported `.mfp` packages, resolve them once for the target platform, validate their manifests, and link or load the declared native libraries before `main`.
 
@@ -1324,40 +1324,46 @@ Application packages do not repeat a dependency's `LINK` block. They import the 
 * A source package that declares `LINK` is a binding package. It may also include ordinary MFBASIC wrapper code, validation, and higher-level helpers around the native symbols.
 
 ```basic
-LINK "sqlite3" AS sqlite
-  TYPE Db AS RESOURCE
-    CLOSE close
-  END TYPE
+' The native resource type is declared at PACKAGE scope. `EXPORT` makes it
+' nameable by importers as `sqlite::Db`; `CLOSE BY` names its registered close
+' op — a native LINK function declared below.
+EXPORT RESOURCE Db CLOSE BY sqlite::close
 
-  FUNC open(path AS String) AS Db
+LINK "sqlite3" AS sqlite
+  FUNC open(path AS String) AS RES Db
     SYMBOL "sqlite3_open"
-    ABI (CString, OUT CPtr) AS CInt32
-    SUCCESS_ON 0
+    ABI (path CString, return OUT CPtr) AS status CInt32
+    SUCCESS_ON status = 0
   END FUNC
 
-  FUNC close(db AS Db) AS Nothing
+  FUNC close(RES db AS Db) AS Nothing
     SYMBOL "sqlite3_close"
-    ABI (CPtr) AS CInt32
-    SUCCESS_ON 0
+    ABI (db CPtr) AS status CInt32
+    SUCCESS_ON status = 0
   END FUNC
 END LINK
+
+' Re-export the registered close op under the package name (see below).
+EXPORT FUNC close AS sqlite::close
 ```
 
-`LINK "sqlite3" AS sqlite` creates the namespace `sqlite`, so native wrapper functions are called like package functions:
+`LINK "sqlite3" AS sqlite` creates the namespace `sqlite`, so native wrapper functions are called like package functions. A producer wrapper returns `AS RES Db`, so its result is bound with `RES`:
 
 ```basic
-LET db = sqlite::open("app.db")
-' use db
+RES db AS Db = sqlite::open("app.db")
+' borrow db through wrapper calls...
 ' db is closed by lexical drop when its scope ends, or by an explicit sqlite::close(db)
 ```
 
-`TYPE Db AS RESOURCE` declares an opaque unique native handle. For a C library this is usually represented by a pointer or host handle internally, but source code cannot inspect, cast, compare, serialize, print, copy, capture in a lambda, store in an ordinary collection, send to a thread unless the concrete resource type is declared thread-sendable, or do arithmetic on it. A resource may be passed only to functions whose signatures explicitly accept that resource type. Resource handles are not sendable to threads unless the concrete resource type opts in.
+**Declaring the native resource (`[visibility] RESOURCE Name CLOSE BY closeFn`).** A native resource is declared at **package scope, not inside the `LINK` block** — it is named and exported exactly like any other type, so package wrapper code resolves the bare name `Db` and `EXPORT` lets importers write `sqlite::Db`. Omitting `EXPORT` keeps it package-private. The declaration may forward-reference a `LINK` function defined later in the file. `Db` is an opaque unique native handle whose hidden representation is a `CPtr`; source code cannot inspect, cast, compare, serialize, print, copy, capture in a lambda, store in an ordinary collection, do arithmetic on it, or name its `CPtr`. A resource may be passed only to functions whose signatures explicitly accept that resource type in a `RES` position. Resources are not thread-sendable unless the declaration opts in with a trailing `THREAD_SENDABLE`.
 
-`CLOSE close` names the native wrapper function that releases the resource. The close function runs automatically when the resource binding is dropped at scope exit, including on error exits, and may also be called explicitly to release the resource early or to observe a close failure. Calling a native wrapper function with a closed resource fails with `ErrResourceClosed`.
+`CLOSE BY <closeFn>` names the resource's **registered close op** — a native `LINK` function whose single `RES` parameter is this resource type (overhaul invalidation event #1). It runs automatically when the resource binding is dropped at scope exit, including on error exits, and may also be called explicitly to release early or to observe a close failure. `closeFn` must be a native `LINK` function; naming an ordinary MFBASIC function is rejected (`RESOURCE_CLOSE_NOT_NATIVE`), and a close op that does not consume exactly one `RES` parameter of its resource is rejected (`RESOURCE_CLOSE_SIGNATURE`). Calling a native wrapper with a closed resource fails with `ErrResourceClosed`.
+
+**Re-exporting the close op (`[visibility] FUNC alias AS qualified::func`).** A binding publishes its close op under the package name with a transparent **function alias**, so importers can close explicitly through `sqlite::close(db)`. The alias is the *same* registered close op: calling it consumes its `RES` argument exactly as the native close op does. A hand-written wrapper `FUNC close(RES db AS Db) … sqlite::close(db)` cannot replace it, because its parameter is a borrow and a borrow may never invalidate (§15) — there is no `MOVE` annotation. The alias form is required for any close op importers should be able to call.
 
 `SYMBOL "sqlite3_open"` gives the exact native symbol name to look up in the loaded library. The MFBASIC function name is the public wrapper name; it does not have to match the native symbol name.
 
-`ABI (...) AS ...` gives the native C-facing call shape: The `FUNC` signature is the MFBASIC-facing wrapper type; the `ABI` signature is the host-library symbol's argument and return representation.
+`ABI (...) AS ...` gives the native C-facing call shape. The `FUNC` signature is the MFBASIC-facing wrapper type; the `ABI` signature is the host-library symbol's argument and return representation. Each ABI slot is `name type` in native C argument order, and slots bind to wrapper parameters **by name** (so `path` in the ABI matches the `path` parameter). One slot may be named `return` to mark the wrapper's result (an `OUT` slot for a produced handle/value, or the native return slot after `AS`). Every wrapper parameter must map to an ABI slot of the same name, and every ABI slot must be satisfied by exactly one of: a wrapper parameter, the `return` result marker, or a `CONST` pin — otherwise `NATIVE_ABI_UNBOUND_PARAM` / `NATIVE_ABI_UNBOUND_SLOT`.
 
 Native ABI types are separate from MFBASIC source types:
 
@@ -1383,26 +1389,41 @@ ABI parameters may use direction modifiers:
 | `OUT T` | Pass a pointer to uninitialized native storage and copy the result back after the call. The pointer lifetime ends when the native call returns. |
 | `CPtr` | Pass a resource handle or opaque pointer as-is inside the binding boundary. |
 
-Native return handling can be declared when the C return value is not simply the MFBASIC result:
-
-| Form | Meaning |
-|------|---------|
-| `SUCCESS_ON value` | The native return is a status code. `value` means success; any other native return is an error. The MFBASIC success value must come from an `OUT` parameter or be `Nothing`. |
-| `ERROR_ON value` | The native return is the result value except for one sentinel. `value` means error; any other native return is converted to the MFBASIC return value. |
-
-`SUCCESS_ON 0` is common for libraries such as SQLite, where `0` means success and nonzero values are error codes. `ERROR_ON -1` is common for POSIX-style APIs, where `-1` means failure and any other returned value is valid.
+**Pinning constant and NULL arguments (`CONST slot = value`).** The `ABI (...)` line always states the true native signature — every C argument in C order. Some of those arguments are fixed values the caller never supplies (a `-1` length, a NULL callback, a sentinel destructor). `CONST <slot> = <value>` pins one ABI slot to a fixed value and removes it from the wrapper's parameter list. The value is checked against the slot's declared ABI type. `NOTHING` pins a C NULL on a pointer slot; a pointer-sized integer literal pins a sentinel pointer (e.g. `-1` for SQLite's `SQLITE_TRANSIENT`). A `CONST` slot is input-only — marking it `OUT` or as the result is rejected (`NATIVE_CONST_OUT`), and pinning an unknown slot is `NATIVE_CONST_UNKNOWN_SLOT`. A pin is call metadata baked into the native frame; it never materializes as a source value, so it cannot forge or leak a `CPtr`.
 
 ```basic
-FUNC openFd(path AS String, flags AS Integer) AS Integer
-  SYMBOL "open"
-  ABI (CString, CInt32) AS CInt32
-  ERROR_ON -1
+FUNC bindText(RES stmt AS Stmt, iCol AS Integer, zVal AS String) AS Nothing
+  SYMBOL "sqlite3_bind_text"
+  ABI (stmt CPtr, iCol CInt32, zVal CString, nByte CInt32, destructor CPtr) AS status CInt32
+  CONST nByte = -1            ' bind up to the terminating NUL
+  CONST destructor = -1       ' SQLITE_TRANSIENT (void*)-1: copy the bytes now
+  SUCCESS_ON status = 0
 END FUNC
 ```
 
-When an ABI signature has `OUT` parameters, `RETURN_OUT` can define how those output values become the MFBASIC success value. A single `OUT` may be returned implicitly when the wrapper return type is not `Nothing`. Multiple `OUT` parameters require `RETURN_OUT`.
+**Success gating (`SUCCESS_ON` / `ERROR_ON`).** When the native return is a status code rather than the result, a Boolean expression over the named slots decides success:
 
-For multiple outputs, define a normal record type and construct it from the `OUT` positions:
+| Form | Meaning |
+|------|---------|
+| `SUCCESS_ON <expr>` | The wrapper succeeds when `<expr>` is true; any other outcome auto-propagates as an `Error`. |
+| `ERROR_ON <expr>` | The De Morgan complement of `SUCCESS_ON`; the wrapper fails when `<expr>` is true. A wrapper states one, not both. |
+
+`<expr>` is any Boolean expression over slot names, including compound conditions: `SUCCESS_ON status = 0`, `SUCCESS_ON status >= 0`, or `SUCCESS_ON status = 100 OR status = 101`. Comparisons bind tighter than `AND`/`OR` (§11), so the compound form needs no parentheses. `SUCCESS_ON status = 0` is common for libraries such as SQLite; `ERROR_ON status = -1` is common for POSIX-style APIs.
+
+**Result value mapping (`RESULT <expr>`).** When the wrapper's result is *derived from* the status (rather than passed straight through or produced via `OUT`), `RESULT <expr>` supplies it. For example SQLite's `sqlite3_step` returns `SQLITE_ROW` (100) or `SQLITE_DONE` (101); the wrapper returns `AS Boolean` meaning "a row is ready":
+
+```basic
+FUNC step(RES stmt AS Stmt) AS Boolean
+  SYMBOL "sqlite3_step"
+  ABI (stmt CPtr) AS status CInt32
+  SUCCESS_ON status = 100 OR status = 101   ' both are non-errors
+  RESULT status = 100                       ' TRUE iff a row is ready
+END FUNC
+```
+
+A plain value-returning call needs neither gate nor mapping: name the native return slot `return` and the C return becomes the wrapper's result (e.g. `ABI (stmt CPtr, name CString) AS return CInt32`). A value-producing wrapper that marks no result (`return` / `RESULT`) is rejected (`NATIVE_ABI_NO_RESULT`).
+
+**Multiple outputs (`RETURN_OUT`).** When an ABI signature has more than one `OUT` slot, `RETURN_OUT` defines how those outputs become the success value, referencing slots by name. A single `OUT` slot named `return` is returned implicitly.
 
 ```basic
 TYPE DivModResult
@@ -1413,13 +1434,13 @@ END TYPE
 LINK "mylib" AS mylib
   FUNC divmod(a AS Integer, b AS Integer) AS DivModResult
     SYMBOL "divmod"
-    ABI (CInt32, CInt32, OUT CInt32, OUT CInt32) AS CVoid
-    RETURN_OUT DivModResult[3, 4]
+    ABI (a CInt32, b CInt32, quotient OUT CInt32, remainder OUT CInt32) AS CVoid
+    RETURN_OUT DivModResult[quotient, remainder]
   END FUNC
 END LINK
 ```
 
-`RETURN_OUT DivModResult[3, 4]` means: after the native call succeeds, convert the third and fourth ABI arguments from their output storage and succeed with `DivModResult[out3, out4]`.
+`RETURN_OUT DivModResult[quotient, remainder]` means: after the native call succeeds, read the named `OUT` slots and succeed with `DivModResult[quotient, remainder]`.
 
 Rules:
 
@@ -1431,8 +1452,9 @@ Rules:
 - Native functions may accept and return MFBASIC primitive values, strings, byte lists, and declared resource types through an explicit `ABI` mapping. Other conversions are implementation-defined unless specified by the binding.
 - If a native function has more than one `OUT` parameter and its MFBASIC return type is not `Nothing`, it must declare `RETURN_OUT`.
 - `RESOURCE` is a declaration form for concrete opaque unique-handle types; it is not an inheritance base type and cannot be used as a generic catch-all type.
-- Native resource ownership must be declared with `TYPE ... AS RESOURCE` and `CLOSE`; raw `CPtr` values must not escape into ordinary MFBASIC APIs.
+- Native resource ownership is declared at package scope with `RESOURCE <Name> CLOSE BY <closeFn>`. Raw C ABI types (`CPtr`, `CString`, `CInt32`, …) may appear only inside `ABI (...)` slots, never in a wrapper's MFBASIC-facing signature; a `CPtr` exists solely as the hidden representation of a declared resource and must not escape into an ordinary API (`NATIVE_CPTR_ESCAPE`).
 - `REF` and `OUT` native pointer values are temporary call-frame values. Native code must not retain them after return; if a binding needs retained native storage, it must model that storage as a declared `RESOURCE`.
+- Native `LINK` resources slot into the resource model of §15 unchanged: bound with `RES`, borrowed at ordinary calls, auto-closed by lexical drop through the registered close op, never copied/stored/field-accessed, and thread-sendable only with `THREAD_SENDABLE`. Diagnostics specific to native bindings are listed in `specifications/error_codes.md` (`1-102-0008`…`0009`, `2-203-0089`…`0098`).
 - Native libraries are platform-specific dependencies. A `.mfp` package may declare that it needs a native library, including version, search policy, platform constraints, and content/hash requirements, but the native library itself is not portable binary representation.
 
 ---
@@ -1460,29 +1482,33 @@ Fallible built-ins (`fs::openFile`, `toInt`, `get`, …) can fail and auto-propa
 program        = { import | linkDecl } { declaration } ;
 
 import         = "IMPORT" ident [ "AS" ident ] ;
-linkDecl       = "LINK" string "AS" ident { linkItem } "END" "LINK" ;
-linkItem       = nativeTypeDecl | nativeFuncDecl ;
-nativeTypeDecl = "TYPE" ident "AS" "RESOURCE"
-                   [ "CLOSE" ident ] "END" "TYPE" ;
-nativeFuncDecl = "FUNC" ident "(" [ params ] ")" "AS" type
+qualifiedName  = ident "::" ident ;
+resourceDecl   = declVis "RESOURCE" ident "CLOSE" "BY" qualifiedName
+                   [ "THREAD_SENDABLE" ] ;
+funcAlias      = declVis "FUNC" ident "AS" qualifiedName ;
+linkDecl       = "LINK" string "AS" ident { nativeFuncDecl } "END" "LINK" ;
+nativeFuncDecl = "FUNC" ident "(" [ params ] ")" [ "AS" [ "RES" ] type ]
                    nativeFuncBody "END" "FUNC" ;
 nativeFuncBody = "SYMBOL" string
-                   [ "ABI" "(" [ nativeParamList ] ")" "AS" nativeType ]
+                   "ABI" "(" [ abiSlotList ] ")" "AS" abiSlot
+                   { constPin }
                    [ nativeReturnRule ]
+                   [ "RESULT" expr ]
                    [ returnOut ] ;
-nativeReturnRule = "SUCCESS_ON" literal | "ERROR_ON" literal ;
-returnOut       = "RETURN_OUT" returnOutExpr ;
-returnOutExpr   = integer | constructor ;
-nativeParamList = nativeParam { "," nativeParam } ;
-nativeParam     = [ "REF" | "OUT" ] nativeType ;
-nativeType      = "CInt8" | "CInt16" | "CInt32" | "CInt64"
+constPin       = "CONST" ident "=" expr ;
+nativeReturnRule = "SUCCESS_ON" expr | "ERROR_ON" expr ;
+returnOut       = "RETURN_OUT" ident "[" ident { "," ident } "]" ;
+abiSlotList    = abiSlot { "," abiSlot } ;
+abiSlot        = ( ident | "return" ) [ "OUT" ] nativeType ;
+nativeType     = "CInt8" | "CInt16" | "CInt32" | "CInt64"
                 | "CUInt8" | "CUInt16" | "CUInt32" | "CUInt64"
                 | "CBool" | "CFloat32" | "CFloat64"
                 | "CIntPtr" | "CUIntPtr" | "CSize"
                 | "CString" | "CPtr" | "CVoid" ;
 
 declaration    = topLetDecl | topMutDecl
-               | funcDecl | subDecl | typeDecl | unionDecl | enumDecl ;
+               | funcDecl | subDecl | typeDecl | unionDecl | enumDecl
+               | resourceDecl | funcAlias | linkDecl ;
 
 declVis        = [ "EXPORT" | "PACKAGE" | "PRIVATE" ] ;
 funcIso        = [ "ISOLATED" ] ;

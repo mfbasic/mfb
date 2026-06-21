@@ -1,0 +1,115 @@
+{
+  "project": "native_resource_link_valid",
+  "files": [
+  {
+    "path": "src/lib.mfb",
+    "imports": [
+    ],
+    "items": [
+    { "kind": "resource", "visibility": "export", "name": "Db", "closeFn": "demoLink.close", "threadSendable": false, "line": 3 },
+    { "kind": "resource", "visibility": "private", "name": "Stmt", "closeFn": "demoLink.finalize", "threadSendable": false, "line": 4 },
+    {
+      "kind": "link",
+      "library": "demo",
+      "alias": "demoLink",
+      "line": 6,
+      "functions": [
+      {
+        "kind": "linkFunc",
+        "name": "open",
+        "symbol": "demo_open",
+        "returnResource": true,
+        "returnType": "Db",
+        "line": 7,
+        "params": [
+        { "name": "path", "type": "String", "default": null }
+        ],
+        "abi": {
+          "slots": [
+          { "name": "path", "ctype": "CString", "out": false, "line": 9 },
+          { "name": "return", "ctype": "CPtr", "out": true, "line": 9 }
+          ],
+          "returnName": "status",
+          "returnCType": "CInt32"
+        },
+        "consts": [
+        ],
+        "successOn": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "status" }, "right": { "kind": "number", "value": "0" } },
+        "result": null
+      },
+      {
+        "kind": "linkFunc",
+        "name": "close",
+        "symbol": "demo_close",
+        "returnResource": false,
+        "returnType": "Nothing",
+        "line": 13,
+        "params": [
+        { "name": "db", "type": "Db", "resource": true, "state": null, "default": null }
+        ],
+        "abi": {
+          "slots": [
+          { "name": "db", "ctype": "CPtr", "out": false, "line": 15 }
+          ],
+          "returnName": "status",
+          "returnCType": "CInt32"
+        },
+        "consts": [
+        ],
+        "successOn": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "status" }, "right": { "kind": "number", "value": "0" } },
+        "result": null
+      },
+      {
+        "kind": "linkFunc",
+        "name": "prepare",
+        "symbol": "demo_prepare",
+        "returnResource": true,
+        "returnType": "Stmt",
+        "line": 19,
+        "params": [
+        { "name": "db", "type": "Db", "resource": true, "state": null, "default": null },
+        { "name": "sql", "type": "String", "default": null }
+        ],
+        "abi": {
+          "slots": [
+          { "name": "db", "ctype": "CPtr", "out": false, "line": 21 },
+          { "name": "sql", "ctype": "CString", "out": false, "line": 21 },
+          { "name": "return", "ctype": "CPtr", "out": true, "line": 21 }
+          ],
+          "returnName": "status",
+          "returnCType": "CInt32"
+        },
+        "consts": [
+        ],
+        "successOn": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "status" }, "right": { "kind": "number", "value": "0" } },
+        "result": null
+      },
+      {
+        "kind": "linkFunc",
+        "name": "finalize",
+        "symbol": "demo_finalize",
+        "returnResource": false,
+        "returnType": "Nothing",
+        "line": 25,
+        "params": [
+        { "name": "stmt", "type": "Stmt", "resource": true, "state": null, "default": null }
+        ],
+        "abi": {
+          "slots": [
+          { "name": "stmt", "ctype": "CPtr", "out": false, "line": 27 }
+          ],
+          "returnName": "status",
+          "returnCType": "CInt32"
+        },
+        "consts": [
+        ],
+        "successOn": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "status" }, "right": { "kind": "number", "value": "0" } },
+        "result": null
+      }
+      ]
+    },
+    { "kind": "funcAlias", "visibility": "export", "name": "close", "target": "demoLink.close", "line": 33 }
+    ]
+  }
+  ]
+}

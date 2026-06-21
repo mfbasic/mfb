@@ -17,6 +17,21 @@ pub struct IrProject {
     pub(crate) bindings: Vec<IrBinding>,
     pub(crate) types: Vec<IrType>,
     pub(crate) functions: Vec<IrFunction>,
+    /// Native `LINK` resources declared in this project, surfaced to package
+    /// metadata (`RESOURCE_TABLE`) since they carry no executable IR
+    /// (plan-link-update.md §10).
+    pub(crate) native_resources: Vec<IrNativeResource>,
+}
+
+/// A native `LINK` resource declaration carried through to package metadata.
+#[derive(Clone)]
+pub(crate) struct IrNativeResource {
+    pub(crate) name: String,
+    pub(crate) visibility: String,
+    /// The registered close op, dotted `alias.func` (plan-link-update.md §5).
+    pub(crate) close_function: String,
+    pub(crate) sendable: bool,
+    pub(crate) close_may_fail: bool,
 }
 
 #[derive(Clone)]
@@ -348,6 +363,11 @@ pub fn lower_project_with_external_functions(
                 Item::Binding(_) => {}
                 Item::Function(function) => functions.push(lower_function(function, &mut context)),
                 Item::Type(type_decl) => types.push(lower_type(type_decl, &type_index)),
+                // Native LINK resource declarations and re-export aliases carry no
+                // executable body. The LINK block's native functions are surfaced
+                // to package metadata separately (plan-link-update.md §10); they
+                // are not lowered to ordinary IR functions here.
+                Item::Resource(_) | Item::FuncAlias(_) | Item::Link(_) => {}
             }
         }
     }
@@ -359,7 +379,70 @@ pub fn lower_project_with_external_functions(
         bindings,
         types,
         functions,
+        native_resources: native_resources(ast),
     }
+}
+
+/// Collect native `LINK` resource declarations from the AST for package
+/// metadata. `close_may_fail` is derived from whether the close wrapper has a
+/// `SUCCESS_ON` gate (plan-link-update.md §9/§10).
+fn native_resources(ast: &AstProject) -> Vec<IrNativeResource> {
+    let mut close_may_fail: HashMap<String, bool> = HashMap::new();
+    for file in &ast.files {
+        for item in &file.items {
+            if let Item::Link(link) = item {
+                for function in &link.functions {
+                    close_may_fail.insert(
+                        format!("{}.{}", link.alias, function.name),
+                        function.success_on.is_some(),
+                    );
+                }
+            }
+        }
+    }
+    // An exported `FUNC alias AS pkg::close` is the importer-facing close op
+    // (plan-link-update.md §5a). Map each re-exported close target to the bare
+    // alias name; importers call `binding.alias`, so the serialized close name is
+    // this bare alias (qualified on import), not the package-internal `link.func`.
+    let mut export_alias_for_target: HashMap<String, String> = HashMap::new();
+    for file in &ast.files {
+        for item in &file.items {
+            if let Item::FuncAlias(alias) = item {
+                if matches!(alias.visibility, crate::ast::Visibility::Export) {
+                    export_alias_for_target
+                        .entry(alias.target.clone())
+                        .or_insert_with(|| alias.name.clone());
+                }
+            }
+        }
+    }
+    let mut resources = Vec::new();
+    for file in &ast.files {
+        for item in &file.items {
+            if let Item::Resource(resource) = item {
+                let close_function = export_alias_for_target
+                    .get(&resource.close_fn)
+                    .cloned()
+                    .unwrap_or_else(|| resource.close_fn.clone());
+                resources.push(IrNativeResource {
+                    name: resource.name.clone(),
+                    visibility: match resource.visibility {
+                        crate::ast::Visibility::Export => "export",
+                        crate::ast::Visibility::Package => "package",
+                        crate::ast::Visibility::Private => "private",
+                    }
+                    .to_string(),
+                    close_function,
+                    sendable: resource.thread_sendable,
+                    close_may_fail: close_may_fail
+                        .get(&resource.close_fn)
+                        .copied()
+                        .unwrap_or(false),
+                });
+            }
+        }
+    }
+    resources
 }
 
 pub fn write_ir(project_dir: &Path, ir: &IrProject) -> Result<PathBuf, String> {
@@ -1486,20 +1569,45 @@ fn match_expression_type(
 
 fn function_returns(ast: &AstProject) -> HashMap<String, String> {
     let mut returns = HashMap::new();
+    // Native LINK function return types, keyed `alias.func`, so callers like
+    // `sqliteLink::open(...)` get a type during IR lowering (plan-link-update.md §5b).
+    let mut native_returns: HashMap<String, String> = HashMap::new();
     for file in &ast.files {
         for item in &file.items {
-            if let Item::Function(function) = item {
-                let return_type = match function.kind {
-                    FunctionKind::Func => function
-                        .return_type
-                        .clone()
-                        .expect("typecheck requires FUNC return type before IR lowering"),
-                    FunctionKind::Sub => "Nothing".to_string(),
-                };
-                returns.insert(function.name.clone(), return_type);
+            match item {
+                Item::Function(function) => {
+                    let return_type = match function.kind {
+                        FunctionKind::Func => function
+                            .return_type
+                            .clone()
+                            .expect("typecheck requires FUNC return type before IR lowering"),
+                        FunctionKind::Sub => "Nothing".to_string(),
+                    };
+                    returns.insert(function.name.clone(), return_type);
+                }
+                Item::Link(link) => {
+                    for native in &link.functions {
+                        let return_type =
+                            native.return_type.clone().unwrap_or_else(|| "Nothing".to_string());
+                        native_returns
+                            .insert(format!("{}.{}", link.alias, native.name), return_type);
+                    }
+                }
+                _ => {}
             }
         }
     }
+    // Re-export aliases adopt their target's return type (plan-link-update.md §5a).
+    for file in &ast.files {
+        for item in &file.items {
+            if let Item::FuncAlias(alias) = item {
+                if let Some(return_type) = native_returns.get(&alias.target) {
+                    returns.insert(alias.name.clone(), return_type.clone());
+                }
+            }
+        }
+    }
+    returns.extend(native_returns);
     returns
 }
 
@@ -1533,6 +1641,27 @@ fn function_types(ast: &AstProject) -> HashMap<String, String> {
                         if function.isolated { "ISOLATED " } else { "" }
                     ),
                 );
+            }
+        }
+    }
+    // Native LINK functions, keyed `alias.func`, so first-class references to them
+    // type correctly during IR lowering (plan-link-update.md §5b).
+    for file in &ast.files {
+        for item in &file.items {
+            if let Item::Link(link) = item {
+                for native in &link.functions {
+                    let params = native
+                        .params
+                        .iter()
+                        .map(|param| param.type_name.clone().unwrap_or_else(|| "Unknown".to_string()))
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    let returns = native.return_type.clone().unwrap_or_else(|| "Nothing".to_string());
+                    types.insert(
+                        format!("{}.{}", link.alias, native.name),
+                        format!("FUNC({params}) AS {returns}"),
+                    );
+                }
             }
         }
     }
@@ -3807,6 +3936,9 @@ fn decode_project(r: &mut IrReader) -> Result<IrProject, String> {
         bindings,
         types,
         functions,
+        // Native resource metadata is consumed directly from the package's
+        // RESOURCE_TABLE on import; the decoded IR carries none.
+        native_resources: Vec::new(),
     })
 }
 
@@ -5101,6 +5233,7 @@ mod binary_repr_tests {
                 body,
                 file: "src/main.mfb".to_string(),
             }],
+            native_resources: vec![],
         }
     }
 
@@ -5152,6 +5285,7 @@ mod binary_repr_tests {
             bindings: vec![],
             types: vec![],
             functions,
+            native_resources: vec![],
         }
     }
 

@@ -1,0 +1,16 @@
+$ mfb build -ast tests/native-cptr-escape-invalid
+   9 |   END FUNC
+  10 | 
+  11 |   FUNC leak(handle AS CPtr) AS Nothing
+     | ^
+tests/native-cptr-escape-invalid/src/lib.mfb:11 error[2-203-0092 NATIVE_CPTR_ESCAPE]: a raw C ABI type may appear only inside an ABI slot
+               Native function `leak` parameter `handle` uses C ABI type `CPtr`; raw C types may appear only in ABI slots.
+[exit 1]
+$ mfb build -ir tests/native-cptr-escape-invalid
+   9 |   END FUNC
+  10 | 
+  11 |   FUNC leak(handle AS CPtr) AS Nothing
+     | ^
+tests/native-cptr-escape-invalid/src/lib.mfb:11 error[2-203-0092 NATIVE_CPTR_ESCAPE]: a raw C ABI type may appear only inside an ABI slot
+               Native function `leak` parameter `handle` uses C ABI type `CPtr`; raw C types may appear only in ABI slots.
+[exit 1]

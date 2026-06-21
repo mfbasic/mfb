@@ -21,6 +21,9 @@ pub(crate) enum ResourceKind {
     Builtin,
     /// A resource contributed by an imported package's `RESOURCE_TABLE`.
     Imported,
+    /// A native resource declared in this package by a `LINK` block
+    /// `RESOURCE … CLOSE BY …` declaration (plan-link-update.md §9).
+    Native,
 }
 
 /// Static description of a single resource type.

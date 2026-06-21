@@ -114,6 +114,8 @@ These codes correspond to `src/rules.rs` and are emitted directly by the compile
 | `1-102-0005` | `MFB_PARSE_UNEXPECTED_TOKEN` | error | `parser found an unexpected token` |
 | `1-102-0006` | `MFB_PARSE_UNTERMINATED_BLOCK` | error | `parser reached end-of-file inside a block` |
 | `1-102-0007` | `MFB_PARSE_PIPELINE_PLACEHOLDER_MISSING` | error | `pipeline expression is missing a placeholder` |
+| `1-102-0008` | `MFB_PARSE_MISSING_NATIVE_SYMBOL` | error | `a native LINK function must declare its native SYMBOL` |
+| `1-102-0009` | `MFB_PARSE_MISSING_NATIVE_ABI` | error | `a native LINK function must declare its ABI signature` |
 
 ### Name Resolution
 
@@ -227,6 +229,16 @@ These codes correspond to `src/rules.rs` and are emitted directly by the compile
 | `2-203-0086` | `TYPE_RESOURCE_BORROW_INVALIDATE` | error | `a borrowed resource cannot be closed, returned, or transferred` |
 | `2-203-0087` | `TYPE_MIXED_RESOURCE_UNION` | error | `a union must be all-data or all-resource, never mixed` |
 | `2-203-0088` | `TYPE_UNION_STATE_FORBIDDEN` | error | `a resource union carries no STATE` |
+| `2-203-0089` | `RESOURCE_CLOSE_NOT_NATIVE` | error | `a resource's CLOSE BY op must be a native LINK function` |
+| `2-203-0090` | `RESOURCE_CLOSE_MISSING` | error | `a resource's CLOSE BY op names no function in its LINK block` |
+| `2-203-0091` | `RESOURCE_CLOSE_SIGNATURE` | error | `a close op must consume exactly one RES parameter of its resource` |
+| `2-203-0092` | `NATIVE_CPTR_ESCAPE` | error | `a raw C ABI type may appear only inside an ABI slot` |
+| `2-203-0093` | `NATIVE_ABI_RESULT_MARKER` | error | `a native function's ABI result marker is malformed` |
+| `2-203-0094` | `NATIVE_ABI_UNBOUND_SLOT` | error | `an ABI slot binds to no parameter, CONST pin, or result marker` |
+| `2-203-0095` | `NATIVE_ABI_UNBOUND_PARAM` | error | `a native function parameter has no matching ABI slot` |
+| `2-203-0096` | `NATIVE_ABI_NO_RESULT` | error | `a value-returning native function marks no ABI result` |
+| `2-203-0097` | `NATIVE_CONST_OUT` | error | `a CONST-pinned ABI slot cannot also be OUT` |
+| `2-203-0098` | `NATIVE_CONST_UNKNOWN_SLOT` | error | `a CONST pin names an unknown ABI slot` |
 
 ## Toolchain and Package Diagnostics
 

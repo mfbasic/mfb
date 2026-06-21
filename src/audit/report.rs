@@ -29,6 +29,8 @@ pub struct AuditReport {
     pub source_flow: Vec<FlowFunction>,
     pub resources: Vec<ResourceEntry>,
     pub native_links: Vec<NativeLinkEntry>,
+    /// Native `LINK` resource *types* declared by this package (plan-link-update.md §13).
+    pub native_resources: Vec<NativeResourceEntry>,
     pub permissions: Vec<PermissionEntry>,
     pub findings: Vec<Finding>,
 }
@@ -113,6 +115,20 @@ pub struct NativeLinkEntry {
     pub symbol: String,
     pub close_function: String,
     pub may_fail: bool,
+}
+
+/// A native `LINK` resource type declaration (plan-link-update.md §13). Reports
+/// the declaring package, the close op, whether close may fail, and thread
+/// sendability — the same facts a standard resource exposes.
+pub struct NativeResourceEntry {
+    pub package: String,
+    pub resource_type: String,
+    pub close_op: String,
+    pub close_may_fail: bool,
+    pub sendable: bool,
+    pub exported: bool,
+    pub path: String,
+    pub line: usize,
 }
 
 pub struct PermissionEntry {

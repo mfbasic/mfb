@@ -133,6 +133,7 @@ $ mfb audit --format json tests/audit-resources
     }
   ],
   "nativeLinks": [],
+  "nativeResources": [],
   "permissions": [
     {
       "capability": "filesystem",

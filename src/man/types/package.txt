@@ -10,8 +10,9 @@ DESCRIPTION
   List, Map, Result, MapEntry, and Thread are monomorphized before bytecode is
   generated, so each concrete use has a fully known type.
 
-  User-defined TYPE, UNION, ENUM, and TYPE ... AS RESOURCE declarations create
-  additional program types, but they are not built-in types. Callable signatures
+  User-defined TYPE, UNION, ENUM, and package-scope RESOURCE ... CLOSE BY
+  declarations (native LINK resources) create additional program types, but they
+  are not built-in types. Callable signatures
   such as FUNC(Integer) AS String are first-class function type forms rather
   than named built-in data types.
 
