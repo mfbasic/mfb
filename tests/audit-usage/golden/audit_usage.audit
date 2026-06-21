@@ -7,6 +7,8 @@ Commands:
   help                        Show this message
   init <location>             Create a new MFBASIC executable project
   init-pkg <location>         Create a new MFBASIC package project
+  repo register <owner_name>  Register a repository owner
+  repo auth <owner_name>      Authenticate as a repository owner
   pkg add <url>               Add a compiled package to the current project
   pkg info <package>          Show information about a compiled package
   pkg verify                  Verify packages declared by project.json
@@ -23,6 +25,8 @@ Commands:
   help                        Show this message
   init <location>             Create a new MFBASIC executable project
   init-pkg <location>         Create a new MFBASIC package project
+  repo register <owner_name>  Register a repository owner
+  repo auth <owner_name>      Authenticate as a repository owner
   pkg add <url>               Add a compiled package to the current project
   pkg info <package>          Show information about a compiled package
   pkg verify                  Verify packages declared by project.json

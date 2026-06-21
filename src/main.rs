@@ -23,7 +23,7 @@ use std::path::{Path, PathBuf};
 use std::process;
 use tinyjson::JsonValue;
 
-const USAGE: &str = "Usage: mfb <command> <arguments>\n\nCommands:\n  help                        Show this message\n  init <location>             Create a new MFBASIC executable project\n  init-pkg <location>         Create a new MFBASIC package project\n  pkg add <url>               Add a compiled package to the current project\n  pkg info <package>          Show information about a compiled package\n  pkg verify                  Verify packages declared by project.json\n  build [-ast|-ir|-br|-nir|-nplan|-nobj|-ncode] [-target os-arch] [location] Validate and build an MFBASIC project\n  audit [--format text|json] [--locked] [path] Report audit findings for a project\n  man [package] [function]    Show built-in package and function help";
+const USAGE: &str = "Usage: mfb <command> <arguments>\n\nCommands:\n  help                        Show this message\n  init <location>             Create a new MFBASIC executable project\n  init-pkg <location>         Create a new MFBASIC package project\n  repo register <owner_name>  Register a repository owner\n  repo auth <owner_name>      Authenticate as a repository owner\n  pkg add <url>               Add a compiled package to the current project\n  pkg info <package>          Show information about a compiled package\n  pkg verify                  Verify packages declared by project.json\n  build [-ast|-ir|-br|-nir|-nplan|-nobj|-ncode] [-target os-arch] [location] Validate and build an MFBASIC project\n  audit [--format text|json] [--locked] [path] Report audit findings for a project\n  man [package] [function]    Show built-in package and function help";
 
 const MFP_MAGIC: [u8; 8] = [0x4d, 0x46, 0x50, 0x0d, 0x0a, 0x1a, 0x0a, 0x00];
 
@@ -94,6 +94,21 @@ fn main() {
                 }
             }
         }
+        Some("repo") => {
+            let repo_args = args.collect::<Vec<_>>();
+            if let Err(err) = run_repo_command(&repo_args) {
+                match err {
+                    RepoCommandError::Usage(message) => {
+                        eprintln!("error: {message}");
+                        process::exit(2);
+                    }
+                    RepoCommandError::Failed(message) => {
+                        eprintln!("error: {message}");
+                        process::exit(1);
+                    }
+                }
+            }
+        }
         Some("audit") => {
             let options = match audit::parse_options(args.collect()) {
                 Ok(options) => options,
@@ -115,6 +130,52 @@ fn main() {
             eprintln!("error: unknown command '{command}'\n\n{USAGE}");
             process::exit(2);
         }
+    }
+}
+
+enum RepoCommandError {
+    Usage(String),
+    Failed(String),
+}
+
+fn run_repo_command(args: &[String]) -> Result<(), RepoCommandError> {
+    let Some(command) = args.first().map(String::as_str) else {
+        return Err(RepoCommandError::Usage(
+            "mfb repo requires register or auth".to_string(),
+        ));
+    };
+    if args.len() != 2 {
+        return Err(RepoCommandError::Usage(format!(
+            "mfb repo {command} requires exactly one <owner_name>"
+        )));
+    }
+
+    let owner = &args[1];
+    let repo_url = mfb_repository::client::repo_url_from_env();
+    let paths = mfb_repository::local::LocalPaths::from_env().map_err(RepoCommandError::Failed)?;
+
+    match command {
+        "register" => {
+            let response = mfb_repository::client::register(&repo_url, &paths, owner)
+                .map_err(RepoCommandError::Failed)?;
+            println!(
+                "Registered owner {} with auth fingerprint {}",
+                response.owner, response.auth_fingerprint
+            );
+            Ok(())
+        }
+        "auth" => {
+            let response = mfb_repository::client::auth(&repo_url, &paths, owner)
+                .map_err(RepoCommandError::Failed)?;
+            println!(
+                "Authenticated owner {} until {}",
+                response.owner, response.expires_at
+            );
+            Ok(())
+        }
+        _ => Err(RepoCommandError::Usage(format!(
+            "unknown mfb repo command '{command}'"
+        ))),
     }
 }
 

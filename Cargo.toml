@@ -5,8 +5,12 @@ edition = "2021"
 license = "MIT"
 
 [dependencies]
+mfb_repository = { path = "repository" }
 sha2 = "0.10"
 tinyjson = "2.5"
 unicode-casefold = "0.2"
 unicode-normalization = "0.1"
 unicode-segmentation = "1.12"
+
+[dev-dependencies]
+tempfile = "3"
