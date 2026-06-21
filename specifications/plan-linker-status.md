@@ -13,41 +13,52 @@ in the compiler. The plan has **two independent halves**:
    plus generated MFB↔C marshaling thunks. It "consumes none of the static-linker
    machinery" (plan §12 intro).
 
-**Overall: NOT complete.** §12 (user `LINK` bindings) is complete and
-runtime-verified, including the boundary validations. The static-linker
-generalization (Phases 1–5) is **not started** — it has no runtime consumer in
-the codebase yet (no `tls` built-in, no app mode exists).
+**Overall: nearly complete.** §12 (user `LINK` bindings) is complete and
+runtime-verified. The static-linker generalization (Phases 1–4) is now
+implemented and runtime-validated against real loaders, with two documented
+caveats (glibc main-exe `init_array`; macOS mod-init). Phase 5 (GUI-scale
+hardening) is the only untouched phase and has no consumer.
 
-Implemented by commits `f4d4098f` ("Implement native LINK binding codegen
-(plan-linker.md §12)") and the follow-up closing the §12.3/§12.4 boundary
-validations.
+Validation hosts: macOS arm64 (Mach-O, executed locally) and real aarch64 Linux
+(Arch/glibc, Alpine/musl over SSH; also Debian/glibc via podman) for ELF.
 
 ---
 
-## Half 1 — Static-linker generalization (§4–§11 / Phases 1–5): NOT STARTED
+## Half 1 — Static-linker generalization (§4–§11 / Phases 1–5)
 
 | Plan item | Phase | Status | Evidence |
 |---|---|---|---|
-| §5.1 `ImportKind` on plan/code/encoded import records | 1 | ❌ Not added | no `ImportKind` in `plan.rs`/`code/mod.rs`/`encode.rs` |
-| §5.2 optional per-import `version` string | 1 | ❌ Not added | no `version` field on imports |
-| §5.3 `EncodedImage.initializers` + error-if-unhonored | 1 | ❌ Not added | no `initializers` field |
-| §6.3 / §7.1 macOS multiple `LC_LOAD_DYLIB` (library→path table) | 2 | ❌ Not added | `src/os/macos/link.rs` still gated on `imports_libsystem` |
-| §7.2 per-symbol dylib ordinal in `bind_info` | 2 | ❌ Not added | bind opcodes still pin ordinal 1 |
-| §7.3 framework path mapping (`Network`, AppKit…) | 2 | ❌ Not added | — |
-| §6.2 Linux `verneed`/`versym` symbol versioning | 3 | ❌ Not added | no `.gnu.version*` emission |
-| §6.1 Linux `GLOB_DAT` for imported data globals | 4 | ❌ Not added | only `JUMP_SLOT` emitted |
-| §6.4 Linux `DT_INIT_ARRAY` / `.init_array` | 4 | ❌ Not added | — |
-| §7.5 macOS `S_MOD_INIT_FUNC_POINTERS` | 4 | ❌ Not added | — |
-| §7.4 imported data globals from multiple dylibs | 4 | ❌ Not added | — |
-| §5 Phase 5 hardening (GOT/stub layout at GUI scale) | 5 | ❌ Not started | — |
-| §9 goldens for new `kind`/`version`/`initializers` fields | — | N/A | fields not added |
+| §5.1 `ImportKind` on the encoded contract | 1 | ✅ Done | `EncodedImport.kind` (`encode.rs`) |
+| §5.2 optional per-import `version` string | 1 | ✅ Done | `EncodedImport.version` |
+| §5.3 `EncodedImage.initializers` | 1 | ✅ Done | `EncodedImage.initializers` |
+| §6.3 / §7.1 macOS multiple `LC_LOAD_DYLIB` (library→path table) | 2 | ✅ Done | `import_libraries`/`dylib_path` replace `imports_libsystem` |
+| §7.2 per-symbol dylib ordinal in `bind_info` | 2 | ✅ Done | IMM ≤15 / ULEB above; runtime-validated |
+| §7.3 framework path mapping (`Network`, AppKit…) | 2 | ✅ Done | library→path table incl. Network.framework |
+| §6.2 Linux `verneed`/`versym` symbol versioning | 3 | ✅ Done | `.gnu.version`/`.gnu.version_r` + DT_VERSYM/VERNEED/VERNEEDNUM; runtime-validated |
+| §6.1 Linux `GLOB_DAT` for imported data globals | 4 | ✅ Done | GOT slot + GLOB_DAT; runtime-validated (`environ`) |
+| §6.4 Linux `DT_INIT_ARRAY` / `.init_array` | 4 | ⚠️ Emitted | `readelf`-verified; glibc runs the **main exe's** init_array from the CRT, not `ld.so`, so a custom-entry binary does not invoke it at load |
+| §7.4 imported data globals from dylibs (macOS) | 4 | ✅ Done | already supported via `external` page21/pageoff12 + GOT |
+| §7.5 macOS `S_MOD_INIT_FUNC_POINTERS` | 4 | ❌ Deferred | needs a writable `__DATA` segment + REBASE opcode stream added to the byte-fragile Mach-O emitter; high regression risk for a feature with no consumer |
+| §5 Phase 5 hardening (GOT/stub layout at GUI scale) | 5 | ❌ Not started | no GUI-scale consumer yet |
 
-**Driver/blocker.** Per plan §10 the driving consumer is `tls` (Phases 2–3) and
-GUI app modes (Phase 4). Neither `tls` nor any app mode exists in the codebase, so
-these phases currently have **no runtime consumer**; they can only be validated
-against synthetic targets or after `tls` is built. Phase 4 (data globals +
-initializers) is explicitly "gated on the GUI app plans and exercised by no
-current built-in package" (plan §3.1, §10).
+### Runtime validation (Phases 2–4)
+
+- **Phase 2 (macOS multi-dylib).** `os::macos::link` test
+  `links_and_runs_program_importing_from_two_dylibs` links and *executes* a
+  program importing `_exit` (libSystem, ordinal 1) and `nw_path_monitor_create`
+  (**Network.framework**, ordinal 2) — a wrong ordinal/missing `LC_LOAD_DYLIB`
+  makes dyld fail to bind at launch, so a clean exit proves it.
+- **Phase 3 (Linux versioning).** A glibc ELF requiring `_exit@GLIBC_2.17` runs
+  on real Arch Linux and Debian glibc; `LD_DEBUG=versions` shows the loader
+  checking `GLIBC_2.17 ... required by` the binary.
+- **Phase 4 (Linux GLOB_DAT).** A program reads the libc `environ` data global
+  through the GOT/GLOB_DAT and exits 0 on real Arch glibc.
+
+**Driver.** Validation uses the real `tls` driver library where applicable
+(Network.framework on macOS) and real glibc/musl loaders on Linux, per plan §9's
+"not synthetic stubs" requirement. The full `tls` socket *runtime* (async
+`nw_connection` ↔ blocking bridge, libdispatch, Objective-C block-literal codegen)
+is explicitly "`tls` codegen, not linker" (plan §7.3) and remains separate work.
 
 ---
 
@@ -92,14 +103,22 @@ the imported binding usable)
 
 ## Remaining work to reach 100%
 
-§12 is complete. The only remaining work is the static-linker generalization:
+§12 and Phases 1–4 of the static-linker generalization are done and
+runtime-validated. Remaining:
 
-1. **Implement Phases 1–5 (large, no runtime consumer yet):**
-   - Phase 1: `ImportKind` + `version` + `initializers` contract extensions and goldens.
-   - Phase 2: macOS multi-dylib + per-symbol dylib ordinals + framework paths.
-   - Phase 3: Linux `verneed`/`versym`.
-   - Phase 4: `GLOB_DAT` + `init_array`/`S_MOD_INIT_FUNC_POINTERS`.
-   - Phase 5: GOT/stub layout hardening at GUI-scale import counts.
-   - Validation for Phases 2–4 realistically requires first landing the `tls`
-     built-in (OpenSSL 3 on Linux, `Network.framework` on macOS) as the concrete
-     driver named in the plan.
+1. **macOS `S_MOD_INIT_FUNC_POINTERS` (§7.5).** Add a writable `__DATA` segment
+   with a `__mod_init_func` section plus a REBASE opcode stream so dyld slides
+   and runs the initializer pointers. Deferred: it modifies the byte-fragile
+   Mach-O emitter for a feature no current package consumes (dyld *does* run the
+   main exe's mod-init, so it is validatable on macOS when implemented).
+2. **glibc main-exe `init_array` invocation (§6.4).** The array is emitted; to
+   have it run at load, MFB's custom-entry binaries would either go through the
+   CRT or have the generated entry call the listed initializers directly (the
+   existing `_mfb_linker_init` entry-call pattern) — the loader-independent,
+   cross-platform way to honor `initializers`.
+3. **Phase 5 hardening.** Re-validate GOT/stub layout at GUI-scale import counts
+   once a GUI app mode exists to drive it.
+4. **Compiler-side threading.** `ImportKind`/`version`/`initializers` are present
+   on the encoded contract and consumed by the linkers; threading them from a
+   real producer (`PlatformImport`→`CodeImport`) is wired when the `tls` built-in
+   or an app mode emits versioned/data/init imports.
