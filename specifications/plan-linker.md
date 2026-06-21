@@ -132,8 +132,9 @@ Observations:
 
 This plan serves the **built-in** packages only. User `LINK` binding packages
 are resolved separately at runtime through `dlopen`/`dlsym` (an emitted pre-main
-initializer), so they do not drive the linker. The built-in surface that this
-linker must satisfy maps to a small, fixed set of libraries per platform:
+initializer), so they do not drive the linker; their resolution and the MFB↔C
+marshaling thunk are specified in §12. The built-in surface that this linker must
+satisfy maps to a small, fixed set of libraries per platform:
 
 | Built-in package | Linux library | macOS library | Wired today |
 |------------------|---------------|---------------|-------------|
@@ -482,3 +483,113 @@ deprecated, so `Network.framework` is the better long-term foundation even thoug
 the synchronous Secure Transport API would have been easier short-term. The
 async→sync bridge cost is a one-time `tls` codegen investment; the linker impact
 is limited to one framework plus libdispatch/Blocks symbols (§7.3).
+
+## 12. User `LINK` Bindings: Resolution & MFB↔C Marshaling
+
+`LINK` binding packages (`plan-link-update.md`) do **not** drive the static linker
+(§3.1): they contribute no compile-time import records, emit no `DT_NEEDED` /
+`LC_LOAD_DYLIB`, and add no relocations against their symbols. They are resolved
+**entirely in emitted code** at run time. This section is therefore layered *under*
+`plan-link-update.md` (which owns LINK *semantics* — resources, ownership, and the
+`ABI` / `CONST` / `SUCCESS_ON` surface) and sits *beside* the rest of this plan,
+consuming none of its static-linker machinery. It is the home `plan-link-update.md`
+§14 recommends for the native-binding frontend's lowering.
+
+### 12.1 Resolution (pre-main initializer)
+
+For each `LINK "<lib>" AS <binding>` the compiler emits, into the program's
+pre-main initializer:
+
+- one `dlopen("<lib>", RTLD_NOW | RTLD_LOCAL)` against the platform library name
+  (`"sqlite3"` → `libsqlite3.so.0` / `libsqlite3.dylib` / `sqlite3.dll`; the same
+  logical-name → path resolution the §11 library-name question raises for the
+  static linker, resolved per-OS);
+- one `dlsym(handle, "<SYMBOL>")` per `FUNC`, stored into a private per-binding
+  function-pointer table slot.
+
+A failed `dlopen`/`dlsym` is a **startup error** — the binding cannot be honored —
+reported and aborting before `main`, never a zero/placeholder pointer (mirrors the
+linker's no-silent-placeholder rule, linker.md §8). `dlopen`/`dlsym`/`dlclose`
+live in `libc`/`libSystem`, which is always linked.
+
+### 12.2 The marshaling thunk
+
+Because MFBASIC values are not C values, each `LINK` `FUNC` lowers to a generated
+**thunk** — `_mfb_linker_<binding>_<fn>` (e.g. `_mfb_linker_sqliteLink_bindText`),
+matching the `_mfb_pkg_*` naming scheme (linker.md §7). The thunk is the single
+MFB↔C boundary; it:
+
+1. **in-marshals** each wrapper argument into its `ABI` slot per §12.3;
+2. **pins** each `CONST` slot to its fixed value (`plan-link-update.md` §5c);
+3. **allocates** the storage each `OUT` slot points at;
+4. **calls** through the §12.1 pointer using the target C calling convention
+   (AAPCS64 / Darwin arm64), placing slots in C argument order;
+5. **out-marshals** the native return and any `OUT` slots back into MFBASIC values
+   per §12.3, then applies `SUCCESS_ON` (or, where specified, the result mapping)
+   to turn the status into a success value or an `Error`.
+
+The thunk owns lifetime correctness at the boundary: input buffers it passes stay
+alive for the synchronous call (owned by the caller frame); foreign memory it
+receives is copied into owned MFBASIC values before returning (§12.4); a produced
+`CPtr` is written only into a LUT resource entry and never escapes as a value
+(`plan-link-update.md` §11).
+
+### 12.3 MFB ↔ C type mapping
+
+Each `ABI` slot names a C-ABI type; the thunk maps it to and from the wrapper's
+MFBASIC type. `Integer` is 64-bit.
+
+| ABI type | C type | MFBASIC type | In (MFB→C) | Out (C→MFB) |
+|----------|--------|--------------|-----------|-------------|
+| `CInt32` | `int32_t` | `Integer` | range-check, narrow 64→32 | sign-extend 32→64 |
+| `CInt64` | `int64_t` | `Integer` | direct | direct |
+| `CDouble` | `double` | `Float` | direct | reject NaN/Inf at the boundary (mfbasic.md §3) |
+| `CPtr` | `void*` | *(resource hidden repr only)* | LUT `Pointer` of the borrowed `RES` arg | new LUT entry (producer `OUT` / pointer return) |
+| `CString` | `const char*` | `String` | copy into a NUL-terminated UTF-8 buffer valid for the call | **copy the returned `char*` into an owned `String`** (§12.4) |
+| `CBool` | `int` / `_Bool` | `Boolean` | `0` / `1` | `!= 0` |
+| `CByte` | `uint8_t` | `Byte` | direct | direct |
+
+Rules:
+
+- **`CPtr` is resource-only.** A `CPtr` slot's MFBASIC side is always a declared
+  `RESOURCE` (a borrowed `RES` argument in, a produced handle out) or a `CONST`
+  pin (§5c). It never maps to an ordinary MFBASIC value — that is the §11
+  `CPtr`-escape prohibition, enforced at the one place a pointer crosses.
+- **Width and validity are checked, not assumed.** `Integer`→`CInt32`
+  range-checks (an out-of-range value fails rather than silently truncating); a
+  `CDouble` returning NaN/Inf is rejected at the boundary exactly as imported
+  `Float`s are.
+- **`CString` input** is copied into a fresh NUL-terminated UTF-8 buffer the thunk
+  keeps alive across the call (MFBASIC `String`s are length-counted and not
+  guaranteed NUL-terminated). Whether the *callee* may retain that pointer past
+  the call is the callee's contract, expressed on the input side by a `CONST`
+  sentinel such as SQLite's `SQLITE_TRANSIENT` (`plan-link-update.md` §5c); the
+  thunk itself does not keep input buffers alive past return.
+
+### 12.4 C-string return marshaling (resolves `plan-link-update.md` §5b gap)
+
+A text **return** (`sqlite3_column_text`'s `const char*`) is *not* a missing ABI
+form — it is this thunk handling the output direction, the mirror of the
+already-implemented `String`→`char*` input. The declarative surface
+(`ABI (...) AS return CPtr`, wrapper `AS String`) already says enough; the thunk
+emits the copy. Three policy points it fixes, with defaults that compile
+`sqlite3_column_text` as written:
+
+- **Ownership = copy-and-leave (default).** The returned `char*` is assumed owned
+  by the callee and valid only until its next call (SQLite frees it on the next
+  `step`/`finalize`), so the thunk **copies the bytes into an owned `String`
+  immediately** and never frees the source. A future `FREE_RESULT`-style
+  annotation can cover C functions that hand the caller a `malloc`'d string to
+  free; until then copy-and-leave is the only discipline, and it covers the SQLite
+  surface.
+- **NULL return.** A NULL `char*` (e.g. a SQL NULL column) marshals to an `Error`
+  or an empty `String` per the wrapper; distinguishing NULL from `""` cleanly is
+  the same "see the raw result" need as the still-open multi-valued result-code
+  gap (`plan-link-update.md` §5b), so a NULL-returning text column ultimately wants
+  the `RESULT` mapping too.
+- **Encoding.** Returned bytes are validated as UTF-8 at the boundary (consistent
+  with `fs`/`net`); `sqlite3_column_text` is defined UTF-8, so it passes.
+
+This closes the C-string-return item in `plan-link-update.md` §5b: it is
+generated-thunk codegen, not new ABI vocabulary. The sole remaining declarative
+gap there is the multi-valued result-code (`RESULT`) mapping.

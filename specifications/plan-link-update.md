@@ -254,28 +254,100 @@ SUCCESS_ON status = 0
   *actual* C return here is the status code, not that out-param — `RESULT` reads
   better. Open Question §17.
 - **`SUCCESS_ON <expression>`** over named slots, replacing literal-only
-  `SUCCESS_ON`/`ERROR_ON`. `SUCCESS_ON status = 0` and `SUCCESS_ON status >= 0`
-  unify the two existing keywords into one condition (`=` is MFBASIC equality,
-  `mfbasic.md:134`).
+  `SUCCESS_ON`/`ERROR_ON`. Any Boolean expression is allowed, including compound
+  conditions: `SUCCESS_ON status = 0`, `SUCCESS_ON status >= 0`, and
+  `SUCCESS_ON status = 100 OR status = 101`. Comparisons bind tighter than
+  `AND`/`OR` (mfbasic.md §11 — precedence 8 vs 10/11), so the compound form needs
+  no parentheses. `ERROR_ON` is the De Morgan complement
+  (`ERROR_ON status <> 100 AND status <> 101`); the two collapse to one condition,
+  so a wrapper states one, not both. (`=` is MFBASIC equality, `mfbasic.md:134`;
+  `AND`/`OR` operands must be Boolean — there is no integer truthiness, so
+  `status = 100 OR 101` is a type error, not shorthand.)
 - **`RETURN_OUT` by name.** Multi-out results reference slot names
   (`RETURN_OUT DivModResult[quotient, remainder]`) instead of positions.
 
-Known ABI-vocabulary gaps the example exposes (none expressible today; each needs
-a decision before a real binding compiles):
+The example exposed four ABI-vocabulary needs. Three are now **resolved**; one
+declarative gap remains.
 
+Resolved by `CONST` (§5c):
+
+- **Constant / literal arguments** — `sqlite3_prepare_v2`'s and
+  `sqlite3_bind_text`'s `nByte = -1`.
 - **NULL / optional pointer arguments** — `sqlite3_exec`'s callback/arg/errmsg,
-  `sqlite3_prepare_v2`'s `pzTail`. No NULL form exists.
-- **Constant / literal arguments** — `sqlite3_prepare_v2`'s `nByte = -1`. ABI
-  args can only come from wrapper params or `OUT`; there is no pinned constant.
-- **Multi-valued result codes** — `sqlite3_step` returns row (100) / done (101) /
-  error. `SUCCESS_ON`/`ERROR_ON` cannot express a three-way outcome; it needs the
-  raw code surfaced to the wrapper (e.g. a `RESULT (status = 100)` mapping).
-- **C-string return marshaling** — `sqlite3_column_text` returns `const char*`;
-  `CString` is input-only today, so there is no return-a-`String` mapping.
+  `sqlite3_prepare_v2`'s `pzTail`, `sqlite3_open_v2`'s `zVfs`, and special
+  sentinel pointers such as `sqlite3_bind_text`'s `SQLITE_TRANSIENT` (`(void*)-1`).
+
+Resolved otherwise:
+
+- **C-string return marshaling** — `sqlite3_column_text`'s `const char*` → `String`
+  is generated-thunk codegen (the mirror of the existing `String` → `char*` input),
+  not new ABI vocabulary. Specified in `plan-linker.md` §12.4 (copy-and-leave
+  ownership, NULL handling, UTF-8 validation).
+- **Multi-valued result codes — error half** — `sqlite3_step`'s row (100) / done
+  (101) / error three-way no longer needs a special form to *avoid auto-propagating*
+  the non-error codes: the compound `SUCCESS_ON status = 100 OR status = 101` gates
+  it (above).
+
+Still open (one declarative gap):
+
+- **Result *value* mapping (`RESULT`)** — surfacing *which* non-error code occurred
+  into the wrapper's result. `step` returns `AS Boolean` meaning "a row is ready"
+  (`TRUE` on 100, `FALSE` on 101); the success gate decides error-vs-not but not
+  that value. It needs an expression-valued result marker — `RESULT status = 100` —
+  distinct from a plain slot passthrough (`AS return CInt32`). (`bindParameterIndex`
+  needs no such mapping: it returns its raw index straight through `AS return CInt32`,
+  a passthrough with no gate, so it is already expressible.)
 
 This surface is part of the native-binding **frontend** whose ownership is still
 open (§14, §17). This plan specifies the *surface design*; the parsing/lowering
 of the full frontend is coordinated with `plan-linker.md`.
+
+## 5c. Pinned Constant & NULL Arguments (`CONST`)
+
+The `ABI (...)` line always states the **true native signature** — every C
+argument in C order. A wrong-arity `ABI` does not "omit" arguments; it generates a
+broken call frame, with the function reading the unstated slots out of whatever
+registers happen to hold. But some C arguments are not values the caller supplies
+— they are fixed constants the binding must pin: `nByte = -1`, a NULL callback,
+the `SQLITE_TRANSIENT` destructor sentinel. `CONST` pins them so the `ABI` line can
+stay honest while the wrapper signature stays clean:
+
+```basic
+FUNC bindText(RES stmt AS Stmt, iCol AS Integer, zVal AS String) AS Nothing
+  SYMBOL "sqlite3_bind_text"
+  ABI (stmt CPtr, iCol CInt32, zVal CString, nByte CInt32, destructor CPtr) AS status CInt32
+  CONST nByte = -1            ' bind up to the terminating NUL
+  CONST destructor = -1       ' SQLITE_TRANSIENT (void*)-1: copy the bytes now, do not alias
+  SUCCESS_ON status = 0
+END FUNC
+```
+
+`CONST <slot> = <value>` pins one ABI slot to a fixed value and **removes it from
+the wrapper's parameter list**. This completes the slot-binding model: every ABI
+slot is satisfied by exactly one of —
+
+- a wrapper parameter, matched by name (`iCol` ↔ the `iCol` parameter);
+- the `OUT` / result marker (the produced handle or a `RESULT` value);
+- a `CONST` pin.
+
+Rules:
+
+- **The slot owns the type.** `CONST` names only the slot and the value; the value
+  is checked against the slot's declared ABI type (`nByte`'s `CInt32`,
+  `destructor`'s `CPtr`). `CONST` does not redeclare a type, so a pin cannot drift
+  from its slot.
+- **`NOTHING` pins a C NULL / void pointer** on a pointer slot — the form for
+  optional/absent pointers (`prepare`'s `pzTail`, `openV2`'s `zVfs`, `exec`'s
+  callback/arg/errmsg).
+- **A pointer-sized integer literal pins a sentinel pointer** — e.g.
+  `CONST destructor = -1` for `SQLITE_TRANSIENT` (`(void*)-1`). This is the single
+  place a non-NULL pointer constant may be named in source.
+- **CPtr containment is preserved.** A `CONST` pin is call metadata baked into the
+  native frame at lowering; it never materializes as a source-level value, is
+  never bound, stored, printed, or returned, and so cannot forge or leak a `CPtr`
+  (§5/§11). The containment rule governs *values* — a pin is not one.
+- A `CONST` slot is **input-only**: it may not also be marked `OUT` or be the
+  result marker.
 
 ## 6. Close & Drop (defers to the overhaul)
 
@@ -536,9 +608,12 @@ native-`LINK`-specific.)
 3. **ABI surface ratification (§5b).** Adopt the named-slot ABI +
    `SUCCESS_ON`-expression form? Settle the result-marker keyword (`return` vs
    `RESULT`).
-4. **ABI vocabulary gaps (§5b).** Decide forms for NULL/optional pointer args,
-   pinned constant args, multi-valued result codes (`RESULT` mapping), and
-   C-string return marshaling — none are expressible today.
+4. **ABI vocabulary gaps (§5b).** Constant/NULL/sentinel args are resolved by
+   `CONST` (§5c); C-string return marshaling is generated-thunk codegen
+   (`plan-linker.md` §12.4); a multi-valued result code's *error* classification is
+   resolved by the compound `SUCCESS_ON`/`ERROR_ON` form (§5b). The sole remaining
+   declarative gap is the result *value* mapping — an expression-valued `RESULT`
+   marker (e.g. `RESULT status = 100` for `step`'s row-vs-done Boolean).
 
 ## 18. Recommendation
 
