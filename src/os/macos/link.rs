@@ -15,10 +15,11 @@ pub(crate) fn write_executable(
     project_name: &str,
     image: &EncodedImage,
 ) -> Result<PathBuf, String> {
-    let imports_libsystem = imports_libsystem(image)?;
-    let code_offset = code_offset(imports_libsystem);
+    let libraries = import_libraries(image)?;
+    let has_imports = !libraries.is_empty();
+    let code_offset = code_offset(&libraries);
     let mut text = image.text.clone();
-    let import_locations = if imports_libsystem {
+    let import_locations = if has_imports {
         append_import_stubs(
             &mut text,
             image,
@@ -48,7 +49,7 @@ pub(crate) fn write_executable(
         entry_offset,
         &text,
         &image.data,
-        imports_libsystem,
+        &libraries,
         image,
     );
     let path = project_dir.join(format!("{project_name}.out"));
@@ -165,16 +166,45 @@ fn patch_relocations(
     Ok(())
 }
 
-fn imports_libsystem(image: &EncodedImage) -> Result<bool, String> {
-    for import in &image.imports {
-        if import.library != "libSystem" {
+/// Map a logical library name to its Mach-O dylib install path (plan-linker.md
+/// §7.3). Frameworks resolve to their framework binary, plain dylibs to
+/// `/usr/lib`. The `tls` driver's concrete entry is `Network.framework`.
+fn dylib_path(library: &str) -> Result<String, String> {
+    Ok(match library {
+        "libSystem" => "/usr/lib/libSystem.B.dylib".to_string(),
+        "Network" => "/System/Library/Frameworks/Network.framework/Network".to_string(),
+        "AppKit" => "/System/Library/Frameworks/AppKit.framework/AppKit".to_string(),
+        "Foundation" => "/System/Library/Frameworks/Foundation.framework/Foundation".to_string(),
+        "libobjc" => "/usr/lib/libobjc.A.dylib".to_string(),
+        "libz" => "/usr/lib/libz.1.dylib".to_string(),
+        other => {
             return Err(format!(
-                "macOS linker cannot load '{}' for imported symbol '{}'",
-                import.library, import.symbol
+                "macOS linker has no dylib path for library '{other}'"
             ));
         }
+    })
+}
+
+/// The distinct dynamic libraries the image imports from, in first-seen order,
+/// each paired with its install path and an implicit 1-based dylib ordinal
+/// (its position + 1). Empty when the image imports nothing (plan-linker.md §7.1).
+fn import_libraries(image: &EncodedImage) -> Result<Vec<(String, String)>, String> {
+    let mut libraries: Vec<(String, String)> = Vec::new();
+    for import in &image.imports {
+        if !libraries.iter().any(|(name, _)| name == &import.library) {
+            libraries.push((import.library.clone(), dylib_path(&import.library)?));
+        }
     }
-    Ok(!image.imports.is_empty())
+    Ok(libraries)
+}
+
+/// The 1-based dylib ordinal for a symbol's library within `libraries`.
+fn library_ordinal(libraries: &[(String, String)], library: &str) -> Result<u64, String> {
+    libraries
+        .iter()
+        .position(|(name, _)| name == library)
+        .map(|index| index as u64 + 1)
+        .ok_or_else(|| format!("macOS linker has no dylib ordinal for library '{library}'"))
 }
 
 #[derive(Default)]
@@ -250,7 +280,7 @@ fn encode_mach_o(
     entry_offset: usize,
     code: &[u8],
     data: &[u8],
-    imports_libsystem: bool,
+    libraries: &[(String, String)],
     image: &EncodedImage,
 ) -> Vec<u8> {
     let unsigned = encode_unsigned_mach_o(
@@ -259,7 +289,7 @@ fn encode_mach_o(
         code,
         data,
         0,
-        imports_libsystem,
+        libraries,
         image,
     );
     let signature = code_signature(&unsigned, name);
@@ -269,7 +299,7 @@ fn encode_mach_o(
         code,
         data,
         signature.len(),
-        imports_libsystem,
+        libraries,
         image,
     );
     let signature = code_signature(&unsigned, name);
@@ -284,21 +314,22 @@ fn encode_unsigned_mach_o(
     code: &[u8],
     data: &[u8],
     signature_size: usize,
-    imports_libsystem: bool,
+    libraries: &[(String, String)],
     image: &EncodedImage,
 ) -> Vec<u8> {
-    let layout = macho_layout(code_offset, code.len(), data.len(), imports_libsystem);
-    let linkedit = linkedit_layout(image, imports_libsystem, layout.linkedit_file_offset);
+    let has_imports = !libraries.is_empty();
+    let layout = macho_layout(code_offset, code.len(), data.len(), has_imports);
+    let linkedit = linkedit_layout(image, libraries, layout.linkedit_file_offset);
     let signature_offset = align(linkedit.data_in_code_offset, 16);
     let linkedit_file_size = signature_offset + signature_size - layout.linkedit_file_offset;
-    let load_commands_size = load_commands_size(imports_libsystem);
+    let load_commands_size = load_commands_size(libraries);
     let mut bytes = Vec::new();
 
     put_u32(&mut bytes, 0xfeed_facf);
     put_u32(&mut bytes, 0x0100_000c);
     put_u32(&mut bytes, 0);
     put_u32(&mut bytes, 2);
-    put_u32(&mut bytes, load_command_count(imports_libsystem));
+    put_u32(&mut bytes, load_command_count(libraries));
     put_u32(&mut bytes, load_commands_size as u32);
     put_u32(&mut bytes, 0x0020_0085);
     put_u32(&mut bytes, 0);
@@ -311,7 +342,7 @@ fn encode_unsigned_mach_o(
         code.len() - image.text.len(),
         layout.text_file_size,
     );
-    if imports_libsystem {
+    if has_imports {
         data_const_segment(
             &mut bytes,
             layout.data_const_file_offset,
@@ -329,7 +360,7 @@ fn encode_unsigned_mach_o(
         1,
         0,
     );
-    if imports_libsystem {
+    if has_imports {
         dyld_info(&mut bytes, &linkedit);
     } else {
         linkedit_data(
@@ -343,8 +374,8 @@ fn encode_unsigned_mach_o(
     symtab(&mut bytes, &linkedit);
     dysymtab(&mut bytes, &linkedit);
     load_dylinker(&mut bytes);
-    if imports_libsystem {
-        load_dylib(&mut bytes, "/usr/lib/libSystem.B.dylib");
+    for (_, path) in libraries {
+        load_dylib(&mut bytes, path);
     }
     uuid_command(&mut bytes);
     build_version(&mut bytes);
@@ -358,11 +389,11 @@ fn encode_unsigned_mach_o(
     bytes.extend_from_slice(code);
     bytes.extend_from_slice(data);
     bytes.resize(layout.text_file_size, 0);
-    if imports_libsystem {
+    if has_imports {
         bytes.resize(layout.data_const_file_offset, 0);
         bytes.resize(layout.data_const_file_offset + image.imports.len() * 8, 0);
         bytes.resize(layout.linkedit_file_offset, 0);
-        bytes.extend_from_slice(&bind_info(image));
+        bytes.extend_from_slice(&bind_info(image, libraries));
         bytes.resize(linkedit.symtab_offset, 0);
         bytes.extend_from_slice(&symbol_table(image));
         bytes.resize(linkedit.indirect_symbol_offset, 0);
@@ -406,24 +437,31 @@ fn macho_layout(
     }
 }
 
-fn code_offset(imports_libsystem: bool) -> usize {
-    align(32 + load_commands_size(imports_libsystem), 4)
+fn code_offset(libraries: &[(String, String)]) -> usize {
+    align(32 + load_commands_size(libraries), 4)
 }
 
-fn load_commands_size(_imports_libsystem: bool) -> usize {
+fn load_commands_size(libraries: &[(String, String)]) -> usize {
     let base = 72 + 232 + 72 + 24 + 80 + dylinker_command_size() + 24 + 32 + 16 + 24 + 16 + 16 + 16;
-    if _imports_libsystem {
-        base + 152 + 48 + dylib_command_size("/usr/lib/libSystem.B.dylib")
-    } else {
+    if libraries.is_empty() {
         base + 16 + 16
+    } else {
+        // __DATA_CONST segment + LC_DYLD_INFO_ONLY + one LC_LOAD_DYLIB per library.
+        let dylibs: usize = libraries
+            .iter()
+            .map(|(_, path)| dylib_command_size(path))
+            .sum();
+        base + 152 + 48 + dylibs
     }
 }
 
-fn load_command_count(_imports_libsystem: bool) -> u32 {
-    if _imports_libsystem {
-        16
-    } else {
+fn load_command_count(libraries: &[(String, String)]) -> u32 {
+    if libraries.is_empty() {
         15
+    } else {
+        // Base imported-program commands (15 with one dylib) plus one extra
+        // LC_LOAD_DYLIB per additional library.
+        15 + libraries.len() as u32
     }
 }
 
@@ -692,30 +730,31 @@ struct LinkeditLayout {
 
 fn linkedit_layout(
     image: &EncodedImage,
-    imports_libsystem: bool,
+    libraries: &[(String, String)],
     linkedit_file_offset: usize,
 ) -> LinkeditLayout {
+    let has_imports = !libraries.is_empty();
     let fixups_offset = linkedit_file_offset;
-    let fixups_size = if imports_libsystem {
-        bind_info(image).len()
+    let fixups_size = if has_imports {
+        bind_info(image, libraries).len()
     } else {
         empty_chained_fixups().len()
     };
     let exports_offset = fixups_offset + fixups_size;
     let symtab_offset = exports_offset;
-    let symbol_count = if imports_libsystem {
+    let symbol_count = if has_imports {
         image.imports.len()
     } else {
         0
     };
     let indirect_symbol_offset = symtab_offset + symbol_count * 16;
-    let indirect_symbol_count = if imports_libsystem {
+    let indirect_symbol_count = if has_imports {
         image.imports.len()
     } else {
         0
     };
     let string_offset = indirect_symbol_offset + indirect_symbol_count * 4;
-    let string_size = if imports_libsystem {
+    let string_size = if has_imports {
         string_table(image).len()
     } else {
         0
@@ -737,10 +776,18 @@ fn linkedit_layout(
     }
 }
 
-fn bind_info(image: &EncodedImage) -> Vec<u8> {
+fn bind_info(image: &EncodedImage, libraries: &[(String, String)]) -> Vec<u8> {
     let mut bytes = Vec::new();
     for (index, import) in image.imports.iter().enumerate() {
-        bytes.push(0x11);
+        let ordinal = library_ordinal(libraries, &import.library).unwrap_or(1);
+        if ordinal <= 15 {
+            // BIND_OPCODE_SET_DYLIB_ORDINAL_IMM (0x10) | ordinal.
+            bytes.push(0x10 | ordinal as u8);
+        } else {
+            // BIND_OPCODE_SET_DYLIB_ORDINAL_ULEB (0x80) + uleb ordinal.
+            bytes.push(0x80);
+            put_uleb128(&mut bytes, ordinal);
+        }
         bytes.push(0x40);
         bytes.extend_from_slice(import.symbol.as_bytes());
         bytes.push(0);
@@ -942,6 +989,111 @@ mod tests {
         patch_relocations(&mut text, &image, text_vmaddr, &locations).expect("relocations");
 
         assert!(locations.got_entries.contains_key("_mach_task_self_"));
+    }
+
+    #[test]
+    fn import_libraries_assigns_one_ordinal_per_distinct_library() {
+        let image = EncodedImage {
+            text: Vec::new(),
+            data: Vec::new(),
+            symbols: Vec::new(),
+            relocations: Vec::new(),
+            imports: vec![
+                EncodedImport {
+                    library: "libSystem".to_string(),
+                    symbol: "_exit".to_string(),
+                },
+                EncodedImport {
+                    library: "Network".to_string(),
+                    symbol: "_nw_path_monitor_create".to_string(),
+                },
+                EncodedImport {
+                    library: "libSystem".to_string(),
+                    symbol: "_write".to_string(),
+                },
+            ],
+            entry: "_main".to_string(),
+        };
+        let libraries = import_libraries(&image).expect("libraries");
+        assert_eq!(libraries.len(), 2);
+        assert_eq!(library_ordinal(&libraries, "libSystem").unwrap(), 1);
+        assert_eq!(library_ordinal(&libraries, "Network").unwrap(), 2);
+        // The bind stream tags _nw_path_monitor_create with dylib ordinal 2.
+        let bind = bind_info(&image, &libraries);
+        assert!(bind.contains(&0x12)); // SET_DYLIB_ORDINAL_IMM(2)
+    }
+
+    // Drives the multi-library Mach-O path (plan-linker.md §7) end to end against
+    // the real `tls` driver library, Network.framework: a hand-built program that
+    // imports a symbol from Network (ordinal 2) and `exit` from libSystem
+    // (ordinal 1), then links and executes. A wrong dylib ordinal or a missing
+    // LC_LOAD_DYLIB makes dyld fail to bind at launch, so a clean exit proves the
+    // generalization.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn links_and_runs_program_importing_from_two_dylibs() {
+        // _main: x0 = nw_path_monitor_create(); exit(x0 != null ? 0 : 7).
+        let words: [u32; 6] = [
+            0x9400_0000, // bl _nw_path_monitor_create  (external branch26, patched)
+            0xB400_0060, // cbz x0, fail (+12)
+            0xD280_0000, // movz x0, #0
+            0x1400_0002, // b done (+8)
+            0xD280_00E0, // fail: movz x0, #7
+            0x9400_0000, // done: bl _exit              (external branch26, patched)
+        ];
+        let mut text = Vec::new();
+        for word in words {
+            put_u32(&mut text, word);
+        }
+        let image = EncodedImage {
+            text,
+            data: Vec::new(),
+            symbols: vec![EncodedSymbol {
+                name: "_main".to_string(),
+                section: EncodedSection::Text,
+                offset: 0,
+            }],
+            relocations: vec![
+                EncodedRelocation {
+                    offset: 0,
+                    target: "_nw_path_monitor_create".to_string(),
+                    kind: "branch26".to_string(),
+                    binding: "external".to_string(),
+                    library: Some("Network".to_string()),
+                },
+                EncodedRelocation {
+                    offset: 20,
+                    target: "_exit".to_string(),
+                    kind: "branch26".to_string(),
+                    binding: "external".to_string(),
+                    library: Some("libSystem".to_string()),
+                },
+            ],
+            imports: vec![
+                EncodedImport {
+                    library: "libSystem".to_string(),
+                    symbol: "_exit".to_string(),
+                },
+                EncodedImport {
+                    library: "Network".to_string(),
+                    symbol: "_nw_path_monitor_create".to_string(),
+                },
+            ],
+            entry: "_main".to_string(),
+        };
+
+        let dir = std::env::temp_dir().join(format!("mfb_nwlink_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("temp dir");
+        let path = write_executable(&dir, "nwlink", &image).expect("link multi-dylib executable");
+        let status = std::process::Command::new(&path)
+            .status()
+            .expect("run multi-dylib executable");
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(
+            status.code(),
+            Some(0),
+            "program importing from libSystem + Network.framework should exit 0"
+        );
     }
 }
 

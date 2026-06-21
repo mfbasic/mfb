@@ -603,8 +603,17 @@ fn external_symbols(relocations: &[ObjectRelocation]) -> Vec<String> {
 }
 
 fn dylib_for_library(library: &str) -> Result<String, String> {
+    // Mirror of the linker's library->path table (plan-linker.md §7.3); kept in
+    // sync so the object plan validates the same multi-library import sets.
     match library {
         "libSystem" => Ok("/usr/lib/libSystem.B.dylib".to_string()),
+        "Network" => Ok("/System/Library/Frameworks/Network.framework/Network".to_string()),
+        "AppKit" => Ok("/System/Library/Frameworks/AppKit.framework/AppKit".to_string()),
+        "Foundation" => {
+            Ok("/System/Library/Frameworks/Foundation.framework/Foundation".to_string())
+        }
+        "libobjc" => Ok("/usr/lib/libobjc.A.dylib".to_string()),
+        "libz" => Ok("/usr/lib/libz.1.dylib".to_string()),
         other => Err(format!(
             "macos native object plan does not know dylib for platform library '{other}'"
         )),
