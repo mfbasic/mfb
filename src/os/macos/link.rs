@@ -15,10 +15,25 @@ pub(crate) fn write_executable(
     project_name: &str,
     image: &EncodedImage,
 ) -> Result<PathBuf, String> {
+    // Load-time initializers (plan-linker.md §5.3/§7.5) lower to a
+    // `__mod_init_func` section dyld runs after binding and before `LC_MAIN`.
+    // Each must name an internal text symbol; refuse rather than silently drop a
+    // dangling entry, mirroring the Linux backend's DT_INIT_ARRAY handling.
+    for name in &image.initializers {
+        if !is_text_symbol(image, name) {
+            return Err(format!(
+                "initializer '{name}' does not resolve to a text symbol"
+            ));
+        }
+    }
     let libraries = import_libraries(image)?;
     let has_imports = !libraries.is_empty();
     let has_signing_metadata = image.signing_metadata.is_some();
-    let code_offset = code_offset(&libraries, has_signing_metadata);
+    let code_offset = code_offset(
+        &libraries,
+        has_signing_metadata,
+        !image.initializers.is_empty(),
+    );
     let mut text = image.text.clone();
     let import_locations = if has_imports {
         append_import_stubs(
@@ -208,6 +223,67 @@ fn library_ordinal(libraries: &[(String, String)], library: &str) -> Result<u64,
         .ok_or_else(|| format!("macOS linker has no dylib ordinal for library '{library}'"))
 }
 
+/// Whether `name` resolves to a defined text symbol in the image.
+fn is_text_symbol(image: &EncodedImage, name: &str) -> bool {
+    image
+        .symbols
+        .iter()
+        .any(|symbol| symbol.name == name && symbol.section == EncodedSection::Text)
+}
+
+/// Runtime VM address of an initializer's text symbol (plan-linker.md §7.5). The
+/// pointer is stored unslid; dyld rebases it by the load slide (see `rebase_info`).
+/// Callers validate the symbol exists via `is_text_symbol` first.
+fn initializer_addr(image: &EncodedImage, name: &str, code_offset: usize) -> u64 {
+    let offset = image
+        .symbols
+        .iter()
+        .find(|symbol| symbol.name == name && symbol.section == EncodedSection::Text)
+        .map(|symbol| symbol.offset)
+        .expect("initializer text symbol validated before encoding");
+    VM_BASE + code_offset as u64 + offset as u64
+}
+
+/// File/VM size of the `__DATA_CONST` segment: the GOT (one slot per import) plus
+/// the `__mod_init_func` pointer array (one slot per initializer), rounded to a
+/// page. Zero when the image needs no data-const segment at all.
+fn data_const_size(image: &EncodedImage) -> usize {
+    let slots = image.imports.len() + image.initializers.len();
+    if slots == 0 {
+        0
+    } else {
+        align(slots * 8, PAGE_SIZE)
+    }
+}
+
+/// Number of sections in `__DATA_CONST`: `__got` when there are imports,
+/// `__mod_init_func` when there are initializers.
+fn data_const_section_count(import_count: usize, init_count: usize) -> u32 {
+    (import_count > 0) as u32 + (init_count > 0) as u32
+}
+
+/// Rebase opcode stream for `LC_DYLD_INFO_ONLY`. The `__mod_init_func` pointers
+/// hold absolute (unslid) text addresses, so each needs a `REBASE_TYPE_POINTER`
+/// rebase against `__DATA_CONST` (segment index 2) so dyld adds the load slide
+/// before running them. The GOT is bound, not rebased, so it contributes nothing.
+fn rebase_info(image: &EncodedImage) -> Vec<u8> {
+    let mut bytes = Vec::new();
+    if !image.initializers.is_empty() {
+        // REBASE_OPCODE_SET_TYPE_IMM (0x10) | REBASE_TYPE_POINTER (1).
+        bytes.push(0x11);
+        // REBASE_OPCODE_SET_SEGMENT_AND_OFFSET_ULEB (0x20) | __DATA_CONST (seg 2),
+        // offset = past the GOT slots.
+        bytes.push(0x22);
+        put_uleb128(&mut bytes, (image.imports.len() * 8) as u64);
+        // REBASE_OPCODE_DO_REBASE_ULEB_TIMES (0x60) for each initializer pointer.
+        bytes.push(0x60);
+        put_uleb128(&mut bytes, image.initializers.len() as u64);
+        // REBASE_OPCODE_DONE.
+        bytes.push(0x00);
+    }
+    bytes
+}
+
 #[derive(Default)]
 struct ImportLocations {
     stubs: HashMap<String, u64>,
@@ -231,7 +307,7 @@ fn append_import_stubs(
     // the total across a `PAGE_SIZE` boundary, which sends each stub's `br` to a
     // garbage address.
     let final_code_len = text.len() + image.imports.len() * IMPORT_STUB_SIZE;
-    let layout = macho_layout(code_offset, final_code_len, data_len, true, 0);
+    let layout = macho_layout(code_offset, final_code_len, data_len, data_const_size(image), 0);
     for (index, import) in image.imports.iter().enumerate() {
         let stub_offset = text.len();
         let stub_vmaddr = text_vmaddr + stub_offset as u64;
@@ -319,26 +395,35 @@ fn encode_unsigned_mach_o(
     image: &EncodedImage,
 ) -> Vec<u8> {
     let has_imports = !libraries.is_empty();
+    let has_init = !image.initializers.is_empty();
+    // A `__DATA_CONST` segment (and the `LC_DYLD_INFO_ONLY` path) is needed when
+    // the image has a GOT (imports) and/or a `__mod_init_func` (initializers).
+    let needs_data_const = has_imports || has_init;
+    let dc_size = data_const_size(image);
     let signing_metadata = image.signing_metadata.as_deref();
     let signing_metadata_len = signing_metadata.map_or(0, |metadata| metadata.len());
     let layout = macho_layout(
         code_offset,
         code.len(),
         data.len(),
-        has_imports,
+        dc_size,
         signing_metadata_len,
     );
     let linkedit = linkedit_layout(image, libraries, layout.linkedit_file_offset);
     let signature_offset = align(linkedit.data_in_code_offset, 16);
     let linkedit_file_size = signature_offset + signature_size - layout.linkedit_file_offset;
-    let load_commands_size = load_commands_size(libraries, signing_metadata.is_some());
+    let load_commands_size =
+        load_commands_size(libraries, signing_metadata.is_some(), has_init);
     let mut bytes = Vec::new();
 
     put_u32(&mut bytes, 0xfeed_facf);
     put_u32(&mut bytes, 0x0100_000c);
     put_u32(&mut bytes, 0);
     put_u32(&mut bytes, 2);
-    put_u32(&mut bytes, load_command_count(libraries, signing_metadata.is_some()));
+    put_u32(
+        &mut bytes,
+        load_command_count(libraries, signing_metadata.is_some(), has_init),
+    );
     put_u32(&mut bytes, load_commands_size as u32);
     put_u32(&mut bytes, 0x0020_0085);
     put_u32(&mut bytes, 0);
@@ -351,11 +436,13 @@ fn encode_unsigned_mach_o(
         code.len() - image.text.len(),
         layout.text_file_size,
     );
-    if has_imports {
+    if needs_data_const {
         data_const_segment(
             &mut bytes,
             layout.data_const_file_offset,
+            dc_size,
             image.imports.len(),
+            image.initializers.len(),
         );
     }
     if let Some(metadata) = signing_metadata {
@@ -372,7 +459,7 @@ fn encode_unsigned_mach_o(
         1,
         0,
     );
-    if has_imports {
+    if needs_data_const {
         dyld_info(&mut bytes, &linkedit);
     } else {
         linkedit_data(
@@ -401,16 +488,24 @@ fn encode_unsigned_mach_o(
     bytes.extend_from_slice(code);
     bytes.extend_from_slice(data);
     bytes.resize(layout.text_file_size, 0);
-    if has_imports {
+    if needs_data_const {
+        // GOT slots (zero-filled, bound by dyld) followed by the `__mod_init_func`
+        // pointer array. The init pointers hold unslid text addresses; `rebase_info`
+        // tells dyld to slide them before running them (plan-linker.md §7.5).
         bytes.resize(layout.data_const_file_offset, 0);
         bytes.resize(layout.data_const_file_offset + image.imports.len() * 8, 0);
+        for name in &image.initializers {
+            put_u64(&mut bytes, initializer_addr(image, name, code_offset));
+        }
     }
     if let Some(metadata) = signing_metadata {
         bytes.resize(layout.mfb_sign_file_offset, 0);
         bytes.extend_from_slice(metadata);
     }
     bytes.resize(layout.linkedit_file_offset, 0);
-    if has_imports {
+    if needs_data_const {
+        bytes.extend_from_slice(&rebase_info(image));
+        bytes.resize(linkedit.fixups_offset, 0);
         bytes.extend_from_slice(&bind_info(image, libraries));
         bytes.resize(linkedit.symtab_offset, 0);
         bytes.extend_from_slice(&symbol_table(image));
@@ -440,16 +535,12 @@ fn macho_layout(
     code_offset: usize,
     code_len: usize,
     data_len: usize,
-    imports_libsystem: bool,
+    data_const_size: usize,
     signing_metadata_len: usize,
 ) -> MachOLayout {
     let text_file_size = align(code_offset + code_len + data_len, PAGE_SIZE);
     let data_const_file_offset = text_file_size;
-    let after_data_const = if imports_libsystem {
-        data_const_file_offset + PAGE_SIZE
-    } else {
-        text_file_size
-    };
+    let after_data_const = data_const_file_offset + data_const_size;
     let mfb_sign_file_offset = if signing_metadata_len == 0 {
         after_data_const
     } else {
@@ -468,34 +559,51 @@ fn macho_layout(
     }
 }
 
-fn code_offset(libraries: &[(String, String)], has_signing_metadata: bool) -> usize {
-    align(32 + load_commands_size(libraries, has_signing_metadata), 4)
+fn code_offset(
+    libraries: &[(String, String)],
+    has_signing_metadata: bool,
+    has_init: bool,
+) -> usize {
+    align(
+        32 + load_commands_size(libraries, has_signing_metadata, has_init),
+        4,
+    )
 }
 
-fn load_commands_size(libraries: &[(String, String)], has_signing_metadata: bool) -> usize {
+fn load_commands_size(
+    libraries: &[(String, String)],
+    has_signing_metadata: bool,
+    has_init: bool,
+) -> usize {
     let base = 72 + 232 + 72 + 24 + 80 + dylinker_command_size() + 24 + 32 + 16 + 24 + 16 + 16 + 16;
     let signing = if has_signing_metadata { 152 } else { 0 };
-    (if libraries.is_empty() {
+    let needs_data_const = !libraries.is_empty() || has_init;
+    (if !needs_data_const {
         base + 16 + 16
     } else {
-        // __DATA_CONST segment + LC_DYLD_INFO_ONLY + one LC_LOAD_DYLIB per library.
+        // __DATA_CONST segment (72 + one section header per __got/__mod_init_func)
+        // + LC_DYLD_INFO_ONLY + one LC_LOAD_DYLIB per library.
+        let sections = data_const_section_count(libraries.len(), has_init as usize) as usize;
         let dylibs: usize = libraries
             .iter()
             .map(|(_, path)| dylib_command_size(path))
             .sum();
-        base + 152 + 48 + dylibs
+        base + (72 + sections * 80) + 48 + dylibs
     }) + signing
 }
 
-fn load_command_count(libraries: &[(String, String)], has_signing_metadata: bool) -> u32 {
+fn load_command_count(
+    libraries: &[(String, String)],
+    has_signing_metadata: bool,
+    has_init: bool,
+) -> u32 {
     let signing = if has_signing_metadata { 1 } else { 0 };
-    if libraries.is_empty() {
-        15 + signing
-    } else {
-        // Base imported-program commands (15 with one dylib) plus one extra
-        // LC_LOAD_DYLIB per additional library.
-        15 + libraries.len() as u32 + signing
-    }
+    // The chained-fixups path (no data-const segment) and the dyld_info path both
+    // total 15 base commands; the data-const path swaps two LINKEDIT commands for a
+    // __DATA_CONST segment + LC_DYLD_INFO_ONLY. A non-empty __mod_init_func adds a
+    // section, not a command, so only extra dylibs grow the count.
+    let _ = has_init;
+    15 + libraries.len() as u32 + signing
 }
 
 fn text_segment(
@@ -542,30 +650,56 @@ fn text_segment(
     );
 }
 
-fn data_const_segment(bytes: &mut Vec<u8>, file_offset: usize, import_count: usize) {
+fn data_const_segment(
+    bytes: &mut Vec<u8>,
+    file_offset: usize,
+    data_const_size: usize,
+    import_count: usize,
+    init_count: usize,
+) {
+    let sections = data_const_section_count(import_count, init_count);
     put_u32(bytes, 0x19);
-    put_u32(bytes, 152);
+    put_u32(bytes, 72 + sections * 80);
     fixed_name(bytes, "__DATA_CONST");
     put_u64(bytes, VM_BASE + file_offset as u64);
-    put_u64(bytes, PAGE_SIZE as u64);
+    put_u64(bytes, data_const_size as u64);
     put_u64(bytes, file_offset as u64);
-    put_u64(bytes, PAGE_SIZE as u64);
+    put_u64(bytes, data_const_size as u64);
     put_u32(bytes, 3);
     put_u32(bytes, 3);
-    put_u32(bytes, 1);
+    put_u32(bytes, sections);
     put_u32(bytes, 0x10);
-    section_with_segment(
-        bytes,
-        "__got",
-        "__DATA_CONST",
-        VM_BASE + file_offset as u64,
-        (import_count * 8) as u64,
-        file_offset,
-        0x6,
-        0,
-        0,
-        3,
-    );
+    if import_count > 0 {
+        // __got: S_NON_LAZY_SYMBOL_POINTERS, one slot per import.
+        section_with_segment(
+            bytes,
+            "__got",
+            "__DATA_CONST",
+            VM_BASE + file_offset as u64,
+            (import_count * 8) as u64,
+            file_offset,
+            0x6,
+            0,
+            0,
+            3,
+        );
+    }
+    if init_count > 0 {
+        // __mod_init_func: S_MOD_INIT_FUNC_POINTERS (0x9), placed past the GOT.
+        let mod_offset = file_offset + import_count * 8;
+        section_with_segment(
+            bytes,
+            "__mod_init_func",
+            "__DATA_CONST",
+            VM_BASE + mod_offset as u64,
+            (init_count * 8) as u64,
+            mod_offset,
+            0x9,
+            0,
+            0,
+            3,
+        );
+    }
 }
 
 fn mfb_sign_segment(bytes: &mut Vec<u8>, file_offset: usize, metadata_len: usize) {
@@ -731,8 +865,8 @@ fn dylib_command_size(name: &str) -> usize {
 fn dyld_info(bytes: &mut Vec<u8>, linkedit: &LinkeditLayout) {
     put_u32(bytes, 0x8000_0022);
     put_u32(bytes, 48);
-    put_u32(bytes, 0);
-    put_u32(bytes, 0);
+    put_u32(bytes, linkedit.rebase_offset as u32);
+    put_u32(bytes, linkedit.rebase_size as u32);
     put_u32(bytes, linkedit.fixups_offset as u32);
     put_u32(bytes, linkedit.fixups_size as u32);
     put_u32(bytes, 0);
@@ -774,6 +908,8 @@ fn entry_point(bytes: &mut Vec<u8>, code_offset: usize) {
 }
 
 struct LinkeditLayout {
+    rebase_offset: usize,
+    rebase_size: usize,
     fixups_offset: usize,
     fixups_size: usize,
     exports_offset: usize,
@@ -793,27 +929,37 @@ fn linkedit_layout(
     linkedit_file_offset: usize,
 ) -> LinkeditLayout {
     let has_imports = !libraries.is_empty();
-    let fixups_offset = linkedit_file_offset;
-    let fixups_size = if has_imports {
+    let needs_data_const = has_imports || !image.initializers.is_empty();
+    // Rebase opcodes (for `__mod_init_func` pointers) lead the dyld_info payload,
+    // followed by the bind opcodes. `rebase_offset` is 0 when there is nothing to
+    // rebase, leaving the bind stream exactly where it was for imports-only images.
+    let rebase_size = rebase_info(image).len();
+    let rebase_offset = if rebase_size > 0 {
+        linkedit_file_offset
+    } else {
+        0
+    };
+    let fixups_offset = linkedit_file_offset + rebase_size;
+    let fixups_size = if needs_data_const {
         bind_info(image, libraries).len()
     } else {
         empty_chained_fixups().len()
     };
     let exports_offset = fixups_offset + fixups_size;
     let symtab_offset = exports_offset;
-    let symbol_count = if has_imports {
+    let symbol_count = if needs_data_const {
         image.imports.len()
     } else {
         0
     };
     let indirect_symbol_offset = symtab_offset + symbol_count * 16;
-    let indirect_symbol_count = if has_imports {
+    let indirect_symbol_count = if needs_data_const {
         image.imports.len()
     } else {
         0
     };
     let string_offset = indirect_symbol_offset + indirect_symbol_count * 4;
-    let string_size = if has_imports {
+    let string_size = if needs_data_const {
         string_table(image).len()
     } else {
         0
@@ -821,6 +967,8 @@ fn linkedit_layout(
     let function_starts_offset = string_offset + string_size;
     let data_in_code_offset = function_starts_offset + 1;
     LinkeditLayout {
+        rebase_offset,
+        rebase_size,
         fixups_offset,
         fixups_size,
         exports_offset,
@@ -1081,6 +1229,153 @@ mod tests {
         // The bind stream tags _nw_path_monitor_create with dylib ordinal 2.
         let bind = bind_info(&image, &libraries);
         assert!(bind.contains(&0x12)); // SET_DYLIB_ORDINAL_IMM(2)
+    }
+
+    #[test]
+    fn rejects_initializer_without_text_symbol() {
+        // plan-linker.md §5.3: an initializer that names no internal text symbol
+        // must error rather than be silently dropped (mirrors the Linux backend).
+        let image = EncodedImage {
+            text: vec![0xc0, 0x03, 0x5f, 0xd6],
+            data: Vec::new(),
+            symbols: vec![EncodedSymbol {
+                name: "_main".to_string(),
+                section: EncodedSection::Text,
+                offset: 0,
+            }],
+            relocations: Vec::new(),
+            imports: Vec::new(),
+            entry: "_main".to_string(),
+            initializers: vec!["_missing".to_string()],
+            signing_metadata: None,
+        };
+        let dir = tempfile::tempdir().unwrap();
+        let error = write_executable(dir.path(), "init", &image)
+            .expect_err("dangling initializer must be rejected");
+        assert!(error.contains("does not resolve to a text symbol"));
+    }
+
+    // S_MOD_INIT_FUNC_POINTERS end to end on the no-imports path (plan-linker.md
+    // §7.5): a self-contained program whose initializer exits 0 via a direct
+    // syscall while `_main` would exit 7. Exit 0 proves dyld ran the rebased
+    // `__mod_init_func` pointer before `LC_MAIN`; a missing or mis-rebased pointer
+    // would let `_main` run (exit 7) or crash.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn runs_initializer_before_entry_without_imports() {
+        let words: [u32; 6] = [
+            0xD280_0000, // _init0: movz x0, #0
+            0xD280_0030, //         movz x16, #1   (SYS_exit)
+            0xD400_1001, //         svc  #0x80     -> exit(0)
+            0xD280_00E0, // _main:  movz x0, #7
+            0xD280_0030, //         movz x16, #1
+            0xD400_1001, //         svc  #0x80     -> exit(7)
+        ];
+        let mut text = Vec::new();
+        for word in words {
+            put_u32(&mut text, word);
+        }
+        let image = EncodedImage {
+            text,
+            data: Vec::new(),
+            symbols: vec![
+                EncodedSymbol {
+                    name: "_init0".to_string(),
+                    section: EncodedSection::Text,
+                    offset: 0,
+                },
+                EncodedSymbol {
+                    name: "_main".to_string(),
+                    section: EncodedSection::Text,
+                    offset: 12,
+                },
+            ],
+            relocations: Vec::new(),
+            imports: Vec::new(),
+            entry: "_main".to_string(),
+            initializers: vec!["_init0".to_string()],
+            signing_metadata: None,
+        };
+        let dir = std::env::temp_dir().join(format!("mfb_modinit_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("temp dir");
+        let path = write_executable(&dir, "modinit", &image).expect("link initializer executable");
+        let status = std::process::Command::new(&path)
+            .status()
+            .expect("run initializer executable");
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(
+            status.code(),
+            Some(0),
+            "the __mod_init_func initializer must run (exit 0) before _main (exit 7)"
+        );
+    }
+
+    // The combined path: a GOT (imported `_exit`) and a `__mod_init_func` share the
+    // __DATA_CONST segment. The initializer calls the imported `_exit(0)`; `_main`
+    // would call `_exit(7)`. Exit 0 proves bind (GOT) and rebase (mod-init) coexist
+    // correctly in one segment.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn runs_initializer_before_entry_with_imports() {
+        let words: [u32; 4] = [
+            0xD280_0000, // _init0: movz x0, #0
+            0x9400_0000, //         bl _exit        (external branch26, patched)
+            0xD280_00E0, // _main:  movz x0, #7
+            0x9400_0000, //         bl _exit        (external branch26, patched)
+        ];
+        let mut text = Vec::new();
+        for word in words {
+            put_u32(&mut text, word);
+        }
+        let image = EncodedImage {
+            text,
+            data: Vec::new(),
+            symbols: vec![
+                EncodedSymbol {
+                    name: "_init0".to_string(),
+                    section: EncodedSection::Text,
+                    offset: 0,
+                },
+                EncodedSymbol {
+                    name: "_main".to_string(),
+                    section: EncodedSection::Text,
+                    offset: 8,
+                },
+            ],
+            relocations: vec![
+                EncodedRelocation {
+                    offset: 4,
+                    target: "_exit".to_string(),
+                    kind: "branch26".to_string(),
+                    binding: "external".to_string(),
+                    library: Some("libSystem".to_string()),
+                },
+                EncodedRelocation {
+                    offset: 12,
+                    target: "_exit".to_string(),
+                    kind: "branch26".to_string(),
+                    binding: "external".to_string(),
+                    library: Some("libSystem".to_string()),
+                },
+            ],
+            imports: vec![import("libSystem", "_exit")],
+            entry: "_main".to_string(),
+            initializers: vec!["_init0".to_string()],
+            signing_metadata: None,
+        };
+        let dir = std::env::temp_dir().join(format!("mfb_modinit_imp_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("temp dir");
+        let path =
+            write_executable(&dir, "modinitimp", &image).expect("link initializer+import executable");
+        let status = std::process::Command::new(&path)
+            .status()
+            .expect("run initializer+import executable");
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(
+            status.code(),
+            Some(0),
+            "the initializer's imported _exit(0) must run before _main's _exit(7)"
+        );
     }
 
     #[test]
