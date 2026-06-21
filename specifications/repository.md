@@ -132,6 +132,21 @@ Not a URL, and not required to encode where the bytes live — that's what conte
 
 ## 5. Registry API & Storage (sketch)
 
+- **Base implementation plan**: `repo-base.md` specifies the first repository
+  implementation pass. It is limited to registration and authentication and
+  creates an independent Rust project under `repository/**` with an executable
+  named `mfb-repo`.
+- **Server storage root**: `./mfb-repo --path <repo_path>` owns all
+  server-side repository state under `<repo_path>`. The base layout is:
+  `<repo_path>/meta.db` for SQLite3 metadata and
+  `<repo_path>/packages/<hash>.mfp` for immutable package blobs. Registration
+  and authentication must create `meta.db` and `packages/`, but they must not
+  implement publishing in the base pass.
+- **Client key/session locations**: `mfb repo register <owner_name>` creates a
+  local keypair at `~/.mfb/keys/<owner_name>.pub` and
+  `~/.mfb/keys/<owner_name>.prv`. `mfb repo auth <owner_name>` stores the
+  one-hour server-signed JWT session at
+  `~/.mfb/session/<owner_name>.ses`, one session file per owner.
 - **Blob storage**: content-addressed, immutable, keyed by the `.mfp` content hash defined in `package_format.md`. **Write-once, permanent** — once a `.mfp` is released under a hash, `GET /blob/<hash>` works forever; the blob store has no delete path for normal operation. Infinitely cacheable — any CDN or third-party mirror can serve blobs without being trusted, since the client verifies hash + signature regardless of source.
 - **Published version immutability:** after a successful publish, the mapping `<owner>#<package>@<version> → contentHash` is immutable forever. The hash for an existing version may never change, the package blob may never be replaced, and the package is never re-signed in place. A publisher that needs different bytes must publish a new version.
 - **Index/metadata service**: maps `<owner>#<package>@<version> → hash`, plus release state, signature, signing fingerprint, and transparency-log reference for each version. Version records are append-only for identity/version/hash; mutable metadata such as description, README, links, advisory text, deprecation message, and release state may change without changing the blob. Small, mutable, short-cache.
