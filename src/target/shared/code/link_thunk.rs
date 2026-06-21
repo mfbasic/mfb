@@ -288,10 +288,28 @@ fn lower_link_thunk(
     let param_base = 32;
     let cslot_base = param_base + n_params * 8;
     let out_base = cslot_base + m_slots * 8;
-    let frame = align(out_base + n_out * 8 + 32, 16);
+    // One extra slot past the OUT buffers holds the floating-point return bits
+    // (`d0`) when the native return is `CDouble`.
+    let cretd_off = out_base + n_out * 8;
+    let frame = align(cretd_off + 8 + 24, 16);
+
+    // §12.3/§12.4 boundary validations that this signature needs.
+    let returns_value = function.abi_return_name == "return";
+    let needs_range = function.abi_slots.iter().any(|slot| {
+        !slot.is_out
+            && slot.ctype == "CInt32"
+            && function.params.iter().any(|(name, _)| name == &slot.name)
+    });
+    let needs_encoding =
+        returns_value && function.abi_return_ctype == "CPtr" && function.return_type == "String";
+    let needs_float = returns_value && function.abi_return_ctype == "CDouble";
 
     let alloc_fail = format!("{symbol}_alloc_fail");
     let call_fail = format!("{symbol}_call_fail");
+    let range_fail = format!("{symbol}_range_fail");
+    let encoding_fail = format!("{symbol}_encoding_fail");
+    let nan_fail = format!("{symbol}_nan_fail");
+    let inf_fail = format!("{symbol}_inf_fail");
     let done = format!("{symbol}_done");
 
     // Map wrapper-parameter name -> declared order (its incoming register).
@@ -353,6 +371,17 @@ fn lower_link_thunk(
                     &mut instructions,
                     &mut relocations,
                 );
+            } else if slot.ctype == "CInt32" {
+                // §12.3: the 64-bit MFBASIC Integer must fit signed 32-bit; an
+                // out-of-range value fails rather than silently truncating.
+                instructions.extend([
+                    abi::load_u64("x9", abi::stack_pointer(), param_off),
+                    abi::shift_left_immediate("x10", "x9", 32),
+                    abi::arithmetic_shift_right_immediate("x10", "x10", 32),
+                    abi::compare_registers("x9", "x10"),
+                    abi::branch_ne(&range_fail),
+                    abi::store_u64("x9", abi::stack_pointer(), cslot_off),
+                ]);
             } else {
                 instructions.extend([
                     abi::load_u64("x9", abi::stack_pointer(), param_off),
@@ -393,6 +422,13 @@ fn lower_link_thunk(
         abi::branch_link_register("x16"),
         abi::store_u64(abi::return_register(), abi::stack_pointer(), CRET_OFF),
     ]);
+    if needs_float {
+        // A `double` return arrives in `d0`, not `x0`; stash its bits.
+        instructions.extend([
+            abi::float_move_x_from_d("x9", "d0"),
+            abi::store_u64("x9", abi::stack_pointer(), cretd_off),
+        ]);
+    }
 
     // Derive the status value (sign-extending a 32-bit native return).
     instructions.push(abi::load_u64("x9", abi::stack_pointer(), CRET_OFF));
@@ -420,10 +456,16 @@ fn lower_link_thunk(
     } else if function.abi_return_name == "return" {
         emit_return_passthrough(
             function,
-            CRET_OFF,
-            STATUS_OFF,
+            ReturnMarshal {
+                cret_off: CRET_OFF,
+                cretd_off,
+                status_off: STATUS_OFF,
+                alloc_fail: &alloc_fail,
+                encoding_fail: &encoding_fail,
+                nan_fail: &nan_fail,
+                inf_fail: &inf_fail,
+            },
             &symbol,
-            &alloc_fail,
             &mut instructions,
             &mut relocations,
         );
@@ -469,6 +511,37 @@ fn lower_link_thunk(
         &mut relocations,
     );
 
+    // Boundary-validation failure epilogues (plan-linker.md §12.3/§12.4), emitted
+    // only when the signature can reach them.
+    for (needed, label, code, message) in [
+        (needs_range, &range_fail, ERR_OVERFLOW_CODE, ERR_OVERFLOW_SYMBOL),
+        (
+            needs_encoding,
+            &encoding_fail,
+            ERR_ENCODING_CODE,
+            ERR_ENCODING_SYMBOL,
+        ),
+        (needs_float, &nan_fail, ERR_FLOAT_NAN_CODE, ERR_FLOAT_NAN_SYMBOL),
+        (needs_float, &inf_fail, ERR_FLOAT_INF_CODE, ERR_FLOAT_INF_SYMBOL),
+    ] {
+        if !needed {
+            continue;
+        }
+        instructions.push(abi::branch(&done));
+        instructions.extend([
+            abi::label(label),
+            abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", code),
+            abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
+        ]);
+        emit_data_address(
+            &symbol,
+            RESULT_ERROR_MESSAGE_REGISTER,
+            message,
+            &mut instructions,
+            &mut relocations,
+        );
+    }
+
     instructions.extend([
         abi::label(&done),
         abi::load_u64(abi::link_register(), abi::stack_pointer(), LR_OFF),
@@ -500,20 +573,59 @@ fn lower_link_thunk(
     })
 }
 
+/// Frame slots and failure labels the return marshaler needs.
+struct ReturnMarshal<'a> {
+    cret_off: usize,
+    cretd_off: usize,
+    status_off: usize,
+    alloc_fail: &'a str,
+    encoding_fail: &'a str,
+    nan_fail: &'a str,
+    inf_fail: &'a str,
+}
+
 /// Marshal the native return (`AS return <ctype>`) into the wrapper result in
 /// `RESULT_VALUE_REGISTER` (plan-linker.md §12.3/§12.4).
 fn emit_return_passthrough(
     function: &IrLinkFunction,
-    cret_off: usize,
-    status_off: usize,
+    m: ReturnMarshal,
     symbol: &str,
-    alloc_fail: &str,
     instructions: &mut Vec<CodeInstruction>,
     relocations: &mut Vec<CodeRelocation>,
 ) {
+    let cret_off = m.cret_off;
+    let status_off = m.status_off;
     match function.abi_return_ctype.as_str() {
         "CPtr" if function.return_type == "String" => {
-            emit_copy_cstring_to_string(symbol, cret_off, alloc_fail, instructions, relocations);
+            emit_copy_cstring_to_string(
+                symbol,
+                cret_off,
+                m.alloc_fail,
+                m.encoding_fail,
+                instructions,
+                relocations,
+            );
+        }
+        "CDouble" => {
+            // §12.3: a C `double` may be NaN/Inf, but an MFBASIC `Float` is always
+            // finite (mfbasic.md §3), so reject non-finite results at the boundary.
+            // A non-finite double has all exponent bits set (`0x7FF0…`); the
+            // mantissa then distinguishes Inf (zero) from NaN (non-zero).
+            let finite = format!("{symbol}_float_finite");
+            instructions.extend([
+                abi::load_u64("x9", abi::stack_pointer(), m.cretd_off),
+                abi::move_immediate("x10", "Integer", "9218868437227405312"),
+                abi::and_registers("x11", "x9", "x10"),
+                abi::compare_registers("x11", "x10"),
+                abi::branch_ne(&finite),
+                abi::move_immediate("x12", "Integer", "4503599627370495"),
+                abi::and_registers("x13", "x9", "x12"),
+                abi::compare_immediate("x13", "0"),
+                abi::branch_eq(m.inf_fail),
+                abi::branch(m.nan_fail),
+                abi::label(&finite),
+                abi::move_register(RESULT_VALUE_REGISTER, "x9"),
+            ]);
         }
         "CPtr" | "CInt64" => {
             instructions.push(abi::load_u64(RESULT_VALUE_REGISTER, abi::stack_pointer(), cret_off));
@@ -596,6 +708,7 @@ fn emit_copy_cstring_to_string(
     symbol: &str,
     cret_off: usize,
     alloc_fail: &str,
+    encoding_fail: &str,
     instructions: &mut Vec<CodeInstruction>,
     relocations: &mut Vec<CodeRelocation>,
 ) {
@@ -645,6 +758,13 @@ fn emit_copy_cstring_to_string(
         abi::branch(&copy_loop),
         abi::label(&copy_done),
         abi::store_u8("x31", "x12", 0),
+        // §12.4: returned bytes are validated as UTF-8 at the boundary.
+        abi::load_u64(abi::return_register(), abi::stack_pointer(), RET_OFF),
+        abi::add_immediate(abi::return_register(), abi::return_register(), 8),
+        abi::load_u64("x1", abi::stack_pointer(), LEN_OFF),
+    ]);
+    emit_call_validate_utf8(symbol, encoding_fail, instructions, relocations);
+    instructions.extend([
         abi::load_u64(RESULT_VALUE_REGISTER, abi::stack_pointer(), RET_OFF),
         abi::branch(&ret_done),
         // NULL -> empty string [u64 0][nul].

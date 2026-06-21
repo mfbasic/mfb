@@ -47,6 +47,17 @@ LINK "sqlite3" AS sql
     SYMBOL "sqlite3_column_text"
     ABI (stmt CPtr, col CInt32) AS return CPtr
   END FUNC
+  ' Exercises the CInt32-return and CDouble-return marshaling (§12.3): the
+  ' result columns are read back as Integer and Float, with the column index
+  ' passed through the CInt32 input range-check.
+  FUNC columnInt(RES stmt AS Stmt, col AS Integer) AS Integer
+    SYMBOL "sqlite3_column_int"
+    ABI (stmt CPtr, col CInt32) AS return CInt32
+  END FUNC
+  FUNC columnDouble(RES stmt AS Stmt, col AS Integer) AS Float
+    SYMBOL "sqlite3_column_double"
+    ABI (stmt CPtr, col CInt32) AS return CDouble
+  END FUNC
   FUNC finalize(RES stmt AS Stmt) AS Nothing
     SYMBOL "sqlite3_finalize"
     ABI (stmt CPtr) AS status CInt32
@@ -61,15 +72,18 @@ END LINK
 
 FUNC main AS Integer
   RES db AS Db = sql::open(":memory:")
-  sql::exec(db, "CREATE TABLE users (id INTEGER, name TEXT)")
-  RES ins AS Stmt = sql::prepare(db, "INSERT INTO users VALUES (1, ?)")
+  sql::exec(db, "CREATE TABLE users (id INTEGER, name TEXT, score REAL)")
+  RES ins AS Stmt = sql::prepare(db, "INSERT INTO users VALUES (1, ?, 1.5)")
   sql::bindText(ins, 1, "alice")
   LET inserted = sql::step(ins)
   sql::finalize(ins)
-  sql::exec(db, "INSERT INTO users VALUES (2, 'bob')")
-  RES rows AS Stmt = sql::prepare(db, "SELECT id, name FROM users ORDER BY id")
+  sql::exec(db, "INSERT INTO users VALUES (2, 'bob', 2.5)")
+  RES rows AS Stmt = sql::prepare(db, "SELECT id, name, score FROM users ORDER BY id")
   WHILE sql::step(rows)
-    io::print(sql::columnText(rows, 0) & "=" & sql::columnText(rows, 1))
+    ' columnInt: CInt32 return; columnText: CString return (UTF-8 validated);
+    ' columnDouble: CDouble return (finite Float); column index goes through the
+    ' CInt32 input range-check.
+    io::print(toString(sql::columnInt(rows, 0)) & "=" & sql::columnText(rows, 1) & "@" & toString(sql::columnDouble(rows, 2)))
   WEND
   sql::finalize(rows)
   sql::close(db)

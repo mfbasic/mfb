@@ -19,19 +19,19 @@
     "returns": "Integer",
     "body": [
     { "op": "bind", "mutable": false, "name": "db", "type": "Db", "value": { "kind": "call", "target": "sql.open", "args": [{ "kind": "const", "type": "String", "value": ":memory:" }] } },
-    { "op": "eval", "value": { "kind": "call", "target": "sql.exec", "args": [{ "kind": "local", "name": "db" }, { "kind": "const", "type": "String", "value": "CREATE TABLE users (id INTEGER, name TEXT)" }] } },
-    { "op": "bind", "mutable": false, "name": "ins", "type": "Stmt", "value": { "kind": "call", "target": "sql.prepare", "args": [{ "kind": "local", "name": "db" }, { "kind": "const", "type": "String", "value": "INSERT INTO users VALUES (1, ?)" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "sql.exec", "args": [{ "kind": "local", "name": "db" }, { "kind": "const", "type": "String", "value": "CREATE TABLE users (id INTEGER, name TEXT, score REAL)" }] } },
+    { "op": "bind", "mutable": false, "name": "ins", "type": "Stmt", "value": { "kind": "call", "target": "sql.prepare", "args": [{ "kind": "local", "name": "db" }, { "kind": "const", "type": "String", "value": "INSERT INTO users VALUES (1, ?, 1.5)" }] } },
     { "op": "eval", "value": { "kind": "call", "target": "sql.bindText", "args": [{ "kind": "local", "name": "ins" }, { "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "String", "value": "alice" }] } },
     { "op": "bind", "mutable": false, "name": "inserted", "type": "Boolean", "value": { "kind": "call", "target": "sql.step", "args": [{ "kind": "local", "name": "ins" }] } },
     { "op": "eval", "value": { "kind": "call", "target": "sql.finalize", "args": [{ "kind": "local", "name": "ins" }] } },
-    { "op": "eval", "value": { "kind": "call", "target": "sql.exec", "args": [{ "kind": "local", "name": "db" }, { "kind": "const", "type": "String", "value": "INSERT INTO users VALUES (2, 'bob')" }] } },
-    { "op": "bind", "mutable": false, "name": "rows", "type": "Stmt", "value": { "kind": "call", "target": "sql.prepare", "args": [{ "kind": "local", "name": "db" }, { "kind": "const", "type": "String", "value": "SELECT id, name FROM users ORDER BY id" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "sql.exec", "args": [{ "kind": "local", "name": "db" }, { "kind": "const", "type": "String", "value": "INSERT INTO users VALUES (2, 'bob', 2.5)" }] } },
+    { "op": "bind", "mutable": false, "name": "rows", "type": "Stmt", "value": { "kind": "call", "target": "sql.prepare", "args": [{ "kind": "local", "name": "db" }, { "kind": "const", "type": "String", "value": "SELECT id, name, score FROM users ORDER BY id" }] } },
     {
       "op": "while",
       "loop": "while",
       "condition": { "kind": "call", "target": "sql.step", "args": [{ "kind": "local", "name": "rows" }] },
       "body": [
-      { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "binary", "op": "&", "left": { "kind": "binary", "op": "&", "left": { "kind": "call", "target": "sql.columnText", "args": [{ "kind": "local", "name": "rows" }, { "kind": "const", "type": "Integer", "value": "0" }] }, "right": { "kind": "const", "type": "String", "value": "=" } }, "right": { "kind": "call", "target": "sql.columnText", "args": [{ "kind": "local", "name": "rows" }, { "kind": "const", "type": "Integer", "value": "1" }] } }] } }
+      { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "binary", "op": "&", "left": { "kind": "binary", "op": "&", "left": { "kind": "binary", "op": "&", "left": { "kind": "binary", "op": "&", "left": { "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "sql.columnInt", "args": [{ "kind": "local", "name": "rows" }, { "kind": "const", "type": "Integer", "value": "0" }] }] }, "right": { "kind": "const", "type": "String", "value": "=" } }, "right": { "kind": "call", "target": "sql.columnText", "args": [{ "kind": "local", "name": "rows" }, { "kind": "const", "type": "Integer", "value": "1" }] } }, "right": { "kind": "const", "type": "String", "value": "@" } }, "right": { "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "sql.columnDouble", "args": [{ "kind": "local", "name": "rows" }, { "kind": "const", "type": "Integer", "value": "2" }] }] } }] } }
       ]
     },
     { "op": "eval", "value": { "kind": "call", "target": "sql.finalize", "args": [{ "kind": "local", "name": "rows" }] } },

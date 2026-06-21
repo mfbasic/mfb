@@ -910,15 +910,22 @@ pub(crate) fn lower_module_for_platform(
     for symbol in &runtime_symbols {
         code_functions.push(lower_runtime_helper(symbol, &platform_imports, platform)?);
     }
-    if runtime_symbols.iter().any(|symbol| {
-        matches!(
-            symbol.as_str(),
-            "_mfb_rt_fs_fs_readText"
-                | "_mfb_rt_fs_fs_readAll"
-                | "_mfb_rt_fs_fs_readLine"
-                | "_mfb_rt_net_net_readText"
-        )
-    }) {
+    let link_returns_cstring = module.link_functions.iter().any(|function| {
+        function.abi_return_name == "return"
+            && function.abi_return_ctype == "CPtr"
+            && function.return_type == "String"
+    });
+    if link_returns_cstring
+        || runtime_symbols.iter().any(|symbol| {
+            matches!(
+                symbol.as_str(),
+                "_mfb_rt_fs_fs_readText"
+                    | "_mfb_rt_fs_fs_readAll"
+                    | "_mfb_rt_fs_fs_readLine"
+                    | "_mfb_rt_net_net_readText"
+            )
+        })
+    {
         code_functions.push(lower_validate_utf8_helper());
     }
     if runtime_symbols
@@ -12590,6 +12597,11 @@ fn native_link_error_messages() -> &'static [(&'static str, &'static str, &'stat
             ERR_ALLOCATION_MESSAGE,
             ERR_ALLOCATION_SYMBOL,
         ),
+        // Boundary validations (plan-linker.md §12.3/§12.4).
+        (ERR_OVERFLOW_CODE, ERR_OVERFLOW_MESSAGE, ERR_OVERFLOW_SYMBOL),
+        (ERR_ENCODING_CODE, ERR_ENCODING_MESSAGE, ERR_ENCODING_SYMBOL),
+        (ERR_FLOAT_NAN_CODE, ERR_FLOAT_NAN_MESSAGE, ERR_FLOAT_NAN_SYMBOL),
+        (ERR_FLOAT_INF_CODE, ERR_FLOAT_INF_MESSAGE, ERR_FLOAT_INF_SYMBOL),
     ]
 }
 

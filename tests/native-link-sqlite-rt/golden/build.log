@@ -8,7 +8,7 @@ $ mfb build tests/native-link-sqlite-rt
 Wrote executable to tests/native-link-sqlite-rt/native_link_sqlite_rt.out
 [exit 0]
 $ tests/native-link-sqlite-rt/native_link_sqlite_rt.out
-1=alice
-2=bob
+1=alice@1.50
+2=bob@2.50
 done
 [exit 0]

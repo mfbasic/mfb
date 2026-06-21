@@ -1381,6 +1381,8 @@ Native ABI types are separate from MFBASIC source types:
 
 The fixed-width names are preferred over C spellings such as `int` or `long`, because those spellings vary by platform. Bindings should map the platform header's actual ABI to one of the fixed or pointer-sized types.
 
+The marshaling boundary validates values rather than silently corrupting them: an `Integer` argument that does not fit a narrower signed C integer fails with `ErrOverflow` (`77050010`) instead of truncating; a C floating-point **return** that is NaN or infinite is rejected with `ErrFloatNaN` (`77050013`) / `ErrFloatInf` (`77050014`), since an MFBASIC `Float` is always finite (§3); and the bytes of a returned C string are validated as UTF-8, failing with `ErrEncoding` (`77020004`) when malformed.
+
 ABI parameters may use direction modifiers:
 
 | Form | Meaning |

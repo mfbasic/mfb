@@ -175,17 +175,65 @@
       },
       {
         "kind": "linkFunc",
+        "name": "columnInt",
+        "symbol": "sqlite3_column_int",
+        "returnResource": false,
+        "returnType": "Integer",
+        "line": 53,
+        "params": [
+        { "name": "stmt", "type": "Stmt", "resource": true, "state": null, "default": null },
+        { "name": "col", "type": "Integer", "default": null }
+        ],
+        "abi": {
+          "slots": [
+          { "name": "stmt", "ctype": "CPtr", "out": false, "line": 55 },
+          { "name": "col", "ctype": "CInt32", "out": false, "line": 55 }
+          ],
+          "returnName": "return",
+          "returnCType": "CInt32"
+        },
+        "consts": [
+        ],
+        "successOn": null,
+        "result": null
+      },
+      {
+        "kind": "linkFunc",
+        "name": "columnDouble",
+        "symbol": "sqlite3_column_double",
+        "returnResource": false,
+        "returnType": "Float",
+        "line": 57,
+        "params": [
+        { "name": "stmt", "type": "Stmt", "resource": true, "state": null, "default": null },
+        { "name": "col", "type": "Integer", "default": null }
+        ],
+        "abi": {
+          "slots": [
+          { "name": "stmt", "ctype": "CPtr", "out": false, "line": 59 },
+          { "name": "col", "ctype": "CInt32", "out": false, "line": 59 }
+          ],
+          "returnName": "return",
+          "returnCType": "CDouble"
+        },
+        "consts": [
+        ],
+        "successOn": null,
+        "result": null
+      },
+      {
+        "kind": "linkFunc",
         "name": "finalize",
         "symbol": "sqlite3_finalize",
         "returnResource": false,
         "returnType": "Nothing",
-        "line": 50,
+        "line": 61,
         "params": [
         { "name": "stmt", "type": "Stmt", "resource": true, "state": null, "default": null }
         ],
         "abi": {
           "slots": [
-          { "name": "stmt", "ctype": "CPtr", "out": false, "line": 52 }
+          { "name": "stmt", "ctype": "CPtr", "out": false, "line": 63 }
           ],
           "returnName": "status",
           "returnCType": "CInt32"
@@ -201,13 +249,13 @@
         "symbol": "sqlite3_close",
         "returnResource": false,
         "returnType": "Nothing",
-        "line": 55,
+        "line": 66,
         "params": [
         { "name": "db", "type": "Db", "resource": true, "state": null, "default": null }
         ],
         "abi": {
           "slots": [
-          { "name": "db", "ctype": "CPtr", "out": false, "line": 57 }
+          { "name": "db", "ctype": "CPtr", "out": false, "line": 68 }
           ],
           "returnName": "status",
           "returnCType": "CInt32"
@@ -223,32 +271,32 @@
       "kind": "func",
       "visibility": "private",
       "name": "main",
-      "line": 62,
+      "line": 73,
       "params": [
       ],
       "returnType": "Integer",
       "body": [
-      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "db", "type": "Db", "value": { "kind": "call", "callee": "sql.open", "arguments": [{ "kind": "string", "value": ":memory:" }] }, "line": 63 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "sql.exec", "arguments": [{ "kind": "identifier", "value": "db" }, { "kind": "string", "value": "CREATE TABLE users (id INTEGER, name TEXT)" }] }, "line": 64 },
-      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "ins", "type": "Stmt", "value": { "kind": "call", "callee": "sql.prepare", "arguments": [{ "kind": "identifier", "value": "db" }, { "kind": "string", "value": "INSERT INTO users VALUES (1, ?)" }] }, "line": 65 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "sql.bindText", "arguments": [{ "kind": "identifier", "value": "ins" }, { "kind": "number", "value": "1" }, { "kind": "string", "value": "alice" }] }, "line": 66 },
-      { "kind": "binding", "mutable": false, "name": "inserted", "type": null, "value": { "kind": "call", "callee": "sql.step", "arguments": [{ "kind": "identifier", "value": "ins" }] }, "line": 67 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "sql.finalize", "arguments": [{ "kind": "identifier", "value": "ins" }] }, "line": 68 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "sql.exec", "arguments": [{ "kind": "identifier", "value": "db" }, { "kind": "string", "value": "INSERT INTO users VALUES (2, 'bob')" }] }, "line": 69 },
-      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "rows", "type": "Stmt", "value": { "kind": "call", "callee": "sql.prepare", "arguments": [{ "kind": "identifier", "value": "db" }, { "kind": "string", "value": "SELECT id, name FROM users ORDER BY id" }] }, "line": 70 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "db", "type": "Db", "value": { "kind": "call", "callee": "sql.open", "arguments": [{ "kind": "string", "value": ":memory:" }] }, "line": 74 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "sql.exec", "arguments": [{ "kind": "identifier", "value": "db" }, { "kind": "string", "value": "CREATE TABLE users (id INTEGER, name TEXT, score REAL)" }] }, "line": 75 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "ins", "type": "Stmt", "value": { "kind": "call", "callee": "sql.prepare", "arguments": [{ "kind": "identifier", "value": "db" }, { "kind": "string", "value": "INSERT INTO users VALUES (1, ?, 1.5)" }] }, "line": 76 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "sql.bindText", "arguments": [{ "kind": "identifier", "value": "ins" }, { "kind": "number", "value": "1" }, { "kind": "string", "value": "alice" }] }, "line": 77 },
+      { "kind": "binding", "mutable": false, "name": "inserted", "type": null, "value": { "kind": "call", "callee": "sql.step", "arguments": [{ "kind": "identifier", "value": "ins" }] }, "line": 78 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "sql.finalize", "arguments": [{ "kind": "identifier", "value": "ins" }] }, "line": 79 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "sql.exec", "arguments": [{ "kind": "identifier", "value": "db" }, { "kind": "string", "value": "INSERT INTO users VALUES (2, 'bob', 2.5)" }] }, "line": 80 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "rows", "type": "Stmt", "value": { "kind": "call", "callee": "sql.prepare", "arguments": [{ "kind": "identifier", "value": "db" }, { "kind": "string", "value": "SELECT id, name, score FROM users ORDER BY id" }] }, "line": 81 },
       {
         "kind": "while",
         "loop": "while",
         "condition": { "kind": "call", "callee": "sql.step", "arguments": [{ "kind": "identifier", "value": "rows" }] },
-        "line": 71,
+        "line": 82,
         "body": [
-        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "call", "callee": "sql.columnText", "arguments": [{ "kind": "identifier", "value": "rows" }, { "kind": "number", "value": "0" }] }, "right": { "kind": "string", "value": "=" } }, "right": { "kind": "call", "callee": "sql.columnText", "arguments": [{ "kind": "identifier", "value": "rows" }, { "kind": "number", "value": "1" }] } }] }, "line": 72 }
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "sql.columnInt", "arguments": [{ "kind": "identifier", "value": "rows" }, { "kind": "number", "value": "0" }] }] }, "right": { "kind": "string", "value": "=" } }, "right": { "kind": "call", "callee": "sql.columnText", "arguments": [{ "kind": "identifier", "value": "rows" }, { "kind": "number", "value": "1" }] } }, "right": { "kind": "string", "value": "@" } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "sql.columnDouble", "arguments": [{ "kind": "identifier", "value": "rows" }, { "kind": "number", "value": "2" }] }] } }] }, "line": 86 }
         ]
       },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "sql.finalize", "arguments": [{ "kind": "identifier", "value": "rows" }] }, "line": 74 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "sql.close", "arguments": [{ "kind": "identifier", "value": "db" }] }, "line": 75 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "done" }] }, "line": 76 },
-      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 77 }
+      { "kind": "expression", "expression": { "kind": "call", "callee": "sql.finalize", "arguments": [{ "kind": "identifier", "value": "rows" }] }, "line": 88 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "sql.close", "arguments": [{ "kind": "identifier", "value": "db" }] }, "line": 89 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "done" }] }, "line": 90 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 91 }
       ]
     }
     ]
