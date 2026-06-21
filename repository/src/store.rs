@@ -27,6 +27,15 @@ pub struct KeyRecord {
 }
 
 #[derive(Debug, Clone)]
+pub struct PublishedVersion {
+    pub ident: String,
+    pub version: String,
+    pub hash: String,
+    pub published_at: i64,
+    pub state: String,
+}
+
+#[derive(Debug, Clone)]
 pub struct ChallengeRecord {
     pub id: String,
     pub owner_id: i64,
@@ -376,6 +385,79 @@ impl Store {
         let conn = self.conn.lock().map_err(|_| "database lock poisoned".to_string())?;
         conn.query_row("SELECT COUNT(*) FROM owners", [], |row| row.get(0))
             .map_err(|err| format!("failed to count owners: {err}"))
+    }
+
+    pub fn package_version_exists(&self, ident: &str, version: &str) -> Result<bool, String> {
+        let conn = self.conn.lock().map_err(|_| "database lock poisoned".to_string())?;
+        let exists: Option<i64> = conn
+            .query_row(
+                "SELECT 1
+                 FROM package_versions pv
+                 JOIN packages p ON p.id = pv.package_id
+                 WHERE p.ident = ?1 AND pv.version = ?2",
+                params![ident, version],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(|err| format!("failed to check package version: {err}"))?;
+        Ok(exists.is_some())
+    }
+
+    pub fn publish_package_version(
+        &self,
+        owner_id: i64,
+        ident: &str,
+        version: &str,
+        hash: &str,
+        blob_path: &str,
+    ) -> Result<PublishedVersion, String> {
+        let now = now_unix();
+        let mut conn = self.conn.lock().map_err(|_| "database lock poisoned".to_string())?;
+        let tx = conn
+            .transaction()
+            .map_err(|err| format!("failed to start publish transaction: {err}"))?;
+        tx.execute(
+            "INSERT OR IGNORE INTO packages (ident, owner_id, created_at)
+             VALUES (?1, ?2, ?3)",
+            params![ident, owner_id, now],
+        )
+        .map_err(|err| format!("failed to create package identity: {err}"))?;
+        let package_id: i64 = tx
+            .query_row(
+                "SELECT id FROM packages WHERE ident = ?1 AND owner_id = ?2",
+                params![ident, owner_id],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(|err| format!("failed to load package identity: {err}"))?
+            .ok_or_else(|| "package identity is owned by another owner".to_string())?;
+        tx.execute(
+            "INSERT OR IGNORE INTO package_blobs (hash, path, created_at)
+             VALUES (?1, ?2, ?3)",
+            params![hash, blob_path, now],
+        )
+        .map_err(|err| format!("failed to store package blob metadata: {err}"))?;
+        tx.execute(
+            "INSERT INTO package_versions (package_id, version, hash, state, created_at)
+             VALUES (?1, ?2, ?3, 'available', ?4)",
+            params![package_id, version, hash, now],
+        )
+        .map_err(|err| {
+            if is_unique_violation(&err) {
+                format!("package version {ident}@{version} is already published")
+            } else {
+                format!("failed to publish package version: {err}")
+            }
+        })?;
+        tx.commit()
+            .map_err(|err| format!("failed to commit publish: {err}"))?;
+        Ok(PublishedVersion {
+            ident: ident.to_string(),
+            version: version.to_string(),
+            hash: hash.to_string(),
+            published_at: now,
+            state: "available".to_string(),
+        })
     }
 
     #[cfg(test)]

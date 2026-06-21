@@ -2,7 +2,8 @@ use crate::crypto;
 use crate::local::{self, LocalPaths};
 use crate::server::{
     ChallengeRequest, ChallengeResponse, ErrorResponse, LoginRequest, LoginResponse,
-    RegisterRequest, RegisterResponse, SigningInfoRequest, SigningInfoResponse,
+    PackageArtifactRequest, PublishPackageResponse, RegisterRequest, RegisterResponse,
+    SigningInfoRequest, SigningInfoResponse, ValidatePackageResponse,
 };
 use crate::validation::validate_owner_name;
 use crate::DEFAULT_REPO_URL;
@@ -100,6 +101,57 @@ pub fn signing_info(
             session_token,
         },
     )
+}
+
+pub struct PackageArtifact<'a> {
+    pub ident: &'a str,
+    pub version: &'a str,
+    pub artifact: &'a [u8],
+    pub content_hash: &'a str,
+    pub ident_fingerprint: &'a str,
+    pub signing_fingerprint: &'a str,
+}
+
+pub fn validate_package(
+    repo_url: &str,
+    paths: &LocalPaths,
+    owner: &str,
+    package: &PackageArtifact<'_>,
+) -> Result<ValidatePackageResponse, String> {
+    validate_owner_name(owner)?;
+    let session_token = local::read_session(paths, owner)?;
+    post_json::<ValidatePackageResponse>(
+        repo_url,
+        "/validate",
+        &package_request(package, session_token),
+    )
+}
+
+pub fn publish_package(
+    repo_url: &str,
+    paths: &LocalPaths,
+    owner: &str,
+    package: &PackageArtifact<'_>,
+) -> Result<PublishPackageResponse, String> {
+    validate_owner_name(owner)?;
+    let session_token = local::read_session(paths, owner)?;
+    post_json::<PublishPackageResponse>(
+        repo_url,
+        "/publish",
+        &package_request(package, session_token),
+    )
+}
+
+fn package_request(package: &PackageArtifact<'_>, session_token: String) -> PackageArtifactRequest {
+    PackageArtifactRequest {
+        ident: package.ident.to_string(),
+        version: package.version.to_string(),
+        artifact: crypto::encode_bytes(package.artifact),
+        content_hash: package.content_hash.to_string(),
+        ident_fingerprint: package.ident_fingerprint.to_string(),
+        signing_fingerprint: package.signing_fingerprint.to_string(),
+        session_token,
+    }
 }
 
 fn post_json<T: DeserializeOwned>(

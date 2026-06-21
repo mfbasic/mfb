@@ -1,4 +1,4 @@
-use crate::crypto;
+use crate::{crypto, package};
 use crate::store::{now_unix, NewSession, Store};
 use axum::extract::State;
 use axum::http::StatusCode;
@@ -7,12 +7,14 @@ use axum::{Json, Router};
 use jsonwebtoken::{decode, encode, Algorithm, DecodingKey, EncodingKey, Header, Validation};
 use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
+use std::path::PathBuf;
 use tokio::net::TcpListener;
 use uuid::Uuid;
 
 #[derive(Clone)]
 pub struct AppState {
     store: Store,
+    packages_dir: PathBuf,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -83,6 +85,45 @@ pub struct SigningInfoResponse {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+pub struct PackageArtifactRequest {
+    pub ident: String,
+    pub version: String,
+    pub artifact: String,
+    #[serde(rename = "contentHash")]
+    pub content_hash: String,
+    #[serde(rename = "identFingerprint")]
+    pub ident_fingerprint: String,
+    #[serde(rename = "signingFingerprint")]
+    pub signing_fingerprint: String,
+    #[serde(rename = "sessionToken")]
+    pub session_token: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ValidatePackageResponse {
+    pub valid: bool,
+    #[serde(rename = "contentHash")]
+    pub content_hash: String,
+    #[serde(rename = "abiIndex")]
+    pub abi_index: serde_json::Value,
+    pub diagnostics: Vec<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct PublishPackageResponse {
+    pub ident: String,
+    pub version: String,
+    pub hash: String,
+    #[serde(rename = "publishedAt")]
+    pub published_at: i64,
+    pub state: String,
+    #[serde(rename = "blobStored")]
+    pub blob_stored: bool,
+    #[serde(rename = "logEntry")]
+    pub log_entry: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
 pub struct ErrorResponse {
     pub error: String,
 }
@@ -102,14 +143,19 @@ pub struct SessionClaims {
     pub jti: String,
 }
 
-pub async fn serve(store: Store, listen: SocketAddr) -> Result<SocketAddr, String> {
-    let state = AppState { store };
+pub async fn serve(store: Store, packages_dir: PathBuf, listen: SocketAddr) -> Result<SocketAddr, String> {
+    let state = AppState {
+        store,
+        packages_dir,
+    };
     let app = Router::new()
         .route("/health", get(health))
         .route("/accounts/register", post(register))
         .route("/auth/challenge", post(challenge))
         .route("/auth/login", post(login))
         .route("/keys/signing", post(signing_info))
+        .route("/validate", post(validate_package))
+        .route("/publish", post(publish_package))
         .with_state(state);
     let listener = TcpListener::bind(listen)
         .await
@@ -241,6 +287,149 @@ async fn signing_info(
         signing_key: public_key,
         signing_fingerprint: key.fingerprint,
     }))
+}
+
+async fn validate_package(
+    State(state): State<AppState>,
+    Json(request): Json<PackageArtifactRequest>,
+) -> Result<Json<ValidatePackageResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let report = validate_package_request(&state, &request).await?;
+    Ok(Json(report))
+}
+
+async fn publish_package(
+    State(state): State<AppState>,
+    Json(request): Json<PackageArtifactRequest>,
+) -> Result<Json<PublishPackageResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let report = validate_package_request(&state, &request).await?;
+    if !report.valid {
+        return Err(bad_request(format!(
+            "package validation failed: {}",
+            report.diagnostics.join("; ")
+        )));
+    }
+    let artifact = crypto::decode_bytes(&request.artifact, "artifact").map_err(bad_request)?;
+    let hash = report.content_hash;
+    let path = state.packages_dir.join(format!("{hash}.mfp"));
+    let blob_stored = !path.exists();
+    if blob_stored {
+        std::fs::write(&path, &artifact)
+            .map_err(|err| internal(format!("failed to write package blob: {err}")))?;
+    }
+    let owner_id = verify_session_token(&state.store, &request.session_token)
+        .map_err(bad_request)?
+        .owner_id;
+    let published = state
+        .store
+        .publish_package_version(
+            owner_id,
+            &request.ident,
+            &request.version,
+            &hash,
+            &path.to_string_lossy(),
+        )
+        .map_err(conflict_or_bad_request)?;
+    Ok(Json(PublishPackageResponse {
+        ident: published.ident,
+        version: published.version,
+        hash: published.hash,
+        published_at: published.published_at,
+        state: published.state,
+        blob_stored,
+        log_entry: format!("publish:{}", Uuid::new_v4()),
+    }))
+}
+
+async fn validate_package_request(
+    state: &AppState,
+    request: &PackageArtifactRequest,
+) -> Result<ValidatePackageResponse, (StatusCode, Json<ErrorResponse>)> {
+    let claims = verify_session_token(&state.store, &request.session_token).map_err(bad_request)?;
+    let artifact = crypto::decode_bytes(&request.artifact, "artifact").map_err(bad_request)?;
+    let package = match package::parse_mfp_package(&artifact) {
+        Ok(package) => package,
+        Err(err) => {
+            return Ok(invalid_report(String::new(), vec![err]));
+        }
+    };
+    let hash = package.content_hash_hex();
+    let mut diagnostics = Vec::new();
+    if request.content_hash != hash {
+        diagnostics.push("request contentHash does not match package content hash".to_string());
+    }
+    if request.ident != package.ident {
+        diagnostics.push("request ident does not match package ident".to_string());
+    }
+    if request.version != package.version {
+        diagnostics.push("request version does not match package version".to_string());
+    }
+    if request.ident_fingerprint != package.ident_fingerprint {
+        diagnostics.push("request identFingerprint does not match package metadata".to_string());
+    }
+    if request.signing_fingerprint != package.signing_fingerprint {
+        diagnostics.push("request signingFingerprint does not match package metadata".to_string());
+    }
+
+    let Some((owner_part, _package_part)) = package.ident.split_once('#') else {
+        diagnostics.push("package ident must use <owner>#<package>".to_string());
+        return Ok(invalid_report(hash, diagnostics));
+    };
+    if crate::validation::fold_owner(owner_part) != crate::validation::fold_owner(&claims.sub) {
+        diagnostics.push("session owner does not match package ident owner".to_string());
+    }
+    let Some((owner, key)) = state
+        .store
+        .owner_with_auth_key(owner_part)
+        .map_err(internal)?
+    else {
+        diagnostics.push("package ident owner is not registered".to_string());
+        return Ok(invalid_report(hash, diagnostics));
+    };
+    if owner.id != claims.owner_id || key.fingerprint != claims.auth_fingerprint {
+        diagnostics.push("session key does not match current owner key".to_string());
+    }
+    let current_public_key = crypto::encode_bytes(&key.public_key);
+    if package.ident_key != format!("ed25519:{current_public_key}") {
+        diagnostics.push("package identKey does not match current owner ident key".to_string());
+    }
+    if package.ident_fingerprint != key.fingerprint {
+        diagnostics.push("package identFingerprint does not match current owner ident key".to_string());
+    }
+    if package.signing_fingerprint != key.fingerprint {
+        diagnostics.push("package signingFingerprint does not match current owner signing key".to_string());
+    }
+    if package.author != owner.owner_display {
+        diagnostics.push("package author does not match owner name".to_string());
+    }
+    if let Err(err) = package::verify_package_signature(&package, &key.public_key) {
+        diagnostics.push(format!("package signature verification failed: {err}"));
+    }
+    if state
+        .store
+        .package_version_exists(&package.ident, &package.version)
+        .map_err(internal)?
+    {
+        diagnostics.push(format!(
+            "package version {}@{} is already published",
+            package.ident, package.version
+        ));
+    }
+
+    Ok(ValidatePackageResponse {
+        valid: diagnostics.is_empty(),
+        content_hash: hash,
+        abi_index: serde_json::json!({}),
+        diagnostics,
+    })
+}
+
+fn invalid_report(content_hash: String, diagnostics: Vec<String>) -> ValidatePackageResponse {
+    ValidatePackageResponse {
+        valid: false,
+        content_hash,
+        abi_index: serde_json::json!({}),
+        diagnostics,
+    }
 }
 
 pub fn verify_session_token(store: &Store, token: &str) -> Result<SessionClaims, String> {

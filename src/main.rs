@@ -23,7 +23,7 @@ use std::path::{Path, PathBuf};
 use std::process;
 use tinyjson::JsonValue;
 
-const USAGE: &str = "Usage: mfb <command> <arguments>\n\nCommands:\n  help                        Show this message\n  init <location>             Create a new MFBASIC executable project\n  init-pkg <location>         Create a new MFBASIC package project\n  repo register <owner_name>  Register a repository owner\n  repo auth <owner_name>      Authenticate as a repository owner\n  pkg add <url>               Add a compiled package to the current project\n  pkg info <package>          Show information about a compiled package\n  pkg verify                  Verify packages declared by project.json\n  build [--sign owner] [-ast|-ir|-br|-nir|-nplan|-nobj|-ncode] [-target os-arch] [location] Validate and build an MFBASIC project\n  audit [--format text|json] [--locked] [path] Report audit findings for a project\n  man [package] [function]    Show built-in package and function help";
+const USAGE: &str = "Usage: mfb <command> <arguments>\n\nCommands:\n  help                                 Show this message\n  init <location>                      Create a new MFBASIC executable project\n  init-pkg <location>                  Create a new MFBASIC package project\n  repo register <owner_name>           Register a repository owner\n  repo auth <owner_name>               Authenticate as a repository owner\n  pkg add <url>                        Add a compiled package to the current project\n  pkg info <package>                   Show information about a compiled package\n  pkg verify                           Verify packages declared by project.json\n  pkg publish <owner_name> <package>   Publish a signed package project\n  build [--sign owner] [-ast|-ir|-br|-nir|-nplan|-nobj|-ncode] [-target os-arch] [location] Validate and build an MFBASIC project\n  audit [--format text|json] [--locked] [path] Report audit findings for a project\n  man [package] [function]             Show built-in package and function help";
 
 const MFP_MAGIC: [u8; 8] = [0x4d, 0x46, 0x50, 0x0d, 0x0a, 0x1a, 0x0a, 0x00];
 
@@ -334,7 +334,9 @@ fn build_project(options: &BuildOptions) -> Result<(), ()> {
             })?)
         }
         Some(_) => {
-            eprintln!("error: mfb build --sign is only supported for package and executable builds");
+            eprintln!(
+                "error: mfb build --sign is only supported for package and executable builds"
+            );
             return Err(());
         }
         None => None,
@@ -357,19 +359,18 @@ fn build_project(options: &BuildOptions) -> Result<(), ()> {
                     &external_functions,
                     &external_params,
                 );
-                let executable_paths =
-                    target::write_executable(
-                        &options.location,
-                        &ir,
-                        &target,
-                        &packages,
-                        signing
-                            .as_ref()
-                            .map(|signing| signing.executable_metadata.as_slice()),
-                    )
-                    .map_err(|err| {
-                        eprintln!("error: {err}");
-                    })?;
+                let executable_paths = target::write_executable(
+                    &options.location,
+                    &ir,
+                    &target,
+                    &packages,
+                    signing
+                        .as_ref()
+                        .map(|signing| signing.executable_metadata.as_slice()),
+                )
+                .map_err(|err| {
+                    eprintln!("error: {err}");
+                })?;
                 for executable_path in executable_paths {
                     println!("Wrote executable to {}", executable_path.display());
                 }
@@ -392,17 +393,18 @@ fn build_project(options: &BuildOptions) -> Result<(), ()> {
                 if let Some(signing) = &signing {
                     apply_signing_metadata(&mut metadata, signing);
                 }
-                let package_path =
-                    target::write_package(
-                        &options.location,
-                        &ir,
-                        &metadata,
-                        &packages,
-                        signing.as_ref().map(|signing| signing.private_key.as_slice()),
-                    )
-                    .map_err(|err| {
-                        eprintln!("error: {err}");
-                    })?;
+                let package_path = target::write_package(
+                    &options.location,
+                    &ir,
+                    &metadata,
+                    &packages,
+                    signing
+                        .as_ref()
+                        .map(|signing| signing.private_key.as_slice()),
+                )
+                .map_err(|err| {
+                    eprintln!("error: {err}");
+                })?;
                 println!("Wrote package to {}", package_path.display());
             } else {
                 println!(
@@ -626,7 +628,9 @@ fn load_build_signing_info(owner: &str) -> Result<BuildSigningInfo, String> {
     }
     let local_fingerprint = mfb_repository::crypto::fingerprint(&local_public);
     if local_fingerprint != signing_info.signing_fingerprint {
-        return Err("local private key fingerprint does not match repository signing key".to_string());
+        return Err(
+            "local private key fingerprint does not match repository signing key".to_string(),
+        );
     }
 
     let ident_key = format!("ed25519:{}", signing_info.ident_key);
@@ -694,6 +698,9 @@ fn run_pkg_command(args: &[String]) -> Result<(), PkgCommandError> {
         [command] if command == "verify" => {
             verify_packages(Path::new(".")).map_err(PkgCommandError::Failed)
         }
+        [command, owner, package] if command == "publish" => {
+            publish_package_project(owner, Path::new(package)).map_err(PkgCommandError::Failed)
+        }
         [command, ..] if command == "add" => Err(PkgCommandError::Usage(format!(
             "mfb pkg add requires exactly one <url>\n\n{USAGE}"
         ))),
@@ -703,12 +710,92 @@ fn run_pkg_command(args: &[String]) -> Result<(), PkgCommandError> {
         [command, ..] if command == "verify" => Err(PkgCommandError::Usage(format!(
             "mfb pkg verify accepts no arguments\n\n{USAGE}"
         ))),
+        [command, ..] if command == "publish" => Err(PkgCommandError::Usage(format!(
+            "mfb pkg publish requires <owner_name> <package>\n\n{USAGE}"
+        ))),
         [] => Err(PkgCommandError::Usage(format!(
             "mfb pkg requires a subcommand\n\n{USAGE}"
         ))),
         [command, ..] => Err(PkgCommandError::Usage(format!(
             "unknown pkg command `{command}`\n\n{USAGE}"
         ))),
+    }
+}
+
+fn publish_package_project(owner: &str, project_dir: &Path) -> Result<(), String> {
+    let project_path = project_dir.join("project.json");
+    let manifest = validate_project_manifest(&project_path)
+        .map_err(|_| "package project validation failed".to_string())?;
+    if project_kind(&manifest) != "package" {
+        return Err("mfb pkg publish requires a package project".to_string());
+    }
+
+    build_project(&BuildOptions {
+        location: project_dir.to_path_buf(),
+        output: BuildOutput::Validate,
+        target: target::BuildTarget::host(),
+        sign_owner: Some(owner.to_string()),
+    })
+    .map_err(|_| "package build failed".to_string())?;
+
+    let package_name = manifest
+        .get("name")
+        .and_then(|value| value.get::<String>())
+        .expect("validated project name");
+    let package_path = project_dir.join(format!("{package_name}.mfp"));
+    let artifact = fs::read(&package_path).map_err(|err| {
+        format!(
+            "failed to read built package '{}': {err}",
+            package_path.display()
+        )
+    })?;
+    let package = mfb_repository::package::parse_mfp_package(&artifact).map_err(|err| {
+        format!(
+            "failed to verify built package '{}': {err}",
+            package_path.display()
+        )
+    })?;
+    binary_repr::read_package_info(&package_path)?;
+
+    let repo_url = mfb_repository::client::repo_url_from_env();
+    let paths = mfb_repository::local::LocalPaths::from_env()?;
+    let content_hash = package.content_hash_hex();
+    let artifact_request = mfb_repository::client::PackageArtifact {
+        ident: &package.ident,
+        version: &package.version,
+        artifact: &artifact,
+        content_hash: &content_hash,
+        ident_fingerprint: &package.ident_fingerprint,
+        signing_fingerprint: &package.signing_fingerprint,
+    };
+
+    let report =
+        mfb_repository::client::validate_package(&repo_url, &paths, owner, &artifact_request)?;
+    print_publish_verify_report(&report);
+    if !report.valid {
+        return Err("package validation failed".to_string());
+    }
+
+    let response =
+        mfb_repository::client::publish_package(&repo_url, &paths, owner, &artifact_request)?;
+    println!(
+        "Published {}@{} as {}",
+        response.ident, response.version, response.hash
+    );
+    Ok(())
+}
+
+fn print_publish_verify_report(report: &mfb_repository::server::ValidatePackageResponse) {
+    println!("Package validation report:");
+    println!("  valid: {}", report.valid);
+    println!("  content hash: {}", empty_marker(&report.content_hash));
+    println!("  diagnostics:");
+    if report.diagnostics.is_empty() {
+        println!("    <none>");
+    } else {
+        for diagnostic in &report.diagnostics {
+            println!("    {diagnostic}");
+        }
     }
 }
 

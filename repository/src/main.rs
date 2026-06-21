@@ -25,7 +25,7 @@ async fn main() {
         }
     };
 
-    if let Err(err) = server::serve(opened.store, options.listen).await {
+    if let Err(err) = server::serve(opened.store, opened.packages_dir, options.listen).await {
         eprintln!("error: {err}");
         process::exit(1);
     }

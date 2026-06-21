@@ -4,17 +4,18 @@ error: invalid --format value `yaml` (expected text or json)
 Usage: mfb <command> <arguments>
 
 Commands:
-  help                        Show this message
-  init <location>             Create a new MFBASIC executable project
-  init-pkg <location>         Create a new MFBASIC package project
-  repo register <owner_name>  Register a repository owner
-  repo auth <owner_name>      Authenticate as a repository owner
-  pkg add <url>               Add a compiled package to the current project
-  pkg info <package>          Show information about a compiled package
-  pkg verify                  Verify packages declared by project.json
+  help                                 Show this message
+  init <location>                      Create a new MFBASIC executable project
+  init-pkg <location>                  Create a new MFBASIC package project
+  repo register <owner_name>           Register a repository owner
+  repo auth <owner_name>               Authenticate as a repository owner
+  pkg add <url>                        Add a compiled package to the current project
+  pkg info <package>                   Show information about a compiled package
+  pkg verify                           Verify packages declared by project.json
+  pkg publish <owner_name> <package>   Publish a signed package project
   build [--sign owner] [-ast|-ir|-br|-nir|-nplan|-nobj|-ncode] [-target os-arch] [location] Validate and build an MFBASIC project
   audit [--format text|json] [--locked] [path] Report audit findings for a project
-  man [package] [function]    Show built-in package and function help
+  man [package] [function]             Show built-in package and function help
 [exit 2]
 $ mfb audit --bogus tests/audit-usage
 error: unknown audit option `--bogus`
@@ -22,15 +23,16 @@ error: unknown audit option `--bogus`
 Usage: mfb <command> <arguments>
 
 Commands:
-  help                        Show this message
-  init <location>             Create a new MFBASIC executable project
-  init-pkg <location>         Create a new MFBASIC package project
-  repo register <owner_name>  Register a repository owner
-  repo auth <owner_name>      Authenticate as a repository owner
-  pkg add <url>               Add a compiled package to the current project
-  pkg info <package>          Show information about a compiled package
-  pkg verify                  Verify packages declared by project.json
+  help                                 Show this message
+  init <location>                      Create a new MFBASIC executable project
+  init-pkg <location>                  Create a new MFBASIC package project
+  repo register <owner_name>           Register a repository owner
+  repo auth <owner_name>               Authenticate as a repository owner
+  pkg add <url>                        Add a compiled package to the current project
+  pkg info <package>                   Show information about a compiled package
+  pkg verify                           Verify packages declared by project.json
+  pkg publish <owner_name> <package>   Publish a signed package project
   build [--sign owner] [-ast|-ir|-br|-nir|-nplan|-nobj|-ncode] [-target os-arch] [location] Validate and build an MFBASIC project
   audit [--format text|json] [--locked] [path] Report audit findings for a project
-  man [package] [function]    Show built-in package and function help
+  man [package] [function]             Show built-in package and function help
 [exit 2]

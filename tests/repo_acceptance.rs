@@ -128,7 +128,9 @@ fn repo_rejects_duplicate_and_missing_owner_auth() {
     let home = tempfile::tempdir().unwrap();
     let repo = start_repo(repo_dir.path());
 
-    assert!(run_mfb(&repo, home.path(), &["repo", "register", "alice"]).status.success());
+    assert!(run_mfb(&repo, home.path(), &["repo", "register", "alice"])
+        .status
+        .success());
     let duplicate = run_mfb(&repo, home.path(), &["repo", "register", "Alice"]);
     assert!(!duplicate.status.success());
     assert!(
@@ -156,8 +158,12 @@ fn repo_auth_requires_local_private_key_and_keeps_sessions_per_owner() {
     let home = tempfile::tempdir().unwrap();
     let repo = start_repo(repo_dir.path());
 
-    assert!(run_mfb(&repo, home.path(), &["repo", "register", "alice"]).status.success());
-    assert!(run_mfb(&repo, home.path(), &["repo", "register", "bob"]).status.success());
+    assert!(run_mfb(&repo, home.path(), &["repo", "register", "alice"])
+        .status
+        .success());
+    assert!(run_mfb(&repo, home.path(), &["repo", "register", "bob"])
+        .status
+        .success());
     std::fs::remove_file(home.path().join(".mfb/keys/alice.prv")).unwrap();
     let missing_key = run_mfb(&repo, home.path(), &["repo", "auth", "alice"]);
     assert!(!missing_key.status.success());
@@ -167,7 +173,9 @@ fn repo_auth_requires_local_private_key_and_keeps_sessions_per_owner() {
         String::from_utf8_lossy(&missing_key.stderr)
     );
 
-    assert!(run_mfb(&repo, home.path(), &["repo", "auth", "bob"]).status.success());
+    assert!(run_mfb(&repo, home.path(), &["repo", "auth", "bob"])
+        .status
+        .success());
     assert!(home.path().join(".mfb/session/bob.ses").is_file());
     assert!(!home.path().join(".mfb/session/alice.ses").exists());
 }
@@ -179,13 +187,23 @@ fn repo_signs_package_and_embeds_executable_metadata() {
     let work = tempfile::tempdir().unwrap();
     let repo = start_repo(repo_dir.path());
 
-    assert!(run_mfb(&repo, home.path(), &["repo", "register", "alice"]).status.success());
-    assert!(run_mfb(&repo, home.path(), &["repo", "auth", "alice"]).status.success());
+    assert!(run_mfb(&repo, home.path(), &["repo", "register", "alice"])
+        .status
+        .success());
+    assert!(run_mfb(&repo, home.path(), &["repo", "auth", "alice"])
+        .status
+        .success());
 
     let package_dir = work.path().join("signed_pkg");
     let package_dir_arg = package_dir.to_str().unwrap();
-    assert!(run_mfb_plain(&["init-pkg", package_dir_arg]).status.success());
-    let output = run_mfb(&repo, home.path(), &["build", "--sign", "alice", package_dir_arg]);
+    assert!(run_mfb_plain(&["init-pkg", package_dir_arg])
+        .status
+        .success());
+    let output = run_mfb(
+        &repo,
+        home.path(),
+        &["build", "--sign", "alice", package_dir_arg],
+    );
     assert!(
         output.status.success(),
         "signed package build failed: {}",
@@ -197,7 +215,9 @@ fn repo_signs_package_and_embeds_executable_metadata() {
         u32::from_le_bytes([package[22], package[23], package[24], package[25]]),
         64
     );
-    assert!(package.windows(b"alice".len()).any(|window| window == b"alice"));
+    assert!(package
+        .windows(b"alice".len())
+        .any(|window| window == b"alice"));
 
     let app_dir = work.path().join("signed_app");
     let app_dir_arg = app_dir.to_str().unwrap();
@@ -207,7 +227,11 @@ fn repo_signs_package_and_embeds_executable_metadata() {
         "FUNC main AS Integer\n  RETURN 0\nEND FUNC\n",
     )
     .unwrap();
-    let output = run_mfb(&repo, home.path(), &["build", "--sign", "alice", app_dir_arg]);
+    let output = run_mfb(
+        &repo,
+        home.path(),
+        &["build", "--sign", "alice", app_dir_arg],
+    );
     assert!(
         output.status.success(),
         "signed executable build failed: {}",
@@ -228,5 +252,126 @@ fn repo_signs_package_and_embeds_executable_metadata() {
     assert!(executable
         .windows(b"mfb-signing-v1".len())
         .any(|window| window == b"mfb-signing-v1"));
-    assert!(executable.windows(b"alice".len()).any(|window| window == b"alice"));
+    assert!(executable
+        .windows(b"alice".len())
+        .any(|window| window == b"alice"));
+}
+
+#[test]
+fn repo_publishes_signed_package_and_rejects_duplicate_version() {
+    let repo_dir = tempfile::tempdir().unwrap();
+    let home = tempfile::tempdir().unwrap();
+    let work = tempfile::tempdir().unwrap();
+    let repo = start_repo(repo_dir.path());
+
+    assert!(run_mfb(&repo, home.path(), &["repo", "register", "alice"])
+        .status
+        .success());
+    assert!(run_mfb(&repo, home.path(), &["repo", "auth", "alice"])
+        .status
+        .success());
+
+    let package_dir = work.path().join("publish_pkg");
+    let package_dir_arg = package_dir.to_str().unwrap();
+    assert!(run_mfb_plain(&["init-pkg", package_dir_arg])
+        .status
+        .success());
+    let manifest_path = package_dir.join("project.json");
+    let manifest = std::fs::read_to_string(&manifest_path).unwrap().replace(
+        "  \"version\": \"0.1.0\",\n",
+        "  \"version\": \"0.1.0\",\n  \"ident\": \"alice#publish_pkg\",\n",
+    );
+    std::fs::write(&manifest_path, manifest).unwrap();
+
+    let output = run_mfb(
+        &repo,
+        home.path(),
+        &["pkg", "publish", "alice", package_dir_arg],
+    );
+    assert!(
+        output.status.success(),
+        "publish failed: stdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Package validation report:"), "{stdout}");
+    assert!(stdout.contains("valid: true"), "{stdout}");
+    assert!(
+        stdout.contains("Published alice#publish_pkg@0.1.0"),
+        "{stdout}"
+    );
+    let blobs = std::fs::read_dir(repo_dir.path().join("packages"))
+        .unwrap()
+        .filter_map(Result::ok)
+        .collect::<Vec<_>>();
+    assert_eq!(blobs.len(), 1);
+    assert_eq!(
+        blobs[0].path().extension().and_then(|ext| ext.to_str()),
+        Some("mfp")
+    );
+
+    let duplicate = run_mfb(
+        &repo,
+        home.path(),
+        &["pkg", "publish", "alice", package_dir_arg],
+    );
+    assert!(!duplicate.status.success());
+    let duplicate_stdout = String::from_utf8_lossy(&duplicate.stdout);
+    let duplicate_stderr = String::from_utf8_lossy(&duplicate.stderr);
+    assert!(
+        duplicate_stdout.contains("already published")
+            || duplicate_stderr.contains("already published"),
+        "stdout: {duplicate_stdout}\nstderr: {duplicate_stderr}"
+    );
+}
+
+#[test]
+fn repo_publish_rejects_non_package_and_missing_session() {
+    let repo_dir = tempfile::tempdir().unwrap();
+    let home = tempfile::tempdir().unwrap();
+    let work = tempfile::tempdir().unwrap();
+    let repo = start_repo(repo_dir.path());
+
+    assert!(run_mfb(&repo, home.path(), &["repo", "register", "alice"])
+        .status
+        .success());
+
+    let app_dir = work.path().join("not_a_package");
+    let app_dir_arg = app_dir.to_str().unwrap();
+    assert!(run_mfb_plain(&["init", app_dir_arg]).status.success());
+    let non_package = run_mfb(
+        &repo,
+        home.path(),
+        &["pkg", "publish", "alice", app_dir_arg],
+    );
+    assert!(!non_package.status.success());
+    assert!(
+        String::from_utf8_lossy(&non_package.stderr).contains("requires a package project"),
+        "{}",
+        String::from_utf8_lossy(&non_package.stderr)
+    );
+
+    let package_dir = work.path().join("missing_session_pkg");
+    let package_dir_arg = package_dir.to_str().unwrap();
+    assert!(run_mfb_plain(&["init-pkg", package_dir_arg])
+        .status
+        .success());
+    let manifest_path = package_dir.join("project.json");
+    let manifest = std::fs::read_to_string(&manifest_path).unwrap().replace(
+        "  \"version\": \"0.1.0\",\n",
+        "  \"version\": \"0.1.0\",\n  \"ident\": \"alice#missing_session_pkg\",\n",
+    );
+    std::fs::write(&manifest_path, manifest).unwrap();
+    let missing_session = run_mfb(
+        &repo,
+        home.path(),
+        &["pkg", "publish", "alice", package_dir_arg],
+    );
+    assert!(!missing_session.status.success());
+    assert!(
+        String::from_utf8_lossy(&missing_session.stderr).contains("failed to read session"),
+        "{}",
+        String::from_utf8_lossy(&missing_session.stderr)
+    );
 }

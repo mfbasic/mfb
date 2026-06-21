@@ -269,10 +269,11 @@ Not a URL, and not required to encode where the bytes live — that's what conte
     {
       "ident": "alice#shape",
       "version": "2.3.1",
-      "artifact": "<mfp-bytes-or-upload-reference>",
+      "artifact": "<base64url-no-pad-mfp-bytes-or-upload-reference>",
       "contentHash": "<mfp-content-hash>",
       "identFingerprint": "<fingerprint>",
-      "signingFingerprint": "<fingerprint>"
+      "signingFingerprint": "<fingerprint>",
+      "sessionToken": "<short-lived-token>"
     }
     ```
     Response:
@@ -289,10 +290,11 @@ Not a URL, and not required to encode where the bytes live — that's what conte
     {
       "ident": "alice#shape",
       "version": "2.3.1",
-      "artifact": "<mfp-bytes-or-upload-reference>",
+      "artifact": "<base64url-no-pad-mfp-bytes-or-upload-reference>",
       "contentHash": "<mfp-content-hash>",
       "identFingerprint": "<fingerprint>",
-      "signingFingerprint": "<fingerprint>"
+      "signingFingerprint": "<fingerprint>",
+      "sessionToken": "<short-lived-token>"
     }
     ```
     Response:
