@@ -37,6 +37,7 @@ pub fn validate_nir(module: &NirModule) -> Result<(), String> {
     let import_names = unique_import_names(module)?;
     let type_value_names = type_value_names(module)?;
     validate_entry(module, &function_names)?;
+    validate_resource_rules(module)?;
 
     for helper in &module.runtime_helpers {
         if module
@@ -82,6 +83,72 @@ pub fn validate_nir(module: &NirModule) -> Result<(), String> {
         }
     }
 
+    Ok(())
+}
+
+/// Whether a NIR type string transitively owns a resource (directly, or as a
+/// collection element/value). `STATE`-suffixed resource strings are recognized
+/// via `is_resource_type`.
+fn type_owns_resource(type_: &str) -> bool {
+    if crate::builtins::is_resource_type(type_) {
+        return true;
+    }
+    if let Some(element) = type_.strip_prefix("List OF ") {
+        return type_owns_resource(element);
+    }
+    if let Some(rest) = type_.strip_prefix("Map OF ") {
+        if let Some((key, value)) = rest.split_once(" TO ") {
+            return type_owns_resource(key) || type_owns_resource(value);
+        }
+    }
+    if let Some(success) = type_.strip_prefix("Result OF ") {
+        return type_owns_resource(success);
+    }
+    false
+}
+
+/// Backstop verification of the resource model's structural rules (the type
+/// checker is the primary enforcer; this guards against a malformed NIR):
+/// a record may not own a resource, and a union may not mix data and resource
+/// variants.
+fn validate_resource_rules(module: &NirModule) -> Result<(), String> {
+    for type_ in &module.types {
+        match type_.kind.as_str() {
+            "type" => {
+                for field in &type_.fields {
+                    if type_owns_resource(&field.type_) {
+                        return Err(format!(
+                            "NIR record '{}' field '{}' owns a resource; records cannot own resources",
+                            type_.name, field.name
+                        ));
+                    }
+                }
+            }
+            "union" => {
+                // A union must be uniformly data or uniformly resource. A
+                // variant is a resource either by being a bare resource type
+                // or by owning one in its payload.
+                let mut has_resource = false;
+                let mut has_data = false;
+                for variant in &type_.variants {
+                    let is_resource = crate::builtins::is_resource_type(&variant.name)
+                        || variant.fields.iter().any(|field| type_owns_resource(&field.type_));
+                    if is_resource {
+                        has_resource = true;
+                    } else {
+                        has_data = true;
+                    }
+                }
+                if has_resource && has_data {
+                    return Err(format!(
+                        "NIR union '{}' mixes data and resource variants",
+                        type_.name
+                    ));
+                }
+            }
+            _ => {}
+        }
+    }
     Ok(())
 }
 
