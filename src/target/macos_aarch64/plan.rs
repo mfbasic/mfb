@@ -335,6 +335,19 @@ impl plan::NativePlanPlatform for Platform {
                 });
                 imports
             }
+            call if crate::builtins::tls::is_tls_call(call) => {
+                // The macOS TLS backend resolves Network.framework and libdispatch
+                // entirely through dlopen/dlsym at load time; only those two (plus
+                // errno) are statically imported.
+                ["_dlopen", "_dlsym", "___error"]
+                    .into_iter()
+                    .map(|symbol| PlatformImport {
+                        library: "libSystem".to_string(),
+                        symbol: symbol.to_string(),
+                        required_by: spec.symbol.to_string(),
+                    })
+                    .collect()
+            }
             _ => Vec::new(),
         }
     }

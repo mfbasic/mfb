@@ -184,7 +184,6 @@ pub(crate) fn call_param_names(name: &str) -> Option<&'static [&'static [&'stati
         "net.sendTo" => Some(&[&["sock"], &["address"], &["bytes"]]),
         "net.sendTextTo" => Some(&[&["sock"], &["address"], &["value"]]),
         "tls.connect" => Some(&[&["host"], &["port"], &["timeoutMs"], &["serverName"]]),
-        "tls.wrap" => Some(&[&["sock"], &["serverName"], &["timeoutMs"]]),
         "tls.read" => Some(&[&["sock"], &["maxBytes"]]),
         "tls.readText" => Some(&[&["sock"], &["maxBytes"]]),
         "tls.write" => Some(&[&["sock"], &["bytes"]]),

@@ -1,8 +1,0 @@
-IMPORT tls
-
-FUNC main AS Integer
-  LET missing = tls::wrap()
-  LET wrongType = tls::wrap(1, 2)
-  LET tooMany = tls::wrap(1, 2, 3, 4)
-  RETURN 0
-END FUNC

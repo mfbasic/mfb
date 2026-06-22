@@ -472,7 +472,7 @@ Timeout semantics are standardized by API category:
 
 | Category | APIs | `timeoutMs = 0` |
 |----------|------|-----------------|
-| Connect/open handshake | `net::connectTcp`, `tls::connect`, `tls::wrap` | Use the implementation default timeout. |
+| Connect/open handshake | `net::connectTcp`, `tls::connect` | Use the implementation default timeout. |
 | Accept/wait for peer | `net::accept` | Wait indefinitely. |
 | Poll | `net::poll` | Do not wait; return immediately. |
 | Socket timeout setters | `net::setReadTimeout`, `net::setWriteTimeout` | Disable that persistent read/write timeout. |
@@ -554,8 +554,7 @@ Secure defaults are mandatory:
 
 | Function | Signature | Behavior |
 |----------|-----------|----------|
-| `tls::connect` | `FUNC connect(host AS String, port AS Integer, timeoutMs AS Integer = 0, serverName AS String = "") AS TlsSocket` | Opens a TCP connection and performs a TLS client handshake. Empty `serverName` means use `host` for certificate validation. `timeoutMs = 0` uses the implementation default. |
-| `tls::wrap` | `FUNC wrap(sock AS Socket, serverName AS String, timeoutMs AS Integer = 0) AS TlsSocket` | Consumes a connected TCP `Socket` and performs a TLS client handshake over it. The plain socket must not be used afterward. `timeoutMs = 0` uses the implementation default. |
+| `tls::connect` | `FUNC connect(host AS String, port AS Integer, timeoutMs AS Integer = 0, serverName AS String = "") AS TlsSocket` | Opens a TCP connection and performs a TLS client handshake. Empty `serverName` means use `host` for certificate validation. `timeoutMs = 0` uses the implementation default. For protocols that historically used STARTTLS (SMTP, IMAP, POP3, LDAP, FTP), connect to the implicit-TLS port (465/993/995/636/990). |
 | `tls::read` | `FUNC read(sock AS TlsSocket, maxBytes AS Integer) AS List OF Byte` | Reads decrypted bytes. Fails with the same read errors as `net::read`, plus TLS validation or protocol errors. |
 | `tls::readText` | `FUNC readText(sock AS TlsSocket, maxBytes AS Integer) AS String` | Reads decrypted bytes and decodes UTF-8 text. |
 | `tls::write` | `FUNC write(sock AS TlsSocket, bytes AS List OF Byte) AS Nothing` | Encrypts and writes all bytes before returning. |

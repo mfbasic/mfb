@@ -201,7 +201,7 @@ impl plan::NativePlanPlatform for Platform {
                     self.libc_import("dlsym", spec.symbol),
                     self.libc_import("__errno_location", spec.symbol),
                 ];
-                if matches!(call, "tls.connect" | "tls.wrap" | "tls.close") {
+                if matches!(call, "tls.connect" | "tls.close") {
                     imports.push(self.libc_import("close", spec.symbol));
                 }
                 if call == "tls.connect" {

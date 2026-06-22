@@ -52,12 +52,19 @@ Type:
 Functions:
 
 - `tls::connect(host AS String, port AS Integer, timeoutMs AS Integer = 0, serverName AS String = "") AS TlsSocket`
-- `tls::wrap(sock AS Socket, serverName AS String, timeoutMs AS Integer = 0) AS TlsSocket`
 - `tls::read(sock AS TlsSocket, maxBytes AS Integer) AS List OF Byte`
 - `tls::readText(sock AS TlsSocket, maxBytes AS Integer) AS String`
 - `tls::write(sock AS TlsSocket, bytes AS List OF Byte) AS Nothing`
 - `tls::writeText(sock AS TlsSocket, value AS String) AS Nothing`
 - `tls::close(resource AS TlsSocket) AS Nothing`
+
+`tls::wrap` (upgrade an existing plain `Socket` in place, STARTTLS-style) is
+**removed** from the standard package. It cannot be supported on macOS — the
+future-proof Network.framework owns its own socket and has no API to secure an
+existing fd, and the only fd-capable macOS API (Secure Transport) is deprecated.
+The unique workload that needs in-place upgrade (hand-rolled Postgres/MySQL wire
+TLS) is not realistic in MFBASIC (those use native client libraries via `LINK`);
+implicit-TLS ports (465/993/995/636/990) cover the rest via `tls::connect`.
 
 Secure defaults are mandatory (validation on by default, host trust store,
 server-name validation on, TLS < 1.2 disabled, prefer TLS 1.3). Insecure modes,
@@ -176,10 +183,12 @@ for TCP, plus `recvfrom`/`sendto`.
 
 ## 4. TLS Plan
 
-**Status: Linux DONE and verified; macOS deferred.** The Linux TLS backend is a
-**native built-in package** (like `net`), driving the system OpenSSL through
-`dlopen`/`dlsym` issued from the hand-written runtime helpers. macOS TLS remains
-future work.
+**Status: DONE and verified on Linux (OpenSSL) and macOS (Network.framework).**
+`tls` is a **native built-in package** (like `net`). Each platform drives its
+system TLS stack through `dlopen`/`dlsym` issued from hand-written runtime
+helpers: OpenSSL on Linux, Network.framework on macOS. `tls::wrap` was removed
+from the package (see §1.2) so the surface is `connect`/`read`/`readText`/
+`write`/`writeText`/`close` on both.
 
 ### 4.1 Settled backend decisions
 
@@ -207,26 +216,37 @@ future work.
   validation), `SSL_set_tlsext_host_name` via `SSL_ctrl` (SNI), and minimum
   protocol `TLS1_2_VERSION` via `SSL_ctrl`. `SSL_get_verify_result` is also
   checked. Any handshake/cert/SNI/protocol failure → `ErrTlsFailed` (`77070008`).
-- **macOS = deferred.** Network.framework (async/dispatch/block) vs. the
-  synchronous-but-deprecated Secure Transport is an open choice; the macOS TLS
-  backend is out of scope for this Linux-first pass. The macOS backend rejects
-  `tls.*` cleanly via the runtime-call capability gate.
+- **macOS = Network.framework (`connect`-only).** `tls.connect` builds an
+  `nw_connection` (TLS over TCP, `nw_parameters_create_secure_tcp` with the
+  default secure configuration) on a dispatch queue, and bridges the async
+  state-changed / send / receive callbacks to a synchronous ABI with a
+  `dispatch_semaphore`. The three completion handlers are hand-emitted
+  Objective-C block literals (`&_NSConcreteStackBlock` + a static descriptor +
+  emitted `invoke` thunks) capturing a small arena context `{ sem, signal_fn,
+  out_state, out_content, out_error, retain_fn }`; received `dispatch_data` is
+  retained inside the block and mapped with `dispatch_data_create_map`.
+  Network.framework validates the chain + hostname by default → `ErrTlsFailed` on
+  failure. Network.framework owns its socket and cannot wrap an existing fd, which
+  is why `tls::wrap` was dropped (§1.2). Everything is resolved via
+  `dlopen`/`dlsym` of `Network.framework`; only `dlopen`/`dlsym` are imported.
 
-#### 4.1.1 Verified on all three target machines
+#### 4.1.1 Verified on all four target machines
 
-Built `linux-aarch64` (glibc + musl) executables and ran them over SSH:
+Built `linux-aarch64` (glibc + musl) and ran over SSH; built `macos-aarch64` and
+ran on the host:
 
-| Machine | libc | OpenSSL | soname used | handshake | bad-cert → `ErrTlsFailed` |
-| --- | --- | --- | --- | --- | --- |
-| Arch Linux ARM | glibc | 1.1.1 | `libssl.so.1.1` (fallback) | ✅ | ✅ |
-| Kali | glibc | 3.0 | `libssl.so.3` | ✅ | ✅ |
-| Alpine | musl | 3.5 | `libssl.so.3` | ✅ | ✅ |
+| Machine | libc / OS | TLS backend | handshake | bad-cert → `ErrTlsFailed` |
+| --- | --- | --- | --- | --- |
+| Arch Linux ARM | glibc, OpenSSL 1.1.1 | OpenSSL (`libssl.so.1.1` fallback) | ✅ | ✅ |
+| Kali | glibc, OpenSSL 3.0 | OpenSSL (`libssl.so.3`) | ✅ | ✅ |
+| Alpine | musl, OpenSSL 3.5 | OpenSSL (`libssl.so.3`) | ✅ | ✅ |
+| macOS | macOS arm64 | Network.framework | ✅ | ✅ |
 
 Handshake proven against `example.com:443` (real cert + SNI + encrypted
-read/write). Validation-on-by-default proven against `self-signed.badssl.com`,
+read/write, both byte and text). Validation-on-by-default proven against
+`self-signed.badssl.com`,
 `wrong.host.badssl.com`, and `expired.badssl.com` — all three rejected with
-`77070008` on every machine, while `example.com` succeeded. Both `tls.connect`
-and `tls.wrap` (over a `net::connectTcp` socket) verified.
+`77070008` on every machine, while `example.com` succeeded.
 
 ### 4.2 Package surface — `tls` is its own package qualifier
 
@@ -247,15 +267,10 @@ and `tls.wrap` (over a `net::connectTcp` socket) verified.
 ### 4.3 Front end (`src/builtins/tls.rs`)
 
 - `TLS_SOCKET_TYPE = "TlsSocket"`; opaque resource, no user fields.
-- Call constants and resolution for `tls.connect`, `tls.wrap`, `tls.read`,
-  `tls.readText`, `tls.write`, `tls.writeText`, `tls.close`, with the default
-  arguments from §10.4 (`timeoutMs = 0`, `serverName = ""`).
-- `tls.wrap` **consumes** its `Socket` argument (the plain socket must not be
-  used afterward). Model this the same way the ownership system already handles a
-  resource passed to a consuming op — `tls.wrap` takes ownership of the `Socket`
-  and returns a `TlsSocket`; the source `Socket` binding is moved out and not
-  dropped by the caller (align with how `thread::transfer`-style moves are
-  represented).
+- Call constants and resolution for `tls.connect`, `tls.read`, `tls.readText`,
+  `tls.write`, `tls.writeText`, `tls.close`, with the default arguments from
+  §10.4 (`timeoutMs = 0`, `serverName = ""`).
+- `tls.close` **consumes** the `TlsSocket` it closes.
 
 ### 4.4 Registration and resource
 
@@ -273,7 +288,7 @@ and `tls.wrap` (over a `net::connectTcp` socket) verified.
   `name()` and confirm it round-trips through `src/binary_repr.rs` (the
   `runtime_helpers` list a package records). Mirror the `Net` variant everywhere
   `Net` is matched.
-- Helper specs for `tls.connect`, `tls.wrap`, `tls.read`, `tls.readText`,
+- Helper specs for `tls.connect`, `tls.read`, `tls.readText`,
   `tls.write`, `tls.writeText`, `tls.close`.
 - Codegen is **target-specific** in a way TCP/UDP are not, because the backend
   libraries differ:
@@ -305,9 +320,10 @@ and `tls.wrap` (over a `net::connectTcp` socket) verified.
   setup. There is **no `DT_NEEDED` on `libssl`** — OpenSSL is loaded at runtime
   via `dlopen` with the `libssl.so.3` → `libssl.so.1.1` fallback, which is why one
   binary runs against either OpenSSL series. Identical for glibc and musl.
-- **macOS** `macos_aarch64/plan.rs`: deferred. `tls.*` is absent from the macOS
-  backend `runtime_calls` capability, so a macOS build of a TLS program fails
-  cleanly at validation.
+- **macOS** `macos_aarch64/plan.rs` (implemented): the `tls.*` helpers import only
+  `_dlopen`/`_dlsym`/`___error` from `libSystem`. Network.framework, libdispatch,
+  and the block runtime (`_NSConcreteStackBlock`) are all resolved at runtime via
+  `dlopen` of `Network.framework`; there is no framework link dependency.
 - Keep all library divergence in the target `plan.rs` files; the shared front end
   and IR stay platform-neutral.
 
@@ -336,13 +352,11 @@ existing `tests/func_net_*` convention:
   `func_net_receiveTextFrom_*`, `func_net_sendTo_*`, `func_net_sendTextTo_*`,
   and `UdpSocket` cases for `func_net_close_*` / `func_net_localAddress_*` /
   `func_net_setReadTimeout_*` / `func_net_setWriteTimeout_*`.
-- TLS: `func_tls_connect_*`, `func_tls_wrap_*`, `func_tls_read_*`,
-  `func_tls_readText_*`, `func_tls_write_*`, `func_tls_writeText_*`,
-  `func_tls_close_*`.
+- TLS: `func_tls_connect_*`, `func_tls_read_*`, `func_tls_readText_*`,
+  `func_tls_write_*`, `func_tls_writeText_*`, `func_tls_close_*`.
 
 Coverage should include wrong arity, wrong argument types, negative/invalid
-timeouts, closed-handle reuse, `tls.wrap` source-socket after-move rejection,
-and the datagram-too-large path.
+timeouts, closed-handle reuse, and the datagram-too-large path.
 
 ### 6.2 Runtime proofs
 

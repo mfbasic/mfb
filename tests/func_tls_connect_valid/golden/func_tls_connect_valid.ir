@@ -39,13 +39,10 @@
     { "op": "bind", "mutable": false, "name": "c1", "type": "TlsSocket", "value": { "kind": "call", "target": "tls.connect", "args": [{ "kind": "const", "type": "String", "value": "example.com" }, { "kind": "const", "type": "Integer", "value": "443" }, { "kind": "const", "type": "Integer", "value": "0" }, { "kind": "const", "type": "String", "value": "" }] } },
     { "op": "bind", "mutable": false, "name": "c2", "type": "TlsSocket", "value": { "kind": "call", "target": "tls.connect", "args": [{ "kind": "const", "type": "String", "value": "example.com" }, { "kind": "const", "type": "Integer", "value": "443" }, { "kind": "const", "type": "Integer", "value": "5000" }, { "kind": "const", "type": "String", "value": "" }] } },
     { "op": "bind", "mutable": false, "name": "c3", "type": "TlsSocket", "value": { "kind": "call", "target": "tls.connect", "args": [{ "kind": "const", "type": "String", "value": "example.com" }, { "kind": "const", "type": "Integer", "value": "443" }, { "kind": "const", "type": "Integer", "value": "5000" }, { "kind": "const", "type": "String", "value": "example.com" }] } },
-    { "op": "bind", "mutable": false, "name": "sock", "type": "Socket", "value": { "kind": "call", "target": "net.connectTcp", "args": [{ "kind": "const", "type": "String", "value": "example.com" }, { "kind": "const", "type": "Integer", "value": "443" }] } },
-    { "op": "bind", "mutable": false, "name": "c4", "type": "TlsSocket", "value": { "kind": "call", "target": "tls.wrap", "args": [{ "kind": "local", "name": "sock" }, { "kind": "const", "type": "String", "value": "example.com" }, { "kind": "const", "type": "Integer", "value": "0" }] } },
-    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "ioRound", "args": [{ "kind": "local", "name": "c4" }] }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "ioRound", "args": [{ "kind": "local", "name": "c1" }] }] }] } },
     { "op": "eval", "value": { "kind": "call", "target": "tls.close", "args": [{ "kind": "local", "name": "c1" }] } },
     { "op": "eval", "value": { "kind": "call", "target": "tls.close", "args": [{ "kind": "local", "name": "c2" }] } },
     { "op": "eval", "value": { "kind": "call", "target": "tls.close", "args": [{ "kind": "local", "name": "c3" }] } },
-    { "op": "eval", "value": { "kind": "call", "target": "tls.close", "args": [{ "kind": "local", "name": "c4" }] } },
     { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
     ]
   }

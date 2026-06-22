@@ -1572,24 +1572,6 @@ const TLS_CONNECT_PARAMS: &[RuntimeAbiParam] = &[
     },
 ];
 
-const TLS_WRAP_PARAMS: &[RuntimeAbiParam] = &[
-    RuntimeAbiParam {
-        name: "sock",
-        type_: "Socket",
-        location: "x0",
-    },
-    RuntimeAbiParam {
-        name: "serverName",
-        type_: "String",
-        location: "x1",
-    },
-    RuntimeAbiParam {
-        name: "timeoutMs",
-        type_: "Integer",
-        location: "x2",
-    },
-];
-
 const TLS_SOCKET_INT_PARAMS: &[RuntimeAbiParam] = &[
     RuntimeAbiParam {
         name: "sock",
@@ -1641,17 +1623,6 @@ pub(crate) const TLS_CONNECT_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
     symbol: "_mfb_rt_tls_tls_connect",
     abi: RuntimeHelperAbi {
         params: TLS_CONNECT_PARAMS,
-        returns: "TlsSocket",
-        clobbers: abi::IO_PRINT_CLOBBERS,
-    },
-};
-
-pub(crate) const TLS_WRAP_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
-    helper: RuntimeHelper::Tls,
-    call: "tls.wrap",
-    symbol: "_mfb_rt_tls_tls_wrap",
-    abi: RuntimeHelperAbi {
-        params: TLS_WRAP_PARAMS,
         returns: "TlsSocket",
         clobbers: abi::IO_PRINT_CLOBBERS,
     },
@@ -1809,7 +1780,6 @@ pub(crate) fn supported_helper_specs() -> &'static [RuntimeHelperSpec] {
         NET_SEND_TO_SPEC,
         NET_SEND_TEXT_TO_SPEC,
         TLS_CONNECT_SPEC,
-        TLS_WRAP_SPEC,
         TLS_READ_SPEC,
         TLS_READ_TEXT_SPEC,
         TLS_WRITE_SPEC,

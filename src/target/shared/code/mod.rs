@@ -788,14 +788,18 @@ pub(crate) fn lower_module_for_platform(
     if module_uses_unicode_runtime_tables(module) {
         data_objects.extend(unicode_runtime_data_objects());
     }
-    // TLS helpers reference read-only C strings (libssl sonames + OpenSSL symbol
-    // names) for their load-time dlopen/dlsym.
+    // TLS helpers reference read-only C strings (library names + symbol names)
+    // for their load-time dlopen/dlsym.
     if native_plan
         .runtime_symbols
         .iter()
         .any(|symbol| symbol.starts_with("_mfb_rt_tls_"))
     {
-        data_objects.extend(tls::tls_cstring_data_objects());
+        if platform.target().contains("macos") {
+            data_objects.extend(tls::macos_tls_data_objects());
+        } else {
+            data_objects.extend(tls::tls_cstring_data_objects());
+        }
     }
     let type_model = TypeModel::from_module_and_packages(module, packages)?;
     let mut code_functions = Vec::new();
@@ -947,6 +951,15 @@ pub(crate) fn lower_module_for_platform(
         })
     {
         code_functions.push(lower_validate_utf8_helper());
+    }
+    // The macOS TLS backend bridges Network.framework's async callbacks to a
+    // semaphore via small emitted block-invoke functions.
+    if platform.target().contains("macos")
+        && runtime_symbols
+            .iter()
+            .any(|symbol| symbol.starts_with("_mfb_rt_tls_"))
+    {
+        code_functions.extend(tls::macos_tls_aux_functions());
     }
     if runtime_symbols
         .iter()
@@ -3168,10 +3181,7 @@ fn lower_runtime_helper(
         call if call.starts_with("tls.") => {
             let (frame, instructions, relocations) = match call {
                 "tls.connect" => {
-                    tls::lower_tls_connect_helper(symbol, platform_imports, platform, false)?
-                }
-                "tls.wrap" => {
-                    tls::lower_tls_connect_helper(symbol, platform_imports, platform, true)?
+                    tls::lower_tls_connect_helper(symbol, platform_imports, platform)?
                 }
                 "tls.read" => {
                     tls::lower_tls_read_helper(symbol, platform_imports, platform, false)?
@@ -12610,7 +12620,6 @@ fn string_symbols(module: &NirModule) -> HashMap<String, String> {
         module,
         &[
             "tls.connect",
-            "tls.wrap",
             "tls.read",
             "tls.readText",
             "tls.write",
