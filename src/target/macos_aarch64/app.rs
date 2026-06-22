@@ -126,31 +126,34 @@ const SEL_TERMINATE: (&str, &str) = ("_mfb_macapp_sel_terminate", "terminate:");
 const STR_QUIT: (&str, &str) = ("_mfb_macapp_str_quit", "Quit");
 const STR_QUIT_KEY: (&str, &str) = ("_mfb_macapp_str_quitKey", "q");
 
-// Input field (plan §5.6): single-line NSTextField whose Return action commits
-// a line. The committed bytes are written to a pipe whose read end is dup2'd
-// onto fd 0, so the unchanged console read helpers consume window input.
-const SEL_STRING_VALUE: (&str, &str) = ("_mfb_macapp_sel_stringValue", "stringValue");
-const SEL_SET_STRING_VALUE: (&str, &str) =
-    ("_mfb_macapp_sel_setStringValue", "setStringValue:");
+// Terminal-style input (plan §5.6): the transcript view (an MFBTextView subclass
+// overriding keyDown:) receives typed keys directly. Each key is echoed into the
+// transcript and accumulated in an input-line buffer; Return writes the buffered
+// line to a pipe whose read end is dup2'd onto fd 0, so the unchanged console
+// read helpers consume window input.
 const SEL_UTF8_STRING: (&str, &str) = ("_mfb_macapp_sel_UTF8String", "UTF8String");
-const SEL_SET_TARGET: (&str, &str) = ("_mfb_macapp_sel_setTarget", "setTarget:");
 const SEL_MAKE_FIRST_RESPONDER: (&str, &str) =
     ("_mfb_macapp_sel_makeFirstResponder", "makeFirstResponder:");
-const SEL_ON_INPUT_SUBMIT: (&str, &str) =
-    ("_mfb_macapp_sel_onInputSubmit", "onInputSubmit:");
-/// Objective-C method type encoding for `void (id self, SEL _cmd, id sender)`.
+const SEL_KEY_DOWN: (&str, &str) = ("_mfb_macapp_sel_keyDown", "keyDown:");
+const SEL_CHARACTERS: (&str, &str) = ("_mfb_macapp_sel_characters", "characters");
+const SEL_LENGTH: (&str, &str) = ("_mfb_macapp_sel_length", "length");
+const SEL_CHAR_AT_INDEX: (&str, &str) =
+    ("_mfb_macapp_sel_characterAtIndex", "characterAtIndex:");
+const SEL_APPEND_STRING: (&str, &str) = ("_mfb_macapp_sel_appendString", "appendString:");
+const SEL_SET_STRING: (&str, &str) = ("_mfb_macapp_sel_setString", "setString:");
+const SEL_DELETE_RANGE: (&str, &str) =
+    ("_mfb_macapp_sel_deleteCharsInRange", "deleteCharactersInRange:");
+const SEL_STRING: (&str, &str) = ("_mfb_macapp_sel_string", "string");
+const STR_TEXTVIEW_CLASS: (&str, &str) = ("_mfb_macapp_str_textviewClass", "MFBTextView");
+/// Objective-C method type encoding for `void (id self, SEL _cmd, id arg)`.
 const STR_INPUT_TYPES: (&str, &str) = ("_mfb_macapp_str_inputTypes", "v@:@");
 const STR_EMPTY: (&str, &str) = ("_mfb_macapp_str_empty", "");
-/// IMP for the input field's `onInputSubmit:` action.
-const ON_INPUT_SUBMIT_SYMBOL: &str = "_mfb_macapp_on_input_submit";
-/// Associated-object key (its address) under which the input pipe's write fd is
-/// stored on NSApp, so the submit handler can deliver committed bytes.
+/// IMP for the transcript view's `keyDown:` override.
+const KEY_DOWN_SYMBOL: &str = "_mfb_macapp_key_down";
+/// Associated-object key (its address) for the input pipe's write fd on NSApp.
 const PIPE_ASSOC_KEY: &str = "_mfb_macapp_pipe_key";
-/// Height (points) reserved at the window bottom for the input field.
-const INPUT_FIELD_HEIGHT: u32 = 28;
-/// NSViewWidthSizable(2) | NSViewMaxYMargin(32): the input field widens and
-/// stays pinned to the window bottom on resize.
-const AUTORESIZE_WIDTH_BOTTOM: &str = "34";
+/// Associated-object key (its address) for the input-line NSMutableString buffer.
+const INPUT_LINE_KEY: &str = "_mfb_macapp_inputline_key";
 
 /// NSUTF8StringEncoding.
 const NS_UTF8_ENCODING: &str = "4";
@@ -173,11 +176,11 @@ const CLASS_NS_OBJECT: &str = "_OBJC_CLASS_$_NSObject";
 const CLASS_NS_APPLICATION: &str = "_OBJC_CLASS_$_NSApplication";
 const CLASS_NS_WINDOW: &str = "_OBJC_CLASS_$_NSWindow";
 const CLASS_NS_STRING: &str = "_OBJC_CLASS_$_NSString";
+const CLASS_NS_MUTABLE_STRING: &str = "_OBJC_CLASS_$_NSMutableString";
 const CLASS_NS_DICTIONARY: &str = "_OBJC_CLASS_$_NSDictionary";
 const CLASS_NS_ATTRIBUTED_STRING: &str = "_OBJC_CLASS_$_NSAttributedString";
 const CLASS_NS_SCROLL_VIEW: &str = "_OBJC_CLASS_$_NSScrollView";
 const CLASS_NS_TEXT_VIEW: &str = "_OBJC_CLASS_$_NSTextView";
-const CLASS_NS_TEXT_FIELD: &str = "_OBJC_CLASS_$_NSTextField";
 const CLASS_NS_FONT: &str = "_OBJC_CLASS_$_NSFont";
 const CLASS_NS_MENU: &str = "_OBJC_CLASS_$_NSMenu";
 const CLASS_NS_MENU_ITEM: &str = "_OBJC_CLASS_$_NSMenuItem";
@@ -317,7 +320,7 @@ pub(crate) fn emit_app_program_entry(spec: &AppEntrySpec) -> Result<Vec<CodeFunc
         emit_append_helper(),
         emit_finish_helper(),
         emit_should_terminate_helper(),
-        emit_on_input_submit_helper(),
+        emit_key_down_helper(),
     ])
 }
 
@@ -392,9 +395,7 @@ fn emit_main_bootstrap() -> CodeFunction {
     asm.call_external("_objc_msgSend", LIB_OBJC);
     asm.push(abi::move_register("x24", "x0")); // content view (callee-saved)
 
-    // scroll = [[NSScrollView alloc] initWithFrame:NSMakeRect(0,38,900,602)] --
-    // leaves a strip at the window bottom (content origin is bottom-left) for the
-    // input field.
+    // scroll = [[NSScrollView alloc] initWithFrame:NSMakeRect(0,0,900,640)]
     asm.external_data("x23", CLASS_NS_SCROLL_VIEW, LIB_APPKIT);
     asm.load_selector(SEL_ALLOC.0);
     asm.push(abi::move_register("x0", "x23"));
@@ -402,9 +403,9 @@ fn emit_main_bootstrap() -> CodeFunction {
     asm.push(abi::move_register("x23", "x0"));
     asm.load_selector(SEL_INIT_FRAME.0);
     emit_double_immediate(&mut asm, "d0", 0);
-    emit_double_immediate(&mut asm, "d1", 38);
+    emit_double_immediate(&mut asm, "d1", 0);
     emit_double_immediate(&mut asm, "d2", 900);
-    emit_double_immediate(&mut asm, "d3", 602);
+    emit_double_immediate(&mut asm, "d3", 640);
     asm.push(abi::move_register("x0", "x23"));
     asm.call_external("_objc_msgSend", LIB_OBJC);
     asm.push(abi::move_register("x23", "x0")); // scroll view
@@ -415,10 +416,28 @@ fn emit_main_bootstrap() -> CodeFunction {
     asm.push(abi::move_register("x0", "x23"));
     asm.call_external("_objc_msgSend", LIB_OBJC);
 
-    // tv = [[NSTextView alloc] initWithFrame:NSMakeRect(0,0,900,640)]
-    asm.external_data(REG_SCRATCH_OBJ, CLASS_NS_TEXT_VIEW, LIB_APPKIT);
+    // Synthesize MFBTextView : NSTextView overriding keyDown: so the transcript
+    // view itself receives typed keys (terminal-style input echoed into the
+    // view), instead of a separate input field.
+    // cls = objc_allocateClassPair(NSTextView, "MFBTextView", 0)
+    asm.external_data("x25", CLASS_NS_TEXT_VIEW, LIB_APPKIT);
+    asm.local_address("x1", STR_TEXTVIEW_CLASS.0);
+    asm.push(abi::move_immediate("x2", "Integer", "0"));
+    asm.push(abi::move_register("x0", "x25"));
+    asm.call_external("_objc_allocateClassPair", LIB_OBJC);
+    asm.push(abi::move_register("x25", "x0")); // new class
+    // class_addMethod(cls, @selector(keyDown:), imp, "v@:@")
+    asm.load_selector(SEL_KEY_DOWN.0);
+    asm.local_address("x2", KEY_DOWN_SYMBOL);
+    asm.local_address("x3", STR_INPUT_TYPES.0);
+    asm.push(abi::move_register("x0", "x25"));
+    asm.call_external("_class_addMethod", LIB_OBJC);
+    // objc_registerClassPair(cls)
+    asm.push(abi::move_register("x0", "x25"));
+    asm.call_external("_objc_registerClassPair", LIB_OBJC);
+    // tv = [[MFBTextView alloc] initWithFrame:NSMakeRect(0,0,900,640)]
     asm.load_selector(SEL_ALLOC.0);
-    asm.push(abi::move_register("x0", REG_SCRATCH_OBJ));
+    asm.push(abi::move_register("x0", "x25"));
     asm.call_external("_objc_msgSend", LIB_OBJC);
     asm.push(abi::move_register(REG_SCRATCH_OBJ, "x0"));
     asm.load_selector(SEL_INIT_FRAME.0);
@@ -498,72 +517,38 @@ fn emit_main_bootstrap() -> CodeFunction {
     asm.local_address("x3", STR_DELEGATE_TYPES.0);
     asm.push(abi::move_register("x0", "x23"));
     asm.call_external("_class_addMethod", LIB_OBJC);
-    // class_addMethod(cls, @selector(onInputSubmit:), imp, "v@:@") -- input action
-    asm.load_selector(SEL_ON_INPUT_SUBMIT.0);
-    asm.local_address("x2", ON_INPUT_SUBMIT_SYMBOL);
-    asm.local_address("x3", STR_INPUT_TYPES.0);
-    asm.push(abi::move_register("x0", "x23"));
-    asm.call_external("_class_addMethod", LIB_OBJC);
     // objc_registerClassPair(cls)
     asm.push(abi::move_register("x0", "x23"));
     asm.call_external("_objc_registerClassPair", LIB_OBJC);
-    // delegate = [[cls alloc] init]  (kept in x28 for the input field target)
-    asm.load_selector(SEL_ALLOC.0);
-    asm.push(abi::move_register("x0", "x23"));
-    asm.call_external("_objc_msgSend", LIB_OBJC);
-    asm.push(abi::move_register("x28", "x0"));
-    asm.load_selector(SEL_INIT.0);
-    asm.push(abi::move_register("x0", "x28"));
-    asm.call_external("_objc_msgSend", LIB_OBJC);
-    asm.push(abi::move_register("x28", "x0")); // delegate instance
-    // [app setDelegate:delegate]
-    asm.load_selector(SEL_SET_DELEGATE.0);
-    asm.push(abi::move_register("x2", "x28"));
-    asm.push(abi::move_register("x0", REG_APP));
-    asm.call_external("_objc_msgSend", LIB_OBJC);
-
-    // Input field: NSTextField pinned to the window bottom, target = delegate,
-    // action = onInputSubmit: (fires on Return). The window input pipe is wired
-    // below so committed lines reach the program's reads.
-    asm.external_data("x23", CLASS_NS_TEXT_FIELD, LIB_APPKIT);
+    // delegate = [[cls alloc] init]; [app setDelegate:delegate]
     asm.load_selector(SEL_ALLOC.0);
     asm.push(abi::move_register("x0", "x23"));
     asm.call_external("_objc_msgSend", LIB_OBJC);
     asm.push(abi::move_register("x23", "x0"));
-    asm.load_selector(SEL_INIT_FRAME.0);
-    emit_double_immediate(&mut asm, "d0", 6);
-    emit_double_immediate(&mut asm, "d1", 6);
-    emit_double_immediate(&mut asm, "d2", 888);
-    emit_double_immediate(&mut asm, "d3", INPUT_FIELD_HEIGHT);
+    asm.load_selector(SEL_INIT.0);
     asm.push(abi::move_register("x0", "x23"));
     asm.call_external("_objc_msgSend", LIB_OBJC);
-    asm.push(abi::move_register("x23", "x0")); // input field
-    // [field setTarget:delegate]
-    asm.load_selector(SEL_SET_TARGET.0);
-    asm.push(abi::move_register("x2", "x28"));
-    asm.push(abi::move_register("x0", "x23"));
-    asm.call_external("_objc_msgSend", LIB_OBJC);
-    // [field setAction:@selector(onInputSubmit:)]
-    asm.load_selector(SEL_ON_INPUT_SUBMIT.0);
-    asm.push(abi::move_register("x27", "x1")); // onInputSubmit: SEL
-    asm.load_selector(SEL_SET_ACTION.0);
-    asm.push(abi::move_register("x2", "x27"));
-    asm.push(abi::move_register("x0", "x23"));
-    asm.call_external("_objc_msgSend", LIB_OBJC);
-    // [field setAutoresizingMask:NSViewWidthSizable|NSViewMaxYMargin]
-    asm.load_selector(SEL_SET_AUTORESIZING_MASK.0);
-    asm.push(abi::move_immediate("x2", "Integer", AUTORESIZE_WIDTH_BOTTOM));
-    asm.push(abi::move_register("x0", "x23"));
-    asm.call_external("_objc_msgSend", LIB_OBJC);
-    // [content addSubview:field]
-    asm.load_selector(SEL_ADD_SUBVIEW.0);
+    asm.push(abi::move_register("x23", "x0")); // delegate instance
+    asm.load_selector(SEL_SET_DELEGATE.0);
     asm.push(abi::move_register("x2", "x23"));
-    asm.push(abi::move_register("x0", "x24"));
+    asm.push(abi::move_register("x0", REG_APP));
     asm.call_external("_objc_msgSend", LIB_OBJC);
-    asm.push(abi::move_register("x28", "x23")); // keep the field (x28) for focus
+
+    // Input-line buffer: an NSMutableString accumulating typed characters until
+    // Return; stashed (retained) on NSApp so the keyDown: handler can reach it.
+    asm.external_data("x23", CLASS_NS_MUTABLE_STRING, LIB_FOUNDATION);
+    asm.load_selector(SEL_STRING.0);
+    asm.push(abi::move_register("x0", "x23"));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    asm.push(abi::move_register("x23", "x0")); // input line buffer
+    asm.push(abi::move_register("x0", REG_APP));
+    asm.local_address("x1", INPUT_LINE_KEY);
+    asm.push(abi::move_register("x2", "x23"));
+    asm.push(abi::move_immediate("x3", "Integer", "1")); // OBJC_ASSOCIATION_RETAIN_NONATOMIC
+    asm.call_external("_objc_setAssociatedObject", LIB_OBJC);
 
     // Wire the input pipe: pipe(fds); dup2(fds[0], 0) so the console read helpers
-    // consume window input; stash fds[1] (write end) on NSApp for the submit
+    // consume window input; stash fds[1] (write end) on NSApp for the keyDown:
     // handler.
     asm.push(abi::add_immediate("x0", abi::stack_pointer(), OFF_PIPE));
     asm.call_external("_pipe", LIB_SYSTEM);
@@ -668,9 +653,9 @@ fn emit_main_bootstrap() -> CodeFunction {
     asm.push(abi::move_immediate("x2", "Integer", "1")); // ignoreOtherApps: YES
     asm.push(abi::move_register("x0", REG_APP));
     asm.call_external("_objc_msgSend", LIB_OBJC);
-    // [window makeFirstResponder:field] -- keyboard focus starts in the input.
+    // [window makeFirstResponder:textview] -- keypresses go to the transcript.
     asm.load_selector(SEL_MAKE_FIRST_RESPONDER.0);
-    asm.push(abi::move_register("x2", "x28")); // input field
+    asm.push(abi::move_register("x2", REG_SCRATCH_OBJ)); // transcript text view
     asm.push(abi::move_register("x0", REG_WINDOW));
     asm.call_external("_objc_msgSend", LIB_OBJC);
     asm.push(abi::label("after_show"));
@@ -994,16 +979,19 @@ fn emit_should_terminate_helper() -> CodeFunction {
     }
 }
 
-/// `void _mfb_macapp_on_input_submit(id self, SEL _cmd, id sender /*x2*/)`: the
-/// input field's Return action (plan §5.6). Echoes the committed line to the
-/// transcript, writes its UTF-8 bytes plus a newline to the input pipe (so the
-/// program's reads on fd 0 receive it), and clears the field. Runs on the main
-/// thread, so the synchronous transcript appends do not deadlock.
-fn emit_on_input_submit_helper() -> CodeFunction {
-    let mut asm = Asm::new(ON_INPUT_SUBMIT_SYMBOL);
-    // Frame: lr@0, x19(field)@8, x20(app)@16, x21(string)@24, x22(textview)@32,
-    // x23(write fd)@40, x24(cstr)@48, newline byte@56.
-    let frame = 64;
+/// `void _mfb_macapp_key_down(id self /*x0 = MFBTextView*/, SEL _cmd, NSEvent
+/// *event /*x2*/)`: terminal-style input (plan §5.6). The transcript view itself
+/// receives keys; each printable key is echoed into the transcript and appended
+/// to the input-line buffer, Backspace deletes the last character from both, and
+/// Return commits the buffered line (UTF-8 bytes + newline) to the input pipe so
+/// the program's reads on fd 0 receive it. Runs on the main thread, so the
+/// synchronous transcript appends do not deadlock.
+fn emit_key_down_helper() -> CodeFunction {
+    let mut asm = Asm::new(KEY_DOWN_SYMBOL);
+    // Frame: lr@0, x19(self)@8, x20(app)@16, x21(chars/cstr)@24,
+    // x22(textStorage)@32, x23(event/scratch)@40, x24(char code)@48,
+    // x25(input line)@56, newline byte@64.
+    let frame = 80;
     asm.push(abi::label("entry"));
     asm.push(abi::subtract_stack(frame));
     asm.push(abi::store_u64(abi::link_register(), abi::stack_pointer(), 0));
@@ -1013,67 +1001,124 @@ fn emit_on_input_submit_helper() -> CodeFunction {
     asm.push(abi::store_u64("x22", abi::stack_pointer(), 32));
     asm.push(abi::store_u64("x23", abi::stack_pointer(), 40));
     asm.push(abi::store_u64("x24", abi::stack_pointer(), 48));
-    asm.push(abi::move_register("x19", "x2")); // sender (input field)
+    asm.push(abi::store_u64("x25", abi::stack_pointer(), 56));
+    asm.push(abi::move_register("x19", "x0")); // self (text view)
+    asm.push(abi::move_register("x23", "x2")); // event
 
-    // app = [NSApplication sharedApplication]
+    // chars = [event characters]; if [chars length] == 0 (modifier-only) -> done
+    asm.load_selector(SEL_CHARACTERS.0);
+    asm.push(abi::move_register("x0", "x23"));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    asm.push(abi::move_register("x21", "x0")); // chars
+    asm.load_selector(SEL_LENGTH.0);
+    asm.push(abi::move_register("x0", "x21"));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    asm.push(abi::compare_immediate("x0", "0"));
+    asm.push(abi::branch_eq("kd_done"));
+    // c = [chars characterAtIndex:0]
+    asm.load_selector(SEL_CHAR_AT_INDEX.0);
+    asm.push(abi::move_immediate("x2", "Integer", "0"));
+    asm.push(abi::move_register("x0", "x21"));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    asm.push(abi::move_register("x24", "x0")); // char code
+
+    // app, input line buffer, text storage.
     asm.external_data("x20", CLASS_NS_APPLICATION, LIB_APPKIT);
     asm.load_selector(SEL_SHARED_APPLICATION.0);
     asm.push(abi::move_register("x0", "x20"));
     asm.call_external("_objc_msgSend", LIB_OBJC);
     asm.push(abi::move_register("x20", "x0")); // app
-
-    // line = [field stringValue]
-    asm.load_selector(SEL_STRING_VALUE.0);
+    asm.push(abi::move_register("x0", "x20"));
+    asm.local_address("x1", INPUT_LINE_KEY);
+    asm.call_external("_objc_getAssociatedObject", LIB_OBJC);
+    asm.push(abi::move_register("x25", "x0")); // input line buffer
+    asm.load_selector(SEL_TEXT_STORAGE.0);
     asm.push(abi::move_register("x0", "x19"));
     asm.call_external("_objc_msgSend", LIB_OBJC);
-    asm.push(abi::move_register("x21", "x0")); // committed line string
+    asm.push(abi::move_register("x22", "x0")); // text storage
 
-    // Echo the line + newline to the transcript:
-    // textview = objc_getAssociatedObject(app, &ASSOC_KEY)
-    asm.push(abi::move_register("x0", "x20"));
-    asm.local_address("x1", ASSOC_KEY);
-    asm.call_external("_objc_getAssociatedObject", LIB_OBJC);
-    asm.push(abi::move_register("x22", "x0")); // transcript view
-    asm.push(abi::move_register("x0", "x22"));
+    // Dispatch on the key.
+    asm.push(abi::compare_immediate("x24", "13")); // CR
+    asm.push(abi::branch_eq("kd_commit"));
+    asm.push(abi::compare_immediate("x24", "10")); // LF
+    asm.push(abi::branch_eq("kd_commit"));
+    asm.push(abi::compare_immediate("x24", "3")); // Enter
+    asm.push(abi::branch_eq("kd_commit"));
+    asm.push(abi::compare_immediate("x24", "127")); // Delete
+    asm.push(abi::branch_eq("kd_backspace"));
+    asm.push(abi::compare_immediate("x24", "8")); // Backspace
+    asm.push(abi::branch_eq("kd_backspace"));
+
+    // Default: [inputLine appendString:chars]; echo chars into the transcript.
+    asm.load_selector(SEL_APPEND_STRING.0);
+    asm.push(abi::move_register("x2", "x21"));
+    asm.push(abi::move_register("x0", "x25"));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    asm.push(abi::move_register("x0", "x19"));
     asm.push(abi::move_register("x1", "x21"));
     asm.call_internal(APPEND_SYMBOL);
-    build_nsstring_from_cstring(&mut asm, "x23", STR_NEWLINE.0);
-    asm.push(abi::move_register("x1", "x0"));
-    asm.push(abi::move_register("x0", "x22"));
-    asm.call_internal(APPEND_SYMBOL);
+    asm.push(abi::branch("kd_done"));
 
-    // Deliver the bytes to the program: wfd = objc_getAssociatedObject(app, &PIPE_KEY)
+    // Commit: deliver the buffered line + newline to the pipe, echo a newline,
+    // clear the buffer.
+    asm.push(abi::label("kd_commit"));
     asm.push(abi::move_register("x0", "x20"));
     asm.local_address("x1", PIPE_ASSOC_KEY);
     asm.call_external("_objc_getAssociatedObject", LIB_OBJC);
-    asm.push(abi::move_register("x23", "x0")); // write fd (as integer)
-    // cstr = [line UTF8String]; len = strlen(cstr)
+    asm.push(abi::move_register("x23", "x0")); // write fd
     asm.load_selector(SEL_UTF8_STRING.0);
-    asm.push(abi::move_register("x0", "x21"));
+    asm.push(abi::move_register("x0", "x25"));
     asm.call_external("_objc_msgSend", LIB_OBJC);
-    asm.push(abi::move_register("x24", "x0")); // UTF-8 C string
-    asm.push(abi::move_register("x0", "x24"));
+    asm.push(abi::move_register("x21", "x0")); // UTF-8 bytes of the line
+    asm.push(abi::move_register("x0", "x21"));
     asm.call_external("_strlen", LIB_SYSTEM);
     asm.push(abi::move_register("x2", "x0")); // length
-    // write(wfd, cstr, len)
     asm.push(abi::move_register("x0", "x23"));
-    asm.push(abi::move_register("x1", "x24"));
+    asm.push(abi::move_register("x1", "x21"));
     asm.call_external("_write", LIB_SYSTEM);
-    // write(wfd, "\n", 1)
     asm.push(abi::move_immediate("x9", "Integer", "10"));
-    asm.push(abi::store_u8("x9", abi::stack_pointer(), 56));
+    asm.push(abi::store_u8("x9", abi::stack_pointer(), 64));
     asm.push(abi::move_register("x0", "x23"));
-    asm.push(abi::add_immediate("x1", abi::stack_pointer(), 56));
+    asm.push(abi::add_immediate("x1", abi::stack_pointer(), 64));
     asm.push(abi::move_immediate("x2", "Integer", "1"));
     asm.call_external("_write", LIB_SYSTEM);
-
-    // Clear the field: [field setStringValue:@""]
-    build_nsstring_from_cstring(&mut asm, "x24", STR_EMPTY.0);
-    asm.push(abi::move_register("x2", "x0")); // empty string
-    asm.load_selector(SEL_SET_STRING_VALUE.0);
+    build_nsstring_from_cstring(&mut asm, "x21", STR_NEWLINE.0);
+    asm.push(abi::move_register("x1", "x0"));
     asm.push(abi::move_register("x0", "x19"));
+    asm.call_internal(APPEND_SYMBOL);
+    build_nsstring_from_cstring(&mut asm, "x21", STR_EMPTY.0);
+    asm.push(abi::move_register("x2", "x0"));
+    asm.load_selector(SEL_SET_STRING.0);
+    asm.push(abi::move_register("x0", "x25"));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    asm.push(abi::branch("kd_done"));
+
+    // Backspace: drop the last character from the buffer and the transcript.
+    asm.push(abi::label("kd_backspace"));
+    asm.load_selector(SEL_LENGTH.0);
+    asm.push(abi::move_register("x0", "x25"));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    asm.push(abi::compare_immediate("x0", "0"));
+    asm.push(abi::branch_eq("kd_done"));
+    asm.push(abi::move_register("x23", "x0")); // buffer length
+    asm.load_selector(SEL_DELETE_RANGE.0);
+    asm.push(abi::subtract_immediate("x2", "x23", 1)); // range.location = len - 1
+    asm.push(abi::move_immediate("x3", "Integer", "1")); // range.length = 1
+    asm.push(abi::move_register("x0", "x25"));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    asm.load_selector(SEL_LENGTH.0);
+    asm.push(abi::move_register("x0", "x22"));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    asm.push(abi::compare_immediate("x0", "0"));
+    asm.push(abi::branch_eq("kd_done"));
+    asm.push(abi::move_register("x23", "x0")); // transcript length
+    asm.load_selector(SEL_DELETE_RANGE.0);
+    asm.push(abi::subtract_immediate("x2", "x23", 1));
+    asm.push(abi::move_immediate("x3", "Integer", "1"));
+    asm.push(abi::move_register("x0", "x22"));
     asm.call_external("_objc_msgSend", LIB_OBJC);
 
+    asm.push(abi::label("kd_done"));
     asm.push(abi::load_u64(abi::link_register(), abi::stack_pointer(), 0));
     asm.push(abi::load_u64("x19", abi::stack_pointer(), 8));
     asm.push(abi::load_u64("x20", abi::stack_pointer(), 16));
@@ -1081,12 +1126,13 @@ fn emit_on_input_submit_helper() -> CodeFunction {
     asm.push(abi::load_u64("x22", abi::stack_pointer(), 32));
     asm.push(abi::load_u64("x23", abi::stack_pointer(), 40));
     asm.push(abi::load_u64("x24", abi::stack_pointer(), 48));
+    asm.push(abi::load_u64("x25", abi::stack_pointer(), 56));
     asm.push(abi::add_stack(frame));
     asm.push(abi::return_());
 
     CodeFunction {
-        name: "macapp.onInputSubmit".to_string(),
-        symbol: ON_INPUT_SUBMIT_SYMBOL.to_string(),
+        name: "macapp.keyDown".to_string(),
+        symbol: KEY_DOWN_SYMBOL.to_string(),
         params: Vec::new(),
         returns: "Nothing".to_string(),
         frame: CodeFrame {
@@ -1309,13 +1355,18 @@ pub(crate) fn app_mode_data_objects() -> Vec<CodeDataObject> {
         SEL_TERMINATE,
         STR_QUIT,
         STR_QUIT_KEY,
-        // Input field.
-        SEL_STRING_VALUE,
-        SEL_SET_STRING_VALUE,
+        // Terminal-style input (keyDown: on the transcript view).
         SEL_UTF8_STRING,
-        SEL_SET_TARGET,
         SEL_MAKE_FIRST_RESPONDER,
-        SEL_ON_INPUT_SUBMIT,
+        SEL_KEY_DOWN,
+        SEL_CHARACTERS,
+        SEL_LENGTH,
+        SEL_CHAR_AT_INDEX,
+        SEL_APPEND_STRING,
+        SEL_SET_STRING,
+        SEL_DELETE_RANGE,
+        SEL_STRING,
+        STR_TEXTVIEW_CLASS,
         STR_INPUT_TYPES,
         STR_EMPTY,
     ]
@@ -1332,7 +1383,7 @@ pub(crate) fn app_mode_data_objects() -> Vec<CodeDataObject> {
     // The transcript NSTextView is stored as an associated object on NSApp keyed
     // by the address of this 1-byte read-only symbol (objc-runtime-managed
     // per-process storage; see ASSOC_KEY).
-    for key in [ASSOC_KEY, PIPE_ASSOC_KEY] {
+    for key in [ASSOC_KEY, PIPE_ASSOC_KEY, INPUT_LINE_KEY] {
         objects.push(CodeDataObject {
             symbol: key.to_string(),
             kind: "raw".to_string(),
