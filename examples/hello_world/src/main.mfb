@@ -1,0 +1,16 @@
+IMPORT io
+
+' Prints "Hello World" in 10 different languages.
+FUNC main AS Integer
+  io::print("English:    Hello World")
+  io::print("Spanish:    Hola Mundo")
+  io::print("French:     Bonjour le monde")
+  io::print("German:     Hallo Welt")
+  io::print("Italian:    Ciao mondo")
+  io::print("Portuguese: Olá Mundo")
+  io::print("Swedish:    Hej världen")
+  io::print("Russian:    Привет, мир")
+  io::print("Japanese:   こんにちは世界")
+  io::print("Greek:      Γειά σου Κόσμε")
+  RETURN 0
+END FUNC

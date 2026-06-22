@@ -2641,7 +2641,7 @@ fn sanitize_project_name(name: &str) -> String {
 }
 
 fn hello_world_source() -> String {
-    "IMPORT io\n\nSUB main()\n  io.print(\"Hello World\")\nEND SUB\n".to_string()
+    "IMPORT io\n\nSUB main()\n  io::print(\"Hello World\")\nEND SUB\n".to_string()
 }
 
 fn package_source() -> String {

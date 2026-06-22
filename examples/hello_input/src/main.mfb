@@ -1,0 +1,8 @@
+IMPORT io
+
+' Asks for the user's name and greets them.
+FUNC main AS Integer
+  LET name AS String = io::input("What is your name? ")
+  io::print("Hello " & name & "!")
+  RETURN 0
+END FUNC
