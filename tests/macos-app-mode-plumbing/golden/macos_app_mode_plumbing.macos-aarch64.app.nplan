@@ -23,6 +23,7 @@
   { "library": "AppKit", "symbol": "_OBJC_CLASS_$_NSWindow", "requiredBy": "_main" },
   { "library": "AppKit", "symbol": "_OBJC_CLASS_$_NSScrollView", "requiredBy": "_main" },
   { "library": "AppKit", "symbol": "_OBJC_CLASS_$_NSTextView", "requiredBy": "_main" },
+  { "library": "AppKit", "symbol": "_OBJC_CLASS_$_NSTextField", "requiredBy": "_main" },
   { "library": "AppKit", "symbol": "_OBJC_CLASS_$_NSFont", "requiredBy": "_main" },
   { "library": "AppKit", "symbol": "_OBJC_CLASS_$_NSMenu", "requiredBy": "_main" },
   { "library": "AppKit", "symbol": "_OBJC_CLASS_$_NSMenuItem", "requiredBy": "_main" },
@@ -32,7 +33,10 @@
   { "library": "Foundation", "symbol": "_OBJC_CLASS_$_NSAttributedString", "requiredBy": "_main" },
   { "library": "libSystem", "symbol": "_pthread_create", "requiredBy": "_main" },
   { "library": "libSystem", "symbol": "_pthread_exit", "requiredBy": "_main" },
-  { "library": "libSystem", "symbol": "_getenv", "requiredBy": "_main" }
+  { "library": "libSystem", "symbol": "_getenv", "requiredBy": "_main" },
+  { "library": "libSystem", "symbol": "_pipe", "requiredBy": "_main" },
+  { "library": "libSystem", "symbol": "_dup2", "requiredBy": "_main" },
+  { "library": "libSystem", "symbol": "_strlen", "requiredBy": "_main" }
   ],
   "functions": [
   {

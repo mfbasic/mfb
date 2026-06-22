@@ -69,6 +69,13 @@ impl code::CodegenPlatform for Platform {
         Some(Ok(app::emit_app_io_flush_helper(symbol)))
     }
 
+    fn emit_app_io_input_helper(
+        &self,
+        symbol: &str,
+    ) -> Option<Result<(code::CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>), String>> {
+        Some(Ok(app::emit_app_io_input_helper(symbol)))
+    }
+
     fn emit_program_exit(
         &self,
         from: &str,

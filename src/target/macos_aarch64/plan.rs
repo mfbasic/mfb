@@ -72,6 +72,7 @@ impl plan::NativePlanPlatform for Platform {
             ("AppKit", "_OBJC_CLASS_$_NSWindow"),
             ("AppKit", "_OBJC_CLASS_$_NSScrollView"),
             ("AppKit", "_OBJC_CLASS_$_NSTextView"),
+            ("AppKit", "_OBJC_CLASS_$_NSTextField"),
             ("AppKit", "_OBJC_CLASS_$_NSFont"),
             ("AppKit", "_OBJC_CLASS_$_NSMenu"),
             ("AppKit", "_OBJC_CLASS_$_NSMenuItem"),
@@ -83,6 +84,9 @@ impl plan::NativePlanPlatform for Platform {
             ("libSystem", "_pthread_exit"),
             ("libSystem", "_getenv"),
             ("libSystem", "_write"),
+            ("libSystem", "_pipe"),
+            ("libSystem", "_dup2"),
+            ("libSystem", "_strlen"),
         ]
         .iter()
         .map(|(library, symbol)| PlatformImport {

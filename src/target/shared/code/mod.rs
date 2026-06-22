@@ -551,6 +551,17 @@ pub(crate) trait CodegenPlatform {
     ) -> Option<Result<(CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>), String>> {
         None
     }
+
+    /// App-mode body for `io.input` (plan §5.4): write the prompt to the
+    /// transcript, then read a line from the window input pipe. `None` for
+    /// targets without app mode.
+    #[allow(clippy::type_complexity)]
+    fn emit_app_io_input_helper(
+        &self,
+        _symbol: &str,
+    ) -> Option<Result<(CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>), String>> {
+        None
+    }
 }
 
 /// Inputs the app-mode `_main` bootstrap needs about the program it hosts
@@ -1057,6 +1068,20 @@ pub(crate) fn lower_module_for_platform(
             .any(|symbol| symbol == "_mfb_rt_net_net_connectTcpAddr")
     {
         runtime_symbols.push("_mfb_rt_net_net_connectTcpAddr".to_string());
+    }
+    // App-mode io.input composes io.write (prompt -> transcript) + io.readLine
+    // (read the window input pipe), so ensure both helpers are emitted
+    // (plan-04-macos-app.md §5.4).
+    if module.build_mode == crate::target::NativeBuildMode::MacApp
+        && runtime_symbols
+            .iter()
+            .any(|symbol| symbol == "_mfb_rt_io_io_input")
+    {
+        for dependency in ["_mfb_rt_io_io_write", "_mfb_rt_io_io_readLine"] {
+            if !runtime_symbols.iter().any(|symbol| symbol == dependency) {
+                runtime_symbols.push(dependency.to_string());
+            }
+        }
     }
     for symbol in &runtime_symbols {
         code_functions.push(lower_runtime_helper(
@@ -2626,12 +2651,26 @@ fn lower_runtime_helper(
             })
         }
         "io.input" | "io.readLine" => {
-            let (frame, instructions, relocations) = lower_io_read_line_helper(
-                symbol,
-                platform_imports,
-                platform,
-                spec.call == "io.input",
-            )?;
+            // App-mode io.input writes its prompt to the transcript (via io.write)
+            // then reads a line (via io.readLine); io.readLine itself is the
+            // unchanged console helper, which reads fd 0 — the window input pipe
+            // in app mode (plan §5.4). All other read helpers are likewise
+            // unchanged and read the pipe.
+            let (frame, instructions, relocations) = if app_mode && spec.call == "io.input" {
+                platform.emit_app_io_input_helper(symbol).ok_or_else(|| {
+                    format!(
+                        "native target '{}' does not support app-mode io helpers",
+                        platform.target()
+                    )
+                })??
+            } else {
+                lower_io_read_line_helper(
+                    symbol,
+                    platform_imports,
+                    platform,
+                    spec.call == "io.input",
+                )?
+            };
             Ok(CodeFunction {
                 name: format!("runtime.{}", spec.call),
                 symbol: symbol.to_string(),

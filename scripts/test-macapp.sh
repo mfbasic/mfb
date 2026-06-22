@@ -176,6 +176,45 @@ else
   fi
 fi
 
+# Case 5: app-mode input. Headless leaves fd 0 as real stdin (no window input
+# pipe), so io::input/io::readLine read fed input and io::input's prompt goes to
+# the fd sink. Proves the app-mode io.input composition (prompt via io.write +
+# read via io.readLine) and that the read helpers work in app mode. (The GUI
+# input field -> pipe path is manual, plan §7.4.)
+proj="$work/input"
+mkdir -p "$proj/src"
+cat > "$proj/project.json" <<'JSON'
+{ "name": "input", "version": "0.1.0", "mfb": "1.0", "kind": "executable",
+  "sources": [{ "root": "src", "role": "main", "include": ["**/*.mfb"] }],
+  "entry": "main", "targets": ["native"] }
+JSON
+cat > "$proj/src/main.mfb" <<'MFB'
+IMPORT io
+SUB main()
+  LET name AS String = io::input("Name? ")
+  io::print("Hi " & name)
+  LET line AS String = io::readLine()
+  io::print("Echo " & line)
+END SUB
+MFB
+if ! "$MFB_EXE" build -app "$proj" >/dev/null 2>&1; then
+  echo "FAIL: build -app input" >&2
+  failures=$((failures + 1))
+else
+  out=$(printf 'bob\nsecond\n' | MFB_MACAPP_HEADLESS=1 perl -e '
+    my $pid = open(my $fh, "-|");
+    if ($pid == 0) { exec($ARGV[0]) or exit 127; }
+    local $SIG{ALRM} = sub { kill "KILL", $pid; exit 99; };
+    alarm 15; local $/; my $o = <$fh>; close($fh); print $o;
+  ' "$proj/input.app/Contents/MacOS/input")
+  if [ "$out" = $'Name? Hi bob\nEcho second' ]; then
+    echo "ok: app-mode io::input + io::readLine consume input correctly"
+  else
+    echo "FAIL: unexpected app-mode input output: $(printf '%q' "$out")" >&2
+    failures=$((failures + 1))
+  fi
+fi
+
 if [ "$failures" -ne 0 ]; then
   echo "macOS app mode runtime tests failed: $failures" >&2
   exit 1
