@@ -2118,6 +2118,15 @@ fn expression_type(
                 return builtins::net::resolve_call(&canonical_callee, &arg_types)
                     .map(|resolved| resolved.return_type.to_string());
             }
+            if builtins::tls::is_tls_call(&canonical_callee) {
+                let arg_types =
+                    normalize_builtin_call_arguments(canonical_callee.as_str(), arguments)
+                        .iter()
+                        .map(|argument| expression_type(argument, locals, context))
+                        .collect::<Option<Vec<_>>>()?;
+                return builtins::tls::resolve_call(&canonical_callee, &arg_types)
+                    .map(|resolved| resolved.return_type.to_string());
+            }
             if builtins::json::is_json_call(&canonical_callee) {
                 let arg_types =
                     normalize_builtin_call_arguments(canonical_callee.as_str(), arguments)
@@ -2270,6 +2279,7 @@ fn builtin_argument_types(callee: &str) -> Option<Vec<String>> {
         .or_else(|| builtins::io::expected_arguments(callee))
         .or_else(|| builtins::json::expected_arguments(callee))
         .or_else(|| builtins::net::argument_types(callee))
+        .or_else(|| builtins::tls::argument_types(callee))
         .or_else(|| builtins::thread::expected_arguments(callee))?;
     let params = expected.split(", ").map(str::to_string).collect::<Vec<_>>();
     if params.iter().any(|param| uses_generic_placeholder(param)) {
@@ -2558,6 +2568,18 @@ fn lower_expression_with_expected(
                     })
                     .collect()
             };
+            // Pad optional trailing arguments (`tls.connect`/`tls.wrap` defaults)
+            // with constants so the fixed-ABI runtime helper always receives
+            // every parameter (plan-03-net.md §4).
+            let mut args = args;
+            for (type_, value) in
+                builtins::tls::default_argument_padding(&canonical_callee, args.len())
+            {
+                args.push(IrValue::Const {
+                    type_: (*type_).to_string(),
+                    value: (*value).to_string(),
+                });
+            }
             let resolved_target = builtins::json::implementation_name(&canonical_callee)
                 .unwrap_or(&canonical_callee);
             IrValue::Call {

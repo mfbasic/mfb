@@ -30,6 +30,7 @@ const BUILTIN_TYPES: &[&str] = &[
     builtins::net::UDP_SOCKET_TYPE,
     builtins::net::DATAGRAM_TYPE,
     builtins::net::DATAGRAM_TEXT_TYPE,
+    builtins::tls::TLS_SOCKET_TYPE,
 ];
 
 pub fn resolve_project(

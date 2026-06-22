@@ -162,6 +162,9 @@ const ERR_WRITE_TIMEOUT_SYMBOL: &str = "_mfb_str_error_write_timeout";
 const ERR_MESSAGE_TOO_LARGE_CODE: &str = "77070007";
 const ERR_MESSAGE_TOO_LARGE_MESSAGE: &str = "message too large";
 const ERR_MESSAGE_TOO_LARGE_SYMBOL: &str = "_mfb_str_error_message_too_large";
+const ERR_TLS_FAILED_CODE: &str = "77070008";
+const ERR_TLS_FAILED_MESSAGE: &str = "TLS failed";
+const ERR_TLS_FAILED_SYMBOL: &str = "_mfb_str_error_tls_failed";
 const EMPTY_STRING_SYMBOL: &str = "_mfb_str_empty";
 const FS_MODE_TYPE_MASK: &str = "61440";
 const FS_MODE_DIRECTORY: &str = "16384";
@@ -785,6 +788,15 @@ pub(crate) fn lower_module_for_platform(
     if module_uses_unicode_runtime_tables(module) {
         data_objects.extend(unicode_runtime_data_objects());
     }
+    // TLS helpers reference read-only C strings (libssl sonames + OpenSSL symbol
+    // names) for their load-time dlopen/dlsym.
+    if native_plan
+        .runtime_symbols
+        .iter()
+        .any(|symbol| symbol.starts_with("_mfb_rt_tls_"))
+    {
+        data_objects.extend(tls::tls_cstring_data_objects());
+    }
     let type_model = TypeModel::from_module_and_packages(module, packages)?;
     let mut code_functions = Vec::new();
     let mut runtime_symbols = native_plan.runtime_symbols.clone();
@@ -930,6 +942,7 @@ pub(crate) fn lower_module_for_platform(
                     | "_mfb_rt_fs_fs_readLine"
                     | "_mfb_rt_net_net_readText"
                     | "_mfb_rt_net_net_receiveTextFrom"
+                    | "_mfb_rt_tls_tls_readText"
             )
         })
     {
@@ -3126,6 +3139,53 @@ fn lower_runtime_helper(
                 "net.sendTextTo" => {
                     net::lower_net_send_to_helper(symbol, platform_imports, platform, true)?
                 }
+                other => {
+                    return Err(format!(
+                        "native code plan does not emit runtime call '{other}'"
+                    ));
+                }
+            };
+            Ok(CodeFunction {
+                name: format!("runtime.{}", spec.call),
+                symbol: symbol.to_string(),
+                params: spec
+                    .abi
+                    .params
+                    .iter()
+                    .map(|param| CodeParam {
+                        name: param.name.to_string(),
+                        type_: param.type_.to_string(),
+                        location: param.location.to_string(),
+                    })
+                    .collect(),
+                returns: spec.abi.returns.to_string(),
+                frame,
+                stack_slots: Vec::new(),
+                instructions,
+                relocations,
+            })
+        }
+        call if call.starts_with("tls.") => {
+            let (frame, instructions, relocations) = match call {
+                "tls.connect" => {
+                    tls::lower_tls_connect_helper(symbol, platform_imports, platform, false)?
+                }
+                "tls.wrap" => {
+                    tls::lower_tls_connect_helper(symbol, platform_imports, platform, true)?
+                }
+                "tls.read" => {
+                    tls::lower_tls_read_helper(symbol, platform_imports, platform, false)?
+                }
+                "tls.readText" => {
+                    tls::lower_tls_read_helper(symbol, platform_imports, platform, true)?
+                }
+                "tls.write" => {
+                    tls::lower_tls_write_helper(symbol, platform_imports, platform, false)?
+                }
+                "tls.writeText" => {
+                    tls::lower_tls_write_helper(symbol, platform_imports, platform, true)?
+                }
+                "tls.close" => tls::lower_tls_close_helper(symbol, platform_imports, platform)?,
                 other => {
                     return Err(format!(
                         "native code plan does not emit runtime call '{other}'"
@@ -12133,6 +12193,7 @@ fn adjust_stack_instruction_offsets(instructions: &mut [CodeInstruction], offset
 }
 
 mod net;
+mod tls;
 mod link_thunk;
 mod builder_collection_layout;
 mod builder_collection_queries;
@@ -12545,6 +12606,31 @@ fn string_symbols(module: &NirModule) -> HashMap<String, String> {
             push_string_value(&mut values, value.to_string());
         }
     }
+    if module_uses_any_call(
+        module,
+        &[
+            "tls.connect",
+            "tls.wrap",
+            "tls.read",
+            "tls.readText",
+            "tls.write",
+            "tls.writeText",
+            "tls.close",
+        ],
+    ) {
+        for value in [
+            ERR_TLS_FAILED_MESSAGE,
+            ERR_ADDRESS_INVALID_MESSAGE,
+            ERR_ADDRESS_NOT_FOUND_MESSAGE,
+            ERR_NETWORK_FAILED_MESSAGE,
+            ERR_CONNECTION_CLOSED_MESSAGE,
+            ERR_RESOURCE_CLOSED_MESSAGE,
+            ERR_INVALID_ARGUMENT_MESSAGE,
+            ERR_ENCODING_MESSAGE,
+        ] {
+            push_string_value(&mut values, value.to_string());
+        }
+    }
     if module_uses_call(module, "find")
         || module_uses_call(module, "mid")
         || module_uses_call(module, "get")
@@ -12773,6 +12859,11 @@ fn standard_error_messages() -> &'static [(&'static str, &'static str, &'static 
             ERR_MESSAGE_TOO_LARGE_CODE,
             ERR_MESSAGE_TOO_LARGE_MESSAGE,
             ERR_MESSAGE_TOO_LARGE_SYMBOL,
+        ),
+        (
+            ERR_TLS_FAILED_CODE,
+            ERR_TLS_FAILED_MESSAGE,
+            ERR_TLS_FAILED_SYMBOL,
         ),
     ]
 }

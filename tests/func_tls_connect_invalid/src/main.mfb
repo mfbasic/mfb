@@ -1,0 +1,8 @@
+IMPORT tls
+
+FUNC main AS Integer
+  LET missing = tls::connect()
+  LET wrongType = tls::connect(1, 2)
+  LET tooMany = tls::connect("example.com", 443, 0, "example.com", 9)
+  RETURN 0
+END FUNC

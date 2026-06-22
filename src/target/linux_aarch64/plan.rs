@@ -192,6 +192,25 @@ impl plan::NativePlanPlatform for Platform {
                 imports.push(self.libc_import("__errno_location", spec.symbol));
                 imports
             }
+            call if crate::builtins::tls::is_tls_call(call) => {
+                // The TLS backend resolves OpenSSL at load time via dlopen/dlsym;
+                // tls.connect also opens the TCP socket itself, and every helper
+                // can report errno-derived failures.
+                let mut imports = vec![
+                    self.libc_import("dlopen", spec.symbol),
+                    self.libc_import("dlsym", spec.symbol),
+                    self.libc_import("__errno_location", spec.symbol),
+                ];
+                if matches!(call, "tls.connect" | "tls.wrap" | "tls.close") {
+                    imports.push(self.libc_import("close", spec.symbol));
+                }
+                if call == "tls.connect" {
+                    for base in ["getaddrinfo", "freeaddrinfo", "socket", "connect"] {
+                        imports.push(self.libc_import(base, spec.symbol));
+                    }
+                }
+                imports
+            }
             _ => Vec::new(),
         }
     }

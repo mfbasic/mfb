@@ -176,68 +176,73 @@ for TCP, plus `recvfrom`/`sendto`.
 
 ## 4. TLS Plan
 
-TLS is the hard part. The Linux backend is delivered over the **native `LINK`
-path** (load-time `dlopen`/`dlsym` of the system OpenSSL, the same machinery that
-binds `libsqlite3` in `tests/native-link-sqlite-rt`), **not** the static
-versioned-symbol linker path. This was chosen deliberately (see §4.1) and removes
-the dependency on the static multi-library / versioned-symbol linker capability
-for Linux. macOS TLS remains future work.
+**Status: Linux DONE and verified; macOS deferred.** The Linux TLS backend is a
+**native built-in package** (like `net`), driving the system OpenSSL through
+`dlopen`/`dlsym` issued from the hand-written runtime helpers. macOS TLS remains
+future work.
 
 ### 4.1 Settled backend decisions
 
-- **Linux = system OpenSSL via the native `LINK` path.** A `tls` package binds
-  `libssl` with a `LINK` block; the generated `_mfb_linker_init` `dlopen`s the
-  library at load time and `dlsym`s each `SSL_*` symbol into a per-function
-  pointer slot. Because `dlsym` resolves the library's *default* symbol version,
-  one binary spans **OpenSSL 1.1.1 and 3.x** with no versioned-symbol imports and
-  no `DT_NEEDED` on `libssl`. Verified target machines: Arch Linux ARM (glibc,
-  OpenSSL 1.1.1, `libssl.so.1.1`), Kali (glibc, OpenSSL 3.0, `libssl.so.3`),
-  Alpine (musl, OpenSSL 3.5, `libssl.so.3`). The loader tries an ordered soname
-  list (`libssl.so.3`, then `libssl.so.1.1`) so all three load.
-- **Rationale for `LINK` over the static linker path.** The original plan
-  (OpenSSL 3 only, `@@OPENSSL_3.0.0` versioned symbols, `DT_NEEDED libssl.so.3`,
-  no 1.1.1 fallback) cannot run on Arch ARM, which ships only OpenSSL 1.1.1. A
-  single statically-linked soname cannot span `.so.3` and `.so.1.1`; `dlopen`
-  with a fallback list can. The `LINK` path also reuses existing, tested
-  infrastructure instead of growing the static linker.
+- **Linux = system OpenSSL, native built-in (not `LINK`).** `tls` is a built-in
+  with its own `RuntimeHelper::Tls` family and AArch64 codegen in
+  `src/target/shared/code/tls.rs`. Each helper `dlopen`s `libssl` (trying
+  `libssl.so.3`, then `libssl.so.1.1`) and `dlsym`s the `SSL_*` symbols it needs.
+  `dlsym` resolves the library's *default* symbol version, so one binary spans
+  **OpenSSL 1.1.1 and 3.x** with no versioned-symbol imports and no `DT_NEEDED`
+  on `libssl` — only `dlopen`/`dlsym` are imported (from libc). A `TlsSocket` is a
+  32-byte arena record `{ fd, closed, SSL*, SSL_CTX* }`.
+- **Why native, not `LINK`.** The `LINK` path was investigated and set aside: the
+  opaque-resource model has nowhere to hold per-session buffer state, and `LINK`
+  lacks (a) versioned-soname + fallback loading, (b) length-delimited binary
+  buffer marshaling for `SSL_read`/`SSL_write`, and (c) access to a connected
+  socket fd for `SSL_set_fd`. The native helpers handle all three directly —
+  buffer I/O reuses the same patterns as the UDP `receiveFrom`/`sendTo` helpers,
+  the fd lives in the record, and the soname fallback is just two `dlopen` calls.
+- **Why `dlopen` over static versioned symbols.** The original plan (OpenSSL 3
+  only, `@@OPENSSL_3.0.0`, `DT_NEEDED libssl.so.3`) cannot run on Arch ARM, which
+  ships only OpenSSL 1.1.1. A single statically-linked soname cannot span `.so.3`
+  and `.so.1.1`; `dlopen` with an ordered fallback can.
+- **Secure defaults (enforced).** `SSL_CTX_set_default_verify_paths` (host trust
+  store), `SSL_set_verify(SSL_VERIFY_PEER)`, `SSL_set1_host` (hostname/cert-name
+  validation), `SSL_set_tlsext_host_name` via `SSL_ctrl` (SNI), and minimum
+  protocol `TLS1_2_VERSION` via `SSL_ctrl`. `SSL_get_verify_result` is also
+  checked. Any handshake/cert/SNI/protocol failure → `ErrTlsFailed` (`77070008`).
 - **macOS = deferred.** Network.framework (async/dispatch/block) vs. the
   synchronous-but-deprecated Secure Transport is an open choice; the macOS TLS
-  backend is out of scope for this Linux-first pass.
+  backend is out of scope for this Linux-first pass. The macOS backend rejects
+  `tls.*` cleanly via the runtime-call capability gate.
 
-#### 4.1.1 Required `LINK` feature extensions (gating, discuss before building)
+#### 4.1.1 Verified on all three target machines
 
-The current `LINK` feature (plan-linker.md §12) does not yet support three things
-TLS needs. These are tracked here and must be designed before the Linux TLS
-backend can be built over the full `LINK` path:
+Built `linux-aarch64` (glibc + musl) executables and ran them over SSH:
 
-1. **Versioned soname + fallback loading.** `library_filename` hardcodes
-   `lib<name>.so.0` (Linux) / `lib<name>.dylib` (macOS) and `dlopen`s a single
-   name, hard-failing if absent. OpenSSL needs `libssl.so.3` *or* `libssl.so.1.1`.
-   Needs: an explicit soname on the `LINK` block and an ordered fallback list.
-2. **Length-delimited binary buffers.** `SSL_read(ssl, void* buf, int num)` and
-   `SSL_write(ssl, const void* buf, int num)` move raw bytes with an explicit
-   length. `LINK` has `CString` (NUL-terminated, text only) but no
-   `List OF Byte`↔`(ptr, len)` marshaling in either direction.
-3. **Connected socket fd access.** `SSL_set_fd` needs the integer fd of a
-   connected TCP socket. Either expose the fd of a `net` `Socket` as an `Integer`,
-   or bind `socket`/`connect`/`getaddrinfo` over `LINK` (which itself reintroduces
-   the binary-buffer gap for `sockaddr`).
+| Machine | libc | OpenSSL | soname used | handshake | bad-cert → `ErrTlsFailed` |
+| --- | --- | --- | --- | --- | --- |
+| Arch Linux ARM | glibc | 1.1.1 | `libssl.so.1.1` (fallback) | ✅ | ✅ |
+| Kali | glibc | 3.0 | `libssl.so.3` | ✅ | ✅ |
+| Alpine | musl | 3.5 | `libssl.so.3` | ✅ | ✅ |
+
+Handshake proven against `example.com:443` (real cert + SNI + encrypted
+read/write). Validation-on-by-default proven against `self-signed.badssl.com`,
+`wrong.host.badssl.com`, and `expired.badssl.com` — all three rejected with
+`77070008` on every machine, while `example.com` succeeded. Both `tls.connect`
+and `tls.wrap` (over a `net::connectTcp` socket) verified.
 
 ### 4.2 Package surface — `tls` is its own package qualifier
 
 `tls::*` is a distinct package from `net::*`, even though it is documented inside
-§11. The Linux backend uses option **(b)** — an MFBASIC-source package over a
-`LINK` block — because the chosen `dlopen` strategy *is* the `LINK` path:
+§11. The Linux backend uses option **(a)** — a native-helper package mirroring
+`net`:
 
-- (a) Native-helper package, mirroring `net` (new `RuntimeHelper::Tls`, hand-
-  written OpenSSL codegen in `src/target/shared/code/tls.rs`). Set aside for the
-  Linux pass: it would re-implement the `dlopen`/`dlsym`/thunk machinery `LINK`
-  already provides.
-- **(b) MFBASIC-source `tls` package over a `LINK` block.** The package binds
-  `libssl` via `LINK`, drives the handshake/read/write/close in MFBASIC over the
-  marshaling thunks, and exposes the §10.4 surface (`tls.connect`, `tls.wrap`,
-  `tls.read`/`readText`, `tls.write`/`writeText`, `tls.close`). Gated on the
-  three `LINK` extensions in §4.1.1.
+- **(a) Native-helper package, mirroring `net` (implemented).** `src/builtins/
+  tls.rs` (front-end signatures, `TlsSocket` type, default args, consume
+  semantics), registered in `mod.rs` / `resource.rs` / `resolver.rs`; a
+  `RuntimeHelper::Tls` family; AArch64 codegen in `src/target/shared/code/tls.rs`
+  that `dlopen`/`dlsym`s OpenSSL directly. `TlsSocket` is a first-class built-in
+  resource.
+- (b) MFBASIC-source package over a `LINK` block. Set aside: the opaque-resource
+  model cannot hold per-session buffer state, and `LINK` lacks versioned-soname
+  fallback, binary-buffer marshaling, and socket-fd access (see §4.1).
 
 ### 4.3 Front end (`src/builtins/tls.rs`)
 
@@ -292,16 +297,17 @@ backend can be built over the full `LINK` path:
   import lists differ per target. Keep the divergence inside `code/tls.rs` +
   the two `plan.rs` files.
 
-### 4.6 Target plans (the linker-facing work)
+### 4.6 Target plans
 
-- **Linux** `linux_aarch64/plan.rs`: add `libssl.so.3` and `libcrypto.so.3`
-  imports for the TLS helper symbols, with versioned-symbol imports
-  (`@@OPENSSL_3.0.0`). This is the first built-in package needing a non-`libc`
-  shared library and versioned symbols — it must ride on the `plan-linker.md`
-  capability. Same for glibc and musl flavors.
-- **macOS** `macos_aarch64/plan.rs`: add Network.framework (and any required
-  `libdispatch`/`libobjc`/Security pieces) imports for the TLS helper symbols —
-  the first built-in package needing framework loading.
+- **Linux** `linux_aarch64/plan.rs` (implemented): the `tls.*` helpers import
+  only `dlopen`/`dlsym` (from libc) plus `__errno_location`; `tls.connect` also
+  imports `getaddrinfo`/`freeaddrinfo`/`socket`/`connect`/`close` for its own TCP
+  setup. There is **no `DT_NEEDED` on `libssl`** — OpenSSL is loaded at runtime
+  via `dlopen` with the `libssl.so.3` → `libssl.so.1.1` fallback, which is why one
+  binary runs against either OpenSSL series. Identical for glibc and musl.
+- **macOS** `macos_aarch64/plan.rs`: deferred. `tls.*` is absent from the macOS
+  backend `runtime_calls` capability, so a macOS build of a TLS program fails
+  cleanly at validation.
 - Keep all library divergence in the target `plan.rs` files; the shared front end
   and IR stay platform-neutral.
 

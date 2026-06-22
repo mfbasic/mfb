@@ -159,6 +159,18 @@ static BUILTIN_RESOURCES: LazyLock<HashMap<String, ResourceInfo>> = LazyLock::ne
             kind: ResourceKind::Builtin,
         },
     );
+    entries.insert(
+        super::tls::TLS_SOCKET_TYPE.to_string(),
+        ResourceInfo {
+            close_function: super::tls::resource_close_function(super::tls::TLS_SOCKET_TYPE)
+                .expect("TlsSocket has a built-in close op")
+                .to_string(),
+            // A TLS session is not thread-sendable in v1 (plan-03-net.md §4.4).
+            sendable: false,
+            close_may_fail: true,
+            kind: ResourceKind::Builtin,
+        },
+    );
     entries
 });
 

@@ -1,0 +1,56 @@
+{
+  "project": "func_tls_connect_valid",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "net", "line": 1 },
+    { "module": "tls", "line": 2 },
+    { "module": "io", "line": 3 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "ioRound",
+      "line": 7,
+      "params": [
+      { "name": "c", "type": "TlsSocket", "resource": true, "state": null, "default": null }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "tls.writeText", "arguments": [{ "kind": "identifier", "value": "c" }, { "kind": "string", "value": "GET / HTTP/1.0r\nr\n" }] }, "line": 8 },
+      { "kind": "binding", "mutable": false, "name": "payload", "type": "List OF Byte", "value": { "kind": "list", "values": [{ "kind": "number", "value": "1" }, { "kind": "number", "value": "2" }, { "kind": "number", "value": "3" }] }, "line": 9 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "tls.write", "arguments": [{ "kind": "identifier", "value": "c" }, { "kind": "identifier", "value": "payload" }] }, "line": 10 },
+      { "kind": "binding", "mutable": false, "name": "text", "type": null, "value": { "kind": "call", "callee": "tls.readText", "arguments": [{ "kind": "identifier", "value": "c" }, { "kind": "number", "value": "16" }] }, "line": 11 },
+      { "kind": "binding", "mutable": false, "name": "bytes", "type": null, "value": { "kind": "call", "callee": "tls.read", "arguments": [{ "kind": "identifier", "value": "c" }, { "kind": "number", "value": "16" }] }, "line": 12 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "identifier", "value": "text" }] }, "line": 13 },
+      { "kind": "return", "value": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "bytes" }] }, "line": 14 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "main",
+      "line": 17,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "c1", "type": null, "value": { "kind": "call", "callee": "tls.connect", "arguments": [{ "kind": "string", "value": "example.com" }, { "kind": "number", "value": "443" }] }, "line": 18 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "c2", "type": null, "value": { "kind": "call", "callee": "tls.connect", "arguments": [{ "kind": "string", "value": "example.com" }, { "kind": "number", "value": "443" }, { "kind": "number", "value": "5000" }] }, "line": 19 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "c3", "type": null, "value": { "kind": "call", "callee": "tls.connect", "arguments": [{ "kind": "string", "value": "example.com" }, { "kind": "number", "value": "443" }, { "kind": "number", "value": "5000" }, { "kind": "string", "value": "example.com" }] }, "line": 20 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "sock", "type": null, "value": { "kind": "call", "callee": "net.connectTcp", "arguments": [{ "kind": "string", "value": "example.com" }, { "kind": "number", "value": "443" }] }, "line": 21 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "c4", "type": null, "value": { "kind": "call", "callee": "tls.wrap", "arguments": [{ "kind": "identifier", "value": "sock" }, { "kind": "string", "value": "example.com" }] }, "line": 22 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "ioRound", "arguments": [{ "kind": "identifier", "value": "c4" }] }] }] }, "line": 23 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "tls.close", "arguments": [{ "kind": "identifier", "value": "c1" }] }, "line": 24 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "tls.close", "arguments": [{ "kind": "identifier", "value": "c2" }] }, "line": 25 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "tls.close", "arguments": [{ "kind": "identifier", "value": "c3" }] }, "line": 26 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "tls.close", "arguments": [{ "kind": "identifier", "value": "c4" }] }, "line": 27 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 28 }
+      ]
+    }
+    ]
+  }
+  ]
+}

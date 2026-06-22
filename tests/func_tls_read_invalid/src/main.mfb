@@ -1,0 +1,8 @@
+IMPORT tls
+
+FUNC main AS Integer
+  LET missing = tls::read()
+  LET wrongType = tls::read(1, 2)
+  LET tooMany = tls::read(1, 2, 3)
+  RETURN 0
+END FUNC

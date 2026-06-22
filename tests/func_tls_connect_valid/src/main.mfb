@@ -1,0 +1,29 @@
+IMPORT net
+IMPORT tls
+IMPORT io
+
+' Borrows a session for one request/response round trip (no close: the owner
+' closes it).
+FUNC ioRound(RES c AS TlsSocket) AS Integer
+  tls::writeText(c, "GET / HTTP/1.0\r\n\r\n")
+  LET payload AS List OF Byte = [1, 2, 3]
+  tls::write(c, payload)
+  LET text = tls::readText(c, 16)
+  LET bytes = tls::read(c, 16)
+  io::print(text)
+  RETURN len(bytes)
+END FUNC
+
+FUNC main AS Integer
+  RES c1 = tls::connect("example.com", 443)
+  RES c2 = tls::connect("example.com", 443, 5000)
+  RES c3 = tls::connect("example.com", 443, 5000, "example.com")
+  RES sock = net::connectTcp("example.com", 443)
+  RES c4 = tls::wrap(sock, "example.com")
+  io::print(toString(ioRound(c4)))
+  tls::close(c1)
+  tls::close(c2)
+  tls::close(c3)
+  tls::close(c4)
+  RETURN 0
+END FUNC

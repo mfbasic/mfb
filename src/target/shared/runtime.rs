@@ -12,6 +12,7 @@ pub enum RuntimeHelper {
     Net,
     Strings,
     Thread,
+    Tls,
 }
 
 impl RuntimeHelper {
@@ -24,6 +25,7 @@ impl RuntimeHelper {
             RuntimeHelper::Net => "net",
             RuntimeHelper::Strings => "strings",
             RuntimeHelper::Thread => "thread",
+            RuntimeHelper::Tls => "tls",
         }
     }
 }
@@ -1543,6 +1545,173 @@ pub(crate) const NET_SEND_TEXT_TO_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
     },
 };
 
+// ---------------------------------------------------------------------------
+// TLS (transport-layer security; Linux/OpenSSL backend, plan-03-net.md §4)
+// ---------------------------------------------------------------------------
+
+const TLS_CONNECT_PARAMS: &[RuntimeAbiParam] = &[
+    RuntimeAbiParam {
+        name: "host",
+        type_: "String",
+        location: "x0",
+    },
+    RuntimeAbiParam {
+        name: "port",
+        type_: "Integer",
+        location: "x1",
+    },
+    RuntimeAbiParam {
+        name: "timeoutMs",
+        type_: "Integer",
+        location: "x2",
+    },
+    RuntimeAbiParam {
+        name: "serverName",
+        type_: "String",
+        location: "x3",
+    },
+];
+
+const TLS_WRAP_PARAMS: &[RuntimeAbiParam] = &[
+    RuntimeAbiParam {
+        name: "sock",
+        type_: "Socket",
+        location: "x0",
+    },
+    RuntimeAbiParam {
+        name: "serverName",
+        type_: "String",
+        location: "x1",
+    },
+    RuntimeAbiParam {
+        name: "timeoutMs",
+        type_: "Integer",
+        location: "x2",
+    },
+];
+
+const TLS_SOCKET_INT_PARAMS: &[RuntimeAbiParam] = &[
+    RuntimeAbiParam {
+        name: "sock",
+        type_: "TlsSocket",
+        location: "x0",
+    },
+    RuntimeAbiParam {
+        name: "maxBytes",
+        type_: "Integer",
+        location: "x1",
+    },
+];
+
+const TLS_SOCKET_BYTES_PARAMS: &[RuntimeAbiParam] = &[
+    RuntimeAbiParam {
+        name: "sock",
+        type_: "TlsSocket",
+        location: "x0",
+    },
+    RuntimeAbiParam {
+        name: "bytes",
+        type_: "List OF Byte",
+        location: "x1",
+    },
+];
+
+const TLS_SOCKET_STRING_PARAMS: &[RuntimeAbiParam] = &[
+    RuntimeAbiParam {
+        name: "sock",
+        type_: "TlsSocket",
+        location: "x0",
+    },
+    RuntimeAbiParam {
+        name: "value",
+        type_: "String",
+        location: "x1",
+    },
+];
+
+const TLS_SOCKET_PARAMS: &[RuntimeAbiParam] = &[RuntimeAbiParam {
+    name: "sock",
+    type_: "TlsSocket",
+    location: "x0",
+}];
+
+pub(crate) const TLS_CONNECT_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
+    helper: RuntimeHelper::Tls,
+    call: "tls.connect",
+    symbol: "_mfb_rt_tls_tls_connect",
+    abi: RuntimeHelperAbi {
+        params: TLS_CONNECT_PARAMS,
+        returns: "TlsSocket",
+        clobbers: abi::IO_PRINT_CLOBBERS,
+    },
+};
+
+pub(crate) const TLS_WRAP_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
+    helper: RuntimeHelper::Tls,
+    call: "tls.wrap",
+    symbol: "_mfb_rt_tls_tls_wrap",
+    abi: RuntimeHelperAbi {
+        params: TLS_WRAP_PARAMS,
+        returns: "TlsSocket",
+        clobbers: abi::IO_PRINT_CLOBBERS,
+    },
+};
+
+pub(crate) const TLS_READ_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
+    helper: RuntimeHelper::Tls,
+    call: "tls.read",
+    symbol: "_mfb_rt_tls_tls_read",
+    abi: RuntimeHelperAbi {
+        params: TLS_SOCKET_INT_PARAMS,
+        returns: "List OF Byte",
+        clobbers: abi::IO_PRINT_CLOBBERS,
+    },
+};
+
+pub(crate) const TLS_READ_TEXT_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
+    helper: RuntimeHelper::Tls,
+    call: "tls.readText",
+    symbol: "_mfb_rt_tls_tls_readText",
+    abi: RuntimeHelperAbi {
+        params: TLS_SOCKET_INT_PARAMS,
+        returns: "String",
+        clobbers: abi::IO_PRINT_CLOBBERS,
+    },
+};
+
+pub(crate) const TLS_WRITE_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
+    helper: RuntimeHelper::Tls,
+    call: "tls.write",
+    symbol: "_mfb_rt_tls_tls_write",
+    abi: RuntimeHelperAbi {
+        params: TLS_SOCKET_BYTES_PARAMS,
+        returns: "Nothing",
+        clobbers: abi::IO_PRINT_CLOBBERS,
+    },
+};
+
+pub(crate) const TLS_WRITE_TEXT_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
+    helper: RuntimeHelper::Tls,
+    call: "tls.writeText",
+    symbol: "_mfb_rt_tls_tls_writeText",
+    abi: RuntimeHelperAbi {
+        params: TLS_SOCKET_STRING_PARAMS,
+        returns: "Nothing",
+        clobbers: abi::IO_PRINT_CLOBBERS,
+    },
+};
+
+pub(crate) const TLS_CLOSE_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
+    helper: RuntimeHelper::Tls,
+    call: "tls.close",
+    symbol: "_mfb_rt_tls_tls_close",
+    abi: RuntimeHelperAbi {
+        params: TLS_SOCKET_PARAMS,
+        returns: "Nothing",
+        clobbers: abi::IO_PRINT_CLOBBERS,
+    },
+};
+
 pub(crate) fn supported_helper_specs() -> &'static [RuntimeHelperSpec] {
     &[
         IO_PRINT_SPEC,
@@ -1639,6 +1808,13 @@ pub(crate) fn supported_helper_specs() -> &'static [RuntimeHelperSpec] {
         NET_RECEIVE_TEXT_FROM_SPEC,
         NET_SEND_TO_SPEC,
         NET_SEND_TEXT_TO_SPEC,
+        TLS_CONNECT_SPEC,
+        TLS_WRAP_SPEC,
+        TLS_READ_SPEC,
+        TLS_READ_TEXT_SPEC,
+        TLS_WRITE_SPEC,
+        TLS_WRITE_TEXT_SPEC,
+        TLS_CLOSE_SPEC,
     ]
 }
 
@@ -1669,6 +1845,8 @@ pub fn helper_for_call(name: &str) -> Option<RuntimeHelper> {
         Some(RuntimeHelper::Thread)
     } else if builtins::net::is_net_call(name) {
         Some(RuntimeHelper::Net)
+    } else if builtins::tls::is_tls_call(name) {
+        Some(RuntimeHelper::Tls)
     } else {
         None
     }

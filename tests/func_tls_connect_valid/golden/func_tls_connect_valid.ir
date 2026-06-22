@@ -1,0 +1,53 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "func_tls_connect_valid",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "ioRound",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    { "name": "c", "type": "TlsSocket", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "eval", "value": { "kind": "call", "target": "tls.writeText", "args": [{ "kind": "local", "name": "c" }, { "kind": "const", "type": "String", "value": "GET / HTTP/1.0r\nr\n" }] } },
+    { "op": "bind", "mutable": false, "name": "payload", "type": "List OF Byte", "value": { "kind": "list", "type": "List OF Byte", "values": [{ "kind": "const", "type": "Byte", "value": "1" }, { "kind": "const", "type": "Byte", "value": "2" }, { "kind": "const", "type": "Byte", "value": "3" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "tls.write", "args": [{ "kind": "local", "name": "c" }, { "kind": "local", "name": "payload" }] } },
+    { "op": "bind", "mutable": false, "name": "text", "type": "String", "value": { "kind": "call", "target": "tls.readText", "args": [{ "kind": "local", "name": "c" }, { "kind": "const", "type": "Integer", "value": "16" }] } },
+    { "op": "bind", "mutable": false, "name": "bytes", "type": "List OF Byte", "value": { "kind": "call", "target": "tls.read", "args": [{ "kind": "local", "name": "c" }, { "kind": "const", "type": "Integer", "value": "16" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "local", "name": "text" }] } },
+    { "op": "return", "value": { "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "bytes" }] } }
+    ]
+  },
+  {
+    "name": "main",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "mutable": false, "name": "c1", "type": "TlsSocket", "value": { "kind": "call", "target": "tls.connect", "args": [{ "kind": "const", "type": "String", "value": "example.com" }, { "kind": "const", "type": "Integer", "value": "443" }, { "kind": "const", "type": "Integer", "value": "0" }, { "kind": "const", "type": "String", "value": "" }] } },
+    { "op": "bind", "mutable": false, "name": "c2", "type": "TlsSocket", "value": { "kind": "call", "target": "tls.connect", "args": [{ "kind": "const", "type": "String", "value": "example.com" }, { "kind": "const", "type": "Integer", "value": "443" }, { "kind": "const", "type": "Integer", "value": "5000" }, { "kind": "const", "type": "String", "value": "" }] } },
+    { "op": "bind", "mutable": false, "name": "c3", "type": "TlsSocket", "value": { "kind": "call", "target": "tls.connect", "args": [{ "kind": "const", "type": "String", "value": "example.com" }, { "kind": "const", "type": "Integer", "value": "443" }, { "kind": "const", "type": "Integer", "value": "5000" }, { "kind": "const", "type": "String", "value": "example.com" }] } },
+    { "op": "bind", "mutable": false, "name": "sock", "type": "Socket", "value": { "kind": "call", "target": "net.connectTcp", "args": [{ "kind": "const", "type": "String", "value": "example.com" }, { "kind": "const", "type": "Integer", "value": "443" }] } },
+    { "op": "bind", "mutable": false, "name": "c4", "type": "TlsSocket", "value": { "kind": "call", "target": "tls.wrap", "args": [{ "kind": "local", "name": "sock" }, { "kind": "const", "type": "String", "value": "example.com" }, { "kind": "const", "type": "Integer", "value": "0" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "ioRound", "args": [{ "kind": "local", "name": "c4" }] }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "tls.close", "args": [{ "kind": "local", "name": "c1" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "tls.close", "args": [{ "kind": "local", "name": "c2" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "tls.close", "args": [{ "kind": "local", "name": "c3" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "tls.close", "args": [{ "kind": "local", "name": "c4" }] } },
+    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

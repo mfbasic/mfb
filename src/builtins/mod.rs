@@ -7,13 +7,14 @@ pub(crate) mod net;
 pub(crate) mod resource;
 pub(crate) mod strings;
 pub(crate) mod thread;
+pub(crate) mod tls;
 
 pub(crate) use resource::{ResourceInfo, ResourceKind, ResourceRegistry};
 
 pub(crate) fn is_builtin_import(name: &str) -> bool {
     matches!(
         name,
-        "fs" | "io" | "json" | "math" | "net" | "strings" | "thread"
+        "fs" | "io" | "json" | "math" | "net" | "strings" | "thread" | "tls"
     )
 }
 
@@ -23,6 +24,7 @@ pub(crate) fn is_builtin_type(name: &str) -> bool {
         || json::is_builtin_type(name)
         || net::is_builtin_type(name)
         || thread::is_builtin_type(name)
+        || tls::is_builtin_type(name)
 }
 
 pub(crate) fn resource_close_function(type_name: &str) -> Option<&'static str> {
@@ -45,6 +47,7 @@ pub(crate) fn call_return_type_name(name: &str) -> Option<&'static str> {
         .or_else(|| io::call_return_type_name(name))
         .or_else(|| json::call_return_type_name(name))
         .or_else(|| net::call_return_type_name(name))
+        .or_else(|| tls::call_return_type_name(name))
 }
 
 pub(crate) fn is_builtin_call(name: &str) -> bool {
@@ -56,6 +59,7 @@ pub(crate) fn is_builtin_call(name: &str) -> bool {
         || json::is_json_call(name)
         || net::is_net_call(name)
         || thread::is_thread_call(name)
+        || tls::is_tls_call(name)
         || call_return_type_name(name).is_some()
 }
 
@@ -179,6 +183,13 @@ pub(crate) fn call_param_names(name: &str) -> Option<&'static [&'static [&'stati
         "net.receiveTextFrom" => Some(&[&["sock"], &["maxBytes"]]),
         "net.sendTo" => Some(&[&["sock"], &["address"], &["bytes"]]),
         "net.sendTextTo" => Some(&[&["sock"], &["address"], &["value"]]),
+        "tls.connect" => Some(&[&["host"], &["port"], &["timeoutMs"], &["serverName"]]),
+        "tls.wrap" => Some(&[&["sock"], &["serverName"], &["timeoutMs"]]),
+        "tls.read" => Some(&[&["sock"], &["maxBytes"]]),
+        "tls.readText" => Some(&[&["sock"], &["maxBytes"]]),
+        "tls.write" => Some(&[&["sock"], &["bytes"]]),
+        "tls.writeText" => Some(&[&["sock"], &["value"]]),
+        "tls.close" => Some(&[&["resource", "sock"]]),
         "io.print" => Some(&[&["value"]]),
         "io.write" => Some(&[&["value"]]),
         "io.flush" => Some(&[]),
