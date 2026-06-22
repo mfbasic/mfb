@@ -32,6 +32,18 @@ Guidelines:
 - Treat any backend helper named like `*_default_result`, or any backend path that stores default values for a built-in operation, as unsupported unless a runtime test proves the actual requested behavior.
 - For any requested feature, do not implement or present a simulation, approximation, cooperative fallback, lazy substitute, single-step substitute, metadata-only substitute, queue-only substitute, or behavior-compatible shortcut as real support unless the user explicitly asks for that kind of simulation. If the real feature requires runtime helpers, OS/library integration, scheduler work, platform ABI changes, persistence, networking, concurrency, or other integration pieces, implement those pieces and validate the real behavior at runtime, or report the task as incomplete.
 
+## Native Codegen Register Lifetimes
+
+Internal runtime helpers called via `bl` are not register-transparent. Treat any value held in a caller-saved scratch register as destroyed across the call unless you have proven otherwise from the callee's source.
+
+Guidelines:
+
+- `_mfb_arena_alloc` (`lower_arena_alloc` in `src/target/shared/code/mod.rs`) has an empty `callee_saved` frame and uses `x0`, `x1`, `x9`, `x10`, `x14`, `x15`, `x16`, and `x20`–`x28` as scratch (notably `x15`/`x14` in the block-grow path). Any value live across `bl _mfb_arena_alloc` in those registers is corrupted; only `x8`, `x11`, `x12`, `x13`, and `x17` currently survive. Do not rely on that survivor list as a stable contract — spill to a stack slot instead.
+- When a quantity is computed before a runtime `bl` and consumed after it (lengths, counts, pointers, sizes, header fields), store it to a stack slot before the call and reload it afterward. Do not assume a register holds its value across the call.
+- This class of bug is layout- and value-sensitive: the corrupted value may still produce correct results for small inputs and only fail past a threshold (e.g. a poisoned `DATA_LENGTH` field read as a huge size on the next operation, causing a runaway allocation or `SIGSEGV` only after N iterations). A passing small test does not prove the register lifetime is safe.
+- When adding or auditing any helper that calls a runtime routine and then writes a collection/record/string header from registers, verify every header-field source register against the callee's clobber set. The same pattern recurs across insert, remove, concat, and map-mutation lowerings.
+- Reproduce register-clobber crashes with a debugger: stale values leaking from the caller (registers the callee does not touch) plus a faulting helper pinpoint exactly which live register was destroyed. See the memory note `arena-alloc-clobbers-x14-x15` for the worked example.
+
 ## Validation
 
 After completing any code or golden-output change, the acceptance suite must pass.

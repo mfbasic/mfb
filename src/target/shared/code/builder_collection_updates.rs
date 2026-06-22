@@ -358,6 +358,7 @@ impl CodeBuilder<'_> {
             self.mark_register_used(register);
         }
         let result_slot = self.allocate_stack_object("list_insert_result", 8);
+        let data_len_slot = self.allocate_stack_object("list_insert_data_len", 8);
         let valid_start = self.label("list_insert_valid_start");
         let alloc_ok = self.label("list_insert_alloc_ok");
         let invalid = self.label("list_insert_invalid");
@@ -378,6 +379,11 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64("x14", "x8", COLLECTION_OFFSET_DATA_LENGTH));
         self.emit(abi::load_u64("x15", "x9", COLLECTION_OFFSET_DATA_LENGTH));
         self.emit(abi::add_registers("x15", "x14", "x15"));
+        // `arena_alloc` clobbers x15 (it is scratch in the block-grow path), so
+        // stash the freshly computed data length on the stack and reload it for
+        // the header write below; otherwise the new list's DATA_LENGTH field is
+        // poisoned with a pointer, which the next append reads as a huge size.
+        self.emit(abi::store_u64("x15", abi::stack_pointer(), data_len_slot));
         self.emit(abi::move_immediate(
             "x16",
             "Integer",
@@ -411,6 +417,7 @@ impl CodeBuilder<'_> {
         self.emit_allocation_error_return()?;
         self.emit(abi::label(&alloc_ok));
         self.emit(abi::store_u64("x1", abi::stack_pointer(), result_slot));
+        self.emit(abi::load_u64("x15", abi::stack_pointer(), data_len_slot));
         self.emit_write_list_header_from_registers(&layout, "x1", "x13", "x15");
 
         self.emit(abi::load_u64("x8", abi::stack_pointer(), base_slot));
@@ -499,6 +506,7 @@ impl CodeBuilder<'_> {
             self.mark_register_used(register);
         }
         let result_slot = self.allocate_stack_object("list_remove_result", 8);
+        let data_len_slot = self.allocate_stack_object("list_remove_data_len", 8);
         let valid_start = self.label("list_remove_valid_start");
         let alloc_ok = self.label("list_remove_alloc_ok");
         let invalid = self.label("list_remove_invalid");
@@ -528,6 +536,9 @@ impl CodeBuilder<'_> {
             COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
         ));
         self.emit(abi::subtract_registers("x15", "x14", "x15"));
+        // `arena_alloc` clobbers x15 in its block-grow path; persist the data
+        // length so the header write below does not store a stale pointer.
+        self.emit(abi::store_u64("x15", abi::stack_pointer(), data_len_slot));
         self.emit(abi::subtract_immediate("x13", "x11", 1));
         self.emit(abi::multiply_registers("x17", "x13", "x16"));
         self.emit(abi::add_immediate(
@@ -557,6 +568,7 @@ impl CodeBuilder<'_> {
         self.emit_allocation_error_return()?;
         self.emit(abi::label(&alloc_ok));
         self.emit(abi::store_u64("x1", abi::stack_pointer(), result_slot));
+        self.emit(abi::load_u64("x15", abi::stack_pointer(), data_len_slot));
         self.emit_write_list_header_from_registers(&layout, "x1", "x13", "x15");
 
         self.emit(abi::load_u64("x8", abi::stack_pointer(), base_slot));
@@ -775,6 +787,7 @@ impl CodeBuilder<'_> {
             self.mark_register_used(register);
         }
         let result_slot = self.allocate_stack_object("map_concat_result", 8);
+        let data_len_slot = self.allocate_stack_object("map_concat_data_len", 8);
         let alloc_ok = self.label("map_concat_alloc_ok");
         self.emit(abi::load_u64("x8", abi::stack_pointer(), left_slot));
         self.emit(abi::load_u64("x9", abi::stack_pointer(), right_slot));
@@ -788,6 +801,9 @@ impl CodeBuilder<'_> {
         self.emit_align_offset_register("x13", map_max_align, "x15");
         self.emit(abi::load_u64("x14", "x9", COLLECTION_OFFSET_DATA_LENGTH));
         self.emit(abi::add_registers("x14", "x13", "x14"));
+        // `arena_alloc` clobbers x14 in its block-grow path; persist the data
+        // length so the header write below does not store a stale pointer.
+        self.emit(abi::store_u64("x14", abi::stack_pointer(), data_len_slot));
         self.emit(abi::move_immediate(
             "x15",
             "Integer",
@@ -821,6 +837,7 @@ impl CodeBuilder<'_> {
         self.emit_allocation_error_return()?;
         self.emit(abi::label(&alloc_ok));
         self.emit(abi::store_u64("x1", abi::stack_pointer(), result_slot));
+        self.emit(abi::load_u64("x14", abi::stack_pointer(), data_len_slot));
         self.emit_write_list_header_from_registers(&layout, "x1", "x12", "x14");
         self.emit(abi::load_u64("x8", abi::stack_pointer(), left_slot));
         self.emit(abi::load_u64("x9", abi::stack_pointer(), right_slot));
@@ -890,6 +907,8 @@ impl CodeBuilder<'_> {
             self.mark_register_used(register);
         }
         let result_slot = self.allocate_stack_object("map_remove_result", 8);
+        let count_slot = self.allocate_stack_object("map_remove_count", 8);
+        let data_len_slot = self.allocate_stack_object("map_remove_data_len", 8);
         let scan_loop = self.label("map_remove_scan_loop");
         let scan_keep = self.label("map_remove_scan_keep");
         let scan_next = self.label("map_remove_scan_next");
@@ -963,6 +982,11 @@ impl CodeBuilder<'_> {
             abi::return_register(),
             "x15",
         ));
+        // `arena_alloc` clobbers both x14 and x15 in its block-grow path; persist
+        // the retained count and data length so the header write below does not
+        // store stale pointers.
+        self.emit(abi::store_u64("x14", abi::stack_pointer(), count_slot));
+        self.emit(abi::store_u64("x15", abi::stack_pointer(), data_len_slot));
         self.emit(abi::move_immediate("x1", "Integer", "8"));
         self.emit(abi::branch_link(ARENA_ALLOC_SYMBOL));
         self.relocations.push(CodeRelocation {
@@ -980,6 +1004,8 @@ impl CodeBuilder<'_> {
         self.emit_allocation_error_return()?;
         self.emit(abi::label(&alloc_ok));
         self.emit(abi::store_u64("x1", abi::stack_pointer(), result_slot));
+        self.emit(abi::load_u64("x14", abi::stack_pointer(), count_slot));
+        self.emit(abi::load_u64("x15", abi::stack_pointer(), data_len_slot));
         self.emit_write_list_header_from_registers(&layout, "x1", "x14", "x15");
 
         self.emit(abi::load_u64("x8", abi::stack_pointer(), map_slot));

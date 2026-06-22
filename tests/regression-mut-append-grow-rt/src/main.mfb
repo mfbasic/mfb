@@ -1,20 +1,14 @@
 IMPORT io
 
-' KNOWN BUG (pre-existing; unrelated to resources). A `MUT` collection grown by
-' `append` in a loop past its initial 16-element capacity corrupts memory and
-' segfaults. The boundary is exact:
-'   - loop to 16 elements  -> ok
-'   - loop to 17 elements  -> SIGSEGV (deterministic), 18+ -> runaway/OOM
-'   - a 17-element list literal -> ok
-'   - a 16-element literal + one `append` -> ok
-' So the fault is the destructive in-place `MUT`-append growth path crossing the
-' capacity-16 boundary in a loop. It affects every element type.
-'
-' This directory only builds in the acceptance suite (no `.run` golden), because
-' the crash message carries a non-deterministic PID. To trigger the segfault:
-'   ./target/debug/mfb build tests/regression-mut-append-grow-rt
-'   tests/regression-mut-append-grow-rt/regression_mut_append_grow_rt.out   # -> exit 139
-' When the runtime is fixed this prints `len=17`.
+' REGRESSION: growing a `MUT` collection with `append` in a loop once crossed a
+' boundary (16 -> 17 elements) and corrupted memory -> SIGSEGV, then runaway OOM.
+' Root cause: `lower_list_insert_collection` computed the new buffer's data length
+' in x15, but `_mfb_arena_alloc` clobbers x15 in its block-grow path, so the
+' header write stored a stale pointer into the DATA_LENGTH field. The next append
+' read that pointer as a huge size, forcing an ever-larger grow until mmap failed.
+' Fixed by spilling the data length to the stack across the alloc call (same fix
+' applied to remove-at, map-concat, and map-remove-key, which shared the pattern).
+' The `.run` golden now asserts the loop reaches 17 and prints `len=17`.
 FUNC main AS Integer
   MUT xs AS List OF Integer = []
   MUT j AS Integer = 0
