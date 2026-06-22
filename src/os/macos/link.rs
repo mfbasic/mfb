@@ -15,6 +15,55 @@ pub(crate) fn write_executable(
     project_name: &str,
     image: &EncodedImage,
 ) -> Result<PathBuf, String> {
+    let bytes = encode_executable_bytes(project_name, image)?;
+    let path = project_dir.join(format!("{project_name}.out"));
+    write_executable_file(&path, &bytes)?;
+    Ok(path)
+}
+
+/// Write an app-mode `.app` bundle (plan-04-macos-app.md §5.2):
+///
+/// ```text
+/// <name>.app/
+///   Contents/
+///     Info.plist
+///     MacOS/
+///       <name>
+/// ```
+///
+/// The inner Mach-O is byte-identical to the `<name>.out` the console path
+/// produces from the same image; only the on-disk layout and the accompanying
+/// `Info.plist` differ. Returns the path to the `<name>.app` bundle directory.
+///
+/// Reachable from the backend only once Phase 3 wires app-mode codegen; the
+/// `allow(dead_code)` also covers the `Info.plist` helpers below until then.
+/// They remain exercised by the end-to-end tests in this module.
+#[allow(dead_code)]
+pub(crate) fn write_app_bundle(
+    project_dir: &Path,
+    project_name: &str,
+    image: &EncodedImage,
+) -> Result<PathBuf, String> {
+    let bytes = encode_executable_bytes(project_name, image)?;
+    let bundle_path = project_dir.join(format!("{project_name}.app"));
+    let contents_dir = bundle_path.join("Contents");
+    let macos_dir = contents_dir.join("MacOS");
+    fs::create_dir_all(&macos_dir)
+        .map_err(|err| format!("failed to create '{}': {err}", macos_dir.display()))?;
+
+    let executable_path = macos_dir.join(project_name);
+    write_executable_file(&executable_path, &bytes)?;
+
+    let plist_path = contents_dir.join("Info.plist");
+    fs::write(&plist_path, app_info_plist(project_name))
+        .map_err(|err| format!("failed to write '{}': {err}", plist_path.display()))?;
+
+    Ok(bundle_path)
+}
+
+/// Encode the final Mach-O executable image to bytes, shared by the console
+/// `<name>.out` and app-mode bundle writers so both emit identical binaries.
+fn encode_executable_bytes(project_name: &str, image: &EncodedImage) -> Result<Vec<u8>, String> {
     // Load-time initializers (plan-linker.md §5.3/§7.5) lower to a
     // `__mod_init_func` section dyld runs after binding and before `LC_MAIN`.
     // Each must name an internal text symbol; refuse rather than silently drop a
@@ -59,7 +108,7 @@ pub(crate) fn write_executable(
         .filter(|symbol| symbol.section == EncodedSection::Text)
         .map(|symbol| symbol.offset)
         .ok_or_else(|| format!("entry symbol '{}' does not resolve to text", image.entry))?;
-    let bytes = encode_mach_o(
+    Ok(encode_mach_o(
         project_name,
         code_offset,
         entry_offset,
@@ -67,17 +116,61 @@ pub(crate) fn write_executable(
         &image.data,
         &libraries,
         image,
-    );
-    let path = project_dir.join(format!("{project_name}.out"));
-    fs::write(&path, bytes)
+    ))
+}
+
+/// Write executable bytes to `path` and mark the file executable (0o755).
+fn write_executable_file(path: &Path, bytes: &[u8]) -> Result<(), String> {
+    fs::write(path, bytes)
         .map_err(|err| format!("failed to write '{}': {err}", path.display()))?;
-    let mut permissions = fs::metadata(&path)
+    let mut permissions = fs::metadata(path)
         .map_err(|err| format!("failed to read '{}': {err}", path.display()))?
         .permissions();
     permissions.set_mode(0o755);
-    fs::set_permissions(&path, permissions)
+    fs::set_permissions(path, permissions)
         .map_err(|err| format!("failed to mark '{}' executable: {err}", path.display()))?;
-    Ok(path)
+    Ok(())
+}
+
+/// Minimal `Info.plist` for an app-mode bundle (plan-04-macos-app.md §6.8).
+/// `CFBundleExecutable`/`CFBundleName` use the project name; the bundle id is
+/// namespaced under `dev.mfbasic.<name>`. The principal class is `NSApplication`
+/// so Launch Services treats the bundle as a regular AppKit application.
+#[allow(dead_code)]
+fn app_info_plist(project_name: &str) -> String {
+    format!(
+        concat!(
+            "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n",
+            "<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\"\n",
+            " \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n",
+            "<plist version=\"1.0\">\n",
+            "<dict>\n",
+            "  <key>CFBundleName</key>\n",
+            "  <string>{name}</string>\n",
+            "  <key>CFBundleExecutable</key>\n",
+            "  <string>{name}</string>\n",
+            "  <key>CFBundleIdentifier</key>\n",
+            "  <string>dev.mfbasic.{name}</string>\n",
+            "  <key>CFBundlePackageType</key>\n",
+            "  <string>APPL</string>\n",
+            "  <key>NSPrincipalClass</key>\n",
+            "  <string>NSApplication</string>\n",
+            "</dict>\n",
+            "</plist>\n"
+        ),
+        name = plist_escape(project_name)
+    )
+}
+
+/// Escape the five XML predefined entities for safe inclusion in a plist string.
+#[allow(dead_code)]
+fn plist_escape(value: &str) -> String {
+    value
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&apos;")
 }
 
 fn patch_relocations(
@@ -1470,6 +1563,182 @@ mod tests {
             status.code(),
             Some(0),
             "program importing from libSystem + Network.framework should exit 0"
+        );
+    }
+
+    #[test]
+    fn dylib_path_resolves_app_mode_frameworks() {
+        // App mode (plan-04-macos-app.md §6.5) binds against these frameworks.
+        assert_eq!(
+            dylib_path("AppKit").unwrap(),
+            "/System/Library/Frameworks/AppKit.framework/AppKit"
+        );
+        assert_eq!(
+            dylib_path("Foundation").unwrap(),
+            "/System/Library/Frameworks/Foundation.framework/Foundation"
+        );
+        assert_eq!(dylib_path("libobjc").unwrap(), "/usr/lib/libobjc.A.dylib");
+    }
+
+    #[test]
+    fn app_info_plist_has_required_bundle_keys() {
+        let plist = app_info_plist("hello");
+        assert!(plist.contains("<key>CFBundleExecutable</key>\n  <string>hello</string>"));
+        assert!(plist.contains("<key>CFBundleName</key>\n  <string>hello</string>"));
+        assert!(plist.contains("<string>dev.mfbasic.hello</string>"));
+        assert!(plist.contains("<key>CFBundlePackageType</key>\n  <string>APPL</string>"));
+        assert!(plist.contains("<key>NSPrincipalClass</key>\n  <string>NSApplication</string>"));
+    }
+
+    #[test]
+    fn app_info_plist_escapes_xml_metacharacters() {
+        let plist = app_info_plist("a<b&c");
+        assert!(plist.contains("<string>a&lt;b&amp;c</string>"));
+        assert!(!plist.contains("a<b&c"));
+    }
+
+    // End-to-end Phase 2 (plan-04-macos-app.md §5.2): a hand-built program that
+    // exits 0 is written as a `.app` bundle. Asserts the bundle layout, that the
+    // inner Mach-O is byte-identical to the console `<name>.out`, that Info.plist
+    // is present, and that launching `Contents/MacOS/<name>` runs and exits 0.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn writes_and_launches_app_bundle() {
+        let words: [u32; 3] = [
+            0xD280_0000, // movz x0, #0
+            0xD280_0030, // movz x16, #1   (SYS_exit)
+            0xD400_1001, // svc  #0x80      -> exit(0)
+        ];
+        let mut text = Vec::new();
+        for word in words {
+            put_u32(&mut text, word);
+        }
+        let image = EncodedImage {
+            text,
+            data: Vec::new(),
+            symbols: vec![EncodedSymbol {
+                name: "_main".to_string(),
+                section: EncodedSection::Text,
+                offset: 0,
+            }],
+            relocations: Vec::new(),
+            imports: Vec::new(),
+            entry: "_main".to_string(),
+            initializers: Vec::new(),
+            signing_metadata: None,
+        };
+        let dir = std::env::temp_dir().join(format!("mfb_appbundle_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("temp dir");
+
+        let bundle = write_app_bundle(&dir, "windowed", &image).expect("write app bundle");
+        assert_eq!(bundle, dir.join("windowed.app"));
+        let exe = bundle.join("Contents/MacOS/windowed");
+        let plist = bundle.join("Contents/Info.plist");
+        assert!(exe.is_file(), "bundle executable must exist");
+        assert!(plist.is_file(), "Info.plist must exist");
+
+        // The bundled binary must be byte-identical to the console `.out`.
+        let out = write_executable(&dir, "windowed", &image).expect("write console executable");
+        assert_eq!(
+            std::fs::read(&exe).unwrap(),
+            std::fs::read(&out).unwrap(),
+            "bundled Mach-O must match the console executable bytes"
+        );
+
+        let status = std::process::Command::new(&exe)
+            .status()
+            .expect("run bundled executable");
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(
+            status.code(),
+            Some(0),
+            "launching the bundled executable should exit 0"
+        );
+    }
+
+    // Phase 2 framework-import proof for the libraries app mode needs
+    // (plan-04-macos-app.md §6.5): a hand-built `_main` calls
+    // `objc_getClass("NSObject")` (libobjc) and exits 0, packaged as a `.app`.
+    // libobjc binding is exercised through the GOT, a data relocation resolves
+    // the class-name string, and a clean exit proves the LC_LOAD_DYLIB for
+    // libobjc resolves at launch. NSObject is registered by the Objective-C
+    // runtime itself, so this needs no Foundation/AppKit at run time.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn links_and_launches_app_bundle_importing_libobjc() {
+        // _main:
+        //   adrp x0, name ; add x0, x0, pageoff(name)   -> x0 = "NSObject"
+        //   bl _objc_getClass
+        //   movz x0, #0 ; movz x16, #1 ; svc #0x80       -> exit(0)
+        let words: [u32; 6] = [
+            0x9000_0000, // adrp x0, name        (data page21, patched)
+            0x9100_0000, // add  x0, x0, #pageoff (data pageoff12, patched)
+            0x9400_0000, // bl _objc_getClass     (external branch26, patched)
+            0xD280_0000, // movz x0, #0
+            0xD280_0030, // movz x16, #1
+            0xD400_1001, // svc  #0x80            -> exit(0)
+        ];
+        let mut text = Vec::new();
+        for word in words {
+            put_u32(&mut text, word);
+        }
+        let mut data = b"NSObject".to_vec();
+        data.push(0);
+        let image = EncodedImage {
+            text,
+            data,
+            symbols: vec![
+                EncodedSymbol {
+                    name: "_main".to_string(),
+                    section: EncodedSection::Text,
+                    offset: 0,
+                },
+                EncodedSymbol {
+                    name: "_class_name".to_string(),
+                    section: EncodedSection::Data,
+                    offset: 0,
+                },
+            ],
+            relocations: vec![
+                EncodedRelocation {
+                    offset: 0,
+                    target: "_class_name".to_string(),
+                    kind: "page21".to_string(),
+                    binding: "data".to_string(),
+                    library: None,
+                },
+                EncodedRelocation {
+                    offset: 4,
+                    target: "_class_name".to_string(),
+                    kind: "pageoff12".to_string(),
+                    binding: "data".to_string(),
+                    library: None,
+                },
+                EncodedRelocation {
+                    offset: 8,
+                    target: "_objc_getClass".to_string(),
+                    kind: "branch26".to_string(),
+                    binding: "external".to_string(),
+                    library: Some("libobjc".to_string()),
+                },
+            ],
+            imports: vec![import("libobjc", "_objc_getClass")],
+            entry: "_main".to_string(),
+            initializers: Vec::new(),
+            signing_metadata: None,
+        };
+        let dir = std::env::temp_dir().join(format!("mfb_objclink_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("temp dir");
+        let bundle = write_app_bundle(&dir, "objcapp", &image).expect("write libobjc app bundle");
+        let exe = bundle.join("Contents/MacOS/objcapp");
+        let status = std::process::Command::new(&exe)
+            .status()
+            .expect("run libobjc app bundle");
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(
+            status.code(),
+            Some(0),
+            "app bundle importing libobjc should bind and exit 0"
         );
     }
 }
