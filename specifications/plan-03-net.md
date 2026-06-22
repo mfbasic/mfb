@@ -300,12 +300,13 @@ read/write, both byte and text). Validation-on-by-default proven against
     `SSL_read`/`SSL_write`/`SSL_shutdown`/`SSL_free`. `TlsSocket` carries the
     underlying `fd`, the `SSL*`, and a `closed` flag; choose a fixed record
     layout and document it beside the `File` layout note in `code/net.rs`.
-  - **macOS (Network.framework):** create an `nw_connection` over the existing
-    socket/endpoint with a TLS-enabled `nw_parameters`, start it on a dispatch
-    queue, and bridge the async send/receive completion handlers to the
-    synchronous MFBASIC ABI (block + dispatch semaphore). This bridge is the main
-    macOS-specific cost. Default parameters already enforce validation; set the
-    minimum TLS version and SNI via `sec_protocol_options`.
+  - **macOS (Network.framework):** create an `nw_connection` from a host/port
+    endpoint + `nw_parameters_create_secure_tcp` (default secure configuration),
+    start it on a dispatch queue, and bridge the async state-changed / send /
+    receive completion handlers to the synchronous MFBASIC ABI (hand-emitted
+    block literals + `dispatch_semaphore`). This bridge is the main macOS-specific
+    cost. Default parameters enforce chain + hostname validation. (See §4.1 for
+    the implemented details.)
 - Because a package decodes back to IR and lowers through the same
   `IR → NIR → native` path (`architecture.md` §11), the *front-end* signatures
   and IR are target-independent; only the emitted helper bodies and the platform
@@ -387,13 +388,14 @@ These are runtime features; compilation passing is not enough.
    3. Helper specs + `code/net.rs` bodies; `plan.rs` `recvfrom`/`sendto`/
       `getsockname` imports (both targets, both Linux flavors).
    4. Tests + runtime loopback proofs; acceptance.
-2. **Confirm `plan-linker.md` linker capability** (multi-library, macOS
-   framework loading, Linux versioned symbols) is available; TLS blocks on it.
-3. **TLS** — `src/builtins/tls.rs`, `mod.rs`/`resource.rs` registration,
-   `RuntimeHelper::Tls` (+ `binary_repr.rs` round-trip), `code/tls.rs` bodies
-   (OpenSSL 3 on Linux, Network.framework on macOS), and the two `plan.rs`
-   library/framework import sets.
-4. Tests + runtime handshake proofs; acceptance across all target flavors.
+2. ~~Confirm `plan-linker.md` linker capability~~ — **not needed.** The TLS
+   backend loads its system TLS stack with `dlopen`/`dlsym` at runtime, so it does
+   not depend on the static multi-library / framework / versioned-symbol linker.
+3. **TLS** (done) — `src/builtins/tls.rs`, `mod.rs`/`resource.rs` registration,
+   `RuntimeHelper::Tls`, `code/tls.rs` bodies (OpenSSL on Linux via
+   `libssl.so.3`→`libssl.so.1.1` `dlopen` fallback, Network.framework on macOS),
+   and the two `plan.rs` `dlopen`/`dlsym` import sets.
+4. Tests + runtime handshake proofs; acceptance across all target flavors (done).
 
 ## 8. Non-Goals For This Plan
 
@@ -404,13 +406,15 @@ These are runtime features; compilation passing is not enough.
   (listener) sockets (§10.4: explicit extension APIs, not the minimal core).
 - Making `TlsSocket` thread-sendable (deferred; `Socket`/`UdpSocket` remain
   sendable as the spec requires).
-- `libssl.so.1.1` fallback on Linux (OpenSSL 3 only, settled).
+- `tls::wrap` (removed from the package surface, §1.2).
 
 ## 9. Bottom Line
 
-UDP is a mechanical extension of the existing TCP native-helper machinery and
-should land first with no linker changes. TLS is gated on the
-`plan-linker.md` multi-library/framework/versioned-symbol linker and is the only
-part of §11 that introduces per-target backend divergence (OpenSSL 3 on Linux,
-Network.framework on macOS) — kept isolated to `code/tls.rs` and the two
-`plan.rs` files so the front end and IR stay platform-neutral.
+**Done.** UDP landed as a mechanical extension of the TCP native-helper
+machinery with no linker changes. TLS is a native built-in that loads its system
+TLS stack via `dlopen`/`dlsym` (no linker capability needed), and is the only
+part of §11 with per-target backend divergence (OpenSSL on Linux, with a
+`libssl.so.3`→`libssl.so.1.1` fallback; Network.framework on macOS) — kept
+isolated to `code/tls.rs` and the two `plan.rs` files so the front end and IR
+stay platform-neutral. Verified end-to-end on macOS plus `linux-aarch64` glibc
+(Arch, Kali) and musl (Alpine).

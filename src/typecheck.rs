@@ -4532,8 +4532,7 @@ impl<'a> TypeChecker<'a> {
             .iter()
             .enumerate()
             .map(|(index, argument)| {
-                // `tls.wrap` consumes its `Socket`; `tls.close` consumes the
-                // `TlsSocket` it closes.
+                // `tls.close` consumes the `TlsSocket` it closes.
                 let mode = if builtins::tls::consumes_argument(callee, index) {
                     ExprMode::Transfer
                 } else {

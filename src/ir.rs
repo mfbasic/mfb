@@ -2568,7 +2568,7 @@ fn lower_expression_with_expected(
                     })
                     .collect()
             };
-            // Pad optional trailing arguments (`tls.connect`/`tls.wrap` defaults)
+            // Pad optional trailing arguments (`tls.connect` defaults)
             // with constants so the fixed-ABI runtime helper always receives
             // every parameter (plan-03-net.md §4).
             let mut args = args;
