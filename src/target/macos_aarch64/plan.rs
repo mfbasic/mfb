@@ -54,6 +54,29 @@ impl plan::NativePlanPlatform for Platform {
             .collect()
     }
 
+    fn app_mode_imports(&self) -> Vec<PlatformImport> {
+        // plan-04-macos-app.md §6.5. The Obj-C runtime drives every AppKit call;
+        // the `_OBJC_CLASS_$_*` symbols are referenced as external data (read via
+        // the GOT) both to obtain the class pointers and to force-load AppKit and
+        // Foundation. pthread/getenv come from libSystem.
+        [
+            ("libobjc", "_objc_msgSend"),
+            ("libobjc", "_sel_registerName"),
+            ("AppKit", "_OBJC_CLASS_$_NSApplication"),
+            ("AppKit", "_OBJC_CLASS_$_NSWindow"),
+            ("Foundation", "_OBJC_CLASS_$_NSString"),
+            ("libSystem", "_pthread_create"),
+            ("libSystem", "_getenv"),
+        ]
+        .iter()
+        .map(|(library, symbol)| PlatformImport {
+            library: (*library).to_string(),
+            symbol: (*symbol).to_string(),
+            required_by: "_main".to_string(),
+        })
+        .collect()
+    }
+
     fn runtime_imports(&self, spec: &RuntimeHelperSpec) -> Vec<PlatformImport> {
         match spec.call {
             "io.print" | "io.write" | "io.printError" | "io.writeError" => vec![PlatformImport {

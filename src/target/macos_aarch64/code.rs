@@ -2,9 +2,14 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 
 use crate::arch::aarch64::abi;
-use crate::target::shared::code::{self, CodeInstruction, CodeRelocation, NativeCodePlan};
+use crate::target::shared::code::{
+    self, AppEntrySpec, CodeDataObject, CodeFunction, CodeInstruction, CodeRelocation,
+    NativeCodePlan,
+};
 use crate::target::shared::nir::NirModule;
 use crate::target::shared::plan::NativePlan;
+
+use super::app;
 
 pub(crate) fn lower_module(
     module: &NirModule,
@@ -33,6 +38,18 @@ impl code::CodegenPlatform for Platform {
 
     fn preserves_link_register_in_runtime_helpers(&self) -> bool {
         true
+    }
+
+    fn emit_app_program_entry(
+        &self,
+        spec: &AppEntrySpec,
+        _platform_imports: &HashMap<String, String>,
+    ) -> Option<Result<Vec<CodeFunction>, String>> {
+        Some(app::emit_app_program_entry(spec))
+    }
+
+    fn app_mode_data_objects(&self) -> Vec<CodeDataObject> {
+        app::app_mode_data_objects()
     }
 
     fn emit_program_exit(

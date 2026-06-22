@@ -34,11 +34,6 @@ pub(crate) fn write_linked_executable(
 
 /// Link `image` and write it as a macOS app-mode `.app` bundle (Info.plist +
 /// `Contents/MacOS/<name>`), returning the path to the `.app` directory.
-///
-/// Wired into the macOS backend's app-mode executable path in Phase 3 once the
-/// app runtime bootstrap lands; until then the executable path reports a blocker
-/// and this writer is exercised only by its end-to-end tests.
-#[allow(dead_code)]
 pub(crate) fn write_linked_app_bundle(
     project_dir: &Path,
     project_name: &str,

@@ -34,11 +34,6 @@ pub(crate) fn write_executable(
 /// The inner Mach-O is byte-identical to the `<name>.out` the console path
 /// produces from the same image; only the on-disk layout and the accompanying
 /// `Info.plist` differ. Returns the path to the `<name>.app` bundle directory.
-///
-/// Reachable from the backend only once Phase 3 wires app-mode codegen; the
-/// `allow(dead_code)` also covers the `Info.plist` helpers below until then.
-/// They remain exercised by the end-to-end tests in this module.
-#[allow(dead_code)]
 pub(crate) fn write_app_bundle(
     project_dir: &Path,
     project_name: &str,
@@ -136,7 +131,6 @@ fn write_executable_file(path: &Path, bytes: &[u8]) -> Result<(), String> {
 /// `CFBundleExecutable`/`CFBundleName` use the project name; the bundle id is
 /// namespaced under `dev.mfbasic.<name>`. The principal class is `NSApplication`
 /// so Launch Services treats the bundle as a regular AppKit application.
-#[allow(dead_code)]
 fn app_info_plist(project_name: &str) -> String {
     format!(
         concat!(
@@ -163,7 +157,6 @@ fn app_info_plist(project_name: &str) -> String {
 }
 
 /// Escape the five XML predefined entities for safe inclusion in a plist string.
-#[allow(dead_code)]
 fn plist_escape(value: &str) -> String {
     value
         .replace('&', "&amp;")

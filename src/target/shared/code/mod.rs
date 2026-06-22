@@ -54,6 +54,10 @@ const ERR_READ_SYMBOL: &str = "_mfb_str_error_read";
 const ERR_OUTPUT_CODE: &str = "77020002";
 const ERR_OUTPUT_MESSAGE: &str = "output failure";
 const ERR_OUTPUT_SYMBOL: &str = "_mfb_str_error_output";
+/// macOS app mode (plan-04-macos-app.md §6.6): the standard program-entry logic
+/// (arena setup + language `main` + exit) is emitted under this symbol and runs
+/// on the worker thread, while `_main` is the AppKit bootstrap.
+pub(crate) const MACAPP_PROGRAM_SYMBOL: &str = "_mfb_macapp_program";
 const ERR_UNSUPPORTED_CODE: &str = "77050007";
 const ERR_UNSUPPORTED_MESSAGE: &str = "unsupported operation";
 const ERR_UNSUPPORTED_SYMBOL: &str = "_mfb_str_error_unsupported";
@@ -502,6 +506,35 @@ pub(crate) trait CodegenPlatform {
         instructions: &mut Vec<CodeInstruction>,
         relocations: &mut Vec<CodeRelocation>,
     ) -> Result<(), String>;
+
+    /// Emit the macOS app-mode (`NativeBuildMode::MacApp`) `_main` AppKit
+    /// bootstrap and any supporting functions (e.g. the pthread worker shim).
+    /// The standard program-entry logic is emitted separately under
+    /// [`MACAPP_PROGRAM_SYMBOL`] and runs on the spawned worker thread.
+    ///
+    /// Returns `None` for targets without app mode (the caller then reports that
+    /// app mode is unsupported); `Some(Ok(functions))` for the macOS backend.
+    fn emit_app_program_entry(
+        &self,
+        _spec: &AppEntrySpec,
+        _platform_imports: &HashMap<String, String>,
+    ) -> Option<Result<Vec<CodeFunction>, String>> {
+        None
+    }
+
+    /// Read-only data objects (Obj-C class/selector C strings, window title,
+    /// env-var names) referenced by the app-mode bootstrap. Empty otherwise.
+    fn app_mode_data_objects(&self) -> Vec<CodeDataObject> {
+        Vec::new()
+    }
+}
+
+/// Inputs the app-mode `_main` bootstrap needs about the program it hosts
+/// (plan-04-macos-app.md §6.6). The worker thread runs the standard program
+/// entry generated separately under [`MACAPP_PROGRAM_SYMBOL`]; the bootstrap
+/// itself only needs to know whether to forward `argc`/`argv` to that entry.
+pub(crate) struct AppEntrySpec {
+    pub(crate) language_entry_accepts_args: bool,
 }
 
 #[derive(Clone, Copy)]
@@ -867,20 +900,55 @@ pub(crate) fn lower_module_for_platform(
         None
     };
     if let Some(entry) = &module.entry {
-        let entry_symbol = nir::function_symbol(&entry.name);
-        code_functions.push(lower_program_entry(
-            &entry_symbol,
-            &entry.returns,
-            entry.accepts_args,
-            global_initializer_symbol.as_deref(),
-            link_init_symbol,
-            align(ENTRY_STACK_SIZE + (globals_base + link_slot_count) * 8, 16),
-            globals_base + link_slot_count,
-            &platform_imports,
-            platform,
-            skip_entry_arena_destroy,
-            module_may_record_cleanup_failure(module),
-        )?);
+        let language_entry_symbol = nir::function_symbol(&entry.name);
+        let entry_stack_size = align(ENTRY_STACK_SIZE + (globals_base + link_slot_count) * 8, 16);
+        let entry_global_slots = globals_base + link_slot_count;
+        if module.build_mode == crate::target::NativeBuildMode::MacApp {
+            // App mode (plan-04-macos-app.md §6.6): the standard program entry runs
+            // on a worker thread under `_mfb_macapp_program`, while `_main` becomes
+            // the AppKit bootstrap that creates the window and spawns the worker.
+            let app_spec = AppEntrySpec {
+                language_entry_accepts_args: entry.accepts_args,
+            };
+            let app_entry = platform.emit_app_program_entry(&app_spec, &platform_imports).ok_or_else(|| {
+                format!(
+                    "native target '{}' does not support app mode codegen",
+                    platform.target()
+                )
+            })??;
+            // The worker runs the standard program-entry logic under its own symbol.
+            code_functions.push(lower_program_entry(
+                MACAPP_PROGRAM_SYMBOL,
+                &language_entry_symbol,
+                &entry.returns,
+                entry.accepts_args,
+                global_initializer_symbol.as_deref(),
+                link_init_symbol,
+                entry_stack_size,
+                entry_global_slots,
+                &platform_imports,
+                platform,
+                skip_entry_arena_destroy,
+                module_may_record_cleanup_failure(module),
+            )?);
+            code_functions.extend(app_entry);
+            data_objects.extend(platform.app_mode_data_objects());
+        } else {
+            code_functions.push(lower_program_entry(
+                "_main",
+                &language_entry_symbol,
+                &entry.returns,
+                entry.accepts_args,
+                global_initializer_symbol.as_deref(),
+                link_init_symbol,
+                entry_stack_size,
+                entry_global_slots,
+                &platform_imports,
+                platform,
+                skip_entry_arena_destroy,
+                module_may_record_cleanup_failure(module),
+            )?);
+        }
     }
     for function in &module.functions {
         code_functions.push(lower_function(
@@ -1453,7 +1521,9 @@ fn expanded_nir_union_variants<'a>(
     variants
 }
 
+#[allow(clippy::too_many_arguments)]
 fn lower_program_entry(
+    entry_symbol: &str,
     language_entry_symbol: &str,
     language_entry_returns: &str,
     language_entry_accepts_args: bool,
@@ -1510,7 +1580,7 @@ fn lower_program_entry(
     if let Some(symbol) = link_init_symbol {
         instructions.push(abi::branch_link(symbol));
         relocations.push(CodeRelocation {
-            from: "_main".to_string(),
+            from: entry_symbol.to_string(),
             to: symbol.to_string(),
             kind: "branch26".to_string(),
             binding: "internal".to_string(),
@@ -1524,7 +1594,7 @@ fn lower_program_entry(
     if let Some(symbol) = global_initializer_symbol {
         instructions.push(abi::branch_link(symbol));
         relocations.push(CodeRelocation {
-            from: "_main".to_string(),
+            from: entry_symbol.to_string(),
             to: symbol.to_string(),
             kind: "branch26".to_string(),
             binding: "internal".to_string(),
@@ -1556,7 +1626,7 @@ fn lower_program_entry(
     }
     instructions.push(abi::branch_link(language_entry_symbol));
     relocations.push(CodeRelocation {
-        from: "_main".to_string(),
+        from: entry_symbol.to_string(),
         to: language_entry_symbol.to_string(),
         kind: "branch26".to_string(),
         binding: "internal".to_string(),
@@ -1593,7 +1663,7 @@ fn lower_program_entry(
             abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
         ]);
         push_error_message_address(
-            "_main",
+            entry_symbol,
             ERR_OVERFLOW_SYMBOL,
             &mut instructions,
             &mut relocations,
@@ -1607,14 +1677,14 @@ fn lower_program_entry(
     ]);
     emit_write_string_object(
         ENTRY_ERROR_PREFIX_SYMBOL,
-        "_main",
+        entry_symbol,
         platform_imports,
         platform,
         &mut instructions,
         &mut relocations,
     )?;
     emit_write_integer_to_stderr(
-        "_main",
+        entry_symbol,
         platform_imports,
         platform,
         &mut instructions,
@@ -1622,7 +1692,7 @@ fn lower_program_entry(
     )?;
     emit_write_string_object(
         ENTRY_ERROR_SEPARATOR_SYMBOL,
-        "_main",
+        entry_symbol,
         platform_imports,
         platform,
         &mut instructions,
@@ -1634,14 +1704,14 @@ fn lower_program_entry(
         abi::move_immediate(abi::return_register(), "Integer", "2"),
     ]);
     platform.emit_write(
-        "_main",
+        entry_symbol,
         platform_imports,
         &mut instructions,
         &mut relocations,
     )?;
     emit_write_string_object(
         ENTRY_ERROR_NEWLINE_SYMBOL,
-        "_main",
+        entry_symbol,
         platform_imports,
         platform,
         &mut instructions,
@@ -1649,7 +1719,7 @@ fn lower_program_entry(
     )?;
     if emit_cleanup_failure_audit {
         emit_cleanup_failure_audit_report(
-            "_main",
+            entry_symbol,
             platform_imports,
             platform,
             &mut instructions,
@@ -1673,17 +1743,21 @@ fn lower_program_entry(
             abi::load_u64(RESULT_ERROR_MESSAGE_REGISTER, ARENA_STATE_REGISTER, 48),
         ]);
         relocations.push(CodeRelocation {
-            from: "_main".to_string(),
+            from: entry_symbol.to_string(),
             to: ARENA_DESTROY_SYMBOL.to_string(),
             kind: "branch26".to_string(),
             binding: "internal".to_string(),
             library: None,
         });
     }
-    platform.emit_program_exit("_main", &mut instructions, &mut relocations)?;
+    platform.emit_program_exit(entry_symbol, &mut instructions, &mut relocations)?;
     Ok(CodeFunction {
-        name: "program.entry".to_string(),
-        symbol: "_main".to_string(),
+        name: if entry_symbol == "_main" {
+            "program.entry".to_string()
+        } else {
+            "program.entry.macapp".to_string()
+        },
+        symbol: entry_symbol.to_string(),
         params: Vec::new(),
         returns: "Nothing".to_string(),
         frame: CodeFrame {

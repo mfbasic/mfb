@@ -6,6 +6,7 @@ use crate::target::{BackendCapabilities, BuildTarget, NativeBackend, NativeBuild
 use std::fs;
 use std::path::{Path, PathBuf};
 
+pub(crate) mod app;
 pub(crate) mod code;
 pub(crate) mod plan;
 
@@ -192,18 +193,6 @@ fn write_executable(
 ) -> Result<Vec<PathBuf>, String> {
     validate::validate_target(target)?;
     validate::validate_project(ir, packages)?;
-    if build_mode == NativeBuildMode::MacApp {
-        // Phase 1 (plan-04-macos-app.md §9) wires the `-app` build mode through
-        // lowering and records it in NIR/plan/code metadata. The AppKit app
-        // runtime (bundle, bootstrap, window-backed io::*) lands in later phases;
-        // until then the executable path reports a clear blocker rather than
-        // emitting a console binary disguised as an app.
-        return Err(
-            "macOS app mode (`mfb build -app`) executable output is not yet implemented; \
-             app runtime bootstrap and `.app` bundle emission land in a later phase"
-                .to_string(),
-        );
-    }
     let module = lower::lower_project(ir, target.name(), packages, build_mode)?;
     validate::validate_nir(&module)?;
     validate::validate_capabilities(&module, &BACKEND.capabilities())?;
@@ -214,7 +203,16 @@ fn write_executable(
     native_code.validate()?;
     let mut image = arch::aarch64::encode::encode(&native_code)?;
     image.signing_metadata = signing_metadata.map(|metadata| metadata.to_vec());
-    os::macos::write_linked_executable(project_dir, &ir.name, &image).map(|path| vec![path])
+    match build_mode {
+        // App mode (plan-04-macos-app.md §5.2) emits a `.app` bundle whose AppKit
+        // `_main` bootstrap targets a window; console mode emits a plain `.out`.
+        NativeBuildMode::MacApp => {
+            os::macos::write_linked_app_bundle(project_dir, &ir.name, &image).map(|path| vec![path])
+        }
+        NativeBuildMode::Console => {
+            os::macos::write_linked_executable(project_dir, &ir.name, &image).map(|path| vec![path])
+        }
+    }
 }
 
 fn write_nir(

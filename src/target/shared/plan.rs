@@ -149,6 +149,12 @@ pub(crate) trait NativePlanPlatform {
     /// The libc imports (`dlopen`/`dlsym`) the per-library `LINK` initializer
     /// needs to resolve user binding symbols at load time (plan-linker.md §12.1).
     fn link_imports(&self, required_by: &str) -> Vec<PlatformImport>;
+    /// Imports the macOS app-mode `_main` bootstrap needs: the Obj-C runtime,
+    /// AppKit/Foundation classes, and pthread/env primitives
+    /// (plan-04-macos-app.md §6.5). Empty for targets without app mode.
+    fn app_mode_imports(&self) -> Vec<PlatformImport> {
+        Vec::new()
+    }
 }
 
 pub(crate) fn lower_module_for_platform(
@@ -530,6 +536,13 @@ fn platform_imports(module: &NirModule, platform: &dyn NativePlanPlatform) -> Ve
     }
     if !module.link_functions.is_empty() {
         for import in platform.link_imports(nir::LINK_INIT_SYMBOL) {
+            push_platform_import(&mut imports, import);
+        }
+    }
+    if module.build_mode == crate::target::NativeBuildMode::MacApp {
+        // App mode (plan-04-macos-app.md §6.5) binds the Obj-C runtime, AppKit,
+        // Foundation, and the pthread/env primitives the `_main` bootstrap uses.
+        for import in platform.app_mode_imports() {
             push_platform_import(&mut imports, import);
         }
     }
