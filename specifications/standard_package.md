@@ -559,7 +559,7 @@ Secure defaults are mandatory:
 | `tls::readText` | `FUNC readText(sock AS TlsSocket, maxBytes AS Integer) AS String` | Reads decrypted bytes and decodes UTF-8 text. |
 | `tls::write` | `FUNC write(sock AS TlsSocket, bytes AS List OF Byte) AS Nothing` | Encrypts and writes all bytes before returning. |
 | `tls::writeText` | `FUNC writeText(sock AS TlsSocket, value AS String) AS Nothing` | Encodes `value` as UTF-8, encrypts it, and writes all bytes. |
-| `tls::close` | `FUNC close(resource AS TlsSocket) AS Nothing` | Closes the TLS session and underlying transport. Calling it more than once is an error. |
+| `tls::close` | `FUNC close(resource AS TlsSocket) AS Nothing` | Closes the TLS session and underlying transport. Calling it more than once is an error. Implementation note (macOS, v1): `close` tears down the connection and invalidates the handle, but the per-connection dispatch queue and semaphore are reclaimed at process exit rather than immediately — a small, bounded leak for long-lived processes that open and close many TLS sessions. |
 
 ## 12. Built-in JSON Package
 
