@@ -1,0 +1,15 @@
+IMPORT fs
+
+' Once a resource's ownership floats into an outer-scope collection it becomes
+' borrow-only: the binding may no longer close it (§15.6).
+FUNC main AS Integer
+  MUT handles AS List OF RES File = []
+  MUT i AS Integer = 0
+  WHILE i < 2
+    RES f AS File = fs::openFile("tests/resource-collection-close-floated-invalid/src/main.mfb")
+    handles = append(handles, f)
+    fs::close(f)
+    i = i + 1
+  WEND
+  RETURN 0
+END FUNC

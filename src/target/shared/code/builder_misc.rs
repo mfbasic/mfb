@@ -2740,6 +2740,151 @@ impl CodeBuilder<'_> {
         self.emit_thread_cleanup_call(&cleanup)
     }
 
+    /// The close op symbol for a resource collection's element/value type, or an
+    /// error if `type_` is not a collection whose element is a single resource.
+    fn collection_resource_close_symbol(&self, type_: &str) -> Result<String, String> {
+        let element = list_element_type(type_)
+            .or_else(|| map_type_parts(type_).map(|(_, value)| value))
+            .ok_or_else(|| format!("owned-list owner '{type_}' is not a collection"))?;
+        self.resource_cleanup_symbol(&element).ok_or_else(|| {
+            format!("owned-list element type '{element}' has no registered close op")
+        })
+    }
+
+    /// Allocate and register a runtime owned-list for an owner collection binding
+    /// (§15.6): a head-pointer stack slot (initialized empty) plus an
+    /// [`ActiveCleanup::OwnedList`] obligation drained on every exit path.
+    pub(super) fn setup_owned_list(&mut self, name: &str, type_: &str) -> Result<(), String> {
+        let close_symbol = self.collection_resource_close_symbol(type_)?;
+        let head_slot = self.allocate_stack_object(&format!("owned_list_{name}"), 8);
+        self.emit(abi::move_immediate("x9", "Integer", "0"));
+        self.emit(abi::store_u64("x9", abi::stack_pointer(), head_slot));
+        self.owned_list_heads.insert(name.to_string(), head_slot);
+        self.active_cleanups
+            .push(ActiveCleanup::OwnedList(OwnedListCleanup {
+                name: name.to_string(),
+                head_slot,
+                close_symbol,
+            }));
+        Ok(())
+    }
+
+    /// Transfer a returned resource collection's owned-list to the caller: drop
+    /// its drain obligation from this scope so the resources are not closed here
+    /// (the caller's scope adopts and closes them). Other scopes' owned-lists are
+    /// untouched (§15.6).
+    pub(super) fn deactivate_owned_list(&mut self, name: &str) {
+        if let Some(index) = self
+            .active_cleanups
+            .iter()
+            .rposition(|cleanup| matches!(cleanup, ActiveCleanup::OwnedList(o) if o.name == name))
+        {
+            self.active_cleanups.remove(index);
+        }
+    }
+
+    /// Whether a NIR type string is a `RES`-marked resource collection
+    /// (`List OF RES File`, `Map OF K TO RES File`): its scope-ownership transfers
+    /// across a function boundary (§15.6).
+    pub(super) fn is_res_marked_resource_collection(type_: &str) -> bool {
+        type_.strip_prefix("List OF ").is_some_and(|e| e.starts_with("RES "))
+            || type_
+                .strip_prefix("Map OF ")
+                .and_then(|rest| rest.split_once(" TO "))
+                .is_some_and(|(_, value)| value.starts_with("RES "))
+    }
+
+    /// Push the resource record at `resource_slot` onto `collection`'s owned-list
+    /// as a fresh `{record, next}` node (§15.6).
+    pub(super) fn emit_owned_list_push(
+        &mut self,
+        collection: &str,
+        resource_slot: usize,
+    ) -> Result<(), String> {
+        let head_slot = *self.owned_list_heads.get(collection).ok_or_else(|| {
+            format!("resource floats to '{collection}', which has no owned-list")
+        })?;
+        // Allocate a 16-byte node (record ptr at 0, next at 8).
+        let alloc_ok = self.label("owned_list_alloc_ok");
+        self.emit(abi::move_immediate(abi::return_register(), "Integer", "16"));
+        self.emit(abi::move_immediate("x1", "Integer", "8"));
+        self.emit(abi::branch_link(ARENA_ALLOC_SYMBOL));
+        self.relocations.push(CodeRelocation {
+            from: self.current_symbol.clone(),
+            to: ARENA_ALLOC_SYMBOL.to_string(),
+            kind: "branch26".to_string(),
+            binding: "internal".to_string(),
+            library: None,
+        });
+        self.emit(abi::compare_immediate(abi::return_register(), RESULT_OK_TAG));
+        self.emit(abi::branch_eq(&alloc_ok));
+        self.emit_allocation_error_return()?;
+        self.emit(abi::label(&alloc_ok));
+        // x1 = node pointer.
+        self.emit(abi::load_u64("x9", abi::stack_pointer(), resource_slot));
+        self.emit(abi::store_u64("x9", "x1", 0));
+        self.emit(abi::load_u64("x10", abi::stack_pointer(), head_slot));
+        self.emit(abi::store_u64("x10", "x1", 8));
+        self.emit(abi::store_u64("x1", abi::stack_pointer(), head_slot));
+        Ok(())
+    }
+
+    /// Adopt the resources of a `List OF RES File` value transferred in from a
+    /// call: walk the collection and push each element record onto this scope's
+    /// owned-list, so the scope closes each once at exit (§15.6).
+    pub(super) fn emit_owned_list_seed_from_collection(
+        &mut self,
+        collection: &str,
+        collection_slot: usize,
+        element_type: &str,
+    ) -> Result<(), String> {
+        let cursor_slot = self.allocate_stack_object("adopt_cursor", 8);
+        let remaining_slot = self.allocate_stack_object("adopt_remaining", 8);
+        let elem_slot = self.allocate_stack_object("adopt_elem", 8);
+        self.initialize_collection_loop_slots(collection_slot, cursor_slot, remaining_slot);
+        let loop_label = self.label("owned_list_seed_loop");
+        let done_label = self.label("owned_list_seed_done");
+        self.emit(abi::label(&loop_label));
+        self.emit(abi::load_u64("x9", abi::stack_pointer(), remaining_slot));
+        self.emit(abi::compare_immediate("x9", "0"));
+        self.emit(abi::branch_eq(&done_label));
+        let item = self.load_collection_loop_item(collection_slot, cursor_slot, element_type)?;
+        self.emit(abi::store_u64(&item, abi::stack_pointer(), elem_slot));
+        self.emit_owned_list_push(collection, elem_slot)?;
+        self.advance_collection_loop(cursor_slot, remaining_slot, &loop_label);
+        self.emit(abi::label(&done_label));
+        Ok(())
+    }
+
+    /// Drain an owned-list: walk it head-first, closing each record once. The
+    /// close is closed-flag idempotent, so a record reachable through more than
+    /// one path closes exactly once (§15.6).
+    pub(super) fn emit_owned_list_drain(
+        &mut self,
+        cleanup: &OwnedListCleanup,
+    ) -> Result<(), String> {
+        let loop_label = self.label("owned_list_drain_loop");
+        let done_label = self.label("owned_list_drain_done");
+        let close_ok = self.label("owned_list_close_ok");
+        self.emit(abi::label(&loop_label));
+        self.emit(abi::load_u64("x9", abi::stack_pointer(), cleanup.head_slot));
+        self.emit(abi::compare_immediate("x9", "0"));
+        self.emit(abi::branch_eq(&done_label));
+        // Advance the head past this node before the call, which clobbers
+        // caller-saved registers; the loop reloads the head from memory.
+        self.emit(abi::load_u64(abi::return_register(), "x9", 0));
+        self.emit(abi::load_u64("x10", "x9", 8));
+        self.emit(abi::store_u64("x10", abi::stack_pointer(), cleanup.head_slot));
+        self.emit_symbol_call(&cleanup.close_symbol);
+        self.emit(abi::compare_immediate(RESULT_TAG_REGISTER, RESULT_OK_TAG));
+        self.emit(abi::branch_eq(&close_ok));
+        self.record_secondary_cleanup_failure();
+        self.emit(abi::label(&close_ok));
+        self.emit(abi::branch(&loop_label));
+        self.emit(abi::label(&done_label));
+        Ok(())
+    }
+
     fn emit_cleanup_sequence(&mut self) -> Result<(), String> {
         let cleanups = self.active_cleanups.clone();
         for cleanup in cleanups.iter().rev() {
@@ -2752,6 +2897,9 @@ impl CodeBuilder<'_> {
                 }
                 ActiveCleanup::ResourceUnion(cleanup) => {
                     self.emit_resource_union_cleanup_call(cleanup)?;
+                }
+                ActiveCleanup::OwnedList(cleanup) => {
+                    self.emit_owned_list_drain(cleanup)?;
                 }
             }
         }
@@ -2771,6 +2919,7 @@ impl CodeBuilder<'_> {
                 ActiveCleanup::ResourceUnion(cleanup) => {
                     self.emit_resource_union_cleanup_call(cleanup)?
                 }
+                ActiveCleanup::OwnedList(cleanup) => self.emit_owned_list_drain(cleanup)?,
             }
         }
         self.emit(abi::branch(target));
@@ -2879,6 +3028,15 @@ impl CodeBuilder<'_> {
                     crate::builtins::resource_close_function(&result.type_).is_some()
                 }) {
                     self.deactivate_resource_cleanup(name);
+                }
+                // Returning a `List OF RES File` transfers its owned-list to the
+                // caller: drop this scope's drain so the resources are not closed
+                // here (§15.6).
+                if result
+                    .as_ref()
+                    .is_some_and(|result| Self::is_res_marked_resource_collection(&result.type_))
+                {
+                    self.deactivate_owned_list(name);
                 }
             }
         }

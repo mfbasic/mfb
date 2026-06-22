@@ -604,6 +604,12 @@ pub const RULES: &[Rule] = &[
         message: "ordinary collections cannot store resource or thread ownership",
     },
     Rule {
+        code: "2-203-0100",
+        name: "TYPE_RESOURCE_ELEMENT_NOT_OWNER",
+        severity: Severity::Error,
+        message: "a borrowed collection element of resource type is not an owner",
+    },
+    Rule {
         code: "2-203-0058",
         name: "TYPE_DUPLICATE_ARGUMENT_NAME",
         severity: Severity::Error,

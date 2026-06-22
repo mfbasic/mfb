@@ -551,6 +551,16 @@ struct CodeBuilder<'a> {
     /// when an error is freshly created (overflow, divide-by-zero, helper failure)
     /// so its `ErrorLoc` records the true origin.
     current_loc: NirSourceLoc,
+    /// Resource ownership decisions (escape analysis, §15.6) for the function
+    /// being lowered, keyed by `RES` binding name. Drives where each resource's
+    /// close obligation lives (its own scope, an outer collection's owned-list,
+    /// or out via a returned collection).
+    resource_owners: HashMap<String, crate::escape::ResOwner>,
+    /// Collection binding names that own a runtime owned-list (some resource
+    /// floats up to their scope).
+    owner_collections: HashSet<String>,
+    /// Live owned-lists: collection binding name -> head-pointer stack slot.
+    owned_list_heads: HashMap<String, usize>,
 }
 
 #[derive(Clone)]
@@ -607,11 +617,27 @@ struct ResourceUnionCleanup {
     variants: Vec<(usize, String)>,
 }
 
+/// A per-scope runtime owned-list (§15.6): the close obligations for resources
+/// whose ownership floated up to this scope from inner blocks. The list is a
+/// nul-terminated singly linked list of `{record_ptr, next}` nodes, with its
+/// head in `head_slot`; draining walks it head-first (most-recent first) and
+/// closes each record once (the close is closed-flag idempotent).
+#[derive(Clone)]
+struct OwnedListCleanup {
+    /// The owning collection binding's name (for transfer-on-return lookup).
+    name: String,
+    /// Stack offset of the list head pointer (0 when empty).
+    head_slot: usize,
+    /// Close op symbol for the collection's resource element type.
+    close_symbol: String,
+}
+
 #[derive(Clone)]
 enum ActiveCleanup {
     Thread(ThreadCleanup),
     Resource(ResourceCleanup),
     ResourceUnion(ResourceUnionCleanup),
+    OwnedList(OwnedListCleanup),
 }
 
 #[derive(Clone, Copy)]
@@ -2140,6 +2166,16 @@ fn lower_function(
         raw_result_capture: None,
         current_file: function.file.clone(),
         current_loc: NirSourceLoc::default(),
+        owner_collections: function
+            .resource_owners
+            .values()
+            .filter_map(|owner| match owner {
+                crate::escape::ResOwner::Float(name) => Some(name.clone()),
+                _ => None,
+            })
+            .collect(),
+        resource_owners: function.resource_owners.clone(),
+        owned_list_heads: HashMap::new(),
     };
     for param in &params {
         let stack_offset = builder.allocate_stack_object(&param.name, 8);
@@ -2261,6 +2297,9 @@ fn lower_builtin_function_wrapper(
         raw_result_capture: None,
         current_file: String::new(),
         current_loc: NirSourceLoc::default(),
+        resource_owners: HashMap::new(),
+        owner_collections: HashSet::new(),
+        owned_list_heads: HashMap::new(),
     };
 
     let stack_offset = builder.allocate_stack_object("value", 8);
@@ -3274,6 +3313,9 @@ fn lower_direct_builtin_runtime_helper(
         raw_result_capture: None,
         current_file: String::new(),
         current_loc: NirSourceLoc::default(),
+        resource_owners: HashMap::new(),
+        owner_collections: HashSet::new(),
+        owned_list_heads: HashMap::new(),
     };
 
     let args = spec
@@ -14683,13 +14725,21 @@ fn is_collection_type(type_: &str) -> bool {
 }
 
 fn list_element_type(type_: &str) -> Option<String> {
-    type_.strip_prefix("List OF ").map(str::to_string)
+    let element = type_.strip_prefix("List OF ")?;
+    // A `List OF RES File` element stores and is read as the bare resource borrow
+    // (`File`); the `RES` ownership-axis marker is not part of the value (§15.6).
+    Some(strip_res_marker(element).to_string())
 }
 
 fn map_type_parts(type_: &str) -> Option<(String, String)> {
     let rest = type_.strip_prefix("Map OF ")?;
     let (key, value) = rest.split_once(" TO ")?;
-    Some((key.to_string(), value.to_string()))
+    Some((key.to_string(), strip_res_marker(value).to_string()))
+}
+
+/// Strip a `RES ` collection-element ownership-axis marker (`RES File` -> `File`).
+fn strip_res_marker(type_: &str) -> &str {
+    type_.strip_prefix("RES ").unwrap_or(type_)
 }
 
 fn callable_return_type(type_: &str) -> Option<String> {

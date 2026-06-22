@@ -1,0 +1,10 @@
+IMPORT fs
+
+' A get() of a resource element is a borrow, not an owner; it cannot be
+' bound with RES (§15.6).
+FUNC main AS Integer
+  RES a AS File = fs::openFile("tests/resource-collection-not-owner-invalid/src/main.mfb")
+  LET handles AS List OF RES File = [a]
+  RES borrowed AS File = get(handles, 0)
+  RETURN 0
+END FUNC

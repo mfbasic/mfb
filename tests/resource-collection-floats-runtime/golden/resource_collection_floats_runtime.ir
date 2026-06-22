@@ -1,0 +1,49 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "resource_collection_floats_runtime",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "mutable": true, "name": "handles", "type": "List OF RES File", "value": { "kind": "list", "type": "List OF RES File", "values": [] } },
+    { "op": "bind", "mutable": true, "name": "i", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    {
+      "op": "while",
+      "loop": "while",
+      "condition": { "kind": "binary", "op": "<", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "5" } },
+      "body": [
+      { "op": "bind", "mutable": false, "name": "f", "type": "File", "value": { "kind": "call", "target": "fs.openFile", "args": [{ "kind": "const", "type": "String", "value": "tests/resource-collection-floats-runtime/src/main.mfb" }] } },
+      { "op": "assign", "name": "handles", "value": { "kind": "call", "target": "append", "args": [{ "kind": "local", "name": "handles" }, { "kind": "local", "name": "f" }] } },
+      { "op": "assign", "name": "i", "value": { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+      ]
+    },
+    { "op": "bind", "mutable": true, "name": "opened", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    {
+      "op": "forEach",
+      "name": "h",
+      "type": "File",
+      "iterable": { "kind": "local", "name": "handles" },
+      "body": [
+      { "op": "bind", "mutable": false, "name": "line", "type": "String", "value": { "kind": "call", "target": "fs.readLine", "args": [{ "kind": "local", "name": "h" }] } },
+      { "op": "assign", "name": "opened", "value": { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "opened" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+      ]
+    },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "binary", "op": "&", "left": { "kind": "const", "type": "String", "value": "opened=" }, "right": { "kind": "call", "target": "toString", "args": [{ "kind": "local", "name": "opened" }] } }] } },
+    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

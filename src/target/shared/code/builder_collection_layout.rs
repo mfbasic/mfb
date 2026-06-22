@@ -22,7 +22,13 @@ impl CodeBuilder<'_> {
     }
 
     fn is_pointer_collection_payload_type(&self, type_: &str) -> bool {
+        // A resource handle is a single 8-byte pointer to its record; a collection
+        // slot stores a borrow of that pointer exactly like any other pointer
+        // payload (§15.6). Resource *unions* carry a tag and are not pointer
+        // payloads.
         is_collection_type(type_)
+            || (crate::builtins::is_resource_type(type_)
+                && !self.type_model.union_names.contains(type_))
     }
 
     /// Alignment, in bytes, that a packed collection payload of `type_` requires

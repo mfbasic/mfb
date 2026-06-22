@@ -1517,6 +1517,9 @@ fn storage_for_type(
     type_: &str,
     type_storage: &HashMap<String, StorageType>,
 ) -> Result<StorageType, String> {
+    // A `RES`-marked collection element (`RES File`) stores exactly like the
+    // bare resource it borrows: a pointer to the record (§15.6).
+    let type_ = type_.strip_prefix("RES ").unwrap_or(type_);
     if let Some(storage) = type_storage.get(type_) {
         return Ok(storage.clone());
     }
@@ -2107,6 +2110,7 @@ mod tests {
                     },
                 }],
                 file: "src/main.mfb".to_string(),
+                resource_owners: std::collections::HashMap::new(),
             }],
             link_functions: Vec::new(),
         };

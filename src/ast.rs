@@ -2550,7 +2550,15 @@ impl<'a> FileParser<'a> {
                         return None;
                     }
                     self.advance();
+                    // A `Map OF K TO RES File { … }` literal carries the resource
+                    // ownership-axis marker on its value type (§15.6).
+                    let value_res = self.match_keyword(Keyword::Res);
                     let value_type = self.parse_type_name()?;
+                    let value_type = if value_res {
+                        format!("RES {value_type}")
+                    } else {
+                        value_type
+                    };
                     return self.parse_map_literal(key_type, value_type);
                 }
                 let name = self.finish_qualified_name(value)?;
@@ -2630,17 +2638,33 @@ impl<'a> FileParser<'a> {
                     return None;
                 }
                 self.advance();
+                // A `RES` value marks a resource-transfer collection
+                // (`Map OF K TO RES File`, §15.6): the value is a resource borrow
+                // whose scope-ownership transfers across a function boundary.
+                let value_res = self.match_keyword(Keyword::Res);
                 let second = self.parse_type_name()?;
                 name.push_str(" OF ");
                 name.push_str(&first);
                 name.push_str(" TO ");
+                if value_res {
+                    name.push_str("RES ");
+                }
                 name.push_str(&second);
                 return Some(name);
             }
 
             if name.eq_ignore_ascii_case("List") || name.eq_ignore_ascii_case("Result") {
+                // `List OF RES File` (§15.6): a resource-transfer list whose
+                // element is a borrow whose scope-ownership transfers across a
+                // function boundary. (`Result OF RES …` is not meaningful, but the
+                // marker is harmless there and rejected later by type checking.)
+                let element_res =
+                    name.eq_ignore_ascii_case("List") && self.match_keyword(Keyword::Res);
                 let arg = self.parse_type_name()?;
                 name.push_str(" OF ");
+                if element_res {
+                    name.push_str("RES ");
+                }
                 name.push_str(&arg);
                 return Some(name);
             }

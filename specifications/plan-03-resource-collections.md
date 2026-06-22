@@ -265,6 +265,38 @@ through more than one path.
   (comparability).
 - Sharing resource-referencing collections across threads.
 - Records holding resource handles (unchanged prohibition).
+- Storing a *borrowed* element (a `get`/`FOR EACH` result) back into another
+  collection; a resource collection element must be a named `RES` binding.
+- Adding resources to a collection *before* the collection's own binding (the
+  obligation must be able to ride the collection's owned-list to transfer). Use
+  the collection-first pattern: bind the collection, then add resources.
+
+## 12. Implementation Notes (as built)
+
+- **Required `RES` element marker.** A resource collection is spelled
+  `List OF RES File` / `Map OF K TO RES File`; the `RES` is the mandatory
+  ownership-axis marker (parser + resolver + `Type::Res`), exactly like `RES f`.
+  A bare `List OF File` is `TYPE_RESOURCE_REQUIRES_RES`. The marker is an
+  annotation only — representation, copyability, and element access are identical
+  to a borrow collection (`RES File` is stripped to `File` at value sites).
+- **Escape analysis** lives in `src/escape.rs` (`analyze_function`), a syntactic
+  pass over the AST keyed by `RES` binding name, yielding `Local` / `Float(coll)`.
+  It is run by the type checker (borrow-only demotion) and by IR lowering (carried
+  on `IrFunction`/`NirFunction.resource_owners` to codegen). A resource flowing
+  into a `RETURN`ed collection declared before it floats to that collection.
+- **Ownership float** is anchored at a named owner collection, not a scope depth,
+  so it is robust to lowering that reshapes block nesting.
+- **Runtime owned-list** is an `ActiveCleanup::OwnedList` variant: a nul-terminated
+  singly linked list of `{record, next}` arena nodes whose head sits in a stack
+  slot. Making it an `ActiveCleanup` means it drains on every existing exit path
+  (scope exit, `RETURN`, `EXIT`/`CONTINUE`, `FAIL`/`PROPAGATE`, trap routing,
+  `EXIT PROGRAM`) in reverse order relative to sibling obligations, and closing is
+  closed-flag idempotent. Collections themselves emit no close.
+- **Scope-ownership transfer.** `RETURN` of a `List OF RES File` deactivates the
+  collection's owned-list (transfer, not close); the caller's binding scope
+  **adopts** the elements by seeding its own owned-list from the returned
+  collection (`emit_owned_list_seed_from_collection`), closing each once at its
+  exit. Error exits before the `RETURN` still drain the owned-list.
 
 ## 12. Bottom Line
 

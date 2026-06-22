@@ -5,6 +5,7 @@ use crate::ir::{
     IrParam, IrProject, IrRecordUpdate, IrType, IrValue, IrVariant,
 };
 use crate::json_string;
+use std::collections::HashMap;
 use std::collections::HashSet;
 use std::path::PathBuf;
 
@@ -111,6 +112,9 @@ pub(crate) struct NirFunction {
     /// Project-relative source file this function was lowered from. Used to build
     /// `ErrorLoc.filename` for errors that originate inside this function.
     pub(crate) file: String,
+    /// Resource ownership decisions (escape analysis, §15.6), keyed by `RES`
+    /// binding name. Absent names are [`crate::escape::ResOwner::Local`].
+    pub(crate) resource_owners: HashMap<String, crate::escape::ResOwner>,
 }
 
 pub(crate) struct NirParam {
@@ -489,6 +493,7 @@ fn lower_global_initializer(ir: &IrProject) -> NirFunction {
             })
             .collect(),
         file: String::new(),
+        resource_owners: HashMap::new(),
     }
 }
 
@@ -535,6 +540,7 @@ fn lower_function(function: &IrFunction) -> NirFunction {
         returns: function.returns.clone(),
         body: lower_ops(&function.body),
         file: function.file.clone(),
+        resource_owners: function.resource_owners.clone(),
     }
 }
 

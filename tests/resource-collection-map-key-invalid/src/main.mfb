@@ -1,0 +1,7 @@
+IMPORT fs
+
+' A resource may not be a Map key: handles are not comparable (§15.6).
+FUNC main AS Integer
+  LET m AS Map OF File TO Integer = Map OF File TO Integer { }
+  RETURN len(m)
+END FUNC

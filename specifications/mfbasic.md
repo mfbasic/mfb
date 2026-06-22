@@ -934,7 +934,7 @@ pts = append(pts, v)                            ' in-place append on the mutable
 - A collection bound with `MUT` is a locally mutable buffer. When the result of an update function is assigned back to the same `MUT` binding, such as `pts = append(pts, v)`, the compiler performs the update destructively in place instead of allocating a replacement collection.
 - Update helpers are semantically pure functions. `append(pts, v)` by itself computes and discards a result; it has no lasting effect unless the result is assigned, returned, passed, or otherwise consumed. Destructive update is an optimization only for the assignment-back-to-the-same-`MUT` pattern.
 - Update functions on `MUT` collections preserve ownership semantics at boundaries: passing or returning the collection freezes it into an immutable owned value (§14).
-- Containers own their contents. Adding a value to a collection stores an owned value in the collection, never a borrowed reference to an external binding.
+- Containers own their contents. Adding a value to a collection stores an owned value in the collection, never a borrowed reference to an external binding. The one exception is a resource handle: a `List` element or `Map` value may hold a **borrow** of a resource (a copy of the handle pointer). The resource itself is owned by a *scope*, not by the collection; the collection closes nothing (§15.6).
 - Immutability is deep for the contained value graph. A `LET` collection does not allow mutation of its elements through the collection, and no element can be observed as shared mutable state through another collection or binding.
 
 Built-in collection helpers include `len`, `get`, `getOr`, `find`, `mid`, `replace`, `set`, `append`, `prepend`, `insert`, `removeAt`, `removeKey`, `keys`, `values`, `hasKey`, `contains`, `forEach`, `transform`, `filter`, `reduce`, and `sum`.
@@ -1123,7 +1123,7 @@ Because cycles are impossible and each edge has one owner, dropping a recursive 
 
 `List` and `Map` own every stored element, key, and value. Inserting into a container copies or moves the inserted value into the container; it never stores a borrowed alias to an external binding. Removing from a container moves the removed value out when the API returns it, or drops it when the API discards it.
 
-Ordinary containers cannot store resource handles or thread handles. They can store functions only when the function value is copyable or movable under the closure rules above.
+Ordinary containers cannot store thread handles, and cannot store resource handles as a `Map` *key* (handles are not comparable, §4.10). A `List` element or `Map` *value*, however, may hold a **borrow** of a resource — a copy of the one handle pointer (§15.6). Such a borrow is never an owner: the resource stays owned by a scope, which closes it exactly once on exit; the collection closes nothing, and copying or dropping a collection only copies or discards borrows. Containers can store functions only when the function value is copyable or movable under the closure rules above.
 
 No two live mutable bindings may refer to the same collection buffer. A `MUT` collection buffer may be destructively updated only while it is owned by that single live `MUT` binding. Reads produce owned values, not aliases into the buffer.
 
@@ -1151,7 +1151,8 @@ The compiler must diagnose:
 - Capturing `MUT` bindings in closures.
 - Capturing resource handles in ordinary closures.
 - Capturing other non-copyable values in ordinary closures.
-- Storing resources or thread handles in ordinary collections.
+- Storing thread handles in ordinary collections, or using a resource handle as a `Map` key.
+- Binding a borrowed collection element of resource type with `RES` (`TYPE_RESOURCE_ELEMENT_NOT_OWNER`), or otherwise treating such a borrow as an owner.
 - Any control-flow path that could drop the same resource or owned value more than once.
 
 `.mfp` packages must preserve enough ownership metadata for import-time type checking and Binary Representation verification (§21).
@@ -1178,7 +1179,7 @@ A resource is closed exactly once. **Ordinary calls borrow.** Passing a `RES` bi
 3. **`RETURN`** of the resource (move out to the caller);
 4. **scope-drop** at the end of the binding's lexical scope (auto-close).
 
-A borrow grants *use* but never the right to *invalidate*: a callee that only borrowed a resource cannot close it, `RETURN` it, or `thread::transfer` it (`TYPE_RESOURCE_BORROW_INVALIDATE`) — those require ownership. There is no per-function borrow/consume inference and no `BORROW`/`MOVE` annotations: a call either is one of the four events or it borrows. A resource handle cannot be copied, stored in an ordinary collection, printed, compared, serialized, or captured by a lambda or ordinary closure. A concrete resource handle may be sent to a thread only when that resource type is thread-sendable.
+A borrow grants *use* but never the right to *invalidate*: a callee that only borrowed a resource cannot close it, `RETURN` it, or `thread::transfer` it (`TYPE_RESOURCE_BORROW_INVALIDATE`) — those require ownership. There is no per-function borrow/consume inference and no `BORROW`/`MOVE` annotations: a call either is one of the four events or it borrows. A resource handle cannot be printed, compared, serialized, or captured by a lambda or ordinary closure. Its pointer may be copied only as a **borrow** into a `List` element or `Map` value (§15.6) — never duplicating the resource, and never as a `Map` key. A concrete resource handle may be sent to a thread only when that resource type is thread-sendable.
 
 ```basic
 RES f AS File = fs::open("app.db", "read")
@@ -1237,6 +1238,28 @@ A close that runs as part of an implicit lexical drop cannot inject an error int
 This rule does not change the built-in `Error` shape: A secondary close failure is not directly inspectable by ordinary source code unless a future diagnostics API exposes cleanup metadata.
 
 Compiled cleanup metadata must preserve enough information for runtime and audit tooling to report a drop-close failure. Package audit output should identify cleanup regions that retain this failure metadata.
+
+### 15.6 Resources in collections
+
+A resource is owned by a **scope** — never by a binding or a collection. A `RES` binding, a borrowed `RES` parameter, and a collection slot (a `List` element or `Map` value) all hold a **borrow**: a copy of the one handle pointer. Copying the pointer is a borrow, never a duplication of the resource, and a collection slot is a borrow, not a resource binding. None of these close the resource; the owning scope closes it exactly once on exit, on every path.
+
+A resource appearing as a collection element carries the **`RES` ownership-axis marker**, exactly as a binding (`RES f`), a parameter (`RES f AS File`), or a return (`AS RES File`) does. The only spelling for a list of files is `List OF RES File` (and `Map OF String TO RES File` for a map value); a bare `List OF File` is rejected just like `LET f AS File` (`TYPE_RESOURCE_REQUIRES_RES`), and `RES` on a non-resource element is rejected like `RES x AS Integer` (`TYPE_RES_REQUIRES_RESOURCE`). The marker is an ownership annotation only — the collection is still an ordinary copyable collection of borrows and owns nothing.
+
+By default the owning scope is the scope where the resource is produced. The single rule that governs collections is **ownership floats up**:
+
+> Adding a borrow of a resource to a collection migrates the resource's owning scope up to the collection's scope when that scope outlives the current owner. Ownership always floats to the **outermost** scope that references the resource; it never moves down. If a referencing collection escapes the function (it is `RETURN`ed), ownership moves out to the caller, exactly like `RETURN`ing the resource itself.
+
+Consequences:
+
+- A borrow added to a **higher-scope** collection raises the owning scope to that collection's scope; the resource closes once when that outer scope exits, and every borrow (the original binding and the collection elements) is within that scope, so none dangles.
+- A borrow added to a **same- or lower-scope** collection leaves ownership unchanged; the collection just holds a borrow.
+- A binding whose ownership has floated to an outer scope becomes a plain **borrow**: still usable, but it no longer closes at its own scope exit and may not close, `RETURN`, or `thread::transfer` the resource (`TYPE_RESOURCE_BORROW_INVALIDATE`).
+
+Because all references are within the owning scope, `get` and `FOR EACH` of a resource element yield a **borrow**, statically safe with no runtime dependence on the closed flag (the flag is only a backstop that keeps the single close idempotent when a handle is reachable by more than one path). Such a borrow is not an owner: binding it with `RES`, or closing/returning/transferring it, is an error (`TYPE_RESOURCE_ELEMENT_NOT_OWNER`). Collections of resources are ordinary copyable collections of pointers — no move-only or linearity — and the helpers that require a comparable element (`find`, `contains`, `replace`) remain unavailable because handles are not comparable, the same reason resources cannot be `Map` keys.
+
+A resource element placed into a collection must be a named `RES` binding (the owner); a temporary or a borrowed element is not an owner and cannot be stored (`TYPE_RESOURCE_ELEMENT_NOT_OWNER`).
+
+**Returning a resource collection transfers scope-ownership to the caller**, exactly as `AS RES File` does for a single resource. A function returning `AS List OF RES File` releases the close obligations for the referenced resources — it does not close them — and the caller's binding scope **adopts** them, closing each once at its own exit. (A bare `List OF File` return is rejected for the missing `RES` marker.) On an error exit *before* the return, the resources are still closed by the function's scope, because they ride its owned-list until the `RETURN` transfers it. A resource collection may also be passed to a function, where the callee borrows its elements (and may not close them). The resources must be added to the collection at or after the collection's own binding so the obligation rides the collection. Sharing a resource collection across threads remains out of scope.
 
 ---
 

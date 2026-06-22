@@ -36,12 +36,41 @@ impl CodeBuilder<'_> {
                                 stack_offset,
                             ));
                         }
+                        // A collection that owns resources floated up from inner
+                        // blocks (§15.6) gets a runtime owned-list anchored at
+                        // this scope; it is drained on every exit path.
+                        if self.owner_collections.contains(name) {
+                            self.setup_owned_list(name, type_)?;
+                        } else if Self::is_res_marked_resource_collection(type_)
+                            && matches!(
+                                value,
+                                Some(NirValue::Call { .. } | NirValue::CallResult { .. })
+                            )
+                        {
+                            // A `List OF RES File` bound from a call adopts the
+                            // resources transferred out by the callee: this scope
+                            // owns them and closes each once at exit (§15.6).
+                            self.setup_owned_list(name, type_)?;
+                            if let Some(element_type) = super::list_element_type(type_) {
+                                self.emit_owned_list_seed_from_collection(
+                                    name,
+                                    stack_offset,
+                                    &element_type,
+                                )?;
+                            }
+                        }
                         // A resource extracted from a union (a `MATCH` variant
                         // binding) is a borrow: the union still owns it and
                         // closes the active variant on drop, so the extracted
                         // binding registers no cleanup of its own.
                         let borrows_union_variant =
                             matches!(value, Some(NirValue::UnionExtract { .. }));
+                        // Where this binding's close obligation lives (§15.6).
+                        let resource_owner = self
+                            .resource_owners
+                            .get(name)
+                            .cloned()
+                            .unwrap_or(crate::escape::ResOwner::Local);
                         if Self::is_thread_type(type_) {
                             self.active_cleanups
                                 .push(ActiveCleanup::Thread(ThreadCleanup {
@@ -50,6 +79,12 @@ impl CodeBuilder<'_> {
                                 }));
                         } else if borrows_union_variant {
                             // Borrowed — no cleanup.
+                        } else if let crate::escape::ResOwner::Float(collection) = &resource_owner {
+                            // Ownership floated to an outer collection's scope:
+                            // register the record in that owned-list. This binding
+                            // is now a borrow and registers no static cleanup.
+                            let collection = collection.clone();
+                            self.emit_owned_list_push(&collection, stack_offset)?;
                         } else if let Some(symbol) = self.resource_cleanup_symbol(type_) {
                             self.active_cleanups
                                 .push(ActiveCleanup::Resource(ResourceCleanup {
@@ -409,6 +444,9 @@ impl CodeBuilder<'_> {
                     ActiveCleanup::ResourceUnion(cleanup) => {
                         self.emit_resource_union_cleanup_call(&cleanup)?
                     }
+                    ActiveCleanup::OwnedList(cleanup) => {
+                        self.emit_owned_list_drain(&cleanup)?
+                    }
                 }
             }
         }
@@ -550,10 +588,7 @@ impl CodeBuilder<'_> {
         } else {
             None
         };
-        let list_element_type = iterable_value
-            .type_
-            .strip_prefix("List OF ")
-            .map(str::to_string);
+        let list_element_type = super::list_element_type(&iterable_value.type_);
         let item_value_type = list_element_type.as_deref();
         let collection_slot = self.allocate_stack_object("for_each_collection", 8);
         let cursor_slot = self.allocate_stack_object("for_each_cursor", 8);

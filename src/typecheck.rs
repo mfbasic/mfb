@@ -24,6 +24,12 @@ enum Type {
     Integer,
     List(Box<Type>),
     Map(Box<Type>, Box<Type>),
+    /// A `RES`-marked collection element (`List OF RES File`, `Map ... TO RES
+    /// File`). The `RES` is the mandatory resource ownership-axis marker for a
+    /// resource appearing as an element — exactly as `RES f` / `RES f AS File`
+    /// mark a binding or parameter. The collection still holds a *borrow* and
+    /// owns nothing; a scope owns the resource (§15.6).
+    Res(Box<Type>),
     Function {
         params: Vec<Type>,
         return_type: Box<Type>,
@@ -154,6 +160,10 @@ struct TypeChecker<'a> {
     /// invalidation event #1 just like the registered close op itself
     /// (plan-link-update.md §5a).
     close_op_aliases: HashMap<String, String>,
+    /// Resource ownership decisions (escape analysis, §15.6) for the function
+    /// currently being checked. Drives borrow-only demotion of `RES` bindings
+    /// whose ownership has floated into an outer-scope collection.
+    current_resource_owners: crate::escape::FunctionEscape,
 }
 
 #[derive(Clone)]
@@ -198,6 +208,7 @@ impl<'a> TypeChecker<'a> {
             loop_stack: Vec::new(),
             resource_registry: builtins::ResourceRegistry::with_builtins(),
             close_op_aliases: HashMap::new(),
+            current_resource_owners: crate::escape::FunctionEscape::default(),
         };
         checker.collect_types();
         checker.collect_package_types();
@@ -692,7 +703,7 @@ impl<'a> TypeChecker<'a> {
         seen: &mut HashSet<String>,
     ) {
         match type_ {
-            Type::List(element) | Type::Result(element) => {
+            Type::List(element) | Type::Result(element) | Type::Res(element) => {
                 self.validate_package_metadata_type(
                     file,
                     line,
@@ -1553,6 +1564,7 @@ impl<'a> TypeChecker<'a> {
     }
 
     fn check_function(&mut self, file: &AstFile, function: &Function) {
+        self.current_resource_owners = crate::escape::analyze_function(function);
         if function.isolated
             && (!matches!(function.kind, FunctionKind::Func)
                 || !matches!(function.visibility, Visibility::Export))
@@ -1614,6 +1626,10 @@ impl<'a> TypeChecker<'a> {
                     Some(&return_type),
                     "return type",
                 );
+                // Returning `List OF RES File` transfers scope-ownership of the
+                // referenced resources to the caller, which adopts them (§15.6).
+                // (A bare `List OF File` return is already rejected at the type
+                // level, since a resource element must be `RES`-marked.)
             }
         }
 
@@ -2094,13 +2110,38 @@ impl<'a> TypeChecker<'a> {
                     (binding_type != Type::Unknown).then_some(&binding_type),
                     &format!("binding `{name}`"),
                 );
+                // A `get`/`getOr` of a resource element yields a *borrow*, not an
+                // owner; it cannot be bound with `RES` (§15.6). Use it inline or
+                // through `FOR EACH`.
+                if *resource
+                    && self.is_resource_type(&binding_type)
+                    && value
+                        .as_ref()
+                        .is_some_and(|value| is_resource_element_borrow(value))
+                {
+                    self.report(
+                        "TYPE_RESOURCE_ELEMENT_NOT_OWNER",
+                        &format!(
+                            "Binding `{name}` is a borrowed collection element, not an owner; a borrowed resource cannot be bound with `RES`. Use it inline or via `FOR EACH` (§15.6)."
+                        ),
+                        file,
+                        *line,
+                    );
+                }
+                // A `RES` binding whose ownership floats into an outer-scope
+                // collection (or out via a returned collection) becomes
+                // borrow-only: it may not close, `RETURN`, or transfer the
+                // resource — the owning scope does that (§15.6).
+                let borrowed = *resource
+                    && self.is_resource_type(&binding_type)
+                    && self.current_resource_owners.floats(name);
                 locals.insert(
                     name.clone(),
                     LocalInfo {
                         type_: binding_type,
                         mutable: *mutable,
                         ownership: OwnershipState::Available,
-                        borrowed: false,
+                        borrowed,
                         state_type: state_type.clone(),
                     },
                 );
@@ -2136,6 +2177,20 @@ impl<'a> TypeChecker<'a> {
                     self.report(
                         "TYPE_UNKNOWN_VALUE",
                         "RETURN value does not have a known type.",
+                        file,
+                        *line,
+                    );
+                }
+                // A `get`/`getOr` of a resource element is a borrow, not an
+                // owner; it cannot be returned (§15.6).
+                if self.is_resource_type(&actual)
+                    && value
+                        .as_ref()
+                        .is_some_and(|value| is_resource_element_borrow(value))
+                {
+                    self.report(
+                        "TYPE_RESOURCE_ELEMENT_NOT_OWNER",
+                        "RETURN value is a borrowed collection element, not an owner; a borrowed resource cannot be returned (§15.6).",
                         file,
                         *line,
                     );
@@ -2685,11 +2740,13 @@ impl<'a> TypeChecker<'a> {
                 let iterable_type =
                     self.infer_expression(file, iterable, locals, *line, ExprMode::Read);
                 let element_type = match iterable_type {
-                    Type::List(element) => *element,
+                    // Iterating `List OF RES File` yields a *borrow* of each
+                    // element (`File`), not the `RES`-marked slot type (§15.6).
+                    Type::List(element) => strip_res(&element).clone(),
                     Type::Map(key, value) => Type::User(format!(
                         "MapEntry OF {} TO {}",
                         self.type_name(&key),
-                        self.type_name(&value)
+                        self.type_name(strip_res(&value))
                     )),
                     other => {
                         self.report(
@@ -2704,6 +2761,10 @@ impl<'a> TypeChecker<'a> {
                         Type::Unknown
                     }
                 };
+                // Iterating a resource collection yields a *borrow* of each
+                // element; the loop variable may not close, `RETURN`, or transfer
+                // the resource (§15.6).
+                let element_borrowed = self.is_resource_type(&element_type);
                 let mut nested = locals.clone();
                 nested.insert(
                     name.clone(),
@@ -2711,7 +2772,7 @@ impl<'a> TypeChecker<'a> {
                         type_: element_type,
                         mutable: false,
                         ownership: OwnershipState::Available,
-                        borrowed: false,
+                        borrowed: element_borrowed,
                         state_type: None,
                     },
                 );
@@ -3316,17 +3377,21 @@ impl<'a> TypeChecker<'a> {
         expected: Option<&Type>,
     ) -> Type {
         if let Some(Type::List(expected_element)) = expected {
-            if self.contains_resource_or_thread(expected_element) {
+            if self.contains_thread(expected_element) {
                 self.report_invalid_collection_element(file, line, "element", expected_element);
             }
             for value in values {
+                let mode = self.collection_element_mode(value, locals);
                 let actual = self.infer_expression_with_expected(
                     file,
                     value,
                     locals,
                     line,
                     Some(expected_element),
-                    ExprMode::Transfer,
+                    mode,
+                );
+                self.check_collection_resource_element(
+                    file, line, "element", value, &actual, locals,
                 );
                 if !self.expression_compatible(expected_element, &actual, Some(value)) {
                     self.report(
@@ -3347,12 +3412,16 @@ impl<'a> TypeChecker<'a> {
         let Some(first) = values.first() else {
             return Type::List(Box::new(Type::Unknown));
         };
-        let element_type = self.infer_expression(file, first, locals, line, ExprMode::Transfer);
-        if self.contains_resource_or_thread(&element_type) {
+        let first_mode = self.collection_element_mode(first, locals);
+        let element_type = self.infer_expression(file, first, locals, line, first_mode);
+        if self.contains_thread(&element_type) {
             self.report_invalid_collection_element(file, line, "element", &element_type);
         }
+        self.check_collection_resource_element(file, line, "element", first, &element_type, locals);
         for value in values.iter().skip(1) {
-            let actual = self.infer_expression(file, value, locals, line, ExprMode::Transfer);
+            let mode = self.collection_element_mode(value, locals);
+            let actual = self.infer_expression(file, value, locals, line, mode);
+            self.check_collection_resource_element(file, line, "element", value, &actual, locals);
             if !self.expression_compatible(&element_type, &actual, Some(value)) {
                 self.report(
                     "TYPE_LIST_ELEMENT_MISMATCH",
@@ -3379,14 +3448,16 @@ impl<'a> TypeChecker<'a> {
         line: usize,
     ) -> Type {
         let key_type = self.parse_type(key_type);
-        let value_type = self.parse_type(value_type);
+        // The value may carry the `RES` ownership-axis marker (`Map OF K TO RES
+        // File`, §15.6).
+        let value_type = self.parse_collection_element_type(value_type);
         self.check_type_reference(file, &key_type, line);
-        self.check_type_reference(file, &value_type, line);
+        self.check_type_reference(file, strip_res(&value_type), line);
         if self.contains_resource_or_thread(&key_type) {
             self.report_invalid_collection_element(file, line, "key", &key_type);
         }
         self.require_comparable_type(file, line, "Map key type", &key_type);
-        if self.contains_resource_or_thread(&value_type) {
+        if self.contains_thread(&value_type) {
             self.report_invalid_collection_element(file, line, "value", &value_type);
         }
         for (key, value) in entries {
@@ -3403,7 +3474,9 @@ impl<'a> TypeChecker<'a> {
                     line,
                 );
             }
-            let actual_value = self.infer_expression(file, value, locals, line, ExprMode::Transfer);
+            let value_mode = self.collection_element_mode(value, locals);
+            let actual_value = self.infer_expression(file, value, locals, line, value_mode);
+            self.check_collection_resource_element(file, line, "value", value, &actual_value, locals);
             if !self.expression_compatible(&value_type, &actual_value, Some(value)) {
                 self.report(
                     "TYPE_MAP_VALUE_MISMATCH",
@@ -5024,6 +5097,21 @@ impl<'a> TypeChecker<'a> {
             .map(|type_| self.type_name(type_))
             .collect::<Vec<_>>();
 
+        // A resource added to a collection through an update builtin must be a
+        // `RES` binding (the owner); its slot holds a borrow (§15.6).
+        if matches!(callee, "append" | "prepend" | "insert" | "set") {
+            for (index, (argument, arg_type)) in
+                arguments.iter().zip(arg_types.iter()).enumerate()
+            {
+                if index == 0 {
+                    continue;
+                }
+                self.check_collection_resource_element(
+                    file, line, "element", argument, arg_type, locals,
+                );
+            }
+        }
+
         if let Some((min, max)) = builtins::general::arity(callee) {
             if arguments.len() < min || arguments.len() > max {
                 let expected = if min == max {
@@ -5295,6 +5383,16 @@ impl<'a> TypeChecker<'a> {
         ordered
     }
 
+    /// Parse a collection element / `Map` value type, honoring the `RES` marker
+    /// (`List OF RES File`). The marker wraps the element in [`Type::Res`]; the
+    /// element validation later checks it matches the element's resource-ness.
+    fn parse_collection_element_type(&self, name: &str) -> Type {
+        if let Some(inner) = name.strip_prefix("RES ") {
+            return Type::Res(Box::new(self.parse_type(inner)));
+        }
+        self.parse_type(name)
+    }
+
     fn parse_type(&self, name: &str) -> Type {
         let name = builtins::thread::strip_type_group(name);
         if let Some(rest) = name.strip_prefix("ISOLATED FUNC(") {
@@ -5304,7 +5402,7 @@ impl<'a> TypeChecker<'a> {
             return self.parse_function_type(rest, false);
         }
         if let Some(element) = name.strip_prefix("List OF ") {
-            return Type::List(Box::new(self.parse_type(element)));
+            return Type::List(Box::new(self.parse_collection_element_type(element)));
         }
         if let Some(success) = name.strip_prefix("Result OF ") {
             return Type::Result(Box::new(self.parse_type(success)));
@@ -5328,7 +5426,7 @@ impl<'a> TypeChecker<'a> {
             if let Some((key, value)) = rest.split_once(" TO ") {
                 return Type::Map(
                     Box::new(self.parse_type(key)),
-                    Box::new(self.parse_type(value)),
+                    Box::new(self.parse_collection_element_type(value)),
                 );
             }
         }
@@ -5374,6 +5472,10 @@ impl<'a> TypeChecker<'a> {
         if matches!(expected, Type::Unknown) || matches!(actual, Type::Unknown) {
             return true;
         }
+        // The `RES` element marker is an ownership-axis annotation (§15.6), not a
+        // distinct value type: a `File` value fits a `RES File` slot and vice
+        // versa. Strip it before comparing.
+        let (expected, actual) = (strip_res(expected), strip_res(actual));
         match (expected, actual) {
             (Type::List(expected), Type::List(actual)) => self.compatible(expected, actual),
             (Type::Map(expected_key, expected_value), Type::Map(actual_key, actual_value)) => {
@@ -5516,6 +5618,7 @@ impl<'a> TypeChecker<'a> {
             | Type::Map(_, _)
             | Type::Function { .. }
             | Type::Result(_)
+            | Type::Res(_)
             | Type::Thread(..)
             | Type::ThreadWorker(..) => false,
             Type::User(name) => {
@@ -5646,6 +5749,8 @@ impl<'a> TypeChecker<'a> {
             Type::User(name) => {
                 self.resource_registry.is_resource(name) || self.is_resource_union(name)
             }
+            // A `RES`-marked element (`RES File`) is a resource (a borrow of one).
+            Type::Res(inner) => self.is_resource_type(inner),
             _ => false,
         }
     }
@@ -5669,6 +5774,51 @@ impl<'a> TypeChecker<'a> {
         self.contains_resource_or_thread_with_seen(type_, &mut HashSet::new())
     }
 
+    /// Whether a type transitively contains a thread handle. Threads may never
+    /// live in a collection; resources may (as borrows, §15.6), so collection
+    /// element and `Map` *value* positions use this rather than the combined
+    /// resource-or-thread predicate.
+    fn contains_thread(&self, type_: &Type) -> bool {
+        self.contains_thread_with_seen(type_, &mut HashSet::new())
+    }
+
+    fn contains_thread_with_seen(&self, type_: &Type, seen: &mut HashSet<String>) -> bool {
+        match type_ {
+            Type::Thread(..) | Type::ThreadWorker(..) => true,
+            Type::List(element) => self.contains_thread_with_seen(element, seen),
+            Type::Map(key, value) => {
+                self.contains_thread_with_seen(key, seen)
+                    || self.contains_thread_with_seen(value, seen)
+            }
+            Type::Result(success) => self.contains_thread_with_seen(success, seen),
+            Type::Res(inner) => self.contains_thread_with_seen(inner, seen),
+            Type::User(name) => {
+                if !seen.insert(name.clone()) {
+                    return false;
+                }
+                let Some(info) = self.type_infos.get(name) else {
+                    return false;
+                };
+                let result = match info.kind {
+                    TypeDeclKind::Enum => false,
+                    TypeDeclKind::Type => info
+                        .fields
+                        .iter()
+                        .any(|field| self.contains_thread_with_seen(&field.type_, seen)),
+                    TypeDeclKind::Union => info.variants.iter().any(|variant| {
+                        variant
+                            .fields
+                            .iter()
+                            .any(|field| self.contains_thread_with_seen(&field.type_, seen))
+                    }),
+                };
+                seen.remove(name);
+                result
+            }
+            _ => false,
+        }
+    }
+
     fn contains_resource_or_thread_with_seen(
         &self,
         type_: &Type,
@@ -5683,6 +5833,7 @@ impl<'a> TypeChecker<'a> {
                     || self.contains_resource_or_thread_with_seen(value, seen)
             }
             Type::Result(success) => self.contains_resource_or_thread_with_seen(success, seen),
+            Type::Res(inner) => self.contains_resource_or_thread_with_seen(inner, seen),
             Type::Function { .. } => false,
             Type::User(name) => {
                 if !seen.insert(name.clone()) {
@@ -5727,6 +5878,103 @@ impl<'a> TypeChecker<'a> {
         );
     }
 
+    /// Enforce the `RES` ownership axis on a collection element / `Map` value
+    /// type (§15.6): a resource element must be marked `RES` (`List OF RES File`),
+    /// and `RES` may mark only a resource — exactly as for a `RES` binding or
+    /// parameter. `role` is "element" or "value".
+    fn check_collection_element_axis(
+        &mut self,
+        file: &AstFile,
+        line: usize,
+        role: &str,
+        element: &Type,
+    ) {
+        let is_res_marked = matches!(element, Type::Res(_));
+        let inner = strip_res(element);
+        let is_resource = self.is_resource_type(inner);
+        if is_resource && !is_res_marked {
+            self.report(
+                "TYPE_RESOURCE_REQUIRES_RES",
+                &format!(
+                    "Collection {role} type `{}` is a resource; mark it `RES` (e.g. `List OF RES File`), not a bare resource type.",
+                    self.type_name(inner)
+                ),
+                file,
+                line,
+            );
+        } else if is_res_marked && !is_resource {
+            self.report(
+                "TYPE_RES_REQUIRES_RESOURCE",
+                &format!(
+                    "Collection {role} is marked `RES` but `{}` is not a resource type; drop the `RES`.",
+                    self.type_name(inner)
+                ),
+                file,
+                line,
+            );
+        }
+    }
+
+    /// A `List` element or `Map` value may hold a *borrow* of a resource, but
+    /// only of a named `RES` binding (the owner); a temporary or a borrowed
+    /// element (e.g. a `get`/`FOR EACH` result) is not an owner and cannot be
+    /// stored (§15.6).
+    fn check_collection_resource_element(
+        &mut self,
+        file: &AstFile,
+        line: usize,
+        role: &str,
+        value: &Expression,
+        type_: &Type,
+        locals: &HashMap<String, LocalInfo>,
+    ) {
+        if !self.is_resource_type(type_) {
+            return;
+        }
+        if self.collection_element_is_resource_binding(value, locals) {
+            return;
+        }
+        self.report(
+            "TYPE_RESOURCE_ELEMENT_NOT_OWNER",
+            &format!(
+                "Only a `RES` binding may be added as a collection {role}; `{}` is a temporary or borrowed resource, not an owner. Bind it with `RES` first (§15.6).",
+                self.type_name(type_)
+            ),
+            file,
+            line,
+        );
+    }
+
+    /// Whether `value` is an identifier naming a resource `RES` binding or
+    /// parameter — the only resource expression that may be stored in a
+    /// collection (its slot holds a borrow of that binding).
+    fn collection_element_is_resource_binding(
+        &self,
+        value: &Expression,
+        locals: &HashMap<String, LocalInfo>,
+    ) -> bool {
+        let Expression::Identifier(name) = value else {
+            return false;
+        };
+        locals
+            .get(name)
+            .is_some_and(|info| self.is_resource_type(&info.type_))
+    }
+
+    /// The expression mode for a collection element: a resource binding is a
+    /// borrow (it stays usable after insertion), everything else is consumed.
+    fn collection_element_mode(
+        &self,
+        value: &Expression,
+        locals: &HashMap<String, LocalInfo>,
+    ) -> ExprMode {
+        if self.collection_element_is_resource_binding(value, locals) {
+            ExprMode::Borrow
+        } else {
+            ExprMode::Transfer
+        }
+    }
+
     fn is_copyable_type(&self, type_: &Type) -> bool {
         self.is_copyable_type_with_seen(type_, &mut HashSet::new())
     }
@@ -5758,6 +6006,7 @@ impl<'a> TypeChecker<'a> {
             }
             Type::Function { .. }
             | Type::Result(_)
+            | Type::Res(_)
             | Type::Thread(..)
             | Type::ThreadWorker(..) => false,
             Type::User(name) => {
@@ -5795,6 +6044,11 @@ impl<'a> TypeChecker<'a> {
             | Type::Nothing
             | Type::String
             | Type::Unknown => true,
+            // A collection slot holds a *borrow* of a resource (`RES File`),
+            // which copies freely — copying the collection makes more borrows,
+            // never another resource. A standalone resource stays non-copyable
+            // (the `Type::User` arm below); §15.6.
+            Type::Res(_) => true,
             Type::List(element) => self.is_copyable_type_with_seen(element, seen),
             Type::Map(key, value) => {
                 self.is_copyable_type_with_seen(key, seen)
@@ -5850,6 +6104,8 @@ impl<'a> TypeChecker<'a> {
                     && self.is_thread_sendable_type_with_seen(value, seen)
             }
             Type::Result(success) => self.is_thread_sendable_type_with_seen(success, seen),
+            // Sharing a resource collection across threads is out of scope (§15.6).
+            Type::Res(_) => false,
             Type::Function { .. } | Type::Thread(..) | Type::ThreadWorker(..) => false,
             Type::User(name) => {
                 if self.resource_registry.is_resource(name) {
@@ -6034,22 +6290,31 @@ impl<'a> TypeChecker<'a> {
     fn check_type_reference(&mut self, file: &AstFile, type_: &Type, line: usize) {
         match type_ {
             Type::List(element) => {
-                self.check_type_reference(file, element, line);
-                if self.contains_resource_or_thread(element) {
-                    self.report_invalid_collection_element(file, line, "element", element);
+                let inner = strip_res(element);
+                self.check_type_reference(file, inner, line);
+                self.check_collection_element_axis(file, line, "element", element);
+                // A `List` element may be a resource borrow (§15.6); only thread
+                // handles are forbidden in collections.
+                if self.contains_thread(inner) {
+                    self.report_invalid_collection_element(file, line, "element", inner);
                 }
             }
             Type::Map(key, value) => {
+                let value_inner = strip_res(value);
                 self.check_type_reference(file, key, line);
-                self.check_type_reference(file, value, line);
+                self.check_type_reference(file, value_inner, line);
+                self.check_collection_element_axis(file, line, "value", value);
+                // A resource may not be a `Map` key (handles are not comparable),
+                // but a `Map` *value* may be a resource borrow (§15.6).
                 if self.contains_resource_or_thread(key) {
                     self.report_invalid_collection_element(file, line, "key", key);
                 }
                 self.require_comparable_type(file, line, "Map key type", key);
-                if self.contains_resource_or_thread(value) {
-                    self.report_invalid_collection_element(file, line, "value", value);
+                if self.contains_thread(value_inner) {
+                    self.report_invalid_collection_element(file, line, "value", value_inner);
                 }
             }
+            Type::Res(inner) => self.check_type_reference(file, inner, line),
             Type::Function {
                 params,
                 return_type,
@@ -6157,6 +6422,7 @@ impl<'a> TypeChecker<'a> {
                     self.type_name(value)
                 )
             }
+            Type::Res(inner) => format!("RES {}", self.type_name(inner)),
             Type::Function {
                 params,
                 return_type,
@@ -6559,6 +6825,25 @@ fn call_arg_value(argument: &CallArg) -> &Expression {
         CallArg::Positional(value) => value,
         CallArg::Named { value, .. } => value,
     }
+}
+
+/// Unwrap a `RES`-marked collection element (`Type::Res`) to the underlying
+/// type; a no-op for any other type.
+fn strip_res(type_: &Type) -> &Type {
+    match type_ {
+        Type::Res(inner) => inner,
+        other => other,
+    }
+}
+
+/// Whether an expression reads a single element out of a collection (`get` /
+/// `getOr`). Of resource type, the result is a borrow that may not be `RES`-bound
+/// (§15.6).
+fn is_resource_element_borrow(expression: &Expression) -> bool {
+    matches!(
+        expression,
+        Expression::Call { callee, .. } if matches!(callee.as_str(), "get" | "getOr")
+    )
 }
 
 /// Whether `type_name` is a raw C ABI type that may appear only inside an

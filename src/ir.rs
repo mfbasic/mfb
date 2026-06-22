@@ -173,6 +173,11 @@ pub(crate) struct IrFunction {
     // Source file (project-relative path) this function was lowered from. Used to
     // build `ErrorLoc.filename` for errors that originate inside this function.
     pub(crate) file: String,
+    // Resource ownership decisions (escape analysis, §15.6), keyed by `RES`
+    // binding name. Drives where each resource's close obligation is discharged:
+    // its own scope, an outer collection's scope (runtime owned-list), or out via
+    // a returned collection. Absent names are `Local`.
+    pub(crate) resource_owners: HashMap<String, crate::escape::ResOwner>,
 }
 #[derive(Clone)]
 
@@ -820,6 +825,7 @@ fn lower_function(function: &Function, context: &mut LowerContext<'_>) -> IrFunc
         returns,
         body,
         file: context.current_file.clone(),
+        resource_owners: crate::escape::analyze_function(function).owners().clone(),
     }
 }
 
@@ -1643,9 +1649,14 @@ fn statement_terminates(statement: &Statement) -> bool {
 fn collection_iteration_type(type_: &str) -> Option<String> {
     type_
         .strip_prefix("List OF ")
-        .map(str::to_string)
+        // Iterating `List OF RES File` yields a borrow of each element; the loop
+        // variable's type is the bare resource (`File`), not `RES File` (§15.6).
+        .map(|element| element.strip_prefix("RES ").unwrap_or(element).to_string())
         .or_else(|| {
-            parse_map_type(type_).map(|(key, value)| format!("MapEntry OF {key} TO {value}"))
+            parse_map_type(type_).map(|(key, value)| {
+                let value = value.strip_prefix("RES ").unwrap_or(value.as_str());
+                format!("MapEntry OF {key} TO {value}")
+            })
         })
 }
 
@@ -2660,6 +2671,7 @@ fn lower_expression_with_expected(
                 returns: returns.clone(),
                 body: body_ops,
                 file: context.current_file.clone(),
+                resource_owners: HashMap::new(),
             });
             let params = params
                 .iter()
@@ -4500,6 +4512,9 @@ fn decode_function(r: &mut IrReader) -> Result<IrFunction, String> {
         returns: r.string()?,
         body: decode_vec(r, decode_op)?,
         file: r.string()?,
+        // Recomputed by codegen from the in-memory IR; not part of the binary
+        // representation, so a decoded function carries an empty map.
+        resource_owners: HashMap::new(),
     })
 }
 
@@ -5696,6 +5711,7 @@ mod binary_repr_tests {
                 returns: "Integer".to_string(),
                 body,
                 file: "src/main.mfb".to_string(),
+                resource_owners: HashMap::new(),
             }],
             native_resources: vec![],
             link_functions: vec![],
@@ -5741,6 +5757,7 @@ mod binary_repr_tests {
             returns: "Integer".to_string(),
             body,
             file: "src/main.mfb".to_string(),
+            resource_owners: HashMap::new(),
         }
     }
 

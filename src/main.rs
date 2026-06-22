@@ -3,6 +3,7 @@ mod ast;
 mod audit;
 mod binary_repr;
 mod builtins;
+mod escape;
 mod ir;
 mod lexer;
 mod man;

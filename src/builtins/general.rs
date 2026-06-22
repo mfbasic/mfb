@@ -625,12 +625,17 @@ fn exact(arg_types: &[String], expected: &[&str]) -> bool {
 fn exact_one_of(arg_types: &[String], expected: &[&str]) -> bool {
     arg_types.len() == 1 && expected.iter().any(|expected| arg_types[0] == *expected)
 }
+/// The element type of a `List`, with any `RES` ownership-axis marker stripped:
+/// a `List OF RES File` yields the borrow element type `File`, since reading or
+/// inserting an element works with the bare resource value (§15.6).
 fn list_element(type_name: &str) -> Option<&str> {
-    type_name.strip_prefix("List OF ")
+    let element = type_name.strip_prefix("List OF ")?;
+    Some(element.strip_prefix("RES ").unwrap_or(element))
 }
 
 fn map_parts(type_name: &str) -> Option<(&str, &str)> {
-    type_name.strip_prefix("Map OF ")?.split_once(" TO ")
+    let (key, value) = type_name.strip_prefix("Map OF ")?.split_once(" TO ")?;
+    Some((key, value.strip_prefix("RES ").unwrap_or(value)))
 }
 
 fn function_parts(type_name: &str) -> Option<(Vec<&str>, &str)> {

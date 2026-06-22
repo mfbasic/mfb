@@ -1587,6 +1587,7 @@ mod tests {
                     },
                 }],
                 file: "src/main.mfb".to_string(),
+                resource_owners: std::collections::HashMap::new(),
             }],
             link_functions: Vec::new(),
         }

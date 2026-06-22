@@ -1,4 +1,6 @@
-' A native resource cannot be stored in an ordinary List (a non-goal, §3).
+' A List may hold borrows of a native resource, but the element must carry the
+' `RES` ownership-axis marker (`List OF RES Db`); a bare `List OF Db` is rejected
+' just like `AS Db` without `RES` (§15.6).
 EXPORT RESOURCE Db CLOSE BY demoLink::close
 LINK "demo" AS demoLink
   FUNC open(path AS String) AS RES Db
@@ -18,7 +20,8 @@ LINK "demo" AS demoLink
   END FUNC
 END LINK
 
-EXPORT FUNC bad(path AS String) AS Nothing
+EXPORT FUNC bad(path AS String) AS List OF Db
   RES db AS Db = demoLink::open(path)
   LET xs AS List OF Db = [db]
+  RETURN xs
 END FUNC

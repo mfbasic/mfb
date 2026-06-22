@@ -1044,6 +1044,9 @@ impl<'a> Resolver<'a> {
                 entries,
             } => {
                 self.resolve_type_name(file, key_type, line, imports);
+                // A `Map OF K TO RES File` literal value carries the resource
+                // ownership-axis marker (§15.6); resolve the underlying type.
+                let value_type = value_type.strip_prefix("RES ").unwrap_or(value_type);
                 self.resolve_type_name(file, value_type, line, imports);
                 for (key, value) in entries {
                     self.resolve_expression(file, key, line, imports, locals);
@@ -1161,6 +1164,9 @@ impl<'a> Resolver<'a> {
             return;
         }
         if let Some(element) = type_name.strip_prefix("List OF ") {
+            // A `List OF RES File` element carries the resource ownership-axis
+            // marker; resolve the underlying type (§15.6).
+            let element = element.strip_prefix("RES ").unwrap_or(element);
             self.resolve_type_name(file, element, line, imports);
             return;
         }
@@ -1176,6 +1182,7 @@ impl<'a> Resolver<'a> {
         }
         if let Some(rest) = type_name.strip_prefix("Map OF ") {
             if let Some((key, value)) = rest.split_once(" TO ") {
+                let value = value.strip_prefix("RES ").unwrap_or(value);
                 self.resolve_type_name(file, key, line, imports);
                 self.resolve_type_name(file, value, line, imports);
                 return;

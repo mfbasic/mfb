@@ -242,6 +242,7 @@ These codes correspond to `src/rules.rs` and are emitted directly by the compile
 | `2-203-0097` | `NATIVE_CONST_OUT` | error | `a CONST-pinned ABI slot cannot also be OUT` |
 | `2-203-0098` | `NATIVE_CONST_UNKNOWN_SLOT` | error | `a CONST pin names an unknown ABI slot` |
 | `2-203-0099` | `NATIVE_FREE_INVALID` | error | `a FREE block is malformed: it must release the `return` CPtr produced slot through a deallocator taking one CPtr parameter and returning CVoid` |
+| `2-203-0100` | `TYPE_RESOURCE_ELEMENT_NOT_OWNER` | error | `a borrowed collection element of resource type is not an owner` |
 
 ## Toolchain and Package Diagnostics
 

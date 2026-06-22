@@ -1,0 +1,23 @@
+IMPORT fs
+IMPORT io
+
+' A resource opened in the loop body, whose borrow is appended to an
+' outer-scope List, has its ownership float up to the List's scope (§15.6).
+' It must stay open after the loop (used here), and be closed exactly once
+' when main's scope exits.
+FUNC main AS Integer
+  MUT handles AS List OF RES File = []
+  MUT i AS Integer = 0
+  WHILE i < 5
+    RES f AS File = fs::openFile("tests/resource-collection-floats-runtime/src/main.mfb")
+    handles = append(handles, f)
+    i = i + 1
+  WEND
+  MUT opened AS Integer = 0
+  FOR EACH h IN handles
+    LET line AS String = fs::readLine(h)
+    opened = opened + 1
+  NEXT
+  io::print("opened=" & toString(opened))
+  RETURN 0
+END FUNC

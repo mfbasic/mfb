@@ -1,0 +1,16 @@
+$ mfb build -ast tests/resource-collection-not-owner-invalid
+   6 |   RES a AS File = fs::openFile("tests/resource-collection-not-owner-invalid/src/main.mfb")
+   7 |   LET handles AS List OF RES File = [a]
+   8 |   RES borrowed AS File = get(handles, 0)
+     | ^
+tests/resource-collection-not-owner-invalid/src/main.mfb:8 error[2-203-0100 TYPE_RESOURCE_ELEMENT_NOT_OWNER]: a borrowed collection element of resource type is not an owner
+               Binding `borrowed` is a borrowed collection element, not an owner; a borrowed resource cannot be bound with `RES`. Use it inline or via `FOR EACH` (§15.6).
+[exit 1]
+$ mfb build -ir tests/resource-collection-not-owner-invalid
+   6 |   RES a AS File = fs::openFile("tests/resource-collection-not-owner-invalid/src/main.mfb")
+   7 |   LET handles AS List OF RES File = [a]
+   8 |   RES borrowed AS File = get(handles, 0)
+     | ^
+tests/resource-collection-not-owner-invalid/src/main.mfb:8 error[2-203-0100 TYPE_RESOURCE_ELEMENT_NOT_OWNER]: a borrowed collection element of resource type is not an owner
+               Binding `borrowed` is a borrowed collection element, not an owner; a borrowed resource cannot be bound with `RES`. Use it inline or via `FOR EACH` (§15.6).
+[exit 1]
