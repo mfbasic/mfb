@@ -15,12 +15,17 @@
   { "library": "libobjc", "symbol": "_sel_registerName", "requiredBy": "_main" },
   { "library": "libobjc", "symbol": "_objc_setAssociatedObject", "requiredBy": "_main" },
   { "library": "libobjc", "symbol": "_objc_getAssociatedObject", "requiredBy": "_main" },
+  { "library": "libobjc", "symbol": "_objc_allocateClassPair", "requiredBy": "_main" },
+  { "library": "libobjc", "symbol": "_class_addMethod", "requiredBy": "_main" },
+  { "library": "libobjc", "symbol": "_objc_registerClassPair", "requiredBy": "_main" },
+  { "library": "libobjc", "symbol": "_OBJC_CLASS_$_NSObject", "requiredBy": "_main" },
   { "library": "AppKit", "symbol": "_OBJC_CLASS_$_NSApplication", "requiredBy": "_main" },
   { "library": "AppKit", "symbol": "_OBJC_CLASS_$_NSWindow", "requiredBy": "_main" },
   { "library": "AppKit", "symbol": "_OBJC_CLASS_$_NSScrollView", "requiredBy": "_main" },
   { "library": "AppKit", "symbol": "_OBJC_CLASS_$_NSTextView", "requiredBy": "_main" },
   { "library": "Foundation", "symbol": "_OBJC_CLASS_$_NSString", "requiredBy": "_main" },
   { "library": "libSystem", "symbol": "_pthread_create", "requiredBy": "_main" },
+  { "library": "libSystem", "symbol": "_pthread_exit", "requiredBy": "_main" },
   { "library": "libSystem", "symbol": "_getenv", "requiredBy": "_main" }
   ],
   "functions": [

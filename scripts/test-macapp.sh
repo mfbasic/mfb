@@ -135,6 +135,47 @@ else
   fi
 fi
 
+# Case 4 (GUI): keep window open after completion (plan §5.7). Launched WITHOUT
+# the headless gate so the real window + event loop run; a program whose main
+# returns immediately must leave the process alive (window open) rather than
+# exiting. This briefly opens a window and requires a window-server session.
+proj="$work/keepopen"
+mkdir -p "$proj/src"
+cat > "$proj/project.json" <<'JSON'
+{ "name": "keepopen", "version": "0.1.0", "mfb": "1.0", "kind": "executable",
+  "sources": [{ "root": "src", "role": "main", "include": ["**/*.mfb"] }],
+  "entry": "main", "targets": ["native"] }
+JSON
+cat > "$proj/src/main.mfb" <<'MFB'
+IMPORT io
+SUB main()
+  io::print("finished")
+END SUB
+MFB
+if ! "$MFB_EXE" build -app "$proj" >/dev/null 2>&1; then
+  echo "FAIL: build -app keepopen" >&2
+  failures=$((failures + 1))
+else
+  result=$(perl -e '
+    use POSIX ":sys_wait_h";
+    my $pid = fork();
+    if ($pid == 0) {
+      open(STDOUT, ">", "/dev/null"); open(STDERR, ">", "/dev/null");
+      exec($ARGV[0]) or exit 127;
+    }
+    sleep 4;
+    my $r = waitpid($pid, WNOHANG);
+    if ($r == 0) { print "alive"; kill "KILL", $pid; waitpid($pid, 0); }
+    else { printf "exited=%d", ($? >> 8); }
+  ' "$proj/keepopen.app/Contents/MacOS/keepopen")
+  if [ "$result" = "alive" ]; then
+    echo "ok: window stayed open after the program finished"
+  else
+    echo "FAIL: app did not keep the window open ($result)" >&2
+    failures=$((failures + 1))
+  fi
+fi
+
 if [ "$failures" -ne 0 ]; then
   echo "macOS app mode runtime tests failed: $failures" >&2
   exit 1

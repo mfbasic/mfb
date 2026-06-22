@@ -79,11 +79,33 @@ const STR_NEWLINE: (&str, &str) = ("_mfb_macapp_str_newline", "\n");
 /// writable data segment). A nil result means "no window" (headless) -> fd sink.
 const ASSOC_KEY: &str = "_mfb_macapp_textview_key";
 
+// Phase 4a shutdown (plan §5.7): app delegate + completion status line.
+const SEL_INIT: (&str, &str) = ("_mfb_macapp_sel_init", "init");
+const SEL_SET_DELEGATE: (&str, &str) = ("_mfb_macapp_sel_setDelegate", "setDelegate:");
+const SEL_APP_SHOULD_TERMINATE: (&str, &str) = (
+    "_mfb_macapp_sel_appShouldTerminate",
+    "applicationShouldTerminateAfterLastWindowClosed:",
+);
+const STR_DELEGATE_CLASS: (&str, &str) = ("_mfb_macapp_str_delegateClass", "MFBAppDelegate");
+/// Objective-C method type encoding for `BOOL (id self, SEL _cmd, id sender)`.
+const STR_DELEGATE_TYPES: (&str, &str) = ("_mfb_macapp_str_delegateTypes", "c@:@");
+const STR_EXIT_PREFIX: (&str, &str) =
+    ("_mfb_macapp_str_exitPrefix", "\nProgram exited with code ");
+
 /// NSUTF8StringEncoding.
 const NS_UTF8_ENCODING: &str = "4";
 /// The transcript NSTextView append helper emitted alongside the bootstrap.
 const APPEND_SYMBOL: &str = "_mfb_macapp_append";
+/// Program-completion handler (plan §5.7): runs on the worker thread when the
+/// MFBASIC program finishes. macOS `emit_program_exit` routes the worker
+/// program's exit through this instead of `_exit` so the window can stay open.
+pub(crate) const FINISH_SYMBOL: &str = "_mfb_macapp_program_finish";
+/// IMP for the synthesized app delegate's
+/// `applicationShouldTerminateAfterLastWindowClosed:` (returns YES so closing
+/// the window quits the app).
+const SHOULD_TERMINATE_SYMBOL: &str = "_mfb_macapp_should_terminate";
 
+const CLASS_NS_OBJECT: &str = "_OBJC_CLASS_$_NSObject";
 const CLASS_NS_APPLICATION: &str = "_OBJC_CLASS_$_NSApplication";
 const CLASS_NS_WINDOW: &str = "_OBJC_CLASS_$_NSWindow";
 const CLASS_NS_STRING: &str = "_OBJC_CLASS_$_NSString";
@@ -221,6 +243,8 @@ pub(crate) fn emit_app_program_entry(spec: &AppEntrySpec) -> Result<Vec<CodeFunc
         emit_main_bootstrap(),
         emit_worker_shim(spec),
         emit_append_helper(),
+        emit_finish_helper(),
+        emit_should_terminate_helper(),
     ])
 }
 
@@ -359,6 +383,40 @@ fn emit_main_bootstrap() -> CodeFunction {
     asm.push(abi::move_immediate("x3", "Integer", "0"));
     asm.call_external("_objc_setAssociatedObject", LIB_OBJC);
 
+    // Synthesize an NSApplication delegate so closing the window quits the app
+    // (plan §5.7): a runtime MFBAppDelegate : NSObject whose
+    // applicationShouldTerminateAfterLastWindowClosed: returns YES.
+    // cls = objc_allocateClassPair(NSObject, "MFBAppDelegate", 0)
+    asm.external_data("x23", CLASS_NS_OBJECT, LIB_OBJC);
+    asm.local_address("x1", STR_DELEGATE_CLASS.0);
+    asm.push(abi::move_immediate("x2", "Integer", "0"));
+    asm.push(abi::move_register("x0", "x23"));
+    asm.call_external("_objc_allocateClassPair", LIB_OBJC);
+    asm.push(abi::move_register("x23", "x0")); // new class
+    // class_addMethod(cls, @selector(...), imp, "c@:@")
+    asm.load_selector(SEL_APP_SHOULD_TERMINATE.0);
+    asm.local_address("x2", SHOULD_TERMINATE_SYMBOL);
+    asm.local_address("x3", STR_DELEGATE_TYPES.0);
+    asm.push(abi::move_register("x0", "x23"));
+    asm.call_external("_class_addMethod", LIB_OBJC);
+    // objc_registerClassPair(cls)
+    asm.push(abi::move_register("x0", "x23"));
+    asm.call_external("_objc_registerClassPair", LIB_OBJC);
+    // delegate = [[cls alloc] init]
+    asm.load_selector(SEL_ALLOC.0);
+    asm.push(abi::move_register("x0", "x23"));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    asm.push(abi::move_register("x23", "x0"));
+    asm.load_selector(SEL_INIT.0);
+    asm.push(abi::move_register("x0", "x23"));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    asm.push(abi::move_register("x23", "x0")); // delegate instance
+    // [app setDelegate:delegate]
+    asm.load_selector(SEL_SET_DELEGATE.0);
+    asm.push(abi::move_register("x2", "x23"));
+    asm.push(abi::move_register("x0", REG_APP));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+
     asm.load_selector(SEL_MAKE_KEY_AND_ORDER_FRONT.0);
     asm.push(abi::move_immediate("x2", "Integer", "0"));
     asm.push(abi::move_register("x0", REG_WINDOW));
@@ -492,6 +550,160 @@ fn emit_append_helper() -> CodeFunction {
         symbol: APPEND_SYMBOL.to_string(),
         params: Vec::new(),
         returns: "Nothing".to_string(),
+        frame: CodeFrame {
+            stack_size: 0,
+            callee_saved: Vec::new(),
+        },
+        stack_slots: Vec::new(),
+        instructions: asm.ins,
+        relocations: asm.rel,
+    }
+}
+
+/// `void _mfb_macapp_program_finish(int code /*x0*/)`: the worker thread's
+/// program-completion handler (plan §5.7). macOS `emit_program_exit` routes the
+/// worker program's exit here instead of `_exit`.
+///
+/// Headless (no transcript view attached): `_exit(code)` — preserves the
+/// console-like behavior the runtime tests rely on. GUI: append
+/// `Program exited with code <N>` to the transcript and `pthread_exit` the worker
+/// so the process keeps running with the window open; the app quits when the
+/// window is closed (the synthesized delegate's
+/// applicationShouldTerminateAfterLastWindowClosed: returns YES).
+fn emit_finish_helper() -> CodeFunction {
+    let mut asm = Asm::new(FINISH_SYMBOL);
+    // Frame: lr@0, x19(code)@8, x20(scratch/nsstring)@16, x21(textview)@24,
+    // x22(digit count)@32, decimal digit buffer@40 (<=3 digits for 0..255).
+    let frame = 48;
+    asm.push(abi::label("entry"));
+    asm.push(abi::subtract_stack(frame));
+    asm.push(abi::store_u64(abi::link_register(), abi::stack_pointer(), 0));
+    asm.push(abi::store_u64("x19", abi::stack_pointer(), 8));
+    asm.push(abi::store_u64("x20", abi::stack_pointer(), 16));
+    asm.push(abi::store_u64("x21", abi::stack_pointer(), 24));
+    asm.push(abi::store_u64("x22", abi::stack_pointer(), 32));
+    asm.push(abi::move_register("x19", "x0")); // exit code
+
+    // view = objc_getAssociatedObject([NSApplication sharedApplication], &KEY)
+    asm.external_data("x21", CLASS_NS_APPLICATION, LIB_APPKIT);
+    asm.load_selector(SEL_SHARED_APPLICATION.0);
+    asm.push(abi::move_register("x0", "x21"));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    asm.local_address("x1", ASSOC_KEY);
+    asm.call_external("_objc_getAssociatedObject", LIB_OBJC);
+    asm.push(abi::move_register("x21", "x0")); // transcript view or nil
+    asm.push(abi::compare_immediate("x21", "0"));
+    asm.push(abi::branch_eq("headless_exit"));
+
+    // --- GUI: append the completion status line, then end the worker thread ---
+    build_nsstring_from_cstring(&mut asm, "x20", STR_EXIT_PREFIX.0);
+    asm.push(abi::move_register("x1", "x0"));
+    asm.push(abi::move_register("x0", "x21"));
+    asm.call_internal(APPEND_SYMBOL);
+
+    // Format the exit code (0..255) as decimal ASCII into the stack buffer at +40,
+    // leaving the digit count in x22. Pure register arithmetic, no calls.
+    emit_format_exit_code(&mut asm, frame);
+
+    // number = [[NSString alloc] initWithBytes:&buf length:x22 encoding:UTF8]
+    asm.external_data("x20", CLASS_NS_STRING, LIB_FOUNDATION);
+    asm.load_selector(SEL_ALLOC.0);
+    asm.push(abi::move_register("x0", "x20"));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    asm.push(abi::move_register("x20", "x0")); // allocated NSString
+    asm.load_selector(SEL_INIT_WITH_BYTES.0);
+    asm.push(abi::add_immediate("x2", abi::stack_pointer(), 40));
+    asm.push(abi::move_register("x3", "x22"));
+    asm.push(abi::move_immediate("x4", "Integer", NS_UTF8_ENCODING));
+    asm.push(abi::move_register("x0", "x20"));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    asm.push(abi::move_register("x1", "x0"));
+    asm.push(abi::move_register("x0", "x21"));
+    asm.call_internal(APPEND_SYMBOL);
+
+    build_nsstring_from_cstring(&mut asm, "x20", STR_NEWLINE.0);
+    asm.push(abi::move_register("x1", "x0"));
+    asm.push(abi::move_register("x0", "x21"));
+    asm.call_internal(APPEND_SYMBOL);
+
+    // pthread_exit(NULL): end the worker; the main thread's event loop keeps the
+    // window open until the user closes it.
+    asm.push(abi::move_immediate("x0", "Integer", "0"));
+    asm.call_external("_pthread_exit", LIB_SYSTEM);
+    asm.push(abi::branch_self());
+
+    // --- headless: terminate the process with the program's exit code ---
+    asm.push(abi::label("headless_exit"));
+    asm.push(abi::move_register("x0", "x19"));
+    asm.call_external("_exit", LIB_SYSTEM);
+    asm.push(abi::branch_self());
+    asm.push(abi::return_());
+
+    CodeFunction {
+        name: "macapp.finish".to_string(),
+        symbol: FINISH_SYMBOL.to_string(),
+        params: Vec::new(),
+        returns: "Nothing".to_string(),
+        frame: CodeFrame {
+            stack_size: 0,
+            callee_saved: Vec::new(),
+        },
+        stack_slots: Vec::new(),
+        instructions: asm.ins,
+        relocations: asm.rel,
+    }
+}
+
+/// Format the exit code in `x19` (0..255) as decimal ASCII into the stack buffer
+/// at `sp+40`, leaving the digit count in `x22`. Leading zeros are suppressed.
+/// Uses only caller-saved scratch registers and performs no calls.
+fn emit_format_exit_code(asm: &mut Asm, _frame: usize) {
+    // h = code/100; rem = code%100; t = rem/10; o = rem%10.
+    asm.push(abi::move_register("x9", "x19")); // n
+    asm.push(abi::move_immediate("x11", "Integer", "100"));
+    asm.push(abi::unsigned_divide_registers("x10", "x9", "x11")); // hundreds
+    asm.push(abi::multiply_subtract_registers("x9", "x10", "x11", "x9")); // n %= 100
+    asm.push(abi::move_immediate("x11", "Integer", "10"));
+    asm.push(abi::unsigned_divide_registers("x12", "x9", "x11")); // tens
+    asm.push(abi::multiply_subtract_registers("x9", "x12", "x11", "x9")); // ones
+    // write pointer x13 = sp+40; start x16 = x13.
+    asm.push(abi::add_immediate("x13", abi::stack_pointer(), 40));
+    asm.push(abi::move_register("x16", "x13"));
+    // if hundreds != 0: emit hundreds, then always emit tens + ones.
+    asm.push(abi::compare_immediate("x10", "0"));
+    asm.push(abi::branch_eq("fmt_skip_h"));
+    asm.push(abi::add_immediate("x14", "x10", 48));
+    asm.push(abi::store_u8("x14", "x13", 0));
+    asm.push(abi::add_immediate("x13", "x13", 1));
+    asm.push(abi::branch("fmt_tens"));
+    asm.push(abi::label("fmt_skip_h"));
+    // else if tens == 0: skip tens (ones only).
+    asm.push(abi::compare_immediate("x12", "0"));
+    asm.push(abi::branch_eq("fmt_ones"));
+    asm.push(abi::label("fmt_tens"));
+    asm.push(abi::add_immediate("x14", "x12", 48));
+    asm.push(abi::store_u8("x14", "x13", 0));
+    asm.push(abi::add_immediate("x13", "x13", 1));
+    asm.push(abi::label("fmt_ones"));
+    asm.push(abi::add_immediate("x14", "x9", 48));
+    asm.push(abi::store_u8("x14", "x13", 0));
+    asm.push(abi::add_immediate("x13", "x13", 1));
+    // x22 = digit count = x13 - x16.
+    asm.push(abi::subtract_registers("x22", "x13", "x16"));
+}
+
+/// IMP for `applicationShouldTerminateAfterLastWindowClosed:` — returns YES so
+/// closing the transcript window quits the app (plan §5.7).
+fn emit_should_terminate_helper() -> CodeFunction {
+    let mut asm = Asm::new(SHOULD_TERMINATE_SYMBOL);
+    asm.push(abi::label("entry"));
+    asm.push(abi::move_immediate("x0", "Integer", "1")); // YES
+    asm.push(abi::return_());
+    CodeFunction {
+        name: "macapp.shouldTerminate".to_string(),
+        symbol: SHOULD_TERMINATE_SYMBOL.to_string(),
+        params: Vec::new(),
+        returns: "Boolean".to_string(),
         frame: CodeFrame {
             stack_size: 0,
             callee_saved: Vec::new(),
@@ -665,6 +877,13 @@ pub(crate) fn app_mode_data_objects() -> Vec<CodeDataObject> {
         SEL_INIT_WITH_BYTES,
         STR_STDERR_PREFIX,
         STR_NEWLINE,
+        // Phase 4a shutdown / app delegate.
+        SEL_INIT,
+        SEL_SET_DELEGATE,
+        SEL_APP_SHOULD_TERMINATE,
+        STR_DELEGATE_CLASS,
+        STR_DELEGATE_TYPES,
+        STR_EXIT_PREFIX,
     ]
     .iter()
     .map(|(symbol, text)| CodeDataObject {

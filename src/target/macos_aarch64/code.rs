@@ -75,6 +75,25 @@ impl code::CodegenPlatform for Platform {
         instructions: &mut Vec<CodeInstruction>,
         relocations: &mut Vec<CodeRelocation>,
     ) -> Result<(), String> {
+        // App mode (plan §5.7): the worker program reports completion through
+        // _mfb_macapp_program_finish instead of hard-exiting, so the window can
+        // stay open. Console programs (and the headless app fallback inside the
+        // finish helper) still terminate via _exit.
+        if from == code::MACAPP_PROGRAM_SYMBOL {
+            instructions.extend([
+                abi::branch_link(app::FINISH_SYMBOL),
+                abi::branch_self(),
+                abi::return_(),
+            ]);
+            relocations.push(CodeRelocation {
+                from: from.to_string(),
+                to: app::FINISH_SYMBOL.to_string(),
+                kind: "branch26".to_string(),
+                binding: "internal".to_string(),
+                library: None,
+            });
+            return Ok(());
+        }
         instructions.extend([
             abi::branch_link("_exit"),
             abi::branch_self(),
