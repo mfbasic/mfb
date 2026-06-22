@@ -60,11 +60,23 @@ const SEL_SET_DOCUMENT_VIEW: (&str, &str) =
     ("_mfb_macapp_sel_setDocumentView", "setDocumentView:");
 const SEL_SET_HAS_VSCROLLER: (&str, &str) =
     ("_mfb_macapp_sel_setHasVerticalScroller", "setHasVerticalScroller:");
+const SEL_SET_AUTORESIZING_MASK: (&str, &str) =
+    ("_mfb_macapp_sel_setAutoresizingMask", "setAutoresizingMask:");
 const SEL_ADD_SUBVIEW: (&str, &str) = ("_mfb_macapp_sel_addSubview", "addSubview:");
+
+/// NSViewWidthSizable(2) | NSViewHeightSizable(16): the scroll view tracks the
+/// window's content view on resize.
+const AUTORESIZE_WIDTH_HEIGHT: &str = "18";
+/// NSViewWidthSizable(2): the transcript text view widens with the scroll view.
+const AUTORESIZE_WIDTH: &str = "2";
 // Transcript append selectors.
 const SEL_TEXT_STORAGE: (&str, &str) = ("_mfb_macapp_sel_textStorage", "textStorage");
-const SEL_MUTABLE_STRING: (&str, &str) = ("_mfb_macapp_sel_mutableString", "mutableString");
-const SEL_APPEND_STRING: (&str, &str) = ("_mfb_macapp_sel_appendString", "appendString:");
+const SEL_APPEND_ATTRIBUTED: (&str, &str) =
+    ("_mfb_macapp_sel_appendAttributed", "appendAttributedString:");
+const SEL_DICTIONARY_WITH_OBJECT: (&str, &str) =
+    ("_mfb_macapp_sel_dictWithObject", "dictionaryWithObject:forKey:");
+const SEL_INIT_WITH_STRING_ATTRS: (&str, &str) =
+    ("_mfb_macapp_sel_initWithStringAttrs", "initWithString:attributes:");
 const SEL_PERFORM_ON_MAIN: (&str, &str) = (
     "_mfb_macapp_sel_performOnMain",
     "performSelectorOnMainThread:withObject:waitUntilDone:",
@@ -92,6 +104,28 @@ const STR_DELEGATE_TYPES: (&str, &str) = ("_mfb_macapp_str_delegateTypes", "c@:@
 const STR_EXIT_PREFIX: (&str, &str) =
     ("_mfb_macapp_str_exitPrefix", "\nProgram exited with code ");
 
+// Monospaced transcript font (plan §5.5).
+const SEL_USER_FIXED_FONT: (&str, &str) =
+    ("_mfb_macapp_sel_userFixedFont", "userFixedPitchFontOfSize:");
+const SEL_SET_FONT: (&str, &str) = ("_mfb_macapp_sel_setFont", "setFont:");
+/// Point size for the fixed-pitch transcript font.
+const TRANSCRIPT_FONT_SIZE: u32 = 13;
+/// `NSFontAttributeName` — the attributed-string key carrying the transcript
+/// font. Referenced as external data (an AppKit NSString global) via the GOT.
+const NS_FONT_ATTRIBUTE_NAME: &str = "_NSFontAttributeName";
+
+// Application menu with the standard Quit item.
+const SEL_ADD_ITEM: (&str, &str) = ("_mfb_macapp_sel_addItem", "addItem:");
+const SEL_SET_ACTION: (&str, &str) = ("_mfb_macapp_sel_setAction", "setAction:");
+const SEL_SET_KEY_EQUIVALENT: (&str, &str) =
+    ("_mfb_macapp_sel_setKeyEquivalent", "setKeyEquivalent:");
+const SEL_SET_SUBMENU: (&str, &str) = ("_mfb_macapp_sel_setSubmenu", "setSubmenu:");
+const SEL_SET_MAIN_MENU: (&str, &str) = ("_mfb_macapp_sel_setMainMenu", "setMainMenu:");
+/// The standard NSApplication `terminate:` action wired to the Quit item.
+const SEL_TERMINATE: (&str, &str) = ("_mfb_macapp_sel_terminate", "terminate:");
+const STR_QUIT: (&str, &str) = ("_mfb_macapp_str_quit", "Quit");
+const STR_QUIT_KEY: (&str, &str) = ("_mfb_macapp_str_quitKey", "q");
+
 /// NSUTF8StringEncoding.
 const NS_UTF8_ENCODING: &str = "4";
 /// The transcript NSTextView append helper emitted alongside the bootstrap.
@@ -109,8 +143,13 @@ const CLASS_NS_OBJECT: &str = "_OBJC_CLASS_$_NSObject";
 const CLASS_NS_APPLICATION: &str = "_OBJC_CLASS_$_NSApplication";
 const CLASS_NS_WINDOW: &str = "_OBJC_CLASS_$_NSWindow";
 const CLASS_NS_STRING: &str = "_OBJC_CLASS_$_NSString";
+const CLASS_NS_DICTIONARY: &str = "_OBJC_CLASS_$_NSDictionary";
+const CLASS_NS_ATTRIBUTED_STRING: &str = "_OBJC_CLASS_$_NSAttributedString";
 const CLASS_NS_SCROLL_VIEW: &str = "_OBJC_CLASS_$_NSScrollView";
 const CLASS_NS_TEXT_VIEW: &str = "_OBJC_CLASS_$_NSTextView";
+const CLASS_NS_FONT: &str = "_OBJC_CLASS_$_NSFont";
+const CLASS_NS_MENU: &str = "_OBJC_CLASS_$_NSMenu";
+const CLASS_NS_MENU_ITEM: &str = "_OBJC_CLASS_$_NSMenuItem";
 
 const LIB_OBJC: &str = "libobjc";
 const LIB_APPKIT: &str = "AppKit";
@@ -333,6 +372,12 @@ fn emit_main_bootstrap() -> CodeFunction {
     asm.push(abi::move_register("x0", "x23"));
     asm.call_external("_objc_msgSend", LIB_OBJC);
     asm.push(abi::move_register("x23", "x0")); // scroll view
+    // [scroll setAutoresizingMask:NSViewWidthSizable|NSViewHeightSizable] -- track
+    // the window content view so the transcript fills the window on resize.
+    asm.load_selector(SEL_SET_AUTORESIZING_MASK.0);
+    asm.push(abi::move_immediate("x2", "Integer", AUTORESIZE_WIDTH_HEIGHT));
+    asm.push(abi::move_register("x0", "x23"));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
 
     // tv = [[NSTextView alloc] initWithFrame:NSMakeRect(0,0,900,640)]
     asm.external_data(REG_SCRATCH_OBJ, CLASS_NS_TEXT_VIEW, LIB_APPKIT);
@@ -348,6 +393,24 @@ fn emit_main_bootstrap() -> CodeFunction {
     asm.push(abi::move_register("x0", REG_SCRATCH_OBJ));
     asm.call_external("_objc_msgSend", LIB_OBJC);
     asm.push(abi::move_register(REG_SCRATCH_OBJ, "x0")); // transcript text view (x21)
+
+    // [tv setAutoresizingMask:NSViewWidthSizable] -- widen with the scroll view.
+    asm.load_selector(SEL_SET_AUTORESIZING_MASK.0);
+    asm.push(abi::move_immediate("x2", "Integer", AUTORESIZE_WIDTH));
+    asm.push(abi::move_register("x0", REG_SCRATCH_OBJ));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+
+    // [tv setFont:[NSFont userFixedPitchFontOfSize:13]] -- monospaced (plan §5.5)
+    asm.external_data("x25", CLASS_NS_FONT, LIB_APPKIT);
+    asm.load_selector(SEL_USER_FIXED_FONT.0);
+    emit_double_immediate(&mut asm, "d0", TRANSCRIPT_FONT_SIZE);
+    asm.push(abi::move_register("x0", "x25"));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    asm.push(abi::move_register("x25", "x0")); // fixed-pitch font
+    asm.load_selector(SEL_SET_FONT.0);
+    asm.push(abi::move_register("x2", "x25"));
+    asm.push(abi::move_register("x0", REG_SCRATCH_OBJ));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
 
     // [tv setEditable:NO]; [tv setSelectable:YES]
     asm.load_selector(SEL_SET_EDITABLE.0);
@@ -413,6 +476,90 @@ fn emit_main_bootstrap() -> CodeFunction {
     asm.push(abi::move_register("x23", "x0")); // delegate instance
     // [app setDelegate:delegate]
     asm.load_selector(SEL_SET_DELEGATE.0);
+    asm.push(abi::move_register("x2", "x23"));
+    asm.push(abi::move_register("x0", REG_APP));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+
+    // Application menu with the standard Quit item (Cmd-Q -> [NSApp terminate:]):
+    //   mainMenu -> appMenuItem -> appMenu -> "Quit" item.
+    // mainMenu = [[NSMenu alloc] init]
+    asm.external_data("x23", CLASS_NS_MENU, LIB_APPKIT);
+    asm.load_selector(SEL_ALLOC.0);
+    asm.push(abi::move_register("x0", "x23"));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    asm.push(abi::move_register("x23", "x0"));
+    asm.load_selector(SEL_INIT.0);
+    asm.push(abi::move_register("x0", "x23"));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    asm.push(abi::move_register("x23", "x0")); // main menu
+    // appMenuItem = [[NSMenuItem alloc] init]
+    asm.external_data("x24", CLASS_NS_MENU_ITEM, LIB_APPKIT);
+    asm.load_selector(SEL_ALLOC.0);
+    asm.push(abi::move_register("x0", "x24"));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    asm.push(abi::move_register("x24", "x0"));
+    asm.load_selector(SEL_INIT.0);
+    asm.push(abi::move_register("x0", "x24"));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    asm.push(abi::move_register("x24", "x0")); // app menu item
+    // [mainMenu addItem:appMenuItem]
+    asm.load_selector(SEL_ADD_ITEM.0);
+    asm.push(abi::move_register("x2", "x24"));
+    asm.push(abi::move_register("x0", "x23"));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    // appMenu = [[NSMenu alloc] init]
+    asm.external_data("x25", CLASS_NS_MENU, LIB_APPKIT);
+    asm.load_selector(SEL_ALLOC.0);
+    asm.push(abi::move_register("x0", "x25"));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    asm.push(abi::move_register("x25", "x0"));
+    asm.load_selector(SEL_INIT.0);
+    asm.push(abi::move_register("x0", "x25"));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    asm.push(abi::move_register("x25", "x0")); // app submenu
+    // quitItem = [[NSMenuItem alloc] init]
+    asm.external_data("x26", CLASS_NS_MENU_ITEM, LIB_APPKIT);
+    asm.load_selector(SEL_ALLOC.0);
+    asm.push(abi::move_register("x0", "x26"));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    asm.push(abi::move_register("x26", "x0"));
+    asm.load_selector(SEL_INIT.0);
+    asm.push(abi::move_register("x0", "x26"));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    asm.push(abi::move_register("x26", "x0")); // quit item
+    // [quitItem setTitle:@"Quit"]
+    build_nsstring_from_cstring(&mut asm, "x27", STR_QUIT.0);
+    asm.push(abi::move_register("x27", "x0"));
+    asm.load_selector(SEL_SET_TITLE.0);
+    asm.push(abi::move_register("x2", "x27"));
+    asm.push(abi::move_register("x0", "x26"));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    // [quitItem setAction:@selector(terminate:)]
+    asm.load_selector(SEL_TERMINATE.0);
+    asm.push(abi::move_register("x27", "x1")); // terminate: SEL
+    asm.load_selector(SEL_SET_ACTION.0);
+    asm.push(abi::move_register("x2", "x27"));
+    asm.push(abi::move_register("x0", "x26"));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    // [quitItem setKeyEquivalent:@"q"]
+    build_nsstring_from_cstring(&mut asm, "x27", STR_QUIT_KEY.0);
+    asm.push(abi::move_register("x27", "x0"));
+    asm.load_selector(SEL_SET_KEY_EQUIVALENT.0);
+    asm.push(abi::move_register("x2", "x27"));
+    asm.push(abi::move_register("x0", "x26"));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    // [appMenu addItem:quitItem]
+    asm.load_selector(SEL_ADD_ITEM.0);
+    asm.push(abi::move_register("x2", "x26"));
+    asm.push(abi::move_register("x0", "x25"));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    // [appMenuItem setSubmenu:appMenu]
+    asm.load_selector(SEL_SET_SUBMENU.0);
+    asm.push(abi::move_register("x2", "x25"));
+    asm.push(abi::move_register("x0", "x24"));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    // [app setMainMenu:mainMenu]
+    asm.load_selector(SEL_SET_MAIN_MENU.0);
     asm.push(abi::move_register("x2", "x23"));
     asm.push(abi::move_register("x0", REG_APP));
     asm.call_external("_objc_msgSend", LIB_OBJC);
@@ -497,52 +644,84 @@ fn emit_worker_shim(spec: &AppEntrySpec) -> CodeFunction {
 }
 
 /// `void _mfb_macapp_append(id textView /*x0*/, id nsString /*x1*/)`: append
-/// `nsString` to the text view's transcript on the main thread.
+/// `nsString` to the text view's transcript, styled with the monospaced font, on
+/// the main thread.
 ///
-/// `[[[textView textStorage] mutableString] performSelectorOnMainThread:
-///   @selector(appendString:) withObject:nsString waitUntilDone:YES]`. Running
-/// the mutation on the main thread keeps AppKit single-threaded; waitUntilDone
-/// makes the worker's write synchronous so `io::flush` is a no-op (plan §5.4).
+/// Builds `[[NSAttributedString alloc] initWithString:nsString
+/// attributes:@{NSFontAttributeName: [NSFont userFixedPitchFontOfSize:N]}]` and
+/// appends it to the text storage via `performSelectorOnMainThread:` (AppKit
+/// stays single-threaded; waitUntilDone makes the write synchronous so
+/// `io::flush` is a no-op, plan §5.4). Appending an explicitly-attributed run is
+/// required: plain `mutableString.appendString:` ignores the view's font and
+/// renders in the default proportional system font (plan §5.5).
 fn emit_append_helper() -> CodeFunction {
     let mut asm = Asm::new(APPEND_SYMBOL);
     asm.push(abi::label("entry"));
-    asm.push(abi::subtract_stack(32));
+    asm.push(abi::subtract_stack(48));
     asm.push(abi::store_u64(abi::link_register(), abi::stack_pointer(), 0));
     asm.push(abi::store_u64("x19", abi::stack_pointer(), 8));
     asm.push(abi::store_u64("x20", abi::stack_pointer(), 16));
     asm.push(abi::store_u64("x21", abi::stack_pointer(), 24));
+    asm.push(abi::store_u64("x22", abi::stack_pointer(), 32));
     asm.push(abi::move_register("x19", "x0")); // text view
     asm.push(abi::move_register("x20", "x1")); // nsstring
+
+    // font = [NSFont userFixedPitchFontOfSize:N]
+    asm.external_data("x21", CLASS_NS_FONT, LIB_APPKIT);
+    asm.load_selector(SEL_USER_FIXED_FONT.0);
+    emit_double_immediate(&mut asm, "d0", TRANSCRIPT_FONT_SIZE);
+    asm.push(abi::move_register("x0", "x21"));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    asm.push(abi::move_register("x21", "x0")); // fixed-pitch font
+
+    // attrs = [NSDictionary dictionaryWithObject:font forKey:NSFontAttributeName]
+    asm.external_data("x22", CLASS_NS_DICTIONARY, LIB_FOUNDATION);
+    asm.load_selector(SEL_DICTIONARY_WITH_OBJECT.0);
+    asm.push(abi::move_register("x2", "x21")); // object: font
+    // NSFontAttributeName is a `NSString * const` global: external_data yields the
+    // address of that variable, so dereference once more to get the NSString key.
+    asm.external_data("x3", NS_FONT_ATTRIBUTE_NAME, LIB_APPKIT);
+    asm.push(abi::load_u64("x3", "x3", 0));
+    asm.push(abi::move_register("x0", "x22"));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    asm.push(abi::move_register("x22", "x0")); // attributes dictionary
+
+    // attr = [[NSAttributedString alloc] initWithString:nsstring attributes:attrs]
+    asm.external_data("x21", CLASS_NS_ATTRIBUTED_STRING, LIB_FOUNDATION);
+    asm.load_selector(SEL_ALLOC.0);
+    asm.push(abi::move_register("x0", "x21"));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    asm.push(abi::move_register("x21", "x0")); // allocated attributed string
+    asm.load_selector(SEL_INIT_WITH_STRING_ATTRS.0);
+    asm.push(abi::move_register("x2", "x20")); // string
+    asm.push(abi::move_register("x3", "x22")); // attributes
+    asm.push(abi::move_register("x0", "x21"));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    asm.push(abi::move_register("x20", "x0")); // attributed string
 
     // storage = [textView textStorage]
     asm.load_selector(SEL_TEXT_STORAGE.0);
     asm.push(abi::move_register("x0", "x19"));
     asm.call_external("_objc_msgSend", LIB_OBJC);
-    asm.push(abi::move_register("x19", "x0")); // storage
+    asm.push(abi::move_register("x19", "x0")); // text storage
 
-    // ms = [storage mutableString]
-    asm.load_selector(SEL_MUTABLE_STRING.0);
-    asm.push(abi::move_register("x0", "x19"));
-    asm.call_external("_objc_msgSend", LIB_OBJC);
-    asm.push(abi::move_register("x19", "x0")); // mutable string
-
-    // appendSel = sel_registerName("appendString:")
-    asm.load_selector(SEL_APPEND_STRING.0);
-    asm.push(abi::move_register("x21", "x1")); // appendString: SEL
-
-    // [ms performSelectorOnMainThread:appendSel withObject:nsstring waitUntilDone:YES]
+    // [storage performSelectorOnMainThread:@selector(appendAttributedString:)
+    //          withObject:attr waitUntilDone:YES]
+    asm.load_selector(SEL_APPEND_ATTRIBUTED.0);
+    asm.push(abi::move_register("x21", "x1")); // appendAttributedString: SEL
     asm.load_selector(SEL_PERFORM_ON_MAIN.0);
-    asm.push(abi::move_register("x2", "x21")); // arg0: @selector(appendString:)
-    asm.push(abi::move_register("x3", "x20")); // arg1: nsstring
-    asm.push(abi::move_immediate("x4", "Integer", "1")); // arg2: waitUntilDone YES
-    asm.push(abi::move_register("x0", "x19")); // receiver: mutable string
+    asm.push(abi::move_register("x2", "x21"));
+    asm.push(abi::move_register("x3", "x20"));
+    asm.push(abi::move_immediate("x4", "Integer", "1")); // waitUntilDone YES
+    asm.push(abi::move_register("x0", "x19")); // receiver: text storage
     asm.call_external("_objc_msgSend", LIB_OBJC);
 
     asm.push(abi::load_u64(abi::link_register(), abi::stack_pointer(), 0));
     asm.push(abi::load_u64("x19", abi::stack_pointer(), 8));
     asm.push(abi::load_u64("x20", abi::stack_pointer(), 16));
     asm.push(abi::load_u64("x21", abi::stack_pointer(), 24));
-    asm.push(abi::add_stack(32));
+    asm.push(abi::load_u64("x22", abi::stack_pointer(), 32));
+    asm.push(abi::add_stack(48));
     asm.push(abi::return_());
 
     CodeFunction {
@@ -869,10 +1048,12 @@ pub(crate) fn app_mode_data_objects() -> Vec<CodeDataObject> {
         SEL_SET_SELECTABLE,
         SEL_SET_DOCUMENT_VIEW,
         SEL_SET_HAS_VSCROLLER,
+        SEL_SET_AUTORESIZING_MASK,
         SEL_ADD_SUBVIEW,
         SEL_TEXT_STORAGE,
-        SEL_MUTABLE_STRING,
-        SEL_APPEND_STRING,
+        SEL_APPEND_ATTRIBUTED,
+        SEL_DICTIONARY_WITH_OBJECT,
+        SEL_INIT_WITH_STRING_ATTRS,
         SEL_PERFORM_ON_MAIN,
         SEL_INIT_WITH_BYTES,
         STR_STDERR_PREFIX,
@@ -884,6 +1065,17 @@ pub(crate) fn app_mode_data_objects() -> Vec<CodeDataObject> {
         STR_DELEGATE_CLASS,
         STR_DELEGATE_TYPES,
         STR_EXIT_PREFIX,
+        // Monospaced font + application menu.
+        SEL_USER_FIXED_FONT,
+        SEL_SET_FONT,
+        SEL_ADD_ITEM,
+        SEL_SET_ACTION,
+        SEL_SET_KEY_EQUIVALENT,
+        SEL_SET_SUBMENU,
+        SEL_SET_MAIN_MENU,
+        SEL_TERMINATE,
+        STR_QUIT,
+        STR_QUIT_KEY,
     ]
     .iter()
     .map(|(symbol, text)| CodeDataObject {
