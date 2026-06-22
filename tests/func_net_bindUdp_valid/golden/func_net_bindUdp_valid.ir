@@ -1,0 +1,32 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "func_net_bindUdp_valid",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "mutable": false, "name": "sock", "type": "UdpSocket", "value": { "kind": "call", "target": "net.bindUdp", "args": [{ "kind": "const", "type": "String", "value": "127.0.0.1" }, { "kind": "const", "type": "Integer", "value": "0" }] } },
+    { "op": "bind", "mutable": false, "name": "addr", "type": "Address", "value": { "kind": "call", "target": "net.localAddress", "args": [{ "kind": "local", "name": "sock" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "memberAccess", "target": { "kind": "local", "name": "addr" }, "member": "host" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "net.setReadTimeout", "args": [{ "kind": "local", "name": "sock" }, { "kind": "const", "type": "Integer", "value": "1000" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "net.setWriteTimeout", "args": [{ "kind": "local", "name": "sock" }, { "kind": "const", "type": "Integer", "value": "1000" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "net.close", "args": [{ "kind": "local", "name": "sock" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "closed" }] } },
+    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

@@ -537,6 +537,10 @@ impl code::CodegenPlatform for Platform {
         "35" // EAGAIN on Darwin
     }
 
+    fn emsgsize(&self) -> &'static str {
+        "40" // EMSGSIZE on Darwin
+    }
+
     fn o_nonblock(&self) -> &'static str {
         "4" // O_NONBLOCK (0x0004) on Darwin
     }

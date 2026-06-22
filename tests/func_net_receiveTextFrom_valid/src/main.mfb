@@ -1,0 +1,17 @@
+IMPORT net
+IMPORT io
+
+FUNC main AS Integer
+  RES server = net::bindUdp("127.0.0.1", 0)
+  net::setReadTimeout(server, 2000)
+  LET bound = net::localAddress(server)
+  RES client = net::bindUdp("127.0.0.1", 0)
+  LET dest = get(net::lookup("127.0.0.1", bound.port), 0)
+  net::sendTextTo(client, dest, "datagram text")
+  LET dg = net::receiveTextFrom(server, 64)
+  io::print(dg.value)
+  io::print(dg.from.host)
+  net::close(server)
+  net::close(client)
+  RETURN 0
+END FUNC

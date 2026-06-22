@@ -16,7 +16,7 @@ tests/func_net_localAddress_invalid/src/main.mfb:4 error[2-203-0043 TYPE_UNKNOWN
    5 |   LET wrongType = net::localAddress(1)
      | ^
 tests/func_net_localAddress_invalid/src/main.mfb:5 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
-               Call to `net.localAddress` has argument type(s) (Integer), expected Socket or Listener.
+               Call to `net.localAddress` has argument type(s) (Integer), expected Socket or Listener or UdpSocket.
    3 | FUNC main AS Integer
    4 |   LET missing = net::localAddress()
    5 |   LET wrongType = net::localAddress(1)
@@ -54,7 +54,7 @@ tests/func_net_localAddress_invalid/src/main.mfb:4 error[2-203-0043 TYPE_UNKNOWN
    5 |   LET wrongType = net::localAddress(1)
      | ^
 tests/func_net_localAddress_invalid/src/main.mfb:5 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
-               Call to `net.localAddress` has argument type(s) (Integer), expected Socket or Listener.
+               Call to `net.localAddress` has argument type(s) (Integer), expected Socket or Listener or UdpSocket.
    3 | FUNC main AS Integer
    4 |   LET missing = net::localAddress()
    5 |   LET wrongType = net::localAddress(1)

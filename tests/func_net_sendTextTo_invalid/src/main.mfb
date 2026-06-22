@@ -1,0 +1,8 @@
+IMPORT net
+
+FUNC main AS Integer
+  LET missing = net::sendTextTo()
+  LET wrongType = net::sendTextTo(1, 2, 3)
+  LET tooMany = net::sendTextTo(1, 2, 3, 4)
+  RETURN 0
+END FUNC

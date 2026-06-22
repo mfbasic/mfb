@@ -503,6 +503,10 @@ impl code::CodegenPlatform for Platform {
         "11" // EAGAIN on Linux
     }
 
+    fn emsgsize(&self) -> &'static str {
+        "90" // EMSGSIZE on Linux
+    }
+
     fn o_nonblock(&self) -> &'static str {
         "2048" // O_NONBLOCK (0o4000 = 0x800) on Linux aarch64
     }

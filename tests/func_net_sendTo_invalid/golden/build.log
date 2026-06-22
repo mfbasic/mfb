@@ -1,0 +1,76 @@
+$ mfb build -ast tests/func_net_sendTo_invalid
+   2 | 
+   3 | FUNC main AS Integer
+   4 |   LET missing = net::sendTo()
+     | ^
+tests/func_net_sendTo_invalid/src/main.mfb:4 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+               Call to `net.sendTo` has 0 argument(s), expected 3.
+   2 | 
+   3 | FUNC main AS Integer
+   4 |   LET missing = net::sendTo()
+     | ^
+tests/func_net_sendTo_invalid/src/main.mfb:4 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `missing` does not have a known type.
+   3 | FUNC main AS Integer
+   4 |   LET missing = net::sendTo()
+   5 |   LET wrongType = net::sendTo(1, 2, 3)
+     | ^
+tests/func_net_sendTo_invalid/src/main.mfb:5 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `net.sendTo` has argument type(s) (Integer, Integer, Integer), expected UdpSocket, Address, List OF Byte.
+   3 | FUNC main AS Integer
+   4 |   LET missing = net::sendTo()
+   5 |   LET wrongType = net::sendTo(1, 2, 3)
+     | ^
+tests/func_net_sendTo_invalid/src/main.mfb:5 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `wrongType` does not have a known type.
+   4 |   LET missing = net::sendTo()
+   5 |   LET wrongType = net::sendTo(1, 2, 3)
+   6 |   LET tooMany = net::sendTo(1, 2, 3, 4)
+     | ^
+tests/func_net_sendTo_invalid/src/main.mfb:6 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+               Call to `net.sendTo` has 4 argument(s), expected 3.
+   4 |   LET missing = net::sendTo()
+   5 |   LET wrongType = net::sendTo(1, 2, 3)
+   6 |   LET tooMany = net::sendTo(1, 2, 3, 4)
+     | ^
+tests/func_net_sendTo_invalid/src/main.mfb:6 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `tooMany` does not have a known type.
+[exit 1]
+$ mfb build -ir tests/func_net_sendTo_invalid
+   2 | 
+   3 | FUNC main AS Integer
+   4 |   LET missing = net::sendTo()
+     | ^
+tests/func_net_sendTo_invalid/src/main.mfb:4 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+               Call to `net.sendTo` has 0 argument(s), expected 3.
+   2 | 
+   3 | FUNC main AS Integer
+   4 |   LET missing = net::sendTo()
+     | ^
+tests/func_net_sendTo_invalid/src/main.mfb:4 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `missing` does not have a known type.
+   3 | FUNC main AS Integer
+   4 |   LET missing = net::sendTo()
+   5 |   LET wrongType = net::sendTo(1, 2, 3)
+     | ^
+tests/func_net_sendTo_invalid/src/main.mfb:5 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `net.sendTo` has argument type(s) (Integer, Integer, Integer), expected UdpSocket, Address, List OF Byte.
+   3 | FUNC main AS Integer
+   4 |   LET missing = net::sendTo()
+   5 |   LET wrongType = net::sendTo(1, 2, 3)
+     | ^
+tests/func_net_sendTo_invalid/src/main.mfb:5 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `wrongType` does not have a known type.
+   4 |   LET missing = net::sendTo()
+   5 |   LET wrongType = net::sendTo(1, 2, 3)
+   6 |   LET tooMany = net::sendTo(1, 2, 3, 4)
+     | ^
+tests/func_net_sendTo_invalid/src/main.mfb:6 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+               Call to `net.sendTo` has 4 argument(s), expected 3.
+   4 |   LET missing = net::sendTo()
+   5 |   LET wrongType = net::sendTo(1, 2, 3)
+   6 |   LET tooMany = net::sendTo(1, 2, 3, 4)
+     | ^
+tests/func_net_sendTo_invalid/src/main.mfb:6 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `tooMany` does not have a known type.
+[exit 1]

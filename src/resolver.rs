@@ -27,6 +27,9 @@ const BUILTIN_TYPES: &[&str] = &[
     builtins::net::SOCKET_TYPE,
     builtins::net::LISTENER_TYPE,
     builtins::net::ADDRESS_TYPE,
+    builtins::net::UDP_SOCKET_TYPE,
+    builtins::net::DATAGRAM_TYPE,
+    builtins::net::DATAGRAM_TEXT_TYPE,
 ];
 
 pub fn resolve_project(

@@ -101,6 +101,11 @@ impl NativeBackend for Backend {
                 "net.remoteAddress",
                 "net.setReadTimeout",
                 "net.setWriteTimeout",
+                "net.bindUdp",
+                "net.receiveFrom",
+                "net.receiveTextFrom",
+                "net.sendTo",
+                "net.sendTextTo",
             ],
         }
     }

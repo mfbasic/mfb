@@ -1435,6 +1435,114 @@ pub(crate) const NET_SET_WRITE_TIMEOUT_SPEC: RuntimeHelperSpec = RuntimeHelperSp
     },
 };
 
+// ---------------------------------------------------------------------------
+// UDP datagram sockets
+// ---------------------------------------------------------------------------
+
+const NET_UDP_SOCKET_INT_PARAMS: &[RuntimeAbiParam] = &[
+    RuntimeAbiParam {
+        name: "sock",
+        type_: "UdpSocket",
+        location: "x0",
+    },
+    RuntimeAbiParam {
+        name: "maxBytes",
+        type_: "Integer",
+        location: "x1",
+    },
+];
+
+const NET_SEND_TO_PARAMS: &[RuntimeAbiParam] = &[
+    RuntimeAbiParam {
+        name: "sock",
+        type_: "UdpSocket",
+        location: "x0",
+    },
+    RuntimeAbiParam {
+        name: "address",
+        type_: "Address",
+        location: "x1",
+    },
+    RuntimeAbiParam {
+        name: "bytes",
+        type_: "List OF Byte",
+        location: "x2",
+    },
+];
+
+const NET_SEND_TEXT_TO_PARAMS: &[RuntimeAbiParam] = &[
+    RuntimeAbiParam {
+        name: "sock",
+        type_: "UdpSocket",
+        location: "x0",
+    },
+    RuntimeAbiParam {
+        name: "address",
+        type_: "Address",
+        location: "x1",
+    },
+    RuntimeAbiParam {
+        name: "value",
+        type_: "String",
+        location: "x2",
+    },
+];
+
+pub(crate) const NET_BIND_UDP_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
+    helper: RuntimeHelper::Net,
+    call: "net.bindUdp",
+    symbol: "_mfb_rt_net_net_bindUdp",
+    abi: RuntimeHelperAbi {
+        params: NET_HOST_PORT_PARAMS,
+        returns: "UdpSocket",
+        clobbers: abi::IO_PRINT_CLOBBERS,
+    },
+};
+
+pub(crate) const NET_RECEIVE_FROM_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
+    helper: RuntimeHelper::Net,
+    call: "net.receiveFrom",
+    symbol: "_mfb_rt_net_net_receiveFrom",
+    abi: RuntimeHelperAbi {
+        params: NET_UDP_SOCKET_INT_PARAMS,
+        returns: "Datagram",
+        clobbers: abi::IO_PRINT_CLOBBERS,
+    },
+};
+
+pub(crate) const NET_RECEIVE_TEXT_FROM_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
+    helper: RuntimeHelper::Net,
+    call: "net.receiveTextFrom",
+    symbol: "_mfb_rt_net_net_receiveTextFrom",
+    abi: RuntimeHelperAbi {
+        params: NET_UDP_SOCKET_INT_PARAMS,
+        returns: "DatagramText",
+        clobbers: abi::IO_PRINT_CLOBBERS,
+    },
+};
+
+pub(crate) const NET_SEND_TO_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
+    helper: RuntimeHelper::Net,
+    call: "net.sendTo",
+    symbol: "_mfb_rt_net_net_sendTo",
+    abi: RuntimeHelperAbi {
+        params: NET_SEND_TO_PARAMS,
+        returns: "Nothing",
+        clobbers: abi::IO_PRINT_CLOBBERS,
+    },
+};
+
+pub(crate) const NET_SEND_TEXT_TO_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
+    helper: RuntimeHelper::Net,
+    call: "net.sendTextTo",
+    symbol: "_mfb_rt_net_net_sendTextTo",
+    abi: RuntimeHelperAbi {
+        params: NET_SEND_TEXT_TO_PARAMS,
+        returns: "Nothing",
+        clobbers: abi::IO_PRINT_CLOBBERS,
+    },
+};
+
 pub(crate) fn supported_helper_specs() -> &'static [RuntimeHelperSpec] {
     &[
         IO_PRINT_SPEC,
@@ -1526,6 +1634,11 @@ pub(crate) fn supported_helper_specs() -> &'static [RuntimeHelperSpec] {
         NET_REMOTE_ADDRESS_SPEC,
         NET_SET_READ_TIMEOUT_SPEC,
         NET_SET_WRITE_TIMEOUT_SPEC,
+        NET_BIND_UDP_SPEC,
+        NET_RECEIVE_FROM_SPEC,
+        NET_RECEIVE_TEXT_FROM_SPEC,
+        NET_SEND_TO_SPEC,
+        NET_SEND_TEXT_TO_SPEC,
     ]
 }
 

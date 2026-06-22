@@ -16,7 +16,7 @@ tests/func_net_setWriteTimeout_invalid/src/main.mfb:4 error[2-203-0043 TYPE_UNKN
    5 |   LET wrongType = net::setWriteTimeout(1, 100)
      | ^
 tests/func_net_setWriteTimeout_invalid/src/main.mfb:5 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
-               Call to `net.setWriteTimeout` has argument type(s) (Integer, Integer), expected Socket, Integer.
+               Call to `net.setWriteTimeout` has argument type(s) (Integer, Integer), expected Socket or UdpSocket, Integer.
    3 | FUNC main AS Integer
    4 |   LET missing = net::setWriteTimeout()
    5 |   LET wrongType = net::setWriteTimeout(1, 100)
@@ -28,7 +28,7 @@ tests/func_net_setWriteTimeout_invalid/src/main.mfb:5 error[2-203-0043 TYPE_UNKN
    6 |   LET wrongMs = net::setWriteTimeout("s", "x")
      | ^
 tests/func_net_setWriteTimeout_invalid/src/main.mfb:6 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
-               Call to `net.setWriteTimeout` has argument type(s) (String, String), expected Socket, Integer.
+               Call to `net.setWriteTimeout` has argument type(s) (String, String), expected Socket or UdpSocket, Integer.
    4 |   LET missing = net::setWriteTimeout()
    5 |   LET wrongType = net::setWriteTimeout(1, 100)
    6 |   LET wrongMs = net::setWriteTimeout("s", "x")
@@ -66,7 +66,7 @@ tests/func_net_setWriteTimeout_invalid/src/main.mfb:4 error[2-203-0043 TYPE_UNKN
    5 |   LET wrongType = net::setWriteTimeout(1, 100)
      | ^
 tests/func_net_setWriteTimeout_invalid/src/main.mfb:5 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
-               Call to `net.setWriteTimeout` has argument type(s) (Integer, Integer), expected Socket, Integer.
+               Call to `net.setWriteTimeout` has argument type(s) (Integer, Integer), expected Socket or UdpSocket, Integer.
    3 | FUNC main AS Integer
    4 |   LET missing = net::setWriteTimeout()
    5 |   LET wrongType = net::setWriteTimeout(1, 100)
@@ -78,7 +78,7 @@ tests/func_net_setWriteTimeout_invalid/src/main.mfb:5 error[2-203-0043 TYPE_UNKN
    6 |   LET wrongMs = net::setWriteTimeout("s", "x")
      | ^
 tests/func_net_setWriteTimeout_invalid/src/main.mfb:6 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
-               Call to `net.setWriteTimeout` has argument type(s) (String, String), expected Socket, Integer.
+               Call to `net.setWriteTimeout` has argument type(s) (String, String), expected Socket or UdpSocket, Integer.
    4 |   LET missing = net::setWriteTimeout()
    5 |   LET wrongType = net::setWriteTimeout(1, 100)
    6 |   LET wrongMs = net::setWriteTimeout("s", "x")

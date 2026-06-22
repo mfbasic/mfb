@@ -1,0 +1,8 @@
+IMPORT net
+
+FUNC main AS Integer
+  LET missing = net::bindUdp()
+  LET wrongType = net::bindUdp(1, 2)
+  LET tooMany = net::bindUdp("127.0.0.1", 0, 1)
+  RETURN 0
+END FUNC

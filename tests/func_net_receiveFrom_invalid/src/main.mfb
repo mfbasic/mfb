@@ -1,0 +1,8 @@
+IMPORT net
+
+FUNC main AS Integer
+  LET missing = net::receiveFrom()
+  LET wrongType = net::receiveFrom(1, 2)
+  LET tooMany = net::receiveFrom(1, 2, 3)
+  RETURN 0
+END FUNC

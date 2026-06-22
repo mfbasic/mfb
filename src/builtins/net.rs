@@ -3,6 +3,9 @@ use std::borrow::Cow;
 pub(crate) const SOCKET_TYPE: &str = "Socket";
 pub(crate) const LISTENER_TYPE: &str = "Listener";
 pub(crate) const ADDRESS_TYPE: &str = "Address";
+pub(crate) const UDP_SOCKET_TYPE: &str = "UdpSocket";
+pub(crate) const DATAGRAM_TYPE: &str = "Datagram";
+pub(crate) const DATAGRAM_TEXT_TYPE: &str = "DatagramText";
 
 const LOOKUP: &str = "net.lookup";
 const CONNECT_TCP: &str = "net.connectTcp";
@@ -18,6 +21,11 @@ const LOCAL_ADDRESS: &str = "net.localAddress";
 const REMOTE_ADDRESS: &str = "net.remoteAddress";
 const SET_READ_TIMEOUT: &str = "net.setReadTimeout";
 const SET_WRITE_TIMEOUT: &str = "net.setWriteTimeout";
+const BIND_UDP: &str = "net.bindUdp";
+const RECEIVE_FROM: &str = "net.receiveFrom";
+const RECEIVE_TEXT_FROM: &str = "net.receiveTextFrom";
+const SEND_TO: &str = "net.sendTo";
+const SEND_TEXT_TO: &str = "net.sendTextTo";
 
 #[derive(Clone)]
 pub(crate) struct ResolvedCall<'a> {
@@ -41,23 +49,38 @@ pub(crate) fn is_net_call(name: &str) -> bool {
             | REMOTE_ADDRESS
             | SET_READ_TIMEOUT
             | SET_WRITE_TIMEOUT
+            | BIND_UDP
+            | RECEIVE_FROM
+            | RECEIVE_TEXT_FROM
+            | SEND_TO
+            | SEND_TEXT_TO
     )
 }
 
 pub(crate) fn is_builtin_type(name: &str) -> bool {
-    matches!(name, SOCKET_TYPE | LISTENER_TYPE | ADDRESS_TYPE)
+    matches!(
+        name,
+        SOCKET_TYPE
+            | LISTENER_TYPE
+            | ADDRESS_TYPE
+            | UDP_SOCKET_TYPE
+            | DATAGRAM_TYPE
+            | DATAGRAM_TEXT_TYPE
+    )
 }
 
 pub(crate) fn builtin_type_fields(name: &str) -> Option<&'static [(&'static str, &'static str)]> {
     match name {
         ADDRESS_TYPE => Some(&[("host", "String"), ("port", "Integer")]),
+        DATAGRAM_TYPE => Some(&[("from", "Address"), ("bytes", "List OF Byte")]),
+        DATAGRAM_TEXT_TYPE => Some(&[("from", "Address"), ("value", "String")]),
         _ => None,
     }
 }
 
 pub(crate) fn resource_close_function(type_name: &str) -> Option<&'static str> {
     match type_name {
-        SOCKET_TYPE | LISTENER_TYPE => Some(CLOSE),
+        SOCKET_TYPE | LISTENER_TYPE | UDP_SOCKET_TYPE => Some(CLOSE),
         _ => None,
     }
 }
@@ -73,8 +96,12 @@ pub(crate) fn call_return_type_name(name: &str) -> Option<&'static str> {
         POLL => Some("Boolean"),
         READ => Some("List OF Byte"),
         READ_TEXT => Some("String"),
-        WRITE | WRITE_TEXT | CLOSE | SET_READ_TIMEOUT | SET_WRITE_TIMEOUT => Some("Nothing"),
+        WRITE | WRITE_TEXT | CLOSE | SET_READ_TIMEOUT | SET_WRITE_TIMEOUT | SEND_TO
+        | SEND_TEXT_TO => Some("Nothing"),
         LOCAL_ADDRESS | REMOTE_ADDRESS => Some(ADDRESS_TYPE),
+        BIND_UDP => Some(UDP_SOCKET_TYPE),
+        RECEIVE_FROM => Some(DATAGRAM_TYPE),
+        RECEIVE_TEXT_FROM => Some(DATAGRAM_TEXT_TYPE),
         _ => None,
     }
 }
@@ -122,9 +149,29 @@ pub(crate) fn resolve_call<'a>(name: &str, arg_types: &'a [String]) -> Option<Re
             Cow::Borrowed(ADDRESS_TYPE)
         }
         REMOTE_ADDRESS if exact(arg_types, &[SOCKET_TYPE]) => Cow::Borrowed(ADDRESS_TYPE),
-        SET_READ_TIMEOUT | SET_WRITE_TIMEOUT if exact(arg_types, &[SOCKET_TYPE, "Integer"]) => {
+        SET_READ_TIMEOUT | SET_WRITE_TIMEOUT
+            if exact(arg_types, &[SOCKET_TYPE, "Integer"])
+                || exact(arg_types, &[UDP_SOCKET_TYPE, "Integer"]) =>
+        {
             Cow::Borrowed("Nothing")
         }
+        // UDP datagram sockets.
+        BIND_UDP if exact(arg_types, &["String", "Integer"]) => Cow::Borrowed(UDP_SOCKET_TYPE),
+        RECEIVE_FROM if exact(arg_types, &[UDP_SOCKET_TYPE, "Integer"]) => {
+            Cow::Borrowed(DATAGRAM_TYPE)
+        }
+        RECEIVE_TEXT_FROM if exact(arg_types, &[UDP_SOCKET_TYPE, "Integer"]) => {
+            Cow::Borrowed(DATAGRAM_TEXT_TYPE)
+        }
+        SEND_TO if exact(arg_types, &[UDP_SOCKET_TYPE, ADDRESS_TYPE, "List OF Byte"]) => {
+            Cow::Borrowed("Nothing")
+        }
+        SEND_TEXT_TO if exact(arg_types, &[UDP_SOCKET_TYPE, ADDRESS_TYPE, "String"]) => {
+            Cow::Borrowed("Nothing")
+        }
+        // `close`/`localAddress` are also overloaded on `UdpSocket`.
+        CLOSE if exact(arg_types, &[UDP_SOCKET_TYPE]) => Cow::Borrowed("Nothing"),
+        LOCAL_ADDRESS if exact(arg_types, &[UDP_SOCKET_TYPE]) => Cow::Borrowed(ADDRESS_TYPE),
         _ => return None,
     };
     Some(ResolvedCall { return_type })
@@ -141,10 +188,14 @@ pub(crate) fn expected_arguments(name: &str) -> Option<&'static str> {
         READ_TEXT => Some("Socket, Integer"),
         WRITE => Some("Socket, List OF Byte"),
         WRITE_TEXT => Some("Socket, String"),
-        CLOSE => Some("Socket or Listener"),
-        LOCAL_ADDRESS => Some("Socket or Listener"),
+        CLOSE => Some("Socket or Listener or UdpSocket"),
+        LOCAL_ADDRESS => Some("Socket or Listener or UdpSocket"),
         REMOTE_ADDRESS => Some("Socket"),
-        SET_READ_TIMEOUT | SET_WRITE_TIMEOUT => Some("Socket, Integer"),
+        SET_READ_TIMEOUT | SET_WRITE_TIMEOUT => Some("Socket or UdpSocket, Integer"),
+        BIND_UDP => Some("String, Integer"),
+        RECEIVE_FROM | RECEIVE_TEXT_FROM => Some("UdpSocket, Integer"),
+        SEND_TO => Some("UdpSocket, Address, List OF Byte"),
+        SEND_TEXT_TO => Some("UdpSocket, Address, String"),
         _ => None,
     }
 }
@@ -163,6 +214,10 @@ pub(crate) fn argument_types(name: &str) -> Option<&'static str> {
         WRITE_TEXT => Some("Socket, String"),
         REMOTE_ADDRESS => Some("Socket"),
         SET_READ_TIMEOUT | SET_WRITE_TIMEOUT => Some("Socket, Integer"),
+        BIND_UDP => Some("String, Integer"),
+        RECEIVE_FROM | RECEIVE_TEXT_FROM => Some("UdpSocket, Integer"),
+        SEND_TO => Some("UdpSocket, Address, List OF Byte"),
+        SEND_TEXT_TO => Some("UdpSocket, Address, String"),
         _ => None,
     }
 }
@@ -174,9 +229,9 @@ pub(crate) fn arity(name: &str) -> Option<(usize, usize)> {
         LISTEN_TCP => Some((2, 3)),
         ACCEPT => Some((1, 2)),
         POLL => Some((1, 2)),
-        READ | READ_TEXT | WRITE | WRITE_TEXT | SET_READ_TIMEOUT | SET_WRITE_TIMEOUT => {
-            Some((2, 2))
-        }
+        READ | READ_TEXT | WRITE | WRITE_TEXT | SET_READ_TIMEOUT | SET_WRITE_TIMEOUT
+        | BIND_UDP | RECEIVE_FROM | RECEIVE_TEXT_FROM => Some((2, 2)),
+        SEND_TO | SEND_TEXT_TO => Some((3, 3)),
         CLOSE | LOCAL_ADDRESS | REMOTE_ADDRESS => Some((1, 1)),
         _ => None,
     }

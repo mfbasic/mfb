@@ -1,0 +1,28 @@
+IMPORT net
+IMPORT io
+
+' Receives one datagram, returning its byte count, or the error code if the
+' datagram does not fit in `maxBytes` (ErrMessageTooLarge, 77070007).
+FUNC recvCount(RES s AS UdpSocket, maxBytes AS Integer) AS Integer
+  LET dg = net::receiveFrom(s, maxBytes)
+  RETURN len(dg.bytes)
+  TRAP(e)
+    RETURN e.code
+  END TRAP
+END FUNC
+
+FUNC main AS Integer
+  RES server = net::bindUdp("127.0.0.1", 0)
+  net::setReadTimeout(server, 2000)
+  LET bound = net::localAddress(server)
+  RES client = net::bindUdp("127.0.0.1", 0)
+  LET dest = get(net::lookup("127.0.0.1", bound.port), 0)
+  LET payload AS List OF Byte = [10, 20, 30, 40]
+  net::sendTo(client, dest, payload)
+  io::print(toString(recvCount(server, 16)))
+  net::sendTo(client, dest, payload)
+  io::print(toString(recvCount(server, 2)))
+  net::close(server)
+  net::close(client)
+  RETURN 0
+END FUNC

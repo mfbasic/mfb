@@ -1,0 +1,13 @@
+$ mfb build -ast tests/func_net_sendTextTo_valid
+Wrote AST to tests/func_net_sendTextTo_valid/func_net_sendTextTo_valid.ast
+[exit 0]
+$ mfb build -ir tests/func_net_sendTextTo_valid
+Wrote IR to tests/func_net_sendTextTo_valid/func_net_sendTextTo_valid.ir
+[exit 0]
+$ mfb build tests/func_net_sendTextTo_valid
+Wrote executable to tests/func_net_sendTextTo_valid/func_net_sendTextTo_valid.out
+[exit 0]
+$ tests/func_net_sendTextTo_valid/func_net_sendTextTo_valid.out
+hello udp
+127.0.0.1
+[exit 0]

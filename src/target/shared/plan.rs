@@ -59,6 +59,9 @@ pub(crate) fn net_libc_symbols(call: &str) -> &'static [&'static str] {
         "net.localAddress" => &["getsockname", "inet_ntop"],
         "net.remoteAddress" => &["getpeername", "inet_ntop"],
         "net.setReadTimeout" | "net.setWriteTimeout" => &["setsockopt"],
+        "net.bindUdp" => &["getaddrinfo", "freeaddrinfo", "socket", "bind", "close"],
+        "net.receiveFrom" | "net.receiveTextFrom" => &["recvfrom", "inet_ntop"],
+        "net.sendTo" | "net.sendTextTo" => &["getaddrinfo", "freeaddrinfo", "sendto"],
         _ => &[],
     }
 }

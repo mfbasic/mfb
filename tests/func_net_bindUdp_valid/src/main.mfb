@@ -1,0 +1,13 @@
+IMPORT net
+IMPORT io
+
+FUNC main AS Integer
+  RES sock = net::bindUdp("127.0.0.1", 0)
+  LET addr = net::localAddress(sock)
+  io::print(addr.host)
+  net::setReadTimeout(sock, 1000)
+  net::setWriteTimeout(sock, 1000)
+  net::close(sock)
+  io::print("closed")
+  RETURN 0
+END FUNC

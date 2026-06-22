@@ -147,6 +147,18 @@ static BUILTIN_RESOURCES: LazyLock<HashMap<String, ResourceInfo>> = LazyLock::ne
             kind: ResourceKind::Builtin,
         },
     );
+    entries.insert(
+        super::net::UDP_SOCKET_TYPE.to_string(),
+        ResourceInfo {
+            close_function: super::net::resource_close_function(super::net::UDP_SOCKET_TYPE)
+                .expect("UdpSocket has a built-in close op")
+                .to_string(),
+            // A datagram socket may move across thread boundaries (spec §11).
+            sendable: true,
+            close_may_fail: true,
+            kind: ResourceKind::Builtin,
+        },
+    );
     entries
 });
 

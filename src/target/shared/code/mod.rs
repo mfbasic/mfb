@@ -159,6 +159,9 @@ const ERR_READ_TIMEOUT_SYMBOL: &str = "_mfb_str_error_read_timeout";
 const ERR_WRITE_TIMEOUT_CODE: &str = "77070006";
 const ERR_WRITE_TIMEOUT_MESSAGE: &str = "write timeout";
 const ERR_WRITE_TIMEOUT_SYMBOL: &str = "_mfb_str_error_write_timeout";
+const ERR_MESSAGE_TOO_LARGE_CODE: &str = "77070007";
+const ERR_MESSAGE_TOO_LARGE_MESSAGE: &str = "message too large";
+const ERR_MESSAGE_TOO_LARGE_SYMBOL: &str = "_mfb_str_error_message_too_large";
 const EMPTY_STRING_SYMBOL: &str = "_mfb_str_empty";
 const FS_MODE_TYPE_MASK: &str = "61440";
 const FS_MODE_DIRECTORY: &str = "16384";
@@ -472,6 +475,9 @@ pub(crate) trait CodegenPlatform {
     /// `EAGAIN`/`EWOULDBLOCK` errno value, used to distinguish a socket
     /// read/write timeout from a connection failure.
     fn eagain(&self) -> &'static str;
+    /// `EMSGSIZE` errno value, used to map an oversized datagram `sendto`
+    /// failure to `ErrMessageTooLarge`.
+    fn emsgsize(&self) -> &'static str;
     /// `O_NONBLOCK` open/`fcntl` flag, `EINPROGRESS` errno, and `SO_ERROR`
     /// socket option, used by the non-blocking `connect` + `poll` timeout path.
     fn o_nonblock(&self) -> &'static str;
@@ -923,6 +929,7 @@ pub(crate) fn lower_module_for_platform(
                     | "_mfb_rt_fs_fs_readAll"
                     | "_mfb_rt_fs_fs_readLine"
                     | "_mfb_rt_net_net_readText"
+                    | "_mfb_rt_net_net_receiveTextFrom"
             )
         })
     {
@@ -1245,14 +1252,16 @@ impl TypeModel {
                     .collect(),
             );
         }
-        if let Some(fields) = builtins::net::builtin_type_fields("Address") {
-            record_fields.insert(
-                "Address".to_string(),
-                fields
-                    .iter()
-                    .map(|(name, type_)| ((*name).to_string(), (*type_).to_string()))
-                    .collect(),
-            );
+        for type_name in ["Address", "Datagram", "DatagramText"] {
+            if let Some(fields) = builtins::net::builtin_type_fields(type_name) {
+                record_fields.insert(
+                    type_name.to_string(),
+                    fields
+                        .iter()
+                        .map(|(name, type_)| ((*name).to_string(), (*type_).to_string()))
+                        .collect(),
+                );
+            }
         }
         // `Error` and `ErrorLoc` are read-only compiler/runtime records laid out
         // as ordinary 3-field records so construction, field access, copying, and
@@ -3101,6 +3110,21 @@ fn lower_runtime_helper(
                 }
                 "net.setWriteTimeout" => {
                     net::lower_net_set_timeout_helper(symbol, platform_imports, platform, true)?
+                }
+                "net.bindUdp" => {
+                    net::lower_net_bind_udp_helper(symbol, platform_imports, platform)?
+                }
+                "net.receiveFrom" => {
+                    net::lower_net_receive_from_helper(symbol, platform_imports, platform, false)?
+                }
+                "net.receiveTextFrom" => {
+                    net::lower_net_receive_from_helper(symbol, platform_imports, platform, true)?
+                }
+                "net.sendTo" => {
+                    net::lower_net_send_to_helper(symbol, platform_imports, platform, false)?
+                }
+                "net.sendTextTo" => {
+                    net::lower_net_send_to_helper(symbol, platform_imports, platform, true)?
                 }
                 other => {
                     return Err(format!(
@@ -12498,6 +12522,11 @@ fn string_symbols(module: &NirModule) -> HashMap<String, String> {
             "net.remoteAddress",
             "net.setReadTimeout",
             "net.setWriteTimeout",
+            "net.bindUdp",
+            "net.receiveFrom",
+            "net.receiveTextFrom",
+            "net.sendTo",
+            "net.sendTextTo",
         ],
     ) {
         for value in [
@@ -12507,6 +12536,7 @@ fn string_symbols(module: &NirModule) -> HashMap<String, String> {
             ERR_CONNECTION_CLOSED_MESSAGE,
             ERR_READ_TIMEOUT_MESSAGE,
             ERR_WRITE_TIMEOUT_MESSAGE,
+            ERR_MESSAGE_TOO_LARGE_MESSAGE,
             ERR_RESOURCE_CLOSED_MESSAGE,
             ERR_CLOSE_FAILED_MESSAGE,
             ERR_ENCODING_MESSAGE,
@@ -12738,6 +12768,11 @@ fn standard_error_messages() -> &'static [(&'static str, &'static str, &'static 
             ERR_WRITE_TIMEOUT_CODE,
             ERR_WRITE_TIMEOUT_MESSAGE,
             ERR_WRITE_TIMEOUT_SYMBOL,
+        ),
+        (
+            ERR_MESSAGE_TOO_LARGE_CODE,
+            ERR_MESSAGE_TOO_LARGE_MESSAGE,
+            ERR_MESSAGE_TOO_LARGE_SYMBOL,
         ),
     ]
 }

@@ -1,0 +1,58 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "func_net_receiveFrom_valid",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "recvCount",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    { "name": "s", "type": "UdpSocket", "default": null },
+    { "name": "maxBytes", "type": "Integer", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "mutable": false, "name": "dg", "type": "Datagram", "value": { "kind": "call", "target": "net.receiveFrom", "args": [{ "kind": "local", "name": "s" }, { "kind": "local", "name": "maxBytes" }] } },
+    { "op": "return", "value": { "kind": "call", "target": "len", "args": [{ "kind": "memberAccess", "target": { "kind": "local", "name": "dg" }, "member": "bytes" }] } },
+    {
+      "op": "trap",
+      "name": "e",
+      "body": [
+      { "op": "return", "value": { "kind": "memberAccess", "target": { "kind": "local", "name": "e" }, "member": "code" } }
+      ]
+    }
+    ]
+  },
+  {
+    "name": "main",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "mutable": false, "name": "server", "type": "UdpSocket", "value": { "kind": "call", "target": "net.bindUdp", "args": [{ "kind": "const", "type": "String", "value": "127.0.0.1" }, { "kind": "const", "type": "Integer", "value": "0" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "net.setReadTimeout", "args": [{ "kind": "local", "name": "server" }, { "kind": "const", "type": "Integer", "value": "2000" }] } },
+    { "op": "bind", "mutable": false, "name": "bound", "type": "Address", "value": { "kind": "call", "target": "net.localAddress", "args": [{ "kind": "local", "name": "server" }] } },
+    { "op": "bind", "mutable": false, "name": "client", "type": "UdpSocket", "value": { "kind": "call", "target": "net.bindUdp", "args": [{ "kind": "const", "type": "String", "value": "127.0.0.1" }, { "kind": "const", "type": "Integer", "value": "0" }] } },
+    { "op": "bind", "mutable": false, "name": "dest", "type": "Address", "value": { "kind": "call", "target": "get", "args": [{ "kind": "call", "target": "net.lookup", "args": [{ "kind": "const", "type": "String", "value": "127.0.0.1" }, { "kind": "memberAccess", "target": { "kind": "local", "name": "bound" }, "member": "port" }] }, { "kind": "const", "type": "Integer", "value": "0" }] } },
+    { "op": "bind", "mutable": false, "name": "payload", "type": "List OF Byte", "value": { "kind": "list", "type": "List OF Byte", "values": [{ "kind": "const", "type": "Byte", "value": "10" }, { "kind": "const", "type": "Byte", "value": "20" }, { "kind": "const", "type": "Byte", "value": "30" }, { "kind": "const", "type": "Byte", "value": "40" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "net.sendTo", "args": [{ "kind": "local", "name": "client" }, { "kind": "local", "name": "dest" }, { "kind": "local", "name": "payload" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "recvCount", "args": [{ "kind": "local", "name": "server" }, { "kind": "const", "type": "Integer", "value": "16" }] }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "net.sendTo", "args": [{ "kind": "local", "name": "client" }, { "kind": "local", "name": "dest" }, { "kind": "local", "name": "payload" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "recvCount", "args": [{ "kind": "local", "name": "server" }, { "kind": "const", "type": "Integer", "value": "2" }] }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "net.close", "args": [{ "kind": "local", "name": "server" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "net.close", "args": [{ "kind": "local", "name": "client" }] } },
+    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}
