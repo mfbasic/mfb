@@ -35,7 +35,8 @@
         "consts": [
         ],
         "successOn": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "status" }, "right": { "kind": "number", "value": "0" } },
-        "result": null
+        "result": null,
+        "free": null
       },
       {
         "kind": "linkFunc",
@@ -57,7 +58,8 @@
         "consts": [
         ],
         "successOn": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "status" }, "right": { "kind": "number", "value": "0" } },
-        "result": null
+        "result": null,
+        "free": null
       },
       {
         "kind": "linkFunc",
@@ -82,7 +84,8 @@
         "consts": [
         ],
         "successOn": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "status" }, "right": { "kind": "number", "value": "0" } },
-        "result": null
+        "result": null,
+        "free": null
       },
       {
         "kind": "linkFunc",
@@ -104,7 +107,8 @@
         "consts": [
         ],
         "successOn": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "status" }, "right": { "kind": "number", "value": "0" } },
-        "result": null
+        "result": null,
+        "free": null
       }
       ]
     },

@@ -15,8 +15,8 @@ Container:
   flags: 0x00000000
   signature type: unsigned
   signature length: 0
-  content hash: 1d0100e59a9371f2b3bf2aab62d686c817348b474f73a1bcca781a932aec4336
-  binary representation length: 1276
+  content hash: b6bcb15a0ef0894990043290e0546ebe725527900bc00e621ff1d2717f718930
+  binary representation length: 1280
 
 Manifest:
   name: native_resource_link_valid

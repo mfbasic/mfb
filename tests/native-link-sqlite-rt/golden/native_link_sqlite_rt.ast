@@ -36,7 +36,8 @@
         "consts": [
         ],
         "successOn": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "status" }, "right": { "kind": "number", "value": "0" } },
-        "result": null
+        "result": null,
+        "free": null
       },
       {
         "kind": "linkFunc",
@@ -66,7 +67,8 @@
         { "slot": "errmsg", "value": { "kind": "identifier", "value": "NOTHING" }, "line": 23 }
         ],
         "successOn": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "status" }, "right": { "kind": "number", "value": "0" } },
-        "result": null
+        "result": null,
+        "free": null
       },
       {
         "kind": "linkFunc",
@@ -95,7 +97,8 @@
         { "slot": "pzTail", "value": { "kind": "identifier", "value": "NOTHING" }, "line": 30 }
         ],
         "successOn": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "status" }, "right": { "kind": "number", "value": "0" } },
-        "result": null
+        "result": null,
+        "free": null
       },
       {
         "kind": "linkFunc",
@@ -125,7 +128,8 @@
         { "slot": "destructor", "value": { "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "1" } }, "line": 37 }
         ],
         "successOn": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "status" }, "right": { "kind": "number", "value": "0" } },
-        "result": null
+        "result": null,
+        "free": null
       },
       {
         "kind": "linkFunc",
@@ -147,7 +151,8 @@
         "consts": [
         ],
         "successOn": { "kind": "binary", "operator": "OR", "left": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "status" }, "right": { "kind": "number", "value": "100" } }, "right": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "status" }, "right": { "kind": "number", "value": "101" } } },
-        "result": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "status" }, "right": { "kind": "number", "value": "100" } }
+        "result": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "status" }, "right": { "kind": "number", "value": "100" } },
+        "free": null
       },
       {
         "kind": "linkFunc",
@@ -171,7 +176,8 @@
         "consts": [
         ],
         "successOn": null,
-        "result": null
+        "result": null,
+        "free": null
       },
       {
         "kind": "linkFunc",
@@ -195,7 +201,8 @@
         "consts": [
         ],
         "successOn": null,
-        "result": null
+        "result": null,
+        "free": null
       },
       {
         "kind": "linkFunc",
@@ -219,7 +226,8 @@
         "consts": [
         ],
         "successOn": null,
-        "result": null
+        "result": null,
+        "free": null
       },
       {
         "kind": "linkFunc",
@@ -241,7 +249,8 @@
         "consts": [
         ],
         "successOn": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "status" }, "right": { "kind": "number", "value": "0" } },
-        "result": null
+        "result": null,
+        "free": null
       },
       {
         "kind": "linkFunc",
@@ -263,7 +272,8 @@
         "consts": [
         ],
         "successOn": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "status" }, "right": { "kind": "number", "value": "0" } },
-        "result": null
+        "result": null,
+        "free": null
       }
       ]
     },

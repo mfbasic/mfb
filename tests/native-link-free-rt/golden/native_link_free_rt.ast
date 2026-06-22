@@ -1,0 +1,214 @@
+{
+  "project": "native_link_free_rt",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 6 }
+    ],
+    "items": [
+    { "kind": "resource", "visibility": "private", "name": "Db", "closeFn": "sql.close", "threadSendable": false, "line": 8 },
+    { "kind": "resource", "visibility": "private", "name": "Stmt", "closeFn": "sql.finalize", "threadSendable": false, "line": 9 },
+    {
+      "kind": "link",
+      "library": "sqlite3",
+      "alias": "sql",
+      "line": 11,
+      "functions": [
+      {
+        "kind": "linkFunc",
+        "name": "open",
+        "symbol": "sqlite3_open",
+        "returnResource": true,
+        "returnType": "Db",
+        "line": 12,
+        "params": [
+        { "name": "path", "type": "String", "default": null }
+        ],
+        "abi": {
+          "slots": [
+          { "name": "path", "ctype": "CString", "out": false, "line": 14 },
+          { "name": "return", "ctype": "CPtr", "out": true, "line": 14 }
+          ],
+          "returnName": "status",
+          "returnCType": "CInt32"
+        },
+        "consts": [
+        ],
+        "successOn": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "status" }, "right": { "kind": "number", "value": "0" } },
+        "result": null,
+        "free": null
+      },
+      {
+        "kind": "linkFunc",
+        "name": "prepare",
+        "symbol": "sqlite3_prepare_v2",
+        "returnResource": true,
+        "returnType": "Stmt",
+        "line": 17,
+        "params": [
+        { "name": "db", "type": "Db", "resource": true, "state": null, "default": null },
+        { "name": "statement", "type": "String", "default": null }
+        ],
+        "abi": {
+          "slots": [
+          { "name": "db", "ctype": "CPtr", "out": false, "line": 19 },
+          { "name": "statement", "ctype": "CString", "out": false, "line": 19 },
+          { "name": "nByte", "ctype": "CInt32", "out": false, "line": 19 },
+          { "name": "return", "ctype": "CPtr", "out": true, "line": 19 },
+          { "name": "pzTail", "ctype": "CPtr", "out": false, "line": 19 }
+          ],
+          "returnName": "status",
+          "returnCType": "CInt32"
+        },
+        "consts": [
+        { "slot": "nByte", "value": { "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "1" } }, "line": 20 },
+        { "slot": "pzTail", "value": { "kind": "identifier", "value": "NOTHING" }, "line": 21 }
+        ],
+        "successOn": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "status" }, "right": { "kind": "number", "value": "0" } },
+        "result": null,
+        "free": null
+      },
+      {
+        "kind": "linkFunc",
+        "name": "bindText",
+        "symbol": "sqlite3_bind_text",
+        "returnResource": false,
+        "returnType": "Nothing",
+        "line": 24,
+        "params": [
+        { "name": "stmt", "type": "Stmt", "resource": true, "state": null, "default": null },
+        { "name": "iCol", "type": "Integer", "default": null },
+        { "name": "value", "type": "String", "default": null }
+        ],
+        "abi": {
+          "slots": [
+          { "name": "stmt", "ctype": "CPtr", "out": false, "line": 26 },
+          { "name": "iCol", "ctype": "CInt32", "out": false, "line": 26 },
+          { "name": "value", "ctype": "CString", "out": false, "line": 26 },
+          { "name": "nByte", "ctype": "CInt32", "out": false, "line": 26 },
+          { "name": "destructor", "ctype": "CPtr", "out": false, "line": 26 }
+          ],
+          "returnName": "status",
+          "returnCType": "CInt32"
+        },
+        "consts": [
+        { "slot": "nByte", "value": { "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "1" } }, "line": 27 },
+        { "slot": "destructor", "value": { "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "1" } }, "line": 28 }
+        ],
+        "successOn": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "status" }, "right": { "kind": "number", "value": "0" } },
+        "result": null,
+        "free": null
+      },
+      {
+        "kind": "linkFunc",
+        "name": "expandedSql",
+        "symbol": "sqlite3_expanded_sql",
+        "returnResource": false,
+        "returnType": "String",
+        "line": 32,
+        "params": [
+        { "name": "stmt", "type": "Stmt", "resource": true, "state": null, "default": null }
+        ],
+        "abi": {
+          "slots": [
+          { "name": "stmt", "ctype": "CPtr", "out": false, "line": 34 }
+          ],
+          "returnName": "return",
+          "returnCType": "CPtr"
+        },
+        "consts": [
+        ],
+        "successOn": null,
+        "result": null,
+        "free": {
+          "slot": "return",
+          "symbol": "sqlite3_free",
+          "paramName": "ptr",
+          "paramCType": "CPtr",
+          "returnCType": "CVoid"
+        }
+      },
+      {
+        "kind": "linkFunc",
+        "name": "close",
+        "symbol": "sqlite3_close",
+        "returnResource": false,
+        "returnType": "Nothing",
+        "line": 40,
+        "params": [
+        { "name": "db", "type": "Db", "resource": true, "state": null, "default": null }
+        ],
+        "abi": {
+          "slots": [
+          { "name": "db", "ctype": "CPtr", "out": false, "line": 42 }
+          ],
+          "returnName": "status",
+          "returnCType": "CInt32"
+        },
+        "consts": [
+        ],
+        "successOn": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "status" }, "right": { "kind": "number", "value": "0" } },
+        "result": null,
+        "free": null
+      },
+      {
+        "kind": "linkFunc",
+        "name": "finalize",
+        "symbol": "sqlite3_finalize",
+        "returnResource": false,
+        "returnType": "Nothing",
+        "line": 45,
+        "params": [
+        { "name": "stmt", "type": "Stmt", "resource": true, "state": null, "default": null }
+        ],
+        "abi": {
+          "slots": [
+          { "name": "stmt", "ctype": "CPtr", "out": false, "line": 47 }
+          ],
+          "returnName": "status",
+          "returnCType": "CInt32"
+        },
+        "consts": [
+        ],
+        "successOn": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "status" }, "right": { "kind": "number", "value": "0" } },
+        "result": null,
+        "free": null
+      }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "main",
+      "line": 52,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "db", "type": "Db", "value": { "kind": "call", "callee": "sql.open", "arguments": [{ "kind": "string", "value": ":memory:" }] }, "line": 53 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "stmt", "type": "Stmt", "value": { "kind": "call", "callee": "sql.prepare", "arguments": [{ "kind": "identifier", "value": "db" }, { "kind": "string", "value": "SELECT ?, ?" }] }, "line": 54 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "sql.bindText", "arguments": [{ "kind": "identifier", "value": "stmt" }, { "kind": "number", "value": "1" }, { "kind": "string", "value": "hello" }] }, "line": 55 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "sql.bindText", "arguments": [{ "kind": "identifier", "value": "stmt" }, { "kind": "number", "value": "2" }, { "kind": "string", "value": "world" }] }, "line": 56 },
+      { "kind": "binding", "mutable": true, "name": "i", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 57 },
+      { "kind": "binding", "mutable": true, "name": "last", "type": "String", "value": { "kind": "string", "value": "" }, "line": 58 },
+      {
+        "kind": "while",
+        "loop": "while",
+        "condition": { "kind": "binary", "operator": "<", "left": { "kind": "identifier", "value": "i" }, "right": { "kind": "number", "value": "5000" } },
+        "line": 59,
+        "body": [
+        { "kind": "assignment", "name": "last", "value": { "kind": "call", "callee": "sql.expandedSql", "arguments": [{ "kind": "identifier", "value": "stmt" }] }, "line": 60 },
+        { "kind": "assignment", "name": "i", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "i" }, "right": { "kind": "number", "value": "1" } }, "line": 61 }
+        ]
+      },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "identifier", "value": "last" }] }, "line": 63 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "sql.finalize", "arguments": [{ "kind": "identifier", "value": "stmt" }] }, "line": 64 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "sql.close", "arguments": [{ "kind": "identifier", "value": "db" }] }, "line": 65 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 66 }
+      ]
+    }
+    ]
+  }
+  ]
+}

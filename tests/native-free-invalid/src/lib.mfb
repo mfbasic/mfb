@@ -1,0 +1,19 @@
+' A FREE deallocator must take exactly one CPtr parameter and return CVoid
+' (mfbasic.md §17). Here it takes CInt32, so the FREE block is malformed.
+EXPORT RESOURCE Handle CLOSE BY demoLink::release
+
+LINK "demo" AS demoLink
+  FUNC release(RES h AS Handle) AS Nothing
+    SYMBOL "demo_release"
+    ABI (h CPtr) AS status CInt32
+    SUCCESS_ON status = 0
+  END FUNC
+  FUNC describe(RES h AS Handle) AS String
+    SYMBOL "demo_describe"
+    ABI (h CPtr) AS return CPtr
+    FREE return
+      SYMBOL "demo_free"
+      ABI (ptr CInt32) AS CVoid
+    END FREE
+  END FUNC
+END LINK

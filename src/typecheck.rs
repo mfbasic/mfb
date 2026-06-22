@@ -465,6 +465,40 @@ impl<'a> TypeChecker<'a> {
                 );
             }
         }
+
+        // A FREE block releases a caller-owned native return after it is copied
+        // out (mfbasic.md §17). The implemented form frees the `return` CPtr
+        // produced slot through a deallocator that takes one CPtr and returns
+        // CVoid (e.g. `sqlite3_free`). Anything else is rejected.
+        if let Some(free) = &function.free {
+            let mut ok = true;
+            // The freed slot must be the `return` C-return pointer.
+            if free.slot != "return" || function.abi.return_name != "return" {
+                ok = false;
+            }
+            // That return must be a CPtr copied into an owned wrapper value.
+            if function.abi.return_ctype != "CPtr" {
+                ok = false;
+            }
+            // The deallocator: one pointer parameter, void return.
+            if free.param_ctype != "CPtr" || free.return_ctype != "CVoid" {
+                ok = false;
+            }
+            if free.symbol.is_empty() {
+                ok = false;
+            }
+            if !ok {
+                self.report(
+                    "NATIVE_FREE_INVALID",
+                    &format!(
+                        "Native function `{}` has a malformed FREE block: it must release the `return` CPtr produced slot through a deallocator taking one CPtr parameter and returning CVoid.",
+                        function.name
+                    ),
+                    file,
+                    free.line,
+                );
+            }
+        }
     }
 
     fn collect_types(&mut self) {

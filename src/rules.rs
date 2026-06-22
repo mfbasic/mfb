@@ -850,6 +850,12 @@ pub const RULES: &[Rule] = &[
         message: "a CONST pin names an unknown ABI slot",
     },
     Rule {
+        code: "2-203-0099",
+        name: "NATIVE_FREE_INVALID",
+        severity: Severity::Error,
+        message: "a FREE block is malformed: it must release the `return` CPtr produced slot through a deallocator taking one CPtr parameter and returning CVoid",
+    },
+    Rule {
         code: "2-200-0011",
         name: "PROJECT_ENTRY_INVALID",
         severity: Severity::Error,

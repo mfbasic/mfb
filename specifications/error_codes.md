@@ -241,6 +241,7 @@ These codes correspond to `src/rules.rs` and are emitted directly by the compile
 | `2-203-0096` | `NATIVE_ABI_NO_RESULT` | error | `a value-returning native function marks no ABI result` |
 | `2-203-0097` | `NATIVE_CONST_OUT` | error | `a CONST-pinned ABI slot cannot also be OUT` |
 | `2-203-0098` | `NATIVE_CONST_UNKNOWN_SLOT` | error | `a CONST pin names an unknown ABI slot` |
+| `2-203-0099` | `NATIVE_FREE_INVALID` | error | `a FREE block is malformed: it must release the `return` CPtr produced slot through a deallocator taking one CPtr parameter and returning CVoid` |
 
 ## Toolchain and Package Diagnostics
 

@@ -74,6 +74,18 @@ pub(crate) struct IrLinkFunction {
     pub(crate) success_on: Option<IrLinkExpr>,
     /// `RESULT <expr>` value mapping over the native return variable.
     pub(crate) result: Option<IrLinkExpr>,
+    /// `FREE <slot>` deallocation of a caller-owned native return (mfbasic.md §17).
+    pub(crate) free: Option<IrFree>,
+}
+
+/// A `FREE` block: after the wrapper copies the produced pointer into its owned
+/// MFBASIC result, the original native pointer is passed to `symbol`.
+#[derive(Clone)]
+pub(crate) struct IrFree {
+    /// The produced slot freed (currently always `return`).
+    pub(crate) slot: String,
+    /// The deallocator native symbol, e.g. `sqlite3_free`.
+    pub(crate) symbol: String,
 }
 
 /// One `ABI (...)` slot: `name ctype` or `name OUT ctype`.
@@ -512,6 +524,10 @@ fn link_functions(ast: &AstProject) -> Vec<IrLinkFunction> {
                             .result
                             .as_ref()
                             .map(|expr| lower_link_expr(expr, &native.abi.return_name)),
+                        free: native.free.as_ref().map(|f| IrFree {
+                            slot: f.slot.clone(),
+                            symbol: f.symbol.clone(),
+                        }),
                     });
                 }
             }
@@ -4204,6 +4220,14 @@ fn encode_link_function(out: &mut Vec<u8>, f: &IrLinkFunction) {
     });
     encode_opt_link_expr(out, &f.success_on);
     encode_opt_link_expr(out, &f.result);
+    match &f.free {
+        Some(free) => {
+            put_u8(out, 1);
+            put_str(out, &free.slot);
+            put_str(out, &free.symbol);
+        }
+        None => put_u8(out, 0),
+    }
 }
 
 fn encode_opt_link_expr(out: &mut Vec<u8>, expr: &Option<IrLinkExpr>) {
@@ -4311,6 +4335,14 @@ fn decode_link_function(r: &mut IrReader) -> Result<IrLinkFunction, String> {
         })?,
         success_on: decode_opt_link_expr(r)?,
         result: decode_opt_link_expr(r)?,
+        free: if r.u8()? != 0 {
+            Some(IrFree {
+                slot: r.string()?,
+                symbol: r.string()?,
+            })
+        } else {
+            None
+        },
     })
 }
 

@@ -824,6 +824,14 @@ pub(crate) fn lower_module_for_platform(
     // (plan-linker.md §12.1).
     let globals_base = module.globals.len() + package_global_count;
     let link_count = module.link_functions.len();
+    // Each `FREE` block resolves its deallocator into an additional writable slot,
+    // reserved just past the per-function slots (mfbasic.md §17).
+    let free_count = module
+        .link_functions
+        .iter()
+        .filter(|function| function.free.is_some())
+        .count();
+    let link_slot_count = link_count + free_count;
     let link_init_symbol = if link_count > 0 {
         Some(nir::LINK_INIT_SYMBOL)
     } else {
@@ -837,8 +845,8 @@ pub(crate) fn lower_module_for_platform(
             entry.accepts_args,
             global_initializer_symbol.as_deref(),
             link_init_symbol,
-            align(ENTRY_STACK_SIZE + (globals_base + link_count) * 8, 16),
-            globals_base + link_count,
+            align(ENTRY_STACK_SIZE + (globals_base + link_slot_count) * 8, 16),
+            globals_base + link_slot_count,
             &platform_imports,
             platform,
             skip_entry_arena_destroy,

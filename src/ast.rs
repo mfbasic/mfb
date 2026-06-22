@@ -127,6 +127,26 @@ pub struct LinkFunction {
     pub success_on: Option<Expression>,
     /// `RESULT <expr>` value mapping, if any (plan-link-update.md §5b).
     pub result: Option<Expression>,
+    /// `FREE <slot> … END FREE` block releasing a caller-owned native return
+    /// after it is copied out (mfbasic.md §17).
+    pub free: Option<FreeSpec>,
+    pub line: usize,
+}
+
+/// A `FREE <slot> SYMBOL "…" ABI (ptr CPtr) AS CVoid END FREE` block: after the
+/// wrapper copies the named produced pointer into its owned MFBASIC result, the
+/// original native pointer is passed to the named deallocator (mfbasic.md §17).
+#[derive(Clone, Debug)]
+pub struct FreeSpec {
+    /// The produced slot whose pointer is released (`return` or an `OUT` slot).
+    pub slot: String,
+    /// The deallocator native symbol, e.g. `sqlite3_free`.
+    pub symbol: String,
+    /// The deallocator's single pointer parameter: name and C type.
+    pub param_name: String,
+    pub param_ctype: String,
+    /// The deallocator's native return C type, e.g. `CVoid`.
+    pub return_ctype: String,
     pub line: usize,
 }
 
@@ -3084,6 +3104,7 @@ impl<'a> FileParser<'a> {
         let mut consts = Vec::new();
         let mut success_on: Option<Expression> = None;
         let mut result: Option<Expression> = None;
+        let mut free: Option<FreeSpec> = None;
 
         while !self.is_at_end() {
             if self.check_keyword(Keyword::End) {
@@ -3147,10 +3168,15 @@ impl<'a> FileParser<'a> {
                 self.skip_separators();
                 continue;
             }
+            if self.match_identifier_ci("FREE") {
+                free = self.parse_free_block();
+                self.skip_separators();
+                continue;
+            }
             let token = self.peek().clone();
             self.report(
                 "MFB_PARSE_UNEXPECTED_STATEMENT",
-                "A native FUNC body may only contain SYMBOL, ABI, CONST, SUCCESS_ON, ERROR_ON, or RESULT clauses.",
+                "A native FUNC body may only contain SYMBOL, ABI, CONST, SUCCESS_ON, ERROR_ON, RESULT, or FREE clauses.",
                 &token,
             );
             self.synchronize();
@@ -3184,7 +3210,86 @@ impl<'a> FileParser<'a> {
             consts,
             success_on,
             result,
+            free,
             line: func_token.line,
+        })
+    }
+
+    /// Parse a `FREE <slot> SYMBOL "…" ABI (ptr CPtr) AS <ctype> END FREE` block.
+    /// The opening `FREE` keyword has already been consumed.
+    fn parse_free_block(&mut self) -> Option<FreeSpec> {
+        let line = self.previous().line;
+        let slot = self.parse_abi_slot_name()?;
+        self.consume_statement_end("Expected end of statement after FREE <slot>.");
+        self.skip_separators();
+
+        let mut symbol: Option<String> = None;
+        let mut param: Option<(String, String)> = None;
+        let mut return_ctype: Option<String> = None;
+
+        while !self.is_at_end() {
+            if self.check_keyword(Keyword::End) {
+                self.advance(); // END
+                if !self.match_identifier_ci("FREE") {
+                    let token = self.peek().clone();
+                    self.report(
+                        "MFB_PARSE_UNEXPECTED_TOKEN",
+                        "END must name the block kind it closes (END FREE).",
+                        &token,
+                    );
+                    self.synchronize();
+                    return None;
+                }
+                self.consume_statement_end("Expected end of statement after END FREE.");
+                break;
+            }
+            if self.match_identifier_ci("SYMBOL") {
+                symbol = self.parse_string_literal("SYMBOL requires a native symbol name string.");
+                self.consume_statement_end("Expected end of statement after SYMBOL.");
+                self.skip_separators();
+                continue;
+            }
+            if self.match_identifier_ci("ABI") {
+                if !self.consume_kind(TokenKind::LParen, "FREE ABI requires a `(` to open its slot.") {
+                    self.synchronize();
+                    return None;
+                }
+                let param_name = self.parse_abi_slot_name()?;
+                let param_ctype = self.parse_c_type_name()?;
+                if !self.consume_kind(TokenKind::RParen, "FREE ABI slot must close with `)`.") {
+                    self.synchronize();
+                    return None;
+                }
+                if !self.consume_keyword(Keyword::As, "FREE ABI requires `AS <ctype>` for the deallocator return.") {
+                    self.synchronize();
+                    return None;
+                }
+                return_ctype = self.parse_c_type_name();
+                param = Some((param_name, param_ctype));
+                self.consume_statement_end("Expected end of statement after FREE ABI.");
+                self.skip_separators();
+                continue;
+            }
+            let token = self.peek().clone();
+            self.report(
+                "MFB_PARSE_UNEXPECTED_STATEMENT",
+                "A FREE block may only contain SYMBOL and ABI clauses.",
+                &token,
+            );
+            self.synchronize();
+            self.skip_separators();
+        }
+
+        let symbol = symbol?;
+        let (param_name, param_ctype) = param?;
+        let return_ctype = return_ctype?;
+        Some(FreeSpec {
+            slot,
+            symbol,
+            param_name,
+            param_ctype,
+            return_ctype,
+            line,
         })
     }
 
@@ -3690,6 +3795,11 @@ impl ToAstJson for LinkFunction {
             .as_ref()
             .map(|value| value.to_json(indent + 2))
             .unwrap_or_else(|| "null".to_string());
+        let free = self
+            .free
+            .as_ref()
+            .map(|value| value.to_json(indent + 2))
+            .unwrap_or_else(|| "null".to_string());
         format!(
             concat!(
                 "\n{}{{\n",
@@ -3703,7 +3813,8 @@ impl ToAstJson for LinkFunction {
                 "{}  \"abi\": {},\n",
                 "{}  \"consts\": [{}\n{}  ],\n",
                 "{}  \"successOn\": {},\n",
-                "{}  \"result\": {}\n",
+                "{}  \"result\": {},\n",
+                "{}  \"free\": {}\n",
                 "{}}}"
             ),
             pad,
@@ -3730,6 +3841,36 @@ impl ToAstJson for LinkFunction {
             success_on,
             pad,
             result,
+            pad,
+            free,
+            pad
+        )
+    }
+}
+
+impl FreeSpec {
+    fn to_json(&self, indent: usize) -> String {
+        let pad = " ".repeat(indent);
+        format!(
+            concat!(
+                "{{\n",
+                "{}  \"slot\": {},\n",
+                "{}  \"symbol\": {},\n",
+                "{}  \"paramName\": {},\n",
+                "{}  \"paramCType\": {},\n",
+                "{}  \"returnCType\": {}\n",
+                "{}}}"
+            ),
+            pad,
+            json_string(&self.slot),
+            pad,
+            json_string(&self.symbol),
+            pad,
+            json_string(&self.param_name),
+            pad,
+            json_string(&self.param_ctype),
+            pad,
+            json_string(&self.return_ctype),
             pad
         )
     }

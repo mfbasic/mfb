@@ -1,0 +1,67 @@
+' Runtime test for the `FREE` ABI clause (mfbasic.md §17). sqlite3_expanded_sql
+' returns a FRESHLY ALLOCATED string the caller owns; the wrapper copies it into
+' an owned `String` and the `FREE` block releases the original pointer with
+' sqlite3_free. The loop frees thousands of times: a wrong/double free corrupts
+' libc's heap and crashes, while the copy must still be valid after the free.
+IMPORT io
+
+RESOURCE Db CLOSE BY sql::close
+RESOURCE Stmt CLOSE BY sql::finalize
+
+LINK "sqlite3" AS sql
+  FUNC open(path AS String) AS RES Db
+    SYMBOL "sqlite3_open"
+    ABI (path CString, return OUT CPtr) AS status CInt32
+    SUCCESS_ON status = 0
+  END FUNC
+  FUNC prepare(RES db AS Db, statement AS String) AS RES Stmt
+    SYMBOL "sqlite3_prepare_v2"
+    ABI (db CPtr, statement CString, nByte CInt32, return OUT CPtr, pzTail CPtr) AS status CInt32
+    CONST nByte = -1
+    CONST pzTail = NOTHING
+    SUCCESS_ON status = 0
+  END FUNC
+  FUNC bindText(RES stmt AS Stmt, iCol AS Integer, value AS String) AS Nothing
+    SYMBOL "sqlite3_bind_text"
+    ABI (stmt CPtr, iCol CInt32, value CString, nByte CInt32, destructor CPtr) AS status CInt32
+    CONST nByte = -1
+    CONST destructor = -1
+    SUCCESS_ON status = 0
+  END FUNC
+  ' The caller-owned return: copy-then-sqlite3_free via the FREE block.
+  FUNC expandedSql(RES stmt AS Stmt) AS String
+    SYMBOL "sqlite3_expanded_sql"
+    ABI (stmt CPtr) AS return CPtr
+    FREE return
+      SYMBOL "sqlite3_free"
+      ABI (ptr CPtr) AS CVoid
+    END FREE
+  END FUNC
+  FUNC close(RES db AS Db) AS Nothing
+    SYMBOL "sqlite3_close"
+    ABI (db CPtr) AS status CInt32
+    SUCCESS_ON status = 0
+  END FUNC
+  FUNC finalize(RES stmt AS Stmt) AS Nothing
+    SYMBOL "sqlite3_finalize"
+    ABI (stmt CPtr) AS status CInt32
+    SUCCESS_ON status = 0
+  END FUNC
+END LINK
+
+FUNC main() AS Integer
+  RES db AS Db = sql::open(":memory:")
+  RES stmt AS Stmt = sql::prepare(db, "SELECT ?, ?")
+  sql::bindText(stmt, 1, "hello")
+  sql::bindText(stmt, 2, "world")
+  MUT i AS Integer = 0
+  MUT last AS String = ""
+  WHILE i < 5000
+    last = sql::expandedSql(stmt)
+    i = i + 1
+  WEND
+  io::print(last)
+  sql::finalize(stmt)
+  sql::close(db)
+  RETURN 0
+END FUNC

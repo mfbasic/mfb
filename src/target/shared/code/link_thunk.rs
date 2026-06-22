@@ -64,6 +64,12 @@ fn sym_symbol(index: usize) -> String {
     format!("_mfb_linker_sym_{index}")
 }
 
+/// Read-only constant naming the `k`-th `FREE` deallocator symbol (e.g.
+/// `sqlite3_free`), resolved by `dlsym` into a slot past the per-function slots.
+fn free_sym_symbol(k: usize) -> String {
+    format!("_mfb_linker_free_{k}")
+}
+
 /// The writable global slot (relative to `x19`) holding the resolved pointer for
 /// the `index`-th `LINK` function. Reserved after the program's `globals_base`
 /// own global slots.
@@ -153,16 +159,35 @@ pub(super) fn emit_link_support(
         data_objects.push(cstring_object(&sym_symbol(index), &function.symbol));
     }
 
+    // Each `FREE` block resolves its deallocator into a slot reserved past the
+    // per-function slots. `free_index_of[i]` is the function's deallocator index
+    // `k` (so its slot is `link_count + k`), or `None` when it has no FREE.
+    let link_count = link_functions.len();
+    let mut free_index_of: Vec<Option<usize>> = Vec::with_capacity(link_count);
+    let mut free_count = 0usize;
+    for function in link_functions {
+        if let Some(free) = &function.free {
+            data_objects.push(cstring_object(&free_sym_symbol(free_count), &free.symbol));
+            free_index_of.push(Some(free_count));
+            free_count += 1;
+        } else {
+            free_index_of.push(None);
+        }
+    }
+
     let initializer = lower_link_initializer(
         link_functions,
         &library_index,
         globals_base,
+        link_count,
+        &free_index_of,
         platform_imports,
         platform,
     )?;
     let mut functions = vec![initializer];
     for (index, function) in link_functions.iter().enumerate() {
-        functions.push(lower_link_thunk(function, index, globals_base)?);
+        let free_slot = free_index_of[index].map(|k| link_count + k);
+        functions.push(lower_link_thunk(function, index, globals_base, free_slot)?);
     }
 
     Ok(LinkSupport {
@@ -178,6 +203,8 @@ fn lower_link_initializer(
     link_functions: &[IrLinkFunction],
     library_index: &[String],
     globals_base: usize,
+    link_count: usize,
+    free_index_of: &[Option<usize>],
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
 ) -> Result<CodeFunction, String> {
@@ -231,6 +258,28 @@ fn lower_link_initializer(
                     slot_offset(globals_base, fn_idx),
                 ),
             ]);
+            // A FREE deallocator lives in the same library; resolve it into its
+            // own slot (reserved past the per-function slots).
+            if let Some(k) = free_index_of[fn_idx] {
+                instructions.push(abi::load_u64(abi::return_register(), abi::stack_pointer(), HANDLE_OFF));
+                emit_data_address(
+                    symbol,
+                    "x1",
+                    &free_sym_symbol(k),
+                    &mut instructions,
+                    &mut relocations,
+                );
+                platform.emit_libc_call("dlsym", symbol, platform_imports, &mut instructions, &mut relocations)?;
+                instructions.extend([
+                    abi::compare_immediate(abi::return_register(), "0"),
+                    abi::branch_eq(&fail),
+                    abi::store_u64(
+                        abi::return_register(),
+                        ARENA_STATE_REGISTER,
+                        slot_offset(globals_base, link_count + k),
+                    ),
+                ]);
+            }
         }
     }
 
@@ -275,6 +324,7 @@ fn lower_link_thunk(
     function: &IrLinkFunction,
     index: usize,
     globals_base: usize,
+    free_slot: Option<usize>,
 ) -> Result<CodeFunction, String> {
     let symbol = link_thunk_symbol(&function.alias, &function.name);
     let n_params = function.params.len();
@@ -475,6 +525,22 @@ fn lower_link_thunk(
         instructions.push(abi::move_register(RESULT_VALUE_REGISTER, "x9"));
     } else {
         instructions.push(abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", "0"));
+    }
+
+    // FREE: release the caller-owned native return now that it is copied into the
+    // owned wrapper result (mfbasic.md §17). The original pointer is still at
+    // CRET_OFF; the deallocator (a C call) clobbers x0..x18, so the result value
+    // is parked in the now-free STATUS slot across the call and reloaded after.
+    // A NULL pointer is passed through unchanged — deallocators such as
+    // sqlite3_free treat NULL as a no-op.
+    if let Some(free_slot) = free_slot {
+        instructions.extend([
+            abi::store_u64(RESULT_VALUE_REGISTER, abi::stack_pointer(), STATUS_OFF),
+            abi::load_u64(&abi::argument_register(0)?, abi::stack_pointer(), CRET_OFF),
+            abi::load_u64("x16", ARENA_STATE_REGISTER, slot_offset(globals_base, free_slot)),
+            abi::branch_link_register("x16"),
+            abi::load_u64(RESULT_VALUE_REGISTER, abi::stack_pointer(), STATUS_OFF),
+        ]);
     }
 
     instructions.extend([
