@@ -1,0 +1,6 @@
+$ mfb build -ast tests/regression-mut-append-grow-rt
+Wrote AST to tests/regression-mut-append-grow-rt/regression_mut_append_grow_rt.ast
+[exit 0]
+$ mfb build -ir tests/regression-mut-append-grow-rt
+Wrote IR to tests/regression-mut-append-grow-rt/regression_mut_append_grow_rt.ir
+[exit 0]

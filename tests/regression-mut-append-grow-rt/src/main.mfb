@@ -1,0 +1,27 @@
+IMPORT io
+
+' KNOWN BUG (pre-existing; unrelated to resources). A `MUT` collection grown by
+' `append` in a loop past its initial 16-element capacity corrupts memory and
+' segfaults. The boundary is exact:
+'   - loop to 16 elements  -> ok
+'   - loop to 17 elements  -> SIGSEGV (deterministic), 18+ -> runaway/OOM
+'   - a 17-element list literal -> ok
+'   - a 16-element literal + one `append` -> ok
+' So the fault is the destructive in-place `MUT`-append growth path crossing the
+' capacity-16 boundary in a loop. It affects every element type.
+'
+' This directory only builds in the acceptance suite (no `.run` golden), because
+' the crash message carries a non-deterministic PID. To trigger the segfault:
+'   ./target/debug/mfb build tests/regression-mut-append-grow-rt
+'   tests/regression-mut-append-grow-rt/regression_mut_append_grow_rt.out   # -> exit 139
+' When the runtime is fixed this prints `len=17`.
+FUNC main AS Integer
+  MUT xs AS List OF Integer = []
+  MUT j AS Integer = 0
+  WHILE j < 17
+    xs = append(xs, j)
+    j = j + 1
+  WEND
+  io::print("len=" & toString(len(xs)))
+  RETURN 0
+END FUNC
