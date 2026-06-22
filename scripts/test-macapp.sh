@@ -29,6 +29,12 @@ work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 failures=0
 
+# GUI cases open real windows (stealing focus) and, in one case, inject
+# keystrokes via System Events into the focused app. They are OPT-IN so the
+# default run never disrupts an interactive session. Enable with MFB_MACAPP_GUI=1
+# (only when you are not actively using the machine).
+gui_enabled() { [ "${MFB_MACAPP_GUI:-0}" = "1" ]; }
+
 # Run a bundle's executable headlessly with a watchdog; echo "code=N" or "signal=N".
 run_headless() {
   local exe=$1
@@ -152,7 +158,9 @@ SUB main()
   io::print("finished")
 END SUB
 MFB
-if ! "$MFB_EXE" build -app "$proj" >/dev/null 2>&1; then
+if ! gui_enabled; then
+  echo "skip: keep-window-open GUI test (set MFB_MACAPP_GUI=1 when idle)"
+elif ! "$MFB_EXE" build -app "$proj" >/dev/null 2>&1; then
   echo "FAIL: build -app keepopen" >&2
   failures=$((failures + 1))
 else
@@ -235,7 +243,9 @@ SUB main()
   fs::writeText("$proj/got.txt", "got:" & name)
 END SUB
 MFB
-if ! "$MFB_EXE" build -app "$proj" >/dev/null 2>&1; then
+if ! gui_enabled; then
+  echo "skip: window keystroke GUI test (set MFB_MACAPP_GUI=1 when idle)"
+elif ! "$MFB_EXE" build -app "$proj" >/dev/null 2>&1; then
   echo "FAIL: build -app keyinput" >&2
   failures=$((failures + 1))
 else
@@ -251,6 +261,77 @@ else
     echo "ok: window keypresses delivered to io::readLine"
   else
     echo "skip: window keystroke injection unavailable (need Accessibility); got '$got'"
+  fi
+fi
+
+# Case 7: app-mode io::is*Terminal -> TRUE (plan §5.4). The window is the
+# interactive console, so all three return TRUE even headless.
+proj="$work/isterm"
+mkdir -p "$proj/src"
+cat > "$proj/project.json" <<'JSON'
+{ "name": "isterm", "version": "0.1.0", "mfb": "1.0", "kind": "executable",
+  "sources": [{ "root": "src", "role": "main", "include": ["**/*.mfb"] }],
+  "entry": "main", "targets": ["native"] }
+JSON
+cat > "$proj/src/main.mfb" <<'MFB'
+IMPORT io
+SUB main()
+  IF io::isInputTerminal() AND io::isOutputTerminal() AND io::isErrorTerminal() THEN
+    io::print("terminal:yes")
+  ELSE
+    io::print("terminal:no")
+  END IF
+END SUB
+MFB
+if ! "$MFB_EXE" build -app "$proj" >/dev/null 2>&1; then
+  echo "FAIL: build -app isterm" >&2
+  failures=$((failures + 1))
+else
+  out=$(MFB_MACAPP_HEADLESS=1 perl -e '
+    my $pid = open(my $fh, "-|"); if ($pid == 0) { exec($ARGV[0]) or exit 127; }
+    local $SIG{ALRM} = sub { kill "KILL", $pid; exit 99 }; alarm 10;
+    local $/; my $o = <$fh>; close($fh); chomp $o; print $o;
+  ' "$proj/isterm.app/Contents/MacOS/isterm")
+  if [ "$out" = "terminal:yes" ]; then
+    echo "ok: app-mode io::is*Terminal return TRUE"
+  else
+    echo "FAIL: io::is*Terminal expected terminal:yes, got '$out'" >&2
+    failures=$((failures + 1))
+  fi
+fi
+
+# Case 8 (GUI): io::terminalSize reports the transcript viewport (plan §5.4).
+# Launch a real window; the program writes the computed columns/rows to a file.
+proj="$work/tsize"
+mkdir -p "$proj/src"
+cat > "$proj/project.json" <<'JSON'
+{ "name": "tsize", "version": "0.1.0", "mfb": "1.0", "kind": "executable",
+  "sources": [{ "root": "src", "role": "main", "include": ["**/*.mfb"] }],
+  "entry": "main", "targets": ["native"] }
+JSON
+cat > "$proj/src/main.mfb" <<MFB
+IMPORT io
+IMPORT fs
+SUB main()
+  LET s AS TerminalSize = io::terminalSize()
+  fs::writeText("$proj/size.txt", toString(s.columns) & "x" & toString(s.rows))
+END SUB
+MFB
+if ! gui_enabled; then
+  echo "skip: terminalSize GUI test (set MFB_MACAPP_GUI=1 when idle)"
+elif ! "$MFB_EXE" build -app "$proj" >/dev/null 2>&1; then
+  echo "FAIL: build -app tsize" >&2
+  failures=$((failures + 1))
+else
+  rm -f "$proj/size.txt"
+  open "$proj/tsize.app"
+  sleep 2
+  pkill -KILL tsize >/dev/null 2>&1
+  size=$(cat "$proj/size.txt" 2>/dev/null || true)
+  if printf '%s' "$size" | grep -Eq '^[1-9][0-9]*x[1-9][0-9]*$'; then
+    echo "ok: io::terminalSize reported window viewport ($size)"
+  else
+    echo "skip: io::terminalSize window check unavailable (need GUI session); got '$size'"
   fi
 fi
 

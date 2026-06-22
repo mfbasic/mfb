@@ -12,6 +12,7 @@
   { "library": "libSystem", "symbol": "_write" },
   { "library": "libobjc", "symbol": "_objc_msgSend" },
   { "library": "libobjc", "symbol": "_sel_registerName" },
+  { "library": "libobjc", "symbol": "_objc_autoreleasePoolPush" },
   { "library": "libobjc", "symbol": "_objc_setAssociatedObject" },
   { "library": "libobjc", "symbol": "_objc_getAssociatedObject" },
   { "library": "libobjc", "symbol": "_objc_allocateClassPair" },
@@ -31,7 +32,7 @@
   { "library": "Foundation", "symbol": "_OBJC_CLASS_$_NSDictionary" },
   { "library": "Foundation", "symbol": "_OBJC_CLASS_$_NSAttributedString" },
   { "library": "libSystem", "symbol": "_pthread_create" },
-  { "library": "libSystem", "symbol": "_pthread_exit" },
+  { "library": "libSystem", "symbol": "_pause" },
   { "library": "libSystem", "symbol": "_getenv" },
   { "library": "libSystem", "symbol": "_pipe" },
   { "library": "libSystem", "symbol": "_dup2" },
@@ -104,6 +105,11 @@
   { "symbol": "_mfb_macapp_str_textviewClass", "kind": "raw", "layout": "C string (NUL-terminated)", "align": 1, "size": 12, "value": "4d4642546578745669657700" },
   { "symbol": "_mfb_macapp_str_inputTypes", "kind": "raw", "layout": "C string (NUL-terminated)", "align": 1, "size": 5, "value": "76403a4000" },
   { "symbol": "_mfb_macapp_str_empty", "kind": "raw", "layout": "C string (NUL-terminated)", "align": 1, "size": 1, "value": "00" },
+  { "symbol": "_mfb_macapp_sel_enclosingScrollView", "kind": "raw", "layout": "C string (NUL-terminated)", "align": 1, "size": 20, "value": "656e636c6f73696e675363726f6c6c5669657700" },
+  { "symbol": "_mfb_macapp_sel_contentSize", "kind": "raw", "layout": "C string (NUL-terminated)", "align": 1, "size": 12, "value": "636f6e74656e7453697a6500" },
+  { "symbol": "_mfb_macapp_sel_maximumAdvancement", "kind": "raw", "layout": "C string (NUL-terminated)", "align": 1, "size": 19, "value": "6d6178696d756d416476616e63656d656e7400" },
+  { "symbol": "_mfb_macapp_sel_layoutManager", "kind": "raw", "layout": "C string (NUL-terminated)", "align": 1, "size": 14, "value": "6c61796f75744d616e6167657200" },
+  { "symbol": "_mfb_macapp_sel_defaultLineHeight", "kind": "raw", "layout": "C string (NUL-terminated)", "align": 1, "size": 26, "value": "64656661756c744c696e65486569676874466f72466f6e743a00" },
   { "symbol": "_mfb_macapp_textview_key", "kind": "raw", "layout": "associated-object key (unique address)", "align": 1, "size": 1, "value": "00" },
   { "symbol": "_mfb_macapp_pipe_key", "kind": "raw", "layout": "associated-object key (unique address)", "align": 1, "size": 1, "value": "00" },
   { "symbol": "_mfb_macapp_inputline_key", "kind": "raw", "layout": "associated-object key (unique address)", "align": 1, "size": 1, "value": "00" }
@@ -993,11 +999,17 @@
     ],
     "instructions": [
     { "op": "label", "name": "entry" },
+    { "op": "sub_sp", "imm": "16" },
+    { "op": "str_u64", "src": "x0", "base": "sp", "offset": "0" },
+    { "op": "bl", "target": "_objc_autoreleasePoolPush" },
+    { "op": "ldr_u64", "dst": "x0", "base": "sp", "offset": "0" },
+    { "op": "add_sp", "imm": "16" },
     { "op": "bl", "target": "_mfb_macapp_program" },
     { "op": "branch_self" },
     { "op": "ret" }
     ],
     "relocations": [
+    { "from": "_mfb_macapp_worker", "to": "_objc_autoreleasePoolPush", "kind": "branch26", "binding": "external", "library": "libobjc" },
     { "from": "_mfb_macapp_worker", "to": "_mfb_macapp_program", "kind": "branch26", "binding": "internal", "library": null }
     ]
   },
@@ -1243,9 +1255,9 @@
     { "op": "mov", "dst": "x1", "src": "x0" },
     { "op": "mov", "dst": "x0", "src": "x21" },
     { "op": "bl", "target": "_mfb_macapp_append" },
-    { "op": "mov_imm", "dst": "x0", "type": "Integer", "value": "0" },
-    { "op": "bl", "target": "_pthread_exit" },
-    { "op": "branch_self" },
+    { "op": "label", "name": "park" },
+    { "op": "bl", "target": "_pause" },
+    { "op": "b", "target": "park" },
     { "op": "label", "name": "headless_exit" },
     { "op": "mov", "dst": "x0", "src": "x19" },
     { "op": "bl", "target": "_exit" },
@@ -1291,7 +1303,7 @@
     { "from": "_mfb_macapp_program_finish", "to": "_mfb_macapp_str_newline", "kind": "pageoff12", "binding": "data", "library": null },
     { "from": "_mfb_macapp_program_finish", "to": "_objc_msgSend", "kind": "branch26", "binding": "external", "library": "libobjc" },
     { "from": "_mfb_macapp_program_finish", "to": "_mfb_macapp_append", "kind": "branch26", "binding": "internal", "library": null },
-    { "from": "_mfb_macapp_program_finish", "to": "_pthread_exit", "kind": "branch26", "binding": "external", "library": "libSystem" },
+    { "from": "_mfb_macapp_program_finish", "to": "_pause", "kind": "branch26", "binding": "external", "library": "libSystem" },
     { "from": "_mfb_macapp_program_finish", "to": "_exit", "kind": "branch26", "binding": "external", "library": "libSystem" }
     ]
   },

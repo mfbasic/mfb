@@ -62,6 +62,7 @@ impl plan::NativePlanPlatform for Platform {
         [
             ("libobjc", "_objc_msgSend"),
             ("libobjc", "_sel_registerName"),
+            ("libobjc", "_objc_autoreleasePoolPush"),
             ("libobjc", "_objc_setAssociatedObject"),
             ("libobjc", "_objc_getAssociatedObject"),
             ("libobjc", "_objc_allocateClassPair"),
@@ -81,7 +82,7 @@ impl plan::NativePlanPlatform for Platform {
             ("Foundation", "_OBJC_CLASS_$_NSDictionary"),
             ("Foundation", "_OBJC_CLASS_$_NSAttributedString"),
             ("libSystem", "_pthread_create"),
-            ("libSystem", "_pthread_exit"),
+            ("libSystem", "_pause"),
             ("libSystem", "_getenv"),
             ("libSystem", "_write"),
             ("libSystem", "_pipe"),

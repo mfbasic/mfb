@@ -163,6 +163,26 @@ const APPEND_SYMBOL: &str = "_mfb_macapp_append";
 /// composes (force-emitted in app mode when io.input is used).
 const IO_WRITE_SYMBOL: &str = "_mfb_rt_io_io_write";
 const IO_READ_LINE_SYMBOL: &str = "_mfb_rt_io_io_readLine";
+
+// io.terminalSize (plan §5.4): viewport columns/rows from the scroll view's
+// content size and the monospaced font metrics.
+const SEL_ENCLOSING_SCROLL_VIEW: (&str, &str) =
+    ("_mfb_macapp_sel_enclosingScrollView", "enclosingScrollView");
+const SEL_CONTENT_SIZE: (&str, &str) = ("_mfb_macapp_sel_contentSize", "contentSize");
+const SEL_MAX_ADVANCEMENT: (&str, &str) =
+    ("_mfb_macapp_sel_maximumAdvancement", "maximumAdvancement");
+const SEL_LAYOUT_MANAGER: (&str, &str) = ("_mfb_macapp_sel_layoutManager", "layoutManager");
+const SEL_DEFAULT_LINE_HEIGHT: (&str, &str) =
+    ("_mfb_macapp_sel_defaultLineHeight", "defaultLineHeightForFont:");
+/// The arena allocator (`lower_arena_alloc`): size in x0, align in x1; returns a
+/// result tag in x0 and the block pointer in x1.
+const ARENA_ALLOC_SYMBOL: &str = "_mfb_arena_alloc";
+/// `ERR_UNSUPPORTED` (`ERR_UNSUPPORTED_CODE` / `ERR_UNSUPPORTED_SYMBOL` in
+/// src/target/shared/code/mod.rs): returned by io.terminalSize when no transcript
+/// is attached. The `_mfb_str_error_unsupported` data object is emitted by the
+/// shared lowering whenever io.terminalSize is used.
+const ERR_UNSUPPORTED_CODE: &str = "77050007";
+const ERR_UNSUPPORTED_SYMBOL: &str = "_mfb_str_error_unsupported";
 /// Program-completion handler (plan §5.7): runs on the worker thread when the
 /// MFBASIC program finishes. macOS `emit_program_exit` routes the worker
 /// program's exit through this instead of `_exit` so the window can stay open.
@@ -699,12 +719,25 @@ fn emit_main_bootstrap() -> CodeFunction {
     }
 }
 
-/// `void *_mfb_macapp_worker(void *arg)` pthread start routine: unpacks the
-/// `{argc, argv}` block (when the entry accepts args) into `x0`/`x1`, then tail
-/// calls the standard program entry, which never returns (it ends in `_exit`).
+/// `void *_mfb_macapp_worker(void *arg)` pthread start routine: establishes an
+/// autorelease pool for this Cocoa-calling thread, unpacks the `{argc, argv}`
+/// block (when the entry accepts args) into `x0`/`x1`, then tail calls the
+/// standard program entry, which never returns (it ends in `_exit` or, in GUI
+/// mode, `pthread_exit`).
+///
+/// The autorelease pool is mandatory: the worker creates autoreleased Cocoa
+/// objects (NSString/NSFont/...), and on the GUI keep-open path it `pthread_exit`s
+/// — without a real pool in place, the thread-exit autorelease-pool cleanup
+/// drains improperly-pooled objects and crashes (SIGSEGV in objc_msgSend release).
 fn emit_worker_shim(spec: &AppEntrySpec) -> CodeFunction {
     let mut asm = Asm::new(WORKER_SYMBOL);
     asm.push(abi::label("entry"));
+    // objc_autoreleasePoolPush(), preserving the pthread arg in x0 across it.
+    asm.push(abi::subtract_stack(16));
+    asm.push(abi::store_u64("x0", abi::stack_pointer(), 0));
+    asm.call_external("_objc_autoreleasePoolPush", LIB_OBJC);
+    asm.push(abi::load_u64("x0", abi::stack_pointer(), 0));
+    asm.push(abi::add_stack(16));
     if spec.language_entry_accepts_args {
         // arg (x0) points at { i64 argc; char **argv }.
         asm.push(abi::load_u64("x1", "x0", OFF_ARGV));
@@ -891,11 +924,15 @@ fn emit_finish_helper() -> CodeFunction {
     asm.push(abi::move_register("x0", "x21"));
     asm.call_internal(APPEND_SYMBOL);
 
-    // pthread_exit(NULL): end the worker; the main thread's event loop keeps the
-    // window open until the user closes it.
-    asm.push(abi::move_immediate("x0", "Integer", "0"));
-    asm.call_external("_pthread_exit", LIB_SYSTEM);
-    asm.push(abi::branch_self());
+    // Park the worker thread (block in pause() forever); the main thread's event
+    // loop keeps the window open until the user closes it, at which point the app
+    // terminates the whole process. We must NOT pthread_exit here: the worker has
+    // made Cocoa calls, and the thread-exit autorelease-pool cleanup crashes
+    // draining them (SIGSEGV in objc release). Parking avoids any per-thread exit
+    // cleanup.
+    asm.push(abi::label("park"));
+    asm.call_external("_pause", LIB_SYSTEM);
+    asm.push(abi::branch("park"));
 
     // --- headless: terminate the process with the program's exit code ---
     asm.push(abi::label("headless_exit"));
@@ -1290,6 +1327,180 @@ pub(crate) fn emit_app_io_input_helper(
     )
 }
 
+/// App-mode body for `io.isInputTerminal`/`io.isOutputTerminal`/
+/// `io.isErrorTerminal` (plan §5.4): the window is the interactive console, so
+/// all three return `OK(TRUE)`. Result ABI: x0 = tag (0 = ok), x1 = value.
+pub(crate) fn emit_app_io_is_terminal_helper(
+    symbol: &str,
+) -> (CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>) {
+    let mut asm = Asm::new(symbol);
+    asm.push(abi::label("entry"));
+    asm.push(abi::move_immediate("x1", "Boolean", "1")); // value = TRUE
+    asm.push(abi::move_immediate("x0", "Integer", "0")); // tag = OK
+    asm.push(abi::return_());
+    (
+        CodeFrame {
+            stack_size: 0,
+            callee_saved: Vec::new(),
+        },
+        asm.ins,
+        asm.rel,
+    )
+}
+
+/// App-mode body for `io.terminalSize` (plan §5.4): the transcript viewport size
+/// in text columns/rows. columns = floor(contentWidth / charWidth), rows =
+/// floor(contentHeight / lineHeight), where contentWidth/Height come from the
+/// scroll view's `contentSize`, charWidth from the monospaced font's
+/// `maximumAdvancement`, and lineHeight from the layout manager. Returns the
+/// `{ columns, rows }` record, or `ERR_UNSUPPORTED` when no transcript is
+/// attached (e.g. headless).
+pub(crate) fn emit_app_io_terminal_size_helper(
+    symbol: &str,
+) -> (CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>) {
+    // Frame: lr@0, x19(font)@8, x20(text view)@16, x21(scratch obj)@24,
+    // width@32, height@40, charWidth@48, lineHeight@56, columns@64, rows@72.
+    let frame = 80;
+    let (off_w, off_h, off_cw, off_lh, off_col, off_row) = (32, 40, 48, 56, 64, 72);
+    let mut asm = Asm::new(symbol);
+    asm.push(abi::label("entry"));
+    asm.push(abi::subtract_stack(frame));
+    asm.push(abi::store_u64(abi::link_register(), abi::stack_pointer(), 0));
+    asm.push(abi::store_u64("x19", abi::stack_pointer(), 8));
+    asm.push(abi::store_u64("x20", abi::stack_pointer(), 16));
+    asm.push(abi::store_u64("x21", abi::stack_pointer(), 24));
+
+    // app; textview = objc_getAssociatedObject(app, &ASSOC_KEY); require non-nil.
+    asm.external_data("x21", CLASS_NS_APPLICATION, LIB_APPKIT);
+    asm.load_selector(SEL_SHARED_APPLICATION.0);
+    asm.push(abi::move_register("x0", "x21"));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    asm.local_address("x1", ASSOC_KEY);
+    asm.call_external("_objc_getAssociatedObject", LIB_OBJC);
+    asm.push(abi::move_register("x20", "x0")); // text view (or nil when headless)
+    asm.push(abi::compare_immediate("x20", "0"));
+    asm.push(abi::branch_eq("ts_error"));
+
+    // sv = [textview enclosingScrollView]; require non-nil.
+    asm.load_selector(SEL_ENCLOSING_SCROLL_VIEW.0);
+    asm.push(abi::move_register("x0", "x20"));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    asm.push(abi::compare_immediate("x0", "0"));
+    asm.push(abi::branch_eq("ts_error"));
+    asm.push(abi::move_register("x21", "x0")); // scroll view
+
+    // size = [sv contentSize] -> d0 = width, d1 = height; spill both.
+    asm.load_selector(SEL_CONTENT_SIZE.0);
+    asm.push(abi::move_register("x0", "x21"));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    asm.push(abi::float_move_x_from_d("x9", "d0"));
+    asm.push(abi::store_u64("x9", abi::stack_pointer(), off_w));
+    asm.push(abi::float_move_x_from_d("x9", "d1"));
+    asm.push(abi::store_u64("x9", abi::stack_pointer(), off_h));
+
+    // font = [NSFont userFixedPitchFontOfSize:N]
+    asm.external_data("x19", CLASS_NS_FONT, LIB_APPKIT);
+    asm.load_selector(SEL_USER_FIXED_FONT.0);
+    emit_double_immediate(&mut asm, "d0", TRANSCRIPT_FONT_SIZE);
+    asm.push(abi::move_register("x0", "x19"));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    asm.push(abi::move_register("x19", "x0")); // font
+
+    // charWidth = [font maximumAdvancement].width (d0); spill.
+    asm.load_selector(SEL_MAX_ADVANCEMENT.0);
+    asm.push(abi::move_register("x0", "x19"));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    asm.push(abi::float_move_x_from_d("x9", "d0"));
+    asm.push(abi::store_u64("x9", abi::stack_pointer(), off_cw));
+
+    // lineHeight = [[textview layoutManager] defaultLineHeightForFont:font] (d0).
+    asm.load_selector(SEL_LAYOUT_MANAGER.0);
+    asm.push(abi::move_register("x0", "x20"));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    asm.push(abi::move_register("x21", "x0")); // layout manager
+    asm.load_selector(SEL_DEFAULT_LINE_HEIGHT.0);
+    asm.push(abi::move_register("x2", "x19")); // font
+    asm.push(abi::move_register("x0", "x21"));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    asm.push(abi::float_move_x_from_d("x9", "d0"));
+    asm.push(abi::store_u64("x9", abi::stack_pointer(), off_lh));
+
+    // columns = floor(width / charWidth); rows = floor(height / lineHeight).
+    asm.push(abi::load_u64("x9", abi::stack_pointer(), off_w));
+    asm.push(abi::float_move_d_from_x("d0", "x9"));
+    asm.push(abi::load_u64("x9", abi::stack_pointer(), off_cw));
+    asm.push(abi::float_move_d_from_x("d1", "x9"));
+    asm.push(abi::float_divide_d("d0", "d0", "d1"));
+    asm.push(abi::float_floor_to_signed_x("x10", "d0")); // columns
+    asm.push(abi::load_u64("x9", abi::stack_pointer(), off_h));
+    asm.push(abi::float_move_d_from_x("d0", "x9"));
+    asm.push(abi::load_u64("x9", abi::stack_pointer(), off_lh));
+    asm.push(abi::float_move_d_from_x("d1", "x9"));
+    asm.push(abi::float_divide_d("d0", "d0", "d1"));
+    asm.push(abi::float_floor_to_signed_x("x11", "d0")); // rows
+    asm.push(abi::compare_immediate("x10", "0"));
+    asm.push(abi::branch_le("ts_error"));
+    asm.push(abi::compare_immediate("x11", "0"));
+    asm.push(abi::branch_le("ts_error"));
+
+    // Allocate the { columns, rows } record (16 bytes, 8-aligned). Spill
+    // columns/rows first; _mfb_arena_alloc clobbers x10/x11/x20-x28.
+    asm.push(abi::store_u64("x10", abi::stack_pointer(), off_col));
+    asm.push(abi::store_u64("x11", abi::stack_pointer(), off_row));
+    asm.push(abi::move_immediate("x0", "Integer", "16"));
+    asm.push(abi::move_immediate("x1", "Integer", "8"));
+    asm.call_internal(ARENA_ALLOC_SYMBOL);
+    asm.push(abi::compare_immediate("x0", "0")); // RESULT_OK_TAG
+    asm.push(abi::branch_ne("ts_error"));
+    asm.push(abi::load_u64("x10", abi::stack_pointer(), off_col));
+    asm.push(abi::load_u64("x11", abi::stack_pointer(), off_row));
+    asm.push(abi::store_u64("x10", "x1", 0)); // columns @ 0
+    asm.push(abi::store_u64("x11", "x1", 8)); // rows @ 8
+    asm.push(abi::move_immediate("x0", "Integer", "0")); // tag = OK (x1 = record)
+    asm.push(abi::branch("ts_done"));
+
+    // No transcript / unusable size -> ERR_UNSUPPORTED.
+    asm.push(abi::label("ts_error"));
+    asm.push(abi::move_immediate("x1", "Integer", ERR_UNSUPPORTED_CODE)); // value = code
+    asm.push(abi::move_immediate("x0", "Integer", "1")); // tag = ERR
+    asm.push(
+        CodeInstruction::new("adrp")
+            .field("dst", "x2")
+            .field("symbol", ERR_UNSUPPORTED_SYMBOL),
+    );
+    asm.push(
+        CodeInstruction::new("add_pageoff")
+            .field("dst", "x2")
+            .field("src", "x2")
+            .field("symbol", ERR_UNSUPPORTED_SYMBOL),
+    );
+    for kind in ["page21", "pageoff12"] {
+        asm.rel.push(CodeRelocation {
+            from: symbol.to_string(),
+            to: ERR_UNSUPPORTED_SYMBOL.to_string(),
+            kind: kind.to_string(),
+            binding: "data".to_string(),
+            library: None,
+        });
+    }
+
+    asm.push(abi::label("ts_done"));
+    asm.push(abi::load_u64(abi::link_register(), abi::stack_pointer(), 0));
+    asm.push(abi::load_u64("x19", abi::stack_pointer(), 8));
+    asm.push(abi::load_u64("x20", abi::stack_pointer(), 16));
+    asm.push(abi::load_u64("x21", abi::stack_pointer(), 24));
+    asm.push(abi::add_stack(frame));
+    asm.push(abi::return_());
+    (
+        CodeFrame {
+            stack_size: 0,
+            callee_saved: Vec::new(),
+        },
+        asm.ins,
+        asm.rel,
+    )
+}
+
 /// Build `[NSString stringWithUTF8String:<cstr>]` into `x0`. `class_tmp` is a
 /// callee-saved scratch register (free at the call site) used for the class.
 fn build_nsstring_from_cstring(asm: &mut Asm, class_tmp: &str, cstr_symbol: &str) {
@@ -1371,6 +1582,12 @@ pub(crate) fn app_mode_data_objects() -> Vec<CodeDataObject> {
         STR_TEXTVIEW_CLASS,
         STR_INPUT_TYPES,
         STR_EMPTY,
+        // Terminal size (io.terminalSize).
+        SEL_ENCLOSING_SCROLL_VIEW,
+        SEL_CONTENT_SIZE,
+        SEL_MAX_ADVANCEMENT,
+        SEL_LAYOUT_MANAGER,
+        SEL_DEFAULT_LINE_HEIGHT,
     ]
     .iter()
     .map(|(symbol, text)| CodeDataObject {

@@ -562,6 +562,28 @@ pub(crate) trait CodegenPlatform {
     ) -> Option<Result<(CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>), String>> {
         None
     }
+
+    /// App-mode body for `io.isInputTerminal`/`io.isOutputTerminal`/
+    /// `io.isErrorTerminal` (plan §5.4): the window is the interactive console,
+    /// so all three return TRUE. `None` for targets without app mode.
+    #[allow(clippy::type_complexity)]
+    fn emit_app_io_is_terminal_helper(
+        &self,
+        _symbol: &str,
+    ) -> Option<Result<(CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>), String>> {
+        None
+    }
+
+    /// App-mode body for `io.terminalSize` (plan §5.4): the transcript viewport
+    /// size in text columns/rows, computed from the scroll view's content size
+    /// and the monospaced font metrics. `None` for targets without app mode.
+    #[allow(clippy::type_complexity)]
+    fn emit_app_io_terminal_size_helper(
+        &self,
+        _symbol: &str,
+    ) -> Option<Result<(CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>), String>> {
+        None
+    }
 }
 
 /// Inputs the app-mode `_main` bootstrap needs about the program it hosts
@@ -2726,8 +2748,18 @@ fn lower_runtime_helper(
                 "io.isErrorTerminal" => 2,
                 _ => unreachable!(),
             };
-            let (frame, instructions, relocations) =
-                lower_io_is_terminal_helper(symbol, platform_imports, platform, fd)?;
+            // App mode: the window is the interactive console, so these return
+            // TRUE rather than probing a file descriptor (plan §5.4).
+            let (frame, instructions, relocations) = if app_mode {
+                platform.emit_app_io_is_terminal_helper(symbol).ok_or_else(|| {
+                    format!(
+                        "native target '{}' does not support app-mode io helpers",
+                        platform.target()
+                    )
+                })??
+            } else {
+                lower_io_is_terminal_helper(symbol, platform_imports, platform, fd)?
+            };
             Ok(CodeFunction {
                 name: format!("runtime.{}", spec.call),
                 symbol: symbol.to_string(),
@@ -2740,8 +2772,18 @@ fn lower_runtime_helper(
             })
         }
         "io.terminalSize" => {
-            let (frame, instructions, relocations) =
-                lower_io_terminal_size_helper(symbol, platform_imports, platform)?;
+            // App mode: the transcript viewport size in columns/rows from the
+            // window + monospaced font, not an ioctl on a tty (plan §5.4).
+            let (frame, instructions, relocations) = if app_mode {
+                platform.emit_app_io_terminal_size_helper(symbol).ok_or_else(|| {
+                    format!(
+                        "native target '{}' does not support app-mode io helpers",
+                        platform.target()
+                    )
+                })??
+            } else {
+                lower_io_terminal_size_helper(symbol, platform_imports, platform)?
+            };
             Ok(CodeFunction {
                 name: format!("runtime.{}", spec.call),
                 symbol: symbol.to_string(),
