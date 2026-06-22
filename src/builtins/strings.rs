@@ -39,6 +39,19 @@ pub(crate) fn is_strings_call(name: &str) -> bool {
     )
 }
 
+pub(crate) fn call_param_names(name: &str) -> Option<&'static [&'static [&'static str]]> {
+    match name {
+        TRIM | TRIM_START | TRIM_END | UPPER | LOWER | CASE_FOLD | NORMALIZE_NFC | GRAPHEMES
+        | BYTE_LEN => Some(&[&["value"]]),
+        STARTS_WITH => Some(&[&["value"], &["prefix"]]),
+        ENDS_WITH => Some(&[&["value"], &["suffix"]]),
+        CONTAINS => Some(&[&["value"], &["needle"]]),
+        SPLIT => Some(&[&["value"], &["delimiter", "separator"]]),
+        JOIN => Some(&[&["parts", "values"], &["delimiter", "separator"]]),
+        _ => None,
+    }
+}
+
 pub(crate) fn call_return_type_name(name: &str) -> Option<&'static str> {
     match name {
         TRIM | TRIM_START | TRIM_END | UPPER | LOWER | CASE_FOLD | NORMALIZE_NFC | JOIN => {

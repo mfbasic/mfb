@@ -44,6 +44,22 @@ pub(crate) fn is_thread_call(name: &str) -> bool {
     )
 }
 
+pub(crate) fn call_param_names(name: &str) -> Option<&'static [&'static [&'static str]]> {
+    match name {
+        START => Some(&[
+            &["f", "entry"],
+            &["data"],
+            &["inboundLimit"],
+            &["outboundLimit"],
+        ]),
+        IS_RUNNING | WAIT_FOR | CANCEL | IS_CANCELLED => Some(&[&["t", "thread"]]),
+        SEND => Some(&[&["t", "thread"], &["data", "value"], &["timeoutMs"]]),
+        POLL => Some(&[&["t", "thread"], &["ms"]]),
+        RECEIVE => Some(&[&["t", "thread"], &["timeoutMs"]]),
+        _ => None,
+    }
+}
+
 pub(crate) fn is_builtin_type(name: &str) -> bool {
     name == THREAD_TYPE
         || name == THREAD_WORKER_TYPE

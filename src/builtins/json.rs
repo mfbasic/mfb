@@ -26,6 +26,20 @@ pub(crate) fn is_json_call(name: &str) -> bool {
     matches!(name, PARSE | STRINGIFY | GET | GET_OR)
 }
 
+pub(crate) fn call_param_names(name: &str) -> Option<&'static [&'static [&'static str]]> {
+    match name {
+        PARSE => Some(&[&["value", "text"]]),
+        STRINGIFY => Some(&[&["value"]]),
+        GET => Some(&[&["value"], &["path", "key"]]),
+        GET_OR => Some(&[
+            &["value"],
+            &["path", "key"],
+            &["default", "defaultValue", "fallback"],
+        ]),
+        _ => None,
+    }
+}
+
 pub(crate) fn call_return_type_name(name: &str) -> Option<&'static str> {
     match name {
         PARSE | GET | GET_OR => Some("Json"),

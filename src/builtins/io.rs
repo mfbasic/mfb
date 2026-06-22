@@ -55,6 +55,17 @@ pub(crate) fn builtin_type_fields(name: &str) -> Option<&'static [(&'static str,
     }
 }
 
+pub(crate) fn call_param_names(name: &str) -> Option<&'static [&'static [&'static str]]> {
+    match name {
+        PRINT | WRITE | PRINT_ERROR | WRITE_ERROR => Some(&[&["value"]]),
+        FLUSH | FLUSH_ERROR | READ_LINE | READ_CHAR | READ_BYTE | IS_INPUT_TERMINAL
+        | IS_OUTPUT_TERMINAL | IS_ERROR_TERMINAL | TERMINAL_SIZE => Some(&[]),
+        INPUT => Some(&[&["prompt"]]),
+        POLL_INPUT => Some(&[&["timeoutMs"]]),
+        _ => None,
+    }
+}
+
 pub(crate) fn call_return_type_name(name: &str) -> Option<&'static str> {
     match name {
         PRINT | WRITE | PRINT_ERROR | WRITE_ERROR | FLUSH | FLUSH_ERROR => Some("Nothing"),

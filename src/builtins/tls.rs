@@ -34,6 +34,17 @@ pub(crate) fn resource_close_function(type_name: &str) -> Option<&'static str> {
     (type_name == TLS_SOCKET_TYPE).then_some(CLOSE)
 }
 
+pub(crate) fn call_param_names(name: &str) -> Option<&'static [&'static [&'static str]]> {
+    match name {
+        CONNECT => Some(&[&["host"], &["port"], &["timeoutMs"], &["serverName"]]),
+        READ | READ_TEXT => Some(&[&["sock"], &["maxBytes"]]),
+        WRITE => Some(&[&["sock"], &["bytes"]]),
+        WRITE_TEXT => Some(&[&["sock"], &["value"]]),
+        CLOSE => Some(&[&["resource", "sock"]]),
+        _ => None,
+    }
+}
+
 pub(crate) fn call_return_type_name(name: &str) -> Option<&'static str> {
     match name {
         CONNECT => Some(TLS_SOCKET_TYPE),

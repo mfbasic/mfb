@@ -63,6 +63,18 @@ pub(crate) fn is_math_call(name: &str) -> bool {
     )
 }
 
+pub(crate) fn call_param_names(name: &str) -> Option<&'static [&'static [&'static str]]> {
+    match name {
+        ABS | FLOOR | CEIL | ROUND | SQRT | EXP | LOG | LOG10 | SIN | COS | TAN | ASIN | ACOS
+        | ATAN => Some(&[&["value"]]),
+        MIN | MAX => Some(&[&["a", "left"], &["b", "right"]]),
+        CLAMP => Some(&[&["value"], &["low", "minimum"], &["high", "maximum"]]),
+        POW => Some(&[&["base", "value"], &["exponent", "power"]]),
+        ATAN2 => Some(&[&["y"], &["x"]]),
+        _ => None,
+    }
+}
+
 pub(crate) fn call_return_type_name(name: &str) -> Option<&'static str> {
     match name {
         SQRT | POW | EXP | LOG | LOG10 | SIN | COS | TAN | ASIN | ACOS | ATAN | ATAN2 => None,

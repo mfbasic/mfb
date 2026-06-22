@@ -85,6 +85,28 @@ pub(crate) fn resource_close_function(type_name: &str) -> Option<&'static str> {
     }
 }
 
+pub(crate) fn call_param_names(name: &str) -> Option<&'static [&'static [&'static str]]> {
+    match name {
+        LOOKUP => Some(&[&["host"], &["port"]]),
+        CONNECT_TCP => Some(&[&["host", "address"], &["port", "timeoutMs"], &["timeoutMs"]]),
+        LISTEN_TCP => Some(&[&["host"], &["port"], &["backlog"]]),
+        ACCEPT => Some(&[&["listener"], &["timeoutMs"]]),
+        POLL => Some(&[&["sock"], &["timeoutMs"]]),
+        READ | READ_TEXT => Some(&[&["sock"], &["maxBytes"]]),
+        WRITE => Some(&[&["sock"], &["bytes"]]),
+        WRITE_TEXT => Some(&[&["sock"], &["value"]]),
+        CLOSE => Some(&[&["resource", "sock", "listener"]]),
+        LOCAL_ADDRESS => Some(&[&["sock", "listener"]]),
+        REMOTE_ADDRESS => Some(&[&["sock"]]),
+        SET_READ_TIMEOUT | SET_WRITE_TIMEOUT => Some(&[&["sock"], &["timeoutMs"]]),
+        BIND_UDP => Some(&[&["host"], &["port"]]),
+        RECEIVE_FROM | RECEIVE_TEXT_FROM => Some(&[&["sock"], &["maxBytes"]]),
+        SEND_TO => Some(&[&["sock"], &["address"], &["bytes"]]),
+        SEND_TEXT_TO => Some(&[&["sock"], &["address"], &["value"]]),
+        _ => None,
+    }
+}
+
 pub(crate) fn call_return_type_name(name: &str) -> Option<&'static str> {
     match name {
         LOOKUP => Some("List OF Address"),

@@ -99,6 +99,56 @@ pub(crate) fn is_general_call(name: &str) -> bool {
     )
 }
 
+pub(crate) fn call_param_names(name: &str) -> Option<&'static [&'static [&'static str]]> {
+    match name {
+        ERROR => Some(&[&["code"], &["message"]]),
+        LEN => Some(&[&["value"]]),
+        FIND => Some(&[&["value"], &["needle", "item"], &["start"]]),
+        MID => Some(&[&["value"], &["start"], &["count"]]),
+        REPLACE => Some(&[&["value"], &["old", "needle"], &["new", "replacement"]]),
+        TYPE_NAME => Some(&[&["value"]]),
+        TO_STRING => Some(&[&["value"], &["precision", "decimals"]]),
+        TO_INT => Some(&[&["value"]]),
+        TO_FLOAT => Some(&[&["value"]]),
+        TO_FIXED => Some(&[&["value"]]),
+        TO_BYTE => Some(&[&["value"]]),
+        IS_NUMERIC => Some(&[&["value"]]),
+        IS_EVEN => Some(&[&["value"]]),
+        IS_ODD => Some(&[&["value"]]),
+        IS_POSITIVE => Some(&[&["value"]]),
+        IS_NEGATIVE => Some(&[&["value"]]),
+        IS_ZERO => Some(&[&["value"]]),
+        IS_EMPTY => Some(&[&["value"]]),
+        IS_NOT_EMPTY => Some(&[&["value"]]),
+        GET => Some(&[&["value", "collection"], &["index", "key"]]),
+        GET_OR => Some(&[
+            &["value", "collection"],
+            &["index", "key"],
+            &["default", "fallback"],
+        ]),
+        SET => Some(&[&["value", "collection"], &["index", "key"], &["item"]]),
+        APPEND => Some(&[&["value", "list"], &["item", "items"]]),
+        PREPEND => Some(&[&["value", "list"], &["item"]]),
+        INSERT => Some(&[&["value", "list"], &["index"], &["item"]]),
+        REMOVE_AT => Some(&[&["value", "list"], &["index"]]),
+        REMOVE_KEY => Some(&[&["value", "map"], &["key"]]),
+        KEYS => Some(&[&["value", "map"]]),
+        VALUES => Some(&[&["value", "map"]]),
+        HAS_KEY => Some(&[&["value", "map"], &["key"]]),
+        CONTAINS => Some(&[&["value", "collection"], &["item"]]),
+        FOR_EACH => Some(&[&["value", "collection"], &["action"]]),
+        TRANSFORM => Some(&[&["value", "collection"], &["f", "transform"]]),
+        FILTER => Some(&[&["value", "collection"], &["predicate"]]),
+        REDUCE => Some(&[
+            &["value", "collection"],
+            &["initial", "seed"],
+            &["f", "combine"],
+        ]),
+        SUM => Some(&[&["value", "collection"]]),
+        _ => None,
+    }
+}
+
 pub(crate) fn call_return_type_name(name: &str) -> Option<&'static str> {
     match name {
         TO_INT => Some("Integer"),
