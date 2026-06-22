@@ -1,9 +1,9 @@
 ' ---------------------------------------------------------------------------
-' sqlite — a reusable native binding package for SQLite3.
+' sqlite3 — a reusable native binding package for SQLite3.
 '
 ' This is a *binding package*: it declares a LINK block and exports ordinary
 ' MFBASIC wrapper functions around the native symbols. Importers never repeat
-' the LINK block — they IMPORT sqlite and call its wrappers.
+' the LINK block — they IMPORT sqlite3 and call its wrappers.
 '
 ' `Db` is a NATIVE resource (plan-link-update.md §5). Its hidden representation
 ' is the raw `sqlite3*` pointer (a `CPtr`) — there is no MFBASIC backing record.
@@ -11,16 +11,16 @@
 ' built-in `File`/`Socket`: it is bound with `RES`, uniquely owned, borrowed at
 ' ordinary calls, and auto-closed on scope-drop through its registered close op.
 '
-' Importer usage (in an application package that does `IMPORT sqlite`):
+' Importer usage (in an application package that does `IMPORT sqlite3`):
 '
-'   IMPORT sqlite
+'   IMPORT sqlite3
 '
 '   FUNC main() AS Integer
-'     RES db AS sqlite::Db = sqlite::create("app.db")   ' or sqlite::open(...)
+'     RES db AS sqlite3::Db = sqlite3::create("app.db")   ' or sqlite3::open(...)
 '     ' ... borrow db through wrappers that take `RES db AS Db` ...
 '     ' db is closed automatically by lexical drop when main's scope ends, on
-'     ' every exit path, or explicitly with sqlite::close(db).
-'     sqlite::close(db)                                  ' optional early close
+'     ' every exit path, or explicitly with sqlite3::close(db).
+'     sqlite3::close(db)                                  ' optional early close
 '     RETURN 0
 '   END FUNC
 ' ---------------------------------------------------------------------------
@@ -32,7 +32,7 @@
 ' registered close op (overhaul invalidation event #1). `CLOSE BY` names that op
 ' — a native `LINK` function declared below. Declaring the resource at package
 ' scope means it is named and exported like any other type: `Db` is exported, so
-' importers write `sqlite::Db`; `Stmt` is package-private.
+' importers write `sqlite3::Db`; `Stmt` is package-private.
 EXPORT RESOURCE Db CLOSE BY sqliteLink::close
 RESOURCE Stmt CLOSE BY sqliteLink::finalize
 
@@ -252,7 +252,7 @@ END FUNC
 ' `db` is rejected (`TYPE_RESOURCE_BORROW_INVALIDATE`). Since the language has no
 ' `MOVE` annotation, a user function can never consume a resource parameter. The
 ' correct construct is therefore a **re-export alias** of the registered close op
-' (overhaul §3.3 invalidation event #1 "and its re-export aliases"): `sqlite::close`
+' (overhaul §3.3 invalidation event #1 "and its re-export aliases"): `sqlite3::close`
 ' is the same close op as `sqliteLink::close`, so calling it consumes `db` and
 ' lexical drop will not close it again.
 EXPORT FUNC close AS sqliteLink::close
