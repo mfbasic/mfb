@@ -499,6 +499,17 @@ impl code::CodegenPlatform for Platform {
             abi::move_immediate("x5", "Integer", "0"),
             abi::move_immediate("x16", "Integer", DARWIN_SYSCALL_MMAP),
             abi::syscall(),
+            // Darwin signals syscall failure via the carry flag and returns the
+            // positive errno in x0 (e.g. ENOMEM = 12). The shared arena caller
+            // only tests `x0 >= 0`, so a carry-flagged failure would be mistaken
+            // for a valid mapping and later dereferenced. Branch on carry-clear
+            // (success, x0 holds the address) and otherwise normalize the result
+            // to a negative sentinel so the shared check routes it to the OOM
+            // path, matching the negative-errno convention the Linux backend
+            // already returns.
+            abi::branch_lo("arena_map_succeeded"),
+            abi::bitwise_not(abi::return_register(), "x31"),
+            abi::label("arena_map_succeeded"),
         ]);
         Ok(())
     }
