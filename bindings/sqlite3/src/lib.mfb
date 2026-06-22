@@ -243,15 +243,16 @@ LINK "sqlite3" AS sqliteLink
   ' char *sqlite3_expanded_sql(sqlite3_stmt*)
   ' The prepared SQL with bound parameters expanded inline — handy for logging the
   ' actual query that ran. UNLIKE sqlite3_column_text/errmsg (whose memory SQLite
-  ' owns), the returned string is FRESHLY ALLOCATED and the caller OWNS it, so it
-  ' is surfaced as a `RES Owned` and released with sqlite3_free() by lexical drop.
-  ' Borrows stmt; the C return pointer becomes the resource handle.
+  ' owns), the returned string is FRESHLY ALLOCATED and the caller OWNS it, so a
+  ' plain copy-and-leave would leak it. The `FREE` block releases the original
+  ' pointer with sqlite3_free() after the thunk has copied it into the owned
+  ' `String` result. Borrows stmt.
   FUNC expandedSql(RES stmt AS Stmt) AS String
     SYMBOL "sqlite3_expanded_sql"
     ABI (stmt CPtr) AS return CPtr
     FREE return
       SYMBOL "sqlite3_free"
-      ABI (return CPtr) AS CVoid
+      ABI (ptr CPtr) AS CVoid
     END FREE
   END FUNC
 
