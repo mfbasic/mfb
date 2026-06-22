@@ -1,0 +1,46 @@
+{
+  "format": "mfb-nir",
+  "version": 1,
+  "target": "macos-aarch64",
+  "buildMode": "macos-app",
+  "project": "macos_app_mode_io",
+  "entry": {
+    "name": "main",
+    "returns": "Nothing",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "imports": [
+  ],
+  "runtimeHelpers": ["io"],
+  "functions": [
+  {
+    "name": "main",
+    "visibility": "private",
+    "kind": "sub",
+    "isolated": false,
+    "params": [
+    ],
+    "returns": "Nothing",
+    "body": [
+    { "op": "eval", "value": { "kind": "runtimeCall", "helper": "io", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "print" }] } },
+    { "op": "eval", "value": { "kind": "runtimeCall", "helper": "io", "target": "io.write", "args": [{ "kind": "const", "type": "String", "value": "write" }] } },
+    { "op": "eval", "value": { "kind": "runtimeCall", "helper": "io", "target": "io.printError", "args": [{ "kind": "const", "type": "String", "value": "printError" }] } },
+    { "op": "eval", "value": { "kind": "runtimeCall", "helper": "io", "target": "io.writeError", "args": [{ "kind": "const", "type": "String", "value": "writeError" }] } },
+    { "op": "eval", "value": { "kind": "runtimeCall", "helper": "io", "target": "io.flush", "args": [] } },
+    { "op": "eval", "value": { "kind": "runtimeCall", "helper": "io", "target": "io.flushError", "args": [] } },
+    { "op": "bind", "mutable": false, "name": "prompted", "type": "String", "value": { "kind": "runtimeCall", "helper": "io", "target": "io.input", "args": [{ "kind": "const", "type": "String", "value": "prompt: " }] } },
+    { "op": "bind", "mutable": false, "name": "line", "type": "String", "value": { "kind": "runtimeCall", "helper": "io", "target": "io.readLine", "args": [] } },
+    { "op": "bind", "mutable": false, "name": "ch", "type": "String", "value": { "kind": "runtimeCall", "helper": "io", "target": "io.readChar", "args": [] } },
+    { "op": "bind", "mutable": false, "name": "byte", "type": "Byte", "value": { "kind": "runtimeCall", "helper": "io", "target": "io.readByte", "args": [] } },
+    { "op": "bind", "mutable": false, "name": "ready", "type": "Boolean", "value": { "kind": "runtimeCall", "helper": "io", "target": "io.pollInput", "args": [{ "kind": "const", "type": "Integer", "value": "0" }] } },
+    { "op": "bind", "mutable": false, "name": "inTerm", "type": "Boolean", "value": { "kind": "runtimeCall", "helper": "io", "target": "io.isInputTerminal", "args": [] } },
+    { "op": "bind", "mutable": false, "name": "outTerm", "type": "Boolean", "value": { "kind": "runtimeCall", "helper": "io", "target": "io.isOutputTerminal", "args": [] } },
+    { "op": "bind", "mutable": false, "name": "errTerm", "type": "Boolean", "value": { "kind": "runtimeCall", "helper": "io", "target": "io.isErrorTerminal", "args": [] } },
+    { "op": "bind", "mutable": false, "name": "size", "type": "TerminalSize", "value": { "kind": "runtimeCall", "helper": "io", "target": "io.terminalSize", "args": [] } },
+    { "op": "eval", "value": { "kind": "runtimeCall", "helper": "io", "target": "io.print", "args": [{ "kind": "binary", "op": "&", "left": { "kind": "binary", "op": "&", "left": { "kind": "binary", "op": "&", "left": { "kind": "binary", "op": "&", "left": { "kind": "binary", "op": "&", "left": { "kind": "binary", "op": "&", "left": { "kind": "binary", "op": "&", "left": { "kind": "binary", "op": "&", "left": { "kind": "binary", "op": "&", "left": { "kind": "binary", "op": "&", "left": { "kind": "local", "name": "prompted" }, "right": { "kind": "local", "name": "line" } }, "right": { "kind": "local", "name": "ch" } }, "right": { "kind": "call", "target": "toString", "args": [{ "kind": "local", "name": "byte" }] } }, "right": { "kind": "call", "target": "toString", "args": [{ "kind": "local", "name": "ready" }] } }, "right": { "kind": "call", "target": "toString", "args": [{ "kind": "local", "name": "inTerm" }] } }, "right": { "kind": "call", "target": "toString", "args": [{ "kind": "local", "name": "outTerm" }] } }, "right": { "kind": "call", "target": "toString", "args": [{ "kind": "local", "name": "errTerm" }] } }, "right": { "kind": "call", "target": "toString", "args": [{ "kind": "memberAccess", "target": { "kind": "local", "name": "size" }, "member": "columns" }] } }, "right": { "kind": "const", "type": "String", "value": "x" } }, "right": { "kind": "call", "target": "toString", "args": [{ "kind": "memberAccess", "target": { "kind": "local", "name": "size" }, "member": "rows" }] } }] } }
+    ]
+  }
+  ]
+}

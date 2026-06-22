@@ -1,0 +1,40 @@
+{
+  "project": "macos_app_mode_io",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 }
+    ],
+    "items": [
+    {
+      "kind": "sub",
+      "visibility": "private",
+      "name": "main",
+      "line": 5,
+      "params": [
+      ],
+      "returnType": null,
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "print" }] }, "line": 6 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.write", "arguments": [{ "kind": "string", "value": "write" }] }, "line": 7 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.printError", "arguments": [{ "kind": "string", "value": "printError" }] }, "line": 8 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.writeError", "arguments": [{ "kind": "string", "value": "writeError" }] }, "line": 9 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.flush", "arguments": [] }, "line": 10 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.flushError", "arguments": [] }, "line": 11 },
+      { "kind": "binding", "mutable": false, "name": "prompted", "type": "String", "value": { "kind": "call", "callee": "io.input", "arguments": [{ "kind": "string", "value": "prompt: " }] }, "line": 12 },
+      { "kind": "binding", "mutable": false, "name": "line", "type": "String", "value": { "kind": "call", "callee": "io.readLine", "arguments": [] }, "line": 13 },
+      { "kind": "binding", "mutable": false, "name": "ch", "type": "String", "value": { "kind": "call", "callee": "io.readChar", "arguments": [] }, "line": 14 },
+      { "kind": "binding", "mutable": false, "name": "byte", "type": "Byte", "value": { "kind": "call", "callee": "io.readByte", "arguments": [] }, "line": 15 },
+      { "kind": "binding", "mutable": false, "name": "ready", "type": "Boolean", "value": { "kind": "call", "callee": "io.pollInput", "arguments": [{ "kind": "number", "value": "0" }] }, "line": 16 },
+      { "kind": "binding", "mutable": false, "name": "inTerm", "type": "Boolean", "value": { "kind": "call", "callee": "io.isInputTerminal", "arguments": [] }, "line": 17 },
+      { "kind": "binding", "mutable": false, "name": "outTerm", "type": "Boolean", "value": { "kind": "call", "callee": "io.isOutputTerminal", "arguments": [] }, "line": 18 },
+      { "kind": "binding", "mutable": false, "name": "errTerm", "type": "Boolean", "value": { "kind": "call", "callee": "io.isErrorTerminal", "arguments": [] }, "line": 19 },
+      { "kind": "binding", "mutable": false, "name": "size", "type": "TerminalSize", "value": { "kind": "call", "callee": "io.terminalSize", "arguments": [] }, "line": 20 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "prompted" }, "right": { "kind": "identifier", "value": "line" } }, "right": { "kind": "identifier", "value": "ch" } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "byte" }] } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "ready" }] } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "inTerm" }] } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "outTerm" }] } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "errTerm" }] } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "size" }, "member": "columns" }] } }, "right": { "kind": "string", "value": "x" } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "size" }, "member": "rows" }] } }] }, "line": 21 }
+      ]
+    }
+    ]
+  }
+  ]
+}

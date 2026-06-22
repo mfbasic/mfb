@@ -1,0 +1,22 @@
+IMPORT io
+
+' Exercises every window-backed io::* built-in so app-mode lowering for each is
+' captured by the .app native goldens (plan-04-macos-app.md §7).
+SUB main()
+  io::print("print")
+  io::write("write")
+  io::printError("printError")
+  io::writeError("writeError")
+  io::flush()
+  io::flushError()
+  LET prompted AS String = io::input("prompt: ")
+  LET line AS String = io::readLine()
+  LET ch AS String = io::readChar()
+  LET byte AS Byte = io::readByte()
+  LET ready AS Boolean = io::pollInput(0)
+  LET inTerm AS Boolean = io::isInputTerminal()
+  LET outTerm AS Boolean = io::isOutputTerminal()
+  LET errTerm AS Boolean = io::isErrorTerminal()
+  LET size AS TerminalSize = io::terminalSize()
+  io::print(prompted & line & ch & toString(byte) & toString(ready) & toString(inTerm) & toString(outTerm) & toString(errTerm) & toString(size.columns) & "x" & toString(size.rows))
+END SUB
