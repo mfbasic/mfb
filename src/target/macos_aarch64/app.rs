@@ -1087,8 +1087,10 @@ fn emit_key_down_helper() -> CodeFunction {
     asm.push(abi::move_register("x0", "x19"));
     asm.call_internal(APPEND_SYMBOL);
     build_nsstring_from_cstring(&mut asm, "x21", STR_EMPTY.0);
-    asm.push(abi::move_register("x2", "x0"));
+    asm.push(abi::move_register("x24", "x0")); // empty string (callee-saved; survives
+                                               // the sel_registerName in load_selector)
     asm.load_selector(SEL_SET_STRING.0);
+    asm.push(abi::move_register("x2", "x24"));
     asm.push(abi::move_register("x0", "x25"));
     asm.call_external("_objc_msgSend", LIB_OBJC);
     asm.push(abi::branch("kd_done"));

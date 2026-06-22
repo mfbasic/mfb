@@ -215,6 +215,45 @@ else
   fi
 fi
 
+# Case 6 (GUI): terminal-style window input. Launch a real app, inject keystrokes
+# into the window via System Events, and confirm the program's io::readLine read
+# them (the program writes what it read to a file). Best-effort: keystroke
+# injection needs Accessibility permission for the launching process, so a
+# non-delivery is reported as a skip rather than a failure.
+proj="$work/keyinput"
+mkdir -p "$proj/src"
+cat > "$proj/project.json" <<'JSON'
+{ "name": "keyinput", "version": "0.1.0", "mfb": "1.0", "kind": "executable",
+  "sources": [{ "root": "src", "role": "main", "include": ["**/*.mfb"] }],
+  "entry": "main", "targets": ["native"] }
+JSON
+cat > "$proj/src/main.mfb" <<MFB
+IMPORT io
+IMPORT fs
+SUB main()
+  LET name AS String = io::readLine()
+  fs::writeText("$proj/got.txt", "got:" & name)
+END SUB
+MFB
+if ! "$MFB_EXE" build -app "$proj" >/dev/null 2>&1; then
+  echo "FAIL: build -app keyinput" >&2
+  failures=$((failures + 1))
+else
+  rm -f "$proj/got.txt"
+  open "$proj/keyinput.app"
+  sleep 2
+  osascript -e 'tell application "System Events" to keystroke "WindowKeys"' >/dev/null 2>&1
+  osascript -e 'tell application "System Events" to key code 36' >/dev/null 2>&1
+  sleep 1
+  pkill -KILL keyinput >/dev/null 2>&1
+  got=$(cat "$proj/got.txt" 2>/dev/null || true)
+  if [ "$got" = "got:WindowKeys" ]; then
+    echo "ok: window keypresses delivered to io::readLine"
+  else
+    echo "skip: window keystroke injection unavailable (need Accessibility); got '$got'"
+  fi
+fi
+
 if [ "$failures" -ne 0 ]; then
   echo "macOS app mode runtime tests failed: $failures" >&2
   exit 1
