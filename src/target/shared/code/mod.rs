@@ -527,6 +527,30 @@ pub(crate) trait CodegenPlatform {
     fn app_mode_data_objects(&self) -> Vec<CodeDataObject> {
         Vec::new()
     }
+
+    /// App-mode body for `io.print`/`io.write`/`io.printError`/`io.writeError`
+    /// (plan-04-macos-app.md §5.4): append the string to the AppKit transcript,
+    /// falling back to the file descriptor when no window is attached (headless).
+    /// `None` for targets without app mode.
+    #[allow(clippy::type_complexity)]
+    fn emit_app_io_write_helper(
+        &self,
+        _symbol: &str,
+        _stderr: bool,
+        _newline: bool,
+        _platform_imports: &HashMap<String, String>,
+    ) -> Option<Result<(CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>), String>> {
+        None
+    }
+
+    /// App-mode body for `io.flush`/`io.flushError`. `None` for non-app targets.
+    #[allow(clippy::type_complexity)]
+    fn emit_app_io_flush_helper(
+        &self,
+        _symbol: &str,
+    ) -> Option<Result<(CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>), String>> {
+        None
+    }
 }
 
 /// Inputs the app-mode `_main` bootstrap needs about the program it hosts
@@ -1035,7 +1059,12 @@ pub(crate) fn lower_module_for_platform(
         runtime_symbols.push("_mfb_rt_net_net_connectTcpAddr".to_string());
     }
     for symbol in &runtime_symbols {
-        code_functions.push(lower_runtime_helper(symbol, &platform_imports, platform)?);
+        code_functions.push(lower_runtime_helper(
+            symbol,
+            module.build_mode,
+            &platform_imports,
+            platform,
+        )?);
     }
     let link_returns_cstring = module.link_functions.iter().any(|function| {
         function.abi_return_name == "return"
@@ -2493,6 +2522,7 @@ fn type_requires_empty_string_constant(
 
 fn lower_runtime_helper(
     symbol: &str,
+    build_mode: crate::target::NativeBuildMode,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
 ) -> Result<CodeFunction, String> {
@@ -2501,15 +2531,25 @@ fn lower_runtime_helper(
             "native code plan does not emit runtime helper '{symbol}'"
         ));
     };
+    let app_mode = build_mode == crate::target::NativeBuildMode::MacApp;
     match spec.call {
         "io.print" | "io.write" | "io.printError" | "io.writeError" => {
-            let (frame, instructions, relocations) = lower_io_write_helper(
-                symbol,
-                platform_imports,
-                platform,
-                matches!(spec.call, "io.printError" | "io.writeError"),
-                matches!(spec.call, "io.print" | "io.printError"),
-            )?;
+            let stderr = matches!(spec.call, "io.printError" | "io.writeError");
+            let newline = matches!(spec.call, "io.print" | "io.printError");
+            // App mode routes io output to the AppKit transcript window
+            // (plan-04-macos-app.md §5.4) instead of a file descriptor.
+            let (frame, instructions, relocations) = if app_mode {
+                platform
+                    .emit_app_io_write_helper(symbol, stderr, newline, platform_imports)
+                    .ok_or_else(|| {
+                        format!(
+                            "native target '{}' does not support app-mode io helpers",
+                            platform.target()
+                        )
+                    })??
+            } else {
+                lower_io_write_helper(symbol, platform_imports, platform, stderr, newline)?
+            };
             Ok(CodeFunction {
                 name: format!("runtime.{}", spec.call),
                 symbol: symbol.to_string(),
@@ -2531,12 +2571,26 @@ fn lower_runtime_helper(
             })
         }
         "io.flush" | "io.flushError" => {
-            let (frame, instructions, relocations) = lower_io_flush_helper(
-                symbol,
-                platform_imports,
-                platform,
-                matches!(spec.call, "io.flushError"),
-            )?;
+            // App-mode transcript writes are synchronous (each io write blocks on
+            // the main thread via performSelectorOnMainThread), so output is
+            // already visible; flush succeeds immediately (plan §5.4).
+            let (frame, instructions, relocations) = if app_mode {
+                platform
+                    .emit_app_io_flush_helper(symbol)
+                    .ok_or_else(|| {
+                        format!(
+                            "native target '{}' does not support app-mode io helpers",
+                            platform.target()
+                        )
+                    })??
+            } else {
+                lower_io_flush_helper(
+                    symbol,
+                    platform_imports,
+                    platform,
+                    matches!(spec.call, "io.flushError"),
+                )?
+            };
             Ok(CodeFunction {
                 name: format!("runtime.{}", spec.call),
                 symbol: symbol.to_string(),

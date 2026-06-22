@@ -42,6 +42,17 @@ run_headless() {
   ' "$exe"
 }
 
+# Run headless and capture the program's stdout (the io sink in headless mode).
+run_headless_stdout() {
+  local exe=$1
+  MFB_MACAPP_HEADLESS=1 perl -e '
+    my $pid = open(my $fh, "-|");
+    if ($pid == 0) { exec($ARGV[0]) or exit 127; }
+    local $SIG{ALRM} = sub { kill "KILL", $pid; exit 99; };
+    alarm 15; local $/; my $o = <$fh>; close($fh); print $o;
+  ' "$exe"
+}
+
 # Case 1: FUNC main() AS Integer returns 42 -> process exits 42 (worker ran it).
 proj="$work/exitcode"
 mkdir -p "$proj/src"
@@ -89,6 +100,37 @@ else
     echo "ok: SUB main() worker ran and exited cleanly ($result)"
   else
     echo "FAIL: expected code=0, got '$result'" >&2
+    failures=$((failures + 1))
+  fi
+fi
+
+# Case 3: app-mode io output. Headless leaves no transcript view attached, so the
+# io helpers fall back to the file descriptor sink (plan §7.2 Strategy A) where
+# the output is observable. Proves the app-mode print/write helpers run and
+# format correctly (print adds a newline, write does not).
+proj="$work/output"
+mkdir -p "$proj/src"
+cat > "$proj/project.json" <<'JSON'
+{ "name": "output", "version": "0.1.0", "mfb": "1.0", "kind": "executable",
+  "sources": [{ "root": "src", "role": "main", "include": ["**/*.mfb"] }],
+  "entry": "main", "targets": ["native"] }
+JSON
+cat > "$proj/src/main.mfb" <<'MFB'
+IMPORT io
+SUB main()
+  io::print("APPMODE_LINE")
+  io::write("APPMODE_NONL")
+END SUB
+MFB
+if ! "$MFB_EXE" build -app "$proj" >/dev/null 2>&1; then
+  echo "FAIL: build -app output" >&2
+  failures=$((failures + 1))
+else
+  out=$(run_headless_stdout "$proj/output.app/Contents/MacOS/output")
+  if [ "$out" = $'APPMODE_LINE\nAPPMODE_NONL' ]; then
+    echo "ok: app-mode io::print/io::write produced expected output"
+  else
+    echo "FAIL: unexpected app-mode io output: $(printf '%q' "$out")" >&2
     failures=$((failures + 1))
   fi
 fi

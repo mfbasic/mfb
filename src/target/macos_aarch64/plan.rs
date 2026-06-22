@@ -62,11 +62,16 @@ impl plan::NativePlanPlatform for Platform {
         [
             ("libobjc", "_objc_msgSend"),
             ("libobjc", "_sel_registerName"),
+            ("libobjc", "_objc_setAssociatedObject"),
+            ("libobjc", "_objc_getAssociatedObject"),
             ("AppKit", "_OBJC_CLASS_$_NSApplication"),
             ("AppKit", "_OBJC_CLASS_$_NSWindow"),
+            ("AppKit", "_OBJC_CLASS_$_NSScrollView"),
+            ("AppKit", "_OBJC_CLASS_$_NSTextView"),
             ("Foundation", "_OBJC_CLASS_$_NSString"),
             ("libSystem", "_pthread_create"),
             ("libSystem", "_getenv"),
+            ("libSystem", "_write"),
         ]
         .iter()
         .map(|(library, symbol)| PlatformImport {

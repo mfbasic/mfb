@@ -51,9 +51,44 @@ const STR_TITLE: (&str, &str) = ("_mfb_macapp_str_title", "MFBASIC App");
 /// and worker code the GUI path uses.
 const STR_HEADLESS_ENV: (&str, &str) = ("_mfb_macapp_str_headless", "MFB_MACAPP_HEADLESS");
 
+// Transcript view selectors (Phase 4 output path, plan §5.5).
+const SEL_CONTENT_VIEW: (&str, &str) = ("_mfb_macapp_sel_contentView", "contentView");
+const SEL_INIT_FRAME: (&str, &str) = ("_mfb_macapp_sel_initWithFrame", "initWithFrame:");
+const SEL_SET_EDITABLE: (&str, &str) = ("_mfb_macapp_sel_setEditable", "setEditable:");
+const SEL_SET_SELECTABLE: (&str, &str) = ("_mfb_macapp_sel_setSelectable", "setSelectable:");
+const SEL_SET_DOCUMENT_VIEW: (&str, &str) =
+    ("_mfb_macapp_sel_setDocumentView", "setDocumentView:");
+const SEL_SET_HAS_VSCROLLER: (&str, &str) =
+    ("_mfb_macapp_sel_setHasVerticalScroller", "setHasVerticalScroller:");
+const SEL_ADD_SUBVIEW: (&str, &str) = ("_mfb_macapp_sel_addSubview", "addSubview:");
+// Transcript append selectors.
+const SEL_TEXT_STORAGE: (&str, &str) = ("_mfb_macapp_sel_textStorage", "textStorage");
+const SEL_MUTABLE_STRING: (&str, &str) = ("_mfb_macapp_sel_mutableString", "mutableString");
+const SEL_APPEND_STRING: (&str, &str) = ("_mfb_macapp_sel_appendString", "appendString:");
+const SEL_PERFORM_ON_MAIN: (&str, &str) = (
+    "_mfb_macapp_sel_performOnMain",
+    "performSelectorOnMainThread:withObject:waitUntilDone:",
+);
+const SEL_INIT_WITH_BYTES: (&str, &str) =
+    ("_mfb_macapp_sel_initWithBytes", "initWithBytes:length:encoding:");
+const STR_STDERR_PREFIX: (&str, &str) = ("_mfb_macapp_str_stderr_prefix", "[stderr] ");
+const STR_NEWLINE: (&str, &str) = ("_mfb_macapp_str_newline", "\n");
+/// The address of this 1-byte read-only symbol is the unique key under which the
+/// transcript NSTextView is stored as an associated object on the shared
+/// NSApplication (objc-runtime-managed per-process storage; avoids needing a
+/// writable data segment). A nil result means "no window" (headless) -> fd sink.
+const ASSOC_KEY: &str = "_mfb_macapp_textview_key";
+
+/// NSUTF8StringEncoding.
+const NS_UTF8_ENCODING: &str = "4";
+/// The transcript NSTextView append helper emitted alongside the bootstrap.
+const APPEND_SYMBOL: &str = "_mfb_macapp_append";
+
 const CLASS_NS_APPLICATION: &str = "_OBJC_CLASS_$_NSApplication";
 const CLASS_NS_WINDOW: &str = "_OBJC_CLASS_$_NSWindow";
 const CLASS_NS_STRING: &str = "_OBJC_CLASS_$_NSString";
+const CLASS_NS_SCROLL_VIEW: &str = "_OBJC_CLASS_$_NSScrollView";
+const CLASS_NS_TEXT_VIEW: &str = "_OBJC_CLASS_$_NSTextView";
 
 const LIB_OBJC: &str = "libobjc";
 const LIB_APPKIT: &str = "AppKit";
@@ -182,7 +217,11 @@ impl Asm {
 /// program entry is emitted separately by the shared lowering under
 /// [`code::MACAPP_PROGRAM_SYMBOL`].
 pub(crate) fn emit_app_program_entry(spec: &AppEntrySpec) -> Result<Vec<CodeFunction>, String> {
-    Ok(vec![emit_main_bootstrap(), emit_worker_shim(spec)])
+    Ok(vec![
+        emit_main_bootstrap(),
+        emit_worker_shim(spec),
+        emit_append_helper(),
+    ])
 }
 
 fn emit_main_bootstrap() -> CodeFunction {
@@ -244,9 +283,82 @@ fn emit_main_bootstrap() -> CodeFunction {
     asm.call_external("_getenv", LIB_SYSTEM);
     asm.push(abi::move_register(REG_HEADLESS, "x0"));
 
-    // In GUI mode, show + activate the window. Headless test mode skips this.
+    // In GUI mode, build the transcript view + show/activate the window. Headless
+    // test mode skips all of this, leaving no associated NSTextView so the io
+    // helpers fall back to the file descriptor sink (plan §7.2 Strategy A).
     asm.push(abi::compare_immediate(REG_HEADLESS, "0"));
     asm.push(abi::branch_ne("after_show"));
+
+    // content = [window contentView]
+    asm.load_selector(SEL_CONTENT_VIEW.0);
+    asm.push(abi::move_register("x0", REG_WINDOW));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    asm.push(abi::move_register("x24", "x0")); // content view (callee-saved)
+
+    // scroll = [[NSScrollView alloc] initWithFrame:NSMakeRect(0,0,900,640)]
+    asm.external_data("x23", CLASS_NS_SCROLL_VIEW, LIB_APPKIT);
+    asm.load_selector(SEL_ALLOC.0);
+    asm.push(abi::move_register("x0", "x23"));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    asm.push(abi::move_register("x23", "x0"));
+    asm.load_selector(SEL_INIT_FRAME.0);
+    emit_double_immediate(&mut asm, "d0", 0);
+    emit_double_immediate(&mut asm, "d1", 0);
+    emit_double_immediate(&mut asm, "d2", 900);
+    emit_double_immediate(&mut asm, "d3", 640);
+    asm.push(abi::move_register("x0", "x23"));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    asm.push(abi::move_register("x23", "x0")); // scroll view
+
+    // tv = [[NSTextView alloc] initWithFrame:NSMakeRect(0,0,900,640)]
+    asm.external_data(REG_SCRATCH_OBJ, CLASS_NS_TEXT_VIEW, LIB_APPKIT);
+    asm.load_selector(SEL_ALLOC.0);
+    asm.push(abi::move_register("x0", REG_SCRATCH_OBJ));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    asm.push(abi::move_register(REG_SCRATCH_OBJ, "x0"));
+    asm.load_selector(SEL_INIT_FRAME.0);
+    emit_double_immediate(&mut asm, "d0", 0);
+    emit_double_immediate(&mut asm, "d1", 0);
+    emit_double_immediate(&mut asm, "d2", 900);
+    emit_double_immediate(&mut asm, "d3", 640);
+    asm.push(abi::move_register("x0", REG_SCRATCH_OBJ));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    asm.push(abi::move_register(REG_SCRATCH_OBJ, "x0")); // transcript text view (x21)
+
+    // [tv setEditable:NO]; [tv setSelectable:YES]
+    asm.load_selector(SEL_SET_EDITABLE.0);
+    asm.push(abi::move_immediate("x2", "Integer", "0"));
+    asm.push(abi::move_register("x0", REG_SCRATCH_OBJ));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    asm.load_selector(SEL_SET_SELECTABLE.0);
+    asm.push(abi::move_immediate("x2", "Integer", "1"));
+    asm.push(abi::move_register("x0", REG_SCRATCH_OBJ));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+
+    // [scroll setDocumentView:tv]; [scroll setHasVerticalScroller:YES]
+    asm.load_selector(SEL_SET_DOCUMENT_VIEW.0);
+    asm.push(abi::move_register("x2", REG_SCRATCH_OBJ));
+    asm.push(abi::move_register("x0", "x23"));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    asm.load_selector(SEL_SET_HAS_VSCROLLER.0);
+    asm.push(abi::move_immediate("x2", "Integer", "1"));
+    asm.push(abi::move_register("x0", "x23"));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+
+    // [content addSubview:scroll]
+    asm.load_selector(SEL_ADD_SUBVIEW.0);
+    asm.push(abi::move_register("x2", "x23"));
+    asm.push(abi::move_register("x0", "x24"));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+
+    // Stash the text view on NSApp so the io helpers (worker thread) can reach it:
+    // objc_setAssociatedObject(app, &ASSOC_KEY, tv, OBJC_ASSOCIATION_ASSIGN)
+    asm.push(abi::move_register("x0", REG_APP));
+    asm.local_address("x1", ASSOC_KEY);
+    asm.push(abi::move_register("x2", REG_SCRATCH_OBJ));
+    asm.push(abi::move_immediate("x3", "Integer", "0"));
+    asm.call_external("_objc_setAssociatedObject", LIB_OBJC);
+
     asm.load_selector(SEL_MAKE_KEY_AND_ORDER_FRONT.0);
     asm.push(abi::move_immediate("x2", "Integer", "0"));
     asm.push(abi::move_register("x0", REG_WINDOW));
@@ -326,6 +438,196 @@ fn emit_worker_shim(spec: &AppEntrySpec) -> CodeFunction {
     }
 }
 
+/// `void _mfb_macapp_append(id textView /*x0*/, id nsString /*x1*/)`: append
+/// `nsString` to the text view's transcript on the main thread.
+///
+/// `[[[textView textStorage] mutableString] performSelectorOnMainThread:
+///   @selector(appendString:) withObject:nsString waitUntilDone:YES]`. Running
+/// the mutation on the main thread keeps AppKit single-threaded; waitUntilDone
+/// makes the worker's write synchronous so `io::flush` is a no-op (plan §5.4).
+fn emit_append_helper() -> CodeFunction {
+    let mut asm = Asm::new(APPEND_SYMBOL);
+    asm.push(abi::label("entry"));
+    asm.push(abi::subtract_stack(32));
+    asm.push(abi::store_u64(abi::link_register(), abi::stack_pointer(), 0));
+    asm.push(abi::store_u64("x19", abi::stack_pointer(), 8));
+    asm.push(abi::store_u64("x20", abi::stack_pointer(), 16));
+    asm.push(abi::store_u64("x21", abi::stack_pointer(), 24));
+    asm.push(abi::move_register("x19", "x0")); // text view
+    asm.push(abi::move_register("x20", "x1")); // nsstring
+
+    // storage = [textView textStorage]
+    asm.load_selector(SEL_TEXT_STORAGE.0);
+    asm.push(abi::move_register("x0", "x19"));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    asm.push(abi::move_register("x19", "x0")); // storage
+
+    // ms = [storage mutableString]
+    asm.load_selector(SEL_MUTABLE_STRING.0);
+    asm.push(abi::move_register("x0", "x19"));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    asm.push(abi::move_register("x19", "x0")); // mutable string
+
+    // appendSel = sel_registerName("appendString:")
+    asm.load_selector(SEL_APPEND_STRING.0);
+    asm.push(abi::move_register("x21", "x1")); // appendString: SEL
+
+    // [ms performSelectorOnMainThread:appendSel withObject:nsstring waitUntilDone:YES]
+    asm.load_selector(SEL_PERFORM_ON_MAIN.0);
+    asm.push(abi::move_register("x2", "x21")); // arg0: @selector(appendString:)
+    asm.push(abi::move_register("x3", "x20")); // arg1: nsstring
+    asm.push(abi::move_immediate("x4", "Integer", "1")); // arg2: waitUntilDone YES
+    asm.push(abi::move_register("x0", "x19")); // receiver: mutable string
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+
+    asm.push(abi::load_u64(abi::link_register(), abi::stack_pointer(), 0));
+    asm.push(abi::load_u64("x19", abi::stack_pointer(), 8));
+    asm.push(abi::load_u64("x20", abi::stack_pointer(), 16));
+    asm.push(abi::load_u64("x21", abi::stack_pointer(), 24));
+    asm.push(abi::add_stack(32));
+    asm.push(abi::return_());
+
+    CodeFunction {
+        name: "macapp.append".to_string(),
+        symbol: APPEND_SYMBOL.to_string(),
+        params: Vec::new(),
+        returns: "Nothing".to_string(),
+        frame: CodeFrame {
+            stack_size: 0,
+            callee_saved: Vec::new(),
+        },
+        stack_slots: Vec::new(),
+        instructions: asm.ins,
+        relocations: asm.rel,
+    }
+}
+
+/// App-mode body for `io.print`/`io.write`/`io.printError`/`io.writeError`. The
+/// runtime helper receives the MFBASIC string object in `x0` (`{u64 len; bytes}`)
+/// and returns a `Result` (tag in `x0`). When a transcript view is attached
+/// (GUI), append to it; otherwise (headless) write to the file descriptor.
+pub(crate) fn emit_app_io_write_helper(
+    symbol: &str,
+    stderr: bool,
+    newline: bool,
+) -> (CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>) {
+    let mut asm = Asm::new(symbol);
+    let fd = if stderr { "2" } else { "1" };
+    let frame = 48; // lr@0, x19(string)@8, x20(view)@16, x21(scratch)@24, nl byte@32
+    asm.push(abi::label("entry"));
+    asm.push(abi::subtract_stack(frame));
+    asm.push(abi::store_u64(abi::link_register(), abi::stack_pointer(), 0));
+    asm.push(abi::store_u64("x19", abi::stack_pointer(), 8));
+    asm.push(abi::store_u64("x20", abi::stack_pointer(), 16));
+    asm.push(abi::store_u64("x21", abi::stack_pointer(), 24));
+    asm.push(abi::move_register("x19", "x0")); // string object
+
+    // app = [NSApplication sharedApplication]; view = objc_getAssociatedObject(app, &KEY)
+    asm.external_data("x20", CLASS_NS_APPLICATION, LIB_APPKIT);
+    asm.load_selector(SEL_SHARED_APPLICATION.0);
+    asm.push(abi::move_register("x0", "x20"));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    asm.local_address("x1", ASSOC_KEY);
+    asm.call_external("_objc_getAssociatedObject", LIB_OBJC);
+    asm.push(abi::move_register("x20", "x0")); // transcript view or nil
+    asm.push(abi::compare_immediate("x20", "0"));
+    asm.push(abi::branch_eq("fd_path"));
+
+    // --- GUI transcript path ---
+    if stderr {
+        // Visually distinguish stderr with a "[stderr] " marker (plan §5.4).
+        build_nsstring_from_cstring(&mut asm, "x21", STR_STDERR_PREFIX.0);
+        asm.push(abi::move_register("x1", "x0"));
+        asm.push(abi::move_register("x0", "x20"));
+        asm.call_internal(APPEND_SYMBOL);
+    }
+    // text = [[NSString alloc] initWithBytes:(str+8) length:str[0] encoding:UTF8]
+    asm.external_data("x21", CLASS_NS_STRING, LIB_FOUNDATION);
+    asm.load_selector(SEL_ALLOC.0);
+    asm.push(abi::move_register("x0", "x21"));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    asm.push(abi::move_register("x21", "x0")); // allocated NSString
+    asm.load_selector(SEL_INIT_WITH_BYTES.0);
+    asm.push(abi::add_immediate("x2", "x19", 8)); // bytes
+    asm.push(abi::load_u64("x3", "x19", 0)); // length
+    asm.push(abi::move_immediate("x4", "Integer", NS_UTF8_ENCODING));
+    asm.push(abi::move_register("x0", "x21"));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    asm.push(abi::move_register("x1", "x0")); // text nsstring
+    asm.push(abi::move_register("x0", "x20"));
+    asm.call_internal(APPEND_SYMBOL);
+    if newline {
+        build_nsstring_from_cstring(&mut asm, "x21", STR_NEWLINE.0);
+        asm.push(abi::move_register("x1", "x0"));
+        asm.push(abi::move_register("x0", "x20"));
+        asm.call_internal(APPEND_SYMBOL);
+    }
+    asm.push(abi::move_immediate("x0", "Integer", "0")); // RESULT_OK_TAG
+    asm.push(abi::branch("done"));
+
+    // --- headless / no-window path: write to the file descriptor ---
+    asm.push(abi::label("fd_path"));
+    asm.push(abi::move_immediate("x0", "Integer", fd));
+    asm.push(abi::add_immediate("x1", "x19", 8));
+    asm.push(abi::load_u64("x2", "x19", 0));
+    asm.call_external("_write", LIB_SYSTEM);
+    if newline {
+        asm.push(abi::move_immediate("x9", "Integer", "10")); // '\n'
+        asm.push(abi::store_u8("x9", abi::stack_pointer(), 32));
+        asm.push(abi::move_immediate("x0", "Integer", fd));
+        asm.push(abi::add_immediate("x1", abi::stack_pointer(), 32));
+        asm.push(abi::move_immediate("x2", "Integer", "1"));
+        asm.call_external("_write", LIB_SYSTEM);
+    }
+    asm.push(abi::move_immediate("x0", "Integer", "0")); // RESULT_OK_TAG
+
+    asm.push(abi::label("done"));
+    asm.push(abi::load_u64(abi::link_register(), abi::stack_pointer(), 0));
+    asm.push(abi::load_u64("x19", abi::stack_pointer(), 8));
+    asm.push(abi::load_u64("x20", abi::stack_pointer(), 16));
+    asm.push(abi::load_u64("x21", abi::stack_pointer(), 24));
+    asm.push(abi::add_stack(frame));
+    asm.push(abi::return_());
+
+    (
+        CodeFrame {
+            stack_size: 0,
+            callee_saved: Vec::new(),
+        },
+        asm.ins,
+        asm.rel,
+    )
+}
+
+/// App-mode body for `io.flush`/`io.flushError`: transcript writes are already
+/// synchronous (see [`emit_append_helper`]), so flush just returns success.
+pub(crate) fn emit_app_io_flush_helper(
+    symbol: &str,
+) -> (CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>) {
+    let mut asm = Asm::new(symbol);
+    asm.push(abi::label("entry"));
+    asm.push(abi::move_immediate("x0", "Integer", "0")); // RESULT_OK_TAG
+    asm.push(abi::return_());
+    (
+        CodeFrame {
+            stack_size: 0,
+            callee_saved: Vec::new(),
+        },
+        asm.ins,
+        asm.rel,
+    )
+}
+
+/// Build `[NSString stringWithUTF8String:<cstr>]` into `x0`. `class_tmp` is a
+/// callee-saved scratch register (free at the call site) used for the class.
+fn build_nsstring_from_cstring(asm: &mut Asm, class_tmp: &str, cstr_symbol: &str) {
+    asm.external_data(class_tmp, CLASS_NS_STRING, LIB_FOUNDATION);
+    asm.load_selector(SEL_STRING_WITH_UTF8.0);
+    asm.local_address("x2", cstr_symbol);
+    asm.push(abi::move_register("x0", class_tmp));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+}
+
 /// Materialize a small non-negative integer as a double in `dst` (an FP
 /// register): `movz` the value into a scratch GPR, then `scvtf`.
 fn emit_double_immediate(asm: &mut Asm, dst: &str, value: u32) {
@@ -336,7 +638,7 @@ fn emit_double_immediate(asm: &mut Asm, dst: &str, value: u32) {
 /// Read-only C-string data objects (selectors, window title, env-var name) the
 /// bootstrap references. NUL-terminated raw bytes, mirroring the TLS helpers.
 pub(crate) fn app_mode_data_objects() -> Vec<CodeDataObject> {
-    [
+    let mut objects: Vec<CodeDataObject> = [
         SEL_SHARED_APPLICATION,
         SEL_SET_ACTIVATION_POLICY,
         SEL_ALLOC,
@@ -348,6 +650,21 @@ pub(crate) fn app_mode_data_objects() -> Vec<CodeDataObject> {
         SEL_RUN,
         STR_TITLE,
         STR_HEADLESS_ENV,
+        // Phase 4 transcript output.
+        SEL_CONTENT_VIEW,
+        SEL_INIT_FRAME,
+        SEL_SET_EDITABLE,
+        SEL_SET_SELECTABLE,
+        SEL_SET_DOCUMENT_VIEW,
+        SEL_SET_HAS_VSCROLLER,
+        SEL_ADD_SUBVIEW,
+        SEL_TEXT_STORAGE,
+        SEL_MUTABLE_STRING,
+        SEL_APPEND_STRING,
+        SEL_PERFORM_ON_MAIN,
+        SEL_INIT_WITH_BYTES,
+        STR_STDERR_PREFIX,
+        STR_NEWLINE,
     ]
     .iter()
     .map(|(symbol, text)| CodeDataObject {
@@ -358,7 +675,19 @@ pub(crate) fn app_mode_data_objects() -> Vec<CodeDataObject> {
         size: text.len() + 1,
         value: hex_cstring(text),
     })
-    .collect()
+    .collect();
+    // The transcript NSTextView is stored as an associated object on NSApp keyed
+    // by the address of this 1-byte read-only symbol (objc-runtime-managed
+    // per-process storage; see ASSOC_KEY).
+    objects.push(CodeDataObject {
+        symbol: ASSOC_KEY.to_string(),
+        kind: "raw".to_string(),
+        layout: "associated-object key (unique address)".to_string(),
+        align: 1,
+        size: 1,
+        value: "00".to_string(),
+    });
+    objects
 }
 
 fn hex_cstring(text: &str) -> String {

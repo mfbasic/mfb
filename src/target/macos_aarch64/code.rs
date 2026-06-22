@@ -52,6 +52,23 @@ impl code::CodegenPlatform for Platform {
         app::app_mode_data_objects()
     }
 
+    fn emit_app_io_write_helper(
+        &self,
+        symbol: &str,
+        stderr: bool,
+        newline: bool,
+        _platform_imports: &HashMap<String, String>,
+    ) -> Option<Result<(code::CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>), String>> {
+        Some(Ok(app::emit_app_io_write_helper(symbol, stderr, newline)))
+    }
+
+    fn emit_app_io_flush_helper(
+        &self,
+        symbol: &str,
+    ) -> Option<Result<(code::CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>), String>> {
+        Some(Ok(app::emit_app_io_flush_helper(symbol)))
+    }
+
     fn emit_program_exit(
         &self,
         from: &str,

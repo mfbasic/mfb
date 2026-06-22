@@ -13,8 +13,12 @@
   { "library": "libSystem", "symbol": "_write", "requiredBy": "_mfb_rt_io_io_print" },
   { "library": "libobjc", "symbol": "_objc_msgSend", "requiredBy": "_main" },
   { "library": "libobjc", "symbol": "_sel_registerName", "requiredBy": "_main" },
+  { "library": "libobjc", "symbol": "_objc_setAssociatedObject", "requiredBy": "_main" },
+  { "library": "libobjc", "symbol": "_objc_getAssociatedObject", "requiredBy": "_main" },
   { "library": "AppKit", "symbol": "_OBJC_CLASS_$_NSApplication", "requiredBy": "_main" },
   { "library": "AppKit", "symbol": "_OBJC_CLASS_$_NSWindow", "requiredBy": "_main" },
+  { "library": "AppKit", "symbol": "_OBJC_CLASS_$_NSScrollView", "requiredBy": "_main" },
+  { "library": "AppKit", "symbol": "_OBJC_CLASS_$_NSTextView", "requiredBy": "_main" },
   { "library": "Foundation", "symbol": "_OBJC_CLASS_$_NSString", "requiredBy": "_main" },
   { "library": "libSystem", "symbol": "_pthread_create", "requiredBy": "_main" },
   { "library": "libSystem", "symbol": "_getenv", "requiredBy": "_main" }
