@@ -36,6 +36,26 @@
 EXPORT RESOURCE Db CLOSE BY sqliteLink::close
 RESOURCE Stmt CLOSE BY sqliteLink::finalize
 
+TYPE SqlInt
+  value AS Integer
+END TYPE
+TYPE SqlFloat
+  value AS Float
+END TYPE
+TYPE SqlText
+  value AS String
+END TYPE
+TYPE SqlBlob
+  value AS List OF Byte
+END TYPE
+
+EXPORT UNION SqlValue
+  SqlInt
+  SqlFloat
+  SqlText
+  SqlBlob
+END UNION
+
 LINK "sqlite3" AS sqliteLink
 
   ' int sqlite3_open(const char *filename, sqlite3 **ppDb)
@@ -169,6 +189,36 @@ LINK "sqlite3" AS sqliteLink
   FUNC columnText(RES stmt AS Stmt, col AS Integer) AS String
     SYMBOL "sqlite3_column_text"
     ABI (stmt CPtr, col CInt32) AS return CPtr
+  END FUNC
+
+  ' int sqlite3_column_type(sqlite3_stmt*, int iCol)
+  ' The datatype code of the value in column `col` of the current result row:
+  ' SQLITE_INTEGER (1), SQLITE_FLOAT (2), SQLITE_TEXT (3), SQLITE_BLOB (4), or
+  ' SQLITE_NULL (5). Borrows stmt; a plain value-returning call (the C return IS
+  ' the result), like columnCount. `rows` dispatches on it to pick the typed
+  ' reader and therefore which `SqlValue` member each cell becomes.
+  FUNC columnType(RES stmt AS Stmt, col AS Integer) AS Integer
+    SYMBOL "sqlite3_column_type"
+    ABI (stmt CPtr, col CInt32) AS return CInt32
+  END FUNC
+
+  ' sqlite3_int64 sqlite3_column_int64(sqlite3_stmt*, int iCol)
+  ' Reads an INTEGER column as a 64-bit value, surfaced straight through the C
+  ' return (`AS return CInt64`) into MFBASIC's `Integer`. Borrows stmt. `rows`
+  ' calls it only when `columnType` reported SQLITE_INTEGER.
+  FUNC columnInt(RES stmt AS Stmt, col AS Integer) AS Integer
+    SYMBOL "sqlite3_column_int64"
+    ABI (stmt CPtr, col CInt32) AS return CInt64
+  END FUNC
+
+  ' double sqlite3_column_double(sqlite3_stmt*, int iCol)
+  ' Reads a FLOAT column. The C `double` return maps to MFBASIC `Float`; the
+  ' marshaling boundary rejects a NaN/Inf result (mfbasic.md §12.3), which a
+  ' well-formed numeric column never produces. Borrows stmt. `rows` calls it only
+  ' when `columnType` reported SQLITE_FLOAT.
+  FUNC columnDouble(RES stmt AS Stmt, col AS Integer) AS Float
+    SYMBOL "sqlite3_column_double"
+    ABI (stmt CPtr, col CInt32) AS return CDouble
   END FUNC
 
   ' int sqlite3_column_count(sqlite3_stmt*)
@@ -322,22 +372,45 @@ END FUNC
 ' finalizes. All native calls borrow `stmt`/`db`; if any step fails partway, the
 ' still-owned `stmt` is finalized by lexical drop on the error exit — no leak.
 '
-' Rows come back as `List OF List OF String`: one inner list per result row, one
-' element per column, read with `columnText`. `columnCount` gives the width so the
-' caller need not know the schema. (Every column is surfaced as its text form —
-' typed column readers, e.g. sqlite3_column_int, are a straightforward extension.)
+' Rows come back as `List OF List OF SqlValue`: one inner list per result row, one
+' element per column. Each cell is a `SqlValue` union member chosen by the column's
+' runtime type (`columnType`): SQLITE_INTEGER -> `SqlInt`, SQLITE_FLOAT -> `SqlFloat`,
+' and TEXT/BLOB/NULL -> `SqlText` (NULL renders as ""). `columnCount` gives the row
+' width so the caller need not know the schema; the caller `MATCH`es each cell on its
+' member type to read the value.
 ' ---------------------------------------------------------------------------
 
 ' Drain an already-prepared, already-bound statement into rows. Package-private:
 ' it BORROWS `stmt` (ordinary call), so the caller keeps ownership and remains
 ' responsible for finalizing it. Shared by both `query` overloads.
-FUNC rows(RES stmt AS Stmt) AS List OF List OF String
+FUNC rows(RES stmt AS Stmt) AS List OF List OF SqlValue
+  LET SQLITE_INTEGER = 1
+  LET SQLITE_FLOAT = 2
   LET cols = sqliteLink::columnCount(stmt)      ' borrows stmt
-  MUT out AS List OF List OF String = []
+  MUT out AS List OF List OF SqlValue = []
   WHILE sqliteLink::step(stmt)                  ' borrows stmt; once per result row
-    MUT row AS List OF String = []
+    MUT row AS List OF SqlValue = []
     FOR i = 0 TO cols - 1
-      row = append(row, sqliteLink::columnText(stmt, i))   ' borrows stmt
+      ' Construct into a `SqlValue`-typed binding so the union member widens to
+      ' the list element type (`append` infers `List OF T, T` and does not widen
+      ' a concrete member on its own). The placeholder is overwritten on every
+      ' branch below.
+      MUT cell AS SqlValue = SqlInt[0]
+      LET kind = sqliteLink::columnType(stmt, i)             ' borrows stmt
+      IF kind = SQLITE_INTEGER THEN
+        cell = SqlInt[sqliteLink::columnInt(stmt, i)]
+      ELSEIF kind = SQLITE_FLOAT THEN
+        cell = SqlFloat[sqliteLink::columnDouble(stmt, i)]
+      ELSE
+        ' TEXT, BLOB, and NULL all surface through columnText as a `SqlText`.
+        ' A NULL cell copies as the empty string — the marshaling thunk maps a
+        ' NULL C pointer to "" — since MFBASIC has no null value. A BLOB is read
+        ' as SQLite's text rendering of its bytes for now; faithful binary BLOB
+        ' reads need a byte-list ABI return form that does not yet exist, so the
+        ' declared `SqlBlob` member is reserved for when one lands.
+        cell = SqlText[sqliteLink::columnText(stmt, i)]
+      END IF
+      row = append(row, cell)
     NEXT
     out = append(out, row)
   WEND
@@ -348,7 +421,7 @@ END FUNC
 '   query(db, "SELECT * FROM t WHERE a = ? AND b = ?", ["x", "y"])
 ' SQLite numbers `?` placeholders left to right starting at 1, so the i-th list
 ' element (0-based) binds to parameter slot i + 1.
-EXPORT FUNC query(RES db AS Db, sql AS String, params AS List OF String) AS List OF List OF String
+EXPORT FUNC query(RES db AS Db, sql AS String, params AS List OF String) AS List OF List OF SqlValue
   RES stmt AS Stmt = sqliteLink::prepare(db, sql)
   FOR i = 0 TO len(params) - 1
     sqliteLink::bindText(stmt, i + 1, get(params, i))   ' ? slots are 1-based
@@ -365,7 +438,7 @@ END FUNC
 ' or `$`), matching what `sqlite3_bind_parameter_index` expects. A key that names
 ' no placeholder resolves to index 0; binding there is a no-op in SQLite, so an
 ' extra map entry is harmless rather than an error.
-EXPORT FUNC query(RES db AS Db, sql AS String, params AS Map OF String TO String) AS List OF List OF String
+EXPORT FUNC query(RES db AS Db, sql AS String, params AS Map OF String TO String) AS List OF List OF SqlValue
   RES stmt AS Stmt = sqliteLink::prepare(db, sql)
   FOR EACH param IN params
     LET idx = sqliteLink::bindParameterIndex(stmt, param.key)   ' resolve ":name" -> slot
