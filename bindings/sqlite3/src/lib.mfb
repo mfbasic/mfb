@@ -239,7 +239,66 @@ LINK "sqlite3" AS sqliteLink
     ABI (stmt CPtr) AS status CInt32
     SUCCESS_ON status = 0
   END FUNC
+
+  ' char *sqlite3_expanded_sql(sqlite3_stmt*)
+  ' The prepared SQL with bound parameters expanded inline — handy for logging the
+  ' actual query that ran. UNLIKE sqlite3_column_text/errmsg (whose memory SQLite
+  ' owns), the returned string is FRESHLY ALLOCATED and the caller OWNS it, so it
+  ' is surfaced as a `RES Owned` and released with sqlite3_free() by lexical drop.
+  ' Borrows stmt; the C return pointer becomes the resource handle.
+  FUNC expandedSql(RES stmt AS Stmt) AS String
+    SYMBOL "sqlite3_expanded_sql"
+    ABI (stmt CPtr) AS return CPtr
+    FREE return
+      SYMBOL "sqlite3_free"
+      ABI (return CPtr) AS CVoid
+    END FREE
+  END FUNC
+
+  ' ---------------------------------------------------------------------------
+  ' Error detail. The wrapper functions below keep their `SUCCESS_ON` gates, so a
+  ' failing native call auto-propagates as the generic `ErrNativeBindingCallFailed`
+  ' (77030008) — which discards SQLite's real code and message. SQLite records the
+  ' last error on the *connection*, readable WITHOUT consuming anything, so each
+  ' exported wrapper traps that generic failure and re-FAILs with detail pulled
+  ' from `db`. All three return a SQLite-owned/static `const char*` or a small int;
+  ' the `CPtr -> String` thunk copies the text immediately and never frees the
+  ' source (copy-and-leave), which is correct because SQLite owns that memory.
+  ' ---------------------------------------------------------------------------
+
+  ' const char *sqlite3_errmsg(sqlite3*)
+  ' The English text of the most recent failed API call on this connection. Valid
+  ' only until the next call on `db`; the thunk copies it out at once. A NULL
+  ' return (no error) copies as the empty string. Borrows db.
+  FUNC errmsg(RES db AS Db) AS String
+    SYMBOL "sqlite3_errmsg"
+    ABI (db CPtr) AS return CPtr
+  END FUNC
+
+  ' int sqlite3_extended_errcode(sqlite3*)
+  ' The extended result code of the most recent failed API call on this
+  ' connection — e.g. SQLITE_CONSTRAINT_UNIQUE (2067), finer-grained than the
+  ' primary code SQLITE_CONSTRAINT (19). Borrows db; a plain value-returning call.
+  FUNC extendedErrcode(RES db AS Db) AS Integer
+    SYMBOL "sqlite3_extended_errcode"
+    ABI (db CPtr) AS return CInt32
+  END FUNC
+
+  ' const char *sqlite3_errstr(int)
+  ' Maps a result code to its static English description, needing no connection
+  ' handle. Used where no `db` is in scope (e.g. an open failure). The returned
+  ' pointer is static storage; the thunk copies it and never frees it.
+  FUNC errstr(code AS Integer) AS String
+    SYMBOL "sqlite3_errstr"
+    ABI (code CInt32) AS return CPtr
+  END FUNC
 END LINK
+
+' The generic error code produced when a native `LINK` call fails its `SUCCESS_ON`
+' gate (mfbasic.md §17, error_codes.md `7-703-0008`). The wrappers below trap on
+' exactly this code so they enrich only genuine native-call failures and let every
+' other error (a bad index, an allocation failure) propagate unchanged.
+LET ERR_NATIVE_CALL_FAILED = 77030008
 
 ' ---------------------------------------------------------------------------
 ' Higher-level wrappers exported to importers. A binding package may add
@@ -317,9 +376,21 @@ EXPORT FUNC close AS sqliteLink::close
 ' for brevity.
 ' ---------------------------------------------------------------------------
 
+' Build the enriched error for the most recent failed call on `db`: the SQLite
+' extended result code as `Error.code`, plus the connection's error text. Borrows
+' db. Call this from a wrapper's error handler, before any other call on `db` (and
+' before `db` is closed), so SQLite's last-error state still reflects the failure.
+FUNC sqlError(RES db AS Db) AS Error
+  RETURN error(sqliteLink::extendedErrcode(db), "sqlite3: " & sqliteLink::errmsg(db))
+END FUNC
+
 ' CREATE TABLE <name> (<columns>), e.g. createTable(db, "users", "id INTEGER")
 EXPORT FUNC createTable(RES db AS Db, name AS String, columns AS String) AS Nothing
-  sqliteLink::exec(db, "CREATE TABLE " & name & " (" & columns & ")")
+  ' The inline TRAP is scoped to exactly this native call, so the only error it can
+  ' see is the gate failure — no `e.code` guard needed. On success it does nothing.
+  sqliteLink::exec(db, "CREATE TABLE " & name & " (" & columns & ")") TRAP(e)
+    FAIL sqlError(db)
+  END TRAP
 END FUNC
 
 ' CREATE TABLE from a column-name -> column-type map, e.g.
@@ -345,7 +416,9 @@ END FUNC
 
 ' DROP TABLE <name>
 EXPORT FUNC dropTable(RES db AS Db, name AS String) AS Nothing
-  sqliteLink::exec(db, "DROP TABLE " & name)
+  sqliteLink::exec(db, "DROP TABLE " & name) TRAP(e)
+    FAIL sqlError(db)
+  END TRAP
 END FUNC
 
 ' Return the names of all tables in the database. Demonstrates a result-set
@@ -362,6 +435,14 @@ EXPORT FUNC listTables(RES db AS Db) AS List OF String
   WEND
   sqliteLink::finalize(stmt)                ' explicit consume; lexical drop would do it otherwise
   RETURN names
+TRAP(e)
+  ' A function-level TRAP covers every native call in the body (prepare/step/
+  ' columnText/finalize). It catches ALL errors, so guard on the generic native
+  ' code and enrich only those; anything else (an allocation failure, say)
+  ' PROPAGATEs unchanged. `stmt` is finalized by lexical drop on this exit.
+  IF e.code = ERR_NATIVE_CALL_FAILED THEN FAIL sqlError(db)
+  PROPAGATE
+END TRAP
 END FUNC
 
 ' ---------------------------------------------------------------------------
@@ -429,6 +510,10 @@ EXPORT FUNC query(RES db AS Db, sql AS String, params AS List OF String) AS List
   LET result = rows(stmt)
   sqliteLink::finalize(stmt)                ' explicit consume; lexical drop would do it otherwise
   RETURN result
+TRAP(e)
+  IF e.code = ERR_NATIVE_CALL_FAILED THEN FAIL sqlError(db)
+  PROPAGATE
+END TRAP
 END FUNC
 
 ' Run SQL with named placeholders, e.g.
@@ -447,4 +532,8 @@ EXPORT FUNC query(RES db AS Db, sql AS String, params AS Map OF String TO String
   LET result = rows(stmt)
   sqliteLink::finalize(stmt)                ' explicit consume; lexical drop would do it otherwise
   RETURN result
+TRAP(e)
+  IF e.code = ERR_NATIVE_CALL_FAILED THEN FAIL sqlError(db)
+  PROPAGATE
+END TRAP
 END FUNC

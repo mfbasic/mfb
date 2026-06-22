@@ -1444,6 +1444,23 @@ END LINK
 
 `RETURN_OUT DivModResult[quotient, remainder]` means: after the native call succeeds, read the named `OUT` slots and succeed with `DivModResult[quotient, remainder]`.
 
+**Freeing a caller-owned return (`FREE`).** A `CPtr` result mapped to an owned MFBASIC value (such as `AS String`) is **copied** out of the native buffer and the source pointer is then left untouched — *copy-and-leave*. That is correct when the native library **owns** the buffer and keeps it valid (a transient or static pointer), as with `sqlite3_column_text`. When the call instead returns a buffer the **caller owns and must release** — `sqlite3_expanded_sql`, `sqlite3_mprintf`, `strdup` — copy-and-leave would leak it. A `FREE` block names the produced slot and the deallocator that releases it:
+
+```basic
+LINK "sqlite3" AS sqlite
+  FUNC expandedSql(RES stmt AS Stmt) AS String
+    SYMBOL "sqlite3_expanded_sql"
+    ABI (stmt CPtr) AS return CPtr
+    FREE return
+      SYMBOL "sqlite3_free"
+      ABI (ptr CPtr) AS CVoid
+    END FREE
+  END FUNC
+END LINK
+```
+
+`FREE return` means: after the wrapper has copied the `return` slot into its owned MFBASIC result, pass the **original** native pointer to the named deallocator. The nested `SYMBOL`/`ABI` declare that deallocator — exactly one pointer parameter and a `CVoid` return. The freed slot is the produced pointer: the C `return`, or a named `OUT` slot. The deallocator runs **once, after the copy, on the success path only**; if the wrapper fails before the value is produced (a failed `SUCCESS_ON` gate, a marshaling error), nothing is freed. A NULL produced pointer is passed to the deallocator unchanged, because deallocators such as `sqlite3_free` define NULL as a no-op. The original pointer is never surfaced as an MFBASIC value, so `FREE` is the only sanctioned way to release a caller-owned native return — a raw `CPtr` cannot be handed back to source code to free by hand (`NATIVE_CPTR_ESCAPE`). A binding with more than one caller-owned pointer (for example several `OUT` buffers) states one `FREE` block per slot.
+
 Rules:
 
 - `LINK` names and all declared `SYMBOL` names are resolved before `main` starts. Native libraries are not lazy-loaded.
@@ -1453,11 +1470,139 @@ Rules:
 - Native functions expose ordinary MFBASIC signatures. At call sites they auto-unwrap, auto-propagate, and participate in `MATCH` like any other fallible function.
 - Native functions may accept and return MFBASIC primitive values, strings, byte lists, and declared resource types through an explicit `ABI` mapping. Other conversions are implementation-defined unless specified by the binding.
 - If a native function has more than one `OUT` parameter and its MFBASIC return type is not `Nothing`, it must declare `RETURN_OUT`.
+- A `FREE` block must name a `CPtr`-typed produced slot — the `return` slot or a declared `OUT` slot — and its deallocator must declare exactly one pointer parameter and a `CVoid` return. The deallocator is called once on the success path, after the produced value is copied into the wrapper's owned MFBASIC result, with the original (possibly NULL) native pointer; it is not called on a failed call. Without a `FREE` block a `CPtr` result is copied and the source pointer is left untouched (copy-and-leave), which leaks a caller-owned buffer — `FREE` is the only way to release one.
 - `RESOURCE` is a declaration form for concrete opaque unique-handle types; it is not an inheritance base type and cannot be used as a generic catch-all type.
 - Native resource ownership is declared at package scope with `RESOURCE <Name> CLOSE BY <closeFn>`. Raw C ABI types (`CPtr`, `CString`, `CInt32`, …) may appear only inside `ABI (...)` slots, never in a wrapper's MFBASIC-facing signature; a `CPtr` exists solely as the hidden representation of a declared resource and must not escape into an ordinary API (`NATIVE_CPTR_ESCAPE`).
 - `REF` and `OUT` native pointer values are temporary call-frame values. Native code must not retain them after return; if a binding needs retained native storage, it must model that storage as a declared `RESOURCE`.
 - Native `LINK` resources slot into the resource model of §15 unchanged: bound with `RES`, borrowed at ordinary calls, auto-closed by lexical drop through the registered close op, never copied/stored/field-accessed, and thread-sendable only with `THREAD_SENDABLE`. Diagnostics specific to native bindings are listed in `specifications/error_codes.md` (`1-102-0008`…`0009`, `2-203-0089`…`0098`).
 - Native libraries are platform-specific dependencies. A `.mfp` package may declare that it needs a native library, including version, search policy, platform constraints, and content/hash requirements, but the native library itself is not portable binary representation.
+
+**Example:**
+
+```
+
+EXPORT RESOURCE Db CLOSE BY sqliteLink::close
+RESOURCE Stmt CLOSE BY sqliteLink::finalize
+
+LINK "sqlite3" AS sqliteLink
+  FUNC open(path AS String) AS RES Db
+    SYMBOL "sqlite3_open"
+    ABI (path CString, return OUT CPtr) AS status CInt32
+    SUCCESS_ON status = 0
+  END FUNC
+
+  FUNC openV2(path AS String, flags AS Integer) AS RES Db
+    SYMBOL "sqlite3_open_v2"
+    ABI (path CString, return OUT CPtr, flags CInt32, zVfs CPtr) AS status CInt32
+    CONST zVfs = NOTHING         ' NULL: use the default VFS
+    SUCCESS_ON status = 0
+  END FUNC
+
+  FUNC close(RES db AS Db) AS Nothing
+    SYMBOL "sqlite3_close"
+    ABI (db CPtr) AS status CInt32
+    SUCCESS_ON status = 0
+  END FUNC
+
+  FUNC busyTimeout(RES db AS Db, ms AS Integer) AS Nothing
+    SYMBOL "sqlite3_busy_timeout"
+    ABI (db CPtr, ms CInt32) AS status CInt32
+    SUCCESS_ON status = 0
+  END FUNC
+
+  FUNC exec(RES db AS Db, sql AS String) AS Nothing
+    SYMBOL "sqlite3_exec"
+    ABI (db CPtr, sql CString, callback CPtr, arg CPtr, errmsg CPtr) AS status CInt32
+    CONST callback = NOTHING     ' NULL: no per-row callback
+    CONST arg = NOTHING          ' NULL: no callback argument
+    CONST errmsg = NOTHING       ' NULL: report failures through status, not a buffer
+    SUCCESS_ON status = 0
+  END FUNC
+
+  FUNC prepare(RES db AS Db, sql AS String) AS RES Stmt
+    SYMBOL "sqlite3_prepare_v2"
+    ABI (db CPtr, sql CString, nByte CInt32, return OUT CPtr, pzTail CPtr) AS status CInt32
+    CONST nByte = -1             ' read sql up to the terminating NUL
+    CONST pzTail = NOTHING       ' NULL: discard the trailing-SQL pointer
+    SUCCESS_ON status = 0
+  END FUNC
+
+  FUNC bindText(RES stmt AS Stmt, iCol AS Integer, zVal AS String) AS Nothing
+    SYMBOL "sqlite3_bind_text"
+    ABI (stmt CPtr, iCol CInt32, zVal CString, nByte CInt32, destructor CPtr) AS status CInt32
+    CONST nByte = -1             ' bind up to the terminating NUL
+    CONST destructor = -1        ' SQLITE_TRANSIENT (void*)-1: copy bytes now, do not alias
+    SUCCESS_ON status = 0
+  END FUNC
+
+  FUNC bindParameterIndex(RES stmt AS Stmt, name AS String) AS Integer
+    SYMBOL "sqlite3_bind_parameter_index"
+    ABI (stmt CPtr, name CString) AS return CInt32
+  END FUNC
+
+  FUNC step(RES stmt AS Stmt) AS Boolean
+    SYMBOL "sqlite3_step"
+    ABI (stmt CPtr) AS status CInt32
+    SUCCESS_ON status = 100 OR status = 101
+    RESULT status = 100
+  END FUNC
+
+  FUNC columnText(RES stmt AS Stmt, col AS Integer) AS String
+    SYMBOL "sqlite3_column_text"
+    ABI (stmt CPtr, col CInt32) AS return CPtr
+  END FUNC
+
+  FUNC columnType(RES stmt AS Stmt, col AS Integer) AS Integer
+    SYMBOL "sqlite3_column_type"
+    ABI (stmt CPtr, col CInt32) AS return CInt32
+  END FUNC
+
+  FUNC columnInt(RES stmt AS Stmt, col AS Integer) AS Integer
+    SYMBOL "sqlite3_column_int64"
+    ABI (stmt CPtr, col CInt32) AS return CInt64
+  END FUNC
+
+  FUNC columnDouble(RES stmt AS Stmt, col AS Integer) AS Float
+    SYMBOL "sqlite3_column_double"
+    ABI (stmt CPtr, col CInt32) AS return CDouble
+  END FUNC
+
+  FUNC columnCount(RES stmt AS Stmt) AS Integer
+    SYMBOL "sqlite3_column_count"
+    ABI (stmt CPtr) AS return CInt32
+  END FUNC
+
+  FUNC finalize(RES stmt AS Stmt) AS Nothing
+    SYMBOL "sqlite3_finalize"
+    ABI (stmt CPtr) AS status CInt32
+    SUCCESS_ON status = 0
+  END FUNC
+
+  FUNC expandedSql(RES stmt AS Stmt) AS String
+    SYMBOL "sqlite3_expanded_sql"
+    ABI (stmt CPtr) AS return CPtr
+    FREE return
+      SYMBOL "sqlite3_free"
+      ABI (return CPtr) AS CVoid
+    END FREE
+  END FUNC
+
+  FUNC errmsg(RES db AS Db) AS String
+    SYMBOL "sqlite3_errmsg"
+    ABI (db CPtr) AS return CPtr
+  END FUNC
+
+  FUNC extendedErrcode(RES db AS Db) AS Integer
+    SYMBOL "sqlite3_extended_errcode"
+    ABI (db CPtr) AS return CInt32
+  END FUNC
+
+  FUNC errstr(code AS Integer) AS String
+    SYMBOL "sqlite3_errstr"
+    ABI (code CInt32) AS return CPtr
+  END FUNC
+END LINK
+```
 
 ---
 
@@ -1496,10 +1641,15 @@ nativeFuncBody = "SYMBOL" string
                    { constPin }
                    [ nativeReturnRule ]
                    [ "RESULT" expr ]
-                   [ returnOut ] ;
+                   [ returnOut ]
+                   { nativeFree } ;
 constPin       = "CONST" ident "=" expr ;
 nativeReturnRule = "SUCCESS_ON" expr | "ERROR_ON" expr ;
 returnOut       = "RETURN_OUT" ident "[" ident { "," ident } "]" ;
+nativeFree     = "FREE" ( ident | "return" )
+                   "SYMBOL" string
+                   "ABI" "(" abiSlot ")" "AS" nativeType
+                   "END" "FREE" ;
 abiSlotList    = abiSlot { "," abiSlot } ;
 abiSlot        = ( ident | "return" ) [ "OUT" ] nativeType ;
 nativeType     = "CInt8" | "CInt16" | "CInt32" | "CInt64"
