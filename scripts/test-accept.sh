@@ -129,8 +129,14 @@ for test_dir in "$TEST_ROOT"/*; do
   target_nplan_path="$test_dir/$package_name.$target_name.nplan"
   target_nobj_path="$test_dir/$package_name.$target_name.nobj"
   target_ncode_path="$test_dir/$package_name.$target_name.ncode"
+  # macOS app-mode (`mfb build -app`) native goldens. App-mode `-nir/-nplan/-ncode`
+  # write to the same `$package_name.{nir,nplan,ncode}` paths as console mode, so a
+  # fixture carries either console or app goldens for a given extension, never both.
+  target_app_nir_path="$test_dir/$package_name.$target_name.app.nir"
+  target_app_nplan_path="$test_dir/$package_name.$target_name.app.nplan"
+  target_app_ncode_path="$test_dir/$package_name.$target_name.app.ncode"
 
-  rm -f "$ast_path" "$ir_path" "$hex_path" "$mfp_path" "$nir_path" "$nplan_path" "$nobj_path" "$ncode_path" "$target_nir_path" "$target_nplan_path" "$target_nobj_path" "$target_ncode_path" "$test_dir/$package_name.out"
+  rm -f "$ast_path" "$ir_path" "$hex_path" "$mfp_path" "$nir_path" "$nplan_path" "$nobj_path" "$ncode_path" "$target_nir_path" "$target_nplan_path" "$target_nobj_path" "$target_ncode_path" "$target_app_nir_path" "$target_app_nplan_path" "$target_app_ncode_path" "$test_dir/$package_name.out"
 
   {
     echo "$ mfb build -ast tests/$test_name"
@@ -167,6 +173,21 @@ for test_dir in "$TEST_ROOT"/*; do
     if [ -f "$golden_dir/$package_name.$target_name.ncode" ]; then
       echo "$ mfb build ${target_label}-ncode tests/$test_name"
       "$MFB_EXE" build $target_arg -ncode "tests/$test_name"
+      echo "[exit $?]"
+    fi
+    if [ -f "$golden_dir/$package_name.$target_name.app.nir" ]; then
+      echo "$ mfb build ${target_label}-app -nir tests/$test_name"
+      "$MFB_EXE" build $target_arg -app -nir "tests/$test_name"
+      echo "[exit $?]"
+    fi
+    if [ -f "$golden_dir/$package_name.$target_name.app.nplan" ]; then
+      echo "$ mfb build ${target_label}-app -nplan tests/$test_name"
+      "$MFB_EXE" build $target_arg -app -nplan "tests/$test_name"
+      echo "[exit $?]"
+    fi
+    if [ -f "$golden_dir/$package_name.$target_name.app.ncode" ]; then
+      echo "$ mfb build ${target_label}-app -ncode tests/$test_name"
+      "$MFB_EXE" build $target_arg -app -ncode "tests/$test_name"
       echo "[exit $?]"
     fi
     if [ -f "$golden_dir/$package_name.run" ]; then
@@ -206,16 +227,28 @@ for test_dir in "$TEST_ROOT"/*; do
     mv "$mfp_path" "$actual_dir/$package_name.mfp"
   fi
   if [ -f "$nir_path" ]; then
-    mv "$nir_path" "$actual_dir/$package_name.$target_name.nir"
+    if [ -f "$golden_dir/$package_name.$target_name.app.nir" ]; then
+      mv "$nir_path" "$actual_dir/$package_name.$target_name.app.nir"
+    else
+      mv "$nir_path" "$actual_dir/$package_name.$target_name.nir"
+    fi
   fi
   if [ -f "$nplan_path" ]; then
-    mv "$nplan_path" "$actual_dir/$package_name.$target_name.nplan"
+    if [ -f "$golden_dir/$package_name.$target_name.app.nplan" ]; then
+      mv "$nplan_path" "$actual_dir/$package_name.$target_name.app.nplan"
+    else
+      mv "$nplan_path" "$actual_dir/$package_name.$target_name.nplan"
+    fi
   fi
   if [ -f "$nobj_path" ]; then
     mv "$nobj_path" "$actual_dir/$package_name.$target_name.nobj"
   fi
   if [ -f "$ncode_path" ]; then
-    mv "$ncode_path" "$actual_dir/$package_name.$target_name.ncode"
+    if [ -f "$golden_dir/$package_name.$target_name.app.ncode" ]; then
+      mv "$ncode_path" "$actual_dir/$package_name.$target_name.app.ncode"
+    else
+      mv "$ncode_path" "$actual_dir/$package_name.$target_name.ncode"
+    fi
   fi
 
   audit_path="$actual_dir/$package_name.audit"
@@ -274,6 +307,15 @@ for test_dir in "$TEST_ROOT"/*; do
   compare_optional_output "$test_name/$package_name.$target_name.ncode" \
     "$golden_dir/$package_name.$target_name.ncode" \
     "$actual_dir/$package_name.$target_name.ncode"
+  compare_optional_output "$test_name/$package_name.$target_name.app.nir" \
+    "$golden_dir/$package_name.$target_name.app.nir" \
+    "$actual_dir/$package_name.$target_name.app.nir"
+  compare_optional_output "$test_name/$package_name.$target_name.app.nplan" \
+    "$golden_dir/$package_name.$target_name.app.nplan" \
+    "$actual_dir/$package_name.$target_name.app.nplan"
+  compare_optional_output "$test_name/$package_name.$target_name.app.ncode" \
+    "$golden_dir/$package_name.$target_name.app.ncode" \
+    "$actual_dir/$package_name.$target_name.app.ncode"
 done
 
 if [ "$failures" -ne 0 ]; then

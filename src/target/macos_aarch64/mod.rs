@@ -2,7 +2,7 @@ use crate::arch;
 use crate::ir::IrProject;
 use crate::os;
 use crate::target::shared::{lower, validate};
-use crate::target::{BackendCapabilities, BuildTarget, NativeBackend};
+use crate::target::{BackendCapabilities, BuildTarget, NativeBackend, NativeBuildMode};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -115,6 +115,10 @@ impl NativeBackend for Backend {
         }
     }
 
+    fn supports_app_mode(&self) -> bool {
+        true
+    }
+
     fn validate(&self, ir: &IrProject, packages: &[PathBuf]) -> Result<(), String> {
         validate::validate_project(ir, packages)
     }
@@ -125,8 +129,16 @@ impl NativeBackend for Backend {
         ir: &IrProject,
         packages: &[PathBuf],
         signing_metadata: Option<&[u8]>,
+        build_mode: NativeBuildMode,
     ) -> Result<Vec<PathBuf>, String> {
-        write_executable(project_dir, ir, &self.target(), packages, signing_metadata)
+        write_executable(
+            project_dir,
+            ir,
+            &self.target(),
+            packages,
+            signing_metadata,
+            build_mode,
+        )
     }
 
     fn write_nir(
@@ -134,8 +146,9 @@ impl NativeBackend for Backend {
         project_dir: &Path,
         ir: &IrProject,
         packages: &[PathBuf],
+        build_mode: NativeBuildMode,
     ) -> Result<PathBuf, String> {
-        write_nir(project_dir, ir, &self.target(), packages)
+        write_nir(project_dir, ir, &self.target(), packages, build_mode)
     }
 
     fn write_native_plan(
@@ -143,8 +156,9 @@ impl NativeBackend for Backend {
         project_dir: &Path,
         ir: &IrProject,
         packages: &[PathBuf],
+        build_mode: NativeBuildMode,
     ) -> Result<PathBuf, String> {
-        write_native_plan(project_dir, ir, &self.target(), packages)
+        write_native_plan(project_dir, ir, &self.target(), packages, build_mode)
     }
 
     fn write_native_object_plan(
@@ -152,8 +166,9 @@ impl NativeBackend for Backend {
         project_dir: &Path,
         ir: &IrProject,
         packages: &[PathBuf],
+        build_mode: NativeBuildMode,
     ) -> Result<PathBuf, String> {
-        write_native_object_plan(project_dir, ir, &self.target(), packages)
+        write_native_object_plan(project_dir, ir, &self.target(), packages, build_mode)
     }
 
     fn write_native_code_plan(
@@ -161,8 +176,9 @@ impl NativeBackend for Backend {
         project_dir: &Path,
         ir: &IrProject,
         packages: &[PathBuf],
+        build_mode: NativeBuildMode,
     ) -> Result<PathBuf, String> {
-        write_native_code_plan(project_dir, ir, &self.target(), packages)
+        write_native_code_plan(project_dir, ir, &self.target(), packages, build_mode)
     }
 }
 
@@ -172,10 +188,23 @@ fn write_executable(
     target: &BuildTarget,
     packages: &[PathBuf],
     signing_metadata: Option<&[u8]>,
+    build_mode: NativeBuildMode,
 ) -> Result<Vec<PathBuf>, String> {
     validate::validate_target(target)?;
     validate::validate_project(ir, packages)?;
-    let module = lower::lower_project(ir, target.name(), packages)?;
+    if build_mode == NativeBuildMode::MacApp {
+        // Phase 1 (plan-04-macos-app.md §9) wires the `-app` build mode through
+        // lowering and records it in NIR/plan/code metadata. The AppKit app
+        // runtime (bundle, bootstrap, window-backed io::*) lands in later phases;
+        // until then the executable path reports a clear blocker rather than
+        // emitting a console binary disguised as an app.
+        return Err(
+            "macOS app mode (`mfb build -app`) executable output is not yet implemented; \
+             app runtime bootstrap and `.app` bundle emission land in a later phase"
+                .to_string(),
+        );
+    }
+    let module = lower::lower_project(ir, target.name(), packages, build_mode)?;
     validate::validate_nir(&module)?;
     validate::validate_capabilities(&module, &BACKEND.capabilities())?;
     let native_plan = plan::lower_module(&module)?;
@@ -193,10 +222,11 @@ fn write_nir(
     ir: &IrProject,
     target: &BuildTarget,
     packages: &[PathBuf],
+    build_mode: NativeBuildMode,
 ) -> Result<PathBuf, String> {
     validate::validate_target(target)?;
     validate::validate_project(ir, packages)?;
-    let module = lower::lower_project(ir, target.name(), packages)?;
+    let module = lower::lower_project(ir, target.name(), packages, build_mode)?;
     validate::validate_nir(&module)?;
     validate::validate_capabilities(&module, &BACKEND.capabilities())?;
     let nir_path = project_dir.join(format!("{}.nir", ir.name));
@@ -210,10 +240,11 @@ fn write_native_plan(
     ir: &IrProject,
     target: &BuildTarget,
     packages: &[PathBuf],
+    build_mode: NativeBuildMode,
 ) -> Result<PathBuf, String> {
     validate::validate_target(target)?;
     validate::validate_project(ir, packages)?;
-    let module = lower::lower_project(ir, target.name(), packages)?;
+    let module = lower::lower_project(ir, target.name(), packages, build_mode)?;
     validate::validate_nir(&module)?;
     validate::validate_capabilities(&module, &BACKEND.capabilities())?;
     let native_plan = plan::lower_module(&module)?;
@@ -229,10 +260,11 @@ fn write_native_object_plan(
     ir: &IrProject,
     target: &BuildTarget,
     packages: &[PathBuf],
+    build_mode: NativeBuildMode,
 ) -> Result<PathBuf, String> {
     validate::validate_target(target)?;
     validate::validate_project(ir, packages)?;
-    let module = lower::lower_project(ir, target.name(), packages)?;
+    let module = lower::lower_project(ir, target.name(), packages, build_mode)?;
     validate::validate_nir(&module)?;
     validate::validate_capabilities(&module, &BACKEND.capabilities())?;
     let native_plan = plan::lower_module(&module)?;
@@ -245,10 +277,11 @@ fn write_native_code_plan(
     ir: &IrProject,
     target: &BuildTarget,
     packages: &[PathBuf],
+    build_mode: NativeBuildMode,
 ) -> Result<PathBuf, String> {
     validate::validate_target(target)?;
     validate::validate_project(ir, packages)?;
-    let module = lower::lower_project(ir, target.name(), packages)?;
+    let module = lower::lower_project(ir, target.name(), packages, build_mode)?;
     validate::validate_nir(&module)?;
     validate::validate_capabilities(&module, &BACKEND.capabilities())?;
     let native_plan = plan::lower_module(&module)?;

@@ -15,6 +15,28 @@ pub struct BuildTarget {
     pub arch: String,
 }
 
+/// Selects which native runtime/output shape a macOS-capable backend produces.
+///
+/// `Console` is the standard terminal/file-descriptor executable. `MacApp` is the
+/// macOS GUI app-mode output (`mfb build -app`) whose `io::*` built-ins target an
+/// AppKit window instead of the terminal (see specifications/plan-04-macos-app.md).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NativeBuildMode {
+    Console,
+    MacApp,
+}
+
+impl NativeBuildMode {
+    /// Stable identifier recorded in NIR / native plan / native code plan metadata
+    /// and used by goldens and validation.
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            NativeBuildMode::Console => "console",
+            NativeBuildMode::MacApp => "macos-app",
+        }
+    }
+}
+
 impl BuildTarget {
     pub fn host() -> Self {
         Self {
@@ -60,31 +82,41 @@ pub(crate) trait NativeBackend: Sync {
         ir: &IrProject,
         packages: &[PathBuf],
         signing_metadata: Option<&[u8]>,
+        build_mode: NativeBuildMode,
     ) -> Result<Vec<PathBuf>, String>;
     fn write_nir(
         &self,
         project_dir: &Path,
         ir: &IrProject,
         packages: &[PathBuf],
+        build_mode: NativeBuildMode,
     ) -> Result<PathBuf, String>;
     fn write_native_plan(
         &self,
         project_dir: &Path,
         ir: &IrProject,
         packages: &[PathBuf],
+        build_mode: NativeBuildMode,
     ) -> Result<PathBuf, String>;
     fn write_native_object_plan(
         &self,
         project_dir: &Path,
         ir: &IrProject,
         packages: &[PathBuf],
+        build_mode: NativeBuildMode,
     ) -> Result<PathBuf, String>;
     fn write_native_code_plan(
         &self,
         project_dir: &Path,
         ir: &IrProject,
         packages: &[PathBuf],
+        build_mode: NativeBuildMode,
     ) -> Result<PathBuf, String>;
+    /// Whether this backend supports app mode (`mfb build -app`). Only macOS
+    /// backends advertise this; the CLI rejects `-app` for any other target.
+    fn supports_app_mode(&self) -> bool {
+        false
+    }
 }
 
 static NATIVE_BACKENDS: &[&dyn NativeBackend] = &[&macos_aarch64::BACKEND, &linux_aarch64::BACKEND];
@@ -97,12 +129,21 @@ fn backend_for(target: &BuildTarget) -> Result<&'static dyn NativeBackend, Strin
         .ok_or_else(|| format!("native output does not support {} yet", target.name()))
 }
 
+/// Whether the resolved target supports `mfb build -app`. Used by the CLI to
+/// reject `-app` for non-macOS targets before any lowering happens.
+pub fn target_supports_app_mode(target: &BuildTarget) -> bool {
+    backend_for(target)
+        .map(|backend| backend.supports_app_mode())
+        .unwrap_or(false)
+}
+
 pub fn write_executable(
     project_dir: &Path,
     ir: &IrProject,
     target: &BuildTarget,
     packages: &[PathBuf],
     signing_metadata: Option<&[u8]>,
+    build_mode: NativeBuildMode,
 ) -> Result<Vec<PathBuf>, String> {
     let backend = backend_for(target)?;
     if !backend.capabilities().executable {
@@ -112,7 +153,7 @@ pub fn write_executable(
         ));
     }
     backend.validate(ir, packages)?;
-    backend.write_executable(project_dir, ir, packages, signing_metadata)
+    backend.write_executable(project_dir, ir, packages, signing_metadata, build_mode)
 }
 
 pub fn write_nir(
@@ -120,6 +161,7 @@ pub fn write_nir(
     ir: &IrProject,
     target: &BuildTarget,
     packages: &[PathBuf],
+    build_mode: NativeBuildMode,
 ) -> Result<PathBuf, String> {
     let backend = backend_for(target)?;
     if !backend.capabilities().native_ir {
@@ -129,7 +171,7 @@ pub fn write_nir(
         ));
     }
     backend.validate(ir, packages)?;
-    backend.write_nir(project_dir, ir, packages)
+    backend.write_nir(project_dir, ir, packages, build_mode)
 }
 
 pub fn write_native_plan(
@@ -137,6 +179,7 @@ pub fn write_native_plan(
     ir: &IrProject,
     target: &BuildTarget,
     packages: &[PathBuf],
+    build_mode: NativeBuildMode,
 ) -> Result<PathBuf, String> {
     let backend = backend_for(target)?;
     if !backend.capabilities().native_plan {
@@ -146,7 +189,7 @@ pub fn write_native_plan(
         ));
     }
     backend.validate(ir, packages)?;
-    backend.write_native_plan(project_dir, ir, packages)
+    backend.write_native_plan(project_dir, ir, packages, build_mode)
 }
 
 pub fn write_native_object_plan(
@@ -154,6 +197,7 @@ pub fn write_native_object_plan(
     ir: &IrProject,
     target: &BuildTarget,
     packages: &[PathBuf],
+    build_mode: NativeBuildMode,
 ) -> Result<PathBuf, String> {
     let backend = backend_for(target)?;
     if !backend.capabilities().native_object_plan {
@@ -163,7 +207,7 @@ pub fn write_native_object_plan(
         ));
     }
     backend.validate(ir, packages)?;
-    backend.write_native_object_plan(project_dir, ir, packages)
+    backend.write_native_object_plan(project_dir, ir, packages, build_mode)
 }
 
 pub fn write_native_code_plan(
@@ -171,6 +215,7 @@ pub fn write_native_code_plan(
     ir: &IrProject,
     target: &BuildTarget,
     packages: &[PathBuf],
+    build_mode: NativeBuildMode,
 ) -> Result<PathBuf, String> {
     let backend = backend_for(target)?;
     if !backend.capabilities().native_code_plan {
@@ -180,7 +225,7 @@ pub fn write_native_code_plan(
         ));
     }
     backend.validate(ir, packages)?;
-    backend.write_native_code_plan(project_dir, ir, packages)
+    backend.write_native_code_plan(project_dir, ir, packages, build_mode)
 }
 
 pub fn write_package(

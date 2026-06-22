@@ -7,6 +7,9 @@ use super::runtime;
 
 pub(crate) struct NativePlan {
     pub(crate) target: String,
+    /// Native build mode this plan was lowered for (`console` or `macos-app`),
+    /// carried from the NIR module so the backend selects the right runtime shape.
+    pub(crate) build_mode: crate::target::NativeBuildMode,
     pub(crate) project: String,
     pub(crate) entry_symbol: Option<String>,
     pub(crate) runtime_symbols: Vec<String>,
@@ -203,6 +206,7 @@ pub(crate) fn lower_module_for_platform(
 
     Ok(NativePlan {
         target: module.target.clone(),
+        build_mode: module.build_mode,
         project: module.project.clone(),
         entry_symbol,
         runtime_symbols,
@@ -265,6 +269,7 @@ impl NativePlan {
                 "  \"format\": \"mfb-native-plan\",\n",
                 "  \"version\": 1,\n",
                 "  \"target\": {},\n",
+                "  \"buildMode\": {},\n",
                 "  \"project\": {},\n",
                 "  \"entrySymbol\": {},\n",
                 "  \"runtimeSymbols\": [{}],\n",
@@ -274,6 +279,7 @@ impl NativePlan {
                 "}}\n"
             ),
             json_string(&self.target),
+            json_string(self.build_mode.as_str()),
             json_string(&self.project),
             self.entry_symbol
                 .as_ref()
@@ -2081,6 +2087,7 @@ mod tests {
     fn plans_runtime_symbol_and_entry_function() {
         let module = NirModule {
             target: "test-target".to_string(),
+            build_mode: crate::target::NativeBuildMode::Console,
             project: "hello".to_string(),
             entry: Some(NirEntryPoint {
                 name: "main".to_string(),

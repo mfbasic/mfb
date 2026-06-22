@@ -79,6 +79,12 @@ The CLI supports these build-related commands:
 - `mfb build -ncode [location]` writes `<name>.ncode`.
 - `mfb build -target os-arch [location]` selects a native target instead of
   the host target.
+- `mfb build -app [location]` selects macOS app mode: the executable and native
+  intermediate outputs target the AppKit app runtime instead of the console
+  runtime (see `specifications/plan-04-macos-app.md`). `-app` is valid only for
+  executable projects and only when `-target` resolves to a macOS native target;
+  it is rejected otherwise. App mode is recorded as the `buildMode` field in
+  `-nir`, `-nplan`, and `-ncode` output (`"console"` or `"macos-app"`).
 
 The output flags are mutually exclusive. If no output flag is supplied,
 `mfb build` emits:

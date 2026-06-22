@@ -2,6 +2,7 @@
   "format": "mfb-nir",
   "version": 1,
   "target": "macos-aarch64",
+  "buildMode": "console",
   "project": "project_entry_func_args_default",
   "entry": {
     "name": "main",

@@ -3,7 +3,7 @@ use crate::ir::IrProject;
 use crate::os;
 use crate::os::linux::flavor::LinuxFlavor;
 use crate::target::shared::{lower, validate};
-use crate::target::{BackendCapabilities, BuildTarget, NativeBackend};
+use crate::target::{BackendCapabilities, BuildTarget, NativeBackend, NativeBuildMode};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -126,8 +126,16 @@ impl NativeBackend for Backend {
         ir: &IrProject,
         packages: &[PathBuf],
         signing_metadata: Option<&[u8]>,
+        build_mode: NativeBuildMode,
     ) -> Result<Vec<PathBuf>, String> {
-        write_executable(project_dir, ir, &self.target(), packages, signing_metadata)
+        write_executable(
+            project_dir,
+            ir,
+            &self.target(),
+            packages,
+            signing_metadata,
+            build_mode,
+        )
     }
 
     fn write_nir(
@@ -135,8 +143,9 @@ impl NativeBackend for Backend {
         project_dir: &Path,
         ir: &IrProject,
         packages: &[PathBuf],
+        build_mode: NativeBuildMode,
     ) -> Result<PathBuf, String> {
-        write_nir(project_dir, ir, &self.target(), packages)
+        write_nir(project_dir, ir, &self.target(), packages, build_mode)
     }
 
     fn write_native_plan(
@@ -144,8 +153,9 @@ impl NativeBackend for Backend {
         project_dir: &Path,
         ir: &IrProject,
         packages: &[PathBuf],
+        build_mode: NativeBuildMode,
     ) -> Result<PathBuf, String> {
-        write_native_plan(project_dir, ir, &self.target(), packages)
+        write_native_plan(project_dir, ir, &self.target(), packages, build_mode)
     }
 
     fn write_native_object_plan(
@@ -153,8 +163,9 @@ impl NativeBackend for Backend {
         project_dir: &Path,
         ir: &IrProject,
         packages: &[PathBuf],
+        build_mode: NativeBuildMode,
     ) -> Result<PathBuf, String> {
-        write_native_object_plan(project_dir, ir, &self.target(), packages)
+        write_native_object_plan(project_dir, ir, &self.target(), packages, build_mode)
     }
 
     fn write_native_code_plan(
@@ -162,8 +173,9 @@ impl NativeBackend for Backend {
         project_dir: &Path,
         ir: &IrProject,
         packages: &[PathBuf],
+        build_mode: NativeBuildMode,
     ) -> Result<PathBuf, String> {
-        write_native_code_plan(project_dir, ir, &self.target(), packages)
+        write_native_code_plan(project_dir, ir, &self.target(), packages, build_mode)
     }
 }
 
@@ -173,8 +185,9 @@ fn write_executable(
     target: &BuildTarget,
     packages: &[PathBuf],
     signing_metadata: Option<&[u8]>,
+    build_mode: NativeBuildMode,
 ) -> Result<Vec<PathBuf>, String> {
-    let module = lower_validated_module(ir, target, packages)?;
+    let module = lower_validated_module(ir, target, packages, build_mode)?;
     let mut paths = Vec::new();
     for flavor in LinuxFlavor::ALL {
         let native_plan = plan::lower_module(&module, flavor)?;
@@ -199,8 +212,9 @@ fn write_nir(
     ir: &IrProject,
     target: &BuildTarget,
     packages: &[PathBuf],
+    build_mode: NativeBuildMode,
 ) -> Result<PathBuf, String> {
-    let module = lower_validated_module(ir, target, packages)?;
+    let module = lower_validated_module(ir, target, packages, build_mode)?;
     let nir_path = project_dir.join(format!("{}.nir", ir.name));
     fs::write(&nir_path, module.to_json())
         .map_err(|err| format!("failed to write '{}': {err}", nir_path.display()))?;
@@ -212,8 +226,9 @@ fn write_native_plan(
     ir: &IrProject,
     target: &BuildTarget,
     packages: &[PathBuf],
+    build_mode: NativeBuildMode,
 ) -> Result<PathBuf, String> {
-    let module = lower_validated_module(ir, target, packages)?;
+    let module = lower_validated_module(ir, target, packages, build_mode)?;
     let native_plan = plan::lower_module(&module, LinuxFlavor::Glibc)?;
     native_plan.validate()?;
     let plan_path = project_dir.join(format!("{}.nplan", ir.name));
@@ -227,8 +242,9 @@ fn write_native_object_plan(
     ir: &IrProject,
     target: &BuildTarget,
     packages: &[PathBuf],
+    build_mode: NativeBuildMode,
 ) -> Result<PathBuf, String> {
-    let module = lower_validated_module(ir, target, packages)?;
+    let module = lower_validated_module(ir, target, packages, build_mode)?;
     let native_plan = plan::lower_module(&module, LinuxFlavor::Glibc)?;
     native_plan.validate()?;
     os::linux::write_native_object_plan(project_dir, &ir.name, &native_plan)
@@ -239,8 +255,9 @@ fn write_native_code_plan(
     ir: &IrProject,
     target: &BuildTarget,
     packages: &[PathBuf],
+    build_mode: NativeBuildMode,
 ) -> Result<PathBuf, String> {
-    let module = lower_validated_module(ir, target, packages)?;
+    let module = lower_validated_module(ir, target, packages, build_mode)?;
     let native_plan = plan::lower_module(&module, LinuxFlavor::Glibc)?;
     native_plan.validate()?;
     os::linux::validate_native_object_plan(&native_plan)?;
@@ -256,10 +273,16 @@ fn lower_validated_module(
     ir: &IrProject,
     target: &BuildTarget,
     packages: &[PathBuf],
+    build_mode: NativeBuildMode,
 ) -> Result<crate::target::shared::nir::NirModule, String> {
     validate::validate_target(target)?;
     validate::validate_project(ir, packages)?;
-    let module = lower::lower_project(ir, target.name(), packages)?;
+    if build_mode != NativeBuildMode::Console {
+        // App mode is macOS-only; the CLI rejects `-app` for non-macOS targets
+        // before reaching a backend, so this is a defensive guard.
+        return Err("Linux native targets do not support app mode".to_string());
+    }
+    let module = lower::lower_project(ir, target.name(), packages, build_mode)?;
     validate::validate_nir(&module)?;
     validate::validate_capabilities(&module, &BACKEND.capabilities())?;
     Ok(module)

@@ -1558,6 +1558,7 @@ mod tests {
     fn module(runtime_helpers: Vec<RuntimeHelper>) -> NirModule {
         NirModule {
             target: "test-target".to_string(),
+            build_mode: crate::target::NativeBuildMode::Console,
             project: "hello".to_string(),
             entry: Some(NirEntryPoint {
                 name: "main".to_string(),

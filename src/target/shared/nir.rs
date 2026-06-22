@@ -13,6 +13,9 @@ use super::runtime::RuntimeHelper;
 
 pub(crate) struct NirModule {
     pub(crate) target: String,
+    /// Native build mode this module was lowered for (`console` or `macos-app`).
+    /// Recorded so downstream plan/code stages and goldens reflect app mode.
+    pub(crate) build_mode: crate::target::NativeBuildMode,
     pub(crate) project: String,
     pub(crate) entry: Option<NirEntryPoint>,
     pub(crate) globals: Vec<NirGlobal>,
@@ -328,10 +331,12 @@ pub(crate) struct NirRecordUpdate {
 pub(crate) fn lower_module(
     ir: &IrProject,
     target: String,
+    build_mode: crate::target::NativeBuildMode,
     runtime_helpers: Vec<RuntimeHelper>,
 ) -> Result<NirModule, String> {
     Ok(NirModule {
         target,
+        build_mode,
         project: ir.name.clone(),
         entry: ir.entry.as_ref().map(lower_entry),
         globals: ir
@@ -841,6 +846,7 @@ impl NirModule {
                 "  \"format\": \"mfb-nir\",\n",
                 "  \"version\": 1,\n",
                 "  \"target\": {},\n",
+                "  \"buildMode\": {},\n",
                 "  \"project\": {},\n",
                 "  \"entry\": {},\n",
                 "{}",
@@ -851,6 +857,7 @@ impl NirModule {
                 "}}\n"
             ),
             json_string(&self.target),
+            json_string(self.build_mode.as_str()),
             json_string(&self.project),
             self.entry
                 .as_ref()

@@ -24,7 +24,7 @@ use std::path::{Path, PathBuf};
 use std::process;
 use tinyjson::JsonValue;
 
-const USAGE: &str = "Usage: mfb <command> <arguments>\n\nCommands:\n  help                                 Show this message\n  init <location>                      Create a new MFBASIC executable project\n  init-pkg <location>                  Create a new MFBASIC package project\n  repo register <owner_name>           Register a repository owner\n  repo auth <owner_name>               Authenticate as a repository owner\n  pkg add <url>                        Add a compiled package to the current project\n  pkg info <package>                   Show information about a compiled package\n  pkg verify                           Verify packages declared by project.json\n  pkg publish <owner_name> <package>   Publish a signed package project\n  build [--sign owner] [-ast|-ir|-br|-nir|-nplan|-nobj|-ncode] [-target os-arch] [location] Validate and build an MFBASIC project\n  audit [--format text|json] [--locked] [path] Report audit findings for a project\n  man [package] [function]             Show built-in package and function help";
+const USAGE: &str = "Usage: mfb <command> <arguments>\n\nCommands:\n  help                                 Show this message\n  init <location>                      Create a new MFBASIC executable project\n  init-pkg <location>                  Create a new MFBASIC package project\n  repo register <owner_name>           Register a repository owner\n  repo auth <owner_name>               Authenticate as a repository owner\n  pkg add <url>                        Add a compiled package to the current project\n  pkg info <package>                   Show information about a compiled package\n  pkg verify                           Verify packages declared by project.json\n  pkg publish <owner_name> <package>   Publish a signed package project\n  build [--sign owner] [-ast|-ir|-br|-nir|-nplan|-nobj|-ncode] [-target os-arch] [-app] [location] Validate and build an MFBASIC project\n  audit [--format text|json] [--locked] [path] Report audit findings for a project\n  man [package] [function]             Show built-in package and function help";
 
 const MFP_MAGIC: [u8; 8] = [0x4d, 0x46, 0x50, 0x0d, 0x0a, 0x1a, 0x0a, 0x00];
 
@@ -185,6 +185,7 @@ struct BuildOptions {
     output: BuildOutput,
     target: target::BuildTarget,
     sign_owner: Option<String>,
+    app_mode: bool,
 }
 
 enum BuildOutput {
@@ -203,6 +204,7 @@ fn parse_build_options(args: Vec<String>) -> Result<BuildOptions, String> {
     let mut output = BuildOutput::Validate;
     let mut target = None;
     let mut sign_owner = None;
+    let mut app_mode = false;
     let mut iter = args.into_iter();
 
     while let Some(arg) = iter.next() {
@@ -259,6 +261,11 @@ fn parse_build_options(args: Vec<String>) -> Result<BuildOptions, String> {
             if sign_owner.replace(value.to_string()).is_some() {
                 return Err("mfb build accepts at most one --sign option".to_string());
             }
+        } else if arg == "-app" {
+            if app_mode {
+                return Err("mfb build accepts at most one -app option".to_string());
+            }
+            app_mode = true;
         } else if arg.starts_with('-') {
             return Err(format!("unknown build option `{arg}`"));
         } else if location.replace(PathBuf::from(&arg)).is_some() {
@@ -271,6 +278,7 @@ fn parse_build_options(args: Vec<String>) -> Result<BuildOptions, String> {
         output,
         target: target.unwrap_or_else(target::BuildTarget::host),
         sign_owner,
+        app_mode,
     })
 }
 
@@ -317,6 +325,27 @@ fn build_project(options: &BuildOptions) -> Result<(), ()> {
     let project_path = options.location.join("project.json");
     let manifest = validate_project_manifest(&project_path)?;
     let project_kind = project_kind(&manifest);
+
+    // `mfb build -app` (plan-04-macos-app.md §5.1) is a macOS-only, executable-only
+    // build flag. Reject incompatible combinations up front, before any lowering.
+    if options.app_mode {
+        if project_kind != "executable" {
+            eprintln!("error: mfb build -app requires an executable project");
+            return Err(());
+        }
+        if !target::target_supports_app_mode(&target) {
+            eprintln!(
+                "error: mfb build -app requires a macOS target (got {})",
+                target.name()
+            );
+            return Err(());
+        }
+    }
+    let build_mode = if options.app_mode {
+        target::NativeBuildMode::MacApp
+    } else {
+        target::NativeBuildMode::Console
+    };
 
     let project_name = manifest
         .get("name")
@@ -368,6 +397,7 @@ fn build_project(options: &BuildOptions) -> Result<(), ()> {
                     signing
                         .as_ref()
                         .map(|signing| signing.executable_metadata.as_slice()),
+                    build_mode,
                 )
                 .map_err(|err| {
                     eprintln!("error: {err}");
@@ -490,7 +520,8 @@ fn build_project(options: &BuildOptions) -> Result<(), ()> {
                 &external_functions,
                 &external_params,
             );
-            let nir_path = match target::write_nir(&options.location, &ir, &target, &packages) {
+            let nir_path = match target::write_nir(&options.location, &ir, &target, &packages, build_mode)
+            {
                 Ok(path) => path,
                 Err(err) => {
                     eprintln!("error: {err}");
@@ -523,7 +554,8 @@ fn build_project(options: &BuildOptions) -> Result<(), ()> {
                 &external_params,
             );
             let plan_path =
-                match target::write_native_plan(&options.location, &ir, &target, &packages) {
+                match target::write_native_plan(&options.location, &ir, &target, &packages, build_mode)
+                {
                     Ok(path) => path,
                     Err(err) => {
                         eprintln!("error: {err}");
@@ -560,6 +592,7 @@ fn build_project(options: &BuildOptions) -> Result<(), ()> {
                 &ir,
                 &target,
                 &packages,
+                build_mode,
             ) {
                 Ok(path) => path,
                 Err(err) => {
@@ -592,14 +625,19 @@ fn build_project(options: &BuildOptions) -> Result<(), ()> {
                 &external_functions,
                 &external_params,
             );
-            let code_path =
-                match target::write_native_code_plan(&options.location, &ir, &target, &packages) {
-                    Ok(path) => path,
-                    Err(err) => {
-                        eprintln!("error: {err}");
-                        return Err(());
-                    }
-                };
+            let code_path = match target::write_native_code_plan(
+                &options.location,
+                &ir,
+                &target,
+                &packages,
+                build_mode,
+            ) {
+                Ok(path) => path,
+                Err(err) => {
+                    eprintln!("error: {err}");
+                    return Err(());
+                }
+            };
             println!("Wrote native code plan to {}", code_path.display());
         }
     }
@@ -736,6 +774,7 @@ fn publish_package_project(owner: &str, project_dir: &Path) -> Result<(), String
         output: BuildOutput::Validate,
         target: target::BuildTarget::host(),
         sign_owner: Some(owner.to_string()),
+        app_mode: false,
     })
     .map_err(|_| "package build failed".to_string())?;
 
@@ -2612,6 +2651,36 @@ fn package_source() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn parse_build_options_defaults_to_console_mode() {
+        let options = parse_build_options(vec!["some/project".to_string()]).expect("options");
+        assert!(!options.app_mode);
+    }
+
+    #[test]
+    fn parse_build_options_accepts_app_flag() {
+        let options =
+            parse_build_options(vec!["-app".to_string(), "some/project".to_string()]).expect("options");
+        assert!(options.app_mode);
+    }
+
+    #[test]
+    fn parse_build_options_rejects_duplicate_app_flag() {
+        let result = parse_build_options(vec!["-app".to_string(), "-app".to_string()]);
+        match result {
+            Err(err) => assert!(err.contains("at most one -app")),
+            Ok(_) => panic!("duplicate -app must be rejected"),
+        }
+    }
+
+    #[test]
+    fn parse_build_options_app_flag_composes_with_native_output() {
+        let options = parse_build_options(vec!["-app".to_string(), "-nir".to_string()])
+            .expect("options");
+        assert!(options.app_mode);
+        assert!(matches!(options.output, BuildOutput::NativeIr));
+    }
 
     #[test]
     fn package_add_manifest_insert_creates_packages_array() {

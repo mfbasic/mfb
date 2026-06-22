@@ -2,6 +2,7 @@
   "format": "mfb-nir",
   "version": 1,
   "target": "macos-aarch64",
+  "buildMode": "console",
   "project": "primitive_integer_bindings",
   "entry": {
     "name": "main",

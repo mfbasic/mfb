@@ -2,14 +2,15 @@
   "format": "mfb-native-plan",
   "version": 1,
   "target": "macos-aarch64",
-  "buildMode": "console",
-  "project": "project_entry_sub_args_main",
+  "buildMode": "macos-app",
+  "project": "macos_app_mode_plumbing",
   "entrySymbol": "_mfb_fn_main",
-  "runtimeSymbols": [],
+  "runtimeSymbols": ["_mfb_rt_io_io_print"],
   "externalSymbols": [],
   "platformImports": [
   { "library": "libSystem", "symbol": "_exit", "requiredBy": "_main" },
-  { "library": "libSystem", "symbol": "_write", "requiredBy": "_main" }
+  { "library": "libSystem", "symbol": "_write", "requiredBy": "_main" },
+  { "library": "libSystem", "symbol": "_write", "requiredBy": "_mfb_rt_io_io_print" }
   ],
   "functions": [
   {
@@ -17,14 +18,14 @@
     "symbol": "_mfb_fn_main",
     "returns": { "name": "Nothing", "class": "void", "size": 0, "align": 1 },
     "params": [
-    { "name": "args", "storage": { "name": "List OF String", "class": "reference", "size": 8, "align": 8 } }
     ],
     "localSlots": [
     ],
     "labels": [
     ],
-    "operations": ["noOp"],
+    "operations": ["eval runtimeCall io io.print(String(App mode plumbing))"],
     "calls": [
+    { "target": "io.print", "symbol": "_mfb_rt_io_io_print", "kind": "runtime", "stringLiterals": ["App mode plumbing"] }
     ]
   }
   ]

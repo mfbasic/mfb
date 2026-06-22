@@ -13,7 +13,7 @@ Commands:
   pkg info <package>                   Show information about a compiled package
   pkg verify                           Verify packages declared by project.json
   pkg publish <owner_name> <package>   Publish a signed package project
-  build [--sign owner] [-ast|-ir|-br|-nir|-nplan|-nobj|-ncode] [-target os-arch] [location] Validate and build an MFBASIC project
+  build [--sign owner] [-ast|-ir|-br|-nir|-nplan|-nobj|-ncode] [-target os-arch] [-app] [location] Validate and build an MFBASIC project
   audit [--format text|json] [--locked] [path] Report audit findings for a project
   man [package] [function]             Show built-in package and function help
 [exit 2]
@@ -32,7 +32,7 @@ Commands:
   pkg info <package>                   Show information about a compiled package
   pkg verify                           Verify packages declared by project.json
   pkg publish <owner_name> <package>   Publish a signed package project
-  build [--sign owner] [-ast|-ir|-br|-nir|-nplan|-nobj|-ncode] [-target os-arch] [location] Validate and build an MFBASIC project
+  build [--sign owner] [-ast|-ir|-br|-nir|-nplan|-nobj|-ncode] [-target os-arch] [-app] [location] Validate and build an MFBASIC project
   audit [--format text|json] [--locked] [path] Report audit findings for a project
   man [package] [function]             Show built-in package and function help
 [exit 2]

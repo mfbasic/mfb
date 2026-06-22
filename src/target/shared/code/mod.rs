@@ -226,6 +226,9 @@ const FLOAT_TO_STRING_BUFFER_SIZE: usize = 640;
 
 pub(crate) struct NativeCodePlan {
     pub(crate) target: String,
+    /// Native build mode this code plan was lowered for (`console` or
+    /// `macos-app`), carried from the NIR module / native plan.
+    pub(crate) build_mode: crate::target::NativeBuildMode,
     pub(crate) arch: String,
     pub(crate) project: String,
     pub(crate) entry_symbol: Option<String>,
@@ -1038,6 +1041,7 @@ pub(crate) fn lower_module_for_platform(
 
     let plan = NativeCodePlan {
         target: module.target.clone(),
+        build_mode: module.build_mode,
         arch: platform.arch().to_string(),
         project: module.project.clone(),
         entry_symbol: module.entry.as_ref().map(|_| "_main".to_string()),
@@ -1118,6 +1122,7 @@ impl NativeCodePlan {
                 "  \"format\": \"mfb-native-code-plan\",\n",
                 "  \"version\": 1,\n",
                 "  \"target\": {},\n",
+                "  \"buildMode\": {},\n",
                 "  \"arch\": {},\n",
                 "  \"project\": {},\n",
                 "  \"entrySymbol\": {},\n",
@@ -1127,6 +1132,7 @@ impl NativeCodePlan {
                 "}}\n"
             ),
             json_string(&self.target),
+            json_string(self.build_mode.as_str()),
             json_string(&self.arch),
             json_string(&self.project),
             self.entry_symbol

@@ -2,10 +2,10 @@
   "format": "mfb-nir",
   "version": 1,
   "target": "macos-aarch64",
-  "buildMode": "console",
-  "project": "project_entry_sub_foobar",
+  "buildMode": "macos-app",
+  "project": "macos_app_mode_plumbing",
   "entry": {
-    "name": "foobar",
+    "name": "main",
     "returns": "Nothing",
     "accepts_args": false
   },
@@ -13,10 +13,10 @@
   ],
   "imports": [
   ],
-  "runtimeHelpers": [],
+  "runtimeHelpers": ["io"],
   "functions": [
   {
-    "name": "foobar",
+    "name": "main",
     "visibility": "private",
     "kind": "sub",
     "isolated": false,
@@ -24,6 +24,7 @@
     ],
     "returns": "Nothing",
     "body": [
+    { "op": "eval", "value": { "kind": "runtimeCall", "helper": "io", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "App mode plumbing" }] } }
     ]
   }
   ]

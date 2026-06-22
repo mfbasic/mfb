@@ -939,6 +939,7 @@ mod tests {
     fn lowers_libsystem_import_to_mach_o_object_plan() {
         let plan = NativePlan {
             target: "macos-aarch64".to_string(),
+            build_mode: crate::target::NativeBuildMode::Console,
             project: "hello".to_string(),
             entry_symbol: Some("_mfb_fn_main".to_string()),
             runtime_symbols: vec!["_mfb_rt_io_io_print".to_string()],

@@ -2,6 +2,7 @@
   "format": "mfb-native-plan",
   "version": 1,
   "target": "macos-aarch64",
+  "buildMode": "console",
   "project": "parser_hello_world",
   "entrySymbol": "_mfb_fn_main",
   "runtimeSymbols": ["_mfb_rt_io_io_print"],

@@ -1,0 +1,25 @@
+{
+  "project": "macos_app_mode_plumbing",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 }
+    ],
+    "items": [
+    {
+      "kind": "sub",
+      "visibility": "private",
+      "name": "main",
+      "line": 3,
+      "params": [
+      ],
+      "returnType": null,
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "App mode plumbing" }] }, "line": 4 }
+      ]
+    }
+    ]
+  }
+  ]
+}

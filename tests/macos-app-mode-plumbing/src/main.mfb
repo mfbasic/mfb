@@ -1,0 +1,5 @@
+IMPORT io
+
+SUB main()
+  io::print("App mode plumbing")
+END SUB

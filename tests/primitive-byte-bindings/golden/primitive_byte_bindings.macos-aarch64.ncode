@@ -2,6 +2,7 @@
   "format": "mfb-native-code-plan",
   "version": 1,
   "target": "macos-aarch64",
+  "buildMode": "console",
   "arch": "aarch64",
   "project": "primitive_byte_bindings",
   "entrySymbol": "_main",
