@@ -15,7 +15,7 @@ def build_const_map(src: str) -> dict[str, str]:
     return {
         m.group(1): m.group(2)
         for m in re.finditer(
-            r"^\s*const\s+([A-Z][A-Z0-9_]*)\s*:\s*&str\s*=\s*\"([^\"]+)\"\s*;",
+            r"^\s*(?:pub(?:\([^)]*\))?\s+)?const\s+([A-Z][A-Z0-9_]*)\s*:\s*&str\s*=\s*\"([^\"]+)\"\s*;",
             src,
             re.MULTILINE,
         )
