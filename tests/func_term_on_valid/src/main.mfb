@@ -1,0 +1,6 @@
+IMPORT term
+
+FUNC main AS Integer
+  term::on()
+  RETURN 0
+END FUNC

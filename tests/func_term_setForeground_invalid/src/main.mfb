@@ -1,0 +1,8 @@
+IMPORT term
+
+FUNC main AS Integer
+  term::setForeground()
+  term::setForeground("a", 0, 0)
+  term::setForeground(0, 0, 0, 0)
+  RETURN 0
+END FUNC

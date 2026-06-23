@@ -1,0 +1,8 @@
+IMPORT term
+
+FUNC main AS Integer
+  term::moveTo(0)
+  term::moveTo("a", 0)
+  term::moveTo(0, 0, 0)
+  RETURN 0
+END FUNC

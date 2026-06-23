@@ -1,0 +1,8 @@
+IMPORT term
+
+FUNC main AS Integer
+  term::setUnderline()
+  term::setUnderline("x")
+  term::setUnderline(TRUE, FALSE)
+  RETURN 0
+END FUNC

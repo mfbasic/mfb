@@ -1,0 +1,37 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "func_term_getBackground_valid",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "usegetBackground",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "TermColor",
+    "body": [
+    { "op": "bind", "mutable": false, "name": "c", "type": "TermColor", "value": { "kind": "call", "target": "term.getBackground", "args": [] } },
+    { "op": "return", "value": { "kind": "local", "name": "c" } }
+    ]
+  },
+  {
+    "name": "main",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

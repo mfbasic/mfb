@@ -1,0 +1,8 @@
+IMPORT term
+
+FUNC main AS Integer
+  term::setBold()
+  term::setBold("x")
+  term::setBold(TRUE, FALSE)
+  RETURN 0
+END FUNC

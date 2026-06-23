@@ -1,0 +1,38 @@
+{
+  "project": "func_term_getForeground_valid",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "term", "line": 1 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "usegetForeground",
+      "line": 3,
+      "params": [
+      ],
+      "returnType": "TermColor",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "c", "type": "TermColor", "value": { "kind": "call", "callee": "term.getForeground", "arguments": [] }, "line": 4 },
+      { "kind": "return", "value": { "kind": "identifier", "value": "c" }, "line": 5 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "main",
+      "line": 8,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 9 }
+      ]
+    }
+    ]
+  }
+  ]
+}

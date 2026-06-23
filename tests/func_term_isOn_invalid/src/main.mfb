@@ -1,0 +1,9 @@
+IMPORT term
+
+FUNC bad AS Boolean
+  RETURN term::isOn(1)
+END FUNC
+
+FUNC main AS Integer
+  RETURN 0
+END FUNC

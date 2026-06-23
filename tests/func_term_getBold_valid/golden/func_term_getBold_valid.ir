@@ -1,0 +1,36 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "func_term_getBold_valid",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "usegetBold",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Boolean",
+    "body": [
+    { "op": "return", "value": { "kind": "call", "target": "term.getBold", "args": [] } }
+    ]
+  },
+  {
+    "name": "main",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

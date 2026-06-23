@@ -1,0 +1,36 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "func_term_isOn_valid",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "useisOn",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Boolean",
+    "body": [
+    { "op": "return", "value": { "kind": "call", "target": "term.isOn", "args": [] } }
+    ]
+  },
+  {
+    "name": "main",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}
