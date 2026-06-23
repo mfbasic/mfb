@@ -17,11 +17,22 @@ impl plan::NativePlanPlatform for Platform {
         if module.entry.is_none() {
             return Vec::new();
         }
-        vec![PlatformImport {
+        let mut imports = vec![PlatformImport {
             library: "libSystem".to_string(),
             symbol: "_exit".to_string(),
             required_by: "_main".to_string(),
-        }]
+        }];
+        // `signal` installs the SIGINT/SIGTERM handlers for console programs. App
+        // mode keeps its window-driven finish path, so no handler is registered
+        // there and the import is omitted.
+        if module.build_mode != crate::target::NativeBuildMode::MacApp {
+            imports.push(PlatformImport {
+                library: "libSystem".to_string(),
+                symbol: "_signal".to_string(),
+                required_by: "_main".to_string(),
+            });
+        }
+        imports
     }
 
     fn entry_error_imports(&self, module: &NirModule) -> Vec<PlatformImport> {

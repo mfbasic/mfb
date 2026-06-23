@@ -9,6 +9,7 @@
   "externalSymbols": [],
   "platformImports": [
   { "library": "libSystem", "symbol": "_exit", "requiredBy": "_main" },
+  { "library": "libSystem", "symbol": "_signal", "requiredBy": "_main" },
   { "library": "libSystem", "symbol": "_write", "requiredBy": "_main" },
   { "library": "libSystem", "symbol": "_write", "requiredBy": "_mfb_rt_io_io_print" },
   { "library": "libSystem", "symbol": "_snprintf", "requiredBy": "_mfb_fn_main" }

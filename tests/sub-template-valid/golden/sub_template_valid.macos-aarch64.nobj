@@ -41,6 +41,7 @@
   "definedSymbols": ["_main", "_mfb_fn_main", "_mfb_fn_consume_Integer", "_mfb_fn_consume_String", "_mfb_rt_io_io_print", "_mfb_cstr_0"],
   "importedSymbols": [
   { "library": "libSystem", "symbol": "_exit" },
+  { "library": "libSystem", "symbol": "_signal" },
   { "library": "libSystem", "symbol": "_write" }
   ],
   "externalSymbols": [],
@@ -52,10 +53,11 @@
   { "name": "_mfb_rt_io_io_print", "kind": "defined", "section": "__TEXT,__text", "value": 36, "stringTableOffset": 67 },
   { "name": "_mfb_cstr_0", "kind": "defined", "section": "__TEXT,__cstring", "value": 0, "stringTableOffset": 87 },
   { "name": "_exit", "kind": "imported", "section": null, "value": null, "stringTableOffset": 99 },
-  { "name": "_write", "kind": "imported", "section": null, "value": null, "stringTableOffset": 105 }
+  { "name": "_signal", "kind": "imported", "section": null, "value": null, "stringTableOffset": 105 },
+  { "name": "_write", "kind": "imported", "section": null, "value": null, "stringTableOffset": 113 }
   ],
   "stringTable": {
-    "size": 112,
+    "size": 120,
     "entries": [
     { "value": "_main", "offset": 1 },
     { "value": "_mfb_fn_main", "offset": 7 },
@@ -64,7 +66,8 @@
     { "value": "_mfb_rt_io_io_print", "offset": 67 },
     { "value": "_mfb_cstr_0", "offset": 87 },
     { "value": "_exit", "offset": 99 },
-    { "value": "_write", "offset": 105 }
+    { "value": "_signal", "offset": 105 },
+    { "value": "_write", "offset": 113 }
     ]
   },
   "relocations": [
@@ -73,6 +76,7 @@
   { "from": "_mfb_fn_main", "to": "_mfb_fn_consume_String", "kind": "internalCall", "section": "__TEXT,__text" },
   { "from": "_mfb_fn_main", "to": "_mfb_rt_io_io_print", "kind": "internalCall", "section": "__TEXT,__text" },
   { "from": "_main", "to": "_exit", "kind": "externalCall", "section": "__TEXT,__text" },
+  { "from": "_main", "to": "_signal", "kind": "externalCall", "section": "__TEXT,__text" },
   { "from": "_main", "to": "_write", "kind": "externalCall", "section": "__TEXT,__text" },
   { "from": "_mfb_rt_io_io_print", "to": "_write", "kind": "externalCall", "section": "__TEXT,__text" },
   { "from": "_mfb_rt_io_io_print", "to": "_mfb_cstr_0", "kind": "dataReference", "section": "__TEXT,__text" }

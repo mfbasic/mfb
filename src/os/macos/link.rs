@@ -73,10 +73,12 @@ fn encode_executable_bytes(project_name: &str, image: &EncodedImage) -> Result<V
     let libraries = import_libraries(image)?;
     let has_imports = !libraries.is_empty();
     let has_signing_metadata = image.signing_metadata.is_some();
+    let has_data = !image.data.is_empty();
     let code_offset = code_offset(
         &libraries,
         has_signing_metadata,
         !image.initializers.is_empty(),
+        has_data,
     );
     let mut text = image.text.clone();
     let import_locations = if has_imports {
@@ -90,10 +92,22 @@ fn encode_executable_bytes(project_name: &str, image: &EncodedImage) -> Result<V
     } else {
         ImportLocations::default()
     };
+    // The constant data now lives in the writable `__DATA` segment, so its runtime
+    // address is that segment's base rather than the end of `__TEXT`.
+    let data_vmaddr = VM_BASE
+        + macho_layout(
+            code_offset,
+            text.len(),
+            image.data.len(),
+            data_const_size(image),
+            0,
+        )
+        .data_seg_file_offset as u64;
     patch_relocations(
         &mut text,
         image,
         VM_BASE + code_offset as u64,
+        data_vmaddr,
         &import_locations,
     )?;
     let entry_offset = image
@@ -170,9 +184,9 @@ fn patch_relocations(
     text: &mut [u8],
     image: &EncodedImage,
     text_vmaddr: u64,
+    data_vmaddr: u64,
     import_locations: &ImportLocations,
 ) -> Result<(), String> {
-    let data_vmaddr = text_vmaddr + text.len() as u64;
     for relocation in &image.relocations {
         match relocation.binding.as_str() {
             "internal" if relocation.kind == "branch26" => {
@@ -482,6 +496,7 @@ fn encode_unsigned_mach_o(
 ) -> Vec<u8> {
     let has_imports = !libraries.is_empty();
     let has_init = !image.initializers.is_empty();
+    let has_data = !data.is_empty();
     // A `__DATA_CONST` segment (and the `LC_DYLD_INFO_ONLY` path) is needed when
     // the image has a GOT (imports) and/or a `__mod_init_func` (initializers).
     let needs_data_const = has_imports || has_init;
@@ -499,7 +514,7 @@ fn encode_unsigned_mach_o(
     let signature_offset = align(linkedit.data_in_code_offset, 16);
     let linkedit_file_size = signature_offset + signature_size - layout.linkedit_file_offset;
     let load_commands_size =
-        load_commands_size(libraries, signing_metadata.is_some(), has_init);
+        load_commands_size(libraries, signing_metadata.is_some(), has_init, has_data);
     let mut bytes = Vec::new();
 
     put_u32(&mut bytes, 0xfeed_facf);
@@ -508,7 +523,7 @@ fn encode_unsigned_mach_o(
     put_u32(&mut bytes, 2);
     put_u32(
         &mut bytes,
-        load_command_count(libraries, signing_metadata.is_some(), has_init),
+        load_command_count(libraries, signing_metadata.is_some(), has_init, has_data),
     );
     put_u32(&mut bytes, load_commands_size as u32);
     put_u32(&mut bytes, 0x0020_0085);
@@ -529,6 +544,14 @@ fn encode_unsigned_mach_o(
             dc_size,
             image.imports.len(),
             image.initializers.len(),
+        );
+    }
+    if has_data {
+        data_segment(
+            &mut bytes,
+            layout.data_seg_file_offset,
+            layout.data_seg_size,
+            data.len(),
         );
     }
     if let Some(metadata) = signing_metadata {
@@ -572,7 +595,6 @@ fn encode_unsigned_mach_o(
 
     bytes.resize(code_offset, 0);
     bytes.extend_from_slice(code);
-    bytes.extend_from_slice(data);
     bytes.resize(layout.text_file_size, 0);
     if needs_data_const {
         // GOT slots (zero-filled, bound by dyld) followed by the `__mod_init_func`
@@ -583,6 +605,13 @@ fn encode_unsigned_mach_o(
         for name in &image.initializers {
             put_u64(&mut bytes, initializer_addr(image, name, code_offset));
         }
+    }
+    if has_data {
+        // Writable `__DATA`: the program's constant data and the zero-initialized
+        // main-arena global. Padded to the page-aligned segment size.
+        bytes.resize(layout.data_seg_file_offset, 0);
+        bytes.extend_from_slice(data);
+        bytes.resize(layout.data_seg_file_offset + layout.data_seg_size, 0);
     }
     if let Some(metadata) = signing_metadata {
         bytes.resize(layout.mfb_sign_file_offset, 0);
@@ -613,6 +642,12 @@ fn encode_unsigned_mach_o(
 struct MachOLayout {
     text_file_size: usize,
     data_const_file_offset: usize,
+    /// Writable `__DATA` segment (the main-arena global plus the program's
+    /// constant data). Placed after `__DATA_CONST` so `__DATA_CONST` keeps
+    /// segment index 2, which `rebase_info` hardcodes. Zero `data_seg_size` means
+    /// the image has no data and no `__DATA` segment is emitted.
+    data_seg_file_offset: usize,
+    data_seg_size: usize,
     mfb_sign_file_offset: usize,
     linkedit_file_offset: usize,
 }
@@ -624,22 +659,38 @@ fn macho_layout(
     data_const_size: usize,
     signing_metadata_len: usize,
 ) -> MachOLayout {
-    let text_file_size = align(code_offset + code_len + data_len, PAGE_SIZE);
+    let has_data = data_len > 0;
+    // `__TEXT` now holds only code (+ import stubs); the constant data moved to
+    // the writable `__DATA` segment so the main-arena global can be stored to.
+    let text_file_size = align(code_offset + code_len, PAGE_SIZE);
     let data_const_file_offset = text_file_size;
     let after_data_const = data_const_file_offset + data_const_size;
-    let mfb_sign_file_offset = if signing_metadata_len == 0 {
-        after_data_const
+    let data_seg_file_offset = if has_data {
+        align(after_data_const, PAGE_SIZE)
     } else {
-        align(after_data_const, 16)
+        after_data_const
+    };
+    let data_seg_size = if has_data {
+        align(data_len, PAGE_SIZE)
+    } else {
+        0
+    };
+    let after_data = data_seg_file_offset + data_seg_size;
+    let mfb_sign_file_offset = if signing_metadata_len == 0 {
+        after_data
+    } else {
+        align(after_data, 16)
     };
     let linkedit_file_offset = if signing_metadata_len == 0 {
-        after_data_const
+        after_data
     } else {
         align(mfb_sign_file_offset + signing_metadata_len, PAGE_SIZE)
     };
     MachOLayout {
         text_file_size,
         data_const_file_offset,
+        data_seg_file_offset,
+        data_seg_size,
         mfb_sign_file_offset,
         linkedit_file_offset,
     }
@@ -649,9 +700,10 @@ fn code_offset(
     libraries: &[(String, String)],
     has_signing_metadata: bool,
     has_init: bool,
+    has_data: bool,
 ) -> usize {
     align(
-        32 + load_commands_size(libraries, has_signing_metadata, has_init),
+        32 + load_commands_size(libraries, has_signing_metadata, has_init, has_data),
         4,
     )
 }
@@ -660,9 +712,13 @@ fn load_commands_size(
     libraries: &[(String, String)],
     has_signing_metadata: bool,
     has_init: bool,
+    has_data: bool,
 ) -> usize {
     let base = 72 + 232 + 72 + 24 + 80 + dylinker_command_size() + 24 + 32 + 16 + 24 + 16 + 16 + 16;
     let signing = if has_signing_metadata { 152 } else { 0 };
+    // The writable `__DATA` segment adds its segment header plus one `__data`
+    // section header.
+    let data = if has_data { 72 + 80 } else { 0 };
     let needs_data_const = !libraries.is_empty() || has_init;
     (if !needs_data_const {
         base + 16 + 16
@@ -675,21 +731,24 @@ fn load_commands_size(
             .map(|(_, path)| dylib_command_size(path))
             .sum();
         base + (72 + sections * 80) + 48 + dylibs
-    }) + signing
+    }) + data
+        + signing
 }
 
 fn load_command_count(
     libraries: &[(String, String)],
     has_signing_metadata: bool,
     has_init: bool,
+    has_data: bool,
 ) -> u32 {
     let signing = if has_signing_metadata { 1 } else { 0 };
     // The chained-fixups path (no data-const segment) and the dyld_info path both
     // total 15 base commands; the data-const path swaps two LINKEDIT commands for a
     // __DATA_CONST segment + LC_DYLD_INFO_ONLY. A non-empty __mod_init_func adds a
-    // section, not a command, so only extra dylibs grow the count.
+    // section, not a command, so only extra dylibs grow the count. The writable
+    // `__DATA` segment adds one command when the image has any data.
     let _ = has_init;
-    15 + libraries.len() as u32 + signing
+    15 + libraries.len() as u32 + signing + has_data as u32
 }
 
 fn text_segment(
@@ -786,6 +845,36 @@ fn data_const_segment(
             3,
         );
     }
+}
+
+/// Writable `__DATA` segment with a single `__data` section. Holds the program's
+/// constant data and the main-arena global; initprot/maxprot are RW so the global
+/// can be stored to at runtime. Emitted after `__DATA_CONST` to preserve that
+/// segment's index (`rebase_info` hardcodes it).
+fn data_segment(bytes: &mut Vec<u8>, file_offset: usize, seg_size: usize, data_len: usize) {
+    put_u32(bytes, 0x19);
+    put_u32(bytes, 72 + 80);
+    fixed_name(bytes, "__DATA");
+    put_u64(bytes, VM_BASE + file_offset as u64);
+    put_u64(bytes, seg_size as u64);
+    put_u64(bytes, file_offset as u64);
+    put_u64(bytes, seg_size as u64);
+    put_u32(bytes, 3);
+    put_u32(bytes, 3);
+    put_u32(bytes, 1);
+    put_u32(bytes, 0);
+    section_with_segment(
+        bytes,
+        "__data",
+        "__DATA",
+        VM_BASE + file_offset as u64,
+        data_len as u64,
+        file_offset,
+        0,
+        0,
+        0,
+        3,
+    );
 }
 
 fn mfb_sign_segment(bytes: &mut Vec<u8>, file_offset: usize, metadata_len: usize) {
@@ -1287,7 +1376,9 @@ mod tests {
         let locations =
             append_import_stubs(&mut text, &image, text_vmaddr, 0x4000, 0).expect("import stubs");
 
-        patch_relocations(&mut text, &image, text_vmaddr, &locations).expect("relocations");
+        let data_vmaddr = text_vmaddr + text.len() as u64;
+        patch_relocations(&mut text, &image, text_vmaddr, data_vmaddr, &locations)
+            .expect("relocations");
 
         assert!(locations.got_entries.contains_key("_mach_task_self_"));
     }

@@ -9,6 +9,7 @@
   "externalSymbols": [],
   "platformImports": [
   { "library": "libSystem", "symbol": "_exit", "requiredBy": "_main" },
+  { "library": "libSystem", "symbol": "_signal", "requiredBy": "_main" },
   { "library": "libSystem", "symbol": "_write", "requiredBy": "_main" }
   ],
   "functions": [

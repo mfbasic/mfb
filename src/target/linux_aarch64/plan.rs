@@ -51,7 +51,11 @@ impl plan::NativePlanPlatform for Platform {
         if _module.entry.is_none() {
             return Vec::new();
         }
-        vec![self.libc_import("_exit", "_main")]
+        // `signal` installs the SIGINT/SIGTERM handlers that run `_mfb_shutdown`.
+        vec![
+            self.libc_import("_exit", "_main"),
+            self.libc_import("signal", "_main"),
+        ]
     }
 
     fn entry_error_imports(&self, _module: &NirModule) -> Vec<PlatformImport> {

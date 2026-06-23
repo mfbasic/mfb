@@ -8,6 +8,7 @@
   "entrySymbol": "_main",
   "imports": [
   { "library": "libSystem", "symbol": "_exit" },
+  { "library": "libSystem", "symbol": "_signal" },
   { "library": "libSystem", "symbol": "_write" },
   { "library": "libSystem", "symbol": "_write" }
   ],
@@ -21,7 +22,8 @@
   { "symbol": "_mfb_str_error_invalid_argument", "kind": "constant", "layout": "mfb.string.v1 { u64 byteLength; u8 bytes[byteLength]; u8 nul }", "align": 8, "size": 32, "value": "invalid argument" },
   { "symbol": "_mfb_str_error_output", "kind": "constant", "layout": "mfb.string.v1 { u64 byteLength; u8 bytes[byteLength]; u8 nul }", "align": 8, "size": 24, "value": "output failure" },
   { "symbol": "_mfb_str_error_overflow", "kind": "constant", "layout": "mfb.string.v1 { u64 byteLength; u8 bytes[byteLength]; u8 nul }", "align": 8, "size": 32, "value": "numeric overflow" },
-  { "symbol": "_mfb_str_error_underflow", "kind": "constant", "layout": "mfb.string.v1 { u64 byteLength; u8 bytes[byteLength]; u8 nul }", "align": 8, "size": 32, "value": "numeric underflow" }
+  { "symbol": "_mfb_str_error_underflow", "kind": "constant", "layout": "mfb.string.v1 { u64 byteLength; u8 bytes[byteLength]; u8 nul }", "align": 8, "size": 32, "value": "numeric underflow" },
+  { "symbol": "_mfb_rt_main_arena", "kind": "raw", "layout": "mfb.runtime.main_arena.v1 { u64 arenaState }", "align": 8, "size": 8, "value": "0000000000000000" }
   ],
   "functions": [
   {
@@ -41,6 +43,23 @@
     { "op": "str_u64", "src": "x31", "base": "x19", "offset": "8" },
     { "op": "str_u64", "src": "x31", "base": "x19", "offset": "16" },
     { "op": "str_u64", "src": "x31", "base": "x19", "offset": "24" },
+    { "op": "adrp", "dst": "x9", "symbol": "_mfb_rt_main_arena" },
+    { "op": "add_pageoff", "dst": "x9", "src": "x9", "symbol": "_mfb_rt_main_arena" },
+    { "op": "str_u64", "src": "x19", "base": "x9", "offset": "0" },
+    { "op": "sub_sp", "imm": "16" },
+    { "op": "str_u64", "src": "x0", "base": "sp", "offset": "0" },
+    { "op": "str_u64", "src": "x1", "base": "sp", "offset": "8" },
+    { "op": "mov_imm", "dst": "x0", "type": "Integer", "value": "2" },
+    { "op": "adrp", "dst": "x1", "symbol": "_mfb_rt_signal_handler" },
+    { "op": "add_pageoff", "dst": "x1", "src": "x1", "symbol": "_mfb_rt_signal_handler" },
+    { "op": "bl", "target": "_signal" },
+    { "op": "mov_imm", "dst": "x0", "type": "Integer", "value": "15" },
+    { "op": "adrp", "dst": "x1", "symbol": "_mfb_rt_signal_handler" },
+    { "op": "add_pageoff", "dst": "x1", "src": "x1", "symbol": "_mfb_rt_signal_handler" },
+    { "op": "bl", "target": "_signal" },
+    { "op": "ldr_u64", "dst": "x0", "base": "sp", "offset": "0" },
+    { "op": "ldr_u64", "dst": "x1", "base": "sp", "offset": "8" },
+    { "op": "add_sp", "imm": "16" },
     { "op": "bl", "target": "_mfb_fn_main" },
     { "op": "cmp_imm", "lhs": "x0", "rhs": "2" },
     { "op": "b.ne", "target": "entry_not_program_exit" },
@@ -116,17 +135,21 @@
     { "op": "mov_imm", "dst": "x0", "type": "Integer", "value": "255" },
     { "op": "label", "name": "entry_exit" },
     { "op": "str_u64", "src": "x0", "base": "x19", "offset": "32" },
-    { "op": "str_u64", "src": "x1", "base": "x19", "offset": "40" },
-    { "op": "str_u64", "src": "x2", "base": "x19", "offset": "48" },
-    { "op": "bl", "target": "_mfb_arena_destroy" },
+    { "op": "bl", "target": "_mfb_shutdown" },
     { "op": "ldr_u64", "dst": "x0", "base": "x19", "offset": "32" },
-    { "op": "ldr_u64", "dst": "x1", "base": "x19", "offset": "40" },
-    { "op": "ldr_u64", "dst": "x2", "base": "x19", "offset": "48" },
     { "op": "bl", "target": "_exit" },
     { "op": "branch_self" },
     { "op": "ret" }
     ],
     "relocations": [
+    { "from": "_main", "to": "_mfb_rt_main_arena", "kind": "page21", "binding": "data", "library": null },
+    { "from": "_main", "to": "_mfb_rt_main_arena", "kind": "pageoff12", "binding": "data", "library": null },
+    { "from": "_main", "to": "_mfb_rt_signal_handler", "kind": "page21", "binding": "data", "library": null },
+    { "from": "_main", "to": "_mfb_rt_signal_handler", "kind": "pageoff12", "binding": "data", "library": null },
+    { "from": "_main", "to": "_signal", "kind": "branch26", "binding": "external", "library": "libSystem" },
+    { "from": "_main", "to": "_mfb_rt_signal_handler", "kind": "page21", "binding": "data", "library": null },
+    { "from": "_main", "to": "_mfb_rt_signal_handler", "kind": "pageoff12", "binding": "data", "library": null },
+    { "from": "_main", "to": "_signal", "kind": "branch26", "binding": "external", "library": "libSystem" },
     { "from": "_main", "to": "_mfb_fn_main", "kind": "branch26", "binding": "internal", "library": null },
     { "from": "_main", "to": "_mfb_str_entry_error_prefix", "kind": "page21", "binding": "data", "library": null },
     { "from": "_main", "to": "_mfb_str_entry_error_prefix", "kind": "pageoff12", "binding": "data", "library": null },
@@ -139,7 +162,7 @@
     { "from": "_main", "to": "_mfb_str_entry_error_newline", "kind": "page21", "binding": "data", "library": null },
     { "from": "_main", "to": "_mfb_str_entry_error_newline", "kind": "pageoff12", "binding": "data", "library": null },
     { "from": "_main", "to": "_write", "kind": "branch26", "binding": "external", "library": "libSystem" },
-    { "from": "_main", "to": "_mfb_arena_destroy", "kind": "branch26", "binding": "internal", "library": null },
+    { "from": "_main", "to": "_mfb_shutdown", "kind": "branch26", "binding": "internal", "library": null },
     { "from": "_main", "to": "_exit", "kind": "branch26", "binding": "external", "library": "libSystem" }
     ]
   },
@@ -344,6 +367,66 @@
     { "op": "ret" }
     ],
     "relocations": [
+    ]
+  },
+  {
+    "name": "runtime.shutdown",
+    "symbol": "_mfb_shutdown",
+    "returns": "Nothing",
+    "frame": { "stackSize": 0, "calleeSaved": [] },
+    "params": [
+    ],
+    "stackSlots": [
+    ],
+    "instructions": [
+    { "op": "label", "name": "entry" },
+    { "op": "sub_sp", "imm": "16" },
+    { "op": "str_u64", "src": "x30", "base": "sp", "offset": "0" },
+    { "op": "str_u64", "src": "x19", "base": "sp", "offset": "8" },
+    { "op": "adrp", "dst": "x9", "symbol": "_mfb_rt_main_arena" },
+    { "op": "add_pageoff", "dst": "x9", "src": "x9", "symbol": "_mfb_rt_main_arena" },
+    { "op": "ldr_u64", "dst": "x10", "base": "x9", "offset": "0" },
+    { "op": "str_u64", "src": "x31", "base": "x9", "offset": "0" },
+    { "op": "cmp_imm", "lhs": "x10", "rhs": "0" },
+    { "op": "b.eq", "target": "shutdown_done" },
+    { "op": "mov", "dst": "x19", "src": "x10" },
+    { "op": "bl", "target": "_mfb_arena_destroy" },
+    { "op": "label", "name": "shutdown_done" },
+    { "op": "ldr_u64", "dst": "x19", "base": "sp", "offset": "8" },
+    { "op": "ldr_u64", "dst": "x30", "base": "sp", "offset": "0" },
+    { "op": "add_sp", "imm": "16" },
+    { "op": "ret" }
+    ],
+    "relocations": [
+    { "from": "_mfb_shutdown", "to": "_mfb_rt_main_arena", "kind": "page21", "binding": "data", "library": null },
+    { "from": "_mfb_shutdown", "to": "_mfb_rt_main_arena", "kind": "pageoff12", "binding": "data", "library": null },
+    { "from": "_mfb_shutdown", "to": "_mfb_arena_destroy", "kind": "branch26", "binding": "internal", "library": null }
+    ]
+  },
+  {
+    "name": "runtime.signal_handler",
+    "symbol": "_mfb_rt_signal_handler",
+    "returns": "Nothing",
+    "frame": { "stackSize": 0, "calleeSaved": [] },
+    "params": [
+    ],
+    "stackSlots": [
+    ],
+    "instructions": [
+    { "op": "label", "name": "entry" },
+    { "op": "sub_sp", "imm": "16" },
+    { "op": "str_u64", "src": "x0", "base": "sp", "offset": "0" },
+    { "op": "bl", "target": "_mfb_shutdown" },
+    { "op": "ldr_u64", "dst": "x0", "base": "sp", "offset": "0" },
+    { "op": "add_imm", "dst": "x0", "src": "x0", "imm": "128" },
+    { "op": "add_sp", "imm": "16" },
+    { "op": "bl", "target": "_exit" },
+    { "op": "branch_self" },
+    { "op": "ret" }
+    ],
+    "relocations": [
+    { "from": "_mfb_rt_signal_handler", "to": "_mfb_shutdown", "kind": "branch26", "binding": "internal", "library": null },
+    { "from": "_mfb_rt_signal_handler", "to": "_exit", "kind": "branch26", "binding": "external", "library": "libSystem" }
     ]
   },
   {

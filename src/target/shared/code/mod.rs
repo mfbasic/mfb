@@ -102,6 +102,22 @@ const ERROR_OBJECT_SIZE: usize = 24;
 const ERROR_LOC_OBJECT_SIZE: usize = 24;
 pub(crate) const ARENA_ALLOC_SYMBOL: &str = "_mfb_arena_alloc";
 const ARENA_DESTROY_SYMBOL: &str = "_mfb_arena_destroy";
+/// Shared process-teardown routine: restores the terminal (when `term::` is used)
+/// and frees the main arena, then returns. Called both after the entry FUNC/SUB
+/// finishes and from the SIGINT/SIGTERM handler, so the cleanup is identical on a
+/// normal exit and a signal kill. It locates the arena through
+/// `MAIN_ARENA_GLOBAL_SYMBOL` (not `x19`) so it works from a signal handler whose
+/// `x19` belongs to the interrupted code.
+const SHUTDOWN_SYMBOL: &str = "_mfb_shutdown";
+/// `void handler(int signo)` installed for SIGINT/SIGTERM in console programs. It
+/// runs `_mfb_shutdown` and then `_exit(128 + signo)`; it never returns.
+const SIGNAL_HANDLER_SYMBOL: &str = "_mfb_rt_signal_handler";
+/// One writable 8-byte global holding the main thread's arena-state address,
+/// stored at program startup. The signal handler and `_mfb_shutdown` read it to
+/// find the arena without relying on the pinned `x19` (which is unavailable on a
+/// signal frame). Per-thread worker arenas are intentionally not tracked here —
+/// they are never freed by us anyway (the entry only ever frees the main arena).
+const MAIN_ARENA_GLOBAL_SYMBOL: &str = "_mfb_rt_main_arena";
 const ARENA_STATE_REGISTER: &str = "x19";
 const CLOSURE_ENV_REGISTER: &str = "x28";
 const CLOSURE_OBJECT_SIZE: usize = 16;
@@ -938,6 +954,21 @@ pub(crate) fn lower_module_for_platform(
             value: String::new(),
         });
     }
+    // Writable global pointing at the main thread's arena state (set at startup,
+    // read by `_mfb_shutdown` / the signal handler). Zero-initialized; it must
+    // land in a writable section, which it does on every target that has an
+    // entry: Linux entry programs are always dynamically linked (RW data
+    // segment) and the macOS linker emits a writable `__DATA` segment.
+    if module.entry.is_some() {
+        data_objects.push(CodeDataObject {
+            symbol: MAIN_ARENA_GLOBAL_SYMBOL.to_string(),
+            kind: "raw".to_string(),
+            layout: "mfb.runtime.main_arena.v1 { u64 arenaState }".to_string(),
+            align: 8,
+            size: 8,
+            value: "0000000000000000".to_string(),
+        });
+    }
     if native_plan
         .runtime_symbols
         .iter()
@@ -1045,6 +1076,11 @@ pub(crate) fn lower_module_for_platform(
     } else {
         None
     };
+    // Install SIGINT/SIGTERM handlers for console programs only. App-mode builds
+    // keep their window-driven finish path (the worker has no Ctrl-C semantics),
+    // but still share `_mfb_shutdown` for their normal-exit cleanup.
+    let register_signal_handlers =
+        module.entry.is_some() && module.build_mode != crate::target::NativeBuildMode::MacApp;
     if let Some(entry) = &module.entry {
         let language_entry_symbol = nir::function_symbol(&entry.name);
         let entry_stack_size = align(
@@ -1077,10 +1113,9 @@ pub(crate) fn lower_module_for_platform(
                 entry_global_slots,
                 &platform_imports,
                 platform,
-                skip_entry_arena_destroy,
                 module_may_record_cleanup_failure(module),
-                uses_term,
                 uses_rng,
+                register_signal_handlers,
             )?);
             code_functions.extend(app_entry);
             data_objects.extend(platform.app_mode_data_objects());
@@ -1096,10 +1131,9 @@ pub(crate) fn lower_module_for_platform(
                 entry_global_slots,
                 &platform_imports,
                 platform,
-                skip_entry_arena_destroy,
                 module_may_record_cleanup_failure(module),
-                uses_term,
                 uses_rng,
+                register_signal_handlers,
             )?);
         }
     }
@@ -1131,6 +1165,12 @@ pub(crate) fn lower_module_for_platform(
     }
     code_functions.push(lower_arena_alloc(platform)?);
     code_functions.push(lower_arena_destroy(platform)?);
+    if module.entry.is_some() {
+        code_functions.push(lower_shutdown(uses_term, skip_entry_arena_destroy));
+    }
+    if register_signal_handlers {
+        code_functions.push(lower_signal_handler(platform)?);
+    }
     if runtime_symbols
         .iter()
         .any(|symbol| symbol == "_mfb_rt_fs_fs_readBytes")
@@ -1713,10 +1753,9 @@ fn lower_program_entry(
     global_slot_count: usize,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-    skip_arena_destroy: bool,
     emit_cleanup_failure_audit: bool,
-    auto_term_off: bool,
     seed_rng: bool,
+    register_signal_handlers: bool,
 ) -> Result<CodeFunction, String> {
     let mut instructions = vec![
         abi::label("entry"),
@@ -1756,6 +1795,49 @@ fn lower_program_entry(
     let mut relocations = Vec::new();
     let error_label = "entry_error";
     let exit_label = "entry_exit";
+    // Publish this thread's arena-state address to the writable global so the
+    // signal handler and `_mfb_shutdown` can find the arena without `x19`. `x9`
+    // is a scratch temporary here; `x0`/`x1` (argc/argv) are left untouched.
+    push_symbol_address(
+        entry_symbol,
+        MAIN_ARENA_GLOBAL_SYMBOL,
+        "x9",
+        &mut instructions,
+        &mut relocations,
+    );
+    instructions.push(abi::store_u64(ARENA_STATE_REGISTER, "x9", 0));
+    // Install SIGINT/SIGTERM handlers (console programs). `signal()` clobbers
+    // `x0`/`x1`, so argc/argv are parked below the frame across the calls; `x19`
+    // pins the entry frame, so temporarily lowering `sp` is safe.
+    if register_signal_handlers {
+        instructions.extend([
+            abi::subtract_stack(16),
+            abi::store_u64("x0", abi::stack_pointer(), 0),
+            abi::store_u64("x1", abi::stack_pointer(), 8),
+        ]);
+        for signo in ["2", "15"] {
+            instructions.push(abi::move_immediate("x0", "Integer", signo));
+            push_symbol_address(
+                entry_symbol,
+                SIGNAL_HANDLER_SYMBOL,
+                "x1",
+                &mut instructions,
+                &mut relocations,
+            );
+            platform.emit_libc_call(
+                "signal",
+                entry_symbol,
+                platform_imports,
+                &mut instructions,
+                &mut relocations,
+            )?;
+        }
+        instructions.extend([
+            abi::load_u64("x0", abi::stack_pointer(), 0),
+            abi::load_u64("x1", abi::stack_pointer(), 8),
+            abi::add_stack(16),
+        ]);
+    }
     // Seed this thread's PCG64 generator from the OS entropy pool before any
     // user code (including global initializers, which may call `math::rand`).
     // The seed scratch lives in the as-yet-unused args slot; pre-fill it with
@@ -1937,49 +2019,24 @@ fn lower_program_entry(
         "255",
     ));
     instructions.push(abi::label(exit_label));
-    // Auto-restore the terminal if a `term::` program exits with TUI mode still
-    // active (plan-01-term.md §6.5). `term::off` is internally gated on the
-    // `active` flag, so calling it unconditionally is a no-op when off; it
-    // clobbers the result registers, so the exit code is parked in the arena
-    // scratch slot across the call.
-    if auto_term_off {
-        instructions.push(abi::store_u64(
-            abi::return_register(),
-            ARENA_STATE_REGISTER,
-            32,
-        ));
-        instructions.push(abi::branch_link("_mfb_rt_term_term_off"));
-        relocations.push(CodeRelocation {
-            from: entry_symbol.to_string(),
-            to: "_mfb_rt_term_term_off".to_string(),
-            kind: "branch26".to_string(),
-            binding: "internal".to_string(),
-            library: None,
-        });
-        instructions.push(abi::load_u64(
-            abi::return_register(),
-            ARENA_STATE_REGISTER,
-            32,
-        ));
-    }
-    if !skip_arena_destroy {
-        instructions.extend([
-            abi::store_u64(abi::return_register(), ARENA_STATE_REGISTER, 32),
-            abi::store_u64(RESULT_VALUE_REGISTER, ARENA_STATE_REGISTER, 40),
-            abi::store_u64(RESULT_ERROR_MESSAGE_REGISTER, ARENA_STATE_REGISTER, 48),
-            abi::branch_link(ARENA_DESTROY_SYMBOL),
-            abi::load_u64(abi::return_register(), ARENA_STATE_REGISTER, 32),
-            abi::load_u64(RESULT_VALUE_REGISTER, ARENA_STATE_REGISTER, 40),
-            abi::load_u64(RESULT_ERROR_MESSAGE_REGISTER, ARENA_STATE_REGISTER, 48),
-        ]);
-        relocations.push(CodeRelocation {
-            from: entry_symbol.to_string(),
-            to: ARENA_DESTROY_SYMBOL.to_string(),
-            kind: "branch26".to_string(),
-            binding: "internal".to_string(),
-            library: None,
-        });
-    }
+    // Run the shared teardown (terminal restore + arena free), then exit. The
+    // exit code is parked in the arena-state scratch slot across the call: that
+    // slot lives in this stack-resident entry frame (not in the freed mmap
+    // blocks), and `_mfb_shutdown` preserves `x19`, so it is valid on return.
+    // `_mfb_shutdown` is internally gated and idempotent, so the SIGINT/SIGTERM
+    // handler racing this path cannot double-free.
+    instructions.push(abi::store_u64(
+        abi::return_register(),
+        ARENA_STATE_REGISTER,
+        32,
+    ));
+    instructions.push(abi::branch_link(SHUTDOWN_SYMBOL));
+    relocations.push(internal_branch(entry_symbol, SHUTDOWN_SYMBOL));
+    instructions.push(abi::load_u64(
+        abi::return_register(),
+        ARENA_STATE_REGISTER,
+        32,
+    ));
     platform.emit_program_exit(entry_symbol, &mut instructions, &mut relocations)?;
     Ok(CodeFunction {
         name: if entry_symbol == "_main" {
@@ -2319,6 +2376,100 @@ fn lower_arena_destroy(platform: &dyn CodegenPlatform) -> Result<CodeFunction, S
         stack_slots: Vec::new(),
         instructions,
         relocations: Vec::new(),
+    })
+}
+
+/// Shared process teardown. Reads the main arena-state address from the writable
+/// global, clears the global (so a second entry — e.g. a signal arriving during
+/// normal cleanup — becomes a no-op), pins it in `x19`, then conditionally
+/// restores the terminal and frees the arena. Both underlying helpers are
+/// idempotent (`term::off` gates on its `active` flag; `arena_destroy` clears the
+/// block-list head), so the guard is belt-and-suspenders. Preserves `x19`/`x30`
+/// for its callers (the entry exit path relies on `x19` afterwards).
+fn lower_shutdown(auto_term_off: bool, skip_arena_destroy: bool) -> CodeFunction {
+    let done = "shutdown_done";
+    let mut instructions = vec![
+        abi::label("entry"),
+        abi::subtract_stack(16),
+        abi::store_u64(abi::link_register(), abi::stack_pointer(), 0),
+        abi::store_u64(ARENA_STATE_REGISTER, abi::stack_pointer(), 8),
+    ];
+    let mut relocations = Vec::new();
+    push_symbol_address(
+        SHUTDOWN_SYMBOL,
+        MAIN_ARENA_GLOBAL_SYMBOL,
+        "x9",
+        &mut instructions,
+        &mut relocations,
+    );
+    instructions.extend([
+        abi::load_u64("x10", "x9", 0),
+        abi::store_u64("x31", "x9", 0),
+        abi::compare_immediate("x10", "0"),
+        abi::branch_eq(done),
+        abi::move_register(ARENA_STATE_REGISTER, "x10"),
+    ]);
+    if auto_term_off {
+        instructions.push(abi::branch_link("_mfb_rt_term_term_off"));
+        relocations.push(internal_branch(SHUTDOWN_SYMBOL, "_mfb_rt_term_term_off"));
+    }
+    if !skip_arena_destroy {
+        instructions.push(abi::branch_link(ARENA_DESTROY_SYMBOL));
+        relocations.push(internal_branch(SHUTDOWN_SYMBOL, ARENA_DESTROY_SYMBOL));
+    }
+    instructions.extend([
+        abi::label(done),
+        abi::load_u64(ARENA_STATE_REGISTER, abi::stack_pointer(), 8),
+        abi::load_u64(abi::link_register(), abi::stack_pointer(), 0),
+        abi::add_stack(16),
+        abi::return_(),
+    ]);
+    CodeFunction {
+        name: "runtime.shutdown".to_string(),
+        symbol: SHUTDOWN_SYMBOL.to_string(),
+        params: Vec::new(),
+        returns: "Nothing".to_string(),
+        frame: CodeFrame {
+            stack_size: 0,
+            callee_saved: Vec::new(),
+        },
+        stack_slots: Vec::new(),
+        instructions,
+        relocations,
+    }
+}
+
+/// `void handler(int signo)` for SIGINT/SIGTERM: run the shared teardown, then
+/// `_exit(128 + signo)`. It never returns, so it need not preserve the
+/// interrupted context; it locates the arena through `_mfb_shutdown`'s global
+/// read rather than the interrupted `x19`. The 16-byte frame keeps `sp` aligned
+/// across the `bl`s (Darwin requires this) and parks `signo` across the call.
+fn lower_signal_handler(platform: &dyn CodegenPlatform) -> Result<CodeFunction, String> {
+    let mut instructions = vec![
+        abi::label("entry"),
+        abi::subtract_stack(16),
+        abi::store_u64(abi::return_register(), abi::stack_pointer(), 0),
+        abi::branch_link(SHUTDOWN_SYMBOL),
+    ];
+    let mut relocations = vec![internal_branch(SIGNAL_HANDLER_SYMBOL, SHUTDOWN_SYMBOL)];
+    instructions.extend([
+        abi::load_u64(abi::return_register(), abi::stack_pointer(), 0),
+        abi::add_immediate(abi::return_register(), abi::return_register(), 128),
+        abi::add_stack(16),
+    ]);
+    platform.emit_program_exit(SIGNAL_HANDLER_SYMBOL, &mut instructions, &mut relocations)?;
+    Ok(CodeFunction {
+        name: "runtime.signal_handler".to_string(),
+        symbol: SIGNAL_HANDLER_SYMBOL.to_string(),
+        params: Vec::new(),
+        returns: "Nothing".to_string(),
+        frame: CodeFrame {
+            stack_size: 0,
+            callee_saved: Vec::new(),
+        },
+        stack_slots: Vec::new(),
+        instructions,
+        relocations,
     })
 }
 
@@ -12782,6 +12933,37 @@ fn emit_validate_utf8(
         abi::subtract_immediate(rem, rem, 4),
         abi::branch(&loop_start),
         abi::label(&done),
+    ]);
+}
+
+/// Materialize the address of an internal symbol (data or code) into `dst` via
+/// the `adrp`/`add` page pair. The `data` binding is the internal-symbol-address
+/// relocation regardless of the target's section — the linker resolves it through
+/// `symbol_vmaddr` (the same pattern used for the thread-trampoline address).
+fn push_symbol_address(
+    from: &str,
+    symbol: &str,
+    dst: &str,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+) {
+    instructions.push(abi::load_page_address(dst, symbol));
+    instructions.push(abi::add_page_offset(dst, dst, symbol));
+    relocations.extend([
+        CodeRelocation {
+            from: from.to_string(),
+            to: symbol.to_string(),
+            kind: "page21".to_string(),
+            binding: "data".to_string(),
+            library: None,
+        },
+        CodeRelocation {
+            from: from.to_string(),
+            to: symbol.to_string(),
+            kind: "pageoff12".to_string(),
+            binding: "data".to_string(),
+            library: None,
+        },
     ]);
 }
 
