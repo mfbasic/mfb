@@ -1941,26 +1941,53 @@ fn emit_term_view_is_flipped() -> CodeFunction {
     }
 }
 
+/// Build an `NSColor` from a packed `r|g<<8|b<<16` value (in `x11`) into `x0`.
+/// The class is in `x26` and the `colorWithCalibratedRed:green:blue:alpha:`
+/// selector is spilled at `sp+sel_off` (both pre-resolved so no `sel_registerName`
+/// call clobbers the d0..d3 colour-component arguments). Clobbers x9/x10/d0..d4.
+fn emit_color_from_packed(asm: &mut Asm, sel_off: usize) {
+    asm.push(abi::move_immediate("x10", "Integer", "255"));
+    asm.push(abi::signed_convert_to_float_d("d4", "x10")); // 255.0 divisor
+    asm.push(abi::and_registers("x9", "x11", "x10"));
+    asm.push(abi::signed_convert_to_float_d("d0", "x9"));
+    asm.push(abi::float_divide_d("d0", "d0", "d4")); // r
+    asm.push(abi::shift_right_immediate("x9", "x11", 8));
+    asm.push(abi::and_registers("x9", "x9", "x10"));
+    asm.push(abi::signed_convert_to_float_d("d1", "x9"));
+    asm.push(abi::float_divide_d("d1", "d1", "d4")); // g
+    asm.push(abi::shift_right_immediate("x9", "x11", 16));
+    asm.push(abi::and_registers("x9", "x9", "x10"));
+    asm.push(abi::signed_convert_to_float_d("d2", "x9"));
+    asm.push(abi::float_divide_d("d2", "d2", "d4")); // b
+    asm.push(abi::move_immediate("x9", "Integer", "1"));
+    asm.push(abi::signed_convert_to_float_d("d3", "x9")); // alpha 1.0
+    asm.push(abi::move_register("x0", "x26")); // NSColor class
+    asm.push(abi::load_u64("x1", abi::stack_pointer(), sel_off));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+}
+
 /// IMP for `TermView`'s `drawRect:` (`void drawRect:(NSRect dirty)`; self in x0,
 /// `_cmd` in x1, the rect in d0..d3).
 ///
-/// Fills the dirty rect black, then paints each non-blank cell glyph at
-/// `(col*cellW, row*cellH)` in the monospaced font (plan-01-term.md §6.3). This
-/// increment renders monochrome (white on black); per-cell fg/bg colour grows on
-/// top in the next increment ("smallest correct `drawRect:` first", plan §9.1).
+/// Fills the dirty rect black, then for each cell paints its background rect (when
+/// non-black) and its glyph in the cell's foreground colour and the monospaced
+/// font (plan-01-term.md §6.3).
 fn emit_term_view_draw_rect() -> CodeFunction {
     let mut asm = Asm::new(TERM_VIEW_DRAW_RECT_SYMBOL);
     // Frame: lr@0; callee-saved x19(state)@8, x20(cells)@16, x21(rows)@24,
-    // x22(cols)@32, x23(row)@40, x24(col)@48, x25(font)@56, x26(attrs)@64,
-    // x28(drawAtPoint sel)@72; rect x/y/w/h@80..104; stringWithChars sel@112;
-    // glyph unichar buffer@120.
-    let frame = 144;
-    let (off_rx, off_ry, off_rw, off_rh) = (80, 88, 96, 104);
-    let (off_swc_sel, off_glyph) = (112, 120);
-    asm.push(abi::label("entry"));
-    asm.push(abi::subtract_stack(frame));
-    asm.push(abi::store_u64(abi::link_register(), abi::stack_pointer(), 0));
-    for (reg, off) in [
+    // x22(cols)@32, x23(row)@40, x24(col)@48, x25(attrs)@56, x26(NSColor class)@64,
+    // x27(cell ptr)@72, x28(drawAtPoint sel)@80; rect@88..112; colorWithRGBA
+    // sel@120; set sel@128; setObject:forKey: sel@136; fg key@144;
+    // stringWithChars sel@152; glyph buffer@160.
+    let frame = 176;
+    let (off_rx, off_ry, off_rw, off_rh) = (88, 96, 104, 112);
+    let off_color_sel = 120;
+    let off_set_sel = 128;
+    let off_setobj_sel = 136;
+    let off_fgkey = 144;
+    let off_swc_sel = 152;
+    let off_glyph = 160;
+    let saved: [(&str, usize); 10] = [
         ("x19", 8),
         ("x20", 16),
         ("x21", 24),
@@ -1969,8 +1996,13 @@ fn emit_term_view_draw_rect() -> CodeFunction {
         ("x24", 48),
         ("x25", 56),
         ("x26", 64),
-        ("x28", 72),
-    ] {
+        ("x27", 72),
+        ("x28", 80),
+    ];
+    asm.push(abi::label("entry"));
+    asm.push(abi::subtract_stack(frame));
+    asm.push(abi::store_u64(abi::link_register(), abi::stack_pointer(), 0));
+    for (reg, off) in saved {
         asm.push(abi::store_u64(reg, abi::stack_pointer(), off));
     }
     // Spill the dirty rect (d0..d3) before any call clobbers the FP arg regs.
@@ -1984,14 +2016,20 @@ fn emit_term_view_draw_rect() -> CodeFunction {
     asm.call_external("_objc_getAssociatedObject", LIB_OBJC);
     asm.push(abi::move_register("x19", "x0")); // state (or nil)
 
+    // Pre-resolve the colour primitives so the per-cell colour build avoids any
+    // sel_registerName (which would clobber the d0..d3 component arguments).
+    asm.external_data("x26", CLASS_NS_COLOR, LIB_APPKIT); // NSColor class
+    asm.load_selector(SEL_COLOR_WITH_RGBA.0);
+    asm.push(abi::store_u64("x1", abi::stack_pointer(), off_color_sel));
+    asm.load_selector(SEL_SET.0);
+    asm.push(abi::store_u64("x1", abi::stack_pointer(), off_set_sel));
+
     // Fill the dirty rect black: [[NSColor blackColor] set]; NSRectFill(rect).
     asm.load_selector(SEL_BLACK_COLOR.0);
-    asm.external_data("x0", CLASS_NS_COLOR, LIB_APPKIT);
-    asm.call_external("_objc_msgSend", LIB_OBJC);
-    asm.push(abi::move_register("x26", "x0")); // black colour (temp)
-    asm.load_selector(SEL_SET.0);
     asm.push(abi::move_register("x0", "x26"));
     asm.call_external("_objc_msgSend", LIB_OBJC);
+    asm.push(abi::load_u64("x1", abi::stack_pointer(), off_set_sel));
+    asm.call_external("_objc_msgSend", LIB_OBJC); // [black set]
     for (reg, off) in [("d0", off_rx), ("d1", off_ry), ("d2", off_rw), ("d3", off_rh)] {
         asm.push(abi::load_u64("x9", abi::stack_pointer(), off));
         asm.push(abi::float_move_d_from_x(reg, "x9"));
@@ -2015,38 +2053,30 @@ fn emit_term_view_draw_rect() -> CodeFunction {
     asm.call_external("_objc_msgSend", LIB_OBJC);
     asm.push(abi::move_register("x25", "x0")); // font
 
-    // attrs = [NSMutableDictionary dictionary]
+    // attrs = [NSMutableDictionary dictionary]; [attrs setObject:font forKey:NSFontAttributeName]
+    // (the foreground colour key is set per cell below).
     asm.load_selector(SEL_DICTIONARY.0);
     asm.external_data("x0", CLASS_NS_MUTABLE_DICTIONARY, LIB_FOUNDATION);
     asm.call_external("_objc_msgSend", LIB_OBJC);
-    asm.push(abi::move_register("x26", "x0")); // attrs dict
-    // [attrs setObject:font forKey:NSFontAttributeName]
+    asm.push(abi::move_register("x27", "x0")); // attrs dict (temp in x27)
     asm.load_selector(SEL_SET_OBJECT_FOR_KEY.0);
-    asm.push(abi::move_register("x2", "x25"));
+    asm.push(abi::store_u64("x1", abi::stack_pointer(), off_setobj_sel));
+    asm.push(abi::move_register("x2", "x25")); // font
     asm.external_data("x3", NS_FONT_ATTRIBUTE_NAME, LIB_APPKIT);
     asm.push(abi::load_u64("x3", "x3", 0));
-    asm.push(abi::move_register("x0", "x26"));
+    asm.push(abi::move_register("x0", "x27"));
     asm.call_external("_objc_msgSend", LIB_OBJC);
-    // white = [NSColor whiteColor]; [attrs setObject:white forKey:NSForegroundColorAttributeName]
-    // (font is already retained by the dict, so x25 is free to hold white across
-    // the following load_selector — whose sel_registerName call clobbers x0..x18).
-    asm.load_selector(SEL_WHITE_COLOR.0);
-    asm.external_data("x0", CLASS_NS_COLOR, LIB_APPKIT);
-    asm.call_external("_objc_msgSend", LIB_OBJC);
-    asm.push(abi::move_register("x25", "x0")); // white (callee-saved)
-    asm.load_selector(SEL_SET_OBJECT_FOR_KEY.0);
-    asm.push(abi::move_register("x2", "x25"));
-    asm.external_data("x3", NS_FOREGROUND_COLOR_ATTRIBUTE_NAME, LIB_APPKIT);
-    asm.push(abi::load_u64("x3", "x3", 0));
-    asm.push(abi::move_register("x0", "x26"));
-    asm.call_external("_objc_msgSend", LIB_OBJC);
+    asm.push(abi::move_register("x25", "x27")); // attrs dict -> x25
 
-    // Pre-resolve the per-glyph selectors (drawAtPoint:withAttributes: into x28,
-    // stringWithCharacters:length: spilled).
+    // Pre-resolve drawAtPoint: (x28) + stringWithChars: (spilled); cache the
+    // foreground-colour attribute key (an NSString global) on the stack.
     asm.load_selector(SEL_DRAW_AT_POINT.0);
     asm.push(abi::move_register("x28", "x1"));
     asm.load_selector(SEL_STRING_WITH_CHARS.0);
     asm.push(abi::store_u64("x1", abi::stack_pointer(), off_swc_sel));
+    asm.external_data("x3", NS_FOREGROUND_COLOR_ATTRIBUTE_NAME, LIB_APPKIT);
+    asm.push(abi::load_u64("x3", "x3", 0));
+    asm.push(abi::store_u64("x3", abi::stack_pointer(), off_fgkey));
 
     // for row in 0..rows: for col in 0..cols
     asm.push(abi::move_immediate("x23", "Integer", "0"));
@@ -2058,34 +2088,62 @@ fn emit_term_view_draw_rect() -> CodeFunction {
     asm.push(abi::compare_registers("x24", "x22"));
     asm.push(abi::branch_ge("draw_row_next"));
 
-    // cell = cells + (row*cols + col) * CELL_SIZE; glyph = cell.glyph
+    // cell = cells + (row*cols + col) * CELL_SIZE
     asm.push(abi::multiply_registers("x9", "x23", "x22"));
     asm.push(abi::add_registers("x9", "x9", "x24"));
     asm.push(abi::shift_left_immediate("x9", "x9", 4)); // * CELL_SIZE (16)
-    asm.push(abi::add_registers("x9", "x20", "x9")); // cell ptr
-    asm.push(abi::load_u32("x10", "x9", CELL_GLYPH_OFFSET));
-    asm.push(abi::compare_immediate("x10", "0"));
-    asm.push(abi::branch_eq("draw_col_next"));
-    asm.push(abi::compare_immediate("x10", "32")); // space = blank
-    asm.push(abi::branch_eq("draw_col_next"));
+    asm.push(abi::add_registers("x27", "x20", "x9")); // cell ptr (callee-saved)
 
+    // --- background: fill the cell rect when bg is non-black ---
+    asm.push(abi::load_u32("x11", "x27", CELL_BG_OFFSET));
+    asm.push(abi::compare_immediate("x11", "0"));
+    asm.push(abi::branch_eq("draw_skip_bg"));
+    emit_color_from_packed(&mut asm, off_color_sel); // x0 = bg colour
+    asm.push(abi::load_u64("x1", abi::stack_pointer(), off_set_sel));
+    asm.call_external("_objc_msgSend", LIB_OBJC); // [bgColor set]
+    asm.push(abi::load_u64("x9", "x19", TV_CELL_W_OFFSET));
+    asm.push(abi::float_move_d_from_x("d2", "x9")); // cellW
+    asm.push(abi::load_u64("x9", "x19", TV_CELL_H_OFFSET));
+    asm.push(abi::float_move_d_from_x("d3", "x9")); // cellH
+    asm.push(abi::signed_convert_to_float_d("d4", "x24"));
+    asm.push(abi::float_multiply_d("d0", "d4", "d2")); // px
+    asm.push(abi::signed_convert_to_float_d("d5", "x23"));
+    asm.push(abi::float_multiply_d("d1", "d5", "d3")); // py
+    asm.call_external(NS_RECT_FILL, LIB_APPKIT);
+    asm.push(abi::label("draw_skip_bg"));
+
+    // --- glyph: paint in the cell foreground colour when non-blank ---
+    asm.push(abi::load_u32("x9", "x27", CELL_GLYPH_OFFSET));
+    asm.push(abi::compare_immediate("x9", "0"));
+    asm.push(abi::branch_eq("draw_col_next"));
+    asm.push(abi::compare_immediate("x9", "32")); // space = blank
+    asm.push(abi::branch_eq("draw_col_next"));
+    // [attrs setObject:[color from cell.fg] forKey:NSForegroundColorAttributeName]
+    asm.push(abi::load_u32("x11", "x27", CELL_FG_OFFSET));
+    emit_color_from_packed(&mut asm, off_color_sel); // x0 = fg colour
+    asm.push(abi::load_u64("x1", abi::stack_pointer(), off_setobj_sel));
+    asm.push(abi::move_register("x2", "x0")); // colour (x2 set after the sel load)
+    asm.push(abi::load_u64("x3", abi::stack_pointer(), off_fgkey));
+    asm.push(abi::move_register("x0", "x25")); // attrs dict
+    asm.call_external("_objc_msgSend", LIB_OBJC);
     // s = [NSString stringWithCharacters:&glyph length:1]
-    asm.push(abi::store_u32("x10", abi::stack_pointer(), off_glyph));
+    asm.push(abi::load_u32("x9", "x27", CELL_GLYPH_OFFSET));
+    asm.push(abi::store_u32("x9", abi::stack_pointer(), off_glyph));
     asm.push(abi::load_u64("x1", abi::stack_pointer(), off_swc_sel));
     asm.external_data("x0", CLASS_NS_STRING, LIB_FOUNDATION);
     asm.push(abi::add_immediate("x2", abi::stack_pointer(), off_glyph));
     asm.push(abi::move_immediate("x3", "Integer", "1"));
     asm.call_external("_objc_msgSend", LIB_OBJC);
     // [s drawAtPoint:(col*cellW, row*cellH) withAttributes:attrs]
-    asm.push(abi::load_u64("x11", "x19", TV_CELL_W_OFFSET));
-    asm.push(abi::float_move_d_from_x("d4", "x11"));
-    asm.push(abi::load_u64("x11", "x19", TV_CELL_H_OFFSET));
-    asm.push(abi::float_move_d_from_x("d5", "x11"));
+    asm.push(abi::load_u64("x9", "x19", TV_CELL_W_OFFSET));
+    asm.push(abi::float_move_d_from_x("d4", "x9"));
+    asm.push(abi::load_u64("x9", "x19", TV_CELL_H_OFFSET));
+    asm.push(abi::float_move_d_from_x("d5", "x9"));
     asm.push(abi::signed_convert_to_float_d("d6", "x24"));
-    asm.push(abi::float_multiply_d("d0", "d6", "d4")); // px = col*cellW
+    asm.push(abi::float_multiply_d("d0", "d6", "d4")); // px
     asm.push(abi::signed_convert_to_float_d("d7", "x23"));
-    asm.push(abi::float_multiply_d("d1", "d7", "d5")); // py = row*cellH
-    asm.push(abi::move_register("x2", "x26")); // attrs
+    asm.push(abi::float_multiply_d("d1", "d7", "d5")); // py
+    asm.push(abi::move_register("x2", "x25")); // attrs
     asm.push(abi::move_register("x1", "x28")); // drawAtPoint:withAttributes: sel
     asm.call_external("_objc_msgSend", LIB_OBJC);
 
@@ -2098,17 +2156,7 @@ fn emit_term_view_draw_rect() -> CodeFunction {
 
     asm.push(abi::label("draw_done"));
     asm.push(abi::load_u64(abi::link_register(), abi::stack_pointer(), 0));
-    for (reg, off) in [
-        ("x19", 8),
-        ("x20", 16),
-        ("x21", 24),
-        ("x22", 32),
-        ("x23", 40),
-        ("x24", 48),
-        ("x25", 56),
-        ("x26", 64),
-        ("x28", 72),
-    ] {
+    for (reg, off) in saved {
         asm.push(abi::load_u64(reg, abi::stack_pointer(), off));
     }
     asm.push(abi::add_stack(frame));
