@@ -4080,10 +4080,16 @@ impl<'a> TypeChecker<'a> {
             if self.is_numeric(left) && self.is_numeric(right) {
                 return Type::Boolean;
             }
+            // String is orderable: `<`, `>`, `<=`, `>=` compare two String operands
+            // lexicographically by Unicode scalar value. Mixed String/numeric stays a
+            // type error. Unknown is permissive on either side to avoid cascades.
+            if self.is_orderable_string(left) && self.is_orderable_string(right) {
+                return Type::Boolean;
+            }
             self.report(
                 "TYPE_BINARY_OPERATOR_MISMATCH",
                 &format!(
-                    "Operator `{operator}` requires numeric operands, got {} and {}.",
+                    "Operator `{operator}` requires numeric or String operands, got {} and {}.",
                     self.type_name(left),
                     self.type_name(right)
                 ),
@@ -5690,6 +5696,13 @@ impl<'a> TypeChecker<'a> {
 
     fn is_comparable(&self, type_: &Type) -> bool {
         self.is_comparable_with_seen(type_, &mut HashSet::new())
+    }
+
+    /// An operand acceptable on either side of a `String` ordering comparison
+    /// (`<`, `>`, `<=`, `>=`). `Unknown` is permitted so a prior error does not
+    /// cascade. Numeric operands are handled separately by `is_numeric`.
+    fn is_orderable_string(&self, type_: &Type) -> bool {
+        matches!(type_, Type::String | Type::Unknown)
     }
 
     fn is_comparable_with_seen(&self, type_: &Type, seen: &mut HashSet<String>) -> bool {

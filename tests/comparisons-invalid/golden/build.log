@@ -25,35 +25,35 @@ tests/comparisons-invalid/src/main.mfb:7 error[2-203-0043 TYPE_UNKNOWN_VALUE]: v
                Initializer for binding `boxesEqual` does not have a known type.
    6 |   LET badEq AS Boolean = 1 = "1"
    7 |   LET boxesEqual AS Boolean = Box[[1]] = Box[[1]]
-   8 |   LET badLt AS Boolean = "a" < "b"
+   8 |   LET badLt AS Boolean = "a" < 1
      | ^
 tests/comparisons-invalid/src/main.mfb:8 error[2-203-0001 TYPE_BINARY_OPERATOR_MISMATCH]: binary operator operands have incompatible types
-               Operator `<` requires numeric operands, got String and String.
+               Operator `<` requires numeric or String operands, got String and Integer.
    6 |   LET badEq AS Boolean = 1 = "1"
    7 |   LET boxesEqual AS Boolean = Box[[1]] = Box[[1]]
-   8 |   LET badLt AS Boolean = "a" < "b"
+   8 |   LET badLt AS Boolean = "a" < 1
      | ^
 tests/comparisons-invalid/src/main.mfb:8 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `badLt` does not have a known type.
    7 |   LET boxesEqual AS Boolean = Box[[1]] = Box[[1]]
-   8 |   LET badLt AS Boolean = "a" < "b"
+   8 |   LET badLt AS Boolean = "a" < 1
    9 |   LET badGt AS Boolean = TRUE > FALSE
      | ^
 tests/comparisons-invalid/src/main.mfb:9 error[2-203-0001 TYPE_BINARY_OPERATOR_MISMATCH]: binary operator operands have incompatible types
-               Operator `>` requires numeric operands, got Boolean and Boolean.
+               Operator `>` requires numeric or String operands, got Boolean and Boolean.
    7 |   LET boxesEqual AS Boolean = Box[[1]] = Box[[1]]
-   8 |   LET badLt AS Boolean = "a" < "b"
+   8 |   LET badLt AS Boolean = "a" < 1
    9 |   LET badGt AS Boolean = TRUE > FALSE
      | ^
 tests/comparisons-invalid/src/main.mfb:9 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `badGt` does not have a known type.
-   8 |   LET badLt AS Boolean = "a" < "b"
+   8 |   LET badLt AS Boolean = "a" < 1
    9 |   LET badGt AS Boolean = TRUE > FALSE
   10 |   LET badLe AS Boolean = [] <= []
      | ^
 tests/comparisons-invalid/src/main.mfb:10 error[2-203-0001 TYPE_BINARY_OPERATOR_MISMATCH]: binary operator operands have incompatible types
-               Operator `<=` requires numeric operands, got List OF Unknown and List OF Unknown.
-   8 |   LET badLt AS Boolean = "a" < "b"
+               Operator `<=` requires numeric or String operands, got List OF Unknown and List OF Unknown.
+   8 |   LET badLt AS Boolean = "a" < 1
    9 |   LET badGt AS Boolean = TRUE > FALSE
   10 |   LET badLe AS Boolean = [] <= []
      | ^
@@ -64,7 +64,7 @@ tests/comparisons-invalid/src/main.mfb:10 error[2-203-0043 TYPE_UNKNOWN_VALUE]: 
   11 |   LET badGe AS Boolean = Map OF String TO Integer {} >= Map OF String TO Integer {}
      | ^
 tests/comparisons-invalid/src/main.mfb:11 error[2-203-0001 TYPE_BINARY_OPERATOR_MISMATCH]: binary operator operands have incompatible types
-               Operator `>=` requires numeric operands, got Map OF String TO Integer and Map OF String TO Integer.
+               Operator `>=` requires numeric or String operands, got Map OF String TO Integer and Map OF String TO Integer.
    9 |   LET badGt AS Boolean = TRUE > FALSE
   10 |   LET badLe AS Boolean = [] <= []
   11 |   LET badGe AS Boolean = Map OF String TO Integer {} >= Map OF String TO Integer {}
@@ -99,35 +99,35 @@ tests/comparisons-invalid/src/main.mfb:7 error[2-203-0043 TYPE_UNKNOWN_VALUE]: v
                Initializer for binding `boxesEqual` does not have a known type.
    6 |   LET badEq AS Boolean = 1 = "1"
    7 |   LET boxesEqual AS Boolean = Box[[1]] = Box[[1]]
-   8 |   LET badLt AS Boolean = "a" < "b"
+   8 |   LET badLt AS Boolean = "a" < 1
      | ^
 tests/comparisons-invalid/src/main.mfb:8 error[2-203-0001 TYPE_BINARY_OPERATOR_MISMATCH]: binary operator operands have incompatible types
-               Operator `<` requires numeric operands, got String and String.
+               Operator `<` requires numeric or String operands, got String and Integer.
    6 |   LET badEq AS Boolean = 1 = "1"
    7 |   LET boxesEqual AS Boolean = Box[[1]] = Box[[1]]
-   8 |   LET badLt AS Boolean = "a" < "b"
+   8 |   LET badLt AS Boolean = "a" < 1
      | ^
 tests/comparisons-invalid/src/main.mfb:8 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `badLt` does not have a known type.
    7 |   LET boxesEqual AS Boolean = Box[[1]] = Box[[1]]
-   8 |   LET badLt AS Boolean = "a" < "b"
+   8 |   LET badLt AS Boolean = "a" < 1
    9 |   LET badGt AS Boolean = TRUE > FALSE
      | ^
 tests/comparisons-invalid/src/main.mfb:9 error[2-203-0001 TYPE_BINARY_OPERATOR_MISMATCH]: binary operator operands have incompatible types
-               Operator `>` requires numeric operands, got Boolean and Boolean.
+               Operator `>` requires numeric or String operands, got Boolean and Boolean.
    7 |   LET boxesEqual AS Boolean = Box[[1]] = Box[[1]]
-   8 |   LET badLt AS Boolean = "a" < "b"
+   8 |   LET badLt AS Boolean = "a" < 1
    9 |   LET badGt AS Boolean = TRUE > FALSE
      | ^
 tests/comparisons-invalid/src/main.mfb:9 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `badGt` does not have a known type.
-   8 |   LET badLt AS Boolean = "a" < "b"
+   8 |   LET badLt AS Boolean = "a" < 1
    9 |   LET badGt AS Boolean = TRUE > FALSE
   10 |   LET badLe AS Boolean = [] <= []
      | ^
 tests/comparisons-invalid/src/main.mfb:10 error[2-203-0001 TYPE_BINARY_OPERATOR_MISMATCH]: binary operator operands have incompatible types
-               Operator `<=` requires numeric operands, got List OF Unknown and List OF Unknown.
-   8 |   LET badLt AS Boolean = "a" < "b"
+               Operator `<=` requires numeric or String operands, got List OF Unknown and List OF Unknown.
+   8 |   LET badLt AS Boolean = "a" < 1
    9 |   LET badGt AS Boolean = TRUE > FALSE
   10 |   LET badLe AS Boolean = [] <= []
      | ^
@@ -138,7 +138,7 @@ tests/comparisons-invalid/src/main.mfb:10 error[2-203-0043 TYPE_UNKNOWN_VALUE]: 
   11 |   LET badGe AS Boolean = Map OF String TO Integer {} >= Map OF String TO Integer {}
      | ^
 tests/comparisons-invalid/src/main.mfb:11 error[2-203-0001 TYPE_BINARY_OPERATOR_MISMATCH]: binary operator operands have incompatible types
-               Operator `>=` requires numeric operands, got Map OF String TO Integer and Map OF String TO Integer.
+               Operator `>=` requires numeric or String operands, got Map OF String TO Integer and Map OF String TO Integer.
    9 |   LET badGt AS Boolean = TRUE > FALSE
   10 |   LET badLe AS Boolean = [] <= []
   11 |   LET badGe AS Boolean = Map OF String TO Integer {} >= Map OF String TO Integer {}

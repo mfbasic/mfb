@@ -131,7 +131,7 @@ Fixed > Float > Integer > Byte
 | `Float`      | `Fixed`       | `Fixed`                        | `Float` |
 | `Float`      | `Float`       | `Float`                        | `Float` |
 
-Numeric comparisons (`=`, `<>`, `<`, `>`, `<=`, `>=`) use the same operand promotion rules for comparison but always return `Boolean`. `=` and `<>` also accept any two compatible comparable operands.
+Numeric comparisons (`=`, `<>`, `<`, `>`, `<=`, `>=`) use the same operand promotion rules for comparison but always return `Boolean`. `=` and `<>` also accept any two compatible comparable operands. The ordering operators `<`, `>`, `<=`, and `>=` additionally accept two `String` operands, which are ordered lexicographically by Unicode scalar value (see §4.11); mixed `String`/numeric ordering is a type error.
 
 Numeric edge cases:
 
@@ -438,13 +438,20 @@ A `MUT` binding may omit its initializer only when its type has a defined defaul
 
 Defaultability is recursive and finite: nested lists, maps, and records are defaultable only when every transitively referenced element, key, value, and field type is also defaultable, and recursive record cycles (legal only through `List`, `Map`, or `UNION`; see §4.2) do not define a default value. Enums, unions, functions, lambdas, threads, and resource handles do not have default values. A `MUT` binding of one of those types must have an initializer.
 
-### 4.11 Comparable Types
+### 4.11 Comparable and Orderable Types
 
 Some standard functions require a type to be comparable. Comparable types are `Integer`, `Float`, `Fixed`, `Boolean`, `String`, `Byte`, `Nothing`, enum types, and records whose fields are all comparable. `List`, `Map`, unions, functions, lambdas, threads, and resource handles are not comparable.
 
 `Map` keys must be comparable. List helpers such as `find`, `contains`, and `replace` require comparable element types.
 
-Equality operators `=` and `<>` require either numeric operands or any two compatible comparable operands. Ordering operators `<`, `>`, `<=`, and `>=` remain numeric-only.
+A narrower set of types is **orderable** — for these a total order is defined and the ordering operators apply. Orderable types are `Integer`, `Float`, `Fixed`, `Byte`, and `String`. `Boolean`, `Nothing`, enums, unions, and records are comparable but not orderable. Helpers such as `collections::sort` and `collections::sortBy` require an orderable element or key type.
+
+| Property | Types |
+|----------|-------|
+| Comparable (`=`, `<>`) | `Integer`, `Float`, `Fixed`, `Boolean`, `String`, `Byte`, `Nothing`, enums, records of comparable fields |
+| Orderable (`<`, `>`, `<=`, `>=`) | `Integer`, `Float`, `Fixed`, `Byte`, `String` |
+
+Equality operators `=` and `<>` require either numeric operands or any two compatible comparable operands. Ordering operators `<`, `>`, `<=`, and `>=` require either two numeric operands or two `String` operands. Two `String` operands are ordered **lexicographically by Unicode scalar value**: the strings are compared scalar by scalar, the first differing position decides, and if one string is a prefix of the other the shorter compares less. This order is deterministic and identical across all targets — it does not depend on host locale, collation, or libc. It is not a locale or human collation and is not grapheme-cluster aware; callers needing locale-aware or case-insensitive ordering normalize or `strings::caseFold` first and sort the result. Mixed `String`/numeric ordering is a compile-time type error.
 
 ---
 

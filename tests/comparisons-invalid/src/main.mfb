@@ -5,7 +5,7 @@ END TYPE
 FUNC main AS Integer
   LET badEq AS Boolean = 1 = "1"
   LET boxesEqual AS Boolean = Box[[1]] = Box[[1]]
-  LET badLt AS Boolean = "a" < "b"
+  LET badLt AS Boolean = "a" < 1
   LET badGt AS Boolean = TRUE > FALSE
   LET badLe AS Boolean = [] <= []
   LET badGe AS Boolean = Map OF String TO Integer {} >= Map OF String TO Integer {}

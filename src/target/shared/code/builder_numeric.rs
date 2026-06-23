@@ -556,6 +556,9 @@ impl CodeBuilder<'_> {
     ) -> Result<ValueResult, String> {
         match op {
             "=" | "<>" => {}
+            "<" | ">" | "<=" | ">=" => {
+                return self.lower_string_ordering_binary(op, left, right);
+            }
             other => {
                 return Err(format!(
                     "native code does not lower string comparison operator '{other}'"
@@ -601,6 +604,83 @@ impl CodeBuilder<'_> {
             "Boolean",
             if op == "=" { "false" } else { "true" },
         ));
+        self.emit(abi::label(&done_label));
+
+        Ok(ValueResult {
+            type_: "Boolean".to_string(),
+            location: result,
+            text: format!("({} {op} {})", left.text, right.text),
+        })
+    }
+
+    /// Lowers `<`, `>`, `<=`, `>=` for two `String` operands. The order is
+    /// lexicographic by Unicode scalar value (§2.2): UTF-8 byte-wise comparison
+    /// is identical to code-point order, so we compare the bytes of the common
+    /// prefix and, if equal, the shorter string compares less. Bytes and lengths
+    /// are compared unsigned. The result is target independent.
+    fn lower_string_ordering_binary(
+        &mut self,
+        op: &str,
+        left: &ValueResult,
+        right: &ValueResult,
+    ) -> Result<ValueResult, String> {
+        // Boolean outcome for each of the three orderings, per operator.
+        let less_value = if matches!(op, "<" | "<=") { "true" } else { "false" };
+        let greater_value = if matches!(op, ">" | ">=") { "true" } else { "false" };
+        let equal_value = if matches!(op, "<=" | ">=") { "true" } else { "false" };
+
+        let result = self.allocate_register()?;
+        let min_done_label = self.label("cmp_string_ord_min");
+        let loop_label = self.label("cmp_string_ord_loop");
+        let prefix_label = self.label("cmp_string_ord_prefix");
+        let less_label = self.label("cmp_string_ord_less");
+        let greater_label = self.label("cmp_string_ord_greater");
+        let done_label = self.label("cmp_string_ord_done");
+
+        // x11 = len(left), x12 = len(right); x15 = min(len(left), len(right)).
+        self.emit(abi::load_u64("x11", &left.location, 0));
+        self.emit(abi::load_u64("x12", &right.location, 0));
+        self.emit(abi::move_register("x15", "x11"));
+        self.emit(abi::compare_registers("x11", "x12"));
+        self.emit(abi::branch_lo(&min_done_label));
+        self.emit(abi::move_register("x15", "x12"));
+        self.emit(abi::label(&min_done_label));
+
+        // x13/x14 point at the first data byte of each string.
+        self.emit(abi::add_immediate("x13", &left.location, 8));
+        self.emit(abi::add_immediate("x14", &right.location, 8));
+
+        // Compare the common prefix byte by byte (x11 is free to reuse as a temp).
+        self.emit(abi::label(&loop_label));
+        self.emit(abi::compare_immediate("x15", "0"));
+        self.emit(abi::branch_eq(&prefix_label));
+        self.emit(abi::load_u8("x16", "x13", 0));
+        self.emit(abi::load_u8("x11", "x14", 0));
+        self.emit(abi::compare_registers("x16", "x11"));
+        self.emit(abi::branch_lo(&less_label));
+        self.emit(abi::branch_hi(&greater_label));
+        self.emit(abi::add_immediate("x13", "x13", 1));
+        self.emit(abi::add_immediate("x14", "x14", 1));
+        self.emit(abi::subtract_immediate("x15", "x15", 1));
+        self.emit(abi::branch(&loop_label));
+
+        // Common prefix equal: the shorter string compares less.
+        self.emit(abi::label(&prefix_label));
+        self.emit(abi::load_u64("x11", &left.location, 0));
+        self.emit(abi::load_u64("x12", &right.location, 0));
+        self.emit(abi::compare_registers("x11", "x12"));
+        self.emit(abi::branch_lo(&less_label));
+        self.emit(abi::branch_hi(&greater_label));
+        // Equal strings.
+        self.emit(abi::move_immediate(&result, "Boolean", equal_value));
+        self.emit(abi::branch(&done_label));
+
+        self.emit(abi::label(&less_label));
+        self.emit(abi::move_immediate(&result, "Boolean", less_value));
+        self.emit(abi::branch(&done_label));
+
+        self.emit(abi::label(&greater_label));
+        self.emit(abi::move_immediate(&result, "Boolean", greater_value));
         self.emit(abi::label(&done_label));
 
         Ok(ValueResult {
