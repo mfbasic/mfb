@@ -6,9 +6,24 @@ SYNOPSIS
 
 DESCRIPTION
   Reads all remaining bytes from file into one contiguous List OF Byte
-  collection and advances the file position to EOF.
+  collection starting at the current file position and advances the file
+  position to EOF. When file is already at end of input, returns the empty
+  List OF Byte. Unlike fs::readAll, the bytes are returned verbatim and are not
+  validated as UTF-8.
+
+  Thread cancellation is cooperative. The current runtime does not
+  asynchronously interrupt arbitrary host file reads; workers that need prompt
+  cancellation around blocking file descriptors should check thread::isCancelled
+  between cancellation-point operations.
+
+ERRORS
+  Raises an Error when file was not opened for reading, or when the host OS read
+  fails partway through.
 
 EXAMPLES
   RES f = fs::openFile("data.bin")
   LET bytes AS List OF Byte = fs::readAllBytes(f)
   ' f is closed by lexical drop when this scope ends
+
+SEE ALSO
+  fs::readAll, fs::readBytes, fs::readLine, fs::openFile, fs::eof, fs::close

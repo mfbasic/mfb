@@ -14,8 +14,13 @@ DESCRIPTION
   typeName returns an implementation-defined display name for the static type of
   value. It is intended for diagnostics, debugging, and human-readable messages.
 
+  The name reflects the static type known at compile time, not any runtime tag.
+  For composite types the name spells out the structure, such as "List OF Byte"
+  or "Map OF String TO Integer", matching the way the type is written in source.
+
   typeName does not inspect runtime secrets and is not a serialization or schema
-  API. Programs must not rely on it for security decisions or redaction.
+  API. The exact spelling of a name may change between implementations, so
+  programs must not parse it or rely on it for security decisions or redaction.
 
 OVERLOADS
   typeName OF T(value AS T) AS String
@@ -32,6 +37,10 @@ EXAMPLES
   Show a primitive type:
 
     LET name AS String = typeName(42)
+
+  Composite types spell out their structure:
+
+    LET kind AS String = typeName([1, 2, 3])
 
   Use in diagnostics:
 

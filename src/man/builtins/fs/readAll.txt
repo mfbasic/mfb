@@ -6,9 +6,22 @@ SYNOPSIS
 
 DESCRIPTION
   Reads all remaining bytes from file as UTF-8 text starting at the current file
-  position and advances the file position to EOF.
+  position and advances the file position to EOF. When file is already at end of
+  input, returns the empty String.
+
+  Thread cancellation is cooperative. The current runtime does not
+  asynchronously interrupt arbitrary host file reads; workers that need prompt
+  cancellation around blocking file descriptors should check thread::isCancelled
+  between cancellation-point operations.
+
+ERRORS
+  Raises an Error when file was not opened for reading, when the host OS read
+  fails partway through, or when the bytes read are not valid UTF-8.
 
 EXAMPLES
   RES f = fs::openFile("data.txt")
   LET value AS String = fs::readAll(f)
   ' f is closed by lexical drop when this scope ends
+
+SEE ALSO
+  fs::readAllBytes, fs::readLine, fs::readText, fs::openFile, fs::eof, fs::close

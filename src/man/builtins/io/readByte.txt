@@ -1,0 +1,44 @@
+NAME
+  readByte - read a single raw byte from standard input
+
+SYNOPSIS
+  io::readByte() AS Byte
+
+DESCRIPTION
+  Reads one byte from standard input and returns it as a Byte (a value from 0
+  through 255). The call returns as soon as a single byte is available; it does
+  not wait for a newline.
+
+  On terminals, standard input is briefly switched out of canonical line mode and
+  echo is suppressed for the read, so the keypress is not displayed and no Return
+  is required. The terminal's previous mode is restored before the call returns.
+
+  Unlike io::readChar, the input is not decoded as UTF-8. Exactly one byte is
+  read and returned, so a multi-byte character such as an emoji is delivered one
+  byte at a time across successive calls.
+
+ERRORS
+  Fails with ErrEndOfFile (77020003) when standard input reaches end of file
+  before a byte is read.
+
+  Fails with ErrInputFailed (77020005) on input read failure.
+
+EXAMPLES
+  LET b AS Byte = io::readByte()
+  io::print(b)
+
+  io::write("Press any key to continue...")
+  io::flush()
+  LET ignored AS Byte = io::readByte()
+
+  IF io::pollInput(1000) THEN
+    io::print(io::readByte())
+  ELSE
+    io::print("timeout")
+  END IF
+
+SEE ALSO
+  io::readChar
+  io::readLine
+  io::pollInput
+  io::input

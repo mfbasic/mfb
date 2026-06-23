@@ -5,7 +5,13 @@ SYNOPSIS
   math::pi4 AS Float
 
 DESCRIPTION
-  The mathematical constant pi / 4 as a Float value.
+  The mathematical constant pi / 4 (an eighth turn, or 45 degrees in radians)
+  as a Float value, approximately 0.7853981633974483.
 
 EXAMPLES
   LET value AS Float = math::pi4
+
+  LET eighthTurn AS Float = math::tan(math::pi4)
+
+SEE ALSO
+  math::pi4Fixed, math::pi, math::pi2, math::twoOverPi, math::e

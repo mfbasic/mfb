@@ -5,8 +5,15 @@ SYNOPSIS
   fs::setCurrentDirectory(path AS String) AS Nothing
 
 DESCRIPTION
-  Changes the current working directory for the running process.
+  Changes the current working directory for the running process to the directory
+  named by path. Both absolute and relative paths are accepted; a relative path
+  is resolved against the existing working directory.
 
+  The change is applied with the host chdir() call and affects the whole
+  process, so relative paths passed to later fs:: functions resolve against the
+  new directory. Returns Nothing on success.
+
+ERRORS
   Fails with ErrInvalidArgument (77050002) for an empty path or embedded NUL,
   ErrNotFound (77050004) when the path does not exist, ErrAccessDenied (77030003)
   when traversal is denied, or ErrWriteFailed (77020002) for other host failures.
@@ -14,3 +21,10 @@ DESCRIPTION
 EXAMPLES
   fs::setCurrentDirectory("tests")
   fs::setCurrentDirectory("..")
+
+  ' Confirm the move by reading back the working directory.
+  fs::setCurrentDirectory("target")
+  LET here AS String = fs::currentDirectory()
+
+SEE ALSO
+  fs::currentDirectory, fs::canonicalPath, fs::directoryExists, fs::tempDirectory

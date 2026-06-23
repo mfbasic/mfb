@@ -1,0 +1,28 @@
+NAME
+  isErrorTerminal - test whether standard error is a terminal
+
+SYNOPSIS
+  io::isErrorTerminal() AS Boolean
+
+DESCRIPTION
+  Returns TRUE when standard error is connected to an interactive terminal
+  (a tty) and FALSE when it is redirected to a file, pipe, or other
+  non-terminal destination.
+
+  Use this to decide whether to emit ANSI colors, progress bars, or other
+  terminal-only formatting on the error stream, and to fall back to plain output
+  when it is redirected to a file or pipe. The check inspects only the current
+  state of standard error; it does not modify the stream or write any data.
+
+EXAMPLES
+  IF io::isErrorTerminal() THEN
+    io::printError("[31mError:[0m something went wrong")
+  ELSE
+    io::printError("Error: something went wrong")
+  END IF
+
+SEE ALSO
+  io::isOutputTerminal
+  io::isInputTerminal
+  io::printError
+  io::flushError

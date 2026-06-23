@@ -13,8 +13,16 @@ DESCRIPTION
   receives its own stream seeded from the thread that spawned it. Call
   math::seed to make a thread's sequence reproducible.
 
+ERRORS
   Fails with ErrInvalidArgument (77050002) when min is greater than max.
+
+  Errors can also propagate from evaluating the argument expressions before
+  math::rand is called.
 
 EXAMPLES
   LET roll AS Integer = math::rand(1, 6)
+
   LET coin AS Integer = math::rand(0, 1)
+
+SEE ALSO
+  math::seed, math::min, math::max, math::clamp

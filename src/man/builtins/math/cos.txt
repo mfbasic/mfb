@@ -8,7 +8,14 @@ SYNOPSIS
 DESCRIPTION
   Returns the cosine of value, where value is an angle in radians.
 
-  The Fixed overload rounds to the nearest Fixed value.
+  The return type matches the numeric type of value. The single argument
+  may be a Float or a Fixed. The Fixed overload rounds the result to the
+  nearest Fixed value. Defined for all inputs, so no error is produced.
 
 EXAMPLES
   LET value AS Float = math::cos(math::pi)
+
+  LET wave AS Fixed = math::cos(0.0)
+
+SEE ALSO
+  math::sin, math::tan, math::acos

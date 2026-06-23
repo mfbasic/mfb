@@ -11,6 +11,12 @@ DESCRIPTION
   Returns FALSE for missing paths, directories, and other non-regular
   filesystem entries.
 
+  The path is a UTF-8 String and may contain Unicode characters, including
+  emoji, when the host filesystem accepts those names.
+
 EXAMPLES
   fs::fileExists("data.txt")
   fs::fileExists("é日😀.txt")
+
+SEE ALSO
+  fs::directoryExists, fs::exists

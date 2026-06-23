@@ -8,17 +8,25 @@ PACKAGE
   json
 
 DESCRIPTION
-  json::parse reads a complete JSON document from value and returns the
-  resulting Json union value. Leading and trailing JSON whitespace are allowed.
-  Object keys are read as String values. JSON null maps to Null[NOTHING].
+  json::parse reads a single complete JSON document from value and returns the
+  resulting Json union value. Leading and trailing JSON whitespace are allowed,
+  but any non-whitespace content after the first document is rejected. Object
+  keys are read as String values. JSON null maps to JsonNull[NOTHING], true and
+  false to JsonBool, numbers to JsonNum (Float), strings to JsonStr, arrays to
+  JsonArr, and objects to JsonObj.
+
+  The argument may also be passed by the name text.
 
 ERRORS
   ErrInvalidFormat (77050003)
-    Returned when value is not valid JSON, contains an invalid escape sequence,
-    or contains a malformed number.
+    Returned when value is not valid JSON, is empty or whitespace only, has
+    trailing non-whitespace content, contains an invalid escape sequence, or
+    contains a malformed number.
 
 EXAMPLES
   LET value AS Json = json::parse("{\"ok\":true,\"items\":[1,2,3]}")
+
+  LET empty AS Json = json::parse(text := "null")
 
 SEE ALSO
   stringify

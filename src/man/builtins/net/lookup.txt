@@ -1,0 +1,41 @@
+NAME
+  lookup - resolve a host name to network addresses
+
+SYNOPSIS
+  net::lookup(host AS String, port AS Integer = 0) AS List OF Address
+
+PACKAGE
+  net
+
+IMPORTS
+  IMPORT net
+
+DESCRIPTION
+  lookup resolves host to one or more network addresses and returns them as a
+  List OF Address. host may be a host name or a textual IP address. The optional
+  port is recorded on each returned Address; when omitted it defaults to 0.
+
+  Each Address has a host field (String) and a port field (Integer). The list is
+  returned in an implementation-defined but stable order, typically matching the
+  host resolver order. lookup does not expose DNS record types, TTLs, canonical
+  names, or other resolver metadata.
+
+ERRORS
+  Raises an Error with code 77050002 (ErrInvalidArgument) when an argument value
+  is not valid for the operation, 77070001 (ErrAddressInvalid) when the host or
+  port is malformed, 77070002 (ErrAddressNotFound) when the host name could not
+  be resolved, or 77070003 (ErrNetworkFailed) when the resolver failed before a
+  result was produced.
+
+EXAMPLES
+  Resolve a host and connect to the first address:
+
+    IMPORT net
+
+    LET addresses = net::lookup("example.com", 80)
+    LET address = get(addresses, 0)
+    RES client = net::connectTcp(address, timeoutMs := 5000)
+    ' client is closed by lexical drop when this scope ends
+
+SEE ALSO
+  net::connectTcp, net::bindUdp, net::remoteAddress

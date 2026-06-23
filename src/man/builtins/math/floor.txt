@@ -6,10 +6,41 @@ SYNOPSIS
   math::floor(value AS Fixed) AS Integer
 
 DESCRIPTION
-  Returns the greatest integer less than or equal to value.
+  Returns the greatest integer that is less than or equal to value, rounding
+  toward negative infinity. The result is always returned as an Integer.
 
-  The Float overload fails with ErrOverflow (77050010) when the result is outside
-  Integer range.
+  For non-negative values floor truncates the fractional part. For negative
+  values that have a fractional part the result is the next whole number toward
+  negative infinity, so math::floor(-2.25) is -3, not -2.
+
+OVERLOADS
+  math::floor(value AS Float) AS Integer
+    Rounds the Float value down to the nearest Integer.
+
+  math::floor(value AS Fixed) AS Integer
+    Rounds the Fixed (Q32.32) value down to the nearest Integer using
+    deterministic fixed-point arithmetic, so the result is identical across
+    targets.
+
+ERRORS
+  The Float overload fails with ErrOverflow (77050010) when the floored result
+  is outside Integer range.
+
+  The Fixed overload does not overflow: every Fixed value floors to an Integer
+  that fits in range.
+
+TYPE CHECKING
+  value must be a Float or a Fixed. Calling math::floor with any other argument
+  type is a compile-time type error.
 
 EXAMPLES
-  LET value AS Integer = math::floor(3.75)
+  Floor a positive value:
+
+    LET value AS Integer = math::floor(3.75)
+
+  Floor a negative value toward negative infinity:
+
+    LET value AS Integer = math::floor(-2.25)
+
+SEE ALSO
+  ceil, round, abs, clamp

@@ -5,12 +5,18 @@ SYNOPSIS
   fs::deleteDirectory(path AS String) AS Nothing
 
 DESCRIPTION
-  Deletes an empty directory. The final path must name an actual directory.
+  Removes the empty directory named by path. The final path component must name
+  an actual directory; use fs::deleteFile to remove a file or symlink.
+
+  Returns Nothing on success.
 
   Fails with ErrInvalidArgument (77050002) for an empty path or embedded NUL,
-  ErrNotFound (77050004) when the path does not exist, ErrAccessDenied (77030003)
-  when deletion is denied, ErrResourceBusy (77030005) when the directory is
-  not empty, or ErrWriteFailed (77020002) for other host failures.
+  ErrNotFound (77050004) when the path does not exist, ErrAccessDenied
+  (77030003) when deletion is denied, ErrResourceBusy (77030005) when the
+  directory is not empty, or ErrWriteFailed (77020002) for other host failures.
 
 EXAMPLES
   fs::deleteDirectory("target/example")
+
+SEE ALSO
+  fs::createDirectory, fs::deleteFile, fs::directoryExists, fs::exists

@@ -5,7 +5,27 @@ SYNOPSIS
   fs::pathDirName(path AS String) AS String
 
 DESCRIPTION
-  Returns the directory portion of path without accessing the filesystem.
+  Returns the directory portion of path, that is, everything up to but not
+  including the final component. The operation is purely syntactic and does not
+  access the filesystem.
+
+  Trailing "/" separators are ignored before the final component is located, and
+  any separators that join the directory to that component are removed from the
+  result. When path contains no separator, "." is returned. When the only
+  separator is a leading "/", or path is "/" itself, "/" is returned. An empty
+  path returns ".".
+
+  The operation is byte-oriented for path syntax, so UTF-8 file names are
+  preserved unchanged.
 
 EXAMPLES
   io::print(fs::pathDirName("target/output.txt"))
+
+  io::print(fs::pathDirName("/usr/local/bin"))
+
+  io::print(fs::pathDirName("output.txt"))
+
+  io::print(fs::pathDirName("/"))
+
+SEE ALSO
+  fs::pathBaseName, fs::pathJoin, fs::pathNormalize, fs::canonicalPath

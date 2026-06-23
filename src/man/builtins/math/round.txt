@@ -6,10 +6,40 @@ SYNOPSIS
   math::round(value AS Fixed) AS Integer
 
 DESCRIPTION
-  Returns the nearest integer, with halves rounded away from zero.
+  Returns the integer nearest to value. The result is always returned as an
+  Integer.
 
-  The Float overload fails with ErrOverflow (77050010) when the result is outside
-  Integer range.
+  When value is exactly halfway between two integers the tie is broken away from
+  zero, so math::round(2.5) is 3 and math::round(-2.5) is -3.
+
+OVERLOADS
+  math::round(value AS Float) AS Integer
+    Rounds the Float value to the nearest Integer, breaking ties away from zero.
+
+  math::round(value AS Fixed) AS Integer
+    Rounds the Fixed (Q32.32) value to the nearest Integer using deterministic
+    fixed-point arithmetic, breaking ties away from zero, so the result is
+    identical across targets.
+
+ERRORS
+  The Float overload fails with ErrOverflow (77050010) when the rounded result
+  is outside Integer range.
+
+  The Fixed overload does not overflow: every Fixed value rounds to an Integer
+  that fits in range.
+
+TYPE CHECKING
+  value must be a Float or a Fixed. Calling math::round with any other argument
+  type is a compile-time type error.
 
 EXAMPLES
-  LET value AS Integer = math::round(3.5)
+  Round a positive value with a half away from zero:
+
+    LET value AS Integer = math::round(3.5)
+
+  Round a negative value with a half away from zero:
+
+    LET value AS Integer = math::round(-2.5)
+
+SEE ALSO
+  floor, ceil, abs, clamp

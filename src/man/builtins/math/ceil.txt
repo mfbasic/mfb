@@ -6,10 +6,41 @@ SYNOPSIS
   math::ceil(value AS Fixed) AS Integer
 
 DESCRIPTION
-  Returns the smallest integer greater than or equal to value.
+  Returns the smallest integer that is greater than or equal to value, rounding
+  toward positive infinity. The result is always returned as an Integer.
 
-  The Float overload fails with ErrOverflow (77050010) when the result is outside
-  Integer range.
+  For values that have a fractional part the result is the next whole number
+  toward positive infinity, so math::ceil(3.25) is 4 and math::ceil(-2.25) is
+  -2, not -3.
+
+OVERLOADS
+  math::ceil(value AS Float) AS Integer
+    Rounds the Float value up to the nearest Integer.
+
+  math::ceil(value AS Fixed) AS Integer
+    Rounds the Fixed (Q32.32) value up to the nearest Integer using
+    deterministic fixed-point arithmetic, so the result is identical across
+    targets.
+
+ERRORS
+  The Float overload fails with ErrOverflow (77050010) when the ceiled result
+  is outside Integer range.
+
+  The Fixed overload does not overflow: every Fixed value ceils to an Integer
+  that fits in range.
+
+TYPE CHECKING
+  value must be a Float or a Fixed. Calling math::ceil with any other argument
+  type is a compile-time type error.
 
 EXAMPLES
-  LET value AS Integer = math::ceil(3.25)
+  Ceil a positive value:
+
+    LET value AS Integer = math::ceil(3.25)
+
+  Ceil a negative value toward positive infinity:
+
+    LET value AS Integer = math::ceil(-2.25)
+
+SEE ALSO
+  floor, round, abs, clamp

@@ -6,10 +6,26 @@ SYNOPSIS
   math::atan2(y AS Fixed, x AS Fixed) AS Fixed
 
 DESCRIPTION
-  Returns the angle of the vector (x, y) using the standard atan2(y, x)
-  convention.
+  Returns the angle in radians of the vector (x, y), using the standard
+  atan2(y, x) convention. The result lies in the range (-pi, pi] and uses
+  the signs of both arguments to place the angle in the correct quadrant.
+  The two arguments must share the same numeric type, and the return type
+  matches that type, which may be a Float or a Fixed. Defined for all
+  inputs, including (0, 0), so no error is produced.
 
-  The Fixed overload rounds to the nearest Fixed value.
+OVERLOADS
+  math::atan2(y AS Float, x AS Float) AS Float
+    Computes the arc tangent using floating-point arithmetic.
+
+  math::atan2(y AS Fixed, x AS Fixed) AS Fixed
+    Computes the arc tangent using deterministic fixed-point (Q32.32)
+    arithmetic, so the result is identical across targets. The result is
+    rounded to the nearest Fixed value.
 
 EXAMPLES
   LET value AS Float = math::atan2(1.0, 1.0)
+
+  LET scaled AS Fixed = math::atan2(0.0, -1.0)
+
+SEE ALSO
+  math::atan, math::asin, math::acos, math::tan

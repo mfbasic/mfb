@@ -1,0 +1,27 @@
+NAME
+  isInputTerminal - test whether standard input is a terminal
+
+SYNOPSIS
+  io::isInputTerminal() AS Boolean
+
+DESCRIPTION
+  Returns TRUE when standard input is connected to an interactive terminal
+  (a tty) and FALSE when it is redirected from a file, pipe, or other
+  non-terminal source.
+
+  Use this to decide whether to prompt interactively, enable line editing, or
+  fall back to reading piped input. The check inspects only the current state of
+  standard input; it does not modify the stream or consume any input.
+
+EXAMPLES
+  IF io::isInputTerminal() THEN
+    io::print(io::input("Name: "))
+  ELSE
+    io::print(io::readLine())
+  END IF
+
+SEE ALSO
+  io::isOutputTerminal
+  io::isErrorTerminal
+  io::pollInput
+  io::input

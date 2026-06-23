@@ -1,0 +1,49 @@
+NAME
+  readChar - read a single character from standard input
+
+SYNOPSIS
+  io::readChar() AS String
+
+DESCRIPTION
+  Reads one character from standard input and returns it as a String. The call
+  returns as soon as a single keypress-sized unit is available; it does not wait
+  for a newline.
+
+  On terminals, standard input is briefly switched out of canonical line mode and
+  echo is suppressed for the read, so the keypress is not displayed and no Return
+  is required. The terminal's previous mode is restored before the call returns.
+
+  Input is decoded as UTF-8. One full Unicode scalar value (one to four bytes) is
+  read and returned as a one-character String, including multi-byte characters
+  such as emoji.
+
+ERRORS
+  Fails with ErrEndOfFile (77020003) when standard input reaches end of file
+  before a character is read.
+
+  Fails with ErrEncoding (77020004) when the input is not valid UTF-8.
+
+  Fails with ErrInputFailed (77020005) on input read failure.
+
+  Fails with ErrOutOfMemory (77010001) when the result buffer cannot be
+  allocated.
+
+EXAMPLES
+  LET key AS String = io::readChar()
+  io::print(key)
+
+  io::write("Press any key to continue...")
+  io::flush()
+  LET ignored AS String = io::readChar()
+
+  IF io::pollInput(1000) THEN
+    io::print(io::readChar())
+  ELSE
+    io::print("timeout")
+  END IF
+
+SEE ALSO
+  io::readByte
+  io::readLine
+  io::pollInput
+  io::input

@@ -13,3 +13,8 @@ DESCRIPTION
 EXAMPLES
   io::write("ready")
   io::flush()
+
+SEE ALSO
+  io::flushError
+  io::write
+  io::print

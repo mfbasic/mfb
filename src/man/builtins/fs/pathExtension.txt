@@ -1,12 +1,38 @@
 NAME
-  pathExtension - return the final component extension
+  pathExtension - return the extension of a path's final component
 
 SYNOPSIS
   fs::pathExtension(path AS String) AS String
 
 DESCRIPTION
-  Returns the final component's extension, including the leading dot when one
-  is present.
+  Returns the extension of path's final component, including the leading ".".
+  The operation is purely syntactic and does not access the filesystem.
+
+  Trailing "/" separators are ignored before the final component is located, so
+  "target/output.txt" and "target/output.txt/" both yield ".txt". Within that
+  component the search runs from the end toward the start and stops at the last
+  "." it finds, so only the final extension is returned: "archive.tar.gz" yields
+  ".gz". The result spans from that "." through the end of the component.
+
+  The search never crosses a "/", so a "." that appears in an earlier component
+  is ignored: "lib.d/output" yields an empty string. When the final component
+  contains no ".", an empty string is returned. When the only "." is the first
+  byte of the component, that component is treated as a dotfile name and the
+  whole name is returned, so ".bashrc" yields ".bashrc".
+
+  The operation is byte-oriented for path syntax, so UTF-8 file names are
+  preserved unchanged.
 
 EXAMPLES
   io::print(fs::pathExtension("target/output.txt"))
+
+  io::print(fs::pathExtension("archive.tar.gz"))
+
+  io::print(fs::pathExtension("README"))
+
+  io::print(fs::pathExtension("lib.d/output"))
+
+  io::print(fs::pathExtension(".bashrc"))
+
+SEE ALSO
+  fs::pathBaseName, fs::pathDirName, fs::pathJoin, fs::pathNormalize, fs::canonicalPath

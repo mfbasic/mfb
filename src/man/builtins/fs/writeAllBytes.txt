@@ -5,10 +5,19 @@ SYNOPSIS
   fs::writeAllBytes(file AS File, bytes AS List OF Byte) AS Nothing
 
 DESCRIPTION
-  Writes all bytes from the collection's packed data region to file, retrying
-  until every byte has been written or the host reports an output failure.
+  Writes every byte from the collection's packed data region to file at the
+  current file position, retrying until all bytes have been written or the host
+  reports an output failure. The file position advances by the number of bytes
+  written.
+
+ERRORS
+  Raises an Error when file has already been closed or when the host OS write
+  fails partway through.
 
 EXAMPLES
   RES f = fs::openFile("target/output.bin", "write")
   fs::writeAllBytes(f, [72, 105])
   ' f is closed by lexical drop when this scope ends
+
+SEE ALSO
+  fs::writeAll, fs::writeBytes, fs::writeBytesAtomic, fs::openFile, fs::close

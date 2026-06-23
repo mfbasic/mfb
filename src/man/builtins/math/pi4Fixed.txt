@@ -5,7 +5,13 @@ SYNOPSIS
   math::pi4Fixed AS Fixed
 
 DESCRIPTION
-  The mathematical constant pi / 4 rounded to the nearest Fixed value.
+  The mathematical constant pi / 4 (an eighth turn, or 45 degrees in radians)
+  rounded to the nearest Fixed value, approximately 0.7853981633974483.
 
 EXAMPLES
   LET value AS Fixed = math::pi4Fixed
+
+  LET eighthTurn AS Fixed = math::piFixed / 4.0
+
+SEE ALSO
+  math::pi4, math::piFixed, math::pi2Fixed, math::twoOverPiFixed, math::eFixed

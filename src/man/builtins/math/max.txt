@@ -7,7 +7,25 @@ SYNOPSIS
   math::max(a AS Fixed, b AS Fixed) AS Fixed
 
 DESCRIPTION
-  Returns the larger of two values of the same numeric type.
+  Returns the larger of a and b.
+
+  The return type matches the numeric type of the arguments. Both arguments
+  must be the same numeric type: two Integers, two Floats, or two Fixeds.
+
+ERRORS
+  math::max does not fail for supported argument types. Errors can still
+  propagate from evaluating the argument expressions before math::max is
+  called.
+
+TYPE CHECKING
+  Both arguments must share the same numeric type. Mixing numeric types, or
+  passing a non-numeric value such as a String, Boolean, Byte, record, union,
+  resource, thread, function, or lambda, is a compile-time type error.
 
 EXAMPLES
   LET value AS Integer = math::max(2, 4)
+
+  LET upper AS Float = math::max(-3.5, 1.0)
+
+SEE ALSO
+  math::min, math::clamp, math::abs

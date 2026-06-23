@@ -5,10 +5,18 @@ SYNOPSIS
   fs::writeAll(file AS File, value AS String) AS Nothing
 
 DESCRIPTION
-  Writes all UTF-8 bytes from value to file, retrying until the full string has
-  been written or the host reports an output failure.
+  Writes all UTF-8 bytes from value to file at the current file position,
+  retrying until the full string has been written or the host reports an output
+  failure. The file position advances by the number of bytes written.
+
+ERRORS
+  Raises an Error when file was not opened for writing or when the host OS write
+  fails partway through.
 
 EXAMPLES
   RES f = fs::openFile("target/output.txt", "write")
   fs::writeAll(f, "Hello")
   ' f is closed by lexical drop when this scope ends
+
+SEE ALSO
+  fs::writeAllBytes, fs::writeText, fs::openFile, fs::readAll, fs::close

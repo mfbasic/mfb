@@ -8,8 +8,17 @@ DESCRIPTION
   Writes value to standard error and appends a newline. The value is UTF-8 text
   and may contain any valid Unicode scalar values, including emoji.
 
+  Only String values are accepted. Use toString explicitly to print
+  non-string values.
+
   Fails with ErrWriteFailed (77020002) on output failure.
 
 EXAMPLES
   io::printError("failed")
   io::printError("é日😀")
+  io::printError(toString(42))
+
+SEE ALSO
+  io::writeError
+  io::print
+  io::flushError

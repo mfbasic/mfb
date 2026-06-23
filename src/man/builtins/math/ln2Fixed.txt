@@ -5,7 +5,13 @@ SYNOPSIS
   math::ln2Fixed AS Fixed
 
 DESCRIPTION
-  The mathematical constant ln(2) rounded to the nearest Fixed value.
+  The natural logarithm of 2 rounded to the nearest Fixed value,
+  approximately 0.6931471805599453.
 
 EXAMPLES
   LET value AS Fixed = math::ln2Fixed
+
+  LET log2 AS Fixed = math::log(x) / math::ln2Fixed
+
+SEE ALSO
+  math::ln2, math::ln10Fixed, math::eFixed, math::piFixed, math::twoOverPiFixed

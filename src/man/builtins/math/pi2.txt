@@ -5,7 +5,13 @@ SYNOPSIS
   math::pi2 AS Float
 
 DESCRIPTION
-  The mathematical constant pi / 2 as a Float value.
+  The mathematical constant pi / 2 (a quarter turn, or 90 degrees in radians)
+  as a Float value, approximately 1.5707963267948966.
 
 EXAMPLES
   LET value AS Float = math::pi2
+
+  LET quarterTurn AS Float = math::sin(math::pi2)
+
+SEE ALSO
+  math::pi2Fixed, math::pi, math::pi4, math::twoOverPi, math::e

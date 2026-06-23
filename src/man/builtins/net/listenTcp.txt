@@ -1,0 +1,66 @@
+NAME
+  listenTcp - open a TCP listening socket bound to a local address
+
+SYNOPSIS
+  net::listenTcp(host AS String, port AS Integer) AS Listener
+  net::listenTcp(host AS String, port AS Integer, backlog AS Integer) AS Listener
+
+PACKAGE
+  net
+
+IMPORTS
+  IMPORT net
+
+DESCRIPTION
+  listenTcp binds a local TCP socket to host and port and places it in the
+  listening state, returning a Listener resource ready to accept incoming
+  connections. host names the local interface to bind; use "0.0.0.0" or "::" to
+  accept connections on any interface. When port is 0 the host assigns an
+  ephemeral port, which can be read back with net::localAddress.
+
+  The optional backlog hints the maximum number of pending connections the host
+  may queue before refusing new ones. When omitted, a host-defined default
+  applies. The value is advisory; the host may clamp it to its own limit.
+
+  Accept connections with net::accept, which returns a connected Socket for each
+  client. Listener resources are closed by lexical drop at scope exit or
+  explicitly with net::close, and the bound endpoint can be inspected with
+  net::localAddress.
+
+OVERLOADS
+  net::listenTcp(host AS String, port AS Integer) AS Listener
+    Binds host on port and listens using the default backlog.
+
+  net::listenTcp(host AS String, port AS Integer, backlog AS Integer) AS Listener
+    Binds host on port and listens with the given backlog hint.
+
+ERRORS
+  Raises an Error with code 77050002 (ErrInvalidArgument) when an argument value
+  is not valid for the operation, 77070001 (ErrAddressInvalid) when the host or
+  port is malformed, or 77070003 (ErrNetworkFailed) when the socket could not be
+  bound or placed in the listening state, such as when the address is already in
+  use.
+
+EXAMPLES
+  Listen on all interfaces and accept a client:
+
+    IMPORT net
+
+    RES listener = net::listenTcp("0.0.0.0", 8080)
+    RES client = net::accept(listener)
+    ' client and listener are closed by lexical drop when this scope ends
+
+  Bind an ephemeral port and read back the assigned address:
+
+    IMPORT net
+
+    RES listener = net::listenTcp("127.0.0.1", 0, 128)
+    LET bound = net::localAddress(listener)
+    ' bound.port holds the host-assigned port
+
+SEE ALSO
+  net::accept
+  net::connectTcp
+  net::localAddress
+  net::close
+  net::lookup

@@ -8,9 +8,20 @@ DESCRIPTION
   Opens path and returns an opaque File resource. Portable modes are "read" or
   "r", "write" or "w", "readWrite" or "rw", and "append" or "a".
 
+  Unlike fs::openFile, mode is required and has no default.
+
   File resources are closed by lexical drop at scope exit or explicitly with
   fs::close.
+
+ERRORS
+  Raises an Error when mode is not one of the portable modes, when path does not
+  exist for a read mode, when the containing directory is missing or not
+  writable for a write or append mode, or when the host OS otherwise refuses to
+  open the file.
 
 EXAMPLES
   RES f = fs::open("data.txt", "read")
   ' f is closed by lexical drop when this scope ends
+
+SEE ALSO
+  fs::openFile, fs::openFileNoFollow, fs::close

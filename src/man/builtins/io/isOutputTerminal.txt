@@ -1,0 +1,29 @@
+NAME
+  isOutputTerminal - test whether standard output is a terminal
+
+SYNOPSIS
+  io::isOutputTerminal() AS Boolean
+
+DESCRIPTION
+  Returns TRUE when standard output is connected to an interactive terminal
+  (a tty) and FALSE when it is redirected to a file, pipe, or other
+  non-terminal destination.
+
+  Use this to decide whether to emit ANSI colors, progress bars, or other
+  terminal-only formatting, and to fall back to plain output when writing to a
+  file or pipe. The check inspects only the current state of standard output; it
+  does not modify the stream or write any data.
+
+EXAMPLES
+  LET useColor AS Boolean = io::isOutputTerminal()
+  IF useColor THEN
+    io::print("Status: OK (interactive)")
+  ELSE
+    io::print("Status: OK")
+  END IF
+
+SEE ALSO
+  io::isInputTerminal
+  io::isErrorTerminal
+  io::print
+  io::flush

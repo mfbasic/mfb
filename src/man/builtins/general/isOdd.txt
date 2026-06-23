@@ -1,0 +1,40 @@
+NAME
+  isOdd - test whether an integer is odd
+
+SYNOPSIS
+  isOdd(value AS Integer) AS Boolean
+
+PACKAGE
+  general
+
+IMPORTS
+  None. general functions are available without an IMPORT statement.
+
+DESCRIPTION
+  isOdd returns TRUE when value is an odd integer and FALSE when value is even.
+
+  An integer is odd when it is not evenly divisible by two. Zero is even, so
+  isOdd(0) is FALSE. Negative integers follow the same rule, so isOdd(-3) is
+  TRUE.
+
+ERRORS
+  isOdd does not raise an error for any Integer input. Errors can still
+  propagate from evaluating value before isOdd is called.
+
+TYPE CHECKING
+  isOdd accepts only Integer values.
+
+EXAMPLES
+  Test a literal:
+
+    LET result AS Boolean = isOdd(7)
+
+  Branch on parity:
+
+    IF isOdd(count) THEN
+      PRINT "count is odd"
+    END IF
+
+SEE ALSO
+  isEven
+  isNumeric

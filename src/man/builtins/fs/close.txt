@@ -5,8 +5,19 @@ SYNOPSIS
   fs::close(file AS File) AS Nothing
 
 DESCRIPTION
-  Closes file. Calling close more than once on the same File is an error.
+  Closes file and releases the underlying OS handle, flushing any pending
+  writes. After close returns, file must not be used again.
+
+  Closing is otherwise automatic: a File is closed by lexical drop when its
+  scope ends. Call fs::close only when the handle must be released before then.
+
+ERRORS
+  Raises an Error when file has already been closed, or when the host OS reports
+  a failure while flushing or releasing the handle.
 
 EXAMPLES
   RES f AS File = fs::openFile("data.txt")
   fs::close(f)
+
+SEE ALSO
+  fs::open, fs::openFile, fs::openFileNoFollow

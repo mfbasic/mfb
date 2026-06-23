@@ -1,0 +1,72 @@
+NAME
+  accept - accept the next pending connection on a TCP listener
+
+SYNOPSIS
+  net::accept(listener AS Listener) AS Socket
+  net::accept(listener AS Listener, timeoutMs AS Integer) AS Socket
+
+PACKAGE
+  net
+
+IMPORTS
+  IMPORT net
+
+DESCRIPTION
+  accept removes the next pending connection from a Listener's queue and returns
+  a connected Socket for communicating with that client. The listener must have
+  been placed in the listening state by net::listenTcp and must still be open.
+  Each call accepts a single connection; call accept in a loop to serve clients
+  as they arrive.
+
+  The optional timeoutMs bounds how long accept waits for a pending connection,
+  in milliseconds. When omitted, accept blocks until a client connects.
+
+  The returned Socket is independent of the listener: it stays usable after the
+  listener is closed, and closing it does not affect the listener. Socket
+  resources are closed by lexical drop at scope exit or explicitly with
+  net::close. Read and write data with net::read, net::readText, net::write, and
+  net::writeText, and inspect the endpoints with net::localAddress and
+  net::remoteAddress.
+
+OVERLOADS
+  net::accept(listener AS Listener) AS Socket
+    Blocks until a client connects and returns the connected Socket.
+
+  net::accept(listener AS Listener, timeoutMs AS Integer) AS Socket
+    Waits at most timeoutMs for a pending connection before returning.
+
+ERRORS
+  Raises an Error with code 77050002 (ErrInvalidArgument) when an argument value
+  is not valid for the operation, 77030004 (ErrResourceClosed) when the listener
+  has already been closed, or 77070003 (ErrNetworkFailed) when the connection
+  could not be accepted.
+
+EXAMPLES
+  Accept a single client and read a request line:
+
+    IMPORT net
+
+    RES listener = net::listenTcp("0.0.0.0", 8080)
+    RES client = net::accept(listener)
+    LET request = net::readText(client, 1024)
+    ' client and listener are closed by lexical drop when this scope ends
+
+  Serve clients in a loop:
+
+    IMPORT net
+
+    RES listener = net::listenTcp("0.0.0.0", 8080)
+    DO
+      RES client = net::accept(listener)
+      net::writeText(client, "hello\n")
+      ' client is closed by lexical drop at the end of each iteration
+    LOOP
+
+SEE ALSO
+  net::listenTcp
+  net::connectTcp
+  net::read
+  net::write
+  net::close
+  net::localAddress
+  net::remoteAddress

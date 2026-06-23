@@ -1,5 +1,5 @@
 NAME
-  append - add an item or items to the end of a list
+  append - return a list with an item or items added at the end
 
 SYNOPSIS
   append OF T(value AS List OF T, item AS T) AS List OF T
@@ -15,6 +15,11 @@ DESCRIPTION
   append returns a new list with content added at the end. The original list is
   not mutated.
 
+  Given a single item, append returns a list one element longer with item placed
+  after the existing items. Given a list of items, append returns a list with all
+  of those items added in order after the existing items; appending an empty list
+  returns a copy of the original.
+
 OVERLOADS
   append OF T(value AS List OF T, item AS T) AS List OF T
     Returns a list with item added after the existing items.
@@ -23,12 +28,14 @@ OVERLOADS
     Returns a list with all items added after the existing items.
 
 ERRORS
-  append does not fail for supported evaluated arguments. Errors can still
-  propagate from evaluating arguments before append is called.
+  append does not fail for supported argument types. Errors can still propagate
+  from evaluating arguments before append is called.
 
 TYPE CHECKING
-  The appended item must have the list element type T, or the appended items
-  list must have the same List OF T type.
+  The first argument must be a List OF T. The second argument must be either an
+  item of the list element type T or another List OF T. Calling append on a
+  non-list value, or with a mismatched element type, is a compile-time type
+  error.
 
 EXAMPLES
   Append one item:
@@ -40,6 +47,4 @@ EXAMPLES
     LET numbers AS List OF Integer = append([1, 2], [3, 4])
 
 SEE ALSO
-  prepend
-  insert
-  set
+  prepend, insert, set, removeAt, len

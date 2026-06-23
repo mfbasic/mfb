@@ -11,25 +11,33 @@ IMPORTS
   None. collection functions are available without an IMPORT statement.
 
 DESCRIPTION
-  filter calls predicate once for each item in value, from left to right, and
-  returns a new list containing the items for which predicate returns TRUE. The
-  original list is not mutated.
+  filter calls predicate once for each item in value, in order from left to
+  right, and returns a new list containing the items for which predicate
+  returns TRUE. The order of the kept items is preserved. The original list is
+  neither copied for predicate nor mutated.
 
   Built-in predicate helpers such as isEven, isOdd, isPositive, isNegative,
   isZero, isEmpty, and isNotEmpty are intended for direct use with filter when
   their argument type matches the list element type.
 
+  If predicate fails for any item, the error auto-propagates and iteration
+  stops, so later items are not visited and no result list is returned.
+
 OVERLOADS
   filter OF T(value AS List OF T, predicate AS FUNC(T) AS Boolean) AS List OF T
-    Keeps items where predicate returns TRUE.
+    Keeps items where predicate returns TRUE and returns a List OF T.
 
 ERRORS
-  filter propagates errors raised by predicate. Errors can also propagate from
-  evaluating value or predicate before filter is called.
+  filter propagates errors raised by predicate, stopping at the failing item.
+  Errors can still propagate from evaluating value or predicate before filter
+  is called.
 
 TYPE CHECKING
-  predicate must accept one argument of the list element type T and return
-  Boolean.
+  The first argument must be a List OF T. The second argument must accept one
+  argument of the list element type T and return Boolean. The result list
+  element type is the same T as the input. Calling filter on a non-list value,
+  with a predicate whose parameter type does not match T, or with a predicate
+  that does not return Boolean, is a compile-time type error.
 
 EXAMPLES
   Keep even numbers:
@@ -40,8 +48,13 @@ EXAMPLES
 
     LET names AS List OF String = filter(["Ada", "", "Grace"], isNotEmpty)
 
+  Use a local function:
+
+    FUNC isLong(word AS String) AS Boolean
+      RETURN len(word) > 3
+    END FUNC
+
+    LET long AS List OF String = filter(["hi", "hello", "ok"], isLong)
+
 SEE ALSO
-  forEach
-  transform
-  reduce
-  isEven
+  forEach, transform, reduce, isEven

@@ -8,5 +8,15 @@ DESCRIPTION
   Returns the absolute current working directory path for the running process
   as a UTF-8 String.
 
+  The path is read from the host with getcwd(). Relative paths passed to other
+  fs:: functions are resolved against this directory.
+
+ERRORS
+  Raises an Error when the host getcwd() call fails, or when the result buffer
+  cannot be allocated.
+
 EXAMPLES
-  fs::currentDirectory()
+  LET cwd AS String = fs::currentDirectory()
+
+SEE ALSO
+  fs::setCurrentDirectory, fs::canonicalPath, fs::tempDirectory

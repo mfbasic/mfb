@@ -1,5 +1,5 @@
 NAME
-  len - return the length of a list or map
+  len - return the number of items in a list or map
 
 SYNOPSIS
   len OF T(value AS List OF T) AS Integer
@@ -14,8 +14,11 @@ IMPORTS
 DESCRIPTION
   len returns the size of a collection.
 
-  For List values, len returns the number of items. For Map values, len returns
-  the number of key/value entries.
+  For a List, len returns the number of items it holds. For a Map, len returns
+  the number of key/value entries. An empty collection returns 0. The element
+  and key/value types do not affect the result.
+
+  len is also defined for strings; see general len for the String overload.
 
 OVERLOADS
   len OF T(value AS List OF T) AS Integer
@@ -45,6 +48,4 @@ EXAMPLES
     LET count AS Integer = len(ages)
 
 SEE ALSO
-  general len
-  isEmpty
-  isNotEmpty
+  general len, isEmpty, isNotEmpty

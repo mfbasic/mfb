@@ -5,15 +5,29 @@ SYNOPSIS
   fs::readLine(file AS File) AS String
 
 DESCRIPTION
-  Reads one line from file without the line terminator. LF and CRLF terminators
-  are accepted. EOF before any byte is read is an Error.
+  Reads one line from file, advancing its read position past the line
+  terminator, and returns the line without the terminator. Both LF and CRLF
+  terminators are accepted.
 
   Thread cancellation is cooperative. The current runtime does not
   asynchronously interrupt arbitrary host file reads; workers that need prompt
   cancellation around blocking file descriptors should check thread::isCancelled
   between cancellation-point operations.
 
+ERRORS
+  Raises an Error when file is at end of input before any byte is read, when
+  file was not opened for reading, or when the host OS read fails partway
+  through. Use fs::eof to test for end of input before calling readLine.
+
 EXAMPLES
   RES f = fs::openFile("data.txt")
   LET line AS String = fs::readLine(f)
   ' f is closed by lexical drop when this scope ends
+
+  RES f = fs::openFile("data.txt")
+  WHILE NOT fs::eof(f)
+    PRINT fs::readLine(f)
+  END WHILE
+
+SEE ALSO
+  fs::readAll, fs::eof, fs::openFile, fs::readText, fs::close

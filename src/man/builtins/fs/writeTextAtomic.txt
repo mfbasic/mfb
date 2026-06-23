@@ -5,9 +5,20 @@ SYNOPSIS
   fs::writeTextAtomic(path AS String, value AS String) AS Nothing
 
 DESCRIPTION
-  Writes value to a temporary path next to path and then replaces path with an
-  OS rename operation. The final replacement is atomic when the host filesystem
-  supports atomic rename.
+  Writes value as UTF-8 text to a uniquely named temporary file in the same
+  directory as path, flushes it to disk, and then replaces path with an OS
+  rename. Readers only ever see the old or the fully written new file, never a
+  partially written one. The final replacement is atomic when the host
+  filesystem supports atomic rename.
 
-EXAMPLE
+ERRORS
+  Raises an Error when path is empty, when the containing directory does not
+  exist or is not writable, when the temporary file cannot be created, or when
+  writing, flushing, closing, or renaming fails. The original path is left
+  unchanged when the write fails before the final rename.
+
+EXAMPLES
   fs::writeTextAtomic("target/output.txt", "done")
+
+SEE ALSO
+  fs::writeText, fs::writeBytesAtomic, fs::appendText, fs::readText

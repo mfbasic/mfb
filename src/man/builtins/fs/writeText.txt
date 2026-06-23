@@ -5,8 +5,17 @@ SYNOPSIS
   fs::writeText(path AS String, value AS String) AS Nothing
 
 DESCRIPTION
-  Writes value to path, replacing any existing file. The write is retried until
-  every byte has been written or the host reports an output failure.
+  Writes value to path as UTF-8 text, replacing any existing file or creating it
+  when it does not exist. The write is retried until every byte has been written
+  or the host reports an output failure.
+
+ERRORS
+  Raises an Error when path refers to a directory or other non-writable target,
+  when the parent directory does not exist, or when writing fails partway
+  through.
 
 EXAMPLES
   fs::writeText("target/output.txt", "Hello")
+
+SEE ALSO
+  fs::writeBytes, fs::writeTextAtomic, fs::appendText, fs::readText

@@ -5,12 +5,18 @@ SYNOPSIS
   fs::createDirectory(path AS String) AS Nothing
 
 DESCRIPTION
-  Creates a single directory. The parent directory must already exist.
+  Creates the single directory named by path. The parent directory must already
+  exist; use fs::createDirectories to create any missing parents as well.
+
+  Returns Nothing on success.
 
   Fails with ErrInvalidArgument (77050002) for an empty path or embedded NUL,
   ErrAlreadyExists (77050005) when the final path already exists,
-  ErrAccessDenied (77030003) when creation is denied, or ErrWriteFailed (77020002) for
-  other host failures.
+  ErrAccessDenied (77030003) when creation is denied, or ErrWriteFailed
+  (77020002) for other host failures.
 
 EXAMPLES
   fs::createDirectory("target/example")
+
+SEE ALSO
+  fs::createDirectories, fs::deleteDirectory, fs::directoryExists, fs::exists

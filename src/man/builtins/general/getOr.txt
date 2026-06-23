@@ -13,7 +13,7 @@ IMPORTS
 
 DESCRIPTION
   getOr reads a value from a collection and returns default when the requested
-  list index or map key is absent.
+  list index or map key is absent. The collection is read without copying it.
 
   Use getOr when absence is expected and a fallback value is appropriate. Use get
   when absence should be treated as an error.

@@ -8,8 +8,21 @@ SYNOPSIS
 DESCRIPTION
   Returns the tangent of value, where value is an angle in radians.
 
-  The Fixed overload rounds to the nearest Fixed value. Undefined points fail
-  with ErrInvalidArgument (77050002).
+  The return type matches the numeric type of value. The single argument
+  may be a Float or a Fixed. The Fixed overload computes the result as
+  sin(value) / cos(value) using deterministic fixed-point (Q32.32)
+  arithmetic and rounds it to the nearest Fixed value.
+
+ERRORS
+  The tangent is undefined at odd multiples of pi/2, where cosine is zero.
+  The Float overload fails with ErrFloatInf (77050014) when the result is
+  infinite at such a point. The Fixed overload fails with ErrInvalidArgument
+  (77050002) when cosine is zero.
 
 EXAMPLES
   LET value AS Float = math::tan(0.0)
+
+  LET slope AS Fixed = math::tan(math::pi4)
+
+SEE ALSO
+  math::sin, math::cos, math::atan, math::atan2

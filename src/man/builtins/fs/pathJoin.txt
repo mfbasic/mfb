@@ -1,12 +1,27 @@
 NAME
-  pathJoin - join path components
+  pathJoin - join path components into a single path
 
 SYNOPSIS
   fs::pathJoin(parts AS List OF String) AS String
 
 DESCRIPTION
-  Joins path components with the POSIX separator used by the current native
-  targets.
+  Joins the path components in parts with the POSIX "/" separator and returns
+  the combined path.
+
+  Empty components are skipped, and a separator is only inserted where one is
+  needed, so duplicate slashes between components are avoided. If a component is
+  absolute (begins with "/"), it discards everything accumulated before it and
+  the result restarts from that component.
+
+  The operation is byte-oriented for path syntax. UTF-8 file names are preserved
+  unchanged. The join is purely syntactic and does not access the filesystem.
 
 EXAMPLES
   LET path AS String = fs::pathJoin(["target", "output.txt"])
+
+  io::print(fs::pathJoin(["target/", "/output.txt"]))
+
+  fs::pathJoin(["ignored", "/etc", "hosts"])
+
+SEE ALSO
+  fs::pathNormalize, fs::pathDirName, fs::pathBaseName, fs::canonicalPath

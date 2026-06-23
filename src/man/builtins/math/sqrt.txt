@@ -8,8 +8,18 @@ SYNOPSIS
 DESCRIPTION
   Returns the square root of value.
 
-  The Fixed overload rounds to the nearest Fixed value. Both overloads fail
-  with ErrInvalidArgument (77050002) for negative input.
+  The return type matches the numeric type of value. The single argument
+  may be a Float or a Fixed. The Fixed overload rounds the result to the
+  nearest Fixed value.
+
+ERRORS
+  Both overloads fail with ErrInvalidArgument (77050002) when value is
+  negative, which has no real square root.
 
 EXAMPLES
   LET value AS Float = math::sqrt(9.0)
+
+  LET side AS Fixed = math::sqrt(2.0)
+
+SEE ALSO
+  math::pow, math::exp, math::abs

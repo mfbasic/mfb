@@ -10,7 +10,11 @@ PACKAGE
 DESCRIPTION
   json::getOr walks path through nested Json object members like json::get, but
   returns defaultValue instead of failing when a key is absent or a non-object
-  value is encountered. An empty path returns value unchanged.
+  value is encountered. Each path element is matched against an object key. An
+  empty path returns value unchanged.
+
+  The path argument may also be passed by the name key. The default argument may
+  be passed by the name default, defaultValue, or fallback.
 
 ERRORS
   json::getOr does not fail for missing paths. Errors can still propagate while
@@ -19,5 +23,9 @@ ERRORS
 EXAMPLES
   LET enabled AS Json = json::getOr(doc, ["config", "enabled"], Bool[FALSE])
 
+  LET root AS Json = json::getOr(doc, [], doc)
+
 SEE ALSO
   get
+  parse
+  stringify

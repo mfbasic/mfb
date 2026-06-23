@@ -5,7 +5,13 @@ SYNOPSIS
   math::ln10Fixed AS Fixed
 
 DESCRIPTION
-  The mathematical constant ln(10) rounded to the nearest Fixed value.
+  The natural logarithm of 10 rounded to the nearest Fixed value,
+  approximately 2.302585092994046.
 
 EXAMPLES
   LET value AS Fixed = math::ln10Fixed
+
+  LET log10 AS Fixed = math::log(x) / math::ln10Fixed
+
+SEE ALSO
+  math::ln10, math::ln2Fixed, math::eFixed, math::piFixed, math::twoOverPiFixed

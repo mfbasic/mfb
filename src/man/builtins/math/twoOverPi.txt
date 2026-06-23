@@ -5,7 +5,13 @@ SYNOPSIS
   math::twoOverPi AS Float
 
 DESCRIPTION
-  The mathematical constant 2 / pi as a Float value.
+  The mathematical constant 2 / pi as a Float value, approximately
+  0.6366197723675814.
 
 EXAMPLES
   LET value AS Float = math::twoOverPi
+
+SEE ALSO
+  math::twoOverPiFixed, math::pi, math::pi2, math::pi4, math::e
+</content>
+</invoke>

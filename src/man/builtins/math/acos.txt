@@ -6,10 +6,30 @@ SYNOPSIS
   math::acos(value AS Fixed) AS Fixed
 
 DESCRIPTION
-  Returns the arc cosine of value in radians.
+  Returns the arc cosine of value, the angle in radians whose cosine is
+  value. The result lies in the range [0, pi]. The return type matches the
+  numeric type of value, which may be a Float or a Fixed.
 
-  The Fixed overload rounds to the nearest Fixed value. Both overloads fail
-  with ErrInvalidArgument (77050002) when value is outside [-1.0, 1.0].
+OVERLOADS
+  math::acos(value AS Float) AS Float
+    Computes the arc cosine using floating-point arithmetic.
+
+  math::acos(value AS Fixed) AS Fixed
+    Computes the arc cosine using deterministic fixed-point (Q32.32)
+    arithmetic via acos(x) = atan2(sqrt(1 - x^2), x), so the result is
+    identical across targets. The result is rounded to the nearest Fixed
+    value.
+
+ERRORS
+  The arc cosine is defined only on the domain [-1.0, 1.0]. The Float
+  overload fails with ErrFloatDomain (77050012) when value lies outside
+  this range; the Fixed overload fails with ErrInvalidArgument (77050002)
+  for the same out-of-domain input.
 
 EXAMPLES
   LET value AS Float = math::acos(0.5)
+
+  LET scaled AS Fixed = math::acos(1.0)
+
+SEE ALSO
+  math::asin, math::atan, math::atan2, math::cos

@@ -6,9 +6,30 @@ SYNOPSIS
 
 DESCRIPTION
   Opens path like fs::openFile, but asks the host OS not to follow a symlink in
-  the final path component. Portable modes are "read" or "r", "write" or "w",
-  "readWrite" or "rw", and "append" or "a".
+  the final path component. The mode argument is optional and defaults to
+  "read". Portable modes are "read" or "r", "write" or "w", "readWrite" or "rw",
+  and "append" or "a".
+
+  When the final component of path is a symlink, the open is refused rather than
+  resolving to the link target. Symlinks in earlier components of path are still
+  followed. This is useful for safely opening a file whose name you control
+  without being redirected through a symlink that may have been swapped in.
+
+  File resources are closed by lexical drop at scope exit or explicitly with
+  fs::close.
+
+ERRORS
+  Raises an Error when mode is not one of the portable modes, when path does not
+  exist for a read mode, when the containing directory is missing or not
+  writable for a write or append mode, when the final path component is a
+  symlink, or when the host OS otherwise refuses to open the file.
 
 EXAMPLES
-  RES f = fs::openFileNoFollow("data.txt", "read")
+  RES f = fs::openFileNoFollow("data.txt")
   ' f is closed by lexical drop when this scope ends
+
+  RES w = fs::openFileNoFollow("out.txt", "write")
+  ' opened for writing; fails if out.txt is a symlink
+
+SEE ALSO
+  fs::openFile, fs::open, fs::close

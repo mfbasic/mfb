@@ -6,9 +6,24 @@ SYNOPSIS
   math::atan(value AS Fixed) AS Fixed
 
 DESCRIPTION
-  Returns the arc tangent of value in radians.
+  Returns the arc tangent of value, the angle in radians whose tangent is
+  value. The result lies in the range [-pi/2, pi/2]. The return type
+  matches the numeric type of value, which may be a Float or a Fixed.
+  Defined for all inputs, so no error is produced.
 
-  The Fixed overload rounds to the nearest Fixed value.
+OVERLOADS
+  math::atan(value AS Float) AS Float
+    Computes the arc tangent using floating-point arithmetic.
+
+  math::atan(value AS Fixed) AS Fixed
+    Computes the arc tangent using deterministic fixed-point (Q32.32)
+    arithmetic, so the result is identical across targets. The result is
+    rounded to the nearest Fixed value.
 
 EXAMPLES
   LET value AS Float = math::atan(1.0)
+
+  LET scaled AS Fixed = math::atan(0.0)
+
+SEE ALSO
+  math::asin, math::acos, math::atan2, math::tan

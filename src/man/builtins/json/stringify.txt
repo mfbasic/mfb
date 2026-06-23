@@ -10,7 +10,8 @@ PACKAGE
 DESCRIPTION
   json::stringify converts a Json value to compact JSON text with no extra
   indentation or spacing. Strings are escaped for JSON output. Null values are
-  emitted as null.
+  emitted as null. The argument may be the Json union or any of its member
+  types (JsonNull, JsonBool, JsonNum, JsonStr, JsonArr, JsonObj).
 
 ERRORS
   ErrInvalidFormat (77050003)
@@ -22,3 +23,5 @@ EXAMPLES
 
 SEE ALSO
   parse
+  get
+  getOr

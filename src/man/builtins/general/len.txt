@@ -1,5 +1,5 @@
 NAME
-  len - return the length of a string
+  len - return the number of Unicode scalar values in a string
 
 SYNOPSIS
   len(value AS String) AS Integer
@@ -11,10 +11,17 @@ IMPORTS
   None. general functions are available without an IMPORT statement.
 
 DESCRIPTION
-  len returns the number of Unicode scalar values in a String. It does not count
-  UTF-8 bytes and it does not count user-perceived grapheme clusters. Use
-  strings::byteLen for byte length and strings::graphemes when grapheme clusters
-  are needed.
+  len returns the number of Unicode scalar values in a String.
+
+  The count is measured in Unicode scalar values, not UTF-8 bytes and not
+  user-perceived grapheme clusters. A multi-byte character such as "é" or "😀"
+  counts as one scalar value even though it occupies several bytes, while a
+  grapheme made of a base character plus combining marks counts as more than
+  one scalar value. Use strings::byteLen for the byte length and
+  strings::graphemes when grapheme clusters are needed.
+
+  len is also defined for collections; see collection len for the List and Map
+  overloads.
 
 OVERLOADS
   len(value AS String) AS Integer
@@ -33,9 +40,9 @@ EXAMPLES
 
     LET count AS Integer = len("hello")
 
+  Multi-byte characters count as single scalar values:
+
+    LET emoji AS Integer = len("😀")
+
 SEE ALSO
-  collection len
-  isEmpty
-  isNotEmpty
-  strings::byteLen
-  strings::graphemes
+  collection len, isEmpty, isNotEmpty, strings::byteLen, strings::graphemes

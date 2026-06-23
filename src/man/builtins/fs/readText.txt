@@ -6,8 +6,15 @@ SYNOPSIS
 
 DESCRIPTION
   Opens path, reads the complete file as UTF-8 text, closes the file, and
-  returns the resulting String. Missing paths, invalid paths, read failures, and
-  invalid encoding are reported as Errors.
+  returns the resulting String.
+
+ERRORS
+  Raises an Error when path does not exist, refers to a directory or other
+  non-readable target, when reading fails partway through, or when the file
+  contents are not valid UTF-8.
 
 EXAMPLES
   LET value AS String = fs::readText("data.txt")
+
+SEE ALSO
+  fs::readBytes, fs::readAll, fs::writeText

@@ -5,7 +5,13 @@ SYNOPSIS
   math::ln2 AS Float
 
 DESCRIPTION
-  The mathematical constant ln(2) as a Float value.
+  The natural logarithm of 2 as a Float value, approximately
+  0.6931471805599453.
 
 EXAMPLES
   LET value AS Float = math::ln2
+
+  LET log2 AS Float = math::log(x) / math::ln2
+
+SEE ALSO
+  math::ln2Fixed, math::ln10, math::e, math::log, math::log10

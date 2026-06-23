@@ -1,5 +1,5 @@
 NAME
-  keys - return the keys from a map
+  keys - return the keys of a map
 
 SYNOPSIS
   keys OF K, V(value AS Map OF K TO V) AS List OF K
@@ -11,24 +11,38 @@ IMPORTS
   None. collection functions are available without an IMPORT statement.
 
 DESCRIPTION
-  keys returns the keys from value in implementation-defined stable order. The
-  result list contains one item for each map entry.
+  keys returns a new list holding the keys of value in implementation-defined
+  stable order. The original map is not mutated.
+
+  The result list contains one item for each map entry, so its length equals
+  len(value). An empty map returns an empty list. Each key appears exactly once
+  because map keys are unique.
+
+  keys and values share the same iteration order for a given map, so the key at
+  one index corresponds to the value at the same index in values(value).
 
 OVERLOADS
   keys OF K, V(value AS Map OF K TO V) AS List OF K
-    Returns the map keys.
+    Returns the map keys as a List OF K.
 
 ERRORS
   keys does not fail for an evaluated map. Errors can still propagate from
   evaluating value before keys is called.
 
 TYPE CHECKING
-  keys accepts only Map OF K TO V values.
+  value must be a Map OF K TO V. The result has type List OF K, the map key type.
 
 EXAMPLES
   Get map keys:
 
     LET names AS List OF String = keys(Map OF String TO Integer { "a" := 1 })
+
+  Iterate over a map by key:
+
+    LET ages AS Map OF String TO Integer = Map OF String TO Integer { "Ada" := 36 }
+    FOR EACH name IN keys(ages)
+      io::print(name & " is " & toString(getOr(ages, name, 0)))
+    END FOR
 
 SEE ALSO
   values

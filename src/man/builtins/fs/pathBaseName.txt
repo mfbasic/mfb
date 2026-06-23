@@ -1,11 +1,32 @@
 NAME
-  pathBaseName - return the final path component
+  pathBaseName - return the final component of a path
 
 SYNOPSIS
   fs::pathBaseName(path AS String) AS String
 
 DESCRIPTION
-  Returns the final component of path without accessing the filesystem.
+  Returns the final component of path, that is, the part after the last "/"
+  separator. The operation is purely syntactic and does not access the
+  filesystem.
+
+  Trailing "/" separators are ignored before the final component is located, so
+  "target/output/" and "target/output" both yield "output". When path contains
+  no separator, it is returned unchanged. When path is "/" itself, "/" is
+  returned. An empty path returns an empty string.
+
+  The operation is byte-oriented for path syntax, so UTF-8 file names are
+  preserved unchanged.
 
 EXAMPLES
   io::print(fs::pathBaseName("target/output.txt"))
+
+  io::print(fs::pathBaseName("/usr/local/bin"))
+
+  io::print(fs::pathBaseName("/usr/local/bin/"))
+
+  io::print(fs::pathBaseName("output.txt"))
+
+  io::print(fs::pathBaseName("/"))
+
+SEE ALSO
+  fs::pathDirName, fs::pathJoin, fs::pathNormalize, fs::pathExtension, fs::canonicalPath

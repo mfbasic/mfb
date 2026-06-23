@@ -11,23 +11,30 @@ IMPORTS
   None. collection functions are available without an IMPORT statement.
 
 DESCRIPTION
-  transform calls f once for each item in value, from left to right, and returns
-  a new list containing each result. The original list is not mutated.
+  transform calls f once for each item in value, in order from left to right,
+  and returns a new list containing each result. The original list is neither
+  copied for f nor mutated.
 
-  If f fails for any item, the error auto-propagates and no successful result
-  list is returned.
+  f must produce a value, so its success type U cannot be Nothing. To run an
+  action for its side effects without collecting results, use forEach instead.
+
+  If f fails for any item, the error auto-propagates and iteration stops, so
+  later items are not visited and no result list is returned.
 
 OVERLOADS
   transform OF T, U(value AS List OF T, f AS FUNC(T) AS U) AS List OF U
-    Maps every item through f.
+    Maps every item through f and returns a List OF U.
 
 ERRORS
-  transform propagates errors raised by f. Errors can also propagate from
-  evaluating value or f before transform is called.
+  transform propagates errors raised by f, stopping at the failing item. Errors
+  can still propagate from evaluating value or f before transform is called.
 
 TYPE CHECKING
-  f must accept one argument of the list element type T. The result list element
-  type is f's success type U.
+  The first argument must be a List OF T. The second argument must accept one
+  argument of the list element type T and return a non-Nothing success type U.
+  The result list element type is f's success type U. Calling transform on a
+  non-list value, with an f whose parameter type does not match T, or with an f
+  that returns Nothing, is a compile-time type error.
 
 EXAMPLES
   Convert numbers to strings:
@@ -43,6 +50,4 @@ EXAMPLES
     LET doubled AS List OF Integer = transform([1, 2, 3], double)
 
 SEE ALSO
-  forEach
-  filter
-  reduce
+  forEach, filter, reduce, len

@@ -5,7 +5,13 @@ SYNOPSIS
   math::eFixed AS Fixed
 
 DESCRIPTION
-  The mathematical constant e rounded to the nearest Fixed value.
+  Euler's number e (the base of the natural logarithm) rounded to the nearest
+  Fixed value, approximately 2.718281828459045.
 
 EXAMPLES
   LET value AS Fixed = math::eFixed
+
+  LET growth AS Fixed = principal * math::eFixed
+
+SEE ALSO
+  math::e, math::piFixed, math::ln2Fixed, math::ln10Fixed, math::twoOverPiFixed

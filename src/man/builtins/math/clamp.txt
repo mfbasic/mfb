@@ -7,9 +7,29 @@ SYNOPSIS
   math::clamp(value AS Fixed, low AS Fixed, high AS Fixed) AS Fixed
 
 DESCRIPTION
-  Restricts value to the inclusive range [low, high].
+  Restricts value to the inclusive range [low, high]. Returns low when value
+  is less than low, high when value is greater than high, and value itself
+  otherwise.
 
+  The return type matches the numeric type of the arguments. All three
+  arguments must be the same numeric type: three Integers, three Floats, or
+  three Fixeds.
+
+ERRORS
   Fails with ErrInvalidArgument (77050002) when low is greater than high.
+
+  Errors can also propagate from evaluating the argument expressions before
+  math::clamp is called.
+
+TYPE CHECKING
+  All three arguments must share the same numeric type. Mixing numeric types,
+  or passing a non-numeric value such as a String, Boolean, Byte, record,
+  union, resource, thread, function, or lambda, is a compile-time type error.
 
 EXAMPLES
   LET value AS Integer = math::clamp(12, 0, 10)
+
+  LET ratio AS Float = math::clamp(1.4, 0.0, 1.0)
+
+SEE ALSO
+  math::min, math::max, math::abs

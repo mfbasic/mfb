@@ -8,8 +8,17 @@ DESCRIPTION
   Writes value to standard output without appending a newline. The value is
   UTF-8 text and may contain any valid Unicode scalar values, including emoji.
 
+  Only String values are accepted. Use toString explicitly to write
+  non-string values.
+
   Fails with ErrWriteFailed (77020002) on output failure.
 
 EXAMPLES
   io::write("Hello")
   io::write("é日😀")
+  io::write(toString(42))
+
+SEE ALSO
+  io::print
+  io::writeError
+  io::flush

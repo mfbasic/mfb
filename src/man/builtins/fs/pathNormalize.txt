@@ -5,12 +5,24 @@ SYNOPSIS
   fs::pathNormalize(path AS String) AS String
 
 DESCRIPTION
-  Returns a normalized path without accessing the filesystem. Repeated slash
-  separators are collapsed, "." components are removed, and ".." components
-  remove the previous normal component when possible.
+  Returns a normalized form of path without accessing the filesystem. Repeated
+  "/" separators are collapsed to one, "." components are removed, and each ".."
+  component removes the preceding normal component when one is available.
+
+  A leading "/" is preserved, so absolute paths stay absolute. A leading ".."
+  in a relative path has nothing to remove and is kept. When normalization
+  leaves nothing (for example "" or "."), the result is ".".
 
   The operation is byte-oriented for path syntax. UTF-8 file names are preserved
-  unchanged.
+  unchanged. The normalization is purely syntactic and does not resolve symlinks
+  or consult the filesystem.
 
-EXAMPLE
+EXAMPLES
   io::print(fs::pathNormalize("target//a/./file.txt"))
+
+  io::print(fs::pathNormalize("/usr/local/../bin"))
+
+  io::print(fs::pathNormalize("a/b/../.."))
+
+SEE ALSO
+  fs::canonicalPath, fs::pathJoin, fs::pathDirName, fs::pathBaseName, fs::isWithin

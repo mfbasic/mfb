@@ -1,0 +1,64 @@
+NAME
+  error - construct an Error value with a code and message
+
+SYNOPSIS
+  error(code AS Integer, message AS String) AS Error
+
+PACKAGE
+  general
+
+IMPORTS
+  None. general functions are available without an IMPORT statement.
+
+DESCRIPTION
+  error constructs an Error value from an Integer code and a String message. The
+  resulting value is a read-only built-in record carrying the supplied code and
+  message together with a compiler-generated source location.
+
+  Error and ErrorLoc are read-only built-in records. Programs create errors with
+  error and inspect their fields; the fields cannot be reassigned. Binding and
+  propagating an Error preserve its fields unchanged.
+
+  An Error value exposes the following fields:
+
+    code     AS Integer   the code passed to error
+    message  AS String    the message passed to error
+    source   AS ErrorLoc  the call site where error was evaluated
+
+  An ErrorLoc value exposes the following fields:
+
+    filename AS String    the source file containing the error call
+    line     AS Integer    the line of the error call
+    char     AS Integer    the column of the error call
+
+ERRORS
+  error does not fail for a supported Integer code and String message. Errors can
+  still propagate from evaluating the arguments before error is called.
+
+TYPE CHECKING
+  error requires exactly two arguments: an Integer code and a String message.
+  Calls with the wrong argument count or argument types are rejected at compile
+  time.
+
+EXAMPLES
+  Construct an Error and inspect its fields:
+
+    LET value AS Error = error(123, "boom")
+    IF value.code <> 123 THEN RETURN 1
+    IF value.message <> "boom" THEN RETURN 2
+
+  Return an Error from a function:
+
+    FUNC makeError(code AS Integer, message AS String) AS Error
+      RETURN error(code, message)
+    END FUNC
+
+  Report the source location of an Error:
+
+    LET value AS Error = error(500, "internal")
+    LET where AS ErrorLoc = value.source
+    io::print(where.filename & ":" & toString(where.line) & ":" & toString(where.char))
+
+SEE ALSO
+  toString
+  typeName

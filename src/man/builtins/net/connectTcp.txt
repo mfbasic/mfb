@@ -1,0 +1,74 @@
+NAME
+  connectTcp - open a TCP connection to a host or address
+
+SYNOPSIS
+  net::connectTcp(host AS String, port AS Integer) AS Socket
+  net::connectTcp(host AS String, port AS Integer, timeoutMs AS Integer) AS Socket
+  net::connectTcp(address AS Address) AS Socket
+  net::connectTcp(address AS Address, timeoutMs AS Integer) AS Socket
+
+PACKAGE
+  net
+
+IMPORTS
+  IMPORT net
+
+DESCRIPTION
+  connectTcp establishes an outbound TCP connection and returns a connected
+  Socket resource. The peer may be named directly with a host string and port,
+  or with an Address obtained from net::lookup. When host is a name rather than
+  a textual IP address it is resolved before connecting.
+
+  The optional timeoutMs bounds how long the connection attempt may take, in
+  milliseconds. When omitted, a host-defined default applies; the attempt is not
+  guaranteed to be unbounded.
+
+  Socket resources are closed by lexical drop at scope exit or explicitly with
+  net::close. Read and write data with net::read, net::readText, net::write, and
+  net::writeText, and inspect the endpoints with net::localAddress and
+  net::remoteAddress.
+
+OVERLOADS
+  net::connectTcp(host AS String, port AS Integer) AS Socket
+    Connects to host on port using the default timeout.
+
+  net::connectTcp(host AS String, port AS Integer, timeoutMs AS Integer) AS Socket
+    Connects to host on port, failing if the attempt exceeds timeoutMs.
+
+  net::connectTcp(address AS Address) AS Socket
+    Connects to a resolved Address using the default timeout.
+
+  net::connectTcp(address AS Address, timeoutMs AS Integer) AS Socket
+    Connects to a resolved Address, failing if the attempt exceeds timeoutMs.
+
+ERRORS
+  Raises an Error with code 77050002 (ErrInvalidArgument) when an argument value
+  is not valid for the operation, 77070001 (ErrAddressInvalid) when the host or
+  port is malformed, 77070002 (ErrAddressNotFound) when the host name could not
+  be resolved, or 77070003 (ErrNetworkFailed) when the connection could not be
+  established or the timeout elapsed before it completed.
+
+EXAMPLES
+  Connect by host and port:
+
+    IMPORT net
+
+    RES client = net::connectTcp("example.com", 80)
+    ' client is closed by lexical drop when this scope ends
+
+  Connect to a resolved Address with a timeout:
+
+    IMPORT net
+
+    LET addresses = net::lookup("example.com", 80)
+    LET address = get(addresses, 0)
+    RES client = net::connectTcp(address, timeoutMs := 5000)
+    ' client is closed by lexical drop when this scope ends
+
+SEE ALSO
+  net::lookup
+  net::listenTcp
+  net::read
+  net::write
+  net::close
+  net::remoteAddress

@@ -5,11 +5,18 @@ SYNOPSIS
   fs::canonicalPath(path AS String) AS String
 
 DESCRIPTION
-  Returns an absolute normalized path after resolving "." components, ".."
+  Returns an absolute, normalized path after resolving "." components, ".."
   components, and symlinks for existing filesystem components.
 
-  The path or required parent components must exist. Embedded NUL bytes are
-  rejected.
+  The byte-oriented path syntax is preserved for UTF-8 file names. Relative
+  inputs are resolved against the current working directory.
 
-EXAMPLE
+ERRORS
+  Raises an Error when path or a required parent component does not exist, when
+  the path cannot be resolved, or when path contains an embedded NUL byte.
+
+EXAMPLES
   LET full AS String = fs::canonicalPath("target/output.txt")
+
+SEE ALSO
+  fs::pathNormalize, fs::isWithin, fs::currentDirectory

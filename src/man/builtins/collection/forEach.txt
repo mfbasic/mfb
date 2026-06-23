@@ -11,21 +11,27 @@ IMPORTS
   None. collection functions are available without an IMPORT statement.
 
 DESCRIPTION
-  forEach calls action once for each item in value, from left to right.
+  forEach calls action once for each item in value, in order from left to right.
+  The list is not copied or mutated.
 
-  A SUB(T) is accepted for action because SUB success type is Nothing. If action
-  fails for any item, the error auto-propagates and iteration stops.
+  A SUB(T) is accepted for action because a SUB has success type Nothing. If
+  action fails for any item, the error auto-propagates and iteration stops, so
+  later items are not visited.
 
 OVERLOADS
   forEach OF T(value AS List OF T, action AS FUNC(T) AS Nothing) AS Nothing
-    Runs action for every item.
+    Runs action for every item and returns Nothing.
 
 ERRORS
-  forEach propagates errors raised by action. Errors can also propagate from
-  evaluating value or action before forEach is called.
+  forEach propagates errors raised by action, stopping at the failing item.
+  Errors can still propagate from evaluating value or action before forEach is
+  called.
 
 TYPE CHECKING
-  action must accept one argument of the list element type T and return Nothing.
+  The first argument must be a List OF T. The second argument must accept one
+  argument of the list element type T and return Nothing. Calling forEach on a
+  non-list value, or with an action whose parameter type does not match T, is a
+  compile-time type error.
 
 EXAMPLES
   Print each string:
@@ -41,6 +47,4 @@ EXAMPLES
     forEach([1, 2, 3], printNumber)
 
 SEE ALSO
-  transform
-  filter
-  reduce
+  transform, filter, reduce, len

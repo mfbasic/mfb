@@ -16,6 +16,8 @@ DESCRIPTION
   For String values, indexes are Unicode scalar indexes. They are not byte
   offsets and not grapheme-cluster indexes.
 
+  An empty needle matches at start when start is in range.
+
 OVERLOADS
   find(value AS String, needle AS String, start AS Integer = 0) AS Integer
     Returns the first scalar index where needle occurs in value.
@@ -25,7 +27,8 @@ ERRORS
     Returned when no match exists at or after start.
 
   77050001
-    Returned when start is out of range.
+    Returned when start is less than 0 or greater than the scalar length of
+    value.
 
   Other errors can propagate from evaluating value, needle, or start before find
   is called.

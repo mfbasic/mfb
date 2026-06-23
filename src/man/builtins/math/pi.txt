@@ -5,7 +5,13 @@ SYNOPSIS
   math::pi AS Float
 
 DESCRIPTION
-  The mathematical constant pi as a Float value.
+  The mathematical constant pi (the ratio of a circle's circumference to its
+  diameter) as a Float value, approximately 3.141592653589793.
 
 EXAMPLES
   LET value AS Float = math::pi
+
+  LET circumference AS Float = 2.0 * math::pi * radius
+
+SEE ALSO
+  math::piFixed, math::pi2, math::pi4, math::twoOverPi, math::e

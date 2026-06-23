@@ -5,9 +5,17 @@ SYNOPSIS
   fs::appendText(path AS String, value AS String) AS Nothing
 
 DESCRIPTION
-  Appends value to path and creates the file when it does not exist. The append
-  is retried until every byte has been written or the host reports an output
-  failure.
+  Appends value to the end of path as UTF-8 text, creating the file when it does
+  not exist and preserving any existing contents. The append is retried until
+  every byte has been written or the host reports an output failure.
+
+ERRORS
+  Raises an Error when path refers to a directory or other non-writable target,
+  when the parent directory does not exist, or when writing fails partway
+  through.
 
 EXAMPLES
   fs::appendText("target/output.txt", "line\n")
+
+SEE ALSO
+  fs::appendBytes, fs::writeText, fs::writeTextAtomic, fs::readText

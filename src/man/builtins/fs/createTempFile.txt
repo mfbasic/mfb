@@ -6,16 +6,24 @@ SYNOPSIS
   fs::createTempFile(directory AS String) AS File
 
 DESCRIPTION
-  Creates and opens a new unique file named mfb-<uuid>.tmp.
+  Creates and opens a new unique file named mfb-<uuid>.tmp, where <uuid> is a
+  randomly generated version 4 UUID.
 
   Without an argument, the file is created in the OS temp directory. With a
   directory argument, the file is created in that directory.
 
-  The file is opened read/write with exclusive-create behavior. The returned
-  File is owned by the caller and is closed by lexical drop at scope exit or by
-  an explicit fs::close.
+  The file is opened read/write with exclusive-create behavior and mode 0600,
+  so it always refers to a freshly created file owned by the current user. The
+  returned File is owned by the caller and is closed by lexical drop at scope
+  exit or by an explicit fs::close.
 
-EXAMPLE
+ERRORS
+  Raises an Error when directory is empty or contains an embedded null byte,
+  when the directory does not exist or is not writable, when random bytes for
+  the name cannot be obtained, or when the host OS otherwise refuses to create
+  the file.
+
+EXAMPLES
   RES f = fs::createTempFile()
   fs::writeAll(f, "data")
   ' f is closed by lexical drop when this scope ends
@@ -23,3 +31,6 @@ EXAMPLE
   RES g = fs::createTempFile("target")
   fs::writeAll(g, "data")
   ' g is closed by lexical drop when this scope ends
+
+SEE ALSO
+  fs::tempDirectory, fs::open, fs::openFile, fs::close

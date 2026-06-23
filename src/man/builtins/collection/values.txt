@@ -1,5 +1,5 @@
 NAME
-  values - return the values from a map
+  values - return the values of a map
 
 SYNOPSIS
   values OF K, V(value AS Map OF K TO V) AS List OF V
@@ -11,25 +11,39 @@ IMPORTS
   None. collection functions are available without an IMPORT statement.
 
 DESCRIPTION
-  values returns the values from value in key iteration order. The result list
-  contains one item for each map entry.
+  values returns a new list holding the values of value in
+  implementation-defined stable order. The original map is not mutated.
+
+  The result list contains one item for each map entry, so its length equals
+  len(value). An empty map returns an empty list. Unlike keys, values may
+  repeat because distinct keys can map to equal values.
+
+  keys and values share the same iteration order for a given map, so the value
+  at one index corresponds to the key at the same index in keys(value).
 
 OVERLOADS
   values OF K, V(value AS Map OF K TO V) AS List OF V
-    Returns the map values.
+    Returns the map values as a List OF V.
 
 ERRORS
   values does not fail for an evaluated map. Errors can still propagate from
   evaluating value before values is called.
 
 TYPE CHECKING
-  values accepts only Map OF K TO V values.
+  value must be a Map OF K TO V. The result has type List OF V, the map value
+  type.
 
 EXAMPLES
   Get map values:
 
     LET scores AS List OF Integer = values(Map OF String TO Integer { "a" := 1 })
 
+  Sum the values of a map:
+
+    LET ages AS Map OF String TO Integer = Map OF String TO Integer { "Ada" := 36 }
+    LET total AS Integer = sum(values(ages))
+
 SEE ALSO
   keys
+  hasKey
   len

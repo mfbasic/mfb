@@ -11,8 +11,12 @@ DESCRIPTION
 
   Each thread is seeded automatically before it runs, so calling math::seed
   is only required when reproducible output is wanted. math::seed affects
-  only the thread that calls it.
+  only the thread that calls it; threads started with thread::start each
+  own an independent generator.
 
 EXAMPLES
   math::seed(12345)
   LET first AS Integer = math::rand(1, 100)
+
+SEE ALSO
+  math::rand, math::min, math::max, math::clamp

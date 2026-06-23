@@ -11,7 +11,12 @@ IMPORTS
   None. collection functions are available without an IMPORT statement.
 
 DESCRIPTION
-  hasKey returns TRUE when value contains key and FALSE otherwise.
+  hasKey returns TRUE when value contains an entry for key and FALSE otherwise.
+  The map is not copied or mutated.
+
+  Use hasKey to test for membership before reading with get, which fails on a
+  missing key. When you only need a value with a fallback, getOr avoids the
+  separate membership test.
 
 OVERLOADS
   hasKey OF K, V(value AS Map OF K TO V, key AS K) AS Boolean

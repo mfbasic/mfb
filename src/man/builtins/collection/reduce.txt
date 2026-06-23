@@ -26,8 +26,12 @@ ERRORS
   evaluating value, initial, or f before reduce is called.
 
 TYPE CHECKING
-  f must accept the accumulator type U followed by the list element type T, and
-  must return U.
+  The first argument must be a List OF T. The second argument fixes the
+  accumulator type U. The third argument must be an f that accepts the
+  accumulator type U followed by the list element type T and returns U. The
+  result type is U. Calling reduce on a non-list value, with an initial whose
+  type does not match f's first parameter and return type, or with an f whose
+  parameter types do not match U and T, is a compile-time type error.
 
 EXAMPLES
   Sum with a reducer:
@@ -48,6 +52,4 @@ EXAMPLES
     LET sentence AS String = reduce(["hello", "world"], "", joinWords)
 
 SEE ALSO
-  sum
-  transform
-  filter
+  sum, transform, filter, forEach

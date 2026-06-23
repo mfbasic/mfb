@@ -9,8 +9,18 @@ SYNOPSIS
 DESCRIPTION
   Returns the absolute value of value.
 
-  The Integer and Fixed overloads fail with ErrOverflow (77050010) for the
-  minimum-value overflow case.
+  The return type matches the numeric type of value. The single argument
+  may be an Integer, a Float, or a Fixed.
+
+ERRORS
+  The Integer and Fixed overloads fail with ErrOverflow (77050010) when value
+  is the minimum representable value, whose magnitude has no positive
+  counterpart. The Float overload does not overflow.
 
 EXAMPLES
   LET value AS Integer = math::abs(-4)
+
+  LET distance AS Float = math::abs(-3.5)
+
+SEE ALSO
+  math::min, math::max, math::clamp, math::sqrt

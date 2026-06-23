@@ -13,3 +13,8 @@ DESCRIPTION
 EXAMPLES
   io::writeError("failed")
   io::flushError()
+
+SEE ALSO
+  io::flush
+  io::writeError
+  io::printError

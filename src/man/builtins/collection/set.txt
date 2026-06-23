@@ -15,9 +15,10 @@ DESCRIPTION
   set returns a new collection with one value changed. The original collection
   is not mutated.
 
-  For List values, set replaces the item at zero-based index. For Map values,
-  set returns a map with key associated with item, adding the key when it is not
-  already present.
+  For a List, set replaces the item at the given zero-based index. The list keeps
+  its length; the index must refer to an existing element. For a Map, set returns
+  a map with key associated with item, adding the key when it is not already
+  present and replacing the value when it is.
 
 OVERLOADS
   set OF T(value AS List OF T, index AS Integer, item AS T) AS List OF T
@@ -28,7 +29,8 @@ OVERLOADS
 
 ERRORS
   77050001
-    Returned by the List overload when index is out of range.
+    Returned by the List overload when index is out of range. The Map overload
+    does not fail for supported argument types.
 
   Other errors can propagate from evaluating arguments before set is called.
 
@@ -46,6 +48,4 @@ EXAMPLES
     LET scores AS Map OF String TO Integer = set(Map OF String TO Integer {}, "Ada", 10)
 
 SEE ALSO
-  get
-  append
-  insert
+  get, getOr, append, insert, removeAt

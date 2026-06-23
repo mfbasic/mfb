@@ -1,0 +1,69 @@
+NAME
+  read - read available bytes from a connected socket
+
+SYNOPSIS
+  net::read(sock AS Socket, maxBytes AS Integer) AS List OF Byte
+
+PACKAGE
+  net
+
+IMPORTS
+  IMPORT net
+
+DESCRIPTION
+  read receives data from a connected Socket and returns it as a List OF Byte.
+  At most maxBytes bytes are returned in a single call; the list is often shorter
+  because read returns as soon as any data is available rather than waiting to
+  fill the requested size. The socket must still be open.
+
+  read blocks until at least one byte arrives, the peer closes the connection, or
+  the socket's read timeout elapses. An empty list signals end of stream: the
+  peer has closed its side and no further data will arrive. Use net::poll to test
+  for readiness without blocking, or net::setReadTimeout to bound how long a read
+  may wait.
+
+  maxBytes must be positive and caps the size of the returned list. To read a
+  whole message, call read in a loop, appending each result, until it returns an
+  empty list. Use net::readText instead when the peer sends UTF-8 text and a
+  String is more convenient than raw bytes.
+
+ERRORS
+  Raises an Error with code 77050002 (ErrInvalidArgument) when maxBytes is not
+  positive, 77030004 (ErrResourceClosed) when the socket has already been closed,
+  or 77070003 (ErrNetworkFailed) when the read could not be completed or the read
+  timeout elapsed before any data arrived.
+
+EXAMPLES
+  Read up to 1024 bytes from a connected socket:
+
+    IMPORT net
+
+    RES client = net::connectTcp("example.com", 80)
+    net::writeText(client, "GET / HTTP/1.0\r\n\r\n")
+    LET chunk = net::read(client, 1024)
+    ' client is closed by lexical drop when this scope ends
+
+  Drain a connection until the peer closes it:
+
+    IMPORT net
+
+    RES client = net::connectTcp("example.com", 80)
+    net::writeText(client, "GET / HTTP/1.0\r\n\r\n")
+    MUT response = [] AS List OF Byte
+    DO
+      LET chunk = net::read(client, 4096)
+      IF len(chunk) = 0 THEN
+        EXIT DO
+      END IF
+      response = append(response, chunk)
+    LOOP
+    ' client is closed by lexical drop when this scope ends
+
+SEE ALSO
+  net::readText
+  net::write
+  net::poll
+  net::setReadTimeout
+  net::connectTcp
+  net::accept
+  net::close

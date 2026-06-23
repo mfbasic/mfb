@@ -11,9 +11,12 @@ IMPORTS
   None. collection functions are available without an IMPORT statement.
 
 DESCRIPTION
-  removeKey returns a new map without key. The original map is not mutated.
+  removeKey returns a new map with the entry for key removed. The original map is
+  not mutated.
+
   Missing keys are ignored, so removing a key that is not present returns a map
-  equivalent to the input map.
+  equivalent to the input map. The returned map is the same size as value, or one
+  entry shorter when key was present.
 
 OVERLOADS
   removeKey OF K, V(value AS Map OF K TO V, key AS K) AS Map OF K TO V
@@ -24,7 +27,8 @@ ERRORS
   evaluating arguments before removeKey is called.
 
 TYPE CHECKING
-  key must have the map key type K.
+  value must be a Map OF K TO V and key must have the map key type K. The result has
+  the same map type as value.
 
 EXAMPLES
   Remove a key:

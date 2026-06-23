@@ -1,5 +1,5 @@
 NAME
-  replace - replace matching text
+  replace - replace all occurrences of a substring
 
 SYNOPSIS
   replace(value AS String, old AS String, new AS String) AS String
@@ -11,28 +11,39 @@ IMPORTS
   None. general functions are available without an IMPORT statement.
 
 DESCRIPTION
-  replace substitutes all non-overlapping occurrences of old with new.
+  replace returns a new String in which every non-overlapping occurrence of old
+  in value has been replaced with new.
 
-  If old is an empty String, replace returns value unchanged.
+  Matching scans value from left to right. After a match is replaced, scanning
+  resumes at the position following the matched text, so matches never overlap.
+  The original value is not mutated; the result is a new owned String.
+
+  If old is an empty String, or old is longer than value, replace returns a
+  String equal to value unchanged.
+
+  replace is also defined for collections; see collection replace for the List
+  overload.
 
 OVERLOADS
   replace(value AS String, old AS String, new AS String) AS String
-    Replaces all non-overlapping text occurrences.
+    Replaces all non-overlapping occurrences of old with new.
 
 ERRORS
   replace does not fail for supported argument types and valid evaluated
-  arguments. Errors can still propagate from evaluating arguments before replace
-  is called.
+  arguments. Errors can still propagate from evaluating value, old, or new
+  before replace is called.
 
 TYPE CHECKING
   value, old, and new must be String values.
 
 EXAMPLES
-  Replace text:
+  Replace every occurrence:
 
     LET text AS String = replace("hello", "l", "x")
 
+  An empty old leaves value unchanged:
+
+    LET same AS String = replace("hello", "", "x")
+
 SEE ALSO
-  find
-  mid
-  len
+  find, mid, len, collection replace

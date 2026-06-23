@@ -5,7 +5,18 @@ SYNOPSIS
   fs::appendBytes(path AS String, bytes AS List OF Byte) AS Nothing
 
 DESCRIPTION
-  Appends bytes to path, creating the file when it does not exist.
+  Appends bytes to the end of path, creating the file when it does not exist and
+  preserving any existing contents. The byte-list payload is written directly
+  from the collection's packed data region, and the append is retried until every
+  byte has been written or the host reports an output failure.
+
+ERRORS
+  Raises an Error when path refers to a directory or other non-writable target,
+  when the parent directory does not exist, or when writing fails partway
+  through.
 
 EXAMPLES
   fs::appendBytes("target/output.bin", [10])
+
+SEE ALSO
+  fs::appendText, fs::writeBytes, fs::writeBytesAtomic, fs::readBytes

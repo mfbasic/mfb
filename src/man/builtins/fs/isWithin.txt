@@ -1,17 +1,29 @@
 NAME
-  isWithin - test canonical path containment
+  isWithin - test whether one path is contained within another
 
 SYNOPSIS
   fs::isWithin(base AS String, child AS String) AS Boolean
 
 DESCRIPTION
-  Canonicalizes both paths and returns TRUE when child is the same path as base
-  or is below base. The containment check is path-boundary aware, so a sibling
-  such as "base2" is not within "base".
+  Canonicalizes both base and child, then returns TRUE when child is the same
+  path as base or lies below it. The containment check is path-boundary aware,
+  so a sibling such as "base2" is not reported as within "base".
 
-  Both paths must exist and embedded NUL bytes are rejected.
+  Canonicalization resolves ".", "..", and symlinks against the current working
+  directory, so the comparison reflects real on-disk locations rather than the
+  literal text of either argument.
 
-EXAMPLE
+ERRORS
+  Raises an Error when base or child does not exist, when either path cannot be
+  canonicalized, or when either argument contains an embedded NUL byte.
+
+EXAMPLES
   IF fs::isWithin(root, candidate) THEN
     io::print("inside")
   END IF
+
+  fs::isWithin("base", "base/nested/file.txt")
+  fs::isWithin("base", "base")
+
+SEE ALSO
+  fs::canonicalPath, fs::pathNormalize, fs::exists

@@ -1,16 +1,24 @@
 NAME
-  deleteFile - delete a regular file path
+  deleteFile - delete a file path
 
 SYNOPSIS
   fs::deleteFile(path AS String) AS Nothing
 
 DESCRIPTION
-  Deletes the filesystem entry named by path. When the final component is a
-  symlink, the symlink itself is deleted rather than its target.
+  Removes the filesystem entry named by path with an unlink operation. When the
+  final path component is a symlink, the symlink itself is removed rather than
+  its target.
 
-  Fails with ErrInvalidArgument (77050002) for an empty path or embedded NUL,
-  ErrNotFound (77050004) when the path does not exist, ErrAccessDenied (77030003)
-  when deletion is denied, or ErrWriteFailed (77020002) for other host failures.
+  Returns Nothing on success. Use fs::deleteDirectory to remove a directory.
+
+ERRORS
+  Raises an Error when path is empty or contains an embedded NUL byte, when path
+  does not exist, when path names a directory or is otherwise unusable, when
+  deletion is denied by the host, or when the host OS otherwise refuses to
+  remove the entry.
 
 EXAMPLES
   fs::deleteFile("target/output.txt")
+
+SEE ALSO
+  fs::deleteDirectory, fs::exists, fs::fileExists, fs::writeTextAtomic

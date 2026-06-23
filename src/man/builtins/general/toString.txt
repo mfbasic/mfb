@@ -33,13 +33,15 @@ OVERLOADS
 
   toString(value AS Float, precision AS Byte = 2) AS String
     Converts a finite Float to decimal text with precision digits after the
-    decimal point.
+    decimal point. The precision argument may also be passed by the name
+    decimals. When omitted, precision defaults to 2.
 
   toString(value AS Fixed, precision AS Byte = 2) AS String
     Converts a Fixed value to decimal text with precision digits after the
-    decimal point. Fixed is binary fixed-point, so decimal output reflects the
-    representable value, not necessarily the original decimal spelling used to
-    create it.
+    decimal point. The precision argument may also be passed by the name
+    decimals. When omitted, precision defaults to 2. Fixed is binary
+    fixed-point, so decimal output reflects the representable value, not
+    necessarily the original decimal spelling used to create it.
 
   toString(value AS Boolean) AS String
     Returns "TRUE" for TRUE and "FALSE" for FALSE.

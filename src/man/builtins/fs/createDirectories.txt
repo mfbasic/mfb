@@ -1,13 +1,30 @@
 NAME
-  createDirectories - create a directory tree
+  createDirectories - create a directory and any missing parents
 
 SYNOPSIS
   fs::createDirectories(path AS String) AS Nothing
 
 DESCRIPTION
-  Creates path and any missing parent directories. Existing directories are
-  accepted. Invalid paths, missing non-created parents caused by invalid
-  components, and access failures are reported as Errors.
+  Creates the directory named by path along with any missing parent directories,
+  like "mkdir -p". Each component of the path is created in turn; components that
+  already exist as directories are accepted rather than treated as errors.
+
+  Unlike fs::createDirectory, the parents need not exist beforehand. A final path
+  that already exists as a directory succeeds quietly.
+
+  Returns Nothing on success.
+
+ERRORS
+  Fails with ErrInvalidArgument (77050002) for an empty path or embedded NUL,
+  ErrNotFound (77050004) when a path component cannot be resolved (for example a
+  component that exists but is not a directory), ErrAccessDenied (77030003) when
+  creation is denied, or ErrWriteFailed (77020002) for other host failures.
 
 EXAMPLES
   fs::createDirectories("target/example/nested")
+
+  ' Existing directories are accepted, so re-running is safe.
+  fs::createDirectories("target/example/nested")
+
+SEE ALSO
+  fs::createDirectory, fs::deleteDirectory, fs::directoryExists, fs::exists

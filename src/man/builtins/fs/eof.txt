@@ -1,14 +1,27 @@
 NAME
-  eof - test whether a File is at end of file
+  eof - test whether a File is at end of input
 
 SYNOPSIS
   fs::eof(file AS File) AS Boolean
 
 DESCRIPTION
-  Returns TRUE when the current file position is at or beyond the end of the
-  file and FALSE otherwise.
+  Returns TRUE when file's current read position is at or beyond the end of the
+  file and FALSE otherwise. The position is not changed.
+
+  Use eof to guard a read loop so that fs::readLine and the other reading
+  functions are only called while input remains.
+
+ERRORS
+  Raises an Error when file has already been closed, or when the host OS cannot
+  determine the file's position or length, such as on a pipe or other
+  non-seekable handle.
 
 EXAMPLES
   RES f = fs::openFile("data.txt")
-  io::print(toString(fs::eof(f)))
+  WHILE NOT fs::eof(f)
+    io::print(fs::readLine(f))
+  END WHILE
   ' f is closed by lexical drop when this scope ends
+
+SEE ALSO
+  fs::readLine, fs::readAll, fs::openFile, fs::close

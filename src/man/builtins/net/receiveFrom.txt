@@ -1,0 +1,72 @@
+NAME
+  receiveFrom - receive a single UDP datagram as bytes with its sender address
+
+SYNOPSIS
+  net::receiveFrom(sock AS UdpSocket, maxBytes AS Integer) AS Datagram
+
+PACKAGE
+  net
+
+IMPORTS
+  IMPORT net
+
+DESCRIPTION
+  receiveFrom receives one datagram from a UDP socket and returns a Datagram
+  record with two fields: from, the sender's Address, and bytes, the payload as
+  a List OF Byte. Unlike a connected stream, each call returns exactly one
+  datagram and reports who sent it, so the same bound socket can receive from
+  many peers.
+
+  maxBytes must be positive and bounds the payload that will be accepted. A
+  datagram is delivered whole or not at all: if the incoming payload is larger
+  than maxBytes the call raises ErrMessageTooLarge rather than truncating it, so
+  size maxBytes to the largest message you expect. The returned bytes list holds
+  the entire payload and may be shorter than maxBytes.
+
+  receiveFrom blocks until a datagram arrives or the socket's read timeout
+  elapses. Use net::setReadTimeout to bound how long a receive may wait; when the
+  timeout expires the call raises ErrReadTimeout. Bind the socket with
+  net::bindUdp and send datagrams with net::sendTo. Use net::receiveTextFrom
+  instead when the payload is UTF-8 text and a String is more convenient than raw
+  bytes.
+
+ERRORS
+  Raises an Error with code 77050002 (ErrInvalidArgument) when maxBytes is not
+  positive, 77030004 (ErrResourceClosed) when the socket has already been closed,
+  77070007 (ErrMessageTooLarge) when the datagram does not fit in maxBytes,
+  77070005 (ErrReadTimeout) when the read timeout elapses before a datagram
+  arrives, 77070001 (ErrAddressInvalid) when the sender address cannot be
+  represented as an Address, or 77070003 (ErrNetworkFailed) when the receive
+  could not be completed.
+
+EXAMPLES
+  Receive one datagram and read its payload and sender:
+
+    IMPORT net
+
+    RES sock = net::bindUdp("0.0.0.0", 9000)
+    LET dg = net::receiveFrom(sock, 1024)
+    ' dg.bytes holds the payload; dg.from holds the sender Address
+    ' sock is closed by lexical drop when this scope ends
+
+  Bound how long a receive waits, then handle a timeout:
+
+    IMPORT net
+
+    RES sock = net::bindUdp("127.0.0.1", 0)
+    net::setReadTimeout(sock, 2000)
+    LET dg = net::receiveFrom(sock, 512)
+    io::print(toString(len(dg.bytes)))
+    TRAP(e)
+      ' e.code is 77070005 (ErrReadTimeout) when no datagram arrived in time
+      io::print(toString(e.code))
+    END TRAP
+
+SEE ALSO
+  net::receiveTextFrom
+  net::sendTo
+  net::sendTextTo
+  net::bindUdp
+  net::setReadTimeout
+  net::localAddress
+  net::close

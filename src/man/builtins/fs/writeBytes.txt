@@ -5,8 +5,18 @@ SYNOPSIS
   fs::writeBytes(path AS String, bytes AS List OF Byte) AS Nothing
 
 DESCRIPTION
-  Writes bytes to path, replacing any existing file. Byte-list payload data is
-  written directly from the collection's packed data region.
+  Writes bytes to path, replacing any existing file or creating it when it does
+  not exist. The byte-list payload is written directly from the collection's
+  packed data region, and the write is retried until every byte has been written
+  or the host reports an output failure.
+
+ERRORS
+  Raises an Error when path refers to a directory or other non-writable target,
+  when the parent directory does not exist, or when writing fails partway
+  through.
 
 EXAMPLES
   fs::writeBytes("target/output.bin", [72, 105])
+
+SEE ALSO
+  fs::writeText, fs::writeBytesAtomic, fs::appendBytes, fs::readBytes

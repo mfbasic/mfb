@@ -14,7 +14,9 @@ DESCRIPTION
   insert returns a new list with item inserted before index. The original list is
   not mutated.
 
-  index is zero-based. Inserting before index 0 places the item at the start.
+  index is zero-based. Inserting before index 0 places the item at the start, and
+  inserting before an index equal to the list length places the item at the end.
+  Valid indices run from 0 through the length of the list inclusive.
 
 OVERLOADS
   insert OF T(value AS List OF T, index AS Integer, item AS T) AS List OF T
@@ -22,7 +24,8 @@ OVERLOADS
 
 ERRORS
   77050001
-    Returned when index is out of range.
+    Returned when index is out of range (less than 0 or greater than the list
+    length).
 
   Other errors can propagate from evaluating arguments before insert is called.
 

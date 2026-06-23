@@ -5,7 +5,13 @@ SYNOPSIS
   math::e AS Float
 
 DESCRIPTION
-  The mathematical constant e as a Float value.
+  Euler's number e (the base of the natural logarithm) as a Float value,
+  approximately 2.718281828459045.
 
 EXAMPLES
   LET value AS Float = math::e
+
+  LET growth AS Float = math::pow(math::e, rate * time)
+
+SEE ALSO
+  math::eFixed, math::exp, math::ln2, math::ln10, math::pi

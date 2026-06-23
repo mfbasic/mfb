@@ -1,0 +1,48 @@
+NAME
+  input - read a line of text from standard input, optionally prompting first
+
+SYNOPSIS
+  io::input() AS String
+  io::input(prompt AS String) AS String
+
+DESCRIPTION
+  Reads a single line from standard input and returns it as a String. The
+  trailing newline is removed, and a trailing carriage return (from CRLF line
+  endings) is also stripped. Typed characters are echoed as the line is read.
+
+  When a non-empty prompt is supplied, it is written to standard output and
+  flushed before input is read, so the cursor waits on the same line as the
+  prompt. The prompt is written verbatim; no trailing space or newline is
+  added.
+
+  Input is decoded as UTF-8 and may contain any valid Unicode scalar values,
+  including emoji.
+
+OVERLOADS
+  io::input() AS String
+    Reads a line from standard input without writing a prompt.
+
+  io::input(prompt AS String) AS String
+    Writes prompt to standard output, flushes it, then reads a line.
+
+ERRORS
+  Fails with ErrWriteFailed (77020002) when writing the prompt fails.
+
+  Fails with ErrEndOfFile (77020003) when standard input reaches end of file
+  before any data is read.
+
+  Fails with ErrEncoding (77020004) when the input is not valid UTF-8.
+
+  Fails with ErrInputFailed (77020005) on input read failure.
+
+EXAMPLES
+  LET name AS String = io::input("Name: ")
+  io::print("Hello, " + name)
+
+  LET line AS String = io::input()
+  io::print(line)
+
+SEE ALSO
+  io::pollInput
+  io::print
+  io::write

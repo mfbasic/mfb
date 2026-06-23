@@ -5,7 +5,11 @@ SYNOPSIS
   math::twoOverPiFixed AS Fixed
 
 DESCRIPTION
-  The mathematical constant 2 / pi rounded to the nearest Fixed value.
+  The mathematical constant 2 / pi rounded to the nearest Fixed value,
+  approximately 0.6366197723675814.
 
 EXAMPLES
   LET value AS Fixed = math::twoOverPiFixed
+
+SEE ALSO
+  math::twoOverPi, math::piFixed, math::pi2Fixed, math::pi4Fixed, math::eFixed

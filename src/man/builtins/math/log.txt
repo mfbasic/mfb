@@ -6,10 +6,26 @@ SYNOPSIS
   math::log(value AS Fixed) AS Fixed
 
 DESCRIPTION
-  Returns the natural logarithm of value.
+  Returns the natural logarithm (base e) of value. The return type matches
+  the numeric type of value, which may be a Float or a Fixed.
 
-  The Fixed overload rounds to the nearest Fixed value. Both overloads fail
-  with ErrInvalidArgument (77050002) for non-positive input.
+OVERLOADS
+  math::log(value AS Float) AS Float
+    Computes the natural logarithm using floating-point arithmetic.
+
+  math::log(value AS Fixed) AS Fixed
+    Computes the natural logarithm using deterministic fixed-point (Q32.32)
+    arithmetic, so the result is identical across targets. The result is
+    rounded to the nearest Fixed value.
+
+ERRORS
+  Both overloads fail with ErrInvalidArgument (77050002) for non-positive
+  input (value less than or equal to zero).
 
 EXAMPLES
   LET value AS Float = math::log(math::e)
+
+  LET scaled AS Fixed = math::log(10.0)
+
+SEE ALSO
+  log10, exp, pow, sqrt

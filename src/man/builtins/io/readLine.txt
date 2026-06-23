@@ -1,0 +1,47 @@
+NAME
+  readLine - read a line of text from standard input
+
+SYNOPSIS
+  io::readLine() AS String
+
+DESCRIPTION
+  Reads a single line from standard input and returns it as a String. The
+  trailing newline is removed, and a trailing carriage return (from CRLF line
+  endings) is also stripped.
+
+  Unlike io::input, no prompt is written before reading. To prompt the user on
+  the same line, write the prompt with io::write (and flush) first, or use
+  io::input.
+
+  Input is decoded as UTF-8 and may contain any valid Unicode scalar values,
+  including emoji.
+
+ERRORS
+  Fails with ErrEndOfFile (77020003) when standard input reaches end of file
+  before any data is read.
+
+  Fails with ErrEncoding (77020004) when the input is not valid UTF-8.
+
+  Fails with ErrInputFailed (77020005) on input read failure.
+
+  Fails with ErrOutOfMemory (77010001) when the line buffer cannot be
+  allocated.
+
+EXAMPLES
+  LET line AS String = io::readLine()
+  io::print(line)
+
+  io::write("Name: ")
+  io::flush()
+  LET name AS String = io::readLine()
+  io::print("Hello, " + name)
+
+  IF io::pollInput() THEN
+    io::print(io::readLine())
+  END IF
+
+SEE ALSO
+  io::input
+  io::pollInput
+  io::write
+  io::flush

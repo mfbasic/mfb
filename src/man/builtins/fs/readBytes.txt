@@ -6,7 +6,15 @@ SYNOPSIS
 
 DESCRIPTION
   Opens path, reads the complete file into one contiguous List OF Byte
-  collection, closes the file, and returns the byte list.
+  collection, closes the file, and returns the byte list. Missing paths,
+  invalid paths, and read failures are reported as Errors.
+
+ERRORS
+  Raises an Error when path does not exist, refers to a directory or other
+  non-readable target, or when reading fails partway through.
 
 EXAMPLES
   LET bytes AS List OF Byte = fs::readBytes("data.bin")
+
+SEE ALSO
+  fs::readText, fs::readAllBytes, fs::writeBytes

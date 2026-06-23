@@ -5,7 +5,13 @@ SYNOPSIS
   math::pi2Fixed AS Fixed
 
 DESCRIPTION
-  The mathematical constant pi / 2 rounded to the nearest Fixed value.
+  The mathematical constant pi / 2 (a quarter turn, or 90 degrees in radians)
+  rounded to the nearest Fixed value, approximately 1.5707963267948966.
 
 EXAMPLES
   LET value AS Fixed = math::pi2Fixed
+
+  LET quarterTurn AS Fixed = math::piFixed / 2.0
+
+SEE ALSO
+  math::pi2, math::piFixed, math::pi4Fixed, math::twoOverPiFixed, math::eFixed

@@ -8,8 +8,11 @@ PACKAGE
   json
 
 DESCRIPTION
-  json::get walks path through nested Json object members. Each path element is
-  matched against an object key. An empty path returns value unchanged.
+  json::get walks path through nested Json object members and returns the value
+  found there. Each path element is matched against an object key. An empty path
+  returns value unchanged.
+
+  The path argument may also be passed by the name key.
 
 ERRORS
   ErrNotFound (77050004)
@@ -19,6 +22,9 @@ ERRORS
 EXAMPLES
   LET city AS Json = json::get(doc, ["user", "address", "city"])
 
+  LET root AS Json = json::get(doc, [])
+
 SEE ALSO
   getOr
   parse
+  stringify

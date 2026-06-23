@@ -1,0 +1,63 @@
+NAME
+  write - write bytes to a connected socket
+
+SYNOPSIS
+  net::write(sock AS Socket, bytes AS List OF Byte) AS Nothing
+
+PACKAGE
+  net
+
+IMPORTS
+  IMPORT net
+
+DESCRIPTION
+  write sends the raw bytes in bytes to a connected Socket. It writes the entire
+  list before returning, looping internally to send any portion that a single
+  underlying write did not accept, so a successful call has delivered every byte
+  to the socket's send buffer. The socket must still be open.
+
+  An empty list writes nothing and returns immediately. write blocks while the
+  send buffer is full until space becomes available or the socket's write timeout
+  elapses. Use net::setWriteTimeout to bound how long a write may wait, and
+  net::writeText instead when sending UTF-8 text from a String is more convenient
+  than building a List OF Byte.
+
+ERRORS
+  Raises an Error with code 77030004 (ErrResourceClosed) when the socket has
+  already been closed, 77070004 (ErrConnectionClosed) when the peer closed the
+  connection or it is otherwise no longer usable, or 77070006 (ErrWriteTimeout)
+  when the write timeout elapsed before all bytes could be sent.
+
+EXAMPLES
+  Send a request as raw bytes over a connected socket:
+
+    IMPORT net
+
+    RES client = net::connectTcp("example.com", 80)
+    LET request = [71, 69, 84, 32, 47, 13, 10, 13, 10] AS List OF Byte
+    net::write(client, request)
+    LET reply = net::read(client, 1024)
+    ' client is closed by lexical drop when this scope ends
+
+  Echo bytes received from a peer back to it:
+
+    IMPORT net
+
+    RES server = net::listenTcp("127.0.0.1", 8080)
+    RES peer = net::accept(server)
+    DO
+      LET chunk = net::read(peer, 4096)
+      IF len(chunk) = 0 THEN
+        EXIT DO
+      END IF
+      net::write(peer, chunk)
+    LOOP
+    ' peer and server are closed by lexical drop when this scope ends
+
+SEE ALSO
+  net::writeText
+  net::read
+  net::setWriteTimeout
+  net::connectTcp
+  net::accept
+  net::close

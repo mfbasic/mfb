@@ -6,10 +6,27 @@ SYNOPSIS
   math::exp(value AS Fixed) AS Fixed
 
 DESCRIPTION
-  Raises e to value.
+  Returns e raised to value. The return type matches the numeric type of
+  value, which may be a Float or a Fixed.
 
-  The Fixed overload rounds to the nearest Fixed value and fails with
-  ErrOverflow (77050010) on overflow.
+OVERLOADS
+  math::exp(value AS Float) AS Float
+    Computes e raised to value using floating-point arithmetic.
+
+  math::exp(value AS Fixed) AS Fixed
+    Computes e raised to value using deterministic fixed-point (Q32.32)
+    arithmetic, so the result is identical across targets. The result is
+    rounded to the nearest Fixed value.
+
+ERRORS
+  The Float overload fails with ErrFloatInf (77050014) when the result
+  overflows to infinity. The Fixed overload fails with ErrOverflow
+  (77050010) when the result is outside Fixed range.
 
 EXAMPLES
   LET value AS Float = math::exp(1.0)
+
+  LET growth AS Fixed = math::exp(2.0)
+
+SEE ALSO
+  log, log10, pow, sqrt

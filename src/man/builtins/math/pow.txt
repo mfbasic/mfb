@@ -6,11 +6,41 @@ SYNOPSIS
   math::pow(base AS Fixed, exponent AS Fixed) AS Fixed
 
 DESCRIPTION
-  Raises base to exponent.
+  Returns base raised to exponent. The return type matches the numeric type of
+  the arguments, and both arguments must share that same type.
 
-  The Fixed overload rounds to the nearest Fixed value and fails with
-  ErrInvalidArgument (77050002) for invalid domains and ErrOverflow (77050010) on
-  overflow.
+  The parameters may also be named: the first argument accepts base or value,
+  and the second accepts exponent or power.
+
+OVERLOADS
+  math::pow(base AS Float, exponent AS Float) AS Float
+    Computes base raised to exponent using floating-point arithmetic.
+
+  math::pow(base AS Fixed, exponent AS Fixed) AS Fixed
+    Computes base raised to exponent using deterministic fixed-point (Q32.32)
+    arithmetic, so the result is identical across targets. A whole-number
+    exponent uses exact repeated multiplication and works for any base sign,
+    using the reciprocal for a negative exponent. A fractional exponent is
+    evaluated as exp(exponent * ln(base)) and therefore requires base > 0. The
+    result is rounded to the nearest Fixed value.
+
+ERRORS
+  The Fixed overload fails with ErrInvalidArgument (77050002) when the exponent
+  is fractional and base is not positive, which has no real result, and with
+  ErrOverflow (77050010) when the result is outside Fixed range.
+
+TYPE CHECKING
+  base and exponent must both be Float or both be Fixed. Calling math::pow with
+  any other argument types, or with mixed types, is a compile-time type error.
 
 EXAMPLES
-  LET value AS Float = math::pow(2.0, 8.0)
+  Raise a Float to a power:
+
+    LET value AS Float = math::pow(2.0, 8.0)
+
+  Raise a Fixed to a whole-number power:
+
+    LET area AS Fixed = math::pow(3.0, 2.0)
+
+SEE ALSO
+  sqrt, exp, log, abs

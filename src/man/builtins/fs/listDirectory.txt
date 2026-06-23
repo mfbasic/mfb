@@ -1,14 +1,33 @@
 NAME
-  listDirectory - list direct child names
+  listDirectory - list the direct child names of a directory
 
 SYNOPSIS
   fs::listDirectory(path AS String) AS List OF String
 
 DESCRIPTION
-  Returns direct child entry names for path. The returned list contains names,
-  not full paths, and excludes "." and "..".
+  Returns the names of the entries contained directly in the directory named by
+  path. The list holds the entry names only, not full paths, and never includes
+  the "." or ".." entries.
 
-  The order is implementation-defined but stable for a single runtime result.
+  The names are sorted in ascending byte-wise (UTF-8 lexicographic) order, so
+  the result is deterministic across runs. The path is a UTF-8 String and may
+  contain Unicode characters, including emoji, when the host filesystem accepts
+  those names.
 
-EXAMPLE
+  An empty directory yields an empty List.
+
+ERRORS
+  Fails with ErrInvalidArgument (77050002) for an empty path or embedded NUL,
+  ErrNotFound (77050004) when path does not exist, ErrAccessDenied (77030003)
+  when the directory cannot be opened or read, or ErrWriteFailed (77020002) for
+  other host failures, including when path names a regular file rather than a
+  directory.
+
+EXAMPLES
   LET names AS List OF String = fs::listDirectory("target")
+  FOR i = 0 TO len(names) - 1
+    io::print(get(names, i))
+  NEXT
+
+SEE ALSO
+  fs::directoryExists, fs::createDirectory, fs::exists, fs::canonicalPath

@@ -1,0 +1,63 @@
+NAME
+  writeText - write UTF-8 text to a connected socket
+
+SYNOPSIS
+  net::writeText(sock AS Socket, value AS String) AS Nothing
+
+PACKAGE
+  net
+
+IMPORTS
+  IMPORT net
+
+DESCRIPTION
+  writeText sends the UTF-8 bytes of value over a connected Socket. It writes
+  the entire String before returning, looping internally to send any portion
+  that a single underlying write did not accept, so a successful call has
+  delivered every byte to the socket's send buffer. The socket must still be
+  open.
+
+  An empty String writes nothing and returns immediately. writeText blocks while
+  the send buffer is full until space becomes available or the socket's write
+  timeout elapses. Use net::setWriteTimeout to bound how long a write may wait,
+  and net::write instead when sending raw binary data from a List OF Byte rather
+  than UTF-8 text from a String.
+
+ERRORS
+  Raises an Error with code 77030004 (ErrResourceClosed) when the socket has
+  already been closed, 77070004 (ErrConnectionClosed) when the peer closed the
+  connection or it is otherwise no longer usable, or 77070006 (ErrWriteTimeout)
+  when the write timeout elapsed before all bytes could be sent.
+
+EXAMPLES
+  Send an HTTP request as text over a connected socket:
+
+    IMPORT net
+
+    RES client = net::connectTcp("example.com", 80)
+    net::writeText(client, "GET / HTTP/1.0\r\n\r\n")
+    LET reply = net::readText(client, 1024)
+    ' client is closed by lexical drop when this scope ends
+
+  Echo text received from a peer back to it:
+
+    IMPORT net
+
+    RES server = net::listenTcp("127.0.0.1", 8080)
+    RES peer = net::accept(server)
+    DO
+      LET chunk = net::readText(peer, 4096)
+      IF len(chunk) = 0 THEN
+        EXIT DO
+      END IF
+      net::writeText(peer, chunk)
+    LOOP
+    ' peer and server are closed by lexical drop when this scope ends
+
+SEE ALSO
+  net::write
+  net::readText
+  net::setWriteTimeout
+  net::connectTcp
+  net::accept
+  net::close
