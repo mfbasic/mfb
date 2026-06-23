@@ -498,6 +498,61 @@ pub enum Expression {
     Identifier(String),
 }
 
+/// Synthetic path for the compiler-owned prelude file injected into every
+/// project. It is excluded from `-ast` serialization so it does not perturb
+/// golden AST output, but the resolver, monomorphizer, and type checker all see
+/// its declarations as ordinary always-in-scope types.
+pub const BUILTIN_PRELUDE_PATH: &str = "<builtin prelude>";
+
+/// Builds the compiler-owned prelude: the always-in-scope generic record
+/// templates `Pair OF A, B` and `Partition OF T` (plan-01-functions.md §4). They
+/// are ordinary generic records — constructible, field-accessible, copyable, and
+/// thread-sendable when their members are — handled by the existing template
+/// machinery rather than special-cased like `MapEntry`.
+fn builtin_prelude_file() -> AstFile {
+    fn field(name: &str, type_name: &str) -> TypeField {
+        TypeField {
+            visibility: None,
+            name: name.to_string(),
+            type_name: type_name.to_string(),
+            line: 0,
+        }
+    }
+    fn template(name: &str, params: &[&str], fields: Vec<TypeField>) -> Item {
+        Item::Type(TypeDecl {
+            kind: TypeDeclKind::Type,
+            visibility: Visibility::Export,
+            name: name.to_string(),
+            template_params: params.iter().map(|param| param.to_string()).collect(),
+            fields,
+            includes: Vec::new(),
+            variants: Vec::new(),
+            members: Vec::new(),
+            line: 0,
+        })
+    }
+
+    AstFile {
+        path: BUILTIN_PRELUDE_PATH.to_string(),
+        imports: Vec::new(),
+        items: vec![
+            template(
+                "Pair",
+                &["A", "B"],
+                vec![field("first", "A"), field("second", "B")],
+            ),
+            template(
+                "Partition",
+                &["T"],
+                vec![
+                    field("matched", "List OF T"),
+                    field("unmatched", "List OF T"),
+                ],
+            ),
+        ],
+    }
+}
+
 pub fn parse_project(
     project_name: &str,
     project_dir: &Path,
@@ -526,6 +581,12 @@ pub fn parse_project(
             &source_file.display_path,
         )?);
     }
+
+    // Append the compiler-owned prelude last so the user's first source file
+    // stays `files[0]` — the monomorphizer emits generated instantiations into
+    // the first file. The prelude is still globally in scope and is filtered out
+    // of `-ast` output by `AstProject::to_json`.
+    files.push(builtin_prelude_file());
 
     Ok(AstProject {
         name: project_name.to_string(),
@@ -3672,10 +3733,19 @@ impl<'a> FileParser<'a> {
 
 impl AstProject {
     pub fn to_json(&self) -> String {
+        // The compiler-owned prelude is invisible to `-ast` output so golden AST
+        // dumps reflect only user source.
+        let files = self
+            .files
+            .iter()
+            .filter(|file| file.path != BUILTIN_PRELUDE_PATH)
+            .map(|file| file.to_json(2))
+            .collect::<Vec<_>>()
+            .join(",");
         format!(
             "{{\n  \"project\": {},\n  \"files\": [{}\n  ]\n}}\n",
             json_string(&self.name),
-            join_indented(&self.files, 2)
+            files
         )
     }
 }

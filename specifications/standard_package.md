@@ -18,6 +18,8 @@ These types are always in scope. They do not require `IMPORT`.
 | `Error` | Read-only error payload: `code AS Integer`, `message AS String`, `source AS ErrorLoc`. |
 | `ErrorLoc` | Read-only source location of an error: `filename AS String`, `line AS Integer`, `char AS Integer`. |
 | `MapEntry OF K TO V` | Standard map iteration entry: `MapEntry[key AS K, value AS V]`. |
+| `Pair OF A, B` | Compiler-owned two-value product used by `collections::zip`: `first AS A`, `second AS B`. |
+| `Partition OF T` | Compiler-owned split result of `collections::partition`: `matched AS List OF T`, `unmatched AS List OF T`. |
 | `Thread OF Msg TO Out` | Opaque handle to an isolated thread with message type `Msg` and result type `Out`. |
 
 The `Error` and `ErrorLoc` shapes are built into the language as read-only,
@@ -59,6 +61,20 @@ FUNC error(code AS Integer, message AS String) AS Error
 TYPE MapEntry OF K TO V
   key AS K
   value AS V
+END TYPE
+```
+
+`Pair OF A, B` and `Partition OF T` are compiler-owned, always-in-scope generic records (`collections::zip` returns `List OF Pair OF A, B`; `collections::partition` returns `Partition OF T`). Unlike `MapEntry`, they are ordinary constructible records — public, copyable when their members are copyable, and thread-sendable when their members are sendable — and `Pair` places no comparability constraint on `A` or `B`. The names `Pair` and `Partition` are reserved; a user `TYPE` may not redeclare them.
+
+```basic
+TYPE Pair OF A, B
+  first  AS A
+  second AS B
+END TYPE
+
+TYPE Partition OF T
+  matched   AS List OF T
+  unmatched AS List OF T
 END TYPE
 ```
 

@@ -1,0 +1,40 @@
+IMPORT io
+
+' Pair and Partition are compiler-owned, always-in-scope generic records.
+' No TYPE declaration is needed (and redeclaring them is an error).
+
+FUNC makePair(n AS Integer, s AS String) AS Pair OF Integer, String
+  RETURN Pair[n, s]
+END FUNC
+
+FUNC main AS Integer
+  ' Construct and read fields
+  LET p AS Pair OF Integer, String = Pair[7, "seven"]
+  io::print(toString(p.first))
+  io::print(p.second)
+
+  ' Returned from a function
+  LET q AS Pair OF Integer, String = makePair(9, "nine")
+  io::print(toString(q.first) & "-" & q.second)
+
+  ' Stored in a List
+  LET ps AS List OF Pair OF Integer, String = [p, q]
+  io::print(toString(get(ps, 1).first))
+  io::print(get(ps, 0).second)
+
+  ' Default values: Pair OF Integer, String -> first=0, second=""
+  MUT dp AS Pair OF Integer, String
+  io::print(toString(dp.first) & "[" & dp.second & "]")
+
+  ' Partition: construct, read both fields
+  LET part AS Partition OF Integer = Partition[[2, 4, 6], [1, 3]]
+  io::print(toString(get(part.matched, 0)))
+  io::print(toString(len(part.matched)))
+  io::print(toString(len(part.unmatched)))
+
+  ' Default Partition -> two empty lists
+  MUT dpart AS Partition OF String
+  io::print(toString(len(dpart.matched)) & toString(len(dpart.unmatched)))
+
+  RETURN 0
+END FUNC

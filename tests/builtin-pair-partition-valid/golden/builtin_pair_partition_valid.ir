@@ -1,0 +1,81 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "builtin_pair_partition_valid",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  {
+    "kind": "type",
+    "visibility": "export",
+    "name": "Pair$Integer$String",
+    "fields": [
+    { "visibility": null, "name": "first", "type": "Integer" },
+    { "visibility": null, "name": "second", "type": "String" }
+    ]
+  },
+  {
+    "kind": "type",
+    "visibility": "export",
+    "name": "Partition$Integer",
+    "fields": [
+    { "visibility": null, "name": "matched", "type": "List OF Integer" },
+    { "visibility": null, "name": "unmatched", "type": "List OF Integer" }
+    ]
+  },
+  {
+    "kind": "type",
+    "visibility": "export",
+    "name": "Partition$String",
+    "fields": [
+    { "visibility": null, "name": "matched", "type": "List OF String" },
+    { "visibility": null, "name": "unmatched", "type": "List OF String" }
+    ]
+  }
+  ],
+  "functions": [
+  {
+    "name": "makePair",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    { "name": "n", "type": "Integer", "default": null },
+    { "name": "s", "type": "String", "default": null }
+    ],
+    "returns": "Pair$Integer$String",
+    "body": [
+    { "op": "return", "value": { "kind": "constructor", "type": "Pair$Integer$String", "args": [{ "kind": "local", "name": "n" }, { "kind": "local", "name": "s" }] } }
+    ]
+  },
+  {
+    "name": "main",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "mutable": false, "name": "p", "type": "Pair$Integer$String", "value": { "kind": "constructor", "type": "Pair$Integer$String", "args": [{ "kind": "const", "type": "Integer", "value": "7" }, { "kind": "const", "type": "String", "value": "seven" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "memberAccess", "target": { "kind": "local", "name": "p" }, "member": "first" }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "memberAccess", "target": { "kind": "local", "name": "p" }, "member": "second" }] } },
+    { "op": "bind", "mutable": false, "name": "q", "type": "Pair$Integer$String", "value": { "kind": "call", "target": "makePair", "args": [{ "kind": "const", "type": "Integer", "value": "9" }, { "kind": "const", "type": "String", "value": "nine" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "binary", "op": "&", "left": { "kind": "binary", "op": "&", "left": { "kind": "call", "target": "toString", "args": [{ "kind": "memberAccess", "target": { "kind": "local", "name": "q" }, "member": "first" }] }, "right": { "kind": "const", "type": "String", "value": "-" } }, "right": { "kind": "memberAccess", "target": { "kind": "local", "name": "q" }, "member": "second" } }] } },
+    { "op": "bind", "mutable": false, "name": "ps", "type": "List OF Pair$Integer$String", "value": { "kind": "list", "type": "List OF Pair$Integer$String", "values": [{ "kind": "local", "name": "p" }, { "kind": "local", "name": "q" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "memberAccess", "target": { "kind": "call", "target": "get", "args": [{ "kind": "local", "name": "ps" }, { "kind": "const", "type": "Integer", "value": "1" }] }, "member": "first" }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "memberAccess", "target": { "kind": "call", "target": "get", "args": [{ "kind": "local", "name": "ps" }, { "kind": "const", "type": "Integer", "value": "0" }] }, "member": "second" }] } },
+    { "op": "bind", "mutable": true, "name": "dp", "type": "Pair$Integer$String", "value": null },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "binary", "op": "&", "left": { "kind": "binary", "op": "&", "left": { "kind": "binary", "op": "&", "left": { "kind": "call", "target": "toString", "args": [{ "kind": "memberAccess", "target": { "kind": "local", "name": "dp" }, "member": "first" }] }, "right": { "kind": "const", "type": "String", "value": "[" } }, "right": { "kind": "memberAccess", "target": { "kind": "local", "name": "dp" }, "member": "second" } }, "right": { "kind": "const", "type": "String", "value": "]" } }] } },
+    { "op": "bind", "mutable": false, "name": "part", "type": "Partition$Integer", "value": { "kind": "constructor", "type": "Partition$Integer", "args": [{ "kind": "list", "type": "List OF Integer", "values": [{ "kind": "const", "type": "Integer", "value": "2" }, { "kind": "const", "type": "Integer", "value": "4" }, { "kind": "const", "type": "Integer", "value": "6" }] }, { "kind": "list", "type": "List OF Integer", "values": [{ "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "3" }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "get", "args": [{ "kind": "memberAccess", "target": { "kind": "local", "name": "part" }, "member": "matched" }, { "kind": "const", "type": "Integer", "value": "0" }] }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "len", "args": [{ "kind": "memberAccess", "target": { "kind": "local", "name": "part" }, "member": "matched" }] }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "len", "args": [{ "kind": "memberAccess", "target": { "kind": "local", "name": "part" }, "member": "unmatched" }] }] }] } },
+    { "op": "bind", "mutable": true, "name": "dpart", "type": "Partition$String", "value": null },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "binary", "op": "&", "left": { "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "len", "args": [{ "kind": "memberAccess", "target": { "kind": "local", "name": "dpart" }, "member": "matched" }] }] }, "right": { "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "len", "args": [{ "kind": "memberAccess", "target": { "kind": "local", "name": "dpart" }, "member": "unmatched" }] }] } }] } },
+    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

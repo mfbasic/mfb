@@ -7,8 +7,8 @@ SYNOPSIS
 DESCRIPTION
   MFBASIC has a small set of compiler-owned types that are always understood by
   the language. Primitive types name scalar values. Compiler-owned templates such as
-  List, Map, Result, MapEntry, and Thread are monomorphized before bytecode is
-  generated, so each concrete use has a fully known type.
+  List, Map, Result, MapEntry, Pair, Partition, and Thread are monomorphized
+  before bytecode is generated, so each concrete use has a fully known type.
 
   User-defined TYPE, UNION, ENUM, and package-scope RESOURCE ... CLOSE BY
   declarations (native LINK resources) create additional program types, but they
@@ -95,6 +95,31 @@ CONTAINERS
       END TYPE
 
     The fields are public and read-only.
+
+  Pair OF A, B
+    A compiler-owned, always-in-scope two-value product used by
+    collections::zip. Unlike MapEntry it places no comparability constraint on A
+    or B:
+
+      TYPE Pair OF A, B
+        first  AS A
+        second AS B
+      END TYPE
+
+    Pair is an ordinary record: constructible (Pair[a, b]), copyable when both
+    members are copyable, and sendable when both members are sendable. See
+    mfb man types pair.
+
+  Partition OF T
+    A compiler-owned, always-in-scope record returned by collections::partition,
+    splitting a list into matched and unmatched items in original order:
+
+      TYPE Partition OF T
+        matched   AS List OF T
+        unmatched AS List OF T
+      END TYPE
+
+    See mfb man types partition.
 
 CONCURRENCY
   Thread OF Msg TO Out
