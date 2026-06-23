@@ -121,15 +121,14 @@ FUNC main AS Integer
     MUT message AS String = "Guess a letter (A-Z). Press Q to quit."
     MUT quit AS Boolean = FALSE
     MUT won AS Boolean = FALSE
-    MUT roundOver AS Boolean = FALSE
 
-    DO WHILE NOT roundOver
+    DO
       drawScreen(word, guessed, missed, wrong, message)
       LET letter AS String = strings::upper(io::readChar())
 
       IF letter = "Q" THEN
         quit = TRUE
-        roundOver = TRUE
+        EXIT DO
       ELSEIF len(letter) <> 1 OR NOT strings::contains(alphabet, letter) THEN
         message = "Please press a letter A-Z."
       ELSEIF strings::contains(guessed, letter) THEN
@@ -143,15 +142,9 @@ FUNC main AS Integer
           missed = missed & letter & " "
           message = "Nope - no '" & letter & "' in the word."
         END IF
-
-        IF NOT strings::contains(buildMasked(word, guessed), "_") THEN
-          won = TRUE
-          roundOver = TRUE
-        ELSEIF wrong >= 6 THEN
-          roundOver = TRUE
-        END IF
+        won = NOT strings::contains(buildMasked(word, guessed), "_")
       END IF
-    LOOP
+    LOOP UNTIL won OR wrong >= 6
 
     IF quit THEN
       running = FALSE
