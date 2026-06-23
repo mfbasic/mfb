@@ -226,6 +226,21 @@ impl Encoder {
                 reg(field(instruction, "lhs")?)?,
                 reg(field(instruction, "rhs")?)?,
             ),
+            "umulh" => self.emit_umulh(
+                reg(field(instruction, "dst")?)?,
+                reg(field(instruction, "lhs")?)?,
+                reg(field(instruction, "rhs")?)?,
+            ),
+            "adc" => self.emit_adc(
+                reg(field(instruction, "dst")?)?,
+                reg(field(instruction, "lhs")?)?,
+                reg(field(instruction, "rhs")?)?,
+            ),
+            "rorv" => self.emit_rorv(
+                reg(field(instruction, "dst")?)?,
+                reg(field(instruction, "lhs")?)?,
+                reg(field(instruction, "rhs")?)?,
+            ),
             "sdiv" => self.emit_sdiv(
                 reg(field(instruction, "dst")?)?,
                 reg(field(instruction, "lhs")?)?,
@@ -470,6 +485,18 @@ impl Encoder {
 
     fn emit_smulh(&mut self, rd: u8, rn: u8, rm: u8) -> Result<(), String> {
         self.emit_word(0x9b40_7c00 | ((rm as u32) << 16) | ((rn as u32) << 5) | rd as u32)
+    }
+
+    fn emit_umulh(&mut self, rd: u8, rn: u8, rm: u8) -> Result<(), String> {
+        self.emit_word(0x9bc0_7c00 | ((rm as u32) << 16) | ((rn as u32) << 5) | rd as u32)
+    }
+
+    fn emit_adc(&mut self, rd: u8, rn: u8, rm: u8) -> Result<(), String> {
+        self.emit_word(0x9a00_0000 | ((rm as u32) << 16) | ((rn as u32) << 5) | rd as u32)
+    }
+
+    fn emit_rorv(&mut self, rd: u8, rn: u8, rm: u8) -> Result<(), String> {
+        self.emit_word(0x9ac0_2c00 | ((rm as u32) << 16) | ((rn as u32) << 5) | rd as u32)
     }
 
     fn emit_sdiv(&mut self, rd: u8, rn: u8, rm: u8) -> Result<(), String> {
@@ -1150,6 +1177,50 @@ mod tests {
             .unwrap();
 
         assert_eq!(encoder.text.len(), 28);
+    }
+
+    #[test]
+    fn encodes_umulh_adc_and_rorv() {
+        let mut encoder = Encoder {
+            text: Vec::new(),
+            data: Vec::new(),
+            symbols: Vec::new(),
+            relocations: Vec::new(),
+            imports: HashMap::new(),
+            labels: HashMap::new(),
+            patches: Vec::new(),
+        };
+
+        encoder
+            .emit_instruction(
+                &CodeInstruction::new("umulh")
+                    .field("dst", "x14")
+                    .field("lhs", "x11")
+                    .field("rhs", "x9"),
+            )
+            .unwrap();
+        encoder
+            .emit_instruction(
+                &CodeInstruction::new("adc")
+                    .field("dst", "x10")
+                    .field("lhs", "x14")
+                    .field("rhs", "x12"),
+            )
+            .unwrap();
+        encoder
+            .emit_instruction(
+                &CodeInstruction::new("rorv")
+                    .field("dst", "x0")
+                    .field("lhs", "x12")
+                    .field("rhs", "x11"),
+            )
+            .unwrap();
+
+        let mut expected = Vec::new();
+        expected.extend_from_slice(&0x9bc9_7d6e_u32.to_le_bytes());
+        expected.extend_from_slice(&0x9a0c_01ca_u32.to_le_bytes());
+        expected.extend_from_slice(&0x9acb_2d80_u32.to_le_bytes());
+        assert_eq!(encoder.text, expected);
     }
 
     #[test]

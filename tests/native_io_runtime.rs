@@ -852,22 +852,10 @@ fn native_io_terminal_helpers_cover_pipe_and_tty_execution() {
         r#"
 IMPORT io
 
-FUNC printTerminalSize AS Nothing
-  LET size AS TerminalSize = io::terminalSize()
-  io::print(toString(size.columns))
-  io::print(toString(size.rows))
-  RETURN NOTHING
-  TRAP(err)
-    io::print("ERR:" & toString(err.code))
-    RETURN NOTHING
-  END TRAP
-END FUNC
-
 FUNC main AS Integer
   io::print(toString(io::isInputTerminal()))
   io::print(toString(io::isOutputTerminal()))
   io::print(toString(io::isErrorTerminal()))
-  printTerminalSize()
   RETURN 0
 END FUNC
 "#,
@@ -875,7 +863,7 @@ END FUNC
     let executable = build_project(&project);
 
     let direct = run_with_stdin(&executable, b"");
-    assert_eq!(direct, "FALSE\nFALSE\nFALSE\nERR:77050007\n");
+    assert_eq!(direct, "FALSE\nFALSE\nFALSE\n");
 
     let pty = run_under_pty(&executable);
     let lines = pty
@@ -883,10 +871,74 @@ END FUNC
         .lines()
         .map(str::to_string)
         .collect::<Vec<_>>();
-    assert!(lines.len() >= 5, "expected tty output, got {lines:?}");
+    assert!(lines.len() >= 3, "expected tty output, got {lines:?}");
     assert_eq!(lines[0], "TRUE");
     assert_eq!(lines[1], "TRUE");
     assert_eq!(lines[2], "TRUE");
-    assert!(lines[3].parse::<i64>().expect("columns") > 0);
-    assert!(lines[4].parse::<i64>().expect("rows") > 0);
+}
+
+#[test]
+fn native_term_size_reports_unsupported_off_and_size_when_active() {
+    // `term::terminalSize` errors with ERR_UNSUPPORTED_OPERATION while TUI mode
+    // is off (plan-01-term.md §4.7) and returns the live window size once active.
+    let project = temp_project(
+        "native_term_size",
+        r#"
+IMPORT io
+IMPORT term
+
+FUNC sizeWhileOff AS Nothing
+  LET size AS TermSize = term::terminalSize()
+  io::print("OFF-COLS:" & toString(size.columns))
+  RETURN NOTHING
+  TRAP(err)
+    io::print("OFF-ERR:" & toString(err.code))
+    RETURN NOTHING
+  END TRAP
+END FUNC
+
+FUNC printSize AS Nothing
+  LET size AS TermSize = term::terminalSize()
+  io::print("SIZE:" & toString(size.columns) & "x" & toString(size.rows))
+  RETURN NOTHING
+  TRAP(err)
+    io::print("SIZE-ERR:" & toString(err.code))
+    RETURN NOTHING
+  END TRAP
+END FUNC
+
+FUNC main AS Integer
+  sizeWhileOff()
+  term::on()
+  printSize()
+  term::off()
+  RETURN 0
+END FUNC
+"#,
+    );
+    let executable = build_project(&project);
+
+    // Piped (no tty): the off-path errors, and the active path also reports
+    // unsupported because the ioctl fails on a pipe (program still exits 0
+    // because both reads are trapped).
+    let direct = run_with_stdin(&executable, b"");
+    assert!(
+        direct.contains("OFF-ERR:77050007"),
+        "expected off-path unsupported error, got {direct:?}"
+    );
+    assert!(
+        direct.contains("SIZE-ERR:77050007"),
+        "expected non-tty active terminalSize to report unsupported, got {direct:?}"
+    );
+
+    // Under a pty with a known window size, the active path reports it.
+    let pty = run_under_pty(&executable).replace("\r\n", "\n");
+    assert!(
+        pty.contains("OFF-ERR:77050007"),
+        "expected off-path unsupported error under pty, got {pty:?}"
+    );
+    assert!(
+        pty.contains("SIZE:100x40"),
+        "expected live window size under pty, got {pty:?}"
+    );
 }

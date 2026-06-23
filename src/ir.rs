@@ -3143,6 +3143,7 @@ impl TypeIndex {
     fn record_field_type(&self, type_name: &str, member: &str) -> Option<String> {
         if let Some(type_) = builtins::io::builtin_type_fields(type_name)
             .or_else(|| builtins::net::builtin_type_fields(type_name))
+            .or_else(|| builtins::term::builtin_type_fields(type_name))
             .and_then(|fields| fields.iter().find(|(name, _)| *name == member))
             .map(|(_, type_)| (*type_).to_string())
         {

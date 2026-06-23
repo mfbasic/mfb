@@ -1,4 +1,4 @@
-IMPORT io AS term
+IMPORT io AS console
 IMPORT strings AS text
 
 EXPORT FUNC byteLenAlias(message AS String) AS Integer
@@ -6,6 +6,6 @@ EXPORT FUNC byteLenAlias(message AS String) AS Integer
 END FUNC
 
 EXPORT SUB flushStreams()
-  term::flush()
-  term::flushError()
+  console::flush()
+  console::flushError()
 END SUB

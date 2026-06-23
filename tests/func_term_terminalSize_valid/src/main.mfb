@@ -1,8 +1,8 @@
-IMPORT io
+IMPORT term
 
 FUNC useTerminalSize AS Integer
-  LET a AS TerminalSize = io::terminalSize()
-  MUT b AS TerminalSize = io::terminalSize()
+  LET a AS TermSize = term::terminalSize()
+  MUT b AS TermSize = term::terminalSize()
 
   b = a
   RETURN a.rows + a.columns + b.rows + b.columns

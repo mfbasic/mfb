@@ -180,12 +180,18 @@ const SEL_DEFAULT_LINE_HEIGHT: (&str, &str) =
     ("_mfb_macapp_sel_defaultLineHeight", "defaultLineHeightForFont:");
 /// The arena allocator (`lower_arena_alloc`): size in x0, align in x1; returns a
 /// result tag in x0 and the block pointer in x1.
+// Kept for plan-01-term.md Phase 5: the app-mode `term::terminalSize` retargets
+// this transcript-viewport helper to read the `TermView` grid (§8.3). Unused
+// until then now that `io::terminalSize` is removed (Phase 3).
+#[allow(dead_code)]
 const ARENA_ALLOC_SYMBOL: &str = "_mfb_arena_alloc";
 /// `ERR_UNSUPPORTED` (`ERR_UNSUPPORTED_CODE` / `ERR_UNSUPPORTED_SYMBOL` in
-/// src/target/shared/code/mod.rs): returned by io.terminalSize when no transcript
-/// is attached. The `_mfb_str_error_unsupported` data object is emitted by the
-/// shared lowering whenever io.terminalSize is used.
+/// src/target/shared/code/mod.rs): returned by the app terminal-size helper when
+/// no transcript is attached. The `_mfb_str_error_unsupported` data object is
+/// emitted by the shared lowering whenever `term::terminalSize` is used.
+#[allow(dead_code)]
 const ERR_UNSUPPORTED_CODE: &str = "77050007";
+#[allow(dead_code)]
 const ERR_UNSUPPORTED_SYMBOL: &str = "_mfb_str_error_unsupported";
 /// Program-completion handler (plan §5.7): runs on the worker thread when the
 /// MFBASIC program finishes. macOS `emit_program_exit` routes the worker
@@ -1417,6 +1423,9 @@ pub(crate) fn emit_app_io_is_terminal_helper(
 /// `maximumAdvancement`, and lineHeight from the layout manager. Returns the
 /// `{ columns, rows }` record, or `ERR_UNSUPPORTED` when no transcript is
 /// attached (e.g. headless).
+// Retained for plan-01-term.md Phase 5 (app-mode `term::terminalSize`, §8.3);
+// unused since `io::terminalSize` was removed in Phase 3.
+#[allow(dead_code)]
 pub(crate) fn emit_app_io_terminal_size_helper(
     symbol: &str,
 ) -> (CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>) {

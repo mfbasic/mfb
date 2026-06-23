@@ -5,7 +5,7 @@
   "buildMode": "macos-app",
   "project": "macos_app_mode_io",
   "entrySymbol": "_mfb_fn_main",
-  "runtimeSymbols": ["_mfb_rt_io_io_print", "_mfb_rt_io_io_write", "_mfb_rt_io_io_printError", "_mfb_rt_io_io_writeError", "_mfb_rt_io_io_flush", "_mfb_rt_io_io_flushError", "_mfb_rt_io_io_input", "_mfb_rt_io_io_readLine", "_mfb_rt_io_io_readChar", "_mfb_rt_io_io_readByte", "_mfb_rt_io_io_pollInput", "_mfb_rt_io_io_isInputTerminal", "_mfb_rt_io_io_isOutputTerminal", "_mfb_rt_io_io_isErrorTerminal", "_mfb_rt_io_io_terminalSize"],
+  "runtimeSymbols": ["_mfb_rt_io_io_print", "_mfb_rt_io_io_write", "_mfb_rt_io_io_printError", "_mfb_rt_io_io_writeError", "_mfb_rt_io_io_flush", "_mfb_rt_io_io_flushError", "_mfb_rt_io_io_input", "_mfb_rt_io_io_readLine", "_mfb_rt_io_io_readChar", "_mfb_rt_io_io_readByte", "_mfb_rt_io_io_pollInput", "_mfb_rt_io_io_isInputTerminal", "_mfb_rt_io_io_isOutputTerminal", "_mfb_rt_io_io_isErrorTerminal"],
   "externalSymbols": [],
   "platformImports": [
   { "library": "libSystem", "symbol": "_exit", "requiredBy": "_main" },
@@ -38,7 +38,6 @@
   { "library": "libSystem", "symbol": "_isatty", "requiredBy": "_mfb_rt_io_io_isInputTerminal" },
   { "library": "libSystem", "symbol": "_isatty", "requiredBy": "_mfb_rt_io_io_isOutputTerminal" },
   { "library": "libSystem", "symbol": "_isatty", "requiredBy": "_mfb_rt_io_io_isErrorTerminal" },
-  { "library": "libSystem", "symbol": "_ioctl", "requiredBy": "_mfb_rt_io_io_terminalSize" },
   { "library": "libSystem", "symbol": "_snprintf", "requiredBy": "_mfb_fn_main" },
   { "library": "libobjc", "symbol": "_objc_msgSend", "requiredBy": "_main" },
   { "library": "libobjc", "symbol": "_sel_registerName", "requiredBy": "_main" },
@@ -83,12 +82,11 @@
     { "name": "ready", "storage": { "name": "Boolean", "class": "boolean", "size": 1, "align": 1 }, "offset": -40, "mutable": false },
     { "name": "inTerm", "storage": { "name": "Boolean", "class": "boolean", "size": 1, "align": 1 }, "offset": -48, "mutable": false },
     { "name": "outTerm", "storage": { "name": "Boolean", "class": "boolean", "size": 1, "align": 1 }, "offset": -56, "mutable": false },
-    { "name": "errTerm", "storage": { "name": "Boolean", "class": "boolean", "size": 1, "align": 1 }, "offset": -64, "mutable": false },
-    { "name": "size", "storage": { "name": "TerminalSize", "class": "reference", "size": 8, "align": 8 }, "offset": -72, "mutable": false }
+    { "name": "errTerm", "storage": { "name": "Boolean", "class": "boolean", "size": 1, "align": 1 }, "offset": -64, "mutable": false }
     ],
     "labels": [
     ],
-    "operations": ["eval runtimeCall io io.print(String(print))", "eval runtimeCall io io.write(String(write))", "eval runtimeCall io io.printError(String(printError))", "eval runtimeCall io io.writeError(String(writeError))", "eval runtimeCall io io.flush()", "eval runtimeCall io io.flushError()", "bind immutable prompted AS String = runtimeCall io io.input(String(prompt: ))", "bind immutable line AS String = runtimeCall io io.readLine()", "bind immutable ch AS String = runtimeCall io io.readChar()", "bind immutable byte AS Byte = runtimeCall io io.readByte()", "bind immutable ready AS Boolean = runtimeCall io io.pollInput(Integer(0))", "bind immutable inTerm AS Boolean = runtimeCall io io.isInputTerminal()", "bind immutable outTerm AS Boolean = runtimeCall io io.isOutputTerminal()", "bind immutable errTerm AS Boolean = runtimeCall io io.isErrorTerminal()", "bind immutable size AS TerminalSize = runtimeCall io io.terminalSize()", "eval runtimeCall io io.print(((((((((((local prompted & local line) & local ch) & call toString(local byte)) & call toString(local ready)) & call toString(local inTerm)) & call toString(local outTerm)) & call toString(local errTerm)) & call toString(size.columns)) & String(x)) & call toString(size.rows)))"],
+    "operations": ["eval runtimeCall io io.print(String(print))", "eval runtimeCall io io.write(String(write))", "eval runtimeCall io io.printError(String(printError))", "eval runtimeCall io io.writeError(String(writeError))", "eval runtimeCall io io.flush()", "eval runtimeCall io io.flushError()", "bind immutable prompted AS String = runtimeCall io io.input(String(prompt: ))", "bind immutable line AS String = runtimeCall io io.readLine()", "bind immutable ch AS String = runtimeCall io io.readChar()", "bind immutable byte AS Byte = runtimeCall io io.readByte()", "bind immutable ready AS Boolean = runtimeCall io io.pollInput(Integer(0))", "bind immutable inTerm AS Boolean = runtimeCall io io.isInputTerminal()", "bind immutable outTerm AS Boolean = runtimeCall io io.isOutputTerminal()", "bind immutable errTerm AS Boolean = runtimeCall io io.isErrorTerminal()", "eval runtimeCall io io.print((((((((local prompted & local line) & local ch) & call toString(local byte)) & call toString(local ready)) & call toString(local inTerm)) & call toString(local outTerm)) & call toString(local errTerm)))"],
     "calls": [
     { "target": "io.print", "symbol": "_mfb_rt_io_io_print", "kind": "runtime", "stringLiterals": ["print"] },
     { "target": "io.write", "symbol": "_mfb_rt_io_io_write", "kind": "runtime", "stringLiterals": ["write"] },
@@ -103,8 +101,7 @@
     { "target": "io.pollInput", "symbol": "_mfb_rt_io_io_pollInput", "kind": "runtime", "stringLiterals": [] },
     { "target": "io.isInputTerminal", "symbol": "_mfb_rt_io_io_isInputTerminal", "kind": "runtime", "stringLiterals": [] },
     { "target": "io.isOutputTerminal", "symbol": "_mfb_rt_io_io_isOutputTerminal", "kind": "runtime", "stringLiterals": [] },
-    { "target": "io.isErrorTerminal", "symbol": "_mfb_rt_io_io_isErrorTerminal", "kind": "runtime", "stringLiterals": [] },
-    { "target": "io.terminalSize", "symbol": "_mfb_rt_io_io_terminalSize", "kind": "runtime", "stringLiterals": [] }
+    { "target": "io.isErrorTerminal", "symbol": "_mfb_rt_io_io_isErrorTerminal", "kind": "runtime", "stringLiterals": [] }
     ]
   }
   ]

@@ -1,7 +1,7 @@
 {
   "format": "mfb-ir",
   "version": 1,
-  "project": "func_io_terminalSize_valid",
+  "project": "func_term_terminalSize_valid",
   "entry": {
     "name": "main",
     "returns": "Integer",
@@ -18,8 +18,8 @@
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "mutable": false, "name": "a", "type": "TerminalSize", "value": { "kind": "call", "target": "io.terminalSize", "args": [] } },
-    { "op": "bind", "mutable": true, "name": "b", "type": "TerminalSize", "value": { "kind": "call", "target": "io.terminalSize", "args": [] } },
+    { "op": "bind", "mutable": false, "name": "a", "type": "TermSize", "value": { "kind": "call", "target": "term.terminalSize", "args": [] } },
+    { "op": "bind", "mutable": true, "name": "b", "type": "TermSize", "value": { "kind": "call", "target": "term.terminalSize", "args": [] } },
     { "op": "assign", "name": "b", "value": { "kind": "local", "name": "a" } },
     { "op": "return", "value": { "kind": "binary", "op": "+", "left": { "kind": "binary", "op": "+", "left": { "kind": "binary", "op": "+", "left": { "kind": "memberAccess", "target": { "kind": "local", "name": "a" }, "member": "rows" }, "right": { "kind": "memberAccess", "target": { "kind": "local", "name": "a" }, "member": "columns" } }, "right": { "kind": "memberAccess", "target": { "kind": "local", "name": "b" }, "member": "rows" } }, "right": { "kind": "memberAccess", "target": { "kind": "local", "name": "b" }, "member": "columns" } } }
     ]

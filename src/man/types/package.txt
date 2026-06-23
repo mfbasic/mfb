@@ -109,10 +109,22 @@ CONCURRENCY
     copyable or sendable.
 
 PACKAGE TYPES
-  TerminalSize
-    The io package record returned by io::terminalSize:
+  TermColor
+    The term package record returned by term::getForeground and
+    term::getBackground:
 
-      TYPE TerminalSize
+      TYPE TermColor
+        r AS Byte
+        g AS Byte
+        b AS Byte
+      END TYPE
+
+    Its fields report the current 24-bit color components.
+
+  TermSize
+    The term package record returned by term::terminalSize:
+
+      TYPE TermSize
         columns AS Integer
         rows AS Integer
       END TYPE

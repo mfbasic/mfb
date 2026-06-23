@@ -1,5 +1,5 @@
 {
-  "name": "func_io_terminalSize_invalid",
+  "name": "func_term_terminalSize_invalid",
   "version": "0.1.0",
   "mfb": "1.0",
   "kind": "executable",

@@ -1,0 +1,175 @@
+IMPORT io
+IMPORT math
+IMPORT strings
+IMPORT term
+
+' Hangman — a small terminal word-guessing game built on the term:: TUI module.
+'
+' Run it from an interactive terminal:
+'   mfb build examples/hangman
+'   ./examples/hangman/hangman.out
+'
+' term::on() switches to the alternate screen; term::moveTo / term::setForeground
+' position and color the board; io::readChar() reads a single key without echo;
+' term::off() restores the shell on exit.
+
+' Builds the masked word: revealed letters from `guessed`, "_" for the rest.
+FUNC buildMasked(word AS String, guessed AS String) AS String
+  MUT masked AS String = ""
+  FOR i = 0 TO len(word) - 1
+    LET ch AS String = mid(word, i, 1)
+    IF strings::contains(guessed, ch) THEN
+      masked = masked & ch & " "
+    ELSE
+      masked = masked & "_ "
+    END IF
+  NEXT
+  RETURN masked
+END FUNC
+
+' Draws the gallows. Each wrong guess adds one body part (1..6).
+SUB drawHangman(wrong AS Integer)
+  term::setForeground(210, 200, 120)
+  term::moveTo(2, 4)
+  io::write("+----+")
+  term::moveTo(3, 4)
+  io::write("|    |")
+  term::moveTo(4, 4)
+  io::write("|")
+  term::moveTo(5, 4)
+  io::write("|")
+  term::moveTo(6, 4)
+  io::write("|")
+  term::moveTo(7, 4)
+  io::write("|")
+  term::moveTo(8, 4)
+  io::write("+--------+")
+
+  term::setForeground(240, 120, 120)
+  IF wrong >= 1 THEN
+    term::moveTo(4, 9)
+    io::write("O")
+  END IF
+  IF wrong >= 2 THEN
+    term::moveTo(5, 9)
+    io::write("|")
+  END IF
+  IF wrong >= 3 THEN
+    term::moveTo(5, 8)
+    io::write("/")
+  END IF
+  IF wrong >= 4 THEN
+    term::moveTo(5, 10)
+    io::write("\\")
+  END IF
+  IF wrong >= 5 THEN
+    term::moveTo(6, 8)
+    io::write("/")
+  END IF
+  IF wrong >= 6 THEN
+    term::moveTo(6, 10)
+    io::write("\\")
+  END IF
+END SUB
+
+' Clears and repaints the whole board.
+SUB drawScreen(word AS String, guessed AS String, missed AS String, wrong AS Integer, message AS String)
+  term::clear()
+
+  term::setBold(TRUE)
+  term::setForeground(80, 220, 255)
+  term::moveTo(0, 4)
+  io::write("H A N G M A N")
+  term::setBold(FALSE)
+
+  drawHangman(wrong)
+
+  term::setForeground(230, 230, 230)
+  term::moveTo(2, 24)
+  io::write("Wrong: " & toString(wrong) & " / 6")
+  term::setForeground(240, 110, 110)
+  term::moveTo(4, 24)
+  io::write("Missed: " & missed)
+
+  term::setForeground(120, 240, 140)
+  term::moveTo(10, 4)
+  io::write(buildMasked(word, guessed))
+
+  term::setForeground(230, 230, 160)
+  term::moveTo(12, 4)
+  io::write(message)
+
+  term::setForeground(255, 255, 255)
+END SUB
+
+FUNC main AS Integer
+  LET words AS List OF String = ["PROGRAM", "TERMINAL", "KEYBOARD", "COMPUTER", "MOUNTAIN", "ELEPHANT", "RAINBOW", "GUITAR", "PYRAMID", "DOLPHIN", "JOURNEY", "OXYGEN", "PUZZLE", "GALAXY", "VICTORY"]
+  LET alphabet AS String = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+
+  term::on()
+  term::hideCursor()
+
+  MUT running AS Boolean = TRUE
+  DO WHILE running
+    ' Pick a random word with the per-thread PCG64 generator (auto-seeded from
+    ' OS entropy). math::rand returns an inclusive [min, max] index.
+    LET word AS String = get(words, math::rand(0, len(words) - 1))
+
+    MUT guessed AS String = ""
+    MUT missed AS String = ""
+    MUT wrong AS Integer = 0
+    MUT message AS String = "Guess a letter (A-Z). Press Q to quit."
+    MUT quit AS Boolean = FALSE
+    MUT won AS Boolean = FALSE
+    MUT roundOver AS Boolean = FALSE
+
+    DO WHILE NOT roundOver
+      drawScreen(word, guessed, missed, wrong, message)
+      LET letter AS String = strings::upper(io::readChar())
+
+      IF letter = "Q" THEN
+        quit = TRUE
+        roundOver = TRUE
+      ELSEIF len(letter) <> 1 OR NOT strings::contains(alphabet, letter) THEN
+        message = "Please press a letter A-Z."
+      ELSEIF strings::contains(guessed, letter) THEN
+        message = "You already tried '" & letter & "'."
+      ELSE
+        guessed = guessed & letter
+        IF strings::contains(word, letter) THEN
+          message = "Good guess!"
+        ELSE
+          wrong = wrong + 1
+          missed = missed & letter & " "
+          message = "Nope - no '" & letter & "' in the word."
+        END IF
+
+        IF NOT strings::contains(buildMasked(word, guessed), "_") THEN
+          won = TRUE
+          roundOver = TRUE
+        ELSEIF wrong >= 6 THEN
+          roundOver = TRUE
+        END IF
+      END IF
+    LOOP
+
+    IF quit THEN
+      running = FALSE
+    ELSE
+      IF won THEN
+        drawScreen(word, word, missed, wrong, "You won! Press any key to play again, Q to quit.")
+      ELSE
+        drawScreen(word, word, missed, wrong, "Game over - the word was " & word & ". Any key to retry, Q to quit.")
+      END IF
+      LET again AS String = strings::upper(io::readChar())
+      IF again = "Q" THEN
+        running = FALSE
+      END IF
+    END IF
+  LOOP
+
+  term::showCursor()
+  term::off()
+  io::print("Thanks for playing Hangman!")
+  RETURN 0
+END FUNC

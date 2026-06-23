@@ -1,10 +1,10 @@
 {
-  "project": "func_io_terminalSize_valid",
+  "project": "func_term_terminalSize_valid",
   "files": [
   {
     "path": "src/main.mfb",
     "imports": [
-    { "module": "io", "line": 1 }
+    { "module": "term", "line": 1 }
     ],
     "items": [
     {
@@ -16,8 +16,8 @@
       ],
       "returnType": "Integer",
       "body": [
-      { "kind": "binding", "mutable": false, "name": "a", "type": "TerminalSize", "value": { "kind": "call", "callee": "io.terminalSize", "arguments": [] }, "line": 4 },
-      { "kind": "binding", "mutable": true, "name": "b", "type": "TerminalSize", "value": { "kind": "call", "callee": "io.terminalSize", "arguments": [] }, "line": 5 },
+      { "kind": "binding", "mutable": false, "name": "a", "type": "TermSize", "value": { "kind": "call", "callee": "term.terminalSize", "arguments": [] }, "line": 4 },
+      { "kind": "binding", "mutable": true, "name": "b", "type": "TermSize", "value": { "kind": "call", "callee": "term.terminalSize", "arguments": [] }, "line": 5 },
       { "kind": "assignment", "name": "b", "value": { "kind": "identifier", "value": "a" }, "line": 7 },
       { "kind": "return", "value": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "a" }, "member": "rows" }, "right": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "a" }, "member": "columns" } }, "right": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "b" }, "member": "rows" } }, "right": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "b" }, "member": "columns" } }, "line": 8 }
       ]

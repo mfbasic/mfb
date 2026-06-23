@@ -109,10 +109,42 @@ const CLOSURE_OFFSET_CODE: usize = 0;
 const CLOSURE_OFFSET_ENV: usize = 8;
 const ENTRY_STACK_SIZE: usize = 112;
 const ENTRY_GLOBALS_OFFSET: usize = ENTRY_STACK_SIZE;
-const ARENA_STATE_SIZE: usize = 88;
+/// `term::` TUI-mode state slots reserved in the program-entry frame just past
+/// the program globals and `LINK` slots (plan-01-term.md §6.2). Eight `u64`
+/// slots: active, packed foreground, packed background, bold, underline,
+/// cursor-visible, and two reserved for the app backend. Zero-initialized by the
+/// entry's global-slot clear, which is the inert (TUI-off) default.
+const TERM_STATE_SLOTS: usize = 8;
+pub(crate) const TERM_STATE_ACTIVE_OFFSET: usize = 0;
+pub(crate) const TERM_STATE_FG_OFFSET: usize = 8;
+pub(crate) const TERM_STATE_BG_OFFSET: usize = 16;
+pub(crate) const TERM_STATE_BOLD_OFFSET: usize = 24;
+pub(crate) const TERM_STATE_UNDERLINE_OFFSET: usize = 32;
+pub(crate) const TERM_STATE_CURSOR_VISIBLE_OFFSET: usize = 40;
 const ARENA_CLEANUP_FAILURE_COUNT_OFFSET: usize = 64;
 const ARENA_CLEANUP_FAILURE_CODE_OFFSET: usize = 72;
 const ARENA_CLEANUP_FAILURE_MESSAGE_OFFSET: usize = 80;
+/// Per-arena (per-thread) PCG64 random-number generator state. Each OS thread
+/// owns its own arena, so storing the 128-bit RNG state in the arena gives every
+/// thread an independent stream reachable through the pinned arena register
+/// (`x19`) without a thread-local lookup. Appended past the cleanup-audit fields
+/// so the historical 0..88 layout is unchanged for programs that never seed.
+const ARENA_RNG_STATE_LO_OFFSET: usize = 88;
+const ARENA_RNG_STATE_HI_OFFSET: usize = 96;
+const ARENA_STATE_SIZE: usize = 104;
+/// Advance one PCG64 step and return the next 64-bit value in `x0`; reads/writes
+/// the calling thread's arena RNG state via `x19`.
+const RNG_NEXT_SYMBOL: &str = "_mfb_rng_next";
+/// Seed the PCG64 state at `[x0 + ARENA_RNG_STATE_*]` from the 64-bit seed in
+/// `x1`. Used both for the program-startup seed and to give each spawned thread
+/// its own stream drawn from the parent's generator.
+const RNG_SEED_SYMBOL: &str = "_mfb_rng_seed_at";
+/// PCG64 (XSL-RR 128/64) default LCG multiplier, high and low 64-bit limbs.
+const PCG_MULT_HI: u64 = 0x2360_ED05_1FC6_5DA4;
+const PCG_MULT_LO: u64 = 0x4385_DF64_9FCC_F645;
+/// PCG64 default stream increment, high and low 64-bit limbs.
+const PCG_INC_HI: u64 = 0x5851_F42D_4C95_7F2D;
+const PCG_INC_LO: u64 = 0x1405_7B7E_F767_814F;
 const ENTRY_ARGC_OFFSET: usize = ARENA_STATE_SIZE;
 const ENTRY_ARGV_OFFSET: usize = ENTRY_ARGC_OFFSET + 8;
 const ENTRY_ARGS_LIST_OFFSET: usize = ENTRY_ARGV_OFFSET + 8;
@@ -593,10 +625,12 @@ pub(crate) trait CodegenPlatform {
         None
     }
 
-    /// App-mode body for `io.terminalSize` (plan §5.4): the transcript viewport
-    /// size in text columns/rows, computed from the scroll view's content size
-    /// and the monospaced font metrics. `None` for targets without app mode.
-    #[allow(clippy::type_complexity)]
+    /// App-mode body for the transcript viewport size in text columns/rows,
+    /// computed from the scroll view's content size and the monospaced font
+    /// metrics. `None` for targets without app mode. Retained for plan-01-term.md
+    /// Phase 5 (`term::terminalSize` app backend, §8.3); unused since
+    /// `io::terminalSize` was removed in Phase 3.
+    #[allow(clippy::type_complexity, dead_code)]
     fn emit_app_io_terminal_size_helper(
         &self,
         _symbol: &str,
@@ -926,6 +960,15 @@ pub(crate) fn lower_module_for_platform(
     if module_uses_unicode_runtime_tables(module) {
         data_objects.extend(unicode_runtime_data_objects());
     }
+    // `term::` console helpers reference fixed ANSI escape-sequence byte strings
+    // (plan-01-term.md §6.1).
+    if native_plan
+        .runtime_symbols
+        .iter()
+        .any(|symbol| symbol.starts_with("_mfb_rt_term_"))
+    {
+        data_objects.extend(term::console_data_objects());
+    }
     // TLS helpers reference read-only C strings (library names + symbol names)
     // for their load-time dlopen/dlsym.
     if native_plan
@@ -970,6 +1013,33 @@ pub(crate) fn lower_module_for_platform(
         .filter(|function| function.free.is_some())
         .count();
     let link_slot_count = link_count + free_count;
+    // `term::` keeps its TUI-mode state (the §4.2.1 `active` gate plus current
+    // attributes) in writable slots reserved just past the program globals and
+    // `LINK` slots in the program-entry frame (plan-01-term.md §6.2). The slots
+    // are addressed off the pinned arena-state register `x19`, so every console
+    // helper reaches the state at a fixed offset without per-module threading
+    // beyond this byte offset. When the program never uses `term::`, no slots are
+    // reserved.
+    let uses_term = runtime_symbols
+        .iter()
+        .any(|symbol| symbol.starts_with("_mfb_rt_term_"));
+    // Whether the program uses the `math::` random generator. When it does we
+    // emit the PCG64 helpers, seed each thread's arena, and draw a fresh
+    // per-thread stream on spawn.
+    let uses_rng =
+        module_uses_call(module, "math.rand") || module_uses_call(module, "math.seed");
+    // The auto-restore on exit (§6.5) and a program that only calls `term::on()`
+    // both need the `off` helper emitted; ensure it is present whenever `term::`
+    // is used.
+    if uses_term && !runtime_symbols.iter().any(|s| s == "_mfb_rt_term_term_off") {
+        runtime_symbols.push("_mfb_rt_term_term_off".to_string());
+    }
+    let term_state_offset = if uses_term {
+        Some(ENTRY_GLOBALS_OFFSET + (globals_base + link_slot_count) * 8)
+    } else {
+        None
+    };
+    let term_state_slots = if uses_term { TERM_STATE_SLOTS } else { 0 };
     let link_init_symbol = if link_count > 0 {
         Some(nir::LINK_INIT_SYMBOL)
     } else {
@@ -977,8 +1047,11 @@ pub(crate) fn lower_module_for_platform(
     };
     if let Some(entry) = &module.entry {
         let language_entry_symbol = nir::function_symbol(&entry.name);
-        let entry_stack_size = align(ENTRY_STACK_SIZE + (globals_base + link_slot_count) * 8, 16);
-        let entry_global_slots = globals_base + link_slot_count;
+        let entry_stack_size = align(
+            ENTRY_STACK_SIZE + (globals_base + link_slot_count + term_state_slots) * 8,
+            16,
+        );
+        let entry_global_slots = globals_base + link_slot_count + term_state_slots;
         if module.build_mode == crate::target::NativeBuildMode::MacApp {
             // App mode (plan-04-macos-app.md §6.6): the standard program entry runs
             // on a worker thread under `_mfb_macapp_program`, while `_main` becomes
@@ -1006,6 +1079,8 @@ pub(crate) fn lower_module_for_platform(
                 platform,
                 skip_entry_arena_destroy,
                 module_may_record_cleanup_failure(module),
+                uses_term,
+                uses_rng,
             )?);
             code_functions.extend(app_entry);
             data_objects.extend(platform.app_mode_data_objects());
@@ -1023,6 +1098,8 @@ pub(crate) fn lower_module_for_platform(
                 platform,
                 skip_entry_arena_destroy,
                 module_may_record_cleanup_failure(module),
+                uses_term,
+                uses_rng,
             )?);
         }
     }
@@ -1128,9 +1205,15 @@ pub(crate) fn lower_module_for_platform(
         code_functions.push(lower_runtime_helper(
             symbol,
             module.build_mode,
+            term_state_offset,
+            uses_rng,
             &platform_imports,
             platform,
         )?);
+    }
+    if uses_rng {
+        code_functions.push(lower_rng_next());
+        code_functions.push(lower_rng_seed_at());
     }
     let link_returns_cstring = module.link_functions.iter().any(|function| {
         function.abi_return_name == "return"
@@ -1472,17 +1555,19 @@ impl TypeModel {
                 }
             }
         }
-        if let Some(fields) = builtins::io::builtin_type_fields("TerminalSize") {
-            record_fields.insert(
-                "TerminalSize".to_string(),
-                fields
-                    .iter()
-                    .map(|(name, type_)| ((*name).to_string(), (*type_).to_string()))
-                    .collect(),
-            );
-        }
         for type_name in ["Address", "Datagram", "DatagramText"] {
             if let Some(fields) = builtins::net::builtin_type_fields(type_name) {
+                record_fields.insert(
+                    type_name.to_string(),
+                    fields
+                        .iter()
+                        .map(|(name, type_)| ((*name).to_string(), (*type_).to_string()))
+                        .collect(),
+                );
+            }
+        }
+        for type_name in ["TermColor", "TermSize"] {
+            if let Some(fields) = builtins::term::builtin_type_fields(type_name) {
                 record_fields.insert(
                     type_name.to_string(),
                     fields
@@ -1630,6 +1715,8 @@ fn lower_program_entry(
     platform: &dyn CodegenPlatform,
     skip_arena_destroy: bool,
     emit_cleanup_failure_audit: bool,
+    auto_term_off: bool,
+    seed_rng: bool,
 ) -> Result<CodeFunction, String> {
     let mut instructions = vec![
         abi::label("entry"),
@@ -1669,6 +1756,29 @@ fn lower_program_entry(
     let mut relocations = Vec::new();
     let error_label = "entry_error";
     let exit_label = "entry_exit";
+    // Seed this thread's PCG64 generator from the OS entropy pool before any
+    // user code (including global initializers, which may call `math::rand`).
+    // The seed scratch lives in the as-yet-unused args slot; pre-fill it with
+    // the arena address so a `getentropy` failure still yields a varying seed.
+    if seed_rng {
+        instructions.extend([
+            abi::store_u64(ARENA_STATE_REGISTER, abi::stack_pointer(), ENTRY_ARGC_OFFSET),
+            abi::add_immediate(abi::return_register(), abi::stack_pointer(), ENTRY_ARGC_OFFSET),
+            abi::move_immediate("x1", "Integer", "8"),
+        ]);
+        platform.emit_random_bytes(
+            entry_symbol,
+            platform_imports,
+            &mut instructions,
+            &mut relocations,
+        )?;
+        instructions.extend([
+            abi::load_u64("x1", abi::stack_pointer(), ENTRY_ARGC_OFFSET),
+            abi::move_register(abi::return_register(), ARENA_STATE_REGISTER),
+            abi::branch_link(RNG_SEED_SYMBOL),
+        ]);
+        relocations.push(internal_branch(entry_symbol, RNG_SEED_SYMBOL));
+    }
     // Resolve native `LINK` bindings (dlopen/dlsym) before anything runs; a load
     // failure aborts before `main` through the standard error path
     // (plan-linker.md §12.1).
@@ -1827,6 +1937,31 @@ fn lower_program_entry(
         "255",
     ));
     instructions.push(abi::label(exit_label));
+    // Auto-restore the terminal if a `term::` program exits with TUI mode still
+    // active (plan-01-term.md §6.5). `term::off` is internally gated on the
+    // `active` flag, so calling it unconditionally is a no-op when off; it
+    // clobbers the result registers, so the exit code is parked in the arena
+    // scratch slot across the call.
+    if auto_term_off {
+        instructions.push(abi::store_u64(
+            abi::return_register(),
+            ARENA_STATE_REGISTER,
+            32,
+        ));
+        instructions.push(abi::branch_link("_mfb_rt_term_term_off"));
+        relocations.push(CodeRelocation {
+            from: entry_symbol.to_string(),
+            to: "_mfb_rt_term_term_off".to_string(),
+            kind: "branch26".to_string(),
+            binding: "internal".to_string(),
+            library: None,
+        });
+        instructions.push(abi::load_u64(
+            abi::return_register(),
+            ARENA_STATE_REGISTER,
+            32,
+        ));
+    }
     if !skip_arena_destroy {
         instructions.extend([
             abi::store_u64(abi::return_register(), ARENA_STATE_REGISTER, 32),
@@ -2185,6 +2320,97 @@ fn lower_arena_destroy(platform: &dyn CodegenPlatform) -> Result<CodeFunction, S
         instructions,
         relocations: Vec::new(),
     })
+}
+
+/// Append the PCG64 LCG step `state = state * MULT + INC` operating on the
+/// 128-bit state held in (`lo`, `hi`). The limbs are read at the start and
+/// rewritten in place; `x11`-`x16` are used as scratch (caller-saved, so these
+/// leaf helpers need not preserve them).
+fn emit_pcg_step(instructions: &mut Vec<CodeInstruction>, lo: &str, hi: &str) {
+    instructions.extend([
+        // 128-bit (truncated) product of state by the 128-bit multiplier.
+        abi::move_immediate("x11", "Integer", &PCG_MULT_LO.to_string()),
+        abi::multiply_registers("x13", "x11", lo), // result low limb
+        abi::unsigned_multiply_high_registers("x14", "x11", lo), // carry into high
+        abi::multiply_registers("x15", "x11", hi), // MULT_LO * state_hi
+        abi::move_immediate("x12", "Integer", &PCG_MULT_HI.to_string()),
+        abi::multiply_registers("x16", "x12", lo), // MULT_HI * state_lo
+        abi::add_registers("x14", "x14", "x15"),
+        abi::add_registers("x14", "x14", "x16"), // result high limb
+        // Add the 128-bit increment with carry between limbs.
+        abi::move_immediate("x11", "Integer", &PCG_INC_LO.to_string()),
+        abi::move_immediate("x12", "Integer", &PCG_INC_HI.to_string()),
+        abi::add_registers_set_flags(lo, "x13", "x11"),
+        abi::add_with_carry_registers(hi, "x14", "x12"),
+    ]);
+}
+
+/// `_mfb_rng_next` — advance the calling thread's PCG64 generator one step and
+/// return the next 64-bit value in `x0`. State lives in the arena (`x19`).
+fn lower_rng_next() -> CodeFunction {
+    let mut instructions = vec![abi::label("entry")];
+    instructions.extend([
+        abi::load_u64("x9", ARENA_STATE_REGISTER, ARENA_RNG_STATE_LO_OFFSET),
+        abi::load_u64("x10", ARENA_STATE_REGISTER, ARENA_RNG_STATE_HI_OFFSET),
+    ]);
+    emit_pcg_step(&mut instructions, "x9", "x10");
+    instructions.extend([
+        abi::store_u64("x9", ARENA_STATE_REGISTER, ARENA_RNG_STATE_LO_OFFSET),
+        abi::store_u64("x10", ARENA_STATE_REGISTER, ARENA_RNG_STATE_HI_OFFSET),
+        // XSL-RR output: rotate (hi ^ lo) right by the top 6 bits of hi.
+        abi::shift_right_immediate("x11", "x10", 58),
+        abi::exclusive_or_registers("x12", "x10", "x9"),
+        abi::rotate_right_registers(abi::return_register(), "x12", "x11"),
+        abi::return_(),
+    ]);
+    CodeFunction {
+        name: "runtime.rng_next".to_string(),
+        symbol: RNG_NEXT_SYMBOL.to_string(),
+        params: Vec::new(),
+        returns: "Integer".to_string(),
+        frame: CodeFrame {
+            stack_size: 0,
+            callee_saved: Vec::new(),
+        },
+        stack_slots: Vec::new(),
+        instructions,
+        relocations: Vec::new(),
+    }
+}
+
+/// `_mfb_rng_seed_at(x0 = arena ptr, x1 = seed)` — initialize the PCG64 state at
+/// the given arena from a 64-bit seed, following the canonical seeding dance
+/// (`state = 0; step; state += seed; step`).
+fn lower_rng_seed_at() -> CodeFunction {
+    let mut instructions = vec![abi::label("entry")];
+    instructions.extend([
+        abi::move_immediate("x9", "Integer", "0"),
+        abi::move_immediate("x10", "Integer", "0"),
+    ]);
+    emit_pcg_step(&mut instructions, "x9", "x10");
+    instructions.extend([
+        abi::add_registers_set_flags("x9", "x9", "x1"),
+        abi::add_with_carry_registers("x10", "x10", "xzr"),
+    ]);
+    emit_pcg_step(&mut instructions, "x9", "x10");
+    instructions.extend([
+        abi::store_u64("x9", "x0", ARENA_RNG_STATE_LO_OFFSET),
+        abi::store_u64("x10", "x0", ARENA_RNG_STATE_HI_OFFSET),
+        abi::return_(),
+    ]);
+    CodeFunction {
+        name: "runtime.rng_seed_at".to_string(),
+        symbol: RNG_SEED_SYMBOL.to_string(),
+        params: Vec::new(),
+        returns: "Nothing".to_string(),
+        frame: CodeFrame {
+            stack_size: 0,
+            callee_saved: Vec::new(),
+        },
+        stack_slots: Vec::new(),
+        instructions,
+        relocations: Vec::new(),
+    }
 }
 
 fn emit_write_string_object(
@@ -2589,6 +2815,8 @@ fn type_requires_empty_string_constant(
 fn lower_runtime_helper(
     symbol: &str,
     build_mode: crate::target::NativeBuildMode,
+    term_state_offset: Option<usize>,
+    uses_rng: bool,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
 ) -> Result<CodeFunction, String> {
@@ -2598,6 +2826,32 @@ fn lower_runtime_helper(
         ));
     };
     let app_mode = build_mode == crate::target::NativeBuildMode::MacApp;
+    if builtins::term::is_term_call(spec.call) {
+        let term_state_offset = term_state_offset.ok_or_else(|| {
+            format!("native code plan emits '{symbol}' without reserving term state")
+        })?;
+        let (frame, instructions, relocations) =
+            term::lower_term_helper(spec.call, symbol, term_state_offset, platform_imports, platform)?;
+        return Ok(CodeFunction {
+            name: format!("runtime.{}", spec.call),
+            symbol: symbol.to_string(),
+            params: spec
+                .abi
+                .params
+                .iter()
+                .map(|param| CodeParam {
+                    name: param.name.to_string(),
+                    type_: param.type_.to_string(),
+                    location: param.location.to_string(),
+                })
+                .collect(),
+            returns: spec.abi.returns.to_string(),
+            frame,
+            stack_slots: Vec::new(),
+            instructions,
+            relocations,
+        });
+    }
     match spec.call {
         "io.print" | "io.write" | "io.printError" | "io.writeError" => {
             let stderr = matches!(spec.call, "io.printError" | "io.writeError");
@@ -2778,30 +3032,6 @@ fn lower_runtime_helper(
                 })??
             } else {
                 lower_io_is_terminal_helper(symbol, platform_imports, platform, fd)?
-            };
-            Ok(CodeFunction {
-                name: format!("runtime.{}", spec.call),
-                symbol: symbol.to_string(),
-                params: Vec::new(),
-                returns: spec.abi.returns.to_string(),
-                frame,
-                stack_slots: Vec::new(),
-                instructions,
-                relocations,
-            })
-        }
-        "io.terminalSize" => {
-            // App mode: the transcript viewport size in columns/rows from the
-            // window + monospaced font, not an ioctl on a tty (plan §5.4).
-            let (frame, instructions, relocations) = if app_mode {
-                platform.emit_app_io_terminal_size_helper(symbol).ok_or_else(|| {
-                    format!(
-                        "native target '{}' does not support app-mode io helpers",
-                        platform.target()
-                    )
-                })??
-            } else {
-                lower_io_terminal_size_helper(symbol, platform_imports, platform)?
             };
             Ok(CodeFunction {
                 name: format!("runtime.{}", spec.call),
@@ -3356,7 +3586,7 @@ fn lower_runtime_helper(
         | "thread.emit" | "thread.transferResource" | "thread.acceptResource"
         | "thread.isCancelled" => {
             let (frame, instructions, relocations) =
-                lower_thread_helper(symbol, spec.call, platform_imports, platform)?;
+                lower_thread_helper(symbol, spec.call, uses_rng, platform_imports, platform)?;
             Ok(CodeFunction {
                 name: format!("runtime.{}", spec.call),
                 symbol: symbol.to_string(),
@@ -3918,11 +4148,12 @@ fn emit_thread_queue_alloc(
 fn lower_thread_helper(
     symbol: &str,
     call: &str,
+    uses_rng: bool,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
 ) -> Result<(CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>), String> {
     match call {
-        "thread.start" => lower_thread_start_helper(symbol, platform_imports, platform),
+        "thread.start" => lower_thread_start_helper(symbol, uses_rng, platform_imports, platform),
         "thread.isRunning" => simple_thread_handle_helper(
             symbol,
             ThreadSimpleOp::IsRunning,
@@ -3992,6 +4223,7 @@ fn lower_thread_helper(
 
 fn lower_thread_start_helper(
     symbol: &str,
+    uses_rng: bool,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
 ) -> Result<(CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>), String> {
@@ -4094,6 +4326,22 @@ fn lower_thread_start_helper(
         abi::load_u64("x9", abi::stack_pointer(), CB_OFFSET),
         abi::store_u64("x1", "x9", THREAD_OFFSET_ARENA_STATE),
     ]);
+
+    if uses_rng {
+        // Give the new thread its own PCG64 stream by drawing a 64-bit seed from
+        // the spawning thread's generator (runs in the parent, so `x19` is the
+        // parent arena and the draw is race-free). Reload the child arena from
+        // the control block afterwards because the draw clobbers x0-x18.
+        instructions.push(abi::branch_link(RNG_NEXT_SYMBOL));
+        relocations.push(internal_branch(symbol, RNG_NEXT_SYMBOL));
+        instructions.extend([
+            abi::move_register("x1", abi::return_register()),
+            abi::load_u64("x9", abi::stack_pointer(), CB_OFFSET),
+            abi::load_u64(abi::return_register(), "x9", THREAD_OFFSET_ARENA_STATE),
+        ]);
+        instructions.push(abi::branch_link(RNG_SEED_SYMBOL));
+        relocations.push(internal_branch(symbol, RNG_SEED_SYMBOL));
+    }
 
     emit_thread_queue_alloc(
         symbol,
@@ -6321,127 +6569,6 @@ fn lower_io_is_terminal_helper(
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
         abi::label(&done),
     ]);
-    if platform.preserves_link_register_in_runtime_helpers() {
-        instructions.extend([
-            abi::load_u64(abi::link_register(), abi::stack_pointer(), LR_OFFSET),
-            abi::add_stack(FRAME_SIZE),
-            abi::return_(),
-        ]);
-        Ok((
-            CodeFrame {
-                stack_size: FRAME_SIZE,
-                callee_saved: vec![abi::link_register().to_string()],
-            },
-            instructions,
-            relocations,
-        ))
-    } else {
-        instructions.extend([abi::add_stack(FRAME_SIZE), abi::return_()]);
-        Ok((
-            CodeFrame {
-                stack_size: FRAME_SIZE,
-                callee_saved: Vec::new(),
-            },
-            instructions,
-            relocations,
-        ))
-    }
-}
-
-fn lower_io_terminal_size_helper(
-    symbol: &str,
-    platform_imports: &HashMap<String, String>,
-    platform: &dyn CodegenPlatform,
-) -> Result<(CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>), String> {
-    const FRAME_SIZE: usize = 64;
-    const LR_OFFSET: usize = 48;
-    const WINSIZE_OFFSET: usize = 24;
-    const ROW_OFFSET: usize = 32;
-    const COL_OFFSET: usize = 40;
-    const LINUX_TIOCGWINSZ: &str = "21523";
-    const DARWIN_TIOCGWINSZ: &str = "1074295912";
-    let ioctl_error = format!("{symbol}_ioctl_error");
-    let alloc_ok = format!("{symbol}_alloc_ok");
-    let alloc_error = format!("{symbol}_alloc_error");
-    let done = format!("{symbol}_done");
-
-    let request = if platform.target() == "macos-aarch64" {
-        DARWIN_TIOCGWINSZ
-    } else {
-        LINUX_TIOCGWINSZ
-    };
-
-    let mut instructions = vec![abi::label("entry"), abi::subtract_stack(FRAME_SIZE)];
-    let mut relocations = Vec::new();
-    if platform.preserves_link_register_in_runtime_helpers() {
-        instructions.push(abi::store_u64(
-            abi::link_register(),
-            abi::stack_pointer(),
-            LR_OFFSET,
-        ));
-    }
-    instructions.extend([
-        abi::move_immediate(abi::return_register(), "Integer", "1"),
-        abi::move_immediate("x1", "Integer", request),
-        abi::add_immediate("x2", abi::stack_pointer(), WINSIZE_OFFSET),
-    ]);
-    platform.emit_terminal_size(
-        symbol,
-        platform_imports,
-        &mut instructions,
-        &mut relocations,
-    )?;
-    instructions.extend([
-        abi::compare_immediate(abi::return_register(), "0"),
-        abi::branch_ne(&ioctl_error),
-        abi::load_u16("x10", abi::stack_pointer(), WINSIZE_OFFSET),
-        abi::load_u16("x11", abi::stack_pointer(), WINSIZE_OFFSET + 2),
-        abi::compare_immediate("x10", "0"),
-        abi::branch_eq(&ioctl_error),
-        abi::compare_immediate("x11", "0"),
-        abi::branch_eq(&ioctl_error),
-        abi::store_u64("x10", abi::stack_pointer(), ROW_OFFSET),
-        abi::store_u64("x11", abi::stack_pointer(), COL_OFFSET),
-        abi::move_immediate(abi::return_register(), "Integer", "16"),
-        abi::move_immediate("x1", "Integer", "8"),
-        abi::branch_link(ARENA_ALLOC_SYMBOL),
-    ]);
-    relocations.push(internal_branch(symbol, ARENA_ALLOC_SYMBOL));
-    instructions.extend([
-        abi::compare_immediate(abi::return_register(), RESULT_OK_TAG),
-        abi::branch_eq(&alloc_ok),
-        abi::branch(&alloc_error),
-        abi::label(&alloc_ok),
-        abi::load_u64("x10", abi::stack_pointer(), ROW_OFFSET),
-        abi::load_u64("x11", abi::stack_pointer(), COL_OFFSET),
-        abi::store_u64("x11", "x1", 0),
-        abi::store_u64("x10", "x1", 8),
-        abi::move_register(RESULT_VALUE_REGISTER, "x1"),
-        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
-        abi::branch(&done),
-        abi::label(&ioctl_error),
-        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_UNSUPPORTED_CODE),
-        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
-    ]);
-    push_error_message_address(
-        symbol,
-        ERR_UNSUPPORTED_SYMBOL,
-        &mut instructions,
-        &mut relocations,
-    );
-    instructions.extend([
-        abi::branch(&done),
-        abi::label(&alloc_error),
-        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_OUT_OF_MEMORY_CODE),
-        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
-    ]);
-    push_error_message_address(
-        symbol,
-        ERR_ALLOCATION_SYMBOL,
-        &mut instructions,
-        &mut relocations,
-    );
-    instructions.push(abi::label(&done));
     if platform.preserves_link_register_in_runtime_helpers() {
         instructions.extend([
             abi::load_u64(abi::link_register(), abi::stack_pointer(), LR_OFFSET),
@@ -12780,6 +12907,7 @@ fn adjust_stack_instruction_offsets(instructions: &mut [CodeInstruction], offset
 }
 
 mod net;
+mod term;
 mod tls;
 mod link_thunk;
 mod builder_collection_layout;
@@ -12825,6 +12953,9 @@ impl CodeInstruction {
             | CodeOp::Eor
             | CodeOp::Mul
             | CodeOp::SMulH
+            | CodeOp::UMulH
+            | CodeOp::Adc
+            | CodeOp::Rorv
             | CodeOp::SDiv
             | CodeOp::UDiv
             | CodeOp::FAddD
@@ -13150,7 +13281,7 @@ fn string_symbols(module: &NirModule) -> HashMap<String, String> {
             push_string_value(&mut values, value.to_string());
         }
     }
-    if module_uses_call(module, "io.terminalSize") {
+    if module_uses_call(module, "term.terminalSize") {
         push_string_value(&mut values, ERR_UNSUPPORTED_MESSAGE.to_string());
     }
     if module_uses_any_call(

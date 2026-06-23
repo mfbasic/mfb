@@ -99,7 +99,19 @@ impl plan::NativePlanPlatform for Platform {
             "io.isInputTerminal" | "io.isOutputTerminal" | "io.isErrorTerminal" => {
                 vec![self.libc_import("isatty", spec.symbol)]
             }
-            "io.terminalSize" => vec![self.libc_import("ioctl", spec.symbol)],
+            // `term::` console helpers that emit ANSI escape sequences write to
+            // stdout (plan-01-term.md §6.1).
+            "term.on"
+            | "term.off"
+            | "term.setForeground"
+            | "term.setBackground"
+            | "term.setBold"
+            | "term.setUnderline"
+            | "term.showCursor"
+            | "term.hideCursor"
+            | "term.clear"
+            | "term.moveTo" => vec![self.libc_import("write", spec.symbol)],
+            "term.terminalSize" => vec![self.libc_import("ioctl", spec.symbol)],
             "fs.exists" => vec![self.libc_import("access", spec.symbol)],
             "fs.fileExists" | "fs.directoryExists" => vec![self.libc_import("stat", spec.symbol)],
             "fs.currentDirectory" => vec![self.libc_import("getcwd", spec.symbol)],
@@ -236,6 +248,11 @@ impl plan::NativePlanPlatform for Platform {
             "math.acos" => "acos",
             "math.atan" => "atan",
             "math.atan2" => "atan2",
+            // The PCG64 RNG seeds itself from the OS entropy pool at program
+            // startup; `getentropy` lives in libc, not libm.
+            "math.rand" | "math.seed" => {
+                return vec![self.libc_import("getentropy", required_by)]
+            }
             _ => return Vec::new(),
         };
         vec![PlatformImport {

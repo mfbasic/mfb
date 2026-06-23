@@ -1,0 +1,20 @@
+NAME
+  rand - uniform pseudo-random integer in an inclusive range
+
+SYNOPSIS
+  math::rand(min AS Integer, max AS Integer) AS Integer
+
+DESCRIPTION
+  Returns a uniformly distributed pseudo-random integer in the inclusive
+  range [min, max], drawn from the calling thread's PCG64 generator.
+
+  Each thread owns an independent generator. The main thread is seeded from
+  the operating system at startup, and a thread started with thread::start
+  receives its own stream seeded from the thread that spawned it. Call
+  math::seed to make a thread's sequence reproducible.
+
+  Fails with ErrInvalidArgument (77050002) when min is greater than max.
+
+EXAMPLES
+  LET roll AS Integer = math::rand(1, 6)
+  LET coin AS Integer = math::rand(0, 1)

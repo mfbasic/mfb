@@ -174,11 +174,29 @@ impl plan::NativePlanPlatform for Platform {
                     required_by: spec.symbol.to_string(),
                 }]
             }
-            "io.terminalSize" => vec![PlatformImport {
+            // `term::` console helpers that emit ANSI escape sequences write to
+            // stdout (plan-01-term.md §6.1).
+            "term.on"
+            | "term.off"
+            | "term.setForeground"
+            | "term.setBackground"
+            | "term.setBold"
+            | "term.setUnderline"
+            | "term.showCursor"
+            | "term.hideCursor"
+            | "term.clear"
+            | "term.moveTo" => vec![PlatformImport {
+                library: "libSystem".to_string(),
+                symbol: "_write".to_string(),
+                required_by: spec.symbol.to_string(),
+            }],
+            "term.terminalSize" => vec![PlatformImport {
                 library: "libSystem".to_string(),
                 symbol: "_ioctl".to_string(),
                 required_by: spec.symbol.to_string(),
             }],
+            // `term.isOn`, `term.get*` only read the term-state global and
+            // (for getters) arena-allocate a record; no platform imports needed.
             "fs.exists" => vec![PlatformImport {
                 library: "libSystem".to_string(),
                 symbol: "_access".to_string(),
@@ -435,6 +453,9 @@ impl plan::NativePlanPlatform for Platform {
             "math.acos" => "_acos",
             "math.atan" => "_atan",
             "math.atan2" => "_atan2",
+            // The PCG64 RNG draws its program-startup seed from the OS entropy
+            // pool; both `math::rand` and `math::seed` keep the entry seed random.
+            "math.rand" | "math.seed" => "_getentropy",
             _ => return Vec::new(),
         };
         vec![PlatformImport {

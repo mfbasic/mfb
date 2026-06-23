@@ -1,5 +1,5 @@
-IMPORT io AS term
-IMPORT math AS term
+IMPORT io AS dup
+IMPORT math AS dup
 IMPORT strings AS io
 IMPORT json AS helper
 

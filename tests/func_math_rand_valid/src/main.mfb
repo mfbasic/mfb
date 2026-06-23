@@ -1,0 +1,13 @@
+IMPORT io
+IMPORT math
+
+FUNC main AS Integer
+  ' A fixed seed makes the PCG64 stream deterministic for golden output.
+  math::seed(12345)
+  FOR i = 1 TO 5
+    io::print(toString(math::rand(1, 6)))
+  NEXT
+  io::print(toString(math::rand(100, 100)))
+  io::print(toString(math::rand(0 - 10, 10)))
+  RETURN 0
+END FUNC

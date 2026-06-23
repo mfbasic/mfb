@@ -33,6 +33,8 @@ const ASIN: &str = "math.asin";
 const ACOS: &str = "math.acos";
 const ATAN: &str = "math.atan";
 const ATAN2: &str = "math.atan2";
+const RAND: &str = "math.rand";
+const SEED: &str = "math.seed";
 
 #[derive(Clone)]
 pub(crate) struct ResolvedCall<'a> {
@@ -60,6 +62,8 @@ pub(crate) fn is_math_call(name: &str) -> bool {
             | ACOS
             | ATAN
             | ATAN2
+            | RAND
+            | SEED
     )
 }
 
@@ -71,6 +75,8 @@ pub(crate) fn call_param_names(name: &str) -> Option<&'static [&'static [&'stati
         CLAMP => Some(&[&["value"], &["low", "minimum"], &["high", "maximum"]]),
         POW => Some(&[&["base", "value"], &["exponent", "power"]]),
         ATAN2 => Some(&[&["y"], &["x"]]),
+        RAND => Some(&[&["min", "minimum"], &["max", "maximum"]]),
+        SEED => Some(&[&["value", "seed"]]),
         _ => None,
     }
 }
@@ -79,6 +85,8 @@ pub(crate) fn call_return_type_name(name: &str) -> Option<&'static str> {
     match name {
         SQRT | POW | EXP | LOG | LOG10 | SIN | COS | TAN | ASIN | ACOS | ATAN | ATAN2 => None,
         FLOOR | CEIL | ROUND => Some("Integer"),
+        RAND => Some("Integer"),
+        SEED => Some("Nothing"),
         _ => None,
     }
 }
@@ -144,6 +152,8 @@ pub(crate) fn resolve_call<'a>(name: &str, arg_types: &'a [String]) -> Option<Re
             Cow::Borrowed(arg_types[0].as_str())
         }
         POW | ATAN2 if two_same_float_or_fixed(arg_types) => Cow::Borrowed(arg_types[0].as_str()),
+        RAND if two_integers(arg_types) => Cow::Borrowed("Integer"),
+        SEED if one_integer(arg_types) => Cow::Borrowed("Nothing"),
         _ => return None,
     };
     Some(ResolvedCall { return_type })
@@ -157,6 +167,8 @@ pub(crate) fn expected_arguments(name: &str) -> Option<&'static str> {
         MIN | MAX => Some("same numeric type, same numeric type"),
         POW | ATAN2 => Some("Float | Fixed, same type"),
         CLAMP => Some("numeric value, numeric low, numeric high of the same type"),
+        RAND => Some("Integer min, Integer max"),
+        SEED => Some("Integer"),
         _ => None,
     }
 }
@@ -164,8 +176,8 @@ pub(crate) fn expected_arguments(name: &str) -> Option<&'static str> {
 pub(crate) fn arity(name: &str) -> Option<(usize, usize)> {
     match name {
         ABS | FLOOR | CEIL | ROUND | SQRT | EXP | LOG | LOG10 | SIN | COS | TAN | ASIN | ACOS
-        | ATAN => Some((1, 1)),
-        MIN | MAX | POW | ATAN2 => Some((2, 2)),
+        | ATAN | SEED => Some((1, 1)),
+        MIN | MAX | POW | ATAN2 | RAND => Some((2, 2)),
         CLAMP => Some((3, 3)),
         _ => None,
     }
@@ -183,6 +195,14 @@ fn one_floatish(arg_types: &[String]) -> bool {
 
 fn one_float_or_fixed(arg_types: &[String]) -> bool {
     arg_types.len() == 1 && matches!(arg_types[0].as_str(), "Float" | "Fixed")
+}
+
+fn one_integer(arg_types: &[String]) -> bool {
+    arg_types.len() == 1 && arg_types[0] == "Integer"
+}
+
+fn two_integers(arg_types: &[String]) -> bool {
+    arg_types.len() == 2 && arg_types[0] == "Integer" && arg_types[1] == "Integer"
 }
 
 fn two_same_float_or_fixed(arg_types: &[String]) -> bool {

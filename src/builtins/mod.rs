@@ -6,6 +6,7 @@ pub(crate) mod math;
 pub(crate) mod net;
 pub(crate) mod resource;
 pub(crate) mod strings;
+pub(crate) mod term;
 pub(crate) mod thread;
 pub(crate) mod tls;
 
@@ -14,7 +15,7 @@ pub(crate) use resource::{ResourceInfo, ResourceKind, ResourceRegistry};
 pub(crate) fn is_builtin_import(name: &str) -> bool {
     matches!(
         name,
-        "fs" | "io" | "json" | "math" | "net" | "strings" | "thread" | "tls"
+        "fs" | "io" | "json" | "math" | "net" | "strings" | "term" | "thread" | "tls"
     )
 }
 
@@ -23,6 +24,7 @@ pub(crate) fn is_builtin_type(name: &str) -> bool {
         || io::is_builtin_type(name)
         || json::is_builtin_type(name)
         || net::is_builtin_type(name)
+        || term::is_builtin_type(name)
         || thread::is_builtin_type(name)
         || tls::is_builtin_type(name)
 }
@@ -47,6 +49,7 @@ pub(crate) fn call_return_type_name(name: &str) -> Option<&'static str> {
         .or_else(|| io::call_return_type_name(name))
         .or_else(|| json::call_return_type_name(name))
         .or_else(|| net::call_return_type_name(name))
+        .or_else(|| term::call_return_type_name(name))
         .or_else(|| tls::call_return_type_name(name))
 }
 
@@ -58,6 +61,7 @@ pub(crate) fn is_builtin_call(name: &str) -> bool {
         || io::is_io_call(name)
         || json::is_json_call(name)
         || net::is_net_call(name)
+        || term::is_term_call(name)
         || thread::is_thread_call(name)
         || tls::is_tls_call(name)
         || call_return_type_name(name).is_some()
@@ -75,6 +79,7 @@ pub(crate) fn call_param_names(name: &str) -> Option<&'static [&'static [&'stati
         .or_else(|| io::call_param_names(name))
         .or_else(|| json::call_param_names(name))
         .or_else(|| net::call_param_names(name))
+        .or_else(|| term::call_param_names(name))
         .or_else(|| tls::call_param_names(name))
         .or_else(|| thread::call_param_names(name))
 }

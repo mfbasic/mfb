@@ -1,0 +1,8 @@
+IMPORT math
+
+FUNC main AS Integer
+  math::seed("x")
+  math::seed(1, 2)
+  LET bad AS Integer = math::seed(1)
+  RETURN 0
+END FUNC

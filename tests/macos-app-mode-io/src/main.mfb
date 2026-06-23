@@ -17,6 +17,5 @@ SUB main()
   LET inTerm AS Boolean = io::isInputTerminal()
   LET outTerm AS Boolean = io::isOutputTerminal()
   LET errTerm AS Boolean = io::isErrorTerminal()
-  LET size AS TerminalSize = io::terminalSize()
-  io::print(prompted & line & ch & toString(byte) & toString(ready) & toString(inTerm) & toString(outTerm) & toString(errTerm) & toString(size.columns) & "x" & toString(size.rows))
+  io::print(prompted & line & ch & toString(byte) & toString(ready) & toString(inTerm) & toString(outTerm) & toString(errTerm))
 END SUB

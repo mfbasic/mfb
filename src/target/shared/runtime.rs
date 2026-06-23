@@ -11,6 +11,7 @@ pub enum RuntimeHelper {
     Math,
     Net,
     Strings,
+    Term,
     Thread,
     Tls,
 }
@@ -24,6 +25,7 @@ impl RuntimeHelper {
             RuntimeHelper::Math => "math",
             RuntimeHelper::Net => "net",
             RuntimeHelper::Strings => "strings",
+            RuntimeHelper::Term => "term",
             RuntimeHelper::Thread => "thread",
             RuntimeHelper::Tls => "tls",
         }
@@ -363,13 +365,215 @@ pub(crate) const IO_IS_ERROR_TERMINAL_SPEC: RuntimeHelperSpec = RuntimeHelperSpe
     },
 };
 
-pub(crate) const IO_TERMINAL_SIZE_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
-    helper: RuntimeHelper::Io,
-    call: "io.terminalSize",
-    symbol: "_mfb_rt_io_io_terminalSize",
+const TERM_RGB_PARAMS: &[RuntimeAbiParam] = &[
+    RuntimeAbiParam {
+        name: "r",
+        type_: "Byte",
+        location: "x0",
+    },
+    RuntimeAbiParam {
+        name: "g",
+        type_: "Byte",
+        location: "x1",
+    },
+    RuntimeAbiParam {
+        name: "b",
+        type_: "Byte",
+        location: "x2",
+    },
+];
+
+const TERM_BOOL_PARAMS: &[RuntimeAbiParam] = &[RuntimeAbiParam {
+    name: "enabled",
+    type_: "Boolean",
+    location: "x0",
+}];
+
+const TERM_MOVE_PARAMS: &[RuntimeAbiParam] = &[
+    RuntimeAbiParam {
+        name: "row",
+        type_: "Integer",
+        location: "x0",
+    },
+    RuntimeAbiParam {
+        name: "column",
+        type_: "Integer",
+        location: "x1",
+    },
+];
+
+pub(crate) const TERM_ON_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
+    helper: RuntimeHelper::Term,
+    call: "term.on",
+    symbol: "_mfb_rt_term_term_on",
     abi: RuntimeHelperAbi {
         params: &[],
-        returns: "TerminalSize",
+        returns: "Nothing",
+        clobbers: abi::IO_PRINT_CLOBBERS,
+    },
+};
+
+pub(crate) const TERM_OFF_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
+    helper: RuntimeHelper::Term,
+    call: "term.off",
+    symbol: "_mfb_rt_term_term_off",
+    abi: RuntimeHelperAbi {
+        params: &[],
+        returns: "Nothing",
+        clobbers: abi::IO_PRINT_CLOBBERS,
+    },
+};
+
+pub(crate) const TERM_IS_ON_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
+    helper: RuntimeHelper::Term,
+    call: "term.isOn",
+    symbol: "_mfb_rt_term_term_isOn",
+    abi: RuntimeHelperAbi {
+        params: &[],
+        returns: "Boolean",
+        clobbers: abi::IO_PRINT_CLOBBERS,
+    },
+};
+
+pub(crate) const TERM_SET_FOREGROUND_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
+    helper: RuntimeHelper::Term,
+    call: "term.setForeground",
+    symbol: "_mfb_rt_term_term_setForeground",
+    abi: RuntimeHelperAbi {
+        params: TERM_RGB_PARAMS,
+        returns: "Nothing",
+        clobbers: abi::IO_PRINT_CLOBBERS,
+    },
+};
+
+pub(crate) const TERM_SET_BACKGROUND_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
+    helper: RuntimeHelper::Term,
+    call: "term.setBackground",
+    symbol: "_mfb_rt_term_term_setBackground",
+    abi: RuntimeHelperAbi {
+        params: TERM_RGB_PARAMS,
+        returns: "Nothing",
+        clobbers: abi::IO_PRINT_CLOBBERS,
+    },
+};
+
+pub(crate) const TERM_SET_BOLD_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
+    helper: RuntimeHelper::Term,
+    call: "term.setBold",
+    symbol: "_mfb_rt_term_term_setBold",
+    abi: RuntimeHelperAbi {
+        params: TERM_BOOL_PARAMS,
+        returns: "Nothing",
+        clobbers: abi::IO_PRINT_CLOBBERS,
+    },
+};
+
+pub(crate) const TERM_SET_UNDERLINE_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
+    helper: RuntimeHelper::Term,
+    call: "term.setUnderline",
+    symbol: "_mfb_rt_term_term_setUnderline",
+    abi: RuntimeHelperAbi {
+        params: TERM_BOOL_PARAMS,
+        returns: "Nothing",
+        clobbers: abi::IO_PRINT_CLOBBERS,
+    },
+};
+
+pub(crate) const TERM_SHOW_CURSOR_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
+    helper: RuntimeHelper::Term,
+    call: "term.showCursor",
+    symbol: "_mfb_rt_term_term_showCursor",
+    abi: RuntimeHelperAbi {
+        params: &[],
+        returns: "Nothing",
+        clobbers: abi::IO_PRINT_CLOBBERS,
+    },
+};
+
+pub(crate) const TERM_HIDE_CURSOR_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
+    helper: RuntimeHelper::Term,
+    call: "term.hideCursor",
+    symbol: "_mfb_rt_term_term_hideCursor",
+    abi: RuntimeHelperAbi {
+        params: &[],
+        returns: "Nothing",
+        clobbers: abi::IO_PRINT_CLOBBERS,
+    },
+};
+
+pub(crate) const TERM_CLEAR_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
+    helper: RuntimeHelper::Term,
+    call: "term.clear",
+    symbol: "_mfb_rt_term_term_clear",
+    abi: RuntimeHelperAbi {
+        params: &[],
+        returns: "Nothing",
+        clobbers: abi::IO_PRINT_CLOBBERS,
+    },
+};
+
+pub(crate) const TERM_MOVE_TO_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
+    helper: RuntimeHelper::Term,
+    call: "term.moveTo",
+    symbol: "_mfb_rt_term_term_moveTo",
+    abi: RuntimeHelperAbi {
+        params: TERM_MOVE_PARAMS,
+        returns: "Nothing",
+        clobbers: abi::IO_PRINT_CLOBBERS,
+    },
+};
+
+pub(crate) const TERM_GET_FOREGROUND_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
+    helper: RuntimeHelper::Term,
+    call: "term.getForeground",
+    symbol: "_mfb_rt_term_term_getForeground",
+    abi: RuntimeHelperAbi {
+        params: &[],
+        returns: "TermColor",
+        clobbers: abi::IO_PRINT_CLOBBERS,
+    },
+};
+
+pub(crate) const TERM_GET_BACKGROUND_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
+    helper: RuntimeHelper::Term,
+    call: "term.getBackground",
+    symbol: "_mfb_rt_term_term_getBackground",
+    abi: RuntimeHelperAbi {
+        params: &[],
+        returns: "TermColor",
+        clobbers: abi::IO_PRINT_CLOBBERS,
+    },
+};
+
+pub(crate) const TERM_GET_BOLD_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
+    helper: RuntimeHelper::Term,
+    call: "term.getBold",
+    symbol: "_mfb_rt_term_term_getBold",
+    abi: RuntimeHelperAbi {
+        params: &[],
+        returns: "Boolean",
+        clobbers: abi::IO_PRINT_CLOBBERS,
+    },
+};
+
+pub(crate) const TERM_GET_UNDERLINE_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
+    helper: RuntimeHelper::Term,
+    call: "term.getUnderline",
+    symbol: "_mfb_rt_term_term_getUnderline",
+    abi: RuntimeHelperAbi {
+        params: &[],
+        returns: "Boolean",
+        clobbers: abi::IO_PRINT_CLOBBERS,
+    },
+};
+
+pub(crate) const TERM_TERMINAL_SIZE_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
+    helper: RuntimeHelper::Term,
+    call: "term.terminalSize",
+    symbol: "_mfb_rt_term_term_terminalSize",
+    abi: RuntimeHelperAbi {
+        params: &[],
+        returns: "TermSize",
         clobbers: abi::IO_PRINT_CLOBBERS,
     },
 };
@@ -1699,7 +1903,22 @@ pub(crate) fn supported_helper_specs() -> &'static [RuntimeHelperSpec] {
         IO_IS_INPUT_TERMINAL_SPEC,
         IO_IS_OUTPUT_TERMINAL_SPEC,
         IO_IS_ERROR_TERMINAL_SPEC,
-        IO_TERMINAL_SIZE_SPEC,
+        TERM_ON_SPEC,
+        TERM_OFF_SPEC,
+        TERM_IS_ON_SPEC,
+        TERM_SET_FOREGROUND_SPEC,
+        TERM_SET_BACKGROUND_SPEC,
+        TERM_SET_BOLD_SPEC,
+        TERM_SET_UNDERLINE_SPEC,
+        TERM_SHOW_CURSOR_SPEC,
+        TERM_HIDE_CURSOR_SPEC,
+        TERM_CLEAR_SPEC,
+        TERM_MOVE_TO_SPEC,
+        TERM_GET_FOREGROUND_SPEC,
+        TERM_GET_BACKGROUND_SPEC,
+        TERM_GET_BOLD_SPEC,
+        TERM_GET_UNDERLINE_SPEC,
+        TERM_TERMINAL_SIZE_SPEC,
         FS_FILE_EXISTS_SPEC,
         FS_DIRECTORY_EXISTS_SPEC,
         FS_EXISTS_SPEC,
@@ -1811,6 +2030,8 @@ pub fn helper_for_call(name: &str) -> Option<RuntimeHelper> {
         Some(RuntimeHelper::Math)
     } else if builtins::strings::is_strings_call(name) {
         Some(RuntimeHelper::Strings)
+    } else if builtins::term::is_term_call(name) {
+        Some(RuntimeHelper::Term)
     } else if builtins::thread::is_thread_call(name) {
         Some(RuntimeHelper::Thread)
     } else if builtins::net::is_net_call(name) {
@@ -1883,6 +2104,8 @@ pub(crate) fn is_native_direct_call(name: &str) -> bool {
             | "math.acos"
             | "math.atan"
             | "math.atan2"
+            | "math.rand"
+            | "math.seed"
             | "strings.byteLen"
             | "strings.caseFold"
             | "strings.contains"

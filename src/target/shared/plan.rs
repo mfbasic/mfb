@@ -1576,7 +1576,8 @@ fn storage_for_type(
 
 fn is_reference_type(type_: &str) -> bool {
     type_ == "String"
-        || type_ == "TerminalSize"
+        || type_ == "TermColor"
+        || type_ == "TermSize"
         || type_ == "Error"
         || type_.starts_with("List OF ")
         || type_.starts_with("Map OF ")

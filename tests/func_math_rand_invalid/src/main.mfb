@@ -1,0 +1,8 @@
+IMPORT math
+
+FUNC main AS Integer
+  LET wrongType AS Integer = math::rand(1.5, 2.5)
+  LET tooFew AS Integer = math::rand(1)
+  LET tooMany AS Integer = math::rand(1, 2, 3)
+  RETURN 0
+END FUNC

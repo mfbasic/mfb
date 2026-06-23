@@ -18,6 +18,8 @@ impl CodeBuilder<'_> {
             "floor" | "ceil" | "round" if args.len() == 1 => {
                 self.lower_math_rounding(function, &args[0])
             }
+            "rand" if args.len() == 2 => self.lower_math_rand(args),
+            "seed" if args.len() == 1 => self.lower_math_seed(&args[0]),
             "sqrt" if args.len() == 1 => self.lower_math_sqrt(&args[0]),
             "pow" if args.len() == 2 => self.lower_external_math(function, args),
             "atan2" if args.len() == 2 => self.lower_external_math(function, args),
@@ -310,6 +312,116 @@ impl CodeBuilder<'_> {
         self.emit_overflow_return()?;
         self.emit(abi::label(&ok));
         Ok(())
+    }
+
+    /// `math.rand(min, max)` — uniform inclusive integer in `[min, max]`, drawn
+    /// from this thread's PCG64 generator. Reports `ErrInvalidArgument` when
+    /// `min > max`.
+    fn lower_math_rand(&mut self, args: &[NirValue]) -> Result<ValueResult, String> {
+        let min = self.lower_value(&args[0])?;
+        if min.type_ != "Integer" {
+            return Err(format!("math.rand does not accept {}", min.type_));
+        }
+        let min_slot = self.allocate_stack_object("math_rand_min", 8);
+        self.emit(abi::store_u64(&min.location, abi::stack_pointer(), min_slot));
+        let max = self.lower_value(&args[1])?;
+        if max.type_ != "Integer" {
+            return Err(format!("math.rand does not accept {}", max.type_));
+        }
+        let max_slot = self.allocate_stack_object("math_rand_max", 8);
+        self.emit(abi::store_u64(&max.location, abi::stack_pointer(), max_slot));
+        let range_slot = self.allocate_stack_object("math_rand_range", 8);
+
+        // Validate min <= max and compute the inclusive span before the call;
+        // `_mfb_rng_next` clobbers the caller-saved registers so the span is
+        // spilled and reloaded afterwards.
+        self.reset_temporary_registers();
+        let min_reg = self.allocate_register()?;
+        let max_reg = self.allocate_register()?;
+        let range_reg = self.allocate_register()?;
+        self.emit(abi::load_u64(&min_reg, abi::stack_pointer(), min_slot));
+        self.emit(abi::load_u64(&max_reg, abi::stack_pointer(), max_slot));
+        let bounds_valid = self.label("math_rand_bounds_valid");
+        self.emit(abi::compare_registers(&min_reg, &max_reg));
+        self.emit(abi::branch_le(&bounds_valid));
+        self.emit_invalid_argument_return()?;
+        self.emit(abi::label(&bounds_valid));
+        // span = (max - min) + 1; wraps to 0 only for the full Integer range,
+        // which the `full_range` branch handles by returning the raw draw.
+        self.emit(abi::subtract_registers(&range_reg, &max_reg, &min_reg));
+        self.emit(abi::add_immediate(&range_reg, &range_reg, 1));
+        self.emit(abi::store_u64(&range_reg, abi::stack_pointer(), range_slot));
+
+        self.emit(abi::branch_link(RNG_NEXT_SYMBOL));
+        self.relocations.push(CodeRelocation {
+            from: self.current_symbol.clone(),
+            to: RNG_NEXT_SYMBOL.to_string(),
+            kind: "branch26".to_string(),
+            binding: "internal".to_string(),
+            library: None,
+        });
+
+        self.reset_temporary_registers();
+        let result = self.allocate_register()?;
+        let range_reg = self.allocate_register()?;
+        let min_reg = self.allocate_register()?;
+        let quotient = self.allocate_register()?;
+        let remainder = self.allocate_register()?;
+        self.emit(abi::load_u64(&range_reg, abi::stack_pointer(), range_slot));
+        self.emit(abi::load_u64(&min_reg, abi::stack_pointer(), min_slot));
+        let full_range = self.label("math_rand_full_range");
+        let done = self.label("math_rand_done");
+        self.emit(abi::compare_immediate(&range_reg, "0"));
+        self.emit(abi::branch_eq(&full_range));
+        // remainder = raw - (raw / span) * span  (unsigned modulo)
+        self.emit(abi::unsigned_divide_registers(
+            &quotient,
+            abi::return_register(),
+            &range_reg,
+        ));
+        self.emit(abi::multiply_subtract_registers(
+            &remainder,
+            &quotient,
+            &range_reg,
+            abi::return_register(),
+        ));
+        self.emit(abi::add_registers(&result, &min_reg, &remainder));
+        self.emit(abi::branch(&done));
+        self.emit(abi::label(&full_range));
+        self.emit(abi::move_register(&result, abi::return_register()));
+        self.emit(abi::label(&done));
+        Ok(ValueResult {
+            type_: "Integer".to_string(),
+            location: result,
+            text: format!("math.rand({}, {})", min.text, max.text),
+        })
+    }
+
+    /// `math.seed(value)` — reseed this thread's PCG64 generator. Returns Nothing.
+    fn lower_math_seed(&mut self, arg: &NirValue) -> Result<ValueResult, String> {
+        let value = self.lower_value(arg)?;
+        if value.type_ != "Integer" {
+            return Err(format!("math.seed does not accept {}", value.type_));
+        }
+        let text = format!("math.seed({})", value.text);
+        self.emit(abi::move_register("x1", &value.location));
+        self.emit(abi::move_register(
+            abi::return_register(),
+            ARENA_STATE_REGISTER,
+        ));
+        self.emit(abi::branch_link(RNG_SEED_SYMBOL));
+        self.relocations.push(CodeRelocation {
+            from: self.current_symbol.clone(),
+            to: RNG_SEED_SYMBOL.to_string(),
+            kind: "branch26".to_string(),
+            binding: "internal".to_string(),
+            library: None,
+        });
+        Ok(ValueResult {
+            type_: "Nothing".to_string(),
+            location: abi::return_register().to_string(),
+            text,
+        })
     }
 
     fn lower_math_sqrt(&mut self, arg: &NirValue) -> Result<ValueResult, String> {

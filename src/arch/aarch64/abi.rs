@@ -177,6 +177,35 @@ pub(crate) fn signed_multiply_high_registers(dst: &str, lhs: &str, rhs: &str) ->
         .field("rhs", rhs)
 }
 
+pub(crate) fn unsigned_multiply_high_registers(
+    dst: &str,
+    lhs: &str,
+    rhs: &str,
+) -> CodeInstruction {
+    CodeInstruction::new("umulh")
+        .field("dst", dst)
+        .field("lhs", lhs)
+        .field("rhs", rhs)
+}
+
+/// `adc dst, lhs, rhs` — add with carry, reading the carry flag left by a prior
+/// flag-setting add (`adds`). Used to chain a 128-bit addition across two
+/// 64-bit limbs.
+pub(crate) fn add_with_carry_registers(dst: &str, lhs: &str, rhs: &str) -> CodeInstruction {
+    CodeInstruction::new("adc")
+        .field("dst", dst)
+        .field("lhs", lhs)
+        .field("rhs", rhs)
+}
+
+/// `rorv dst, src, amount` — rotate `src` right by the low 6 bits of `amount`.
+pub(crate) fn rotate_right_registers(dst: &str, src: &str, amount: &str) -> CodeInstruction {
+    CodeInstruction::new("rorv")
+        .field("dst", dst)
+        .field("lhs", src)
+        .field("rhs", amount)
+}
+
 pub(crate) fn signed_divide_registers(dst: &str, lhs: &str, rhs: &str) -> CodeInstruction {
     CodeInstruction::new("sdiv")
         .field("dst", dst)

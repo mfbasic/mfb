@@ -1,0 +1,18 @@
+NAME
+  seed - reseed the calling thread's random generator
+
+SYNOPSIS
+  math::seed(value AS Integer) AS Nothing
+
+DESCRIPTION
+  Reseeds the calling thread's PCG64 random generator from value. Seeding
+  with a fixed value makes that thread's subsequent math::rand sequence
+  deterministic, which is useful for tests and reproducible simulations.
+
+  Each thread is seeded automatically before it runs, so calling math::seed
+  is only required when reproducible output is wanted. math::seed affects
+  only the thread that calls it.
+
+EXAMPLES
+  math::seed(12345)
+  LET first AS Integer = math::rand(1, 100)

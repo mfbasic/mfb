@@ -4,7 +4,7 @@
   {
     "path": "src/lib.mfb",
     "imports": [
-    { "module": "io", "alias": "term", "line": 1 },
+    { "module": "io", "alias": "console", "line": 1 },
     { "module": "strings", "alias": "text", "line": 2 }
     ],
     "items": [
@@ -30,8 +30,8 @@
       ],
       "returnType": null,
       "body": [
-      { "kind": "expression", "expression": { "kind": "call", "callee": "term.flush", "arguments": [] }, "line": 9 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "term.flushError", "arguments": [] }, "line": 10 }
+      { "kind": "expression", "expression": { "kind": "call", "callee": "console.flush", "arguments": [] }, "line": 9 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "console.flushError", "arguments": [] }, "line": 10 }
       ]
     }
     ]

@@ -34,10 +34,16 @@ pub(crate) const TYPE_FIXED: u32 = 5;
 pub(crate) const TYPE_STRING: u32 = 6;
 pub(crate) const TYPE_BYTE: u32 = 7;
 pub(crate) const TYPE_ERROR: u32 = 8;
-pub(crate) const TYPE_TERMINAL_SIZE: u32 = 9;
+// `term::` builtin record types live in the high reserved id range alongside the
+// handle types (File/Socket/Listener), not the low primitive range: the only
+// freed low slot is id 9 (the removed `TerminalSize`), and ids at/above
+// `FIRST_TABLE_TYPE_ID` (10) would collide with per-package user/table type ids,
+// silently hijacking another package's first table type in the signature hash.
 pub(crate) const TYPE_FILE_HANDLE: u32 = 0xffff_ff00;
 pub(crate) const TYPE_SOCKET_HANDLE: u32 = 0xffff_feff;
 pub(crate) const TYPE_LISTENER_HANDLE: u32 = 0xffff_fefe;
+pub(crate) const TYPE_TERM_COLOR: u32 = 0xffff_fefd;
+pub(crate) const TYPE_TERM_SIZE: u32 = 0xffff_fefc;
 const FIRST_TABLE_TYPE_ID: u32 = 10;
 
 const FUNCTION_BINARY_REPR: u16 = 1;
@@ -1150,7 +1156,8 @@ fn primitive_type_name(id: u32) -> Option<&'static str> {
         TYPE_STRING => Some("String"),
         TYPE_BYTE => Some("Byte"),
         TYPE_ERROR => Some("Error"),
-        TYPE_TERMINAL_SIZE => Some("TerminalSize"),
+        TYPE_TERM_COLOR => Some("TermColor"),
+        TYPE_TERM_SIZE => Some("TermSize"),
         TYPE_FILE_HANDLE => Some("File"),
         TYPE_SOCKET_HANDLE => Some("Socket"),
         TYPE_LISTENER_HANDLE => Some("Listener"),
@@ -3000,10 +3007,16 @@ impl TypeTable {
                 strings.intern("message");
                 TYPE_ERROR
             }
-            "TerminalSize" => {
+            "TermColor" => {
+                strings.intern("r");
+                strings.intern("g");
+                strings.intern("b");
+                TYPE_TERM_COLOR
+            }
+            "TermSize" => {
                 strings.intern("columns");
                 strings.intern("rows");
-                TYPE_TERMINAL_SIZE
+                TYPE_TERM_SIZE
             }
             _ => {
                 if let Some(id) = self.ids.get(name) {

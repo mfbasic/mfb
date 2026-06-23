@@ -246,17 +246,7 @@ Matching is Unicode-aware and user-visible indexes remain zero-based Unicode sca
 
 ## 7. Built-in IO Package
 
-Terminal and standard-stream I/O is provided by the `io` package. Package functions are called with their package qualifier.
-
-```basic
-TYPE TerminalSize
-  columns AS Integer
-  rows AS Integer
-END TYPE
-```
-
-`TerminalSize` is a compiler-owned record shape returned by `io::terminalSize`.
-It has public read-only fields and cannot be constructed or updated directly.
+Terminal and standard-stream I/O is provided by the `io` package. Package functions are called with their package qualifier. Structured terminal / TUI control (cursor, color, attributes, screen clearing, and the terminal size) is provided by the separate `term` package; see `specifications/plan-01-term.md`.
 
 | Function | Signature | Behavior |
 |----------|-----------|----------|
@@ -274,7 +264,8 @@ It has public read-only fields and cannot be constructed or updated directly.
 | `io::isInputTerminal` | `FUNC isInputTerminal() AS Boolean` | `TRUE` when standard input is attached to an interactive terminal. |
 | `io::isOutputTerminal` | `FUNC isOutputTerminal() AS Boolean` | `TRUE` when standard output is attached to an interactive terminal. |
 | `io::isErrorTerminal` | `FUNC isErrorTerminal() AS Boolean` | `TRUE` when standard error is attached to an interactive terminal. |
-| `io::terminalSize` | `FUNC terminalSize() AS TerminalSize` | Returns the current interactive terminal size for standard output. Fails with `77050007` when standard output is not an interactive terminal or the host cannot report a size. |
+
+The terminal size is reported by `term::terminalSize() AS TermSize` (requires TUI mode; see `specifications/plan-01-term.md`), replacing the former `io::terminalSize`.
 
 On interactive terminals, `io::readLine`, `io::readChar`, and `io::readByte` temporarily disable terminal echo while reading, then restore the previous terminal mode before returning or failing. `io::readChar` and `io::readByte` also temporarily disable canonical input so each keypress is delivered immediately. When standard input is not an interactive terminal, these functions read from the stream directly.
 
@@ -450,6 +441,19 @@ Math functions follow the numeric edge-case rules in §4.1. Integer and `Fixed` 
 | `math::atan` | `FUNC atan(value AS Fixed) AS Fixed` | Fixed-point arc tangent rounded to nearest `Fixed`. |
 | `math::atan2` | `FUNC atan2(y AS Float, x AS Float) AS Float` | Two-argument arc tangent using the standard `atan2(y, x)` convention. |
 | `math::atan2` | `FUNC atan2(y AS Fixed, x AS Fixed) AS Fixed` | Fixed-point two-argument arc tangent using the standard `atan2(y, x)` convention, rounded to nearest `Fixed`. |
+| `math::rand` | `FUNC rand(min AS Integer, max AS Integer) AS Integer` | Uniformly distributed pseudo-random integer in the inclusive range `[min, max]`. Fails with `77050002` when `min > max`. |
+| `math::seed` | `FUNC seed(value AS Integer) AS Nothing` | Reseeds the calling thread's random generator. A fixed seed makes the subsequent `math::rand` sequence reproducible. |
+
+### 10.1 Random Number Generation
+
+`math::rand` draws from a per-thread [PCG64](https://www.pcg-random.org/) (XSL-RR 128/64) generator. The generator state is owned by each thread independently, so concurrent threads never share or contend on it.
+
+Each thread is seeded automatically:
+
+- The program's main thread is seeded from the operating system's entropy pool at startup, so an unseeded program produces a different `math::rand` sequence on every run.
+- A thread spawned with `thread::start` receives its own stream by drawing a fresh seed from the spawning thread's generator. This keeps each thread's sequence independent while remaining reproducible when the spawning thread has been explicitly seeded.
+
+`math::seed` overrides the calling thread's seed. Seeding with a fixed value makes that thread's subsequent `math::rand` results deterministic, which is useful for tests and reproducible simulations. `math::seed` affects only the thread that calls it.
 
 ## 11. Built-in Net Package
 
