@@ -91,10 +91,12 @@ impl plan::NativePlanPlatform for Platform {
             ("AppKit", "_OBJC_CLASS_$_NSMenu"),
             ("AppKit", "_OBJC_CLASS_$_NSMenuItem"),
             ("AppKit", "_NSFontAttributeName"),
+            ("AppKit", "_NSForegroundColorAttributeName"),
             ("AppKit", "_NSRectFill"),
             ("Foundation", "_OBJC_CLASS_$_NSString"),
             ("Foundation", "_OBJC_CLASS_$_NSMutableString"),
             ("Foundation", "_OBJC_CLASS_$_NSDictionary"),
+            ("Foundation", "_OBJC_CLASS_$_NSMutableDictionary"),
             ("Foundation", "_OBJC_CLASS_$_NSAttributedString"),
             ("libSystem", "_pthread_create"),
             ("libSystem", "_pause"),
@@ -105,6 +107,7 @@ impl plan::NativePlanPlatform for Platform {
             ("libSystem", "_strlen"),
             ("libSystem", "_calloc"),
             ("libSystem", "_bzero"),
+            ("libSystem", "_memmove"),
         ]
         .iter()
         .map(|(library, symbol)| PlatformImport {

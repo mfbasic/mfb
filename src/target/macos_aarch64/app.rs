@@ -228,10 +228,29 @@ const SEL_COLOR_WITH_RGBA: (&str, &str) = (
     "colorWithCalibratedRed:green:blue:alpha:",
 );
 const SEL_SET: (&str, &str) = ("_mfb_macapp_sel_set", "set");
+const SEL_WHITE_COLOR: (&str, &str) = ("_mfb_macapp_sel_whiteColor", "whiteColor");
+const SEL_BLACK_COLOR: (&str, &str) = ("_mfb_macapp_sel_blackColor", "blackColor");
+const SEL_DRAW_AT_POINT: (&str, &str) =
+    ("_mfb_macapp_sel_drawAtPoint", "drawAtPoint:withAttributes:");
+const SEL_STRING_WITH_CHARS: (&str, &str) =
+    ("_mfb_macapp_sel_stringWithChars", "stringWithCharacters:length:");
+const SEL_DICTIONARY: (&str, &str) = ("_mfb_macapp_sel_dictionary", "dictionary");
+const SEL_SET_OBJECT_FOR_KEY: (&str, &str) =
+    ("_mfb_macapp_sel_setObjectForKey", "setObject:forKey:");
+const SEL_SET_NEEDS_DISPLAY: (&str, &str) =
+    ("_mfb_macapp_sel_setNeedsDisplay", "setNeedsDisplay:");
+const SEL_MFB_WRITE_STRING: (&str, &str) = ("_mfb_macapp_sel_mfbWriteString", "mfbWriteString:");
+/// `NSForegroundColorAttributeName` — attributed-string key for the glyph colour.
+const NS_FOREGROUND_COLOR_ATTRIBUTE_NAME: &str = "_NSForegroundColorAttributeName";
+/// IMP for the TermView `mfbWriteString:` main-thread write entry point.
+const MFB_WRITE_STRING_SYMBOL: &str = "_mfb_macapp_term_writeString";
+/// Obj-C method type encoding for `void (id, SEL, id)`.
+const STR_WRITE_STRING_TYPES: (&str, &str) = ("_mfb_macapp_str_writeStringTypes", "v@:@");
 /// Class names for the synthesized surface and the AppKit drawing primitives it
 /// uses.
 const CLASS_NS_VIEW: &str = "_OBJC_CLASS_$_NSView";
 const CLASS_NS_COLOR: &str = "_OBJC_CLASS_$_NSColor";
+const CLASS_NS_MUTABLE_DICTIONARY: &str = "_OBJC_CLASS_$_NSMutableDictionary";
 const CLASS_NS_LAYOUT_MANAGER: &str = "_OBJC_CLASS_$_NSLayoutManager";
 /// `void NSRectFill(NSRect)` — fills the rect (passed in d0..d3) with the current
 /// graphics-context colour. An AppKit C function, not an Obj-C method.
@@ -256,7 +275,7 @@ const TERMVIEW_ASSOC_KEY: &str = "_mfb_macapp_termview_key";
 const TVSTATE_ASSOC_KEY: &str = "_mfb_macapp_termstate_key";
 
 /// TermView grid-state struct (a `calloc`'d buffer attached via
-/// [`TVSTATE_ASSOC_KEY`]). Eight 8-byte fields = 64 bytes.
+/// [`TVSTATE_ASSOC_KEY`]). Twelve 8-byte fields = 96 bytes.
 const TV_CELLS_OFFSET: usize = 0; // TermCell* heap grid (rows*cols cells)
 const TV_ROWS_OFFSET: usize = 8; // i64 row count
 const TV_COLS_OFFSET: usize = 16; // i64 column count
@@ -265,7 +284,15 @@ const TV_CURSOR_COL_OFFSET: usize = 32; // i64 cursor column (0-based)
 const TV_CELL_W_OFFSET: usize = 40; // f64 cell width in points
 const TV_CELL_H_OFFSET: usize = 48; // f64 cell height in points
 const TV_CURSOR_VISIBLE_OFFSET: usize = 56; // i64 cursor-visible flag
-const TV_STATE_SIZE: usize = 64;
+// Current attributes applied to cells as they are written (the app-mode mirror of
+// the term-state global; readable from the main-thread write/draw path).
+const TV_CUR_FG_OFFSET: usize = 64; // u32 packed r|g<<8|b<<16 (default white)
+const TV_CUR_BG_OFFSET: usize = 72; // u32 packed (default black = 0)
+const TV_CUR_BOLD_OFFSET: usize = 80; // i64 bold flag
+const TV_CUR_UNDERLINE_OFFSET: usize = 88; // i64 underline flag
+const TV_STATE_SIZE: usize = 96;
+/// Default foreground packed value (white), shared by term_init and the helpers.
+const TERM_DEFAULT_FG_PACKED: &str = "16777215";
 
 /// TermCell layout (16 bytes): a unichar glyph plus packed fg/bg colours and the
 /// bold/underline flags. Mirrors the reference `.m` cell (plan §6.3).
@@ -297,6 +324,7 @@ const TERM_VIEW_DRAW_RECT_SYMBOL: &str = "_mfb_macapp_term_drawRect";
 const TERM_VIEW_IS_FLIPPED_SYMBOL: &str = "_mfb_macapp_term_isFlipped";
 const TERM_INIT_SYMBOL: &str = "_mfb_macapp_term_init";
 const TERM_CLEAR_SYMBOL: &str = "_mfb_macapp_term_clear";
+const TERM_SCROLL_SYMBOL: &str = "_mfb_macapp_term_scroll";
 
 const CLASS_NS_OBJECT: &str = "_OBJC_CLASS_$_NSObject";
 const CLASS_NS_APPLICATION: &str = "_OBJC_CLASS_$_NSApplication";
@@ -448,11 +476,13 @@ pub(crate) fn emit_app_program_entry(spec: &AppEntrySpec) -> Result<Vec<CodeFunc
         emit_should_terminate_helper(),
         emit_did_finish_launching_helper(),
         emit_key_down_helper(),
-        // term:: synthesized TermView surface (plan-01-term.md §6.3, Phase 4).
+        // term:: synthesized TermView surface (plan-01-term.md §6.3, Phase 4-5).
         emit_term_view_is_flipped(),
         emit_term_view_draw_rect(),
         emit_term_init_helper(),
         emit_term_clear_helper(),
+        emit_term_scroll_helper(),
+        emit_term_write_string_helper(),
     ])
 }
 
@@ -667,6 +697,12 @@ fn emit_main_bootstrap() -> CodeFunction {
     asm.load_selector(SEL_IS_FLIPPED.0);
     asm.local_address("x2", TERM_VIEW_IS_FLIPPED_SYMBOL);
     asm.local_address("x3", STR_IS_FLIPPED_TYPES.0);
+    asm.push(abi::move_register("x0", "x25"));
+    asm.call_external("_class_addMethod", LIB_OBJC);
+    // class_addMethod(cls, @selector(mfbWriteString:), imp, "v@:@")
+    asm.load_selector(SEL_MFB_WRITE_STRING.0);
+    asm.local_address("x2", MFB_WRITE_STRING_SYMBOL);
+    asm.local_address("x3", STR_WRITE_STRING_TYPES.0);
     asm.push(abi::move_register("x0", "x25"));
     asm.call_external("_class_addMethod", LIB_OBJC);
     // objc_registerClassPair(cls)
@@ -1471,23 +1507,42 @@ fn emit_key_down_helper() -> CodeFunction {
 
 /// App-mode body for `io.print`/`io.write`/`io.printError`/`io.writeError`. The
 /// runtime helper receives the MFBASIC string object in `x0` (`{u64 len; bytes}`)
-/// and returns a `Result` (tag in `x0`). When a transcript view is attached
-/// (GUI), append to it; otherwise (headless) write to the file descriptor.
+/// and returns a `Result` (tag in `x0`). When TUI mode is active the text is
+/// written into the TermView surface (plan-01-term.md §4.8); otherwise, when a
+/// transcript view is attached (GUI), append to it; else (headless) write to fd.
+/// `term_state_offset` is the writable term-state slot base (None when the
+/// program never uses `term::`).
 pub(crate) fn emit_app_io_write_helper(
     symbol: &str,
     stderr: bool,
     newline: bool,
+    term_state_offset: Option<usize>,
 ) -> (CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>) {
     let mut asm = Asm::new(symbol);
     let fd = if stderr { "2" } else { "1" };
-    let frame = 48; // lr@0, x19(string)@8, x20(view)@16, x21(scratch)@24, nl byte@32
+    // lr@0, x19(string)@8, x20(view)@16, x21(scratch)@24, nl byte@32, x22(sel)@40
+    let frame = 48;
     asm.push(abi::label("entry"));
     asm.push(abi::subtract_stack(frame));
     asm.push(abi::store_u64(abi::link_register(), abi::stack_pointer(), 0));
     asm.push(abi::store_u64("x19", abi::stack_pointer(), 8));
     asm.push(abi::store_u64("x20", abi::stack_pointer(), 16));
     asm.push(abi::store_u64("x21", abi::stack_pointer(), 24));
-    asm.push(abi::move_register("x19", "x0")); // string object
+    asm.push(abi::store_u64("x22", abi::stack_pointer(), 40));
+    // While TUI mode is active, route to the TermView surface (x19 is the pinned
+    // arena-state base on entry, before it is reused for the string object).
+    if let Some(off) = term_state_offset {
+        asm.push(abi::load_u64(
+            "x9",
+            TERM_ARENA_STATE_REG,
+            off + code::TERM_STATE_ACTIVE_OFFSET,
+        ));
+        asm.push(abi::move_register("x19", "x0")); // string object
+        asm.push(abi::compare_immediate("x9", "0"));
+        asm.push(abi::branch_ne("term_surface_path"));
+    } else {
+        asm.push(abi::move_register("x19", "x0")); // string object
+    }
 
     // app = [NSApplication sharedApplication]; view = objc_getAssociatedObject(app, &KEY)
     asm.external_data("x20", CLASS_NS_APPLICATION, LIB_APPKIT);
@@ -1547,12 +1602,64 @@ pub(crate) fn emit_app_io_write_helper(
         asm.call_external("_write", LIB_SYSTEM);
     }
     asm.push(abi::move_immediate("x0", "Integer", "0")); // RESULT_OK_TAG
+    asm.push(abi::branch("done"));
+
+    // --- TUI surface path: write into the TermView grid on the main thread ---
+    if term_state_offset.is_some() {
+        asm.push(abi::label("term_surface_path"));
+        // tv = objc_getAssociatedObject([NSApplication sharedApplication], &TERMVIEW_KEY)
+        asm.external_data("x20", CLASS_NS_APPLICATION, LIB_APPKIT);
+        asm.load_selector(SEL_SHARED_APPLICATION.0);
+        asm.push(abi::move_register("x0", "x20"));
+        asm.call_external("_objc_msgSend", LIB_OBJC);
+        asm.local_address("x1", TERMVIEW_ASSOC_KEY);
+        asm.call_external("_objc_getAssociatedObject", LIB_OBJC);
+        asm.push(abi::move_register("x20", "x0")); // termview or nil
+        asm.push(abi::compare_immediate("x20", "0"));
+        asm.push(abi::branch_eq("fd_path")); // headless: no surface -> fd
+        // text = [[NSString alloc] initWithBytes:(str+8) length:str[0] encoding:UTF8]
+        asm.external_data("x21", CLASS_NS_STRING, LIB_FOUNDATION);
+        asm.load_selector(SEL_ALLOC.0);
+        asm.push(abi::move_register("x0", "x21"));
+        asm.call_external("_objc_msgSend", LIB_OBJC);
+        asm.push(abi::move_register("x21", "x0"));
+        asm.load_selector(SEL_INIT_WITH_BYTES.0);
+        asm.push(abi::add_immediate("x2", "x19", 8));
+        asm.push(abi::load_u64("x3", "x19", 0));
+        asm.push(abi::move_immediate("x4", "Integer", NS_UTF8_ENCODING));
+        asm.push(abi::move_register("x0", "x21"));
+        asm.call_external("_objc_msgSend", LIB_OBJC);
+        asm.push(abi::move_register("x21", "x0")); // text nsstring
+        // [tv performSelectorOnMainThread:@selector(mfbWriteString:) withObject:text waitUntilDone:YES]
+        asm.load_selector(SEL_MFB_WRITE_STRING.0);
+        asm.push(abi::move_register("x22", "x1")); // mfbWriteString: sel
+        asm.load_selector(SEL_PERFORM_ON_MAIN.0);
+        asm.push(abi::move_register("x2", "x22"));
+        asm.push(abi::move_register("x3", "x21"));
+        asm.push(abi::move_immediate("x4", "Integer", "1")); // waitUntilDone: YES
+        asm.push(abi::move_register("x0", "x20"));
+        asm.call_external("_objc_msgSend", LIB_OBJC);
+        if newline {
+            build_nsstring_from_cstring(&mut asm, "x21", STR_NEWLINE.0);
+            asm.push(abi::move_register("x21", "x0")); // "\n" nsstring
+            asm.load_selector(SEL_MFB_WRITE_STRING.0);
+            asm.push(abi::move_register("x22", "x1"));
+            asm.load_selector(SEL_PERFORM_ON_MAIN.0);
+            asm.push(abi::move_register("x2", "x22"));
+            asm.push(abi::move_register("x3", "x21"));
+            asm.push(abi::move_immediate("x4", "Integer", "1"));
+            asm.push(abi::move_register("x0", "x20"));
+            asm.call_external("_objc_msgSend", LIB_OBJC);
+        }
+        asm.push(abi::move_immediate("x0", "Integer", "0")); // RESULT_OK_TAG
+    }
 
     asm.push(abi::label("done"));
     asm.push(abi::load_u64(abi::link_register(), abi::stack_pointer(), 0));
     asm.push(abi::load_u64("x19", abi::stack_pointer(), 8));
     asm.push(abi::load_u64("x20", abi::stack_pointer(), 16));
     asm.push(abi::load_u64("x21", abi::stack_pointer(), 24));
+    asm.push(abi::load_u64("x22", abi::stack_pointer(), 40));
     asm.push(abi::add_stack(frame));
     asm.push(abi::return_());
 
@@ -1837,58 +1944,173 @@ fn emit_term_view_is_flipped() -> CodeFunction {
 /// IMP for `TermView`'s `drawRect:` (`void drawRect:(NSRect dirty)`; self in x0,
 /// `_cmd` in x1, the rect in d0..d3).
 ///
-/// Phase 4 (plan-01-term.md §6.3): fill the dirty rect with opaque black so the
-/// surface reads as a cleared terminal. The per-cell glyph/colour rendering grows
-/// on top of this in Phase 5 ("smallest correct `drawRect:` first", plan §9.1).
+/// Fills the dirty rect black, then paints each non-blank cell glyph at
+/// `(col*cellW, row*cellH)` in the monospaced font (plan-01-term.md §6.3). This
+/// increment renders monochrome (white on black); per-cell fg/bg colour grows on
+/// top in the next increment ("smallest correct `drawRect:` first", plan §9.1).
 fn emit_term_view_draw_rect() -> CodeFunction {
     let mut asm = Asm::new(TERM_VIEW_DRAW_RECT_SYMBOL);
-    // Frame: lr@0, x19(NSColor class)@8, x20(colour sel)@16, rect x/y/w/h@24..48.
-    let frame = 64;
+    // Frame: lr@0; callee-saved x19(state)@8, x20(cells)@16, x21(rows)@24,
+    // x22(cols)@32, x23(row)@40, x24(col)@48, x25(font)@56, x26(attrs)@64,
+    // x28(drawAtPoint sel)@72; rect x/y/w/h@80..104; stringWithChars sel@112;
+    // glyph unichar buffer@120.
+    let frame = 144;
+    let (off_rx, off_ry, off_rw, off_rh) = (80, 88, 96, 104);
+    let (off_swc_sel, off_glyph) = (112, 120);
     asm.push(abi::label("entry"));
     asm.push(abi::subtract_stack(frame));
     asm.push(abi::store_u64(abi::link_register(), abi::stack_pointer(), 0));
-    asm.push(abi::store_u64("x19", abi::stack_pointer(), 8));
-    asm.push(abi::store_u64("x20", abi::stack_pointer(), 16));
-
-    // Spill the rect (d0..d3) before any call clobbers the FP argument registers.
-    for (reg, off) in [("d0", 24), ("d1", 32), ("d2", 40), ("d3", 48)] {
+    for (reg, off) in [
+        ("x19", 8),
+        ("x20", 16),
+        ("x21", 24),
+        ("x22", 32),
+        ("x23", 40),
+        ("x24", 48),
+        ("x25", 56),
+        ("x26", 64),
+        ("x28", 72),
+    ] {
+        asm.push(abi::store_u64(reg, abi::stack_pointer(), off));
+    }
+    // Spill the dirty rect (d0..d3) before any call clobbers the FP arg regs.
+    for (reg, off) in [("d0", off_rx), ("d1", off_ry), ("d2", off_rw), ("d3", off_rh)] {
         asm.push(abi::float_move_x_from_d("x9", reg));
         asm.push(abi::store_u64("x9", abi::stack_pointer(), off));
     }
 
-    // Resolve the NSColor class and selector into callee-saved registers up front
-    // (sel_registerName clobbers the FP regs, but the rect is already spilled).
-    asm.external_data("x19", CLASS_NS_COLOR, LIB_APPKIT);
-    asm.load_selector(SEL_COLOR_WITH_RGBA.0);
-    asm.push(abi::move_register("x20", "x1")); // colorWithCalibratedRed:... sel
+    // state = objc_getAssociatedObject(self, &TVSTATE_KEY)  (self in x0)
+    asm.local_address("x1", TVSTATE_ASSOC_KEY);
+    asm.call_external("_objc_getAssociatedObject", LIB_OBJC);
+    asm.push(abi::move_register("x19", "x0")); // state (or nil)
 
-    // color = [NSColor colorWithCalibratedRed:0 green:0 blue:0 alpha:1]
-    asm.push(abi::move_immediate("x9", "Integer", "0"));
-    asm.push(abi::signed_convert_to_float_d("d0", "x9"));
-    asm.push(abi::signed_convert_to_float_d("d1", "x9"));
-    asm.push(abi::signed_convert_to_float_d("d2", "x9"));
-    asm.push(abi::move_immediate("x9", "Integer", "1"));
-    asm.push(abi::signed_convert_to_float_d("d3", "x9"));
-    asm.push(abi::move_register("x0", "x19"));
-    asm.push(abi::move_register("x1", "x20"));
+    // Fill the dirty rect black: [[NSColor blackColor] set]; NSRectFill(rect).
+    asm.load_selector(SEL_BLACK_COLOR.0);
+    asm.external_data("x0", CLASS_NS_COLOR, LIB_APPKIT);
     asm.call_external("_objc_msgSend", LIB_OBJC);
-    asm.push(abi::move_register("x19", "x0")); // color
-
-    // [color set]
+    asm.push(abi::move_register("x26", "x0")); // black colour (temp)
     asm.load_selector(SEL_SET.0);
-    asm.push(abi::move_register("x0", "x19"));
+    asm.push(abi::move_register("x0", "x26"));
     asm.call_external("_objc_msgSend", LIB_OBJC);
-
-    // NSRectFill(rect) — reload the spilled rect into d0..d3.
-    for (reg, off) in [("d0", 24), ("d1", 32), ("d2", 40), ("d3", 48)] {
+    for (reg, off) in [("d0", off_rx), ("d1", off_ry), ("d2", off_rw), ("d3", off_rh)] {
         asm.push(abi::load_u64("x9", abi::stack_pointer(), off));
         asm.push(abi::float_move_d_from_x(reg, "x9"));
     }
     asm.call_external(NS_RECT_FILL, LIB_APPKIT);
 
+    // No state / no grid yet -> nothing more to paint.
+    asm.push(abi::compare_immediate("x19", "0"));
+    asm.push(abi::branch_eq("draw_done"));
+    asm.push(abi::load_u64("x20", "x19", TV_CELLS_OFFSET)); // cells
+    asm.push(abi::compare_immediate("x20", "0"));
+    asm.push(abi::branch_eq("draw_done"));
+    asm.push(abi::load_u64("x21", "x19", TV_ROWS_OFFSET));
+    asm.push(abi::load_u64("x22", "x19", TV_COLS_OFFSET));
+
+    // font = [NSFont userFixedPitchFontOfSize:N]
+    asm.external_data("x25", CLASS_NS_FONT, LIB_APPKIT);
+    asm.load_selector(SEL_USER_FIXED_FONT.0);
+    emit_double_immediate(&mut asm, "d0", TRANSCRIPT_FONT_SIZE);
+    asm.push(abi::move_register("x0", "x25"));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    asm.push(abi::move_register("x25", "x0")); // font
+
+    // attrs = [NSMutableDictionary dictionary]
+    asm.load_selector(SEL_DICTIONARY.0);
+    asm.external_data("x0", CLASS_NS_MUTABLE_DICTIONARY, LIB_FOUNDATION);
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    asm.push(abi::move_register("x26", "x0")); // attrs dict
+    // [attrs setObject:font forKey:NSFontAttributeName]
+    asm.load_selector(SEL_SET_OBJECT_FOR_KEY.0);
+    asm.push(abi::move_register("x2", "x25"));
+    asm.external_data("x3", NS_FONT_ATTRIBUTE_NAME, LIB_APPKIT);
+    asm.push(abi::load_u64("x3", "x3", 0));
+    asm.push(abi::move_register("x0", "x26"));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    // white = [NSColor whiteColor]; [attrs setObject:white forKey:NSForegroundColorAttributeName]
+    // (font is already retained by the dict, so x25 is free to hold white across
+    // the following load_selector — whose sel_registerName call clobbers x0..x18).
+    asm.load_selector(SEL_WHITE_COLOR.0);
+    asm.external_data("x0", CLASS_NS_COLOR, LIB_APPKIT);
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    asm.push(abi::move_register("x25", "x0")); // white (callee-saved)
+    asm.load_selector(SEL_SET_OBJECT_FOR_KEY.0);
+    asm.push(abi::move_register("x2", "x25"));
+    asm.external_data("x3", NS_FOREGROUND_COLOR_ATTRIBUTE_NAME, LIB_APPKIT);
+    asm.push(abi::load_u64("x3", "x3", 0));
+    asm.push(abi::move_register("x0", "x26"));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+
+    // Pre-resolve the per-glyph selectors (drawAtPoint:withAttributes: into x28,
+    // stringWithCharacters:length: spilled).
+    asm.load_selector(SEL_DRAW_AT_POINT.0);
+    asm.push(abi::move_register("x28", "x1"));
+    asm.load_selector(SEL_STRING_WITH_CHARS.0);
+    asm.push(abi::store_u64("x1", abi::stack_pointer(), off_swc_sel));
+
+    // for row in 0..rows: for col in 0..cols
+    asm.push(abi::move_immediate("x23", "Integer", "0"));
+    asm.push(abi::label("draw_row"));
+    asm.push(abi::compare_registers("x23", "x21"));
+    asm.push(abi::branch_ge("draw_done"));
+    asm.push(abi::move_immediate("x24", "Integer", "0"));
+    asm.push(abi::label("draw_col"));
+    asm.push(abi::compare_registers("x24", "x22"));
+    asm.push(abi::branch_ge("draw_row_next"));
+
+    // cell = cells + (row*cols + col) * CELL_SIZE; glyph = cell.glyph
+    asm.push(abi::multiply_registers("x9", "x23", "x22"));
+    asm.push(abi::add_registers("x9", "x9", "x24"));
+    asm.push(abi::shift_left_immediate("x9", "x9", 4)); // * CELL_SIZE (16)
+    asm.push(abi::add_registers("x9", "x20", "x9")); // cell ptr
+    asm.push(abi::load_u32("x10", "x9", CELL_GLYPH_OFFSET));
+    asm.push(abi::compare_immediate("x10", "0"));
+    asm.push(abi::branch_eq("draw_col_next"));
+    asm.push(abi::compare_immediate("x10", "32")); // space = blank
+    asm.push(abi::branch_eq("draw_col_next"));
+
+    // s = [NSString stringWithCharacters:&glyph length:1]
+    asm.push(abi::store_u32("x10", abi::stack_pointer(), off_glyph));
+    asm.push(abi::load_u64("x1", abi::stack_pointer(), off_swc_sel));
+    asm.external_data("x0", CLASS_NS_STRING, LIB_FOUNDATION);
+    asm.push(abi::add_immediate("x2", abi::stack_pointer(), off_glyph));
+    asm.push(abi::move_immediate("x3", "Integer", "1"));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    // [s drawAtPoint:(col*cellW, row*cellH) withAttributes:attrs]
+    asm.push(abi::load_u64("x11", "x19", TV_CELL_W_OFFSET));
+    asm.push(abi::float_move_d_from_x("d4", "x11"));
+    asm.push(abi::load_u64("x11", "x19", TV_CELL_H_OFFSET));
+    asm.push(abi::float_move_d_from_x("d5", "x11"));
+    asm.push(abi::signed_convert_to_float_d("d6", "x24"));
+    asm.push(abi::float_multiply_d("d0", "d6", "d4")); // px = col*cellW
+    asm.push(abi::signed_convert_to_float_d("d7", "x23"));
+    asm.push(abi::float_multiply_d("d1", "d7", "d5")); // py = row*cellH
+    asm.push(abi::move_register("x2", "x26")); // attrs
+    asm.push(abi::move_register("x1", "x28")); // drawAtPoint:withAttributes: sel
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+
+    asm.push(abi::label("draw_col_next"));
+    asm.push(abi::add_immediate("x24", "x24", 1));
+    asm.push(abi::branch("draw_col"));
+    asm.push(abi::label("draw_row_next"));
+    asm.push(abi::add_immediate("x23", "x23", 1));
+    asm.push(abi::branch("draw_row"));
+
+    asm.push(abi::label("draw_done"));
     asm.push(abi::load_u64(abi::link_register(), abi::stack_pointer(), 0));
-    asm.push(abi::load_u64("x19", abi::stack_pointer(), 8));
-    asm.push(abi::load_u64("x20", abi::stack_pointer(), 16));
+    for (reg, off) in [
+        ("x19", 8),
+        ("x20", 16),
+        ("x21", 24),
+        ("x22", 32),
+        ("x23", 40),
+        ("x24", 48),
+        ("x25", 56),
+        ("x26", 64),
+        ("x28", 72),
+    ] {
+        asm.push(abi::load_u64(reg, abi::stack_pointer(), off));
+    }
     asm.push(abi::add_stack(frame));
     asm.push(abi::return_());
 
@@ -1994,9 +2216,12 @@ fn emit_term_init_helper() -> CodeFunction {
     asm.call_external("_calloc", LIB_SYSTEM);
     asm.push(abi::store_u64("x0", "x20", TV_CELLS_OFFSET));
 
-    // cursor (0,0; calloc already zeroed); cursor visible.
+    // cursor (0,0; calloc already zeroed); cursor visible; current fg = white
+    // (bg/bold/underline default to 0 from calloc).
     asm.push(abi::move_immediate("x9", "Integer", "1"));
     asm.push(abi::store_u64("x9", "x20", TV_CURSOR_VISIBLE_OFFSET));
+    asm.push(abi::move_immediate("x9", "Integer", TERM_DEFAULT_FG_PACKED));
+    asm.push(abi::store_u64("x9", "x20", TV_CUR_FG_OFFSET));
 
     // objc_setAssociatedObject(termView, &TVSTATE_KEY, state, ASSIGN)
     asm.push(abi::move_register("x0", "x19"));
@@ -2073,6 +2298,251 @@ fn emit_term_clear_helper() -> CodeFunction {
     CodeFunction {
         name: "macapp.term.clear".to_string(),
         symbol: TERM_CLEAR_SYMBOL.to_string(),
+        params: Vec::new(),
+        returns: "Nothing".to_string(),
+        frame: CodeFrame {
+            stack_size: 0,
+            callee_saved: Vec::new(),
+        },
+        stack_slots: Vec::new(),
+        instructions: asm.ins,
+        relocations: asm.rel,
+    }
+}
+
+/// `void _mfb_macapp_term_scroll(void *state /*x0*/)`: scroll the grid up one row
+/// (memmove rows 1.. to 0.., then clear the new bottom row). Main-thread only.
+fn emit_term_scroll_helper() -> CodeFunction {
+    let mut asm = Asm::new(TERM_SCROLL_SYMBOL);
+    // Frame: lr@0, x19(rowBytes)@8, x20(cells)@16, x21(rows)@24.
+    let frame = 48;
+    asm.push(abi::label("entry"));
+    asm.push(abi::subtract_stack(frame));
+    asm.push(abi::store_u64(abi::link_register(), abi::stack_pointer(), 0));
+    asm.push(abi::store_u64("x19", abi::stack_pointer(), 8));
+    asm.push(abi::store_u64("x20", abi::stack_pointer(), 16));
+    asm.push(abi::store_u64("x21", abi::stack_pointer(), 24));
+
+    asm.push(abi::load_u64("x20", "x0", TV_CELLS_OFFSET)); // cells
+    asm.push(abi::load_u64("x21", "x0", TV_ROWS_OFFSET)); // rows
+    asm.push(abi::load_u64("x9", "x0", TV_COLS_OFFSET)); // cols
+    asm.push(abi::shift_left_immediate("x19", "x9", 4)); // rowBytes = cols*CELL_SIZE
+
+    // memmove(cells, cells + rowBytes, (rows-1)*rowBytes)
+    asm.push(abi::subtract_immediate("x9", "x21", 1));
+    asm.push(abi::multiply_registers("x2", "x9", "x19")); // len
+    asm.push(abi::move_register("x0", "x20")); // dst
+    asm.push(abi::add_registers("x1", "x20", "x19")); // src
+    asm.call_external("_memmove", LIB_SYSTEM);
+
+    // bzero(cells + (rows-1)*rowBytes, rowBytes) — clear the new bottom row.
+    asm.push(abi::subtract_immediate("x9", "x21", 1));
+    asm.push(abi::multiply_registers("x9", "x9", "x19"));
+    asm.push(abi::add_registers("x0", "x20", "x9"));
+    asm.push(abi::move_register("x1", "x19"));
+    asm.call_external("_bzero", LIB_SYSTEM);
+
+    asm.push(abi::load_u64(abi::link_register(), abi::stack_pointer(), 0));
+    asm.push(abi::load_u64("x19", abi::stack_pointer(), 8));
+    asm.push(abi::load_u64("x20", abi::stack_pointer(), 16));
+    asm.push(abi::load_u64("x21", abi::stack_pointer(), 24));
+    asm.push(abi::add_stack(frame));
+    asm.push(abi::return_());
+
+    CodeFunction {
+        name: "macapp.term.scroll".to_string(),
+        symbol: TERM_SCROLL_SYMBOL.to_string(),
+        params: Vec::new(),
+        returns: "Nothing".to_string(),
+        frame: CodeFrame {
+            stack_size: 0,
+            callee_saved: Vec::new(),
+        },
+        stack_slots: Vec::new(),
+        instructions: asm.ins,
+        relocations: asm.rel,
+    }
+}
+
+/// IMP for `TermView mfbWriteString:` (`void mfbWriteString:(id self, SEL _cmd,
+/// NSString *str)`): write `str` into the grid at the cursor using the current
+/// attributes, honouring `\n`/`\r`/`\t`, wrapping at the right edge and scrolling
+/// at the bottom, then `setNeedsDisplay:` (plan-01-term.md §4.8). Main-thread only
+/// (invoked via performSelectorOnMainThread), so grid mutation and redraw are
+/// serialized in program order with the other surface ops (§6.4).
+fn emit_term_write_string_helper() -> CodeFunction {
+    let mut asm = Asm::new(MFB_WRITE_STRING_SYMBOL);
+    // Frame: lr@0, x19(self)@8, x20(str)@16, x21(state)@24, x22(cells)@32,
+    // x23(i)@40, x24(n)@48, x25(cols)@56, x26(rows)@64, x27(char)@72.
+    let frame = 96;
+    asm.push(abi::label("entry"));
+    asm.push(abi::subtract_stack(frame));
+    asm.push(abi::store_u64(abi::link_register(), abi::stack_pointer(), 0));
+    for (reg, off) in [
+        ("x19", 8),
+        ("x20", 16),
+        ("x21", 24),
+        ("x22", 32),
+        ("x23", 40),
+        ("x24", 48),
+        ("x25", 56),
+        ("x26", 64),
+        ("x27", 72),
+    ] {
+        asm.push(abi::store_u64(reg, abi::stack_pointer(), off));
+    }
+    asm.push(abi::move_register("x19", "x0")); // self
+    asm.push(abi::move_register("x20", "x2")); // str
+
+    // state = objc_getAssociatedObject(self, &TVSTATE_KEY)
+    asm.local_address("x1", TVSTATE_ASSOC_KEY);
+    asm.call_external("_objc_getAssociatedObject", LIB_OBJC);
+    asm.push(abi::move_register("x21", "x0"));
+    asm.push(abi::compare_immediate("x21", "0"));
+    asm.push(abi::branch_eq("w_redraw"));
+    asm.push(abi::load_u64("x22", "x21", TV_CELLS_OFFSET)); // cells
+    asm.push(abi::compare_immediate("x22", "0"));
+    asm.push(abi::branch_eq("w_redraw"));
+    asm.push(abi::load_u64("x25", "x21", TV_COLS_OFFSET));
+    asm.push(abi::load_u64("x26", "x21", TV_ROWS_OFFSET));
+
+    // n = [str length]; i = 0
+    asm.load_selector(SEL_LENGTH.0);
+    asm.push(abi::move_register("x0", "x20"));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    asm.push(abi::move_register("x24", "x0"));
+    asm.push(abi::move_immediate("x23", "Integer", "0"));
+
+    asm.push(abi::label("w_loop"));
+    asm.push(abi::compare_registers("x23", "x24"));
+    asm.push(abi::branch_ge("w_redraw"));
+    // c = [str characterAtIndex:i]
+    asm.load_selector(SEL_CHAR_AT_INDEX.0);
+    asm.push(abi::move_register("x2", "x23"));
+    asm.push(abi::move_register("x0", "x20"));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    asm.push(abi::move_register("x27", "x0")); // char code
+
+    asm.push(abi::compare_immediate("x27", "10")); // \n
+    asm.push(abi::branch_eq("w_newline"));
+    asm.push(abi::compare_immediate("x27", "13")); // \r
+    asm.push(abi::branch_eq("w_cr"));
+    asm.push(abi::compare_immediate("x27", "9")); // \t
+    asm.push(abi::branch_eq("w_tab"));
+
+    // printable: wrap if cursor_col >= cols
+    asm.push(abi::load_u64("x9", "x21", TV_CURSOR_COL_OFFSET));
+    asm.push(abi::compare_registers("x9", "x25"));
+    asm.push(abi::branch_lt("w_col_ok"));
+    asm.push(abi::move_immediate("x9", "Integer", "0"));
+    asm.push(abi::store_u64("x9", "x21", TV_CURSOR_COL_OFFSET));
+    asm.push(abi::load_u64("x10", "x21", TV_CURSOR_ROW_OFFSET));
+    asm.push(abi::add_immediate("x10", "x10", 1));
+    asm.push(abi::store_u64("x10", "x21", TV_CURSOR_ROW_OFFSET));
+    asm.push(abi::label("w_col_ok"));
+    // scroll if cursor_row >= rows
+    asm.push(abi::load_u64("x10", "x21", TV_CURSOR_ROW_OFFSET));
+    asm.push(abi::compare_registers("x10", "x26"));
+    asm.push(abi::branch_lt("w_row_ok"));
+    asm.push(abi::move_register("x0", "x21"));
+    asm.call_internal(TERM_SCROLL_SYMBOL);
+    asm.push(abi::subtract_immediate("x10", "x26", 1));
+    asm.push(abi::store_u64("x10", "x21", TV_CURSOR_ROW_OFFSET));
+    asm.push(abi::label("w_row_ok"));
+    // cell = cells + (row*cols + col)*CELL_SIZE
+    asm.push(abi::load_u64("x10", "x21", TV_CURSOR_ROW_OFFSET));
+    asm.push(abi::load_u64("x11", "x21", TV_CURSOR_COL_OFFSET));
+    asm.push(abi::multiply_registers("x12", "x10", "x25"));
+    asm.push(abi::add_registers("x12", "x12", "x11"));
+    asm.push(abi::shift_left_immediate("x12", "x12", 4));
+    asm.push(abi::add_registers("x12", "x22", "x12")); // cell ptr
+    asm.push(abi::store_u32("x27", "x12", CELL_GLYPH_OFFSET));
+    asm.push(abi::load_u64("x13", "x21", TV_CUR_FG_OFFSET));
+    asm.push(abi::store_u32("x13", "x12", CELL_FG_OFFSET));
+    asm.push(abi::load_u64("x13", "x21", TV_CUR_BG_OFFSET));
+    asm.push(abi::store_u32("x13", "x12", CELL_BG_OFFSET));
+    asm.push(abi::load_u64("x13", "x21", TV_CUR_BOLD_OFFSET));
+    asm.push(abi::store_u8("x13", "x12", CELL_BOLD_OFFSET));
+    asm.push(abi::load_u64("x13", "x21", TV_CUR_UNDERLINE_OFFSET));
+    asm.push(abi::store_u8("x13", "x12", CELL_UNDERLINE_OFFSET));
+    // cursor_col++
+    asm.push(abi::load_u64("x11", "x21", TV_CURSOR_COL_OFFSET));
+    asm.push(abi::add_immediate("x11", "x11", 1));
+    asm.push(abi::store_u64("x11", "x21", TV_CURSOR_COL_OFFSET));
+    asm.push(abi::branch("w_next"));
+
+    // \n: col = 0, row++ (scroll if needed)
+    asm.push(abi::label("w_newline"));
+    asm.push(abi::move_immediate("x9", "Integer", "0"));
+    asm.push(abi::store_u64("x9", "x21", TV_CURSOR_COL_OFFSET));
+    asm.push(abi::load_u64("x10", "x21", TV_CURSOR_ROW_OFFSET));
+    asm.push(abi::add_immediate("x10", "x10", 1));
+    asm.push(abi::store_u64("x10", "x21", TV_CURSOR_ROW_OFFSET));
+    asm.push(abi::compare_registers("x10", "x26"));
+    asm.push(abi::branch_lt("w_next"));
+    asm.push(abi::move_register("x0", "x21"));
+    asm.call_internal(TERM_SCROLL_SYMBOL);
+    asm.push(abi::subtract_immediate("x10", "x26", 1));
+    asm.push(abi::store_u64("x10", "x21", TV_CURSOR_ROW_OFFSET));
+    asm.push(abi::branch("w_next"));
+
+    // \r: col = 0
+    asm.push(abi::label("w_cr"));
+    asm.push(abi::move_immediate("x9", "Integer", "0"));
+    asm.push(abi::store_u64("x9", "x21", TV_CURSOR_COL_OFFSET));
+    asm.push(abi::branch("w_next"));
+
+    // \t: col = (col & ~3) + 4, wrapping to a new line if it runs off the edge
+    asm.push(abi::label("w_tab"));
+    asm.push(abi::load_u64("x9", "x21", TV_CURSOR_COL_OFFSET));
+    asm.push(abi::shift_right_immediate("x9", "x9", 2));
+    asm.push(abi::shift_left_immediate("x9", "x9", 2));
+    asm.push(abi::add_immediate("x9", "x9", 4));
+    asm.push(abi::store_u64("x9", "x21", TV_CURSOR_COL_OFFSET));
+    asm.push(abi::compare_registers("x9", "x25"));
+    asm.push(abi::branch_lt("w_next"));
+    asm.push(abi::move_immediate("x9", "Integer", "0"));
+    asm.push(abi::store_u64("x9", "x21", TV_CURSOR_COL_OFFSET));
+    asm.push(abi::load_u64("x10", "x21", TV_CURSOR_ROW_OFFSET));
+    asm.push(abi::add_immediate("x10", "x10", 1));
+    asm.push(abi::store_u64("x10", "x21", TV_CURSOR_ROW_OFFSET));
+    asm.push(abi::compare_registers("x10", "x26"));
+    asm.push(abi::branch_lt("w_next"));
+    asm.push(abi::move_register("x0", "x21"));
+    asm.call_internal(TERM_SCROLL_SYMBOL);
+    asm.push(abi::subtract_immediate("x10", "x26", 1));
+    asm.push(abi::store_u64("x10", "x21", TV_CURSOR_ROW_OFFSET));
+
+    asm.push(abi::label("w_next"));
+    asm.push(abi::add_immediate("x23", "x23", 1));
+    asm.push(abi::branch("w_loop"));
+
+    asm.push(abi::label("w_redraw"));
+    asm.load_selector(SEL_SET_NEEDS_DISPLAY.0);
+    asm.push(abi::move_immediate("x2", "Integer", "1")); // YES
+    asm.push(abi::move_register("x0", "x19"));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+
+    asm.push(abi::load_u64(abi::link_register(), abi::stack_pointer(), 0));
+    for (reg, off) in [
+        ("x19", 8),
+        ("x20", 16),
+        ("x21", 24),
+        ("x22", 32),
+        ("x23", 40),
+        ("x24", 48),
+        ("x25", 56),
+        ("x26", 64),
+        ("x27", 72),
+    ] {
+        asm.push(abi::load_u64(reg, abi::stack_pointer(), off));
+    }
+    asm.push(abi::add_stack(frame));
+    asm.push(abi::return_());
+
+    CodeFunction {
+        name: "macapp.term.writeString".to_string(),
+        symbol: MFB_WRITE_STRING_SYMBOL.to_string(),
         params: Vec::new(),
         returns: "Nothing".to_string(),
         frame: CodeFrame {
@@ -2277,6 +2747,407 @@ pub(crate) fn emit_app_term_off_helper(
     )
 }
 
+/// App-mode dispatcher for the `term::` runtime helpers (plan-01-term.md §6.3,
+/// Phase 5). Returns `None` for calls that keep the shared console backend
+/// (`isOn` and the attribute getters, which read the term-state global the app
+/// setters keep updated).
+pub(crate) fn emit_app_term_helper(
+    call: &str,
+    symbol: &str,
+    term_state_offset: usize,
+) -> Option<(CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>)> {
+    let helper = match call {
+        "term.on" => emit_app_term_on_helper(symbol, term_state_offset),
+        "term.off" => emit_app_term_off_helper(symbol, term_state_offset),
+        "term.setForeground" => emit_app_set_color(
+            symbol,
+            term_state_offset,
+            code::TERM_STATE_FG_OFFSET,
+            TV_CUR_FG_OFFSET,
+        ),
+        "term.setBackground" => emit_app_set_color(
+            symbol,
+            term_state_offset,
+            code::TERM_STATE_BG_OFFSET,
+            TV_CUR_BG_OFFSET,
+        ),
+        "term.setBold" => emit_app_set_attr(
+            symbol,
+            term_state_offset,
+            code::TERM_STATE_BOLD_OFFSET,
+            TV_CUR_BOLD_OFFSET,
+        ),
+        "term.setUnderline" => emit_app_set_attr(
+            symbol,
+            term_state_offset,
+            code::TERM_STATE_UNDERLINE_OFFSET,
+            TV_CUR_UNDERLINE_OFFSET,
+        ),
+        "term.moveTo" => emit_app_move_to(symbol, term_state_offset),
+        "term.clear" => emit_app_clear(symbol, term_state_offset),
+        "term.showCursor" => emit_app_set_cursor_visible(symbol, term_state_offset, "1"),
+        "term.hideCursor" => emit_app_set_cursor_visible(symbol, term_state_offset, "0"),
+        "term.terminalSize" => emit_app_terminal_size(symbol, term_state_offset),
+        _ => return None,
+    };
+    Some(helper)
+}
+
+/// Branch to `done` when TUI mode is inactive (the §4.2.1 no-op gate). `x19` is
+/// the pinned arena-state base holding the term-state global.
+fn emit_term_active_gate(asm: &mut Asm, term_state_offset: usize, done: &str) {
+    asm.push(abi::load_u64(
+        "x9",
+        TERM_ARENA_STATE_REG,
+        term_state_offset + code::TERM_STATE_ACTIVE_OFFSET,
+    ));
+    asm.push(abi::compare_immediate("x9", "0"));
+    asm.push(abi::branch_eq(done));
+}
+
+/// Load the TermView's grid-state struct into `state_reg` (callee-saved); branch
+/// to `nil_label` when no surface is attached (headless). Clobbers x0/x1 and the
+/// objc call-clobbered registers, but not `x19` (the arena-state base).
+fn emit_get_tv_state(asm: &mut Asm, state_reg: &str, nil_label: &str) {
+    asm.external_data(state_reg, CLASS_NS_APPLICATION, LIB_APPKIT);
+    asm.load_selector(SEL_SHARED_APPLICATION.0);
+    asm.push(abi::move_register("x0", state_reg));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    asm.local_address("x1", TERMVIEW_ASSOC_KEY);
+    asm.call_external("_objc_getAssociatedObject", LIB_OBJC);
+    asm.push(abi::compare_immediate("x0", "0"));
+    asm.push(abi::branch_eq(nil_label));
+    asm.local_address("x1", TVSTATE_ASSOC_KEY);
+    asm.call_external("_objc_getAssociatedObject", LIB_OBJC);
+    asm.push(abi::move_register(state_reg, "x0"));
+    asm.push(abi::compare_immediate(state_reg, "0"));
+    asm.push(abi::branch_eq(nil_label));
+}
+
+/// Standard term runtime-helper epilogue: `x0 = RESULT_OK_TAG`, restore lr + the
+/// listed callee-saved registers, pop the frame, return.
+fn emit_term_ok_return(asm: &mut Asm, frame: usize, saved: &[(&str, usize)]) {
+    asm.push(abi::move_immediate("x0", "Integer", "0")); // RESULT_OK_TAG
+    asm.push(abi::load_u64(abi::link_register(), abi::stack_pointer(), 0));
+    for (reg, off) in saved {
+        asm.push(abi::load_u64(reg, abi::stack_pointer(), *off));
+    }
+    asm.push(abi::add_stack(frame));
+    asm.push(abi::return_());
+}
+
+/// `term::setForeground`/`setBackground` app body: pack r/g/b and store it to the
+/// term-state global (so the console-backed getters stay correct) and to the
+/// TermView's current-attribute field (so the write path tags cells with it).
+fn emit_app_set_color(
+    symbol: &str,
+    term_state_offset: usize,
+    global_field: usize,
+    tv_field: usize,
+) -> (CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>) {
+    let mut asm = Asm::new(symbol);
+    // Frame: lr@0, x20(state)@8, r/g/b (then packed) @16/@24/@32.
+    let frame = 48;
+    let done = format!("{symbol}_done");
+    asm.push(abi::label("entry"));
+    asm.push(abi::subtract_stack(frame));
+    asm.push(abi::store_u64(abi::link_register(), abi::stack_pointer(), 0));
+    asm.push(abi::store_u64("x20", abi::stack_pointer(), 8));
+    asm.push(abi::store_u64("x0", abi::stack_pointer(), 16)); // r
+    asm.push(abi::store_u64("x1", abi::stack_pointer(), 24)); // g
+    asm.push(abi::store_u64("x2", abi::stack_pointer(), 32)); // b
+    emit_term_active_gate(&mut asm, term_state_offset, &done);
+    // packed = r | g<<8 | b<<16
+    asm.push(abi::load_u64("x9", abi::stack_pointer(), 16));
+    asm.push(abi::load_u64("x10", abi::stack_pointer(), 24));
+    asm.push(abi::load_u64("x11", abi::stack_pointer(), 32));
+    asm.push(abi::shift_left_immediate("x10", "x10", 8));
+    asm.push(abi::shift_left_immediate("x11", "x11", 16));
+    asm.push(abi::or_registers("x9", "x9", "x10"));
+    asm.push(abi::or_registers("x9", "x9", "x11"));
+    asm.push(abi::store_u64(
+        "x9",
+        TERM_ARENA_STATE_REG,
+        term_state_offset + global_field,
+    ));
+    asm.push(abi::store_u64("x9", abi::stack_pointer(), 16)); // keep packed across calls
+    emit_get_tv_state(&mut asm, "x20", &done);
+    asm.push(abi::load_u64("x9", abi::stack_pointer(), 16));
+    asm.push(abi::store_u64("x9", "x20", tv_field));
+    asm.push(abi::label(&done));
+    emit_term_ok_return(&mut asm, frame, &[("x20", 8)]);
+    (
+        CodeFrame {
+            stack_size: 0,
+            callee_saved: Vec::new(),
+        },
+        asm.ins,
+        asm.rel,
+    )
+}
+
+/// `term::setBold`/`setUnderline` app body: store the flag to the term-state
+/// global and the TermView current-attribute field.
+fn emit_app_set_attr(
+    symbol: &str,
+    term_state_offset: usize,
+    global_field: usize,
+    tv_field: usize,
+) -> (CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>) {
+    let mut asm = Asm::new(symbol);
+    let frame = 32; // lr@0, x20(state)@8, enabled@16
+    let done = format!("{symbol}_done");
+    asm.push(abi::label("entry"));
+    asm.push(abi::subtract_stack(frame));
+    asm.push(abi::store_u64(abi::link_register(), abi::stack_pointer(), 0));
+    asm.push(abi::store_u64("x20", abi::stack_pointer(), 8));
+    asm.push(abi::store_u64("x0", abi::stack_pointer(), 16)); // enabled
+    emit_term_active_gate(&mut asm, term_state_offset, &done);
+    asm.push(abi::load_u64("x9", abi::stack_pointer(), 16));
+    asm.push(abi::store_u64(
+        "x9",
+        TERM_ARENA_STATE_REG,
+        term_state_offset + global_field,
+    ));
+    emit_get_tv_state(&mut asm, "x20", &done);
+    asm.push(abi::load_u64("x9", abi::stack_pointer(), 16));
+    asm.push(abi::store_u64("x9", "x20", tv_field));
+    asm.push(abi::label(&done));
+    emit_term_ok_return(&mut asm, frame, &[("x20", 8)]);
+    (
+        CodeFrame {
+            stack_size: 0,
+            callee_saved: Vec::new(),
+        },
+        asm.ins,
+        asm.rel,
+    )
+}
+
+/// `term::moveTo(row, col)` app body: clamp to `[0, rows-1] x [0, cols-1]` and
+/// store into the TermView cursor (plan §4.5).
+fn emit_app_move_to(
+    symbol: &str,
+    term_state_offset: usize,
+) -> (CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>) {
+    let mut asm = Asm::new(symbol);
+    let frame = 32; // lr@0, x20(state)@8, row@16, col@24
+    let done = format!("{symbol}_done");
+    asm.push(abi::label("entry"));
+    asm.push(abi::subtract_stack(frame));
+    asm.push(abi::store_u64(abi::link_register(), abi::stack_pointer(), 0));
+    asm.push(abi::store_u64("x20", abi::stack_pointer(), 8));
+    asm.push(abi::store_u64("x0", abi::stack_pointer(), 16)); // row
+    asm.push(abi::store_u64("x1", abi::stack_pointer(), 24)); // col
+    emit_term_active_gate(&mut asm, term_state_offset, &done);
+    emit_get_tv_state(&mut asm, "x20", &done);
+    // row = clamp(row, 0, rows-1)
+    asm.push(abi::load_u64("x9", abi::stack_pointer(), 16));
+    let row_lo = format!("{symbol}_row_lo");
+    let row_hi = format!("{symbol}_row_hi");
+    asm.push(abi::compare_immediate("x9", "0"));
+    asm.push(abi::branch_ge(&row_lo));
+    asm.push(abi::move_immediate("x9", "Integer", "0"));
+    asm.push(abi::label(&row_lo));
+    asm.push(abi::load_u64("x10", "x20", TV_ROWS_OFFSET));
+    asm.push(abi::subtract_immediate("x10", "x10", 1));
+    asm.push(abi::compare_registers("x9", "x10"));
+    asm.push(abi::branch_le(&row_hi));
+    asm.push(abi::move_register("x9", "x10"));
+    asm.push(abi::label(&row_hi));
+    asm.push(abi::store_u64("x9", "x20", TV_CURSOR_ROW_OFFSET));
+    // col = clamp(col, 0, cols-1)
+    asm.push(abi::load_u64("x9", abi::stack_pointer(), 24));
+    let col_lo = format!("{symbol}_col_lo");
+    let col_hi = format!("{symbol}_col_hi");
+    asm.push(abi::compare_immediate("x9", "0"));
+    asm.push(abi::branch_ge(&col_lo));
+    asm.push(abi::move_immediate("x9", "Integer", "0"));
+    asm.push(abi::label(&col_lo));
+    asm.push(abi::load_u64("x10", "x20", TV_COLS_OFFSET));
+    asm.push(abi::subtract_immediate("x10", "x10", 1));
+    asm.push(abi::compare_registers("x9", "x10"));
+    asm.push(abi::branch_le(&col_hi));
+    asm.push(abi::move_register("x9", "x10"));
+    asm.push(abi::label(&col_hi));
+    asm.push(abi::store_u64("x9", "x20", TV_CURSOR_COL_OFFSET));
+    asm.push(abi::label(&done));
+    emit_term_ok_return(&mut asm, frame, &[("x20", 8)]);
+    (
+        CodeFrame {
+            stack_size: 0,
+            callee_saved: Vec::new(),
+        },
+        asm.ins,
+        asm.rel,
+    )
+}
+
+/// `term::clear` app body: clear the grid + home the cursor (worker side), then
+/// trigger a redraw on the main thread.
+fn emit_app_clear(
+    symbol: &str,
+    term_state_offset: usize,
+) -> (CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>) {
+    let mut asm = Asm::new(symbol);
+    let frame = 32; // lr@0, x20(termView)@8, x21(sel)@16
+    let done = format!("{symbol}_done");
+    asm.push(abi::label("entry"));
+    asm.push(abi::subtract_stack(frame));
+    asm.push(abi::store_u64(abi::link_register(), abi::stack_pointer(), 0));
+    asm.push(abi::store_u64("x20", abi::stack_pointer(), 8));
+    asm.push(abi::store_u64("x21", abi::stack_pointer(), 16));
+    emit_term_active_gate(&mut asm, term_state_offset, &done);
+    // tv = objc_getAssociatedObject([NSApplication sharedApplication], &TERMVIEW_KEY)
+    asm.external_data("x20", CLASS_NS_APPLICATION, LIB_APPKIT);
+    asm.load_selector(SEL_SHARED_APPLICATION.0);
+    asm.push(abi::move_register("x0", "x20"));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    asm.local_address("x1", TERMVIEW_ASSOC_KEY);
+    asm.call_external("_objc_getAssociatedObject", LIB_OBJC);
+    asm.push(abi::move_register("x20", "x0")); // termView or nil
+    asm.push(abi::compare_immediate("x20", "0"));
+    asm.push(abi::branch_eq(&done));
+    // clear the grid + cursor (our heap, worker-safe)
+    asm.push(abi::move_register("x0", "x20"));
+    asm.call_internal(TERM_CLEAR_SYMBOL);
+    // [tv performSelectorOnMainThread:@selector(setNeedsDisplay:) withObject:tv waitUntilDone:YES]
+    // (any non-nil withObject reads as BOOL YES).
+    asm.load_selector(SEL_SET_NEEDS_DISPLAY.0);
+    asm.push(abi::move_register("x21", "x1"));
+    asm.load_selector(SEL_PERFORM_ON_MAIN.0);
+    asm.push(abi::move_register("x2", "x21"));
+    asm.push(abi::move_register("x3", "x20"));
+    asm.push(abi::move_immediate("x4", "Integer", "1"));
+    asm.push(abi::move_register("x0", "x20"));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    asm.push(abi::label(&done));
+    emit_term_ok_return(&mut asm, frame, &[("x20", 8), ("x21", 16)]);
+    (
+        CodeFrame {
+            stack_size: 0,
+            callee_saved: Vec::new(),
+        },
+        asm.ins,
+        asm.rel,
+    )
+}
+
+/// `term::showCursor`/`hideCursor` app body: store the cursor-visible flag into
+/// the TermView state (and the term-state global). Cursor glyph rendering is a
+/// later refinement, so no redraw is needed yet.
+fn emit_app_set_cursor_visible(
+    symbol: &str,
+    term_state_offset: usize,
+    value: &str,
+) -> (CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>) {
+    let mut asm = Asm::new(symbol);
+    let frame = 16; // lr@0, x20(state)@8
+    let done = format!("{symbol}_done");
+    asm.push(abi::label("entry"));
+    asm.push(abi::subtract_stack(frame));
+    asm.push(abi::store_u64(abi::link_register(), abi::stack_pointer(), 0));
+    asm.push(abi::store_u64("x20", abi::stack_pointer(), 8));
+    emit_term_active_gate(&mut asm, term_state_offset, &done);
+    asm.push(abi::move_immediate("x9", "Integer", value));
+    asm.push(abi::store_u64(
+        "x9",
+        TERM_ARENA_STATE_REG,
+        term_state_offset + code::TERM_STATE_CURSOR_VISIBLE_OFFSET,
+    ));
+    emit_get_tv_state(&mut asm, "x20", &done);
+    asm.push(abi::move_immediate("x9", "Integer", value));
+    asm.push(abi::store_u64("x9", "x20", TV_CURSOR_VISIBLE_OFFSET));
+    asm.push(abi::label(&done));
+    emit_term_ok_return(&mut asm, frame, &[("x20", 8)]);
+    (
+        CodeFrame {
+            stack_size: 0,
+            callee_saved: Vec::new(),
+        },
+        asm.ins,
+        asm.rel,
+    )
+}
+
+/// `term::terminalSize` app body: return a `TermSize { columns, rows }` record
+/// from the TermView grid, or `ERR_UNSUPPORTED` when inactive / no surface.
+fn emit_app_terminal_size(
+    symbol: &str,
+    term_state_offset: usize,
+) -> (CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>) {
+    let mut asm = Asm::new(symbol);
+    // Frame: lr@0, x20(state)@8, columns@16, rows@24.
+    let frame = 48;
+    let unsupported = format!("{symbol}_unsupported");
+    let done = format!("{symbol}_done");
+    asm.push(abi::label("entry"));
+    asm.push(abi::subtract_stack(frame));
+    asm.push(abi::store_u64(abi::link_register(), abi::stack_pointer(), 0));
+    asm.push(abi::store_u64("x20", abi::stack_pointer(), 8));
+    // Requires active TUI mode (plan §4.7).
+    asm.push(abi::load_u64(
+        "x9",
+        TERM_ARENA_STATE_REG,
+        term_state_offset + code::TERM_STATE_ACTIVE_OFFSET,
+    ));
+    asm.push(abi::compare_immediate("x9", "0"));
+    asm.push(abi::branch_eq(&unsupported));
+    emit_get_tv_state(&mut asm, "x20", &unsupported);
+    asm.push(abi::load_u64("x10", "x20", TV_COLS_OFFSET));
+    asm.push(abi::load_u64("x11", "x20", TV_ROWS_OFFSET));
+    asm.push(abi::store_u64("x10", abi::stack_pointer(), 16));
+    asm.push(abi::store_u64("x11", abi::stack_pointer(), 24));
+    // record = arena_alloc(16, 8); columns@0, rows@8.
+    asm.push(abi::move_immediate("x0", "Integer", "16"));
+    asm.push(abi::move_immediate("x1", "Integer", "8"));
+    asm.call_internal(ARENA_ALLOC_SYMBOL);
+    asm.push(abi::compare_immediate("x0", "0")); // RESULT_OK_TAG
+    asm.push(abi::branch_ne(&unsupported));
+    asm.push(abi::load_u64("x10", abi::stack_pointer(), 16));
+    asm.push(abi::load_u64("x11", abi::stack_pointer(), 24));
+    asm.push(abi::store_u64("x10", "x1", 0)); // columns
+    asm.push(abi::store_u64("x11", "x1", 8)); // rows
+    asm.push(abi::move_immediate("x0", "Integer", "0")); // OK; x1 = record
+    asm.push(abi::branch(&done));
+    asm.push(abi::label(&unsupported));
+    asm.push(abi::move_immediate("x1", "Integer", ERR_UNSUPPORTED_CODE));
+    asm.push(abi::move_immediate("x0", "Integer", "1")); // ERR tag
+    asm.push(
+        CodeInstruction::new("adrp")
+            .field("dst", "x2")
+            .field("symbol", ERR_UNSUPPORTED_SYMBOL),
+    );
+    asm.push(
+        CodeInstruction::new("add_pageoff")
+            .field("dst", "x2")
+            .field("src", "x2")
+            .field("symbol", ERR_UNSUPPORTED_SYMBOL),
+    );
+    for kind in ["page21", "pageoff12"] {
+        asm.rel.push(CodeRelocation {
+            from: symbol.to_string(),
+            to: ERR_UNSUPPORTED_SYMBOL.to_string(),
+            kind: kind.to_string(),
+            binding: "data".to_string(),
+            library: None,
+        });
+    }
+    asm.push(abi::label(&done));
+    asm.push(abi::load_u64(abi::link_register(), abi::stack_pointer(), 0));
+    asm.push(abi::load_u64("x20", abi::stack_pointer(), 8));
+    asm.push(abi::add_stack(frame));
+    asm.push(abi::return_());
+    (
+        CodeFrame {
+            stack_size: 0,
+            callee_saved: Vec::new(),
+        },
+        asm.ins,
+        asm.rel,
+    )
+}
+
 /// Build `[NSString stringWithUTF8String:<cstr>]` into `x0`. `class_tmp` is a
 /// callee-saved scratch register (free at the call site) used for the class.
 fn build_nsstring_from_cstring(asm: &mut Asm, class_tmp: &str, cstr_symbol: &str) {
@@ -2365,15 +3236,24 @@ pub(crate) fn app_mode_data_objects() -> Vec<CodeDataObject> {
         SEL_MAX_ADVANCEMENT,
         SEL_LAYOUT_MANAGER,
         SEL_DEFAULT_LINE_HEIGHT,
-        // term:: synthesized TermView surface (plan-01-term.md §6.3, Phase 4).
+        // term:: synthesized TermView surface (plan-01-term.md §6.3, Phase 4-5).
         SEL_DRAW_RECT,
         SEL_IS_FLIPPED,
         SEL_SET_CONTENT_VIEW,
         SEL_COLOR_WITH_RGBA,
         SEL_SET,
+        SEL_WHITE_COLOR,
+        SEL_BLACK_COLOR,
+        SEL_DRAW_AT_POINT,
+        SEL_STRING_WITH_CHARS,
+        SEL_DICTIONARY,
+        SEL_SET_OBJECT_FOR_KEY,
+        SEL_SET_NEEDS_DISPLAY,
+        SEL_MFB_WRITE_STRING,
         STR_TERMVIEW_CLASS_NAME,
         STR_DRAW_RECT_TYPES,
         STR_IS_FLIPPED_TYPES,
+        STR_WRITE_STRING_TYPES,
     ]
     .iter()
     .map(|(symbol, text)| CodeDataObject {

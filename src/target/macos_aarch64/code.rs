@@ -89,9 +89,15 @@ impl code::CodegenPlatform for Platform {
         symbol: &str,
         stderr: bool,
         newline: bool,
+        term_state_offset: Option<usize>,
         _platform_imports: &HashMap<String, String>,
     ) -> Option<Result<(code::CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>), String>> {
-        Some(Ok(app::emit_app_io_write_helper(symbol, stderr, newline)))
+        Some(Ok(app::emit_app_io_write_helper(
+            symbol,
+            stderr,
+            newline,
+            term_state_offset,
+        )))
     }
 
     fn emit_app_io_flush_helper(
@@ -132,20 +138,13 @@ impl code::CodegenPlatform for Platform {
         Some(Ok(app::emit_app_io_terminal_size_helper(symbol)))
     }
 
-    fn emit_app_term_on_helper(
+    fn emit_app_term_helper(
         &self,
+        call: &str,
         symbol: &str,
         term_state_offset: usize,
     ) -> Option<Result<(code::CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>), String>> {
-        Some(Ok(app::emit_app_term_on_helper(symbol, term_state_offset)))
-    }
-
-    fn emit_app_term_off_helper(
-        &self,
-        symbol: &str,
-        term_state_offset: usize,
-    ) -> Option<Result<(code::CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>), String>> {
-        Some(Ok(app::emit_app_term_off_helper(symbol, term_state_offset)))
+        app::emit_app_term_helper(call, symbol, term_state_offset).map(Ok)
     }
 
     fn emit_program_exit(

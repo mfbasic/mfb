@@ -594,6 +594,7 @@ pub(crate) trait CodegenPlatform {
         _symbol: &str,
         _stderr: bool,
         _newline: bool,
+        _term_state_offset: Option<usize>,
         _platform_imports: &HashMap<String, String>,
     ) -> Option<Result<(CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>), String>> {
         None
@@ -654,24 +655,14 @@ pub(crate) trait CodegenPlatform {
         None
     }
 
-    /// App-mode body for `term::on` (plan-01-term.md §6.3, Phase 4): reset the
-    /// term-state global and swap the synthesized TermView in as the window
-    /// content view. `None` for targets without app mode.
+    /// App-mode body for a `term::` runtime helper that drives the synthesized
+    /// TermView surface (plan-01-term.md §6.3, Phase 4-5). Returns `None` for
+    /// calls that keep the shared console backend (and for targets without app
+    /// mode).
     #[allow(clippy::type_complexity)]
-    fn emit_app_term_on_helper(
+    fn emit_app_term_helper(
         &self,
-        _symbol: &str,
-        _term_state_offset: usize,
-    ) -> Option<Result<(CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>), String>> {
-        None
-    }
-
-    /// App-mode body for `term::off` (plan-01-term.md §6.3, Phase 4): restore the
-    /// transcript scroll view as the window content view. `None` for targets
-    /// without app mode.
-    #[allow(clippy::type_complexity)]
-    fn emit_app_term_off_helper(
-        &self,
+        _call: &str,
         _symbol: &str,
         _term_state_offset: usize,
     ) -> Option<Result<(CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>), String>> {
@@ -3009,11 +3000,7 @@ fn lower_runtime_helper(
         // (plan-01-term.md §6.3); the remaining term:: helpers keep the shared
         // console backend until Phase 5 wires their app bodies.
         let app_term_helper = if app_mode {
-            match spec.call {
-                "term.on" => platform.emit_app_term_on_helper(symbol, term_state_offset),
-                "term.off" => platform.emit_app_term_off_helper(symbol, term_state_offset),
-                _ => None,
-            }
+            platform.emit_app_term_helper(spec.call, symbol, term_state_offset)
         } else {
             None
         };
@@ -3051,7 +3038,7 @@ fn lower_runtime_helper(
             // (plan-04-macos-app.md §5.4) instead of a file descriptor.
             let (frame, instructions, relocations) = if app_mode {
                 platform
-                    .emit_app_io_write_helper(symbol, stderr, newline, platform_imports)
+                    .emit_app_io_write_helper(symbol, stderr, newline, term_state_offset, platform_imports)
                     .ok_or_else(|| {
                         format!(
                             "native target '{}' does not support app-mode io helpers",
