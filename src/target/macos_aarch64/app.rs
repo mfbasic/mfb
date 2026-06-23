@@ -244,6 +244,14 @@ const SEL_MFB_WRITE_STRING: (&str, &str) = ("_mfb_macapp_sel_mfbWriteString", "m
 const NS_FOREGROUND_COLOR_ATTRIBUTE_NAME: &str = "_NSForegroundColorAttributeName";
 /// IMP for the TermView `mfbWriteString:` main-thread write entry point.
 const MFB_WRITE_STRING_SYMBOL: &str = "_mfb_macapp_term_writeString";
+/// `acceptsFirstResponder` — TermView must return YES so it can become the
+/// window's first responder and receive `keyDown:` while TUI mode is active.
+const SEL_ACCEPTS_FIRST_RESPONDER: (&str, &str) =
+    ("_mfb_macapp_sel_acceptsFirstResponder", "acceptsFirstResponder");
+/// IMP for TermView `acceptsFirstResponder` (returns YES).
+const TERM_ACCEPTS_FR_SYMBOL: &str = "_mfb_macapp_term_acceptsFR";
+/// IMP for TermView `keyDown:` (routes typed keys to the window input pipe).
+const TERM_KEY_DOWN_SYMBOL: &str = "_mfb_macapp_term_keyDown";
 /// Obj-C method type encoding for `void (id, SEL, id)`.
 const STR_WRITE_STRING_TYPES: (&str, &str) = ("_mfb_macapp_str_writeStringTypes", "v@:@");
 /// Class names for the synthesized surface and the AppKit drawing primitives it
@@ -483,6 +491,8 @@ pub(crate) fn emit_app_program_entry(spec: &AppEntrySpec) -> Result<Vec<CodeFunc
         emit_term_clear_helper(),
         emit_term_scroll_helper(),
         emit_term_write_string_helper(),
+        emit_term_accepts_first_responder(),
+        emit_term_key_down_helper(),
     ])
 }
 
@@ -703,6 +713,19 @@ fn emit_main_bootstrap() -> CodeFunction {
     asm.load_selector(SEL_MFB_WRITE_STRING.0);
     asm.local_address("x2", MFB_WRITE_STRING_SYMBOL);
     asm.local_address("x3", STR_WRITE_STRING_TYPES.0);
+    asm.push(abi::move_register("x0", "x25"));
+    asm.call_external("_class_addMethod", LIB_OBJC);
+    // class_addMethod(cls, @selector(acceptsFirstResponder), imp, "c@:") — so the
+    // TermView can become first responder and receive keyDown: in TUI mode.
+    asm.load_selector(SEL_ACCEPTS_FIRST_RESPONDER.0);
+    asm.local_address("x2", TERM_ACCEPTS_FR_SYMBOL);
+    asm.local_address("x3", STR_IS_FLIPPED_TYPES.0); // "c@:"
+    asm.push(abi::move_register("x0", "x25"));
+    asm.call_external("_class_addMethod", LIB_OBJC);
+    // class_addMethod(cls, @selector(keyDown:), imp, "v@:@")
+    asm.load_selector(SEL_KEY_DOWN.0);
+    asm.local_address("x2", TERM_KEY_DOWN_SYMBOL);
+    asm.local_address("x3", STR_INPUT_TYPES.0); // "v@:@"
     asm.push(abi::move_register("x0", "x25"));
     asm.call_external("_class_addMethod", LIB_OBJC);
     // objc_registerClassPair(cls)
@@ -2603,6 +2626,221 @@ fn emit_term_write_string_helper() -> CodeFunction {
     }
 }
 
+/// IMP for TermView `acceptsFirstResponder` — returns YES so the surface can take
+/// keyboard focus while TUI mode is active.
+fn emit_term_accepts_first_responder() -> CodeFunction {
+    let mut asm = Asm::new(TERM_ACCEPTS_FR_SYMBOL);
+    asm.push(abi::label("entry"));
+    asm.push(abi::move_immediate("x0", "Integer", "1")); // YES
+    asm.push(abi::return_());
+    CodeFunction {
+        name: "macapp.term.acceptsFirstResponder".to_string(),
+        symbol: TERM_ACCEPTS_FR_SYMBOL.to_string(),
+        params: Vec::new(),
+        returns: "Boolean".to_string(),
+        frame: CodeFrame {
+            stack_size: 0,
+            callee_saved: Vec::new(),
+        },
+        stack_slots: Vec::new(),
+        instructions: asm.ins,
+        relocations: asm.rel,
+    }
+}
+
+/// IMP for TermView `keyDown:` (`void keyDown:(id self, SEL, NSEvent *event)`):
+/// the TUI-surface analogue of the transcript's keyDown: (plan-01-term.md §4.8 /
+/// §3 — input stays an `io::` concern). Raw mode writes the key's UTF-8 to the
+/// window input pipe immediately; line mode buffers until Return then delivers
+/// the line, echoing typed characters into the surface itself. Runs on the main
+/// thread.
+fn emit_term_key_down_helper() -> CodeFunction {
+    let mut asm = Asm::new(TERM_KEY_DOWN_SYMBOL);
+    // Frame: lr@0, x19(self)@8, x20(app)@16, x21(chars/cstr)@24, x23(event/wfd/
+    // scratch)@40, x24(char/scratch)@48, x25(input line)@56, x26(input mode)@64,
+    // newline byte@72.
+    let frame = 96;
+    asm.push(abi::label("entry"));
+    asm.push(abi::subtract_stack(frame));
+    asm.push(abi::store_u64(abi::link_register(), abi::stack_pointer(), 0));
+    for (reg, off) in [
+        ("x19", 8),
+        ("x20", 16),
+        ("x21", 24),
+        ("x23", 40),
+        ("x24", 48),
+        ("x25", 56),
+        ("x26", 64),
+    ] {
+        asm.push(abi::store_u64(reg, abi::stack_pointer(), off));
+    }
+    asm.push(abi::move_register("x19", "x0")); // self (TermView)
+    asm.push(abi::move_register("x23", "x2")); // event
+
+    // chars = [event characters]; if [chars length] == 0 -> done
+    asm.load_selector(SEL_CHARACTERS.0);
+    asm.push(abi::move_register("x0", "x23"));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    asm.push(abi::move_register("x21", "x0")); // chars
+    asm.load_selector(SEL_LENGTH.0);
+    asm.push(abi::move_register("x0", "x21"));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    asm.push(abi::compare_immediate("x0", "0"));
+    asm.push(abi::branch_eq("tkd_done"));
+    // c = [chars characterAtIndex:0]
+    asm.load_selector(SEL_CHAR_AT_INDEX.0);
+    asm.push(abi::move_immediate("x2", "Integer", "0"));
+    asm.push(abi::move_register("x0", "x21"));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    asm.push(abi::move_register("x24", "x0")); // char code
+
+    // app, input line buffer, input mode.
+    asm.external_data("x20", CLASS_NS_APPLICATION, LIB_APPKIT);
+    asm.load_selector(SEL_SHARED_APPLICATION.0);
+    asm.push(abi::move_register("x0", "x20"));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    asm.push(abi::move_register("x20", "x0")); // app
+    asm.push(abi::move_register("x0", "x20"));
+    asm.local_address("x1", INPUT_LINE_KEY);
+    asm.call_external("_objc_getAssociatedObject", LIB_OBJC);
+    asm.push(abi::move_register("x25", "x0")); // input line buffer
+    asm.push(abi::move_register("x0", "x20"));
+    asm.local_address("x1", INPUT_MODE_KEY);
+    asm.call_external("_objc_getAssociatedObject", LIB_OBJC);
+    asm.push(abi::move_register("x26", "x0")); // input mode
+
+    // Dispatch on the key.
+    asm.push(abi::compare_immediate("x26", INPUT_MODE_RAW_NO_ECHO));
+    asm.push(abi::branch_eq("tkd_raw"));
+    asm.push(abi::compare_immediate("x24", "13")); // CR
+    asm.push(abi::branch_eq("tkd_commit"));
+    asm.push(abi::compare_immediate("x24", "10")); // LF
+    asm.push(abi::branch_eq("tkd_commit"));
+    asm.push(abi::compare_immediate("x24", "3")); // Enter
+    asm.push(abi::branch_eq("tkd_commit"));
+    asm.push(abi::compare_immediate("x24", "127")); // Delete
+    asm.push(abi::branch_eq("tkd_backspace"));
+    asm.push(abi::compare_immediate("x24", "8")); // Backspace
+    asm.push(abi::branch_eq("tkd_backspace"));
+
+    // Default: [inputLine appendString:chars]; echo to the surface for io.input.
+    asm.load_selector(SEL_APPEND_STRING.0);
+    asm.push(abi::move_register("x2", "x21"));
+    asm.push(abi::move_register("x0", "x25"));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    asm.push(abi::compare_immediate("x26", INPUT_MODE_LINE_ECHO));
+    asm.push(abi::branch_ne("tkd_done"));
+    // [self mfbWriteString:chars]
+    asm.load_selector(SEL_MFB_WRITE_STRING.0);
+    asm.push(abi::move_register("x2", "x21"));
+    asm.push(abi::move_register("x0", "x19"));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    asm.push(abi::branch("tkd_done"));
+
+    // Commit: deliver the buffered line + newline to the pipe; echo a newline.
+    asm.push(abi::label("tkd_commit"));
+    asm.push(abi::move_register("x0", "x20"));
+    asm.local_address("x1", PIPE_ASSOC_KEY);
+    asm.call_external("_objc_getAssociatedObject", LIB_OBJC);
+    asm.push(abi::move_register("x23", "x0")); // write fd
+    asm.load_selector(SEL_UTF8_STRING.0);
+    asm.push(abi::move_register("x0", "x25"));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    asm.push(abi::move_register("x21", "x0")); // UTF-8 bytes of the line
+    asm.push(abi::move_register("x0", "x21"));
+    asm.call_external("_strlen", LIB_SYSTEM);
+    asm.push(abi::move_register("x2", "x0"));
+    asm.push(abi::move_register("x0", "x23"));
+    asm.push(abi::move_register("x1", "x21"));
+    asm.call_external("_write", LIB_SYSTEM);
+    asm.push(abi::move_immediate("x9", "Integer", "10"));
+    asm.push(abi::store_u8("x9", abi::stack_pointer(), 72));
+    asm.push(abi::move_register("x0", "x23"));
+    asm.push(abi::add_immediate("x1", abi::stack_pointer(), 72));
+    asm.push(abi::move_immediate("x2", "Integer", "1"));
+    asm.call_external("_write", LIB_SYSTEM);
+    asm.push(abi::compare_immediate("x26", INPUT_MODE_LINE_ECHO));
+    asm.push(abi::branch_ne("tkd_commit_clear"));
+    build_nsstring_from_cstring(&mut asm, "x21", STR_NEWLINE.0);
+    asm.push(abi::move_register("x24", "x0")); // "\n" (callee-saved across load_selector)
+    asm.load_selector(SEL_MFB_WRITE_STRING.0);
+    asm.push(abi::move_register("x2", "x24"));
+    asm.push(abi::move_register("x0", "x19"));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    asm.push(abi::label("tkd_commit_clear"));
+    build_nsstring_from_cstring(&mut asm, "x21", STR_EMPTY.0);
+    asm.push(abi::move_register("x24", "x0")); // empty string
+    asm.load_selector(SEL_SET_STRING.0);
+    asm.push(abi::move_register("x2", "x24"));
+    asm.push(abi::move_register("x0", "x25"));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    asm.push(abi::branch("tkd_done"));
+
+    // Backspace: drop the last character from the buffer.
+    asm.push(abi::label("tkd_backspace"));
+    asm.load_selector(SEL_LENGTH.0);
+    asm.push(abi::move_register("x0", "x25"));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    asm.push(abi::compare_immediate("x0", "0"));
+    asm.push(abi::branch_eq("tkd_done"));
+    asm.push(abi::move_register("x23", "x0")); // buffer length
+    asm.load_selector(SEL_DELETE_RANGE.0);
+    asm.push(abi::subtract_immediate("x2", "x23", 1));
+    asm.push(abi::move_immediate("x3", "Integer", "1"));
+    asm.push(abi::move_register("x0", "x25"));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    asm.push(abi::branch("tkd_done"));
+
+    // Raw read mode: write this key's UTF-8 to the input pipe; no echo/buffering.
+    asm.push(abi::label("tkd_raw"));
+    asm.push(abi::move_register("x0", "x20"));
+    asm.local_address("x1", PIPE_ASSOC_KEY);
+    asm.call_external("_objc_getAssociatedObject", LIB_OBJC);
+    asm.push(abi::move_register("x23", "x0")); // write fd
+    asm.load_selector(SEL_UTF8_STRING.0);
+    asm.push(abi::move_register("x0", "x21"));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    asm.push(abi::move_register("x21", "x0")); // UTF-8 bytes for chars
+    asm.push(abi::move_register("x0", "x21"));
+    asm.call_external("_strlen", LIB_SYSTEM);
+    asm.push(abi::compare_immediate("x0", "0"));
+    asm.push(abi::branch_eq("tkd_done"));
+    asm.push(abi::move_register("x2", "x0"));
+    asm.push(abi::move_register("x0", "x23"));
+    asm.push(abi::move_register("x1", "x21"));
+    asm.call_external("_write", LIB_SYSTEM);
+
+    asm.push(abi::label("tkd_done"));
+    asm.push(abi::load_u64(abi::link_register(), abi::stack_pointer(), 0));
+    for (reg, off) in [
+        ("x19", 8),
+        ("x20", 16),
+        ("x21", 24),
+        ("x23", 40),
+        ("x24", 48),
+        ("x25", 56),
+        ("x26", 64),
+    ] {
+        asm.push(abi::load_u64(reg, abi::stack_pointer(), off));
+    }
+    asm.push(abi::add_stack(frame));
+    asm.push(abi::return_());
+
+    CodeFunction {
+        name: "macapp.term.keyDown".to_string(),
+        symbol: TERM_KEY_DOWN_SYMBOL.to_string(),
+        params: Vec::new(),
+        returns: "Nothing".to_string(),
+        frame: CodeFrame {
+            stack_size: 0,
+            callee_saved: Vec::new(),
+        },
+        stack_slots: Vec::new(),
+        instructions: asm.ins,
+        relocations: asm.rel,
+    }
+}
+
 /// Store an immediate into a term-state-global slot reached off the pinned
 /// arena-state register (plan-01-term.md §6.2).
 fn store_term_state(asm: &mut Asm, term_state_offset: usize, field_offset: usize, value: &str) {
@@ -2694,6 +2932,17 @@ pub(crate) fn emit_app_term_on_helper(
     asm.push(abi::move_register("x0", "x21"));
     asm.call_external("_objc_msgSend", LIB_OBJC);
 
+    // [window performSelectorOnMainThread:@selector(makeFirstResponder:)
+    //         withObject:termview waitUntilDone:YES] — route keys to the surface.
+    asm.load_selector(SEL_MAKE_FIRST_RESPONDER.0);
+    asm.push(abi::move_register("x23", "x1"));
+    asm.load_selector(SEL_PERFORM_ON_MAIN.0);
+    asm.push(abi::move_register("x2", "x23"));
+    asm.push(abi::move_register("x3", "x22")); // termview
+    asm.push(abi::move_immediate("x4", "Integer", "1"));
+    asm.push(abi::move_register("x0", "x21")); // window
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+
     asm.push(abi::label("term_on_done"));
     asm.push(abi::move_immediate("x0", "Integer", "0")); // RESULT_OK_TAG
     asm.push(abi::load_u64(abi::link_register(), abi::stack_pointer(), 0));
@@ -2771,6 +3020,20 @@ pub(crate) fn emit_app_term_off_helper(
     asm.push(abi::move_register("x3", "x22"));
     asm.push(abi::move_immediate("x4", "Integer", "1")); // waitUntilDone: YES
     asm.push(abi::move_register("x0", "x21"));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+
+    // Restore the transcript as first responder so window input returns to it.
+    asm.push(abi::move_register("x0", "x20")); // app
+    asm.local_address("x1", ASSOC_KEY);
+    asm.call_external("_objc_getAssociatedObject", LIB_OBJC);
+    asm.push(abi::move_register("x22", "x0")); // transcript view
+    asm.load_selector(SEL_MAKE_FIRST_RESPONDER.0);
+    asm.push(abi::move_register("x23", "x1"));
+    asm.load_selector(SEL_PERFORM_ON_MAIN.0);
+    asm.push(abi::move_register("x2", "x23"));
+    asm.push(abi::move_register("x3", "x22"));
+    asm.push(abi::move_immediate("x4", "Integer", "1"));
+    asm.push(abi::move_register("x0", "x21")); // window
     asm.call_external("_objc_msgSend", LIB_OBJC);
 
     asm.push(abi::label("term_off_inactive"));
@@ -3298,6 +3561,7 @@ pub(crate) fn app_mode_data_objects() -> Vec<CodeDataObject> {
         SEL_SET_OBJECT_FOR_KEY,
         SEL_SET_NEEDS_DISPLAY,
         SEL_MFB_WRITE_STRING,
+        SEL_ACCEPTS_FIRST_RESPONDER,
         STR_TERMVIEW_CLASS_NAME,
         STR_DRAW_RECT_TYPES,
         STR_IS_FLIPPED_TYPES,
