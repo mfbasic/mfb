@@ -74,9 +74,7 @@ fn build_and_run(name: &str, source: &str) -> String {
 /// `DO WHILE` forms (below) are correct, which points at the post-test loop's
 /// handling of a constant-initialized `MUT` local rather than `&` itself.
 ///
-/// Ignored until the codegen bug is fixed; remove `#[ignore]` to verify the fix.
 #[test]
-#[ignore = "known bug: DO...LOOP UNTIL reads a MUT String as its stale initial value each iteration"]
 fn native_do_until_preserves_mut_string_across_iterations() {
     let out = build_and_run(
         "loop_do_until_string",

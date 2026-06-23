@@ -385,6 +385,13 @@ impl CodeBuilder<'_> {
                         let condition_label = self.label("do_until");
                         let end_label = self.label("do_end");
                         self.emit(abi::label(&loop_label));
+                        // The back-edge jumps to `loop_label` above the body, so
+                        // constants known at loop entry (e.g. a `MUT` local's literal
+                        // initializer) must not fold reads inside the body — they go
+                        // stale once the body reassigns them on later iterations.
+                        // Matches the `clear_local_constants()` the `While` path runs
+                        // before its body.
+                        self.clear_local_constants();
                         self.loop_stack.push(LoopLabels {
                             kind: crate::ast::LoopKind::Do,
                             continue_label: condition_label.clone(),
