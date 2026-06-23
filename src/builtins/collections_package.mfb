@@ -1,0 +1,287 @@
+' Built-in `collections` package implementation (plan-01-functions.md §6.4).
+' These generic functions are injected when a project imports `collections`.
+' A user call `collections::sort(x)` is rewritten to `__collections_sort(x)`
+' during monomorphization, so each is instantiated like any generic function.
+
+FUNC __collections_sort OF T(value AS List OF T) AS List OF T
+  MUT items AS List OF T = value
+  MUT i AS Integer = 1
+  WHILE i < len(items)
+    MUT j AS Integer = i
+    WHILE j > 0 AND get(items, j) < get(items, j - 1)
+      LET tmp AS T = get(items, j)
+      items = set(items, j, get(items, j - 1))
+      items = set(items, j - 1, tmp)
+      j = j - 1
+    WEND
+    i = i + 1
+  WEND
+  RETURN items
+END FUNC
+
+FUNC __collections_take OF T(value AS List OF T, count AS Integer) AS List OF T
+  MUT result AS List OF T = []
+  MUT limit AS Integer = count
+  IF limit > len(value) THEN
+    limit = len(value)
+  END IF
+  MUT i AS Integer = 0
+  WHILE i < limit
+    result = append(result, get(value, i))
+    i = i + 1
+  WEND
+  RETURN result
+END FUNC
+
+' --- internal helpers ---------------------------------------------------------
+
+FUNC __collections_reverse OF T(value AS List OF T) AS List OF T
+  MUT result AS List OF T = []
+  MUT i AS Integer = len(value) - 1
+  WHILE i >= 0
+    result = append(result, get(value, i))
+    i = i - 1
+  WEND
+  RETURN result
+END FUNC
+
+FUNC __collections_slice OF T(value AS List OF T, start AS Integer, stop AS Integer) AS List OF T
+  MUT result AS List OF T = []
+  MUT i AS Integer = start
+  WHILE i < stop
+    result = append(result, get(value, i))
+    i = i + 1
+  WEND
+  RETURN result
+END FUNC
+
+' --- new functions (§6.4) -----------------------------------------------------
+
+FUNC __collections_sortBy OF T, U(value AS List OF T, keyFn AS FUNC(T) AS U) AS List OF T
+  MUT items AS List OF T = value
+  MUT keys AS List OF U = transform(value, keyFn)
+  MUT i AS Integer = 1
+  WHILE i < len(items)
+    MUT j AS Integer = i
+    WHILE j > 0 AND get(keys, j) < get(keys, j - 1)
+      LET tmpItem AS T = get(items, j)
+      items = set(items, j, get(items, j - 1))
+      items = set(items, j - 1, tmpItem)
+      LET tmpKey AS U = get(keys, j)
+      keys = set(keys, j, get(keys, j - 1))
+      keys = set(keys, j - 1, tmpKey)
+      j = j - 1
+    WEND
+    i = i + 1
+  WEND
+  RETURN items
+END FUNC
+
+FUNC __collections_drop OF T(value AS List OF T, count AS Integer) AS List OF T
+  MUT result AS List OF T = []
+  MUT i AS Integer = count
+  IF i < 0 THEN
+    i = 0
+  END IF
+  WHILE i < len(value)
+    result = append(result, get(value, i))
+    i = i + 1
+  WEND
+  RETURN result
+END FUNC
+
+FUNC __collections_reduceRight OF T, U(value AS List OF T, initial AS U, f AS FUNC(U, T) AS U) AS U
+  LET reversed AS List OF T = __collections_reverse(value)
+  RETURN reduce(reversed, initial, f)
+END FUNC
+
+FUNC __collections_any OF T(value AS List OF T, predicate AS FUNC(T) AS Boolean) AS Boolean
+  LET flags AS List OF Boolean = transform(value, predicate)
+  MUT i AS Integer = 0
+  WHILE i < len(flags)
+    IF get(flags, i) THEN
+      RETURN TRUE
+    END IF
+    i = i + 1
+  WEND
+  RETURN FALSE
+END FUNC
+
+FUNC __collections_all OF T(value AS List OF T, predicate AS FUNC(T) AS Boolean) AS Boolean
+  LET flags AS List OF Boolean = transform(value, predicate)
+  MUT i AS Integer = 0
+  WHILE i < len(flags)
+    IF NOT get(flags, i) THEN
+      RETURN FALSE
+    END IF
+    i = i + 1
+  WEND
+  RETURN TRUE
+END FUNC
+
+FUNC __collections_findIndex OF T(value AS List OF T, predicate AS FUNC(T) AS Boolean, start AS Integer = 0) AS Integer
+  IF start < 0 OR start > len(value) THEN
+    FAIL error(77050001, "index out of range")
+  END IF
+  LET flags AS List OF Boolean = transform(value, predicate)
+  MUT i AS Integer = start
+  WHILE i < len(flags)
+    IF get(flags, i) THEN
+      RETURN i
+    END IF
+    i = i + 1
+  WEND
+  FAIL error(77050004, "not found")
+END FUNC
+
+FUNC __collections_findLastIndex OF T(value AS List OF T, predicate AS FUNC(T) AS Boolean, endIndex AS Integer = -1) AS Integer
+  MUT e AS Integer = endIndex
+  IF e < 0 THEN
+    e = len(value) + e
+  END IF
+  IF e < 0 OR e >= len(value) THEN
+    FAIL error(77050001, "index out of range")
+  END IF
+  LET flags AS List OF Boolean = transform(value, predicate)
+  MUT i AS Integer = e
+  WHILE i >= 0
+    IF get(flags, i) THEN
+      RETURN i
+    END IF
+    i = i - 1
+  WEND
+  FAIL error(77050004, "not found")
+END FUNC
+
+FUNC __collections_groupBy OF T, K, V(value AS List OF T, keyFn AS FUNC(T) AS K, valFn AS FUNC(T) AS V) AS Map OF K TO List OF V
+  LET keys AS List OF K = transform(value, keyFn)
+  LET vals AS List OF V = transform(value, valFn)
+  MUT result AS Map OF K TO List OF V = Map OF K TO List OF V {}
+  MUT i AS Integer = 0
+  WHILE i < len(keys)
+    LET k AS K = get(keys, i)
+    LET v AS V = get(vals, i)
+    IF hasKey(result, k) THEN
+      MUT bucket AS List OF V = get(result, k)
+      bucket = append(bucket, v)
+      result = set(result, k, bucket)
+    ELSE
+      MUT bucket AS List OF V = []
+      bucket = append(bucket, v)
+      result = set(result, k, bucket)
+    END IF
+    i = i + 1
+  WEND
+  RETURN result
+END FUNC
+
+FUNC __collections_mapValues OF K, V, U(value AS Map OF K TO V, f AS FUNC(V) AS U) AS Map OF K TO U
+  LET ks AS List OF K = keys(value)
+  LET vs AS List OF V = values(value)
+  LET us AS List OF U = transform(vs, f)
+  MUT result AS Map OF K TO U = Map OF K TO U {}
+  MUT i AS Integer = 0
+  WHILE i < len(ks)
+    result = set(result, get(ks, i), get(us, i))
+    i = i + 1
+  WEND
+  RETURN result
+END FUNC
+
+FUNC __collections_flatten OF T(value AS List OF List OF T) AS List OF T
+  MUT result AS List OF T = []
+  MUT i AS Integer = 0
+  WHILE i < len(value)
+    LET inner AS List OF T = get(value, i)
+    result = append(result, inner)
+    i = i + 1
+  WEND
+  RETURN result
+END FUNC
+
+FUNC __collections_zip OF A, B(a AS List OF A, b AS List OF B) AS List OF Pair OF A, B
+  MUT result AS List OF Pair OF A, B = []
+  MUT n AS Integer = len(a)
+  IF len(b) < n THEN
+    n = len(b)
+  END IF
+  MUT i AS Integer = 0
+  WHILE i < n
+    LET p AS Pair OF A, B = Pair[get(a, i), get(b, i)]
+    result = append(result, p)
+    i = i + 1
+  WEND
+  RETURN result
+END FUNC
+
+FUNC __collections_chunks OF T(value AS List OF T, chunkSize AS Integer) AS List OF List OF T
+  IF chunkSize < 1 THEN
+    FAIL error(77050002, "invalid argument")
+  END IF
+  MUT result AS List OF List OF T = []
+  MUT i AS Integer = 0
+  WHILE i < len(value)
+    MUT stop AS Integer = i + chunkSize
+    IF stop > len(value) THEN
+      stop = len(value)
+    END IF
+    LET piece AS List OF T = __collections_slice(value, i, stop)
+    result = append(result, piece)
+    i = i + chunkSize
+  WEND
+  RETURN result
+END FUNC
+
+FUNC __collections_window OF T(value AS List OF T, size AS Integer, stride AS Integer = 1) AS List OF List OF T
+  IF size < 1 OR stride < 1 THEN
+    FAIL error(77050002, "invalid argument")
+  END IF
+  MUT result AS List OF List OF T = []
+  MUT i AS Integer = 0
+  WHILE i + size <= len(value)
+    LET piece AS List OF T = __collections_slice(value, i, i + size)
+    result = append(result, piece)
+    i = i + stride
+  WEND
+  RETURN result
+END FUNC
+
+FUNC __collections_distinct OF T(value AS List OF T) AS List OF T
+  MUT result AS List OF T = []
+  MUT i AS Integer = 0
+  WHILE i < len(value)
+    LET item AS T = get(value, i)
+    IF NOT contains(result, item) THEN
+      result = append(result, item)
+    END IF
+    i = i + 1
+  WEND
+  RETURN result
+END FUNC
+
+FUNC __collections_merge OF K, V(a AS Map OF K TO V, b AS Map OF K TO V, preferB AS Boolean) AS Map OF K TO V
+  MUT result AS Map OF K TO V = a
+  FOR EACH e IN b
+    IF preferB OR NOT hasKey(result, e.key) THEN
+      result = set(result, e.key, e.value)
+    END IF
+  NEXT
+  RETURN result
+END FUNC
+
+FUNC __collections_partition OF T(value AS List OF T, predicate AS FUNC(T) AS Boolean) AS Partition OF T
+  LET flags AS List OF Boolean = transform(value, predicate)
+  MUT matched AS List OF T = []
+  MUT unmatched AS List OF T = []
+  MUT i AS Integer = 0
+  WHILE i < len(value)
+    IF get(flags, i) THEN
+      matched = append(matched, get(value, i))
+    ELSE
+      unmatched = append(unmatched, get(value, i))
+    END IF
+    i = i + 1
+  WEND
+  LET result AS Partition OF T = Partition[matched, unmatched]
+  RETURN result
+END FUNC

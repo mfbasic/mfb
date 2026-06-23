@@ -1,0 +1,54 @@
+NAME
+    collections - sequence and map helper functions
+
+SYNOPSIS
+    IMPORT collections
+    collections::sort(value)
+    collections::sortBy(value, keyFn)
+    collections::take(value, count)
+    collections::drop(value, count)
+    collections::reduceRight(value, initial, f)
+    collections::any(value, predicate)
+    collections::all(value, predicate)
+    collections::findIndex(value, predicate[, start])
+    collections::findLastIndex(value, predicate[, end])
+    collections::groupBy(value, keyFn, valFn)
+    collections::mapValues(value, f)
+    collections::flatten(value)
+    collections::zip(a, b)
+    collections::chunks(value, chunkSize)
+    collections::window(value, size[, step])
+    collections::distinct(value)
+    collections::merge(a, b, preferB)
+    collections::partition(value, predicate)
+
+DESCRIPTION
+    The collections package contains package-qualified helpers for List and Map
+    values. collections is a built-in package: IMPORT collections needs no
+    manifest dependency.
+
+    Element and key types follow the comparable/orderable rules: collections::sort
+    and collections::sortBy require an orderable element or key type;
+    collections::distinct requires a comparable element type. List indexes are
+    zero-based.
+
+    Predicates and other function arguments are passed as function values (for
+    example a named FUNC). The numeric/empty filter predicates such as isEven are
+    inlined builtins and cannot be passed as values; wrap them in a FUNC when a
+    predicate argument is needed.
+
+EXAMPLES
+    IMPORT io
+    IMPORT collections
+
+    FUNC main AS Integer
+      LET ordered AS List OF Integer = collections::sort([3, 1, 2])
+      io::print(toString(collections::take(ordered, 2)))
+      RETURN 0
+    END FUNC
+
+SEE ALSO
+    mfb man types pair
+    mfb man types partition
+    mfb man general get
+    mfb man strings left

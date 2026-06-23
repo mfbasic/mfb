@@ -1,0 +1,23 @@
+NAME
+    all - test whether every item satisfies a predicate
+
+SYNOPSIS
+    collections::all OF T(value AS List OF T, predicate AS FUNC(T) AS Boolean) AS Boolean
+
+DESCRIPTION
+    Returns TRUE when predicate returns TRUE for every item of value, and
+    FALSE otherwise. For an empty list, all returns TRUE. Pass predicate as a
+    named FUNC value.
+
+EXAMPLES
+    IMPORT io
+    IMPORT collections
+
+    FUNC isPos(n AS Integer) AS Boolean
+      RETURN n > 0
+    END FUNC
+
+    FUNC main AS Integer
+      io::print(toString(collections::all([1, 2, 3], isPos)))
+      RETURN 0
+    END FUNC

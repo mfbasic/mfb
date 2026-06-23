@@ -39,6 +39,11 @@ struct Monomorphizer<'a> {
     type_instantiations: HashMap<String, (String, Vec<String>)>,
     emitted_type_keys: HashSet<String>,
     emitted_function_keys: HashSet<String>,
+    /// Import-binding names that refer to the built-in `collections` package
+    /// (including aliases). A call `binding.member` with `binding` in this set
+    /// and `member` a `collections::` function is rewritten to the internal
+    /// generic implementation `__collections_member` before instantiation.
+    collections_bindings: HashSet<String>,
     had_error: bool,
 }
 
@@ -125,8 +130,23 @@ impl<'a> Monomorphizer<'a> {
             type_instantiations: HashMap::new(),
             emitted_type_keys: HashSet::new(),
             emitted_function_keys: HashSet::new(),
+            collections_bindings: crate::builtins::collections::collections_bindings(source)
+                .into_keys()
+                .collect(),
             had_error: false,
         }
+    }
+
+    /// Rewrites a `collections::` call callee (`collections.sort`, or an aliased
+    /// `c.sort`) to its internal generic implementation (`__collections_sort`).
+    /// Returns the callee unchanged when it is not a `collections::` call.
+    fn collections_internal_callee(&self, callee: &str) -> Option<String> {
+        let (binding, member) = callee.split_once('.')?;
+        if !self.collections_bindings.contains(binding) {
+            return None;
+        }
+        crate::builtins::collections::is_collections_function(member)
+            .then(|| crate::builtins::collections::internal_name(member))
     }
 
     /// Rewrite a call to an imported overloaded function to the package's mangled
@@ -800,6 +820,11 @@ impl<'a> Monomorphizer<'a> {
                     .iter()
                     .filter_map(|argument| self.expression_type(call_arg_value(argument), context))
                     .collect::<Vec<_>>();
+                // Rewrite a `collections::` call onto its internal generic
+                // implementation so it instantiates like any generic function.
+                let callee = &self
+                    .collections_internal_callee(callee)
+                    .unwrap_or_else(|| callee.clone());
                 let target = self
                     .instantiate_function(callee, &arg_types, line)
                     .or_else(|| self.resolve_overload(callee, &arg_types))
@@ -1098,6 +1123,22 @@ impl<'a> Monomorphizer<'a> {
                 &self.concrete_type_name(message, substitutions),
                 resource.as_deref(),
                 &self.concrete_type_name(output, substitutions),
+            );
+        }
+        if let Some((params, ret)) = func_type_parts(type_name) {
+            let prefix = if type_name.starts_with("ISOLATED FUNC(") {
+                "ISOLATED FUNC("
+            } else {
+                "FUNC("
+            };
+            let params = params
+                .iter()
+                .map(|param| self.concrete_type_name(param, substitutions))
+                .collect::<Vec<_>>();
+            return format!(
+                "{prefix}{}) AS {}",
+                params.join(", "),
+                self.concrete_type_name(ret, substitutions)
             );
         }
         if let Some((name, args)) = user_template_parts(type_name) {
@@ -1459,7 +1500,34 @@ fn unify_type(
                 .all(|(pattern, actual)| unify_type(pattern, actual, params, substitutions));
     }
 
+    if let (Some((pattern_params, pattern_ret)), Some((actual_params, actual_ret))) =
+        (func_type_parts(pattern), func_type_parts(actual))
+    {
+        return pattern_params.len() == actual_params.len()
+            && pattern_params
+                .iter()
+                .zip(actual_params.iter())
+                .all(|(pattern, actual)| unify_type(pattern, actual, params, substitutions))
+            && unify_type(pattern_ret, actual_ret, params, substitutions);
+    }
+
     pattern == actual || actual == "Unknown"
+}
+
+/// Splits a function type `FUNC(p1, p2) AS Ret` (or `ISOLATED FUNC(...) AS Ret`)
+/// into its parameter types and return type for template unification. Parameters
+/// are split on top-level `", "`, matching the rest of the builtin type parsing.
+fn func_type_parts(type_name: &str) -> Option<(Vec<&str>, &str)> {
+    let rest = type_name
+        .strip_prefix("FUNC(")
+        .or_else(|| type_name.strip_prefix("ISOLATED FUNC("))?;
+    let (params, ret) = rest.split_once(") AS ")?;
+    let params = if params.trim().is_empty() {
+        Vec::new()
+    } else {
+        params.split(", ").collect()
+    };
+    Some((params, ret))
 }
 
 fn user_template_parts(type_name: &str) -> Option<(String, Vec<String>)> {

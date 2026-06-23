@@ -1,0 +1,20 @@
+NAME
+    flatten - concatenate a list of lists
+
+SYNOPSIS
+    collections::flatten OF T(value AS List OF List OF T) AS List OF T
+
+DESCRIPTION
+    Returns a new list formed by concatenating the inner lists of value in
+    order. The relative order of items within and across the inner lists is
+    preserved. value is not modified.
+
+EXAMPLES
+    IMPORT io
+    IMPORT collections
+
+    FUNC main AS Integer
+      LET flat AS List OF Integer = collections::flatten([[1, 2], [3], [4, 5]])
+      io::print(toString(len(flat)))
+      RETURN 0
+    END FUNC

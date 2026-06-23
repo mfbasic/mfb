@@ -1,0 +1,25 @@
+NAME
+    mapValues - transform every value of a map
+
+SYNOPSIS
+    collections::mapValues OF K, V, U(value AS Map OF K TO V, f AS FUNC(V) AS U) AS Map OF K TO U
+
+DESCRIPTION
+    Returns a new map with the same keys as value, where each value is replaced
+    by f(originalValue). The keys are unchanged. value is not modified. Pass f
+    as a named FUNC value.
+
+EXAMPLES
+    IMPORT io
+    IMPORT collections
+
+    FUNC double(n AS Integer) AS Integer
+      RETURN n * 2
+    END FUNC
+
+    FUNC main AS Integer
+      LET scores AS Map OF String TO Integer = Map OF String TO Integer { "a" := 3 }
+      LET doubled AS Map OF String TO Integer = collections::mapValues(scores, double)
+      io::print(toString(get(doubled, "a")))
+      RETURN 0
+    END FUNC

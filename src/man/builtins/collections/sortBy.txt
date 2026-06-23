@@ -1,0 +1,26 @@
+NAME
+    sortBy - return a list sorted in ascending order by a key function
+
+SYNOPSIS
+    collections::sortBy OF T, U(value AS List OF T, keyFn AS FUNC(T) AS U) AS List OF T
+
+DESCRIPTION
+    Returns a new list containing the items of value sorted in ascending order
+    by keyFn(item). The sort is stable: items whose keys compare equal keep
+    their original relative order. The key type U must be orderable (Integer,
+    Float, Fixed, Byte, or String). value is not modified. Pass keyFn as a
+    named FUNC value.
+
+EXAMPLES
+    IMPORT io
+    IMPORT collections
+
+    FUNC keyOf(n AS Integer) AS Integer
+      RETURN 0 - n
+    END FUNC
+
+    FUNC main AS Integer
+      LET ordered AS List OF Integer = collections::sortBy([1, 3, 2], keyOf)
+      io::print(toString(get(ordered, 0)))
+      RETURN 0
+    END FUNC

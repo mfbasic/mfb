@@ -588,10 +588,13 @@ pub fn parse_project(
     // of `-ast` output by `AstProject::to_json`.
     files.push(builtin_prelude_file());
 
-    Ok(AstProject {
+    let project = AstProject {
         name: project_name.to_string(),
         files,
-    })
+    };
+    // Inject the built-in `collections` package source when the project imports
+    // it; its sentinel file is likewise filtered out of `-ast` output.
+    crate::builtins::collections::augmented_project(project)
 }
 
 pub fn write_ast(project_dir: &Path, ast: &AstProject) -> Result<PathBuf, String> {
@@ -3738,7 +3741,10 @@ impl AstProject {
         let files = self
             .files
             .iter()
-            .filter(|file| file.path != BUILTIN_PRELUDE_PATH)
+            .filter(|file| {
+                file.path != BUILTIN_PRELUDE_PATH
+                    && file.path != crate::builtins::collections::SOURCE_PATH
+            })
             .map(|file| file.to_json(2))
             .collect::<Vec<_>>()
             .join(",");

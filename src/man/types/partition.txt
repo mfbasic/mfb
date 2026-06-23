@@ -40,10 +40,18 @@ EXAMPLES
   Split a list by a predicate in one pass:
 
     IMPORT collections
-    LET result AS Partition OF Integer =
-      collections::partition([1, 2, 3, 4], isEven)
-    LET evens AS List OF Integer = result.matched
-    LET odds AS List OF Integer = result.unmatched
+
+    FUNC isPos(n AS Integer) AS Boolean
+      RETURN n > 0
+    END FUNC
+
+    FUNC classify() AS Integer
+      LET result AS Partition OF Integer =
+        collections::partition([1, -2, 3, -4], isPos)
+      LET kept AS List OF Integer = result.matched
+      LET rest AS List OF Integer = result.unmatched
+      RETURN 0
+    END FUNC
 
 SEE ALSO
   types list

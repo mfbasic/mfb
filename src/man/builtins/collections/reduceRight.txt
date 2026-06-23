@@ -1,0 +1,26 @@
+NAME
+    reduceRight - fold a list from right to left
+
+SYNOPSIS
+    collections::reduceRight OF T, U(value AS List OF T, initial AS U, f AS FUNC(U, T) AS U) AS U
+
+DESCRIPTION
+    Folds value into a single accumulated result by applying f to each item,
+    moving from the last item to the first. The accumulator starts at initial.
+    For each item, from right to left, the accumulator becomes f(accumulator,
+    item). When value is empty, initial is returned unchanged. Pass f as a
+    named FUNC value.
+
+EXAMPLES
+    IMPORT io
+    IMPORT collections
+
+    FUNC subtract(acc AS Integer, n AS Integer) AS Integer
+      RETURN acc - n
+    END FUNC
+
+    FUNC main AS Integer
+      LET total AS Integer = collections::reduceRight([1, 2, 3], 0, subtract)
+      io::print(toString(total))
+      RETURN 0
+    END FUNC

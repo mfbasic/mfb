@@ -1,0 +1,22 @@
+NAME
+    merge - combine two maps into one
+
+SYNOPSIS
+    collections::merge OF K, V(a AS Map OF K TO V, b AS Map OF K TO V, preferB AS Boolean) AS Map OF K TO V
+
+DESCRIPTION
+    Returns a new map containing every key present in a or b. When a key
+    appears in both maps, the value from b wins when preferB is TRUE, otherwise
+    the value from a wins. Neither input map is modified.
+
+EXAMPLES
+    IMPORT io
+    IMPORT collections
+
+    FUNC main AS Integer
+      LET a AS Map OF String TO Integer = Map OF String TO Integer { "x" := 1 }
+      LET b AS Map OF String TO Integer = Map OF String TO Integer { "x" := 2 }
+      LET merged AS Map OF String TO Integer = collections::merge(a, b, TRUE)
+      io::print(toString(get(merged, "x")))
+      RETURN 0
+    END FUNC

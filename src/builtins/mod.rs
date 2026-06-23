@@ -1,3 +1,4 @@
+pub(crate) mod collections;
 pub(crate) mod fs;
 pub(crate) mod general;
 pub(crate) mod io;
@@ -15,7 +16,16 @@ pub(crate) use resource::{ResourceInfo, ResourceKind, ResourceRegistry};
 pub(crate) fn is_builtin_import(name: &str) -> bool {
     matches!(
         name,
-        "fs" | "io" | "json" | "math" | "net" | "strings" | "term" | "thread" | "tls"
+        "collections"
+            | "fs"
+            | "io"
+            | "json"
+            | "math"
+            | "net"
+            | "strings"
+            | "term"
+            | "thread"
+            | "tls"
     )
 }
 
@@ -54,7 +64,8 @@ pub(crate) fn call_return_type_name(name: &str) -> Option<&'static str> {
 }
 
 pub(crate) fn is_builtin_call(name: &str) -> bool {
-    general::is_general_call(name)
+    collections::is_collections_call(name)
+        || general::is_general_call(name)
         || strings::is_strings_call(name)
         || math::is_math_call(name)
         || fs::is_fs_call(name)

@@ -196,6 +196,45 @@ ELSE
 END IF
 ```
 
+### 3.3 Collections Package
+
+Higher-level sequence and map helpers are exported by the built-in `collections`
+package. `IMPORT collections` needs no manifest dependency, like `IMPORT math`.
+Element and key types follow the comparable/orderable rules (`mfbasic.md`
+§4.11): `collections::sort`/`collections::sortBy` require an orderable element or
+key type; `collections::distinct` requires a comparable element type.
+
+| Function | Signature | Behavior |
+|----------|-----------|----------|
+| `collections::sort` | `FUNC sort OF T(value AS List OF T) AS List OF T` | Ascending, stable sort. `T` must be orderable. |
+| `collections::sortBy` | `FUNC sortBy OF T, U(value AS List OF T, keyFn AS FUNC(T) AS U) AS List OF T` | Ascending stable sort by `keyFn(item)`. `U` must be orderable. |
+| `collections::take` | `FUNC take OF T(value AS List OF T, count AS Integer) AS List OF T` | First `count` items. Clamps: `count >= len` → whole list, `count <= 0` → `[]`. Total. |
+| `collections::drop` | `FUNC drop OF T(value AS List OF T, count AS Integer) AS List OF T` | All but the first `count` items. Clamps: `count >= len` → `[]`, `count <= 0` → whole list. Total. |
+| `collections::reduceRight` | `FUNC reduceRight OF T, U(value AS List OF T, initial AS U, f AS FUNC(U, T) AS U) AS U` | Folds right to left. |
+| `collections::any` | `FUNC any OF T(value AS List OF T, predicate AS FUNC(T) AS Boolean) AS Boolean` | `TRUE` when `predicate` holds for at least one item. Empty list → `FALSE`. |
+| `collections::all` | `FUNC all OF T(value AS List OF T, predicate AS FUNC(T) AS Boolean) AS Boolean` | `TRUE` when `predicate` holds for every item. Empty list → `TRUE`. |
+| `collections::findIndex` | `FUNC findIndex OF T(value AS List OF T, predicate AS FUNC(T) AS Boolean, start AS Integer = 0) AS Integer` | Zero-based index of the first item at or after `start` satisfying `predicate`. Fails `ErrNotFound` (`77050004`) when none, `77050001` when `start` out of range. |
+| `collections::findLastIndex` | `FUNC findLastIndex OF T(value AS List OF T, predicate AS FUNC(T) AS Boolean, end AS Integer = -1) AS Integer` | Zero-based index of the last item at or before `end` (negative indexes from the end) satisfying `predicate`. Fails `ErrNotFound` when none, `77050001` when `end` out of range. |
+| `collections::groupBy` | `FUNC groupBy OF T, K, V(value AS List OF T, keyFn AS FUNC(T) AS K, valFn AS FUNC(T) AS V) AS Map OF K TO List OF V` | Groups items by `keyFn`, mapping each through `valFn`. `K` comparable. Group lists preserve original order. |
+| `collections::mapValues` | `FUNC mapValues OF K, V, U(value AS Map OF K TO V, f AS FUNC(V) AS U) AS Map OF K TO U` | Maps each value through `f`, keys unchanged. |
+| `collections::flatten` | `FUNC flatten OF T(value AS List OF List OF T) AS List OF T` | Concatenates the inner lists in order. |
+| `collections::zip` | `FUNC zip OF A, B(a AS List OF A, b AS List OF B) AS List OF Pair OF A, B` | Pairs items position-wise. Stops at the shorter input. Uses `Pair`. |
+| `collections::chunks` | `FUNC chunks OF T(value AS List OF T, chunkSize AS Integer) AS List OF List OF T` | Consecutive chunks of `chunkSize`; the final chunk may be shorter. Empty input → `[]`. Fails `77050002` when `chunkSize < 1`. |
+| `collections::window` | `FUNC window OF T(value AS List OF T, size AS Integer, step AS Integer = 1) AS List OF List OF T` | Sliding windows of `size`, advancing by `step`. No window when `size > len`. Fails `77050002` when `size < 1` or `step < 1`. |
+| `collections::distinct` | `FUNC distinct OF T(value AS List OF T) AS List OF T` | Removes duplicates, keeping first-occurrence order. `T` comparable. |
+| `collections::merge` | `FUNC merge OF K, V(a AS Map OF K TO V, b AS Map OF K TO V, preferB AS Boolean) AS Map OF K TO V` | Union of two maps. On key collision, `b` wins when `preferB` is `TRUE`, else `a` wins. |
+| `collections::partition` | `FUNC partition OF T(value AS List OF T, predicate AS FUNC(T) AS Boolean) AS Partition OF T` | One pass; returns a `Partition OF T` with `matched`/`unmatched` in original order. |
+
+Predicates and other function arguments are passed as function values (for
+example a named `FUNC`). The inlined filter predicates such as `isEven` cannot be
+passed as values; wrap them in a `FUNC` when a predicate argument is needed.
+
+`collections::toMap`, `collections::zipWith`, and `collections::filterEntries`
+(plan-01-functions.md §6.4) are not yet provided: they require storing the
+compiler-owned `MapEntry` record inside a `List` and applying a two-argument
+function value element-wise, which the current runtime does not support. They are
+deferred until that infrastructure lands.
+
 ## 4. Built-in Filter Functions
 
 These predicate helpers are always in scope and are intended for use with `filter`, `MATCH` guards, and ordinary conditionals.

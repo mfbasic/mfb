@@ -1,0 +1,21 @@
+NAME
+    sort - return a sorted copy of a list in ascending order
+
+SYNOPSIS
+    collections::sort OF T(value AS List OF T) AS List OF T
+
+DESCRIPTION
+    Returns a new list containing the items of value sorted in ascending
+    order. The sort is stable: items that compare equal keep their original
+    relative order. The element type T must be orderable (Integer, Float,
+    Fixed, Byte, or String). value is not modified.
+
+EXAMPLES
+    IMPORT io
+    IMPORT collections
+
+    FUNC main AS Integer
+      LET ordered AS List OF Integer = collections::sort([3, 1, 2])
+      io::print(toString(get(ordered, 0)))
+      RETURN 0
+    END FUNC

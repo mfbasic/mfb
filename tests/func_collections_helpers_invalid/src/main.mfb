@@ -1,0 +1,9 @@
+IMPORT collections
+
+FUNC main AS Integer
+  LET a AS List OF Integer = collections::take([1, 2, 3])
+  LET b AS List OF Integer = collections::sort([1, 2], 3)
+  LET c AS List OF Integer = collections::sort("not a list")
+  LET d AS Integer = collections::chunks([1, 2], "two")
+  RETURN 0
+END FUNC

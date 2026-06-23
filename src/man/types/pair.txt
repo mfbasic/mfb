@@ -43,7 +43,7 @@ EXAMPLES
     IMPORT collections
     LET pairs AS List OF Pair OF Integer, String =
       collections::zip([1, 2], ["a", "b"])
-    LET first AS Pair OF Integer, String = collections::get(pairs, 0)
+    LET first AS Pair OF Integer, String = get(pairs, 0)
 
 SEE ALSO
   types map
