@@ -1,0 +1,43 @@
+{
+  "project": "macos_app_mode_term",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 },
+    { "module": "term", "line": 2 }
+    ],
+    "items": [
+    {
+      "kind": "sub",
+      "visibility": "private",
+      "name": "main",
+      "line": 7,
+      "params": [
+      ],
+      "returnType": null,
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "term.on", "arguments": [] }, "line": 8 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "term.clear", "arguments": [] }, "line": 9 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "term.setForeground", "arguments": [{ "kind": "number", "value": "0" }, { "kind": "number", "value": "255" }, { "kind": "number", "value": "0" }] }, "line": 10 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "term.setBackground", "arguments": [{ "kind": "number", "value": "0" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "0" }] }, "line": 11 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "term.setBold", "arguments": [{ "kind": "boolean", "value": true }] }, "line": 12 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "term.setUnderline", "arguments": [{ "kind": "boolean", "value": false }] }, "line": 13 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "term.showCursor", "arguments": [] }, "line": 14 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "term.hideCursor", "arguments": [] }, "line": 15 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "term.moveTo", "arguments": [{ "kind": "number", "value": "2" }, { "kind": "number", "value": "4" }] }, "line": 16 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.write", "arguments": [{ "kind": "string", "value": "term" }] }, "line": 17 },
+      { "kind": "binding", "mutable": false, "name": "active", "type": "Boolean", "value": { "kind": "call", "callee": "term.isOn", "arguments": [] }, "line": 18 },
+      { "kind": "binding", "mutable": false, "name": "fg", "type": "TermColor", "value": { "kind": "call", "callee": "term.getForeground", "arguments": [] }, "line": 19 },
+      { "kind": "binding", "mutable": false, "name": "bg", "type": "TermColor", "value": { "kind": "call", "callee": "term.getBackground", "arguments": [] }, "line": 20 },
+      { "kind": "binding", "mutable": false, "name": "bold", "type": "Boolean", "value": { "kind": "call", "callee": "term.getBold", "arguments": [] }, "line": 21 },
+      { "kind": "binding", "mutable": false, "name": "underline", "type": "Boolean", "value": { "kind": "call", "callee": "term.getUnderline", "arguments": [] }, "line": 22 },
+      { "kind": "binding", "mutable": false, "name": "size", "type": "TermSize", "value": { "kind": "call", "callee": "term.terminalSize", "arguments": [] }, "line": 23 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "active" }] }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "fg" }, "member": "g" }] } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "bg" }, "member": "r" }] } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "bold" }] } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "underline" }] } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "size" }, "member": "columns" }] } }] }, "line": 24 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "term.off", "arguments": [] }, "line": 25 }
+      ]
+    }
+    ]
+  }
+  ]
+}

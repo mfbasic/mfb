@@ -653,6 +653,30 @@ pub(crate) trait CodegenPlatform {
     ) -> Option<Result<(CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>), String>> {
         None
     }
+
+    /// App-mode body for `term::on` (plan-01-term.md §6.3, Phase 4): reset the
+    /// term-state global and swap the synthesized TermView in as the window
+    /// content view. `None` for targets without app mode.
+    #[allow(clippy::type_complexity)]
+    fn emit_app_term_on_helper(
+        &self,
+        _symbol: &str,
+        _term_state_offset: usize,
+    ) -> Option<Result<(CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>), String>> {
+        None
+    }
+
+    /// App-mode body for `term::off` (plan-01-term.md §6.3, Phase 4): restore the
+    /// transcript scroll view as the window content view. `None` for targets
+    /// without app mode.
+    #[allow(clippy::type_complexity)]
+    fn emit_app_term_off_helper(
+        &self,
+        _symbol: &str,
+        _term_state_offset: usize,
+    ) -> Option<Result<(CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>), String>> {
+        None
+    }
 }
 
 /// Inputs the app-mode `_main` bootstrap needs about the program it hosts
@@ -2981,8 +3005,24 @@ fn lower_runtime_helper(
         let term_state_offset = term_state_offset.ok_or_else(|| {
             format!("native code plan emits '{symbol}' without reserving term state")
         })?;
-        let (frame, instructions, relocations) =
-            term::lower_term_helper(spec.call, symbol, term_state_offset, platform_imports, platform)?;
+        // App mode drives the synthesized TermView surface for the mode toggle
+        // (plan-01-term.md §6.3); the remaining term:: helpers keep the shared
+        // console backend until Phase 5 wires their app bodies.
+        let app_term_helper = if app_mode {
+            match spec.call {
+                "term.on" => platform.emit_app_term_on_helper(symbol, term_state_offset),
+                "term.off" => platform.emit_app_term_off_helper(symbol, term_state_offset),
+                _ => None,
+            }
+        } else {
+            None
+        };
+        let (frame, instructions, relocations) = match app_term_helper {
+            Some(result) => result?,
+            None => {
+                term::lower_term_helper(spec.call, symbol, term_state_offset, platform_imports, platform)?
+            }
+        };
         return Ok(CodeFunction {
             name: format!("runtime.{}", spec.call),
             symbol: symbol.to_string(),

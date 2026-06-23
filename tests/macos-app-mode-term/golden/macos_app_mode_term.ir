@@ -1,0 +1,42 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "macos_app_mode_term",
+  "entry": {
+    "name": "main",
+    "returns": "Nothing",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "visibility": "private",
+    "kind": "sub",
+    "params": [
+    ],
+    "returns": "Nothing",
+    "body": [
+    { "op": "eval", "value": { "kind": "call", "target": "term.on", "args": [] } },
+    { "op": "eval", "value": { "kind": "call", "target": "term.clear", "args": [] } },
+    { "op": "eval", "value": { "kind": "call", "target": "term.setForeground", "args": [{ "kind": "const", "type": "Integer", "value": "0" }, { "kind": "const", "type": "Integer", "value": "255" }, { "kind": "const", "type": "Integer", "value": "0" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "term.setBackground", "args": [{ "kind": "const", "type": "Integer", "value": "0" }, { "kind": "const", "type": "Integer", "value": "0" }, { "kind": "const", "type": "Integer", "value": "0" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "term.setBold", "args": [{ "kind": "const", "type": "Boolean", "value": "true" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "term.setUnderline", "args": [{ "kind": "const", "type": "Boolean", "value": "false" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "term.showCursor", "args": [] } },
+    { "op": "eval", "value": { "kind": "call", "target": "term.hideCursor", "args": [] } },
+    { "op": "eval", "value": { "kind": "call", "target": "term.moveTo", "args": [{ "kind": "const", "type": "Integer", "value": "2" }, { "kind": "const", "type": "Integer", "value": "4" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.write", "args": [{ "kind": "const", "type": "String", "value": "term" }] } },
+    { "op": "bind", "mutable": false, "name": "active", "type": "Boolean", "value": { "kind": "call", "target": "term.isOn", "args": [] } },
+    { "op": "bind", "mutable": false, "name": "fg", "type": "TermColor", "value": { "kind": "call", "target": "term.getForeground", "args": [] } },
+    { "op": "bind", "mutable": false, "name": "bg", "type": "TermColor", "value": { "kind": "call", "target": "term.getBackground", "args": [] } },
+    { "op": "bind", "mutable": false, "name": "bold", "type": "Boolean", "value": { "kind": "call", "target": "term.getBold", "args": [] } },
+    { "op": "bind", "mutable": false, "name": "underline", "type": "Boolean", "value": { "kind": "call", "target": "term.getUnderline", "args": [] } },
+    { "op": "bind", "mutable": false, "name": "size", "type": "TermSize", "value": { "kind": "call", "target": "term.terminalSize", "args": [] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "binary", "op": "&", "left": { "kind": "binary", "op": "&", "left": { "kind": "binary", "op": "&", "left": { "kind": "binary", "op": "&", "left": { "kind": "binary", "op": "&", "left": { "kind": "call", "target": "toString", "args": [{ "kind": "local", "name": "active" }] }, "right": { "kind": "call", "target": "toString", "args": [{ "kind": "memberAccess", "target": { "kind": "local", "name": "fg" }, "member": "g" }] } }, "right": { "kind": "call", "target": "toString", "args": [{ "kind": "memberAccess", "target": { "kind": "local", "name": "bg" }, "member": "r" }] } }, "right": { "kind": "call", "target": "toString", "args": [{ "kind": "local", "name": "bold" }] } }, "right": { "kind": "call", "target": "toString", "args": [{ "kind": "local", "name": "underline" }] } }, "right": { "kind": "call", "target": "toString", "args": [{ "kind": "memberAccess", "target": { "kind": "local", "name": "size" }, "member": "columns" }] } }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "term.off", "args": [] } }
+    ]
+  }
+  ]
+}

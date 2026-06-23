@@ -132,6 +132,22 @@ impl code::CodegenPlatform for Platform {
         Some(Ok(app::emit_app_io_terminal_size_helper(symbol)))
     }
 
+    fn emit_app_term_on_helper(
+        &self,
+        symbol: &str,
+        term_state_offset: usize,
+    ) -> Option<Result<(code::CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>), String>> {
+        Some(Ok(app::emit_app_term_on_helper(symbol, term_state_offset)))
+    }
+
+    fn emit_app_term_off_helper(
+        &self,
+        symbol: &str,
+        term_state_offset: usize,
+    ) -> Option<Result<(code::CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>), String>> {
+        Some(Ok(app::emit_app_term_off_helper(symbol, term_state_offset)))
+    }
+
     fn emit_program_exit(
         &self,
         from: &str,
