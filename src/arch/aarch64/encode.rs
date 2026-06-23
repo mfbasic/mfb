@@ -317,6 +317,11 @@ impl Encoder {
                 reg(field(instruction, "base")?)?,
                 immediate(field(instruction, "offset")?)?,
             ),
+            "str_u32" => self.emit_str_u32(
+                reg(field(instruction, "src")?)?,
+                reg(field(instruction, "base")?)?,
+                immediate(field(instruction, "offset")?)?,
+            ),
             "str_u8" => self.emit_str_u8(
                 reg(field(instruction, "src")?)?,
                 reg(field(instruction, "base")?)?,
@@ -709,6 +714,18 @@ impl Encoder {
         let scratch = scratch_excluding(rt, rn);
         self.emit_add_imm(scratch, rn, offset)?;
         self.emit_word(0xf900_0000 | ((scratch as u32) << 5) | rt as u32)
+    }
+
+    fn emit_str_u32(&mut self, rt: u8, rn: u8, offset: u64) -> Result<(), String> {
+        if offset % 4 != 0 {
+            return Err(format!("unaligned AArch64 str u32 offset {offset}"));
+        }
+        if let Ok(imm) = checked_imm12(offset / 4) {
+            return self.emit_word(0xb900_0000 | (imm << 10) | ((rn as u32) << 5) | rt as u32);
+        }
+        let scratch = scratch_excluding(rt, rn);
+        self.emit_add_imm(scratch, rn, offset)?;
+        self.emit_word(0xb900_0000 | ((scratch as u32) << 5) | rt as u32)
     }
 
     fn emit_ldr_u8(&mut self, rt: u8, rn: u8, offset: u64) -> Result<(), String> {

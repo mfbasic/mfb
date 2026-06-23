@@ -266,17 +266,17 @@ It has public read-only fields and cannot be constructed or updated directly.
 | `io::writeError` | `FUNC writeError(value AS String) AS Nothing` | Writes `value` to standard error without appending a newline. Fails with `77020002` on output failure. |
 | `io::flush` | `FUNC flush() AS Nothing` | Flushes standard output. Fails with `77020002` on output failure. |
 | `io::flushError` | `FUNC flushError() AS Nothing` | Flushes standard error. Fails with `77020002` on output failure. |
-| `io::input` | `FUNC input(prompt AS String = "") AS String` | Writes `prompt` to standard output when non-empty, flushes standard output, reads one line from standard input, and returns it without the line terminator. Fails with `77020003` at EOF, `77020004` on invalid UTF-8 input, and `77020005` on input failure. |
-| `io::readLine` | `FUNC readLine() AS String` | Reads one line from standard input and returns it without the line terminator. Fails with `77020003` at EOF, `77020004` on invalid UTF-8 input, and `77020005` on input failure. |
-| `io::readChar` | `FUNC readChar() AS String` | Reads one Unicode scalar value from standard input and returns it as a `String`. Fails with `77020003` at EOF, `77020004` on invalid UTF-8, and `77020005` on input failure. |
-| `io::readByte` | `FUNC readByte() AS Byte` | Reads one byte from standard input. Fails with `77020003` at EOF and `77020005` on input failure. |
+| `io::input` | `FUNC input(prompt AS String = "") AS String` | Writes `prompt` to standard output when non-empty, flushes standard output, reads and echoes one terminal line until newline, and returns it without the line terminator. Fails with `77020003` at EOF, `77020004` on invalid UTF-8 input, and `77020005` on input failure. |
+| `io::readLine` | `FUNC readLine() AS String` | Reads one line from standard input without terminal echo and returns it without the line terminator. It waits for newline on interactive terminals. Fails with `77020003` at EOF, `77020004` on invalid UTF-8 input, and `77020005` on input failure. |
+| `io::readChar` | `FUNC readChar() AS String` | Reads one Unicode scalar value from standard input without waiting for newline and without terminal echo. Fails with `77020003` at EOF, `77020004` on invalid UTF-8, and `77020005` on input failure. |
+| `io::readByte` | `FUNC readByte() AS Byte` | Reads one byte from standard input without waiting for newline and without terminal echo. Fails with `77020003` at EOF and `77020005` on input failure. |
 | `io::pollInput` | `FUNC pollInput(timeoutMs AS Integer = 0) AS Boolean` | Waits until standard input can be read without blocking. `timeoutMs < 0` waits forever, `timeoutMs = 0` performs a nonblocking readiness check, and `timeoutMs > 0` waits up to that many milliseconds. Returns `TRUE` when input is ready and `FALSE` on timeout. Fails with `77020005` on input polling failure. |
 | `io::isInputTerminal` | `FUNC isInputTerminal() AS Boolean` | `TRUE` when standard input is attached to an interactive terminal. |
 | `io::isOutputTerminal` | `FUNC isOutputTerminal() AS Boolean` | `TRUE` when standard output is attached to an interactive terminal. |
 | `io::isErrorTerminal` | `FUNC isErrorTerminal() AS Boolean` | `TRUE` when standard error is attached to an interactive terminal. |
 | `io::terminalSize` | `FUNC terminalSize() AS TerminalSize` | Returns the current interactive terminal size for standard output. Fails with `77050007` when standard output is not an interactive terminal or the host cannot report a size. |
 
-Standard input character reads use the host terminal's normal line discipline. On canonical terminals, `io::readChar` may not return until the user submits a line; raw keypress mode, nonblocking input, cursor control, colors, and alternate-screen behavior are outside the core `io` package and may be provided by a future terminal package.
+On interactive terminals, `io::readLine`, `io::readChar`, and `io::readByte` temporarily disable terminal echo while reading, then restore the previous terminal mode before returning or failing. `io::readChar` and `io::readByte` also temporarily disable canonical input so each keypress is delivered immediately. When standard input is not an interactive terminal, these functions read from the stream directly.
 
 There is no `PRINT` statement and no trailing-semicolon newline suppression. Use `io::print` for newline-terminated standard output, `io::write` for standard output without a newline, `io::printError` or `io::writeError` for standard error, and `fs::writeAll` for file-handle output.
 

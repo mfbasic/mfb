@@ -10,6 +10,11 @@ DESCRIPTION
   The io package provides standard input, standard output, standard error, and
   terminal inspection helpers.
 
+  input shows an optional prompt, echoes terminal input, and waits for a line.
+  readLine waits for a line without terminal echo. readChar and readByte read
+  one keypress-sized unit without waiting for a newline and without terminal
+  echo.
+
   Output functions accept String values only. Use toString explicitly before
   printing non-string values.
 

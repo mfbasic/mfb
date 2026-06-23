@@ -127,10 +127,10 @@ const STR_QUIT: (&str, &str) = ("_mfb_macapp_str_quit", "Quit");
 const STR_QUIT_KEY: (&str, &str) = ("_mfb_macapp_str_quitKey", "q");
 
 // Terminal-style input (plan §5.6): the transcript view (an MFBTextView subclass
-// overriding keyDown:) receives typed keys directly. Each key is echoed into the
-// transcript and accumulated in an input-line buffer; Return writes the buffered
-// line to a pipe whose read end is dup2'd onto fd 0, so the unchanged console
-// read helpers consume window input.
+// overriding keyDown:) receives typed keys directly. Line mode accumulates keys
+// in a buffer until Return writes the buffered line to a pipe whose read end is
+// dup2'd onto fd 0. Raw mode writes each key event's UTF-8 bytes to that pipe
+// immediately so readChar/readByte do not wait for Return.
 const SEL_UTF8_STRING: (&str, &str) = ("_mfb_macapp_sel_UTF8String", "UTF8String");
 const SEL_MAKE_FIRST_RESPONDER: (&str, &str) =
     ("_mfb_macapp_sel_makeFirstResponder", "makeFirstResponder:");
@@ -154,6 +154,10 @@ const KEY_DOWN_SYMBOL: &str = "_mfb_macapp_key_down";
 const PIPE_ASSOC_KEY: &str = "_mfb_macapp_pipe_key";
 /// Associated-object key (its address) for the input-line NSMutableString buffer.
 const INPUT_LINE_KEY: &str = "_mfb_macapp_inputline_key";
+/// Associated-object key (its address) for the app input mode on NSApp.
+const INPUT_MODE_KEY: &str = "_mfb_macapp_inputmode_key";
+const INPUT_MODE_LINE_ECHO: &str = "1";
+const INPUT_MODE_RAW_NO_ECHO: &str = "2";
 
 /// NSUTF8StringEncoding.
 const NS_UTF8_ENCODING: &str = "4";
@@ -1027,8 +1031,8 @@ fn emit_key_down_helper() -> CodeFunction {
     let mut asm = Asm::new(KEY_DOWN_SYMBOL);
     // Frame: lr@0, x19(self)@8, x20(app)@16, x21(chars/cstr)@24,
     // x22(textStorage)@32, x23(event/scratch)@40, x24(char code)@48,
-    // x25(input line)@56, newline byte@64.
-    let frame = 80;
+    // x25(input line)@56, x26(input mode)@64, newline byte@72.
+    let frame = 96;
     asm.push(abi::label("entry"));
     asm.push(abi::subtract_stack(frame));
     asm.push(abi::store_u64(abi::link_register(), abi::stack_pointer(), 0));
@@ -1039,6 +1043,7 @@ fn emit_key_down_helper() -> CodeFunction {
     asm.push(abi::store_u64("x23", abi::stack_pointer(), 40));
     asm.push(abi::store_u64("x24", abi::stack_pointer(), 48));
     asm.push(abi::store_u64("x25", abi::stack_pointer(), 56));
+    asm.push(abi::store_u64("x26", abi::stack_pointer(), 64));
     asm.push(abi::move_register("x19", "x0")); // self (text view)
     asm.push(abi::move_register("x23", "x2")); // event
 
@@ -1073,8 +1078,14 @@ fn emit_key_down_helper() -> CodeFunction {
     asm.push(abi::move_register("x0", "x19"));
     asm.call_external("_objc_msgSend", LIB_OBJC);
     asm.push(abi::move_register("x22", "x0")); // text storage
+    asm.push(abi::move_register("x0", "x20"));
+    asm.local_address("x1", INPUT_MODE_KEY);
+    asm.call_external("_objc_getAssociatedObject", LIB_OBJC);
+    asm.push(abi::move_register("x26", "x0")); // input mode
 
     // Dispatch on the key.
+    asm.push(abi::compare_immediate("x26", INPUT_MODE_RAW_NO_ECHO));
+    asm.push(abi::branch_eq("kd_raw"));
     asm.push(abi::compare_immediate("x24", "13")); // CR
     asm.push(abi::branch_eq("kd_commit"));
     asm.push(abi::compare_immediate("x24", "10")); // LF
@@ -1086,11 +1097,13 @@ fn emit_key_down_helper() -> CodeFunction {
     asm.push(abi::compare_immediate("x24", "8")); // Backspace
     asm.push(abi::branch_eq("kd_backspace"));
 
-    // Default: [inputLine appendString:chars]; echo chars into the transcript.
+    // Default: [inputLine appendString:chars]; echo only for io.input mode.
     asm.load_selector(SEL_APPEND_STRING.0);
     asm.push(abi::move_register("x2", "x21"));
     asm.push(abi::move_register("x0", "x25"));
     asm.call_external("_objc_msgSend", LIB_OBJC);
+    asm.push(abi::compare_immediate("x26", INPUT_MODE_LINE_ECHO));
+    asm.push(abi::branch_ne("kd_done"));
     asm.push(abi::move_register("x0", "x19"));
     asm.push(abi::move_register("x1", "x21"));
     asm.call_internal(APPEND_SYMBOL);
@@ -1114,15 +1127,18 @@ fn emit_key_down_helper() -> CodeFunction {
     asm.push(abi::move_register("x1", "x21"));
     asm.call_external("_write", LIB_SYSTEM);
     asm.push(abi::move_immediate("x9", "Integer", "10"));
-    asm.push(abi::store_u8("x9", abi::stack_pointer(), 64));
+    asm.push(abi::store_u8("x9", abi::stack_pointer(), 72));
     asm.push(abi::move_register("x0", "x23"));
-    asm.push(abi::add_immediate("x1", abi::stack_pointer(), 64));
+    asm.push(abi::add_immediate("x1", abi::stack_pointer(), 72));
     asm.push(abi::move_immediate("x2", "Integer", "1"));
     asm.call_external("_write", LIB_SYSTEM);
+    asm.push(abi::compare_immediate("x26", INPUT_MODE_LINE_ECHO));
+    asm.push(abi::branch_ne("kd_commit_clear"));
     build_nsstring_from_cstring(&mut asm, "x21", STR_NEWLINE.0);
     asm.push(abi::move_register("x1", "x0"));
     asm.push(abi::move_register("x0", "x19"));
     asm.call_internal(APPEND_SYMBOL);
+    asm.push(abi::label("kd_commit_clear"));
     build_nsstring_from_cstring(&mut asm, "x21", STR_EMPTY.0);
     asm.push(abi::move_register("x24", "x0")); // empty string (callee-saved; survives
                                                // the sel_registerName in load_selector)
@@ -1145,6 +1161,8 @@ fn emit_key_down_helper() -> CodeFunction {
     asm.push(abi::move_immediate("x3", "Integer", "1")); // range.length = 1
     asm.push(abi::move_register("x0", "x25"));
     asm.call_external("_objc_msgSend", LIB_OBJC);
+    asm.push(abi::compare_immediate("x26", INPUT_MODE_LINE_ECHO));
+    asm.push(abi::branch_ne("kd_done"));
     asm.load_selector(SEL_LENGTH.0);
     asm.push(abi::move_register("x0", "x22"));
     asm.call_external("_objc_msgSend", LIB_OBJC);
@@ -1157,6 +1175,27 @@ fn emit_key_down_helper() -> CodeFunction {
     asm.push(abi::move_register("x0", "x22"));
     asm.call_external("_objc_msgSend", LIB_OBJC);
 
+    // Raw read mode: write this key event's UTF-8 bytes to the input pipe now,
+    // with no transcript echo and no line buffering.
+    asm.push(abi::label("kd_raw"));
+    asm.push(abi::move_register("x0", "x20"));
+    asm.local_address("x1", PIPE_ASSOC_KEY);
+    asm.call_external("_objc_getAssociatedObject", LIB_OBJC);
+    asm.push(abi::move_register("x23", "x0")); // write fd
+    asm.load_selector(SEL_UTF8_STRING.0);
+    asm.push(abi::move_register("x0", "x21"));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    asm.push(abi::move_register("x21", "x0")); // UTF-8 bytes for chars
+    asm.push(abi::move_register("x0", "x21"));
+    asm.call_external("_strlen", LIB_SYSTEM);
+    asm.push(abi::compare_immediate("x0", "0"));
+    asm.push(abi::branch_eq("kd_done"));
+    asm.push(abi::move_register("x2", "x0"));
+    asm.push(abi::move_register("x0", "x23"));
+    asm.push(abi::move_register("x1", "x21"));
+    asm.call_external("_write", LIB_SYSTEM);
+    asm.push(abi::branch("kd_done"));
+
     asm.push(abi::label("kd_done"));
     asm.push(abi::load_u64(abi::link_register(), abi::stack_pointer(), 0));
     asm.push(abi::load_u64("x19", abi::stack_pointer(), 8));
@@ -1166,6 +1205,7 @@ fn emit_key_down_helper() -> CodeFunction {
     asm.push(abi::load_u64("x23", abi::stack_pointer(), 40));
     asm.push(abi::load_u64("x24", abi::stack_pointer(), 48));
     asm.push(abi::load_u64("x25", abi::stack_pointer(), 56));
+    asm.push(abi::load_u64("x26", abi::stack_pointer(), 64));
     asm.push(abi::add_stack(frame));
     asm.push(abi::return_());
 
@@ -1313,6 +1353,7 @@ pub(crate) fn emit_app_io_input_helper(
     asm.push(abi::subtract_stack(16));
     asm.push(abi::store_u64(abi::link_register(), abi::stack_pointer(), 0));
     asm.call_internal(IO_WRITE_SYMBOL); // x0 = prompt; renders it, result ignored
+    emit_set_input_mode_instructions(&mut asm, INPUT_MODE_LINE_ECHO);
     asm.call_internal(IO_READ_LINE_SYMBOL); // result in x0/x1/x2
     asm.push(abi::load_u64(abi::link_register(), abi::stack_pointer(), 0));
     asm.push(abi::add_stack(16));
@@ -1325,6 +1366,27 @@ pub(crate) fn emit_app_io_input_helper(
         asm.ins,
         asm.rel,
     )
+}
+
+pub(crate) fn emit_set_raw_input_mode(
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+    from: &str,
+) {
+    let mut asm = Asm::new(from);
+    emit_set_input_mode_instructions(&mut asm, INPUT_MODE_RAW_NO_ECHO);
+    instructions.extend(asm.ins);
+    relocations.extend(asm.rel);
+}
+
+fn emit_set_input_mode_instructions(asm: &mut Asm, mode: &str) {
+    asm.load_selector(SEL_SHARED_APPLICATION.0);
+    asm.external_data("x0", CLASS_NS_APPLICATION, LIB_APPKIT);
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    asm.local_address("x1", INPUT_MODE_KEY);
+    asm.push(abi::move_immediate("x2", "Integer", mode));
+    asm.push(abi::move_immediate("x3", "Integer", "0")); // OBJC_ASSOCIATION_ASSIGN
+    asm.call_external("_objc_setAssociatedObject", LIB_OBJC);
 }
 
 /// App-mode body for `io.isInputTerminal`/`io.isOutputTerminal`/
@@ -1602,7 +1664,7 @@ pub(crate) fn app_mode_data_objects() -> Vec<CodeDataObject> {
     // The transcript NSTextView is stored as an associated object on NSApp keyed
     // by the address of this 1-byte read-only symbol (objc-runtime-managed
     // per-process storage; see ASSOC_KEY).
-    for key in [ASSOC_KEY, PIPE_ASSOC_KEY, INPUT_LINE_KEY] {
+    for key in [ASSOC_KEY, PIPE_ASSOC_KEY, INPUT_LINE_KEY, INPUT_MODE_KEY] {
         objects.push(CodeDataObject {
             symbol: key.to_string(),
             kind: "raw".to_string(),

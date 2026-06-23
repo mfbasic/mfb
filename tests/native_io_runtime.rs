@@ -639,6 +639,113 @@ END FUNC
 }
 
 #[test]
+fn native_io_input_echoes_terminal_line_input() {
+    let project = temp_project(
+        "native_io_input_echoes",
+        r#"
+IMPORT io
+
+FUNC main AS Integer
+  LET name AS String = io::input("name> ")
+  io::print(toString(len(name)))
+  RETURN 0
+END FUNC
+"#,
+    );
+    let transcript = run_pty_prompt_interaction(&build_project(&project), "name> ", b"Ada\n");
+    let normalized = transcript.replace("\r\n", "\n");
+    assert!(
+        normalized.contains("name> Ada\n3\n"),
+        "input did not echo terminal line input: {normalized:?}"
+    );
+}
+
+#[test]
+fn native_io_readline_suppresses_terminal_echo_until_newline() {
+    let project = temp_project(
+        "native_io_readline_no_echo",
+        r#"
+IMPORT io
+
+FUNC main AS Integer
+  io::write("line> ")
+  LET line AS String = io::readLine()
+  io::print(toString(len(line)))
+  RETURN 0
+END FUNC
+"#,
+    );
+    let transcript = run_pty_prompt_interaction(&build_project(&project), "line> ", b"secret\n");
+    let normalized = transcript.replace("\r\n", "\n");
+    assert!(
+        normalized.contains("line> 6\n"),
+        "readLine did not return submitted line: {normalized:?}"
+    );
+    assert!(
+        !normalized.contains("secret"),
+        "readLine echoed terminal input: {normalized:?}"
+    );
+}
+
+#[test]
+fn native_io_readchar_reads_terminal_key_without_newline_or_echo() {
+    let project = temp_project(
+        "native_io_readchar_keypress",
+        r#"
+IMPORT io
+
+FUNC main AS Integer
+  io::write("ready> ")
+  LET ch AS String = io::readChar()
+  IF ch = "w" THEN
+    io::print("up")
+  ELSE
+    io::print("wrong")
+  END IF
+  RETURN 0
+END FUNC
+"#,
+    );
+    let transcript = run_pty_prompt_interaction(&build_project(&project), "ready> ", b"w");
+    let normalized = transcript.replace("\r\n", "\n");
+    assert!(
+        normalized.contains("ready> up\n"),
+        "readChar did not return after one keypress: {normalized:?}"
+    );
+    assert!(
+        !normalized.contains("ready> w"),
+        "readChar echoed terminal keypress: {normalized:?}"
+    );
+}
+
+#[test]
+fn native_io_readbyte_reads_terminal_key_without_newline_or_echo() {
+    let project = temp_project(
+        "native_io_readbyte_keypress",
+        r#"
+IMPORT io
+
+FUNC main AS Integer
+  io::write("ready> ")
+  LET byte AS Byte = io::readByte()
+  io::print(toString(byte))
+  RETURN 0
+END FUNC
+"#,
+    );
+    let transcript = run_pty_prompt_interaction(&build_project(&project), "ready> ", b"A");
+    let normalized = transcript.replace("\r\n", "\n");
+    assert!(
+        normalized.contains("ready> 65\n"),
+        "readByte did not return after one keypress: {normalized:?}"
+    );
+    assert!(
+        !normalized.contains("ready> A"),
+        "readByte echoed terminal keypress: {normalized:?}"
+    );
+}
+
+#[test]
 fn native_io_input_reports_prompt_flush_failure() {
     let project = temp_project(
         "native_io_input_prompt_failure",

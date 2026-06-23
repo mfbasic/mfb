@@ -40,6 +40,38 @@ impl code::CodegenPlatform for Platform {
         true
     }
 
+    fn termios_size(&self) -> usize {
+        72
+    }
+
+    fn termios_lflag_offset(&self) -> usize {
+        24
+    }
+
+    fn termios_lflag_width(&self) -> usize {
+        8
+    }
+
+    fn termios_cc_offset(&self) -> usize {
+        32
+    }
+
+    fn termios_echo_flag(&self) -> u64 {
+        8
+    }
+
+    fn termios_icanon_flag(&self) -> u64 {
+        256
+    }
+
+    fn termios_vmin_index(&self) -> usize {
+        16
+    }
+
+    fn termios_vtime_index(&self) -> usize {
+        17
+    }
+
     fn emit_app_program_entry(
         &self,
         spec: &AppEntrySpec,
@@ -74,6 +106,16 @@ impl code::CodegenPlatform for Platform {
         symbol: &str,
     ) -> Option<Result<(code::CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>), String>> {
         Some(Ok(app::emit_app_io_input_helper(symbol)))
+    }
+
+    fn emit_app_raw_input_mode(
+        &self,
+        symbol: &str,
+        instructions: &mut Vec<CodeInstruction>,
+        relocations: &mut Vec<CodeRelocation>,
+    ) -> Option<Result<(), String>> {
+        app::emit_set_raw_input_mode(instructions, relocations, symbol);
+        Some(Ok(()))
     }
 
     fn emit_app_io_is_terminal_helper(

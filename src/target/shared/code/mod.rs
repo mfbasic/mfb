@@ -294,6 +294,14 @@ pub(crate) trait CodegenPlatform {
     fn target(&self) -> &'static str;
     fn arch(&self) -> &'static str;
     fn preserves_link_register_in_runtime_helpers(&self) -> bool;
+    fn termios_size(&self) -> usize;
+    fn termios_lflag_offset(&self) -> usize;
+    fn termios_lflag_width(&self) -> usize;
+    fn termios_cc_offset(&self) -> usize;
+    fn termios_echo_flag(&self) -> u64;
+    fn termios_icanon_flag(&self) -> u64;
+    fn termios_vmin_index(&self) -> usize;
+    fn termios_vtime_index(&self) -> usize;
     fn emit_program_exit(
         &self,
         from: &str,
@@ -560,6 +568,17 @@ pub(crate) trait CodegenPlatform {
         &self,
         _symbol: &str,
     ) -> Option<Result<(CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>), String>> {
+        None
+    }
+
+    /// App-mode setup for immediate, no-echo key reads. `None` for non-app
+    /// targets.
+    fn emit_app_raw_input_mode(
+        &self,
+        _symbol: &str,
+        _instructions: &mut Vec<CodeInstruction>,
+        _relocations: &mut Vec<CodeRelocation>,
+    ) -> Option<Result<(), String>> {
         None
     }
 
@@ -2715,7 +2734,7 @@ fn lower_runtime_helper(
         }
         "io.readChar" => {
             let (frame, instructions, relocations) =
-                lower_io_read_char_helper(symbol, platform_imports, platform)?;
+                lower_io_read_char_helper(symbol, platform_imports, platform, app_mode)?;
             Ok(CodeFunction {
                 name: format!("runtime.{}", spec.call),
                 symbol: symbol.to_string(),
@@ -2729,7 +2748,7 @@ fn lower_runtime_helper(
         }
         "io.readByte" => {
             let (frame, instructions, relocations) =
-                lower_io_read_byte_helper(symbol, platform_imports, platform)?;
+                lower_io_read_byte_helper(symbol, platform_imports, platform, app_mode)?;
             Ok(CodeFunction {
                 name: format!("runtime.{}", spec.call),
                 symbol: symbol.to_string(),
@@ -5952,14 +5971,209 @@ fn lower_io_poll_input_helper(
     }
 }
 
+fn termios_storage_size(platform: &dyn CodegenPlatform) -> usize {
+    platform.termios_size().next_multiple_of(8)
+}
+
+struct TerminalModeSlots {
+    active: usize,
+    saved_tag: usize,
+    saved_value: usize,
+    saved_message: usize,
+    original: usize,
+    modified: usize,
+}
+
+fn emit_configure_stdin_terminal(
+    symbol: &str,
+    platform_imports: &HashMap<String, String>,
+    platform: &dyn CodegenPlatform,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+    slots: &TerminalModeSlots,
+    disable_echo: bool,
+    disable_canonical: bool,
+    error_label: &str,
+) -> Result<(), String> {
+    let skip = format!("{symbol}_terminal_mode_skip");
+    instructions.extend([
+        abi::store_u64("x31", abi::stack_pointer(), slots.active),
+        abi::move_immediate(abi::return_register(), "Integer", "0"),
+    ]);
+    platform.emit_libc_call(
+        "isatty",
+        symbol,
+        platform_imports,
+        instructions,
+        relocations,
+    )?;
+    instructions.extend([
+        abi::compare_immediate(abi::return_register(), "0"),
+        abi::branch_le(&skip),
+        abi::move_immediate(abi::return_register(), "Integer", "0"),
+        abi::add_immediate("x1", abi::stack_pointer(), slots.original),
+    ]);
+    platform.emit_libc_call(
+        "tcgetattr",
+        symbol,
+        platform_imports,
+        instructions,
+        relocations,
+    )?;
+    instructions.extend([
+        abi::compare_immediate(abi::return_register(), "0"),
+        abi::branch_lt(error_label),
+        abi::move_immediate("x9", "Integer", "1"),
+        abi::store_u64("x9", abi::stack_pointer(), slots.active),
+    ]);
+
+    for offset in (0..termios_storage_size(platform)).step_by(8) {
+        instructions.extend([
+            abi::load_u64("x9", abi::stack_pointer(), slots.original + offset),
+            abi::store_u64("x9", abi::stack_pointer(), slots.modified + offset),
+        ]);
+    }
+
+    let mut clear_flags = 0;
+    if disable_echo {
+        clear_flags |= platform.termios_echo_flag();
+    }
+    if disable_canonical {
+        clear_flags |= platform.termios_icanon_flag();
+    }
+    if clear_flags != 0 {
+        let lflag_offset = slots.modified + platform.termios_lflag_offset();
+        if platform.termios_lflag_width() == 4 {
+            instructions.push(abi::load_u32("x9", abi::stack_pointer(), lflag_offset));
+        } else {
+            instructions.push(abi::load_u64("x9", abi::stack_pointer(), lflag_offset));
+        }
+        instructions.extend([
+            abi::move_immediate("x10", "Integer", &clear_flags.to_string()),
+            abi::bitwise_not("x10", "x10"),
+            abi::and_registers("x9", "x9", "x10"),
+        ]);
+        if platform.termios_lflag_width() == 4 {
+            instructions.push(abi::store_u32("x9", abi::stack_pointer(), lflag_offset));
+        } else {
+            instructions.push(abi::store_u64("x9", abi::stack_pointer(), lflag_offset));
+        }
+    }
+
+    if disable_canonical {
+        let cc_offset = slots.modified + platform.termios_cc_offset();
+        instructions.extend([
+            abi::move_immediate("x9", "Integer", "1"),
+            abi::store_u8(
+                "x9",
+                abi::stack_pointer(),
+                cc_offset + platform.termios_vmin_index(),
+            ),
+            abi::store_u8(
+                "x31",
+                abi::stack_pointer(),
+                cc_offset + platform.termios_vtime_index(),
+            ),
+        ]);
+    }
+
+    instructions.extend([
+        abi::move_immediate(abi::return_register(), "Integer", "0"),
+        abi::move_immediate("x1", "Integer", "0"),
+        abi::add_immediate("x2", abi::stack_pointer(), slots.modified),
+    ]);
+    platform.emit_libc_call(
+        "tcsetattr",
+        symbol,
+        platform_imports,
+        instructions,
+        relocations,
+    )?;
+    instructions.extend([
+        abi::compare_immediate(abi::return_register(), "0"),
+        abi::branch_lt(error_label),
+        abi::label(&skip),
+    ]);
+    Ok(())
+}
+
+fn emit_restore_stdin_terminal(
+    symbol: &str,
+    platform_imports: &HashMap<String, String>,
+    platform: &dyn CodegenPlatform,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+    slots: &TerminalModeSlots,
+) -> Result<(), String> {
+    let restored = format!("{symbol}_terminal_mode_restored");
+    let restore_failed = format!("{symbol}_terminal_mode_restore_failed");
+    instructions.extend([
+        abi::store_u64(RESULT_TAG_REGISTER, abi::stack_pointer(), slots.saved_tag),
+        abi::store_u64(RESULT_VALUE_REGISTER, abi::stack_pointer(), slots.saved_value),
+        abi::store_u64(
+            RESULT_ERROR_MESSAGE_REGISTER,
+            abi::stack_pointer(),
+            slots.saved_message,
+        ),
+        abi::load_u64("x9", abi::stack_pointer(), slots.active),
+        abi::compare_immediate("x9", "1"),
+        abi::branch_ne(&restored),
+        abi::move_immediate(abi::return_register(), "Integer", "0"),
+        abi::move_immediate("x1", "Integer", "0"),
+        abi::add_immediate("x2", abi::stack_pointer(), slots.original),
+    ]);
+    platform.emit_libc_call(
+        "tcsetattr",
+        symbol,
+        platform_imports,
+        instructions,
+        relocations,
+    )?;
+    instructions.extend([
+        abi::compare_immediate(abi::return_register(), "0"),
+        abi::branch_lt(&restore_failed),
+        abi::label(&restored),
+        abi::load_u64(RESULT_TAG_REGISTER, abi::stack_pointer(), slots.saved_tag),
+        abi::load_u64(RESULT_VALUE_REGISTER, abi::stack_pointer(), slots.saved_value),
+        abi::load_u64(
+            RESULT_ERROR_MESSAGE_REGISTER,
+            abi::stack_pointer(),
+            slots.saved_message,
+        ),
+        abi::branch(&format!("{symbol}_terminal_mode_restore_done")),
+        abi::label(&restore_failed),
+        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_INPUT_CODE),
+        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
+    ]);
+    push_error_message_address(
+        symbol,
+        ERR_INPUT_SYMBOL,
+        instructions,
+        relocations,
+    );
+    instructions.push(abi::label(&format!(
+        "{symbol}_terminal_mode_restore_done"
+    )));
+    Ok(())
+}
+
 fn lower_io_read_byte_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
+    app_mode: bool,
 ) -> Result<(CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>), String> {
-    const FRAME_SIZE: usize = 32;
+    const FRAME_SIZE: usize = 208;
     const LR_OFFSET: usize = 0;
     const BYTE_OFFSET: usize = 8;
+    let terminal_slots = TerminalModeSlots {
+        active: 16,
+        saved_tag: 24,
+        saved_value: 32,
+        saved_message: 40,
+        original: 48,
+        modified: 120,
+    };
     let eof = format!("{symbol}_eof");
     let input_error = format!("{symbol}_input_error");
     let done = format!("{symbol}_done");
@@ -5973,6 +6187,27 @@ fn lower_io_read_byte_helper(
             LR_OFFSET,
         ));
     }
+    if app_mode {
+        platform
+            .emit_app_raw_input_mode(symbol, &mut instructions, &mut relocations)
+            .ok_or_else(|| {
+                format!(
+                    "native target '{}' does not support app-mode raw input",
+                    platform.target()
+                )
+            })??;
+    }
+    emit_configure_stdin_terminal(
+        symbol,
+        platform_imports,
+        platform,
+        &mut instructions,
+        &mut relocations,
+        &terminal_slots,
+        true,
+        true,
+        &input_error,
+    )?;
     instructions.extend([
         abi::move_immediate(abi::return_register(), "Integer", "0"),
         abi::add_immediate("x1", abi::stack_pointer(), BYTE_OFFSET),
@@ -6009,6 +6244,14 @@ fn lower_io_read_byte_helper(
         &mut relocations,
     );
     instructions.push(abi::label(&done));
+    emit_restore_stdin_terminal(
+        symbol,
+        platform_imports,
+        platform,
+        &mut instructions,
+        &mut relocations,
+        &terminal_slots,
+    )?;
     if platform.preserves_link_register_in_runtime_helpers() {
         instructions.extend([
             abi::load_u64(abi::link_register(), abi::stack_pointer(), LR_OFFSET),
@@ -6230,12 +6473,21 @@ fn lower_io_read_char_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
+    app_mode: bool,
 ) -> Result<(CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>), String> {
-    const FRAME_SIZE: usize = 64;
+    const FRAME_SIZE: usize = 224;
     const LR_OFFSET: usize = 0;
     const BYTES_OFFSET: usize = 8;
     const LEN_OFFSET: usize = 16;
     const RESULT_OFFSET: usize = 24;
+    let terminal_slots = TerminalModeSlots {
+        active: 32,
+        saved_tag: 40,
+        saved_value: 48,
+        saved_message: 56,
+        original: 64,
+        modified: 136,
+    };
     let read_second = format!("{symbol}_read_second");
     let read_third = format!("{symbol}_read_third");
     let read_fourth = format!("{symbol}_read_fourth");
@@ -6258,6 +6510,27 @@ fn lower_io_read_char_helper(
             LR_OFFSET,
         ));
     }
+    if app_mode {
+        platform
+            .emit_app_raw_input_mode(symbol, &mut instructions, &mut relocations)
+            .ok_or_else(|| {
+                format!(
+                    "native target '{}' does not support app-mode raw input",
+                    platform.target()
+                )
+            })??;
+    }
+    emit_configure_stdin_terminal(
+        symbol,
+        platform_imports,
+        platform,
+        &mut instructions,
+        &mut relocations,
+        &terminal_slots,
+        true,
+        true,
+        &input_error,
+    )?;
     instructions.extend([
         abi::move_immediate(abi::return_register(), "Integer", "0"),
         abi::add_immediate("x1", abi::stack_pointer(), BYTES_OFFSET),
@@ -6521,6 +6794,14 @@ fn lower_io_read_char_helper(
         &mut relocations,
     );
     instructions.push(abi::label(&done));
+    emit_restore_stdin_terminal(
+        symbol,
+        platform_imports,
+        platform,
+        &mut instructions,
+        &mut relocations,
+        &terminal_slots,
+    )?;
     if platform.preserves_link_register_in_runtime_helpers() {
         instructions.extend([
             abi::load_u64(abi::link_register(), abi::stack_pointer(), LR_OFFSET),
@@ -6554,7 +6835,7 @@ fn lower_io_read_line_helper(
     platform: &dyn CodegenPlatform,
     with_prompt: bool,
 ) -> Result<(CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>), String> {
-    const FRAME_SIZE: usize = 96;
+    const FRAME_SIZE: usize = 256;
     const LR_OFFSET: usize = 0;
     const BUFFER_OFFSET: usize = 8;
     const CAPACITY_OFFSET: usize = 16;
@@ -6562,6 +6843,14 @@ fn lower_io_read_line_helper(
     const SEQ_LEN_OFFSET: usize = 32;
     const RESULT_OFFSET: usize = 40;
     const BYTES_OFFSET: usize = 48;
+    let terminal_slots = TerminalModeSlots {
+        active: 56,
+        saved_tag: 64,
+        saved_value: 72,
+        saved_message: 80,
+        original: 96,
+        modified: 168,
+    };
     let prompt_ok = format!("{symbol}_prompt_ok");
     let prompt_flush = format!("{symbol}_prompt_flush");
     let prompt_flush_error = format!("{symbol}_prompt_flush_error");
@@ -6625,6 +6914,19 @@ fn lower_io_read_line_helper(
             abi::branch_lt(&prompt_flush_error),
             abi::label(&prompt_ok),
         ]);
+    }
+    if !with_prompt {
+        emit_configure_stdin_terminal(
+            symbol,
+            platform_imports,
+            platform,
+            &mut instructions,
+            &mut relocations,
+            &terminal_slots,
+            true,
+            false,
+            &input_error,
+        )?;
     }
     instructions.extend([
         abi::move_immediate(abi::return_register(), "Integer", "32"),
@@ -7021,6 +7323,16 @@ fn lower_io_read_line_helper(
         &mut relocations,
     );
     instructions.push(abi::label(&done));
+    if !with_prompt {
+        emit_restore_stdin_terminal(
+            symbol,
+            platform_imports,
+            platform,
+            &mut instructions,
+            &mut relocations,
+            &terminal_slots,
+        )?;
+    }
     if platform.preserves_link_register_in_runtime_helpers() {
         instructions.extend([
             abi::load_u64(abi::link_register(), abi::stack_pointer(), LR_OFFSET),
@@ -12542,7 +12854,7 @@ impl CodeInstruction {
             CodeOp::LdrU64 | CodeOp::LdrU32 | CodeOp::LdrU16 | CodeOp::LdrU8 => {
                 &["dst", "base", "offset"]
             }
-            CodeOp::StrU64 | CodeOp::StrU8 => &["src", "base", "offset"],
+            CodeOp::StrU64 | CodeOp::StrU32 | CodeOp::StrU8 => &["src", "base", "offset"],
             CodeOp::Adrp | CodeOp::AddPageOff => &["dst", "symbol"],
             CodeOp::FMovXFromD
             | CodeOp::FMovDFromX

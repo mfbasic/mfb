@@ -46,6 +46,38 @@ impl code::CodegenPlatform for Platform {
         true
     }
 
+    fn termios_size(&self) -> usize {
+        60
+    }
+
+    fn termios_lflag_offset(&self) -> usize {
+        12
+    }
+
+    fn termios_lflag_width(&self) -> usize {
+        4
+    }
+
+    fn termios_cc_offset(&self) -> usize {
+        17
+    }
+
+    fn termios_echo_flag(&self) -> u64 {
+        8
+    }
+
+    fn termios_icanon_flag(&self) -> u64 {
+        2
+    }
+
+    fn termios_vmin_index(&self) -> usize {
+        6
+    }
+
+    fn termios_vtime_index(&self) -> usize {
+        5
+    }
+
     fn emit_program_exit(
         &self,
         from: &str,

@@ -342,6 +342,13 @@ pub(crate) fn store_u64(src: &str, base: &str, offset: usize) -> CodeInstruction
         .field("offset", &offset.to_string())
 }
 
+pub(crate) fn store_u32(src: &str, base: &str, offset: usize) -> CodeInstruction {
+    CodeInstruction::new("str_u32")
+        .field("src", src)
+        .field("base", base)
+        .field("offset", &offset.to_string())
+}
+
 pub(crate) fn store_u8(src: &str, base: &str, offset: usize) -> CodeInstruction {
     CodeInstruction::new("str_u8")
         .field("src", src)

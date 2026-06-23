@@ -1,8 +1,29 @@
 IMPORT io
 
-' Asks for the user's name and greets them.
+' Asks for the user's name, then reads WASD keypresses.
 FUNC main AS Integer
   LET name AS String = io::input("What is your name? ")
   io::print("Hello " & name & "!")
+
+  MUT key AS String = ""
+  io::print("Press W/A/S/D to move, or Q to quit.")
+  DO
+    key = io::readChar()
+
+    IF key = "w" OR key = "W" THEN
+      io::print("↑")
+    ELSEIF key = "a" OR key = "A" THEN
+      io::print("←")
+    ELSEIF key = "s" OR key = "S" THEN
+      io::print("↓")
+    ELSEIF key = "d" OR key = "D" THEN
+      io::print("→")
+    ELSEIF key = "q" OR key = "Q" THEN
+      io::print("Goodbye")
+    ELSE
+      io::print("Use W, A, S, D, or Q.")
+    END IF
+  LOOP UNTIL key = "q" OR key = "Q"
+
   RETURN 0
 END FUNC

@@ -141,6 +141,24 @@ impl plan::NativePlanPlatform for Platform {
                             required_by: spec.symbol.to_string(),
                         },
                     ]);
+                } else {
+                    imports.extend([
+                        PlatformImport {
+                            library: "libSystem".to_string(),
+                            symbol: "_isatty".to_string(),
+                            required_by: spec.symbol.to_string(),
+                        },
+                        PlatformImport {
+                            library: "libSystem".to_string(),
+                            symbol: "_tcgetattr".to_string(),
+                            required_by: spec.symbol.to_string(),
+                        },
+                        PlatformImport {
+                            library: "libSystem".to_string(),
+                            symbol: "_tcsetattr".to_string(),
+                            required_by: spec.symbol.to_string(),
+                        },
+                    ]);
                 }
                 imports
             }
