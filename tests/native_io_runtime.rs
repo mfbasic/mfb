@@ -942,3 +942,140 @@ END FUNC
         "expected live window size under pty, got {pty:?}"
     );
 }
+
+#[test]
+fn native_term_console_emits_expected_escape_sequences() {
+    // The console backend writes the documented ANSI escapes to stdout while TUI
+    // mode is active (plan-01-term.md §10.2). Driven into a pipe (no tty needed).
+    let project = temp_project(
+        "native_term_escapes",
+        r#"
+IMPORT term
+
+FUNC main AS Integer
+  term::on()
+  term::setForeground(0, 255, 0)
+  term::setBackground(0, 0, 0)
+  term::setBold(TRUE)
+  term::setUnderline(TRUE)
+  term::moveTo(2, 4)
+  term::showCursor()
+  term::hideCursor()
+  term::clear()
+  term::off()
+  RETURN 0
+END FUNC
+"#,
+    );
+    let executable = build_project(&project);
+    let out = run_with_stdin(&executable, b"");
+    for needle in [
+        "\x1b[?1049h",          // on(): enter the alternate screen
+        "\x1b[38;2;0;255;0m",   // setForeground(0,255,0)
+        "\x1b[48;2;0;0;0m",     // setBackground(0,0,0)
+        "\x1b[1m",              // setBold(TRUE)
+        "\x1b[4m",              // setUnderline(TRUE)
+        "\x1b[3;5H",            // moveTo(2,4) -> 1-based 3;5
+        "\x1b[?25h",            // showCursor()
+        "\x1b[?25l",            // hideCursor()
+        "\x1b[2J\x1b[H",        // clear()
+        "\x1b[?1049l",          // off(): leave the alternate screen
+    ] {
+        assert!(
+            out.contains(needle),
+            "missing escape {:?} in output {:?}",
+            needle,
+            hex(out.as_bytes())
+        );
+    }
+}
+
+#[test]
+fn native_term_gate_no_ops_while_inactive() {
+    // Every term:: call except on()/isOn() is inert while TUI mode is off
+    // (plan-01-term.md §4.2.1): setters/surface calls emit nothing, getters return
+    // the inert default, isOn() is FALSE.
+    let project = temp_project(
+        "native_term_gate",
+        r#"
+IMPORT io
+IMPORT term
+
+FUNC main AS Integer
+  term::setForeground(1, 2, 3)
+  term::setBackground(4, 5, 6)
+  term::setBold(TRUE)
+  term::setUnderline(TRUE)
+  term::moveTo(5, 5)
+  term::clear()
+  term::showCursor()
+  term::hideCursor()
+  LET on AS Boolean = term::isOn()
+  LET fg AS TermColor = term::getForeground()
+  LET bg AS TermColor = term::getBackground()
+  LET bold AS Boolean = term::getBold()
+  LET ul AS Boolean = term::getUnderline()
+  io::print("ON:" & toString(on))
+  io::print("FG:" & toString(fg.r) & "," & toString(fg.g) & "," & toString(fg.b))
+  io::print("BG:" & toString(bg.r) & "," & toString(bg.g) & "," & toString(bg.b))
+  io::print("BOLD:" & toString(bold))
+  io::print("UL:" & toString(ul))
+  RETURN 0
+END FUNC
+"#,
+    );
+    let executable = build_project(&project);
+    let out = run_with_stdin(&executable, b"");
+    assert!(
+        !out.contains('\x1b'),
+        "inactive term:: leaked escape bytes: {:?}",
+        hex(out.as_bytes())
+    );
+    assert!(out.contains("ON:FALSE"), "isOn should be FALSE while off: {out:?}");
+    assert!(out.contains("FG:255,255,255"), "inert fg should be white: {out:?}");
+    assert!(out.contains("BG:0,0,0"), "inert bg should be black: {out:?}");
+    assert!(out.contains("BOLD:FALSE"), "inert bold should be FALSE: {out:?}");
+    assert!(out.contains("UL:FALSE"), "inert underline should be FALSE: {out:?}");
+}
+
+#[test]
+fn native_term_on_resets_state_to_defaults() {
+    // on() resets all state to defaults every time it is called (plan-01-term.md
+    // §4.2): set non-defaults, off(), on() again, read the defaults back.
+    let project = temp_project(
+        "native_term_reset",
+        r#"
+IMPORT io
+IMPORT term
+
+FUNC main AS Integer
+  term::on()
+  term::setForeground(10, 20, 30)
+  term::setBackground(40, 50, 60)
+  term::setBold(TRUE)
+  term::setUnderline(TRUE)
+  term::off()
+  term::on()
+  LET fg AS TermColor = term::getForeground()
+  LET bg AS TermColor = term::getBackground()
+  LET bold AS Boolean = term::getBold()
+  LET ul AS Boolean = term::getUnderline()
+  LET on AS Boolean = term::isOn()
+  term::off()
+  io::print("FG:" & toString(fg.r) & "," & toString(fg.g) & "," & toString(fg.b))
+  io::print("BG:" & toString(bg.r) & "," & toString(bg.g) & "," & toString(bg.b))
+  io::print("BOLD:" & toString(bold))
+  io::print("UL:" & toString(ul))
+  io::print("ON:" & toString(on))
+  RETURN 0
+END FUNC
+"#,
+    );
+    let executable = build_project(&project);
+    let out = run_with_stdin(&executable, b"");
+    assert!(out.contains("FG:255,255,255"), "on() should reset fg to white: {out:?}");
+    assert!(out.contains("BG:0,0,0"), "on() should reset bg to black: {out:?}");
+    assert!(out.contains("BOLD:FALSE"), "on() should reset bold: {out:?}");
+    assert!(out.contains("UL:FALSE"), "on() should reset underline: {out:?}");
+    assert!(out.contains("ON:TRUE"), "isOn should be TRUE while active: {out:?}");
+}
