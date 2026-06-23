@@ -237,6 +237,16 @@ const SEL_STRING_WITH_CHARS: (&str, &str) =
 const SEL_DICTIONARY: (&str, &str) = ("_mfb_macapp_sel_dictionary", "dictionary");
 const SEL_SET_OBJECT_FOR_KEY: (&str, &str) =
     ("_mfb_macapp_sel_setObjectForKey", "setObject:forKey:");
+const SEL_REMOVE_OBJECT_FOR_KEY: (&str, &str) =
+    ("_mfb_macapp_sel_removeObjectForKey", "removeObjectForKey:");
+const SEL_NUMBER_WITH_INT: (&str, &str) = ("_mfb_macapp_sel_numberWithInt", "numberWithInt:");
+const SEL_NUMBER_WITH_DOUBLE: (&str, &str) =
+    ("_mfb_macapp_sel_numberWithDouble", "numberWithDouble:");
+/// `NSUnderlineStyleAttributeName` (value `@(NSUnderlineStyleSingle)`) and
+/// `NSStrokeWidthAttributeName` (a negative value = faux-bold fill stroke) — the
+/// attributed-string keys used to render per-cell underline/bold (plan §4.3).
+const NS_UNDERLINE_STYLE_ATTRIBUTE_NAME: &str = "_NSUnderlineStyleAttributeName";
+const NS_STROKE_WIDTH_ATTRIBUTE_NAME: &str = "_NSStrokeWidthAttributeName";
 const SEL_SET_NEEDS_DISPLAY: (&str, &str) =
     ("_mfb_macapp_sel_setNeedsDisplay", "setNeedsDisplay:");
 const SEL_MFB_WRITE_STRING: (&str, &str) = ("_mfb_macapp_sel_mfbWriteString", "mfbWriteString:");
@@ -259,6 +269,7 @@ const STR_WRITE_STRING_TYPES: (&str, &str) = ("_mfb_macapp_str_writeStringTypes"
 const CLASS_NS_VIEW: &str = "_OBJC_CLASS_$_NSView";
 const CLASS_NS_COLOR: &str = "_OBJC_CLASS_$_NSColor";
 const CLASS_NS_MUTABLE_DICTIONARY: &str = "_OBJC_CLASS_$_NSMutableDictionary";
+const CLASS_NS_NUMBER: &str = "_OBJC_CLASS_$_NSNumber";
 const CLASS_NS_LAYOUT_MANAGER: &str = "_OBJC_CLASS_$_NSLayoutManager";
 /// `void NSRectFill(NSRect)` — fills the rect (passed in d0..d3) with the current
 /// graphics-context colour. An AppKit C function, not an Obj-C method.
@@ -480,7 +491,7 @@ pub(crate) fn emit_app_program_entry(spec: &AppEntrySpec) -> Result<Vec<CodeFunc
         emit_main_bootstrap(),
         emit_worker_shim(spec),
         emit_append_helper(),
-        emit_finish_helper(),
+        emit_finish_helper(spec.uses_term),
         emit_should_terminate_helper(),
         emit_did_finish_launching_helper(),
         emit_key_down_helper(),
@@ -1131,7 +1142,7 @@ fn emit_append_helper() -> CodeFunction {
 /// so the process keeps running with the window open; the app quits when the
 /// window is closed (the synthesized delegate's
 /// applicationShouldTerminateAfterLastWindowClosed: returns YES).
-fn emit_finish_helper() -> CodeFunction {
+fn emit_finish_helper(uses_term: bool) -> CodeFunction {
     let mut asm = Asm::new(FINISH_SYMBOL);
     // Frame: lr@0, x19(code)@8, x20(scratch/nsstring)@16, x21(textview)@24,
     // x22(digit count)@32, decimal digit buffer@40 (<=3 digits for 0..255).
@@ -1143,6 +1154,15 @@ fn emit_finish_helper() -> CodeFunction {
     asm.push(abi::store_u64("x20", abi::stack_pointer(), 16));
     asm.push(abi::store_u64("x21", abi::stack_pointer(), 24));
     asm.push(abi::store_u64("x22", abi::stack_pointer(), 32));
+    // Auto-restore the transcript if the program left TUI mode active (plan §6.5).
+    // `x19` is still the pinned arena-state base here, which `_mfb_rt_term_term_off`
+    // reads; it gates on the active flag (a no-op when already off / headless), so
+    // this is safe unconditionally. Preserve the exit code across the call.
+    if uses_term {
+        asm.push(abi::store_u64("x0", abi::stack_pointer(), 40));
+        asm.call_internal("_mfb_rt_term_term_off");
+        asm.push(abi::load_u64("x0", abi::stack_pointer(), 40));
+    }
     asm.push(abi::move_register("x19", "x0")); // exit code
 
     // view = objc_getAssociatedObject([NSApplication sharedApplication], &KEY)
@@ -2001,8 +2021,10 @@ fn emit_term_view_draw_rect() -> CodeFunction {
     // x22(cols)@32, x23(row)@40, x24(col)@48, x25(attrs)@56, x26(NSColor class)@64,
     // x27(cell ptr)@72, x28(drawAtPoint sel)@80; rect@88..112; colorWithRGBA
     // sel@120; set sel@128; setObject:forKey: sel@136; fg key@144;
-    // stringWithChars sel@152; glyph buffer@160.
-    let frame = 176;
+    // stringWithChars sel@152; glyph buffer@160; bold NSNumber@168; underline
+    // NSNumber@176; stroke-width key@184; underline-style key@192;
+    // removeObjectForKey: sel@200.
+    let frame = 224;
     let (off_rx, off_ry, off_rw, off_rh) = (88, 96, 104, 112);
     let off_color_sel = 120;
     let off_set_sel = 128;
@@ -2010,6 +2032,11 @@ fn emit_term_view_draw_rect() -> CodeFunction {
     let off_fgkey = 144;
     let off_swc_sel = 152;
     let off_glyph = 160;
+    let off_numbold = 168;
+    let off_numul = 176;
+    let off_strokekey = 184;
+    let off_ulkey = 192;
+    let off_removeobj_sel = 200;
     let saved: [(&str, usize); 10] = [
         ("x19", 8),
         ("x20", 16),
@@ -2101,6 +2128,31 @@ fn emit_term_view_draw_rect() -> CodeFunction {
     asm.push(abi::load_u64("x3", "x3", 0));
     asm.push(abi::store_u64("x3", abi::stack_pointer(), off_fgkey));
 
+    // Bold/underline attribute values + keys (set/removed per cell below).
+    // numberBold = [NSNumber numberWithDouble:-3.0]  (negative stroke width = faux bold)
+    asm.load_selector(SEL_NUMBER_WITH_DOUBLE.0);
+    asm.external_data("x0", CLASS_NS_NUMBER, LIB_FOUNDATION);
+    asm.push(abi::move_immediate("x9", "Integer", "3"));
+    asm.push(abi::signed_convert_to_float_d("d0", "x9"));
+    asm.push(abi::float_negate_d("d0", "d0")); // -3.0
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    asm.push(abi::store_u64("x0", abi::stack_pointer(), off_numbold));
+    // numberUnderline = [NSNumber numberWithInt:1]  (NSUnderlineStyleSingle)
+    asm.load_selector(SEL_NUMBER_WITH_INT.0);
+    asm.external_data("x0", CLASS_NS_NUMBER, LIB_FOUNDATION);
+    asm.push(abi::move_immediate("x2", "Integer", "1"));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    asm.push(abi::store_u64("x0", abi::stack_pointer(), off_numul));
+    // stroke-width + underline-style attribute keys (NSString globals).
+    asm.external_data("x3", NS_STROKE_WIDTH_ATTRIBUTE_NAME, LIB_APPKIT);
+    asm.push(abi::load_u64("x3", "x3", 0));
+    asm.push(abi::store_u64("x3", abi::stack_pointer(), off_strokekey));
+    asm.external_data("x3", NS_UNDERLINE_STYLE_ATTRIBUTE_NAME, LIB_APPKIT);
+    asm.push(abi::load_u64("x3", "x3", 0));
+    asm.push(abi::store_u64("x3", abi::stack_pointer(), off_ulkey));
+    asm.load_selector(SEL_REMOVE_OBJECT_FOR_KEY.0);
+    asm.push(abi::store_u64("x1", abi::stack_pointer(), off_removeobj_sel));
+
     // for row in 0..rows: for col in 0..cols
     asm.push(abi::move_immediate("x23", "Integer", "0"));
     asm.push(abi::label("draw_row"));
@@ -2149,6 +2201,38 @@ fn emit_term_view_draw_rect() -> CodeFunction {
     asm.push(abi::load_u64("x3", abi::stack_pointer(), off_fgkey));
     asm.push(abi::move_register("x0", "x25")); // attrs dict
     asm.call_external("_objc_msgSend", LIB_OBJC);
+    // bold: set/remove the faux-bold stroke-width attribute for this cell.
+    asm.push(abi::load_u8("x9", "x27", CELL_BOLD_OFFSET));
+    asm.push(abi::compare_immediate("x9", "0"));
+    asm.push(abi::branch_eq("draw_bold_off"));
+    asm.push(abi::load_u64("x1", abi::stack_pointer(), off_setobj_sel));
+    asm.push(abi::load_u64("x2", abi::stack_pointer(), off_numbold));
+    asm.push(abi::load_u64("x3", abi::stack_pointer(), off_strokekey));
+    asm.push(abi::move_register("x0", "x25"));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    asm.push(abi::branch("draw_bold_done"));
+    asm.push(abi::label("draw_bold_off"));
+    asm.push(abi::load_u64("x1", abi::stack_pointer(), off_removeobj_sel));
+    asm.push(abi::load_u64("x2", abi::stack_pointer(), off_strokekey));
+    asm.push(abi::move_register("x0", "x25"));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    asm.push(abi::label("draw_bold_done"));
+    // underline: set/remove the underline-style attribute for this cell.
+    asm.push(abi::load_u8("x9", "x27", CELL_UNDERLINE_OFFSET));
+    asm.push(abi::compare_immediate("x9", "0"));
+    asm.push(abi::branch_eq("draw_ul_off"));
+    asm.push(abi::load_u64("x1", abi::stack_pointer(), off_setobj_sel));
+    asm.push(abi::load_u64("x2", abi::stack_pointer(), off_numul));
+    asm.push(abi::load_u64("x3", abi::stack_pointer(), off_ulkey));
+    asm.push(abi::move_register("x0", "x25"));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    asm.push(abi::branch("draw_ul_done"));
+    asm.push(abi::label("draw_ul_off"));
+    asm.push(abi::load_u64("x1", abi::stack_pointer(), off_removeobj_sel));
+    asm.push(abi::load_u64("x2", abi::stack_pointer(), off_ulkey));
+    asm.push(abi::move_register("x0", "x25"));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    asm.push(abi::label("draw_ul_done"));
     // s = [NSString stringWithCharacters:&glyph length:1]
     asm.push(abi::load_u32("x9", "x27", CELL_GLYPH_OFFSET));
     asm.push(abi::store_u32("x9", abi::stack_pointer(), off_glyph));
@@ -3559,6 +3643,9 @@ pub(crate) fn app_mode_data_objects() -> Vec<CodeDataObject> {
         SEL_STRING_WITH_CHARS,
         SEL_DICTIONARY,
         SEL_SET_OBJECT_FOR_KEY,
+        SEL_REMOVE_OBJECT_FOR_KEY,
+        SEL_NUMBER_WITH_INT,
+        SEL_NUMBER_WITH_DOUBLE,
         SEL_SET_NEEDS_DISPLAY,
         SEL_MFB_WRITE_STRING,
         SEL_ACCEPTS_FIRST_RESPONDER,

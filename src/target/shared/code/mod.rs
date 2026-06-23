@@ -676,6 +676,9 @@ pub(crate) trait CodegenPlatform {
 /// itself only needs to know whether to forward `argc`/`argv` to that entry.
 pub(crate) struct AppEntrySpec {
     pub(crate) language_entry_accepts_args: bool,
+    /// Whether the program uses `term::` (so the app-mode finish path should
+    /// auto-`term::off()` to restore the transcript, plan-01-term.md §6.5).
+    pub(crate) uses_term: bool,
 }
 
 #[derive(Clone, Copy)]
@@ -1109,6 +1112,7 @@ pub(crate) fn lower_module_for_platform(
             // the AppKit bootstrap that creates the window and spawns the worker.
             let app_spec = AppEntrySpec {
                 language_entry_accepts_args: entry.accepts_args,
+                uses_term,
             };
             let app_entry = platform.emit_app_program_entry(&app_spec, &platform_imports).ok_or_else(|| {
                 format!(
