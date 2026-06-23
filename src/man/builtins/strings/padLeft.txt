@@ -1,0 +1,24 @@
+NAME
+    padLeft - left-pad a string to a given width
+
+SYNOPSIS
+    strings::padLeft(value AS String, width AS Integer, padChar AS String = " ") AS String
+
+DESCRIPTION
+    Pads value on the left with padChar until it reaches a total of width
+    Unicode scalars. When the length of value is already greater than or
+    equal to width, value is returned unchanged. The padChar argument
+    defaults to a single space.
+
+EXAMPLES
+    IMPORT io
+    IMPORT strings
+
+    FUNC main AS Integer
+      io::print(strings::padLeft("42", 5, "0"))
+      RETURN 0
+    END FUNC
+
+ERRORS
+    77050002 (ErrInvalidArgument) when padChar is not exactly one Unicode
+    scalar, or when width is negative.

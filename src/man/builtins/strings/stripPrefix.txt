@@ -1,0 +1,19 @@
+NAME
+    stripPrefix - remove a leading prefix from a string
+
+SYNOPSIS
+    strings::stripPrefix(value AS String, prefix AS String) AS String
+
+DESCRIPTION
+    Removes one leading occurrence of prefix from value if present.
+    If value does not start with prefix, value is returned unchanged.
+    This function never fails.
+
+EXAMPLES
+    IMPORT io
+    IMPORT strings
+
+    FUNC main AS Integer
+      io::print(strings::stripPrefix("https://example.com", "https://"))
+      RETURN 0
+    END FUNC

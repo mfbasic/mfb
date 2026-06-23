@@ -13571,6 +13571,7 @@ fn string_symbols(module: &NirModule) -> HashMap<String, String> {
         || module_uses_call(module, "filter")
         || module_uses_call(module, "removeAt")
         || module_uses_call(module, "set")
+        || module_uses_call(module, "strings.graphemeAt")
     {
         push_string_value(&mut values, ERR_INDEX_OUT_OF_RANGE_MESSAGE.to_string());
     }
@@ -14754,6 +14755,8 @@ fn value_uses_unicode_runtime_tables(
                     | "strings.caseFold"
                     | "strings.normalizeNfc"
                     | "strings.graphemes"
+                    | "strings.graphemeAt"
+                    | "strings.graphemesCount"
             ) && !unicode_string_call_is_static(target, args, constants, types)
                 || args
                     .iter()

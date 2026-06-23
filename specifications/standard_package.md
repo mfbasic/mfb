@@ -240,6 +240,19 @@ String helpers are exported by the `strings` package. Package functions are call
 | `strings::split` | `FUNC split(value AS String, delimiter AS String) AS List OF String` | Splits `value` by `delimiter`. |
 | `strings::join` | `FUNC join(parts AS List OF String, delimiter AS String) AS String` | Joins strings with `delimiter`. |
 | `strings::byteLen` | `FUNC byteLen(value AS String) AS Integer` | Number of bytes required to encode `value` as UTF-8. |
+| `strings::startsWithAny` | `FUNC startsWithAny(value AS String, prefixes AS List OF String) AS Boolean` | `TRUE` when `value` begins with any string in `prefixes`. Empty list → `FALSE`. Total. |
+| `strings::endsWithAny` | `FUNC endsWithAny(value AS String, suffixes AS List OF String) AS Boolean` | `TRUE` when `value` ends with any string in `suffixes`. Empty list → `FALSE`. Total. |
+| `strings::stripPrefix` | `FUNC stripPrefix(value AS String, prefix AS String) AS String` | Returns `value` with one leading `prefix` removed if present; otherwise `value` unchanged. Total. |
+| `strings::stripSuffix` | `FUNC stripSuffix(value AS String, suffix AS String) AS String` | Returns `value` with one trailing `suffix` removed if present; otherwise unchanged. Total. |
+| `strings::count` | `FUNC count(value AS String, needle AS String) AS Integer` | Number of non-overlapping occurrences of `needle`. Fails with `ErrInvalidArgument` (`77050002`) when `needle` is empty. |
+| `strings::left` | `FUNC left(value AS String, count AS Integer) AS String` | First `count` scalars. Clamps when `count >= len(value)`; `count = 0` → `""`. Fails with `77050002` when `count < 0`. |
+| `strings::right` | `FUNC right(value AS String, count AS Integer) AS String` | Last `count` scalars. Clamps when `count >= len(value)`; `count = 0` → `""`. Fails with `77050002` when `count < 0`. |
+| `strings::repeat` | `FUNC repeat(value AS String, times AS Integer) AS String` | `value` concatenated `times` times. `times = 0` → `""`. Fails with `77050002` when `times < 0`. |
+| `strings::padLeft` | `FUNC padLeft(value AS String, width AS Integer, padChar AS String = " ") AS String` | Left-pads with `padChar` to a total scalar width of `width`. No change when `len(value) >= width`. `padChar` must be exactly one Unicode scalar, else `77050002`; `width < 0` fails `77050002`. |
+| `strings::padRight` | `FUNC padRight(value AS String, width AS Integer, padChar AS String = " ") AS String` | Right-pads, same rules as `padLeft`. |
+| `strings::graphemeAt` | `FUNC graphemeAt(value AS String, index AS Integer) AS String` | The extended grapheme cluster at zero-based grapheme `index`. Fails with `ErrIndexOutOfRange` (`77050001`) when out of range. |
+| `strings::graphemesCount` | `FUNC graphemesCount(value AS String) AS Integer` | Number of extended grapheme clusters. |
+| `strings::trimChars` | `FUNC trimChars(value AS String, chars AS String) AS String` | Removes any leading/trailing scalars that appear in the set `chars`. `chars = ""` → `value` unchanged. |
 
 ## 6. Regex Package
 

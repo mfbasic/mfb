@@ -1,0 +1,68 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "func_string_helpers_valid",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "p",
+    "visibility": "private",
+    "kind": "sub",
+    "params": [
+    { "name": "label", "type": "String", "default": null },
+    { "name": "v", "type": "String", "default": null }
+    ],
+    "returns": "Nothing",
+    "body": [
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "binary", "op": "&", "left": { "kind": "binary", "op": "&", "left": { "kind": "binary", "op": "&", "left": { "kind": "local", "name": "label" }, "right": { "kind": "const", "type": "String", "value": "=[" } }, "right": { "kind": "local", "name": "v" } }, "right": { "kind": "const", "type": "String", "value": "]" } }] } }
+    ]
+  },
+  {
+    "name": "main",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "mutable": false, "name": "empty", "type": "List OF String", "value": { "kind": "list", "type": "List OF String", "values": [] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "binary", "op": "&", "left": { "kind": "binary", "op": "&", "left": { "kind": "binary", "op": "&", "left": { "kind": "const", "type": "String", "value": "swa " }, "right": { "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "strings.startsWithAny", "args": [{ "kind": "const", "type": "String", "value": "hello" }, { "kind": "list", "type": "List OF String", "values": [{ "kind": "const", "type": "String", "value": "he" }, { "kind": "const", "type": "String", "value": "xy" }] }] }] } }, "right": { "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "strings.startsWithAny", "args": [{ "kind": "const", "type": "String", "value": "hello" }, { "kind": "list", "type": "List OF String", "values": [{ "kind": "const", "type": "String", "value": "xy" }, { "kind": "const", "type": "String", "value": "zz" }] }] }] } }, "right": { "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "strings.startsWithAny", "args": [{ "kind": "const", "type": "String", "value": "hello" }, { "kind": "local", "name": "empty" }] }] } }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "binary", "op": "&", "left": { "kind": "binary", "op": "&", "left": { "kind": "const", "type": "String", "value": "ewa " }, "right": { "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "strings.endsWithAny", "args": [{ "kind": "const", "type": "String", "value": "hello" }, { "kind": "list", "type": "List OF String", "values": [{ "kind": "const", "type": "String", "value": "lo" }, { "kind": "const", "type": "String", "value": "xy" }] }] }] } }, "right": { "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "strings.endsWithAny", "args": [{ "kind": "const", "type": "String", "value": "hello" }, { "kind": "local", "name": "empty" }] }] } }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "p", "args": [{ "kind": "const", "type": "String", "value": "sp1" }, { "kind": "call", "target": "strings.stripPrefix", "args": [{ "kind": "const", "type": "String", "value": "foobar" }, { "kind": "const", "type": "String", "value": "foo" }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "p", "args": [{ "kind": "const", "type": "String", "value": "sp2" }, { "kind": "call", "target": "strings.stripPrefix", "args": [{ "kind": "const", "type": "String", "value": "foobar" }, { "kind": "const", "type": "String", "value": "xyz" }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "p", "args": [{ "kind": "const", "type": "String", "value": "sp3" }, { "kind": "call", "target": "strings.stripPrefix", "args": [{ "kind": "const", "type": "String", "value": "foo" }, { "kind": "const", "type": "String", "value": "" }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "p", "args": [{ "kind": "const", "type": "String", "value": "ss1" }, { "kind": "call", "target": "strings.stripSuffix", "args": [{ "kind": "const", "type": "String", "value": "foobar" }, { "kind": "const", "type": "String", "value": "bar" }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "p", "args": [{ "kind": "const", "type": "String", "value": "ss2" }, { "kind": "call", "target": "strings.stripSuffix", "args": [{ "kind": "const", "type": "String", "value": "foobar" }, { "kind": "const", "type": "String", "value": "xyz" }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "binary", "op": "&", "left": { "kind": "binary", "op": "&", "left": { "kind": "binary", "op": "&", "left": { "kind": "binary", "op": "&", "left": { "kind": "const", "type": "String", "value": "cnt " }, "right": { "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "strings.count", "args": [{ "kind": "const", "type": "String", "value": "aaa" }, { "kind": "const", "type": "String", "value": "a" }] }] } }, "right": { "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "strings.count", "args": [{ "kind": "const", "type": "String", "value": "aaa" }, { "kind": "const", "type": "String", "value": "aa" }] }] } }, "right": { "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "strings.count", "args": [{ "kind": "const", "type": "String", "value": "abcabc" }, { "kind": "const", "type": "String", "value": "bc" }] }] } }, "right": { "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "strings.count", "args": [{ "kind": "const", "type": "String", "value": "xyz" }, { "kind": "const", "type": "String", "value": "a" }] }] } }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "p", "args": [{ "kind": "const", "type": "String", "value": "l1" }, { "kind": "call", "target": "strings.left", "args": [{ "kind": "const", "type": "String", "value": "hello" }, { "kind": "const", "type": "Integer", "value": "3" }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "p", "args": [{ "kind": "const", "type": "String", "value": "l2" }, { "kind": "call", "target": "strings.left", "args": [{ "kind": "const", "type": "String", "value": "hi" }, { "kind": "const", "type": "Integer", "value": "5" }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "p", "args": [{ "kind": "const", "type": "String", "value": "l3" }, { "kind": "call", "target": "strings.left", "args": [{ "kind": "const", "type": "String", "value": "hi" }, { "kind": "const", "type": "Integer", "value": "0" }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "p", "args": [{ "kind": "const", "type": "String", "value": "r1" }, { "kind": "call", "target": "strings.right", "args": [{ "kind": "const", "type": "String", "value": "hello" }, { "kind": "const", "type": "Integer", "value": "3" }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "p", "args": [{ "kind": "const", "type": "String", "value": "r2" }, { "kind": "call", "target": "strings.right", "args": [{ "kind": "const", "type": "String", "value": "hi" }, { "kind": "const", "type": "Integer", "value": "5" }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "p", "args": [{ "kind": "const", "type": "String", "value": "r3" }, { "kind": "call", "target": "strings.right", "args": [{ "kind": "const", "type": "String", "value": "hi" }, { "kind": "const", "type": "Integer", "value": "0" }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "p", "args": [{ "kind": "const", "type": "String", "value": "rep1" }, { "kind": "call", "target": "strings.repeat", "args": [{ "kind": "const", "type": "String", "value": "ab" }, { "kind": "const", "type": "Integer", "value": "3" }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "p", "args": [{ "kind": "const", "type": "String", "value": "rep2" }, { "kind": "call", "target": "strings.repeat", "args": [{ "kind": "const", "type": "String", "value": "x" }, { "kind": "const", "type": "Integer", "value": "0" }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "p", "args": [{ "kind": "const", "type": "String", "value": "pl1" }, { "kind": "call", "target": "strings.padLeft", "args": [{ "kind": "const", "type": "String", "value": "42" }, { "kind": "const", "type": "Integer", "value": "5" }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "p", "args": [{ "kind": "const", "type": "String", "value": "pl2" }, { "kind": "call", "target": "strings.padLeft", "args": [{ "kind": "const", "type": "String", "value": "42" }, { "kind": "const", "type": "Integer", "value": "5" }, { "kind": "const", "type": "String", "value": "0" }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "p", "args": [{ "kind": "const", "type": "String", "value": "pl3" }, { "kind": "call", "target": "strings.padLeft", "args": [{ "kind": "const", "type": "String", "value": "hello" }, { "kind": "const", "type": "Integer", "value": "3" }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "p", "args": [{ "kind": "const", "type": "String", "value": "pr1" }, { "kind": "call", "target": "strings.padRight", "args": [{ "kind": "const", "type": "String", "value": "42" }, { "kind": "const", "type": "Integer", "value": "5" }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "p", "args": [{ "kind": "const", "type": "String", "value": "pr2" }, { "kind": "call", "target": "strings.padRight", "args": [{ "kind": "const", "type": "String", "value": "42" }, { "kind": "const", "type": "Integer", "value": "5" }, { "kind": "const", "type": "String", "value": "0" }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "p", "args": [{ "kind": "const", "type": "String", "value": "ga1" }, { "kind": "call", "target": "strings.graphemeAt", "args": [{ "kind": "const", "type": "String", "value": "abc" }, { "kind": "const", "type": "Integer", "value": "1" }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "binary", "op": "&", "left": { "kind": "binary", "op": "&", "left": { "kind": "binary", "op": "&", "left": { "kind": "const", "type": "String", "value": "gc " }, "right": { "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "strings.graphemesCount", "args": [{ "kind": "const", "type": "String", "value": "abc" }] }] } }, "right": { "kind": "const", "type": "String", "value": " " } }, "right": { "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "strings.graphemesCount", "args": [{ "kind": "binary", "op": "&", "left": { "kind": "binary", "op": "&", "left": { "kind": "const", "type": "String", "value": "e" }, "right": { "kind": "const", "type": "String", "value": "́" } }, "right": { "kind": "const", "type": "String", "value": "fg" } }] }] } }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "p", "args": [{ "kind": "const", "type": "String", "value": "tc1" }, { "kind": "call", "target": "strings.trimChars", "args": [{ "kind": "const", "type": "String", "value": "xxhelloxx" }, { "kind": "const", "type": "String", "value": "x" }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "p", "args": [{ "kind": "const", "type": "String", "value": "tc2" }, { "kind": "call", "target": "strings.trimChars", "args": [{ "kind": "const", "type": "String", "value": "--a-b--" }, { "kind": "const", "type": "String", "value": "-" }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "p", "args": [{ "kind": "const", "type": "String", "value": "tc3" }, { "kind": "call", "target": "strings.trimChars", "args": [{ "kind": "const", "type": "String", "value": "aaa" }, { "kind": "const", "type": "String", "value": "a" }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "p", "args": [{ "kind": "const", "type": "String", "value": "tc4" }, { "kind": "call", "target": "strings.trimChars", "args": [{ "kind": "const", "type": "String", "value": "hello" }, { "kind": "const", "type": "String", "value": "" }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "p", "args": [{ "kind": "const", "type": "String", "value": "lu" }, { "kind": "call", "target": "strings.left", "args": [{ "kind": "const", "type": "String", "value": "a😀bc" }, { "kind": "const", "type": "Integer", "value": "2" }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "p", "args": [{ "kind": "const", "type": "String", "value": "ru" }, { "kind": "call", "target": "strings.right", "args": [{ "kind": "const", "type": "String", "value": "ab😀c" }, { "kind": "const", "type": "Integer", "value": "2" }] }] } },
+    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

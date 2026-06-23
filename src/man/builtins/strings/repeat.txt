@@ -1,0 +1,21 @@
+NAME
+    repeat - repeat a string a number of times
+
+SYNOPSIS
+    strings::repeat(value AS String, times AS Integer) AS String
+
+DESCRIPTION
+    Returns value concatenated with itself times times.
+    A times of 0 returns the empty string.
+
+EXAMPLES
+    IMPORT io
+    IMPORT strings
+
+    FUNC main AS Integer
+      io::print(strings::repeat("ab", 3))
+      RETURN 0
+    END FUNC
+
+ERRORS
+    77050002 (ErrInvalidArgument) when times is negative.

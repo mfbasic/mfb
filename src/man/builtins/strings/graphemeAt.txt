@@ -1,0 +1,21 @@
+NAME
+    graphemeAt - return the grapheme cluster at a grapheme index
+
+SYNOPSIS
+    strings::graphemeAt(value AS String, index AS Integer) AS String
+
+DESCRIPTION
+    Returns the extended grapheme cluster at the zero-based grapheme index
+    in value.
+
+EXAMPLES
+    IMPORT io
+    IMPORT strings
+
+    FUNC main AS Integer
+      io::print(strings::graphemeAt("a😀b", 1))
+      RETURN 0
+    END FUNC
+
+ERRORS
+    77050001 (ErrIndexOutOfRange) when index is out of range.

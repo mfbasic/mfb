@@ -1,0 +1,19 @@
+NAME
+    startsWithAny - test whether a string starts with any of several prefixes
+
+SYNOPSIS
+    strings::startsWithAny(value AS String, prefixes AS List OF String) AS Boolean
+
+DESCRIPTION
+    Returns TRUE when value starts with any string in prefixes.
+    An empty prefixes list returns FALSE. This function never fails.
+
+EXAMPLES
+    IMPORT io
+    IMPORT strings
+
+    FUNC main AS Integer
+      LET prefixes = ["http://", "https://"]
+      io::print(toString(strings::startsWithAny("https://example.com", prefixes)))
+      RETURN 0
+    END FUNC

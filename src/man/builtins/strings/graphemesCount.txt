@@ -1,0 +1,19 @@
+NAME
+    graphemesCount - count the extended grapheme clusters in a string
+
+SYNOPSIS
+    strings::graphemesCount(value AS String) AS Integer
+
+DESCRIPTION
+    Returns the number of extended grapheme clusters in value.
+    This counts user-perceived characters and can differ from len(value),
+    which counts Unicode scalar values.
+
+EXAMPLES
+    IMPORT io
+    IMPORT strings
+
+    FUNC main AS Integer
+      io::print(toString(strings::graphemesCount("a😀b")))
+      RETURN 0
+    END FUNC

@@ -1,0 +1,19 @@
+NAME
+    stripSuffix - remove a trailing suffix from a string
+
+SYNOPSIS
+    strings::stripSuffix(value AS String, suffix AS String) AS String
+
+DESCRIPTION
+    Removes one trailing occurrence of suffix from value if present.
+    If value does not end with suffix, value is returned unchanged.
+    This function never fails.
+
+EXAMPLES
+    IMPORT io
+    IMPORT strings
+
+    FUNC main AS Integer
+      io::print(strings::stripSuffix("photo.png", ".png"))
+      RETURN 0
+    END FUNC

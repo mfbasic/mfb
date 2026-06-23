@@ -2120,6 +2120,19 @@ pub(crate) fn is_native_direct_call(name: &str) -> bool {
             | "strings.trimStart"
             | "strings.upper"
             | "strings.join"
+            | "strings.startsWithAny"
+            | "strings.endsWithAny"
+            | "strings.stripPrefix"
+            | "strings.stripSuffix"
+            | "strings.count"
+            | "strings.left"
+            | "strings.right"
+            | "strings.repeat"
+            | "strings.padLeft"
+            | "strings.padRight"
+            | "strings.graphemeAt"
+            | "strings.graphemesCount"
+            | "strings.trimChars"
     )
 }
 

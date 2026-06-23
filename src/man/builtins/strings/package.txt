@@ -17,6 +17,19 @@ SYNOPSIS
     strings::split(value, delimiter)
     strings::join(parts, delimiter)
     strings::byteLen(value)
+    strings::startsWithAny(value, prefixes)
+    strings::endsWithAny(value, suffixes)
+    strings::stripPrefix(value, prefix)
+    strings::stripSuffix(value, suffix)
+    strings::count(value, needle)
+    strings::left(value, count)
+    strings::right(value, count)
+    strings::repeat(value, times)
+    strings::padLeft(value, width, padChar)
+    strings::padRight(value, width, padChar)
+    strings::graphemeAt(value, index)
+    strings::graphemesCount(value)
+    strings::trimChars(value, chars)
 
 DESCRIPTION
     The strings package contains package-qualified string helpers.

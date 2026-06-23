@@ -1,0 +1,20 @@
+NAME
+    count - count non-overlapping occurrences of a substring
+
+SYNOPSIS
+    strings::count(value AS String, needle AS String) AS Integer
+
+DESCRIPTION
+    Returns the number of non-overlapping occurrences of needle in value.
+
+EXAMPLES
+    IMPORT io
+    IMPORT strings
+
+    FUNC main AS Integer
+      io::print(toString(strings::count("banana", "na")))
+      RETURN 0
+    END FUNC
+
+ERRORS
+    77050002 (ErrInvalidArgument) when needle is empty.

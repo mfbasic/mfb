@@ -1,0 +1,20 @@
+NAME
+    trimChars - remove leading and trailing scalars in a set
+
+SYNOPSIS
+    strings::trimChars(value AS String, chars AS String) AS String
+
+DESCRIPTION
+    Removes any leading and trailing Unicode scalars of value that appear in
+    the set of scalars given by chars. An empty chars returns value
+    unchanged. Unlike strings::trim, which removes Unicode whitespace, this
+    function trims only the scalars listed in chars.
+
+EXAMPLES
+    IMPORT io
+    IMPORT strings
+
+    FUNC main AS Integer
+      io::print(strings::trimChars("xxyHelloxyx", "xy"))
+      RETURN 0
+    END FUNC

@@ -1,0 +1,19 @@
+NAME
+    endsWithAny - test whether a string ends with any of several suffixes
+
+SYNOPSIS
+    strings::endsWithAny(value AS String, suffixes AS List OF String) AS Boolean
+
+DESCRIPTION
+    Returns TRUE when value ends with any string in suffixes.
+    An empty suffixes list returns FALSE. This function never fails.
+
+EXAMPLES
+    IMPORT io
+    IMPORT strings
+
+    FUNC main AS Integer
+      LET suffixes = [".png", ".jpg", ".gif"]
+      io::print(toString(strings::endsWithAny("photo.png", suffixes)))
+      RETURN 0
+    END FUNC

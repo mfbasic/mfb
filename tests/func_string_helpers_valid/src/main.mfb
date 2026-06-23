@@ -1,0 +1,40 @@
+IMPORT io
+IMPORT strings
+
+SUB p(label AS String, v AS String)
+  io::print(label & "=[" & v & "]")
+END SUB
+
+FUNC main AS Integer
+  LET empty AS List OF String = []
+  io::print("swa " & toString(strings::startsWithAny("hello", ["he", "xy"])) & toString(strings::startsWithAny("hello", ["xy", "zz"])) & toString(strings::startsWithAny("hello", empty)))
+  io::print("ewa " & toString(strings::endsWithAny("hello", ["lo", "xy"])) & toString(strings::endsWithAny("hello", empty)))
+  p("sp1", strings::stripPrefix("foobar", "foo"))
+  p("sp2", strings::stripPrefix("foobar", "xyz"))
+  p("sp3", strings::stripPrefix("foo", ""))
+  p("ss1", strings::stripSuffix("foobar", "bar"))
+  p("ss2", strings::stripSuffix("foobar", "xyz"))
+  io::print("cnt " & toString(strings::count("aaa", "a")) & toString(strings::count("aaa", "aa")) & toString(strings::count("abcabc", "bc")) & toString(strings::count("xyz", "a")))
+  p("l1", strings::left("hello", 3))
+  p("l2", strings::left("hi", 5))
+  p("l3", strings::left("hi", 0))
+  p("r1", strings::right("hello", 3))
+  p("r2", strings::right("hi", 5))
+  p("r3", strings::right("hi", 0))
+  p("rep1", strings::repeat("ab", 3))
+  p("rep2", strings::repeat("x", 0))
+  p("pl1", strings::padLeft("42", 5))
+  p("pl2", strings::padLeft("42", 5, "0"))
+  p("pl3", strings::padLeft("hello", 3))
+  p("pr1", strings::padRight("42", 5))
+  p("pr2", strings::padRight("42", 5, "0"))
+  p("ga1", strings::graphemeAt("abc", 1))
+  io::print("gc " & toString(strings::graphemesCount("abc")) & " " & toString(strings::graphemesCount("e" & "́" & "fg")))
+  p("tc1", strings::trimChars("xxhelloxx", "x"))
+  p("tc2", strings::trimChars("--a-b--", "-"))
+  p("tc3", strings::trimChars("aaa", "a"))
+  p("tc4", strings::trimChars("hello", ""))
+  p("lu", strings::left("a😀bc", 2))
+  p("ru", strings::right("ab😀c", 2))
+  RETURN 0
+END FUNC

@@ -1,0 +1,10 @@
+IMPORT strings
+
+FUNC main AS Integer
+  LET a AS Boolean = strings::startsWithAny("abc", "a")
+  LET b AS String = strings::left("abc")
+  LET c AS String = strings::padLeft("abc", 5, "x", "y")
+  LET d AS Integer = strings::graphemesCount("abc", 1)
+  LET e AS String = strings::repeat("abc", "x")
+  RETURN 0
+END FUNC

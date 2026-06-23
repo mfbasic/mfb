@@ -1,0 +1,22 @@
+NAME
+    left - return the first scalars of a string
+
+SYNOPSIS
+    strings::left(value AS String, count AS Integer) AS String
+
+DESCRIPTION
+    Returns the first count Unicode scalars of value.
+    When count is greater than or equal to the length of value, the whole
+    string is returned. A count of 0 returns the empty string.
+
+EXAMPLES
+    IMPORT io
+    IMPORT strings
+
+    FUNC main AS Integer
+      io::print(strings::left("Hello", 3))
+      RETURN 0
+    END FUNC
+
+ERRORS
+    77050002 (ErrInvalidArgument) when count is negative.
