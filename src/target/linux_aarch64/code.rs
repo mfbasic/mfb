@@ -3,7 +3,11 @@ use std::path::PathBuf;
 
 use crate::arch::aarch64::abi;
 use crate::os::linux::flavor::LinuxFlavor;
-use crate::target::shared::code::{self, CodeInstruction, CodeRelocation, NativeCodePlan};
+use crate::target::linux_aarch64::gtk;
+use crate::target::shared::code::{
+    self, AppEntrySpec, CodeDataObject, CodeFrame, CodeFunction, CodeInstruction, CodeRelocation,
+    NativeCodePlan,
+};
 use crate::target::shared::nir::NirModule;
 use crate::target::shared::plan::NativePlan;
 
@@ -84,6 +88,25 @@ impl code::CodegenPlatform for Platform {
         instructions: &mut Vec<CodeInstruction>,
         relocations: &mut Vec<CodeRelocation>,
     ) -> Result<(), String> {
+        // App mode (plan-05-linux-app.md §6.7): the worker program reports
+        // completion through the GTK finish helper instead of hard-exiting, so the
+        // main thread (GTK loop) decides the shutdown policy. Console programs (and
+        // the finish helper's own fallback) still terminate via `_exit`.
+        if from == code::MACAPP_PROGRAM_SYMBOL {
+            instructions.extend([
+                abi::branch_link(gtk::FINISH_SYMBOL),
+                abi::branch_self(),
+                abi::return_(),
+            ]);
+            relocations.push(CodeRelocation {
+                from: from.to_string(),
+                to: gtk::FINISH_SYMBOL.to_string(),
+                kind: "branch26".to_string(),
+                binding: "internal".to_string(),
+                library: None,
+            });
+            return Ok(());
+        }
         instructions.push(abi::branch_link("_exit"));
         relocations.push(CodeRelocation {
             from: from.to_string(),
@@ -95,6 +118,52 @@ impl code::CodegenPlatform for Platform {
         instructions.push(abi::branch_self());
         instructions.push(abi::return_());
         Ok(())
+    }
+
+    // --- Linux GTK4 app mode (plan-05-linux-app.md Phases 3-6, scaffold) -----
+
+    fn emit_app_program_entry(
+        &self,
+        spec: &AppEntrySpec,
+        platform_imports: &HashMap<String, String>,
+    ) -> Option<Result<Vec<CodeFunction>, String>> {
+        Some(gtk::emit_app_program_entry(spec, platform_imports))
+    }
+
+    fn app_mode_data_objects(&self) -> Vec<CodeDataObject> {
+        gtk::app_mode_data_objects()
+    }
+
+    fn emit_app_io_write_helper(
+        &self,
+        symbol: &str,
+        stderr: bool,
+        newline: bool,
+        _term_state_offset: Option<usize>,
+        _platform_imports: &HashMap<String, String>,
+    ) -> Option<Result<(CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>), String>> {
+        Some(Ok(gtk::emit_app_io_write_helper(symbol, stderr, newline)))
+    }
+
+    fn emit_app_io_flush_helper(
+        &self,
+        symbol: &str,
+    ) -> Option<Result<(CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>), String>> {
+        Some(Ok(gtk::emit_app_io_flush_helper(symbol)))
+    }
+
+    fn emit_app_io_input_helper(
+        &self,
+        symbol: &str,
+    ) -> Option<Result<(CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>), String>> {
+        Some(Ok(gtk::emit_app_io_input_helper(symbol)))
+    }
+
+    fn emit_app_io_is_terminal_helper(
+        &self,
+        symbol: &str,
+    ) -> Option<Result<(CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>), String>> {
+        Some(Ok(gtk::emit_app_io_is_terminal_helper(symbol)))
     }
 
     fn emit_write(

@@ -8,6 +8,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 pub(crate) mod code;
+pub(crate) mod gtk;
 pub(crate) mod plan;
 
 pub(crate) static BACKEND: Backend = Backend;

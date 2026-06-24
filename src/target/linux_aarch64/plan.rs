@@ -307,7 +307,7 @@ impl plan::NativePlanPlatform for Platform {
             symbol: "pthread_detach".to_string(),
             required_by: "_main".to_string(),
         });
-        for symbol in ["pipe", "dup2", "getenv", "write"] {
+        for symbol in ["pipe", "dup2", "getenv", "write", "strlen"] {
             imports.push(self.libc_import(symbol, "_main"));
         }
         imports
