@@ -1,3 +1,4 @@
+IMPORT collections
 IMPORT io
 
 FUNC main AS Integer
@@ -5,12 +6,12 @@ FUNC main AS Integer
   LET names AS Map OF String TO Integer = Map OF String TO Integer { "Ada" := 36, "Grace" := 85 }
   LET codes AS Map OF Integer TO String = Map OF Integer TO String { 1 := "one", 2 := "two" }
 
-  LET first AS Integer = get(numbers, 0)
-  LET middle AS Integer = get(numbers, 1)
-  LET last AS Integer = get(numbers, 2)
-  LET ada AS Integer = get(names, "Ada")
-  LET grace AS Integer = get(names, "Grace")
-  LET two AS String = get(codes, 2)
+  LET first AS Integer = collections::get(numbers, 0)
+  LET middle AS Integer = collections::get(numbers, 1)
+  LET last AS Integer = collections::get(numbers, 2)
+  LET ada AS Integer = collections::get(names, "Ada")
+  LET grace AS Integer = collections::get(names, "Grace")
+  LET two AS String = collections::get(codes, 2)
 
   io::print(toString(first))
   io::print(toString(middle))

@@ -1,28 +1,28 @@
 $ mfb build -ast tests/func_collection_set_map_invalid
-   1 | FUNC main AS Integer
-   2 |   LET ages AS Map OF String TO Integer = Map OF String TO Integer { "Ada" := 36 }
-   3 |   LET result AS Map OF String TO Integer = set(ages, 1, 37)
+   2 | FUNC main AS Integer
+   3 |   LET ages AS Map OF String TO Integer = Map OF String TO Integer { "Ada" := 36 }
+   4 |   LET result AS Map OF String TO Integer = collections::set(ages, 1, 37)
      | ^
-tests/func_collection_set_map_invalid/src/main.mfb:3 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
-               Call to `set` has argument type(s) (Map OF String TO Integer, Integer, Integer), expected List OF T, Integer, T or Map OF K TO V, K, V.
-   1 | FUNC main AS Integer
-   2 |   LET ages AS Map OF String TO Integer = Map OF String TO Integer { "Ada" := 36 }
-   3 |   LET result AS Map OF String TO Integer = set(ages, 1, 37)
+tests/func_collection_set_map_invalid/src/main.mfb:4 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `collections.set` has argument type(s) (Map OF String TO Integer, Integer, Integer), expected List OF T, Integer, T or Map OF K TO V, K, V.
+   2 | FUNC main AS Integer
+   3 |   LET ages AS Map OF String TO Integer = Map OF String TO Integer { "Ada" := 36 }
+   4 |   LET result AS Map OF String TO Integer = collections::set(ages, 1, 37)
      | ^
-tests/func_collection_set_map_invalid/src/main.mfb:3 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+tests/func_collection_set_map_invalid/src/main.mfb:4 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `result` does not have a known type.
 [exit 1]
 $ mfb build -ir tests/func_collection_set_map_invalid
-   1 | FUNC main AS Integer
-   2 |   LET ages AS Map OF String TO Integer = Map OF String TO Integer { "Ada" := 36 }
-   3 |   LET result AS Map OF String TO Integer = set(ages, 1, 37)
+   2 | FUNC main AS Integer
+   3 |   LET ages AS Map OF String TO Integer = Map OF String TO Integer { "Ada" := 36 }
+   4 |   LET result AS Map OF String TO Integer = collections::set(ages, 1, 37)
      | ^
-tests/func_collection_set_map_invalid/src/main.mfb:3 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
-               Call to `set` has argument type(s) (Map OF String TO Integer, Integer, Integer), expected List OF T, Integer, T or Map OF K TO V, K, V.
-   1 | FUNC main AS Integer
-   2 |   LET ages AS Map OF String TO Integer = Map OF String TO Integer { "Ada" := 36 }
-   3 |   LET result AS Map OF String TO Integer = set(ages, 1, 37)
+tests/func_collection_set_map_invalid/src/main.mfb:4 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `collections.set` has argument type(s) (Map OF String TO Integer, Integer, Integer), expected List OF T, Integer, T or Map OF K TO V, K, V.
+   2 | FUNC main AS Integer
+   3 |   LET ages AS Map OF String TO Integer = Map OF String TO Integer { "Ada" := 36 }
+   4 |   LET result AS Map OF String TO Integer = collections::set(ages, 1, 37)
      | ^
-tests/func_collection_set_map_invalid/src/main.mfb:3 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+tests/func_collection_set_map_invalid/src/main.mfb:4 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `result` does not have a known type.
 [exit 1]

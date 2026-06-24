@@ -1,3 +1,4 @@
+IMPORT collections
 IMPORT fs
 IMPORT io
 
@@ -10,7 +11,7 @@ FUNC main AS Integer
   MUT i AS Integer = 0
   WHILE i < 5
     RES f AS File = fs::openFile("tests/resource-collection-floats-runtime/src/main.mfb")
-    handles = append(handles, f)
+    handles = collections::append(handles, f)
     i = i + 1
   WEND
   MUT opened AS Integer = 0

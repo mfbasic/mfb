@@ -29,7 +29,7 @@
       "type": "List OF String",
       "iterable": { "kind": "local", "name": "rows" },
       "body": [
-      { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "binary", "op": "&", "left": { "kind": "binary", "op": "&", "left": { "kind": "call", "target": "get", "args": [{ "kind": "local", "name": "row" }, { "kind": "const", "type": "Integer", "value": "0" }] }, "right": { "kind": "const", "type": "String", "value": "=" } }, "right": { "kind": "call", "target": "get", "args": [{ "kind": "local", "name": "row" }, { "kind": "const", "type": "Integer", "value": "1" }] } }] } }
+      { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "binary", "op": "&", "left": { "kind": "binary", "op": "&", "left": { "kind": "call", "target": "collections.get", "args": [{ "kind": "local", "name": "row" }, { "kind": "const", "type": "Integer", "value": "0" }] }, "right": { "kind": "const", "type": "String", "value": "=" } }, "right": { "kind": "call", "target": "collections.get", "args": [{ "kind": "local", "name": "row" }, { "kind": "const", "type": "Integer", "value": "1" }] } }] } }
       ]
     },
     { "op": "bind", "mutable": false, "name": "tables", "type": "List OF String", "value": { "kind": "call", "target": "sqlite.listTables", "args": [{ "kind": "local", "name": "db" }] } },

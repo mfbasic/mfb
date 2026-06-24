@@ -2100,6 +2100,37 @@ fn expression_type(
                 return builtins::general::resolve_call(&canonical_callee, &arg_types)
                     .map(|resolved| resolved.return_type.to_string());
             }
+            if builtins::collections::is_native_member_call(&canonical_callee) {
+                let normalized =
+                    normalize_builtin_call_arguments(canonical_callee.as_str(), arguments);
+                if canonical_callee == "collections.filter" && normalized.len() == 2 {
+                    if let Expression::Identifier(predicate) = normalized[1] {
+                        if let Some(collection_type) =
+                            expression_type(normalized[0], locals, context)
+                        {
+                            if let Some(predicate_type) = collection_type
+                                .strip_prefix("List OF ")
+                                .and_then(|element| {
+                                    builtins::general::filter_predicate_type(predicate, element)
+                                })
+                            {
+                                let arg_types = vec![collection_type, predicate_type];
+                                return builtins::collections::resolve_call(
+                                    &canonical_callee,
+                                    &arg_types,
+                                )
+                                .map(|resolved| resolved.return_type.to_string());
+                            }
+                        }
+                    }
+                }
+                let arg_types = normalized
+                    .iter()
+                    .map(|argument| expression_type(argument, locals, context))
+                    .collect::<Option<Vec<_>>>()?;
+                return builtins::collections::resolve_call(&canonical_callee, &arg_types)
+                    .map(|resolved| resolved.return_type.to_string());
+            }
             if builtins::strings::is_strings_call(&canonical_callee) {
                 let arg_types =
                     normalize_builtin_call_arguments(canonical_callee.as_str(), arguments)
@@ -2308,6 +2339,12 @@ fn builtin_argument_types(callee: &str) -> Option<Vec<String>> {
         .or_else(|| builtins::net::argument_types(callee))
         .or_else(|| builtins::tls::argument_types(callee))
         .or_else(|| builtins::thread::expected_arguments(callee))?;
+    // Overloaded/optional-argument descriptions (e.g. `strings.find`'s
+    // `"String, String[, Integer]"`) are not a concrete positional signature;
+    // skip them so we don't hand the lowerer a bracket-mangled expected type.
+    if expected.contains('[') || expected.contains(" or ") {
+        return None;
+    }
     let params = expected.split(", ").map(str::to_string).collect::<Vec<_>>();
     if params.iter().any(|param| uses_generic_placeholder(param)) {
         return None;
@@ -2545,7 +2582,7 @@ fn lower_expression_with_expected(
             }
             let normalized_builtin =
                 normalize_builtin_call_arguments(canonical_callee.as_str(), arguments);
-            let args = if callee == "filter" && normalized_builtin.len() == 2 {
+            let args = if canonical_callee == "collections.filter" && normalized_builtin.len() == 2 {
                 if let Expression::Identifier(predicate) = normalized_builtin[1] {
                     let predicate_type = expression_type(normalized_builtin[0], locals, context)
                         .and_then(|collection_type| {
@@ -2607,8 +2644,16 @@ fn lower_expression_with_expected(
                     value: (*value).to_string(),
                 });
             }
-            let resolved_target = builtins::json::implementation_name(&canonical_callee)
-                .unwrap_or(&canonical_callee);
+            // Dequalify migrated `collections::`/`strings::` native members back
+            // to their bare lowering names (plan-01-functions.md §5): the native
+            // code generator stays keyed on `get`/`transform`/`find`/... .
+            // Migrated `collections::`/`strings::` members keep their qualified,
+            // dot-containing target all the way to codegen (plan-01-functions.md
+            // §5). The native code generator dispatches on the qualified name, so
+            // the freed bare names (`get`, `transform`, ...) can be redefined by
+            // user code without colliding with the native lowering.
+            let resolved_target =
+                builtins::json::implementation_name(&canonical_callee).unwrap_or(&canonical_callee);
             IrValue::Call {
                 // The resource plane reuses the proven data-channel runtime:
                 // `thread::transfer`/`accept` lower exactly like `send`/`receive`

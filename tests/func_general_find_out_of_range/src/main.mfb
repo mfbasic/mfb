@@ -1,3 +1,4 @@
+IMPORT strings
 FUNC main AS Integer
-  RETURN find("hello", "h", 6)
+  RETURN strings::find("hello", "h", 6)
 END FUNC

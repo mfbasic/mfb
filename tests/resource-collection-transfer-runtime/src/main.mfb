@@ -1,3 +1,4 @@
+IMPORT collections
 IMPORT fs
 IMPORT io
 
@@ -7,9 +8,9 @@ IMPORT io
 FUNC openTwo() AS List OF RES File
   MUT handles AS List OF RES File = []
   RES a AS File = fs::openFile("tests/resource-collection-transfer-runtime/src/main.mfb")
-  handles = append(handles, a)
+  handles = collections::append(handles, a)
   RES b AS File = fs::openFile("tests/resource-collection-transfer-runtime/src/main.mfb")
-  handles = append(handles, b)
+  handles = collections::append(handles, b)
   RETURN handles
 END FUNC
 

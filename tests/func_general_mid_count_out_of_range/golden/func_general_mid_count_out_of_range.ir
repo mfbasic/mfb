@@ -18,7 +18,7 @@
     ],
     "returns": "Integer",
     "body": [
-    { "op": "return", "value": { "kind": "call", "target": "len", "args": [{ "kind": "call", "target": "mid", "args": [{ "kind": "const", "type": "String", "value": "hello" }, { "kind": "const", "type": "Integer", "value": "3" }, { "kind": "const", "type": "Integer", "value": "3" }] }] } }
+    { "op": "return", "value": { "kind": "call", "target": "len", "args": [{ "kind": "call", "target": "strings.mid", "args": [{ "kind": "const", "type": "String", "value": "hello" }, { "kind": "const", "type": "Integer", "value": "3" }, { "kind": "const", "type": "Integer", "value": "3" }] }] } }
     ]
   }
   ]

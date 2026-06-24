@@ -18,10 +18,10 @@
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "mutable": false, "name": "numbers", "type": "List OF Integer", "value": { "kind": "call", "target": "append", "args": [{ "kind": "list", "type": "List OF Integer", "values": [{ "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "2" }] }, { "kind": "const", "type": "Integer", "value": "3" }] } },
-    { "op": "bind", "mutable": false, "name": "more", "type": "List OF Integer", "value": { "kind": "call", "target": "append", "args": [{ "kind": "local", "name": "numbers" }, { "kind": "list", "type": "List OF Integer", "values": [{ "kind": "const", "type": "Integer", "value": "4" }, { "kind": "const", "type": "Integer", "value": "5" }] }] } },
-    { "op": "bind", "mutable": false, "name": "names", "type": "List OF String", "value": { "kind": "call", "target": "append", "args": [{ "kind": "list", "type": "List OF String", "values": [{ "kind": "const", "type": "String", "value": "Ada" }] }, { "kind": "const", "type": "String", "value": "Grace" }] } },
-    { "op": "bind", "mutable": false, "name": "moreNames", "type": "List OF String", "value": { "kind": "call", "target": "append", "args": [{ "kind": "local", "name": "names" }, { "kind": "list", "type": "List OF String", "values": [{ "kind": "const", "type": "String", "value": "Katherine" }] }] } },
+    { "op": "bind", "mutable": false, "name": "numbers", "type": "List OF Integer", "value": { "kind": "call", "target": "collections.append", "args": [{ "kind": "list", "type": "List OF Integer", "values": [{ "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "2" }] }, { "kind": "const", "type": "Integer", "value": "3" }] } },
+    { "op": "bind", "mutable": false, "name": "more", "type": "List OF Integer", "value": { "kind": "call", "target": "collections.append", "args": [{ "kind": "local", "name": "numbers" }, { "kind": "list", "type": "List OF Integer", "values": [{ "kind": "const", "type": "Integer", "value": "4" }, { "kind": "const", "type": "Integer", "value": "5" }] }] } },
+    { "op": "bind", "mutable": false, "name": "names", "type": "List OF String", "value": { "kind": "call", "target": "collections.append", "args": [{ "kind": "list", "type": "List OF String", "values": [{ "kind": "const", "type": "String", "value": "Ada" }] }, { "kind": "const", "type": "String", "value": "Grace" }] } },
+    { "op": "bind", "mutable": false, "name": "moreNames", "type": "List OF String", "value": { "kind": "call", "target": "collections.append", "args": [{ "kind": "local", "name": "names" }, { "kind": "list", "type": "List OF String", "values": [{ "kind": "const", "type": "String", "value": "Katherine" }] }] } },
     {
       "op": "forEach",
       "name": "value",

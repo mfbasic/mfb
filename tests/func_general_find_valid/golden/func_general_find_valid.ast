@@ -4,25 +4,26 @@
   {
     "path": "src/main.mfb",
     "imports": [
-    { "module": "io", "line": 1 }
+    { "module": "strings", "line": 1 },
+    { "module": "io", "line": 2 }
     ],
     "items": [
     {
       "kind": "func",
       "visibility": "private",
       "name": "main",
-      "line": 3,
+      "line": 4,
       "params": [
       ],
       "returnType": "Integer",
       "body": [
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "find-string-first: find(\"hello\", \"l\") = " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "find", "arguments": [{ "kind": "string", "value": "hello" }, { "kind": "string", "value": "l" }] }] } }] }, "line": 5 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "find-string-start: find(\"hello\", \"l\", 3) = " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "find", "arguments": [{ "kind": "string", "value": "hello" }, { "kind": "string", "value": "l" }, { "kind": "number", "value": "3" }] }] } }] }, "line": 6 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "find-string-unicode: find(\"aé日é\", \"日\") = " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "find", "arguments": [{ "kind": "string", "value": "aé日é" }, { "kind": "string", "value": "日" }] }] } }] }, "line": 7 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "find-string-empty-needle: find(\"abcdef\", \"\", 2) = " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "find", "arguments": [{ "kind": "string", "value": "abcdef" }, { "kind": "string", "value": "" }, { "kind": "number", "value": "2" }] }] } }] }, "line": 8 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "find-string-emoji: find(\"a😀é\", \"😀\") = " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "find", "arguments": [{ "kind": "string", "value": "a😀é" }, { "kind": "string", "value": "😀" }] }] } }] }, "line": 9 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "find-string-combining-mark: find(\"éx\", \"́\") = " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "find", "arguments": [{ "kind": "string", "value": "éx" }, { "kind": "string", "value": "́" }] }] } }] }, "line": 10 },
-      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 12 }
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "find-string-first: strings::find(\"hello\", \"l\") = " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "strings.find", "arguments": [{ "kind": "string", "value": "hello" }, { "kind": "string", "value": "l" }] }] } }] }, "line": 6 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "find-string-start: strings::find(\"hello\", \"l\", 3) = " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "strings.find", "arguments": [{ "kind": "string", "value": "hello" }, { "kind": "string", "value": "l" }, { "kind": "number", "value": "3" }] }] } }] }, "line": 7 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "find-string-unicode: strings::find(\"aé日é\", \"日\") = " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "strings.find", "arguments": [{ "kind": "string", "value": "aé日é" }, { "kind": "string", "value": "日" }] }] } }] }, "line": 8 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "find-string-empty-needle: strings::find(\"abcdef\", \"\", 2) = " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "strings.find", "arguments": [{ "kind": "string", "value": "abcdef" }, { "kind": "string", "value": "" }, { "kind": "number", "value": "2" }] }] } }] }, "line": 9 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "find-string-emoji: strings::find(\"a😀é\", \"😀\") = " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "strings.find", "arguments": [{ "kind": "string", "value": "a😀é" }, { "kind": "string", "value": "😀" }] }] } }] }, "line": 10 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "find-string-combining-mark: strings::find(\"éx\", \"́\") = " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "strings.find", "arguments": [{ "kind": "string", "value": "éx" }, { "kind": "string", "value": "́" }] }] } }] }, "line": 11 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 13 }
       ]
     }
     ]

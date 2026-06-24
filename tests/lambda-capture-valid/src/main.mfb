@@ -1,3 +1,4 @@
+IMPORT collections
 IMPORT io
 
 FUNC makeAdder(base AS Integer) AS FUNC(Integer) AS Integer
@@ -11,14 +12,14 @@ FUNC main AS Integer
   LET threshold AS Integer = 3
   LET aboveThreshold AS FUNC(Integer) AS Boolean = LAMBDA(value AS Integer) -> value > threshold
   LET numbers AS List OF Integer = [1, 2, 3, 4]
-  LET incremented AS List OF Integer = transform(numbers, addTwo)
-  LET elevated AS List OF Integer = transform([1], addTen)
-  LET filtered AS List OF Integer = filter(incremented, aboveThreshold)
+  LET incremented AS List OF Integer = collections::transform(numbers, addTwo)
+  LET elevated AS List OF Integer = collections::transform([1], addTen)
+  LET filtered AS List OF Integer = collections::filter(incremented, aboveThreshold)
 
-  io::print(toString(get(elevated, 0)))
-  io::print(toString(get(incremented, 0)))
-  io::print(toString(get(incremented, 3)))
+  io::print(toString(collections::get(elevated, 0)))
+  io::print(toString(collections::get(incremented, 0)))
+  io::print(toString(collections::get(incremented, 3)))
   io::print(toString(len(filtered)))
 
-  RETURN sum(incremented) + sum(elevated)
+  RETURN collections::sum(incremented) + collections::sum(elevated)
 END FUNC

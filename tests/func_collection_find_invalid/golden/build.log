@@ -1,76 +1,76 @@
 $ mfb build -ast tests/func_collection_find_invalid
-   7 |   LET words AS List OF String = ["one", "two"]
-   8 |   LET boxes AS List OF Box = [Box[[1]], Box[[2]]]
-   9 |   LET wrongItem AS Integer = find(numbers, "2")
-     | ^
-tests/func_collection_find_invalid/src/main.mfb:9 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
-               Call to `find` has argument type(s) (List OF Integer, String), expected String, String, Integer or List OF T, T, Integer or List OF T, List OF T, Integer.
-   7 |   LET words AS List OF String = ["one", "two"]
-   8 |   LET boxes AS List OF Box = [Box[[1]], Box[[2]]]
-   9 |   LET wrongItem AS Integer = find(numbers, "2")
-     | ^
-tests/func_collection_find_invalid/src/main.mfb:9 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
-               Initializer for binding `wrongItem` does not have a known type.
-   8 |   LET boxes AS List OF Box = [Box[[1]], Box[[2]]]
-   9 |   LET wrongItem AS Integer = find(numbers, "2")
-  10 |   LET wrongNeedle AS Integer = find(numbers, words)
+   8 |   LET words AS List OF String = ["one", "two"]
+   9 |   LET boxes AS List OF Box = [Box[[1]], Box[[2]]]
+  10 |   LET wrongItem AS Integer = collections::find(numbers, "2")
      | ^
 tests/func_collection_find_invalid/src/main.mfb:10 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
-               Call to `find` has argument type(s) (List OF Integer, List OF String), expected String, String, Integer or List OF T, T, Integer or List OF T, List OF T, Integer.
-   8 |   LET boxes AS List OF Box = [Box[[1]], Box[[2]]]
-   9 |   LET wrongItem AS Integer = find(numbers, "2")
-  10 |   LET wrongNeedle AS Integer = find(numbers, words)
+               Call to `collections.find` has argument type(s) (List OF Integer, String), expected List OF T, T[, Integer].
+   8 |   LET words AS List OF String = ["one", "two"]
+   9 |   LET boxes AS List OF Box = [Box[[1]], Box[[2]]]
+  10 |   LET wrongItem AS Integer = collections::find(numbers, "2")
      | ^
 tests/func_collection_find_invalid/src/main.mfb:10 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
-               Initializer for binding `wrongNeedle` does not have a known type.
-   9 |   LET wrongItem AS Integer = find(numbers, "2")
-  10 |   LET wrongNeedle AS Integer = find(numbers, words)
-  11 |   LET nonComparableItem AS Integer = find(boxes, Box[[2]])
+               Initializer for binding `wrongItem` does not have a known type.
+   9 |   LET boxes AS List OF Box = [Box[[1]], Box[[2]]]
+  10 |   LET wrongItem AS Integer = collections::find(numbers, "2")
+  11 |   LET wrongNeedle AS Integer = collections::find(numbers, words)
      | ^
-tests/func_collection_find_invalid/src/main.mfb:11 error[2-203-0061 TYPE_REQUIRES_COMPARABLE]: operation requires a comparable type
-               Call to `find` requires a comparable type, got `Box`.
-  10 |   LET wrongNeedle AS Integer = find(numbers, words)
-  11 |   LET nonComparableItem AS Integer = find(boxes, Box[[2]])
-  12 |   LET nonComparableNeedle AS Integer = find(boxes, [Box[[2]]])
+tests/func_collection_find_invalid/src/main.mfb:11 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `collections.find` has argument type(s) (List OF Integer, List OF String), expected List OF T, T[, Integer].
+   9 |   LET boxes AS List OF Box = [Box[[1]], Box[[2]]]
+  10 |   LET wrongItem AS Integer = collections::find(numbers, "2")
+  11 |   LET wrongNeedle AS Integer = collections::find(numbers, words)
+     | ^
+tests/func_collection_find_invalid/src/main.mfb:11 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `wrongNeedle` does not have a known type.
+  10 |   LET wrongItem AS Integer = collections::find(numbers, "2")
+  11 |   LET wrongNeedle AS Integer = collections::find(numbers, words)
+  12 |   LET nonComparableItem AS Integer = collections::find(boxes, Box[[2]])
      | ^
 tests/func_collection_find_invalid/src/main.mfb:12 error[2-203-0061 TYPE_REQUIRES_COMPARABLE]: operation requires a comparable type
-               Call to `find` requires a comparable type, got `Box`.
+               Call to `collections.find` requires a comparable type, got `Box`.
+  11 |   LET wrongNeedle AS Integer = collections::find(numbers, words)
+  12 |   LET nonComparableItem AS Integer = collections::find(boxes, Box[[2]])
+  13 |   LET nonComparableNeedle AS Integer = collections::find(boxes, [Box[[2]]])
+     | ^
+tests/func_collection_find_invalid/src/main.mfb:13 error[2-203-0061 TYPE_REQUIRES_COMPARABLE]: operation requires a comparable type
+               Call to `collections.find` requires a comparable type, got `Box`.
 [exit 1]
 $ mfb build -ir tests/func_collection_find_invalid
-   7 |   LET words AS List OF String = ["one", "two"]
-   8 |   LET boxes AS List OF Box = [Box[[1]], Box[[2]]]
-   9 |   LET wrongItem AS Integer = find(numbers, "2")
-     | ^
-tests/func_collection_find_invalid/src/main.mfb:9 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
-               Call to `find` has argument type(s) (List OF Integer, String), expected String, String, Integer or List OF T, T, Integer or List OF T, List OF T, Integer.
-   7 |   LET words AS List OF String = ["one", "two"]
-   8 |   LET boxes AS List OF Box = [Box[[1]], Box[[2]]]
-   9 |   LET wrongItem AS Integer = find(numbers, "2")
-     | ^
-tests/func_collection_find_invalid/src/main.mfb:9 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
-               Initializer for binding `wrongItem` does not have a known type.
-   8 |   LET boxes AS List OF Box = [Box[[1]], Box[[2]]]
-   9 |   LET wrongItem AS Integer = find(numbers, "2")
-  10 |   LET wrongNeedle AS Integer = find(numbers, words)
+   8 |   LET words AS List OF String = ["one", "two"]
+   9 |   LET boxes AS List OF Box = [Box[[1]], Box[[2]]]
+  10 |   LET wrongItem AS Integer = collections::find(numbers, "2")
      | ^
 tests/func_collection_find_invalid/src/main.mfb:10 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
-               Call to `find` has argument type(s) (List OF Integer, List OF String), expected String, String, Integer or List OF T, T, Integer or List OF T, List OF T, Integer.
-   8 |   LET boxes AS List OF Box = [Box[[1]], Box[[2]]]
-   9 |   LET wrongItem AS Integer = find(numbers, "2")
-  10 |   LET wrongNeedle AS Integer = find(numbers, words)
+               Call to `collections.find` has argument type(s) (List OF Integer, String), expected List OF T, T[, Integer].
+   8 |   LET words AS List OF String = ["one", "two"]
+   9 |   LET boxes AS List OF Box = [Box[[1]], Box[[2]]]
+  10 |   LET wrongItem AS Integer = collections::find(numbers, "2")
      | ^
 tests/func_collection_find_invalid/src/main.mfb:10 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
-               Initializer for binding `wrongNeedle` does not have a known type.
-   9 |   LET wrongItem AS Integer = find(numbers, "2")
-  10 |   LET wrongNeedle AS Integer = find(numbers, words)
-  11 |   LET nonComparableItem AS Integer = find(boxes, Box[[2]])
+               Initializer for binding `wrongItem` does not have a known type.
+   9 |   LET boxes AS List OF Box = [Box[[1]], Box[[2]]]
+  10 |   LET wrongItem AS Integer = collections::find(numbers, "2")
+  11 |   LET wrongNeedle AS Integer = collections::find(numbers, words)
      | ^
-tests/func_collection_find_invalid/src/main.mfb:11 error[2-203-0061 TYPE_REQUIRES_COMPARABLE]: operation requires a comparable type
-               Call to `find` requires a comparable type, got `Box`.
-  10 |   LET wrongNeedle AS Integer = find(numbers, words)
-  11 |   LET nonComparableItem AS Integer = find(boxes, Box[[2]])
-  12 |   LET nonComparableNeedle AS Integer = find(boxes, [Box[[2]]])
+tests/func_collection_find_invalid/src/main.mfb:11 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `collections.find` has argument type(s) (List OF Integer, List OF String), expected List OF T, T[, Integer].
+   9 |   LET boxes AS List OF Box = [Box[[1]], Box[[2]]]
+  10 |   LET wrongItem AS Integer = collections::find(numbers, "2")
+  11 |   LET wrongNeedle AS Integer = collections::find(numbers, words)
+     | ^
+tests/func_collection_find_invalid/src/main.mfb:11 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `wrongNeedle` does not have a known type.
+  10 |   LET wrongItem AS Integer = collections::find(numbers, "2")
+  11 |   LET wrongNeedle AS Integer = collections::find(numbers, words)
+  12 |   LET nonComparableItem AS Integer = collections::find(boxes, Box[[2]])
      | ^
 tests/func_collection_find_invalid/src/main.mfb:12 error[2-203-0061 TYPE_REQUIRES_COMPARABLE]: operation requires a comparable type
-               Call to `find` requires a comparable type, got `Box`.
+               Call to `collections.find` requires a comparable type, got `Box`.
+  11 |   LET wrongNeedle AS Integer = collections::find(numbers, words)
+  12 |   LET nonComparableItem AS Integer = collections::find(boxes, Box[[2]])
+  13 |   LET nonComparableNeedle AS Integer = collections::find(boxes, [Box[[2]]])
+     | ^
+tests/func_collection_find_invalid/src/main.mfb:13 error[2-203-0061 TYPE_REQUIRES_COMPARABLE]: operation requires a comparable type
+               Call to `collections.find` requires a comparable type, got `Box`.
 [exit 1]

@@ -1,3 +1,4 @@
+IMPORT collections
 IMPORT io
 
 FUNC main AS Integer
@@ -21,9 +22,9 @@ FUNC main AS Integer
   io::print(toString(isZero(negativeFixed)))
   io::print(toString(isZero(0.000)))
   io::print(toString(isZero(2.500)))
-  io::print(toString(len(filter(integers, isZero))))
-  io::print(toString(len(filter(floats, isZero))))
-  io::print(toString(len(filter(fixeds, isZero))))
+  io::print(toString(len(collections::filter(integers, isZero))))
+  io::print(toString(len(collections::filter(floats, isZero))))
+  io::print(toString(len(collections::filter(fixeds, isZero))))
 
   RETURN 0
 END FUNC

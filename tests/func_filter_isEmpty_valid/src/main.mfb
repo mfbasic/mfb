@@ -1,3 +1,4 @@
+IMPORT collections
 IMPORT io
 
 FUNC main AS Integer
@@ -6,7 +7,7 @@ FUNC main AS Integer
   LET emptyMap AS Map OF String TO Integer = Map OF String TO Integer {}
   LET map AS Map OF String TO Integer = Map OF String TO Integer { "Ada" := 36 }
   LET texts AS List OF String = ["", "Ada", ""]
-  LET emptyTexts AS List OF String = filter(texts, isEmpty)
+  LET emptyTexts AS List OF String = collections::filter(texts, isEmpty)
 
   io::print(toString(isEmpty("")))
   io::print(toString(isEmpty("Ada")))

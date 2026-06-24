@@ -1,10 +1,11 @@
+IMPORT collections
 IMPORT io
 
 FUNC main AS Integer
   LET names AS Map OF String TO Integer = Map OF String TO Integer { "Ada" := 36, "Grace" := 85 }
   LET codes AS Map OF Integer TO String = Map OF Integer TO String { 1 := "one", 2 := "two" }
-  LET nameKeys AS List OF String = keys(names)
-  LET codeKeys AS List OF Integer = keys(codes)
+  LET nameKeys AS List OF String = collections::keys(names)
+  LET codeKeys AS List OF Integer = collections::keys(codes)
 
   FOR EACH name IN nameKeys
     io::print(name)

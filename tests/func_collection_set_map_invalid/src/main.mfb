@@ -1,5 +1,6 @@
+IMPORT collections
 FUNC main AS Integer
   LET ages AS Map OF String TO Integer = Map OF String TO Integer { "Ada" := 36 }
-  LET result AS Map OF String TO Integer = set(ages, 1, 37)
+  LET result AS Map OF String TO Integer = collections::set(ages, 1, 37)
   RETURN len(result)
 END FUNC

@@ -19,7 +19,7 @@
     "returns": "Integer",
     "body": [
     { "op": "bind", "mutable": false, "name": "values", "type": "List OF Integer", "value": { "kind": "list", "type": "List OF Integer", "values": [{ "kind": "const", "type": "Integer", "value": "9223372036854775807" }, { "kind": "const", "type": "Integer", "value": "1" }] } },
-    { "op": "return", "value": { "kind": "call", "target": "sum", "args": [{ "kind": "local", "name": "values" }] } }
+    { "op": "return", "value": { "kind": "call", "target": "collections.sum", "args": [{ "kind": "local", "name": "values" }] } }
     ]
   }
   ]

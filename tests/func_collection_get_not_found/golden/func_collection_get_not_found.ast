@@ -4,19 +4,20 @@
   {
     "path": "src/main.mfb",
     "imports": [
+    { "module": "collections", "line": 1 }
     ],
     "items": [
     {
       "kind": "func",
       "visibility": "private",
       "name": "main",
-      "line": 1,
+      "line": 2,
       "params": [
       ],
       "returnType": "Integer",
       "body": [
-      { "kind": "binding", "mutable": false, "name": "names", "type": "Map OF String TO Integer", "value": { "kind": "map", "keyType": "String", "valueType": "Integer", "entries": [{ "key": { "kind": "string", "value": "Ada" }, "value": { "kind": "number", "value": "36" } }] }, "line": 2 },
-      { "kind": "return", "value": { "kind": "call", "callee": "get", "arguments": [{ "kind": "identifier", "value": "names" }, { "kind": "string", "value": "Grace" }] }, "line": 3 }
+      { "kind": "binding", "mutable": false, "name": "names", "type": "Map OF String TO Integer", "value": { "kind": "map", "keyType": "String", "valueType": "Integer", "entries": [{ "key": { "kind": "string", "value": "Ada" }, "value": { "kind": "number", "value": "36" } }] }, "line": 3 },
+      { "kind": "return", "value": { "kind": "call", "callee": "collections.get", "arguments": [{ "kind": "identifier", "value": "names" }, { "kind": "string", "value": "Grace" }] }, "line": 4 }
       ]
     }
     ]

@@ -1,3 +1,4 @@
+IMPORT collections
 IMPORT io
 
 ' REGRESSION: growing a `MUT` collection with `append` in a loop once crossed a
@@ -13,7 +14,7 @@ FUNC main AS Integer
   MUT xs AS List OF Integer = []
   MUT j AS Integer = 0
   WHILE j < 17
-    xs = append(xs, j)
+    xs = collections::append(xs, j)
     j = j + 1
   WEND
   io::print("len=" & toString(len(xs)))

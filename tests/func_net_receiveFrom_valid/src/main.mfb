@@ -1,3 +1,4 @@
+IMPORT collections
 IMPORT net
 IMPORT io
 
@@ -16,7 +17,7 @@ FUNC main AS Integer
   net::setReadTimeout(server, 2000)
   LET bound = net::localAddress(server)
   RES client = net::bindUdp("127.0.0.1", 0)
-  LET dest = get(net::lookup("127.0.0.1", bound.port), 0)
+  LET dest = collections::get(net::lookup("127.0.0.1", bound.port), 0)
   LET payload AS List OF Byte = [10, 20, 30, 40]
   net::sendTo(client, dest, payload)
   io::print(toString(recvCount(server, 16)))

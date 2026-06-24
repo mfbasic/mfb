@@ -1,3 +1,4 @@
+IMPORT collections
 IMPORT io
 
 TYPE Point
@@ -16,14 +17,14 @@ FUNC main AS Integer
   LET names AS List OF String = ["Ada", "Grace"]
   LET points AS List OF Point = [Point[1, 2], Point[3, 4]]
 
-  LET emptyMissing AS Boolean = contains(empty, 10)
-  LET first AS Boolean = contains(numbers, 10)
-  LET last AS Boolean = contains(numbers, 30)
-  LET missing AS Boolean = contains(numbers, 40)
-  LET stringHit AS Boolean = contains(names, "Grace")
-  LET stringMiss AS Boolean = contains(names, "Katherine")
-  LET pointHit AS Boolean = contains(points, Point[3, 4])
-  LET pointMiss AS Boolean = contains(points, Point[5, 6])
+  LET emptyMissing AS Boolean = collections::contains(empty, 10)
+  LET first AS Boolean = collections::contains(numbers, 10)
+  LET last AS Boolean = collections::contains(numbers, 30)
+  LET missing AS Boolean = collections::contains(numbers, 40)
+  LET stringHit AS Boolean = collections::contains(names, "Grace")
+  LET stringMiss AS Boolean = collections::contains(names, "Katherine")
+  LET pointHit AS Boolean = collections::contains(points, Point[3, 4])
+  LET pointMiss AS Boolean = collections::contains(points, Point[5, 6])
 
   printBoolean(emptyMissing)
   printBoolean(first)

@@ -1,3 +1,4 @@
+IMPORT collections
 IMPORT strings
 
 EXPORT TYPE JsonNull
@@ -60,7 +61,7 @@ FUNC __json_get(value AS Json, path AS List OF String) AS Json
     LET currentValue AS Json = current
     MATCH currentValue
       CASE JsonObj(obj)
-        nextValue = get(obj.fields, key)
+        nextValue = collections::get(obj.fields, key)
       CASE ELSE
         FAIL error(77050004, "not found")
     END MATCH
@@ -76,8 +77,8 @@ FUNC __json_getOr(value AS Json, path AS List OF String, defaultValue AS Json) A
     LET currentValue AS Json = current
     MATCH currentValue
       CASE JsonObj(obj)
-        IF hasKey(obj.fields, key) THEN
-          nextValue = get(obj.fields, key)
+        IF collections::hasKey(obj.fields, key) THEN
+          nextValue = collections::get(obj.fields, key)
         ELSE
           RETURN defaultValue
         END IF
@@ -177,14 +178,14 @@ FUNC __json_trimFloatTextAt(value AS String, endIndex AS Integer) AS String
   IF endIndex <= 0 THEN
     RETURN value
   END IF
-  LET last AS String = mid(value, endIndex - 1, 1)
+  LET last AS String = strings::mid(value, endIndex - 1, 1)
   IF last = "0" THEN
     RETURN __json_trimFloatTextAt(value, endIndex - 1)
   END IF
   IF last = "." THEN
-    RETURN mid(value, 0, endIndex - 1)
+    RETURN strings::mid(value, 0, endIndex - 1)
   END IF
-  RETURN mid(value, 0, endIndex)
+  RETURN strings::mid(value, 0, endIndex)
 END FUNC
 
 FUNC __json_escapeString(value AS String) AS String
@@ -303,7 +304,7 @@ FUNC __json_parseValue(chars AS List OF String, index AS Integer) AS __JsonNode
     FAIL error(77050003, "invalid JSON format")
   END IF
 
-  LET ch AS String = get(chars, nextIndex)
+  LET ch AS String = collections::get(chars, nextIndex)
   IF ch = "n" THEN
     LET endIndex AS Integer = __json_expectLiteral(chars, nextIndex, "null")
     LET value AS Json = JsonNull[NOTHING]
@@ -334,7 +335,7 @@ FUNC __json_parseArray(chars AS List OF String, index AS Integer) AS __JsonNode
   IF nextIndex >= len(chars) THEN
     FAIL error(77050003, "invalid JSON format")
   END IF
-  IF get(chars, nextIndex) = "]" THEN
+  IF collections::get(chars, nextIndex) = "]" THEN
     LET emptyItems AS List OF Json = []
     LET value AS Json = JsonArr[emptyItems]
     RETURN __JsonNode[value, nextIndex + 1]
@@ -344,13 +345,13 @@ END FUNC
 
 FUNC __json_parseArrayItems(chars AS List OF String, index AS Integer, items AS List OF Json) AS __JsonNode
   LET parsed AS __JsonNode = __json_parseValue(chars, index)
-  LET nextItems AS List OF Json = append(items, parsed.value)
+  LET nextItems AS List OF Json = collections::append(items, parsed.value)
   LET nextIndex AS Integer = __json_skipWhitespace(chars, parsed.index)
   IF nextIndex >= len(chars) THEN
     FAIL error(77050003, "invalid JSON format")
   END IF
 
-  LET ch AS String = get(chars, nextIndex)
+  LET ch AS String = collections::get(chars, nextIndex)
   IF ch = "," THEN
     RETURN __json_parseArrayItems(chars, nextIndex + 1, nextItems)
   ELSEIF ch = "]" THEN
@@ -366,7 +367,7 @@ FUNC __json_parseObject(chars AS List OF String, index AS Integer) AS __JsonNode
   IF nextIndex >= len(chars) THEN
     FAIL error(77050003, "invalid JSON format")
   END IF
-  IF get(chars, nextIndex) = "}" THEN
+  IF collections::get(chars, nextIndex) = "}" THEN
     LET emptyFields AS Map OF String TO Json = Map OF String TO Json {}
     LET value AS Json = JsonObj[emptyFields]
     RETURN __JsonNode[value, nextIndex + 1]
@@ -379,7 +380,7 @@ FUNC __json_parseObjectItems(chars AS List OF String, index AS Integer, fields A
   IF nextIndex >= len(chars) THEN
     FAIL error(77050003, "invalid JSON format")
   END IF
-  LET quote AS String = get(chars, nextIndex)
+  LET quote AS String = collections::get(chars, nextIndex)
   IF quote <> "\"" THEN
     FAIL error(77050003, "invalid JSON format")
   END IF
@@ -389,19 +390,19 @@ FUNC __json_parseObjectItems(chars AS List OF String, index AS Integer, fields A
   IF colonIndex >= len(chars) THEN
     FAIL error(77050003, "invalid JSON format")
   END IF
-  LET colon AS String = get(chars, colonIndex)
+  LET colon AS String = collections::get(chars, colonIndex)
   IF colon <> ":" THEN
     FAIL error(77050003, "invalid JSON format")
   END IF
 
   LET valueState AS __JsonNode = __json_parseValue(chars, colonIndex + 1)
-  LET nextFields AS Map OF String TO Json = set(fields, keyState.value, valueState.value)
+  LET nextFields AS Map OF String TO Json = collections::set(fields, keyState.value, valueState.value)
   LET afterValue AS Integer = __json_skipWhitespace(chars, valueState.index)
   IF afterValue >= len(chars) THEN
     FAIL error(77050003, "invalid JSON format")
   END IF
 
-  LET ch AS String = get(chars, afterValue)
+  LET ch AS String = collections::get(chars, afterValue)
   IF ch = "," THEN
     RETURN __json_parseObjectItems(chars, afterValue + 1, nextFields)
   ELSEIF ch = "}" THEN
@@ -417,7 +418,7 @@ FUNC __json_parseString(chars AS List OF String, index AS Integer, current AS St
     FAIL error(77050003, "invalid JSON format")
   END IF
 
-  LET ch AS String = get(chars, index)
+  LET ch AS String = collections::get(chars, index)
   IF ch = "\"" THEN
     RETURN __JsonStringNode[current, index + 1]
   END IF
@@ -455,7 +456,7 @@ FUNC __json_parseEscape(chars AS List OF String, index AS Integer) AS __JsonStri
   IF index >= len(chars) THEN
     FAIL error(77050003, "invalid JSON format")
   END IF
-  LET ch AS String = get(chars, index)
+  LET ch AS String = collections::get(chars, index)
   IF ch = "u" THEN
     RETURN __json_parseUnicodeEscape(chars, index + 1)
   END IF
@@ -490,10 +491,10 @@ FUNC __json_parseUnicodeEscape(chars AS List OF String, index AS Integer) AS __J
     IF index + 10 >= len(chars) THEN
       FAIL error(77050003, "invalid JSON format")
     END IF
-    IF get(chars, index + 4) <> "\\" THEN
+    IF collections::get(chars, index + 4) <> "\\" THEN
       FAIL error(77050003, "invalid JSON format")
     END IF
-    IF get(chars, index + 5) <> "u" THEN
+    IF collections::get(chars, index + 5) <> "u" THEN
       FAIL error(77050003, "invalid JSON format")
     END IF
     LET second AS Integer = __json_parseHexQuad(chars, index + 6)
@@ -513,10 +514,10 @@ FUNC __json_parseHexQuad(chars AS List OF String, index AS Integer) AS Integer
   IF index + 3 >= len(chars) THEN
     FAIL error(77050003, "invalid JSON format")
   END IF
-  LET d0 AS Integer = __json_hexValue(get(chars, index))
-  LET d1 AS Integer = __json_hexValue(get(chars, index + 1))
-  LET d2 AS Integer = __json_hexValue(get(chars, index + 2))
-  LET d3 AS Integer = __json_hexValue(get(chars, index + 3))
+  LET d0 AS Integer = __json_hexValue(collections::get(chars, index))
+  LET d1 AS Integer = __json_hexValue(collections::get(chars, index + 1))
+  LET d2 AS Integer = __json_hexValue(collections::get(chars, index + 2))
+  LET d3 AS Integer = __json_hexValue(collections::get(chars, index + 3))
   RETURN d0 * 4096 + d1 * 256 + d2 * 16 + d3
 END FUNC
 
@@ -633,7 +634,7 @@ FUNC __json_collectNumber(chars AS List OF String, index AS Integer, current AS 
     RETURN __JsonStringNode[current, index]
   END IF
 
-  LET ch AS String = get(chars, index)
+  LET ch AS String = collections::get(chars, index)
   IF ch = "," THEN
     RETURN __JsonStringNode[current, index]
   END IF
@@ -665,17 +666,17 @@ FUNC __json_validNumber(value AS String) AS Boolean
     RETURN FALSE
   END IF
 
-  IF get(chars, index) = "-" THEN
+  IF collections::get(chars, index) = "-" THEN
     index = index + 1
     IF index >= len(chars) THEN
       RETURN FALSE
     END IF
   END IF
 
-  IF get(chars, index) = "0" THEN
+  IF collections::get(chars, index) = "0" THEN
     index = index + 1
   ELSE
-    LET firstDigit AS String = get(chars, index)
+    LET firstDigit AS String = collections::get(chars, index)
     IF __json_isNonZeroDigit(firstDigit) THEN
       index = __json_consumeDigits(chars, index + 1)
     ELSE
@@ -684,13 +685,13 @@ FUNC __json_validNumber(value AS String) AS Boolean
   END IF
 
   IF index < len(chars) THEN
-    LET decimalMark AS String = get(chars, index)
+    LET decimalMark AS String = collections::get(chars, index)
     IF decimalMark = "." THEN
       index = index + 1
       IF index >= len(chars) THEN
         RETURN FALSE
       END IF
-      LET fractionalDigit AS String = get(chars, index)
+      LET fractionalDigit AS String = collections::get(chars, index)
       IF __json_isDigit(fractionalDigit) = FALSE THEN
         RETURN FALSE
       END IF
@@ -699,11 +700,11 @@ FUNC __json_validNumber(value AS String) AS Boolean
   END IF
 
   IF index < len(chars) THEN
-    LET exponentMark AS String = get(chars, index)
+    LET exponentMark AS String = collections::get(chars, index)
     IF exponentMark = "e" THEN
       index = index + 1
       IF index < len(chars) THEN
-        LET exponentSign AS String = get(chars, index)
+        LET exponentSign AS String = collections::get(chars, index)
         IF exponentSign = "+" THEN
           index = index + 1
         ELSEIF exponentSign = "-" THEN
@@ -713,7 +714,7 @@ FUNC __json_validNumber(value AS String) AS Boolean
       IF index >= len(chars) THEN
         RETURN FALSE
       END IF
-      LET exponentDigit AS String = get(chars, index)
+      LET exponentDigit AS String = collections::get(chars, index)
       IF __json_isDigit(exponentDigit) = FALSE THEN
         RETURN FALSE
       END IF
@@ -721,7 +722,7 @@ FUNC __json_validNumber(value AS String) AS Boolean
     ELSEIF exponentMark = "E" THEN
       index = index + 1
       IF index < len(chars) THEN
-        LET exponentSign AS String = get(chars, index)
+        LET exponentSign AS String = collections::get(chars, index)
         IF exponentSign = "+" THEN
           index = index + 1
         ELSEIF exponentSign = "-" THEN
@@ -731,7 +732,7 @@ FUNC __json_validNumber(value AS String) AS Boolean
       IF index >= len(chars) THEN
         RETURN FALSE
       END IF
-      LET exponentDigit AS String = get(chars, index)
+      LET exponentDigit AS String = collections::get(chars, index)
       IF __json_isDigit(exponentDigit) = FALSE THEN
         RETURN FALSE
       END IF
@@ -746,7 +747,7 @@ FUNC __json_consumeDigits(chars AS List OF String, index AS Integer) AS Integer
   IF index >= len(chars) THEN
     RETURN index
   END IF
-  IF __json_isDigit(get(chars, index)) THEN
+  IF __json_isDigit(collections::get(chars, index)) THEN
     RETURN __json_consumeDigits(chars, index + 1)
   END IF
   RETURN index
@@ -764,8 +765,8 @@ FUNC __json_expectLiteralAt(chars AS List OF String, index AS Integer, literal A
   IF index >= len(chars) THEN
     FAIL error(77050003, "invalid JSON format")
   END IF
-  LET actual AS String = get(chars, index)
-  LET expected AS String = get(literal, offset)
+  LET actual AS String = collections::get(chars, index)
+  LET expected AS String = collections::get(literal, offset)
   IF actual <> expected THEN
     FAIL error(77050003, "invalid JSON format")
   END IF
@@ -776,7 +777,7 @@ FUNC __json_skipWhitespace(chars AS List OF String, index AS Integer) AS Integer
   IF index >= len(chars) THEN
     RETURN index
   END IF
-  IF __json_isWhitespace(get(chars, index)) THEN
+  IF __json_isWhitespace(collections::get(chars, index)) THEN
     RETURN __json_skipWhitespace(chars, index + 1)
   END IF
   RETURN index

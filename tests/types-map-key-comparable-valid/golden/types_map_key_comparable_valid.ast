@@ -4,34 +4,35 @@
   {
     "path": "src/main.mfb",
     "imports": [
-    { "module": "io", "line": 1 }
+    { "module": "collections", "line": 1 },
+    { "module": "io", "line": 2 }
     ],
     "items": [
     {
       "kind": "type",
       "visibility": "private",
       "name": "Point",
-      "line": 3,
+      "line": 4,
       "fields": [
-      { "visibility": null, "name": "x", "type": "Integer", "line": 4 },
-      { "visibility": null, "name": "y", "type": "Integer", "line": 5 }
+      { "visibility": null, "name": "x", "type": "Integer", "line": 5 },
+      { "visibility": null, "name": "y", "type": "Integer", "line": 6 }
       ]
     },
     {
       "kind": "func",
       "visibility": "private",
       "name": "main",
-      "line": 8,
+      "line": 9,
       "params": [
       ],
       "returnType": "Integer",
       "body": [
-      { "kind": "binding", "mutable": false, "name": "first", "type": "Point", "value": { "kind": "constructor", "type": "Point", "arguments": [{ "kind": "number", "value": "1" }, { "kind": "number", "value": "2" }] }, "line": 9 },
-      { "kind": "binding", "mutable": false, "name": "second", "type": "Point", "value": { "kind": "constructor", "type": "Point", "arguments": [{ "kind": "number", "value": "3" }, { "kind": "number", "value": "4" }] }, "line": 10 },
-      { "kind": "binding", "mutable": false, "name": "points", "type": "Map OF Point TO String", "value": { "kind": "map", "keyType": "Point", "valueType": "String", "entries": [{ "key": { "kind": "identifier", "value": "first" }, "value": { "kind": "string", "value": "a" } }, { "key": { "kind": "identifier", "value": "second" }, "value": { "kind": "string", "value": "b" } }] }, "line": 11 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "points" }] }] }] }, "line": 12 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "get", "arguments": [{ "kind": "identifier", "value": "points" }, { "kind": "identifier", "value": "second" }] }] }, "line": 13 },
-      { "kind": "return", "value": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "points" }] }, "line": 14 }
+      { "kind": "binding", "mutable": false, "name": "first", "type": "Point", "value": { "kind": "constructor", "type": "Point", "arguments": [{ "kind": "number", "value": "1" }, { "kind": "number", "value": "2" }] }, "line": 10 },
+      { "kind": "binding", "mutable": false, "name": "second", "type": "Point", "value": { "kind": "constructor", "type": "Point", "arguments": [{ "kind": "number", "value": "3" }, { "kind": "number", "value": "4" }] }, "line": 11 },
+      { "kind": "binding", "mutable": false, "name": "points", "type": "Map OF Point TO String", "value": { "kind": "map", "keyType": "Point", "valueType": "String", "entries": [{ "key": { "kind": "identifier", "value": "first" }, "value": { "kind": "string", "value": "a" } }, { "key": { "kind": "identifier", "value": "second" }, "value": { "kind": "string", "value": "b" } }] }, "line": 12 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "points" }] }] }] }, "line": 13 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "collections.get", "arguments": [{ "kind": "identifier", "value": "points" }, { "kind": "identifier", "value": "second" }] }] }, "line": 14 },
+      { "kind": "return", "value": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "points" }] }, "line": 15 }
       ]
     }
     ]

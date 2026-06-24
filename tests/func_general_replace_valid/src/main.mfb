@@ -1,16 +1,17 @@
+IMPORT strings
 IMPORT io
 
 FUNC main AS Integer
   LET text AS String = "hello"
-  LET simple AS String = replace(text, "l", "x")
-  LET named AS String = replace(value := text, old := "l", new := "q")
-  LET nonOverlap AS String = replace("aaaa", "aa", "b")
-  LET deleteMatch AS String = replace("banana", "na", "")
-  LET unicode AS String = replace("aé日é", "é", "E")
-  LET noMatch AS String = replace(text, "z", "x")
-  LET oldTooLong AS String = replace("hi", "long", "x")
-  LET emptyOld AS String = replace("hi", "", "x")
-  LET overlapCandidate AS String = replace("ababa", "aba", "x")
+  LET simple AS String = strings::replace(text, "l", "x")
+  LET named AS String = strings::replace(value := text, old := "l", new := "q")
+  LET nonOverlap AS String = strings::replace("aaaa", "aa", "b")
+  LET deleteMatch AS String = strings::replace("banana", "na", "")
+  LET unicode AS String = strings::replace("aé日é", "é", "E")
+  LET noMatch AS String = strings::replace(text, "z", "x")
+  LET oldTooLong AS String = strings::replace("hi", "long", "x")
+  LET emptyOld AS String = strings::replace("hi", "", "x")
+  LET overlapCandidate AS String = strings::replace("ababa", "aba", "x")
 
   io::print(simple)
   io::print(named)

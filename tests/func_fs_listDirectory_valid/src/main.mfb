@@ -1,3 +1,4 @@
+IMPORT collections
 IMPORT fs
 IMPORT io
 
@@ -7,9 +8,9 @@ FUNC main AS Integer
   fs::writeText("target/func_fs_listDirectory_valid/dir/é日😀.txt", "u")
   LET names AS List OF String = fs::listDirectory("target/func_fs_listDirectory_valid/dir")
   io::print(toString(len(names)))
-  io::print(toString(contains(names, "a.txt")))
-  io::print(toString(contains(names, "é日😀.txt")))
-  io::print(toString(contains(names, ".")))
-  io::print(toString(contains(names, "..")))
+  io::print(toString(collections::contains(names, "a.txt")))
+  io::print(toString(collections::contains(names, "é日😀.txt")))
+  io::print(toString(collections::contains(names, ".")))
+  io::print(toString(collections::contains(names, "..")))
   RETURN 0
 END FUNC

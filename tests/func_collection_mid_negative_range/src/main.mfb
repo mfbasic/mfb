@@ -1,5 +1,6 @@
+IMPORT collections
 FUNC main AS Integer
   LET numbers AS List OF Integer = [1, 2, 3]
-  LET values AS List OF Integer = mid(numbers, -1, 1)
+  LET values AS List OF Integer = collections::mid(numbers, -1, 1)
   RETURN len(values)
 END FUNC

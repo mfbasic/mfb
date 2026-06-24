@@ -319,67 +319,74 @@ impl CodeBuilder<'_> {
                 if let Some(result) = self.lower_strings_package_call(target, args)? {
                     return Ok(result);
                 }
-                if target == "contains" && args.len() == 2 {
+                // Migrated `collections::`/`strings::` members arrive with their
+                // qualified, dot-containing target (`collections.get`,
+                // `strings.find`, ...). `native_builtin_target` maps these to the
+                // shared bare lowering name and returns `None` for bare names, so a
+                // user `FUNC get` is never hijacked by the native lowering
+                // (plan-01-functions.md §5).
+                let native = crate::builtins::native_builtin_target(target);
+                if native == Some("contains") && args.len() == 2 {
                     return self.lower_collection_contains(args);
                 }
-                if target == "get" && args.len() == 2 {
+                if native == Some("get") && args.len() == 2 {
                     return self.lower_collection_get(args);
                 }
-                if target == "getOr" && args.len() == 3 {
+                if native == Some("getOr") && args.len() == 3 {
                     return self.lower_collection_get_or(args);
                 }
-                if target == "find" && (args.len() == 2 || args.len() == 3) {
+                if native == Some("find") && (args.len() == 2 || args.len() == 3) {
                     return self.lower_find(args);
                 }
                 if target == "len" && args.len() == 1 {
                     return self.lower_len(&args[0]);
                 }
-                if target == "mid" && args.len() == 3 {
+                if native == Some("mid") && args.len() == 3 {
                     return self.lower_mid(args);
                 }
-                if target == "replace" && args.len() == 3 {
+                if native == Some("replace") && args.len() == 3 {
                     return self.lower_replace(args);
                 }
-                if target == "append" && args.len() == 2 {
+                if native == Some("append") && args.len() == 2 {
                     return self.lower_collection_append(args);
                 }
-                if target == "prepend" && args.len() == 2 {
+                if native == Some("prepend") && args.len() == 2 {
                     return self.lower_collection_prepend(args);
                 }
-                if target == "insert" && args.len() == 3 {
+                if native == Some("insert") && args.len() == 3 {
                     return self.lower_collection_insert(args);
                 }
-                if target == "removeAt" && args.len() == 2 {
+                if native == Some("removeAt") && args.len() == 2 {
                     return self.lower_collection_remove_at(args);
                 }
-                if target == "set" && args.len() == 3 {
+                if native == Some("set") && args.len() == 3 {
                     return self.lower_collection_set(args);
                 }
-                if target == "removeKey" && args.len() == 2 {
+                if native == Some("removeKey") && args.len() == 2 {
                     return self.lower_collection_remove_key(args);
                 }
-                if target == "hasKey" && args.len() == 2 {
+                if native == Some("hasKey") && args.len() == 2 {
                     return self.lower_collection_has_key(args);
                 }
-                if target == "keys" && args.len() == 1 {
+                if native == Some("keys") && args.len() == 1 {
                     return self.lower_collection_keys(args);
                 }
-                if target == "values" && args.len() == 1 {
+                if native == Some("values") && args.len() == 1 {
                     return self.lower_collection_values_builtin(args);
                 }
-                if target == "sum" && args.len() == 1 {
+                if native == Some("sum") && args.len() == 1 {
                     return self.lower_collection_sum(args);
                 }
-                if target == "forEach" && args.len() == 2 {
+                if native == Some("forEach") && args.len() == 2 {
                     return self.lower_collection_for_each_call(args);
                 }
-                if target == "transform" && args.len() == 2 {
+                if native == Some("transform") && args.len() == 2 {
                     return self.lower_collection_transform_call(args);
                 }
-                if target == "filter" && args.len() == 2 {
+                if native == Some("filter") && args.len() == 2 {
                     return self.lower_collection_filter_call(args);
                 }
-                if target == "reduce" && args.len() == 3 {
+                if native == Some("reduce") && args.len() == 3 {
                     return self.lower_collection_reduce_call(args);
                 }
                 if target == "toString" && (args.len() == 1 || args.len() == 2) {

@@ -1,3 +1,4 @@
+IMPORT collections
 TYPE Box
   items AS List OF Integer
 END TYPE
@@ -5,7 +6,7 @@ END TYPE
 FUNC main AS Integer
   LET numbers AS List OF Integer = [1, 2, 3]
   LET boxes AS List OF Box = [Box[[1]], Box[[2]]]
-  LET found AS Boolean = contains(numbers, "2")
-  LET nonComparable AS Boolean = contains(boxes, Box[[2]])
+  LET found AS Boolean = collections::contains(numbers, "2")
+  LET nonComparable AS Boolean = collections::contains(boxes, Box[[2]])
   RETURN 0
 END FUNC

@@ -1,3 +1,4 @@
+IMPORT collections
 IMPORT io
 
 FUNC main AS Integer
@@ -6,10 +7,10 @@ FUNC main AS Integer
   LET fixeds AS List OF Fixed = [1.250, 2.500]
   LET empty AS List OF Integer = []
 
-  LET intTotal AS Integer = sum(integers)
-  LET floatTotal AS Float = sum(floats)
-  LET fixedTotal AS Fixed = sum(fixeds)
-  LET emptyTotal AS Integer = sum(empty)
+  LET intTotal AS Integer = collections::sum(integers)
+  LET floatTotal AS Float = collections::sum(floats)
+  LET fixedTotal AS Fixed = collections::sum(fixeds)
+  LET emptyTotal AS Integer = collections::sum(empty)
   LET floatPrecision AS Byte = 2
   LET fixedPrecision AS Byte = 3
 

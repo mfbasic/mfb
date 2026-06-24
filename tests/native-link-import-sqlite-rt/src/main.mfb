@@ -1,3 +1,4 @@
+IMPORT collections
 ' Runtime test that IMPORTS the reusable bindings/sqlite package (plan-linker.md
 ' §12 + package serialization). It exercises the package's exported wrappers,
 ' including the overloaded createTable/query (imported-overload resolution) and
@@ -12,7 +13,7 @@ FUNC main AS Integer
   sqlite::query(db, "INSERT INTO users VALUES (2, ?)", ["bob"])
   LET rows = sqlite::query(db, "SELECT id, name FROM users ORDER BY id", [])
   FOR EACH row IN rows
-    io::print(get(row, 0) & "=" & get(row, 1))
+    io::print(collections::get(row, 0) & "=" & collections::get(row, 1))
   NEXT
   LET tables AS List OF String = sqlite::listTables(db)
   FOR EACH name IN tables

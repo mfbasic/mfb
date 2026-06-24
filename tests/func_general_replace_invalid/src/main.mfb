@@ -1,9 +1,10 @@
+IMPORT strings
 FUNC main AS Integer
-  LET missing AS String = replace()
-  LET wrongValue AS String = replace(42, "l", "x")
-  LET wrongOld AS String = replace("hello", 1, "x")
-  LET wrongNew AS String = replace("hello", "l", 1)
-  LET tooMany AS String = replace("hello", "l", "x", "extra")
-  LET badName AS String = replace(source := "hello", old := "l", new := "x")
+  LET missing AS String = strings::replace()
+  LET wrongValue AS String = strings::replace(42, "l", "x")
+  LET wrongOld AS String = strings::replace("hello", 1, "x")
+  LET wrongNew AS String = strings::replace("hello", "l", 1)
+  LET tooMany AS String = strings::replace("hello", "l", "x", "extra")
+  LET badName AS String = strings::replace(source := "hello", old := "l", new := "x")
   RETURN 0
 END FUNC

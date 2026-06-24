@@ -20,8 +20,8 @@
     "body": [
     { "op": "bind", "mutable": false, "name": "names", "type": "Map OF String TO Integer", "value": { "kind": "map", "type": "Map OF String TO Integer", "entries": [{ "key": { "kind": "const", "type": "String", "value": "Ada" }, "value": { "kind": "const", "type": "Integer", "value": "36" } }, { "key": { "kind": "const", "type": "String", "value": "Grace" }, "value": { "kind": "const", "type": "Integer", "value": "85" } }] } },
     { "op": "bind", "mutable": false, "name": "codes", "type": "Map OF Integer TO String", "value": { "kind": "map", "type": "Map OF Integer TO String", "entries": [{ "key": { "kind": "const", "type": "Integer", "value": "1" }, "value": { "kind": "const", "type": "String", "value": "one" } }, { "key": { "kind": "const", "type": "Integer", "value": "2" }, "value": { "kind": "const", "type": "String", "value": "two" } }] } },
-    { "op": "bind", "mutable": false, "name": "nameKeys", "type": "List OF String", "value": { "kind": "call", "target": "keys", "args": [{ "kind": "local", "name": "names" }] } },
-    { "op": "bind", "mutable": false, "name": "codeKeys", "type": "List OF Integer", "value": { "kind": "call", "target": "keys", "args": [{ "kind": "local", "name": "codes" }] } },
+    { "op": "bind", "mutable": false, "name": "nameKeys", "type": "List OF String", "value": { "kind": "call", "target": "collections.keys", "args": [{ "kind": "local", "name": "names" }] } },
+    { "op": "bind", "mutable": false, "name": "codeKeys", "type": "List OF Integer", "value": { "kind": "call", "target": "collections.keys", "args": [{ "kind": "local", "name": "codes" }] } },
     {
       "op": "forEach",
       "name": "name",

@@ -51,8 +51,49 @@ pub(crate) fn is_thread_sendable_resource_type(type_name: &str) -> bool {
     resource::is_builtin_sendable_resource_type(type_name)
 }
 
+/// The bare native lowering name for a migrated `collections::`/`strings::`
+/// member (plan-01-functions.md §5). The native code generator stays keyed on the
+/// original bare names (`get`, `transform`, `find`, `mid`, `replace`, ...), so the
+/// IR call target for these members is dequalified back to the bare name. Returns
+/// `None` for every other call (including the `collections::` source generics,
+/// which the monomorphizer rewrites to `__collections_X` instead).
+pub(crate) fn native_builtin_target(name: &str) -> Option<&'static str> {
+    if let Some(member) = name.strip_prefix("strings.") {
+        return match member {
+            "find" => Some("find"),
+            "mid" => Some("mid"),
+            "replace" => Some("replace"),
+            _ => None,
+        };
+    }
+    match collections::native_member_bare(name)? {
+        "get" => Some("get"),
+        "getOr" => Some("getOr"),
+        "set" => Some("set"),
+        "append" => Some("append"),
+        "prepend" => Some("prepend"),
+        "insert" => Some("insert"),
+        "removeAt" => Some("removeAt"),
+        "removeKey" => Some("removeKey"),
+        "keys" => Some("keys"),
+        "values" => Some("values"),
+        "hasKey" => Some("hasKey"),
+        "contains" => Some("contains"),
+        "forEach" => Some("forEach"),
+        "transform" => Some("transform"),
+        "filter" => Some("filter"),
+        "reduce" => Some("reduce"),
+        "sum" => Some("sum"),
+        "find" => Some("find"),
+        "mid" => Some("mid"),
+        "replace" => Some("replace"),
+        _ => None,
+    }
+}
+
 pub(crate) fn call_return_type_name(name: &str) -> Option<&'static str> {
     general::call_return_type_name(name)
+        .or_else(|| collections::call_return_type_name(name))
         .or_else(|| strings::call_return_type_name(name))
         .or_else(|| math::call_return_type_name(name))
         .or_else(|| fs::call_return_type_name(name))
@@ -84,6 +125,7 @@ pub(crate) fn is_builtin_member(name: &str) -> bool {
 
 pub(crate) fn call_param_names(name: &str) -> Option<&'static [&'static [&'static str]]> {
     general::call_param_names(name)
+        .or_else(|| collections::call_param_names(name))
         .or_else(|| strings::call_param_names(name))
         .or_else(|| math::call_param_names(name))
         .or_else(|| fs::call_param_names(name))

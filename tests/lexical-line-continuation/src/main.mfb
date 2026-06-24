@@ -1,10 +1,11 @@
+IMPORT collections
 IMPORT io
 
 SUB main()
   LET msg AS String = "hello " & _
       "world"
   LET nums AS List OF Integer = [1, 2, 3]
-  LET total AS Integer = nums |> sum(_)
+  LET total AS Integer = nums |> collections::sum(_)
   io::print(msg)
   io::print(toString(total))
 END SUB

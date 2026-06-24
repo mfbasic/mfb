@@ -1,8 +1,9 @@
+IMPORT collections
 IMPORT io
 
 FUNC main AS Integer
-  LET numbers AS List OF Integer = set([1, 2, 3], 1, 9)
-  LET names AS List OF String = set(["Ada", "Grace"], 0, "Katherine")
+  LET numbers AS List OF Integer = collections::set([1, 2, 3], 1, 9)
+  LET names AS List OF String = collections::set(["Ada", "Grace"], 0, "Katherine")
 
   FOR EACH value IN numbers
     io::print(toString(value))

@@ -1,64 +1,64 @@
 $ mfb build -ast tests/func_collection_replace_invalid
-   6 |   LET numbers AS List OF Integer = [1, 2, 3]
-   7 |   LET boxes AS List OF Box = [Box[[1]], Box[[2]]]
-   8 |   LET wrongOld AS List OF Integer = replace(numbers, "1", 9)
-     | ^
-tests/func_collection_replace_invalid/src/main.mfb:8 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
-               Call to `replace` has argument type(s) (List OF Integer, String, Integer), expected String, String, String or List OF T, T, T.
-   6 |   LET numbers AS List OF Integer = [1, 2, 3]
-   7 |   LET boxes AS List OF Box = [Box[[1]], Box[[2]]]
-   8 |   LET wrongOld AS List OF Integer = replace(numbers, "1", 9)
-     | ^
-tests/func_collection_replace_invalid/src/main.mfb:8 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
-               Initializer for binding `wrongOld` does not have a known type.
-   7 |   LET boxes AS List OF Box = [Box[[1]], Box[[2]]]
-   8 |   LET wrongOld AS List OF Integer = replace(numbers, "1", 9)
-   9 |   LET wrongNew AS List OF Integer = replace(numbers, 1, "9")
+   7 |   LET numbers AS List OF Integer = [1, 2, 3]
+   8 |   LET boxes AS List OF Box = [Box[[1]], Box[[2]]]
+   9 |   LET wrongOld AS List OF Integer = collections::replace(numbers, "1", 9)
      | ^
 tests/func_collection_replace_invalid/src/main.mfb:9 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
-               Call to `replace` has argument type(s) (List OF Integer, Integer, String), expected String, String, String or List OF T, T, T.
-   7 |   LET boxes AS List OF Box = [Box[[1]], Box[[2]]]
-   8 |   LET wrongOld AS List OF Integer = replace(numbers, "1", 9)
-   9 |   LET wrongNew AS List OF Integer = replace(numbers, 1, "9")
+               Call to `collections.replace` has argument type(s) (List OF Integer, String, Integer), expected List OF T, T, T.
+   7 |   LET numbers AS List OF Integer = [1, 2, 3]
+   8 |   LET boxes AS List OF Box = [Box[[1]], Box[[2]]]
+   9 |   LET wrongOld AS List OF Integer = collections::replace(numbers, "1", 9)
      | ^
 tests/func_collection_replace_invalid/src/main.mfb:9 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
-               Initializer for binding `wrongNew` does not have a known type.
-   8 |   LET wrongOld AS List OF Integer = replace(numbers, "1", 9)
-   9 |   LET wrongNew AS List OF Integer = replace(numbers, 1, "9")
-  10 |   LET nonComparable AS List OF Box = replace(boxes, Box[[1]], Box[[9]])
+               Initializer for binding `wrongOld` does not have a known type.
+   8 |   LET boxes AS List OF Box = [Box[[1]], Box[[2]]]
+   9 |   LET wrongOld AS List OF Integer = collections::replace(numbers, "1", 9)
+  10 |   LET wrongNew AS List OF Integer = collections::replace(numbers, 1, "9")
      | ^
-tests/func_collection_replace_invalid/src/main.mfb:10 error[2-203-0061 TYPE_REQUIRES_COMPARABLE]: operation requires a comparable type
-               Call to `replace` requires a comparable type, got `Box`.
+tests/func_collection_replace_invalid/src/main.mfb:10 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `collections.replace` has argument type(s) (List OF Integer, Integer, String), expected List OF T, T, T.
+   8 |   LET boxes AS List OF Box = [Box[[1]], Box[[2]]]
+   9 |   LET wrongOld AS List OF Integer = collections::replace(numbers, "1", 9)
+  10 |   LET wrongNew AS List OF Integer = collections::replace(numbers, 1, "9")
+     | ^
+tests/func_collection_replace_invalid/src/main.mfb:10 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `wrongNew` does not have a known type.
+   9 |   LET wrongOld AS List OF Integer = collections::replace(numbers, "1", 9)
+  10 |   LET wrongNew AS List OF Integer = collections::replace(numbers, 1, "9")
+  11 |   LET nonComparable AS List OF Box = collections::replace(boxes, Box[[1]], Box[[9]])
+     | ^
+tests/func_collection_replace_invalid/src/main.mfb:11 error[2-203-0061 TYPE_REQUIRES_COMPARABLE]: operation requires a comparable type
+               Call to `collections.replace` requires a comparable type, got `Box`.
 [exit 1]
 $ mfb build -ir tests/func_collection_replace_invalid
-   6 |   LET numbers AS List OF Integer = [1, 2, 3]
-   7 |   LET boxes AS List OF Box = [Box[[1]], Box[[2]]]
-   8 |   LET wrongOld AS List OF Integer = replace(numbers, "1", 9)
-     | ^
-tests/func_collection_replace_invalid/src/main.mfb:8 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
-               Call to `replace` has argument type(s) (List OF Integer, String, Integer), expected String, String, String or List OF T, T, T.
-   6 |   LET numbers AS List OF Integer = [1, 2, 3]
-   7 |   LET boxes AS List OF Box = [Box[[1]], Box[[2]]]
-   8 |   LET wrongOld AS List OF Integer = replace(numbers, "1", 9)
-     | ^
-tests/func_collection_replace_invalid/src/main.mfb:8 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
-               Initializer for binding `wrongOld` does not have a known type.
-   7 |   LET boxes AS List OF Box = [Box[[1]], Box[[2]]]
-   8 |   LET wrongOld AS List OF Integer = replace(numbers, "1", 9)
-   9 |   LET wrongNew AS List OF Integer = replace(numbers, 1, "9")
+   7 |   LET numbers AS List OF Integer = [1, 2, 3]
+   8 |   LET boxes AS List OF Box = [Box[[1]], Box[[2]]]
+   9 |   LET wrongOld AS List OF Integer = collections::replace(numbers, "1", 9)
      | ^
 tests/func_collection_replace_invalid/src/main.mfb:9 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
-               Call to `replace` has argument type(s) (List OF Integer, Integer, String), expected String, String, String or List OF T, T, T.
-   7 |   LET boxes AS List OF Box = [Box[[1]], Box[[2]]]
-   8 |   LET wrongOld AS List OF Integer = replace(numbers, "1", 9)
-   9 |   LET wrongNew AS List OF Integer = replace(numbers, 1, "9")
+               Call to `collections.replace` has argument type(s) (List OF Integer, String, Integer), expected List OF T, T, T.
+   7 |   LET numbers AS List OF Integer = [1, 2, 3]
+   8 |   LET boxes AS List OF Box = [Box[[1]], Box[[2]]]
+   9 |   LET wrongOld AS List OF Integer = collections::replace(numbers, "1", 9)
      | ^
 tests/func_collection_replace_invalid/src/main.mfb:9 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
-               Initializer for binding `wrongNew` does not have a known type.
-   8 |   LET wrongOld AS List OF Integer = replace(numbers, "1", 9)
-   9 |   LET wrongNew AS List OF Integer = replace(numbers, 1, "9")
-  10 |   LET nonComparable AS List OF Box = replace(boxes, Box[[1]], Box[[9]])
+               Initializer for binding `wrongOld` does not have a known type.
+   8 |   LET boxes AS List OF Box = [Box[[1]], Box[[2]]]
+   9 |   LET wrongOld AS List OF Integer = collections::replace(numbers, "1", 9)
+  10 |   LET wrongNew AS List OF Integer = collections::replace(numbers, 1, "9")
      | ^
-tests/func_collection_replace_invalid/src/main.mfb:10 error[2-203-0061 TYPE_REQUIRES_COMPARABLE]: operation requires a comparable type
-               Call to `replace` requires a comparable type, got `Box`.
+tests/func_collection_replace_invalid/src/main.mfb:10 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `collections.replace` has argument type(s) (List OF Integer, Integer, String), expected List OF T, T, T.
+   8 |   LET boxes AS List OF Box = [Box[[1]], Box[[2]]]
+   9 |   LET wrongOld AS List OF Integer = collections::replace(numbers, "1", 9)
+  10 |   LET wrongNew AS List OF Integer = collections::replace(numbers, 1, "9")
+     | ^
+tests/func_collection_replace_invalid/src/main.mfb:10 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `wrongNew` does not have a known type.
+   9 |   LET wrongOld AS List OF Integer = collections::replace(numbers, "1", 9)
+  10 |   LET wrongNew AS List OF Integer = collections::replace(numbers, 1, "9")
+  11 |   LET nonComparable AS List OF Box = collections::replace(boxes, Box[[1]], Box[[9]])
+     | ^
+tests/func_collection_replace_invalid/src/main.mfb:11 error[2-203-0061 TYPE_REQUIRES_COMPARABLE]: operation requires a comparable type
+               Call to `collections.replace` requires a comparable type, got `Box`.
 [exit 1]

@@ -2,9 +2,6 @@ use std::borrow::Cow;
 
 const ERROR: &str = "error";
 const LEN: &str = "len";
-const FIND: &str = "find";
-const MID: &str = "mid";
-const REPLACE: &str = "replace";
 const TYPE_NAME: &str = "typeName";
 const TO_STRING: &str = "toString";
 const TO_INT: &str = "toInt";
@@ -19,23 +16,6 @@ const IS_NEGATIVE: &str = "isNegative";
 const IS_ZERO: &str = "isZero";
 const IS_EMPTY: &str = "isEmpty";
 const IS_NOT_EMPTY: &str = "isNotEmpty";
-const GET: &str = "get";
-const GET_OR: &str = "getOr";
-const SET: &str = "set";
-const APPEND: &str = "append";
-const PREPEND: &str = "prepend";
-const INSERT: &str = "insert";
-const REMOVE_AT: &str = "removeAt";
-const REMOVE_KEY: &str = "removeKey";
-const KEYS: &str = "keys";
-const VALUES: &str = "values";
-const HAS_KEY: &str = "hasKey";
-const CONTAINS: &str = "contains";
-const FOR_EACH: &str = "forEach";
-const TRANSFORM: &str = "transform";
-const FILTER: &str = "filter";
-const REDUCE: &str = "reduce";
-const SUM: &str = "sum";
 
 pub(crate) const BUILTIN_FUNCTION_ID_BASE: u32 = 0x8000_0000;
 pub(crate) const BUILTIN_FUNCTION_IS_EVEN: u32 = BUILTIN_FUNCTION_ID_BASE + 1;
@@ -62,9 +42,6 @@ pub(crate) fn is_general_call(name: &str) -> bool {
         name,
         ERROR
             | LEN
-            | FIND
-            | MID
-            | REPLACE
             | TYPE_NAME
             | TO_STRING
             | TO_INT
@@ -79,23 +56,6 @@ pub(crate) fn is_general_call(name: &str) -> bool {
             | IS_ZERO
             | IS_EMPTY
             | IS_NOT_EMPTY
-            | GET
-            | GET_OR
-            | SET
-            | APPEND
-            | PREPEND
-            | INSERT
-            | REMOVE_AT
-            | REMOVE_KEY
-            | KEYS
-            | VALUES
-            | HAS_KEY
-            | CONTAINS
-            | FOR_EACH
-            | TRANSFORM
-            | FILTER
-            | REDUCE
-            | SUM
     )
 }
 
@@ -103,9 +63,6 @@ pub(crate) fn call_param_names(name: &str) -> Option<&'static [&'static [&'stati
     match name {
         ERROR => Some(&[&["code"], &["message"]]),
         LEN => Some(&[&["value"]]),
-        FIND => Some(&[&["value"], &["needle", "item"], &["start"]]),
-        MID => Some(&[&["value"], &["start"], &["count"]]),
-        REPLACE => Some(&[&["value"], &["old", "needle"], &["new", "replacement"]]),
         TYPE_NAME => Some(&[&["value"]]),
         TO_STRING => Some(&[&["value"], &["precision", "decimals"]]),
         TO_INT => Some(&[&["value"]]),
@@ -120,31 +77,6 @@ pub(crate) fn call_param_names(name: &str) -> Option<&'static [&'static [&'stati
         IS_ZERO => Some(&[&["value"]]),
         IS_EMPTY => Some(&[&["value"]]),
         IS_NOT_EMPTY => Some(&[&["value"]]),
-        GET => Some(&[&["value", "collection"], &["index", "key"]]),
-        GET_OR => Some(&[
-            &["value", "collection"],
-            &["index", "key"],
-            &["default", "fallback"],
-        ]),
-        SET => Some(&[&["value", "collection"], &["index", "key"], &["item"]]),
-        APPEND => Some(&[&["value", "list"], &["item", "items"]]),
-        PREPEND => Some(&[&["value", "list"], &["item"]]),
-        INSERT => Some(&[&["value", "list"], &["index"], &["item"]]),
-        REMOVE_AT => Some(&[&["value", "list"], &["index"]]),
-        REMOVE_KEY => Some(&[&["value", "map"], &["key"]]),
-        KEYS => Some(&[&["value", "map"]]),
-        VALUES => Some(&[&["value", "map"]]),
-        HAS_KEY => Some(&[&["value", "map"], &["key"]]),
-        CONTAINS => Some(&[&["value", "collection"], &["item"]]),
-        FOR_EACH => Some(&[&["value", "collection"], &["action"]]),
-        TRANSFORM => Some(&[&["value", "collection"], &["f", "transform"]]),
-        FILTER => Some(&[&["value", "collection"], &["predicate"]]),
-        REDUCE => Some(&[
-            &["value", "collection"],
-            &["initial", "seed"],
-            &["f", "combine"],
-        ]),
-        SUM => Some(&[&["value", "collection"]]),
         _ => None,
     }
 }
@@ -216,65 +148,6 @@ pub(crate) fn resolve_call<'a>(name: &str, arg_types: &'a [String]) -> Option<Re
             {
                 ResolvedCall {
                     return_type: Cow::Borrowed("Integer"),
-                }
-            } else {
-                return None;
-            }
-        }
-        FIND => {
-            if !(2..=3).contains(&arg_types.len()) {
-                return None;
-            }
-            if arg_types[0] == "String"
-                && arg_types[1] == "String"
-                && arg_types.get(2).is_none_or(|type_| type_ == "Integer")
-            {
-                ResolvedCall {
-                    return_type: Cow::Borrowed("Integer"),
-                }
-            } else if let Some(element) = list_element(&arg_types[0]) {
-                if arg_types.get(2).is_none_or(|type_| type_ == "Integer")
-                    && (arg_types[1] == element || arg_types[1] == arg_types[0])
-                {
-                    ResolvedCall {
-                        return_type: Cow::Borrowed("Integer"),
-                    }
-                } else {
-                    return None;
-                }
-            } else {
-                return None;
-            }
-        }
-        MID => {
-            if exact(arg_types, &["String", "Integer", "Integer"]) {
-                ResolvedCall {
-                    return_type: Cow::Borrowed("String"),
-                }
-            } else if arg_types.len() == 3
-                && list_element(&arg_types[0]).is_some()
-                && arg_types[1] == "Integer"
-                && arg_types[2] == "Integer"
-            {
-                ResolvedCall {
-                    return_type: Cow::Borrowed(&arg_types[0]),
-                }
-            } else {
-                return None;
-            }
-        }
-        REPLACE => {
-            if exact(arg_types, &["String", "String", "String"]) {
-                ResolvedCall {
-                    return_type: Cow::Borrowed("String"),
-                }
-            } else if let Some(element) = list_element(&arg_types[0]) {
-                if arg_types.len() == 3 && arg_types[1] == element && arg_types[2] == element {
-                    ResolvedCall {
-                        return_type: Cow::Borrowed(&arg_types[0]),
-                    }
-                } else {
-                    return None;
                 }
             } else {
                 return None;
@@ -386,23 +259,6 @@ pub(crate) fn resolve_call<'a>(name: &str, arg_types: &'a [String]) -> Option<Re
                 return None;
             }
         }
-        GET => resolve_get(arg_types)?,
-        GET_OR => resolve_get_or(arg_types)?,
-        SET => resolve_set(arg_types)?,
-        APPEND => resolve_append(arg_types)?,
-        PREPEND => resolve_prepend(arg_types)?,
-        INSERT => resolve_insert(arg_types)?,
-        REMOVE_AT => resolve_remove_at(arg_types)?,
-        REMOVE_KEY => resolve_remove_key(arg_types)?,
-        KEYS => resolve_keys(arg_types)?,
-        VALUES => resolve_values(arg_types)?,
-        HAS_KEY => resolve_has_key(arg_types)?,
-        CONTAINS => resolve_contains(arg_types)?,
-        SUM => resolve_sum(arg_types)?,
-        FOR_EACH => resolve_for_each(arg_types)?,
-        TRANSFORM => resolve_transform(arg_types)?,
-        FILTER => resolve_filter(arg_types)?,
-        REDUCE => resolve_reduce(arg_types)?,
         _ => return None,
     };
     Some(resolved)
@@ -411,11 +267,6 @@ pub(crate) fn resolve_call<'a>(name: &str, arg_types: &'a [String]) -> Option<Re
 pub(crate) fn expected_arguments(name: &str) -> Option<&'static str> {
     match name {
         LEN => Some("String, List OF T, or Map OF K TO V"),
-        FIND => Some(
-            "String, String, Integer or List OF T, T, Integer or List OF T, List OF T, Integer",
-        ),
-        MID => Some("String, Integer, Integer or List OF T, Integer, Integer"),
-        REPLACE => Some("String, String, String or List OF T, T, T"),
         TYPE_NAME => Some("T"),
         TO_STRING => {
             Some("Integer, Float[, Byte], Fixed[, Byte], Boolean, String, Byte, or List OF Byte")
@@ -429,23 +280,6 @@ pub(crate) fn expected_arguments(name: &str) -> Option<&'static str> {
         IS_ODD => Some("Integer"),
         IS_POSITIVE | IS_NEGATIVE | IS_ZERO => Some("Integer, Float, or Fixed"),
         IS_EMPTY | IS_NOT_EMPTY => Some("String, List OF T, or Map OF K TO V"),
-        GET => Some("List OF T, Integer or Map OF K TO V, K"),
-        GET_OR => Some("List OF T, Integer, T or Map OF K TO V, K, V"),
-        SET => Some("List OF T, Integer, T or Map OF K TO V, K, V"),
-        APPEND => Some("List OF T, T or List OF T, List OF T"),
-        PREPEND => Some("List OF T, T"),
-        INSERT => Some("List OF T, Integer, T"),
-        REMOVE_AT => Some("List OF T, Integer"),
-        REMOVE_KEY => Some("Map OF K TO V, K"),
-        KEYS => Some("Map OF K TO V"),
-        VALUES => Some("Map OF K TO V"),
-        HAS_KEY => Some("Map OF K TO V, K"),
-        CONTAINS => Some("List OF T, T"),
-        FOR_EACH => Some("List OF T, FUNC(T) AS Nothing"),
-        TRANSFORM => Some("List OF T, FUNC(T) AS U"),
-        FILTER => Some("List OF T, FUNC(T) AS Boolean"),
-        REDUCE => Some("List OF T, U, FUNC(U, T) AS U"),
-        SUM => Some("List OF Integer, List OF Float, or List OF Fixed"),
         _ => None,
     }
 }
@@ -455,18 +289,45 @@ pub(crate) fn arity(name: &str) -> Option<(usize, usize)> {
         LEN | TYPE_NAME | TO_INT | TO_FLOAT | TO_FIXED | TO_BYTE | IS_NUMERIC | IS_EVEN
         | IS_ODD | IS_POSITIVE | IS_NEGATIVE | IS_ZERO | IS_EMPTY | IS_NOT_EMPTY => Some((1, 1)),
         TO_STRING => Some((1, 2)),
-        FIND => Some((2, 3)),
-        MID | REPLACE => Some((3, 3)),
-        GET | REMOVE_AT | REMOVE_KEY | HAS_KEY | CONTAINS | APPEND | PREPEND => Some((2, 2)),
-        GET_OR | SET | INSERT => Some((3, 3)),
-        KEYS | VALUES | SUM => Some((1, 1)),
-        FOR_EACH | TRANSFORM | FILTER => Some((2, 2)),
-        REDUCE => Some((3, 3)),
         _ => None,
     }
 }
 
-fn resolve_get<'a>(arg_types: &'a [String]) -> Option<ResolvedCall<'a>> {
+/// List-overload resolvers for `find`/`mid`/`replace`, migrated to `collections::`
+/// (plan-01-functions.md §5). These keep the original bare-name overload logic so
+/// `collections::` can reuse it; the String overloads live in `strings::`.
+pub(crate) fn resolve_find_list<'a>(arg_types: &'a [String]) -> Option<ResolvedCall<'a>> {
+    if !(2..=3).contains(&arg_types.len()) {
+        return None;
+    }
+    let element = list_element(&arg_types[0])?;
+    (arg_types.get(2).is_none_or(|type_| type_ == "Integer")
+        && (arg_types[1] == element || arg_types[1] == arg_types[0]))
+    .then_some(ResolvedCall {
+        return_type: Cow::Borrowed("Integer"),
+    })
+}
+
+pub(crate) fn resolve_mid_list<'a>(arg_types: &'a [String]) -> Option<ResolvedCall<'a>> {
+    (arg_types.len() == 3
+        && list_element(&arg_types[0]).is_some()
+        && arg_types[1] == "Integer"
+        && arg_types[2] == "Integer")
+    .then_some(ResolvedCall {
+        return_type: Cow::Borrowed(&arg_types[0]),
+    })
+}
+
+pub(crate) fn resolve_replace_list<'a>(arg_types: &'a [String]) -> Option<ResolvedCall<'a>> {
+    let element = list_element(&arg_types[0])?;
+    (arg_types.len() == 3 && arg_types[1] == element && arg_types[2] == element).then_some(
+        ResolvedCall {
+            return_type: Cow::Borrowed(&arg_types[0]),
+        },
+    )
+}
+
+pub(crate) fn resolve_get<'a>(arg_types: &'a [String]) -> Option<ResolvedCall<'a>> {
     if arg_types.len() != 2 {
         return None;
     }
@@ -481,7 +342,7 @@ fn resolve_get<'a>(arg_types: &'a [String]) -> Option<ResolvedCall<'a>> {
     })
 }
 
-fn resolve_get_or<'a>(arg_types: &'a [String]) -> Option<ResolvedCall<'a>> {
+pub(crate) fn resolve_get_or<'a>(arg_types: &'a [String]) -> Option<ResolvedCall<'a>> {
     if arg_types.len() != 3 {
         return None;
     }
@@ -496,7 +357,7 @@ fn resolve_get_or<'a>(arg_types: &'a [String]) -> Option<ResolvedCall<'a>> {
     })
 }
 
-fn resolve_set<'a>(arg_types: &'a [String]) -> Option<ResolvedCall<'a>> {
+pub(crate) fn resolve_set<'a>(arg_types: &'a [String]) -> Option<ResolvedCall<'a>> {
     if arg_types.len() != 3 {
         return None;
     }
@@ -511,7 +372,7 @@ fn resolve_set<'a>(arg_types: &'a [String]) -> Option<ResolvedCall<'a>> {
     })
 }
 
-fn resolve_append<'a>(arg_types: &'a [String]) -> Option<ResolvedCall<'a>> {
+pub(crate) fn resolve_append<'a>(arg_types: &'a [String]) -> Option<ResolvedCall<'a>> {
     if arg_types.len() != 2 {
         return None;
     }
@@ -521,7 +382,7 @@ fn resolve_append<'a>(arg_types: &'a [String]) -> Option<ResolvedCall<'a>> {
     })
 }
 
-fn resolve_prepend<'a>(arg_types: &'a [String]) -> Option<ResolvedCall<'a>> {
+pub(crate) fn resolve_prepend<'a>(arg_types: &'a [String]) -> Option<ResolvedCall<'a>> {
     if arg_types.len() != 2 {
         return None;
     }
@@ -531,7 +392,7 @@ fn resolve_prepend<'a>(arg_types: &'a [String]) -> Option<ResolvedCall<'a>> {
     })
 }
 
-fn resolve_insert<'a>(arg_types: &'a [String]) -> Option<ResolvedCall<'a>> {
+pub(crate) fn resolve_insert<'a>(arg_types: &'a [String]) -> Option<ResolvedCall<'a>> {
     if arg_types.len() != 3 {
         return None;
     }
@@ -541,14 +402,14 @@ fn resolve_insert<'a>(arg_types: &'a [String]) -> Option<ResolvedCall<'a>> {
     })
 }
 
-fn resolve_remove_at<'a>(arg_types: &'a [String]) -> Option<ResolvedCall<'a>> {
+pub(crate) fn resolve_remove_at<'a>(arg_types: &'a [String]) -> Option<ResolvedCall<'a>> {
     (arg_types.len() == 2 && list_element(&arg_types[0]).is_some() && arg_types[1] == "Integer")
         .then_some(ResolvedCall {
             return_type: Cow::Borrowed(&arg_types[0]),
         })
 }
 
-fn resolve_remove_key<'a>(arg_types: &'a [String]) -> Option<ResolvedCall<'a>> {
+pub(crate) fn resolve_remove_key<'a>(arg_types: &'a [String]) -> Option<ResolvedCall<'a>> {
     if arg_types.len() != 2 {
         return None;
     }
@@ -558,7 +419,7 @@ fn resolve_remove_key<'a>(arg_types: &'a [String]) -> Option<ResolvedCall<'a>> {
     })
 }
 
-fn resolve_keys<'a>(arg_types: &'a [String]) -> Option<ResolvedCall<'a>> {
+pub(crate) fn resolve_keys<'a>(arg_types: &'a [String]) -> Option<ResolvedCall<'a>> {
     if arg_types.len() != 1 {
         return None;
     }
@@ -568,7 +429,7 @@ fn resolve_keys<'a>(arg_types: &'a [String]) -> Option<ResolvedCall<'a>> {
     })
 }
 
-fn resolve_values<'a>(arg_types: &'a [String]) -> Option<ResolvedCall<'a>> {
+pub(crate) fn resolve_values<'a>(arg_types: &'a [String]) -> Option<ResolvedCall<'a>> {
     if arg_types.len() != 1 {
         return None;
     }
@@ -578,7 +439,7 @@ fn resolve_values<'a>(arg_types: &'a [String]) -> Option<ResolvedCall<'a>> {
     })
 }
 
-fn resolve_has_key<'a>(arg_types: &'a [String]) -> Option<ResolvedCall<'a>> {
+pub(crate) fn resolve_has_key<'a>(arg_types: &'a [String]) -> Option<ResolvedCall<'a>> {
     if arg_types.len() != 2 {
         return None;
     }
@@ -588,7 +449,7 @@ fn resolve_has_key<'a>(arg_types: &'a [String]) -> Option<ResolvedCall<'a>> {
     })
 }
 
-fn resolve_contains<'a>(arg_types: &'a [String]) -> Option<ResolvedCall<'a>> {
+pub(crate) fn resolve_contains<'a>(arg_types: &'a [String]) -> Option<ResolvedCall<'a>> {
     if arg_types.len() != 2 {
         return None;
     }
@@ -598,7 +459,7 @@ fn resolve_contains<'a>(arg_types: &'a [String]) -> Option<ResolvedCall<'a>> {
     })
 }
 
-fn resolve_sum<'a>(arg_types: &'a [String]) -> Option<ResolvedCall<'a>> {
+pub(crate) fn resolve_sum<'a>(arg_types: &'a [String]) -> Option<ResolvedCall<'a>> {
     if arg_types.len() != 1 {
         return None;
     }
@@ -616,7 +477,7 @@ fn resolve_sum<'a>(arg_types: &'a [String]) -> Option<ResolvedCall<'a>> {
     }
 }
 
-fn resolve_for_each<'a>(arg_types: &'a [String]) -> Option<ResolvedCall<'a>> {
+pub(crate) fn resolve_for_each<'a>(arg_types: &'a [String]) -> Option<ResolvedCall<'a>> {
     if arg_types.len() != 2 {
         return None;
     }
@@ -627,7 +488,7 @@ fn resolve_for_each<'a>(arg_types: &'a [String]) -> Option<ResolvedCall<'a>> {
     })
 }
 
-fn resolve_transform<'a>(arg_types: &'a [String]) -> Option<ResolvedCall<'a>> {
+pub(crate) fn resolve_transform<'a>(arg_types: &'a [String]) -> Option<ResolvedCall<'a>> {
     if arg_types.len() != 2 {
         return None;
     }
@@ -638,7 +499,7 @@ fn resolve_transform<'a>(arg_types: &'a [String]) -> Option<ResolvedCall<'a>> {
     })
 }
 
-fn resolve_filter<'a>(arg_types: &'a [String]) -> Option<ResolvedCall<'a>> {
+pub(crate) fn resolve_filter<'a>(arg_types: &'a [String]) -> Option<ResolvedCall<'a>> {
     if arg_types.len() != 2 {
         return None;
     }
@@ -649,7 +510,7 @@ fn resolve_filter<'a>(arg_types: &'a [String]) -> Option<ResolvedCall<'a>> {
     })
 }
 
-fn resolve_reduce<'a>(arg_types: &'a [String]) -> Option<ResolvedCall<'a>> {
+pub(crate) fn resolve_reduce<'a>(arg_types: &'a [String]) -> Option<ResolvedCall<'a>> {
     if arg_types.len() != 3 {
         return None;
     }

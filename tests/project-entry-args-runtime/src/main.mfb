@@ -1,7 +1,8 @@
+IMPORT collections
 IMPORT io
 
 FUNC main(args AS List OF String) AS Integer
   io::print(toString(len(args)))
-  io::print(get(args, 0))
+  io::print(collections::get(args, 0))
   RETURN 0
 END FUNC

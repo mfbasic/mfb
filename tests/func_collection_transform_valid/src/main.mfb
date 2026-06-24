@@ -1,3 +1,4 @@
+IMPORT collections
 IMPORT io
 
 FUNC double(value AS Integer) AS Integer
@@ -12,18 +13,18 @@ FUNC main AS Integer
   LET numbers AS List OF Integer = [1, 2, 3]
   LET empty AS List OF Integer = []
   LET labeler AS FUNC(Integer) AS String = label
-  LET doubled AS List OF Integer = transform(numbers, double)
-  LET labels AS List OF String = transform(numbers, labeler)
-  LET tripled AS List OF Integer = transform(numbers, LAMBDA(value AS Integer) -> value + value + value)
-  LET emptyDoubled AS List OF Integer = transform(empty, double)
+  LET doubled AS List OF Integer = collections::transform(numbers, double)
+  LET labels AS List OF String = collections::transform(numbers, labeler)
+  LET tripled AS List OF Integer = collections::transform(numbers, LAMBDA(value AS Integer) -> value + value + value)
+  LET emptyDoubled AS List OF Integer = collections::transform(empty, double)
 
-  io::print(toString(get(doubled, 0)))
-  io::print(toString(get(doubled, 1)))
-  io::print(toString(get(doubled, 2)))
-  io::print(get(labels, 0))
-  io::print(get(labels, 2))
-  io::print(toString(get(tripled, 1)))
+  io::print(toString(collections::get(doubled, 0)))
+  io::print(toString(collections::get(doubled, 1)))
+  io::print(toString(collections::get(doubled, 2)))
+  io::print(collections::get(labels, 0))
+  io::print(collections::get(labels, 2))
+  io::print(toString(collections::get(tripled, 1)))
   io::print(toString(len(emptyDoubled)))
 
-  RETURN sum(doubled) + sum(tripled) + len(labels) + len(emptyDoubled)
+  RETURN collections::sum(doubled) + collections::sum(tripled) + len(labels) + len(emptyDoubled)
 END FUNC

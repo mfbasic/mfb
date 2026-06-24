@@ -4,46 +4,47 @@
   {
     "path": "src/main.mfb",
     "imports": [
-    { "module": "sqlite", "line": 5 },
-    { "module": "io", "line": 6 }
+    { "module": "collections", "line": 1 },
+    { "module": "sqlite", "line": 6 },
+    { "module": "io", "line": 7 }
     ],
     "items": [
     {
       "kind": "func",
       "visibility": "private",
       "name": "main",
-      "line": 8,
+      "line": 9,
       "params": [
       ],
       "returnType": "Integer",
       "body": [
-      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "db", "type": "sqlite.Db", "value": { "kind": "call", "callee": "sqlite.create", "arguments": [{ "kind": "string", "value": ":memory:" }] }, "line": 9 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "sqlite.createTable", "arguments": [{ "kind": "identifier", "value": "db" }, { "kind": "string", "value": "users" }, { "kind": "string", "value": "id INTEGER, name TEXT" }] }, "line": 10 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "sqlite.query", "arguments": [{ "kind": "identifier", "value": "db" }, { "kind": "string", "value": "INSERT INTO users VALUES (1, ?)" }, { "kind": "list", "values": [{ "kind": "string", "value": "alice" }] }] }, "line": 11 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "sqlite.query", "arguments": [{ "kind": "identifier", "value": "db" }, { "kind": "string", "value": "INSERT INTO users VALUES (2, ?)" }, { "kind": "list", "values": [{ "kind": "string", "value": "bob" }] }] }, "line": 12 },
-      { "kind": "binding", "mutable": false, "name": "rows", "type": null, "value": { "kind": "call", "callee": "sqlite.query", "arguments": [{ "kind": "identifier", "value": "db" }, { "kind": "string", "value": "SELECT id, name FROM users ORDER BY id" }, { "kind": "list", "values": [] }] }, "line": 13 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "db", "type": "sqlite.Db", "value": { "kind": "call", "callee": "sqlite.create", "arguments": [{ "kind": "string", "value": ":memory:" }] }, "line": 10 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "sqlite.createTable", "arguments": [{ "kind": "identifier", "value": "db" }, { "kind": "string", "value": "users" }, { "kind": "string", "value": "id INTEGER, name TEXT" }] }, "line": 11 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "sqlite.query", "arguments": [{ "kind": "identifier", "value": "db" }, { "kind": "string", "value": "INSERT INTO users VALUES (1, ?)" }, { "kind": "list", "values": [{ "kind": "string", "value": "alice" }] }] }, "line": 12 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "sqlite.query", "arguments": [{ "kind": "identifier", "value": "db" }, { "kind": "string", "value": "INSERT INTO users VALUES (2, ?)" }, { "kind": "list", "values": [{ "kind": "string", "value": "bob" }] }] }, "line": 13 },
+      { "kind": "binding", "mutable": false, "name": "rows", "type": null, "value": { "kind": "call", "callee": "sqlite.query", "arguments": [{ "kind": "identifier", "value": "db" }, { "kind": "string", "value": "SELECT id, name FROM users ORDER BY id" }, { "kind": "list", "values": [] }] }, "line": 14 },
       {
         "kind": "forEach",
         "name": "row",
         "iterable": { "kind": "identifier", "value": "rows" },
-        "line": 14,
+        "line": 15,
         "body": [
-        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "call", "callee": "get", "arguments": [{ "kind": "identifier", "value": "row" }, { "kind": "number", "value": "0" }] }, "right": { "kind": "string", "value": "=" } }, "right": { "kind": "call", "callee": "get", "arguments": [{ "kind": "identifier", "value": "row" }, { "kind": "number", "value": "1" }] } }] }, "line": 15 }
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "call", "callee": "collections.get", "arguments": [{ "kind": "identifier", "value": "row" }, { "kind": "number", "value": "0" }] }, "right": { "kind": "string", "value": "=" } }, "right": { "kind": "call", "callee": "collections.get", "arguments": [{ "kind": "identifier", "value": "row" }, { "kind": "number", "value": "1" }] } }] }, "line": 16 }
         ]
       },
-      { "kind": "binding", "mutable": false, "name": "tables", "type": "List OF String", "value": { "kind": "call", "callee": "sqlite.listTables", "arguments": [{ "kind": "identifier", "value": "db" }] }, "line": 17 },
+      { "kind": "binding", "mutable": false, "name": "tables", "type": "List OF String", "value": { "kind": "call", "callee": "sqlite.listTables", "arguments": [{ "kind": "identifier", "value": "db" }] }, "line": 18 },
       {
         "kind": "forEach",
         "name": "name",
         "iterable": { "kind": "identifier", "value": "tables" },
-        "line": 18,
+        "line": 19,
         "body": [
-        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "table: " }, "right": { "kind": "identifier", "value": "name" } }] }, "line": 19 }
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "table: " }, "right": { "kind": "identifier", "value": "name" } }] }, "line": 20 }
         ]
       },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "sqlite.close", "arguments": [{ "kind": "identifier", "value": "db" }] }, "line": 21 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "done" }] }, "line": 22 },
-      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 23 }
+      { "kind": "expression", "expression": { "kind": "call", "callee": "sqlite.close", "arguments": [{ "kind": "identifier", "value": "db" }] }, "line": 22 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "done" }] }, "line": 23 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 24 }
       ]
     }
     ]

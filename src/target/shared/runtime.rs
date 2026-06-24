@@ -2044,29 +2044,16 @@ pub fn helper_for_call(name: &str) -> Option<RuntimeHelper> {
 }
 
 pub(crate) fn is_native_direct_call(name: &str) -> bool {
+    // The migrated `collections::`/`strings::` members (get, transform, the List
+    // and String overloads of find/mid/replace, ...) arrive qualified and are
+    // lowered inline; their bare names are freed for user code
+    // (plan-01-functions.md §5).
+    if crate::builtins::native_builtin_target(name).is_some() {
+        return true;
+    }
     matches!(
         name,
-        "contains"
-            | "append"
-            | "get"
-            | "getOr"
-            | "hasKey"
-            | "insert"
-            | "find"
-            | "forEach"
-            | "filter"
-            | "keys"
-            | "len"
-            | "mid"
-            | "prepend"
-            | "reduce"
-            | "removeAt"
-            | "removeKey"
-            | "replace"
-            | "set"
-            | "sum"
-            | "transform"
-            | "values"
+        "len"
             | "fs.pathBaseName"
             | "fs.pathDirName"
             | "fs.pathExtension"

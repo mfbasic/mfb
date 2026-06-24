@@ -18,7 +18,7 @@
     ],
     "returns": "Integer",
     "body": [
-    { "op": "return", "value": { "kind": "call", "target": "find", "args": [{ "kind": "const", "type": "String", "value": "hello" }, { "kind": "const", "type": "String", "value": "h" }, { "kind": "const", "type": "Integer", "value": "6" }] } }
+    { "op": "return", "value": { "kind": "call", "target": "strings.find", "args": [{ "kind": "const", "type": "String", "value": "hello" }, { "kind": "const", "type": "String", "value": "h" }, { "kind": "const", "type": "Integer", "value": "6" }] } }
     ]
   }
   ]

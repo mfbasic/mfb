@@ -1,3 +1,4 @@
+IMPORT collections
 IMPORT io
 
 FUNC add(accumulator AS Integer, value AS Integer) AS Integer
@@ -14,10 +15,10 @@ FUNC main AS Integer
   LET empty AS List OF Integer = []
   LET addNumbers AS FUNC(Integer, Integer) AS Integer = add
 
-  LET total AS Integer = reduce(numbers, 10, addNumbers)
-  LET joined AS String = reduce(words, "", join)
-  LET product AS Integer = reduce(numbers, 1, LAMBDA(accumulator AS Integer, value AS Integer) -> accumulator * value)
-  LET emptyTotal AS Integer = reduce(empty, 7, add)
+  LET total AS Integer = collections::reduce(numbers, 10, addNumbers)
+  LET joined AS String = collections::reduce(words, "", join)
+  LET product AS Integer = collections::reduce(numbers, 1, LAMBDA(accumulator AS Integer, value AS Integer) -> accumulator * value)
+  LET emptyTotal AS Integer = collections::reduce(empty, 7, add)
 
   io::print(toString(total))
   io::print(joined)

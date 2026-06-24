@@ -19,7 +19,7 @@
     "returns": "Integer",
     "body": [
     { "op": "bind", "mutable": false, "name": "numbers", "type": "List OF Integer", "value": { "kind": "list", "type": "List OF Integer", "values": [{ "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "2" }, { "kind": "const", "type": "Integer", "value": "3" }] } },
-    { "op": "bind", "mutable": false, "name": "values", "type": "List OF Integer", "value": { "kind": "call", "target": "mid", "args": [{ "kind": "local", "name": "numbers" }, { "kind": "const", "type": "Integer", "value": "2" }, { "kind": "const", "type": "Integer", "value": "2" }] } },
+    { "op": "bind", "mutable": false, "name": "values", "type": "List OF Integer", "value": { "kind": "call", "target": "collections.mid", "args": [{ "kind": "local", "name": "numbers" }, { "kind": "const", "type": "Integer", "value": "2" }, { "kind": "const", "type": "Integer", "value": "2" }] } },
     { "op": "return", "value": { "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "values" }] } }
     ]
   }

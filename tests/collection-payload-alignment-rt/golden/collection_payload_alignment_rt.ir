@@ -29,9 +29,9 @@
       { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "binary", "op": "&", "left": { "kind": "binary", "op": "&", "left": { "kind": "memberAccess", "target": { "kind": "local", "name": "e" }, "member": "key" }, "right": { "kind": "const", "type": "String", "value": "=" } }, "right": { "kind": "call", "target": "toString", "args": [{ "kind": "memberAccess", "target": { "kind": "local", "name": "e" }, "member": "value" }] } }] } }
       ]
     },
-    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "get", "args": [{ "kind": "local", "name": "si" }, { "kind": "const", "type": "String", "value": "a" }] }] }] } },
-    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "get", "args": [{ "kind": "local", "name": "si" }, { "kind": "const", "type": "String", "value": "bb" }] }] }] } },
-    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "get", "args": [{ "kind": "local", "name": "si" }, { "kind": "const", "type": "String", "value": "ccc" }] }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "collections.get", "args": [{ "kind": "local", "name": "si" }, { "kind": "const", "type": "String", "value": "a" }] }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "collections.get", "args": [{ "kind": "local", "name": "si" }, { "kind": "const", "type": "String", "value": "bb" }] }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "collections.get", "args": [{ "kind": "local", "name": "si" }, { "kind": "const", "type": "String", "value": "ccc" }] }] }] } },
     { "op": "bind", "mutable": false, "name": "bf", "type": "Map OF Byte TO Float", "value": { "kind": "map", "type": "Map OF Byte TO Float", "entries": [{ "key": { "kind": "const", "type": "Byte", "value": "1" }, "value": { "kind": "const", "type": "Float", "value": "1.5" } }, { "key": { "kind": "const", "type": "Byte", "value": "2" }, "value": { "kind": "const", "type": "Float", "value": "2.5" } }, { "key": { "kind": "const", "type": "Byte", "value": "200" }, "value": { "kind": "const", "type": "Float", "value": "9.5" } }] } },
     {
       "op": "forEach",
@@ -52,7 +52,7 @@
       { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "binary", "op": "&", "left": { "kind": "binary", "op": "&", "left": { "kind": "call", "target": "toString", "args": [{ "kind": "memberAccess", "target": { "kind": "local", "name": "e" }, "member": "key" }] }, "right": { "kind": "const", "type": "String", "value": "=" } }, "right": { "kind": "memberAccess", "target": { "kind": "local", "name": "e" }, "member": "value" } }] } }
       ]
     },
-    { "op": "bind", "mutable": false, "name": "si2", "type": "Map OF String TO Integer", "value": { "kind": "call", "target": "set", "args": [{ "kind": "local", "name": "si" }, { "kind": "const", "type": "String", "value": "dddd" }, { "kind": "const", "type": "Integer", "value": "4444" }] } },
+    { "op": "bind", "mutable": false, "name": "si2", "type": "Map OF String TO Integer", "value": { "kind": "call", "target": "collections.set", "args": [{ "kind": "local", "name": "si" }, { "kind": "const", "type": "String", "value": "dddd" }, { "kind": "const", "type": "Integer", "value": "4444" }] } },
     {
       "op": "forEach",
       "name": "e",
@@ -62,7 +62,7 @@
       { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "binary", "op": "&", "left": { "kind": "binary", "op": "&", "left": { "kind": "memberAccess", "target": { "kind": "local", "name": "e" }, "member": "key" }, "right": { "kind": "const", "type": "String", "value": "=" } }, "right": { "kind": "call", "target": "toString", "args": [{ "kind": "memberAccess", "target": { "kind": "local", "name": "e" }, "member": "value" }] } }] } }
       ]
     },
-    { "op": "bind", "mutable": false, "name": "si3", "type": "Map OF String TO Integer", "value": { "kind": "call", "target": "removeKey", "args": [{ "kind": "local", "name": "si2" }, { "kind": "const", "type": "String", "value": "a" }] } },
+    { "op": "bind", "mutable": false, "name": "si3", "type": "Map OF String TO Integer", "value": { "kind": "call", "target": "collections.removeKey", "args": [{ "kind": "local", "name": "si2" }, { "kind": "const", "type": "String", "value": "a" }] } },
     {
       "op": "forEach",
       "name": "e",
@@ -72,7 +72,7 @@
       { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "binary", "op": "&", "left": { "kind": "binary", "op": "&", "left": { "kind": "memberAccess", "target": { "kind": "local", "name": "e" }, "member": "key" }, "right": { "kind": "const", "type": "String", "value": "=" } }, "right": { "kind": "call", "target": "toString", "args": [{ "kind": "memberAccess", "target": { "kind": "local", "name": "e" }, "member": "value" }] } }] } }
       ]
     },
-    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "get", "args": [{ "kind": "local", "name": "si3" }, { "kind": "const", "type": "String", "value": "dddd" }] }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "collections.get", "args": [{ "kind": "local", "name": "si3" }, { "kind": "const", "type": "String", "value": "dddd" }] }] }] } },
     { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
     ]
   }

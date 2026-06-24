@@ -20,7 +20,7 @@
     "body": [
     { "op": "bind", "mutable": false, "name": "msg", "type": "String", "value": { "kind": "binary", "op": "&", "left": { "kind": "const", "type": "String", "value": "hello " }, "right": { "kind": "const", "type": "String", "value": "world" } } },
     { "op": "bind", "mutable": false, "name": "nums", "type": "List OF Integer", "value": { "kind": "list", "type": "List OF Integer", "values": [{ "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "2" }, { "kind": "const", "type": "Integer", "value": "3" }] } },
-    { "op": "bind", "mutable": false, "name": "total", "type": "Integer", "value": { "kind": "call", "target": "sum", "args": [{ "kind": "local", "name": "nums" }] } },
+    { "op": "bind", "mutable": false, "name": "total", "type": "Integer", "value": { "kind": "call", "target": "collections.sum", "args": [{ "kind": "local", "name": "nums" }] } },
     { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "local", "name": "msg" }] } },
     { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "local", "name": "total" }] }] } }
     ]

@@ -1,28 +1,28 @@
 $ mfb build -ast tests/func_collection_keys_invalid
-   1 | FUNC main AS Integer
-   2 |   LET numbers AS List OF Integer = [1, 2, 3]
-   3 |   LET result AS List OF Integer = keys(numbers)
+   2 | FUNC main AS Integer
+   3 |   LET numbers AS List OF Integer = [1, 2, 3]
+   4 |   LET result AS List OF Integer = collections::keys(numbers)
      | ^
-tests/func_collection_keys_invalid/src/main.mfb:3 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
-               Call to `keys` has argument type(s) (List OF Integer), expected Map OF K TO V.
-   1 | FUNC main AS Integer
-   2 |   LET numbers AS List OF Integer = [1, 2, 3]
-   3 |   LET result AS List OF Integer = keys(numbers)
+tests/func_collection_keys_invalid/src/main.mfb:4 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `collections.keys` has argument type(s) (List OF Integer), expected Map OF K TO V.
+   2 | FUNC main AS Integer
+   3 |   LET numbers AS List OF Integer = [1, 2, 3]
+   4 |   LET result AS List OF Integer = collections::keys(numbers)
      | ^
-tests/func_collection_keys_invalid/src/main.mfb:3 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+tests/func_collection_keys_invalid/src/main.mfb:4 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `result` does not have a known type.
 [exit 1]
 $ mfb build -ir tests/func_collection_keys_invalid
-   1 | FUNC main AS Integer
-   2 |   LET numbers AS List OF Integer = [1, 2, 3]
-   3 |   LET result AS List OF Integer = keys(numbers)
+   2 | FUNC main AS Integer
+   3 |   LET numbers AS List OF Integer = [1, 2, 3]
+   4 |   LET result AS List OF Integer = collections::keys(numbers)
      | ^
-tests/func_collection_keys_invalid/src/main.mfb:3 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
-               Call to `keys` has argument type(s) (List OF Integer), expected Map OF K TO V.
-   1 | FUNC main AS Integer
-   2 |   LET numbers AS List OF Integer = [1, 2, 3]
-   3 |   LET result AS List OF Integer = keys(numbers)
+tests/func_collection_keys_invalid/src/main.mfb:4 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `collections.keys` has argument type(s) (List OF Integer), expected Map OF K TO V.
+   2 | FUNC main AS Integer
+   3 |   LET numbers AS List OF Integer = [1, 2, 3]
+   4 |   LET result AS List OF Integer = collections::keys(numbers)
      | ^
-tests/func_collection_keys_invalid/src/main.mfb:3 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+tests/func_collection_keys_invalid/src/main.mfb:4 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `result` does not have a known type.
 [exit 1]

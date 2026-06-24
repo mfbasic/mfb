@@ -1,8 +1,9 @@
+IMPORT collections
 SUB visit(value AS Integer)
 END SUB
 
 FUNC main AS Integer
   LET numbers AS List OF Integer = [1, 2, 3]
-  LET values = transform(numbers, visit)
+  LET values = collections::transform(numbers, visit)
   RETURN 0
 END FUNC

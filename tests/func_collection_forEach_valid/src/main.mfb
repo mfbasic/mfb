@@ -1,3 +1,4 @@
+IMPORT collections
 IMPORT io
 
 SUB printInteger(value AS Integer)
@@ -13,8 +14,8 @@ FUNC main AS Integer
   LET names AS List OF String = ["Ada", "Grace"]
   LET printName AS FUNC(String) AS Nothing = printString
 
-  forEach(numbers, printInteger)
-  forEach(names, printName)
+  collections::forEach(numbers, printInteger)
+  collections::forEach(names, printName)
 
   RETURN len(numbers) + len(names)
 END FUNC

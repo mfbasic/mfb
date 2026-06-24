@@ -27,6 +27,14 @@ const PAD_RIGHT: &str = "strings.padRight";
 const GRAPHEME_AT: &str = "strings.graphemeAt";
 const GRAPHEMES_COUNT: &str = "strings.graphemesCount";
 const TRIM_CHARS: &str = "strings.trimChars";
+// Migrated from the bare global namespace (plan-01-functions.md §5): the String
+// overloads of `find`/`mid`/`replace`. The List overloads moved to
+// `collections::`. The native code generator still lowers these by their bare
+// names (`find`/`mid`/`replace`); `super::native_builtin_target` dequalifies the
+// IR target accordingly.
+const FIND: &str = "strings.find";
+const MID: &str = "strings.mid";
+const REPLACE: &str = "strings.replace";
 
 #[derive(Clone)]
 pub(crate) struct ResolvedCall<'a> {
@@ -62,6 +70,9 @@ pub(crate) fn is_strings_call(name: &str) -> bool {
             | GRAPHEME_AT
             | GRAPHEMES_COUNT
             | TRIM_CHARS
+            | FIND
+            | MID
+            | REPLACE
     )
 }
 
@@ -85,6 +96,9 @@ pub(crate) fn call_param_names(name: &str) -> Option<&'static [&'static [&'stati
         GRAPHEME_AT => Some(&[&["value"], &["index"]]),
         GRAPHEMES_COUNT => Some(&[&["value"]]),
         TRIM_CHARS => Some(&[&["value"], &["chars"]]),
+        FIND => Some(&[&["value"], &["needle"], &["start"]]),
+        MID => Some(&[&["value"], &["start"], &["count"]]),
+        REPLACE => Some(&[&["value"], &["old", "needle"], &["new", "replacement"]]),
         _ => None,
     }
 }
@@ -98,7 +112,8 @@ pub(crate) fn call_return_type_name(name: &str) -> Option<&'static str> {
         STARTS_WITH | ENDS_WITH | CONTAINS | STARTS_WITH_ANY | ENDS_WITH_ANY => Some("Boolean"),
         BYTE_LEN | COUNT | GRAPHEMES_COUNT => Some("Integer"),
         STRIP_PREFIX | STRIP_SUFFIX | LEFT | RIGHT | REPEAT | PAD_LEFT | PAD_RIGHT | GRAPHEME_AT
-        | TRIM_CHARS => Some("String"),
+        | TRIM_CHARS | MID | REPLACE => Some("String"),
+        FIND => Some("Integer"),
         _ => None,
     }
 }
@@ -135,6 +150,14 @@ pub(crate) fn resolve_call<'a>(name: &str, arg_types: &'a [String]) -> Option<Re
         }
         GRAPHEME_AT if exact(arg_types, &["String", "Integer"]) => Cow::Borrowed("String"),
         GRAPHEMES_COUNT if exact(arg_types, &["String"]) => Cow::Borrowed("Integer"),
+        FIND
+            if exact(arg_types, &["String", "String"])
+                || exact(arg_types, &["String", "String", "Integer"]) =>
+        {
+            Cow::Borrowed("Integer")
+        }
+        MID if exact(arg_types, &["String", "Integer", "Integer"]) => Cow::Borrowed("String"),
+        REPLACE if exact(arg_types, &["String", "String", "String"]) => Cow::Borrowed("String"),
         _ => return None,
     };
     Some(ResolvedCall { return_type })
@@ -151,6 +174,9 @@ pub(crate) fn expected_arguments(name: &str) -> Option<&'static str> {
         LEFT | RIGHT | REPEAT | GRAPHEME_AT => Some("String, Integer"),
         PAD_LEFT | PAD_RIGHT => Some("String, Integer[, String]"),
         GRAPHEMES_COUNT => Some("String"),
+        FIND => Some("String, String[, Integer]"),
+        MID => Some("String, Integer, Integer"),
+        REPLACE => Some("String, String, String"),
         _ => None,
     }
 }
@@ -162,7 +188,8 @@ pub(crate) fn arity(name: &str) -> Option<(usize, usize)> {
         STARTS_WITH | ENDS_WITH | CONTAINS | SPLIT | JOIN | STARTS_WITH_ANY | ENDS_WITH_ANY
         | STRIP_PREFIX | STRIP_SUFFIX | COUNT | LEFT | RIGHT | REPEAT | GRAPHEME_AT
         | TRIM_CHARS => Some((2, 2)),
-        PAD_LEFT | PAD_RIGHT => Some((2, 3)),
+        PAD_LEFT | PAD_RIGHT | FIND => Some((2, 3)),
+        MID | REPLACE => Some((3, 3)),
         _ => None,
     }
 }

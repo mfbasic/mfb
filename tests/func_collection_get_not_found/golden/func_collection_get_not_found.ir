@@ -19,7 +19,7 @@
     "returns": "Integer",
     "body": [
     { "op": "bind", "mutable": false, "name": "names", "type": "Map OF String TO Integer", "value": { "kind": "map", "type": "Map OF String TO Integer", "entries": [{ "key": { "kind": "const", "type": "String", "value": "Ada" }, "value": { "kind": "const", "type": "Integer", "value": "36" } }] } },
-    { "op": "return", "value": { "kind": "call", "target": "get", "args": [{ "kind": "local", "name": "names" }, { "kind": "const", "type": "String", "value": "Grace" }] } }
+    { "op": "return", "value": { "kind": "call", "target": "collections.get", "args": [{ "kind": "local", "name": "names" }, { "kind": "const", "type": "String", "value": "Grace" }] } }
     ]
   }
   ]

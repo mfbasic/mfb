@@ -4,24 +4,25 @@
   {
     "path": "src/main.mfb",
     "imports": [
-    { "module": "fs", "line": 1 },
-    { "module": "io", "line": 2 }
+    { "module": "collections", "line": 1 },
+    { "module": "fs", "line": 2 },
+    { "module": "io", "line": 3 }
     ],
     "items": [
     {
       "kind": "func",
       "visibility": "private",
       "name": "main",
-      "line": 6,
+      "line": 7,
       "params": [
       ],
       "returnType": "Integer",
       "body": [
-      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "f", "type": "File", "value": { "kind": "call", "callee": "fs.openFile", "arguments": [{ "kind": "string", "value": "tests/resource-collection-map-value-runtime/src/main.mfb" }] }, "line": 7 },
-      { "kind": "binding", "mutable": false, "name": "m", "type": "Map OF String TO RES File", "value": { "kind": "map", "keyType": "String", "valueType": "RES File", "entries": [{ "key": { "kind": "string", "value": "src" }, "value": { "kind": "identifier", "value": "f" } }] }, "line": 8 },
-      { "kind": "binding", "mutable": false, "name": "line", "type": "String", "value": { "kind": "call", "callee": "fs.readLine", "arguments": [{ "kind": "call", "callee": "get", "arguments": [{ "kind": "identifier", "value": "m" }, { "kind": "string", "value": "src" }] }] }, "line": 9 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "entries=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "m" }] }] } }] }, "line": 10 },
-      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 11 }
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "f", "type": "File", "value": { "kind": "call", "callee": "fs.openFile", "arguments": [{ "kind": "string", "value": "tests/resource-collection-map-value-runtime/src/main.mfb" }] }, "line": 8 },
+      { "kind": "binding", "mutable": false, "name": "m", "type": "Map OF String TO RES File", "value": { "kind": "map", "keyType": "String", "valueType": "RES File", "entries": [{ "key": { "kind": "string", "value": "src" }, "value": { "kind": "identifier", "value": "f" } }] }, "line": 9 },
+      { "kind": "binding", "mutable": false, "name": "line", "type": "String", "value": { "kind": "call", "callee": "fs.readLine", "arguments": [{ "kind": "call", "callee": "collections.get", "arguments": [{ "kind": "identifier", "value": "m" }, { "kind": "string", "value": "src" }] }] }, "line": 10 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "entries=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "m" }] }] } }] }, "line": 11 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 12 }
       ]
     }
     ]

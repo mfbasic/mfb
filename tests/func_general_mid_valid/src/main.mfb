@@ -1,14 +1,15 @@
+IMPORT strings
 IMPORT io
 
 FUNC main AS Integer
-  LET ascii AS String = mid("hello", 1, 3)
-  LET unicode AS String = mid("aé日b", 1, 2)
-  LET emptyMiddle AS String = mid("hello", 2, 0)
-  LET emptyEnd AS String = mid("hello", 5, 0)
-  LET whole AS String = mid("hello", 0, 5)
-  LET emoji AS String = mid("a😀é日", 1, 2)
-  LET combining AS String = mid("éx", 0, 2)
-  LET family AS String = mid("x👨‍👩‍👧‍👦y", 1, 7)
+  LET ascii AS String = strings::mid("hello", 1, 3)
+  LET unicode AS String = strings::mid("aé日b", 1, 2)
+  LET emptyMiddle AS String = strings::mid("hello", 2, 0)
+  LET emptyEnd AS String = strings::mid("hello", 5, 0)
+  LET whole AS String = strings::mid("hello", 0, 5)
+  LET emoji AS String = strings::mid("a😀é日", 1, 2)
+  LET combining AS String = strings::mid("éx", 0, 2)
+  LET family AS String = strings::mid("x👨‍👩‍👧‍👦y", 1, 7)
 
   io::print(ascii)
   io::print(unicode)

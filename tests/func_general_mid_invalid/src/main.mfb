@@ -1,8 +1,9 @@
+IMPORT strings
 FUNC main AS Integer
-  LET missing AS String = mid()
-  LET wrongValue AS String = mid(42, 0, 1)
-  LET wrongStart AS String = mid("hello", "0", 1)
-  LET wrongCount AS String = mid("hello", 0, "1")
-  LET tooMany AS String = mid("hello", 0, 1, 2)
+  LET missing AS String = strings::mid()
+  LET wrongValue AS String = strings::mid(42, 0, 1)
+  LET wrongStart AS String = strings::mid("hello", "0", 1)
+  LET wrongCount AS String = strings::mid("hello", 0, "1")
+  LET tooMany AS String = strings::mid("hello", 0, 1, 2)
   RETURN 0
 END FUNC

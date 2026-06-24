@@ -1,3 +1,4 @@
+IMPORT collections
 TYPE Box
   items AS List OF Integer
 END TYPE
@@ -6,9 +7,9 @@ FUNC main AS Integer
   LET numbers AS List OF Integer = [1, 2, 3]
   LET words AS List OF String = ["one", "two"]
   LET boxes AS List OF Box = [Box[[1]], Box[[2]]]
-  LET wrongItem AS Integer = find(numbers, "2")
-  LET wrongNeedle AS Integer = find(numbers, words)
-  LET nonComparableItem AS Integer = find(boxes, Box[[2]])
-  LET nonComparableNeedle AS Integer = find(boxes, [Box[[2]]])
+  LET wrongItem AS Integer = collections::find(numbers, "2")
+  LET wrongNeedle AS Integer = collections::find(numbers, words)
+  LET nonComparableItem AS Integer = collections::find(boxes, Box[[2]])
+  LET nonComparableNeedle AS Integer = collections::find(boxes, [Box[[2]]])
   RETURN wrongItem + wrongNeedle + nonComparableItem + nonComparableNeedle
 END FUNC

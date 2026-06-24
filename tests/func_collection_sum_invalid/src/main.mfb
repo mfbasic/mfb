@@ -1,5 +1,6 @@
+IMPORT collections
 FUNC main AS Integer
   LET words AS List OF String = ["one", "two"]
-  LET total AS Integer = sum(words)
+  LET total AS Integer = collections::sum(words)
   RETURN total
 END FUNC

@@ -1,3 +1,4 @@
+IMPORT collections
 IMPORT package_comparable_types AS comparable
 
 FUNC main AS Integer
@@ -5,6 +6,6 @@ FUNC main AS Integer
   LET second AS comparable::Box = comparable::Box[[3, 4]]
   LET items AS List OF comparable::Box = [first, second]
   LET badMap = Map OF comparable::Box TO Integer { first := 1 }
-  LET badFind AS Integer = find(items, second)
+  LET badFind AS Integer = collections::find(items, second)
   RETURN len(badMap) + badFind
 END FUNC

@@ -4418,6 +4418,16 @@ impl<'a> TypeChecker<'a> {
                 line,
             );
         }
+        if builtins::collections::is_native_member_call(callee) {
+            return self.check_collections_builtin_call(
+                file,
+                display_callee,
+                callee,
+                arguments,
+                locals,
+                line,
+            );
+        }
         if builtins::strings::is_strings_call(callee) {
             return self.check_strings_builtin_call(
                 file,
@@ -5194,8 +5204,12 @@ impl<'a> TypeChecker<'a> {
             .collect::<Vec<_>>();
 
         // A resource added to a collection through an update builtin must be a
-        // `RES` binding (the owner); its slot holds a borrow (§15.6).
-        if matches!(callee, "append" | "prepend" | "insert" | "set") {
+        // `RES` binding (the owner); its slot holds a borrow (§15.6). The op
+        // arrives qualified as `collections.append` after the §5 migration.
+        if matches!(
+            crate::builtins::collections::native_member_bare(callee),
+            Some("append" | "prepend" | "insert" | "set")
+        ) {
             for (index, (argument, arg_type)) in
                 arguments.iter().zip(arg_types.iter()).enumerate()
             {
@@ -5244,6 +5258,141 @@ impl<'a> TypeChecker<'a> {
         };
 
         self.check_general_builtin_comparability(file, display_callee, callee, &arg_types, line);
+
+        self.parse_type(&resolved.return_type)
+    }
+
+    /// Typechecks a migrated `collections::` native member call (plan-01 §5).
+    /// Mirrors `check_general_builtin_call` but resolves through the `collections`
+    /// helper set; `callee` is the canonical `collections.<member>` form.
+    fn check_collections_builtin_call(
+        &mut self,
+        file: &AstFile,
+        display_callee: &str,
+        callee: &str,
+        arguments: &[CallArg],
+        locals: &mut HashMap<String, LocalInfo>,
+        line: usize,
+    ) -> Type {
+        let member = builtins::collections::native_member_bare(callee).unwrap_or(callee);
+        let arguments =
+            self.normalize_builtin_call_arguments(file, display_callee, callee, arguments, line);
+        if callee == "collections.filter" && arguments.len() == 2 {
+            if let Expression::Identifier(predicate) = &arguments[1] {
+                if builtins::general::builtin_function_id(predicate).is_some() {
+                    let collection_type =
+                        self.infer_expression(file, &arguments[0], locals, line, ExprMode::Read);
+                    let collection_type_name = self.type_name(&collection_type);
+                    let predicate_type =
+                        collection_type_name
+                            .strip_prefix("List OF ")
+                            .and_then(|element| {
+                                builtins::general::filter_predicate_type(predicate, element)
+                            });
+
+                    let Some(predicate_type) = predicate_type else {
+                        self.report(
+                            "TYPE_CALL_ARGUMENT_MISMATCH",
+                            &format!(
+                                "Call to `{display_callee}` has argument type(s) ({collection_type_name}, {predicate}), expected {}.",
+                                builtins::collections::expected_arguments(callee)
+                                    .unwrap_or("supported overload")
+                            ),
+                            file,
+                            line,
+                        );
+                        return Type::Unknown;
+                    };
+
+                    let arg_types = vec![collection_type_name, predicate_type];
+                    let Some(resolved) = builtins::collections::resolve_call(callee, &arg_types)
+                    else {
+                        self.report(
+                            "TYPE_CALL_ARGUMENT_MISMATCH",
+                            &format!(
+                                "Call to `{display_callee}` has argument type(s) ({}), expected {}.",
+                                arg_types.join(", "),
+                                builtins::collections::expected_arguments(callee)
+                                    .unwrap_or("supported overload")
+                            ),
+                            file,
+                            line,
+                        );
+                        return Type::Unknown;
+                    };
+
+                    return self.parse_type(&resolved.return_type);
+                }
+            }
+        }
+
+        let arg_types = arguments
+            .iter()
+            .enumerate()
+            .map(|(index, argument)| {
+                self.infer_expression(
+                    file,
+                    argument,
+                    locals,
+                    line,
+                    self.general_argument_mode(member, index),
+                )
+            })
+            .collect::<Vec<_>>();
+        let arg_type_names = arg_types
+            .iter()
+            .map(|type_| self.type_name(type_))
+            .collect::<Vec<_>>();
+
+        if matches!(member, "append" | "prepend" | "insert" | "set") {
+            for (index, (argument, arg_type)) in
+                arguments.iter().zip(arg_types.iter()).enumerate()
+            {
+                if index == 0 {
+                    continue;
+                }
+                self.check_collection_resource_element(
+                    file, line, "element", argument, arg_type, locals,
+                );
+            }
+        }
+
+        if let Some((min, max)) = builtins::collections::arity(callee) {
+            if arguments.len() < min || arguments.len() > max {
+                let expected = if min == max {
+                    min.to_string()
+                } else {
+                    format!("{min} to {max}")
+                };
+                self.report(
+                    "TYPE_CALL_ARITY_MISMATCH",
+                    &format!(
+                        "Call to `{display_callee}` has {} argument(s), expected {expected}.",
+                        arguments.len()
+                    ),
+                    file,
+                    line,
+                );
+                return Type::Unknown;
+            }
+        }
+
+        let Some(resolved) = builtins::collections::resolve_call(callee, &arg_type_names) else {
+            let expected =
+                builtins::collections::expected_arguments(callee).unwrap_or("supported overload");
+            self.report(
+                "TYPE_CALL_ARGUMENT_MISMATCH",
+                &format!(
+                    "Call to `{display_callee}` has argument type(s) ({}), expected {expected}.",
+                    arg_type_names.join(", ")
+                ),
+                file,
+                line,
+            );
+            return Type::Unknown;
+        };
+
+        self.check_general_builtin_comparability(file, display_callee, member, &arg_types, line);
 
         self.parse_type(&resolved.return_type)
     }
@@ -5815,6 +5964,11 @@ impl<'a> TypeChecker<'a> {
         }
     }
 
+    /// Argument evaluation mode for a builtin collection op, keyed on the BARE op
+    /// name. Callers pass the dequalified member (`append`, not
+    /// `collections.append`); this is only ever reached for recognised builtin
+    /// calls, so a freed bare name from user code never gets here
+    /// (plan-01-functions.md §5).
     fn general_argument_mode(&self, callee: &str, index: usize) -> ExprMode {
         if matches!(
             callee,
@@ -6945,7 +7099,11 @@ fn strip_res(type_: &Type) -> &Type {
 fn is_resource_element_borrow(expression: &Expression) -> bool {
     matches!(
         expression,
-        Expression::Call { callee, .. } if matches!(callee.as_str(), "get" | "getOr")
+        Expression::Call { callee, .. }
+            if matches!(
+                crate::builtins::collections::native_member_bare(callee),
+                Some("get" | "getOr")
+            )
     )
 }
 

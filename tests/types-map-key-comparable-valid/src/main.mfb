@@ -1,3 +1,4 @@
+IMPORT collections
 IMPORT io
 
 TYPE Point
@@ -10,6 +11,6 @@ FUNC main AS Integer
   LET second AS Point = Point[3, 4]
   LET points AS Map OF Point TO String = Map OF Point TO String { first := "a", second := "b" }
   io::print(toString(len(points)))
-  io::print(get(points, second))
+  io::print(collections::get(points, second))
   RETURN len(points)
 END FUNC

@@ -1,10 +1,11 @@
+IMPORT collections
 IMPORT io
 
 FUNC main AS Integer
-  LET numbers AS List OF Integer = append([1, 2], 3)
-  LET more AS List OF Integer = append(numbers, [4, 5])
-  LET names AS List OF String = append(["Ada"], "Grace")
-  LET moreNames AS List OF String = append(names, ["Katherine"])
+  LET numbers AS List OF Integer = collections::append([1, 2], 3)
+  LET more AS List OF Integer = collections::append(numbers, [4, 5])
+  LET names AS List OF String = collections::append(["Ada"], "Grace")
+  LET moreNames AS List OF String = collections::append(names, ["Katherine"])
 
   FOR EACH value IN more
     io::print(toString(value))

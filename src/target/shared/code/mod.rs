@@ -13561,21 +13561,21 @@ fn string_symbols(module: &NirModule) -> HashMap<String, String> {
             push_string_value(&mut values, value.to_string());
         }
     }
-    if module_uses_call(module, "find")
-        || module_uses_call(module, "mid")
-        || module_uses_call(module, "get")
-        || module_uses_call(module, "append")
-        || module_uses_call(module, "prepend")
-        || module_uses_call(module, "insert")
-        || module_uses_call(module, "transform")
-        || module_uses_call(module, "filter")
-        || module_uses_call(module, "removeAt")
-        || module_uses_call(module, "set")
+    if module_uses_migrated(module, "find")
+        || module_uses_migrated(module, "mid")
+        || module_uses_migrated(module, "get")
+        || module_uses_migrated(module, "append")
+        || module_uses_migrated(module, "prepend")
+        || module_uses_migrated(module, "insert")
+        || module_uses_migrated(module, "transform")
+        || module_uses_migrated(module, "filter")
+        || module_uses_migrated(module, "removeAt")
+        || module_uses_migrated(module, "set")
         || module_uses_call(module, "strings.graphemeAt")
     {
         push_string_value(&mut values, ERR_INDEX_OUT_OF_RANGE_MESSAGE.to_string());
     }
-    if module_uses_call(module, "find") || module_uses_call(module, "get") {
+    if module_uses_migrated(module, "find") || module_uses_migrated(module, "get") {
         push_string_value(&mut values, ERR_NOT_FOUND_MESSAGE.to_string());
     }
     if module_uses_call(module, "toString") {
@@ -13818,6 +13818,15 @@ fn module_uses_call(module: &NirModule, target: &str) -> bool {
         .iter()
         .any(|function| ops_use_call(&function.body, target))
         || module_drops_resource_union_close(module, target)
+}
+
+/// Whether the module uses a migrated `collections::`/`strings::` member whose
+/// bare native lowering name is `bare` (e.g. `bare = "find"` checks both
+/// `collections.find` and `strings.find`). The native ops keep their bare
+/// lowering but arrive with the qualified target (plan-01-functions.md §5).
+fn module_uses_migrated(module: &NirModule, bare: &str) -> bool {
+    module_uses_call(module, &format!("collections.{bare}"))
+        || module_uses_call(module, &format!("strings.{bare}"))
 }
 
 /// Whether the module binds a resource union whose tag-dispatched drop calls
@@ -14128,6 +14137,14 @@ fn static_nir_value_type(value: &NirValue, locals: &HashMap<String, String>) -> 
                 .collect::<Option<Vec<_>>>()?;
             builtins::general::resolve_call(target, &arg_types)
                 .map(|call| call.return_type.into_owned())
+                .or_else(|| {
+                    builtins::collections::resolve_call(target, &arg_types)
+                        .map(|call| call.return_type.into_owned())
+                })
+                .or_else(|| {
+                    builtins::strings::resolve_call(target, &arg_types)
+                        .map(|call| call.return_type.into_owned())
+                })
                 .or_else(|| builtins::call_return_type_name(target).map(str::to_string))
         }
         NirValue::ResultIsOk { .. } => Some("Boolean".to_string()),
@@ -15493,9 +15510,14 @@ fn static_type_name_with_types(
         NirValue::Call { target, .. }
         | NirValue::CallResult { target, .. }
         | NirValue::RuntimeCall { target, .. } => match target.as_str() {
-            "replace" | "typeName" | "toString" => Some("String".to_string()),
-            "find" | "len" | "toInt" => Some("Integer".to_string()),
-            "mid" => Some("String".to_string()),
+            "typeName" | "toString" => Some("String".to_string()),
+            "len" | "toInt" => Some("Integer".to_string()),
+            // Migrated find/mid/replace: strings:: returns Integer/String; the
+            // collections:: List overloads return the list type and are resolved
+            // by the precise type path, so only `find` (always Integer) is mapped
+            // here (plan-01-functions.md §5).
+            "collections.find" | "strings.find" => Some("Integer".to_string()),
+            "strings.mid" | "strings.replace" => Some("String".to_string()),
             "strings.trim"
             | "strings.trimStart"
             | "strings.trimEnd"

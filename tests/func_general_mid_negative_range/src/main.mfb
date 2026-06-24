@@ -1,3 +1,4 @@
+IMPORT strings
 FUNC main AS Integer
-  RETURN len(mid("hello", -1, 1))
+  RETURN len(strings::mid("hello", -1, 1))
 END FUNC

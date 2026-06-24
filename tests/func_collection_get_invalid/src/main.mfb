@@ -1,5 +1,6 @@
+IMPORT collections
 FUNC main AS Integer
   LET numbers AS List OF Integer = [1, 2, 3]
-  LET value AS Integer = get(numbers, "1")
+  LET value AS Integer = collections::get(numbers, "1")
   RETURN value
 END FUNC

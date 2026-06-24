@@ -4,41 +4,42 @@
   {
     "path": "src/main.mfb",
     "imports": [
-    { "module": "io", "line": 1 }
+    { "module": "collections", "line": 1 },
+    { "module": "io", "line": 2 }
     ],
     "items": [
     {
       "kind": "func",
       "visibility": "private",
       "name": "main",
-      "line": 3,
+      "line": 4,
       "params": [
       ],
       "returnType": "Integer",
       "body": [
-      { "kind": "binding", "mutable": false, "name": "numbers", "type": "List OF Integer", "value": { "kind": "call", "callee": "append", "arguments": [{ "kind": "list", "values": [{ "kind": "number", "value": "1" }, { "kind": "number", "value": "2" }] }, { "kind": "number", "value": "3" }] }, "line": 4 },
-      { "kind": "binding", "mutable": false, "name": "more", "type": "List OF Integer", "value": { "kind": "call", "callee": "append", "arguments": [{ "kind": "identifier", "value": "numbers" }, { "kind": "list", "values": [{ "kind": "number", "value": "4" }, { "kind": "number", "value": "5" }] }] }, "line": 5 },
-      { "kind": "binding", "mutable": false, "name": "names", "type": "List OF String", "value": { "kind": "call", "callee": "append", "arguments": [{ "kind": "list", "values": [{ "kind": "string", "value": "Ada" }] }, { "kind": "string", "value": "Grace" }] }, "line": 6 },
-      { "kind": "binding", "mutable": false, "name": "moreNames", "type": "List OF String", "value": { "kind": "call", "callee": "append", "arguments": [{ "kind": "identifier", "value": "names" }, { "kind": "list", "values": [{ "kind": "string", "value": "Katherine" }] }] }, "line": 7 },
+      { "kind": "binding", "mutable": false, "name": "numbers", "type": "List OF Integer", "value": { "kind": "call", "callee": "collections.append", "arguments": [{ "kind": "list", "values": [{ "kind": "number", "value": "1" }, { "kind": "number", "value": "2" }] }, { "kind": "number", "value": "3" }] }, "line": 5 },
+      { "kind": "binding", "mutable": false, "name": "more", "type": "List OF Integer", "value": { "kind": "call", "callee": "collections.append", "arguments": [{ "kind": "identifier", "value": "numbers" }, { "kind": "list", "values": [{ "kind": "number", "value": "4" }, { "kind": "number", "value": "5" }] }] }, "line": 6 },
+      { "kind": "binding", "mutable": false, "name": "names", "type": "List OF String", "value": { "kind": "call", "callee": "collections.append", "arguments": [{ "kind": "list", "values": [{ "kind": "string", "value": "Ada" }] }, { "kind": "string", "value": "Grace" }] }, "line": 7 },
+      { "kind": "binding", "mutable": false, "name": "moreNames", "type": "List OF String", "value": { "kind": "call", "callee": "collections.append", "arguments": [{ "kind": "identifier", "value": "names" }, { "kind": "list", "values": [{ "kind": "string", "value": "Katherine" }] }] }, "line": 8 },
       {
         "kind": "forEach",
         "name": "value",
         "iterable": { "kind": "identifier", "value": "more" },
-        "line": 9,
+        "line": 10,
         "body": [
-        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "value" }] }] }, "line": 10 }
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "value" }] }] }, "line": 11 }
         ]
       },
       {
         "kind": "forEach",
         "name": "name",
         "iterable": { "kind": "identifier", "value": "moreNames" },
-        "line": 12,
+        "line": 13,
         "body": [
-        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "identifier", "value": "name" }] }, "line": 13 }
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "identifier", "value": "name" }] }, "line": 14 }
         ]
       },
-      { "kind": "return", "value": { "kind": "binary", "operator": "+", "left": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "more" }] }, "right": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "moreNames" }] } }, "line": 16 }
+      { "kind": "return", "value": { "kind": "binary", "operator": "+", "left": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "more" }] }, "right": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "moreNames" }] } }, "line": 17 }
       ]
     }
     ]

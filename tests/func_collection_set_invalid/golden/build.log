@@ -1,24 +1,28 @@
 $ mfb build -ast tests/func_collection_set_invalid
-   1 | FUNC main AS Integer
-   2 |   LET values AS List OF Integer = set([1, 2], "1", 9)
+   1 | IMPORT collections
+   2 | FUNC main AS Integer
+   3 |   LET values AS List OF Integer = collections::set([1, 2], "1", 9)
      | ^
-tests/func_collection_set_invalid/src/main.mfb:2 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
-               Call to `set` has argument type(s) (List OF Integer, String, Integer), expected List OF T, Integer, T or Map OF K TO V, K, V.
-   1 | FUNC main AS Integer
-   2 |   LET values AS List OF Integer = set([1, 2], "1", 9)
+tests/func_collection_set_invalid/src/main.mfb:3 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `collections.set` has argument type(s) (List OF Integer, String, Integer), expected List OF T, Integer, T or Map OF K TO V, K, V.
+   1 | IMPORT collections
+   2 | FUNC main AS Integer
+   3 |   LET values AS List OF Integer = collections::set([1, 2], "1", 9)
      | ^
-tests/func_collection_set_invalid/src/main.mfb:2 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+tests/func_collection_set_invalid/src/main.mfb:3 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `values` does not have a known type.
 [exit 1]
 $ mfb build -ir tests/func_collection_set_invalid
-   1 | FUNC main AS Integer
-   2 |   LET values AS List OF Integer = set([1, 2], "1", 9)
+   1 | IMPORT collections
+   2 | FUNC main AS Integer
+   3 |   LET values AS List OF Integer = collections::set([1, 2], "1", 9)
      | ^
-tests/func_collection_set_invalid/src/main.mfb:2 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
-               Call to `set` has argument type(s) (List OF Integer, String, Integer), expected List OF T, Integer, T or Map OF K TO V, K, V.
-   1 | FUNC main AS Integer
-   2 |   LET values AS List OF Integer = set([1, 2], "1", 9)
+tests/func_collection_set_invalid/src/main.mfb:3 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `collections.set` has argument type(s) (List OF Integer, String, Integer), expected List OF T, Integer, T or Map OF K TO V, K, V.
+   1 | IMPORT collections
+   2 | FUNC main AS Integer
+   3 |   LET values AS List OF Integer = collections::set([1, 2], "1", 9)
      | ^
-tests/func_collection_set_invalid/src/main.mfb:2 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+tests/func_collection_set_invalid/src/main.mfb:3 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `values` does not have a known type.
 [exit 1]

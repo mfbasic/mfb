@@ -4,41 +4,42 @@
   {
     "path": "src/main.mfb",
     "imports": [
-    { "module": "io", "line": 1 }
+    { "module": "collections", "line": 1 },
+    { "module": "io", "line": 2 }
     ],
     "items": [
     {
       "kind": "func",
       "visibility": "private",
       "name": "main",
-      "line": 3,
+      "line": 4,
       "params": [
       ],
       "returnType": "Integer",
       "body": [
-      { "kind": "binding", "mutable": false, "name": "names", "type": "Map OF String TO Integer", "value": { "kind": "map", "keyType": "String", "valueType": "Integer", "entries": [{ "key": { "kind": "string", "value": "Ada" }, "value": { "kind": "number", "value": "36" } }, { "key": { "kind": "string", "value": "Grace" }, "value": { "kind": "number", "value": "85" } }] }, "line": 4 },
-      { "kind": "binding", "mutable": false, "name": "codes", "type": "Map OF Integer TO String", "value": { "kind": "map", "keyType": "Integer", "valueType": "String", "entries": [{ "key": { "kind": "number", "value": "1" }, "value": { "kind": "string", "value": "one" } }, { "key": { "kind": "number", "value": "2" }, "value": { "kind": "string", "value": "two" } }] }, "line": 5 },
-      { "kind": "binding", "mutable": false, "name": "nameKeys", "type": "List OF String", "value": { "kind": "call", "callee": "keys", "arguments": [{ "kind": "identifier", "value": "names" }] }, "line": 6 },
-      { "kind": "binding", "mutable": false, "name": "codeKeys", "type": "List OF Integer", "value": { "kind": "call", "callee": "keys", "arguments": [{ "kind": "identifier", "value": "codes" }] }, "line": 7 },
+      { "kind": "binding", "mutable": false, "name": "names", "type": "Map OF String TO Integer", "value": { "kind": "map", "keyType": "String", "valueType": "Integer", "entries": [{ "key": { "kind": "string", "value": "Ada" }, "value": { "kind": "number", "value": "36" } }, { "key": { "kind": "string", "value": "Grace" }, "value": { "kind": "number", "value": "85" } }] }, "line": 5 },
+      { "kind": "binding", "mutable": false, "name": "codes", "type": "Map OF Integer TO String", "value": { "kind": "map", "keyType": "Integer", "valueType": "String", "entries": [{ "key": { "kind": "number", "value": "1" }, "value": { "kind": "string", "value": "one" } }, { "key": { "kind": "number", "value": "2" }, "value": { "kind": "string", "value": "two" } }] }, "line": 6 },
+      { "kind": "binding", "mutable": false, "name": "nameKeys", "type": "List OF String", "value": { "kind": "call", "callee": "collections.keys", "arguments": [{ "kind": "identifier", "value": "names" }] }, "line": 7 },
+      { "kind": "binding", "mutable": false, "name": "codeKeys", "type": "List OF Integer", "value": { "kind": "call", "callee": "collections.keys", "arguments": [{ "kind": "identifier", "value": "codes" }] }, "line": 8 },
       {
         "kind": "forEach",
         "name": "name",
         "iterable": { "kind": "identifier", "value": "nameKeys" },
-        "line": 9,
+        "line": 10,
         "body": [
-        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "identifier", "value": "name" }] }, "line": 10 }
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "identifier", "value": "name" }] }, "line": 11 }
         ]
       },
       {
         "kind": "forEach",
         "name": "code",
         "iterable": { "kind": "identifier", "value": "codeKeys" },
-        "line": 12,
+        "line": 13,
         "body": [
-        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "code" }] }] }, "line": 13 }
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "code" }] }] }, "line": 14 }
         ]
       },
-      { "kind": "return", "value": { "kind": "binary", "operator": "+", "left": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "nameKeys" }] }, "right": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "codeKeys" }] } }, "line": 16 }
+      { "kind": "return", "value": { "kind": "binary", "operator": "+", "left": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "nameKeys" }] }, "right": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "codeKeys" }] } }, "line": 17 }
       ]
     }
     ]

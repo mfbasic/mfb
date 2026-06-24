@@ -20,7 +20,7 @@
     "returns": "Integer",
     "body": [
     { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "args" }] }] }] } },
-    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "get", "args": [{ "kind": "local", "name": "args" }, { "kind": "const", "type": "Integer", "value": "0" }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "collections.get", "args": [{ "kind": "local", "name": "args" }, { "kind": "const", "type": "Integer", "value": "0" }] }] } },
     { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
     ]
   }

@@ -1,3 +1,4 @@
+IMPORT collections
 TYPE Box
   items AS List OF Integer
 END TYPE
@@ -5,8 +6,8 @@ END TYPE
 FUNC main AS Integer
   LET numbers AS List OF Integer = [1, 2, 3]
   LET boxes AS List OF Box = [Box[[1]], Box[[2]]]
-  LET wrongOld AS List OF Integer = replace(numbers, "1", 9)
-  LET wrongNew AS List OF Integer = replace(numbers, 1, "9")
-  LET nonComparable AS List OF Box = replace(boxes, Box[[1]], Box[[9]])
+  LET wrongOld AS List OF Integer = collections::replace(numbers, "1", 9)
+  LET wrongNew AS List OF Integer = collections::replace(numbers, 1, "9")
+  LET nonComparable AS List OF Box = collections::replace(boxes, Box[[1]], Box[[9]])
   RETURN len(wrongOld) + len(wrongNew) + len(nonComparable)
 END FUNC

@@ -4,47 +4,48 @@
   {
     "path": "src/main.mfb",
     "imports": [
-    { "module": "io", "line": 1 }
+    { "module": "collections", "line": 1 },
+    { "module": "io", "line": 2 }
     ],
     "items": [
     {
       "kind": "func",
       "visibility": "private",
       "name": "makeAdder",
-      "line": 3,
+      "line": 4,
       "params": [
       { "name": "base", "type": "Integer", "default": null }
       ],
       "returnType": "FUNC(Integer) AS Integer",
       "body": [
-      { "kind": "binding", "mutable": false, "name": "captured", "type": "Integer", "value": { "kind": "identifier", "value": "base" }, "line": 4 },
+      { "kind": "binding", "mutable": false, "name": "captured", "type": "Integer", "value": { "kind": "identifier", "value": "base" }, "line": 5 },
       { "kind": "return", "value": { "kind": "lambda", "params": [
-{ "name": "value", "type": "Integer", "default": null }], "body": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "value" }, "right": { "kind": "identifier", "value": "captured" } } }, "line": 5 }
+{ "name": "value", "type": "Integer", "default": null }], "body": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "value" }, "right": { "kind": "identifier", "value": "captured" } } }, "line": 6 }
       ]
     },
     {
       "kind": "func",
       "visibility": "private",
       "name": "main",
-      "line": 8,
+      "line": 9,
       "params": [
       ],
       "returnType": "Integer",
       "body": [
-      { "kind": "binding", "mutable": false, "name": "addTwo", "type": "FUNC(Integer) AS Integer", "value": { "kind": "call", "callee": "makeAdder", "arguments": [{ "kind": "number", "value": "2" }] }, "line": 9 },
-      { "kind": "binding", "mutable": false, "name": "addTen", "type": "FUNC(Integer) AS Integer", "value": { "kind": "call", "callee": "makeAdder", "arguments": [{ "kind": "number", "value": "10" }] }, "line": 10 },
-      { "kind": "binding", "mutable": false, "name": "threshold", "type": "Integer", "value": { "kind": "number", "value": "3" }, "line": 11 },
+      { "kind": "binding", "mutable": false, "name": "addTwo", "type": "FUNC(Integer) AS Integer", "value": { "kind": "call", "callee": "makeAdder", "arguments": [{ "kind": "number", "value": "2" }] }, "line": 10 },
+      { "kind": "binding", "mutable": false, "name": "addTen", "type": "FUNC(Integer) AS Integer", "value": { "kind": "call", "callee": "makeAdder", "arguments": [{ "kind": "number", "value": "10" }] }, "line": 11 },
+      { "kind": "binding", "mutable": false, "name": "threshold", "type": "Integer", "value": { "kind": "number", "value": "3" }, "line": 12 },
       { "kind": "binding", "mutable": false, "name": "aboveThreshold", "type": "FUNC(Integer) AS Boolean", "value": { "kind": "lambda", "params": [
-{ "name": "value", "type": "Integer", "default": null }], "body": { "kind": "binary", "operator": ">", "left": { "kind": "identifier", "value": "value" }, "right": { "kind": "identifier", "value": "threshold" } } }, "line": 12 },
-      { "kind": "binding", "mutable": false, "name": "numbers", "type": "List OF Integer", "value": { "kind": "list", "values": [{ "kind": "number", "value": "1" }, { "kind": "number", "value": "2" }, { "kind": "number", "value": "3" }, { "kind": "number", "value": "4" }] }, "line": 13 },
-      { "kind": "binding", "mutable": false, "name": "incremented", "type": "List OF Integer", "value": { "kind": "call", "callee": "transform", "arguments": [{ "kind": "identifier", "value": "numbers" }, { "kind": "identifier", "value": "addTwo" }] }, "line": 14 },
-      { "kind": "binding", "mutable": false, "name": "elevated", "type": "List OF Integer", "value": { "kind": "call", "callee": "transform", "arguments": [{ "kind": "list", "values": [{ "kind": "number", "value": "1" }] }, { "kind": "identifier", "value": "addTen" }] }, "line": 15 },
-      { "kind": "binding", "mutable": false, "name": "filtered", "type": "List OF Integer", "value": { "kind": "call", "callee": "filter", "arguments": [{ "kind": "identifier", "value": "incremented" }, { "kind": "identifier", "value": "aboveThreshold" }] }, "line": 16 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "get", "arguments": [{ "kind": "identifier", "value": "elevated" }, { "kind": "number", "value": "0" }] }] }] }, "line": 18 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "get", "arguments": [{ "kind": "identifier", "value": "incremented" }, { "kind": "number", "value": "0" }] }] }] }, "line": 19 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "get", "arguments": [{ "kind": "identifier", "value": "incremented" }, { "kind": "number", "value": "3" }] }] }] }, "line": 20 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "filtered" }] }] }] }, "line": 21 },
-      { "kind": "return", "value": { "kind": "binary", "operator": "+", "left": { "kind": "call", "callee": "sum", "arguments": [{ "kind": "identifier", "value": "incremented" }] }, "right": { "kind": "call", "callee": "sum", "arguments": [{ "kind": "identifier", "value": "elevated" }] } }, "line": 23 }
+{ "name": "value", "type": "Integer", "default": null }], "body": { "kind": "binary", "operator": ">", "left": { "kind": "identifier", "value": "value" }, "right": { "kind": "identifier", "value": "threshold" } } }, "line": 13 },
+      { "kind": "binding", "mutable": false, "name": "numbers", "type": "List OF Integer", "value": { "kind": "list", "values": [{ "kind": "number", "value": "1" }, { "kind": "number", "value": "2" }, { "kind": "number", "value": "3" }, { "kind": "number", "value": "4" }] }, "line": 14 },
+      { "kind": "binding", "mutable": false, "name": "incremented", "type": "List OF Integer", "value": { "kind": "call", "callee": "collections.transform", "arguments": [{ "kind": "identifier", "value": "numbers" }, { "kind": "identifier", "value": "addTwo" }] }, "line": 15 },
+      { "kind": "binding", "mutable": false, "name": "elevated", "type": "List OF Integer", "value": { "kind": "call", "callee": "collections.transform", "arguments": [{ "kind": "list", "values": [{ "kind": "number", "value": "1" }] }, { "kind": "identifier", "value": "addTen" }] }, "line": 16 },
+      { "kind": "binding", "mutable": false, "name": "filtered", "type": "List OF Integer", "value": { "kind": "call", "callee": "collections.filter", "arguments": [{ "kind": "identifier", "value": "incremented" }, { "kind": "identifier", "value": "aboveThreshold" }] }, "line": 17 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "collections.get", "arguments": [{ "kind": "identifier", "value": "elevated" }, { "kind": "number", "value": "0" }] }] }] }, "line": 19 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "collections.get", "arguments": [{ "kind": "identifier", "value": "incremented" }, { "kind": "number", "value": "0" }] }] }] }, "line": 20 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "collections.get", "arguments": [{ "kind": "identifier", "value": "incremented" }, { "kind": "number", "value": "3" }] }] }] }, "line": 21 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "filtered" }] }] }] }, "line": 22 },
+      { "kind": "return", "value": { "kind": "binary", "operator": "+", "left": { "kind": "call", "callee": "collections.sum", "arguments": [{ "kind": "identifier", "value": "incremented" }] }, "right": { "kind": "call", "callee": "collections.sum", "arguments": [{ "kind": "identifier", "value": "elevated" }] } }, "line": 24 }
       ]
     }
     ]

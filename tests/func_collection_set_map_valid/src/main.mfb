@@ -1,14 +1,15 @@
+IMPORT collections
 IMPORT io
 
 FUNC main AS Integer
   LET ages AS Map OF String TO Integer = Map OF String TO Integer { "Ada" := 36, "Grace" := 85 }
-  LET updated AS Map OF String TO Integer = set(ages, "Ada", 37)
-  LET inserted AS Map OF String TO Integer = set(updated, "Katherine", 99)
-  LET codes AS Map OF Integer TO String = set(Map OF Integer TO String { 1 := "one" }, 2, "two")
+  LET updated AS Map OF String TO Integer = collections::set(ages, "Ada", 37)
+  LET inserted AS Map OF String TO Integer = collections::set(updated, "Katherine", 99)
+  LET codes AS Map OF Integer TO String = collections::set(Map OF Integer TO String { 1 := "one" }, 2, "two")
 
-  io::print(toString(get(inserted, "Ada")))
-  io::print(toString(get(inserted, "Katherine")))
-  io::print(get(codes, 2))
+  io::print(toString(collections::get(inserted, "Ada")))
+  io::print(toString(collections::get(inserted, "Katherine")))
+  io::print(collections::get(codes, 2))
   io::print(toString(len(inserted)))
 
   RETURN len(inserted) + len(codes)

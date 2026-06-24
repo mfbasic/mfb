@@ -1,10 +1,11 @@
+IMPORT collections
 IMPORT net
 IMPORT io
 
 FUNC main AS Integer
   RES server = net::listenTcp("127.0.0.1", 0)
   LET bound = net::localAddress(server)
-  LET address = get(net::lookup("127.0.0.1", bound.port), 0)
+  LET address = collections::get(net::lookup("127.0.0.1", bound.port), 0)
   RES c1 = net::connectTcp("127.0.0.1", bound.port)
   RES c2 = net::connectTcp("127.0.0.1", bound.port, 5000)
   RES c3 = net::connectTcp(address)

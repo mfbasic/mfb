@@ -20,9 +20,9 @@
     "body": [
     { "op": "bind", "mutable": true, "name": "handles", "type": "List OF RES File", "value": { "kind": "list", "type": "List OF RES File", "values": [] } },
     { "op": "bind", "mutable": false, "name": "a", "type": "File", "value": { "kind": "call", "target": "fs.openFile", "args": [{ "kind": "const", "type": "String", "value": "tests/resource-collection-transfer-runtime/src/main.mfb" }] } },
-    { "op": "assign", "name": "handles", "value": { "kind": "call", "target": "append", "args": [{ "kind": "local", "name": "handles" }, { "kind": "local", "name": "a" }] } },
+    { "op": "assign", "name": "handles", "value": { "kind": "call", "target": "collections.append", "args": [{ "kind": "local", "name": "handles" }, { "kind": "local", "name": "a" }] } },
     { "op": "bind", "mutable": false, "name": "b", "type": "File", "value": { "kind": "call", "target": "fs.openFile", "args": [{ "kind": "const", "type": "String", "value": "tests/resource-collection-transfer-runtime/src/main.mfb" }] } },
-    { "op": "assign", "name": "handles", "value": { "kind": "call", "target": "append", "args": [{ "kind": "local", "name": "handles" }, { "kind": "local", "name": "b" }] } },
+    { "op": "assign", "name": "handles", "value": { "kind": "call", "target": "collections.append", "args": [{ "kind": "local", "name": "handles" }, { "kind": "local", "name": "b" }] } },
     { "op": "return", "value": { "kind": "local", "name": "handles" } }
     ]
   },

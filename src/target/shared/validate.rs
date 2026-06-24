@@ -1279,29 +1279,13 @@ fn validate_value(
                 }
                 return Ok(());
             }
+            // The migrated `collections::`/`strings::` members and the remaining
+            // global natives (len, conversions, ...) are covered by
+            // `is_native_direct_call`; the bare moved names are freed for user
+            // code and resolve via `function_names` (plan-01-functions.md §5).
             if function_names.contains(target)
                 || import_names.contains(target)
-                || target == "contains"
-                || target == "append"
-                || target == "get"
-                || target == "getOr"
-                || target == "hasKey"
-                || target == "insert"
-                || target == "find"
-                || target == "forEach"
-                || target == "filter"
-                || target == "keys"
                 || target == "len"
-                || target == "mid"
-                || target == "prepend"
-                || target == "reduce"
-                || target == "removeAt"
-                || target == "removeKey"
-                || target == "replace"
-                || target == "set"
-                || target == "sum"
-                || target == "transform"
-                || target == "values"
                 || target == "toByte"
                 || target == "toFixed"
                 || target == "toFloat"

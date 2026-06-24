@@ -4,49 +4,50 @@
   {
     "path": "src/main.mfb",
     "imports": [
-    { "module": "io", "line": 1 }
+    { "module": "collections", "line": 1 },
+    { "module": "io", "line": 2 }
     ],
     "items": [
     {
       "kind": "func",
       "visibility": "private",
       "name": "makePair",
-      "line": 6,
+      "line": 7,
       "params": [
       { "name": "n", "type": "Integer", "default": null },
       { "name": "s", "type": "String", "default": null }
       ],
       "returnType": "Pair OF Integer, String",
       "body": [
-      { "kind": "return", "value": { "kind": "constructor", "type": "Pair", "arguments": [{ "kind": "identifier", "value": "n" }, { "kind": "identifier", "value": "s" }] }, "line": 7 }
+      { "kind": "return", "value": { "kind": "constructor", "type": "Pair", "arguments": [{ "kind": "identifier", "value": "n" }, { "kind": "identifier", "value": "s" }] }, "line": 8 }
       ]
     },
     {
       "kind": "func",
       "visibility": "private",
       "name": "main",
-      "line": 10,
+      "line": 11,
       "params": [
       ],
       "returnType": "Integer",
       "body": [
-      { "kind": "binding", "mutable": false, "name": "p", "type": "Pair OF Integer, String", "value": { "kind": "constructor", "type": "Pair", "arguments": [{ "kind": "number", "value": "7" }, { "kind": "string", "value": "seven" }] }, "line": 12 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "p" }, "member": "first" }] }] }, "line": 13 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "p" }, "member": "second" }] }, "line": 14 },
-      { "kind": "binding", "mutable": false, "name": "q", "type": "Pair OF Integer, String", "value": { "kind": "call", "callee": "makePair", "arguments": [{ "kind": "number", "value": "9" }, { "kind": "string", "value": "nine" }] }, "line": 17 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "q" }, "member": "first" }] }, "right": { "kind": "string", "value": "-" } }, "right": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "q" }, "member": "second" } }] }, "line": 18 },
-      { "kind": "binding", "mutable": false, "name": "ps", "type": "List OF Pair OF Integer, String", "value": { "kind": "list", "values": [{ "kind": "identifier", "value": "p" }, { "kind": "identifier", "value": "q" }] }, "line": 21 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "call", "callee": "get", "arguments": [{ "kind": "identifier", "value": "ps" }, { "kind": "number", "value": "1" }] }, "member": "first" }] }] }, "line": 22 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "memberAccess", "target": { "kind": "call", "callee": "get", "arguments": [{ "kind": "identifier", "value": "ps" }, { "kind": "number", "value": "0" }] }, "member": "second" }] }, "line": 23 },
-      { "kind": "binding", "mutable": true, "name": "dp", "type": "Pair OF Integer, String", "value": null, "line": 26 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "dp" }, "member": "first" }] }, "right": { "kind": "string", "value": "[" } }, "right": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "dp" }, "member": "second" } }, "right": { "kind": "string", "value": "]" } }] }, "line": 27 },
-      { "kind": "binding", "mutable": false, "name": "part", "type": "Partition OF Integer", "value": { "kind": "constructor", "type": "Partition", "arguments": [{ "kind": "list", "values": [{ "kind": "number", "value": "2" }, { "kind": "number", "value": "4" }, { "kind": "number", "value": "6" }] }, { "kind": "list", "values": [{ "kind": "number", "value": "1" }, { "kind": "number", "value": "3" }] }] }, "line": 30 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "get", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "part" }, "member": "matched" }, { "kind": "number", "value": "0" }] }] }] }, "line": 31 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "part" }, "member": "matched" }] }] }] }, "line": 32 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "part" }, "member": "unmatched" }] }] }] }, "line": 33 },
-      { "kind": "binding", "mutable": true, "name": "dpart", "type": "Partition OF String", "value": null, "line": 36 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "dpart" }, "member": "matched" }] }] }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "dpart" }, "member": "unmatched" }] }] } }] }, "line": 37 },
-      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 39 }
+      { "kind": "binding", "mutable": false, "name": "p", "type": "Pair OF Integer, String", "value": { "kind": "constructor", "type": "Pair", "arguments": [{ "kind": "number", "value": "7" }, { "kind": "string", "value": "seven" }] }, "line": 13 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "p" }, "member": "first" }] }] }, "line": 14 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "p" }, "member": "second" }] }, "line": 15 },
+      { "kind": "binding", "mutable": false, "name": "q", "type": "Pair OF Integer, String", "value": { "kind": "call", "callee": "makePair", "arguments": [{ "kind": "number", "value": "9" }, { "kind": "string", "value": "nine" }] }, "line": 18 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "q" }, "member": "first" }] }, "right": { "kind": "string", "value": "-" } }, "right": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "q" }, "member": "second" } }] }, "line": 19 },
+      { "kind": "binding", "mutable": false, "name": "ps", "type": "List OF Pair OF Integer, String", "value": { "kind": "list", "values": [{ "kind": "identifier", "value": "p" }, { "kind": "identifier", "value": "q" }] }, "line": 22 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "call", "callee": "collections.get", "arguments": [{ "kind": "identifier", "value": "ps" }, { "kind": "number", "value": "1" }] }, "member": "first" }] }] }, "line": 23 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "memberAccess", "target": { "kind": "call", "callee": "collections.get", "arguments": [{ "kind": "identifier", "value": "ps" }, { "kind": "number", "value": "0" }] }, "member": "second" }] }, "line": 24 },
+      { "kind": "binding", "mutable": true, "name": "dp", "type": "Pair OF Integer, String", "value": null, "line": 27 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "dp" }, "member": "first" }] }, "right": { "kind": "string", "value": "[" } }, "right": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "dp" }, "member": "second" } }, "right": { "kind": "string", "value": "]" } }] }, "line": 28 },
+      { "kind": "binding", "mutable": false, "name": "part", "type": "Partition OF Integer", "value": { "kind": "constructor", "type": "Partition", "arguments": [{ "kind": "list", "values": [{ "kind": "number", "value": "2" }, { "kind": "number", "value": "4" }, { "kind": "number", "value": "6" }] }, { "kind": "list", "values": [{ "kind": "number", "value": "1" }, { "kind": "number", "value": "3" }] }] }, "line": 31 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "collections.get", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "part" }, "member": "matched" }, { "kind": "number", "value": "0" }] }] }] }, "line": 32 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "part" }, "member": "matched" }] }] }] }, "line": 33 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "part" }, "member": "unmatched" }] }] }] }, "line": 34 },
+      { "kind": "binding", "mutable": true, "name": "dpart", "type": "Partition OF String", "value": null, "line": 37 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "dpart" }, "member": "matched" }] }] }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "dpart" }, "member": "unmatched" }] }] } }] }, "line": 38 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 40 }
       ]
     }
     ]

@@ -382,9 +382,13 @@ impl Analyzer {
 /// Collection-update builtins whose first argument is the collection being
 /// updated and whose remaining arguments may insert resource elements.
 fn is_insertion_builtin(callee: &str) -> bool {
+    // The collection ops moved to `collections::` arrive qualified
+    // (`collections.append`, ...); map back to the bare op so a freed bare name
+    // in user code is never treated as a collection insertion
+    // (plan-01-functions.md §5).
     matches!(
-        callee,
-        "append" | "prepend" | "insert" | "set" | "mid" | "removeAt" | "filter" | "reduce"
+        crate::builtins::collections::native_member_bare(callee),
+        Some("append" | "prepend" | "insert" | "set" | "mid" | "removeAt" | "filter" | "reduce")
     )
 }
 
@@ -452,7 +456,7 @@ mod tests {
 
     fn append(collection: &str, element: &str) -> Expression {
         Expression::Call {
-            callee: "append".to_string(),
+            callee: "collections.append".to_string(),
             arguments: vec![
                 CallArg::Positional(Expression::Identifier(collection.to_string())),
                 CallArg::Positional(Expression::Identifier(element.to_string())),

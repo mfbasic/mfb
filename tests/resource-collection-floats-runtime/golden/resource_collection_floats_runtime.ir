@@ -26,7 +26,7 @@
       "condition": { "kind": "binary", "op": "<", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "5" } },
       "body": [
       { "op": "bind", "mutable": false, "name": "f", "type": "File", "value": { "kind": "call", "target": "fs.openFile", "args": [{ "kind": "const", "type": "String", "value": "tests/resource-collection-floats-runtime/src/main.mfb" }] } },
-      { "op": "assign", "name": "handles", "value": { "kind": "call", "target": "append", "args": [{ "kind": "local", "name": "handles" }, { "kind": "local", "name": "f" }] } },
+      { "op": "assign", "name": "handles", "value": { "kind": "call", "target": "collections.append", "args": [{ "kind": "local", "name": "handles" }, { "kind": "local", "name": "f" }] } },
       { "op": "assign", "name": "i", "value": { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
       ]
     },

@@ -25,7 +25,7 @@
       "loop": "while",
       "condition": { "kind": "binary", "op": "<", "left": { "kind": "local", "name": "j" }, "right": { "kind": "const", "type": "Integer", "value": "17" } },
       "body": [
-      { "op": "assign", "name": "xs", "value": { "kind": "call", "target": "append", "args": [{ "kind": "local", "name": "xs" }, { "kind": "local", "name": "j" }] } },
+      { "op": "assign", "name": "xs", "value": { "kind": "call", "target": "collections.append", "args": [{ "kind": "local", "name": "xs" }, { "kind": "local", "name": "j" }] } },
       { "op": "assign", "name": "j", "value": { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "j" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
       ]
     },
