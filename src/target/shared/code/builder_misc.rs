@@ -1292,17 +1292,10 @@ impl CodeBuilder<'_> {
                 self.emit(abi::move_register(&result, source));
                 Ok(result)
             }
-            "String" => {
-                let source_slot = self.allocate_stack_object("thread_copy_string_source", 8);
-                let length_slot = self.allocate_stack_object("thread_copy_string_length", 8);
-                self.emit(abi::store_u64(source, abi::stack_pointer(), source_slot));
-                self.emit(abi::load_u64("x9", source, 0));
-                self.emit(abi::store_u64("x9", abi::stack_pointer(), length_slot));
-                self.emit(abi::load_u64("x9", abi::stack_pointer(), source_slot));
-                self.emit(abi::add_immediate("x9", "x9", 8));
-                self.emit(abi::load_u64("x10", abi::stack_pointer(), length_slot));
-                self.emit_materialize_string_from_bytes("x9", "x10")
-            }
+            // A standalone `String` is already a flat, pointer-free block
+            // (length word + bytes + NUL), so the generic flat copy is a sound
+            // deep copy (plan-02 §4.1, Phase 1).
+            "String" => self.copy_flat_block("String", source),
             "Error" => self.copy_error_to_current_arena(source),
             other if other.starts_with("Result OF ") => {
                 self.copy_result_to_current_arena(other, source)
@@ -1593,11 +1586,39 @@ impl CodeBuilder<'_> {
         Ok(result)
     }
 
+    /// True when a collection of `type_` embeds pointer payloads (nested
+    /// collections, records, unions, `Result`/`Error`) that a plain byte copy
+    /// would alias rather than deep-copy, so the per-payload transfer fix is
+    /// still required. A collection whose key/value payloads are all inline
+    /// (scalars, `String`) is already flat and copies generically.
+    fn collection_needs_transfer_fix(&self, type_: &str) -> Result<bool, String> {
+        let (key_type, value_type) = if let Some(value_type) = type_.strip_prefix("List OF ") {
+            (None, value_type.to_string())
+        } else {
+            let (key, value) = map_type_parts(type_).ok_or_else(|| {
+                format!("native thread transfer collection type '{type_}' does not resolve")
+            })?;
+            (Some(key), value)
+        };
+        if let Some(key_type) = key_type.as_deref() {
+            if self.collection_payload_needs_transfer_fix(key_type) {
+                return Ok(true);
+            }
+        }
+        Ok(self.collection_payload_needs_transfer_fix(&value_type))
+    }
+
     fn copy_collection_to_current_arena(
         &mut self,
         type_: &str,
         source: &str,
     ) -> Result<String, String> {
+        // A collection with only inline payloads is a flat, pointer-free block:
+        // copy it with the generic flat copy (plan-02 §4.1, Phase 1). Only
+        // collections embedding pointer payloads keep the per-payload fix below.
+        if !self.collection_needs_transfer_fix(type_)? {
+            return self.copy_flat_block(type_, source);
+        }
         let source_slot = self.allocate_stack_object("thread_copy_collection_source", 8);
         let size_slot = self.allocate_stack_object("thread_copy_collection_size", 8);
         let result_slot = self.allocate_stack_object("thread_copy_collection_result", 8);

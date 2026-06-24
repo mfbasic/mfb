@@ -2,6 +2,22 @@
 
 Last updated: 2026-06-24
 
+## Implementation status
+
+- **Phase 1 — DONE.** `emit_flat_block_size` (the self-describing size primitive
+  for already-flat blocks: `String` = len+9, collection = header+table+data) and
+  `copy_flat_block` (generic `arena_alloc` + `memcpy`) landed in
+  `builder_collection_layout.rs`. `copy_value_to_current_arena` now routes
+  `String` and inline-payload collections through the generic copy; the
+  per-payload transfer fix is kept only for collections that still embed pointer
+  payloads (`collection_needs_transfer_fix`). No layout change. Runtime output
+  identical (verified via `thread-return-string`,
+  `thread-return-list-of-string`, `thread-return-map-of-string-to-string` under
+  entropy poisoning); acceptance green. The generic `arena_free` wrapper is
+  deferred to Phase 8 where it gains a call site (its only new primitive, the
+  block-size computation, already landed here).
+- Phases 2–8 — pending.
+
 This plan makes **every non-resource value a flat, self-describing,
 single-allocation block** — all sub-values inlined, no pointers to other
 allocations. The single behavioral outcome a correct implementation produces:

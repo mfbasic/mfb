@@ -97,6 +97,105 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&done_label));
     }
 
+    /// Emit code computing the **total byte size** of an already-flat block of
+    /// `type_` located at `ptr_reg`, into `out_reg` (`scratch` is clobbered).
+    /// plan-02 §4.1: a flat block is self-describing, so copy and free can be
+    /// generic. This is the size primitive both rely on. `ptr_reg`, `out_reg`,
+    /// and `scratch` must be three distinct registers; `ptr_reg` is preserved.
+    ///
+    /// Phase 1 supports the types that are already pointer-free and
+    /// self-describing — `String` (length word + bytes + NUL) and collections
+    /// (header + lookup table + data region). Later phases extend this to
+    /// records and unions as those gain an explicit size word.
+    pub(super) fn emit_flat_block_size(
+        &mut self,
+        type_: &str,
+        ptr_reg: &str,
+        out_reg: &str,
+        scratch: &str,
+    ) -> Result<(), String> {
+        match type_ {
+            "String" => {
+                // byteLength(+0) + 8 (length word) + 1 (trailing NUL).
+                self.emit(abi::load_u64(out_reg, ptr_reg, 0));
+                self.emit(abi::add_immediate(out_reg, out_reg, 9));
+                Ok(())
+            }
+            other if is_collection_type(other) => {
+                // header + capacity * entrySize + dataCapacity.
+                self.emit(abi::load_u64(out_reg, ptr_reg, COLLECTION_OFFSET_CAPACITY));
+                self.emit(abi::move_immediate(
+                    scratch,
+                    "Integer",
+                    &COLLECTION_ENTRY_SIZE.to_string(),
+                ));
+                self.emit(abi::multiply_registers(out_reg, out_reg, scratch));
+                self.emit(abi::add_immediate(out_reg, out_reg, COLLECTION_HEADER_SIZE));
+                self.emit(abi::load_u64(
+                    scratch,
+                    ptr_reg,
+                    COLLECTION_OFFSET_DATA_CAPACITY,
+                ));
+                self.emit(abi::add_registers(out_reg, out_reg, scratch));
+                Ok(())
+            }
+            other => Err(format!(
+                "flat block size is not available for type '{other}'"
+            )),
+        }
+    }
+
+    /// Generic flat-block copy (plan-02 §4.1): `size = flat_block_size(src)`,
+    /// `dst = arena_alloc(size, 8)`, `memcpy(dst, src, size)`. Because a flat
+    /// block has no internal pointers, the byte copy **is** a deep copy. Valid
+    /// only for types `emit_flat_block_size` supports; returns the destination
+    /// pointer in a fresh register.
+    pub(super) fn copy_flat_block(
+        &mut self,
+        type_: &str,
+        source: &str,
+    ) -> Result<String, String> {
+        let source_slot = self.allocate_stack_object("flat_copy_source", 8);
+        let size_slot = self.allocate_stack_object("flat_copy_size", 8);
+        let result_slot = self.allocate_stack_object("flat_copy_result", 8);
+        let alloc_ok = self.label("flat_copy_alloc_ok");
+        self.emit(abi::store_u64(source, abi::stack_pointer(), source_slot));
+        // Reload the source from its slot so size computation never aliases the
+        // caller's register choice for `source`.
+        self.emit(abi::load_u64("x9", abi::stack_pointer(), source_slot));
+        self.emit_flat_block_size(type_, "x9", "x10", "x11")?;
+        self.emit(abi::store_u64("x10", abi::stack_pointer(), size_slot));
+        self.emit(abi::load_u64(
+            abi::return_register(),
+            abi::stack_pointer(),
+            size_slot,
+        ));
+        self.emit(abi::move_immediate("x1", "Integer", "8"));
+        self.emit(abi::branch_link(ARENA_ALLOC_SYMBOL));
+        self.relocations.push(CodeRelocation {
+            from: self.current_symbol.clone(),
+            to: ARENA_ALLOC_SYMBOL.to_string(),
+            kind: "branch26".to_string(),
+            binding: "internal".to_string(),
+            library: None,
+        });
+        self.emit(abi::compare_immediate(
+            abi::return_register(),
+            RESULT_OK_TAG,
+        ));
+        self.emit(abi::branch_eq(&alloc_ok));
+        self.emit_allocation_error_return()?;
+        self.emit(abi::label(&alloc_ok));
+        self.emit(abi::store_u64("x1", abi::stack_pointer(), result_slot));
+        self.emit(abi::load_u64("x9", abi::stack_pointer(), source_slot));
+        self.emit(abi::load_u64("x1", abi::stack_pointer(), result_slot));
+        self.emit(abi::load_u64("x10", abi::stack_pointer(), size_slot));
+        self.emit_copy_bytes("x1", "x9", "x10", "flat_copy");
+        let result = self.allocate_register()?;
+        self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
+        Ok(result)
+    }
+
     pub(super) fn emit_compare_bytes_branch(
         &mut self,
         left: &str,
