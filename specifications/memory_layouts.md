@@ -166,10 +166,10 @@ The arena-state structure is `ARENA_STATE_SIZE` = **104 bytes**:
 ArenaState (at x19)
   +0   U64  blockHead        ; pointer to the current (most-recent) block, 0 if none
   +8   U64  reserved         ; zero-initialized
-  +16  U64  reserved         ; zero-initialized
-  +24  U64  reserved         ; zero-initialized
+  +16  U64  fillRngLo        ; dedicated memory-fill PCG64 state, low 64 bits
+  +24  U64  fillRngHi        ; dedicated memory-fill PCG64 state, high 64 bits
   +32  U64  exitStatus       ; pending exit/result code used during teardown
-  +40  U64  reserved
+  +40  U64  arenaStartTime   ; arena init time in ns (diagnostics + fill-seed mix)
   +48  U64  freeListHead     ; lowest-address free chunk, 0 when the list is empty
   +56  U64  reserved
   +64  U64  cleanupFailCount ; count of cleanup errors (audit)
@@ -181,8 +181,11 @@ ArenaState (at x19)
 
 `blockHead` anchors the unmap walk and `freeListHead` anchors allocation. The
 cleanup-failure triple records diagnostics if reclamation of a value fails during
-teardown, and the two RNG words give each arena (hence each thread) an
-independent `math::rand` stream seeded at startup. The `ENTRY_*` argv/argc fields
+teardown, and the two RNG words at 88/96 give each arena (hence each thread) an
+independent `math::rand` stream seeded at startup. The `fillRngLo`/`fillRngHi`
+words at 16/24 hold a **separate** dedicated memory-fill PCG64 stream (see Entropy
+Fill below), seeded independently so it never perturbs the reproducible
+`math::rand` sequence. The `ENTRY_*` argv/argc fields
 the entry shim stores begin at offset `ARENA_STATE_SIZE`, immediately after this
 structure on the entry stack. Because the main arena-state lives on the entry
 stack (not zero-filled), the entry shim explicitly clears `freeListHead` before
@@ -287,6 +290,25 @@ separates blocks), so a merge never spans a block. `arena_free` **never unmaps**
 is always supplied by the compiler's drop glue from the static type, so there is
 no user-level free and no class of wrong-size/double-free bugs outside a codegen
 error.
+
+### Entropy Fill
+
+Freed chunks and freshly mapped blocks are filled with pseudo-random bytes —
+always on, in debug and release (plan-01 §6). This scrubs freed secrets so they
+do not linger as plaintext and poisons memory so a use-after-free or
+uninitialized read yields garbage instead of stale-but-plausible data. Because
+fresh arena memory is no longer implicitly zero, every allocation site must fully
+initialize the bytes it later reads (the language's allocators already do).
+
+The fill source is a **dedicated per-arena PCG64** at arena-state offsets 16/24,
+separate from the `math::rand` stream at 88/96 and seeded independently at arena
+init (`arena_fill_seed`): the main thread mixes OS entropy (`getentropy`) with the
+arena address and start time (offset 40); each worker mixes a draw from the
+parent's fill stream with its own arena address. Its output is never observable —
+filled bytes are always overwritten by a constructor before any read — so the
+stream needs no reproducibility. `arena_fill_random(ptr, len)` streams PRNG words
+(no syscall per fill); `arena_free` calls it before relinking a chunk, and
+`arena_alloc` calls it on a freshly mapped block's usable region before first use.
 
 ### Cleanup and Reclamation
 

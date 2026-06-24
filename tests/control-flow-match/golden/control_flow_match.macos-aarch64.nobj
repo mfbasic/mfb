@@ -41,6 +41,8 @@
   "definedSymbols": ["_main", "_mfb_fn_enumAll", "_mfb_fn_enumPartialWithElse", "_mfb_fn_unionAll", "_mfb_fn_unionPartialWithElse", "_mfb_fn_main"],
   "importedSymbols": [
   { "library": "libSystem", "symbol": "_exit" },
+  { "library": "libSystem", "symbol": "_getentropy" },
+  { "library": "libSystem", "symbol": "_clock_gettime" },
   { "library": "libSystem", "symbol": "_signal" },
   { "library": "libSystem", "symbol": "_write" }
   ],
@@ -53,11 +55,13 @@
   { "name": "_mfb_fn_unionPartialWithElse", "kind": "defined", "section": "__TEXT,__text", "value": 156, "stringTableOffset": 68 },
   { "name": "_mfb_fn_main", "kind": "defined", "section": "__TEXT,__text", "value": 204, "stringTableOffset": 97 },
   { "name": "_exit", "kind": "imported", "section": null, "value": null, "stringTableOffset": 110 },
-  { "name": "_signal", "kind": "imported", "section": null, "value": null, "stringTableOffset": 116 },
-  { "name": "_write", "kind": "imported", "section": null, "value": null, "stringTableOffset": 124 }
+  { "name": "_getentropy", "kind": "imported", "section": null, "value": null, "stringTableOffset": 116 },
+  { "name": "_clock_gettime", "kind": "imported", "section": null, "value": null, "stringTableOffset": 128 },
+  { "name": "_signal", "kind": "imported", "section": null, "value": null, "stringTableOffset": 143 },
+  { "name": "_write", "kind": "imported", "section": null, "value": null, "stringTableOffset": 151 }
   ],
   "stringTable": {
-    "size": 131,
+    "size": 158,
     "entries": [
     { "value": "_main", "offset": 1 },
     { "value": "_mfb_fn_enumAll", "offset": 7 },
@@ -66,8 +70,10 @@
     { "value": "_mfb_fn_unionPartialWithElse", "offset": 68 },
     { "value": "_mfb_fn_main", "offset": 97 },
     { "value": "_exit", "offset": 110 },
-    { "value": "_signal", "offset": 116 },
-    { "value": "_write", "offset": 124 }
+    { "value": "_getentropy", "offset": 116 },
+    { "value": "_clock_gettime", "offset": 128 },
+    { "value": "_signal", "offset": 143 },
+    { "value": "_write", "offset": 151 }
     ]
   },
   "relocations": [
@@ -77,6 +83,8 @@
   { "from": "_mfb_fn_main", "to": "_mfb_fn_unionAll", "kind": "internalCall", "section": "__TEXT,__text" },
   { "from": "_mfb_fn_main", "to": "_mfb_fn_unionPartialWithElse", "kind": "internalCall", "section": "__TEXT,__text" },
   { "from": "_main", "to": "_exit", "kind": "externalCall", "section": "__TEXT,__text" },
+  { "from": "_main", "to": "_getentropy", "kind": "externalCall", "section": "__TEXT,__text" },
+  { "from": "_main", "to": "_clock_gettime", "kind": "externalCall", "section": "__TEXT,__text" },
   { "from": "_main", "to": "_signal", "kind": "externalCall", "section": "__TEXT,__text" },
   { "from": "_main", "to": "_write", "kind": "externalCall", "section": "__TEXT,__text" }
   ]

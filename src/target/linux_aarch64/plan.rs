@@ -52,6 +52,11 @@ impl plan::NativePlanPlatform for Platform {
             return Vec::new();
         }
         let mut imports = vec![self.libc_import("_exit", "_main")];
+        // The program entry always seeds the per-arena memory-fill RNG (entropy
+        // fill is always on, plan-01 §6.5): `getentropy` for the seed and
+        // `clock_gettime` for the start-time mixed into it.
+        imports.push(self.libc_import("getentropy", "_main"));
+        imports.push(self.libc_import("clock_gettime", "_main"));
         // `signal` installs the SIGINT/SIGTERM handlers that run `_mfb_shutdown`.
         // App mode (plan-05-linux-app.md §6.1) keeps its window-driven finish path
         // and registers no console signal handlers, so the import is omitted.

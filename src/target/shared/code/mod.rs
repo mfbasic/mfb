@@ -147,7 +147,31 @@ const ARENA_CLEANUP_FAILURE_MESSAGE_OFFSET: usize = 80;
 /// so the historical 0..88 layout is unchanged for programs that never seed.
 const ARENA_RNG_STATE_LO_OFFSET: usize = 88;
 const ARENA_RNG_STATE_HI_OFFSET: usize = 96;
+/// Dedicated per-arena memory-fill PCG64 state, reusing the two reserved
+/// arena-state words at offsets 16/24. This stream is **separate** from the
+/// language RNG at 88/96 (`math::rand`): it is seeded independently and its
+/// output is never observable (filled bytes are always overwritten before any
+/// read), so advancing it on every alloc/free never perturbs `math::rand`'s
+/// reproducible sequence.
+const ARENA_FILL_RNG_LO_OFFSET: usize = 16;
+const ARENA_FILL_RNG_HI_OFFSET: usize = 24;
+/// Arena start time in nanoseconds (reserved word at offset 40). Captured once at
+/// arena init for lightweight diagnostics and mixed into the fill-RNG seed so two
+/// arenas seeding in the same instant (or after a `getentropy` failure) still get
+/// distinct poison streams.
+const ARENA_START_TIME_OFFSET: usize = 40;
 const ARENA_STATE_SIZE: usize = 104;
+/// Fill `x1` bytes at `x0` with output from the dedicated per-arena fill RNG.
+/// Used to scrub freed chunks and poison freshly mapped blocks. Clobbers
+/// x0, x1, x9–x16.
+const ARENA_FILL_RANDOM_SYMBOL: &str = "_mfb_arena_fill_random";
+/// Seed the fill RNG at `[x0 + ARENA_FILL_RNG_*]` from the 64-bit seed in `x1`,
+/// using the same canonical PCG64 seeding dance as the language RNG.
+const ARENA_FILL_SEED_SYMBOL: &str = "_mfb_arena_fill_seed";
+/// Advance the calling thread's fill RNG (`x19`) one step and return the next
+/// 64-bit value in `x0`. Used to draw an independent child seed from the parent
+/// at thread spawn (runs in the parent, so the draw is race-free).
+const ARENA_FILL_NEXT_SYMBOL: &str = "_mfb_arena_fill_next";
 /// Advance one PCG64 step and return the next 64-bit value in `x0`; reads/writes
 /// the calling thread's arena RNG state via `x19`.
 const RNG_NEXT_SYMBOL: &str = "_mfb_rng_next";
@@ -1207,6 +1231,11 @@ pub(crate) fn lower_module_for_platform(
     code_functions.push(lower_arena_alloc(platform)?);
     code_functions.push(lower_arena_insert_free());
     code_functions.push(lower_arena_free());
+    // Entropy fill is always on (plan-01 §6.5): scrub freed chunks and poison
+    // fresh blocks. The fill RNG/seed helpers ship with every arena.
+    code_functions.push(lower_arena_fill_random());
+    code_functions.push(lower_arena_fill_seed());
+    code_functions.push(lower_arena_fill_next());
     code_functions.push(lower_arena_destroy(platform)?);
     if module.entry.is_some() {
         code_functions.push(lower_shutdown(uses_term, skip_entry_arena_destroy));
@@ -1907,6 +1936,64 @@ fn lower_program_entry(
         ]);
         relocations.push(internal_branch(entry_symbol, RNG_SEED_SYMBOL));
     }
+    // Capture the arena start time (offset 40) and seed the dedicated memory-fill
+    // RNG (offsets 16/24). Always on — entropy fill is a requirement (plan-01 §6),
+    // so this runs for every program before the first allocation. The seed is OS
+    // entropy XORed with the arena address and start time, so a `getentropy`
+    // failure or two arenas seeding in the same instant still yield distinct
+    // poison streams. This is a separate stream from `math::rand` (offsets 88/96),
+    // so it never perturbs the reproducible language RNG.
+    //
+    // `argc`/`argv` (x0/x1) are still live here for arg-accepting entries (saved
+    // to the stack further below), and this block clobbers x0–x16, so park them
+    // in callee-saved x27/x28 — preserved by the libc calls and the fill helpers
+    // — and restore them afterward. A local 16-byte stack buffer holds first the
+    // `timespec` and then the entropy bytes, so no entry-stack slot is touched.
+    instructions.extend([
+        abi::move_register("x27", "x0"),
+        abi::move_register("x28", "x1"),
+        abi::subtract_stack(16),
+        abi::move_immediate("x0", "Integer", "0"), // CLOCK_REALTIME
+        abi::add_immediate("x1", abi::stack_pointer(), 0),
+    ]);
+    platform.emit_libc_call(
+        "clock_gettime",
+        entry_symbol,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
+    instructions.extend([
+        abi::load_u64("x9", abi::stack_pointer(), 0), // tv_sec
+        abi::load_u64("x10", abi::stack_pointer(), 8), // tv_nsec
+        abi::move_immediate("x11", "Integer", "1000000000"),
+        abi::multiply_registers("x9", "x9", "x11"),
+        abi::add_registers("x9", "x9", "x10"), // ns = sec*1e9 + nsec
+        abi::store_u64("x9", ARENA_STATE_REGISTER, ARENA_START_TIME_OFFSET),
+        // Pre-fill the seed scratch with the arena address (getentropy fallback).
+        abi::store_u64(ARENA_STATE_REGISTER, abi::stack_pointer(), 0),
+        abi::add_immediate(abi::return_register(), abi::stack_pointer(), 0),
+        abi::move_immediate("x1", "Integer", "8"),
+    ]);
+    platform.emit_random_bytes(
+        entry_symbol,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
+    instructions.extend([
+        abi::load_u64("x1", abi::stack_pointer(), 0), // entropy (or arena addr)
+        abi::add_stack(16),
+        abi::load_u64("x9", ARENA_STATE_REGISTER, ARENA_START_TIME_OFFSET),
+        abi::exclusive_or_registers("x1", "x1", "x9"), // mix start time
+        abi::exclusive_or_registers("x1", "x1", ARENA_STATE_REGISTER), // mix arena address
+        abi::move_register(abi::return_register(), ARENA_STATE_REGISTER),
+        abi::branch_link(ARENA_FILL_SEED_SYMBOL),
+        // Restore argc/argv for the arg-materialization path below.
+        abi::move_register("x0", "x27"),
+        abi::move_register("x1", "x28"),
+    ]);
+    relocations.push(internal_branch(entry_symbol, ARENA_FILL_SEED_SYMBOL));
     // Resolve native `LINK` bindings (dlopen/dlsym) before anything runs; a load
     // failure aborts before `main` through the standard error path
     // (plan-linker.md §12.1).
@@ -2291,16 +2378,29 @@ fn emit_cleanup_failure_audit_report(
 }
 
 fn lower_arena_alloc(platform: &dyn CodegenPlatform) -> Result<CodeFunction, String> {
+    // Grow-path frame: the fast (first-fit) path makes no call, but the rare
+    // block-grow path calls `arena_fill_random` to poison the new block, so the
+    // function carries a frame and saves the link register. The fast path never
+    // touches x11–x13/x17, and the grow path saves/restores x11–x13 around the
+    // fill call, so the historical clobber contract (x9, x10, x14, x15, x20–x28)
+    // is preserved for callers.
+    const FRAME_SIZE: usize = 64;
+    const LR_SLOT: usize = 0;
+    const UBASE_SLOT: usize = 8;
+    const USIZE_SLOT: usize = 16;
+    const X11_SLOT: usize = 24;
+    const X12_SLOT: usize = 32;
+    const X13_SLOT: usize = 40;
     let not_15 = (!(ARENA_MIN_CHUNK - 1)).to_string();
+    let mut relocations = Vec::new();
     let mut instructions = Vec::new();
     // --- Validate alignment and normalize the request --------------------------
     // x20 = normalized size (rounded up to the 16-byte granule), x21 = effective
-    // alignment (raised to ≥16 so every chunk start stays 16-aligned). This is a
-    // leaf function: the OS map is emitted inline (no `bl`), so no frame is
-    // needed and the historical clobber contract (x9, x10, x14, x15, x20–x28)
-    // holds — x11, x12, x13, x17 are never touched.
+    // alignment (raised to ≥16 so every chunk start stays 16-aligned).
     instructions.extend([
         abi::label("entry"),
+        abi::subtract_stack(FRAME_SIZE),
+        abi::store_u64(abi::link_register(), abi::stack_pointer(), LR_SLOT),
         abi::compare_immediate("x1", "0"),
         abi::branch_eq("arena_alloc_invalid"),
         abi::subtract_immediate("x9", "x1", 1),
@@ -2394,7 +2494,7 @@ fn lower_arena_alloc(platform: &dyn CodegenPlatform) -> Result<CodeFunction, Str
         abi::label("arena_alloc_done"),
         abi::move_immediate(abi::return_register(), "Integer", RESULT_OK_TAG),
         abi::move_register("x1", "x25"),
-        abi::return_(),
+        abi::branch("arena_alloc_ret"),
         // --- Grow: map a new block and add its usable region as a free chunk ---
         abi::label("arena_alloc_grow"),
         abi::add_registers("x23", "x20", "x21"),
@@ -2431,11 +2531,26 @@ fn lower_arena_alloc(platform: &dyn CodegenPlatform) -> Result<CodeFunction, Str
         abi::store_u64("x24", abi::return_register(), 16),
         abi::store_u64("x31", abi::return_register(), 24),
         abi::store_u64(abi::return_register(), ARENA_STATE_REGISTER, 0),
+        // Poison the new block's usable region before first use (plan-01 §6.3).
+        // fill_random clobbers x0/x1/x9–x16 and advances x0, so stash ubase/usize
+        // and the caller-survivor registers x11–x13 across the call.
+        abi::add_immediate("x9", abi::return_register(), ARENA_BLOCK_HEADER_SIZE), // ubase
+        abi::store_u64("x9", abi::stack_pointer(), UBASE_SLOT),
+        abi::store_u64("x24", abi::stack_pointer(), USIZE_SLOT),
+        abi::store_u64("x11", abi::stack_pointer(), X11_SLOT),
+        abi::store_u64("x12", abi::stack_pointer(), X12_SLOT),
+        abi::store_u64("x13", abi::stack_pointer(), X13_SLOT),
+        abi::move_register("x0", "x9"),
+        abi::move_register("x1", "x24"),
+        abi::branch_link(ARENA_FILL_RANDOM_SYMBOL),
+        abi::load_u64("x9", abi::stack_pointer(), UBASE_SLOT),
+        abi::load_u64("x10", abi::stack_pointer(), USIZE_SLOT),
+        abi::load_u64("x11", abi::stack_pointer(), X11_SLOT),
+        abi::load_u64("x12", abi::stack_pointer(), X12_SLOT),
+        abi::load_u64("x13", abi::stack_pointer(), X13_SLOT),
         // Insert [base+32, base+32+usableCapacity) as one free chunk, in address
         // order. A fresh block is never adjacent to an existing chunk (the 32-byte
         // header always separates blocks), so no coalescing is required here.
-        abi::add_immediate("x9", abi::return_register(), ARENA_BLOCK_HEADER_SIZE), // ubase
-        abi::move_register("x10", "x24"), // usize
         abi::load_u64("x14", ARENA_STATE_REGISTER, ARENA_FREE_LIST_HEAD_OFFSET), // cur
         abi::move_immediate("x15", "Integer", "0"), // prev
         abi::label("arena_alloc_ins_loop"),
@@ -2459,24 +2574,28 @@ fn lower_arena_alloc(platform: &dyn CodegenPlatform) -> Result<CodeFunction, Str
         abi::label("arena_alloc_invalid"),
         abi::move_immediate(abi::return_register(), "Integer", ERR_INVALID_ARGUMENT_CODE),
         abi::move_immediate("x1", "Integer", "0"),
-        abi::return_(),
+        abi::branch("arena_alloc_ret"),
         abi::label("arena_alloc_oom"),
         abi::move_immediate(abi::return_register(), "Integer", ERR_OUT_OF_MEMORY_CODE),
         abi::move_immediate("x1", "Integer", "0"),
+        abi::label("arena_alloc_ret"),
+        abi::load_u64(abi::link_register(), abi::stack_pointer(), LR_SLOT),
+        abi::add_stack(FRAME_SIZE),
         abi::return_(),
     ]);
+    relocations.push(internal_branch(ARENA_ALLOC_SYMBOL, ARENA_FILL_RANDOM_SYMBOL));
     Ok(CodeFunction {
         name: "runtime.arena_alloc".to_string(),
         symbol: ARENA_ALLOC_SYMBOL.to_string(),
         params: Vec::new(),
         returns: "Pointer".to_string(),
         frame: CodeFrame {
-            stack_size: 0,
-            callee_saved: Vec::new(),
+            stack_size: FRAME_SIZE,
+            callee_saved: vec![abi::link_register().to_string()],
         },
         stack_slots: Vec::new(),
         instructions,
-        relocations: Vec::new(),
+        relocations,
     })
 }
 
@@ -2579,14 +2698,19 @@ fn lower_arena_insert_free() -> CodeFunction {
 
 /// `arena_free(x0 = ptr, x1 = size)` — return a single compiler-sized allocation
 /// to the per-arena free-list. Normalizes `size` exactly as `arena_alloc` did
-/// (so the freed extent matches the live chunk), then coalesces it in via
-/// `arena_insert_free`. Never unmaps. Clobbers x9–x13.
+/// (so the freed extent matches the live chunk), entropy-scrubs the chunk
+/// (plan-01 §6.2), then coalesces it in via `arena_insert_free`. Never unmaps.
+/// Clobbers x9–x16.
 fn lower_arena_free() -> CodeFunction {
+    const FRAME_SIZE: usize = 32;
+    const LR_SLOT: usize = 0;
+    const PTR_SLOT: usize = 8;
+    const SIZE_SLOT: usize = 16;
     let not_15 = (!(ARENA_MIN_CHUNK - 1)).to_string();
     let instructions = vec![
         abi::label("entry"),
-        abi::subtract_stack(16),
-        abi::store_u64(abi::link_register(), abi::stack_pointer(), 0),
+        abi::subtract_stack(FRAME_SIZE),
+        abi::store_u64(abi::link_register(), abi::stack_pointer(), LR_SLOT),
         // normalize size = round_up(max(size, 1), 16)
         abi::compare_immediate("x1", "0"),
         abi::branch_ne("arena_free_size_nonzero"),
@@ -2595,9 +2719,16 @@ fn lower_arena_free() -> CodeFunction {
         abi::add_immediate("x1", "x1", (ARENA_MIN_CHUNK - 1) as usize),
         abi::move_immediate("x9", "Integer", &not_15),
         abi::and_registers("x1", "x1", "x9"),
+        // Scrub the chunk: fill_random clobbers x0/x1/x9–x16 and advances x0, so
+        // stash ptr/size and reload them for the coalescing insert.
+        abi::store_u64("x0", abi::stack_pointer(), PTR_SLOT),
+        abi::store_u64("x1", abi::stack_pointer(), SIZE_SLOT),
+        abi::branch_link(ARENA_FILL_RANDOM_SYMBOL),
+        abi::load_u64("x0", abi::stack_pointer(), PTR_SLOT),
+        abi::load_u64("x1", abi::stack_pointer(), SIZE_SLOT),
         abi::branch_link(ARENA_INSERT_FREE_SYMBOL),
-        abi::load_u64(abi::link_register(), abi::stack_pointer(), 0),
-        abi::add_stack(16),
+        abi::load_u64(abi::link_register(), abi::stack_pointer(), LR_SLOT),
+        abi::add_stack(FRAME_SIZE),
         abi::return_(),
     ];
     CodeFunction {
@@ -2606,12 +2737,15 @@ fn lower_arena_free() -> CodeFunction {
         params: Vec::new(),
         returns: "Nothing".to_string(),
         frame: CodeFrame {
-            stack_size: 16,
+            stack_size: FRAME_SIZE,
             callee_saved: vec![abi::link_register().to_string()],
         },
         stack_slots: Vec::new(),
         instructions,
-        relocations: vec![internal_branch(ARENA_FREE_SYMBOL, ARENA_INSERT_FREE_SYMBOL)],
+        relocations: vec![
+            internal_branch(ARENA_FREE_SYMBOL, ARENA_FILL_RANDOM_SYMBOL),
+            internal_branch(ARENA_FREE_SYMBOL, ARENA_INSERT_FREE_SYMBOL),
+        ],
     }
 }
 
@@ -2823,6 +2957,121 @@ fn lower_rng_seed_at() -> CodeFunction {
     CodeFunction {
         name: "runtime.rng_seed_at".to_string(),
         symbol: RNG_SEED_SYMBOL.to_string(),
+        params: Vec::new(),
+        returns: "Nothing".to_string(),
+        frame: CodeFrame {
+            stack_size: 0,
+            callee_saved: Vec::new(),
+        },
+        stack_slots: Vec::new(),
+        instructions,
+        relocations: Vec::new(),
+    }
+}
+
+/// `arena_fill_seed(x0 = arena ptr, x1 = seed)` — seed the dedicated fill RNG at
+/// offsets 16/24 from a 64-bit seed (same PCG64 dance as `rng_seed_at`, different
+/// state words). Leaf; clobbers x9–x16.
+fn lower_arena_fill_seed() -> CodeFunction {
+    let mut instructions = vec![abi::label("entry")];
+    instructions.extend([
+        abi::move_immediate("x9", "Integer", "0"),
+        abi::move_immediate("x10", "Integer", "0"),
+    ]);
+    emit_pcg_step(&mut instructions, "x9", "x10");
+    instructions.extend([
+        abi::add_registers_set_flags("x9", "x9", "x1"),
+        abi::add_with_carry_registers("x10", "x10", "xzr"),
+    ]);
+    emit_pcg_step(&mut instructions, "x9", "x10");
+    instructions.extend([
+        abi::store_u64("x9", "x0", ARENA_FILL_RNG_LO_OFFSET),
+        abi::store_u64("x10", "x0", ARENA_FILL_RNG_HI_OFFSET),
+        abi::return_(),
+    ]);
+    CodeFunction {
+        name: "runtime.arena_fill_seed".to_string(),
+        symbol: ARENA_FILL_SEED_SYMBOL.to_string(),
+        params: Vec::new(),
+        returns: "Nothing".to_string(),
+        frame: CodeFrame {
+            stack_size: 0,
+            callee_saved: Vec::new(),
+        },
+        stack_slots: Vec::new(),
+        instructions,
+        relocations: Vec::new(),
+    }
+}
+
+/// `arena_fill_next()` — advance the calling thread's fill RNG (`x19`, offsets
+/// 16/24) and return the next 64-bit XSL-RR output in `x0`. Leaf; clobbers
+/// x9–x16. Used only to draw a child fill seed from the parent at spawn.
+fn lower_arena_fill_next() -> CodeFunction {
+    let mut instructions = vec![abi::label("entry")];
+    instructions.extend([
+        abi::load_u64("x9", ARENA_STATE_REGISTER, ARENA_FILL_RNG_LO_OFFSET),
+        abi::load_u64("x10", ARENA_STATE_REGISTER, ARENA_FILL_RNG_HI_OFFSET),
+    ]);
+    emit_pcg_step(&mut instructions, "x9", "x10");
+    instructions.extend([
+        abi::store_u64("x9", ARENA_STATE_REGISTER, ARENA_FILL_RNG_LO_OFFSET),
+        abi::store_u64("x10", ARENA_STATE_REGISTER, ARENA_FILL_RNG_HI_OFFSET),
+        abi::shift_right_immediate("x11", "x10", 58),
+        abi::exclusive_or_registers("x12", "x10", "x9"),
+        abi::rotate_right_registers(abi::return_register(), "x12", "x11"),
+        abi::return_(),
+    ]);
+    CodeFunction {
+        name: "runtime.arena_fill_next".to_string(),
+        symbol: ARENA_FILL_NEXT_SYMBOL.to_string(),
+        params: Vec::new(),
+        returns: "Integer".to_string(),
+        frame: CodeFrame {
+            stack_size: 0,
+            callee_saved: Vec::new(),
+        },
+        stack_slots: Vec::new(),
+        instructions,
+        relocations: Vec::new(),
+    }
+}
+
+/// `arena_fill_random(x0 = ptr, x1 = len)` — overwrite `len` bytes at `ptr` with
+/// output from the calling thread's fill RNG. `len` is rounded up to an 8-byte
+/// word; every chunk handed to this helper is a multiple of 16 bytes, so the
+/// rounding is exact and never writes past the chunk. Streams PRNG words without
+/// a syscall (§6.1). Leaf; clobbers x0, x1, x9–x16.
+fn lower_arena_fill_random() -> CodeFunction {
+    let mut instructions = vec![
+        abi::label("entry"),
+        // word count = (len + 7) >> 3
+        abi::add_immediate("x1", "x1", 7),
+        abi::shift_right_immediate("x1", "x1", 3),
+        abi::compare_immediate("x1", "0"),
+        abi::branch_eq("arena_fill_done"),
+        abi::load_u64("x9", ARENA_STATE_REGISTER, ARENA_FILL_RNG_LO_OFFSET),
+        abi::load_u64("x10", ARENA_STATE_REGISTER, ARENA_FILL_RNG_HI_OFFSET),
+        abi::label("arena_fill_loop"),
+    ];
+    emit_pcg_step(&mut instructions, "x9", "x10");
+    instructions.extend([
+        abi::shift_right_immediate("x11", "x10", 58),
+        abi::exclusive_or_registers("x12", "x10", "x9"),
+        abi::rotate_right_registers("x13", "x12", "x11"),
+        abi::store_u64("x13", "x0", 0),
+        abi::add_immediate("x0", "x0", 8),
+        abi::subtract_immediate("x1", "x1", 1),
+        abi::compare_immediate("x1", "0"),
+        abi::branch_ne("arena_fill_loop"),
+        abi::store_u64("x9", ARENA_STATE_REGISTER, ARENA_FILL_RNG_LO_OFFSET),
+        abi::store_u64("x10", ARENA_STATE_REGISTER, ARENA_FILL_RNG_HI_OFFSET),
+        abi::label("arena_fill_done"),
+        abi::return_(),
+    ]);
+    CodeFunction {
+        name: "runtime.arena_fill_random".to_string(),
+        symbol: ARENA_FILL_RANDOM_SYMBOL.to_string(),
         params: Vec::new(),
         returns: "Nothing".to_string(),
         frame: CodeFrame {
@@ -4776,6 +5025,24 @@ fn lower_thread_start_helper(
         instructions.push(abi::branch_link(RNG_SEED_SYMBOL));
         relocations.push(internal_branch(symbol, RNG_SEED_SYMBOL));
     }
+
+    // Seed the worker's dedicated memory-fill RNG (always on, plan-01 §6). Draw an
+    // entropy-derived 64-bit value from the parent's fill stream — race-free since
+    // this runs in the parent (`x19` is the parent arena) — and XOR the worker
+    // arena address so each worker poisons with a distinct stream. The worker's
+    // fill RNG (offsets 16/24) is separate from its `math::rand` stream, exactly
+    // as on the main thread. (`arenaStartTime` at offset 40 stays 0 for workers;
+    // it is a main-thread diagnostic and not needed for the seed's distinctness.)
+    instructions.push(abi::branch_link(ARENA_FILL_NEXT_SYMBOL));
+    relocations.push(internal_branch(symbol, ARENA_FILL_NEXT_SYMBOL));
+    instructions.extend([
+        abi::move_register("x1", abi::return_register()),
+        abi::load_u64("x9", abi::stack_pointer(), CB_OFFSET),
+        abi::load_u64(abi::return_register(), "x9", THREAD_OFFSET_ARENA_STATE),
+        abi::exclusive_or_registers("x1", "x1", abi::return_register()),
+    ]);
+    instructions.push(abi::branch_link(ARENA_FILL_SEED_SYMBOL));
+    relocations.push(internal_branch(symbol, ARENA_FILL_SEED_SYMBOL));
 
     emit_thread_queue_alloc(
         symbol,

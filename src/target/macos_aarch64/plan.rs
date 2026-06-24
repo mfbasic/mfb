@@ -22,6 +22,19 @@ impl plan::NativePlanPlatform for Platform {
             symbol: "_exit".to_string(),
             required_by: "_main".to_string(),
         }];
+        // The program entry always seeds the per-arena memory-fill RNG (entropy
+        // fill is always on, plan-01 §6.5): `getentropy` for the seed and
+        // `clock_gettime` for the start-time mixed into it.
+        imports.push(PlatformImport {
+            library: "libSystem".to_string(),
+            symbol: "_getentropy".to_string(),
+            required_by: "_main".to_string(),
+        });
+        imports.push(PlatformImport {
+            library: "libSystem".to_string(),
+            symbol: "_clock_gettime".to_string(),
+            required_by: "_main".to_string(),
+        });
         // `signal` installs the SIGINT/SIGTERM handlers for console programs. App
         // mode keeps its window-driven finish path, so no handler is registered
         // there and the import is omitted.

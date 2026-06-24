@@ -44,6 +44,8 @@
   "definedSymbols": ["_main", "_mfb_fn_ifOnly", "_mfb_fn_ifElse", "_mfb_fn_ifElseIf", "_mfb_fn_ifElseIfElse", "_mfb_fn_inlineIfElse", "_mfb_fn_inlineIfAssign", "_mfb_fn_main", "_mfb_rt_io_io_print"],
   "importedSymbols": [
   { "library": "libSystem", "symbol": "_exit" },
+  { "library": "libSystem", "symbol": "_getentropy" },
+  { "library": "libSystem", "symbol": "_clock_gettime" },
   { "library": "libSystem", "symbol": "_signal" },
   { "library": "libSystem", "symbol": "_write" },
   { "library": "libSystem", "symbol": "_snprintf" }
@@ -60,12 +62,14 @@
   { "name": "_mfb_fn_main", "kind": "defined", "section": "__TEXT,__text", "value": 208, "stringTableOffset": 119 },
   { "name": "_mfb_rt_io_io_print", "kind": "defined", "section": "__TEXT,__text", "value": 220, "stringTableOffset": 132 },
   { "name": "_exit", "kind": "imported", "section": null, "value": null, "stringTableOffset": 152 },
-  { "name": "_signal", "kind": "imported", "section": null, "value": null, "stringTableOffset": 158 },
-  { "name": "_write", "kind": "imported", "section": null, "value": null, "stringTableOffset": 166 },
-  { "name": "_snprintf", "kind": "imported", "section": null, "value": null, "stringTableOffset": 173 }
+  { "name": "_getentropy", "kind": "imported", "section": null, "value": null, "stringTableOffset": 158 },
+  { "name": "_clock_gettime", "kind": "imported", "section": null, "value": null, "stringTableOffset": 170 },
+  { "name": "_signal", "kind": "imported", "section": null, "value": null, "stringTableOffset": 185 },
+  { "name": "_write", "kind": "imported", "section": null, "value": null, "stringTableOffset": 193 },
+  { "name": "_snprintf", "kind": "imported", "section": null, "value": null, "stringTableOffset": 200 }
   ],
   "stringTable": {
-    "size": 183,
+    "size": 210,
     "entries": [
     { "value": "_main", "offset": 1 },
     { "value": "_mfb_fn_ifOnly", "offset": 7 },
@@ -77,9 +81,11 @@
     { "value": "_mfb_fn_main", "offset": 119 },
     { "value": "_mfb_rt_io_io_print", "offset": 132 },
     { "value": "_exit", "offset": 152 },
-    { "value": "_signal", "offset": 158 },
-    { "value": "_write", "offset": 166 },
-    { "value": "_snprintf", "offset": 173 }
+    { "value": "_getentropy", "offset": 158 },
+    { "value": "_clock_gettime", "offset": 170 },
+    { "value": "_signal", "offset": 185 },
+    { "value": "_write", "offset": 193 },
+    { "value": "_snprintf", "offset": 200 }
     ]
   },
   "relocations": [
@@ -92,6 +98,8 @@
   { "from": "_mfb_fn_main", "to": "_mfb_fn_inlineIfAssign", "kind": "internalCall", "section": "__TEXT,__text" },
   { "from": "_mfb_fn_main", "to": "_mfb_rt_io_io_print", "kind": "internalCall", "section": "__TEXT,__text" },
   { "from": "_main", "to": "_exit", "kind": "externalCall", "section": "__TEXT,__text" },
+  { "from": "_main", "to": "_getentropy", "kind": "externalCall", "section": "__TEXT,__text" },
+  { "from": "_main", "to": "_clock_gettime", "kind": "externalCall", "section": "__TEXT,__text" },
   { "from": "_main", "to": "_signal", "kind": "externalCall", "section": "__TEXT,__text" },
   { "from": "_main", "to": "_write", "kind": "externalCall", "section": "__TEXT,__text" },
   { "from": "_mfb_rt_io_io_print", "to": "_write", "kind": "externalCall", "section": "__TEXT,__text" },

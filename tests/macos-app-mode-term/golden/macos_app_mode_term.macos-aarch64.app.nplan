@@ -9,6 +9,8 @@
   "externalSymbols": [],
   "platformImports": [
   { "library": "libSystem", "symbol": "_exit", "requiredBy": "_main" },
+  { "library": "libSystem", "symbol": "_getentropy", "requiredBy": "_main" },
+  { "library": "libSystem", "symbol": "_clock_gettime", "requiredBy": "_main" },
   { "library": "libSystem", "symbol": "_write", "requiredBy": "_main" },
   { "library": "libSystem", "symbol": "_write", "requiredBy": "_mfb_rt_term_term_on" },
   { "library": "libSystem", "symbol": "_write", "requiredBy": "_mfb_rt_term_term_clear" },
