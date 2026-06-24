@@ -60,10 +60,14 @@ Targets:
   value is still reached through an 8-byte handle (a fixed-width slot cannot hold a
   variable-length value). The *handle* is a pointer to the flat block; the **block
   itself** is what becomes flat.
-- **Resources stay pointers.** A `RES` value wraps a live OS handle and has a
-  close-on-scope lifecycle; it cannot be a memcpy'd block. A value that
-  transitively contains a resource keeps that one handle and is **not** flat — the
-  documented exception.
+- **Resources stay pointers — the single remaining pointer.** A `RES` value is a
+  pointer to the one and only arena-global instance of that resource; resources are
+  **never copied** (move-only) and never inlined. The language already bounds where
+  they appear (§9): a **record can never own a resource**
+  (`TYPE_RESOURCE_FIELD_FORBIDDEN`), and a **union is all-data or all-resource**
+  (`rules.rs:790`) — an all-resource union is a *resource union*. So the resource
+  pointer is an opaque word that generic `memcpy`/`arena_free` copy and skip
+  correctly (the resource's lifecycle is its own close op, never `arena_free`).
 - **No reference counting, no GC** (same as `plan-01`).
 
 ## 2. Current State
@@ -295,24 +299,36 @@ for the rest — until the last type is converted and the glue is deleted.
   `standard_package.md` if any diagnostic changes.
 - Acceptance: `scripts/test-accept.sh`, goldens re-synced.
 
-## 9. Open Decisions
+## 9. Decisions
 
-- **Per-object size header** — *recommend* an explicit `U64 size` on every flat
-  block (unions already get one). Makes copy/free O(1) and fully type-agnostic;
-  costs one word per object. Alternative: recompute size from the static type plus
-  data-region walk — saves the word but reintroduces per-type size logic, undercutting
-  the "generic copy/free" win. Recommend the word.
-- **Offset width / slot encoding** — *recommend* a bare `U64` block-relative byte
-  offset for composite slots/entries (sub-block's own header carries its size/len).
-  Packing `{offset:u32,len:u32}` is rejected unless profiling demands it.
-- **Empty/unset composite slot** — *recommend* a zero-length inlined block (e.g.
-  empty `String` = `len 0` + `nul`) over a null/sentinel offset, so reads never
-  special-case.
-- **Resource-containing values** — a record/collection that transitively holds a
-  `RES` keeps that one handle and is **not** flat; its non-resource parts still
-  inline. Confirm the copy/free path treats such a block as "mostly flat + one
-  handle" (the resource has its own close lifecycle and must not be memcpy-cloned).
-- **Mutation cost ceiling** — if O(block) nested mutation proves too costly for
-  some real workload (large record holding a large list, hot inner update),
-  revisit with a bounded hybrid (e.g. keep large collections pointer-backed) —
-  measure first; default to fully flat.
+Resolved:
+
+- **Per-object size header — YES.** Every flat block carries an explicit `U64
+  size`. Copy/free are O(1) and fully type-agnostic; cost is one word per object.
+  (No recompute-from-type alternative — that would reintroduce per-type size logic
+  and undercut generic copy/free.)
+- **Offset width / slot encoding — bare `U64`, no packing.** A composite slot/entry
+  holds a `U64` block-relative byte offset; the sub-block's own header carries its
+  size/len. No `{offset:u32,len:u32}` packing.
+- **Empty/unset composite slot — zero-length inlined block, no special cases.**
+  e.g. empty `String` = `len 0` + `nul` embedded inline; never a null/sentinel
+  offset. Spends a few extra bytes to keep every read uniform.
+- **Resources — always a pointer; never copied; the only remaining pointer.** A
+  resource is a pointer to the single arena-global instance. The language already
+  bounds this so no "partly flat" copy path is needed:
+  - a **record can never own a resource** (`TYPE_RESOURCE_FIELD_FORBIDDEN`,
+    `rules.rs:770` / `typecheck.rs:1463`) → every record is fully flat;
+  - a **union is all-data or all-resource** (`rules.rs:790` / `typecheck.rs:1529`);
+    a data union is fully flat, an all-resource union is a *resource union*
+    (move-only, `RES`-bound, no STATE);
+  - a `List OF RES` / resource-union slot holds the resource pointer as a borrow of
+    the unique instance. Generic `memcpy` copies that word verbatim (a borrow/move,
+    governed by the existing `RES` ownership rules) and generic `arena_free` frees
+    only the containing block — **never the resource**, which is reclaimed by its
+    own close op. So the resource pointer is opaque to flat-block copy/free; no
+    special handling.
+- **Mutation cost — go fully flat first.** Accept O(block) sequential rewrites on
+  nested mutation/append for the O(1)-glue, alias-free copy/free. Only revisit with
+  a bounded hybrid if a measured real workload demands it.
+
+Still open: none — proceed to Phase 1.
