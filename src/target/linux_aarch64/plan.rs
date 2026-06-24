@@ -293,6 +293,13 @@ impl plan::NativePlanPlatform for Platform {
             ("libcairo.so.2", "cairo_set_font_size"),
             ("libcairo.so.2", "cairo_move_to"),
             ("libcairo.so.2", "cairo_show_text"),
+            // Font-metric measurement at init (sizes the grid from cell extents).
+            ("libcairo.so.2", "cairo_font_extents"),
+            ("libcairo.so.2", "cairo_text_extents"),
+            ("libcairo.so.2", "cairo_image_surface_create"),
+            ("libcairo.so.2", "cairo_create"),
+            ("libcairo.so.2", "cairo_destroy"),
+            ("libcairo.so.2", "cairo_surface_destroy"),
             // GObject signal wiring (non-variadic form; §6.4) + main-thread marshal.
             (GOBJECT, "g_signal_connect_data"),
             (GLIB, "g_idle_add"),
