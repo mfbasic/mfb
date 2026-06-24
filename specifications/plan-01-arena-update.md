@@ -2,6 +2,18 @@
 
 Last updated: 2026-06-24
 
+> **Status.** Phases 1–4 are implemented, validated, and landed (coalescing
+> free-list + sized `arena_free`, the zero-init audit — which the entropy-fill
+> forcing function showed needs no code fixes —, entropy fill, and the first
+> runtime-internal free site). **Phase 5 (scope-drop drop glue) is not yet
+> implemented**: it is the riskiest phase and requires a *new* general-value
+> ownership/escape analysis (the existing `ExprMode` in `typecheck.rs` and
+> `escape.rs` are resource-specific, not a copy/move/borrow analysis for arena
+> values), per-type recursive drop glue, and drop emission at every scope exit.
+> Its correctness hazard is freeing an escaped/aliased value → use-after-free in
+> the caller; entropy poisoning (§6) makes such bugs loud, but the analysis must
+> be airtight. See §5 and the Phases list below.
+
 This document plans turning the arena from a pure bump allocator into a
 deterministic, reuse-capable heap: freed memory is returned to a per-arena
 free-list and handed back out to later allocations, values are freed at
@@ -353,20 +365,30 @@ the fast dedicated PCG64 (§6.1) rather than an OS-entropy syscall per fill.
 
 ## 8. Phases
 
-1. **Zero-init audit.** Make every allocation site fully initialize what it
-   reads; remove all reliance on `MAP_ANON` zeroing. Land independently — it is
-   correct and valuable on its own.
-2. **`arena_free` + per-arena coalescing free-list + first-fit/split
-   `arena_alloc`.** Replace the bump path with split-from-free-entry; no callers
-   of `arena_free` yet beyond tests.
-3. **Runtime-internal free sites.** Collection grow/realloc, compaction,
-   throwaway string temporaries call `arena_free`. First real reuse; minimal
-   risk.
-4. **Entropy fill.** `arena_fill_random` from the dedicated per-arena PCG64; fill
-   on free and on new block; always on. (Depends on Phase 1.)
-5. **Scope-drop drop glue.** Per-type drop glue; emit frees at scope-drop for
-   owned, non-escaping arena values, gated by existing escape analysis. The
-   payoff phase and the riskiest — land behind heavy tests.
+1. **[DONE] Zero-init audit.** Drove the entropy-fill forcing function (Phase 4)
+   across the full acceptance suite, native runtime integration tests, and
+   targeted stress (maps, nested collections, fs listDirectory/readAllBytes/
+   pathJoin, thread message queues, multi-block alloc). No allocation site relies
+   on `MAP_ANON` zeroing in a way poisoning breaks — no code fixes required.
+2. **[DONE] `arena_free` + per-arena coalescing free-list + first-fit/split
+   `arena_alloc`.** Bump replaced by split-from-free-chunk; `arena_free` +
+   `arena_insert_free` coalesce. `FreeListSim` reference-model unit tests.
+3. **[DONE] Runtime-internal free sites.** The `io::readLine`/`io::input` line
+   buffer grow returns the dead old buffer to the free-list — the first real
+   reuse and first runtime exercise of `arena_free`/coalesce/scrub. (Further
+   internal temporaries — fs path C-strings, string-concat intermediates — can
+   follow the same `arena_free(ptr, size)` pattern.)
+4. **[DONE] Entropy fill.** `arena_fill_random` from the dedicated per-arena
+   PCG64 at offsets 16/24; fill on free and on new block; always on. Seeded from
+   OS entropy + arena address + start time (offset 40), independent of
+   `math::rand`.
+5. **[TODO] Scope-drop drop glue.** Per-type drop glue; emit frees at scope-drop
+   for owned, non-escaping arena values. The payoff phase and the riskiest — land
+   behind heavy tests. **Not yet implemented** (see Status note at top): needs a
+   new general-value ownership/escape analysis, since `ExprMode`/`escape.rs` only
+   cover resources. Suppress the drop for values that are `RETURN`ed,
+   `thread::transfer`red, or otherwise escape; rely on value-semantics deep-copy
+   to guarantee a dropped non-escaping value is unaliased.
 
 ## 9. Decisions
 
