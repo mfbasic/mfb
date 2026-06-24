@@ -1,3 +1,4 @@
+IMPORT collections
 IMPORT io
 IMPORT math
 IMPORT strings
@@ -17,7 +18,7 @@ IMPORT term
 FUNC buildMasked(word AS String, guessed AS String) AS String
   MUT masked AS String = ""
   FOR i = 0 TO len(word) - 1
-    LET ch AS String = mid(word, i, 1)
+    LET ch AS String = strings::mid(word, i, 1)
     IF strings::contains(guessed, ch) THEN
       masked = masked & ch & " "
     ELSE
@@ -113,7 +114,7 @@ FUNC main AS Integer
   DO WHILE running
     ' Pick a random word with the per-thread PCG64 generator (auto-seeded from
     ' OS entropy). math::rand returns an inclusive [min, max] index.
-    LET word AS String = get(words, math::rand(0, len(words) - 1))
+    LET word AS String = collections::get(words, math::rand(0, len(words) - 1))
 
     MUT guessed AS String = ""
     MUT missed AS String = ""
