@@ -282,6 +282,7 @@ impl Asm {
         }
     }
 
+
     /// Materialize the address of a runtime-state field/array at `offset` into
     /// `dst` (clobbers `x9` for large offsets past the 12-bit add immediate).
     fn state_array(&mut self, dst: &str, offset: usize) {
@@ -1064,11 +1065,12 @@ fn emit_term_draw_helper() -> CodeFunction {
     asm.push(abi::signed_convert_to_float_d("d2", "x9"));
     asm.call_external("cairo_set_source_rgb");
     asm.push(abi::label("d_fg_done"));
-    // move_to(col*cellW, (row+1)*cellH - 4); show_text(charbuf)
+    // move_to(col*cellW, (row+1)*cellH - 4); show_text(charbuf). Load cellH BEFORE
+    // forming row+1 in x9 — load_state clobbers x9 as its address scratch.
     asm.push(abi::move_register("x0", "x19"));
     emit_cell_dim_to_d(&mut asm, "d0", "x21", ST_TERM_CELL_W);
-    asm.push(abi::add_immediate("x9", "x20", 1));
     asm.load_state("x10", ST_TERM_CELL_H);
+    asm.push(abi::add_immediate("x9", "x20", 1));
     asm.push(abi::multiply_registers("x9", "x9", "x10"));
     asm.push(abi::subtract_immediate("x9", "x9", 4));
     asm.push(abi::signed_convert_to_float_d("d1", "x9"));
@@ -1153,8 +1155,9 @@ fn emit_const_to_d(asm: &mut Asm, dst: &str, value: usize) {
 fn emit_term_cell_rect(asm: &mut Asm, cr: &str, col: &str, row: &str) {
     asm.push(abi::move_register("x0", cr));
     emit_cell_dim_to_d(asm, "d0", col, ST_TERM_CELL_W); // x = col*cellW
-    asm.push(abi::add_immediate("x9", row, 1)); // y = (row+1)*cellH - 2
+    // Load cellH before forming row+1 in x9 (load_state clobbers x9).
     asm.load_state("x10", ST_TERM_CELL_H);
+    asm.push(abi::add_immediate("x9", row, 1)); // y = (row+1)*cellH - 2
     asm.push(abi::multiply_registers("x9", "x9", "x10"));
     asm.push(abi::subtract_immediate("x9", "x9", 2));
     asm.push(abi::signed_convert_to_float_d("d1", "x9"));
