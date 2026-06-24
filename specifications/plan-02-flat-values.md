@@ -280,9 +280,92 @@ for the rest — until the last type is converted and the glue is deleted.
    regions, and `List`/`Map` fields of records/unions (`Record slot Collection →
    offset`).
 6. **Switch copy/transfer to generic `memcpy`; delete the per-type glue.**
-7. **Enable `plan-01` scope-drop frees** — now one generic `arena_free` per
+7. **Flat-representation hardening — exhaustive copy / independence / mutation
+   tests (see §7a).** A dedicated phase: before any free relies on flatness, prove
+   under entropy poisoning that every value is a self-contained flat block whose
+   copy shares **nothing** and whose mutation/resize is correct. This phase adds
+   tests only — no new codegen — and must be fully green before Phase 8.
+8. **Enable `plan-01` scope-drop frees** — now one generic `arena_free` per
    non-escaping local, gated only by the existing `RETURN`/`transfer` move
    suppressions. (This *is* `plan-01` Phase 5, made trivial.)
+
+### 7a. Phase 7 test matrix (explicit)
+
+Every test follows the same shape unless noted: **build a value `a`; copy it
+(`LET b = a`); then mutate or drop one side and assert the other is byte-for-byte
+unchanged** — all run under `plan-01` entropy poisoning so any residual shared
+bytes (a missed inline) surface as a loud use-after-free, and each asserts exact
+stdout. Fixtures land under `tests/` (`.run`/build.log goldens); stdin/thread
+cases go in the native integration tests.
+
+**A. Record field-type coverage** — a record with each composite field, alone and
+combined:
+- all-scalar record (flat baseline)
+- one `String` field; **several** `String` fields (offset fixup across many)
+- nested record field; nested record that itself has a `String`
+- `Union` field; `List` field; `Map` field
+- a record combining **all** of the above (worst case)
+- per record: construct → copy → on the copy resize a `String` field shorter **and**
+  longer and mutate a scalar → assert original unchanged, copy correct → drop one
+  side → assert the other intact.
+
+**B. Container element-type coverage:**
+- `List of <each scalar>`; `List of String` (variable-length inline)
+- `List of <record>`; `List of <record-with-String>`; `List of <union>`
+- `List of List` and `List of Map` (nested collection inlined — the new case)
+- `Map of String to <each of the above>`
+- per container: build → copy → mutate an element on the copy (including a resize)
+  → assert independence.
+
+**C. Records-with-containers and containers-with-records (the cross cases):**
+- `record { a AS List OF Integer }` → copy → append to the copy's list (forces
+  data-region growth + offset fixup) → assert the original's list is unchanged
+- `record { a AS List OF String }` → resize a string inside the nested list inside
+  the record
+- `record { a AS Map OF String TO <record> }`
+- `List OF <record-with-list>`; `Map OF String TO <record-with-list>`
+- deep nest: `record { x AS List OF record { y AS List OF String } }` → mutate the
+  innermost string on a copy, assert every level of the original is intact.
+
+**D. Unions (reshaped `{tag, size, data}`):**
+- data union with a scalar / `String` / record / collection variant
+- switch the active variant (changes `size`) → copy → assert `size` word and
+  contents correct on both
+- `Result OF <each type>`; `Error` carrying both `message` and `source`.
+
+**E. Mutation / `WITH` / append placement:**
+- `WITH`-update a `String` field shorter and longer (exercises prefix+suffix
+  `memcpy` and the post-change offset fixup)
+- `WITH`-update a field at the **start**, **middle**, and **end** of a block (the
+  1-memcpy vs 2-memcpy paths)
+- collection `append` that grows the data region and shifts following offsets.
+
+**F. Empty / boundary:**
+- empty `String` field, empty `List`, empty `Map` (zero-length inline blocks)
+- single-element and large (many-KB) values; a flat block large enough to cross an
+  arena block boundary (exercises large `arena_alloc` + large `memcpy`).
+
+**G. `thread::transfer`:**
+- transfer a record-with-strings, a `List` of records, a record-with-list, and a
+  deeply nested value; the receiver reads correct values and (if the sender keeps a
+  copy) the two are independent.
+
+**H. Resource exception (must NOT be deep-copied):**
+- a resource union and a `List OF RES`: copying the surrounding flat block copies
+  the resource **pointer verbatim** (not the resource), the resource is closed
+  **exactly once**, and the block copies/frees correctly around the opaque handle.
+
+**I. Size header + generic copy/free:**
+- a copy allocates exactly `size` bytes and the copy's `size` header matches the
+  source
+- a churn loop (build → drop, repeated) shows the freed bytes are reused with no
+  growth (proves `arena_free` returns exactly `size`)
+- a generic-copy round-trip of every type yields byte-identical contents.
+
+**J. Entropy-poisoning negatives:**
+- copy `a`→`b`, **drop `a`**, then read `b`: must be fully correct (no shared bytes
+  were scrubbed). Run under poisoning so any residual alias crashes loudly rather
+  than silently returning garbage.
 
 ## 8. Validation Plan
 
