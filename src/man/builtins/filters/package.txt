@@ -1,5 +1,5 @@
 NAME
-  filter - predicate helper functions
+  filters - predicate helper functions
 
 SYNOPSIS
   mfb man filter [function]

@@ -47,8 +47,10 @@ Steps:
    parameter types, return type, and error behavior.
 3. Find the existing man page for '${fname}' by looking in src/man/builtins/*/${fname}.txt,
    or determine the correct path to create a new one following the existing directory layout.
-   (General unnamespaced functions live under general/, collection/, or filter/ depending
-   on their category — check which subdirectory best matches existing peers.)
+   (Collection helpers are namespaced under collections/; the String overloads of
+   find/mid/replace live under strings/; only the universal core — len, error,
+   conversions, typeName, numeric/empty predicates — lives under general/ or filters/.
+   Check which subdirectory best matches existing peers.)
 4. Write the updated or new .txt file at that path, creating the directory if needed.
 
 Format rules:

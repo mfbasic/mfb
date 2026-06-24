@@ -7,7 +7,7 @@ fn main() {
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR"));
     let general_dir = manifest_dir.join("src/man/builtins/general");
     let collections_dir = manifest_dir.join("src/man/builtins/collections");
-    let filter_dir = manifest_dir.join("src/man/builtins/filter");
+    let filters_dir = manifest_dir.join("src/man/builtins/filters");
     let strings_dir = manifest_dir.join("src/man/builtins/strings");
     let types_dir = manifest_dir.join("src/man/types");
     let flow_dir = manifest_dir.join("src/man/flow");
@@ -21,7 +21,7 @@ fn main() {
     let unicode_page = manifest_dir.join("src/man/unicode/package.txt");
     println!("cargo:rerun-if-changed={}", general_dir.display());
     println!("cargo:rerun-if-changed={}", collections_dir.display());
-    println!("cargo:rerun-if-changed={}", filter_dir.display());
+    println!("cargo:rerun-if-changed={}", filters_dir.display());
     println!("cargo:rerun-if-changed={}", strings_dir.display());
     println!("cargo:rerun-if-changed={}", types_dir.display());
     println!("cargo:rerun-if-changed={}", flow_dir.display());
@@ -36,7 +36,7 @@ fn main() {
 
     let general_pages = man_pages(&general_dir, "general");
     let collections_pages = man_pages(&collections_dir, "collections");
-    let filter_pages = man_pages(&filter_dir, "filter");
+    let filters_pages = man_pages(&filters_dir, "filters");
     let strings_pages = man_pages(&strings_dir, "strings");
     let types_pages = man_pages(&types_dir, "types");
     let flow_pages = man_pages(&flow_dir, "flow");
@@ -52,7 +52,7 @@ fn main() {
     );
     println!(
         "cargo:rerun-if-changed={}",
-        filter_dir.join("package.txt").display()
+        filters_dir.join("package.txt").display()
     );
     println!(
         "cargo:rerun-if-changed={}",
@@ -89,7 +89,7 @@ fn main() {
     for page in general_pages
         .iter()
         .chain(collections_pages.iter())
-        .chain(filter_pages.iter())
+        .chain(filters_pages.iter())
         .chain(strings_pages.iter())
         .chain(types_pages.iter())
         .chain(flow_pages.iter())
@@ -108,7 +108,7 @@ fn main() {
 
     write_pages(&mut output, "GENERAL_FUNCTION_PAGES", general_pages);
     write_pages(&mut output, "COLLECTIONS_FUNCTION_PAGES", collections_pages);
-    write_pages(&mut output, "FILTER_FUNCTION_PAGES", filter_pages);
+    write_pages(&mut output, "FILTERS_FUNCTION_PAGES", filters_pages);
     write_pages(&mut output, "STRINGS_FUNCTION_PAGES", strings_pages);
     write_pages(&mut output, "TYPES_TOPIC_PAGES", types_pages);
     write_pages(&mut output, "FLOW_TOPIC_PAGES", flow_pages);

@@ -153,9 +153,9 @@ fn parse_collections_package() -> PackageDoc {
 }
 
 fn parse_filter_package() -> PackageDoc {
-    let page = include_str!("builtins/filter/package.txt");
-    let (name, summary) = parse_name_line(page).expect("filter package NAME line");
-    let functions = generated::FILTER_FUNCTION_PAGES
+    let page = include_str!("builtins/filters/package.txt");
+    let (name, summary) = parse_name_line(page).expect("filters package NAME line");
+    let functions = generated::FILTERS_FUNCTION_PAGES
         .iter()
         .map(|(_, page)| parse_rendered_function_page(page))
         .collect::<Vec<_>>()
@@ -164,7 +164,7 @@ fn parse_filter_package() -> PackageDoc {
     PackageDoc {
         name,
         summary,
-        usage: "mfb man filter [function]",
+        usage: "mfb man filters [function]",
         functions: Box::leak(functions),
         page: Some(page),
     }
@@ -297,7 +297,7 @@ fn generated_pages(package_name: &str) -> Option<&'static [(&'static str, &'stat
         "flow" => Some(generated::FLOW_TOPIC_PAGES),
         "general" => Some(generated::GENERAL_FUNCTION_PAGES),
         "collections" => Some(generated::COLLECTIONS_FUNCTION_PAGES),
-        "filter" => Some(generated::FILTER_FUNCTION_PAGES),
+        "filters" => Some(generated::FILTERS_FUNCTION_PAGES),
         "strings" => Some(generated::STRINGS_FUNCTION_PAGES),
         "io" => Some(generated::IO_FUNCTION_PAGES),
         "math" => Some(generated::MATH_FUNCTION_PAGES),
