@@ -1,22 +1,65 @@
 NAME
-    right - return the last scalars of a string
+  right - return the trailing Unicode scalars of a string
 
 SYNOPSIS
-    strings::right(value AS String, count AS Integer) AS String
+  strings::right(value AS String, count AS Integer) AS String
+
+PACKAGE
+  strings
+
+IMPORTS
+  IMPORT strings
 
 DESCRIPTION
-    Returns the last count Unicode scalars of value.
-    When count is greater than or equal to the length of value, the whole
-    string is returned. A count of 0 returns the empty string.
+  right returns a new String containing the last count Unicode scalar values of
+  value, taken from the end of the string toward the start. The returned scalars
+  keep their original order; right does not reverse them.
 
-EXAMPLES
-    IMPORT io
-    IMPORT strings
+  Lengths are measured in Unicode scalar values, not UTF-8 bytes and not
+  user-perceived grapheme clusters. A multi-byte character such as "é" or "😀"
+  counts as one scalar even though it occupies several bytes, and right never
+  splits a multi-byte scalar.
 
-    FUNC main AS Integer
-      io::print(strings::right("Hello", 3))
-      RETURN 0
-    END FUNC
+  A count of 0 returns the empty string. When count is greater than or equal to
+  the scalar length of value, the entire string is returned; right does not pad
+  or raise an error in that case. count must not be negative.
+
+  right does not mutate value and has no side effects. The returned String is a
+  new owned value.
+
+PARAMETERS
+  value AS String
+    The string whose trailing scalars are returned.
+
+  count AS Integer
+    The number of trailing Unicode scalar values to take. Must be 0 or greater.
+    Values at or above the scalar length of value yield the whole string.
+
+RETURN VALUE
+  AS String
+    A new String holding the last count scalars of value. Returns the empty
+    string when count is 0, and the whole of value when count is at least the
+    scalar length of value.
 
 ERRORS
-    77050002 (ErrInvalidArgument) when count is negative.
+  77050002 (ErrInvalidArgument)
+  Raised when count is negative.
+
+TYPE CHECKING
+  value must be String. count must be an Integer.
+
+EXAMPLES
+  Take the last three scalars:
+
+    LET tail AS String = strings::right("Hello", 3)
+
+  A count beyond the length returns the whole string:
+
+    LET whole AS String = strings::right("Hi", 10)
+
+  Multi-byte characters count as single scalars:
+
+    LET suffix AS String = strings::right("café", 2)
+
+SEE ALSO
+  left, mid, find, replace

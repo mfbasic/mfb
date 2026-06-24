@@ -16,34 +16,57 @@ DESCRIPTION
 
   Matching scans value from left to right. After a match is replaced, scanning
   resumes at the position following the matched text, so matches never overlap.
-  The original value is not mutated; the result is a new owned String.
+  Matching is performed on raw UTF-8 bytes; the function does not normalize
+  Unicode or operate on grapheme clusters. The original value is not mutated and
+  the result is a fresh owned String.
 
-  If old is an empty String, or old is longer than value, replace returns a
-  String equal to value unchanged.
+  If old is an empty String, or old is longer than value, no occurrence can
+  match and replace returns a String equal to value unchanged. When old is found
+  but new is empty, each match is removed without inserting anything.
 
   replace is also defined for collections; see collections replace for the List
   overload.
 
 OVERLOADS
   strings::replace(value AS String, old AS String, new AS String) AS String
-    Replaces all non-overlapping occurrences of old with new.
+    Replaces every non-overlapping occurrence of old in value with new.
+
+PARAMETERS
+  value AS String
+    The string to search and copy from. Returned unchanged when old does not
+    occur.
+
+  old AS String
+    The substring to search for. An empty old never matches, so value is
+    returned unchanged.
+
+  new AS String
+    The replacement substring written in place of each match of old. May be
+    empty to delete matches.
+
+RETURN VALUE
+  AS String
+    A new String with every non-overlapping occurrence of old replaced by new.
+    When there are no matches, the returned String equals value.
 
 ERRORS
-  replace does not fail for supported argument types and valid evaluated
-  arguments. Errors can still propagate from evaluating value, old, or new
-  before replace is called.
+  No errors.
 
 TYPE CHECKING
-  value, old, and new must be String values.
+  value, old, and new must all be String values.
 
 EXAMPLES
   Replace every occurrence:
 
     LET text AS String = strings::replace("hello", "l", "x")
 
+  Delete a substring with an empty new:
+
+    LET trimmed AS String = strings::replace("a-b-c", "-", "")
+
   An empty old leaves value unchanged:
 
     LET same AS String = strings::replace("hello", "", "x")
 
 SEE ALSO
-  find, mid, len, collections replace
+  find, mid, contains, len, collections replace

@@ -4,28 +4,65 @@ NAME
 SYNOPSIS
   fs::pathDirName(path AS String) AS String
 
+PACKAGE
+  fs
+
+IMPORTS
+  IMPORT fs
+
 DESCRIPTION
   Returns the directory portion of path, that is, everything up to but not
-  including the final component. The operation is purely syntactic and does not
-  access the filesystem.
+  including the final component. The operation is purely syntactic: it inspects
+  the bytes of path and never consults the filesystem, resolves "." or ".."
+  segments, follows symbolic links, or checks whether any path exists.
 
-  Trailing "/" separators are ignored before the final component is located, and
-  any separators that join the directory to that component are removed from the
-  result. When path contains no separator, "." is returned. When the only
-  separator is a leading "/", or path is "/" itself, "/" is returned. An empty
-  path returns ".".
+  Trailing "/" separators are ignored before the final component is located, so
+  "target/output/" and "target/output" both yield "target". After trimming, the
+  bytes are scanned backward for the last "/" separator. The separator that
+  joins the directory to the final component is removed from the result, so the
+  returned String carries no trailing separator unless it is the root itself.
 
-  The operation is byte-oriented for path syntax, so UTF-8 file names are
-  preserved unchanged.
+  When path contains no separator, "." is returned. When the only separator is a
+  leading "/", or path is "/" itself, "/" is returned. An empty path returns
+  ".".
+
+  The scan is byte-oriented, so UTF-8 file names are preserved unchanged and any
+  embedded bytes are treated literally. When the result is "." or "/" a shared
+  string constant is returned; otherwise a new String holding the directory
+  bytes is allocated. The function has no side effects other than allocating the
+  returned String.
+
+PARAMETERS
+  path AS String
+    The path whose directory portion is wanted. Interpreted as raw UTF-8 bytes.
+    Trailing "/" separators are ignored. May be empty.
+
+RETURN VALUE
+  AS String
+    The directory portion of path, with no trailing separator unless it is the
+    root "/". Returns "." when path has no separator or is empty, and "/" when
+    the only separator is a leading one or path is "/" itself.
+
+ERRORS
+  77010001 (ErrOutOfMemory)
+  Raised when the result String for the directory portion cannot be allocated.
 
 EXAMPLES
-  io::print(fs::pathDirName("target/output.txt"))
+  A directory and a file name yield the directory:
 
-  io::print(fs::pathDirName("/usr/local/bin"))
+    io::print(fs::pathDirName("target/output.txt"))
 
-  io::print(fs::pathDirName("output.txt"))
+  Leading separators are preserved in the result:
 
-  io::print(fs::pathDirName("/"))
+    io::print(fs::pathDirName("/usr/local/bin"))
+
+  A path with no separator yields ".":
+
+    io::print(fs::pathDirName("output.txt"))
+
+  The root path yields itself:
+
+    io::print(fs::pathDirName("/"))
 
 SEE ALSO
-  fs::pathBaseName, fs::pathJoin, fs::pathNormalize, fs::canonicalPath
+  fs::pathBaseName, fs::pathJoin, fs::pathNormalize, fs::pathExtension, fs::canonicalPath

@@ -1,13 +1,54 @@
 NAME
-    contains - test whether a string contains another string
+  contains - test whether a string contains another string
 
 SYNOPSIS
-    strings::contains(value AS String, needle AS String) AS Boolean
+  strings::contains(value AS String, needle AS String) AS Boolean
+
+PACKAGE
+  strings
+
+IMPORTS
+  IMPORT strings
 
 DESCRIPTION
-    Returns TRUE when needle appears in value. The empty needle is always found.
+  Returns TRUE when needle appears as a contiguous substring of value and FALSE
+  otherwise. The test is a raw byte search: the bytes of needle are matched
+  against the bytes of value at every offset, and the result is TRUE as soon as a
+  match is found at any position. Because both operands are Strings holding UTF-8
+  bytes, a matching byte sequence that is itself a well-formed UTF-8 string
+  corresponds to a substring at character boundaries; the search itself operates
+  on bytes and does not normalize, case-fold, or otherwise transform either
+  operand.
+
+  The empty needle is always found and yields TRUE for any value, including the
+  empty string, since the empty sequence occurs at every position. When needle is
+  longer than value the result is FALSE, because value cannot contain more bytes
+  than it holds. Searching a non-empty needle in an empty value yields FALSE.
+
+  Neither operand is modified and the function has no side effects. To test only
+  the leading or trailing bytes of a string, use strings::startsWith or
+  strings::endsWith; to obtain the position of the first match, use strings::find.
+
+PARAMETERS
+  value AS String
+    The string to search within. May be empty.
+
+  needle AS String
+    The substring to look for anywhere in value. May be empty, in which case the
+    function always returns TRUE.
+
+RETURN VALUE
+  AS Boolean
+    TRUE when the bytes of needle occur as a contiguous run within value, FALSE
+    otherwise. An empty needle always returns TRUE; a needle longer than value
+    always returns FALSE.
+
+ERRORS
+  No errors.
 
 EXAMPLES
+  Test for a substring:
+
     IMPORT io
     IMPORT strings
 
@@ -15,3 +56,10 @@ EXAMPLES
       io::print(toString(strings::contains("Hello 😀", "😀")))
       RETURN 0
     END FUNC
+
+  The empty needle always matches:
+
+    LET ok AS Boolean = strings::contains("anything", "")
+
+SEE ALSO
+  strings::find, strings::startsWith, strings::endsWith, strings::count

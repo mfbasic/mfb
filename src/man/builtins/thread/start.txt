@@ -1,22 +1,89 @@
 NAME
-  start - start an imported isolated worker function
+  start - start an imported isolated worker function on a new thread
 
 SYNOPSIS
   thread::start(f AS ISOLATED FUNC(ThreadWorker OF Msg TO Out, In) AS Out, data AS In, inboundLimit AS Integer = 64, outboundLimit AS Integer = 64) AS Thread OF Msg TO Out
 
+PACKAGE
+  thread
+
+IMPORTS
+  IMPORT thread
+
 DESCRIPTION
-  Starts exported isolated function f from an imported package in a fresh
-  package instance. The worker receives its ThreadWorker handle and data
-  argument.
+  Starts the exported isolated function f on a fresh OS thread running in a new,
+  independent instance of f's package. The worker runs concurrently with the
+  caller. The call returns a Thread handle in the parent immediately, without
+  waiting for the worker to make progress or finish.
 
-  inboundLimit and outboundLimit bound the worker inbound and outbound queues.
-  Omitting both limits uses 64 for each queue. Omitting outboundLimit uses 64.
+  f is invoked with two arguments: the worker's own ThreadWorker handle and the
+  data value. The ThreadWorker handle is created by the runtime and lets the
+  worker read its inbound queue, write its outbound queue, and observe
+  cancellation; the data value is the In argument passed through unchanged. The
+  worker's return value becomes the thread result, later retrieved in the parent
+  with thread::waitFor(t) or t.result.
 
-  Fails with ErrInvalidArgument (77050002) when either queue limit is below 1.
-  Current-package functions, lambdas, closures, SUBs, non-isolated functions,
-  and entry points without the leading ThreadWorker parameter are rejected at
-  compile time.
+  inboundLimit and outboundLimit bound the capacities of the worker's inbound
+  and outbound message queues, in number of queued messages. Each must be at
+  least 1. Omitting outboundLimit defaults it to 64; omitting both defaults each
+  to 64. The same inbound limit is also applied to the thread's resource-plane
+  queue used by thread::transfer and thread::accept.
+
+  The returned Thread is a non-copyable owned handle. While it is live the OS
+  worker keeps running; dropping a running Thread requests cancellation, wakes
+  its queues, and detaches the worker (see the thread package overview).
+
+  f must be an exported function from an imported package whose first parameter
+  is the leading ThreadWorker parameter and whose declared output matches the
+  ThreadWorker output type. Current-package functions, lambdas, closures, SUBs,
+  non-isolated functions, and entry points without the leading ThreadWorker
+  parameter are rejected at compile time, so they never reach this call.
+
+PARAMETERS
+  f AS ISOLATED FUNC(ThreadWorker OF Msg TO Out, In) AS Out
+    The exported isolated worker entry point to run. Receives the worker's
+    ThreadWorker handle and the data argument, and returns the thread result of
+    type Out.
+
+  data AS In
+    The value handed to the worker as its second argument. Passed through
+    unchanged; its type In is the worker's second parameter type.
+
+  inboundLimit AS Integer
+    Capacity of the worker's inbound message queue, in messages. Must be at
+    least 1. Defaults to 64. Also used as the capacity of the resource-plane
+    queue.
+
+  outboundLimit AS Integer
+    Capacity of the worker's outbound message queue, in messages. Must be at
+    least 1. Defaults to 64.
+
+RETURN VALUE
+  AS Thread OF Msg TO Out
+    A live parent-side Thread handle for the newly started worker. The handle's
+    Msg and Out types are derived from the worker entry point, and it can be used
+    with thread::send, thread::receive, thread::isRunning, thread::cancel, and
+    thread::waitFor.
+
+ERRORS
+  77050002 (ErrInvalidArgument)
+  Raised when inboundLimit or outboundLimit is below 1.
+
+  77010001 (ErrOutOfMemory)
+  Raised when the thread control block, the worker's arena state, or any of the
+  worker's queue structures and backing message arrays cannot be allocated.
+
+  77050009 (ErrInterrupted)
+  Raised when the underlying OS thread cannot be spawned (pthread_create fails).
 
 EXAMPLES
-  LET t AS Thread OF String TO Integer = thread::start(workers::worker, "input")
-  LET small AS Thread OF String TO Integer = thread::start(workers::worker, "input", 1, 1)
+  Start a worker with the default queue limits:
+
+    LET t AS Thread OF String TO Integer = thread::start(workers::worker, "input")
+
+  Start a worker with single-slot inbound and outbound queues:
+
+    LET small AS Thread OF String TO Integer = thread::start(workers::worker, "input", 1, 1)
+
+SEE ALSO
+  thread::waitFor, thread::send, thread::receive, thread::cancel, thread::isRunning

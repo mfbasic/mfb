@@ -6,26 +6,73 @@ SYNOPSIS
   math::max(a AS Float, b AS Float) AS Float
   math::max(a AS Fixed, b AS Fixed) AS Fixed
 
-DESCRIPTION
-  Returns the larger of a and b.
+PACKAGE
+  math
 
-  The return type matches the numeric type of the arguments. Both arguments
-  must be the same numeric type: two Integers, two Floats, or two Fixeds.
+IMPORTS
+  IMPORT math
+
+DESCRIPTION
+  Returns the larger of the two arguments a and b. When the arguments compare
+  equal, that common value is returned.
+
+  The function is overloaded by the exact numeric type of its arguments, and
+  the return type always matches that type: two Integers yield an Integer, two
+  Floats yield a Float, and two Fixeds yield a Fixed. There is no mixed-type
+  overload; both arguments must be the same numeric type, and that type
+  selects which version is called.
+
+  The comparison is a plain ordered comparison of the two values. The Integer
+  and Fixed overloads compare the underlying signed 64-bit representations.
+  The Float overload performs an ordered floating-point comparison and does no
+  rounding or domain checking. The function never overflows and has no side
+  effects.
+
+OVERLOADS
+  math::max(a AS Integer, b AS Integer) AS Integer
+    Returns the larger of two Integers.
+
+  math::max(a AS Float, b AS Float) AS Float
+    Returns the larger of two Floats.
+
+  math::max(a AS Fixed, b AS Fixed) AS Fixed
+    Returns the larger of two Fixeds.
+
+PARAMETERS
+  a AS Integer | Float | Fixed
+    The first value to compare. Any value of the chosen numeric type is
+    accepted.
+
+  b AS Integer | Float | Fixed
+    The second value to compare. Must be the same numeric type as a. Any value
+    of that type is accepted.
+
+RETURN VALUE
+  AS Integer | Float | Fixed
+    The larger of a and b, in the same numeric type as the arguments. When a
+    and b are equal, that value is returned.
 
 ERRORS
-  math::max does not fail for supported argument types. Errors can still
-  propagate from evaluating the argument expressions before math::max is
-  called.
+  No errors.
 
 TYPE CHECKING
-  Both arguments must share the same numeric type. Mixing numeric types, or
-  passing a non-numeric value such as a String, Boolean, Byte, record, union,
-  resource, thread, function, or lambda, is a compile-time type error.
+  Both arguments must share the same numeric type: two Integers, two Floats,
+  or two Fixeds. Mixing numeric types, or passing a non-numeric value such as
+  a String, Boolean, Byte, record, union, resource, thread, function, or
+  lambda, is a compile-time type error.
 
 EXAMPLES
-  LET value AS Integer = math::max(2, 4)
+  Larger of two Integers:
 
-  LET upper AS Float = math::max(-3.5, 1.0)
+    IMPORT math
+
+    LET value AS Integer = math::max(2, 4)
+
+  Larger of two Floats:
+
+    IMPORT math
+
+    LET upper AS Float = math::max(-3.5, 1.0)
 
 SEE ALSO
   math::min, math::clamp, math::abs

@@ -4,14 +4,52 @@ NAME
 SYNOPSIS
   math::ln10 AS Float
 
+PACKAGE
+  math
+
+IMPORTS
+  IMPORT math
+
 DESCRIPTION
-  The natural logarithm of 10 as a Float value, approximately
-  2.302585092994046.
+  The natural logarithm of 10, as a Float value approximately equal to
+  2.302585092994046. This is the closest 64-bit IEEE 754 double-precision
+  representation of ln(10); it is not the exact mathematical value, which is
+  irrational and cannot be represented in finite binary.
+
+  ln10 is a constant, not a callable function. It takes no arguments and is
+  referenced by name wherever a Float expression is expected, evaluating to the
+  same value on every use. It performs no computation at the call site and has
+  no side effects.
+
+  This constant is commonly used to convert between natural and base-10
+  logarithms: the base-10 logarithm of a value x equals math::log(x) / math::ln10.
+  For a Fixed-point representation of the same constant, use math::ln10Fixed. The
+  related natural-log constant math::ln2 provides ln(2).
+
+PARAMETERS
+  None.
+    math::ln10 is a constant and accepts no arguments.
+
+RETURN VALUE
+  AS Float
+    The Float closest to ln(10), approximately 2.302585092994046. The same value
+    is produced on every reference.
+
+ERRORS
+  No errors.
 
 EXAMPLES
-  LET value AS Float = math::ln10
+  Reference the constant directly:
 
-  LET log10 AS Float = math::log(x) / math::ln10
+    IMPORT math
+
+    LET value AS Float = math::ln10
+
+  Compute a base-10 logarithm from the natural logarithm:
+
+    IMPORT math
+
+    LET log10 AS Float = math::log(x) / math::ln10
 
 SEE ALSO
   math::ln10Fixed, math::ln2, math::e, math::log, math::log10

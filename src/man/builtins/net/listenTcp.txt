@@ -14,9 +14,14 @@ IMPORTS
 DESCRIPTION
   listenTcp binds a local TCP socket to host and port and places it in the
   listening state, returning a Listener resource ready to accept incoming
-  connections. host names the local interface to bind; use "0.0.0.0" or "::" to
-  accept connections on any interface. When port is 0 the host assigns an
-  ephemeral port, which can be read back with net::localAddress.
+  connections. The host is passed to the host resolver to obtain the local
+  endpoint, the socket is created with SO_REUSEADDR, bound to that endpoint, and
+  switched into the listening state.
+
+  host names the local interface to bind. Use "0.0.0.0" or "::" to accept
+  connections on any interface; an empty host likewise binds all interfaces by
+  passing a passive (NULL) host to the resolver. When port is 0 the host assigns
+  an ephemeral port, which can be read back with net::localAddress.
 
   The optional backlog hints the maximum number of pending connections the host
   may queue before refusing new ones. When omitted, a host-defined default
@@ -29,17 +34,43 @@ DESCRIPTION
 
 OVERLOADS
   net::listenTcp(host AS String, port AS Integer) AS Listener
-    Binds host on port and listens using the default backlog.
+    Binds host on port and listens using the host's default backlog.
 
   net::listenTcp(host AS String, port AS Integer, backlog AS Integer) AS Listener
     Binds host on port and listens with the given backlog hint.
 
+PARAMETERS
+  host AS String
+    The local interface to bind, as a textual IP address or a name passed to the
+    host resolver. "0.0.0.0", "::", or an empty string bind every interface.
+
+  port AS Integer
+    The local TCP port to bind. A value of 0 requests an ephemeral port assigned
+    by the host, which can then be read back with net::localAddress.
+
+  backlog AS Integer
+    Optional. A hint for the maximum number of pending connections the host may
+    queue. When omitted, a host-defined default applies. The value is advisory
+    and may be clamped by the host.
+
+RETURN VALUE
+  AS Listener
+    A Listener resource in the listening state, ready for net::accept. The
+    Listener is closed by lexical drop at scope exit unless closed earlier with
+    net::close.
+
 ERRORS
-  Raises an Error with code 77050002 (ErrInvalidArgument) when an argument value
-  is not valid for the operation, 77070001 (ErrAddressInvalid) when the host or
-  port is malformed, or 77070003 (ErrNetworkFailed) when the socket could not be
-  bound or placed in the listening state, such as when the address is already in
-  use.
+  77010001 (ErrOutOfMemory)
+  Raised when memory for the host C string or the Listener handle could not be
+  allocated.
+
+  77070001 (ErrAddressInvalid)
+  Raised when the host or port could not be resolved into a local endpoint, such
+  as when the host is malformed.
+
+  77070003 (ErrNetworkFailed)
+  Raised when the socket could not be created, bound, or placed in the listening
+  state, for example when the address is already in use.
 
 EXAMPLES
   Listen on all interfaces and accept a client:
@@ -59,8 +90,4 @@ EXAMPLES
     ' bound.port holds the host-assigned port
 
 SEE ALSO
-  net::accept
-  net::connectTcp
-  net::localAddress
-  net::close
-  net::lookup
+  net::accept, net::connectTcp, net::localAddress, net::close, net::lookup

@@ -35,11 +35,33 @@ OVERLOADS
   net::accept(listener AS Listener, timeoutMs AS Integer) AS Socket
     Waits at most timeoutMs for a pending connection before returning.
 
+PARAMETERS
+  listener AS Listener
+    An open Listener resource in the listening state, as returned by
+    net::listenTcp. The listener is not consumed and remains available for
+    further accept calls.
+
+  timeoutMs AS Integer
+    Optional. The maximum time, in milliseconds, to wait for a pending
+    connection. When omitted, accept blocks indefinitely until a client
+    connects.
+
+RETURN VALUE
+  AS Socket
+    A connected Socket for communicating with the accepted client. The Socket is
+    independent of the listener and is closed by lexical drop at scope exit
+    unless closed earlier with net::close.
+
 ERRORS
-  Raises an Error with code 77050002 (ErrInvalidArgument) when an argument value
-  is not valid for the operation, 77030004 (ErrResourceClosed) when the listener
-  has already been closed, or 77070003 (ErrNetworkFailed) when the connection
-  could not be accepted.
+  77070003 (ErrNetworkFailed)
+  Raised when the underlying accept call fails and a connection could not be
+  accepted from the listener's queue.
+
+  77030004 (ErrResourceClosed)
+  Raised when the listener has already been closed.
+
+  77010001 (ErrOutOfMemory)
+  Raised when memory for the connected Socket handle could not be allocated.
 
 EXAMPLES
   Accept a single client and read a request line:
@@ -63,10 +85,5 @@ EXAMPLES
     LOOP
 
 SEE ALSO
-  net::listenTcp
-  net::connectTcp
-  net::read
-  net::write
-  net::close
-  net::localAddress
-  net::remoteAddress
+  net::listenTcp, net::connectTcp, net::read, net::write, net::close,
+  net::localAddress, net::remoteAddress

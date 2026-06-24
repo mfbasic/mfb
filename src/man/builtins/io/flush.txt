@@ -4,17 +4,55 @@ NAME
 SYNOPSIS
   io::flush() AS Nothing
 
-DESCRIPTION
-  Flushes standard output. The native runtime writes directly to the host
-  standard-output stream and does not add an additional MFBASIC output buffer.
+PACKAGE
+  io
 
-  Fails with ErrWriteFailed (77020002) on output failure.
+IMPORTS
+  IMPORT io
+
+DESCRIPTION
+  Drains any pending standard-output data so that everything written so far is
+  pushed to the underlying destination. Standard output may be buffered, which
+  means text passed to io::write or io::print is not guaranteed to be visible to
+  an external reader until the buffer is drained; calling io::flush forces that
+  drain immediately. This is most useful when emitting a prompt with io::write
+  and then waiting for input, since without a flush the prompt could remain in
+  the buffer and never appear before the program blocks on a read.
+
+  The function takes no arguments and has no return value; its only effect is to
+  flush the stream. The native runtime writes directly to the host standard-output
+  stream and does not maintain an additional MFBASIC output buffer of its own, so
+  in practice this requests a flush of whatever buffering the host stream applies.
+
+  Output is directed to whichever destination is bound to standard output. In a
+  normal console program this is file descriptor 1; in app mode the same call is
+  routed to the application transcript window instead of a file descriptor. To
+  flush standard error instead, use io::flushError.
+
+PARAMETERS
+  None.
+
+RETURN VALUE
+  AS Nothing
+    Returns nothing. The function is invoked for its side effect of flushing
+    standard output.
+
+ERRORS
+  77020002 (ErrOutput)
+  Raised when the underlying flush of standard output fails, for example when
+  the output stream is closed or a host write error occurs.
 
 EXAMPLES
-  io::write("ready")
-  io::flush()
+  Write a prompt and force it to appear before reading input:
+
+    io::write("Name: ")
+    io::flush()
+    LET name AS String = io::readLine()
+
+  Ensure buffered output is visible at a checkpoint:
+
+    io::write("ready")
+    io::flush()
 
 SEE ALSO
-  io::flushError
-  io::write
-  io::print
+  io::flushError, io::write, io::print, io::writeError

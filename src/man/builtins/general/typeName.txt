@@ -12,26 +12,39 @@ IMPORTS
 
 DESCRIPTION
   typeName returns an implementation-defined display name for the static type of
-  value. It is intended for diagnostics, debugging, and human-readable messages.
+  value as a String. It is intended for diagnostics, debugging, and
+  human-readable messages.
 
   The name reflects the static type known at compile time, not any runtime tag.
-  For composite types the name spells out the structure, such as "List OF Byte"
-  or "Map OF String TO Integer", matching the way the type is written in source.
+  The argument is used only to determine its static type; its runtime contents
+  are never inspected, and typeName has no side effects. For a primitive type the
+  name is the type keyword, such as "Integer" or "String". For composite types
+  the name spells out the structure, such as "List OF Byte" or
+  "Map OF String TO Integer", matching the way the type is written in source.
 
-  typeName does not inspect runtime secrets and is not a serialization or schema
-  API. The exact spelling of a name may change between implementations, so
+  typeName is not a serialization or schema API and does not expose runtime
+  values. The exact spelling of a name may change between implementations, so
   programs must not parse it or rely on it for security decisions or redaction.
+  typeName, toString, and diagnostic messages are not security boundaries;
+  secret-safe output requires explicit application-level formatting that omits or
+  redacts sensitive fields.
 
-OVERLOADS
-  typeName OF T(value AS T) AS String
-    Accepts any value type T and returns a String describing that static type.
+PARAMETERS
+  value AS T
+    A value of any type T. Only its static type is used to compute the result;
+    the value itself is not read.
+
+RETURN VALUE
+  AS String
+    The implementation-defined display name of the static type T of value, such
+    as "Integer", "String", "List OF Byte", or "Map OF String TO Integer".
 
 ERRORS
-  typeName does not fail for a supported evaluated value. Errors can still
-  propagate from evaluating value before typeName is called.
+  No errors.
 
 TYPE CHECKING
-  typeName accepts one argument of any type.
+  typeName is generic over its single argument and accepts a value of any type T.
+  The type parameter T is unconstrained.
 
 EXAMPLES
   Show a primitive type:
@@ -48,10 +61,5 @@ EXAMPLES
       io::print("type=" & typeName(value))
     END SUB
 
-NOTES
-  typeName, toString, and diagnostic messages are not security boundaries.
-  Secret-safe output requires explicit application-level formatting that omits
-  or redacts sensitive fields.
-
 SEE ALSO
-  toString
+  toString, error

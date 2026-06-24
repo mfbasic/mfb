@@ -1,17 +1,58 @@
 NAME
-    caseFold - case-fold a string for caseless comparison
+  caseFold - case-fold a string for caseless comparison
 
 SYNOPSIS
-    strings::caseFold(value AS String) AS String
+  strings::caseFold(value AS String) AS String
+
+PACKAGE
+  strings
+
+IMPORTS
+  IMPORT strings
 
 DESCRIPTION
-    Applies Unicode case folding and returns the folded string.
+  caseFold returns a new String produced by applying Unicode full case folding
+  to value. Case folding maps characters to a canonical caseless form so that two
+  strings that differ only in case compare equal once both have been folded. It is
+  the recommended basis for caseless string matching, in preference to lowercasing
+  or uppercasing.
+
+  Folding is applied per Unicode scalar value across the whole string. Characters
+  that have no case-folded form (for example digits, punctuation, and symbols) are
+  copied through unchanged. Full case folding may change the length of the string:
+  a single scalar can fold to several scalars. For example the German sharp s "ß"
+  folds to "ss", so caseFold("Straße") yields "strasse".
+
+  Case folding is not the same as lowercasing: it is designed for comparison rather
+  than for display, and the folded result is not guaranteed to be well-formed for
+  presentation. The mapping is locale-independent; it always uses the default
+  Unicode case-folding conventions and applies no language-specific tailoring.
+  Folding does not normalize combining characters, so strings that differ in
+  Unicode normalization form may still differ after folding; apply normalizeNfc
+  first when normalization-insensitive matching is required. The original value is
+  not mutated; the result is a new owned String.
+
+PARAMETERS
+  value AS String
+    The string to fold. Any String is accepted, including the empty string.
+
+RETURN VALUE
+  AS String
+    A new String holding the case-folded form of value. An empty input yields an
+    empty String, and a string containing no cased characters yields an equal
+    String.
+
+ERRORS
+  No errors.
 
 EXAMPLES
-    IMPORT io
-    IMPORT strings
+  Caseless comparison of two strings:
 
-    FUNC main AS Integer
-      io::print(strings::caseFold("Straße"))
-      RETURN 0
-    END FUNC
+    LET same AS Boolean = strings::caseFold("HELLO") = strings::caseFold("hello")
+
+  Folding can change the length of the string:
+
+    LET folded AS String = strings::caseFold("Straße")
+
+SEE ALSO
+  lower, upper, normalizeNfc

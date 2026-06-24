@@ -1,19 +1,75 @@
 NAME
-    split - split a string by a delimiter
+  split - split a string into a list of substrings around a delimiter
 
 SYNOPSIS
-    strings::split(value AS String, delimiter AS String) AS List OF String
+  strings::split(value AS String, delimiter AS String) AS List OF String
+
+PACKAGE
+  strings
+
+IMPORTS
+  IMPORT strings
 
 DESCRIPTION
-    Splits value into a list of strings separated by delimiter.
-    An empty delimiter is invalid.
+  split scans value from left to right and breaks it apart at every
+  non-overlapping occurrence of delimiter, returning the pieces between the
+  matches as a List OF String.
+
+  Matching is performed on raw bytes of the UTF-8 encoded strings, not on
+  grapheme clusters or code points. After a match is consumed, scanning resumes
+  at the byte immediately following the matched delimiter, so matches never
+  overlap.
+
+  The list always contains exactly one more element than the number of
+  delimiter matches found. Consequences of this rule:
+
+    - If delimiter does not occur in value, the result is a single-element list
+      whose only element equals value unchanged. This also covers the case where
+      delimiter is longer than value.
+    - A leading match produces a leading empty String; a trailing match produces
+      a trailing empty String.
+    - Two adjacent matches produce an empty String between them.
+    - Splitting the empty String "" yields a single-element list containing one
+      empty String.
+
+  delimiter must not be empty. An empty delimiter is rejected before any
+  scanning occurs.
+
+  value is not mutated; split returns a new owned list of new owned strings.
+
+  The delimiter parameter may also be passed under the name separator.
+
+PARAMETERS
+  value AS String
+    The string to divide. Any String, including the empty String, is accepted.
+
+  delimiter AS String
+    The separator to break value on. Must be a non-empty String. Every
+    non-overlapping occurrence becomes a split point and is itself removed from
+    the output.
+
+RETURN VALUE
+  AS List OF String
+    A list of the substrings of value lying between successive delimiter
+    matches, in left-to-right order. The list has length (matches + 1) and is
+    never empty: when no match is found it contains value as its single element.
+
+ERRORS
+  77050002 (ErrInvalidArgument)
+  Raised when delimiter is the empty String.
 
 EXAMPLES
-    IMPORT io
-    IMPORT strings
+  Split on a single-character delimiter:
 
-    FUNC main AS Integer
-      LET parts = strings::split("a,b,c", ",")
-      io::print(toString(len(parts)))
-      RETURN 0
-    END FUNC
+    LET parts AS List OF String = strings::split("a,b,c", ",")
+
+  A trailing delimiter yields a trailing empty element:
+
+    LET trailing AS List OF String = strings::split("a,b,", ",")
+
+  A delimiter that does not occur returns the whole string as one element:
+
+    LET whole AS List OF String = strings::split("abc", "-")
+
+SEE ALSO
+  join, contains, find, count, collections chunks

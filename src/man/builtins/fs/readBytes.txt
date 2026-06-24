@@ -1,20 +1,86 @@
 NAME
-  readBytes - read a file as raw bytes
+  readBytes - read an entire file into a List OF Byte
 
 SYNOPSIS
   fs::readBytes(path AS String) AS List OF Byte
 
+PACKAGE
+  fs
+
+IMPORTS
+  IMPORT fs
+
 DESCRIPTION
-  Opens path, reads the complete file into one contiguous List OF Byte
-  collection, closes the file, and returns the byte list. Missing paths,
-  invalid paths, and read failures are reported as Errors.
+  Opens the file named by path for reading, reads its complete contents into a
+  single contiguous List OF Byte collection, closes the file, and returns the
+  byte list. The whole file is read in one call; there is no streaming and no
+  partial result. Bytes are returned exactly as stored on disk, with no
+  encoding, decoding, or newline translation, so the function is suitable for
+  binary data as well as text.
+
+  The final path component is followed when it is a symlink, so reading through
+  a symlink reads the target file. The byte count of the returned list equals
+  the byte length of the file at the moment it is read; an empty file yields an
+  empty List OF Byte.
+
+  path is interpreted as UTF-8 bytes and passed to the host filesystem. It may
+  be absolute or relative to the current working directory and may contain
+  Unicode characters when the host filesystem accepts those names. The string
+  must not be empty and must not contain an embedded NUL byte, because the host
+  open call requires a NUL-terminated path.
+
+  The file is always closed before the function returns, on both the success
+  and the read-failure paths. The function has no other side effects.
+
+PARAMETERS
+  path AS String
+    The filesystem path of the file to read. Interpreted as UTF-8 bytes; may be
+    absolute or relative to the current working directory. Must be non-empty and
+    free of embedded NUL bytes.
+
+RETURN VALUE
+  AS List OF Byte
+    The complete contents of the file as a List OF Byte, in file order. An empty
+    file returns an empty list.
 
 ERRORS
-  Raises an Error when path does not exist, refers to a directory or other
-  non-readable target, or when reading fails partway through.
+  77050002 (ErrInvalidArgument)
+  Raised when path is empty or contains an embedded NUL byte, so it cannot be
+  turned into a valid NUL-terminated host path.
+
+  77010001 (ErrOutOfMemory)
+  Raised when the internal NUL-terminated copy of path, the File handle record,
+  or the byte collection holding the file contents cannot be allocated.
+
+  77030001 (ErrPathNotFound)
+  Raised when no file exists at path (host ENOENT).
+
+  77030003 (ErrAccessDenied)
+  Raised when the host denies access to path (host EACCES).
+
+  77030002 (ErrInvalidPath)
+  Raised when the path is unusable as a path string, including a non-directory
+  used as a directory component, an over-long path, an invalid byte sequence, or
+  a symlink loop while resolving the final component (host ENOTDIR, ENAMETOOLONG,
+  EILSEQ, or ELOOP).
+
+  77020002 (ErrWriteFailed)
+  Raised when the file cannot be opened for any other host reason not classified
+  above.
+
+  77020001 (ErrReadFailed)
+  Raised when seeking the file's length or reading its bytes fails partway
+  through, before the full contents have been read.
 
 EXAMPLES
-  LET bytes AS List OF Byte = fs::readBytes("data.bin")
+  Read a binary file into a byte list:
+
+    LET bytes AS List OF Byte = fs::readBytes("data.bin")
+
+  Report the size of a file in bytes:
+
+    LET bytes AS List OF Byte = fs::readBytes("image.png")
+    io::print("size: " & len(bytes))
 
 SEE ALSO
-  fs::readText, fs::readAllBytes, fs::writeBytes
+  fs::readText, fs::readAllBytes, fs::writeBytes, fs::appendBytes

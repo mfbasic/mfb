@@ -1,0 +1,64 @@
+NAME
+  isOn - report whether terminal TUI mode is currently enabled
+
+SYNOPSIS
+  term::isOn() AS Boolean
+
+PACKAGE
+  term
+
+IMPORTS
+  IMPORT term
+
+DESCRIPTION
+  Reports whether the terminal is currently in TUI mode, the full-screen drawing
+  mode entered by term::on and left by term::off. term::isOn is the one query in
+  the module that is meaningful regardless of the current mode: every other
+  term:: call except term::on is a no-op while TUI mode is off, so a program uses
+  term::isOn to decide whether term:: drawing will take effect before issuing it.
+
+  The result tracks the module's active flag directly. It returns false before
+  the first term::on call, true after term::on returns and until term::off is
+  called, and false again after term::off. Calling term::on while already on, or
+  term::off while already off, leaves the flag unchanged, so term::isOn continues
+  to report the same value across those redundant calls.
+
+  Unlike the rest of the surface, term::isOn is never gated: it runs and returns
+  a value whether TUI mode is on or off. The function takes no arguments, has no
+  side effects, and does not touch the terminal, the alternate screen buffer, or
+  any term:: state; it only reads the current mode.
+
+PARAMETERS
+  None.
+
+RETURN VALUE
+  AS Boolean
+    Returns true when terminal TUI mode is currently enabled (term::on has been
+    called and term::off has not yet been called since), and false otherwise,
+    including before any term::on call and after term::off.
+
+ERRORS
+  No errors.
+
+EXAMPLES
+  Guard term:: drawing behind the gate:
+
+    IMPORT term
+
+    term::on()
+    IF term::isOn() THEN
+      term::clear()
+      term::moveTo(0, 0)
+    END IF
+    term::off()
+
+  Only enter TUI mode once:
+
+    IMPORT term
+
+    IF NOT term::isOn() THEN
+      term::on()
+    END IF
+
+SEE ALSO
+  term::on, term::off, term::clear

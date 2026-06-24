@@ -5,28 +5,88 @@ SYNOPSIS
   math::exp(value AS Float) AS Float
   math::exp(value AS Fixed) AS Fixed
 
+PACKAGE
+  math
+
+IMPORTS
+  IMPORT math
+
 DESCRIPTION
-  Returns e raised to value. The return type matches the numeric type of
-  value, which may be a Float or a Fixed.
+  Returns e (Euler's number, approximately 2.718281828) raised to the power
+  value, the inverse of the natural logarithm. The function is overloaded by
+  the exact numeric type of value, and the return type always matches that
+  type: a Float yields a Float and a Fixed yields a Fixed. There is no mixed
+  or Integer overload; the single argument selects which version is called.
+
+  exp(0) is one in both overloads, exp(1) is e, and a negative value produces
+  a positive fraction between zero and one. The function grows without bound
+  as value increases, so a sufficiently large positive value drives the result
+  past the representable range of the chosen numeric type and is reported as an
+  error rather than wrapping or saturating silently.
+
+  The Float overload computes the result with host floating-point arithmetic by
+  calling the platform exp routine, then inspects the returned bits: a result
+  that has overflowed to infinity or that is NaN is rejected. The Fixed overload
+  computes a deterministic raw Q32.32 exponential without using host
+  floating-point. It range-reduces value by the nearest integer multiple of
+  ln 2, evaluates a Taylor series on the remainder, and recombines the exponent
+  by scaling by a power of two; this makes the result identical across targets,
+  rounded to the nearest representable Fixed value, and traps if recombining the
+  exponent leaves Fixed range.
 
 OVERLOADS
   math::exp(value AS Float) AS Float
-    Computes e raised to value using floating-point arithmetic.
+    Computes e raised to value using floating-point arithmetic. Fails with
+    ErrFloatInf when the result overflows to infinity, and with ErrFloatNan
+    when the result is NaN.
 
   math::exp(value AS Fixed) AS Fixed
     Computes e raised to value using deterministic fixed-point (Q32.32)
-    arithmetic, so the result is identical across targets. The result is
-    rounded to the nearest Fixed value.
+    arithmetic, so the result is identical across targets, and rounds to the
+    nearest representable Fixed value. Fails with ErrOverflow when the result
+    is outside Fixed range.
+
+PARAMETERS
+  value AS Float | Fixed
+    The exponent to raise e to, expressed in the same numeric type as the
+    desired result. Any finite value of the chosen type is accepted; large
+    positive values whose result exceeds the type's range produce an error.
+
+RETURN VALUE
+  AS Float | Fixed
+    e raised to value, in the same numeric type as value. A value of zero
+    returns one, and negative values return a positive result less than one.
 
 ERRORS
-  The Float overload fails with ErrFloatInf (77050014) when the result
-  overflows to infinity. The Fixed overload fails with ErrOverflow
-  (77050010) when the result is outside Fixed range.
+  77050014 (ErrFloatInf)
+  Raised by the Float overload when the result overflows to positive infinity,
+  which happens for sufficiently large positive value.
+
+  77050013 (ErrFloatNan)
+  Raised by the Float overload when the result is NaN, which happens when value
+  is itself NaN.
+
+  77050010 (ErrOverflow)
+  Raised by the Fixed overload when the result is outside the representable
+  Fixed range.
+
+TYPE CHECKING
+  The argument must be a single Float or Fixed. Passing an Integer or any
+  non-numeric value such as a String, Boolean, Byte, record, union, resource,
+  thread, function, or lambda is a compile-time type error.
 
 EXAMPLES
-  LET value AS Float = math::exp(1.0)
+  e raised to a Float power:
 
-  LET growth AS Fixed = math::exp(2.0)
+    IMPORT math
+
+    LET value AS Float = math::exp(1.0)
+
+  e raised to a Fixed power, deterministically:
+
+    IMPORT math
+
+    LET growth AS Fixed = math::exp(2.0)
 
 SEE ALSO
-  log, log10, pow, sqrt
+  math::log, math::log10, math::pow, math::sqrt

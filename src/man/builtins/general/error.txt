@@ -13,11 +13,15 @@ IMPORTS
 DESCRIPTION
   error constructs an Error value from an Integer code and a String message. The
   resulting value is a read-only built-in record carrying the supplied code and
-  message together with a compiler-generated source location.
+  message together with a compiler-generated source location captured at the call
+  site. Neither argument is interpreted, validated, or constrained: any Integer
+  code and any String message, including a zero code or an empty message, produce
+  a valid Error.
 
   Error and ErrorLoc are read-only built-in records. Programs create errors with
   error and inspect their fields; the fields cannot be reassigned. Binding and
-  propagating an Error preserve its fields unchanged.
+  propagating an Error preserve its fields unchanged. error has no side effects
+  beyond producing the value.
 
   An Error value exposes the following fields:
 
@@ -31,14 +35,22 @@ DESCRIPTION
     line     AS Integer    the line of the error call
     char     AS Integer    the column of the error call
 
-ERRORS
-  error does not fail for a supported Integer code and String message. Errors can
-  still propagate from evaluating the arguments before error is called.
+PARAMETERS
+  code AS Integer
+    The numeric error code stored in the Error's code field. Any Integer value is
+    accepted and recorded verbatim, with no reserved or invalid values.
 
-TYPE CHECKING
-  error requires exactly two arguments: an Integer code and a String message.
-  Calls with the wrong argument count or argument types are rejected at compile
-  time.
+  message AS String
+    The human-readable message stored in the Error's message field. Any String,
+    including an empty one, is accepted and recorded verbatim.
+
+RETURN VALUE
+  AS Error
+    A read-only Error record whose code and message fields equal the supplied
+    arguments and whose source field holds the ErrorLoc of the call site.
+
+ERRORS
+  No errors.
 
 EXAMPLES
   Construct an Error and inspect its fields:
@@ -60,5 +72,4 @@ EXAMPLES
     io::print(where.filename & ":" & toString(where.line) & ":" & toString(where.char))
 
 SEE ALSO
-  toString
-  typeName
+  toString, typeName

@@ -4,24 +4,55 @@ NAME
 SYNOPSIS
   io::isInputTerminal() AS Boolean
 
+PACKAGE
+  io
+
+IMPORTS
+  IMPORT io
+
 DESCRIPTION
-  Returns TRUE when standard input is connected to an interactive terminal
-  (a tty) and FALSE when it is redirected from a file, pipe, or other
-  non-terminal source.
+  Reports whether standard input is connected to an interactive terminal.
+  Returns TRUE when standard input is a tty and FALSE when it is redirected
+  from a file, a pipe, or any other non-terminal source.
 
   Use this to decide whether to prompt interactively, enable line editing, or
   fall back to reading piped input. The check inspects only the current state of
-  standard input; it does not modify the stream or consume any input.
+  standard input (file descriptor 0); it does not modify the stream, consume any
+  input, or block waiting for data. To probe the other standard streams instead,
+  use io::isOutputTerminal or io::isErrorTerminal.
+
+  The function takes no arguments and never fails: a non-terminal input simply
+  yields FALSE rather than an error.
+
+  Platform note: in app mode the program has no real file descriptors because
+  input is served by the application window, which is treated as an interactive
+  console; in that environment this call returns TRUE.
+
+PARAMETERS
+  None.
+
+RETURN VALUE
+  AS Boolean
+    Returns TRUE when standard input is an interactive terminal and FALSE when
+    it is redirected from a file, pipe, or other non-terminal source. In app
+    mode the result is TRUE.
+
+ERRORS
+  No errors.
 
 EXAMPLES
-  IF io::isInputTerminal() THEN
-    io::print(io::input("Name: "))
-  ELSE
-    io::print(io::readLine())
-  END IF
+  Prompt interactively only when a terminal is attached, otherwise read piped
+  input:
+
+    IF io::isInputTerminal() THEN
+      io::print(io::input("Name: "))
+    ELSE
+      io::print(io::readLine())
+    END IF
+
+  Capture the current state for later branching:
+
+    LET interactive AS Boolean = io::isInputTerminal()
 
 SEE ALSO
-  io::isOutputTerminal
-  io::isErrorTerminal
-  io::pollInput
-  io::input
+  io::isOutputTerminal, io::isErrorTerminal, io::pollInput, io::input

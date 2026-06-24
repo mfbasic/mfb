@@ -11,20 +11,35 @@ PACKAGE
   general
 
 IMPORTS
-  None. general functions are available without an IMPORT statement.
+  None. general functions are always available without an IMPORT statement.
 
 DESCRIPTION
-  toInt converts supported values to Integer.
+  toInt converts a supported value to a signed 64-bit Integer.
 
-  The String overload parses base-10 Integer text. The Byte overload widens to
-  Integer. The Float and Fixed overloads convert by truncating toward zero.
+  The String overload parses base-10 Integer text. An optional leading minus
+  sign is accepted, followed by one or more decimal digits; the entire string
+  must consist of valid digits, so surrounding whitespace, plus signs, decimal
+  points, or other characters are rejected. Parsing fails on malformed text and
+  on values that fall outside the Integer range.
+
+  The Byte overload widens an unsigned 8-bit Byte (0 through 255) to Integer.
+  Because every Byte fits in Integer, this conversion always succeeds.
+
+  The Float overload converts a 64-bit IEEE 754 binary64 value to Integer by
+  truncating toward zero, discarding any fractional part. A Float that is NaN or
+  infinite, or whose truncated magnitude exceeds the Integer range, cannot be
+  represented and raises an error.
+
+  The Fixed overload converts a Fixed value to Integer by truncating toward
+  zero, discarding the fractional component. Every Fixed value truncates into
+  the Integer range, so this conversion always succeeds.
 
 OVERLOADS
   toInt(value AS String) AS Integer
-    Parses a base-10 Integer.
+    Parses base-10 Integer text with an optional leading minus sign.
 
   toInt(value AS Byte) AS Integer
-    Converts a Byte to Integer.
+    Widens a Byte (0 through 255) to Integer.
 
   toInt(value AS Float) AS Integer
     Converts a Float to Integer by truncating toward zero.
@@ -32,19 +47,41 @@ OVERLOADS
   toInt(value AS Fixed) AS Integer
     Converts a Fixed value to Integer by truncating toward zero.
 
+PARAMETERS
+  value AS String
+    Text holding a base-10 Integer, optionally prefixed with a minus sign. The
+    whole string must be valid; no leading, trailing, or interior extra
+    characters are permitted.
+
+  value AS Byte
+    An unsigned 8-bit value in the range 0 through 255 to widen to Integer.
+
+  value AS Float
+    A finite IEEE 754 binary64 value to truncate toward zero.
+
+  value AS Fixed
+    A Fixed value to truncate toward zero.
+
+RETURN VALUE
+  AS Integer
+    The Integer equivalent of value. For Float and Fixed inputs the fractional
+    part is discarded by truncating toward zero, so 3.9 yields 3 and -3.9 yields
+    -3. For String input the parsed Integer is returned, and for Byte input the
+    widened value is returned unchanged.
+
 ERRORS
-  ErrInvalidFormat (77050003)
-    Returned when String input is malformed, or when a Float input is NaN or
-    infinity at an import boundary.
+  77050003 (ErrInvalidFormat)
+  Raised when a String value is not well-formed base-10 Integer text, or when a
+  Float value is NaN or infinite and cannot be represented as an Integer.
 
-  ErrOverflow (77050010)
-    Returned when the value is outside the Integer range.
-
-  Other errors can propagate from evaluating value before toInt is called.
+  77050010 (ErrOverflow)
+  Raised when the value is outside the signed 64-bit Integer range, such as
+  Integer text that is too large or a Float whose truncated magnitude exceeds
+  the Integer range.
 
 TYPE CHECKING
-  toInt accepts only String, Byte, Float, and Fixed values. Convert other values
-  explicitly before calling toInt.
+  toInt accepts only String, Byte, Float, and Fixed values. Calling it with any
+  other type is a compile-time error; convert such values explicitly first.
 
 EXAMPLES
   Parse text:
@@ -53,10 +90,10 @@ EXAMPLES
 
   Widen a Byte:
 
-    LET value AS Byte = 65
-    LET wide AS Integer = toInt(value)
+    LET b AS Byte = 65
+    LET wide AS Integer = toInt(b)
 
-  Truncate a Float:
+  Truncate a Float toward zero:
 
     LET value AS Integer = toInt(3.9)
 
@@ -66,7 +103,4 @@ EXAMPLES
     LET whole AS Integer = toInt(amount)
 
 SEE ALSO
-  toFloat
-  toFixed
-  toByte
-  isNumeric
+  toFloat, toFixed, toByte, isNumeric

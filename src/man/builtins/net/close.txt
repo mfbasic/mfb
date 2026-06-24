@@ -13,36 +13,63 @@ IMPORTS
   IMPORT net
 
 DESCRIPTION
-  close shuts down a network resource and releases the underlying OS socket. It
-  accepts a connected Socket, a TCP Listener, or a UDP UdpSocket. After close
-  returns, the resource must not be used again; further operations on it raise an
-  Error.
+  Closes a network resource and releases the underlying operating-system socket.
+  The resource is marked closed before the function returns, so any later net::
+  call that takes the same value raises an error rather than touching a stale
+  handle. It accepts a connected TCP Socket, a TCP Listener, or a bound UDP
+  UdpSocket.
 
   Closing a Socket or UdpSocket tears down the connection or binding, so a peer
   reading from a closed connection observes the end of the stream. Closing a
-  Listener stops accepting new connections but does not affect Sockets already
-  returned by net::accept; each of those is an independent resource closed on its
-  own.
+  Listener stops it from accepting new connections but does not affect Sockets
+  already returned by net::accept; each of those is an independent resource that
+  must be closed on its own.
 
-  Closing is otherwise automatic: every network resource is closed by lexical
-  drop when its scope ends. Call net::close only when the handle must be released
-  before then, such as freeing a listening port or a connection inside a
-  long-running loop.
+  Closing is otherwise automatic. Every network resource is closed by lexical
+  drop when the binding that holds it leaves scope. Call net::close only when the
+  handle must be released earlier than that, for example to free a listening port
+  for reuse, to let a peer observe the end of the stream promptly, or to bound
+  the number of sockets a long-running program holds open at once. Closing a
+  resource and then letting it drop is safe: the drop sees the closed flag and
+  does nothing. It is an error to close a resource that is already closed,
+  including one closed by a previous net::close call on the same value.
 
 OVERLOADS
   net::close(sock AS Socket) AS Nothing
-    Closes a connected TCP socket.
+    Closes a connected TCP socket, tearing down the connection.
 
   net::close(listener AS Listener) AS Nothing
-    Closes a TCP listener, stopping further accepts.
+    Closes a TCP listener, stopping further accepts. Sockets already accepted
+    from it are unaffected.
 
   net::close(sock AS UdpSocket) AS Nothing
-    Closes a bound UDP socket.
+    Closes a bound UDP socket, releasing its binding.
+
+PARAMETERS
+  sock AS Socket
+    The connected TCP socket to close, as returned by net::connectTcp or
+    net::accept. Must not already be closed.
+
+  listener AS Listener
+    The TCP listener to close, as returned by net::listenTcp. Must not already
+    be closed.
+
+  sock AS UdpSocket
+    The bound UDP socket to close, as returned by net::bindUdp. Must not already
+    be closed.
+
+RETURN VALUE
+  AS Nothing
+    Returns nothing on success. After a successful return the OS handle is
+    released and the resource is marked closed and must not be used again.
 
 ERRORS
-  Raises an Error with code 77030004 (ErrResourceClosed) when the resource has
-  already been closed, or 77070003 (ErrNetworkFailed) when the host OS reports a
-  failure while releasing the handle.
+  77030004 (ErrResourceClosed)
+  Raised when the resource has already been closed, whether by an earlier
+  net::close call on the same value or by a prior scope-drop.
+
+  77030006 (ErrCloseFailed)
+  Raised when the host OS reports a failure while releasing the handle.
 
 EXAMPLES
   Release a listening port as soon as it is no longer needed:
@@ -67,9 +94,5 @@ EXAMPLES
     LOOP
 
 SEE ALSO
-  net::connectTcp
-  net::listenTcp
-  net::accept
-  net::bindUdp
-  net::read
+  net::connectTcp, net::listenTcp, net::accept, net::bindUdp, net::read,
   net::write

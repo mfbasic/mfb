@@ -4,14 +4,53 @@ NAME
 SYNOPSIS
   math::ln2Fixed AS Fixed
 
+PACKAGE
+  math
+
+IMPORTS
+  IMPORT math
+
 DESCRIPTION
-  The natural logarithm of 2 rounded to the nearest Fixed value,
-  approximately 0.6931471805599453.
+  The natural logarithm of 2, expressed as a Fixed value. Its value is the
+  closest Fixed to ln(2), approximately 0.6931471805599453. The exact
+  mathematical value is irrational and cannot be represented exactly, so this
+  constant is the nearest representable Fixed.
+
+  ln2Fixed is a constant, not a callable function: it takes no arguments and is
+  referenced by name wherever a Fixed expression is expected. It performs no
+  computation at the call site, has no side effects, and evaluates to the same
+  Fixed value on every platform, making it suitable for deterministic decimal
+  arithmetic where a Float is not desired.
+
+  This constant is commonly used to convert between natural and base-2
+  logarithms: the base-2 logarithm of a value x equals
+  math::log(x) / math::ln2Fixed. Use math::ln2 for the Float form of the same
+  constant, and math::ln10Fixed for the natural logarithm of 10.
+
+PARAMETERS
+  None.
+    ln2Fixed is a constant value and accepts no arguments.
+
+RETURN VALUE
+  AS Fixed
+    The closest Fixed value to ln(2), approximately 0.6931471805599453. The same
+    value is produced on every reference.
+
+ERRORS
+  No errors.
 
 EXAMPLES
-  LET value AS Fixed = math::ln2Fixed
+  Read the constant into a Fixed:
 
-  LET log2 AS Fixed = math::log(x) / math::ln2Fixed
+    IMPORT math
+
+    LET value AS Fixed = math::ln2Fixed
+
+  Compute a base-2 logarithm from the natural logarithm:
+
+    IMPORT math
+
+    LET log2 AS Fixed = math::log(x) / math::ln2Fixed
 
 SEE ALSO
   math::ln2, math::ln10Fixed, math::eFixed, math::piFixed, math::twoOverPiFixed

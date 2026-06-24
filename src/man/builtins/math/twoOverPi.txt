@@ -4,14 +4,52 @@ NAME
 SYNOPSIS
   math::twoOverPi AS Float
 
+PACKAGE
+  math
+
+IMPORTS
+  IMPORT math
+
 DESCRIPTION
-  The mathematical constant 2 / pi as a Float value, approximately
-  0.6366197723675814.
+  The mathematical constant 2 / pi, the reciprocal of math::pi scaled by two, as
+  a Float value approximately equal to 0.6366197723675814. This is the closest
+  64-bit IEEE 754 double-precision representation of 2 / pi; it is not the exact
+  mathematical value, which is irrational and cannot be represented in finite
+  binary.
+
+  twoOverPi is a constant, not a callable function. It takes no arguments and is
+  referenced by name wherever a Float expression is expected, evaluating to the
+  same value on every use. It performs no computation at the call site and has
+  no side effects.
+
+  For a Fixed-point representation of the same constant, use math::twoOverPiFixed.
+  The constant is derived from the same underlying value as math::pi, and is
+  related to the angle constants math::pi2 (pi / 2) and math::pi4 (pi / 4).
+
+PARAMETERS
+  None.
+    math::twoOverPi is a constant and accepts no arguments.
+
+RETURN VALUE
+  AS Float
+    The Float closest to 2 / pi, approximately 0.6366197723675814. The same
+    value is produced on every reference.
+
+ERRORS
+  No errors.
 
 EXAMPLES
-  LET value AS Float = math::twoOverPi
+  Reference the constant directly:
+
+    IMPORT math
+
+    LET value AS Float = math::twoOverPi
+
+  Scale a value by 2 / pi:
+
+    IMPORT math
+
+    LET scaled AS Float = math::twoOverPi * amplitude
 
 SEE ALSO
   math::twoOverPiFixed, math::pi, math::pi2, math::pi4, math::e
-</content>
-</invoke>

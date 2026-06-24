@@ -1,13 +1,60 @@
 NAME
-    count - count non-overlapping occurrences of a substring
+  count - count non-overlapping occurrences of a substring
 
 SYNOPSIS
-    strings::count(value AS String, needle AS String) AS Integer
+  strings::count(value AS String, needle AS String) AS Integer
+
+PACKAGE
+  strings
+
+IMPORTS
+  IMPORT strings
 
 DESCRIPTION
-    Returns the number of non-overlapping occurrences of needle in value.
+  Returns the number of non-overlapping occurrences of needle within value as an
+  Integer. The scan is a raw byte search: starting at the first byte of value,
+  the bytes of needle are compared against value at the current offset. When the
+  bytes match, the count is incremented and the cursor advances past the entire
+  matched needle, so overlapping matches are not counted; when they do not match,
+  the cursor advances by a single byte. The scan continues until fewer than
+  len(needle) bytes remain, at which point no further match is possible.
+
+  Because both operands are Strings holding UTF-8 bytes, a needle that is itself a
+  well-formed UTF-8 string is matched at character boundaries; the search itself
+  operates on bytes and does not normalize, case-fold, or otherwise transform
+  either operand. Counting on byte boundaries means a multi-byte needle is only
+  reported where its complete byte sequence appears.
+
+  The non-overlapping rule is significant for self-similar needles. Counting "aa"
+  in "aaaa" yields 2, not 3, because after the first match at offset 0 the cursor
+  jumps to offset 2 rather than offset 1. A needle longer than value yields 0,
+  since no offset can hold it.
+
+  Neither operand is modified and the function has no side effects. To test only
+  whether a substring is present, use strings::contains; to obtain the position of
+  the first match, use strings::find.
+
+PARAMETERS
+  value AS String
+    The string to scan. May be empty, in which case the result is 0.
+
+  needle AS String
+    The substring to count. Must be non-empty; an empty needle raises an error.
+
+RETURN VALUE
+  AS Integer
+    The number of non-overlapping occurrences of needle in value, counted left to
+    right. Returns 0 when needle does not occur, including when needle is longer
+    than value or when value is empty.
+
+ERRORS
+  77050002 (ErrInvalidArgument)
+  Raised when needle is the empty string, which has no well-defined occurrence
+  count.
 
 EXAMPLES
+  Count a repeated substring:
+
     IMPORT io
     IMPORT strings
 
@@ -16,5 +63,9 @@ EXAMPLES
       RETURN 0
     END FUNC
 
-ERRORS
-    77050002 (ErrInvalidArgument) when needle is empty.
+  Non-overlapping matches advance past the whole needle:
+
+    LET n AS Integer = strings::count("aaaa", "aa")
+
+SEE ALSO
+  strings::contains, strings::find, strings::replace

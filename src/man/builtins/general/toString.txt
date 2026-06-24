@@ -22,10 +22,25 @@ DESCRIPTION
   text-oriented APIs such as io::print, io::write, io::printError, and
   io::writeError.
 
+  Integer and Byte values are rendered as base-10 text; Byte values are unsigned
+  and always in the range 0 through 255. Float and Fixed values are rendered as
+  decimal text with precision digits after the decimal point, where precision
+  defaults to 2 and may also be passed by the name decimals. Fixed is binary
+  fixed-point, so its decimal output reflects the representable value, not
+  necessarily the original decimal spelling used to create it. A Boolean renders
+  as "TRUE" or "FALSE". A String is returned unchanged. A List OF Byte is decoded
+  as UTF-8 and the resulting text is returned.
+
   MFBASIC does not automatically stringify arbitrary values for output. Use
   toString where the language defines an overload, and write an application
   formatting function for records, unions, resources, threads, functions,
-  lambdas, or other structured values.
+  lambdas, or other structured values. toString has no side effects beyond
+  producing the result String.
+
+  toString and typeName are diagnostic and formatting conveniences, not security
+  boundaries. Do not rely on them to redact secrets or decide whether a value is
+  safe to log. Secret-safe output requires explicit application-level formatting
+  that omits or redacts sensitive fields.
 
 OVERLOADS
   toString(value AS Integer) AS String
@@ -57,14 +72,29 @@ OVERLOADS
     Decodes the byte list as UTF-8 and returns the resulting String. Invalid
     UTF-8 fails with ErrEncoding (77020004).
 
-ERRORS
-  ErrEncoding (77020004)
-    Returned by the List OF Byte overload when the byte sequence is not valid
-    UTF-8.
+PARAMETERS
+  value AS Integer | Float | Fixed | Boolean | String | Byte | List OF Byte
+    The value to convert. Its type selects the overload and determines how the
+    result is formatted, as described in DESCRIPTION and OVERLOADS. For the
+    List OF Byte overload the bytes are interpreted as a UTF-8 encoded string.
 
-  Other overloads listed here do not perform numeric parsing and do not fail for
-  format or range reasons. They may still propagate an error from evaluating the
-  argument expression before toString is called.
+  precision AS Byte = 2
+    Present only on the Float and Fixed overloads. The number of digits to emit
+    after the decimal point. Defaults to 2 when omitted, and may also be passed
+    by the name decimals.
+
+RETURN VALUE
+  AS String
+    The text representation of value: base-10 digits for Integer and Byte, a
+    fixed-precision decimal for Float and Fixed, "TRUE" or "FALSE" for Boolean,
+    the original String unchanged, or the UTF-8 decoding of a List OF Byte.
+
+ERRORS
+  77020004 (ErrEncoding)
+  Raised by the List OF Byte overload when the byte sequence is not valid UTF-8.
+
+  The other overloads do not perform numeric parsing and cannot fail for format
+  or range reasons.
 
 TYPE CHECKING
   toString is defined only for the overloads listed in this page. Calling
@@ -86,26 +116,15 @@ EXAMPLES
     LET enabled AS Boolean = TRUE
     LET label AS String = "enabled=" & toString(enabled)
 
+  Format a Float with explicit precision:
+
+    LET ratio AS Float = 3.14159
+    LET text AS String = toString(ratio, 4)
+
   Decode UTF-8 bytes:
 
     LET bytes AS List OF Byte = [104, 101, 108, 108, 111]
     LET text AS String = toString(bytes)
 
-  Convert a value that is already a String:
-
-    LET message AS String = toString("ready")
-
-NOTES
-  toString and typeName are diagnostic and formatting conveniences, not security
-  boundaries. Do not rely on them to redact secrets or decide whether a value is
-  safe to log. Secret-safe output requires explicit application-level
-  formatting that omits or redacts sensitive fields.
-
 SEE ALSO
-  toInt
-  toFloat
-  toFixed
-  toByte
-  typeName
-  io::print
-  io::write
+  toInt, toFloat, toFixed, toByte, typeName, io::print, io::write

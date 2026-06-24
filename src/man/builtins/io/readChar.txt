@@ -4,46 +4,75 @@ NAME
 SYNOPSIS
   io::readChar() AS String
 
+PACKAGE
+  io
+
+IMPORTS
+  IMPORT io
+
 DESCRIPTION
   Reads one character from standard input and returns it as a String. The call
   returns as soon as a single keypress-sized unit is available; it does not wait
   for a newline.
 
-  On terminals, standard input is briefly switched out of canonical line mode and
-  echo is suppressed for the read, so the keypress is not displayed and no Return
-  is required. The terminal's previous mode is restored before the call returns.
+  On terminals, standard input is briefly switched out of canonical line mode
+  and echo is suppressed for the read, so the keypress is not displayed and no
+  Return is required. The terminal's previous mode is restored before the call
+  returns. When standard input is not a terminal (a file or pipe), the stream is
+  read as-is with no mode change.
 
-  Input is decoded as UTF-8. One full Unicode scalar value (one to four bytes) is
-  read and returned as a one-character String, including multi-byte characters
-  such as emoji.
+  Input is decoded as UTF-8. One full Unicode scalar value (one to four bytes)
+  is read and returned as a one-character String, including multi-byte
+  characters such as emoji. The leading byte determines how many continuation
+  bytes are read to complete the scalar; an ill-formed byte sequence fails
+  rather than producing a replacement character. Unlike io::readByte, which
+  delivers raw bytes one at a time, readChar always returns exactly one whole
+  character.
+
+  End of input is reported as an error, not as an empty result. Use
+  io::pollInput to test whether input is available before calling.
+
+PARAMETERS
+  None.
+
+RETURN VALUE
+  AS String
+    A one-character String holding the next Unicode scalar value read from
+    standard input.
 
 ERRORS
-  Fails with ErrEndOfFile (77020003) when standard input reaches end of file
-  before a character is read.
+  77020003 (ErrEof)
+  Raised when standard input reaches end of file before any byte of the
+  character is read.
 
-  Fails with ErrEncoding (77020004) when the input is not valid UTF-8.
+  77020004 (ErrEncoding)
+  Raised when the bytes read do not form a valid UTF-8 sequence.
 
-  Fails with ErrInputFailed (77020005) on input read failure.
+  77020005 (ErrInput)
+  Raised when reading from standard input fails for any other reason.
 
-  Fails with ErrOutOfMemory (77010001) when the result buffer cannot be
-  allocated.
+  77010001 (ErrOutOfMemory)
+  Raised when the returned String cannot be allocated.
 
 EXAMPLES
-  LET key AS String = io::readChar()
-  io::print(key)
+  Read one character and echo it back:
 
-  io::write("Press any key to continue...")
-  io::flush()
-  LET ignored AS String = io::readChar()
+    LET key AS String = io::readChar()
+    io::print(key)
 
-  IF io::pollInput(1000) THEN
-    io::print(io::readChar())
-  ELSE
-    io::print("timeout")
-  END IF
+  Wait for any keypress to continue:
+
+    io::write("Press any key to continue...")
+    io::flush()
+    LET ignored AS String = io::readChar()
+
+  Read a character only when input is available:
+
+    IF io::pollInput(1000) THEN
+      io::print(io::readChar())
+    ELSE
+      io::print("timeout")
+    END IF
 
 SEE ALSO
-  io::readByte
-  io::readLine
-  io::pollInput
-  io::input
+  io::readByte, io::readLine, io::pollInput, io::input

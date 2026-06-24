@@ -4,9 +4,17 @@ NAME
 SYNOPSIS
   fs::pathExtension(path AS String) AS String
 
+PACKAGE
+  fs
+
+IMPORTS
+  IMPORT fs
+
 DESCRIPTION
   Returns the extension of path's final component, including the leading ".".
-  The operation is purely syntactic and does not access the filesystem.
+  The operation is purely syntactic: it inspects the bytes of path and never
+  consults the filesystem, resolves "." or ".." segments, follows symbolic
+  links, or checks whether any path exists.
 
   Trailing "/" separators are ignored before the final component is located, so
   "target/output.txt" and "target/output.txt/" both yield ".txt". Within that
@@ -15,24 +23,54 @@ DESCRIPTION
   ".gz". The result spans from that "." through the end of the component.
 
   The search never crosses a "/", so a "." that appears in an earlier component
-  is ignored: "lib.d/output" yields an empty string. When the final component
-  contains no ".", an empty string is returned. When the only "." is the first
+  is ignored: "lib.d/output" yields an empty String. When the final component
+  contains no ".", an empty String is returned. When the only "." is the first
   byte of the component, that component is treated as a dotfile name and the
-  whole name is returned, so ".bashrc" yields ".bashrc".
+  whole name is returned, so ".bashrc" yields ".bashrc". An empty path, or a
+  path consisting only of "/" separators, returns an empty String.
 
-  The operation is byte-oriented for path syntax, so UTF-8 file names are
-  preserved unchanged.
+  The scan is byte-oriented, so UTF-8 file names are preserved unchanged and any
+  embedded bytes are treated literally. A new String holding the extension bytes
+  is allocated for the result. The function has no side effects other than
+  allocating the returned String.
+
+PARAMETERS
+  path AS String
+    The path whose extension is wanted. Interpreted as raw UTF-8 bytes. Trailing
+    "/" separators are ignored before the final component is located. May be
+    empty.
+
+RETURN VALUE
+  AS String
+    The extension of path's final component, including the leading ".". Returns
+    the whole component when it is a dotfile name (only "." is its first byte),
+    and an empty String when the final component has no ".", when path is empty,
+    or when path consists only of "/" separators.
+
+ERRORS
+  77010001 (ErrOutOfMemory)
+  Raised when the result String for the extension cannot be allocated.
 
 EXAMPLES
-  io::print(fs::pathExtension("target/output.txt"))
+  A file name with an extension yields the extension:
 
-  io::print(fs::pathExtension("archive.tar.gz"))
+    io::print(fs::pathExtension("target/output.txt"))
 
-  io::print(fs::pathExtension("README"))
+  Only the final extension is returned:
 
-  io::print(fs::pathExtension("lib.d/output"))
+    io::print(fs::pathExtension("archive.tar.gz"))
 
-  io::print(fs::pathExtension(".bashrc"))
+  A component with no "." yields an empty String:
+
+    io::print(fs::pathExtension("README"))
+
+  A "." in an earlier component is ignored:
+
+    io::print(fs::pathExtension("lib.d/output"))
+
+  A dotfile name is returned whole:
+
+    io::print(fs::pathExtension(".bashrc"))
 
 SEE ALSO
   fs::pathBaseName, fs::pathDirName, fs::pathJoin, fs::pathNormalize, fs::canonicalPath

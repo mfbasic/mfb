@@ -1,17 +1,50 @@
 NAME
-    lower - convert a string to lowercase
+  lower - convert a string to lowercase
 
 SYNOPSIS
-    strings::lower(value AS String) AS String
+  strings::lower(value AS String) AS String
+
+PACKAGE
+  strings
+
+IMPORTS
+  IMPORT strings
 
 DESCRIPTION
-    Converts value to lowercase using Unicode case mapping.
+  lower returns a new String in which every character of value has been mapped
+  to its lowercase form using Unicode full case mapping.
+
+  Mapping is applied per Unicode scalar value across the whole string. Characters
+  that have no lowercase equivalent (for example digits, punctuation, and symbols)
+  are copied through unchanged. Full case mapping may change the length of the
+  string: a single scalar can expand to several scalars when lowercased (for
+  example the Turkish capital "İ" maps to "i" followed by a combining dot above).
+
+  The mapping is locale-independent; it always uses the default Unicode case
+  conventions and does not apply language-specific tailoring. The original value
+  is not mutated; the result is a new owned String.
+
+PARAMETERS
+  value AS String
+    The string to convert. Any String is accepted, including the empty string.
+
+RETURN VALUE
+  AS String
+    A new String holding the lowercase mapping of value. An empty input yields an
+    empty String, and a string already fully lowercase (or containing no cased
+    characters) yields an equal String.
+
+ERRORS
+  No errors.
 
 EXAMPLES
-    IMPORT io
-    IMPORT strings
+  Lowercase a word:
 
-    FUNC main AS Integer
-      io::print(strings::lower("HELLO"))
-      RETURN 0
-    END FUNC
+    LET quiet AS String = strings::lower("HELLO")
+
+  Characters without a lowercase form pass through unchanged:
+
+    LET mixed AS String = strings::lower("ABC-123")
+
+SEE ALSO
+  upper, caseFold, normalizeNfc

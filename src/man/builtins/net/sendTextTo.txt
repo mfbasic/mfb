@@ -1,0 +1,111 @@
+NAME
+  sendTextTo - send a single UDP datagram of UTF-8 text to a destination address
+
+SYNOPSIS
+  net::sendTextTo(sock AS UdpSocket, address AS Address, value AS String) AS Nothing
+
+PACKAGE
+  net
+
+IMPORTS
+  IMPORT net
+
+DESCRIPTION
+  sendTextTo transmits the UTF-8 bytes of value as one UDP datagram from a bound
+  UdpSocket to the peer named by address. It is the text counterpart of
+  net::sendTo: rather than building a List OF Byte, the String's packed byte data
+  is sent directly. A String already holds well-formed UTF-8, so the bytes are
+  sent exactly as held, with no re-encoding, decoding, or newline translation.
+  Unlike a connected stream, a UDP socket is not tied to a single peer, so each
+  call names its own destination and the same socket can send to many peers in
+  turn without establishing a connection.
+
+  The destination address holds a host and a port. The host is resolved with the
+  system resolver (getaddrinfo) each call, so it may be a numeric IP literal or a
+  name; the requested port is written into the resolved address before sending.
+  The entire String is sent as the payload of a single datagram in byte order.
+  UDP preserves message boundaries: the payload arrives whole or not at all on
+  the receiving side, and is never split across datagrams or merged with another.
+  An empty String sends a zero-length datagram, which is a valid UDP message
+  rather than a no-op.
+
+  The datagram is handed to the operating system's send buffer; UDP is
+  best-effort, so a successful return means the datagram was accepted for
+  delivery, not that any peer received it. The call may block while the send
+  buffer is full, waiting until space is available or the socket's write timeout
+  elapses; use net::setWriteTimeout to bound how long a send may wait. When the
+  timeout expires the call raises ErrWriteTimeout. A payload larger than the
+  datagram size the path allows is rejected with ErrMessageTooLarge rather than
+  truncated.
+
+  The socket must still be open. The function allocates a temporary buffer to
+  resolve the host but does not allocate a result, reorder the payload, or close
+  the socket, and has no side effect beyond transmitting the datagram. Use
+  net::sendTo instead when sending raw binary data from a List OF Byte rather
+  than UTF-8 text from a String.
+
+PARAMETERS
+  sock AS UdpSocket
+    A bound UDP socket to send from, such as one returned by net::bindUdp. It
+    must still be open; sending on a closed socket is an error.
+
+  address AS Address
+    The destination, an Address record with a host String and an Integer port.
+    The host is resolved each call and may be a numeric IP literal or a name;
+    the port selects the destination port. Obtain one from net::lookup, or use
+    the from field of a Datagram returned by net::receiveTextFrom to reply to a
+    sender.
+
+  value AS String
+    The text to send, transmitted as its UTF-8 bytes in order as a single
+    datagram. An empty String sends a zero-length datagram.
+
+RETURN VALUE
+  AS Nothing
+    Returns nothing on success. A successful call has handed the datagram to the
+    operating system for best-effort delivery; it does not guarantee receipt.
+
+ERRORS
+  77030004 (ErrResourceClosed)
+  Raised when sock has already been closed.
+
+  77070002 (ErrAddressNotFound)
+  Raised when the destination host in address cannot be resolved.
+
+  77070007 (ErrMessageTooLarge)
+  Raised when the payload is too large to be sent as a single datagram.
+
+  77070006 (ErrWriteTimeout)
+  Raised when the socket's write timeout elapses before the datagram could be
+  sent.
+
+  77070003 (ErrNetworkFailed)
+  Raised when the send fails for a reason other than a timeout or an oversized
+  payload.
+
+  77010001 (ErrOutOfMemory)
+  Raised when the temporary buffer used to resolve the destination host cannot
+  be allocated.
+
+EXAMPLES
+  Send a line of text to a resolved destination:
+
+    IMPORT collections
+    IMPORT net
+
+    RES sock = net::bindUdp("0.0.0.0", 0)
+    LET dest = collections::get(net::lookup("127.0.0.1", 9000), 0)
+    net::sendTextTo(sock, dest, "hello")
+    ' sock is closed by lexical drop when this scope ends
+
+  Receive text from a peer, then reply to its sender:
+
+    IMPORT net
+
+    RES sock = net::bindUdp("127.0.0.1", 9000)
+    LET dg = net::receiveTextFrom(sock, 1024)
+    net::sendTextTo(sock, dg.from, dg.text)
+    ' sock is closed by lexical drop when this scope ends
+
+SEE ALSO
+  net::sendTo, net::receiveTextFrom, net::receiveFrom, net::bindUdp, net::setWriteTimeout, net::localAddress, net::close

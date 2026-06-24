@@ -11,27 +11,62 @@ IMPORTS
   IMPORT net
 
 DESCRIPTION
-  read receives data from a connected Socket and returns it as a List OF Byte.
-  At most maxBytes bytes are returned in a single call; the list is often shorter
-  because read returns as soon as any data is available rather than waiting to
-  fill the requested size. The socket must still be open.
+  Receives data from a connected Socket and returns it as a List OF Byte. A
+  single call performs one underlying receive: it returns as soon as any data is
+  available rather than waiting to fill the requested size, so the returned list
+  is frequently shorter than maxBytes. The socket must still be open.
 
-  read blocks until at least one byte arrives, the peer closes the connection, or
-  the socket's read timeout elapses. An empty list signals end of stream: the
-  peer has closed its side and no further data will arrive. Use net::poll to test
-  for readiness without blocking, or net::setReadTimeout to bound how long a read
-  may wait.
+  The call blocks until at least one byte arrives, the peer closes its side of
+  the connection, or the socket's read timeout elapses. maxBytes bounds the size
+  of a single read and the size of the returned list; it does not request that
+  exactly that many bytes be read. On success the returned list always holds at
+  least one byte.
 
-  maxBytes must be positive and caps the size of the returned list. To read a
-  whole message, call read in a loop, appending each result, until it returns an
-  empty list. Use net::readText instead when the peer sends UTF-8 text and a
-  String is more convenient than raw bytes.
+  Unlike a plain stream read that signals end of stream with a zero-length
+  result, this function raises an error when the peer has closed the connection:
+  there is no empty-list sentinel. To consume a whole message, call read in a
+  loop, appending each result, and stop when an ErrConnectionClosed error is
+  raised. Use net::poll to test for readiness without blocking, and
+  net::setReadTimeout to bound how long a read may wait. Use net::readText when
+  the peer sends UTF-8 text and a String is more convenient than raw bytes.
+
+  The data is read into a freshly allocated List OF Byte; the function has no
+  other side effects and does not close the socket.
+
+PARAMETERS
+  sock AS Socket
+    A connected socket to receive from, such as one returned by net::connectTcp
+    or net::accept. It must still be open; reading from a closed socket is an
+    error.
+
+  maxBytes AS Integer
+    The maximum number of bytes to read in this call. Must be positive. It caps
+    the length of the returned list but does not guarantee that many bytes are
+    returned.
+
+RETURN VALUE
+  AS List OF Byte
+    The bytes received in this read, in the order they arrived, with length
+    between 1 and maxBytes inclusive. End of stream is not reported as an empty
+    list; it is reported as an ErrConnectionClosed error.
 
 ERRORS
-  Raises an Error with code 77050002 (ErrInvalidArgument) when maxBytes is not
-  positive, 77030004 (ErrResourceClosed) when the socket has already been closed,
-  or 77070003 (ErrNetworkFailed) when the read could not be completed or the read
-  timeout elapsed before any data arrived.
+  77050002 (ErrInvalidArgument)
+  Raised when maxBytes is not positive.
+
+  77030004 (ErrResourceClosed)
+  Raised when sock has already been closed.
+
+  77070004 (ErrConnectionClosed)
+  Raised when the peer has closed the connection (an end-of-stream read) or the
+  read otherwise fails for a reason other than a timeout.
+
+  77070005 (ErrReadTimeout)
+  Raised when the socket's read timeout elapses before any data arrives.
+
+  77010001 (ErrOutOfMemory)
+  Raised when the temporary read buffer or the returned List OF Byte cannot be
+  allocated.
 
 EXAMPLES
   Read up to 1024 bytes from a connected socket:
@@ -51,19 +86,12 @@ EXAMPLES
     net::writeText(client, "GET / HTTP/1.0\r\n\r\n")
     MUT response = [] AS List OF Byte
     DO
-      LET chunk = net::read(client, 4096)
-      IF len(chunk) = 0 THEN
-        EXIT DO
-      END IF
-      response = append(response, chunk)
+      MATCH net::read(client, 4096)
+        CASE Ok(chunk) : response = append(response, chunk)
+        CASE Err(err) : EXIT DO
+      END MATCH
     LOOP
     ' client is closed by lexical drop when this scope ends
 
 SEE ALSO
-  net::readText
-  net::write
-  net::poll
-  net::setReadTimeout
-  net::connectTcp
-  net::accept
-  net::close
+  net::readText, net::write, net::poll, net::setReadTimeout, net::connectTcp, net::accept, net::close

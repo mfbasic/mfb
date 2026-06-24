@@ -35,9 +35,12 @@ OVERLOADS
     Bounds sends on a bound UDP socket.
 
 ERRORS
-  Raises an Error with code 77050002 (ErrInvalidArgument) when timeoutMs is
-  negative, or 77030004 (ErrResourceClosed) when the socket has already been
-  closed or the timeout could not be applied to the underlying handle.
+  77050002 (ErrInvalidArgument)
+  Raised when timeoutMs is negative.
+
+  77030004 (ErrResourceClosed)
+  Raised when sock has already been closed, or when the timeout could not be
+  applied to the underlying socket handle (the setsockopt call failed).
 
 EXAMPLES
   Fail a write that stalls for more than two seconds:

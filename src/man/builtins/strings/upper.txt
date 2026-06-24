@@ -1,17 +1,50 @@
 NAME
-    upper - convert a string to uppercase
+  upper - convert a string to uppercase
 
 SYNOPSIS
-    strings::upper(value AS String) AS String
+  strings::upper(value AS String) AS String
+
+PACKAGE
+  strings
+
+IMPORTS
+  IMPORT strings
 
 DESCRIPTION
-    Converts value to uppercase using Unicode case mapping.
+  upper returns a new String in which every character of value has been mapped
+  to its uppercase form using Unicode full case mapping.
+
+  Mapping is applied per Unicode scalar value across the whole string. Characters
+  that have no uppercase equivalent (for example digits, punctuation, and symbols)
+  are copied through unchanged. Full case mapping may change the length of the
+  string: a single scalar can expand to several scalars when uppercased (for
+  example the German "ß" maps to "SS").
+
+  The mapping is locale-independent; it always uses the default Unicode case
+  conventions and does not apply language-specific tailoring. The original value
+  is not mutated; the result is a new owned String.
+
+PARAMETERS
+  value AS String
+    The string to convert. Any String is accepted, including the empty string.
+
+RETURN VALUE
+  AS String
+    A new String holding the uppercase mapping of value. An empty input yields an
+    empty String, and a string already fully uppercase (or containing no
+    cased characters) yields an equal String.
+
+ERRORS
+  No errors.
 
 EXAMPLES
-    IMPORT io
-    IMPORT strings
+  Uppercase a word:
 
-    FUNC main AS Integer
-      io::print(strings::upper("hello"))
-      RETURN 0
-    END FUNC
+    LET shout AS String = strings::upper("hello")
+
+  Characters without an uppercase form pass through unchanged:
+
+    LET mixed AS String = strings::upper("abc-123")
+
+SEE ALSO
+  lower, caseFold, normalizeNfc

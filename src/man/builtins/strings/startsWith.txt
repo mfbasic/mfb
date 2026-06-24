@@ -1,13 +1,54 @@
 NAME
-    startsWith - test whether a string starts with a prefix
+  startsWith - test whether a string begins with a given prefix
 
 SYNOPSIS
-    strings::startsWith(value AS String, prefix AS String) AS Boolean
+  strings::startsWith(value AS String, prefix AS String) AS Boolean
+
+PACKAGE
+  strings
+
+IMPORTS
+  IMPORT strings
 
 DESCRIPTION
-    Returns TRUE when value starts with prefix. The empty prefix always matches.
+  Returns TRUE when value begins with prefix and FALSE otherwise. The test is a
+  raw byte comparison: the leading bytes of value are compared against the bytes
+  of prefix, in order, and the result is TRUE only when every byte of prefix
+  matches the byte at the same offset from the start of value. Because both
+  operands are Strings holding UTF-8 bytes, a matching byte prefix that is itself
+  a well-formed UTF-8 string corresponds to a prefix at character boundaries; the
+  comparison itself is performed on bytes and does not normalize, case-fold, or
+  otherwise transform either operand.
+
+  When prefix is longer than value the result is FALSE, since value cannot begin
+  with more bytes than it contains. The empty prefix always matches and yields
+  TRUE for any value, including the empty string. Comparing the empty value
+  against a non-empty prefix yields FALSE.
+
+  Neither operand is modified and the function has no side effects. To test the
+  trailing bytes of a string instead, use strings::endsWith; to test against
+  several candidate prefixes at once, use strings::startsWithAny.
+
+PARAMETERS
+  value AS String
+    The string whose leading bytes are examined. May be empty.
+
+  prefix AS String
+    The prefix to look for at the start of value. May be empty, in which case the
+    function always returns TRUE.
+
+RETURN VALUE
+  AS Boolean
+    TRUE when the bytes of prefix match the leading bytes of value, FALSE
+    otherwise. An empty prefix always returns TRUE; a prefix longer than value
+    always returns FALSE.
+
+ERRORS
+  No errors.
 
 EXAMPLES
+  Test for a leading prefix:
+
     IMPORT io
     IMPORT strings
 
@@ -15,3 +56,10 @@ EXAMPLES
       io::print(toString(strings::startsWith("😀 Hello", "😀")))
       RETURN 0
     END FUNC
+
+  The empty prefix always matches:
+
+    LET ok AS Boolean = strings::startsWith("anything", "")
+
+SEE ALSO
+  strings::endsWith, strings::startsWithAny, strings::contains, strings::stripPrefix

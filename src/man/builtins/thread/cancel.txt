@@ -1,21 +1,68 @@
 NAME
-  cancel - request cooperative thread cancellation
+  cancel - request cooperative cancellation of a worker thread
 
 SYNOPSIS
   thread::cancel(t AS Thread OF Msg TO Out) AS Nothing
 
-DESCRIPTION
-  Requests cooperative cancellation of the worker. New sends fail after
-  cancellation is requested. The worker can observe the request with
-  thread::isCancelled.
+PACKAGE
+  thread
 
-  Cancellation also wakes runtime-managed worker queue waits inside the worker.
-  thread::receive(ThreadWorker, ...) and thread::send(ThreadWorker, ...) fail
-  with ErrInterrupted when cancellation is requested. Other blocking built-ins
-  that are implemented as runtime-managed waits must use the same cooperative
-  error-return model when cancellation integration is provided. Cancellation is
-  not a force stop and does not asynchronously kill arbitrary user or native
-  code.
+IMPORTS
+  IMPORT thread
+
+DESCRIPTION
+  Requests cooperative cancellation of the worker behind the parent Thread handle
+  t. Cancellation is a request, not a force stop: it sets the worker's cancelled
+  flag, closes both of the worker's message queues, and wakes any blocked queue
+  waits so the worker can observe the request and unwind through normal control
+  flow. It never asynchronously kills arbitrary user code or native code running
+  in the worker.
+
+  cancel accepts only a parent Thread handle, never a ThreadWorker handle; a
+  ThreadWorker handle is rejected at compile time. Under the lock on the worker's
+  inbound queue, cancel marks the worker cancelled, marks both the inbound and
+  outbound queues closed, and broadcasts each queue's not-empty and not-full
+  conditions. This wakes runtime-managed worker queue waits inside the worker:
+  thread::receive and thread::send on a ThreadWorker handle return ErrInterrupted
+  once cancellation is requested, and new sends fail because the queue is closed.
+  Other blocking built-ins implemented as runtime-managed waits use the same
+  cooperative error-return model when cancellation integration is provided.
+
+  The worker observes the request with thread::isCancelled, which returns TRUE
+  after cancel has run, and can then finish and store its result normally. cancel
+  itself does not wait for the worker to terminate; use thread::waitFor to join.
+
+  Requesting cancellation does not close or consume the parent Thread handle. The
+  only way cancel fails is when the handle has already been closed, for example by
+  a prior thread::waitFor(t) or t.result that consumed it.
+
+PARAMETERS
+  t AS Thread OF Msg TO Out
+    The parent Thread handle whose worker should be cancelled. Must be a live,
+    not-yet-consumed parent Thread handle. A ThreadWorker handle is rejected at
+    compile time. Msg is the worker's inbound message type and Out is its output
+    type; cancel does not read either.
+
+RETURN VALUE
+  AS Nothing
+    cancel returns no value. On success the worker's cancelled flag is set and its
+    queues are closed and woken.
+
+ERRORS
+  77030004 (ErrResourceClosed)
+  Raised when the parent Thread handle has already been closed, for example by a
+  previous thread::waitFor(t) or t.result on the same handle.
 
 EXAMPLES
-  thread::cancel(t)
+  Request cancellation of a running worker:
+
+    thread::cancel(t)
+
+  Cancel a worker and then join it:
+
+    thread::cancel(t)
+    LET result AS Out = thread::waitFor(t)
+
+SEE ALSO
+  thread::isCancelled, thread::waitFor, thread::start, thread::send,
+  thread::receive

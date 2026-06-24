@@ -4,14 +4,52 @@ NAME
 SYNOPSIS
   math::e AS Float
 
+PACKAGE
+  math
+
+IMPORTS
+  IMPORT math
+
 DESCRIPTION
-  Euler's number e (the base of the natural logarithm) as a Float value,
-  approximately 2.718281828459045.
+  Euler's number e, the base of the natural logarithm, as a Float value
+  approximately equal to 2.718281828459045. This is the closest 64-bit IEEE
+  754 double-precision representation of e; it is not the exact mathematical
+  value, which is irrational and cannot be represented in finite binary.
+
+  e is a constant, not a callable function. It takes no arguments and is
+  referenced by name wherever a Float expression is expected, evaluating to the
+  same value on every use. It performs no computation at the call site and has
+  no side effects.
+
+  For a Fixed-point representation of the same constant, use math::eFixed. The
+  exponential function math::exp computes e raised to a given power, and the
+  natural-logarithm constants math::ln2 and math::ln10 are derived from the same
+  base.
+
+PARAMETERS
+  None.
+    math::e is a constant and accepts no arguments.
+
+RETURN VALUE
+  AS Float
+    The Float closest to e, approximately 2.718281828459045. The same value is
+    produced on every reference.
+
+ERRORS
+  No errors.
 
 EXAMPLES
-  LET value AS Float = math::e
+  Reference the constant directly:
 
-  LET growth AS Float = math::pow(math::e, rate * time)
+    IMPORT math
+
+    LET value AS Float = math::e
+
+  Compute exponential growth from a rate and time:
+
+    IMPORT math
+
+    LET growth AS Float = math::pow(math::e, rate * time)
 
 SEE ALSO
   math::eFixed, math::exp, math::ln2, math::ln10, math::pi

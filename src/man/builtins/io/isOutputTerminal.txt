@@ -4,26 +4,55 @@ NAME
 SYNOPSIS
   io::isOutputTerminal() AS Boolean
 
+PACKAGE
+  io
+
+IMPORTS
+  IMPORT io
+
 DESCRIPTION
-  Returns TRUE when standard output is connected to an interactive terminal
-  (a tty) and FALSE when it is redirected to a file, pipe, or other
-  non-terminal destination.
+  Reports whether standard output is connected to an interactive terminal.
+  Returns TRUE when standard output is a tty and FALSE when it is redirected
+  to a file, a pipe, or any other non-terminal destination.
 
   Use this to decide whether to emit ANSI colors, progress bars, or other
   terminal-only formatting, and to fall back to plain output when writing to a
-  file or pipe. The check inspects only the current state of standard output; it
-  does not modify the stream or write any data.
+  file or pipe. The check inspects only the current state of standard output
+  (file descriptor 1); it does not modify the stream or write any data. To probe
+  the other standard streams instead, use io::isInputTerminal or
+  io::isErrorTerminal.
+
+  The function takes no arguments and never fails: a non-terminal output simply
+  yields FALSE rather than an error.
+
+  Platform note: in app mode the program has no real file descriptors because
+  output is rendered by the application window, which is treated as an
+  interactive console; in that environment this call returns TRUE.
+
+PARAMETERS
+  None.
+
+RETURN VALUE
+  AS Boolean
+    Returns TRUE when standard output is an interactive terminal and FALSE when
+    it is redirected to a file, pipe, or other non-terminal destination. In app
+    mode the result is TRUE.
+
+ERRORS
+  No errors.
 
 EXAMPLES
-  LET useColor AS Boolean = io::isOutputTerminal()
-  IF useColor THEN
-    io::print("Status: OK (interactive)")
-  ELSE
-    io::print("Status: OK")
-  END IF
+  Emit ANSI color only when a terminal is attached, otherwise plain text:
+
+    IF io::isOutputTerminal() THEN
+      io::print("[32mStatus: OK[0m")
+    ELSE
+      io::print("Status: OK")
+    END IF
+
+  Capture the current state for later branching:
+
+    LET useColor AS Boolean = io::isOutputTerminal()
 
 SEE ALSO
-  io::isInputTerminal
-  io::isErrorTerminal
-  io::print
-  io::flush
+  io::isInputTerminal, io::isErrorTerminal, io::print, io::flush

@@ -1,16 +1,69 @@
 NAME
-    trimChars - remove leading and trailing scalars in a set
+  trimChars - remove leading and trailing scalars that appear in a set
 
 SYNOPSIS
-    strings::trimChars(value AS String, chars AS String) AS String
+  strings::trimChars(value AS String, chars AS String) AS String
+
+PACKAGE
+  strings
+
+IMPORTS
+  IMPORT strings
 
 DESCRIPTION
-    Removes any leading and trailing Unicode scalars of value that appear in
-    the set of scalars given by chars. An empty chars returns value
-    unchanged. Unlike strings::trim, which removes Unicode whitespace, this
-    function trims only the scalars listed in chars.
+  trimChars returns a new String equal to value with all leading and trailing
+  Unicode scalars that appear in chars removed. The chars argument is treated as
+  a set of scalars rather than as an ordered sequence: every Unicode scalar that
+  occurs anywhere in chars is a member of the trim set, and the order, position,
+  and any repetition of those scalars in chars do not matter.
+
+  Trimming proceeds from both ends toward the middle. Starting at the front,
+  scalars are removed as long as each one is a member of the set, stopping at the
+  first scalar that is not in the set. The same is done from the back. Only the
+  contiguous runs of set members at the very start and the very end of value are
+  removed; any occurrence of a set member that lies between two non-set scalars
+  is interior and is left in place, so the middle of the string is preserved
+  exactly.
+
+  Membership is tested on whole Unicode scalars, not bytes, so multi-byte scalars
+  listed in chars match correctly and trimming never splits a scalar. The
+  comparison is literal: scalars must match exactly, with no normalization or
+  case folding, so a scalar trimmed in one case is not trimmed in another.
+
+  When chars is empty the set is empty, no scalar qualifies for removal, and value
+  is returned unchanged. When value is empty, or when every scalar of value is a
+  member of the set, the result is the empty string. When value has no leading or
+  trailing set members, a string equal to value is returned. trimChars reads its
+  arguments only and has no side effects; it never mutates either argument and
+  always produces a new String for the result.
+
+  Unlike strings::trim, which removes Unicode whitespace, trimChars removes only
+  the scalars listed in chars. To strip a fixed leading or trailing substring
+  rather than a set of scalars, use strings::stripPrefix or strings::stripSuffix.
+
+PARAMETERS
+  value AS String
+    The string to trim. May be empty. Returned unchanged when it has no leading
+    or trailing scalar drawn from chars.
+
+  chars AS String
+    The set of Unicode scalars to remove from the ends of value. Interpreted as a
+    set: order and repetition are irrelevant. May be empty, in which case value is
+    returned unchanged.
+
+RETURN VALUE
+  AS String
+    A new string equal to value with all leading and trailing scalars that are
+    members of chars removed. Returns the empty string when value is empty or
+    consists entirely of set members, and a string equal to value when chars is
+    empty or value has no surrounding set members.
+
+ERRORS
+  No errors.
 
 EXAMPLES
+  Remove a set of surrounding scalars:
+
     IMPORT io
     IMPORT strings
 
@@ -18,3 +71,10 @@ EXAMPLES
       io::print(strings::trimChars("xxyHelloxyx", "xy"))
       RETURN 0
     END FUNC
+
+  Interior set members are preserved:
+
+    LET cleaned AS String = strings::trimChars("--a-b--", "-")
+
+SEE ALSO
+  strings::trim, strings::trimStart, strings::trimEnd, strings::stripPrefix, strings::stripSuffix

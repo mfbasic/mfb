@@ -15,13 +15,17 @@ IMPORTS
 
 DESCRIPTION
   connectTcp establishes an outbound TCP connection and returns a connected
-  Socket resource. The peer may be named directly with a host string and port,
-  or with an Address obtained from net::lookup. When host is a name rather than
-  a textual IP address it is resolved before connecting.
+  Socket resource. The peer may be named directly with a host string and a port,
+  or with an Address obtained from net::lookup (whose host and port fields supply
+  the destination). When host is a name rather than a textual IP address it is
+  resolved with the host resolver before connecting; the first resolved result is
+  used.
 
   The optional timeoutMs bounds how long the connection attempt may take, in
-  milliseconds. When omitted, a host-defined default applies; the attempt is not
-  guaranteed to be unbounded.
+  milliseconds. A value greater than zero performs a non-blocking connect bounded
+  by that deadline and raises ErrTimeout if it elapses first. When timeoutMs is
+  omitted, zero, or negative, a plain blocking connect is performed and the
+  implementation default applies; the attempt is not guaranteed to be unbounded.
 
   Socket resources are closed by lexical drop at scope exit or explicitly with
   net::close. Read and write data with net::read, net::readText, net::write, and
@@ -30,23 +34,58 @@ DESCRIPTION
 
 OVERLOADS
   net::connectTcp(host AS String, port AS Integer) AS Socket
-    Connects to host on port using the default timeout.
+    Resolves host, connects on port using the default (blocking) timeout.
 
   net::connectTcp(host AS String, port AS Integer, timeoutMs AS Integer) AS Socket
-    Connects to host on port, failing if the attempt exceeds timeoutMs.
+    Resolves host, connects on port, failing if the attempt exceeds timeoutMs.
 
   net::connectTcp(address AS Address) AS Socket
-    Connects to a resolved Address using the default timeout.
+    Connects to the host and port carried by address using the default timeout.
 
   net::connectTcp(address AS Address, timeoutMs AS Integer) AS Socket
-    Connects to a resolved Address, failing if the attempt exceeds timeoutMs.
+    Connects to the host and port carried by address, failing if the attempt
+    exceeds timeoutMs.
+
+PARAMETERS
+  host AS String
+    The host name or textual IP address of the peer. Resolved with the host
+    resolver; a name that cannot be resolved raises an error (see ERRORS).
+
+  port AS Integer
+    The TCP port to connect to on the peer.
+
+  address AS Address
+    A destination obtained from net::lookup. Its host field supplies the peer
+    host and its port field the peer port, replacing the separate host and port
+    arguments.
+
+  timeoutMs AS Integer
+    Optional. The maximum time the connection attempt may take, in milliseconds.
+    When greater than zero, the attempt is bounded by this deadline and raises
+    ErrTimeout if it elapses. When omitted, zero, or negative, a blocking connect
+    with the implementation default applies.
+
+RETURN VALUE
+  AS Socket
+    A connected Socket resource ready for reading and writing. The Socket is
+    closed by lexical drop at scope exit unless closed earlier with net::close.
 
 ERRORS
-  Raises an Error with code 77050002 (ErrInvalidArgument) when an argument value
-  is not valid for the operation, 77070001 (ErrAddressInvalid) when the host or
-  port is malformed, 77070002 (ErrAddressNotFound) when the host name could not
-  be resolved, or 77070003 (ErrNetworkFailed) when the connection could not be
-  established or the timeout elapsed before it completed.
+  77010001 (ErrOutOfMemory)
+  Raised when memory for the host C string or the Socket handle could not be
+  allocated.
+
+  77050008 (ErrTimeout)
+  Raised when a positive timeoutMs was given and the connection did not complete
+  before the deadline elapsed.
+
+  77070002 (ErrAddressNotFound)
+  Raised when host could not be resolved, including when it is malformed or has
+  no address record.
+
+  77070003 (ErrNetworkFailed)
+  Raised when the socket could not be created or the connection could not be
+  established (for example the peer refused the connection or is unreachable).
 
 EXAMPLES
   Connect by host and port:
@@ -66,9 +105,4 @@ EXAMPLES
     ' client is closed by lexical drop when this scope ends
 
 SEE ALSO
-  net::lookup
-  net::listenTcp
-  net::read
-  net::write
-  net::close
-  net::remoteAddress
+  net::lookup, net::listenTcp, net::read, net::write, net::close, net::remoteAddress

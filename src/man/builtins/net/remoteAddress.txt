@@ -23,11 +23,28 @@ DESCRIPTION
   Use net::localAddress to inspect the local endpoint of a Socket, Listener, or
   UdpSocket instead of the peer one.
 
+PARAMETERS
+  sock AS Socket
+    A connected TCP Socket, obtained from net::connectTcp or net::accept, whose
+    peer endpoint is to be reported. The socket must still be open.
+
+RETURN VALUE
+  AS Address
+    An Address whose host field (String) holds the concrete peer address the OS
+    resolved and whose port field (Integer) holds the peer port of the
+    connection.
+
 ERRORS
-  Raises an Error with code 77030004 (ErrResourceClosed) when the socket has
-  already been closed or the host OS reports it is no longer usable, 77070001
-  (ErrAddressInvalid) when the peer address cannot be represented as an Address,
-  or 77010001 (ErrOutOfMemory) when the result could not be allocated.
+  77030004 (ErrResourceClosed)
+  Raised when the socket has already been closed, or when the host OS reports
+  that it is no longer usable while querying its peer endpoint.
+
+  77070001 (ErrAddressInvalid)
+  Raised when the peer address reported by the OS cannot be represented as an
+  Address.
+
+  77010001 (ErrOutOfMemory)
+  Raised when the resulting Address could not be allocated.
 
 EXAMPLES
   Inspect the peer endpoint of an outbound connection:
@@ -53,8 +70,4 @@ EXAMPLES
     ' conn and listener are closed by lexical drop when this scope ends
 
 SEE ALSO
-  net::localAddress
-  net::connectTcp
-  net::accept
-  net::listenTcp
-  net::close
+  net::localAddress, net::connectTcp, net::accept, net::listenTcp, net::close

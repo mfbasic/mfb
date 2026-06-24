@@ -4,14 +4,52 @@ NAME
 SYNOPSIS
   math::pi2Fixed AS Fixed
 
+PACKAGE
+  math
+
+IMPORTS
+  IMPORT math
+
 DESCRIPTION
-  The mathematical constant pi / 2 (a quarter turn, or 90 degrees in radians)
-  rounded to the nearest Fixed value, approximately 1.5707963267948966.
+  The mathematical constant pi / 2, a quarter turn or 90 degrees expressed in
+  radians, as a Fixed value. Its value is the closest Fixed to pi / 2,
+  approximately 1.5707963267948966. The exact mathematical value is irrational
+  and cannot be represented in finite precision.
+
+  pi2Fixed is a constant, not a callable function: it takes no arguments and is
+  referenced by name wherever a Fixed expression is expected. It performs no
+  computation at the call site and has no side effects, evaluating to the same
+  Fixed value on every use and on every platform. This makes it suitable for
+  deterministic decimal arithmetic where a Float is not desired.
+
+  For the Float form of the same constant, use math::pi2. The related angle
+  constants math::piFixed (pi, a full half turn) and math::pi4Fixed (pi / 4)
+  express the same family of values as Fixed.
+
+PARAMETERS
+  None.
+    pi2Fixed is a constant value and accepts no arguments.
+
+RETURN VALUE
+  AS Fixed
+    The closest Fixed value to pi / 2, approximately 1.5707963267948966. The
+    same value is produced on every reference.
+
+ERRORS
+  No errors.
 
 EXAMPLES
-  LET value AS Fixed = math::pi2Fixed
+  Read the constant into a Fixed:
 
-  LET quarterTurn AS Fixed = math::piFixed / 2.0
+    IMPORT math
+
+    LET value AS Fixed = math::pi2Fixed
+
+  Derive a quarter turn from piFixed using Fixed arithmetic:
+
+    IMPORT math
+
+    LET quarterTurn AS Fixed = math::piFixed / 2.0
 
 SEE ALSO
   math::pi2, math::piFixed, math::pi4Fixed, math::twoOverPiFixed, math::eFixed

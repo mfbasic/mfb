@@ -5,42 +5,72 @@ SYNOPSIS
   math::ceil(value AS Float) AS Integer
   math::ceil(value AS Fixed) AS Integer
 
+PACKAGE
+  math
+
+IMPORTS
+  IMPORT math
+
 DESCRIPTION
   Returns the smallest integer that is greater than or equal to value, rounding
-  toward positive infinity. The result is always returned as an Integer.
+  toward positive infinity. The result is always returned as an Integer,
+  regardless of whether the argument is a Float or a Fixed.
 
   For values that have a fractional part the result is the next whole number
   toward positive infinity, so math::ceil(3.25) is 4 and math::ceil(-2.25) is
-  -2, not -3.
+  -2, not -3. A value that is already a whole number is returned unchanged.
+
+  The function is overloaded by the exact numeric type of value; there is no
+  mixed-type overload, and the single argument selects which version is called.
+  The Fixed overload uses deterministic fixed-point (Q32.32) arithmetic, so its
+  result is identical across all targets.
 
 OVERLOADS
   math::ceil(value AS Float) AS Integer
-    Rounds the Float value up to the nearest Integer.
+    Rounds the Float value up to the nearest Integer toward positive infinity.
+    Fails with ErrOverflow when the ceiled result lies outside the
+    representable Integer range.
 
   math::ceil(value AS Fixed) AS Integer
-    Rounds the Fixed (Q32.32) value up to the nearest Integer using
-    deterministic fixed-point arithmetic, so the result is identical across
-    targets.
+    Rounds the Fixed (Q32.32) value up to the nearest Integer toward positive
+    infinity using deterministic fixed-point arithmetic. Every Fixed value
+    ceils to an Integer that fits in range, so this overload never overflows.
+
+PARAMETERS
+  value AS Float | Fixed
+    The number to round up. Any Float or Fixed is accepted. For the Float
+    overload, a value whose ceiling falls outside Integer range cannot be
+    represented and is reported as an overflow.
+
+RETURN VALUE
+  AS Integer
+    The smallest Integer greater than or equal to value. Whole-number inputs
+    return their exact integer value; fractional inputs return the next whole
+    number toward positive infinity.
 
 ERRORS
-  The Float overload fails with ErrOverflow (77050010) when the ceiled result
-  is outside Integer range.
-
-  The Fixed overload does not overflow: every Fixed value ceils to an Integer
-  that fits in range.
+  77050010 (ErrOverflow)
+  Raised by the Float overload when the ceiled result lies outside the
+  representable Integer range. The Fixed overload does not raise this error,
+  because every Fixed value ceils to an Integer that fits in range.
 
 TYPE CHECKING
-  value must be a Float or a Fixed. Calling math::ceil with any other argument
-  type is a compile-time type error.
+  value must be a single Float or Fixed. Passing any other type, such as an
+  Integer, String, Boolean, Byte, record, union, resource, thread, function, or
+  lambda, is a compile-time type error.
 
 EXAMPLES
   Ceil a positive value:
+
+    IMPORT math
 
     LET value AS Integer = math::ceil(3.25)
 
   Ceil a negative value toward positive infinity:
 
+    IMPORT math
+
     LET value AS Integer = math::ceil(-2.25)
 
 SEE ALSO
-  floor, round, abs, clamp
+  math::floor, math::round, math::abs, math::clamp

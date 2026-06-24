@@ -1,14 +1,79 @@
 NAME
-  poll - wait for an outbound message
+  poll - wait for an outbound message to become available
 
 SYNOPSIS
   thread::poll(t AS Thread OF Msg TO Out, ms AS Integer) AS Boolean
 
+PACKAGE
+  thread
+
+IMPORTS
+  IMPORT thread
+
 DESCRIPTION
-  Waits up to ms milliseconds for an outbound message from the worker. Returns
-  TRUE when thread::receive can read without blocking and FALSE when no message is
-  available before the timeout expires.
+  Reports whether the worker behind the parent Thread handle t has a message
+  waiting on its outbound queue, waiting up to ms milliseconds for one to arrive.
+  poll inspects the same queue that thread::receive reads, so a TRUE result means
+  a following thread::receive(t) can take a message without blocking.
+
+  poll accepts only a parent Thread handle, never a ThreadWorker handle; the
+  handle type is checked at compile time. It does not consume or remove any
+  message: it only observes whether the outbound queue is non-empty. The thread's
+  Msg and Out type parameters do not affect the result; poll returns a Boolean
+  regardless of the message type carried by the queue.
+
+  ms is a timeout in milliseconds and selects how long poll waits for a message
+  when none is currently queued. With ms = 0 the call does not wait: it returns
+  immediately, TRUE if a message is already queued and FALSE otherwise. A positive
+  ms waits up to that many milliseconds, returning TRUE as soon as a message
+  becomes available and FALSE if the timeout elapses with the queue still empty. A
+  negative ms is rejected with ErrInvalidArgument. While waiting, poll sleeps on
+  the outbound queue's condition variable and rechecks each time it is signalled,
+  so it does not busy-wait.
+
+  If the worker has completed and left its outbound queue empty, poll returns
+  FALSE rather than waiting out the full timeout. If the outbound queue has been
+  closed (for example because the parent Thread handle was already closed by
+  thread::waitFor or t.result), poll fails with ErrResourceClosed. poll has no
+  side effects on the queue or the worker.
+
+PARAMETERS
+  t AS Thread OF Msg TO Out
+    The parent Thread handle whose outbound queue is polled. Must be a live parent
+    Thread handle; a ThreadWorker handle is rejected at compile time. Msg and Out
+    are the thread's message and output types and do not change the result.
+
+  ms AS Integer
+    The maximum time in milliseconds to wait for a message. 0 returns immediately
+    without waiting. A positive value waits up to that many milliseconds for a
+    message to arrive. A negative value is rejected with ErrInvalidArgument.
+
+RETURN VALUE
+  AS Boolean
+    TRUE when a message is available on the outbound queue, so a following
+    thread::receive(t) will not block; FALSE when no message is available before
+    the timeout expires, including the case where the worker has completed with an
+    empty queue.
+
+ERRORS
+  77050002 (ErrInvalidArgument)
+  Raised when ms is negative.
+
+  77030004 (ErrResourceClosed)
+  Raised when the worker's outbound queue has been closed, such as after the
+  parent Thread handle was closed by thread::waitFor or t.result.
 
 EXAMPLES
-  LET ready AS Boolean = thread::poll(t, 0)
-  LET waited AS Boolean = thread::poll(t, 10)
+  Check without waiting whether a message is ready:
+
+    LET ready AS Boolean = thread::poll(t, 0)
+    IF ready THEN
+      LET message AS String = thread::receive(t)
+    END IF
+
+  Wait up to 10 milliseconds for the worker to produce a message:
+
+    LET waited AS Boolean = thread::poll(t, 10)
+
+SEE ALSO
+  thread::receive, thread::send, thread::waitFor, thread::isRunning

@@ -1,15 +1,58 @@
 NAME
-    stripSuffix - remove a trailing suffix from a string
+  stripSuffix - remove a trailing suffix from a string
 
 SYNOPSIS
-    strings::stripSuffix(value AS String, suffix AS String) AS String
+  strings::stripSuffix(value AS String, suffix AS String) AS String
+
+PACKAGE
+  strings
+
+IMPORTS
+  IMPORT strings
 
 DESCRIPTION
-    Removes one trailing occurrence of suffix from value if present.
-    If value does not end with suffix, value is returned unchanged.
-    This function never fails.
+  Returns value with one trailing occurrence of suffix removed when value ends
+  with suffix, and returns value unchanged otherwise. The match is a raw byte
+  comparison: the trailing bytes of value are compared against the bytes of
+  suffix, in order, and the suffix is considered present only when every byte of
+  suffix matches the byte at the same offset from the end of value. Because both
+  operands are Strings holding UTF-8 bytes, a matching byte suffix that is itself
+  a well-formed UTF-8 string corresponds to a suffix at character boundaries; the
+  comparison itself is performed on bytes and does not normalize, case-fold, or
+  otherwise transform either operand.
+
+  Only a single trailing occurrence is removed. If value ends with suffix
+  repeated more than once, only the last copy is stripped and any earlier copies
+  remain. When suffix is the empty string, value is returned unchanged, since the
+  empty suffix removes no bytes. When suffix is longer than value, or when the
+  trailing bytes do not match, value is returned unchanged.
+
+  The function is total and never fails. Neither operand is modified and the
+  function has no side effects; a new String is produced for the result. To
+  remove a leading prefix instead, use strings::stripPrefix; to test for a
+  trailing suffix without removing it, use strings::endsWith.
+
+PARAMETERS
+  value AS String
+    The string to strip from. May be empty. Returned unchanged when it does not
+    end with suffix.
+
+  suffix AS String
+    The trailing byte sequence to remove. May be empty, in which case value is
+    returned unchanged.
+
+RETURN VALUE
+  AS String
+    value with one trailing copy of suffix removed when value ends with suffix;
+    otherwise value unchanged. An empty suffix, a suffix longer than value, and a
+    non-matching suffix all return value unchanged.
+
+ERRORS
+  No errors.
 
 EXAMPLES
+  Remove a file extension:
+
     IMPORT io
     IMPORT strings
 
@@ -17,3 +60,10 @@ EXAMPLES
       io::print(strings::stripSuffix("photo.png", ".png"))
       RETURN 0
     END FUNC
+
+  A non-matching suffix leaves the string unchanged:
+
+    LET same AS String = strings::stripSuffix("photo.png", ".jpg")
+
+SEE ALSO
+  strings::stripPrefix, strings::endsWith, strings::trimEnd, strings::contains

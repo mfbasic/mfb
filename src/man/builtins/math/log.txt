@@ -1,31 +1,82 @@
 NAME
-  log - natural logarithm
+  log - natural logarithm for Float and Fixed
 
 SYNOPSIS
   math::log(value AS Float) AS Float
   math::log(value AS Fixed) AS Fixed
 
+PACKAGE
+  math
+
+IMPORTS
+  IMPORT math
+
 DESCRIPTION
-  Returns the natural logarithm (base e) of value. The return type matches
-  the numeric type of value, which may be a Float or a Fixed.
+  Returns the natural logarithm (base e) of value, that is, the power to which
+  e must be raised to obtain value. The function is overloaded by the exact
+  numeric type of value, and the return type always matches that type: a Float
+  yields a Float and a Fixed yields a Fixed. There is no mixed or Integer
+  overload; the single argument selects which version is called.
+
+  The natural logarithm is only defined for strictly positive inputs, so any
+  value that is zero or negative is a domain error in both overloads rather
+  than producing a NaN or a negative infinity. The logarithm of one is zero,
+  and the logarithm of e is one.
+
+  The Float overload computes the result with host floating-point arithmetic.
+  The Fixed overload computes the result with deterministic fixed-point
+  (Q32.32) arithmetic without using host floating-point, so the result is
+  identical across targets; it normalises value as m * 2^e with m in [1, 2),
+  evaluates ln(m) by series expansion, combines it as ln(value) = e*ln2 +
+  ln(m), and rounds to the nearest representable Fixed value.
 
 OVERLOADS
   math::log(value AS Float) AS Float
-    Computes the natural logarithm using floating-point arithmetic.
+    Computes the natural logarithm of a Float using floating-point arithmetic.
+    Fails with ErrFloatDomain when value is zero or negative.
 
   math::log(value AS Fixed) AS Fixed
-    Computes the natural logarithm using deterministic fixed-point (Q32.32)
-    arithmetic, so the result is identical across targets. The result is
-    rounded to the nearest Fixed value.
+    Computes the natural logarithm of a Fixed using deterministic fixed-point
+    (Q32.32) arithmetic and rounds to the nearest Fixed value. Fails with
+    ErrInvalidArgument when value is zero or negative.
+
+PARAMETERS
+  value AS Float | Fixed
+    The number whose natural logarithm is computed. Must be strictly positive;
+    any value of the chosen numeric type that is zero or negative is a domain
+    error.
+
+RETURN VALUE
+  AS Float | Fixed
+    The natural logarithm (base e) of value, in the same numeric type as
+    value. A value of one returns zero.
 
 ERRORS
-  Both overloads fail with ErrInvalidArgument (77050002) for non-positive
-  input (value less than or equal to zero).
+  77050012 (ErrFloatDomain)
+  Raised by the Float overload when value is zero or negative, which has no
+  real natural logarithm.
+
+  77050002 (ErrInvalidArgument)
+  Raised by the Fixed overload when value is zero or negative, which has no
+  real natural logarithm.
+
+TYPE CHECKING
+  The argument must be a single Float or Fixed. Passing an Integer or any
+  non-numeric value such as a String, Boolean, Byte, record, union, resource,
+  thread, function, or lambda is a compile-time type error.
 
 EXAMPLES
-  LET value AS Float = math::log(math::e)
+  Natural logarithm of a Float:
 
-  LET scaled AS Fixed = math::log(10.0)
+    IMPORT math
+
+    LET value AS Float = math::log(math::e)
+
+  Natural logarithm of a Fixed:
+
+    IMPORT math
+
+    LET scaled AS Fixed = math::log(10.0)
 
 SEE ALSO
-  log10, exp, pow, sqrt
+  math::log10, math::exp, math::pow, math::sqrt

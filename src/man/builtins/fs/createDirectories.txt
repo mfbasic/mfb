@@ -4,27 +4,86 @@ NAME
 SYNOPSIS
   fs::createDirectories(path AS String) AS Nothing
 
+PACKAGE
+  fs
+
+IMPORTS
+  IMPORT fs
+
 DESCRIPTION
   Creates the directory named by path along with any missing parent directories,
-  like "mkdir -p". Each component of the path is created in turn; components that
-  already exist as directories are accepted rather than treated as errors.
+  like "mkdir -p", and returns Nothing on success.
 
-  Unlike fs::createDirectory, the parents need not exist beforehand. A final path
-  that already exists as a directory succeeds quietly.
+  The path is scanned left to right and each "/"-separated prefix is created in
+  turn before the final component is created. A leading "/" is skipped so the
+  filesystem root is not treated as a component to create. For every prefix and
+  for the final component the host mkdir operation is attempted; a component that
+  already exists (host EEXIST) is accepted and the scan continues, so existing
+  intermediate directories and a final path that already exists as a directory
+  all succeed quietly rather than being treated as errors. This makes
+  createDirectories idempotent: re-running it on a path that is already present
+  succeeds without changing anything.
 
-  Returns Nothing on success.
+  Unlike fs::createDirectory, which creates only the final component and fails
+  when a parent is missing, createDirectories builds the entire chain of missing
+  parents. Each directory is requested with the host's default mkdir permission
+  bits, which are masked with the process umask in the usual way.
+
+  path is interpreted as UTF-8 bytes and passed to the host filesystem. It may be
+  absolute or relative to the current working directory and may contain Unicode
+  characters, including emoji, when the host filesystem accepts those names. The
+  string must not be empty and must not contain an embedded NUL byte, because the
+  host call requires a NUL-terminated path; an internal NUL-terminated copy of the
+  path is allocated for the call, and the "/" separators in that copy are
+  temporarily overwritten with NUL bytes to create each prefix and restored
+  afterward.
+
+  When the host refuses to create a prefix or the final component for any reason
+  other than EEXIST, the operation stops at that point and the failure is mapped
+  to the matching error below.
+
+PARAMETERS
+  path AS String
+    The filesystem path of the directory to create, including any parents that
+    must be created first. Interpreted as UTF-8 bytes; may be absolute or relative
+    to the current working directory. Must be non-empty and free of embedded NUL
+    bytes. Every "/"-separated component is created in order, and components that
+    already exist as directories are accepted.
+
+RETURN VALUE
+  AS Nothing
+    Returns nothing on success, after the directory named by path and all of its
+    previously missing parent directories have been created. A path that already
+    exists as a directory also succeeds and returns Nothing.
 
 ERRORS
-  Fails with ErrInvalidArgument (77050002) for an empty path or embedded NUL,
-  ErrNotFound (77050004) when a path component cannot be resolved (for example a
-  component that exists but is not a directory), ErrAccessDenied (77030003) when
-  creation is denied, or ErrWriteFailed (77020002) for other host failures.
+  77050002 (ErrInvalidArgument)
+  Raised when path is empty or contains an embedded NUL byte, so it cannot be
+  turned into a valid NUL-terminated host path.
+
+  77010001 (ErrOutOfMemory)
+  Raised when the internal NUL-terminated copy of path cannot be allocated.
+
+  77050004 (ErrNotFound)
+  Raised when the host cannot resolve a component while creating a prefix or the
+  final directory (host ENOENT), for example when a component exists but is not a
+  directory.
+
+  77030003 (ErrAccessDenied)
+  Raised when the host denies permission to create a directory (host EACCES).
+
+  77020002 (ErrOutput)
+  Raised when the host refuses the operation for any other reason.
 
 EXAMPLES
-  fs::createDirectories("target/example/nested")
+  Create a nested directory together with its missing parents:
 
-  ' Existing directories are accepted, so re-running is safe.
-  fs::createDirectories("target/example/nested")
+    fs::createDirectories("target/example/nested")
+
+  Re-running is safe because existing directories are accepted:
+
+    fs::createDirectories("target/example/nested")
+    fs::createDirectories("target/example/nested")
 
 SEE ALSO
   fs::createDirectory, fs::deleteDirectory, fs::directoryExists, fs::exists

@@ -1,0 +1,73 @@
+NAME
+  write - write bytes to a connected TLS socket
+
+SYNOPSIS
+  tls::write(sock AS TlsSocket, bytes AS List OF Byte) AS Nothing
+
+PACKAGE
+  tls
+
+IMPORTS
+  IMPORT tls
+
+DESCRIPTION
+  write sends the raw bytes in bytes as encrypted application data over a
+  connected TlsSocket. It writes the entire list before returning, looping
+  internally to resend any portion that a single underlying TLS write did not
+  accept, so a successful call has handed every byte to the TLS layer for
+  transmission. The socket must still be open.
+
+  An empty list writes nothing and returns immediately. Otherwise the call
+  blocks until all bytes have been encrypted and accepted by the underlying TLS
+  write or the write fails. Bytes are sent in list order; the function does not
+  allocate, reorder, or close the socket, and has no side effect beyond
+  transmitting the data.
+
+  Unlike net::write, which distinguishes a closed peer from a write timeout,
+  this function maps every underlying TLS write failure -- a peer that closed
+  the session, a reset connection, or any other SSL_write error -- to
+  ErrTlsFailed. Use tls::writeText instead when sending UTF-8 text from a String
+  is more convenient than building a List OF Byte.
+
+  TLS is implemented on Linux by driving the system OpenSSL library
+  (libssl.so.3, falling back to libssl.so.1.1); if neither library can be loaded
+  or a required symbol is missing, write raises ErrTlsFailed. On macOS the send
+  is performed through Network.framework, and a failed send likewise raises
+  ErrTlsFailed.
+
+PARAMETERS
+  sock AS TlsSocket
+    A connected TLS socket to send on, as returned by tls::connect. It must
+    still be open; writing to a closed socket is an error.
+
+  bytes AS List OF Byte
+    The bytes to send, transmitted in list order. An empty list writes nothing
+    and returns immediately.
+
+RETURN VALUE
+  AS Nothing
+    Returns nothing on success. A successful call has handed every byte in bytes
+    to the TLS layer for transmission.
+
+ERRORS
+  77030004 (ErrResourceClosed)
+  Raised when sock has already been closed.
+
+  77070008 (ErrTlsFailed)
+  Raised when the underlying TLS write fails for any reason -- including a peer
+  that has closed the session or a reset connection -- or when the system
+  OpenSSL library or a required symbol could not be loaded.
+
+EXAMPLES
+  Send an HTTP request as raw bytes over a connected TLS socket:
+
+    IMPORT tls
+
+    RES conn = tls::connect("example.com", 443)
+    LET request = [71, 69, 84, 32, 47, 13, 10, 13, 10] AS List OF Byte
+    tls::write(conn, request)
+    LET reply = tls::read(conn, 4096)
+    ' conn is closed by lexical drop when this scope ends
+
+SEE ALSO
+  tls::writeText, tls::read, tls::readText, tls::connect, tls::close, net::write

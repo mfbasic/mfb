@@ -1,14 +1,60 @@
 NAME
-    startsWithAny - test whether a string starts with any of several prefixes
+  startsWithAny - test whether a string begins with any of several prefixes
 
 SYNOPSIS
-    strings::startsWithAny(value AS String, prefixes AS List OF String) AS Boolean
+  strings::startsWithAny(value AS String, prefixes AS List OF String) AS Boolean
+
+PACKAGE
+  strings
+
+IMPORTS
+  IMPORT strings
 
 DESCRIPTION
-    Returns TRUE when value starts with any string in prefixes.
-    An empty prefixes list returns FALSE. This function never fails.
+  Returns TRUE when value begins with at least one of the strings in prefixes,
+  and FALSE otherwise. The candidate prefixes are tested in list order and the
+  function stops at the first one that matches; the particular prefix that
+  matched is not reported, only whether some prefix did.
+
+  Each individual test is the same raw byte comparison performed by
+  strings::startsWith: the leading bytes of value are compared against the bytes
+  of the candidate prefix, in order, and that candidate matches only when every
+  one of its bytes equals the byte at the same offset from the start of value.
+  Because both operands are Strings holding UTF-8 bytes, a matching byte prefix
+  that is itself a well-formed UTF-8 string corresponds to a prefix at character
+  boundaries; the comparison is performed on bytes and does not normalize,
+  case-fold, or otherwise transform either operand. A candidate longer than
+  value cannot match and is skipped. The empty string as a candidate always
+  matches, so a prefixes list that contains "" makes the result TRUE for any
+  value, including the empty string.
+
+  When prefixes is empty there are no candidates to match and the result is
+  FALSE. Neither value nor the list is modified and the function has no side
+  effects. This function never fails. To test a single prefix use
+  strings::startsWith; to test trailing bytes against several candidates use
+  strings::endsWithAny.
+
+PARAMETERS
+  value AS String
+    The string whose leading bytes are examined. May be empty.
+
+  prefixes AS List OF String
+    The candidate prefixes to look for at the start of value, tested in order.
+    May be empty, in which case the function returns FALSE. Individual entries
+    may be empty; an empty entry always matches.
+
+RETURN VALUE
+  AS Boolean
+    TRUE when the bytes of some entry in prefixes match the leading bytes of
+    value, FALSE otherwise. An empty prefixes list returns FALSE; a list
+    containing the empty string always returns TRUE.
+
+ERRORS
+  No errors.
 
 EXAMPLES
+  Test a URL against several scheme prefixes:
+
     IMPORT io
     IMPORT strings
 
@@ -17,3 +63,10 @@ EXAMPLES
       io::print(toString(strings::startsWithAny("https://example.com", prefixes)))
       RETURN 0
     END FUNC
+
+  An empty list never matches:
+
+    LET hit AS Boolean = strings::startsWithAny("anything", [])
+
+SEE ALSO
+  strings::startsWith, strings::endsWithAny, strings::contains, strings::stripPrefix

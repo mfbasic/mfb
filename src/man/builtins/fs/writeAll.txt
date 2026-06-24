@@ -1,22 +1,77 @@
 NAME
-  writeAll - write all text to an open File
+  writeAll - write all of a String to an open File as UTF-8 text
 
 SYNOPSIS
   fs::writeAll(file AS File, value AS String) AS Nothing
 
+PACKAGE
+  fs
+
+IMPORTS
+  IMPORT fs
+
 DESCRIPTION
-  Writes all UTF-8 bytes from value to file at the current file position,
-  retrying until the full string has been written or the host reports an output
-  failure. The file position advances by the number of bytes written.
+  Writes the complete contents of value to file as UTF-8 text, starting at the
+  file's current write position, and returns nothing. The bytes are written from
+  the String's packed byte data exactly as held; a String already holds
+  well-formed UTF-8, so no re-encoding, decoding, or newline translation is
+  performed. An empty String writes no bytes and leaves the file unchanged.
+
+  The write is retried until every byte has been written or the host reports an
+  output failure, so a short host write that transfers only part of the buffer is
+  resumed rather than treated as complete. The file position advances by the
+  number of bytes written, so consecutive calls append one after another within
+  the open handle, and a following fs::writeAll or fs::writeAllBytes continues
+  from where this call left off.
+
+  file must be an open File resource, such as one returned by fs::openFile or
+  fs::open, that was opened in a mode permitting writing ("write", "readWrite", or
+  "append"). The function only writes to and repositions file; it does not close
+  it and has no other side effects. Whether the data is forced to disk is governed
+  by the open handle, not by this call, which does not flush on its own. To write
+  a whole file by path in a single call rather than through an open handle, use
+  fs::writeText.
+
+  Thread cancellation is cooperative. The current runtime does not asynchronously
+  interrupt arbitrary host file writes; workers that need prompt cancellation
+  around blocking file descriptors should check thread::isCancelled between
+  cancellation-point operations.
+
+PARAMETERS
+  file AS File
+    An open File resource to write to, positioned at the point where the text
+    should be written. Must not have been closed and must have been opened in a
+    mode that permits writing ("write", "readWrite", or "append").
+
+  value AS String
+    The text to write. Written verbatim as the String's UTF-8 bytes, in order. An
+    empty String writes nothing.
+
+RETURN VALUE
+  AS Nothing
+    Returns nothing on success, after every byte of value has been written to
+    file.
 
 ERRORS
-  Raises an Error when file was not opened for writing or when the host OS write
-  fails partway through.
+  77030004 (ErrResourceClosed)
+  Raised when file has already been closed.
+
+  77020002 (ErrOutput)
+  Raised when file was not opened for writing or when the host OS write fails
+  partway through before all of value has been written.
 
 EXAMPLES
-  RES f = fs::openFile("target/output.txt", "write")
-  fs::writeAll(f, "Hello")
-  ' f is closed by lexical drop when this scope ends
+  Write text to an open file:
+
+    RES f = fs::openFile("target/output.txt", "write")
+    fs::writeAll(f, "Hello")
+    ' f is closed by lexical drop when this scope ends
+
+  Write a header line, then the rest of the body:
+
+    RES f = fs::openFile("target/report.txt", "write")
+    fs::writeAll(f, "title\n")
+    fs::writeAll(f, "body")
 
 SEE ALSO
   fs::writeAllBytes, fs::writeText, fs::openFile, fs::readAll, fs::close

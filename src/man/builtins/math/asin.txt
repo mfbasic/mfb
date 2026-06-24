@@ -5,31 +5,78 @@ SYNOPSIS
   math::asin(value AS Float) AS Float
   math::asin(value AS Fixed) AS Fixed
 
+PACKAGE
+  math
+
+IMPORTS
+  IMPORT math
+
 DESCRIPTION
   Returns the arc sine of value, the angle in radians whose sine is value.
-  The result lies in the range [-pi/2, pi/2]. The return type matches the
-  numeric type of value, which may be a Float or a Fixed.
+  The result is the inverse of math::sin restricted to a single branch and
+  always lies in the closed interval from -pi/2 to pi/2.
+
+  The function is overloaded by the numeric type of its single argument, and
+  the return type always matches that type: a Float yields a Float and a Fixed
+  yields a Fixed. There is no mixed-type overload; the argument selects which
+  version is called. The Fixed overload computes the angle using deterministic
+  fixed-point (Q32.32) arithmetic via asin(x) = atan2(x, sqrt(1 - x^2)) so the
+  result is identical across targets, then rounds it to the nearest
+  representable Fixed value.
+
+  The arc sine is mathematically defined only on the domain from -1 to 1.
+  Both overloads reject any value outside that closed interval; see ERRORS.
+  At the endpoints, asin(-1) is -pi/2 and asin(1) is pi/2, and asin(0) is
+  zero. The function performs no mutation and has no side effects.
 
 OVERLOADS
   math::asin(value AS Float) AS Float
-    Computes the arc sine using floating-point arithmetic.
+    Computes the arc sine of a Float using floating-point arithmetic and
+    returns it as a Float.
 
   math::asin(value AS Fixed) AS Fixed
-    Computes the arc sine using deterministic fixed-point (Q32.32)
+    Computes the arc sine of a Fixed using deterministic fixed-point (Q32.32)
     arithmetic via asin(x) = atan2(x, sqrt(1 - x^2)), so the result is
-    identical across targets. The result is rounded to the nearest Fixed
-    value.
+    identical across targets, rounding the result to the nearest representable
+    Fixed value.
+
+PARAMETERS
+  value AS Float | Fixed
+    The sine value whose angle is computed. Must lie in the closed interval
+    from -1 to 1; values outside this domain are rejected.
+
+RETURN VALUE
+  AS Float | Fixed
+    The arc sine of value, in radians, in the same numeric type as value,
+    within the closed interval from -pi/2 to pi/2. The arc sine of zero is
+    zero, of -1 is -pi/2, and of 1 is pi/2.
 
 ERRORS
-  The arc sine is defined only on the domain [-1.0, 1.0]. The Float
-  overload fails with ErrFloatDomain (77050012) when value lies outside
-  this range; the Fixed overload fails with ErrInvalidArgument (77050002)
-  for the same out-of-domain input.
+  77050012 (ErrFloatDomain)
+  Raised by the Float overload when value lies outside the closed domain from
+  -1.0 to 1.0.
+
+  77050002 (ErrInvalidArgument)
+  Raised by the Fixed overload when value lies outside the closed domain from
+  -1.0 to 1.0.
+
+TYPE CHECKING
+  The argument must be a single Float or Fixed value. Passing an Integer, or a
+  non-numeric value such as a String, Boolean, Byte, record, union, resource,
+  thread, function, or lambda, is a compile-time type error.
 
 EXAMPLES
-  LET value AS Float = math::asin(0.5)
+  Arc sine of a Float value in radians:
 
-  LET scaled AS Fixed = math::asin(1.0)
+    IMPORT math
+
+    LET value AS Float = math::asin(0.5)
+
+  Arc sine of a Fixed value at the upper domain endpoint:
+
+    IMPORT math
+
+    LET scaled AS Fixed = math::asin(1.0)
 
 SEE ALSO
   math::acos, math::atan, math::atan2, math::sin

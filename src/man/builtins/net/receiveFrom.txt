@@ -11,33 +11,67 @@ IMPORTS
   IMPORT net
 
 DESCRIPTION
-  receiveFrom receives one datagram from a UDP socket and returns a Datagram
+  Receives exactly one datagram from a UDP socket and returns it as a Datagram
   record with two fields: from, the sender's Address, and bytes, the payload as
-  a List OF Byte. Unlike a connected stream, each call returns exactly one
+  a List OF Byte. Unlike a connected stream, each call returns one whole
   datagram and reports who sent it, so the same bound socket can receive from
-  many peers.
+  many peers without establishing a connection.
 
-  maxBytes must be positive and bounds the payload that will be accepted. A
-  datagram is delivered whole or not at all: if the incoming payload is larger
-  than maxBytes the call raises ErrMessageTooLarge rather than truncating it, so
-  size maxBytes to the largest message you expect. The returned bytes list holds
-  the entire payload and may be shorter than maxBytes.
+  A datagram is delivered whole or not at all. maxBytes bounds the payload that
+  will be accepted: if the incoming payload is larger than maxBytes the call
+  raises ErrMessageTooLarge rather than truncating it, so size maxBytes to the
+  largest message you expect. The returned bytes list holds the entire payload
+  and is frequently shorter than maxBytes; a zero-length payload yields an empty
+  list rather than an error.
 
-  receiveFrom blocks until a datagram arrives or the socket's read timeout
-  elapses. Use net::setReadTimeout to bound how long a receive may wait; when the
-  timeout expires the call raises ErrReadTimeout. Bind the socket with
-  net::bindUdp and send datagrams with net::sendTo. Use net::receiveTextFrom
-  instead when the payload is UTF-8 text and a String is more convenient than raw
-  bytes.
+  The call blocks until a datagram arrives or the socket's read timeout elapses.
+  Use net::setReadTimeout to bound how long a receive may wait; when the timeout
+  expires the call raises ErrReadTimeout. Bind the socket with net::bindUdp and
+  send datagrams with net::sendTo. Use net::receiveTextFrom instead when the
+  payload is UTF-8 text and a String is more convenient than raw bytes.
+
+  The payload is read into a freshly allocated List OF Byte and the sender
+  Address into a freshly allocated record; the function has no other side
+  effects and does not close the socket.
+
+PARAMETERS
+  sock AS UdpSocket
+    A bound UDP socket to receive from, such as one returned by net::bindUdp. It
+    must still be open; receiving on a closed socket is an error.
+
+  maxBytes AS Integer
+    The maximum payload size, in bytes, that will be accepted. Must be positive.
+    A datagram whose payload exceeds maxBytes is rejected with ErrMessageTooLarge
+    rather than truncated.
+
+RETURN VALUE
+  AS Datagram
+    A Datagram record with field from set to the sender's Address and field
+    bytes set to the payload as a List OF Byte. The bytes list has length between
+    0 and maxBytes inclusive and holds the datagram's entire payload.
 
 ERRORS
-  Raises an Error with code 77050002 (ErrInvalidArgument) when maxBytes is not
-  positive, 77030004 (ErrResourceClosed) when the socket has already been closed,
-  77070007 (ErrMessageTooLarge) when the datagram does not fit in maxBytes,
-  77070005 (ErrReadTimeout) when the read timeout elapses before a datagram
-  arrives, 77070001 (ErrAddressInvalid) when the sender address cannot be
-  represented as an Address, or 77070003 (ErrNetworkFailed) when the receive
-  could not be completed.
+  77050002 (ErrInvalidArgument)
+  Raised when maxBytes is not positive.
+
+  77030004 (ErrResourceClosed)
+  Raised when sock has already been closed.
+
+  77070007 (ErrMessageTooLarge)
+  Raised when the received datagram's payload does not fit in maxBytes.
+
+  77070005 (ErrReadTimeout)
+  Raised when the socket's read timeout elapses before a datagram arrives.
+
+  77070001 (ErrAddressInvalid)
+  Raised when the sender's address cannot be represented as an Address.
+
+  77070003 (ErrNetworkFailed)
+  Raised when the receive fails for a reason other than a timeout.
+
+  77010001 (ErrOutOfMemory)
+  Raised when the receive buffer, the returned List OF Byte, or the sender
+  Address record cannot be allocated.
 
 EXAMPLES
   Receive one datagram and read its payload and sender:
@@ -63,10 +97,4 @@ EXAMPLES
     END TRAP
 
 SEE ALSO
-  net::receiveTextFrom
-  net::sendTo
-  net::sendTextTo
-  net::bindUdp
-  net::setReadTimeout
-  net::localAddress
-  net::close
+  net::receiveTextFrom, net::sendTo, net::sendTextTo, net::bindUdp, net::setReadTimeout, net::localAddress, net::close

@@ -5,42 +5,73 @@ SYNOPSIS
   math::floor(value AS Float) AS Integer
   math::floor(value AS Fixed) AS Integer
 
+PACKAGE
+  math
+
+IMPORTS
+  IMPORT math
+
 DESCRIPTION
   Returns the greatest integer that is less than or equal to value, rounding
-  toward negative infinity. The result is always returned as an Integer.
+  toward negative infinity. The result is always returned as an Integer,
+  regardless of whether the argument is a Float or a Fixed.
 
   For non-negative values floor truncates the fractional part. For negative
   values that have a fractional part the result is the next whole number toward
-  negative infinity, so math::floor(-2.25) is -3, not -2.
+  negative infinity, so math::floor(-2.25) is -3, not -2. A value that is
+  already a whole number is returned unchanged.
+
+  The function is overloaded by the exact numeric type of value; there is no
+  mixed-type overload, and the single argument selects which version is called.
+  The Fixed overload uses deterministic fixed-point (Q32.32) arithmetic, so its
+  result is identical across all targets.
 
 OVERLOADS
   math::floor(value AS Float) AS Integer
-    Rounds the Float value down to the nearest Integer.
+    Rounds the Float value down to the nearest Integer toward negative
+    infinity. Fails with ErrOverflow when the floored result lies outside the
+    representable Integer range.
 
   math::floor(value AS Fixed) AS Integer
-    Rounds the Fixed (Q32.32) value down to the nearest Integer using
-    deterministic fixed-point arithmetic, so the result is identical across
-    targets.
+    Rounds the Fixed (Q32.32) value down to the nearest Integer toward negative
+    infinity using deterministic fixed-point arithmetic. Every Fixed value
+    floors to an Integer that fits in range, so this overload never overflows.
+
+PARAMETERS
+  value AS Float | Fixed
+    The number to round down. Any Float or Fixed is accepted. For the Float
+    overload, a value whose floor falls outside Integer range cannot be
+    represented and is reported as an overflow.
+
+RETURN VALUE
+  AS Integer
+    The greatest Integer less than or equal to value. Whole-number inputs
+    return their exact integer value; fractional inputs return the next whole
+    number toward negative infinity.
 
 ERRORS
-  The Float overload fails with ErrOverflow (77050010) when the floored result
-  is outside Integer range.
-
-  The Fixed overload does not overflow: every Fixed value floors to an Integer
-  that fits in range.
+  77050010 (ErrOverflow)
+  Raised by the Float overload when the floored result lies outside the
+  representable Integer range. The Fixed overload does not raise this error,
+  because every Fixed value floors to an Integer that fits in range.
 
 TYPE CHECKING
-  value must be a Float or a Fixed. Calling math::floor with any other argument
-  type is a compile-time type error.
+  value must be a single Float or Fixed. Passing any other type, such as an
+  Integer, String, Boolean, Byte, record, union, resource, thread, function, or
+  lambda, is a compile-time type error.
 
 EXAMPLES
   Floor a positive value:
+
+    IMPORT math
 
     LET value AS Integer = math::floor(3.75)
 
   Floor a negative value toward negative infinity:
 
+    IMPORT math
+
     LET value AS Integer = math::floor(-2.25)
 
 SEE ALSO
-  ceil, round, abs, clamp
+  math::ceil, math::round, math::abs, math::clamp

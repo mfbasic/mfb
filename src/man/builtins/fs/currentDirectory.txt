@@ -4,19 +4,62 @@ NAME
 SYNOPSIS
   fs::currentDirectory() AS String
 
-DESCRIPTION
-  Returns the absolute current working directory path for the running process
-  as a UTF-8 String.
+PACKAGE
+  fs
 
-  The path is read from the host with getcwd(). Relative paths passed to other
-  fs:: functions are resolved against this directory.
+IMPORTS
+  IMPORT fs
+
+DESCRIPTION
+  Returns the absolute current working directory of the running process as a
+  UTF-8 String.
+
+  The path is queried from the operating system with getcwd() on every call
+  rather than cached, so the result reflects the process's working directory at
+  the moment of the call. The returned path is absolute and is given in the
+  host's native spelling, without a trailing path separator unless the host
+  itself reports one.
+
+  The working directory is the directory against which any relative path passed
+  to other fs:: functions is resolved, so this value names the base used by
+  fs::canonicalPath, fs::open, fs::readText, and the rest of the package when
+  they are given a path that is not absolute. The current directory can be
+  changed with fs::setCurrentDirectory.
+
+  Internally the path is read into a fixed 4096-byte buffer, so a working
+  directory whose path does not fit in that buffer is reported as a read
+  failure. The function takes no arguments, reads process state only, and has no
+  side effects: it does not create, open, or modify any file.
+
+PARAMETERS
+  None.
+
+RETURN VALUE
+  AS String
+    The absolute path of the process's current working directory, decoded as a
+    UTF-8 String in the host's native spelling.
 
 ERRORS
-  Raises an Error when the host getcwd() call fails, or when the result buffer
-  cannot be allocated.
+  77020001 (ErrRead)
+  Raised when the host getcwd() call fails, for example when the working
+  directory has been removed, when access to a parent component is denied, or
+  when the path does not fit in the internal buffer.
+
+  77010001 (ErrOutOfMemory)
+  Raised when the internal buffer used to query the path, or the returned String
+  resource, cannot be allocated.
 
 EXAMPLES
-  LET cwd AS String = fs::currentDirectory()
+  Read the current working directory:
+
+    LET cwd AS String = fs::currentDirectory()
+    io::print(cwd)
+
+  Resolve a relative path against the working directory:
+
+    LET cwd AS String = fs::currentDirectory()
+    LET full AS String = fs::pathJoin(cwd, "output.txt")
+    io::print(full)
 
 SEE ALSO
-  fs::setCurrentDirectory, fs::canonicalPath, fs::tempDirectory
+  fs::setCurrentDirectory, fs::canonicalPath, fs::tempDirectory, fs::pathJoin

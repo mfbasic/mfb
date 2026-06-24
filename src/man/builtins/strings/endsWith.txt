@@ -1,13 +1,54 @@
 NAME
-    endsWith - test whether a string ends with a suffix
+  endsWith - test whether a string ends with a given suffix
 
 SYNOPSIS
-    strings::endsWith(value AS String, suffix AS String) AS Boolean
+  strings::endsWith(value AS String, suffix AS String) AS Boolean
+
+PACKAGE
+  strings
+
+IMPORTS
+  IMPORT strings
 
 DESCRIPTION
-    Returns TRUE when value ends with suffix. The empty suffix always matches.
+  Returns TRUE when value ends with suffix and FALSE otherwise. The test is a
+  raw byte comparison: the trailing bytes of value are compared against the bytes
+  of suffix, in order, and the result is TRUE only when every byte of suffix
+  matches the byte at the same offset from the end of value. Because both
+  operands are Strings holding UTF-8 bytes, a matching byte suffix that is itself
+  a well-formed UTF-8 string corresponds to a suffix at character boundaries; the
+  comparison itself is performed on bytes and does not normalize, case-fold, or
+  otherwise transform either operand.
+
+  When suffix is longer than value the result is FALSE, since value cannot end
+  with more bytes than it contains. The empty suffix always matches and yields
+  TRUE for any value, including the empty string. Comparing the empty value
+  against a non-empty suffix yields FALSE.
+
+  Neither operand is modified and the function has no side effects. To test the
+  leading bytes of a string instead, use strings::startsWith; to test against
+  several candidate suffixes at once, use strings::endsWithAny.
+
+PARAMETERS
+  value AS String
+    The string whose trailing bytes are examined. May be empty.
+
+  suffix AS String
+    The suffix to look for at the end of value. May be empty, in which case the
+    function always returns TRUE.
+
+RETURN VALUE
+  AS Boolean
+    TRUE when the bytes of suffix match the trailing bytes of value, FALSE
+    otherwise. An empty suffix always returns TRUE; a suffix longer than value
+    always returns FALSE.
+
+ERRORS
+  No errors.
 
 EXAMPLES
+  Test for a trailing suffix:
+
     IMPORT io
     IMPORT strings
 
@@ -15,3 +56,10 @@ EXAMPLES
       io::print(toString(strings::endsWith("Hello 😀", "😀")))
       RETURN 0
     END FUNC
+
+  The empty suffix always matches:
+
+    LET ok AS Boolean = strings::endsWith("anything", "")
+
+SEE ALSO
+  strings::startsWith, strings::endsWithAny, strings::contains, strings::stripSuffix

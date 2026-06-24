@@ -1,27 +1,81 @@
 NAME
-  readAll - read all remaining text from a File
+  readAll - read all remaining text from a File into a String
 
 SYNOPSIS
   fs::readAll(file AS File) AS String
 
-DESCRIPTION
-  Reads all remaining bytes from file as UTF-8 text starting at the current file
-  position and advances the file position to EOF. When file is already at end of
-  input, returns the empty String.
+PACKAGE
+  fs
 
-  Thread cancellation is cooperative. The current runtime does not
-  asynchronously interrupt arbitrary host file reads; workers that need prompt
-  cancellation around blocking file descriptors should check thread::isCancelled
-  between cancellation-point operations.
+IMPORTS
+  IMPORT fs
+
+DESCRIPTION
+  Reads every remaining byte of file as UTF-8 text, starting at the file's
+  current read position and continuing to end of input, validates that the bytes
+  are well-formed UTF-8, and returns them as a single String. The file position
+  is advanced to end of input, so a subsequent fs::eof reports true. file must be
+  an open File resource, such as one returned by fs::openFile or fs::open, that
+  was opened in a mode permitting reading.
+
+  The amount read is determined up front: the function measures the bytes between
+  the current position and the end of the file, allocates a String of exactly
+  that size, and reads the remainder into it in one or more host reads until the
+  buffer is full. No newline translation or other decoding is performed beyond
+  the UTF-8 validity check, so the returned String holds the file's remaining
+  bytes exactly as stored on disk, interpreted as UTF-8. When file is already at
+  end of input, no bytes remain and the empty String is returned.
+
+  The function only reads from and repositions file; it does not close it and has
+  no other side effects. To read the same data without the UTF-8 requirement, use
+  fs::readAllBytes. To read a whole file by path in a single call rather than from
+  an open handle, use fs::readText.
+
+  Thread cancellation is cooperative. The current runtime does not asynchronously
+  interrupt arbitrary host file reads; workers that need prompt cancellation
+  around blocking file descriptors should check thread::isCancelled between
+  cancellation-point operations.
+
+PARAMETERS
+  file AS File
+    An open File resource to read from, positioned at the start of the data to
+    read. Must not have been closed and must have been opened in a mode that
+    permits reading ("read", "readWrite", or "append").
+
+RETURN VALUE
+  AS String
+    The remaining contents of the file from the current position to end of input,
+    in file order, as a UTF-8 String. When file is already at end of input, an
+    empty String is returned.
 
 ERRORS
-  Raises an Error when file was not opened for reading, when the host OS read
-  fails partway through, or when the bytes read are not valid UTF-8.
+  77030004 (ErrResourceClosed)
+  Raised when file has already been closed.
+
+  77020001 (ErrRead)
+  Raised when repositioning the file to measure its remaining length fails, when
+  file was not opened for reading, or when the host OS read fails partway through
+  before the measured bytes have all been read.
+
+  77010001 (ErrOutOfMemory)
+  Raised when the String that holds the file's remaining contents cannot be
+  allocated.
+
+  77020004 (ErrEncoding)
+  Raised when the bytes read from the file are not valid UTF-8.
 
 EXAMPLES
-  RES f = fs::openFile("data.txt")
-  LET value AS String = fs::readAll(f)
-  ' f is closed by lexical drop when this scope ends
+  Read all remaining text from an open file:
+
+    RES f = fs::openFile("data.txt")
+    LET value AS String = fs::readAll(f)
+    ' f is closed by lexical drop when this scope ends
+
+  Skip the first line, then read the rest of the file:
+
+    RES f = fs::openFile("data.txt")
+    LET header AS String = fs::readLine(f)
+    LET body AS String = fs::readAll(f)
 
 SEE ALSO
   fs::readAllBytes, fs::readLine, fs::readText, fs::openFile, fs::eof, fs::close

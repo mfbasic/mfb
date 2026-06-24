@@ -1,22 +1,88 @@
 NAME
-  deleteDirectory - delete an empty directory
+  deleteDirectory - remove an empty directory from the filesystem
 
 SYNOPSIS
   fs::deleteDirectory(path AS String) AS Nothing
 
+PACKAGE
+  fs
+
+IMPORTS
+  IMPORT fs
+
 DESCRIPTION
-  Removes the empty directory named by path. The final path component must name
-  an actual directory; use fs::deleteFile to remove a file or symlink.
+  Removes the empty directory named by path with a single host rmdir operation.
+  On success the directory is gone and the function returns Nothing.
 
-  Returns Nothing on success.
+  The final component of path must name an actual directory, and that directory
+  must be empty. deleteDirectory does not recurse and never removes a file or a
+  symbolic link; use fs::deleteFile to remove a non-directory entry. A directory
+  that still contains entries is left untouched and the call fails with
+  ErrDirectoryNotEmpty. Only the named directory is removed; parent directories
+  are left in place.
 
-  Fails with ErrInvalidArgument (77050002) for an empty path or embedded NUL,
-  ErrNotFound (77050004) when the path does not exist, ErrAccessDenied
-  (77030003) when deletion is denied, ErrResourceBusy (77030005) when the
-  directory is not empty, or ErrWriteFailed (77020002) for other host failures.
+  path is interpreted as UTF-8 bytes and passed to the host filesystem. It may
+  be absolute or relative to the current working directory and may contain
+  Unicode characters when the host filesystem accepts those names. The string
+  must not be empty and must not contain an embedded NUL byte, because the host
+  call requires a NUL-terminated path; an internal NUL-terminated copy of the
+  path is allocated for the call.
+
+  When the host refuses the removal for any reason the failure is mapped to the
+  matching error below and the filesystem is left unchanged.
+
+PARAMETERS
+  path AS String
+    The filesystem path of the directory to remove. Interpreted as UTF-8 bytes;
+    may be absolute or relative to the current working directory. Must be
+    non-empty and free of embedded NUL bytes. The final component must name an
+    existing, empty directory rather than a file or symbolic link.
+
+RETURN VALUE
+  AS Nothing
+    Returns nothing on success, after the empty directory named by path has been
+    removed.
+
+ERRORS
+  77050002 (ErrInvalidArgument)
+  Raised when path is empty or contains an embedded NUL byte, so it cannot be
+  turned into a valid NUL-terminated host path.
+
+  77010001 (ErrOutOfMemory)
+  Raised when the internal NUL-terminated copy of path cannot be allocated.
+
+  77030001 (ErrPathNotFound)
+  Raised when no entry exists at path (host ENOENT).
+
+  77030003 (ErrAccessDenied)
+  Raised when the host denies permission to remove the directory (host EACCES).
+
+  77050005 (ErrAlreadyExists)
+  Raised when the host reports that the target already exists in a conflicting
+  form (host EEXIST).
+
+  77030005 (ErrDirectoryNotEmpty)
+  Raised when path names a directory that still contains entries (host
+  ENOTEMPTY).
+
+  77030002 (ErrInvalidPath)
+  Raised when path is unusable as a path, including a non-directory used as a
+  directory component, the final component naming a non-directory, an over-long
+  path, an invalid byte sequence, or a symlink loop (host ENOTDIR, ENAMETOOLONG,
+  EILSEQ, or ELOOP).
+
+  77020002 (ErrOutput)
+  Raised when the host refuses the removal for any other reason.
 
 EXAMPLES
-  fs::deleteDirectory("target/example")
+  Remove an empty directory:
+
+    fs::deleteDirectory("target/example")
+
+  Create a directory and then remove it:
+
+    fs::createDirectory("target/scratch")
+    fs::deleteDirectory("target/scratch")
 
 SEE ALSO
-  fs::createDirectory, fs::deleteFile, fs::directoryExists, fs::exists
+  fs::createDirectory, fs::createDirectories, fs::deleteFile, fs::directoryExists

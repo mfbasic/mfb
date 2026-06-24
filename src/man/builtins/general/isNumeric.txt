@@ -8,26 +8,44 @@ PACKAGE
   general
 
 IMPORTS
-  None. general functions are available without an IMPORT statement.
+  None. general functions are always available without an IMPORT statement.
 
 DESCRIPTION
-  isNumeric returns TRUE when value can be parsed as an Integer, Float, or Fixed
-  value by the standard conversion functions.
+  isNumeric reports whether value holds text that the standard conversion
+  functions would accept as a numeric value. It returns TRUE when value can be
+  parsed as an Integer, Float, or Fixed, and FALSE otherwise.
 
-  Non-finite numeric names such as NaN or Infinity are not valid successful
-  numeric values in ordinary MFBASIC source.
+  The test mirrors what toInt, toFloat, and toFixed accept: a base-10 numeric
+  literal, optionally prefixed with a minus sign and optionally containing a
+  decimal point. Surrounding whitespace, plus signs, thousands separators, and
+  other stray characters cause isNumeric to return FALSE because the underlying
+  parsers reject them.
 
-OVERLOADS
-  isNumeric(value AS String) AS Boolean
-    Tests whether value is accepted by a numeric parser.
+  Non-finite numeric names such as NaN or Infinity are not valid numeric text in
+  ordinary MFBASIC source, so isNumeric returns FALSE for them as well.
+
+  isNumeric never raises a parse error. Instead of failing on malformed input it
+  reports FALSE, so it is safe to use as a guard before calling a conversion
+  function that would otherwise raise an error.
+
+PARAMETERS
+  value AS String
+    The text to test. Any String is accepted; its contents determine the
+    result. An empty string and strings with extra characters around the number
+    yield FALSE.
+
+RETURN VALUE
+  AS Boolean
+    TRUE when value can be parsed as an Integer, Float, or Fixed value; FALSE
+    for any text that the numeric parsers reject, including empty strings and
+    non-finite names such as NaN or Infinity.
 
 ERRORS
-  isNumeric returns FALSE for invalid numeric text instead of raising a parse
-  error. Errors can still propagate from evaluating value before isNumeric is
-  called.
+  No errors.
 
 TYPE CHECKING
-  isNumeric accepts only String values.
+  isNumeric accepts only String values. Calling it with any other type is a
+  compile-time error.
 
 EXAMPLES
   Guard a parse:
@@ -36,7 +54,9 @@ EXAMPLES
       LET value AS Integer = toInt("42")
     END IF
 
+  Reject malformed text:
+
+    LET ok AS Boolean = isNumeric("12.x")
+
 SEE ALSO
-  toInt
-  toFloat
-  toFixed
+  toInt, toFloat, toFixed

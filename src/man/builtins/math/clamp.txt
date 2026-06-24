@@ -6,30 +6,86 @@ SYNOPSIS
   math::clamp(value AS Float, low AS Float, high AS Float) AS Float
   math::clamp(value AS Fixed, low AS Fixed, high AS Fixed) AS Fixed
 
-DESCRIPTION
-  Restricts value to the inclusive range [low, high]. Returns low when value
-  is less than low, high when value is greater than high, and value itself
-  otherwise.
+PACKAGE
+  math
 
-  The return type matches the numeric type of the arguments. All three
-  arguments must be the same numeric type: three Integers, three Floats, or
-  three Fixeds.
+IMPORTS
+  IMPORT math
+
+DESCRIPTION
+  Restricts value to the inclusive range [low, high] and returns the result.
+  When value is less than low, low is returned; when value is greater than
+  high, high is returned; otherwise value itself is returned unchanged. The
+  bounds are inclusive, so a value exactly equal to low or high is returned as
+  is.
+
+  Before clamping, the two bounds are checked: low must not be greater than
+  high. If low exceeds high the range is empty and the function raises an
+  error rather than returning a value (see ERRORS).
+
+  The function is overloaded by the exact numeric type of its arguments, and
+  the return type always matches that type: three Integers yield an Integer,
+  three Floats yield a Float, and three Fixeds yield a Fixed. There is no
+  mixed-type overload; all three arguments must be the same numeric type, and
+  that type selects which version is called.
+
+  The comparisons are plain ordered comparisons. The Integer and Fixed
+  overloads compare the underlying signed 64-bit representations. The Float
+  overload performs ordered floating-point comparisons and does no rounding or
+  domain checking. The function has no side effects and does not mutate its
+  arguments.
+
+OVERLOADS
+  math::clamp(value AS Integer, low AS Integer, high AS Integer) AS Integer
+    Clamps an Integer value to an inclusive Integer range.
+
+  math::clamp(value AS Float, low AS Float, high AS Float) AS Float
+    Clamps a Float value to an inclusive Float range.
+
+  math::clamp(value AS Fixed, low AS Fixed, high AS Fixed) AS Fixed
+    Clamps a Fixed value to an inclusive Fixed range.
+
+PARAMETERS
+  value AS Integer | Float | Fixed
+    The value to restrict. Any value of the chosen numeric type is accepted.
+
+  low AS Integer | Float | Fixed
+    The inclusive lower bound of the range. Must be the same numeric type as
+    value and must not be greater than high.
+
+  high AS Integer | Float | Fixed
+    The inclusive upper bound of the range. Must be the same numeric type as
+    value and must not be less than low.
+
+RETURN VALUE
+  AS Integer | Float | Fixed
+    The value clamped into [low, high], in the same numeric type as the
+    arguments: low if value is less than low, high if value is greater than
+    high, and value itself otherwise. A value equal to either bound is
+    returned unchanged.
 
 ERRORS
-  Fails with ErrInvalidArgument (77050002) when low is greater than high.
-
-  Errors can also propagate from evaluating the argument expressions before
-  math::clamp is called.
+  77050002 (ErrInvalidArgument)
+  Raised when low is greater than high, that is, when the range is empty.
 
 TYPE CHECKING
-  All three arguments must share the same numeric type. Mixing numeric types,
-  or passing a non-numeric value such as a String, Boolean, Byte, record,
-  union, resource, thread, function, or lambda, is a compile-time type error.
+  All three arguments must share the same numeric type: three Integers, three
+  Floats, or three Fixeds. Mixing numeric types, or passing a non-numeric
+  value such as a String, Boolean, Byte, record, union, resource, thread,
+  function, or lambda, is a compile-time type error.
 
 EXAMPLES
-  LET value AS Integer = math::clamp(12, 0, 10)
+  Clamp an Integer above the range down to the upper bound:
 
-  LET ratio AS Float = math::clamp(1.4, 0.0, 1.0)
+    IMPORT math
+
+    LET value AS Integer = math::clamp(12, 0, 10)
+
+  Clamp a Float into the unit range:
+
+    IMPORT math
+
+    LET ratio AS Float = math::clamp(1.4, 0.0, 1.0)
 
 SEE ALSO
   math::min, math::max, math::abs

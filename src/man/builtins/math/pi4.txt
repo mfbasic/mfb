@@ -4,14 +4,52 @@ NAME
 SYNOPSIS
   math::pi4 AS Float
 
+PACKAGE
+  math
+
+IMPORTS
+  IMPORT math
+
 DESCRIPTION
-  The mathematical constant pi / 4 (an eighth turn, or 45 degrees in radians)
-  as a Float value, approximately 0.7853981633974483.
+  The mathematical constant pi / 4, an eighth turn or 45 degrees expressed in
+  radians, as a Float value approximately equal to 0.7853981633974483. This is
+  the closest 64-bit IEEE 754 double-precision representation of pi / 4; it is
+  not the exact mathematical value, which is irrational and cannot be
+  represented in finite binary.
+
+  pi4 is a constant, not a callable function. It takes no arguments and is
+  referenced by name wherever a Float expression is expected, evaluating to the
+  same value on every use. It performs no computation at the call site and has
+  no side effects.
+
+  For a Fixed-point representation of the same constant, use math::pi4Fixed.
+  The related angle constants math::pi (pi) and math::pi2 (pi / 2), and the
+  reciprocal helper math::twoOverPi (2 / pi), are derived from the same value.
+
+PARAMETERS
+  None.
+    math::pi4 is a constant and accepts no arguments.
+
+RETURN VALUE
+  AS Float
+    The Float closest to pi / 4, approximately 0.7853981633974483. The same
+    value is produced on every reference.
+
+ERRORS
+  No errors.
 
 EXAMPLES
-  LET value AS Float = math::pi4
+  Reference the constant directly:
 
-  LET eighthTurn AS Float = math::tan(math::pi4)
+    IMPORT math
+
+    LET value AS Float = math::pi4
+
+  Take the tangent of an eighth turn (approximately 1.0):
+
+    IMPORT math
+
+    LET eighthTurn AS Float = math::tan(math::pi4)
 
 SEE ALSO
   math::pi4Fixed, math::pi, math::pi2, math::twoOverPi, math::e

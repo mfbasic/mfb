@@ -5,21 +5,73 @@ SYNOPSIS
   math::sqrt(value AS Float) AS Float
   math::sqrt(value AS Fixed) AS Fixed
 
-DESCRIPTION
-  Returns the square root of value.
+PACKAGE
+  math
 
-  The return type matches the numeric type of value. The single argument
-  may be a Float or a Fixed. The Fixed overload rounds the result to the
-  nearest Fixed value.
+IMPORTS
+  IMPORT math
+
+DESCRIPTION
+  Returns the non-negative square root of value. The function is overloaded
+  by the exact numeric type of value, and the return type always matches that
+  type: a Float yields a Float and a Fixed yields a Fixed. There is no mixed
+  or Integer overload; the single argument selects which version is called.
+
+  Only non-negative inputs have a real square root, so a negative value is a
+  domain error in both overloads rather than producing a NaN or wrapping. The
+  square root of zero is zero, and the square root of one is one.
+
+  The Float overload computes the result with floating-point arithmetic. The
+  Fixed overload computes a deterministic raw Q32.32 square root without using
+  host floating-point, so the result is identical across targets, and rounds
+  to the nearest representable Fixed value.
+
+OVERLOADS
+  math::sqrt(value AS Float) AS Float
+    Computes the square root of a Float using floating-point arithmetic. Fails
+    with ErrFloatDomain when value is negative.
+
+  math::sqrt(value AS Fixed) AS Fixed
+    Computes the square root of a Fixed using deterministic fixed-point
+    (Q32.32) arithmetic and rounds to the nearest Fixed value. Fails with
+    ErrInvalidArgument when value is negative.
+
+PARAMETERS
+  value AS Float | Fixed
+    The number whose square root is computed. Must be zero or positive; any
+    negative value of the chosen numeric type is a domain error.
+
+RETURN VALUE
+  AS Float | Fixed
+    The non-negative square root of value, in the same numeric type as value.
+    A value of zero returns zero.
 
 ERRORS
-  Both overloads fail with ErrInvalidArgument (77050002) when value is
-  negative, which has no real square root.
+  77050012 (ErrFloatDomain)
+  Raised by the Float overload when value is negative, which has no real
+  square root.
+
+  77050002 (ErrInvalidArgument)
+  Raised by the Fixed overload when value is negative, which has no real
+  square root.
+
+TYPE CHECKING
+  The argument must be a single Float or Fixed. Passing an Integer or any
+  non-numeric value such as a String, Boolean, Byte, record, union, resource,
+  thread, function, or lambda is a compile-time type error.
 
 EXAMPLES
-  LET value AS Float = math::sqrt(9.0)
+  Square root of a Float:
 
-  LET side AS Fixed = math::sqrt(2.0)
+    IMPORT math
+
+    LET value AS Float = math::sqrt(9.0)
+
+  Square root of a Fixed:
+
+    IMPORT math
+
+    LET side AS Fixed = math::sqrt(2.0)
 
 SEE ALSO
   math::pow, math::exp, math::abs

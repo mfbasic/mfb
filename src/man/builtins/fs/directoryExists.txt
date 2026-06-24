@@ -4,19 +4,54 @@ NAME
 SYNOPSIS
   fs::directoryExists(path AS String) AS Boolean
 
-DESCRIPTION
-  Returns TRUE when path exists and resolves to a directory. The final path
-  component is followed when it is a symlink.
+PACKAGE
+  fs
 
-  Returns FALSE for missing paths, regular files, and other non-directory
-  filesystem entries.
+IMPORTS
+  IMPORT fs
+
+DESCRIPTION
+  Stats path and reports whether it resolves to a directory. Returns TRUE when
+  path exists and the resolved entry is a directory; returns FALSE for missing
+  paths, regular files, and other non-directory filesystem entries such as
+  symlinks to missing targets, sockets, FIFOs, or device nodes.
+
+  The final path component is followed when it is a symlink, so a symlink that
+  points at a directory reports TRUE and a symlink with a missing or
+  non-directory target reports FALSE.
+
+  A failed stat (for example a missing path or an unreadable parent directory)
+  is reported as FALSE rather than raised as an error; only an internal
+  allocation failure while preparing the path can raise an error.
 
   The path is a UTF-8 String and may contain Unicode characters, including
   emoji, when the host filesystem accepts those names.
 
+PARAMETERS
+  path AS String
+    The filesystem path to test. Interpreted as UTF-8 bytes and passed to the
+    host filesystem; may be absolute or relative to the current working
+    directory.
+
+RETURN VALUE
+  AS Boolean
+    TRUE when path exists and resolves to a directory, FALSE otherwise (missing
+    path, regular file, or any other non-directory entry).
+
+ERRORS
+  77010001 (ErrOutOfMemory)
+  Raised when the internal NUL-terminated copy of path cannot be allocated.
+
 EXAMPLES
-  fs::directoryExists("data")
-  fs::directoryExists("é日😀")
+  Test for a directory:
+
+    IF fs::directoryExists("data") THEN
+      io::print("found")
+    END IF
+
+  Unicode paths are accepted:
+
+    LET present AS Boolean = fs::directoryExists("é日😀")
 
 SEE ALSO
   fs::fileExists, fs::exists

@@ -1,19 +1,63 @@
 NAME
-  tempDirectory - return the OS temporary directory
+  tempDirectory - return the host temporary directory path
 
 SYNOPSIS
   fs::tempDirectory() AS String
 
-DESCRIPTION
-  Returns the directory used by fs::createTempFile() when no directory is
-  supplied.
+PACKAGE
+  fs
 
-  On macOS this is the per-process Darwin user temp directory reported by
-  _confstr(_CS_DARWIN_USER_TEMP_DIR). On Linux this is TMPDIR when set and
-  non-empty, otherwise /tmp.
+IMPORTS
+  IMPORT fs
+
+DESCRIPTION
+  Returns the path of the host's temporary directory as a UTF-8 String. This is
+  the same location that fs::createTempFile uses when it is called without a
+  directory argument, so the value names a directory that is expected to exist
+  and be writable for temporary files.
+
+  The directory is queried from the operating system on every call rather than
+  cached, so the result reflects the host environment at the moment of the call.
+  The path is returned without a trailing path separator unless the host itself
+  reports one.
+
+  The source of the path is platform specific. On macOS the per-process Darwin
+  user temporary directory is read with confstr(_CS_DARWIN_USER_TEMP_DIR), which
+  is a user-private location under the system temporary area. On Linux the value
+  of the TMPDIR environment variable is used when it is set and non-empty;
+  otherwise the path falls back to /tmp.
+
+  The function takes no arguments and has no side effects: it neither creates the
+  directory nor verifies that it exists, it only reports the configured path.
+
+PARAMETERS
+  None.
+
+RETURN VALUE
+  AS String
+    The absolute path of the host temporary directory, decoded as a UTF-8
+    String. On macOS this is the Darwin per-process user temporary directory; on
+    Linux it is TMPDIR when set and non-empty, otherwise /tmp.
+
+ERRORS
+  77020001 (ErrRead)
+  Raised when the host fails to report a temporary directory path, for example
+  when the platform query returns an empty or zero-length result.
+
+  77010001 (ErrOutOfMemory)
+  Raised when the internal buffer used to query the path, or the returned String
+  resource, cannot be allocated.
 
 EXAMPLES
-  fs::tempDirectory()
+  Read the host temporary directory:
+
+    LET dir AS String = fs::tempDirectory()
+    io::print(dir)
+
+  Create a temporary file in the host temporary directory:
+
+    RES f = fs::createTempFile()
+    ' f is created under fs::tempDirectory() and closed by lexical drop
 
 SEE ALSO
-  fs::createTempFile, fs::currentDirectory
+  fs::createTempFile, fs::currentDirectory, fs::canonicalPath

@@ -1,0 +1,78 @@
+NAME
+  isNegative - test whether a number is less than zero
+
+SYNOPSIS
+  isNegative(value AS Integer) AS Boolean
+  isNegative(value AS Float) AS Boolean
+  isNegative(value AS Fixed) AS Boolean
+
+PACKAGE
+  general
+
+IMPORTS
+  None. general functions are available without an IMPORT statement.
+
+DESCRIPTION
+  isNegative returns TRUE when value is strictly less than zero and FALSE
+  otherwise.
+
+  The test is the strict sign test value < 0. Zero is not negative, so
+  isNegative(0) is FALSE. Positive values are also not negative, so
+  isNegative(5) is FALSE, while isNegative(-5) is TRUE.
+
+  isNegative is overloaded for the three numeric types: Integer, Float, and
+  Fixed. The argument is compared against zero in its own type with no
+  conversion, so the same strict rule applies whether value is -7, -0.0001, or a
+  Fixed amount. Negative zero, where the type permits it, is treated as zero and
+  therefore yields FALSE.
+
+  isNegative is useful in ordinary conditionals, MATCH guards, and as a
+  predicate passed to filter.
+
+OVERLOADS
+  isNegative(value AS Integer) AS Boolean
+    Tests an Integer against zero, returning TRUE when value < 0.
+
+  isNegative(value AS Float) AS Boolean
+    Tests a Float against zero, returning TRUE when value < 0.0.
+
+  isNegative(value AS Fixed) AS Boolean
+    Tests a Fixed against zero, returning TRUE when value is less than zero.
+
+PARAMETERS
+  value AS Integer
+    The number to test. Any Integer, Float, or Fixed is accepted; its value
+    determines the result.
+
+RETURN VALUE
+  AS Boolean
+    TRUE when value is strictly less than zero, FALSE otherwise. Zero returns
+    FALSE and positive values return FALSE.
+
+ERRORS
+  No errors.
+
+TYPE CHECKING
+  isNegative accepts a single Integer, Float, or Fixed value. Calling it with
+  any other type, or with a different number of arguments, is a compile-time
+  error.
+
+EXAMPLES
+  Test a literal:
+
+    LET result AS Boolean = isNegative(-7)
+
+  Branch on sign:
+
+    IF isNegative(balance) THEN
+      PRINT "balance is negative"
+    END IF
+
+  Filter a list:
+
+    LET negatives AS List OF Integer = filter([-2, -1, 0, 1, 2], isNegative)
+
+SEE ALSO
+  isPositive
+  isZero
+  isNumeric

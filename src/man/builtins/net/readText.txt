@@ -11,28 +11,71 @@ IMPORTS
   IMPORT net
 
 DESCRIPTION
-  readText receives data from a connected Socket and returns it decoded as a
-  UTF-8 String. At most maxBytes bytes are read in a single call; the result is
-  often shorter because readText returns as soon as any data is available rather
-  than waiting to fill the requested size. The socket must still be open.
+  Receives data from a connected Socket and returns it decoded as a UTF-8
+  String. A single call performs one underlying receive: it returns as soon as
+  any data is available rather than waiting to fill the requested size, so the
+  returned String is frequently shorter than maxBytes bytes. The socket must
+  still be open.
 
-  readText blocks until at least one byte arrives, the peer closes the
-  connection, or the socket's read timeout elapses. An empty String signals end
-  of stream: the peer has closed its side and no further data will arrive. Use
-  net::poll to test for readiness without blocking, or net::setReadTimeout to
-  bound how long a read may wait.
+  The call blocks until at least one byte arrives, the peer closes its side of
+  the connection, or the socket's read timeout elapses. maxBytes bounds the
+  number of bytes read in this call; it does not request that exactly that many
+  bytes be read. On success the returned String is built from at least one byte.
 
-  maxBytes must be positive and caps the number of bytes read before decoding.
-  Use net::read instead when the peer sends raw binary data, or when a single
-  read may split a multi-byte UTF-8 sequence across calls and you need to
-  reassemble the bytes before decoding.
+  Like net::read, this function does not signal end of stream with an empty
+  result: when the peer has closed the connection it raises an
+  ErrConnectionClosed error. To consume a whole message, call readText in a
+  loop, appending each result, and stop when an ErrConnectionClosed error is
+  raised. Use net::poll to test for readiness without blocking, and
+  net::setReadTimeout to bound how long a read may wait.
+
+  The received bytes are validated as UTF-8 before being returned; invalid
+  UTF-8 raises an ErrEncoding error. Because a single receive may split a
+  multi-byte UTF-8 sequence across calls, use net::read instead when the peer
+  sends raw binary data, or when you need to reassemble bytes spanning multiple
+  reads before decoding.
+
+  The data is decoded into a freshly allocated String; the function has no
+  other side effects and does not close the socket.
+
+PARAMETERS
+  sock AS Socket
+    A connected socket to receive from, such as one returned by net::connectTcp
+    or net::accept. It must still be open; reading from a closed socket is an
+    error.
+
+  maxBytes AS Integer
+    The maximum number of bytes to read in this call. Must be positive. It caps
+    the number of bytes received before decoding but does not guarantee that
+    many bytes are returned.
+
+RETURN VALUE
+  AS String
+    The bytes received in this read, decoded as UTF-8, in the order they
+    arrived. The String is built from between 1 and maxBytes bytes inclusive.
+    End of stream is not reported as an empty String; it is reported as an
+    ErrConnectionClosed error.
 
 ERRORS
-  Raises an Error with code 77050002 (ErrInvalidArgument) when maxBytes is not
-  positive, 77030004 (ErrResourceClosed) when the socket has already been closed,
-  or 77070003 (ErrNetworkFailed) when the read could not be completed or the read
-  timeout elapsed before any data arrived. Raises an Error when the received
-  bytes are not valid UTF-8.
+  77050002 (ErrInvalidArgument)
+  Raised when maxBytes is not positive.
+
+  77030004 (ErrResourceClosed)
+  Raised when sock has already been closed.
+
+  77070004 (ErrConnectionClosed)
+  Raised when the peer has closed the connection (an end-of-stream read) or the
+  read otherwise fails for a reason other than a timeout.
+
+  77070005 (ErrReadTimeout)
+  Raised when the socket's read timeout elapses before any data arrives.
+
+  77020004 (ErrEncoding)
+  Raised when the received bytes are not valid UTF-8.
+
+  77010001 (ErrOutOfMemory)
+  Raised when the temporary read buffer or the returned String cannot be
+  allocated.
 
 EXAMPLES
   Read up to 1024 bytes of text from a connected socket:
@@ -52,19 +95,12 @@ EXAMPLES
     net::writeText(client, "GET / HTTP/1.0\r\n\r\n")
     MUT response AS String = ""
     DO
-      LET chunk = net::readText(client, 4096)
-      IF len(chunk) = 0 THEN
-        EXIT DO
-      END IF
-      response = response & chunk
+      MATCH net::readText(client, 4096)
+        CASE Ok(chunk) : response = response & chunk
+        CASE Err(err) : EXIT DO
+      END MATCH
     LOOP
     ' client is closed by lexical drop when this scope ends
 
 SEE ALSO
-  net::read
-  net::writeText
-  net::poll
-  net::setReadTimeout
-  net::connectTcp
-  net::accept
-  net::close
+  net::read, net::writeText, net::poll, net::setReadTimeout, net::connectTcp, net::accept, net::close

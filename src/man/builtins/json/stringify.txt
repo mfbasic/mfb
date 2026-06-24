@@ -1,5 +1,5 @@
 NAME
-  stringify - encode Json as compact JSON text
+  stringify - encode a Json value as compact JSON text
 
 SYNOPSIS
   json::stringify(value AS Json) AS String
@@ -7,21 +7,61 @@ SYNOPSIS
 PACKAGE
   json
 
+IMPORTS
+  IMPORT json
+
 DESCRIPTION
-  json::stringify converts a Json value to compact JSON text with no extra
-  indentation or spacing. Strings are escaped for JSON output. Null values are
-  emitted as null. The argument may be the Json union or any of its member
-  types (JsonNull, JsonBool, JsonNum, JsonStr, JsonArr, JsonObj).
+  json::stringify serializes a Json value into a single compact JSON document
+  with no extra indentation, line breaks, or whitespace between tokens. The
+  argument may be the Json union or any of its member types (JsonNull, JsonBool,
+  JsonNum, JsonStr, JsonArr, JsonObj).
+
+  Each Json variant maps to its JSON form: JsonNull emits null; JsonBool emits
+  true or false; JsonStr emits a double-quoted string with the standard JSON
+  escapes applied; JsonArr emits a bracketed, comma-separated list of its items
+  in order; and JsonObj emits a braced, comma-separated sequence of "key":value
+  pairs in the map's iteration order, with each key escaped as a JSON string.
+  Arrays and objects are serialized recursively. An empty JsonArr emits [] and
+  an empty JsonObj emits {}.
+
+  JsonNum holds a Float and is rendered as the shortest JSON number that round
+  trips back to the same value: an integral value is written without a fraction,
+  otherwise it is written with up to nine fractional digits and trailing zeros
+  are trimmed. Because the value is a Float, very large or very precise numbers
+  may already have lost precision before serialization. Non-finite Float values
+  (NaN and positive or negative infinity) have no JSON representation and cause
+  an error.
+
+  The argument may also be passed by the name value.
+
+PARAMETERS
+  value AS Json
+    The Json value to serialize. Accepts the Json union or any of its member
+    types (JsonNull, JsonBool, JsonNum, JsonStr, JsonArr, JsonObj). May also be
+    supplied by the name value.
+
+RETURN VALUE
+  AS String
+    The compact JSON text for value. The result contains no insignificant
+    whitespace and can be read back with json::parse.
 
 ERRORS
-  ErrInvalidFormat (77050003)
-    Returned when a Json number cannot be represented as a valid JSON number,
-    including non-finite Float values.
+  77050003 (ErrInvalidFormat)
+  Raised when a JsonNum holds a Float that has no JSON representation, that is,
+  a non-finite value (NaN or positive or negative infinity).
 
 EXAMPLES
-  LET text AS String = json::stringify(Obj[Map OF String TO Json { "name" := Str["Ada"] }])
+  Serialize an object value to compact JSON text:
+
+    LET text AS String = json::stringify(JsonObj[Map OF String TO Json { "name" := JsonStr["Ada"] }])
+
+  Serialize a scalar member type directly:
+
+    LET flag AS String = json::stringify(JsonBool[TRUE])
+
+  Pass the argument by name:
+
+    LET nullText AS String = json::stringify(value := JsonNull[NOTHING])
 
 SEE ALSO
-  parse
-  get
-  getOr
+  parse, get, getOr

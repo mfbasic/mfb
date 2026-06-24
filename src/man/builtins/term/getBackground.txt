@@ -1,0 +1,71 @@
+NAME
+  getBackground - read the current terminal background color
+
+SYNOPSIS
+  term::getBackground() AS TermColor
+
+PACKAGE
+  term
+
+IMPORTS
+  IMPORT term
+
+DESCRIPTION
+  Returns the background color currently in effect for text drawn through the
+  term:: surface, as a TermColor record holding the 24-bit RGB value as three
+  byte components r, g, and b. The value reflects the most recent
+  term::setBackground call, or the default set by term::on if the background has
+  not been changed since TUI mode was last entered.
+
+  term::on resets the background color to black, so immediately after term::on
+  and before any term::setBackground call, term::getBackground returns the
+  TermColor (0, 0, 0). After a term::setBackground call, it returns the exact
+  RGB triple that was set, until the next term::setBackground or the next
+  term::on. The returned color tracks only the background; the foreground, bold,
+  and underline attributes are reported by their own queries and do not affect
+  this value.
+
+  Like the rest of the term:: surface other than term::on and term::isOn,
+  term::getBackground is gated behind TUI mode: it is a no-op while TUI mode is
+  off, so a program must call term::on before the returned color is meaningful.
+  The function takes no arguments and has no side effects: it only reads the
+  current background color and does not change any term:: state, the cursor, or
+  the screen.
+
+PARAMETERS
+  None.
+
+RETURN VALUE
+  AS TermColor
+    Returns a TermColor record whose r, g, and b byte fields are the red, green,
+    and blue channels of the current background color, each in the range 0 to
+    255. Immediately after term::on it is (0, 0, 0) (black); otherwise it is the
+    RGB triple given to the most recent term::setBackground call.
+
+ERRORS
+  No errors.
+
+EXAMPLES
+  Set the background color and read it back:
+
+    IMPORT term
+
+    term::on()
+    term::setBackground(0, 128, 255)
+    LET c AS TermColor = term::getBackground()
+    term::off()
+
+  Inspect the individual channels of the current background color:
+
+    IMPORT term
+    IMPORT io
+
+    term::on()
+    LET c AS TermColor = term::getBackground()
+    io::print(toString(c.r))
+    io::print(toString(c.g))
+    io::print(toString(c.b))
+    term::off()
+
+SEE ALSO
+  term::setBackground, term::getForeground, term::getBold, term::getUnderline, term::on

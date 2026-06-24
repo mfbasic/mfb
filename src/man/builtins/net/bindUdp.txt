@@ -11,24 +11,54 @@ IMPORTS
   IMPORT net
 
 DESCRIPTION
-  bindUdp binds a local UDP socket to host and port and returns a UdpSocket
-  resource ready to send and receive datagrams. host names the local interface
-  to bind; use "0.0.0.0" or "::" to receive on any interface. When port is 0 the
-  host assigns an ephemeral port, which can be read back with net::localAddress.
+  bindUdp creates a connectionless UDP datagram socket bound to a local
+  endpoint and returns a UdpSocket resource ready to send and receive
+  datagrams. The host is passed to the host resolver to obtain the local
+  endpoint, a SOCK_DGRAM socket is created, and it is bound to that endpoint.
 
-  Unlike TCP, a UDP socket is connectionless: there is no listen or accept step.
-  Send datagrams to a peer with net::sendTo or net::sendTextTo, and receive them
-  with net::receiveFrom or net::receiveTextFrom, each of which reports the sender
-  address alongside the payload.
+  host names the local interface to bind, given as a textual IP address or a
+  name passed to the host resolver. Use "0.0.0.0" or "::" to receive on any
+  interface; an empty host likewise binds all interfaces by passing a passive
+  (NULL) host to the resolver. When port is 0 the host assigns an ephemeral
+  port, which can be read back with net::localAddress.
 
-  UdpSocket resources are closed by lexical drop at scope exit or explicitly with
-  net::close, and the bound endpoint can be inspected with net::localAddress.
+  Unlike TCP, a UDP socket is connectionless: there is no listen or accept
+  step. Send datagrams to a peer with net::sendTo or net::sendTextTo, and
+  receive them with net::receiveFrom or net::receiveTextFrom, each of which
+  reports the sender address alongside the payload.
+
+  UdpSocket resources are closed by lexical drop at scope exit or explicitly
+  with net::close, and the bound endpoint can be inspected with
+  net::localAddress.
+
+PARAMETERS
+  host AS String
+    The local interface to bind, as a textual IP address or a name passed to
+    the host resolver. "0.0.0.0", "::", or an empty string bind every
+    interface.
+
+  port AS Integer
+    The local UDP port to bind. A value of 0 requests an ephemeral port
+    assigned by the host, which can then be read back with net::localAddress.
+
+RETURN VALUE
+  AS UdpSocket
+    A bound UdpSocket resource ready for net::sendTo, net::sendTextTo,
+    net::receiveFrom, and net::receiveTextFrom. The UdpSocket is closed by
+    lexical drop at scope exit unless closed earlier with net::close.
 
 ERRORS
-  Raises an Error with code 77050002 (ErrInvalidArgument) when an argument value
-  is not valid for the operation, 77070001 (ErrAddressInvalid) when the host or
-  port is malformed, or 77070003 (ErrNetworkFailed) when the socket could not be
-  bound, such as when the address is already in use.
+  77010001 (ErrOutOfMemory)
+  Raised when memory for the host C string or the UdpSocket handle could not be
+  allocated.
+
+  77070001 (ErrAddressInvalid)
+  Raised when the host or port could not be resolved into a local endpoint,
+  such as when the host is malformed.
+
+  77070003 (ErrNetworkFailed)
+  Raised when the socket could not be created or bound, for example when the
+  address is already in use.
 
 EXAMPLES
   Bind on all interfaces and receive a datagram:
@@ -37,7 +67,7 @@ EXAMPLES
 
     RES sock = net::bindUdp("0.0.0.0", 9000)
     LET datagram = net::receiveTextFrom(sock, 1024)
-    ' datagram.value holds the text; datagram.address holds the sender
+    ' datagram.value holds the text; datagram.from holds the sender
     ' sock is closed by lexical drop when this scope ends
 
   Bind an ephemeral port and read back the assigned address:
@@ -49,10 +79,4 @@ EXAMPLES
     ' bound.port holds the host-assigned port
 
 SEE ALSO
-  net::sendTo
-  net::sendTextTo
-  net::receiveFrom
-  net::receiveTextFrom
-  net::localAddress
-  net::close
-  net::lookup
+  net::sendTo, net::sendTextTo, net::receiveFrom, net::receiveTextFrom, net::localAddress, net::close, net::lookup

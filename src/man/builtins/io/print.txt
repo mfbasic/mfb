@@ -1,24 +1,64 @@
 NAME
-  print - write text to standard output with a newline
+  print - write text to standard output followed by a newline
 
 SYNOPSIS
   io::print(value AS String) AS Nothing
 
+PACKAGE
+  io
+
+IMPORTS
+  IMPORT io
+
 DESCRIPTION
-  Writes value to standard output and appends a newline. The value is UTF-8
-  text and may contain any valid Unicode scalar values, including emoji.
+  Writes value to the process standard output stream and then appends a single
+  newline character. The value is treated as UTF-8 text and is emitted exactly
+  as stored, byte for byte, with no further encoding, escaping, or newline
+  translation beyond the one trailing newline this function adds. Any valid
+  Unicode scalar values are permitted, including multi-byte characters and emoji.
 
-  Only String values are accepted. Use toString explicitly to print
-  non-string values.
+  Only String values are accepted. The function performs no implicit
+  conversion, so to print a non-string value you must convert it first, for
+  example with toString. An empty String prints nothing but the trailing
+  newline.
 
-  Fails with ErrWriteFailed (77020002) on output failure.
+  Output is directed to whichever destination is bound to standard output. In a
+  normal console program this is file descriptor 1; in app mode the same call is
+  routed to the application transcript window instead of a file descriptor. The
+  write is the function's only side effect. Standard output may be buffered, so
+  text is not guaranteed to be visible to an external reader until the buffer is
+  drained; use io::flush when prompt visibility is required. To write without a
+  trailing newline, use io::write; to send text to standard error instead, use
+  io::printError.
+
+PARAMETERS
+  value AS String
+    The text to write. Interpreted as UTF-8 and emitted unchanged. May be any
+    String, including the empty String and strings containing arbitrary Unicode
+    characters.
+
+RETURN VALUE
+  AS Nothing
+    Returns nothing. The function is invoked for its side effect of writing to
+    standard output.
+
+ERRORS
+  77020002 (ErrOutput)
+  Raised when the underlying write to standard output fails, for example when
+  the output stream is closed or a host write error occurs.
 
 EXAMPLES
-  io::print("Hello")
-  io::print("é日😀")
-  io::print(toString(42))
+  Print a line of text:
+
+    io::print("Hello")
+
+  Print Unicode text including emoji:
+
+    io::print("é日😀")
+
+  Convert a non-string value before printing:
+
+    io::print(toString(42))
 
 SEE ALSO
-  io::write
-  io::printError
-  io::flush
+  io::write, io::printError, io::flush

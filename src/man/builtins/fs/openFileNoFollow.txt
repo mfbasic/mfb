@@ -1,35 +1,123 @@
 NAME
-  openFileNoFollow - open a file without following the final symlink
+  openFileNoFollow - open a file, refusing a symlinked final component
 
 SYNOPSIS
-  fs::openFileNoFollow(path AS String, mode AS String = "read") AS File
+  fs::openFileNoFollow(path AS String) AS File
+  fs::openFileNoFollow(path AS String, mode AS String) AS File
+
+PACKAGE
+  fs
+
+IMPORTS
+  IMPORT fs
 
 DESCRIPTION
-  Opens path like fs::openFile, but asks the host OS not to follow a symlink in
-  the final path component. The mode argument is optional and defaults to
-  "read". Portable modes are "read" or "r", "write" or "w", "readWrite" or "rw",
-  and "append" or "a".
+  Opens the file named by path and returns an opaque File resource that later
+  fs:: calls read from, write to, and close. It behaves exactly like
+  fs::openFile except that it asks the host OS not to follow a symlink in the
+  final path component: when the last component of path is a symbolic link, the
+  open is refused rather than resolving to the link target. Symlinks in earlier
+  components of path are still followed. This is useful for safely opening a file
+  whose name you control without being silently redirected through a symlink that
+  may have been swapped in.
 
-  When the final component of path is a symlink, the open is refused rather than
-  resolving to the link target. Symlinks in earlier components of path are still
-  followed. This is useful for safely opening a file whose name you control
-  without being redirected through a symlink that may have been swapped in.
+  The mode argument is optional; when it is omitted the file is opened for
+  reading, exactly as if "read" had been supplied. mode selects how the file is
+  opened. The portable mode names are "read" or "r", "write" or "w", "readWrite"
+  or "rw", and "append" or "a". "read" opens an existing file for reading only.
+  "write" opens the file for writing, creating it when it does not exist and
+  truncating it to empty when it does. "readWrite" opens the file for both
+  reading and writing, creating it when it does not exist but preserving existing
+  contents. "append" opens the file for writing with every write directed to the
+  end of the file, creating it when it does not exist. Files created by a write,
+  readWrite, or append open are created with the host's standard 0666 permission
+  bits as adjusted by the process umask. The mode string is matched exactly and
+  is case sensitive; any other value is rejected before the file is touched.
 
-  File resources are closed by lexical drop at scope exit or explicitly with
-  fs::close.
+  path is interpreted as UTF-8 bytes and passed to the host filesystem. It may
+  be absolute or relative to the current working directory and may contain
+  Unicode characters when the host filesystem accepts those names. The string
+  must not be empty and must not contain an embedded NUL byte, because the host
+  open call requires a NUL-terminated path.
+
+  The returned File is closed by lexical drop when the binding that holds it
+  leaves scope, or explicitly with fs::close. The function reads or writes no
+  file contents itself; it only opens the descriptor and wraps it in the File
+  resource.
+
+OVERLOADS
+  fs::openFileNoFollow(path AS String) AS File
+    Opens path for reading, refusing a symlinked final component. Equivalent to
+    calling the two-argument overload with mode set to "read".
+
+  fs::openFileNoFollow(path AS String, mode AS String) AS File
+    Opens path using the explicitly named access mode, refusing a symlinked
+    final component.
+
+PARAMETERS
+  path AS String
+    The filesystem path of the file to open. Interpreted as UTF-8 bytes; may be
+    absolute or relative to the current working directory. Must be non-empty and
+    free of embedded NUL bytes. The final component must not be a symbolic link.
+
+  mode AS String
+    The access mode. Optional; defaults to "read" when omitted. One of
+    "read"/"r" (read existing file), "write"/"w" (create or truncate for
+    writing), "readWrite"/"rw" (create-if-absent for reading and writing,
+    preserving contents), or "append"/"a" (create-if-absent for writing at end
+    of file). Matched exactly and case sensitively.
+
+RETURN VALUE
+  AS File
+    An open File resource positioned at the start of the file for read,
+    readWrite, and write modes, and with writes directed to the end of the file
+    for append mode. The resource must eventually be closed, by scope drop or by
+    fs::close.
 
 ERRORS
-  Raises an Error when mode is not one of the portable modes, when path does not
-  exist for a read mode, when the containing directory is missing or not
-  writable for a write or append mode, when the final path component is a
-  symlink, or when the host OS otherwise refuses to open the file.
+  77050002 (ErrInvalidArgument)
+  Raised when path is empty, when path contains an embedded NUL byte, or when
+  mode is not one of the recognized portable mode names.
+
+  77010001 (ErrOutOfMemory)
+  Raised when the internal NUL-terminated copy of path or the File resource
+  record cannot be allocated.
+
+  77030001 (ErrPathNotFound)
+  Raised when a read open finds no file at path, or a component of path's
+  directory prefix does not exist (host ENOENT).
+
+  77030003 (ErrAccessDenied)
+  Raised when the host denies access to path for the requested mode (host
+  EACCES), and when the final path component is a symlink so the no-follow open
+  is refused (host ELOOP).
+
+  77030002 (ErrInvalidPath)
+  Raised when the path is unusable as a path string, including a non-directory
+  used as a directory component, an over-long path, or an invalid byte sequence
+  (host ENOTDIR, ENAMETOOLONG, or EILSEQ).
+
+  77020002 (ErrOutput)
+  Raised when the file cannot be opened for any other host reason not classified
+  above.
 
 EXAMPLES
-  RES f = fs::openFileNoFollow("data.txt")
-  ' f is closed by lexical drop when this scope ends
+  Open a file for reading using the default mode, refusing a symlinked name:
 
-  RES w = fs::openFileNoFollow("out.txt", "write")
-  ' opened for writing; fails if out.txt is a symlink
+    LET f AS File = fs::openFileNoFollow("data.txt")
+    fs::close(f)
+
+  Open a file for writing; fails if out.txt is a symlink:
+
+    LET w AS File = fs::openFileNoFollow("out.txt", "write")
+    fs::writeAll(w, "hello")
+    fs::close(w)
+
+  Open a file for appending so each write lands at the end:
+
+    LET log AS File = fs::openFileNoFollow("app.log", "a")
+    fs::writeAll(log, "started\n")
+    fs::close(log)
 
 SEE ALSO
-  fs::openFile, fs::open, fs::close
+  fs::openFile, fs::open, fs::close, fs::readAll, fs::writeAll

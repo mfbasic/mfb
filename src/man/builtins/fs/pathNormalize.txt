@@ -4,25 +4,63 @@ NAME
 SYNOPSIS
   fs::pathNormalize(path AS String) AS String
 
+PACKAGE
+  fs
+
+IMPORTS
+  IMPORT fs
+
 DESCRIPTION
-  Returns a normalized form of path without accessing the filesystem. Repeated
-  "/" separators are collapsed to one, "." components are removed, and each ".."
-  component removes the preceding normal component when one is available.
+  Returns a normalized form of path as a String without ever consulting the
+  filesystem. The normalization is purely syntactic: repeated "/" separators are
+  collapsed to a single separator, every "." component is removed, and each ".."
+  component removes the preceding normal component when one is available to
+  remove.
 
-  A leading "/" is preserved, so absolute paths stay absolute. A leading ".."
-  in a relative path has nothing to remove and is kept. When normalization
-  leaves nothing (for example "" or "."), the result is ".".
+  A leading "/" is preserved, so an absolute path stays absolute and a ".."
+  immediately after the root has nothing to remove and is dropped. In a relative
+  path a leading ".." (or a run of them) has no earlier component to cancel, so
+  each such ".." is kept in place. When normalization would leave nothing at all
+  (for example the inputs "" or "." or "a/.."), the result is "." so that the
+  returned path always names something.
 
-  The operation is byte-oriented for path syntax. UTF-8 file names are preserved
-  unchanged. The normalization is purely syntactic and does not resolve symlinks
-  or consult the filesystem.
+  The operation is byte-oriented over the path syntax: only the "/" separator and
+  the "." and ".." spellings are interpreted, while all other bytes are copied
+  through unchanged. UTF-8 file names are therefore preserved exactly, and the
+  function never resolves symbolic links, accesses any file, or checks whether
+  any path exists. To resolve a path against the real directory tree instead,
+  use fs::canonicalPath. The function has no side effects other than allocating
+  the returned String.
+
+PARAMETERS
+  path AS String
+    The path to normalize. Interpreted as raw UTF-8 bytes with "/" as the
+    component separator. May be absolute or relative, and may be empty.
+
+RETURN VALUE
+  AS String
+    The lexically normalized path: redundant separators collapsed, "." removed,
+    and ".." applied against preceding normal components. A leading "/" is
+    retained for absolute paths, unresolvable leading ".." components in relative
+    paths are kept, and "." is returned whenever normalization leaves the path
+    empty.
+
+ERRORS
+  77010001 (ErrOutOfMemory)
+  Raised when the result String for the normalized path cannot be allocated.
 
 EXAMPLES
-  io::print(fs::pathNormalize("target//a/./file.txt"))
+  Redundant separators and "." components are removed:
 
-  io::print(fs::pathNormalize("/usr/local/../bin"))
+    io::print(fs::pathNormalize("target//a/./file.txt"))
 
-  io::print(fs::pathNormalize("a/b/../.."))
+  A ".." component cancels the preceding component:
+
+    io::print(fs::pathNormalize("/usr/local/../bin"))
+
+  Normalizing to nothing yields ".":
+
+    io::print(fs::pathNormalize("a/b/../.."))
 
 SEE ALSO
   fs::canonicalPath, fs::pathJoin, fs::pathDirName, fs::pathBaseName, fs::isWithin

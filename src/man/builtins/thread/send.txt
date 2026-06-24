@@ -5,18 +5,101 @@ SYNOPSIS
   thread::send(t AS Thread OF Msg TO Out, data AS Msg, timeoutMs AS Integer = 0) AS Nothing
   thread::send(t AS ThreadWorker OF Msg TO Out, data AS Msg, timeoutMs AS Integer = 0) AS Nothing
 
-DESCRIPTION
-  Sends data through the queue selected by the handle type. Thread writes to
-  the worker inbound queue. ThreadWorker writes to the parent-visible outbound
-  queue. timeoutMs = 0 does not wait for queue space. A positive timeout waits
-  up to that many milliseconds.
+PACKAGE
+  thread
 
-  Fails with ErrInterrupted when the thread has ended or cancellation was
-  requested. Fails with ErrTimeout when the timeout expires. Invalid timeout
-  values fail with ErrInvalidArgument. A worker-side send blocked on outbound
-  queue space wakes and fails with ErrInterrupted when cancellation is
-  requested.
+IMPORTS
+  IMPORT thread
+
+DESCRIPTION
+  Enqueues data on the bounded message queue selected by the handle type, on the
+  thread's data plane. A parent Thread handle writes data to the worker's inbound
+  queue, so the message is delivered to the worker; a ThreadWorker handle writes
+  to the parent-visible outbound queue, so the message is delivered back to the
+  parent. The matching reader is thread::receive on the opposite handle. The data
+  plane carries values only; resources move on the separate resource plane via
+  thread::transfer.
+
+  data must match the thread's message type Msg (a thread whose message type is
+  Unknown accepts any value). The value is enqueued by move into the receiving
+  package instance; nothing is shared between the two threads.
+
+  timeoutMs controls how long the call waits for queue space when the destination
+  queue is already full. With timeoutMs = 0 (the default) the call does not wait:
+  it enqueues immediately if there is room and otherwise fails at once with
+  ErrTimeout. A positive timeoutMs waits up to that many milliseconds for space
+  before failing with ErrTimeout. A negative timeoutMs is rejected with
+  ErrInvalidArgument. When there is room in the queue, the message is enqueued
+  immediately regardless of timeoutMs and the call returns Nothing.
+
+  The call participates in cooperative cancellation. A send that is blocked
+  waiting for queue space wakes and fails with ErrInterrupted when the thread has
+  ended or cancellation has been requested, or when the destination queue has
+  been closed. On the parent Thread handle, a send against a thread handle that
+  has already been closed (for example after its result was retrieved with
+  thread::waitFor) fails with ErrResourceClosed.
+
+OVERLOADS
+  thread::send(t AS Thread OF Msg TO Out, data AS Msg, timeoutMs AS Integer = 0) AS Nothing
+    Parent-side send. Writes data to the worker's inbound queue. May fail with
+    ErrResourceClosed when the parent Thread handle is already closed, and with
+    ErrInterrupted when the worker has completed or cancellation was requested.
+
+  thread::send(t AS ThreadWorker OF Msg TO Out, data AS Msg, timeoutMs AS Integer = 0) AS Nothing
+    Worker-side send. Writes data to the parent-visible outbound queue. A
+    worker-side send blocked on queue space wakes and fails with ErrInterrupted
+    when cancellation of the worker is requested or the queue is closed.
+
+PARAMETERS
+  t AS Thread OF Msg TO Out | ThreadWorker OF Msg TO Out
+    The thread handle whose data-plane queue receives the message. A parent
+    Thread handle targets the worker inbound queue; a ThreadWorker handle targets
+    the outbound queue read by the parent.
+
+  data AS Msg
+    The message value to enqueue. Must match the thread's message type Msg; a
+    thread typed with message Unknown accepts any value. The value is moved into
+    the receiving package instance.
+
+  timeoutMs AS Integer
+    Maximum time in milliseconds to wait for space when the destination queue is
+    full. 0 (the default) does not wait and fails immediately with ErrTimeout if
+    the queue is full. A positive value waits up to that many milliseconds. A
+    negative value is rejected with ErrInvalidArgument.
+
+RETURN VALUE
+  AS Nothing
+    Returns Nothing once the message has been enqueued.
+
+ERRORS
+  77050002 (ErrInvalidArgument)
+  Raised when timeoutMs is negative.
+
+  77050008 (ErrTimeout)
+  Raised when the destination queue is full and space does not become available
+  before timeoutMs elapses (immediately when timeoutMs is 0).
+
+  77050009 (ErrInterrupted)
+  Raised when a waiting or attempted send observes that the thread has ended or
+  cancellation has been requested, or that the destination queue has been closed.
+
+  77030004 (ErrResourceClosed)
+  Raised by the parent Thread overload when the Thread handle has already been
+  closed, such as after its result was retrieved with thread::waitFor or t.result.
+
+TYPE CHECKING
+  data must be assignable to the handle's message type Msg. A handle whose
+  message type is Unknown accepts any value; otherwise data's static type must
+  equal Msg. timeoutMs must be an Integer. The result type is always Nothing.
 
 EXAMPLES
-  thread::send(t, "next")
-  thread::send(t, "next", 10)
+  Send a message without waiting for queue space:
+
+    thread::send(t, "next")
+
+  Wait up to 10 milliseconds for room in the queue:
+
+    thread::send(t, "next", 10)
+
+SEE ALSO
+  thread::receive, thread::transfer, thread::start, thread::cancel

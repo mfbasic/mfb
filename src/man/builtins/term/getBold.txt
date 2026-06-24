@@ -1,0 +1,69 @@
+NAME
+  getBold - read whether the bold text attribute is currently enabled
+
+SYNOPSIS
+  term::getBold() AS Boolean
+
+PACKAGE
+  term
+
+IMPORTS
+  IMPORT term
+
+DESCRIPTION
+  Returns the current state of the bold text attribute used for text drawn
+  through the term:: surface, as a Boolean. The value reflects the most recent
+  term::setBold call, or the default set by term::on if the bold attribute has
+  not been changed since TUI mode was last entered.
+
+  term::on resets the bold attribute to off, so immediately after term::on and
+  before any term::setBold call, term::getBold returns False. After a
+  term::setBold(True) call it returns True, and after term::setBold(False) it
+  returns False, until the next term::setBold or the next term::on. The reported
+  value tracks only the bold attribute; the foreground color, background color,
+  and underline attribute are reported by their own queries and do not affect
+  this value.
+
+  Like the rest of the term:: surface other than term::on and term::isOn,
+  term::getBold is gated behind TUI mode: it is a no-op while TUI mode is off, so
+  a program must call term::on before the returned value is meaningful. The
+  function takes no arguments and has no side effects: it only reads the current
+  bold attribute and does not change any term:: state, the cursor, or the screen.
+
+PARAMETERS
+  None.
+
+RETURN VALUE
+  AS Boolean
+    Returns True if the bold attribute is currently enabled for subsequently
+    drawn text, or False if it is disabled. Immediately after term::on it is
+    False; otherwise it is the value given to the most recent term::setBold call.
+
+ERRORS
+  No errors.
+
+EXAMPLES
+  Enable bold and read the attribute back:
+
+    IMPORT term
+
+    term::on()
+    term::setBold(True)
+    LET b AS Boolean = term::getBold()
+    term::off()
+
+  Branch on the current bold state:
+
+    IMPORT term
+    IMPORT io
+
+    term::on()
+    IF term::getBold() THEN
+      io::print("bold is on")
+    ELSE
+      io::print("bold is off")
+    END IF
+    term::off()
+
+SEE ALSO
+  term::setBold, term::getUnderline, term::getForeground, term::getBackground, term::on

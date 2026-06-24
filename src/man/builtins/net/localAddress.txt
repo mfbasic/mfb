@@ -38,10 +38,16 @@ OVERLOADS
     Reports the endpoint a UDP socket is bound to.
 
 ERRORS
-  Raises an Error with code 77030004 (ErrResourceClosed) when the resource has
-  already been closed or the host OS reports it is no longer usable, 77070001
-  (ErrAddressInvalid) when the local address cannot be represented as an Address,
-  or 77010001 (ErrOutOfMemory) when the result could not be allocated.
+  77030004 (ErrResourceClosed)
+  Raised when the resource has already been closed, or when the host OS reports
+  that it is no longer usable while querying its local endpoint.
+
+  77070001 (ErrAddressInvalid)
+  Raised when the local address reported by the OS cannot be represented as an
+  Address.
+
+  77010001 (ErrOutOfMemory)
+  Raised when the resulting Address could not be allocated.
 
 EXAMPLES
   Discover the port assigned when listening on port 0:

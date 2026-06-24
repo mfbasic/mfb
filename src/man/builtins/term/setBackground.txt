@@ -1,0 +1,73 @@
+NAME
+  setBackground - set the terminal background color to an RGB value
+
+SYNOPSIS
+  term::setBackground(r AS Byte, g AS Byte, b AS Byte) AS Nothing
+
+PACKAGE
+  term
+
+IMPORTS
+  IMPORT term
+
+DESCRIPTION
+  Sets the background color used for subsequent text drawn through the term::
+  surface to the 24-bit RGB color given by its three byte components. The color
+  takes effect immediately and persists until it is changed by another
+  term::setBackground call or reset to the default by term::on; it does not
+  affect text already on the screen, only text drawn after the call returns.
+
+  Each component is a byte in the range 0 to 255: r is the red channel, g is the
+  green channel, and b is the blue channel, so (0, 0, 0) is black, (255, 255,
+  255) is white, and (255, 0, 0) is pure red. The foreground color, bold, and
+  underline attributes are left unchanged; only the background color is updated.
+
+  Like the rest of the term:: surface other than term::on and term::isOn,
+  term::setBackground is gated behind TUI mode: it is a no-op while TUI mode is
+  off, so a program must call term::on first for the color change to take effect.
+  term::on resets the background color back to black, so any color set with
+  term::setBackground is discarded the next time term::on is called.
+
+  The function has no return value; its only effect is to update the current
+  background color. The color set here can be read back with term::getBackground.
+
+PARAMETERS
+  r AS Byte
+    The red channel of the background color, 0 to 255.
+
+  g AS Byte
+    The green channel of the background color, 0 to 255.
+
+  b AS Byte
+    The blue channel of the background color, 0 to 255.
+
+RETURN VALUE
+  AS Nothing
+    Returns nothing. The function is invoked for its side effect of setting the
+    current background color used for subsequently drawn text.
+
+ERRORS
+  No errors.
+
+EXAMPLES
+  Draw text on a blue background on the TUI surface:
+
+    IMPORT term
+    IMPORT io
+
+    term::on()
+    term::setBackground(0, 0, 255)
+    io::print("hello on blue")
+    term::off()
+
+  Set the background color and read it back:
+
+    IMPORT term
+
+    term::on()
+    term::setBackground(0, 128, 255)
+    LET c AS TermColor = term::getBackground()
+    term::off()
+
+SEE ALSO
+  term::setForeground, term::getBackground, term::setBold, term::setUnderline, term::on

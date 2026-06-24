@@ -4,14 +4,52 @@ NAME
 SYNOPSIS
   math::pi2 AS Float
 
+PACKAGE
+  math
+
+IMPORTS
+  IMPORT math
+
 DESCRIPTION
-  The mathematical constant pi / 2 (a quarter turn, or 90 degrees in radians)
-  as a Float value, approximately 1.5707963267948966.
+  The mathematical constant pi / 2, a quarter turn or 90 degrees expressed in
+  radians, as a Float value approximately equal to 1.5707963267948966. This is
+  the closest 64-bit IEEE 754 double-precision representation of pi / 2; it is
+  not the exact mathematical value, which is irrational and cannot be
+  represented in finite binary.
+
+  pi2 is a constant, not a callable function. It takes no arguments and is
+  referenced by name wherever a Float expression is expected, evaluating to the
+  same value on every use. It performs no computation at the call site and has
+  no side effects.
+
+  For a Fixed-point representation of the same constant, use math::pi2Fixed.
+  The related angle constants math::pi (pi, a full half turn) and math::pi4
+  (pi / 4) are derived from the same value.
+
+PARAMETERS
+  None.
+    math::pi2 is a constant and accepts no arguments.
+
+RETURN VALUE
+  AS Float
+    The Float closest to pi / 2, approximately 1.5707963267948966. The same
+    value is produced on every reference.
+
+ERRORS
+  No errors.
 
 EXAMPLES
-  LET value AS Float = math::pi2
+  Reference the constant directly:
 
-  LET quarterTurn AS Float = math::sin(math::pi2)
+    IMPORT math
+
+    LET value AS Float = math::pi2
+
+  Evaluate sine at a quarter turn, which is approximately 1.0:
+
+    IMPORT math
+
+    LET quarterTurn AS Float = math::sin(math::pi2)
 
 SEE ALSO
   math::pi2Fixed, math::pi, math::pi4, math::twoOverPi, math::e

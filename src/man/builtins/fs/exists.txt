@@ -4,20 +4,54 @@ NAME
 SYNOPSIS
   fs::exists(path AS String) AS Boolean
 
-DESCRIPTION
-  Returns TRUE when any filesystem entry exists at path, regardless of whether
-  it is a regular file, a directory, or another entry type. The final path
-  component is followed when it is a symlink, so a symlink to a missing target
-  reports FALSE.
+PACKAGE
+  fs
 
-  Returns FALSE for missing paths.
+IMPORTS
+  IMPORT fs
+
+DESCRIPTION
+  Checks path and reports whether any filesystem entry exists there, regardless
+  of its type. Returns TRUE when an entry is present at path, whether it is a
+  regular file, a directory, a symlink to an existing target, a socket, a FIFO,
+  or a device node; returns FALSE when nothing exists at path.
+
+  The final path component is followed when it is a symlink, so a symlink that
+  points at an existing target reports TRUE and a symlink whose target is
+  missing reports FALSE.
+
+  A failed check (for example a missing path or an unreadable parent directory)
+  is reported as FALSE rather than raised as an error; only an internal
+  allocation failure while preparing the path can raise an error.
 
   The path is a UTF-8 String and may contain Unicode characters, including
   emoji, when the host filesystem accepts those names.
 
+PARAMETERS
+  path AS String
+    The filesystem path to test. Interpreted as UTF-8 bytes and passed to the
+    host filesystem; may be absolute or relative to the current working
+    directory.
+
+RETURN VALUE
+  AS Boolean
+    TRUE when any entry exists at path, FALSE otherwise (missing path, or a
+    symlink whose target is missing).
+
+ERRORS
+  77010001 (ErrOutOfMemory)
+  Raised when the internal NUL-terminated copy of path cannot be allocated.
+
 EXAMPLES
-  fs::exists("data.txt")
-  fs::exists("é日😀.txt")
+  Test for any entry at a path:
+
+    IF fs::exists("data.txt") THEN
+      io::print("found")
+    END IF
+
+  Unicode paths are accepted:
+
+    LET present AS Boolean = fs::exists("é日😀.txt")
 
 SEE ALSO
   fs::fileExists, fs::directoryExists

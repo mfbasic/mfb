@@ -5,44 +5,83 @@ SYNOPSIS
   io::input() AS String
   io::input(prompt AS String) AS String
 
+PACKAGE
+  io
+
+IMPORTS
+  IMPORT io
+
 DESCRIPTION
-  Reads a single line from standard input and returns it as a String. The
-  trailing newline is removed, and a trailing carriage return (from CRLF line
-  endings) is also stripped. Typed characters are echoed as the line is read.
+  Reads a single line from standard input and returns it as a String. Bytes are
+  read from file descriptor 0 one at a time until a newline (LF, byte 10) is
+  seen or end of file is reached. The trailing newline is removed, and a
+  trailing carriage return (from a CRLF line ending) is also stripped, so the
+  returned String holds only the line's content.
 
-  When a non-empty prompt is supplied, it is written to standard output and
-  flushed before input is read, so the cursor waits on the same line as the
-  prompt. The prompt is written verbatim; no trailing space or newline is
-  added.
+  When called with a prompt argument, the prompt is written to standard output
+  and then flushed before any input is read, so the cursor waits on the same
+  line as the prompt. The prompt is written verbatim; no trailing space or
+  newline is added. An empty prompt is written as nothing and is not flushed,
+  making io::input("") behave like io::input() for the read itself.
 
-  Input is decoded as UTF-8 and may contain any valid Unicode scalar values,
-  including emoji.
+  Input is decoded as UTF-8 as it is read. Each multi-byte sequence is validated
+  and may encode any valid Unicode scalar value, including emoji; an ill-formed
+  byte sequence fails rather than producing replacement characters. The input
+  buffer grows as needed to hold the line, so there is no fixed length limit
+  other than available memory.
+
+  Typed characters are echoed by the terminal in the normal cooked-mode manner;
+  io::input does not alter the terminal mode. The function reads from the same
+  standard input stream as io::readLine — the only difference is the optional
+  prompt — so the two should not be interleaved in a way that splits a single
+  logical line.
 
 OVERLOADS
   io::input() AS String
     Reads a line from standard input without writing a prompt.
 
   io::input(prompt AS String) AS String
-    Writes prompt to standard output, flushes it, then reads a line.
+    Writes prompt to standard output, flushes it, then reads a line. A failure
+    while writing or flushing the prompt is reported before any input is read.
+
+PARAMETERS
+  prompt AS String
+    Text written to standard output and flushed before the line is read.
+    Interpreted as UTF-8 and emitted verbatim, with no added space or newline.
+    An empty String writes nothing and skips the flush.
+
+RETURN VALUE
+  AS String
+    The line read from standard input, with the trailing LF and any preceding CR
+    removed. A line that is empty before its newline returns an empty String.
 
 ERRORS
-  Fails with ErrWriteFailed (77020002) when writing the prompt fails.
+  77020002 (ErrOutput)
+  Raised when writing the prompt to standard output, or flushing it, fails.
 
-  Fails with ErrEndOfFile (77020003) when standard input reaches end of file
-  before any data is read.
+  77020003 (ErrEof)
+  Raised when standard input reaches end of file before any byte of the line is
+  read.
 
-  Fails with ErrEncoding (77020004) when the input is not valid UTF-8.
+  77020004 (ErrEncoding)
+  Raised when the bytes read do not form a valid UTF-8 sequence.
 
-  Fails with ErrInputFailed (77020005) on input read failure.
+  77020005 (ErrInput)
+  Raised when reading from standard input fails for any other reason.
+
+  77010001 (ErrOutOfMemory)
+  Raised when the line buffer or the returned String cannot be allocated.
 
 EXAMPLES
-  LET name AS String = io::input("Name: ")
-  io::print("Hello, " + name)
+  Prompt for a name on the same line and greet the user:
 
-  LET line AS String = io::input()
-  io::print(line)
+    LET name AS String = io::input("Name: ")
+    io::print("Hello, " + name)
+
+  Read a line without a prompt:
+
+    LET line AS String = io::input()
+    io::print(line)
 
 SEE ALSO
-  io::pollInput
-  io::print
-  io::write
+  io::readLine, io::pollInput, io::print, io::write

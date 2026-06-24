@@ -4,24 +4,61 @@ NAME
 SYNOPSIS
   fs::eof(file AS File) AS Boolean
 
+PACKAGE
+  fs
+
+IMPORTS
+  IMPORT fs
+
 DESCRIPTION
-  Returns TRUE when file's current read position is at or beyond the end of the
-  file and FALSE otherwise. The position is not changed.
+  Reports whether file's current read position has reached the end of its
+  contents. Returns TRUE when the position is at or beyond the last byte and
+  FALSE while bytes remain to be read. file must be an open File resource, such
+  as one returned by fs::openFile or fs::open.
+
+  The test is performed by querying the host for the current position and the
+  total length of the file and comparing them; it does not read any contents and
+  leaves the read position exactly where it was. Because seeking is required, the
+  function only works on a seekable File: a regular file opened on disk. On a
+  pipe, a socket, or another non-seekable handle the host cannot report a
+  position or length and the call raises an error instead of returning.
 
   Use eof to guard a read loop so that fs::readLine and the other reading
-  functions are only called while input remains.
+  functions are only called while input remains. This is the intended pattern
+  because end of input is reported by those functions as an error rather than as
+  an empty result: testing eof first lets a loop stop cleanly at the end of the
+  file. The function reads no contents, writes nothing, repositions nothing, and
+  does not close file; it has no side effects.
+
+PARAMETERS
+  file AS File
+    An open File resource to test, as returned by fs::open, fs::openFile,
+    fs::openFileNoFollow, or fs::createTempFile. Must not have been closed and
+    must refer to a seekable handle so its position and length can be queried.
+
+RETURN VALUE
+  AS Boolean
+    TRUE when file's read position is at or beyond the end of its contents,
+    FALSE when one or more bytes remain to be read. The read position is
+    unchanged either way. An empty file reports TRUE immediately.
 
 ERRORS
-  Raises an Error when file has already been closed, or when the host OS cannot
-  determine the file's position or length, such as on a pipe or other
-  non-seekable handle.
+  77030004 (ErrResourceClosed)
+  Raised when file has already been closed, whether by an earlier fs::close call
+  on the same value or by a prior scope-drop.
+
+  77020001 (ErrRead)
+  Raised when the host OS cannot determine the file's position or length, such
+  as on a pipe, socket, or other non-seekable handle.
 
 EXAMPLES
-  RES f = fs::openFile("data.txt")
-  WHILE NOT fs::eof(f)
-    io::print(fs::readLine(f))
-  END WHILE
-  ' f is closed by lexical drop when this scope ends
+  Read every line until end of input:
+
+    RES f = fs::openFile("data.txt")
+    WHILE NOT fs::eof(f)
+      io::print(fs::readLine(f))
+    END WHILE
+    ' f is closed by lexical drop when this scope ends
 
 SEE ALSO
-  fs::readLine, fs::readAll, fs::openFile, fs::close
+  fs::readLine, fs::readAll, fs::openFile, fs::open, fs::close

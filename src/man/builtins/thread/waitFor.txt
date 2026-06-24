@@ -1,16 +1,72 @@
 NAME
-  waitFor - wait for a worker result
+  waitFor - block until a worker finishes and return its result
 
 SYNOPSIS
   thread::waitFor(t AS Thread OF Msg TO Out) AS Out
 
-DESCRIPTION
-  Waits until the worker has stored its result, retrieves it, closes the parent
-  Thread handle, then returns the successful Out value. Err results
-  auto-propagate using the normal fallible function rules.
+PACKAGE
+  thread
 
-  After waitFor retrieves the result, any later use of the same Thread handle
-  fails with ErrResourceClosed.
+IMPORTS
+  IMPORT thread
+
+DESCRIPTION
+  Blocks the calling thread until the worker behind the parent Thread handle t
+  has finished and stored its result, then retrieves that result, closes the
+  parent Thread handle, detaches the OS worker, and returns the worker's Out
+  value.
+
+  waitFor accepts only a parent Thread handle, never a ThreadWorker handle. The
+  Out type returned is the output type of the thread, taken from the handle's
+  Thread OF Msg TO Out type.
+
+  The wait is unbounded: there is no timeout, so waitFor returns only once the
+  worker reaches its terminal state. If the worker has already completed, waitFor
+  returns immediately; otherwise it sleeps on the worker's outbound queue
+  condition and rechecks until the worker transitions to completed.
+
+  Retrieving the result is one-shot. waitFor and the t.result accessor share the
+  same retrieval path and both close the parent Thread handle. After the handle
+  is closed, any later use of the same Thread handle fails with ErrResourceClosed
+  (this includes a second waitFor, t.result, or another thread operation on the
+  handle). Compiler-generated cleanup is idempotent for a handle already closed
+  this way, so an already-consumed Thread is not dropped again on scope exit.
+
+  The worker's result is a fallible value. When the worker returned a successful
+  Out value, waitFor yields that value. When the worker terminated with an Err
+  result, that error auto-propagates from waitFor under the normal fallible
+  function rules, carrying the worker's original error code, message, and source
+  location. Such a propagated error is the worker's error, not an error waitFor
+  itself raises; the only error waitFor itself raises is ErrResourceClosed when
+  the handle has already been closed.
+
+PARAMETERS
+  t AS Thread OF Msg TO Out
+    The parent Thread handle whose worker result is awaited. Must be a live,
+    not-yet-consumed parent Thread handle; a ThreadWorker handle is rejected at
+    compile time. The handle is closed as part of a successful retrieval.
+
+RETURN VALUE
+  AS Out
+    The worker's successful result value, of the thread's output type Out. If the
+    worker terminated with an Err, that error auto-propagates instead of a value
+    being returned.
+
+ERRORS
+  77030004 (ErrResourceClosed)
+  Raised when the parent Thread handle has already been closed, for example by a
+  previous thread::waitFor(t) or t.result on the same handle.
 
 EXAMPLES
-  LET count AS Integer = thread::waitFor(t)
+  Wait for a worker and use its result:
+
+    LET count AS Integer = thread::waitFor(t)
+    io::print(count)
+
+  Start a worker, then join it:
+
+    LET t = thread::start(worker::run, 10)
+    LET total AS Integer = thread::waitFor(t)
+
+SEE ALSO
+  thread::start, thread::isRunning, thread::cancel, thread::receive

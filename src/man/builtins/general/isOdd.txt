@@ -13,16 +13,30 @@ IMPORTS
 DESCRIPTION
   isOdd returns TRUE when value is an odd integer and FALSE when value is even.
 
-  An integer is odd when it is not evenly divisible by two. Zero is even, so
-  isOdd(0) is FALSE. Negative integers follow the same rule, so isOdd(-3) is
-  TRUE.
+  An integer is odd when it is not evenly divisible by two, that is when
+  value MOD 2 is not 0. Zero is even, so isOdd(0) is FALSE. Negative integers
+  follow the same rule, so isOdd(-3) is TRUE and isOdd(-4) is FALSE.
+
+  isOdd is useful in ordinary conditionals, MATCH guards, and as a predicate
+  passed to filter.
+
+PARAMETERS
+  value AS Integer
+    The integer to test. Any Integer is accepted; its value determines the
+    result.
+
+RETURN VALUE
+  AS Boolean
+    TRUE when value is not evenly divisible by two, FALSE otherwise. Zero
+    returns FALSE; negative values are tested by the same parity rule as
+    positive ones.
 
 ERRORS
-  isOdd does not raise an error for any Integer input. Errors can still
-  propagate from evaluating value before isOdd is called.
+  No errors.
 
 TYPE CHECKING
-  isOdd accepts only Integer values.
+  isOdd accepts only Integer values. Calling it with any other type is a
+  compile-time error.
 
 EXAMPLES
   Test a literal:
@@ -34,6 +48,10 @@ EXAMPLES
     IF isOdd(count) THEN
       PRINT "count is odd"
     END IF
+
+  Filter a list:
+
+    LET odds AS List OF Integer = filter([1, 2, 3, 4], isOdd)
 
 SEE ALSO
   isEven

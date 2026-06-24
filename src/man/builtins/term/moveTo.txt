@@ -1,0 +1,84 @@
+NAME
+  moveTo - move the terminal cursor to a row and column on the TUI surface
+
+SYNOPSIS
+  term::moveTo(row AS Integer, column AS Integer) AS Nothing
+
+PACKAGE
+  term
+
+IMPORTS
+  IMPORT term
+
+DESCRIPTION
+  Positions the cursor of the term:: surface at the cell identified by the given
+  row and column, so that the next text drawn through the term:: surface starts
+  there. Coordinates are zero-based and measured from the top-left corner of the
+  surface: row 0 is the topmost line, column 0 is the leftmost column, so (0, 0)
+  is the home position. The first argument is the row (vertical position) and the
+  second is the column (horizontal position).
+
+  Both coordinates are clamped at the low end: a negative row or column is treated
+  as 0, so the cursor never moves above the top row or to the left of the first
+  column. On the console backend no upper bound is enforced; the row and column
+  are passed through to the terminal (after conversion to the 1-based form ANSI
+  terminals use) and the terminal itself decides how to handle a position past the
+  last row or column. In windowed app mode (mfb build -app) the position is also
+  clamped at the high end to the last valid cell, that is to the grid range
+  [0, rows-1] by [0, columns-1] for the current surface size reported by
+  term::terminalSize.
+
+  Moving the cursor only changes where the next output is written; it does not
+  draw anything, erase anything, or alter the foreground color, background color,
+  or text attributes. The function has no return value and is invoked purely for
+  this side effect.
+
+  Like the rest of the term:: surface other than term::on and term::isOn,
+  term::moveTo is gated behind TUI mode: it is a no-op while TUI mode is off, so a
+  program must call term::on first for the cursor move to take effect. Calling it
+  while TUI mode is off does nothing and reports no error.
+
+PARAMETERS
+  row AS Integer
+    The zero-based row (vertical position) to move the cursor to, counting from 0
+    at the top of the surface. Negative values are clamped to 0; in app mode
+    values past the last row are clamped to rows-1.
+
+  column AS Integer
+    The zero-based column (horizontal position) to move the cursor to, counting
+    from 0 at the left of the surface. Negative values are clamped to 0; in app
+    mode values past the last column are clamped to columns-1.
+
+RETURN VALUE
+  AS Nothing
+    Returns nothing. The function is invoked for its side effect of moving the
+    cursor to the requested cell so that subsequent text is drawn there.
+
+ERRORS
+  No errors.
+
+EXAMPLES
+  Move to the home position and draw text there:
+
+    IMPORT term
+    IMPORT io
+
+    term::on()
+    term::clear()
+    term::moveTo(0, 0)
+    io::print("top-left")
+    term::off()
+
+  Draw text centered-ish by moving to a specific row and column:
+
+    IMPORT term
+    IMPORT io
+
+    term::on()
+    LET size AS TermSize = term::terminalSize()
+    term::moveTo(size.rows / 2, size.columns / 2)
+    io::print("middle")
+    term::off()
+
+SEE ALSO
+  term::clear, term::terminalSize, term::on, term::showCursor, term::hideCursor

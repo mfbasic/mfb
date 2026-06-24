@@ -13,10 +13,20 @@ IMPORTS
   None. filter functions are available without an IMPORT statement.
 
 DESCRIPTION
-  isEmpty returns TRUE when len(value) = 0.
+  isEmpty reports whether its argument has zero length, returning TRUE when
+  len(value) = 0 and FALSE otherwise. It is the logical negation of isNotEmpty
+  and uses exactly the same length rules as len.
 
-  For String values, emptiness is based on Unicode scalar length. For List
-  values, it is based on item count. For Map values, it is based on entry count.
+  The notion of length depends on the argument type. For a String, emptiness is
+  measured by Unicode scalar count, so isEmpty is TRUE only for the zero-length
+  string ""; a string containing whitespace or any other scalar is not empty.
+  For a List, emptiness is measured by item count, so isEmpty is TRUE only for a
+  list with no items. For a Map, emptiness is measured by entry count, so
+  isEmpty is TRUE only for a map with no key/value entries.
+
+  isEmpty inspects the value without modifying it and has no side effects. The
+  accepted argument type is resolved at compile time; an argument that is not a
+  String, List, or Map is rejected during type checking rather than at run time.
 
 OVERLOADS
   isEmpty(value AS String) AS Boolean
@@ -28,12 +38,29 @@ OVERLOADS
   isEmpty OF K, V(value AS Map OF K TO V) AS Boolean
     Returns TRUE when the map has no entries.
 
+PARAMETERS
+  value AS String
+    The string to test. TRUE is returned only for the empty string "".
+
+  value AS List OF T
+    The list to test, holding items of any element type T. TRUE is returned
+    only when the list has no items.
+
+  value AS Map OF K TO V
+    The map to test, with keys of type K and values of type V. TRUE is returned
+    only when the map has no entries.
+
+RETURN VALUE
+  AS Boolean
+    TRUE when value has zero length (the empty string, an empty list, or an
+    empty map); FALSE when value has at least one scalar, item, or entry.
+
 ERRORS
-  isEmpty does not fail for supported evaluated arguments. Errors can still
-  propagate from evaluating value before isEmpty is called.
+  No errors.
 
 TYPE CHECKING
-  isEmpty accepts only String, List OF T, and Map OF K TO V.
+  isEmpty accepts exactly one argument whose type is String, List OF T, or
+  Map OF K TO V. Any other argument type fails type checking at compile time.
 
 EXAMPLES
   Test text:
@@ -45,6 +72,10 @@ EXAMPLES
     LET values AS List OF Integer = []
     LET ok AS Boolean = isEmpty(values)
 
+  Test a map:
+
+    LET scores AS Map OF String TO Integer = {}
+    LET ok AS Boolean = isEmpty(scores)
+
 SEE ALSO
-  isNotEmpty
-  len
+  isNotEmpty, len

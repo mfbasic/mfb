@@ -11,22 +11,45 @@ IMPORTS
   IMPORT net
 
 DESCRIPTION
-  write sends the raw bytes in bytes to a connected Socket. It writes the entire
-  list before returning, looping internally to send any portion that a single
-  underlying write did not accept, so a successful call has delivered every byte
-  to the socket's send buffer. The socket must still be open.
+  write sends the raw bytes in bytes over a connected Socket. It writes the
+  entire list before returning, looping internally to resend any portion that a
+  single underlying write did not accept, so a successful call has delivered
+  every byte to the socket's send buffer. The socket must still be open.
 
-  An empty list writes nothing and returns immediately. write blocks while the
-  send buffer is full until space becomes available or the socket's write timeout
-  elapses. Use net::setWriteTimeout to bound how long a write may wait, and
-  net::writeText instead when sending UTF-8 text from a String is more convenient
-  than building a List OF Byte.
+  An empty list writes nothing and returns immediately. Otherwise the call
+  blocks while the send buffer is full, waiting until space becomes available or
+  the socket's write timeout elapses. Bytes are sent in list order; the function
+  does not allocate, reorder, or close the socket, and has no side effect beyond
+  transmitting the data.
+
+  Use net::setWriteTimeout to bound how long a write may wait, and
+  net::writeText instead when sending UTF-8 text from a String is more
+  convenient than building a List OF Byte.
+
+PARAMETERS
+  sock AS Socket
+    A connected socket to send on, such as one returned by net::connectTcp or
+    net::accept. It must still be open; writing to a closed socket is an error.
+
+  bytes AS List OF Byte
+    The bytes to send, transmitted in list order. An empty list writes nothing
+    and returns immediately.
+
+RETURN VALUE
+  AS Nothing
+    Returns nothing on success. A successful call has handed every byte in bytes
+    to the socket's send buffer.
 
 ERRORS
-  Raises an Error with code 77030004 (ErrResourceClosed) when the socket has
-  already been closed, 77070004 (ErrConnectionClosed) when the peer closed the
-  connection or it is otherwise no longer usable, or 77070006 (ErrWriteTimeout)
-  when the write timeout elapsed before all bytes could be sent.
+  77030004 (ErrResourceClosed)
+  Raised when sock has already been closed.
+
+  77070004 (ErrConnectionClosed)
+  Raised when the peer has closed the connection, or the write otherwise fails
+  for a reason other than a timeout.
+
+  77070006 (ErrWriteTimeout)
+  Raised when the socket's write timeout elapses before all bytes could be sent.
 
 EXAMPLES
   Send a request as raw bytes over a connected socket:
@@ -55,9 +78,4 @@ EXAMPLES
     ' peer and server are closed by lexical drop when this scope ends
 
 SEE ALSO
-  net::writeText
-  net::read
-  net::setWriteTimeout
-  net::connectTcp
-  net::accept
-  net::close
+  net::writeText, net::read, net::setWriteTimeout, net::connectTcp, net::accept, net::close

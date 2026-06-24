@@ -4,14 +4,52 @@ NAME
 SYNOPSIS
   math::pi AS Float
 
+PACKAGE
+  math
+
+IMPORTS
+  IMPORT math
+
 DESCRIPTION
-  The mathematical constant pi (the ratio of a circle's circumference to its
-  diameter) as a Float value, approximately 3.141592653589793.
+  The mathematical constant pi, the ratio of a circle's circumference to its
+  diameter, as a Float value approximately equal to 3.141592653589793. This is
+  the closest 64-bit IEEE 754 double-precision representation of pi; it is not
+  the exact mathematical value, which is irrational and cannot be represented
+  in finite binary.
+
+  pi is a constant, not a callable function. It takes no arguments and is
+  referenced by name wherever a Float expression is expected, evaluating to the
+  same value on every use. It performs no computation at the call site and has
+  no side effects.
+
+  For a Fixed-point representation of the same constant, use math::piFixed. The
+  related angle constants math::pi2 (pi / 2) and math::pi4 (pi / 4), and the
+  reciprocal helper math::twoOverPi (2 / pi), are derived from the same value.
+
+PARAMETERS
+  None.
+    math::pi is a constant and accepts no arguments.
+
+RETURN VALUE
+  AS Float
+    The Float closest to pi, approximately 3.141592653589793. The same value is
+    produced on every reference.
+
+ERRORS
+  No errors.
 
 EXAMPLES
-  LET value AS Float = math::pi
+  Reference the constant directly:
 
-  LET circumference AS Float = 2.0 * math::pi * radius
+    IMPORT math
+
+    LET value AS Float = math::pi
+
+  Compute a circle's circumference from its radius:
+
+    IMPORT math
+
+    LET circumference AS Float = 2.0 * math::pi * radius
 
 SEE ALSO
   math::piFixed, math::pi2, math::pi4, math::twoOverPi, math::e

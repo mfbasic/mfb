@@ -1,5 +1,5 @@
 NAME
-  getOr - read a nested JSON object value or return a default
+  getOr - read a nested JSON object value by key path, or return a default
 
 SYNOPSIS
   json::getOr(value AS Json, path AS List OF String, defaultValue AS Json) AS Json
@@ -7,25 +7,62 @@ SYNOPSIS
 PACKAGE
   json
 
+IMPORTS
+  IMPORT json
+
 DESCRIPTION
   json::getOr walks path through nested Json object members like json::get, but
-  returns defaultValue instead of failing when a key is absent or a non-object
-  value is encountered. Each path element is matched against an object key. An
-  empty path returns value unchanged.
+  returns defaultValue instead of failing whenever traversal cannot continue.
+  Starting from value, each path element is treated as a String object key: the
+  current value must be a Json Obj and the named member becomes the new current
+  value before the next element is applied. Traversal is left to right, one key
+  at a time.
+
+  Only object members are traversed. If a path element names a key absent from
+  the current Json Obj, or if traversal reaches a non-object Json value (the
+  Null, Bool, Num, Str, or Arr variant) while path elements remain, json::getOr
+  stops and returns defaultValue. An empty path performs no traversal and
+  returns value unchanged, whatever variant it is; defaultValue is then never
+  consulted.
 
   The path argument may also be passed by the name key. The default argument may
-  be passed by the name default, defaultValue, or fallback.
+  be passed by the name default, defaultValue, or fallback. json::getOr does not
+  copy value or defaultValue; it returns the located Json value, or defaultValue,
+  directly. Use json::get instead when a missing key or non-object should fail
+  rather than fall back to a default.
+
+PARAMETERS
+  value AS Json
+    The root Json value to read from. May be any Json variant; traversal only
+    succeeds through Obj members.
+
+  path AS List OF String
+    The sequence of object keys to follow, from the root inward. Each element
+    selects an object member by exact String key. An empty list selects value
+    itself. May be passed by the name key.
+
+  defaultValue AS Json
+    The Json value returned when a path element names a missing key or traversal
+    reaches a non-object value while keys remain. May be passed by the name
+    default, defaultValue, or fallback.
+
+RETURN VALUE
+  AS Json
+    The Json value reached by following every key in path. Returns value
+    unchanged when path is empty, and defaultValue when the path cannot be
+    fully traversed.
 
 ERRORS
-  json::getOr does not fail for missing paths. Errors can still propagate while
-  evaluating arguments before the function is called.
+  No errors.
 
 EXAMPLES
-  LET enabled AS Json = json::getOr(doc, ["config", "enabled"], Bool[FALSE])
+  Read a nested member, falling back to a default when it is absent:
 
-  LET root AS Json = json::getOr(doc, [], doc)
+    LET enabled AS Json = json::getOr(doc, ["config", "enabled"], Bool[FALSE])
+
+  An empty path returns the root value unchanged:
+
+    LET root AS Json = json::getOr(doc, [], doc)
 
 SEE ALSO
-  get
-  parse
-  stringify
+  get, parse, stringify

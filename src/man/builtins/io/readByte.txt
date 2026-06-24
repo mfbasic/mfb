@@ -4,41 +4,64 @@ NAME
 SYNOPSIS
   io::readByte() AS Byte
 
+PACKAGE
+  io
+
+IMPORTS
+  IMPORT io
+
 DESCRIPTION
-  Reads one byte from standard input and returns it as a Byte (a value from 0
-  through 255). The call returns as soon as a single byte is available; it does
+  Reads one byte from standard input and returns it as a Byte, a value from 0
+  through 255. The call returns as soon as a single byte is available; it does
   not wait for a newline.
 
-  On terminals, standard input is briefly switched out of canonical line mode and
-  echo is suppressed for the read, so the keypress is not displayed and no Return
-  is required. The terminal's previous mode is restored before the call returns.
+  On terminals, standard input is briefly switched out of canonical line mode
+  and echo is suppressed for the read, so the keypress is not displayed and no
+  Return is required. The terminal's previous mode is restored before the call
+  returns. When standard input is not a terminal (a file or pipe), the stream is
+  read as-is with no mode change.
 
-  Unlike io::readChar, the input is not decoded as UTF-8. Exactly one byte is
-  read and returned, so a multi-byte character such as an emoji is delivered one
-  byte at a time across successive calls.
+  The input is not decoded as UTF-8. Exactly one byte is read and returned, so a
+  multi-byte character such as an emoji is delivered one byte at a time across
+  successive calls. Unlike io::readChar, which always returns one whole Unicode
+  scalar value, readByte returns raw bytes without interpreting any encoding.
+
+  End of input is reported as an error, not as a sentinel value. Use
+  io::pollInput to test whether input is available before calling.
+
+PARAMETERS
+  None.
+
+RETURN VALUE
+  AS Byte
+    The next byte read from standard input, in the range 0 through 255.
 
 ERRORS
-  Fails with ErrEndOfFile (77020003) when standard input reaches end of file
-  before a byte is read.
+  77020003 (ErrEof)
+  Raised when standard input reaches end of file before a byte is read.
 
-  Fails with ErrInputFailed (77020005) on input read failure.
+  77020005 (ErrInput)
+  Raised when reading from standard input fails for any other reason.
 
 EXAMPLES
-  LET b AS Byte = io::readByte()
-  io::print(b)
+  Read one byte and print it:
 
-  io::write("Press any key to continue...")
-  io::flush()
-  LET ignored AS Byte = io::readByte()
+    LET b AS Byte = io::readByte()
+    io::print(b)
 
-  IF io::pollInput(1000) THEN
-    io::print(io::readByte())
-  ELSE
-    io::print("timeout")
-  END IF
+  Wait for any keypress to continue:
+
+    io::write("Press any key to continue...")
+    io::flush()
+    LET ignored AS Byte = io::readByte()
+
+  Read a byte only when input is available:
+
+    IF io::pollInput(1000) THEN
+      io::print(io::readByte())
+    ELSE
+      io::print("timeout")
+    END IF
 
 SEE ALSO
-  io::readChar
-  io::readLine
-  io::pollInput
-  io::input
+  io::readChar, io::readLine, io::pollInput, io::input

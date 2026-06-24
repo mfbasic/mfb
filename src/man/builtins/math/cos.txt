@@ -5,17 +5,69 @@ SYNOPSIS
   math::cos(value AS Float) AS Float
   math::cos(value AS Fixed) AS Fixed
 
-DESCRIPTION
-  Returns the cosine of value, where value is an angle in radians.
+PACKAGE
+  math
 
-  The return type matches the numeric type of value. The single argument
-  may be a Float or a Fixed. The Fixed overload rounds the result to the
-  nearest Fixed value. Defined for all inputs, so no error is produced.
+IMPORTS
+  IMPORT math
+
+DESCRIPTION
+  Returns the trigonometric cosine of value, where value is interpreted as a
+  plane angle measured in radians. The result is the ratio of the side adjacent
+  to the angle to the hypotenuse of the corresponding right triangle and always
+  lies in the closed interval from -1 to 1.
+
+  The function is overloaded by the numeric type of its single argument, and the
+  return type always matches that type: a Float yields a Float and a Fixed
+  yields a Fixed. There is no mixed-type overload; the argument selects which
+  version is called. The Fixed overload computes the cosine using deterministic
+  fixed-point (Q32.32) arithmetic and rounds the result to the nearest
+  representable Fixed value.
+
+  Cosine is mathematically defined for every real argument, so there is no
+  restricted domain and no input is rejected. For a very large magnitude the
+  angle's fractional part relative to a full turn becomes less precise, so the
+  result loses accuracy, but the call still succeeds. The function performs no
+  mutation and has no side effects.
+
+OVERLOADS
+  math::cos(value AS Float) AS Float
+    Computes the cosine of a Float angle and returns it as a Float. Never fails.
+
+  math::cos(value AS Fixed) AS Fixed
+    Computes the cosine of a Fixed angle and returns it as a Fixed, rounding the
+    result to the nearest representable Fixed value. Never fails.
+
+PARAMETERS
+  value AS Float | Fixed
+    The angle whose cosine is computed, expressed in radians. Any value of the
+    chosen numeric type is accepted; there is no excluded range.
+
+RETURN VALUE
+  AS Float | Fixed
+    The cosine of value, in the same numeric type as value, within the closed
+    interval from -1 to 1. The cosine of zero is one.
+
+ERRORS
+  No errors.
+
+TYPE CHECKING
+  The argument must be a single Float or Fixed value. Passing an Integer, or a
+  non-numeric value such as a String, Boolean, Byte, record, union, resource,
+  thread, function, or lambda, is a compile-time type error.
 
 EXAMPLES
-  LET value AS Float = math::cos(math::pi)
+  Cosine of a Float angle in radians:
 
-  LET wave AS Fixed = math::cos(0.0)
+    IMPORT math
+
+    LET value AS Float = math::cos(math::pi)
+
+  Cosine of a Fixed angle:
+
+    IMPORT math
+
+    LET wave AS Fixed = math::cos(0.0)
 
 SEE ALSO
-  math::sin, math::tan, math::acos
+  math::sin, math::tan, math::acos, math::atan2

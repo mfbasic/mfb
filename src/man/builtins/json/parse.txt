@@ -1,5 +1,5 @@
 NAME
-  parse - parse UTF-8 JSON text into Json
+  parse - parse UTF-8 JSON text into a Json value
 
 SYNOPSIS
   json::parse(value AS String) AS Json
@@ -7,28 +7,57 @@ SYNOPSIS
 PACKAGE
   json
 
+IMPORTS
+  IMPORT json
+
 DESCRIPTION
   json::parse reads a single complete JSON document from value and returns the
-  resulting Json union value. Leading and trailing JSON whitespace are allowed,
-  but any non-whitespace content after the first document is rejected. Object
-  keys are read as String values. JSON null maps to JsonNull[NOTHING], true and
-  false to JsonBool, numbers to JsonNum (Float), strings to JsonStr, arrays to
-  JsonArr, and objects to JsonObj.
+  resulting Json union value. The text is processed grapheme by grapheme as
+  UTF-8. Leading and trailing JSON whitespace (space, tab, carriage return, and
+  line feed) are allowed around the document, but any non-whitespace content
+  after the first complete document is rejected.
+
+  Each JSON form maps to a Json variant: null maps to JsonNull[NOTHING], true
+  and false map to JsonBool, numbers map to JsonNum holding a Float, strings map
+  to JsonStr, arrays map to JsonArr holding a List OF Json, and objects map to
+  JsonObj holding a Map OF String TO Json. Object keys are read as String
+  values. Within strings, the standard JSON escapes (\", \\, \/, \b, \f, \n, \r,
+  \t, and \uXXXX, including surrogate pairs) are decoded; unescaped raw control
+  characters are rejected. Numbers must follow JSON grammar (optional leading
+  minus, integer part with no superfluous leading zero, optional fraction, and
+  optional e/E exponent) and are parsed into Float, so very large or very
+  precise values may lose precision.
 
   The argument may also be passed by the name text.
 
+PARAMETERS
+  value AS String
+    The JSON text to parse. Must contain exactly one complete JSON document,
+    optionally surrounded by JSON whitespace. May also be supplied by the name
+    text.
+
+RETURN VALUE
+  AS Json
+    The Json union value corresponding to the parsed document. An empty array
+    yields JsonArr with an empty list; an empty object yields JsonObj with an
+    empty map.
+
 ERRORS
-  ErrInvalidFormat (77050003)
-    Returned when value is not valid JSON, is empty or whitespace only, has
-    trailing non-whitespace content, contains an invalid escape sequence, or
-    contains a malformed number.
+  77050003 (ErrInvalidFormat)
+  Raised when value is not valid JSON: it is empty or whitespace only, has
+  trailing non-whitespace content after the document, is truncated, contains an
+  invalid or incomplete escape sequence, an unpaired or invalid surrogate, an
+  out-of-range code point, a raw control character inside a string, or a
+  malformed number.
 
 EXAMPLES
-  LET value AS Json = json::parse("{\"ok\":true,\"items\":[1,2,3]}")
+  Parse an object literal into a Json value:
 
-  LET empty AS Json = json::parse(text := "null")
+    LET value AS Json = json::parse("{\"ok\":true,\"items\":[1,2,3]}")
+
+  Pass the argument by name:
+
+    LET empty AS Json = json::parse(text := "null")
 
 SEE ALSO
-  stringify
-  get
-  getOr
+  stringify, get, getOr

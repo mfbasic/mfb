@@ -1,15 +1,50 @@
 NAME
-    graphemesCount - count the extended grapheme clusters in a string
+  graphemesCount - count the extended grapheme clusters in a string
 
 SYNOPSIS
-    strings::graphemesCount(value AS String) AS Integer
+  strings::graphemesCount(value AS String) AS Integer
+
+PACKAGE
+  strings
+
+IMPORTS
+  IMPORT strings
 
 DESCRIPTION
-    Returns the number of extended grapheme clusters in value.
-    This counts user-perceived characters and can differ from len(value),
-    which counts Unicode scalar values.
+  graphemesCount returns the number of Unicode extended grapheme clusters in
+  value as an Integer.
+
+  An extended grapheme cluster is one user-perceived character. It may consist
+  of several Unicode scalar values: a base letter followed by combining marks,
+  a flag built from a pair of regional indicators, or an emoji formed from a
+  base symbol joined to modifiers and zero-width joiners. graphemesCount counts
+  each such cluster as one, so the result reflects what a reader would count as
+  separate characters rather than what len(value) counts (which is Unicode
+  scalar values) or what strings::byteLen(value) counts (which is UTF-8 bytes).
+  For text outside the Basic Multilingual Plane or containing combining marks,
+  emoji, or flags, this count can differ from all three of those measures.
+
+  The result equals len(strings::graphemes(value)) but is computed without
+  building the intermediate List. value is not modified and graphemesCount has
+  no side effects. An empty value returns 0.
+
+PARAMETERS
+  value AS String
+    The string whose clusters are counted. Any String is accepted, including
+    the empty string. Its content is interpreted as Unicode text when
+    determining cluster boundaries.
+
+RETURN VALUE
+  AS Integer
+    The number of extended grapheme clusters in value, a non-negative Integer.
+    The empty string yields 0.
+
+ERRORS
+  No errors.
 
 EXAMPLES
+  Count user-perceived characters in a string with a multi-scalar emoji:
+
     IMPORT io
     IMPORT strings
 
@@ -17,3 +52,17 @@ EXAMPLES
       io::print(toString(strings::graphemesCount("a😀b")))
       RETURN 0
     END FUNC
+
+  Compare cluster count with scalar count:
+
+    IMPORT io
+    IMPORT strings
+
+    FUNC main AS Integer
+      io::print(toString(strings::graphemesCount("héllo")))
+      io::print(toString(len("héllo")))
+      RETURN 0
+    END FUNC
+
+SEE ALSO
+  graphemes, graphemeAt, byteLen, len

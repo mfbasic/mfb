@@ -4,19 +4,77 @@ NAME
 SYNOPSIS
   fs::canonicalPath(path AS String) AS String
 
-DESCRIPTION
-  Returns an absolute, normalized path after resolving "." components, ".."
-  components, and symlinks for existing filesystem components.
+PACKAGE
+  fs
 
-  The byte-oriented path syntax is preserved for UTF-8 file names. Relative
-  inputs are resolved against the current working directory.
+IMPORTS
+  IMPORT fs
+
+DESCRIPTION
+  Resolves path to an absolute, canonical path and returns it as a String. The
+  host realpath resolution collapses "." and ".." components, removes redundant
+  separators, and follows every symbolic link along the way, so the returned
+  path names the real file or directory with no indirection left in it. A
+  relative input is resolved against the current working directory; an absolute
+  input is canonicalized in place.
+
+  Every component named by path, including the final one, must exist on the
+  filesystem, because the resolution walks the real directory tree rather than
+  manipulating the string alone. To normalize a path lexically without touching
+  the filesystem, use fs::pathNormalize instead.
+
+  path is interpreted as raw UTF-8 bytes and passed to the host filesystem. It
+  may contain Unicode characters when the host accepts such names, and the
+  byte-oriented spelling of the name is preserved in the result. The string must
+  not be empty and must not contain an embedded NUL byte, because the host call
+  requires a NUL-terminated path. The function reads filesystem metadata only;
+  it does not open, create, or modify any file and has no other side effects.
+
+PARAMETERS
+  path AS String
+    The path to canonicalize. Interpreted as UTF-8 bytes; may be absolute or
+    relative to the current working directory. Every named component, including
+    the last, must exist. Must be non-empty and free of embedded NUL bytes.
+
+RETURN VALUE
+  AS String
+    The absolute, canonical path with all "." and ".." components removed and
+    all symbolic links resolved, in the host's native spelling.
 
 ERRORS
-  Raises an Error when path or a required parent component does not exist, when
-  the path cannot be resolved, or when path contains an embedded NUL byte.
+  77050002 (ErrInvalidArgument)
+  Raised when path is empty or contains an embedded NUL byte, so it cannot be
+  turned into a valid NUL-terminated host path.
+
+  77010001 (ErrOutOfMemory)
+  Raised when the internal NUL-terminated copy of path, the resolution buffer,
+  or the result String cannot be allocated.
+
+  77050004 (ErrNotFound)
+  Raised when path or a required component does not exist (host ENOENT).
+
+  77030003 (ErrAccessDenied)
+  Raised when the host denies access while resolving path (host EACCES).
+
+  77050005 (ErrAlreadyExists)
+  Raised when the host reports an existing-object conflict while resolving path
+  (host EEXIST).
+
+  77020002 (ErrOutput)
+  Raised when resolution fails for any other host reason not classified above,
+  such as a non-directory used as a directory component or a symlink loop.
 
 EXAMPLES
-  LET full AS String = fs::canonicalPath("target/output.txt")
+  Resolve a relative path against the working directory:
+
+    LET full AS String = fs::canonicalPath("target/output.txt")
+    io::print(full)
+
+  Canonicalize a path containing "." and ".." components:
+
+    fs::createDirectories("a/b")
+    LET real AS String = fs::canonicalPath("a/./b/../b")
+    io::print(real)
 
 SEE ALSO
-  fs::pathNormalize, fs::isWithin, fs::currentDirectory
+  fs::pathNormalize, fs::isWithin, fs::currentDirectory, fs::pathJoin

@@ -1,13 +1,52 @@
 NAME
-    trimEnd - remove trailing Unicode whitespace
+  trimEnd - remove trailing Unicode whitespace
 
 SYNOPSIS
-    strings::trimEnd(value AS String) AS String
+  strings::trimEnd(value AS String) AS String
+
+PACKAGE
+  strings
+
+IMPORTS
+  IMPORT strings
 
 DESCRIPTION
-    Returns value without trailing Unicode whitespace.
+  trimEnd returns a new String equal to value with all trailing Unicode
+  whitespace removed. Whitespace is determined by the Unicode White_Space
+  property, so in addition to the ASCII space, tab, carriage return, and
+  newline it also removes characters such as the no-break space, the
+  ideographic space, and other Unicode space separators.
+
+  Only whitespace at the very end of value is removed. Leading whitespace
+  and any whitespace that appears between non-whitespace characters are left
+  untouched, so the start and interior of the string, including embedded
+  spaces or line breaks, are preserved exactly.
+
+  If value contains only whitespace, the result is the empty string. If value
+  has no trailing whitespace, a string equal to value is returned. trimEnd
+  reads value only and has no side effects; it never mutates its argument. To
+  remove whitespace from the start instead, use strings::trimStart, and to
+  remove it from both ends, use strings::trim. To strip a specific set of
+  scalars rather than whitespace, use strings::trimChars.
+
+PARAMETERS
+  value AS String
+    The string to strip. Any sequence of Unicode whitespace at the end is
+    removed; leading and interior content is preserved.
+
+RETURN VALUE
+  AS String
+    A new string equal to value with trailing Unicode whitespace removed.
+    Returns the empty string when value is empty or consists entirely of
+    whitespace, and a string equal to value when value has no trailing
+    whitespace.
+
+ERRORS
+  No errors.
 
 EXAMPLES
+  Remove trailing spaces:
+
     IMPORT io
     IMPORT strings
 
@@ -15,3 +54,10 @@ EXAMPLES
       io::print(strings::trimEnd("  Hello  "))
       RETURN 0
     END FUNC
+
+  Leading whitespace is preserved:
+
+    LET cleaned AS String = strings::trimEnd("\n  a b  \n")
+
+SEE ALSO
+  strings::trimStart, strings::trim, strings::trimChars

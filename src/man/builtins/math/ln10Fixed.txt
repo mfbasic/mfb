@@ -4,14 +4,46 @@ NAME
 SYNOPSIS
   math::ln10Fixed AS Fixed
 
+PACKAGE
+  math
+
+IMPORTS
+  IMPORT math
+
 DESCRIPTION
-  The natural logarithm of 10 rounded to the nearest Fixed value,
-  approximately 2.302585092994046.
+  The natural logarithm of 10, expressed as a Fixed value. Its value is the
+  closest Fixed to ln(10), approximately 2.302585092994046.
+
+  ln10Fixed is a constant, not a callable function: it takes no arguments and is
+  referenced by name. It evaluates to the same Fixed value on every platform,
+  making it suitable for deterministic decimal arithmetic where a Float is not
+  desired. A common use is converting between natural and base-10 logarithms:
+  log10(x) equals math::log(x) / math::ln10Fixed. Use math::ln10 for the Float
+  form of the same constant.
+
+PARAMETERS
+  None.
+    ln10Fixed is a constant value and accepts no arguments.
+
+RETURN VALUE
+  AS Fixed
+    The closest Fixed value to ln(10), approximately 2.302585092994046.
+
+ERRORS
+  No errors.
 
 EXAMPLES
-  LET value AS Fixed = math::ln10Fixed
+  Read the constant into a Fixed:
 
-  LET log10 AS Fixed = math::log(x) / math::ln10Fixed
+    IMPORT math
+
+    LET value AS Fixed = math::ln10Fixed
+
+  Convert a natural logarithm to base-10 with Fixed arithmetic:
+
+    IMPORT math
+
+    LET log10 AS Fixed = math::log(x) / math::ln10Fixed
 
 SEE ALSO
   math::ln10, math::ln2Fixed, math::eFixed, math::piFixed, math::twoOverPiFixed

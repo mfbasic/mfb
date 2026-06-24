@@ -1,17 +1,66 @@
 NAME
-    normalizeNfc - normalize a string to Unicode NFC
+  normalizeNfc - normalize a string to Unicode Normalization Form C
 
 SYNOPSIS
-    strings::normalizeNfc(value AS String) AS String
+  strings::normalizeNfc(value AS String) AS String
+
+PACKAGE
+  strings
+
+IMPORTS
+  IMPORT strings
 
 DESCRIPTION
-    Returns value normalized to Unicode Normalization Form C.
+  normalizeNfc returns a new String produced by converting value to Unicode
+  Normalization Form C (NFC). NFC first decomposes each character canonically and
+  then recomposes it, so that combining marks are merged into precomposed
+  characters wherever a canonical composition exists. The result is the canonical
+  form recommended for storing, comparing, and transmitting text: two strings that
+  are canonically equivalent but encoded differently become byte-for-byte equal
+  after both are normalized.
+
+  Normalization operates over Unicode scalar values across the whole string. For
+  example a base letter followed by a combining accent, such as "e" plus U+0301
+  COMBINING ACUTE ACCENT, is recomposed into the single precomposed character "é"
+  (U+00E9); the two encodings are indistinguishable in the result. Characters that
+  are already in composed form, and characters that have no canonical composition,
+  are carried through unchanged. NFC applies only canonical equivalence: it does
+  not perform compatibility decomposition, so characters such as ligatures or
+  full-width forms are preserved rather than expanded.
+
+  Normalization can change the length of the string, since a base character and one
+  or more following combining marks may collapse into a single scalar. The mapping
+  is locale-independent and applies no language-specific tailoring. Normalization
+  is independent of case: it does not fold or change case, so apply caseFold in
+  addition when normalization- and case-insensitive matching is required. The
+  original value is not mutated; the result is a new owned String.
+
+PARAMETERS
+  value AS String
+    The string to normalize. Any String is accepted, including the empty string.
+
+RETURN VALUE
+  AS String
+    A new String holding the NFC form of value. An empty input yields an empty
+    String, and a string that is already in NFC yields an equal String.
+
+ERRORS
+  No errors.
 
 EXAMPLES
+  Combining sequences and precomposed characters normalize to the same value:
+
+    LET same AS Boolean = strings::normalizeNfc("é") = strings::normalizeNfc("é")
+
+  Normalize text before storing or comparing it:
+
     IMPORT io
     IMPORT strings
 
     FUNC main AS Integer
-      io::print(strings::normalizeNfc("Café"))
+      io::print(strings::normalizeNfc("Café"))
       RETURN 0
     END FUNC
+
+SEE ALSO
+  caseFold, lower, upper

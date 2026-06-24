@@ -4,14 +4,45 @@ NAME
 SYNOPSIS
   math::piFixed AS Fixed
 
+PACKAGE
+  math
+
+IMPORTS
+  IMPORT math
+
 DESCRIPTION
-  The mathematical constant pi (the ratio of a circle's circumference to its
-  diameter) rounded to the nearest Fixed value, approximately 3.141592653589793.
+  The mathematical constant pi, the ratio of a circle's circumference to its
+  diameter, expressed as a Fixed value. Its value is the closest Fixed to pi,
+  approximately 3.141592653589793.
+
+  piFixed is a constant, not a callable function: it takes no arguments and is
+  referenced by name. It evaluates to the same Fixed value on every platform,
+  making it suitable for deterministic decimal arithmetic where a Float is not
+  desired. Use math::pi for the Float form of the same constant.
+
+PARAMETERS
+  None.
+    piFixed is a constant value and accepts no arguments.
+
+RETURN VALUE
+  AS Fixed
+    The closest Fixed value to pi, approximately 3.141592653589793.
+
+ERRORS
+  No errors.
 
 EXAMPLES
-  LET value AS Fixed = math::piFixed
+  Read the constant into a Fixed:
 
-  LET circumference AS Fixed = 2.0 * math::piFixed * radius
+    IMPORT math
+
+    LET value AS Fixed = math::piFixed
+
+  Compute a circumference with Fixed arithmetic:
+
+    IMPORT math
+
+    LET circumference AS Fixed = 2.0 * math::piFixed * radius
 
 SEE ALSO
   math::pi, math::pi2Fixed, math::pi4Fixed, math::twoOverPiFixed, math::eFixed

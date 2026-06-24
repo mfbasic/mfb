@@ -1,0 +1,62 @@
+NAME
+  showCursor - make the terminal cursor visible on the TUI surface
+
+SYNOPSIS
+  term::showCursor() AS Nothing
+
+PACKAGE
+  term
+
+IMPORTS
+  IMPORT term
+
+DESCRIPTION
+  Makes the terminal's text cursor visible on the term:: drawing surface. After
+  term::showCursor returns, the cursor is shown at its current position and
+  remains visible as the cursor is moved with term::moveTo or advanced by drawing,
+  until it is hidden again with term::hideCursor or the visibility is reset by
+  term::on.
+
+  Cursor visibility is a boolean state independent of the foreground color,
+  background color, and text attributes: showing the cursor leaves those
+  unchanged. The call is idempotent, so calling term::showCursor twice in a row
+  has the same effect as calling it once. On the console backend the function
+  emits the terminal sequence that turns the hardware cursor back on; in app mode
+  it makes the application's terminal view draw its cursor.
+
+  Like the rest of the term:: surface other than term::on and term::isOn,
+  term::showCursor is gated behind TUI mode: it is a no-op while TUI mode is off,
+  so a program must call term::on first for the cursor to be shown. term::on
+  itself makes the cursor visible as part of resetting the surface to defaults, so
+  any visibility set with term::hideCursor is discarded the next time term::on is
+  called.
+
+  The function takes no arguments and has no return value; its only effect is to
+  make the cursor visible.
+
+PARAMETERS
+  None.
+
+RETURN VALUE
+  AS Nothing
+    Returns nothing. The function is invoked for its side effect of making the
+    terminal cursor visible.
+
+ERRORS
+  No errors.
+
+EXAMPLES
+  Hide the cursor while drawing, then show it again:
+
+    IMPORT term
+    IMPORT io
+
+    term::on()
+    term::hideCursor()
+    term::moveTo(0, 0)
+    io::print("drawing without a blinking cursor")
+    term::showCursor()
+    term::off()
+
+SEE ALSO
+  term::hideCursor, term::moveTo, term::on, term::off

@@ -1,18 +1,72 @@
 NAME
-  isCancelled - test whether cancellation was requested
+  isCancelled - test whether cancellation was requested for the current worker
 
 SYNOPSIS
   thread::isCancelled(t AS ThreadWorker OF Msg TO Out) AS Boolean
 
-DESCRIPTION
-  Worker-side cancellation check. Returns TRUE after the parent calls
-  thread::cancel for the current worker.
+PACKAGE
+  thread
 
-  Blocking worker queue cancellation points also observe the same request by
-  failing with ErrInterrupted, so workers blocked in thread::receive or
-  thread::send can resume through normal error handling. Other blocking
-  built-ins that are implemented as runtime-managed waits must use the same
-  cooperative error-return model when cancellation integration is provided.
+IMPORTS
+  IMPORT thread
+
+DESCRIPTION
+  Worker-side cancellation check. Given the worker's own ThreadWorker handle,
+  reports whether the parent has requested cooperative cancellation. The call
+  reads the worker's shared cancelled flag and returns TRUE once the parent has
+  called thread::cancel for this worker, and FALSE until then. It performs a
+  plain flag read: it does not block, consume any message, touch the worker
+  result, or change the worker's state, so it is safe to poll repeatedly inside
+  a worker loop.
+
+  Cancellation in mfb is cooperative, not a force stop. thread::cancel sets the
+  cancelled flag, closes both of the worker's message queues, and wakes any
+  blocked queue waits; isCancelled is how worker code observes that request and
+  decides to wind down. A worker that is blocked in thread::receive or
+  thread::send at the moment of cancellation instead resumes by failing with
+  ErrInterrupted, so those blocking cancellation points and an explicit
+  isCancelled poll are two views of the same flag. Other blocking built-ins
+  implemented as runtime-managed waits use the same cooperative error-return
+  model when cancellation integration is provided.
+
+  isCancelled accepts only a ThreadWorker handle — the handle the worker holds
+  for itself — never a parent Thread handle; a parent Thread handle is rejected
+  at compile time. The parent observes a worker's liveness with
+  thread::isRunning instead. Once the flag is set it stays set for the lifetime
+  of the worker, so isCancelled never reverts from TRUE to FALSE.
+
+PARAMETERS
+  t AS ThreadWorker OF Msg TO Out
+    The current worker's own ThreadWorker handle. Msg is the worker's inbound
+    message type and Out is its output type; isCancelled reads neither, only the
+    worker's cancelled flag. A parent Thread handle is rejected at compile time.
+
+RETURN VALUE
+  AS Boolean
+    TRUE if the parent has requested cancellation of this worker via
+    thread::cancel; FALSE otherwise.
+
+ERRORS
+  No errors.
+
+TYPE CHECKING
+  Generic over the worker's message type Msg and output type Out. The single
+  argument must be a ThreadWorker OF Msg TO Out handle; any other type,
+  including a parent Thread handle, is rejected at compile time. The result is
+  always Boolean.
 
 EXAMPLES
-  LET cancelled AS Boolean = thread::isCancelled(t)
+  Wind down a worker loop when cancellation is requested:
+
+    WHILE NOT thread::isCancelled(t)
+      LET job AS Integer = thread::receive(t)
+      process(job)
+    ENDWHILE
+
+  Read the flag into a variable:
+
+    LET cancelled AS Boolean = thread::isCancelled(t)
+
+SEE ALSO
+  thread::cancel, thread::isRunning, thread::receive, thread::send,
+  thread::waitFor

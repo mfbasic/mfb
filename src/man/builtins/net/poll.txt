@@ -33,10 +33,32 @@ OVERLOADS
   net::poll(sock AS Socket, timeoutMs AS Integer) AS Boolean
     Waits at most timeoutMs for the socket to become readable.
 
+PARAMETERS
+  sock AS Socket
+    An open, connected Socket resource, as returned by net::connectTcp or
+    net::accept. The socket is inspected for readiness only; it is not consumed
+    and no data is read.
+
+  timeoutMs AS Integer
+    Optional. The maximum time, in milliseconds, to wait for the socket to
+    become readable. When omitted it defaults to 0, making poll a non-blocking
+    check that returns immediately. A positive value waits up to that many
+    milliseconds; the value must not be negative.
+
+RETURN VALUE
+  AS Boolean
+    TRUE when the socket is ready to read, meaning a subsequent net::read or
+    net::readText can proceed without blocking — including when the peer has
+    closed and a read would return end of stream. FALSE when no data became
+    available before the timeout elapsed.
+
 ERRORS
-  Raises an Error with code 77050002 (ErrInvalidArgument) when timeoutMs is
-  negative, or 77030004 (ErrResourceClosed) when the socket has already been
-  closed or the readiness check could not be performed.
+  77050002 (ErrInvalidArgument)
+  Raised when timeoutMs is negative.
+
+  77030004 (ErrResourceClosed)
+  Raised when the socket has already been closed, or when the underlying
+  readiness check on the socket fails.
 
 EXAMPLES
   Check whether data is waiting without blocking:
