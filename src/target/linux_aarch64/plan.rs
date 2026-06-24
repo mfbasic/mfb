@@ -280,6 +280,17 @@ impl plan::NativePlanPlatform for Platform {
             (GTK, "gtk_widget_add_controller"),
             (GTK, "gdk_keyval_to_unicode"),
             (GLIB, "g_unichar_to_utf8"),
+            // term:: TUI surface: a GtkDrawingArea rendered with Cairo (libcairo).
+            (GTK, "gtk_drawing_area_new"),
+            (GTK, "gtk_drawing_area_set_draw_func"),
+            (GTK, "gtk_widget_queue_draw"),
+            (GOBJECT, "g_object_ref_sink"),
+            ("libcairo.so.2", "cairo_set_source_rgb"),
+            ("libcairo.so.2", "cairo_paint"),
+            ("libcairo.so.2", "cairo_select_font_face"),
+            ("libcairo.so.2", "cairo_set_font_size"),
+            ("libcairo.so.2", "cairo_move_to"),
+            ("libcairo.so.2", "cairo_show_text"),
             // GObject signal wiring (non-variadic form; §6.4) + main-thread marshal.
             (GOBJECT, "g_signal_connect_data"),
             (GLIB, "g_idle_add"),
@@ -318,6 +329,7 @@ impl plan::NativePlanPlatform for Platform {
             "malloc",
             "free",
             "memcpy",
+            "memset",
             "pause",
         ] {
             imports.push(self.libc_import(symbol, "_main"));

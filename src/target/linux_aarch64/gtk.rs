@@ -66,8 +66,33 @@ const ST_INPUT_MODE: usize = 56;
 const ST_LINE_LEN: usize = 64;
 /// Accumulated bytes of the line being typed (committed to the pipe on Enter).
 const ST_LINE_BUF: usize = 72;
-const LINE_BUF_CAP: usize = 4096;
-const STATE_SIZE: usize = ST_LINE_BUF + LINE_BUF_CAP;
+// Kept modest so every state field stays within a 12-bit immediate add/ldr offset.
+const LINE_BUF_CAP: usize = 1024;
+// term:: TUI surface state (plan-01-term.md §6.3): a fixed character grid rendered
+// by a GtkDrawingArea, the Linux analog of the macOS TermView.
+const ST_TERM_AREA: usize = ST_LINE_BUF + LINE_BUF_CAP; // GtkDrawingArea*
+const ST_TERM_ACTIVE: usize = ST_TERM_AREA + 8; // 1 while term:: is on
+const ST_TERM_ROW: usize = ST_TERM_ACTIVE + 8; // cursor row
+const ST_TERM_COL: usize = ST_TERM_ROW + 8; // cursor col
+const ST_TERM_GRID: usize = ST_TERM_COL + 8; // TERM_ROWS*TERM_COLS char cells
+const STATE_SIZE: usize = ST_TERM_GRID + TERM_COLS * TERM_ROWS;
+
+// Fixed grid geometry (v1, monochrome; avoids font-metric FP at init).
+const TERM_COLS: usize = 80;
+const TERM_ROWS: usize = 24;
+#[allow(dead_code)] // reserved for cursor/per-cell positioning
+const TERM_CELL_W: usize = 10; // px per column
+const TERM_CELL_H: usize = 20; // px per row
+const TERM_FONT_SIZE: &str = "16";
+/// Drawing-area draw callback symbol.
+const TERM_DRAW_SYMBOL: &str = "_mfb_gtkapp_term_draw";
+/// Main-thread idle callbacks (GTK calls must run on the main loop): show the grid,
+/// restore the transcript, and request a grid redraw.
+const TERM_SHOW_IDLE_SYMBOL: &str = "_mfb_gtkapp_term_show_idle";
+const TERM_HIDE_IDLE_SYMBOL: &str = "_mfb_gtkapp_term_hide_idle";
+const TERM_REDRAW_IDLE_SYMBOL: &str = "_mfb_gtkapp_term_redraw_idle";
+/// Worker-side grid writer shared by the io write helpers when term:: is active.
+const TERM_WRITE_SYMBOL: &str = "_mfb_gtkapp_term_write";
 
 // Input modes (mirror macOS app.rs INPUT_MODE_*): line-buffered without echo is the
 // default (`io::readLine`), line-buffered with echo is `io::input`, and raw delivers
@@ -102,6 +127,8 @@ const STR_EXIT_PREFIX: (&str, &str) =
 /// Marker prepended to `printError`/`writeError` transcript runs (matches macOS
 /// app.rs STR_STDERR_PREFIX), visually distinguishing stderr (plan-05 §5.4).
 const STR_STDERR_PREFIX: (&str, &str) = ("_mfb_gtkapp_str_stderr_prefix", "[stderr] ");
+/// Cairo font family for the term:: grid.
+const STR_MONOSPACE: (&str, &str) = ("_mfb_gtkapp_str_monospace", "monospace");
 
 // In-process disable of the a11y + input-method layers, whose g_variant_new_string
 // path crashes when the worker inserts transcript text. Set before GTK initializes.
@@ -125,6 +152,7 @@ const GLIB: &str = "libglib-2.0.so.0";
 const GIO: &str = "libgio-2.0.so.0";
 const LIBC: &str = "libc.so.6";
 const LIBPTHREAD: &str = "libpthread.so.0";
+const CAIRO: &str = "libcairo.so.2";
 
 /// Library that exports `symbol`, matching `app_mode_imports`. The relocation's
 /// library field is cosmetic (the linker binds by symbol name), but keeping it
@@ -136,9 +164,11 @@ fn lib_for(symbol: &str) -> &'static str {
         "g_idle_add" => GLIB,
         "pthread_create" | "pthread_detach" => LIBPTHREAD,
         "pipe" | "dup2" | "getenv" | "setenv" | "write" | "_exit" | "__libc_start_main" | "malloc"
-        | "free" | "memcpy" | "pause" => LIBC,
+        | "free" | "memcpy" | "memset" | "pause" => LIBC,
         // GDK is part of libgtk-4.so.1 in GTK4 (no separate libgdk).
         "gdk_keyval_to_unicode" => GTK,
+        "g_object_ref_sink" => GOBJECT,
+        sym if sym.starts_with("cairo_") => CAIRO,
         sym if sym.starts_with("gtk_") => GTK,
         sym if sym.starts_with("g_") => GLIB,
         other => panic!("linux app-mode codegen referenced unmapped symbol '{other}'"),
@@ -261,6 +291,12 @@ pub(crate) fn emit_app_program_entry(
         emit_finish_helper(),
         emit_append_helper(),
         emit_append_idle_helper(),
+        // term:: TUI surface support (plan-01-term.md §6.3).
+        emit_term_draw_helper(),
+        emit_term_show_idle_helper(),
+        emit_term_hide_idle_helper(),
+        emit_term_redraw_idle_helper(),
+        emit_term_write_helper(),
     ])
 }
 
@@ -376,9 +412,33 @@ fn emit_activate_handler() -> CodeFunction {
     asm.push(abi::move_immediate("x2", "Integer", WINDOW_HEIGHT));
     asm.call_external("gtk_window_set_default_size");
 
-    // scrolled = gtk_scrolled_window_new()
+    // scrolled = gtk_scrolled_window_new(); hold a ref so swapping the window child
+    // to the term:: surface and back doesn't destroy it (g_object_ref_sink owns the
+    // floating ref; gtk_window_set_child then takes its own).
     asm.call_external("gtk_scrolled_window_new");
+    asm.call_external("g_object_ref_sink");
     asm.store_state("x0", ST_SCROLLED);
+
+    // term:: drawing-area surface: created up front, kept off-window (held by a ref)
+    // until term::on swaps it in. Its draw func renders the character grid; the grid
+    // starts cleared (all spaces).
+    asm.call_external("gtk_drawing_area_new");
+    asm.call_external("g_object_ref_sink");
+    asm.store_state("x0", ST_TERM_AREA);
+    asm.load_state("x0", ST_TERM_AREA);
+    asm.local_address("x1", TERM_DRAW_SYMBOL);
+    asm.push(abi::move_immediate("x2", "Integer", "0")); // user_data
+    asm.push(abi::move_immediate("x3", "Integer", "0")); // destroy
+    asm.call_external("gtk_drawing_area_set_draw_func");
+    asm.local_address("x0", STATE_SYMBOL); // memset(grid, ' ', COLS*ROWS)
+    asm.push(abi::add_immediate("x0", "x0", ST_TERM_GRID));
+    asm.push(abi::move_immediate("x1", "Integer", "32")); // ' '
+    asm.push(abi::move_immediate(
+        "x2",
+        "Integer",
+        &(TERM_COLS * TERM_ROWS).to_string(),
+    ));
+    asm.call_external("memset");
 
     // text_view = gtk_text_view_new(); editable=FALSE; monospace=TRUE. The view is
     // left NON-focusable (like the working build): focusing a GtkTextView activates
@@ -811,6 +871,356 @@ fn emit_append_idle_helper() -> CodeFunction {
     asm.finish(APPEND_IDLE_SYMBOL, "Boolean")
 }
 
+// --- term:: TUI surface (plan-01-term.md §6.3) -----------------------------
+
+/// `void term_draw(GtkDrawingArea *area, cairo_t *cr /*x1*/, int w, int h, gpointer)`
+/// — the drawing-area render callback (main thread). Paints a black background and
+/// draws the character grid in white monospace, one row per `cairo_show_text`.
+/// SCAFFOLD(plan-05): monochrome; per-cell fg/bg/bold and the cursor are deferred.
+fn emit_term_draw_helper() -> CodeFunction {
+    let mut asm = Asm::new(TERM_DRAW_SYMBOL);
+    // lr@0, x19(cr)@8, x20(row)@16, rowbuf@32 (TERM_COLS+1, NUL at +TERM_COLS).
+    let frame = 128;
+    let rowbuf = 32;
+    asm.push(abi::label("entry"));
+    asm.push(abi::subtract_stack(frame));
+    asm.push(abi::store_u64(abi::link_register(), abi::stack_pointer(), 0));
+    asm.push(abi::store_u64("x19", abi::stack_pointer(), 8));
+    asm.push(abi::store_u64("x20", abi::stack_pointer(), 16));
+    asm.push(abi::move_register("x19", "x1")); // cr
+
+    // Black background: cairo_set_source_rgb(cr, 0,0,0); cairo_paint(cr).
+    asm.push(abi::move_register("x0", "x19"));
+    asm.push(abi::move_immediate("x9", "Integer", "0"));
+    asm.push(abi::float_move_d_from_x("d0", "x9"));
+    asm.push(abi::float_move_d_from_x("d1", "x9"));
+    asm.push(abi::float_move_d_from_x("d2", "x9"));
+    asm.call_external("cairo_set_source_rgb");
+    asm.push(abi::move_register("x0", "x19"));
+    asm.call_external("cairo_paint");
+    // Monospace font at TERM_FONT_SIZE.
+    asm.push(abi::move_register("x0", "x19"));
+    asm.local_address("x1", STR_MONOSPACE.0);
+    asm.push(abi::move_immediate("x2", "Integer", "0")); // CAIRO_FONT_SLANT_NORMAL
+    asm.push(abi::move_immediate("x3", "Integer", "0")); // CAIRO_FONT_WEIGHT_NORMAL
+    asm.call_external("cairo_select_font_face");
+    asm.push(abi::move_register("x0", "x19"));
+    asm.push(abi::move_immediate("x9", "Integer", TERM_FONT_SIZE));
+    asm.push(abi::signed_convert_to_float_d("d0", "x9"));
+    asm.call_external("cairo_set_font_size");
+    // White foreground.
+    asm.push(abi::move_register("x0", "x19"));
+    asm.push(abi::move_immediate("x9", "Integer", "1"));
+    asm.push(abi::signed_convert_to_float_d("d0", "x9"));
+    asm.push(abi::signed_convert_to_float_d("d1", "x9"));
+    asm.push(abi::signed_convert_to_float_d("d2", "x9"));
+    asm.call_external("cairo_set_source_rgb");
+
+    // for row in 0..TERM_ROWS: draw the row text at y = (row+1)*CELL_H.
+    asm.push(abi::move_immediate("x20", "Integer", "0"));
+    asm.push(abi::label("row_loop"));
+    asm.push(abi::compare_immediate("x20", &TERM_ROWS.to_string()));
+    asm.push(abi::branch_ge("draw_done"));
+    // rowbuf = memcpy(sp+rowbuf, grid + row*COLS, COLS); rowbuf[COLS] = 0
+    asm.push(abi::add_immediate("x0", abi::stack_pointer(), rowbuf));
+    asm.local_address("x1", STATE_SYMBOL);
+    asm.push(abi::add_immediate("x1", "x1", ST_TERM_GRID));
+    asm.push(abi::move_immediate("x11", "Integer", &TERM_COLS.to_string()));
+    asm.push(abi::multiply_registers("x12", "x20", "x11"));
+    asm.push(abi::add_registers("x1", "x1", "x12"));
+    asm.push(abi::move_immediate("x2", "Integer", &TERM_COLS.to_string()));
+    asm.call_external("memcpy");
+    asm.push(abi::move_immediate("x9", "Integer", "0"));
+    asm.push(abi::store_u8("x9", abi::stack_pointer(), rowbuf + TERM_COLS));
+    // cairo_move_to(cr, 0, (row+1)*CELL_H)
+    asm.push(abi::move_register("x0", "x19"));
+    asm.push(abi::move_immediate("x9", "Integer", "0"));
+    asm.push(abi::signed_convert_to_float_d("d0", "x9"));
+    asm.push(abi::add_immediate("x9", "x20", 1));
+    asm.push(abi::move_immediate("x10", "Integer", &TERM_CELL_H.to_string()));
+    asm.push(abi::multiply_registers("x9", "x9", "x10"));
+    asm.push(abi::signed_convert_to_float_d("d1", "x9"));
+    asm.call_external("cairo_move_to");
+    // cairo_show_text(cr, rowbuf)
+    asm.push(abi::move_register("x0", "x19"));
+    asm.push(abi::add_immediate("x1", abi::stack_pointer(), rowbuf));
+    asm.call_external("cairo_show_text");
+    asm.push(abi::add_immediate("x20", "x20", 1));
+    asm.push(abi::branch("row_loop"));
+
+    asm.push(abi::label("draw_done"));
+    asm.push(abi::load_u64(abi::link_register(), abi::stack_pointer(), 0));
+    asm.push(abi::load_u64("x19", abi::stack_pointer(), 8));
+    asm.push(abi::load_u64("x20", abi::stack_pointer(), 16));
+    asm.push(abi::add_stack(frame));
+    asm.push(abi::return_());
+    asm.finish(TERM_DRAW_SYMBOL, "Nothing")
+}
+
+/// Main-thread idle: swap the window child to the term:: surface and redraw it.
+fn emit_term_show_idle_helper() -> CodeFunction {
+    let mut asm = Asm::new(TERM_SHOW_IDLE_SYMBOL);
+    asm.push(abi::label("entry"));
+    asm.push(abi::subtract_stack(16));
+    asm.push(abi::store_u64(abi::link_register(), abi::stack_pointer(), 0));
+    asm.load_state("x0", ST_WINDOW);
+    asm.load_state("x1", ST_TERM_AREA);
+    asm.call_external("gtk_window_set_child");
+    asm.load_state("x0", ST_TERM_AREA);
+    asm.call_external("gtk_widget_queue_draw");
+    asm.push(abi::move_immediate("x0", "Boolean", FALSE)); // G_SOURCE_REMOVE
+    asm.push(abi::load_u64(abi::link_register(), abi::stack_pointer(), 0));
+    asm.push(abi::add_stack(16));
+    asm.push(abi::return_());
+    asm.finish(TERM_SHOW_IDLE_SYMBOL, "Boolean")
+}
+
+/// Main-thread idle: restore the transcript as the window child.
+fn emit_term_hide_idle_helper() -> CodeFunction {
+    let mut asm = Asm::new(TERM_HIDE_IDLE_SYMBOL);
+    asm.push(abi::label("entry"));
+    asm.push(abi::subtract_stack(16));
+    asm.push(abi::store_u64(abi::link_register(), abi::stack_pointer(), 0));
+    asm.load_state("x0", ST_WINDOW);
+    asm.load_state("x1", ST_SCROLLED);
+    asm.call_external("gtk_window_set_child");
+    asm.push(abi::move_immediate("x0", "Boolean", FALSE));
+    asm.push(abi::load_u64(abi::link_register(), abi::stack_pointer(), 0));
+    asm.push(abi::add_stack(16));
+    asm.push(abi::return_());
+    asm.finish(TERM_HIDE_IDLE_SYMBOL, "Boolean")
+}
+
+/// Main-thread idle: request a redraw of the term:: surface.
+fn emit_term_redraw_idle_helper() -> CodeFunction {
+    let mut asm = Asm::new(TERM_REDRAW_IDLE_SYMBOL);
+    asm.push(abi::label("entry"));
+    asm.push(abi::subtract_stack(16));
+    asm.push(abi::store_u64(abi::link_register(), abi::stack_pointer(), 0));
+    asm.load_state("x0", ST_TERM_AREA);
+    asm.call_external("gtk_widget_queue_draw");
+    asm.push(abi::move_immediate("x0", "Boolean", FALSE));
+    asm.push(abi::load_u64(abi::link_register(), abi::stack_pointer(), 0));
+    asm.push(abi::add_stack(16));
+    asm.push(abi::return_());
+    asm.finish(TERM_REDRAW_IDLE_SYMBOL, "Boolean")
+}
+
+/// `void _mfb_gtkapp_term_write(string obj /*x0*/, gboolean newline /*x1*/)` — the
+/// worker-side grid writer the io write helpers call when term:: is active. Pure
+/// data mutation on the grid (safe off the main thread); requests a main-thread
+/// redraw at the end. Bytes advance the cursor; '\n' (and the trailing newline for
+/// print) move to the next row; rows clamp at the bottom (no scroll in v1).
+fn emit_term_write_helper() -> CodeFunction {
+    let mut asm = Asm::new(TERM_WRITE_SYMBOL);
+    // lr@0, x20(newline)@8, x21(i)@16, x22(len)@24, x23(ptr)@32, x24(grid)@40,
+    // x25(row)@48, x26(col)@56.
+    let frame = 80;
+    asm.push(abi::label("entry"));
+    asm.push(abi::subtract_stack(frame));
+    asm.push(abi::store_u64(abi::link_register(), abi::stack_pointer(), 0));
+    for (reg, off) in [
+        ("x20", 8),
+        ("x21", 16),
+        ("x22", 24),
+        ("x23", 32),
+        ("x24", 40),
+        ("x25", 48),
+        ("x26", 56),
+    ] {
+        asm.push(abi::store_u64(reg, abi::stack_pointer(), off));
+    }
+    asm.push(abi::move_register("x20", "x1")); // newline flag
+    asm.push(abi::load_u64("x22", "x0", 0)); // text len
+    asm.push(abi::add_immediate("x23", "x0", 8)); // text ptr
+    asm.local_address("x24", STATE_SYMBOL);
+    asm.push(abi::add_immediate("x24", "x24", ST_TERM_GRID)); // grid base
+    asm.load_state("x25", ST_TERM_ROW);
+    asm.load_state("x26", ST_TERM_COL);
+    asm.push(abi::move_immediate("x21", "Integer", "0")); // i
+
+    asm.push(abi::label("tw_loop"));
+    asm.push(abi::compare_registers("x21", "x22"));
+    asm.push(abi::branch_ge("tw_after"));
+    asm.push(abi::add_registers("x9", "x23", "x21"));
+    asm.push(abi::load_u8("x10", "x9", 0)); // byte = ptr[i]
+    asm.push(abi::compare_immediate("x10", "10")); // '\n'
+    asm.push(abi::branch_eq("tw_newline"));
+    // grid[row*COLS + col] = byte
+    asm.push(abi::move_immediate("x11", "Integer", &TERM_COLS.to_string()));
+    asm.push(abi::multiply_registers("x12", "x25", "x11"));
+    asm.push(abi::add_registers("x12", "x12", "x26"));
+    asm.push(abi::add_registers("x9", "x24", "x12"));
+    asm.push(abi::store_u8("x10", "x9", 0));
+    // col++; wrap to next row at COLS.
+    asm.push(abi::add_immediate("x26", "x26", 1));
+    asm.push(abi::compare_immediate("x26", &TERM_COLS.to_string()));
+    asm.push(abi::branch_lt("tw_next"));
+    asm.push(abi::move_immediate("x26", "Integer", "0"));
+    asm.push(abi::add_immediate("x25", "x25", 1));
+    asm.push(abi::branch("tw_clamp"));
+    asm.push(abi::label("tw_newline"));
+    asm.push(abi::move_immediate("x26", "Integer", "0"));
+    asm.push(abi::add_immediate("x25", "x25", 1));
+    asm.push(abi::label("tw_clamp"));
+    // row = min(row, ROWS-1) — no scroll in v1.
+    asm.push(abi::compare_immediate("x25", &(TERM_ROWS - 1).to_string()));
+    asm.push(abi::branch_le("tw_next"));
+    asm.push(abi::move_immediate("x25", "Integer", &(TERM_ROWS - 1).to_string()));
+    asm.push(abi::label("tw_next"));
+    asm.push(abi::add_immediate("x21", "x21", 1));
+    asm.push(abi::branch("tw_loop"));
+
+    asm.push(abi::label("tw_after"));
+    // print's trailing newline.
+    asm.push(abi::compare_immediate("x20", "0"));
+    asm.push(abi::branch_eq("tw_store"));
+    asm.push(abi::move_immediate("x26", "Integer", "0"));
+    asm.push(abi::add_immediate("x25", "x25", 1));
+    asm.push(abi::compare_immediate("x25", &(TERM_ROWS - 1).to_string()));
+    asm.push(abi::branch_le("tw_store"));
+    asm.push(abi::move_immediate("x25", "Integer", &(TERM_ROWS - 1).to_string()));
+    asm.push(abi::label("tw_store"));
+    asm.store_state("x25", ST_TERM_ROW);
+    asm.store_state("x26", ST_TERM_COL);
+    // Request a redraw on the main thread.
+    asm.local_address("x0", TERM_REDRAW_IDLE_SYMBOL);
+    asm.push(abi::move_immediate("x1", "Integer", "0"));
+    asm.call_external("g_idle_add");
+
+    asm.push(abi::load_u64(abi::link_register(), abi::stack_pointer(), 0));
+    for (reg, off) in [
+        ("x20", 8),
+        ("x21", 16),
+        ("x22", 24),
+        ("x23", 32),
+        ("x24", 40),
+        ("x25", 48),
+        ("x26", 56),
+    ] {
+        asm.push(abi::load_u64(reg, abi::stack_pointer(), off));
+    }
+    asm.push(abi::add_stack(frame));
+    asm.push(abi::return_());
+    asm.finish(TERM_WRITE_SYMBOL, "Nothing")
+}
+
+/// App-mode `term::*` dispatcher. Returns the helper body for the calls the GTK
+/// surface implements (the rest fall back to the console backend, which no-ops
+/// while the arena term-state stays inactive). v1: on/off/isOn/clear/moveTo.
+pub(crate) fn emit_app_term_helper(
+    call: &str,
+    symbol: &str,
+) -> Option<(CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>)> {
+    let helper = match call {
+        "term.on" => emit_app_term_toggle(symbol, "1", TERM_SHOW_IDLE_SYMBOL),
+        "term.off" => emit_app_term_toggle(symbol, "0", TERM_HIDE_IDLE_SYMBOL),
+        "term.isOn" => emit_app_term_is_on(symbol),
+        "term.clear" => emit_app_term_clear(symbol),
+        "term.moveTo" => emit_app_term_move_to(symbol),
+        _ => return None,
+    };
+    Some(helper)
+}
+
+/// `term::on`/`term::off`: set the active flag and schedule the view swap on the
+/// main thread. Returns OK (Nothing).
+fn emit_app_term_toggle(
+    symbol: &str,
+    active: &str,
+    idle_symbol: &str,
+) -> (CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>) {
+    let mut asm = Asm::new(symbol);
+    asm.push(abi::label("entry"));
+    asm.push(abi::subtract_stack(16));
+    asm.push(abi::store_u64(abi::link_register(), abi::stack_pointer(), 0));
+    asm.push(abi::move_immediate("x10", "Integer", active));
+    asm.store_state("x10", ST_TERM_ACTIVE);
+    asm.local_address("x0", idle_symbol);
+    asm.push(abi::move_immediate("x1", "Integer", "0"));
+    asm.call_external("g_idle_add");
+    asm.push(abi::move_immediate("x0", "Integer", "0")); // RESULT_OK_TAG
+    asm.push(abi::load_u64(abi::link_register(), abi::stack_pointer(), 0));
+    asm.push(abi::add_stack(16));
+    asm.push(abi::return_());
+    (term_frame(), asm.ins, asm.rel)
+}
+
+/// `term::isOn`: OK(Boolean) = the active flag. Result ABI x0=tag, x1=value.
+fn emit_app_term_is_on(symbol: &str) -> (CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>) {
+    let mut asm = Asm::new(symbol);
+    asm.push(abi::label("entry"));
+    asm.load_state("x1", ST_TERM_ACTIVE); // value
+    asm.push(abi::move_immediate("x0", "Integer", "0")); // tag = OK
+    asm.push(abi::return_());
+    (term_frame(), asm.ins, asm.rel)
+}
+
+/// `term::clear`: blank the grid to spaces, home the cursor, schedule a redraw.
+fn emit_app_term_clear(symbol: &str) -> (CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>) {
+    let mut asm = Asm::new(symbol);
+    asm.push(abi::label("entry"));
+    asm.push(abi::subtract_stack(16));
+    asm.push(abi::store_u64(abi::link_register(), abi::stack_pointer(), 0));
+    asm.local_address("x0", STATE_SYMBOL);
+    asm.push(abi::add_immediate("x0", "x0", ST_TERM_GRID));
+    asm.push(abi::move_immediate("x1", "Integer", "32")); // ' '
+    asm.push(abi::move_immediate(
+        "x2",
+        "Integer",
+        &(TERM_COLS * TERM_ROWS).to_string(),
+    ));
+    asm.call_external("memset");
+    asm.push(abi::move_immediate("x10", "Integer", "0"));
+    asm.store_state("x10", ST_TERM_ROW);
+    asm.push(abi::move_immediate("x10", "Integer", "0"));
+    asm.store_state("x10", ST_TERM_COL);
+    asm.local_address("x0", TERM_REDRAW_IDLE_SYMBOL);
+    asm.push(abi::move_immediate("x1", "Integer", "0"));
+    asm.call_external("g_idle_add");
+    asm.push(abi::move_immediate("x0", "Integer", "0")); // RESULT_OK_TAG
+    asm.push(abi::load_u64(abi::link_register(), abi::stack_pointer(), 0));
+    asm.push(abi::add_stack(16));
+    asm.push(abi::return_());
+    (term_frame(), asm.ins, asm.rel)
+}
+
+/// `term::moveTo(row /*x0*/, col /*x1*/)`: clamp to the grid and set the cursor.
+fn emit_app_term_move_to(symbol: &str) -> (CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>) {
+    let mut asm = Asm::new(symbol);
+    asm.push(abi::label("entry"));
+    // row = clamp(x0, 0, ROWS-1)
+    asm.push(abi::compare_immediate("x0", "0"));
+    asm.push(abi::branch_ge("mt_row_lo"));
+    asm.push(abi::move_immediate("x0", "Integer", "0"));
+    asm.push(abi::label("mt_row_lo"));
+    asm.push(abi::compare_immediate("x0", &(TERM_ROWS - 1).to_string()));
+    asm.push(abi::branch_le("mt_row_hi"));
+    asm.push(abi::move_immediate("x0", "Integer", &(TERM_ROWS - 1).to_string()));
+    asm.push(abi::label("mt_row_hi"));
+    asm.store_state("x0", ST_TERM_ROW);
+    // col = clamp(x1, 0, COLS-1)
+    asm.push(abi::compare_immediate("x1", "0"));
+    asm.push(abi::branch_ge("mt_col_lo"));
+    asm.push(abi::move_immediate("x1", "Integer", "0"));
+    asm.push(abi::label("mt_col_lo"));
+    asm.push(abi::compare_immediate("x1", &(TERM_COLS - 1).to_string()));
+    asm.push(abi::branch_le("mt_col_hi"));
+    asm.push(abi::move_immediate("x1", "Integer", &(TERM_COLS - 1).to_string()));
+    asm.push(abi::label("mt_col_hi"));
+    asm.store_state("x1", ST_TERM_COL);
+    asm.push(abi::move_immediate("x0", "Integer", "0")); // RESULT_OK_TAG
+    asm.push(abi::return_());
+    (term_frame(), asm.ins, asm.rel)
+}
+
+fn term_frame() -> CodeFrame {
+    CodeFrame {
+        stack_size: 0,
+        callee_saved: Vec::new(),
+    }
+}
+
 // --- io::* app-mode helper bodies ------------------------------------------
 
 /// App-mode `io.print`/`io.write`/`io.printError`/`io.writeError`. The MFB string
@@ -833,6 +1243,17 @@ pub(crate) fn emit_app_io_write_helper(
     asm.push(abi::store_u64("x20", abi::stack_pointer(), 16));
     asm.push(abi::store_u64("x21", abi::stack_pointer(), 24));
     asm.push(abi::move_register("x19", "x0")); // preserve string object
+
+    // term:: active -> render into the TUI grid instead of the transcript.
+    asm.load_state("x9", ST_TERM_ACTIVE);
+    asm.push(abi::compare_immediate("x9", "0"));
+    asm.push(abi::branch_eq("not_term"));
+    asm.push(abi::move_register("x0", "x19")); // string obj
+    asm.push(abi::move_immediate("x1", "Integer", if newline { "1" } else { "0" }));
+    asm.call_internal(TERM_WRITE_SYMBOL);
+    asm.push(abi::move_immediate("x0", "Integer", "0")); // RESULT_OK_TAG
+    asm.push(abi::branch("done"));
+    asm.push(abi::label("not_term"));
 
     // buffer = state.text_buffer; nil => fd fallback (headless / pre-window).
     asm.load_state("x10", ST_TEXT_BUFFER);
@@ -988,6 +1409,7 @@ pub(crate) fn app_mode_data_objects() -> Vec<CodeDataObject> {
         STR_KEY_PRESSED,
         STR_EXIT_PREFIX,
         STR_STDERR_PREFIX,
+        STR_MONOSPACE,
         STR_ENV_A11Y,
         STR_ENV_IM,
         STR_ENV_NONE,
