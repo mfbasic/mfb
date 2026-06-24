@@ -269,12 +269,11 @@ impl plan::NativePlanPlatform for Platform {
             (GTK, "gtk_text_view_set_editable"),
             (GTK, "gtk_text_view_set_monospace"),
             (GTK, "gtk_text_view_get_buffer"),
-            (GTK, "gtk_text_view_scroll_to_mark"),
-            (GTK, "gtk_text_buffer_create_tag"),
+            (GTK, "gtk_text_view_scroll_mark_onscreen"),
             (GTK, "gtk_text_buffer_create_mark"),
+            (GTK, "gtk_text_buffer_delete_mark"),
             (GTK, "gtk_text_buffer_get_end_iter"),
             (GTK, "gtk_text_buffer_insert"),
-            (GTK, "gtk_text_buffer_insert_with_tags"),
             // Terminal-style key input captured at the window (no entry box; mirrors
             // the macOS NSTextView keyDown: override). GDK lives in libgtk-4.
             (GTK, "gtk_event_controller_key_new"),

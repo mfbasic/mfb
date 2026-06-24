@@ -99,6 +99,9 @@ const STR_KEY_PRESSED: (&str, &str) = ("_mfb_gtkapp_str_key_pressed", "key-press
 /// (matches macOS app.rs STR_EXIT_PREFIX): leading newline + "...code " + N + "\n".
 const STR_EXIT_PREFIX: (&str, &str) =
     ("_mfb_gtkapp_str_exit_prefix", "\nProgram exited with code ");
+/// Marker prepended to `printError`/`writeError` transcript runs (matches macOS
+/// app.rs STR_STDERR_PREFIX), visually distinguishing stderr (plan-05 §5.4).
+const STR_STDERR_PREFIX: (&str, &str) = ("_mfb_gtkapp_str_stderr_prefix", "[stderr] ");
 
 // In-process disable of the a11y + input-method layers, whose g_variant_new_string
 // path crashes when the worker inserts transcript text. Set before GTK initializes.
@@ -726,15 +729,13 @@ fn emit_format_exit_code(asm: &mut Asm, code: &str, dst: &str) {
 }
 
 /// `void _mfb_gtkapp_append(GtkTextBuffer *buffer /*x0*/, const char *text /*x1*/,
-/// gsize len /*x2*/)` — append `len` bytes at the buffer's end iterator.
-///
-/// TODO(plan-05 §6.4): this runs on the worker thread; GTK requires it on the
-/// main-loop thread, so the real implementation must marshal via `g_idle_add` (or
-/// `g_main_context_invoke_full` for the synchronous flush). Batching + auto-scroll
-/// to the end mark are likewise pending.
+/// gsize len /*x2*/)` — append `len` bytes at the buffer's end iterator. Must run on
+/// the GTK main thread; worker-thread writes reach it via `_mfb_gtkapp_append_idle`.
+/// After inserting, auto-scrolls the transcript to the new end (plan-05 §6.5) via a
+/// temporary end mark + gtk_text_view_scroll_mark_onscreen.
 fn emit_append_helper() -> CodeFunction {
     let mut asm = Asm::new(APPEND_SYMBOL);
-    // lr@0, buffer@8, text@16, len@24, GtkTextIter@40 (>=80 bytes room to 128).
+    // lr@0, buffer@8, text@16, len@24, mark@32, GtkTextIter@40 (80B room to 120).
     let frame = 128;
     let iter = 40;
     asm.push(abi::label("entry"));
@@ -754,6 +755,24 @@ fn emit_append_helper() -> CodeFunction {
     asm.push(abi::load_u64("x2", abi::stack_pointer(), 16));
     asm.push(abi::load_u64("x3", abi::stack_pointer(), 24));
     asm.call_external("gtk_text_buffer_insert");
+
+    // Auto-scroll: re-fetch the end iter, create a temporary mark there, scroll it
+    // onscreen in the transcript, then delete it.
+    asm.push(abi::load_u64("x0", abi::stack_pointer(), 8));
+    asm.push(abi::add_immediate("x1", abi::stack_pointer(), iter));
+    asm.call_external("gtk_text_buffer_get_end_iter");
+    asm.push(abi::load_u64("x0", abi::stack_pointer(), 8)); // create_mark(buffer, NULL,
+    asm.push(abi::move_immediate("x1", "Integer", "0")); //               &iter, FALSE)
+    asm.push(abi::add_immediate("x2", abi::stack_pointer(), iter));
+    asm.push(abi::move_immediate("x3", "Integer", "0"));
+    asm.call_external("gtk_text_buffer_create_mark");
+    asm.push(abi::store_u64("x0", abi::stack_pointer(), 32)); // mark
+    asm.load_state("x0", ST_TEXT_VIEW);
+    asm.push(abi::load_u64("x1", abi::stack_pointer(), 32));
+    asm.call_external("gtk_text_view_scroll_mark_onscreen");
+    asm.push(abi::load_u64("x0", abi::stack_pointer(), 8)); // delete_mark(buffer, mark)
+    asm.push(abi::load_u64("x1", abi::stack_pointer(), 32));
+    asm.call_external("gtk_text_buffer_delete_mark");
 
     asm.push(abi::load_u64(abi::link_register(), abi::stack_pointer(), 0));
     asm.push(abi::add_stack(frame));
@@ -823,24 +842,32 @@ pub(crate) fn emit_app_io_write_helper(
     // --- transcript path: marshal to the GTK main thread (plan-05 §6.4) ---
     // GTK is not thread-safe, so the worker copies the bytes into a heap chunk and
     // schedules an idle source; the main loop drains it via _mfb_gtkapp_append_idle.
-    // Chunk layout: [0]=len (u64), [16..]=bytes (+ optional trailing '\n').
-    // TODO(plan-05 §5.4): style stderr runs with a GtkTextTag (plain for now).
-    asm.push(abi::load_u64("x20", "x19", 0)); // len
-    asm.push(abi::add_immediate("x0", "x20", 17)); // 16 header + len + 1 newline
+    // Chunk layout: [0]=len (u64), [16..]=bytes. stderr runs are prefixed with
+    // "[stderr] " (matching macOS) so error output is visually distinguished.
+    let prefix_len = if stderr { STR_STDERR_PREFIX.1.len() } else { 0 };
+    let extra = prefix_len + if newline { 1 } else { 0 };
+    asm.push(abi::load_u64("x20", "x19", 0)); // text len
+    asm.push(abi::add_immediate("x0", "x20", prefix_len + 17)); // 16 hdr + prefix + text + nl
     asm.call_external("malloc");
     asm.push(abi::move_register("x21", "x0")); // heap chunk
-    asm.push(abi::add_immediate("x0", "x21", 16)); // memcpy(dst=chunk+16,
-    asm.push(abi::add_immediate("x1", "x19", 8)); //        src=bytes,
-    asm.push(abi::move_register("x2", "x20")); //          n=len)
+    if stderr {
+        asm.push(abi::add_immediate("x0", "x21", 16)); // memcpy(chunk+16, "[stderr] ", 9)
+        asm.local_address("x1", STR_STDERR_PREFIX.0);
+        asm.push(abi::move_immediate("x2", "Integer", &prefix_len.to_string()));
+        asm.call_external("memcpy");
+    }
+    asm.push(abi::add_immediate("x0", "x21", 16 + prefix_len)); // memcpy(dst=chunk+16+prefix,
+    asm.push(abi::add_immediate("x1", "x19", 8)); //                     src=text bytes,
+    asm.push(abi::move_register("x2", "x20")); //                       n=text len)
     asm.call_external("memcpy");
     if newline {
-        asm.push(abi::add_immediate("x9", "x21", 16));
-        asm.push(abi::add_registers("x9", "x9", "x20")); // &chunk[16+len]
+        asm.push(abi::add_immediate("x9", "x21", 16 + prefix_len));
+        asm.push(abi::add_registers("x9", "x9", "x20")); // &chunk[16+prefix+len]
         asm.push(abi::move_immediate("x10", "Integer", "10"));
         asm.push(abi::store_u8("x10", "x9", 0)); // '\n'
-        asm.push(abi::add_immediate("x20", "x20", 1)); // len includes newline
     }
-    asm.push(abi::store_u64("x20", "x21", 0)); // chunk len
+    asm.push(abi::add_immediate("x9", "x20", extra)); // chunk len = text + prefix + nl
+    asm.push(abi::store_u64("x9", "x21", 0));
     asm.local_address("x0", APPEND_IDLE_SYMBOL);
     asm.push(abi::move_register("x1", "x21")); // user_data = chunk
     asm.call_external("g_idle_add");
@@ -960,6 +987,7 @@ pub(crate) fn app_mode_data_objects() -> Vec<CodeDataObject> {
         STR_CLOSE_REQUEST,
         STR_KEY_PRESSED,
         STR_EXIT_PREFIX,
+        STR_STDERR_PREFIX,
         STR_ENV_A11Y,
         STR_ENV_IM,
         STR_ENV_NONE,
