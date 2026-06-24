@@ -44,6 +44,90 @@ Guidelines:
 - When adding or auditing any helper that calls a runtime routine and then writes a collection/record/string header from registers, verify every header-field source register against the callee's clobber set. The same pattern recurs across insert, remove, concat, and map-mutation lowerings.
 - Reproduce register-clobber crashes with a debugger: stale values leaking from the caller (registers the callee does not touch) plus a faulting helper pinpoint exactly which live register was destroyed. See the memory note `arena-alloc-clobbers-x14-x15` for the worked example.
 
+## Planning
+
+Substantial features get a written plan under `specifications/` before implementation begins. A plan is a design document that an implementer (human or agent) can execute phase-by-phase without re-deriving the design.
+
+Guidelines:
+
+- Name the file `specifications/plan-NN-shortname.md` (next free `NN`, two digits; short kebab-case slug). One plan per feature.
+- Cross-link the specs the plan touches near the top (`specifications/memory_layouts.md`, `mfbasic.md`, `standard_package.md`, `error_codes.md`, `threading.md`, etc.) so the implementer reads the right source of truth first.
+- State the constraints the plan must **not** violate as explicit non-goals (language surface, value/copy/move semantics, layout/ABI, thread-transfer rules). A plan that silently changes one of these is wrong.
+- Break the work into ordered, independently-landable phases. Put the lowest-risk, separately-valuable work first (e.g. an audit or a runtime primitive with no callers) and the highest-risk codegen last, behind tests.
+- Fold the repository's standing requirements into the plan, don't restate them generically: every new/changed function needs `tests/func_<package>_<func>_valid/**` and `_invalid/**` with full overload coverage; runtime features need an execution proof, not just golden output; error-code or diagnostic changes must update `error_codes.md`, `mfbasic.md`, and `standard_package.md`; acceptance (`scripts/test-accept.sh`) must pass.
+- Record genuinely open design choices in an "Open Decisions" section with a recommendation for each — don't bury unresolved forks inside prose.
+- When a plan is fully implemented, remove the plan doc in the same commit that lands the final phase (precedent: `34e526c9` removed plan-05 on completion). Keep `Last updated` current while it lives.
+
+### Plan template
+
+```markdown
+# MFBASIC <Feature> Plan
+
+Last updated: YYYY-MM-DD
+
+<One or two paragraphs: what this builds and why. State the single
+behavioral outcome a correct implementation produces.>
+
+It complements:
+
+- `specifications/<spec>.md` (<what this plan touches there>)
+
+## 1. Goal
+
+- <Concrete, checkable outcome.>
+
+### Non-goals (explicit constraints)
+
+<What must NOT change: language surface, value/copy/move/freeze semantics,
+layout/ABI, thread-transfer rules. Be specific — these are the guardrails.>
+
+## 2. Current State
+
+<How it works today, cited to files/specs (`file.rs:line`, `spec.md §N`).
+Name existing precedents the design will mirror.>
+
+## 3. Design Overview
+
+<The shape of the solution: independent pieces and how they layer. Call out
+where the correctness risk concentrates.>
+
+## 4..N. Detailed Design
+
+<One section per piece. Algorithms, data layout, the runtime/codegen split.>
+
+## Layout / ABI Impact
+
+<Exactly what changes in memory_layouts.md / package_format.md, and — just as
+important — what stays unchanged so copy/transfer/golden output is unaffected.
+Omit if the plan touches no layout.>
+
+## Phases
+
+1. <Lowest-risk, independently-landable first.>
+2. ...
+N. <Highest-risk codegen last, behind tests.>
+
+## Validation Plan
+
+- Function tests: `tests/func_<pkg>_<func>_valid/**` and `_invalid/**`,
+  every overload.
+- Runtime proof: <the program + observable result that proves real behavior>.
+- Doc sync: <error_codes.md / mfbasic.md / standard_package.md updates>.
+- Acceptance: `scripts/test-accept.sh target/debug/mfb target/accept-actual`.
+
+## Open Decisions
+
+- <Decision> — <recommended option> vs. <alternative>. (§ref)
+
+## Non-Goals
+
+- <Explicitly out of scope for this plan / V1.>
+
+## Summary
+
+<Where the real engineering risk is, and what is left untouched.>
+```
+
 ## Validation
 
 After completing any code or golden-output change, the acceptance suite must pass.
@@ -93,3 +177,4 @@ Guidelines:
 - ssh -p 2223 test@127.0.0.1 # Kali (libc)
 - ssh -p 2224 test@127.0.0.1 # Alipine (musl)
 - ssh -p 2225 test@127.0.0.1 # Alipine gtk (musl)
+- ssh -p 2226 test@127.0.0.1 # Debian 12 gtk (libc)
