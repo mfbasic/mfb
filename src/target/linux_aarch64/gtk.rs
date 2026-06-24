@@ -95,6 +95,10 @@ const STR_TITLE: (&str, &str) = ("_mfb_gtkapp_str_title", "MFBASIC App");
 const STR_ACTIVATE: (&str, &str) = ("_mfb_gtkapp_str_activate", "activate");
 const STR_CLOSE_REQUEST: (&str, &str) = ("_mfb_gtkapp_str_close_request", "close-request");
 const STR_KEY_PRESSED: (&str, &str) = ("_mfb_gtkapp_str_key_pressed", "key-pressed");
+/// Completion status line appended to the transcript when the program ends
+/// (matches macOS app.rs STR_EXIT_PREFIX): leading newline + "...code " + N + "\n".
+const STR_EXIT_PREFIX: (&str, &str) =
+    ("_mfb_gtkapp_str_exit_prefix", "\nProgram exited with code ");
 
 // In-process disable of the a11y + input-method layers, whose g_variant_new_string
 // path crashes when the worker inserts transcript text. Set before GTK initializes.
@@ -629,19 +633,96 @@ fn emit_window_closed_handler() -> CodeFunction {
     asm.finish(WINDOW_CLOSED_SYMBOL, "Boolean")
 }
 
-/// Worker program-completion handler (plan-05 §6.7). The language program runs on
-/// the worker thread; when it finishes we must NOT `_exit`, or the process (and the
-/// GTK main loop + window) dies. Instead the worker parks here so the main thread
-/// keeps the window open until the user closes it. `pause()` suspends with no CPU
-/// until a signal; loop in case one arrives.
+/// Worker program-completion handler (plan-05 §6.7), matching the macOS flow: the
+/// exit code arrives in `x0`. In GUI mode append "\nProgram exited with code N\n"
+/// to the transcript (marshaled to the main thread, like every other write) and
+/// park the worker in `pause()` so the main loop keeps the window open until the
+/// user closes it. With no transcript attached (headless) terminate with the code.
+///
+/// The language program runs on the worker thread, so we must NOT `_exit` in GUI
+/// mode or the process (window + main loop) dies.
 fn emit_finish_helper() -> CodeFunction {
+    let prefix_len = STR_EXIT_PREFIX.1.len(); // includes the leading '\n'
     let mut asm = Asm::new(FINISH_SYMBOL);
+    // lr@0, x19(exit code)@8, x20(chunk)@16.
     asm.push(abi::label("entry"));
+    asm.push(abi::subtract_stack(32));
+    asm.push(abi::store_u64(abi::link_register(), abi::stack_pointer(), 0));
+    asm.push(abi::store_u64("x19", abi::stack_pointer(), 8));
+    asm.push(abi::store_u64("x20", abi::stack_pointer(), 16));
+    asm.push(abi::move_register("x19", "x0")); // exit code
+
+    // Headless (no transcript): terminate the process with the exit code.
+    asm.load_state("x9", ST_TEXT_BUFFER);
+    asm.push(abi::compare_immediate("x9", "0"));
+    asm.push(abi::branch_ne("fin_gui"));
+    asm.push(abi::move_register("x0", "x19"));
+    asm.call_external("_exit");
+    asm.push(abi::branch_self());
+
+    // GUI: build the status chunk "<prefix>" + decimal(code) + "\n" and marshal it.
+    // Chunk layout matches the io write helper: [0]=len, [16..]=bytes.
+    asm.push(abi::label("fin_gui"));
+    asm.push(abi::move_immediate("x0", "Integer", "64")); // 16 hdr + prefix + 3 digits + nl
+    asm.call_external("malloc");
+    asm.push(abi::move_register("x20", "x0")); // chunk
+    asm.push(abi::add_immediate("x0", "x20", 16)); // memcpy(chunk+16, prefix, prefix_len)
+    asm.local_address("x1", STR_EXIT_PREFIX.0);
+    asm.push(abi::move_immediate("x2", "Integer", &prefix_len.to_string()));
+    asm.call_external("memcpy");
+    // Format the exit code as decimal ASCII at chunk+16+prefix_len; '\n'; store len.
+    asm.push(abi::add_immediate("x13", "x20", 16 + prefix_len)); // digit write ptr
+    emit_format_exit_code(&mut asm, "x19", "x13");
+    asm.push(abi::move_immediate("x14", "Integer", "10"));
+    asm.push(abi::store_u8("x14", "x13", 0)); // trailing '\n'
+    asm.push(abi::add_immediate("x13", "x13", 1));
+    // len = x13 - (chunk + 16)
+    asm.push(abi::subtract_registers("x9", "x13", "x20"));
+    asm.push(abi::subtract_immediate("x9", "x9", 16));
+    asm.push(abi::store_u64("x9", "x20", 0));
+    asm.local_address("x0", APPEND_IDLE_SYMBOL);
+    asm.push(abi::move_register("x1", "x20"));
+    asm.call_external("g_idle_add");
+
+    // Park the worker; the main loop owns shutdown when the window closes.
     asm.push(abi::label("park"));
     asm.call_external("pause");
     asm.push(abi::branch("park"));
     asm.push(abi::return_());
     asm.finish(FINISH_SYMBOL, "Nothing")
+}
+
+/// Format the unsigned exit code in `code` (0..255) as decimal ASCII at the pointer
+/// in `dst`, advancing `dst` past the digits (leading zeros suppressed). Mirrors the
+/// macOS `emit_format_exit_code`; uses only caller-saved scratch, performs no calls.
+fn emit_format_exit_code(asm: &mut Asm, code: &str, dst: &str) {
+    // h = code/100; rem = code%100; t = rem/10; o = rem%10.
+    asm.push(abi::move_register("x9", code)); // n
+    asm.push(abi::move_immediate("x11", "Integer", "100"));
+    asm.push(abi::unsigned_divide_registers("x10", "x9", "x11")); // hundreds
+    asm.push(abi::multiply_subtract_registers("x9", "x10", "x11", "x9")); // n %= 100
+    asm.push(abi::move_immediate("x11", "Integer", "10"));
+    asm.push(abi::unsigned_divide_registers("x12", "x9", "x11")); // tens
+    asm.push(abi::multiply_subtract_registers("x9", "x12", "x11", "x9")); // ones
+    // hundreds != 0 -> emit hundreds then always tens+ones.
+    asm.push(abi::compare_immediate("x10", "0"));
+    asm.push(abi::branch_eq("fmt_skip_h"));
+    asm.push(abi::add_immediate("x14", "x10", 48));
+    asm.push(abi::store_u8("x14", dst, 0));
+    asm.push(abi::add_immediate(dst, dst, 1));
+    asm.push(abi::branch("fmt_tens"));
+    asm.push(abi::label("fmt_skip_h"));
+    // tens == 0 -> ones only.
+    asm.push(abi::compare_immediate("x12", "0"));
+    asm.push(abi::branch_eq("fmt_ones"));
+    asm.push(abi::label("fmt_tens"));
+    asm.push(abi::add_immediate("x14", "x12", 48));
+    asm.push(abi::store_u8("x14", dst, 0));
+    asm.push(abi::add_immediate(dst, dst, 1));
+    asm.push(abi::label("fmt_ones"));
+    asm.push(abi::add_immediate("x14", "x9", 48));
+    asm.push(abi::store_u8("x14", dst, 0));
+    asm.push(abi::add_immediate(dst, dst, 1));
 }
 
 /// `void _mfb_gtkapp_append(GtkTextBuffer *buffer /*x0*/, const char *text /*x1*/,
@@ -878,6 +959,7 @@ pub(crate) fn app_mode_data_objects() -> Vec<CodeDataObject> {
         STR_ACTIVATE,
         STR_CLOSE_REQUEST,
         STR_KEY_PRESSED,
+        STR_EXIT_PREFIX,
         STR_ENV_A11Y,
         STR_ENV_IM,
         STR_ENV_NONE,
