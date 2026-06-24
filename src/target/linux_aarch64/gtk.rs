@@ -74,8 +74,20 @@ const ST_TERM_AREA: usize = ST_LINE_BUF + LINE_BUF_CAP; // GtkDrawingArea*
 const ST_TERM_ACTIVE: usize = ST_TERM_AREA + 8; // 1 while term:: is on
 const ST_TERM_ROW: usize = ST_TERM_ACTIVE + 8; // cursor row
 const ST_TERM_COL: usize = ST_TERM_ROW + 8; // cursor col
-const ST_TERM_GRID: usize = ST_TERM_COL + 8; // TERM_ROWS*TERM_COLS char cells
-const STATE_SIZE: usize = ST_TERM_GRID + TERM_COLS * TERM_ROWS;
+const ST_TERM_CUR_FG: usize = ST_TERM_COL + 8; // current fg (packed | COLOR_SET)
+const ST_TERM_CUR_BG: usize = ST_TERM_CUR_FG + 8; // current bg (packed | COLOR_SET)
+const ST_TERM_CUR_BOLD: usize = ST_TERM_CUR_BG + 8; // current bold flag
+// Parallel per-cell grids: chars (1B), fg (u32 packed | flags), bg (u32 packed).
+const ST_TERM_CHARS: usize = ST_TERM_CUR_BOLD + 8;
+const ST_TERM_FG: usize = ST_TERM_CHARS + TERM_COLS * TERM_ROWS;
+const ST_TERM_BG: usize = ST_TERM_FG + TERM_COLS * TERM_ROWS * 4;
+const STATE_SIZE: usize = ST_TERM_BG + TERM_COLS * TERM_ROWS * 4;
+
+// fg/bg cell encoding: low 24 bits = packed RGB (r<<16|g<<8|b); bit 24 marks an
+// explicit color (so 0 = "use default", letting black be set distinctly); bit 25
+// (fg only) marks bold.
+const COLOR_SET: usize = 1 << 24;
+const BOLD_FLAG: usize = 1 << 25;
 
 // Fixed grid geometry (v1, monochrome; avoids font-metric FP at init).
 const TERM_COLS: usize = 80;
@@ -241,6 +253,18 @@ impl Asm {
                 binding: "data".to_string(),
                 library: None,
             });
+        }
+    }
+
+    /// Materialize the address of a runtime-state field/array at `offset` into
+    /// `dst` (clobbers `x9` for large offsets past the 12-bit add immediate).
+    fn state_array(&mut self, dst: &str, offset: usize) {
+        self.local_address(dst, STATE_SYMBOL);
+        if offset < 4096 {
+            self.push(abi::add_immediate(dst, dst, offset));
+        } else {
+            self.push(abi::move_immediate("x9", "Integer", &offset.to_string()));
+            self.push(abi::add_registers(dst, dst, "x9"));
         }
     }
 
@@ -430,8 +454,8 @@ fn emit_activate_handler() -> CodeFunction {
     asm.push(abi::move_immediate("x2", "Integer", "0")); // user_data
     asm.push(abi::move_immediate("x3", "Integer", "0")); // destroy
     asm.call_external("gtk_drawing_area_set_draw_func");
-    asm.local_address("x0", STATE_SYMBOL); // memset(grid, ' ', COLS*ROWS)
-    asm.push(abi::add_immediate("x0", "x0", ST_TERM_GRID));
+    // Blank the char grid to spaces; fg/bg arrays stay zero (= default colors).
+    asm.state_array("x0", ST_TERM_CHARS);
     asm.push(abi::move_immediate("x1", "Integer", "32")); // ' '
     asm.push(abi::move_immediate(
         "x2",
@@ -873,23 +897,53 @@ fn emit_append_idle_helper() -> CodeFunction {
 
 // --- term:: TUI surface (plan-01-term.md §6.3) -----------------------------
 
+/// Emit `cairo_set_source_rgb(cr, r/255, g/255, b/255)` from a packed RGB value in
+/// `packed` (low 24 bits). Clobbers x0/x9-x13 and d0-d3.
+fn emit_cairo_color(asm: &mut Asm, cr: &str, packed: &str) {
+    asm.push(abi::move_register("x0", cr));
+    asm.push(abi::move_immediate("x9", "Integer", "255")); // mask + divisor
+    asm.push(abi::shift_right_immediate("x10", packed, 16)); // r
+    asm.push(abi::and_registers("x10", "x10", "x9"));
+    asm.push(abi::shift_right_immediate("x11", packed, 8)); // g
+    asm.push(abi::and_registers("x11", "x11", "x9"));
+    asm.push(abi::and_registers("x12", packed, "x9")); // b
+    asm.push(abi::signed_convert_to_float_d("d3", "x9")); // 255.0
+    asm.push(abi::signed_convert_to_float_d("d0", "x10"));
+    asm.push(abi::float_divide_d("d0", "d0", "d3"));
+    asm.push(abi::signed_convert_to_float_d("d1", "x11"));
+    asm.push(abi::float_divide_d("d1", "d1", "d3"));
+    asm.push(abi::signed_convert_to_float_d("d2", "x12"));
+    asm.push(abi::float_divide_d("d2", "d2", "d3"));
+    asm.call_external("cairo_set_source_rgb");
+}
+
 /// `void term_draw(GtkDrawingArea *area, cairo_t *cr /*x1*/, int w, int h, gpointer)`
-/// — the drawing-area render callback (main thread). Paints a black background and
-/// draws the character grid in white monospace, one row per `cairo_show_text`.
-/// SCAFFOLD(plan-05): monochrome; per-cell fg/bg/bold and the cursor are deferred.
+/// — the drawing-area render callback (main thread). Paints black, then renders each
+/// non-space cell: an optional background rect, then the glyph in its fg color and
+/// weight (bold). Monospace; cursor rendering is still deferred.
 fn emit_term_draw_helper() -> CodeFunction {
     let mut asm = Asm::new(TERM_DRAW_SYMBOL);
-    // lr@0, x19(cr)@8, x20(row)@16, rowbuf@32 (TERM_COLS+1, NUL at +TERM_COLS).
-    let frame = 128;
-    let rowbuf = 32;
+    // lr@0, x19(cr)@8, x20(row)@16, x21(col)@24, x22(lastBold)@32, x23(charsBase)@40,
+    // x24(fgBase)@48, x25(bgBase)@56, fg@64, bg@72, charbuf@80 (2B).
+    let frame = 96;
+    let (off_fg, off_bg, off_buf) = (64usize, 72usize, 80usize);
     asm.push(abi::label("entry"));
     asm.push(abi::subtract_stack(frame));
     asm.push(abi::store_u64(abi::link_register(), abi::stack_pointer(), 0));
-    asm.push(abi::store_u64("x19", abi::stack_pointer(), 8));
-    asm.push(abi::store_u64("x20", abi::stack_pointer(), 16));
+    for (reg, off) in [
+        ("x19", 8),
+        ("x20", 16),
+        ("x21", 24),
+        ("x22", 32),
+        ("x23", 40),
+        ("x24", 48),
+        ("x25", 56),
+    ] {
+        asm.push(abi::store_u64(reg, abi::stack_pointer(), off));
+    }
     asm.push(abi::move_register("x19", "x1")); // cr
 
-    // Black background: cairo_set_source_rgb(cr, 0,0,0); cairo_paint(cr).
+    // Black background.
     asm.push(abi::move_register("x0", "x19"));
     asm.push(abi::move_immediate("x9", "Integer", "0"));
     asm.push(abi::float_move_d_from_x("d0", "x9"));
@@ -898,63 +952,152 @@ fn emit_term_draw_helper() -> CodeFunction {
     asm.call_external("cairo_set_source_rgb");
     asm.push(abi::move_register("x0", "x19"));
     asm.call_external("cairo_paint");
-    // Monospace font at TERM_FONT_SIZE.
+    // Normal-weight monospace at TERM_FONT_SIZE; lastBold tracks the selected weight.
+    emit_term_select_font(&mut asm, "x19", false);
+    asm.push(abi::move_immediate("x22", "Integer", "0"));
+    asm.state_array("x23", ST_TERM_CHARS);
+    asm.state_array("x24", ST_TERM_FG);
+    asm.state_array("x25", ST_TERM_BG);
+
+    asm.push(abi::move_immediate("x20", "Integer", "0")); // row
+    asm.push(abi::label("d_row"));
+    asm.push(abi::compare_immediate("x20", &TERM_ROWS.to_string()));
+    asm.push(abi::branch_ge("d_done"));
+    asm.push(abi::move_immediate("x21", "Integer", "0")); // col
+    asm.push(abi::label("d_col"));
+    asm.push(abi::compare_immediate("x21", &TERM_COLS.to_string()));
+    asm.push(abi::branch_ge("d_row_next"));
+    // idx = row*COLS + col
+    asm.push(abi::move_immediate("x9", "Integer", &TERM_COLS.to_string()));
+    asm.push(abi::multiply_registers("x10", "x20", "x9"));
+    asm.push(abi::add_registers("x10", "x10", "x21")); // idx
+    asm.push(abi::shift_left_immediate("x11", "x10", 2)); // idx*4
+    // char -> charbuf; fg, bg -> stack (survive cairo calls)
+    asm.push(abi::add_registers("x12", "x23", "x10"));
+    asm.push(abi::load_u8("x13", "x12", 0));
+    asm.push(abi::store_u8("x13", abi::stack_pointer(), off_buf));
+    asm.push(abi::move_immediate("x9", "Integer", "0"));
+    asm.push(abi::store_u8("x9", abi::stack_pointer(), off_buf + 1));
+    asm.push(abi::add_registers("x12", "x24", "x11"));
+    asm.push(abi::load_u32("x13", "x12", 0));
+    asm.push(abi::store_u64("x13", abi::stack_pointer(), off_fg));
+    asm.push(abi::add_registers("x12", "x25", "x11"));
+    asm.push(abi::load_u32("x13", "x12", 0));
+    asm.push(abi::store_u64("x13", abi::stack_pointer(), off_bg));
+
+    // Background rect when an explicit bg is set.
+    asm.push(abi::load_u64("x14", abi::stack_pointer(), off_bg));
+    asm.push(abi::move_immediate("x9", "Integer", &COLOR_SET.to_string()));
+    asm.push(abi::and_registers("x9", "x14", "x9"));
+    asm.push(abi::compare_immediate("x9", "0"));
+    asm.push(abi::branch_eq("d_no_bg"));
+    emit_cairo_color(&mut asm, "x19", "x14");
+    asm.push(abi::move_register("x0", "x19")); // rectangle(cr, col*W, row*H, W, H)
+    emit_cell_dim_to_d(&mut asm, "d0", "x21", TERM_CELL_W);
+    emit_cell_dim_to_d(&mut asm, "d1", "x20", TERM_CELL_H);
+    emit_const_to_d(&mut asm, "d2", TERM_CELL_W);
+    emit_const_to_d(&mut asm, "d3", TERM_CELL_H);
+    asm.call_external("cairo_rectangle");
     asm.push(abi::move_register("x0", "x19"));
-    asm.local_address("x1", STR_MONOSPACE.0);
-    asm.push(abi::move_immediate("x2", "Integer", "0")); // CAIRO_FONT_SLANT_NORMAL
-    asm.push(abi::move_immediate("x3", "Integer", "0")); // CAIRO_FONT_WEIGHT_NORMAL
-    asm.call_external("cairo_select_font_face");
-    asm.push(abi::move_register("x0", "x19"));
-    asm.push(abi::move_immediate("x9", "Integer", TERM_FONT_SIZE));
-    asm.push(abi::signed_convert_to_float_d("d0", "x9"));
-    asm.call_external("cairo_set_font_size");
-    // White foreground.
+    asm.call_external("cairo_fill");
+    asm.push(abi::label("d_no_bg"));
+
+    // Glyph (skip spaces).
+    asm.push(abi::load_u8("x13", abi::stack_pointer(), off_buf));
+    asm.push(abi::compare_immediate("x13", "32"));
+    asm.push(abi::branch_eq("d_next"));
+    // Re-select font weight if bold changed.
+    asm.push(abi::load_u64("x14", abi::stack_pointer(), off_fg));
+    asm.push(abi::move_immediate("x9", "Integer", &BOLD_FLAG.to_string()));
+    asm.push(abi::and_registers("x9", "x14", "x9")); // 0 or BOLD_FLAG
+    asm.push(abi::compare_registers("x9", "x22"));
+    asm.push(abi::branch_eq("d_bold_ok"));
+    asm.push(abi::move_register("x22", "x9"));
+    asm.push(abi::compare_immediate("x9", "0"));
+    asm.push(abi::branch_eq("d_sel_normal"));
+    emit_term_select_font(&mut asm, "x19", true);
+    asm.push(abi::branch("d_bold_ok"));
+    asm.push(abi::label("d_sel_normal"));
+    emit_term_select_font(&mut asm, "x19", false);
+    asm.push(abi::label("d_bold_ok"));
+    // Foreground color: explicit or white.
+    asm.push(abi::load_u64("x14", abi::stack_pointer(), off_fg));
+    asm.push(abi::move_immediate("x9", "Integer", &COLOR_SET.to_string()));
+    asm.push(abi::and_registers("x9", "x14", "x9"));
+    asm.push(abi::compare_immediate("x9", "0"));
+    asm.push(abi::branch_eq("d_fg_white"));
+    emit_cairo_color(&mut asm, "x19", "x14");
+    asm.push(abi::branch("d_fg_done"));
+    asm.push(abi::label("d_fg_white"));
     asm.push(abi::move_register("x0", "x19"));
     asm.push(abi::move_immediate("x9", "Integer", "1"));
     asm.push(abi::signed_convert_to_float_d("d0", "x9"));
     asm.push(abi::signed_convert_to_float_d("d1", "x9"));
     asm.push(abi::signed_convert_to_float_d("d2", "x9"));
     asm.call_external("cairo_set_source_rgb");
-
-    // for row in 0..TERM_ROWS: draw the row text at y = (row+1)*CELL_H.
-    asm.push(abi::move_immediate("x20", "Integer", "0"));
-    asm.push(abi::label("row_loop"));
-    asm.push(abi::compare_immediate("x20", &TERM_ROWS.to_string()));
-    asm.push(abi::branch_ge("draw_done"));
-    // rowbuf = memcpy(sp+rowbuf, grid + row*COLS, COLS); rowbuf[COLS] = 0
-    asm.push(abi::add_immediate("x0", abi::stack_pointer(), rowbuf));
-    asm.local_address("x1", STATE_SYMBOL);
-    asm.push(abi::add_immediate("x1", "x1", ST_TERM_GRID));
-    asm.push(abi::move_immediate("x11", "Integer", &TERM_COLS.to_string()));
-    asm.push(abi::multiply_registers("x12", "x20", "x11"));
-    asm.push(abi::add_registers("x1", "x1", "x12"));
-    asm.push(abi::move_immediate("x2", "Integer", &TERM_COLS.to_string()));
-    asm.call_external("memcpy");
-    asm.push(abi::move_immediate("x9", "Integer", "0"));
-    asm.push(abi::store_u8("x9", abi::stack_pointer(), rowbuf + TERM_COLS));
-    // cairo_move_to(cr, 0, (row+1)*CELL_H)
+    asm.push(abi::label("d_fg_done"));
+    // move_to(col*CELL_W, (row+1)*CELL_H - 4); show_text(charbuf)
     asm.push(abi::move_register("x0", "x19"));
-    asm.push(abi::move_immediate("x9", "Integer", "0"));
-    asm.push(abi::signed_convert_to_float_d("d0", "x9"));
+    emit_cell_dim_to_d(&mut asm, "d0", "x21", TERM_CELL_W);
     asm.push(abi::add_immediate("x9", "x20", 1));
     asm.push(abi::move_immediate("x10", "Integer", &TERM_CELL_H.to_string()));
     asm.push(abi::multiply_registers("x9", "x9", "x10"));
+    asm.push(abi::subtract_immediate("x9", "x9", 4));
     asm.push(abi::signed_convert_to_float_d("d1", "x9"));
     asm.call_external("cairo_move_to");
-    // cairo_show_text(cr, rowbuf)
     asm.push(abi::move_register("x0", "x19"));
-    asm.push(abi::add_immediate("x1", abi::stack_pointer(), rowbuf));
+    asm.push(abi::add_immediate("x1", abi::stack_pointer(), off_buf));
     asm.call_external("cairo_show_text");
-    asm.push(abi::add_immediate("x20", "x20", 1));
-    asm.push(abi::branch("row_loop"));
 
-    asm.push(abi::label("draw_done"));
+    asm.push(abi::label("d_next"));
+    asm.push(abi::add_immediate("x21", "x21", 1));
+    asm.push(abi::branch("d_col"));
+    asm.push(abi::label("d_row_next"));
+    asm.push(abi::add_immediate("x20", "x20", 1));
+    asm.push(abi::branch("d_row"));
+
+    asm.push(abi::label("d_done"));
     asm.push(abi::load_u64(abi::link_register(), abi::stack_pointer(), 0));
-    asm.push(abi::load_u64("x19", abi::stack_pointer(), 8));
-    asm.push(abi::load_u64("x20", abi::stack_pointer(), 16));
+    for (reg, off) in [
+        ("x19", 8),
+        ("x20", 16),
+        ("x21", 24),
+        ("x22", 32),
+        ("x23", 40),
+        ("x24", 48),
+        ("x25", 56),
+    ] {
+        asm.push(abi::load_u64(reg, abi::stack_pointer(), off));
+    }
     asm.push(abi::add_stack(frame));
     asm.push(abi::return_());
     asm.finish(TERM_DRAW_SYMBOL, "Nothing")
+}
+
+/// cairo_select_font_face(cr, "monospace", NORMAL, weight) + set_font_size.
+fn emit_term_select_font(asm: &mut Asm, cr: &str, bold: bool) {
+    asm.push(abi::move_register("x0", cr));
+    asm.local_address("x1", STR_MONOSPACE.0);
+    asm.push(abi::move_immediate("x2", "Integer", "0")); // CAIRO_FONT_SLANT_NORMAL
+    asm.push(abi::move_immediate("x3", "Integer", if bold { "1" } else { "0" }));
+    asm.call_external("cairo_select_font_face");
+    asm.push(abi::move_register("x0", cr));
+    asm.push(abi::move_immediate("x9", "Integer", TERM_FONT_SIZE));
+    asm.push(abi::signed_convert_to_float_d("d0", "x9"));
+    asm.call_external("cairo_set_font_size");
+}
+
+/// `dst (d-reg) = cell_index_reg * cell_size` as a double.
+fn emit_cell_dim_to_d(asm: &mut Asm, dst: &str, index: &str, cell: usize) {
+    asm.push(abi::move_immediate("x9", "Integer", &cell.to_string()));
+    asm.push(abi::multiply_registers("x9", index, "x9"));
+    asm.push(abi::signed_convert_to_float_d(dst, "x9"));
+}
+
+/// `dst (d-reg) = constant` as a double.
+fn emit_const_to_d(asm: &mut Asm, dst: &str, value: usize) {
+    asm.push(abi::move_immediate("x9", "Integer", &value.to_string()));
+    asm.push(abi::signed_convert_to_float_d(dst, "x9"));
 }
 
 /// Main-thread idle: swap the window child to the term:: surface and redraw it.
@@ -1013,9 +1156,10 @@ fn emit_term_redraw_idle_helper() -> CodeFunction {
 /// print) move to the next row; rows clamp at the bottom (no scroll in v1).
 fn emit_term_write_helper() -> CodeFunction {
     let mut asm = Asm::new(TERM_WRITE_SYMBOL);
-    // lr@0, x20(newline)@8, x21(i)@16, x22(len)@24, x23(ptr)@32, x24(grid)@40,
-    // x25(row)@48, x26(col)@56.
-    let frame = 80;
+    // lr@0, x20(newline)@8, x21(i)@16, x22(len)@24, x23(ptr)@32, x24(charsBase)@40,
+    // x25(row)@48, x26(col)@56, x27(fgBase)@64, x28(bgBase)@72, fgval@80, bgval@88.
+    let frame = 96;
+    let (off_fgval, off_bgval) = (80usize, 88usize);
     asm.push(abi::label("entry"));
     asm.push(abi::subtract_stack(frame));
     asm.push(abi::store_u64(abi::link_register(), abi::stack_pointer(), 0));
@@ -1027,16 +1171,31 @@ fn emit_term_write_helper() -> CodeFunction {
         ("x24", 40),
         ("x25", 48),
         ("x26", 56),
+        ("x27", 64),
+        ("x28", 72),
     ] {
         asm.push(abi::store_u64(reg, abi::stack_pointer(), off));
     }
     asm.push(abi::move_register("x20", "x1")); // newline flag
     asm.push(abi::load_u64("x22", "x0", 0)); // text len
     asm.push(abi::add_immediate("x23", "x0", 8)); // text ptr
-    asm.local_address("x24", STATE_SYMBOL);
-    asm.push(abi::add_immediate("x24", "x24", ST_TERM_GRID)); // grid base
+    asm.state_array("x24", ST_TERM_CHARS);
+    asm.state_array("x27", ST_TERM_FG);
+    asm.state_array("x28", ST_TERM_BG);
     asm.load_state("x25", ST_TERM_ROW);
     asm.load_state("x26", ST_TERM_COL);
+    // fgval = cur_fg | (cur_bold ? BOLD_FLAG : 0); bgval = cur_bg.
+    // Hold cur_fg in x11 — load_state clobbers x9 as its address scratch.
+    asm.load_state("x11", ST_TERM_CUR_FG);
+    asm.load_state("x10", ST_TERM_CUR_BOLD);
+    asm.push(abi::compare_immediate("x10", "0"));
+    asm.push(abi::branch_eq("tw_no_bold"));
+    asm.push(abi::move_immediate("x9", "Integer", &BOLD_FLAG.to_string()));
+    asm.push(abi::or_registers("x11", "x11", "x9"));
+    asm.push(abi::label("tw_no_bold"));
+    asm.push(abi::store_u64("x11", abi::stack_pointer(), off_fgval));
+    asm.load_state("x11", ST_TERM_CUR_BG);
+    asm.push(abi::store_u64("x11", abi::stack_pointer(), off_bgval));
     asm.push(abi::move_immediate("x21", "Integer", "0")); // i
 
     asm.push(abi::label("tw_loop"));
@@ -1046,12 +1205,19 @@ fn emit_term_write_helper() -> CodeFunction {
     asm.push(abi::load_u8("x10", "x9", 0)); // byte = ptr[i]
     asm.push(abi::compare_immediate("x10", "10")); // '\n'
     asm.push(abi::branch_eq("tw_newline"));
-    // grid[row*COLS + col] = byte
+    // idx = row*COLS + col; chars[idx]=byte; fg[idx]=fgval; bg[idx]=bgval.
     asm.push(abi::move_immediate("x11", "Integer", &TERM_COLS.to_string()));
     asm.push(abi::multiply_registers("x12", "x25", "x11"));
-    asm.push(abi::add_registers("x12", "x12", "x26"));
+    asm.push(abi::add_registers("x12", "x12", "x26")); // idx
     asm.push(abi::add_registers("x9", "x24", "x12"));
     asm.push(abi::store_u8("x10", "x9", 0));
+    asm.push(abi::shift_left_immediate("x13", "x12", 2)); // idx*4
+    asm.push(abi::load_u64("x9", abi::stack_pointer(), off_fgval));
+    asm.push(abi::add_registers("x14", "x27", "x13"));
+    asm.push(abi::store_u32("x9", "x14", 0));
+    asm.push(abi::load_u64("x9", abi::stack_pointer(), off_bgval));
+    asm.push(abi::add_registers("x14", "x28", "x13"));
+    asm.push(abi::store_u32("x9", "x14", 0));
     // col++; wrap to next row at COLS.
     asm.push(abi::add_immediate("x26", "x26", 1));
     asm.push(abi::compare_immediate("x26", &TERM_COLS.to_string()));
@@ -1097,6 +1263,8 @@ fn emit_term_write_helper() -> CodeFunction {
         ("x24", 40),
         ("x25", 48),
         ("x26", 56),
+        ("x27", 64),
+        ("x28", 72),
     ] {
         asm.push(abi::load_u64(reg, abi::stack_pointer(), off));
     }
@@ -1106,8 +1274,8 @@ fn emit_term_write_helper() -> CodeFunction {
 }
 
 /// App-mode `term::*` dispatcher. Returns the helper body for the calls the GTK
-/// surface implements (the rest fall back to the console backend, which no-ops
-/// while the arena term-state stays inactive). v1: on/off/isOn/clear/moveTo.
+/// surface implements; the rest fall back to the console backend (no-op while the
+/// arena term-state stays inactive).
 pub(crate) fn emit_app_term_helper(
     call: &str,
     symbol: &str,
@@ -1118,9 +1286,54 @@ pub(crate) fn emit_app_term_helper(
         "term.isOn" => emit_app_term_is_on(symbol),
         "term.clear" => emit_app_term_clear(symbol),
         "term.moveTo" => emit_app_term_move_to(symbol),
+        "term.setForeground" => emit_app_term_set_color(symbol, ST_TERM_CUR_FG),
+        "term.setBackground" => emit_app_term_set_color(symbol, ST_TERM_CUR_BG),
+        "term.setBold" => emit_app_term_set_bold(symbol),
+        // Cursor isn't rendered in v1: accept and no-op so console ANSI isn't emitted.
+        "term.showCursor" | "term.hideCursor" => emit_app_term_ok_noop(symbol),
         _ => return None,
     };
     Some(helper)
+}
+
+/// `term::setForeground`/`setBackground(r /*x0*/, g /*x1*/, b /*x2*/)`: pack and
+/// store the current color (with COLOR_SET so explicit black is distinct).
+fn emit_app_term_set_color(
+    symbol: &str,
+    field: usize,
+) -> (CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>) {
+    let mut asm = Asm::new(symbol);
+    asm.push(abi::label("entry"));
+    // Pack into x11 (NOT x9: store_state uses x9 as its address scratch).
+    asm.push(abi::shift_left_immediate("x11", "x0", 16)); // r<<16
+    asm.push(abi::shift_left_immediate("x10", "x1", 8)); // g<<8
+    asm.push(abi::or_registers("x11", "x11", "x10"));
+    asm.push(abi::or_registers("x11", "x11", "x2")); // | b
+    asm.push(abi::move_immediate("x10", "Integer", &COLOR_SET.to_string()));
+    asm.push(abi::or_registers("x11", "x11", "x10")); // | COLOR_SET
+    asm.store_state("x11", field);
+    asm.push(abi::move_immediate("x0", "Integer", "0")); // RESULT_OK_TAG
+    asm.push(abi::return_());
+    (term_frame(), asm.ins, asm.rel)
+}
+
+/// `term::setBold(enabled /*x0*/)`: store the current bold flag.
+fn emit_app_term_set_bold(symbol: &str) -> (CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>) {
+    let mut asm = Asm::new(symbol);
+    asm.push(abi::label("entry"));
+    asm.store_state("x0", ST_TERM_CUR_BOLD);
+    asm.push(abi::move_immediate("x0", "Integer", "0")); // RESULT_OK_TAG
+    asm.push(abi::return_());
+    (term_frame(), asm.ins, asm.rel)
+}
+
+/// Accept-and-ignore term helper returning OK (Nothing).
+fn emit_app_term_ok_noop(symbol: &str) -> (CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>) {
+    let mut asm = Asm::new(symbol);
+    asm.push(abi::label("entry"));
+    asm.push(abi::move_immediate("x0", "Integer", "0")); // RESULT_OK_TAG
+    asm.push(abi::return_());
+    (term_frame(), asm.ins, asm.rel)
 }
 
 /// `term::on`/`term::off`: set the active flag and schedule the view swap on the
@@ -1156,19 +1369,35 @@ fn emit_app_term_is_on(symbol: &str) -> (CodeFrame, Vec<CodeInstruction>, Vec<Co
     (term_frame(), asm.ins, asm.rel)
 }
 
-/// `term::clear`: blank the grid to spaces, home the cursor, schedule a redraw.
+/// `term::clear`: blank chars to spaces, reset fg/bg cells to default (0), home the
+/// cursor, schedule a redraw.
 fn emit_app_term_clear(symbol: &str) -> (CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>) {
     let mut asm = Asm::new(symbol);
     asm.push(abi::label("entry"));
     asm.push(abi::subtract_stack(16));
     asm.push(abi::store_u64(abi::link_register(), abi::stack_pointer(), 0));
-    asm.local_address("x0", STATE_SYMBOL);
-    asm.push(abi::add_immediate("x0", "x0", ST_TERM_GRID));
-    asm.push(abi::move_immediate("x1", "Integer", "32")); // ' '
+    asm.state_array("x0", ST_TERM_CHARS); // memset(chars, ' ', COLS*ROWS)
+    asm.push(abi::move_immediate("x1", "Integer", "32"));
     asm.push(abi::move_immediate(
         "x2",
         "Integer",
         &(TERM_COLS * TERM_ROWS).to_string(),
+    ));
+    asm.call_external("memset");
+    asm.state_array("x0", ST_TERM_FG); // memset(fg, 0, COLS*ROWS*4)
+    asm.push(abi::move_immediate("x1", "Integer", "0"));
+    asm.push(abi::move_immediate(
+        "x2",
+        "Integer",
+        &(TERM_COLS * TERM_ROWS * 4).to_string(),
+    ));
+    asm.call_external("memset");
+    asm.state_array("x0", ST_TERM_BG); // memset(bg, 0, COLS*ROWS*4)
+    asm.push(abi::move_immediate("x1", "Integer", "0"));
+    asm.push(abi::move_immediate(
+        "x2",
+        "Integer",
+        &(TERM_COLS * TERM_ROWS * 4).to_string(),
     ));
     asm.call_external("memset");
     asm.push(abi::move_immediate("x10", "Integer", "0"));

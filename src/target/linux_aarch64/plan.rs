@@ -287,6 +287,8 @@ impl plan::NativePlanPlatform for Platform {
             (GOBJECT, "g_object_ref_sink"),
             ("libcairo.so.2", "cairo_set_source_rgb"),
             ("libcairo.so.2", "cairo_paint"),
+            ("libcairo.so.2", "cairo_rectangle"),
+            ("libcairo.so.2", "cairo_fill"),
             ("libcairo.so.2", "cairo_select_font_face"),
             ("libcairo.so.2", "cairo_set_font_size"),
             ("libcairo.so.2", "cairo_move_to"),
