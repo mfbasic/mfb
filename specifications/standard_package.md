@@ -116,9 +116,6 @@ String length, search, substring, and regex indexes are zero-based Unicode scala
 | `len` | `FUNC len(value AS String) AS Integer` | Number of Unicode scalar values in `value`. |
 | `len` | `FUNC len OF T(value AS List OF T) AS Integer` | Number of items in `value`. |
 | `len` | `FUNC len OF K, V(value AS Map OF K TO V) AS Integer` | Number of entries in `value`. |
-| `find` | `FUNC find(value AS String, needle AS String, start AS Integer = 0) AS Integer` | Zero-based scalar index of the first occurrence at or after `start`. Fails with `errorCode::ErrNotFound` (`77050004`) when absent and `77050001` when `start` is out of range. |
-| `mid` | `FUNC mid(value AS String, start AS Integer, count AS Integer) AS String` | Returns a substring by zero-based Unicode scalar index. Fails with `77050001` on invalid range. |
-| `replace` | `FUNC replace(value AS String, old AS String, new AS String) AS String` | Replaces all non-overlapping occurrences. |
 | `typeName` | `FUNC typeName OF T(value AS T) AS String` | Implementation-defined display name of the static type. Intended for diagnostics. |
 | `toString` | `FUNC toString(value AS Integer) AS String` | Converts an integer to base-10 text. |
 | `toString` | `FUNC toString(value AS Float, precision AS Byte = 2) AS String` | Converts a float to decimal text with exactly `precision` digits after the decimal point. |
@@ -146,46 +143,53 @@ String length, search, substring, and regex indexes are zero-based Unicode scala
 
 ### 3.2 Collections
 
+These core sequence and map operations are exported by the built-in
+`collections` package. `IMPORT collections` needs no manifest dependency, exactly
+like `IMPORT math`. The `find`/`mid`/`replace`/`contains` entries here are the
+**List** overloads; their **String** overloads live in the `strings` package
+(§5).
+
 | Function | Signature | Behavior |
 |----------|-----------|----------|
-| `get` | `FUNC get OF T(value AS List OF T, index AS Integer) AS T` | Returns the item at zero-based `index`. Fails with `77050001` when out of range. |
-| `get` | `FUNC get OF K, V(value AS Map OF K TO V, key AS K) AS V` | Returns the value for `key`. Fails with `errorCode::ErrNotFound` (`77050004`) when missing. |
-| `getOr` | `FUNC getOr OF T(value AS List OF T, index AS Integer, default AS T) AS T` | Returns the indexed item or `default`. |
-| `getOr` | `FUNC getOr OF K, V(value AS Map OF K TO V, key AS K, default AS V) AS V` | Returns the mapped value or `default`. |
-| `find` | `FUNC find OF T(value AS List OF T, item AS T, start AS Integer = 0) AS Integer` | Zero-based index of the first matching item at or after `start`. `T` must be comparable. Fails with `errorCode::ErrNotFound` (`77050004`) when absent and `77050001` when `start` is out of range. |
-| `find` | `FUNC find OF T(value AS List OF T, needle AS List OF T, start AS Integer = 0) AS Integer` | Zero-based index of the first contiguous `needle` sublist at or after `start`. `T` must be comparable. Fails with `errorCode::ErrNotFound` (`77050004`) when absent and `77050001` when `start` is out of range. |
-| `mid` | `FUNC mid OF T(value AS List OF T, start AS Integer, count AS Integer) AS List OF T` | Returns a sublist by zero-based item index. Fails with `77050001` on invalid range. |
-| `replace` | `FUNC replace OF T(value AS List OF T, old AS T, new AS T) AS List OF T` | Returns a list where every item equal to `old` is replaced with `new`. `T` must be comparable. |
-| `set` | `FUNC set OF T(value AS List OF T, index AS Integer, item AS T) AS List OF T` | Returns a list with `item` at `index`. Fails with `77050001` when out of range. |
-| `set` | `FUNC set OF K, V(value AS Map OF K TO V, key AS K, item AS V) AS Map OF K TO V` | Returns a map with `key` set to `item`. |
-| `append` | `FUNC append OF T(value AS List OF T, item AS T) AS List OF T` | Returns a list with `item` added at the end. |
-| `append` | `FUNC append OF T(value AS List OF T, items AS List OF T) AS List OF T` | Returns a list with all `items` added at the end. |
-| `prepend` | `FUNC prepend OF T(value AS List OF T, item AS T) AS List OF T` | Returns a list with `item` added at the start. |
-| `insert` | `FUNC insert OF T(value AS List OF T, index AS Integer, item AS T) AS List OF T` | Returns a list with `item` inserted before `index`. Fails with `77050001` when out of range. |
-| `removeAt` | `FUNC removeAt OF T(value AS List OF T, index AS Integer) AS List OF T` | Returns a list without the item at `index`. Fails with `77050001` when out of range. |
-| `removeKey` | `FUNC removeKey OF K, V(value AS Map OF K TO V, key AS K) AS Map OF K TO V` | Returns a map without `key`. Missing keys are ignored. |
-| `keys` | `FUNC keys OF K, V(value AS Map OF K TO V) AS List OF K` | Returns the keys in implementation-defined stable order. |
-| `values` | `FUNC values OF K, V(value AS Map OF K TO V) AS List OF V` | Returns the values in key iteration order. |
-| `hasKey` | `FUNC hasKey OF K, V(value AS Map OF K TO V, key AS K) AS Boolean` | `TRUE` when `key` exists. |
-| `contains` | `FUNC contains OF T(value AS List OF T, item AS T) AS Boolean` | `TRUE` when `item` appears in the list. `T` must be comparable. |
-| `forEach` | `FUNC forEach OF T(value AS List OF T, action AS FUNC(T) AS Nothing) AS Nothing` | Calls `action` once for each item, left to right. A `SUB(T)` is accepted for `action`. |
-| `transform` | `FUNC transform OF T, U(value AS List OF T, f AS FUNC(T) AS U) AS List OF U` | Maps each item through `f`. |
-| `filter` | `FUNC filter OF T(value AS List OF T, predicate AS FUNC(T) AS Boolean) AS List OF T` | Keeps items where `predicate` returns `TRUE`. |
-| `reduce` | `FUNC reduce OF T, U(value AS List OF T, initial AS U, f AS FUNC(U, T) AS U) AS U` | Folds items left to right. |
-| `sum` | `FUNC sum(value AS List OF Integer) AS Integer` | Sums integers. |
-| `sum` | `FUNC sum(value AS List OF Float) AS Float` | Sums floats. |
-| `sum` | `FUNC sum(value AS List OF Fixed) AS Fixed` | Sums fixed-point values. Fails with `77050010` on overflow. |
+| `collections::get` | `FUNC get OF T(value AS List OF T, index AS Integer) AS T` | Returns the item at zero-based `index`. Fails with `77050001` when out of range. |
+| `collections::get` | `FUNC get OF K, V(value AS Map OF K TO V, key AS K) AS V` | Returns the value for `key`. Fails with `errorCode::ErrNotFound` (`77050004`) when missing. |
+| `collections::getOr` | `FUNC getOr OF T(value AS List OF T, index AS Integer, default AS T) AS T` | Returns the indexed item or `default`. |
+| `collections::getOr` | `FUNC getOr OF K, V(value AS Map OF K TO V, key AS K, default AS V) AS V` | Returns the mapped value or `default`. |
+| `collections::find` | `FUNC find OF T(value AS List OF T, item AS T, start AS Integer = 0) AS Integer` | Zero-based index of the first matching item at or after `start`. `T` must be comparable. Fails with `errorCode::ErrNotFound` (`77050004`) when absent and `77050001` when `start` is out of range. |
+| `collections::find` | `FUNC find OF T(value AS List OF T, needle AS List OF T, start AS Integer = 0) AS Integer` | Zero-based index of the first contiguous `needle` sublist at or after `start`. `T` must be comparable. Fails with `errorCode::ErrNotFound` (`77050004`) when absent and `77050001` when `start` is out of range. |
+| `collections::mid` | `FUNC mid OF T(value AS List OF T, start AS Integer, count AS Integer) AS List OF T` | Returns a sublist by zero-based item index. Fails with `77050001` on invalid range. |
+| `collections::replace` | `FUNC replace OF T(value AS List OF T, old AS T, new AS T) AS List OF T` | Returns a list where every item equal to `old` is replaced with `new`. `T` must be comparable. |
+| `collections::set` | `FUNC set OF T(value AS List OF T, index AS Integer, item AS T) AS List OF T` | Returns a list with `item` at `index`. Fails with `77050001` when out of range. |
+| `collections::set` | `FUNC set OF K, V(value AS Map OF K TO V, key AS K, item AS V) AS Map OF K TO V` | Returns a map with `key` set to `item`. |
+| `collections::append` | `FUNC append OF T(value AS List OF T, item AS T) AS List OF T` | Returns a list with `item` added at the end. |
+| `collections::append` | `FUNC append OF T(value AS List OF T, items AS List OF T) AS List OF T` | Returns a list with all `items` added at the end. |
+| `collections::prepend` | `FUNC prepend OF T(value AS List OF T, item AS T) AS List OF T` | Returns a list with `item` added at the start. |
+| `collections::insert` | `FUNC insert OF T(value AS List OF T, index AS Integer, item AS T) AS List OF T` | Returns a list with `item` inserted before `index`. Fails with `77050001` when out of range. |
+| `collections::removeAt` | `FUNC removeAt OF T(value AS List OF T, index AS Integer) AS List OF T` | Returns a list without the item at `index`. Fails with `77050001` when out of range. |
+| `collections::removeKey` | `FUNC removeKey OF K, V(value AS Map OF K TO V, key AS K) AS Map OF K TO V` | Returns a map without `key`. Missing keys are ignored. |
+| `collections::keys` | `FUNC keys OF K, V(value AS Map OF K TO V) AS List OF K` | Returns the keys in implementation-defined stable order. |
+| `collections::values` | `FUNC values OF K, V(value AS Map OF K TO V) AS List OF V` | Returns the values in key iteration order. |
+| `collections::hasKey` | `FUNC hasKey OF K, V(value AS Map OF K TO V, key AS K) AS Boolean` | `TRUE` when `key` exists. |
+| `collections::contains` | `FUNC contains OF T(value AS List OF T, item AS T) AS Boolean` | `TRUE` when `item` appears in the list. `T` must be comparable. |
+| `collections::forEach` | `FUNC forEach OF T(value AS List OF T, action AS FUNC(T) AS Nothing) AS Nothing` | Calls `action` once for each item, left to right. A `SUB(T)` is accepted for `action`. |
+| `collections::transform` | `FUNC transform OF T, U(value AS List OF T, f AS FUNC(T) AS U) AS List OF U` | Maps each item through `f`. |
+| `collections::filter` | `FUNC filter OF T(value AS List OF T, predicate AS FUNC(T) AS Boolean) AS List OF T` | Keeps items where `predicate` returns `TRUE`. |
+| `collections::reduce` | `FUNC reduce OF T, U(value AS List OF T, initial AS U, f AS FUNC(U, T) AS U) AS U` | Folds items left to right. |
+| `collections::sum` | `FUNC sum(value AS List OF Integer) AS Integer` | Sums integers. |
+| `collections::sum` | `FUNC sum(value AS List OF Float) AS Float` | Sums floats. |
+| `collections::sum` | `FUNC sum(value AS List OF Fixed) AS Fixed` | Sums fixed-point values. Fails with `77050010` on overflow. |
 
 Collection callback parameters accept named functions, `SUB` values where `FUNC(... ) AS Nothing` is expected, and lambdas or closures that satisfy the language closure rules. Ordinary closures may capture only copyable `LET` bindings by value; capturing `MUT`, resource, or other non-copyable values is a compile-time error.
 
 Ordinary `List` and `Map` values do not accept element, key, or value types that directly or transitively contain a resource handle or `Thread` handle. Ownership analysis rejects those collection instantiations before lowering.
 
-When absence is expected, handle `find` with an inline `TRAP`:
+When absence is expected, handle `collections::find` with an inline `TRAP`:
 
 ```basic
+IMPORT collections
 IMPORT errorCode
 
-LET separator = find(parts, "=") TRAP(e)
+LET separator = collections::find(parts, "=") TRAP(e)
   IF e.code = errorCode::ErrNotFound THEN RECOVER -1   ' absent: use a sentinel
   FAIL e                                               ' any other error: bail
 END TRAP
@@ -196,10 +200,11 @@ ELSE
 END IF
 ```
 
-### 3.3 Collections Package
+### 3.3 Collections Package — higher-level helpers
 
-Higher-level sequence and map helpers are exported by the built-in `collections`
-package. `IMPORT collections` needs no manifest dependency, like `IMPORT math`.
+The following higher-level sequence and map helpers are exported by the same
+built-in `collections` package as §3.2. `IMPORT collections` needs no manifest
+dependency, like `IMPORT math`.
 Element and key types follow the comparable/orderable rules (`mfbasic.md`
 §4.11): `collections::sort`/`collections::sortBy` require an orderable element or
 key type; `collections::distinct` requires a comparable element type.
@@ -279,6 +284,9 @@ String helpers are exported by the `strings` package. Package functions are call
 | `strings::split` | `FUNC split(value AS String, delimiter AS String) AS List OF String` | Splits `value` by `delimiter`. |
 | `strings::join` | `FUNC join(parts AS List OF String, delimiter AS String) AS String` | Joins strings with `delimiter`. |
 | `strings::byteLen` | `FUNC byteLen(value AS String) AS Integer` | Number of bytes required to encode `value` as UTF-8. |
+| `strings::find` | `FUNC find(value AS String, needle AS String, start AS Integer = 0) AS Integer` | Zero-based scalar index of the first occurrence at or after `start`. Fails with `errorCode::ErrNotFound` (`77050004`) when absent and `77050001` when `start` is out of range. |
+| `strings::mid` | `FUNC mid(value AS String, start AS Integer, count AS Integer) AS String` | Returns a substring by zero-based Unicode scalar index. Fails with `77050001` on invalid range. |
+| `strings::replace` | `FUNC replace(value AS String, old AS String, new AS String) AS String` | Replaces all non-overlapping occurrences. |
 | `strings::startsWithAny` | `FUNC startsWithAny(value AS String, prefixes AS List OF String) AS Boolean` | `TRUE` when `value` begins with any string in `prefixes`. Empty list → `FALSE`. Total. |
 | `strings::endsWithAny` | `FUNC endsWithAny(value AS String, suffixes AS List OF String) AS Boolean` | `TRUE` when `value` ends with any string in `suffixes`. Empty list → `FALSE`. Total. |
 | `strings::stripPrefix` | `FUNC stripPrefix(value AS String, prefix AS String) AS String` | Returns `value` with one leading `prefix` removed if present; otherwise `value` unchanged. Total. |
@@ -601,10 +609,11 @@ TCP reads and writes are binary by default. Text helpers are UTF-8 conveniences 
 UDP preserves datagram boundaries and does not guarantee delivery, ordering, or duplicate suppression. If a received datagram is larger than `maxBytes`, `receiveFrom` fails with `77070007`; implementations must not return a silently truncated datagram.
 
 ```basic
+IMPORT collections
 IMPORT net
 
 LET addresses = net::lookup("example.com", 80)
-LET address = get(addresses, 0)
+LET address = collections::get(addresses, 0)
 
 RES client = net::connectTcp(address, timeoutMs := 5000)
 net::writeText(client, "ping")

@@ -334,10 +334,10 @@ This preserves snapshot ownership semantics with one memory copy.
 
 ### `get`
 
-For a `List`, `get(value, index)` reads `LookupEntry[index]`, then reads the
+For a `List`, `collections::get(value, index)` reads `LookupEntry[index]`, then reads the
 payload at `Data + valueOffset` with `valueLength`.
 
-For a `Map`, `get(value, key)` scans live lookup entries until the key payload
+For a `Map`, `collections::get(value, key)` scans live lookup entries until the key payload
 matches. Missing keys fail with `ErrNotFound`.
 
 ### `append`

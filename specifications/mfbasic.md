@@ -55,7 +55,7 @@ TYPE Stack OF T
 END TYPE
 
 FUNC push OF T(s AS Stack OF T, value AS T) AS Stack OF T
-  RETURN WITH s { items := append(s.items, value) }
+  RETURN WITH s { items := collections::append(s.items, value) }
 END FUNC
 
 SUB printValue OF T(value AS T)
@@ -69,8 +69,8 @@ Template predicates such as comparability, copyability, defaultability, or resou
 
 ```basic
 FUNC getOrDefault OF K, V(items AS Map OF K TO V, key AS K, defaultValue AS V) AS V
-  IF hasKey(items, key) THEN
-    RETURN get(items, key)
+  IF collections::hasKey(items, key) THEN
+    RETURN collections::get(items, key)
   END IF
 
   RETURN defaultValue
@@ -592,7 +592,7 @@ SUB printItem(x AS Integer)
   io::print(toString(x))
 END SUB
 
-forEach(nums, printItem)
+collections::forEach(nums, printItem)
 ```
 
 `Nothing` remains a normal concrete unit type — it is still needed for marker
@@ -750,7 +750,7 @@ END FUNC
 
 The actual name is the manifest entry value, so `main` above is illustrative. The accepted entry signatures are closed: a `SUB` entry has success type `Nothing`, a `FUNC` entry must have success type `Integer`, and the only allowed parameter is one `List OF String` argument. Multiple matching entry declarations, a missing entry declaration in an executable, any other parameter list, or any non-`Integer` `FUNC` entry return type are compile-time errors.
 
-When an entry declares `args AS List OF String`, the runtime passes the command-line argument vector as an owned immutable list. `get(args, 0)` is the program name as invoked by the host. Subsequent elements are user arguments in order.
+When an entry declares `args AS List OF String`, the runtime passes the command-line argument vector as an owned immutable list. `collections::get(args, 0)` is the program name as invoked by the host. Subsequent elements are user arguments in order.
 
 Process result mapping:
 
@@ -928,7 +928,7 @@ Operator edge cases:
 - `MOD` is available for every numeric operand pairing and uses a truncation-toward-zero quotient to compute the remainder.
 
 ```basic
-LET result = nums |> filter(_, isEven) |> transform(_, square) |> sum(_)
+LET result = nums |> collections::filter(_, isEven) |> collections::transform(_, square) |> collections::sum(_)
 ```
 
 ---
@@ -941,28 +941,28 @@ List literals use the declared or otherwise expected `List OF T` element type wh
 
 ```basic
 LET list  = [1, 2, 3]                          ' List OF Integer (literal)
-LET first = get(list, 0)                        ' read (fallible -> auto-propagates)
-LET list2 = append(list, 4)                     ' new immutable snapshot
-LET safe  = getOr(list, 99, 0)                  ' read with default, never fails
+LET first = collections::get(list, 0)           ' read (fallible -> auto-propagates)
+LET list2 = collections::append(list, 4)        ' new immutable snapshot
+LET safe  = collections::getOr(list, 99, 0)     ' read with default, never fails
 
 LET m  = Map OF String TO Integer { "a" := 1, "b" := 2 }   ' literal
-LET a  = get(m, "a")                            ' read (fallible)
-LET m2 = set(m, "c", 3)                          ' new map
+LET a  = collections::get(m, "a")               ' read (fallible)
+LET m2 = collections::set(m, "c", 3)            ' new map
 LET n  = len(list)
 
 MUT pts AS List OF Vec3 = []
-pts = append(pts, v)                            ' in-place append on the mutable buffer
+pts = collections::append(pts, v)               ' in-place append on the mutable buffer
 ```
 
-- `get` can fail (missing key / out-of-range index fails with an `Error`) and therefore auto-propagates. Use `getOr(coll, key, default)` for the common defaulted read.
-- A collection bound with `LET` is an immutable snapshot. Update functions such as `append` and `set` may read it and produce a new collection value, but assigning back to the same `LET` binding or otherwise modifying it is a compile-time error.
-- A collection bound with `MUT` is a locally mutable buffer. When the result of an update function is assigned back to the same `MUT` binding, such as `pts = append(pts, v)`, the compiler performs the update destructively in place instead of allocating a replacement collection.
-- Update helpers are semantically pure functions. `append(pts, v)` by itself computes and discards a result; it has no lasting effect unless the result is assigned, returned, passed, or otherwise consumed. Destructive update is an optimization only for the assignment-back-to-the-same-`MUT` pattern.
+- `collections::get` can fail (missing key / out-of-range index fails with an `Error`) and therefore auto-propagates. Use `collections::getOr(coll, key, default)` for the common defaulted read.
+- A collection bound with `LET` is an immutable snapshot. Update functions such as `collections::append` and `collections::set` may read it and produce a new collection value, but assigning back to the same `LET` binding or otherwise modifying it is a compile-time error.
+- A collection bound with `MUT` is a locally mutable buffer. When the result of an update function is assigned back to the same `MUT` binding, such as `pts = collections::append(pts, v)`, the compiler performs the update destructively in place instead of allocating a replacement collection.
+- Update helpers are semantically pure functions. `collections::append(pts, v)` by itself computes and discards a result; it has no lasting effect unless the result is assigned, returned, passed, or otherwise consumed. Destructive update is an optimization only for the assignment-back-to-the-same-`MUT` pattern.
 - Update functions on `MUT` collections preserve ownership semantics at boundaries: passing or returning the collection freezes it into an immutable owned value (§14).
 - Containers own their contents. Adding a value to a collection stores an owned value in the collection, never a borrowed reference to an external binding. The one exception is a resource handle: a `List` element or `Map` value may hold a **borrow** of a resource (a copy of the handle pointer). The resource itself is owned by a *scope*, not by the collection; the collection closes nothing (§15.6).
 - Immutability is deep for the contained value graph. A `LET` collection does not allow mutation of its elements through the collection, and no element can be observed as shared mutable state through another collection or binding.
 
-Built-in collection helpers include `len`, `get`, `getOr`, `find`, `mid`, `replace`, `set`, `append`, `prepend`, `insert`, `removeAt`, `removeKey`, `keys`, `values`, `hasKey`, `contains`, `forEach`, `transform`, `filter`, `reduce`, and `sum`.
+Built-in collection helpers include the global `len`, plus the `collections` package functions `collections::get`, `collections::getOr`, `collections::find`, `collections::mid`, `collections::replace`, `collections::set`, `collections::append`, `collections::prepend`, `collections::insert`, `collections::removeAt`, `collections::removeKey`, `collections::keys`, `collections::values`, `collections::hasKey`, `collections::contains`, `collections::forEach`, `collections::transform`, `collections::filter`, `collections::reduce`, and `collections::sum`.
 
 The native collection memory layout is specified in `specifications/memory_layouts.md`.
 
@@ -1833,6 +1833,7 @@ mapEntry       = expr ":=" expr ;
 ## 20. Worked Example
 
 ```basic
+IMPORT collections
 IMPORT io
 IMPORT strings
 
@@ -1846,9 +1847,9 @@ FUNC parseLine(line AS String) AS Vec3
   LET parts = strings::split(line, ",")
   IF len(parts) <> 3 THEN FAIL error(77050002, "expected 3 fields")
 
-  LET x = toFloat(strings::trim(get(parts, 0)))   ' auto-propagates on failure
-  LET y = toFloat(strings::trim(get(parts, 1)))
-  LET z = toFloat(strings::trim(get(parts, 2)))
+  LET x = toFloat(strings::trim(collections::get(parts, 0)))   ' auto-propagates on failure
+  LET y = toFloat(strings::trim(collections::get(parts, 1)))
+  LET z = toFloat(strings::trim(collections::get(parts, 2)))
   RETURN Vec3[x, y, z]
 END FUNC
 
@@ -1857,7 +1858,7 @@ FUNC loadPoints(path AS String) AS List OF Vec3
   RES f = fs::openFile(path)                ' auto-propagates on failure
   WHILE NOT fs::eof(f)
     LET v = parseLine(fs::readLine(f))      ' auto-propagates to TRAP below on bad input
-    pts = append(pts, v)                   ' optimized in place for MUT
+    pts = collections::append(pts, v)      ' optimized in place for MUT
   WEND
   RETURN pts                               ' f closed by lexical drop here; pts freezes automatically
 
@@ -1870,7 +1871,7 @@ END FUNC
 SUB main()
   LET pts   = loadPoints("data.csv")
   io::print("Loaded " & toString(len(pts)) & " points")
-  LET total = pts |> transform(_, LAMBDA(p) -> p.x) |> sum(_)
+  LET total = pts |> collections::transform(_, LAMBDA(p) -> p.x) |> collections::sum(_)
   io::print("Sum of x: " & toString(total))
   RETURN
 

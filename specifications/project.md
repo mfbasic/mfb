@@ -158,7 +158,7 @@ FUNC entry(args AS List OF String) AS Integer
 END FUNC
 ```
 
-Empty parentheses are also valid for zero-argument entries. The single optional argument receives the command-line argument vector, where `get(args, 0)` is the program name as invoked by the host. Multiple matching entry points, no matching entry point, any other parameter list, or a `FUNC` entry whose success type is not `Integer` are compile-time errors.
+Empty parentheses are also valid for zero-argument entries. The single optional argument receives the command-line argument vector, where `collections::get(args, 0)` is the program name as invoked by the host. Multiple matching entry points, no matching entry point, any other parameter list, or a `FUNC` entry whose success type is not `Integer` are compile-time errors.
 
 ---
 
